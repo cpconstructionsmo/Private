@@ -940,6 +940,60 @@ function Marches({data,ch,save,eng,fac}){
         </tbody>
       </table>
     </div>}
+    {!!ms.length&&<RecapBudget ch={ch} travauxHT={eng} nbLots={ms.length}/>}
+  </div>;
+}
+
+/* récapitulatif budgétaire : travaux et honoraires, hors puis avec honoraires */
+function RecapBudget({ch,travauxHT,nbLots}){
+  const tx=tvaRate(ch), honoHT=honoAmount(ch);
+  const l=(ht)=>({ht,tva:ht*tx/100,ttc:ht*(1+tx/100)});
+  const trav=l(travauxHT), hono=l(honoHT), tot=l(travauxHT+honoHT);
+  const cell={padding:'7px 4px',textAlign:'right',whiteSpace:'nowrap'};
+  return <div className="card" style={{marginTop:14,borderLeft:'3px solid '+NAVY}}>
+    <div className="h2" style={{marginBottom:10}}>RÉCAPITULATIF BUDGÉTAIRE</div>
+    <div style={{overflowX:'auto'}}>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:330}}>
+        <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
+          <th style={{padding:'6px 4px'}}>Poste</th>
+          <th style={{...cell,padding:'6px 4px'}}>HT</th>
+          <th style={{...cell,padding:'6px 4px'}}>TVA {tx} %</th>
+          <th style={{...cell,padding:'6px 4px'}}>TTC</th>
+        </tr></thead>
+        <tbody>
+          <tr style={{borderBottom:'1px solid '+RULE}}>
+            <td style={{padding:'7px 4px'}}>Travaux <span className="mut">({nbLots} lot{nbLots>1?'s':''})</span></td>
+            <td style={cell}>{eur(trav.ht)}</td>
+            <td style={cell} className="mut">{eur(trav.tva)}</td>
+            <td style={cell}>{eur(trav.ttc)}</td>
+          </tr>
+          <tr style={{borderBottom:'1px solid '+RULE}}>
+            <td style={{padding:'7px 4px'}}>Honoraires MOE</td>
+            <td style={cell}>{eur(hono.ht)}</td>
+            <td style={cell} className="mut">{eur(hono.tva)}</td>
+            <td style={cell}>{eur(hono.ttc)}</td>
+          </tr>
+          <tr style={{borderTop:'2px solid '+RULE}}>
+            <td style={{padding:'8px 4px'}} className="b">Total hors honoraires</td>
+            <td style={cell} className="b">{eur(trav.ht)}</td>
+            <td style={cell} className="mut">{eur(trav.tva)}</td>
+            <td style={cell} className="b">{eur(trav.ttc)}</td>
+          </tr>
+          <tr>
+            <td style={{padding:'8px 4px',color:NAVY}} className="b">Total honoraires inclus</td>
+            <td style={{...cell,color:NAVY}} className="b">{eur(tot.ht)}</td>
+            <td style={cell} className="mut">{eur(tot.tva)}</td>
+            <td style={{...cell,color:NAVY,fontSize:15}} className="b">{eur(tot.ttc)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {!!ch.budget&&Math.round(ch.budget)!==Math.round(travauxHT)&&
+      <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
+        Calculé sur le total des marchés signés. Budget travaux annoncé au client : <b>{eur(ch.budget)}</b> HT —
+        {travauxHT>ch.budget?<span style={{color:TERRA}}> dépassement de {eur(travauxHT-ch.budget)}</span>:<span> marge de {eur(ch.budget-travauxHT)}</span>}.
+      </div>}
+    <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>Taux de TVA modifiable via « Modifier » sur la fiche du chantier. À vérifier avec votre comptable.</div>
   </div>;
 }
 
