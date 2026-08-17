@@ -14,7 +14,6 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2" crossorigin></script>
-<script src="https://accounts.google.com/gsi/client" async></script>
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;background:#FBFAF7;color:#1A2B36;font-family:-apple-system,Helvetica Neue,Arial,sans-serif}
@@ -90,46 +89,46 @@ const Photo={
 };
 
 /* ---------- documents PDF & photos originales : envoyés vers le Google Drive de l'utilisateur ---------- */
-let driveToken=null, driveTokenClient=null, driveFolderId=null, driveTokenCallback=null;
+/* Connexion par redirection de page (pas de pop-up) : plus fiable sur iOS, y compris en app installée. */
+let driveFolderId=null;
 const driveSubfolders=new Map();
+const GOOGLE_REDIRECT_URI=location.origin+location.pathname;
 
-const isStandalone=()=>window.navigator.standalone===true||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);
+function consumeDriveTokenFromUrl(){
+  if(location.hash.indexOf('access_token=')===-1)return;
+  const params=new URLSearchParams(location.hash.slice(1));
+  const token=params.get('access_token');
+  const expiresIn=+(params.get('expires_in')||3600);
+  if(token){
+    sessionStorage.setItem('driveToken',token);
+    sessionStorage.setItem('driveTokenExpiry',String(Date.now()+(expiresIn-60)*1000));
+  }
+  history.replaceState(null,'',location.pathname+location.search);
+}
+consumeDriveTokenFromUrl();
 
-function waitForGoogleLib(timeout=8000){
-  return new Promise((resolve,reject)=>{
-    const start=Date.now();
-    (function check(){
-      if(window.google&&window.google.accounts&&window.google.accounts.oauth2){resolve();return}
-      if(Date.now()-start>timeout){reject(new Error('Bibliothèque Google non chargée (connexion lente ?)'));return}
-      setTimeout(check,150);
-    })();
+const driveConnected=()=>!!sessionStorage.getItem('driveToken')&&Date.now()<+(sessionStorage.getItem('driveTokenExpiry')||0);
+
+function startDriveAuth(){
+  const params=new URLSearchParams({
+    client_id:GOOGLE_CLIENT_ID,
+    redirect_uri:GOOGLE_REDIRECT_URI,
+    response_type:'token',
+    scope:'https://www.googleapis.com/auth/drive.file',
+    include_granted_scopes:'true',
+    prompt:'consent',
   });
+  location.href='https://accounts.google.com/o/oauth2/v2/auth?'+params.toString();
+}
+
+function disconnectDrive(){
+  sessionStorage.removeItem('driveToken');
+  sessionStorage.removeItem('driveTokenExpiry');
 }
 
 async function getDriveToken(){
-  await waitForGoogleLib();
-  return new Promise((resolve,reject)=>{
-    if(driveToken){resolve(driveToken);return}
-    let settled=false;
-    const timer=setTimeout(()=>{if(settled)return;settled=true;reject({error:'timeout (la fenêtre Google n\'a pas répondu en 15s)'})},15000);
-    driveTokenCallback=resp=>{
-      if(settled)return; settled=true; clearTimeout(timer);
-      if(resp.error){reject(resp);return}
-      driveToken=resp.access_token;
-      setTimeout(()=>{driveToken=null},((resp.expires_in||3600)-60)*1000);
-      resolve(driveToken);
-    };
-    if(!driveTokenClient){
-      try{
-        driveTokenClient=google.accounts.oauth2.initTokenClient({
-          client_id:GOOGLE_CLIENT_ID,
-          scope:'https://www.googleapis.com/auth/drive.file',
-          callback:resp=>{driveTokenCallback&&driveTokenCallback(resp)},
-        });
-      }catch(e){clearTimeout(timer);reject(e);return}
-    }
-    driveTokenClient.requestAccessToken();
-  });
+  if(driveConnected())return sessionStorage.getItem('driveToken');
+  throw{error:'auth_required'};
 }
 
 async function driveFolder(token){
@@ -288,6 +287,16 @@ const Acts=({onSave,onCancel,onDel})=><div className="row" style={{gap:8}}>
   <button className="btn gh" onClick={onCancel}>Annuler</button>
   {onDel&&<button className="btn dg" onClick={onDel}>Supprimer</button>}</div>;
 
+function DriveStatus(){
+  const[connected,setConnected]=useState(driveConnected());
+  return <div className="sp xs" style={{marginBottom:12,padding:'8px 10px',border:'1px solid '+RULE,background:'#fff'}}>
+    <span style={{color:connected?GREEN:MUTED}}>{connected?'✓ Google Drive connecté':'Google Drive non connecté'}</span>
+    {connected
+      ?<button className="btn gh s" onClick={()=>{disconnectDrive();setConnected(false)}}>Déconnecter</button>
+      :<button className="btn acc s" onClick={startDriveAuth}>Connecter</button>}
+  </div>;
+}
+
 /* ---------------- CHANTIERS ---------------- */
 function Chantiers({data,save,open}){
   const [f,setF]=useState(null);
@@ -432,7 +441,7 @@ function Photos({data,ch,save}){
           const token=await getDriveToken();
           const folderId=await driveChantierFolder(token,ch.id,ch.nom);
           lien=(await uploadToDrive(file,folderId)).webViewLink;
-        }catch(x){driveFailed=true;lastDetail=(x&&(x.error||x.message))||String(x)}
+        }catch(x){driveFailed=true;lastDetail=x&&x.error==='auth_required'?'auth_required':((x&&(x.error||x.message))||String(x))}
         nouveaux.push({id,chantierId:ch.id,date:today(),legende:'',lot:'',lien});
       }catch(x){/* photo ignorée */}
     }
@@ -450,10 +459,13 @@ function Photos({data,ch,save}){
       <label className="btn acc s">{busy?'Traitement…':'+ Photos'}
         <input type="file" accept="image/*" multiple onChange={add} style={{display:'none'}}/></label>
     </div>
+    <DriveStatus/>
     <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Une version réduite s'affiche dans l'app ; l'original en pleine qualité est envoyé automatiquement sur votre Google Drive (dossier « CP Constructions › {ch.nom} »).</p>
-    {isStandalone()&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12,lineHeight:1.5}}>
-      L'envoi vers Google Drive ne fonctionne pas depuis l'app installée sur l'écran d'accueil (limitation iOS). Ouvrez Safari et allez sur {location.origin+location.pathname} pour que les originaux partent vers Drive.</div>}
-    {driveIssue&&!isStandalone()&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>Photo(s) enregistrée(s) dans l'app, mais l'envoi de l'original vers Google Drive a échoué — détail technique : {driveDetail||'inconnu'}.</div>}
+    {driveIssue&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
+      {driveDetail==='auth_required'
+        ?"Photo(s) enregistrée(s) dans l'app, mais Google Drive n'est pas connecté (bouton ci-dessus)."
+        :"Photo(s) enregistrée(s) dans l'app, mais l'envoi de l'original vers Google Drive a échoué — détail technique : "+(driveDetail||'inconnu')+"."}
+    </div>}
     {!list.length&&<Empty>Aucune photo. Prenez le chantier en photo à chaque visite.</Empty>}
     <div className="grid-ph">
       {list.map(p=><Vignette key={p.id} p={p} onZoom={()=>setZoom(p)} onEdit={()=>setEdit(p)}/>)}
@@ -624,17 +636,14 @@ function Docs({ch,up}){
       const c=d[id]||{};
       up({docs:{...d,[id]:{...c,lien:webViewLink,fait:true,date:c.fait?c.date:today()}}});
     }catch(e){
-      const detail=(e&&(e.error||e.message))||String(e);
-      alert(isStandalone()
-        ?"Import Google Drive impossible depuis l'app installée sur l'écran d'accueil (limitation iOS). Ouvrez Safari (pas l'icône de l'app) et allez sur "+location.origin+location.pathname+" pour importer ce PDF."
-        :"Import Google Drive impossible — détail technique : "+detail);
+      if(e&&e.error==='auth_required')alert("Connectez d'abord Google Drive (bouton ci-dessus), puis réessayez l'import.");
+      else alert("Import Google Drive impossible — détail technique : "+((e&&(e.error||e.message))||String(e)));
     }
     setBusy(null);
   };
   const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
   return <div>
-    {isStandalone()&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12,lineHeight:1.5}}>
-      L'import vers Google Drive ne fonctionne pas depuis l'app installée sur l'écran d'accueil (limitation iOS). Ouvrez Safari et allez sur {location.origin+location.pathname} pour importer des PDF.</div>}
+    <DriveStatus/>
     <p className="xs mut" style={{marginTop:0}}>{n} pièce{n>1?'s':''} sur {DOCS.length}. Importez le PDF (envoyé sur votre Google Drive, dossier « CP Constructions ») ou collez un lien existant.</p>
     {DOCS.map(x=>{const r=d[x.id]||{};return <div key={x.id} className="card" style={{padding:10}}>
       <div className="row" style={{gap:10,alignItems:'flex-start'}}>
