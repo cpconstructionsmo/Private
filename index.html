@@ -14,6 +14,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2" crossorigin></script>
+<script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js" crossorigin></script>
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;background:#FBFAF7;color:#1A2B36;font-family:-apple-system,Helvetica Neue,Arial,sans-serif}
@@ -285,6 +286,13 @@ const today=()=>new Date().toISOString().slice(0,10);
 const fd=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
 const wa=t=>t?t.replace(/[^0-9]/g,'').replace(/^0/,'33'):'';
 const honoAmount=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:(ch.budget||0)*(ch.honorairesPct||0)/100;
+const tvaRate=ch=>(ch&&ch.tva!==undefined&&ch.tva!==null&&ch.tva!=='')?+ch.tva:20;
+const ttc=(ht,ch)=>(ht||0)*(1+tvaRate(ch)/100);
+const DELAI_DEFAUT=365;
+const delaiPrevu=ch=>(ch&&ch.delaiPrevu)?+ch.delaiPrevu:DELAI_DEFAUT;
+const joursDepuis=d=>d?Math.floor((new Date().setHours(0,0,0,0)-new Date(d).setHours(0,0,0,0))/86400000):null;
+const mapsUrl=ch=>ch.lienMaps||(ch.adresse?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(ch.adresse):'');
+const sumMontants=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[]};
 
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
@@ -408,6 +416,23 @@ async function driveControlesFolder(token,chantierId,chantierNom){
   return id;
 }
 
+const driveHonoFolders=new Map();
+async function driveHonoFolder(token,chantierId,chantierNom){
+  if(driveHonoFolders.has(chantierId))return driveHonoFolders.get(chantierId);
+  const parentId=await driveChantierFolder(token,chantierId,chantierNom);
+  const id=await driveFindOrCreateSubfolder(token,parentId,'Honoraires');
+  driveHonoFolders.set(chantierId,id);
+  return id;
+}
+
+let driveAttestFolderId=null;
+async function driveAttestationsFolder(token){
+  if(driveAttestFolderId)return driveAttestFolderId;
+  const rootId=await driveFolder(token);
+  driveAttestFolderId=await driveFindOrCreateSubfolder(token,rootId,'Attestations décennales');
+  return driveAttestFolderId;
+}
+
 async function uploadToDrive(file,folderId){
   const token=await getDriveToken();
   const parent=folderId||await driveFolder(token);
@@ -437,6 +462,95 @@ function compress(file,max=900,q=.6){
     };
     fr.onerror=rej; fr.readAsDataURL(file);
   });
+}
+
+/* ---------- lecture des attestations décennales en PDF ---------- */
+const ASSUREURS=['SMABTP','MAAF','AXA','ALLIANZ','GROUPAMA','GENERALI','MMA','GAN','SWISS LIFE','SWISSLIFE','ALBINGIA','ZURICH','AVIVA','COVEA','ACM','CGPA','THELEM','AREAS','ABEILLE','SAGENA','L’AUXILIAIRE','AUXILIAIRE','SATEC','VERSPIEREN','MILLENIUM','ALPHA INSURANCE','HISCOX','TOKIO MARINE','EUROMAF','APRIL','ASSURPRO','ORUS','SIMPLIS','WAKAM','LEOCARE','MATMUT','CREDIT MUTUEL','BPCE','SOGESSUR','PRUDENCE','FIDELIA','QBE','CHUBB','LIBERTY','MARKEL','BEAZLEY','ACASTA','ELITE INSURANCE','GABLE','CBL','ALPHA','ONYX','ANV','TRUST INSURANCE'];
+
+async function pdfText(file){
+  if(typeof pdfjsLib==='undefined')throw new Error('Lecteur PDF non chargé — vérifiez votre connexion.');
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  const buf=await file.arrayBuffer();
+  const doc=await pdfjsLib.getDocument({data:buf}).promise;
+  let txt='';
+  for(let i=1;i<=Math.min(doc.numPages,8);i++){
+    const page=await doc.getPage(i);
+    const c=await page.getTextContent();
+    txt+=' '+c.items.map(x=>x.str).join(' ');
+  }
+  return txt.replace(/\s+/g,' ').trim();
+}
+
+function parseDateFr(s){
+  const m=s.match(/(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{2,4})/);
+  if(!m)return '';
+  let[,j,mo,a]=m;
+  if(a.length===2)a='20'+a;
+  const d=new Date(+a,+mo-1,+j);
+  if(isNaN(d)||+mo>12||+j>31)return '';
+  return a+'-'+String(+mo).padStart(2,'0')+'-'+String(+j).padStart(2,'0');
+}
+
+/* accents et apostrophes typographiques tres variables d'un assureur a l'autre : on normalise avant de chercher */
+const deaccent=s=>String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\u2018\u2019]/g,"'").replace(/[\u00a0\u202f]/g,' ');
+/* un n° de police s'arrete au premier mot de prose : on ne garde que les jetons contenant un chiffre
+   (ou un bloc de 1 a 3 majuscules type « U 001 »), en ecartant les formes juridiques et petits mots */
+const STOP_REF=['SA','SAS','SASU','SARL','EI','EURL','SCI','SCOP','ET','AU','DU','DE','LA','LE','EN','ES','NE','CE','SES','SON','PAR','SUR','EST','NON','RCS','TVA','SIRET','SIREN','APE','NAF'];
+function cleanRef(s){
+  const keep=[];
+  for(const raw of String(s).trim().split(/\s+/)){
+    const t=raw.replace(/^[:\-]+/,'').replace(/[.,;:)\]]+$/,'');
+    if(!t)break;
+    const hasDigit=/\d/.test(t);
+    const shortAlpha=/^[A-Z]{1,3}$/.test(t)&&STOP_REF.indexOf(t)<0;
+    if(!hasDigit&&!shortAlpha)break;
+    if(hasDigit&&STOP_REF.indexOf(t.replace(/[^A-Z]/g,''))>=0&&t.replace(/[^A-Z]/g,''))break;
+    keep.push(t);
+    if(keep.join(' ').length>28)break;
+  }
+  return keep.join(' ').replace(/[.,;:]+$/,'');
+}
+
+function analyseAttestation(txt){
+  const t=deaccent(txt);
+  const T=t.toUpperCase();
+  const out={assureur:'',numPolice:'',decennaleFin:'',dateIncertaine:false,champsTrouves:[]};
+
+  for(const a of ASSUREURS){
+    if(T.indexOf(deaccent(a).toUpperCase())>=0){out.assureur=a.charAt(0)+a.slice(1).toLowerCase();out.champsTrouves.push('assureur');break}
+  }
+
+  const polMotifs=[
+    /(?:n[\u00b0\u00bao]\s*(?:de\s*)?(?:police|contrat|societaire)|police\s*(?:d'assurance\s*)?n[\u00b0\u00bao]|contrat\s*n[\u00b0\u00bao])\s*[:\-]?\s*(.{4,40})/i,
+    /(?:police|contrat)\s*[:\-]\s*(.{4,40})/i,
+    /(?:police|contrat)[^.:;]{0,25}?([0-9]{6,20})/i,
+  ];
+  for(const re of polMotifs){
+    const m=t.match(re);
+    if(m){
+      const ref=cleanRef(m[1]);
+      if(ref&&/\d/.test(ref)){out.numPolice=ref;out.champsTrouves.push('numPolice');break}
+    }
+  }
+
+  const D='(\\d{1,2}[\\/\\.\\-]\\d{1,2}[\\/\\.\\-]\\d{2,4})';
+  const echMotifs=[
+    new RegExp("jusqu'au\\s*(?:le\\s*)?"+D,'i'),
+    new RegExp("(?:echeance|expiration|fin\\s+de\\s+(?:validite|garantie|periode|contrat))[^.]{0,40}?"+D,'i'),
+    new RegExp("du\\s+\\d{1,2}[\\/\\.\\-]\\d{1,2}[\\/\\.\\-]\\d{2,4}\\s+au\\s+"+D,'i'),
+    new RegExp("(?:valable|valide|validite|garantie|couverture)[^.]{0,60}?\\bau\\s+"+D,'i'),
+  ];
+  for(const re of echMotifs){
+    const m=t.match(re);
+    if(m){const d=parseDateFr(m[1]);if(d){out.decennaleFin=d;out.champsTrouves.push('decennaleFin');break}}
+  }
+  if(!out.decennaleFin){
+    // repli : la date la plus lointaine du document, si elle est dans le futur
+    const toutes=(t.match(/\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4}/g)||[]).map(parseDateFr).filter(Boolean).sort();
+    const derniere=toutes[toutes.length-1];
+    if(derniere&&derniere>today()){out.decennaleFin=derniere;out.dateIncertaine=true;out.champsTrouves.push('decennaleFin')}
+  }
+  return out;
 }
 
 function load(){try{const r=localStorage.getItem(KEY);return r?{...EMPTY,...JSON.parse(r)}:EMPTY}catch(e){return EMPTY}}
@@ -594,9 +708,13 @@ function Fiche({data,ch,save,back}){
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const eng=ms.reduce((s,m)=>s+(m.montantHT||0),0), fac=ms.reduce((s,m)=>s+(m.facture||0),0);
   const saveEdit=()=>{
-    up({...edit,budget:+edit.budget||0,honorairesPct:+edit.honorairesPct||0,honorairesMontant:edit.honorairesMontant===''?'':+edit.honorairesMontant});
+    up({...edit,budget:+edit.budget||0,honorairesPct:+edit.honorairesPct||0,honorairesMontant:edit.honorairesMontant===''?'':+edit.honorairesMontant,
+      tva:edit.tva===''?'':+edit.tva,delaiPrevu:edit.delaiPrevu===''?'':+edit.delaiPrevu});
     setEdit(null);
   };
+  const hono=honoAmount(ch), honoFac=sumMontants(ch.honoFactures);
+  const jOuv=joursDepuis(ch.dateOuverture), dPrev=delaiPrevu(ch);
+  const maps=mapsUrl(ch);
   return <div>
     <button onClick={back} className="xs" style={{color:TERRA,background:'none',border:'none',padding:'0 0 12px'}}>← Tous les chantiers</button>
     {edit?<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
@@ -606,14 +724,24 @@ function Fiche({data,ch,save,back}){
         <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={edit.telClient||''} onChange={e=>setEdit({...edit,telClient:e.target.value})}/></Fld>
       </div>
       <Fld label="ADRESSE"><input className="in" value={edit.adresse} onChange={e=>setEdit({...edit,adresse:e.target.value})}/></Fld>
+      <Fld label="LIEN GOOGLE MAPS DU CHANTIER">
+        <input className="in" placeholder="Laisser vide : recherche sur l'adresse ci-dessus" value={edit.lienMaps||''} onChange={e=>setEdit({...edit,lienMaps:e.target.value})}/>
+      </Fld>
       <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" value={edit.lienDrive||''} onChange={e=>setEdit({...edit,lienDrive:e.target.value})}/></Fld>
       <div className="g2">
         <Fld label="BUDGET TRAVAUX HT (€)"><input className="in" type="number" value={edit.budget} onChange={e=>setEdit({...edit,budget:e.target.value})}/></Fld>
-        <Fld label="HONORAIRES MOE (%)"><input className="in" type="number" step="0.1" value={edit.honorairesPct} onChange={e=>setEdit({...edit,honorairesPct:e.target.value})}/></Fld>
+        <Fld label="TVA (%)"><input className="in" type="number" step="0.1" placeholder="20" value={edit.tva===undefined?'':edit.tva} onChange={e=>setEdit({...edit,tva:e.target.value})}/></Fld>
       </div>
-      <Fld label="MONTANT HONORAIRES (€) — remplacer le calcul automatique">
-        <input className="in" type="number" placeholder={'Auto : '+eur(edit.budget*(edit.honorairesPct||0)/100)} value={edit.honorairesMontant||''} onChange={e=>setEdit({...edit,honorairesMontant:e.target.value})}/>
-      </Fld>
+      <div className="g2">
+        <Fld label="HONORAIRES MOE (%)"><input className="in" type="number" step="0.1" value={edit.honorairesPct} onChange={e=>setEdit({...edit,honorairesPct:e.target.value})}/></Fld>
+        <Fld label="MONTANT HONORAIRES HT (€)">
+          <input className="in" type="number" placeholder={'Auto : '+eur(edit.budget*(edit.honorairesPct||0)/100)} value={edit.honorairesMontant||''} onChange={e=>setEdit({...edit,honorairesMontant:e.target.value})}/>
+        </Fld>
+      </div>
+      <div className="g2">
+        <Fld label="OUVERTURE DE CHANTIER"><input className="in" type="date" value={edit.dateOuverture||''} onChange={e=>setEdit({...edit,dateOuverture:e.target.value})}/></Fld>
+        <Fld label="DÉLAI PRÉVU (JOURS)"><input className="in" type="number" placeholder={String(DELAI_DEFAUT)} value={edit.delaiPrevu===undefined?'':edit.delaiPrevu} onChange={e=>setEdit({...edit,delaiPrevu:e.target.value})}/></Fld>
+      </div>
       <Fld label="PHASE"><select className="in" value={edit.statut} onChange={e=>setEdit({...edit,statut:e.target.value})}>
         {Object.entries(PHASE).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Fld>
       <Acts onSave={saveEdit} onCancel={()=>setEdit(null)}/>
@@ -623,23 +751,48 @@ function Fiche({data,ch,save,back}){
         <button className="btn gh s" onClick={()=>setEdit(ch)}>Modifier</button>
       </div>
       <div className="xs mut" style={{marginTop:3}}>{ch.client} — {ch.adresse}</div>
-      <div className="g3 xs" style={{marginTop:10}}>
-        <div><div className="mut">Budget</div><div className="b">{eur(ch.budget)}</div></div>
-        <div><div className="mut">Engagé</div><div className="b" style={{color:eng>ch.budget?TERRA:INK}}>{eur(eng)}</div></div>
-        <div><div className="mut">Honoraires</div><div className="b">{eur(honoAmount(ch))}</div></div>
+      <div className="g2 xs" style={{marginTop:10}}>
+        <div><div className="mut">Travaux TTC</div>
+          <div className="b" style={{fontSize:17,color:NAVY}}>{eur(ttc(ch.budget,ch))}</div>
+          <div className="mut">{eur(ch.budget)} HT · TVA {tvaRate(ch)} %</div></div>
+        <div><div className="mut">Honoraires TTC</div>
+          <div className="b" style={{fontSize:17,color:NAVY}}>{eur(ttc(hono,ch))}</div>
+          <div className="mut">{eur(hono)} HT</div></div>
+      </div>
+      <div className="g2 xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+        <div><div className="mut">Reste à facturer — artisans</div>
+          <div className="b" style={{color:eng-fac>0?INK:GREEN}}>{eng-fac>0?eur(eng-fac)+' HT':'soldé'}</div>
+          <div className="mut">engagé {eur(eng)} · facturé {eur(fac)}</div></div>
+        <div><div className="mut">Reste à facturer — honoraires</div>
+          <div className="b" style={{color:hono-honoFac>0?TERRA:GREEN}}>{hono-honoFac>0?eur(hono-honoFac)+' HT':'soldé'}</div>
+          <div className="mut">{eur(ttc(hono-honoFac,ch))} TTC</div></div>
       </div>
       {eng>ch.budget&&ch.budget>0&&<div className="xs b" style={{color:TERRA,marginTop:8}}>Dépassement de {eur(eng-ch.budget)} sur le budget annoncé au client.</div>}
-      <div className="row xs" style={{gap:14,marginTop:10}}>
+      <div className="xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+        {jOuv===null
+          ?<span className="mut">Délai de chantier : renseignez la date d'ouverture de chantier via « Modifier ».</span>
+          :<div>
+            <div className="sp">
+              <span>Ouvert le <b>{fd(ch.dateOuverture)}</b> — <b>J+{jOuv}</b></span>
+              <span style={{color:jOuv>dPrev?TERRA:MUTED}}>{jOuv>dPrev?'dépassement de '+(jOuv-dPrev)+' j':(dPrev-jOuv)+' j restants'}</span>
+            </div>
+            <div className="bar"><div style={{height:4,width:Math.min(100,Math.round(jOuv/dPrev*100))+'%',background:jOuv>dPrev?TERRA:NAVY}}/></div>
+            <div className="mut" style={{marginTop:4}}>Délai prévu : {dPrev} j (≈ {Math.round(dPrev/30.4)} mois)</div>
+          </div>}
+      </div>
+      <div className="row xs" style={{gap:14,marginTop:10,flexWrap:'wrap'}}>
         {ch.telClient&&<a href={'tel:'+ch.telClient} style={{color:TERRA}}>Appeler le client</a>}
         {ch.telClient&&<a href={'https://wa.me/'+wa(ch.telClient)} style={{color:TERRA}}>WhatsApp</a>}
+        {maps&&<a href={maps} target="_blank" rel="noreferrer" style={{color:TERRA}}>Itinéraire</a>}
         {ch.lienDrive&&<a href={ch.lienDrive} target="_blank" rel="noreferrer" style={{color:TERRA}}>Dossier Drive</a>}
       </div>
     </div>}
     <div className="tabs">
-      {[['marches','MARCHÉS'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
+      {[['marches','MARCHÉS'],['hono','HONORAIRES'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
     </div>
     {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}/>}
+    {tab==='hono'&&<Honoraires data={data} ch={ch} save={save}/>}
     {tab==='ctrl'&&<Controles data={data} ch={ch} save={save}/>}
     {tab==='photos'&&<Photos data={data} ch={ch} save={save}/>}
     {tab==='cmd'&&<Commandes data={data} ch={ch} save={save}/>}
@@ -1043,6 +1196,69 @@ function Docs({ch,up}){
   </div>;
 }
 
+/* ---------------- HONORAIRES ---------------- */
+function Honoraires({data,ch,save}){
+  const hf=ch.honoFactures||[];
+  const [busy,setBusy]=useState(null);
+  const total=honoAmount(ch), facture=sumMontants(hf), reste=total-facture;
+  const upHono=list=>save({...data,chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,honoFactures:list}:x)});
+  const add=()=>upHono([...hf,{id:uid(),montant:'',date:today(),libelle:'',lien:''}]);
+  const upd=(id,patch)=>upHono(hf.map(x=>x.id===id?{...x,...patch}:x));
+  const del=id=>upHono(hf.filter(x=>x.id!==id));
+  const importFacture=async(id,file)=>{
+    setBusy(id);
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveHonoFolder(token,ch.id,ch.nom);
+      const{webViewLink}=await uploadToDrive(file,folderId);
+      upd(id,{lien:webViewLink});
+    }catch(e){
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous).":"Import de la facture impossible.");
+    }
+    setBusy(null);
+  };
+  return <div>
+    <div className="g2">
+      <Stat l="Honoraires TTC" v={eur(ttc(total,ch))} c={NAVY}/>
+      <Stat l="Déjà facturé TTC" v={eur(ttc(facture,ch))}/>
+      <Stat l={"Reste à facturer TTC"} v={eur(ttc(reste,ch))} c={reste>0?TERRA:GREEN}/>
+      <Stat l="Reste à facturer HT" v={reste>0?eur(reste):'soldé'} c={reste>0?INK:GREEN}/>
+    </div>
+    <div className="card" style={{marginTop:8}}>
+      <div className="xs mut" style={{lineHeight:1.6}}>
+        Base HT : <b>{eur(total)}</b>{ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!==''?' (montant saisi)':' ('+(ch.honorairesPct||0)+' % de '+eur(ch.budget)+')'} · TVA {tvaRate(ch)} %<br/>
+        Le montant des honoraires se modifie via « Modifier » sur la fiche du chantier.
+      </div>
+    </div>
+    {reste<0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginTop:8}}>
+      Vous avez facturé {eur(-reste)} HT de plus que le montant d'honoraires prévu.</div>}
+    <div className="sp" style={{margin:'14px 0 12px'}}>
+      <span className="h2">MES FACTURES ({hf.length})</span>
+      <button className="btn acc s" onClick={add}>+ Facture</button>
+    </div>
+    {!hf.length&&<Empty>Aucune facture d'honoraires. Ajoutez-les au fur et à mesure de vos appels de fonds.</Empty>}
+    {hf.map(x=><div key={x.id} className="card" style={{padding:10}}>
+      <div className="g2">
+        <Fld label="MONTANT HT (€)"><input className="in" type="number" value={x.montant} onChange={e=>upd(x.id,{montant:e.target.value})}/></Fld>
+        <Fld label="DATE"><input className="in" type="date" value={x.date||''} onChange={e=>upd(x.id,{date:e.target.value})}/></Fld>
+      </div>
+      <Fld label="LIBELLÉ"><input className="in" placeholder="Acompte, phase PC, situation n°…" value={x.libelle||''} onChange={e=>upd(x.id,{libelle:e.target.value})}/></Fld>
+      <div className="sp">
+        <span className="xs mut">{eur(ttc(x.montant,ch))} TTC</span>
+        <div className="row" style={{gap:14,alignItems:'center'}}>
+          {x.lien
+            ?<a href={x.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Voir la facture</a>
+            :<label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':'Joindre la facture'}
+              <input type="file" accept="application/pdf,image/*" style={{display:'none'}} disabled={busy===x.id}
+                onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importFacture(x.id,file)}}/></label>}
+          <button className="btn dg s" onClick={()=>del(x.id)}>Supprimer</button>
+        </div>
+      </div>
+    </div>)}
+    <DriveStatus/>
+  </div>;
+}
+
 /* ---------------- CONTRÔLE CHANTIER ---------------- */
 function ThumbCtrl({id,onZoom,onDel}){
   const [src,setSrc]=useState(null);
@@ -1168,7 +1384,35 @@ function Controles({data,ch,save}){
 /* ---------------- ARTISANS ---------------- */
 function Artisans({data,save}){
   const [f,setF]=useState(null);
+  const [lecture,setLecture]=useState(null);
   const ok=()=>{if(!f.nom.trim())return;save({...data,artisans:f.id?data.artisans.map(a=>a.id===f.id?f:a):[...data.artisans,{...f,id:uid()}]});setF(null)};
+  const importDecennale=async file=>{
+    setLecture({etat:'lecture'});
+    let extrait=null,erreurLecture='';
+    try{extrait=analyseAttestation(await pdfText(file))}
+    catch(e){erreurLecture=(e&&e.message)||String(e)}
+    let lien='';
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveAttestationsFolder(token);
+      lien=(await uploadToDrive(file,folderId)).webViewLink;
+    }catch(e){
+      setLecture({etat:'erreur',msg:e&&e.error==='auth_required'?"Connectez Google Drive (bouton ci-dessous) puis réimportez le PDF.":"Envoi du PDF vers Google Drive impossible."});
+      return;
+    }
+    setF(prev=>{
+      const n={...prev,lienAttestation:lien};
+      if(extrait){
+        if(extrait.assureur&&!prev.assureur)n.assureur=extrait.assureur;
+        if(extrait.numPolice&&!prev.numPolice)n.numPolice=extrait.numPolice;
+        if(extrait.decennaleFin&&!prev.decennaleFin)n.decennaleFin=extrait.decennaleFin;
+      }
+      return n;
+    });
+    if(!extrait)setLecture({etat:'illisible',msg:erreurLecture});
+    else if(!extrait.champsTrouves.length)setLecture({etat:'rien'});
+    else setLecture({etat:'ok',champs:extrait.champsTrouves,incertain:extrait.dateIncertaine});
+  };
   const st=a=>{
     if(!a.decennaleFin)return{t:'Décennale non renseignée',c:TERRA};
     const j=Math.round((new Date(a.decennaleFin)-new Date())/86400000);
@@ -1184,6 +1428,22 @@ function Artisans({data,save}){
     {f&&<div className="card">
       <Fld label="RAISON SOCIALE"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}/></Fld>
       <Fld label="CORPS D'ÉTAT"><select className="in" value={f.corps} onChange={e=>setF({...f,corps:e.target.value})}><option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
+      <Fld label="ATTESTATION DÉCENNALE (PDF)">
+        <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
+          <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{lecture&&lecture.etat==='lecture'?'Lecture du PDF…':(f.lienAttestation?'Remplacer le PDF':'Importer le PDF')}
+            <input type="file" accept="application/pdf" style={{display:'none'}} disabled={lecture&&lecture.etat==='lecture'}
+              onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importDecennale(file)}}/></label>
+          {f.lienAttestation&&<a href={f.lienAttestation} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir l'attestation</a>}
+        </div>
+        {lecture&&lecture.etat==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+          PDF importé. Champs remplis automatiquement : {lecture.champs.map(c=>({assureur:'assureur',numPolice:'n° de police',decennaleFin:'date de validité'}[c])).filter(Boolean).join(', ')}.
+          {lecture.incertain&&' La date a été déduite sans mot-clé explicite.'} À vérifier avant d'enregistrer.</div>}
+        {lecture&&lecture.etat==='rien'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          PDF importé, mais aucune information reconnue automatiquement. Saisissez les champs à la main.</div>}
+        {lecture&&lecture.etat==='illisible'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          PDF importé, mais son texte n'a pas pu être lu (attestation scannée ou image). Saisissez les champs à la main.</div>}
+        {lecture&&lecture.etat==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>{lecture.msg}</div>}
+      </Fld>
       <div className="g2">
         <Fld label="TÉLÉPHONE"><input className="in" type="tel" value={f.tel} onChange={e=>setF({...f,tel:e.target.value})}/></Fld>
         <Fld label="EMAIL"><input className="in" type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></Fld>
@@ -1193,8 +1453,9 @@ function Artisans({data,save}){
         <Fld label="N° DE POLICE"><input className="in" value={f.numPolice} onChange={e=>setF({...f,numPolice:e.target.value})}/></Fld>
       </div>
       <Fld label="DÉCENNALE VALIDE JUSQU'AU"><input className="in" type="date" value={f.decennaleFin} onChange={e=>setF({...f,decennaleFin:e.target.value})}/></Fld>
-      <Fld label="LIEN VERS L'ATTESTATION"><input className="in" placeholder="Lien Drive…" value={f.lienAttestation} onChange={e=>setF({...f,lienAttestation:e.target.value})}/></Fld>
-      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,artisans:data.artisans.filter(a=>a.id!==f.id)});setF(null)}:null}/>
+      <Fld label="LIEN VERS L'ATTESTATION"><input className="in" placeholder="Rempli par l'import du PDF, ou collez un lien…" value={f.lienAttestation} onChange={e=>setF({...f,lienAttestation:e.target.value})}/></Fld>
+      <DriveStatus/>
+      <Acts onSave={()=>{setLecture(null);ok()}} onCancel={()=>{setLecture(null);setF(null)}} onDel={f.id?()=>{save({...data,artisans:data.artisans.filter(a=>a.id!==f.id)});setLecture(null);setF(null)}:null}/>
     </div>}
     {!data.artisans.length&&!f&&<Empty>Aucun artisan. Constituez votre carnet d'adresses.</Empty>}
     {data.artisans.map(a=>{
@@ -1223,31 +1484,39 @@ function Bilan({data,open}){
     const eng=ms.reduce((s,m)=>s+(m.montantHT||0),0);
     const fac=ms.reduce((s,m)=>s+(m.facture||0),0);
     const mat=data.commandes.filter(x=>x.chantierId===c.id).reduce((s,x)=>s+(x.montant||0),0);
-    return {...c,eng,fac,mat,hono:honoAmount(c),ecart:(c.budget||0)-eng};
+    const hono=honoAmount(c), honoFac=sumMontants(c.honoFactures);
+    return {...c,eng,fac,mat,hono,honoFac,budgetTTC:ttc(c.budget,c),honoTTC:ttc(hono,c),ecart:(c.budget||0)-eng};
   });
   const T=k=>L.reduce((s,l)=>s+(l[k]||0),0);
   const tb=T('budget'),te=T('eng'),tf=T('fac'),th=T('hono'),tm=T('mat');
+  const tbTTC=T('budgetTTC'),thTTC=T('honoTTC'),thFac=T('honoFac');
   const csv=()=>{
-    const rows=[['Chantier','Client','Phase','Budget travaux HT','Engagé HT','Facturé artisans','Matériaux commandés','Écart budget','Honoraires MOE'],
-      ...L.map(l=>[l.nom,l.client,PHASE[l.statut]||'',l.budget||0,l.eng,l.fac,l.mat,l.ecart,Math.round(l.hono)]),
-      ['TOTAL','','',tb,te,tf,tm,tb-te,Math.round(th)]];
+    const rows=[['Chantier','Client','Phase','Budget travaux HT','Budget travaux TTC','Engagé HT','Facturé artisans','Reste à facturer artisans','Matériaux commandés','Écart budget','Honoraires HT','Honoraires TTC','Honoraires facturés HT','Reste à facturer honoraires HT'],
+      ...L.map(l=>[l.nom,l.client,PHASE[l.statut]||'',l.budget||0,Math.round(l.budgetTTC),l.eng,l.fac,l.eng-l.fac,l.mat,l.ecart,Math.round(l.hono),Math.round(l.honoTTC),Math.round(l.honoFac),Math.round(l.hono-l.honoFac)]),
+      ['TOTAL','','',tb,Math.round(tbTTC),te,tf,te-tf,tm,tb-te,Math.round(th),Math.round(thTTC),Math.round(thFac),Math.round(th-thFac)]];
     const a=document.createElement('a');
-    a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(rows.map(r=>r.map(v=>'"'+v+'"').join(';')).join('\n'));
+    a.href='data:text/csv;charset=utf-8,﻿'+encodeURIComponent(rows.map(r=>r.map(v=>'"'+v+'"').join(';')).join('\n'));
     a.download='CP-suivi-financier-'+today()+'.csv';a.click();
   };
   return <div>
     <H2 action={<button className="btn gh s" onClick={csv}>Export CSV</button>}>SUIVI FINANCIER</H2>
     <div className="g2">
-      <Stat l="Budget travaux annoncé" v={eur(tb)}/>
+      <Stat l="Travaux TTC" v={eur(tbTTC)} c={NAVY}/>
+      <Stat l="Travaux HT annoncés" v={eur(tb)}/>
       <Stat l="Engagé auprès des artisans" v={eur(te)} c={te>tb?TERRA:INK}/>
-      <Stat l="Déjà facturé par les artisans" v={eur(tf)}/>
+      <Stat l="Reste à facturer — artisans" v={eur(te-tf)}/>
       <Stat l="Matériaux commandés" v={eur(tm)}/>
+      <Stat l="Déjà facturé par les artisans" v={eur(tf)}/>
     </div>
     <div className="card" style={{marginTop:8}}>
-      <div className="xs mut">Honoraires de maîtrise d'œuvre</div>
-      <div className="b" style={{fontSize:20,marginTop:2,color:NAVY}}>{eur(th)}</div>
-      <div className="xs mut" style={{marginTop:8}}>Reste à facturer par les artisans : <b>{eur(te-tf)}</b></div>
-      <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>Calcul à partir du pourcentage saisi sur chaque chantier. À vérifier avec votre comptable avant tout usage fiscal.</div>
+      <div className="xs mut">Honoraires de maîtrise d’œuvre — TTC</div>
+      <div className="b" style={{fontSize:20,marginTop:2,color:NAVY}}>{eur(thTTC)}</div>
+      <div className="xs mut" style={{marginTop:2}}>{eur(th)} HT</div>
+      <div className="g2 xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+        <div><div className="mut">Honoraires facturés</div><div className="b">{eur(thFac)} HT</div></div>
+        <div><div className="mut">Reste à facturer</div><div className="b" style={{color:th-thFac>0?TERRA:GREEN}}>{th-thFac>0?eur(th-thFac)+' HT':'soldé'}</div></div>
+      </div>
+      <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>Montants TTC calculés avec le taux de TVA saisi sur chaque chantier (20 % par défaut). À vérifier avec votre comptable avant tout usage fiscal.</div>
     </div>
     {!L.length&&<Empty>Aucun chantier à suivre.</Empty>}
     {L.map(l=><button key={l.id} className="card" style={{borderLeft:'3px solid '+(l.ecart<0?TERRA:NAVY)}} onClick={()=>open(l.id)}>
