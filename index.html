@@ -8,7 +8,8 @@
 <meta name="apple-mobile-web-app-title" content="Chantiers CP">
 <meta name="robots" content="noindex, nofollow">
 <title>CP Constructions — Suivi de chantiers</title>
-<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%232C4A5E' width='180' height='180'/><text x='90' y='118' font-size='84' font-family='Helvetica' font-weight='bold' fill='%23C5563A' text-anchor='middle'>CP</text></svg>">
+<link rel="apple-touch-icon" href="assets/logo-icon.png">
+<link rel="icon" href="assets/logo-icon.png">
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
@@ -218,9 +219,8 @@ function App({session}){
   };
   const ch=open?data.chantiers.find(c=>c.id===open):null;
   return <div>
-    <header style={{background:NAVY,padding:'12px 16px',paddingTop:'calc(12px + env(safe-area-inset-top))'}}>
-      <div className="b" style={{color:'#fff',letterSpacing:'.04em'}}>CP CONSTRUCTIONS</div>
-      <div className="xs" style={{color:'#9FB4C2',marginTop:2}}>Maîtrise d'œuvre — suivi de chantiers</div>
+    <header style={{background:NAVY,padding:'10px 16px',paddingTop:'calc(10px + env(safe-area-inset-top))'}}>
+      <img src="assets/logo.png" alt="CP Constructions — Maîtrise d'œuvre" style={{height:38,display:'block'}}/>
     </header>
     {err&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:'8px 16px'}}>{err}</div>}
     <main style={{padding:16}}>
