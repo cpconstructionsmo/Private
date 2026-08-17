@@ -146,24 +146,34 @@ async function driveFolder(token){
   return driveFolderId;
 }
 
+async function driveFindOrCreateSubfolder(token,parentId,name){
+  const safeName=name.replace(/'/g,"\\'");
+  const q=encodeURIComponent(`name='${safeName}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${parentId}' in parents`);
+  const r=await fetch('https://www.googleapis.com/drive/v3/files?q='+q,{headers:{Authorization:'Bearer '+token}});
+  const j=await r.json();
+  if(j.files&&j.files.length)return j.files[0].id;
+  const c=await fetch('https://www.googleapis.com/drive/v3/files',{
+    method:'POST',
+    headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({name,mimeType:'application/vnd.google-apps.folder',parents:[parentId]}),
+  });
+  return(await c.json()).id;
+}
+
 async function driveChantierFolder(token,chantierId,chantierNom){
   if(driveSubfolders.has(chantierId))return driveSubfolders.get(chantierId);
   const rootId=await driveFolder(token);
-  const safeName=chantierNom.replace(/'/g,"\\'");
-  const q=encodeURIComponent(`name='${safeName}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${rootId}' in parents`);
-  const r=await fetch('https://www.googleapis.com/drive/v3/files?q='+q,{headers:{Authorization:'Bearer '+token}});
-  const j=await r.json();
-  let id;
-  if(j.files&&j.files.length){id=j.files[0].id}
-  else{
-    const c=await fetch('https://www.googleapis.com/drive/v3/files',{
-      method:'POST',
-      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-      body:JSON.stringify({name:chantierNom,mimeType:'application/vnd.google-apps.folder',parents:[rootId]}),
-    });
-    id=(await c.json()).id;
-  }
+  const id=await driveFindOrCreateSubfolder(token,rootId,chantierNom);
   driveSubfolders.set(chantierId,id);
+  return id;
+}
+
+const driveFacturesFolders=new Map();
+async function driveFacturesFolder(token,chantierId,chantierNom){
+  if(driveFacturesFolders.has(chantierId))return driveFacturesFolders.get(chantierId);
+  const parentId=await driveChantierFolder(token,chantierId,chantierNom);
+  const id=await driveFindOrCreateSubfolder(token,parentId,'Factures');
+  driveFacturesFolders.set(chantierId,id);
   return id;
 }
 
@@ -376,42 +386,128 @@ function Fiche({data,ch,save,back}){
 }
 
 /* ---------------- MARCHÉS ---------------- */
+const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
+
 function Marches({data,ch,save,eng,fac}){
   const [f,setF]=useState(null);
+  const [showImport,setShowImport]=useState(false);
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
+  const openRow=m=>setF(m.factures?m:{...m,factures:m.facture?[{id:uid(),montant:m.facture,date:m.dateSignature||today(),lien:''}]:[]});
   const ok=()=>{
     if(!f.lot)return;
-    const r={...f,montantHT:+f.montantHT||0,facture:+f.facture||0};
+    const factures=f.factures||[];
+    const r={...f,montantHT:+f.montantHT||0,factures,facture:facturesTotal(factures)};
     save({...data,marches:f.id?data.marches.map(m=>m.id===f.id?r:m):[...data.marches,{...r,id:uid(),chantierId:ch.id}]});
     setF(null);
+  };
+  const addFacture=()=>setF({...f,factures:[...(f.factures||[]),{id:uid(),montant:'',date:today(),lien:''}]});
+  const updFacture=(fid,patch)=>setF({...f,factures:(f.factures||[]).map(x=>x.id===fid?{...x,...patch}:x)});
+  const delFacture=fid=>setF({...f,factures:(f.factures||[]).filter(x=>x.id!==fid)});
+  const importFacture=async(fid,file)=>{
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveFacturesFolder(token,ch.id,ch.nom);
+      const{webViewLink}=await uploadToDrive(file,folderId);
+      updFacture(fid,{lien:webViewLink});
+    }catch(e){
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous).":"Import de la facture impossible.");
+    }
   };
   const nom=id=>{const a=data.artisans.find(x=>x.id===id);return a?a.nom:'Non attribué'};
   return <div>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}</span>
-      <button className="btn acc s" onClick={()=>setF({lot:'',artisanId:'',montantHT:'',facture:'',statut:'consulter',dateSignature:'',notes:''})}>+ Lot</button>
-    </div>
-    {f&&<div className="card">
-      <Fld label="CORPS D'ÉTAT"><select className="in" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})}><option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
-      <Fld label="ARTISAN"><select className="in" value={f.artisanId} onChange={e=>setF({...f,artisanId:e.target.value})}><option value="">— non attribué —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom} ({a.corps})</option>)}</select></Fld>
-      <div className="g2">
-        <Fld label="MONTANT HT (€)"><input className="in" type="number" value={f.montantHT} onChange={e=>setF({...f,montantHT:e.target.value})}/></Fld>
-        <Fld label="DÉJÀ FACTURÉ (€)"><input className="in" type="number" value={f.facture} onChange={e=>setF({...f,facture:e.target.value})}/></Fld>
+      <div className="row" style={{gap:8}}>
+        <button className="btn gh s" onClick={()=>setShowImport(!showImport)}>Import rapide</button>
+        <button className="btn acc s" onClick={()=>setF({lot:'',artisanId:'',montantHT:'',statut:'consulter',dateSignature:'',notes:'',factures:[]})}>+ Lot</button>
       </div>
+    </div>
+    {showImport&&<ImportMarches data={data} ch={ch} save={save} close={()=>setShowImport(false)}/>}
+    {f&&<div className="card">
+      <Fld label="CORPS D'ÉTAT"><input className="in" list="corps-list" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})} placeholder="Ex. Maçonnerie — Gros œuvre"/>
+        <datalist id="corps-list">{CORPS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
+      <Fld label="ARTISAN"><select className="in" value={f.artisanId} onChange={e=>setF({...f,artisanId:e.target.value})}><option value="">— non attribué —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom} ({a.corps})</option>)}</select></Fld>
+      <Fld label="MONTANT MARCHÉ HT (€)"><input className="in" type="number" value={f.montantHT} onChange={e=>setF({...f,montantHT:e.target.value})}/></Fld>
       <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{STATUTS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
       <Fld label="DATE DE SIGNATURE"><input className="in" type="date" value={f.dateSignature} onChange={e=>setF({...f,dateSignature:e.target.value})}/></Fld>
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
+      <Fld label={"FACTURES — total "+eur(facturesTotal(f.factures))}>
+        {(f.factures||[]).map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
+          <input className="in" type="number" placeholder="Montant €" value={x.montant} onChange={e=>updFacture(x.id,{montant:e.target.value})} style={{flex:'1 1 90px'}}/>
+          <input className="in" type="date" value={x.date} onChange={e=>updFacture(x.id,{date:e.target.value})} style={{flex:'1 1 120px'}}/>
+          {x.lien
+            ?<a href={x.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA,whiteSpace:'nowrap'}}>Voir</a>
+            :<label className="xs" style={{color:NAVY,whiteSpace:'nowrap'}}>Importer<input type="file" accept="application/pdf,image/*" style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importFacture(x.id,file)}}/></label>}
+          <button className="btn dg s" onClick={()=>delFacture(x.id)}>✕</button>
+        </div>)}
+        <button className="btn gh s" onClick={addFacture}>+ Facture</button>
+      </Fld>
+      <DriveStatus/>
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,marches:data.marches.filter(m=>m.id!==f.id)});setF(null)}:null}/>
     </div>}
-    {!ms.length&&!f&&<Empty>Aucun lot. Ajoutez les corps d'état à consulter.</Empty>}
-    {ms.map(m=>{
-      const s=STATUTS.find(x=>x.id===m.statut)||STATUTS[0], r=(m.montantHT||0)-(m.facture||0);
-      return <button key={m.id} className="card" style={{borderLeft:'3px solid '+s.c}} onClick={()=>setF(m)}>
-        <div className="sp"><span className="b sm">{m.lot}</span><span className="xs b" style={{color:s.c}}>{s.label}</span></div>
-        <div className="xs mut" style={{marginTop:3}}>{nom(m.artisanId)}</div>
-        <div className="sp xs" style={{marginTop:8}}><span>{eur(m.montantHT)} HT</span><span style={{color:r>0?INK:GREEN}}>{r>0?'reste '+eur(r):'soldé'}</span></div>
-      </button>;
-    })}
+    {!ms.length&&!f&&<Empty>Aucun lot. Ajoutez les corps d'état à consulter, ou utilisez « Import rapide ».</Empty>}
+    {!!ms.length&&<div style={{overflowX:'auto'}}>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+        <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
+          <th style={{padding:'6px 4px'}}>Corps d'état</th>
+          <th style={{padding:'6px 4px',textAlign:'right'}}>Marché HT</th>
+          <th style={{padding:'6px 4px',textAlign:'right'}}>Facturé</th>
+          <th style={{padding:'6px 4px',textAlign:'right'}}>Factures</th>
+        </tr></thead>
+        <tbody>
+          {ms.map(m=>{
+            const total=m.factures?facturesTotal(m.factures):(m.facture||0);
+            return <tr key={m.id} onClick={()=>openRow(m)} style={{borderBottom:'1px solid '+RULE,cursor:'pointer'}}>
+              <td style={{padding:'8px 4px'}}>
+                <div className="b">{m.lot}</div>
+                <div className="mut" style={{marginTop:2}}>{nom(m.artisanId)}</div>
+              </td>
+              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(m.montantHT)}</td>
+              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:total>m.montantHT?TERRA:total>=m.montantHT&&m.montantHT>0?GREEN:INK}}>{eur(total)}</td>
+              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{(m.factures||[]).length||'—'}</td>
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>}
+  </div>;
+}
+
+function ImportMarches({data,ch,save,close}){
+  const[txt,setTxt]=useState('');
+  const[msg,setMsg]=useState('');
+  const go=()=>{
+    const lines=txt.split('\n').map(l=>l.trim()).filter(Boolean);
+    let artisans=[...data.artisans], marches=[...data.marches], n=0;
+    for(const line of lines){
+      const parts=line.split('|').map(p=>p.trim());
+      if(parts.length<3)continue;
+      const[lot,artisanNom,montantStr,dateStr]=parts;
+      let art=artisanNom?artisans.find(a=>a.nom.toLowerCase()===artisanNom.toLowerCase()):null;
+      if(artisanNom&&!art){
+        art={id:uid(),nom:artisanNom,corps:lot,tel:'',email:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''};
+        artisans=[...artisans,art];
+      }
+      let dateSignature='';
+      if(dateStr){
+        const[j,mo,a]=dateStr.split('/');
+        if(j&&mo&&a)dateSignature=a+'-'+mo.padStart(2,'0')+'-'+j.padStart(2,'0');
+      }
+      marches=[...marches,{id:uid(),chantierId:ch.id,lot,artisanId:art?art.id:'',montantHT:+String(montantStr).replace(',','.')||0,facture:0,factures:[],statut:'signe',dateSignature,notes:''}];
+      n++;
+    }
+    save({...data,artisans,marches});
+    setMsg(n+' marché(s) importé(s).');
+    setTxt('');
+  };
+  return <div className="card">
+    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Un marché par ligne, séparé par des <code>|</code> :<br/><code>Corps d'état | Artisan | Montant HT | JJ/MM/AAAA</code></p>
+    <textarea className="in" rows="6" value={txt} onChange={e=>setTxt(e.target.value)} placeholder="Terrassement | SARL AMÉDÉE | 1664,36 | 25/05/2026"/>
+    <div className="row" style={{gap:8,marginTop:10}}>
+      <button className="btn" onClick={go}>Importer</button>
+      <button className="btn gh" onClick={close}>Fermer</button>
+    </div>
+    {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
   </div>;
 }
 
