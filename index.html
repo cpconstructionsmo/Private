@@ -296,7 +296,9 @@ const joursDepuis=d=>d?Math.floor((new Date().setHours(0,0,0,0)-new Date(d).setH
 const mapsUrl=ch=>ch.lienMaps||'';
 const mapsSearchUrl=ch=>ch.adresse?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(ch.adresse):'';
 const sumMontants=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
-const retroMontant=m=>(m.montantHT||0)*(+m.retroPct||0)/100;
+/* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
+const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
+const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
 const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[]};
 
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
@@ -1234,13 +1236,21 @@ function Honoraires({data,ch,save}){
   const [busyRetro,setBusyRetro]=useState(null);
   const total=honoAmount(ch), facture=sumMontants(hf), reste=total-facture;
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
-  const retroDu=ms.reduce((s,m)=>s+retroMontant(m),0);
-  const retroFac=ms.reduce((s,m)=>s+(+m.retroFacture||0),0);
+  const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
+  const groupes=[
+    {titre:'Marchés de travaux',type:'marche',lignes:ms.map(m=>({src:m,label:m.lot,sous:''}))},
+    {titre:'Matériaux commandés',type:'commande',lignes:cmds.map(c=>({src:c,label:c.designation,sous:c.fournisseur||''}))},
+  ].filter(g=>g.lignes.length);
+  const toutes=[...ms,...cmds];
+  const retroDu=toutes.reduce((s,x)=>s+retroMontant(x),0);
+  const retroFac=toutes.reduce((s,x)=>s+(+x.retroFacture||0),0);
   const upHono=list=>save({...data,chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,honoFactures:list}:x)});
   const add=()=>upHono([...hf,{id:uid(),montant:'',date:today(),libelle:'',lien:''}]);
   const upd=(id,patch)=>upHono(hf.map(x=>x.id===id?{...x,...patch}:x));
   const del=id=>upHono(hf.filter(x=>x.id!==id));
-  const updMarche=(id,patch)=>save({...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)});
+  const updRetro=(type,id,patch)=>save(type==='marche'
+    ?{...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)}
+    :{...data,commandes:data.commandes.map(c=>c.id===id?{...c,...patch}:c)});
   const importFacture=async(id,file)=>{
     setBusy(id);
     try{
@@ -1253,13 +1263,13 @@ function Honoraires({data,ch,save}){
     }
     setBusy(null);
   };
-  const importRetro=async(id,file)=>{
+  const importRetro=async(type,id,file)=>{
     setBusyRetro(id);
     try{
       const token=await getDriveToken();
       const folderId=await driveRetroFolder(token,ch.id,ch.nom);
       const{webViewLink}=await uploadToDrive(file,folderId);
-      updMarche(id,{retroLien:webViewLink});
+      updRetro(type,id,{retroLien:webViewLink});
     }catch(e){
       alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton en bas de page).":"Import de la facture impossible.");
     }
@@ -1313,48 +1323,53 @@ function Honoraires({data,ch,save}){
       <span className="h2">RÉTROCESSIONS</span>
       <span className="xs mut">{eur(retroFac)} / {eur(retroDu)} HT</span>
     </div>
-    {!ms.length
-      ?<Empty>Aucun marché sur ce chantier. Les rétrocessions se calculent à partir des marchés de travaux.</Empty>
+    {!groupes.length
+      ?<Empty>Aucun marché ni matériau sur ce chantier. Les rétrocessions se calculent à partir des marchés de travaux et des commandes de matériaux.</Empty>
       :<div>
-        <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Saisissez le taux par lot (0 % s'il n'y a pas de rétrocession). Le montant dû se calcule sur le montant du marché HT.</p>
+        <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Saisissez le taux ligne par ligne (0 % s'il n'y a pas de rétrocession). Le montant dû se calcule sur le montant HT du marché ou de la commande.</p>
         <div style={{overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:430}}>
             <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
-              <th style={{padding:'6px 4px'}}>Corps d'état</th>
+              <th style={{padding:'6px 4px'}}>Désignation</th>
               <th style={{padding:'6px 4px',textAlign:'right',width:62}}>Rétro %</th>
               <th style={{padding:'6px 4px',textAlign:'right',width:82}}>Montant dû</th>
               <th style={{padding:'6px 4px',textAlign:'right',width:92}}>Facturé</th>
               <th style={{padding:'6px 4px',textAlign:'right',width:74}}>Facture</th>
             </tr></thead>
             <tbody>
-              {ms.map(m=>{
-                const du=retroMontant(m), fac=+m.retroFacture||0;
-                return <tr key={m.id} style={{borderBottom:'1px solid '+RULE}}>
-                  <td style={{padding:'6px 4px'}}>
-                    <div className={du>0?'b':''}>{m.lot}</div>
-                    <div className="mut">{eur(m.montantHT)} HT</div>
-                  </td>
-                  <td style={{padding:'6px 4px'}}>
-                    <input className="in" type="number" step="0.5" placeholder="0" style={{padding:'5px 4px',fontSize:13,textAlign:'right'}}
-                      value={m.retroPct===undefined||m.retroPct===null?'':m.retroPct}
-                      onChange={e=>updMarche(m.id,{retroPct:e.target.value===''?'':+e.target.value})}/>
-                  </td>
-                  <td style={{padding:'6px 4px',textAlign:'right',whiteSpace:'nowrap'}} className={du>0?'b':'mut'}>{du>0?eur(du):'—'}</td>
-                  <td style={{padding:'6px 4px'}}>
-                    <input className="in" type="number" placeholder="—" style={{padding:'5px 4px',fontSize:13,textAlign:'right'}}
-                      value={m.retroFacture===undefined||m.retroFacture===null?'':m.retroFacture}
-                      onChange={e=>updMarche(m.id,{retroFacture:e.target.value===''?'':+e.target.value})}/>
-                    {du>0&&fac>0&&fac<du&&<div className="mut" style={{textAlign:'right',marginTop:2}}>reste {eur(du-fac)}</div>}
-                  </td>
-                  <td style={{padding:'6px 4px',textAlign:'right',whiteSpace:'nowrap'}}>
-                    {m.retroLien
-                      ?<a href={m.retroLien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Voir</a>
-                      :<label style={{color:NAVY}}>{busyRetro===m.id?'Envoi…':'Joindre'}
-                        <input type="file" accept="application/pdf,image/*" style={{display:'none'}} disabled={busyRetro===m.id}
-                          onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importRetro(m.id,file)}}/></label>}
-                  </td>
-                </tr>;
-              })}
+              {groupes.map(g=>[
+                <tr key={g.type+'-t'} style={{background:'#F3F1EC'}}>
+                  <td colSpan="5" className="xs b" style={{padding:'5px 4px',color:NAVY,letterSpacing:'.04em'}}>{g.titre}</td>
+                </tr>,
+                ...g.lignes.map(({src,label,sous})=>{
+                  const du=retroMontant(src), fac=+src.retroFacture||0;
+                  return <tr key={g.type+src.id} style={{borderBottom:'1px solid '+RULE}}>
+                    <td style={{padding:'6px 4px'}}>
+                      <div className={du>0?'b':''}>{label}</div>
+                      <div className="mut">{eur(retroBase(src))} HT{sous?' · '+sous:''}</div>
+                    </td>
+                    <td style={{padding:'6px 4px'}}>
+                      <input className="in" type="number" step="0.5" placeholder="0" style={{padding:'5px 4px',fontSize:13,textAlign:'right'}}
+                        value={src.retroPct===undefined||src.retroPct===null?'':src.retroPct}
+                        onChange={e=>updRetro(g.type,src.id,{retroPct:e.target.value===''?'':+e.target.value})}/>
+                    </td>
+                    <td style={{padding:'6px 4px',textAlign:'right',whiteSpace:'nowrap'}} className={du>0?'b':'mut'}>{du>0?eur(du):'—'}</td>
+                    <td style={{padding:'6px 4px'}}>
+                      <input className="in" type="number" placeholder="—" style={{padding:'5px 4px',fontSize:13,textAlign:'right'}}
+                        value={src.retroFacture===undefined||src.retroFacture===null?'':src.retroFacture}
+                        onChange={e=>updRetro(g.type,src.id,{retroFacture:e.target.value===''?'':+e.target.value})}/>
+                      {du>0&&fac>0&&fac<du&&<div className="mut" style={{textAlign:'right',marginTop:2}}>reste {eur(du-fac)}</div>}
+                    </td>
+                    <td style={{padding:'6px 4px',textAlign:'right',whiteSpace:'nowrap'}}>
+                      {src.retroLien
+                        ?<a href={src.retroLien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Voir</a>
+                        :<label style={{color:NAVY}}>{busyRetro===src.id?'Envoi…':'Joindre'}
+                          <input type="file" accept="application/pdf,image/*" style={{display:'none'}} disabled={busyRetro===src.id}
+                            onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importRetro(g.type,src.id,file)}}/></label>}
+                    </td>
+                  </tr>;
+                })
+              ])}
               <tr style={{borderTop:'2px solid '+RULE}}>
                 <td style={{padding:'8px 4px'}} className="b">TOTAL</td>
                 <td/>
@@ -1595,10 +1610,12 @@ function Bilan({data,open}){
     const ms=data.marches.filter(m=>m.chantierId===c.id);
     const eng=ms.reduce((s,m)=>s+(m.montantHT||0),0);
     const fac=ms.reduce((s,m)=>s+(m.facture||0),0);
-    const mat=data.commandes.filter(x=>x.chantierId===c.id).reduce((s,x)=>s+(x.montant||0),0);
+    const cs=data.commandes.filter(x=>x.chantierId===c.id);
+    const mat=cs.reduce((s,x)=>s+(x.montant||0),0);
     const hono=honoAmount(c), honoFac=sumMontants(c.honoFactures);
-    const retro=ms.reduce((s,m)=>s+retroMontant(m),0);
-    const retroFac=ms.reduce((s,m)=>s+(+m.retroFacture||0),0);
+    const retroSrc=[...ms,...cs];
+    const retro=retroSrc.reduce((s,x)=>s+retroMontant(x),0);
+    const retroFac=retroSrc.reduce((s,x)=>s+(+x.retroFacture||0),0);
     const av=(eng||c.budget)?Math.round(fac/(eng||c.budget)*100):0;
     return {...c,eng,fac,mat,hono,honoFac,retro,retroFac,av,budgetTTC:ttc(c.budget,c),honoTTC:ttc(hono,c),ecart:(c.budget||0)-eng};
   });
