@@ -67,6 +67,218 @@ const DOCS=[{id:'pc_depot',l:'Dépôt du permis de construire'},{id:'pc_arrete',
 const JALONS=['Dépôt du permis','Obtention du permis','Signature des marchés','Ouverture de chantier','Terrassement','Fondations','Élévation des murs','Charpente / couverture',"Hors d'eau — hors d'air",'Second œuvre','Réception des travaux','Levée des réserves'];
 const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Travaux',reception:'Réception',clos:'Clos'};
 
+/* ---------- trame de contrôle chantier : corps d'état → points de contrôle ---------- */
+const CTRL_ST=[{id:'conforme',label:'Conforme',c:GREEN},{id:'non_conforme',label:'Non conforme',c:TERRA},{id:'neant',label:'Néant',c:MUTED}];
+const CONTROLES=[
+  {id:'terrassement',l:'Terrassement',pts:[
+    ['implant',"Implantation et piquetage conformes au plan de masse"],
+    ['decapage',"Décapage de la terre végétale et stockage sur site"],
+    ['fouilles',"Fond de fouille sain, hors gel, aux niveaux prévus"],
+    ['g2',"Prescriptions de l'étude de sol G2 respectées"],
+    ['purges',"Purges et substitutions réalisées si sol hétérogène"],
+    ['remblais',"Remblais compactés par couches"],
+    ['evac',"Évacuation des terres excédentaires"],
+  ]},
+  {id:'vrd',l:'VRD / Assainissement',pts:[
+    ['tranchees',"Tranchées aux profondeurs et lits de pose réglementaires"],
+    ['grillage',"Grillages avertisseurs posés aux bonnes couleurs"],
+    ['gaines',"Gaines et fourreaux en attente repérés et bouchonnés"],
+    ['pentes',"Pentes d'écoulement EU / EP conformes"],
+    ['regards',"Regards de branchement accessibles et à niveau"],
+    ['ep',"Gestion des eaux pluviales (puisard, noue, cuve) conforme au PC"],
+    ['branchements',"Branchements concessionnaires (eau, élec, télécom) raccordés"],
+    ['voirie',"Structure de voirie, bordures et caniveaux conformes"],
+  ]},
+  {id:'maconnerie',l:'Maçonnerie / Gros œuvre',pts:[
+    ['ferraillage',"Ferraillage des semelles conforme (sections, recouvrements, enrobage)"],
+    ['beton',"Béton conforme (classe, résistance, bons de livraison)"],
+    ['drainage',"Drainage périphérique et étanchéité des parties enterrées"],
+    ['coupure',"Coupure de capillarité présente"],
+    ['arases',"Arases de niveau, planéité vérifiée"],
+    ['chainages',"Chaînages horizontaux et verticaux réalisés"],
+    ['aplomb',"Aplomb et équerrage des murs"],
+    ['reservations',"Réservations et trémies conformes aux plans"],
+    ['appuis',"Appuis de baies, linteaux et seuils conformes"],
+    ['vs',"Vide sanitaire ventilé / plancher conforme"],
+  ]},
+  {id:'charpente',l:'Charpente',pts:[
+    ['essence',"Essence, sections et classement du bois conformes"],
+    ['traitement',"Traitement du bois (classe d'emploi) justifié"],
+    ['entraxes',"Entraxes des fermes / chevrons conformes au plan"],
+    ['fixations',"Fixations, sabots et connecteurs conformes"],
+    ['contrevent',"Contreventement et anti-flambement posés"],
+    ['appuis_ch',"Appuis et chaînages de reprise corrects"],
+    ['tremie_ch',"Trémie de conduit respectant les distances de sécurité"],
+  ]},
+  {id:'couverture',l:'Couverture',pts:[
+    ['ecran',"Écran de sous-toiture posé avec recouvrements"],
+    ['liteaunage',"Liteaunage / contre-lattage à l'entraxe du modèle"],
+    ['pureau',"Pureau et recouvrement des tuiles conformes"],
+    ['faitage',"Faîtage et arêtiers ventilés"],
+    ['rives',"Rives, noues et solins d'étanchéité"],
+    ['penetrations',"Pénétrations (conduits, chatières, sorties VMC) étanchées"],
+    ['ventilation',"Ventilation de la couverture assurée"],
+  ]},
+  {id:'gouttiere',l:'Gouttières / Zinguerie',pts:[
+    ['section',"Section des chéneaux adaptée à la surface de toiture"],
+    ['pente_g',"Pente des gouttières vers les descentes"],
+    ['fixations_g',"Crochets et fixations à l'entraxe prescrit"],
+    ['descentes',"Descentes EP raccordées au réseau (pas de rejet au sol)"],
+    ['dauphins',"Dauphins en pied de descente"],
+    ['etancheite_g',"Soudures et jonctions étanches"],
+  ]},
+  {id:'menuiseries_ext',l:'Menuiseries extérieures',pts:[
+    ['conformite',"Dimensions, sens d'ouverture et vitrages conformes au devis"],
+    ['perf',"Performances thermiques (Uw, Sw) conformes à l'étude"],
+    ['fixations_m',"Fixations et pattes de scellement conformes DTU"],
+    ['calfeutrement',"Calfeutrement périphérique et joints d'étanchéité"],
+    ['rejingot',"Rejingots et appuis avec pente"],
+    ['seuil_pmr',"Seuil PMR si requis"],
+    ['vitrage_secu',"Vitrage de sécurité aux emplacements réglementaires"],
+    ['volets',"Volets / stores et coffres posés et fonctionnels"],
+    ['manoeuvre',"Manœuvre, réglages et étanchéité testés"],
+  ]},
+  {id:'ravalement',l:'Ravalement / Façades',pts:[
+    ['support',"Support préparé (dépoussiérage, humidification)"],
+    ['treillis',"Treillis d'armature aux points singuliers"],
+    ['joints_dilat',"Joints de dilatation et de fractionnement respectés"],
+    ['epaisseur',"Épaisseurs et nombre de passes conformes"],
+    ['teinte',"Teinte et finition conformes au permis de construire"],
+    ['encadrements',"Appuis, encadrements et bavettes finis"],
+    ['garde_au_sol',"Garde au sol et arrêt d'enduit corrects"],
+    ['fissures',"Absence de fissuration / faïençage"],
+  ]},
+  {id:'isolation',l:'Isolation des combles',pts:[
+    ['r_thermique',"Résistance thermique R conforme à l'étude RE2020"],
+    ['epaisseur_iso',"Épaisseur soufflée / posée contrôlée"],
+    ['reperes',"Fiche de pose et repères d'épaisseur en place"],
+    ['pare_vapeur',"Pare-vapeur continu et jonctions scotchées"],
+    ['trappe',"Trappe d'accès isolée et étanche"],
+    ['spots',"Protection des spots et conduits (distances de sécurité)"],
+    ['ventilation_c',"Ventilation des combles conservée (chatières non obstruées)"],
+    ['boites',"Boîtes de dérivation restées accessibles"],
+  ]},
+  {id:'placo',l:'Placo / Cloisons et doublages',pts:[
+    ['ossature',"Ossature métallique à l'entraxe prescrit"],
+    ['rails',"Rails désolidarisés en périphérie (bandes résilientes)"],
+    ['renforts',"Renforts prévus pour charges lourdes (meubles, sanitaires)"],
+    ['vissage',"Vissage à l'entraxe, têtes de vis non déchirées"],
+    ['hydrofuge',"Plaques hydrofuges en pièces humides"],
+    ['coupe_feu',"Plaques coupe-feu aux endroits réglementaires"],
+    ['gaines_placo',"Passage des gaines sans blesser l'isolant"],
+    ['planeite',"Planéité et aplomb dans les tolérances"],
+    ['trappes',"Trappes de visite prévues et accessibles"],
+  ]},
+  {id:'bandes',l:'Bandes / Joints et enduits',pts:[
+    ['bandes_pose',"Bandes noyées sans bulle ni décollement"],
+    ['angles',"Angles saillants protégés (baguettes)"],
+    ['enduit_finition',"Enduit de finition poncé, sans manque"],
+    ['planeite_b',"Planéité de finition (règle de 2 m)"],
+    ['fissures_b',"Absence de fissures aux jonctions"],
+    ['prep_peinture',"Support dépoussiéré, prêt à peindre"],
+  ]},
+  {id:'electricite',l:'Électricité',pts:[
+    ['schema',"Schéma / plan de l'installation fourni"],
+    ['tableau',"Tableau électrique repéré et étiqueté"],
+    ['differentiels',"Différentiels et disjoncteurs adaptés aux circuits"],
+    ['sections',"Sections de câbles adaptées aux protections"],
+    ['terre',"Prise de terre et liaisons équipotentielles mesurées"],
+    ['volumes',"Respect des volumes de sécurité en pièces d'eau"],
+    ['points',"Nombre et emplacement des points conformes au plan"],
+    ['dcl',"Boîtes DCL et pieuvres conformes"],
+    ['vmc_elec',"Alimentation VMC sur circuit dédié"],
+    ['reseaux_com',"Coffret de communication et prises RJ45"],
+    ['consuel',"Attestation de conformité CONSUEL obtenue"],
+  ]},
+  {id:'plomberie',l:'Plomberie / Sanitaires',pts:[
+    ['alim',"Alimentations EF / EC repérées et isolables"],
+    ['pression',"Essai de pression / d'étanchéité réalisé"],
+    ['evacuations',"Évacuations aux pentes et diamètres conformes"],
+    ['ventilation_p',"Ventilation primaire des chutes"],
+    ['acces',"Accessibilité des organes de coupe et robinets d'arrêt"],
+    ['calorifuge',"Calorifugeage des réseaux en volume non chauffé"],
+    ['eau_chaude',"Production d'eau chaude conforme à l'étude"],
+    ['appareils',"Appareils sanitaires posés, fixés et étanchés"],
+    ['etancheite_douche',"Étanchéité des receveurs et parois de douche"],
+  ]},
+  {id:'chauffage',l:'Chauffage / VMC',pts:[
+    ['puissance',"Puissance et matériel conformes à l'étude thermique"],
+    ['implantation',"Implantation PAC / chaudière (accès, dégagements, condensats)"],
+    ['emetteurs',"Émetteurs posés aux emplacements prévus"],
+    ['equilibrage',"Équilibrage et réglage des circuits"],
+    ['regulation',"Régulation / thermostats programmés"],
+    ['evac_fumees',"Évacuation des fumées / conduit conforme"],
+    ['vmc',"VMC : débits, caissons et bouches conformes"],
+    ['essai_chauffe',"Essai de chauffe réalisé"],
+    ['attestation',"Attestations, notices et garanties remises"],
+  ]},
+  {id:'chape',l:'Chape',pts:[
+    ['support_chape',"Support propre, désolidarisation périphérique"],
+    ['isolant_sous',"Isolant sous chape conforme à l'étude thermique"],
+    ['film',"Film polyane et bandes de rive posés"],
+    ['pcbt',"Essais de la boucle PCBT avant coulage"],
+    ['epaisseur_chape',"Épaisseur conforme (enrobage des gaines)"],
+    ['planeite_chape',"Planéité et niveaux dans les tolérances DTU"],
+    ['joints_chape',"Joints de fractionnement aux seuils et grandes surfaces"],
+    ['sechage',"Délai de séchage respecté avant revêtement"],
+  ]},
+  {id:'sols',l:'Revêtements de sols / Carrelage',pts:[
+    ['support_sol',"Support conforme (humidité mesurée, planéité)"],
+    ['calepinage',"Calepinage validé avec le client"],
+    ['colle',"Colle et joints adaptés au support et au local"],
+    ['spec',"Étanchéité (SPEC) sous carrelage en pièces d'eau"],
+    ['pente_douche',"Pente et évacuation des douches à l'italienne"],
+    ['joints_dilat_sol',"Joints de dilatation et de fractionnement respectés"],
+    ['plinthes',"Plinthes et barres de seuil posées"],
+    ['aspect',"Aspect : pas d'épaufrure ni de carreau sonnant creux"],
+  ]},
+  {id:'menuiseries_int',l:'Menuiseries intérieures',pts:[
+    ['blocs_portes',"Blocs-portes conformes au devis (sens, dimensions, finition)"],
+    ['pose_mi',"Pose d'aplomb, jeux réguliers, béquilles alignées"],
+    ['fermeture',"Fermeture et verrouillage sans point dur"],
+    ['plinthes_mi',"Plinthes, cimaises et habillages finis"],
+    ['placards',"Placards et rangements posés et réglés"],
+  ]},
+  {id:'escaliers',l:'Escaliers',pts:[
+    ['dimensions',"Giron, hauteur de marche et emmarchement conformes"],
+    ['echappee',"Échappée de tête (2 m minimum) respectée"],
+    ['tremie_e',"Trémie conforme au plan"],
+    ['fixations_e',"Fixations et scellements conformes"],
+    ['garde_corps',"Garde-corps : hauteur et écartement des barreaux conformes"],
+    ['main_courante',"Main courante continue et préhensible"],
+    ['finition_e',"Finition, absence de jeu et de grincement"],
+  ]},
+  {id:'peinture',l:'Peinture',pts:[
+    ['prep',"Préparation des supports (rebouchage, ponçage, impression)"],
+    ['nb_couches',"Nombre de couches conforme au devis"],
+    ['teintes',"Teintes validées par le client"],
+    ['protection',"Protection des ouvrages voisins et des sols"],
+    ['pieces_humides',"Peinture adaptée aux pièces humides"],
+    ['boiseries',"Boiseries et huisseries peintes / lasurées"],
+    ['finition_p',"Finition régulière : pas de trace, coulure ni manque"],
+  ]},
+  {id:'amenagement_ext',l:'Aménagement extérieur',pts:[
+    ['niveaux_ext',"Niveaux et pentes éloignant l'eau du bâti"],
+    ['terrasse',"Terrasse : structure, pente, plots et fixations"],
+    ['allees',"Allées et stationnements (structure, drainage)"],
+    ['clotures',"Clôtures et portails conformes au PC et au règlement"],
+    ['regards_ext',"Regards et tampons accessibles et à niveau"],
+    ['eclairage_ext',"Éclairage extérieur raccordé et fonctionnel"],
+    ['plantations',"Plantations et engazonnement réalisés"],
+    ['nettoyage',"Nettoyage du chantier et évacuation des déchets"],
+  ]},
+  {id:'reception',l:'Réception / Général',pts:[
+    ['conformite_pc',"Conformité générale au permis de construire"],
+    ['reserves',"Réserves listées au PV de réception"],
+    ['levee',"Levée des réserves constatée"],
+    ['doe',"DOE, notices et garanties remis"],
+    ['attest_re2020',"Attestation RE2020 de fin de travaux"],
+    ['daact_ctrl',"DAACT déposée en mairie"],
+    ['nettoyage_fin',"Nettoyage de fin de chantier"],
+    ['cles',"Remise des clés et des badges"],
+  ]},
+];
+
 const uid=()=>Math.random().toString(36).slice(2,10);
 const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
 const today=()=>new Date().toISOString().slice(0,10);
@@ -184,6 +396,15 @@ async function driveMarchesFolder(token,chantierId,chantierNom){
   const parentId=await driveChantierFolder(token,chantierId,chantierNom);
   const id=await driveFindOrCreateSubfolder(token,parentId,'Marchés');
   driveMarchesFolders.set(chantierId,id);
+  return id;
+}
+
+const driveControlesFolders=new Map();
+async function driveControlesFolder(token,chantierId,chantierNom){
+  if(driveControlesFolders.has(chantierId))return driveControlesFolders.get(chantierId);
+  const parentId=await driveChantierFolder(token,chantierId,chantierNom);
+  const id=await driveFindOrCreateSubfolder(token,parentId,'Contrôles');
+  driveControlesFolders.set(chantierId,id);
   return id;
 }
 
@@ -353,10 +574,12 @@ function Chantiers({data,save,open}){
       const e=eng(c.id),pct=c.budget?Math.min(100,Math.round(e/c.budget*100)):0;
       const nd=DOCS.filter(d=>c.docs&&c.docs[d.id]&&c.docs[d.id].fait).length;
       const np=data.photos.filter(p=>p.chantierId===c.id).length;
+      const nKo=Object.values(c.controles||{}).filter(r=>r.statut==='non_conforme').length;
       return <button key={c.id} className="card" style={{borderLeft:'3px solid '+NAVY}} onClick={()=>open(c.id)}>
         <div className="sp"><span className="b sm" style={{color:NAVY}}>{c.nom}</span><span className="xs mut">{PHASE[c.statut]}</span></div>
         <div className="xs mut" style={{marginTop:3}}>{c.client}{c.adresse?' — '+c.adresse:''}</div>
         <div className="sp xs" style={{marginTop:8}}><span>Engagé <b>{eur(e)}</b> / {eur(c.budget)}</span><span className="mut">{nd}/{DOCS.length} pièces · {np} photo{np>1?'s':''}</span></div>
+        {nKo>0&&<div className="xs b" style={{color:TERRA,marginTop:4}}>{nKo} point{nKo>1?'s':''} de contrôle non conforme{nKo>1?'s':''}</div>}
         <div className="bar"><div style={{height:4,width:pct+'%',background:e>c.budget?TERRA:NAVY}}/></div>
       </button>;
     })}
@@ -413,10 +636,11 @@ function Fiche({data,ch,save,back}){
       </div>
     </div>}
     <div className="tabs">
-      {[['marches','MARCHÉS'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
+      {[['marches','MARCHÉS'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
     </div>
     {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}/>}
+    {tab==='ctrl'&&<Controles data={data} ch={ch} save={save}/>}
     {tab==='photos'&&<Photos data={data} ch={ch} save={save}/>}
     {tab==='cmd'&&<Commandes data={data} ch={ch} save={save}/>}
     {tab==='planning'&&<Planning data={data} ch={ch} up={up}/>}
@@ -816,6 +1040,128 @@ function Docs({ch,up}){
           </div>
         </div>
       </div></div>})}
+  </div>;
+}
+
+/* ---------------- CONTRÔLE CHANTIER ---------------- */
+function ThumbCtrl({id,onZoom,onDel}){
+  const [src,setSrc]=useState(null);
+  useEffect(()=>{let a=true;Photo.get(id).then(v=>{if(a)setSrc(v)}).catch(()=>{});return()=>{a=false}},[id]);
+  return <div style={{position:'relative',width:66,height:52,border:'1px solid '+RULE,background:'#EFECE6',flex:'0 0 auto'}}>
+    {src&&<img src={src} onClick={onZoom} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>}
+    <button onClick={onDel} title="Retirer la photo" style={{position:'absolute',top:-1,right:-1,width:18,height:18,lineHeight:'16px',padding:0,fontSize:11,border:'none',background:TERRA,color:'#fff'}}>✕</button>
+  </div>;
+}
+
+function Controles({data,ch,save}){
+  const c=ch.controles||{};
+  const [ouvert,setOuvert]=useState({});
+  const [busy,setBusy]=useState(null);
+  const [filtre,setFiltre]=useState('tous');
+  const [zoom,setZoom]=useState(null);
+
+  const upCtrl=next=>save({...data,chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,controles:next}:x)});
+  const setPt=(key,patch)=>{
+    const cur=c[key]||{};
+    upCtrl({...c,[key]:{...cur,...patch,date:patch.date!==undefined?patch.date:(cur.date||today())}});
+  };
+  const addPhotos=async(key,corpsL,ptL,files)=>{
+    setBusy(key);
+    const nouveaux=[];
+    for(const file of files){
+      try{
+        const d=await compress(file);
+        const pid=uid();
+        await Photo.put(pid,d);
+        let lien='';
+        try{
+          const token=await getDriveToken();
+          const folderId=await driveControlesFolder(token,ch.id,ch.nom);
+          lien=(await uploadToDrive(file,folderId)).webViewLink;
+        }catch(x){/* miniature conservée même sans Drive */}
+        nouveaux.push({id:pid,chantierId:ch.id,date:today(),legende:'Contrôle — '+corpsL+' : '+ptL,lot:'',lien});
+      }catch(x){/* photo ignorée */}
+    }
+    if(nouveaux.length){
+      const cur=c[key]||{};
+      const next={...c,[key]:{...cur,photos:[...(cur.photos||[]),...nouveaux.map(p=>p.id)],date:cur.date||today()}};
+      save({...data,photos:[...data.photos,...nouveaux],chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,controles:next}:x)});
+    }
+    setBusy(null);
+  };
+  const delPhoto=async(key,pid)=>{
+    await Photo.del(pid).catch(()=>{});
+    const cur=c[key]||{};
+    const next={...c,[key]:{...cur,photos:(cur.photos||[]).filter(x=>x!==pid)}};
+    save({...data,photos:data.photos.filter(p=>p.id!==pid),chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,controles:next}:x)});
+  };
+
+  const keep=(g,k)=>{
+    const r=c[g.id+'.'+k]||{};
+    if(filtre==='todo')return !r.statut;
+    if(filtre==='ko')return r.statut==='non_conforme';
+    return true;
+  };
+  const tot=CONTROLES.reduce((s,g)=>s+g.pts.length,0);
+  const nOk=Object.values(c).filter(r=>r.statut==='conforme').length;
+  const nKo=Object.values(c).filter(r=>r.statut==='non_conforme').length;
+  const nNe=Object.values(c).filter(r=>r.statut==='neant').length;
+
+  return <div>
+    <div className="g3 xs" style={{marginBottom:12}}>
+      <div className="card" style={{margin:0,padding:8}}><div className="mut">Conformes</div><div className="b" style={{color:GREEN,fontSize:16}}>{nOk}</div></div>
+      <div className="card" style={{margin:0,padding:8}}><div className="mut">Non conformes</div><div className="b" style={{color:TERRA,fontSize:16}}>{nKo}</div></div>
+      <div className="card" style={{margin:0,padding:8}}><div className="mut">À contrôler</div><div className="b" style={{fontSize:16}}>{tot-nOk-nKo-nNe}</div></div>
+    </div>
+    {nKo>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
+      {nKo} point{nKo>1?'s':''} non conforme{nKo>1?'s':''} à lever avant réception.</div>}
+    <div className="row" style={{gap:8,marginBottom:12,flexWrap:'wrap'}}>
+      {[['tous','Tous'],['todo','À contrôler'],['ko','Non conformes']].map(([id,l])=>
+        <button key={id} className={'btn s '+(filtre===id?'':'gh')} onClick={()=>setFiltre(id)}>{l}</button>)}
+    </div>
+    <DriveStatus/>
+    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Les photos de contrôle sont aussi ajoutées à l'onglet PHOTOS et envoyées sur votre Google Drive (dossier « CP Constructions › {ch.nom} › Contrôles »).</p>
+    {CONTROLES.map(g=>{
+      const pts=g.pts.filter(([k])=>keep(g,k));
+      if(!pts.length)return null;
+      const rs=g.pts.map(([k])=>c[g.id+'.'+k]||{});
+      const gOk=rs.filter(r=>r.statut==='conforme').length, gKo=rs.filter(r=>r.statut==='non_conforme').length;
+      const gDone=rs.filter(r=>r.statut).length;
+      const isOpen=filtre!=='tous'||ouvert[g.id];
+      return <div key={g.id} style={{marginBottom:8}}>
+        <button className="card sp" style={{borderLeft:'3px solid '+(gKo?TERRA:gDone===g.pts.length?GREEN:RULE),padding:10,marginBottom:0}}
+          onClick={()=>setOuvert({...ouvert,[g.id]:!ouvert[g.id]})}>
+          <span className="b sm" style={{color:NAVY}}>{g.l}</span>
+          <span className="xs mut">{gDone}/{g.pts.length}{gKo?' · '+gKo+' NC':''} {isOpen?'▾':'▸'}</span>
+        </button>
+        {isOpen&&pts.map(([k,label])=>{
+          const key=g.id+'.'+k, r=c[key]||{};
+          const st=CTRL_ST.find(s=>s.id===r.statut);
+          return <div key={k} className="card" style={{borderLeft:'3px solid '+(st?st.c:RULE),padding:10,marginBottom:0,borderTop:'none'}}>
+            <div className="sm" style={{lineHeight:1.35}}>{label}</div>
+            <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
+              {CTRL_ST.map(s=><button key={s.id} className="btn s" onClick={()=>setPt(key,{statut:r.statut===s.id?'':s.id})}
+                style={{background:r.statut===s.id?s.c:'transparent',borderColor:r.statut===s.id?s.c:RULE,color:r.statut===s.id?'#fff':MUTED}}>{s.label}</button>)}
+            </div>
+            {r.statut&&<div style={{marginTop:10}}>
+              <div className="g2">
+                <div><span className="lbl">DATE DU CONTRÔLE</span>
+                  <input className="in" type="date" value={r.date||today()} onChange={e=>setPt(key,{date:e.target.value})}/></div>
+                <div><span className="lbl">JUSTIFICATIF</span>
+                  <input className="in" placeholder="Observation, référence…" value={r.note||''} onChange={e=>setPt(key,{note:e.target.value})}/></div>
+              </div>
+              <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
+                {(r.photos||[]).map(pid=><ThumbCtrl key={pid} id={pid} onZoom={()=>setZoom({id:pid,date:r.date,legende:label})} onDel={()=>delPhoto(key,pid)}/>)}
+                <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{busy===key?'Envoi…':'+ Photo'}
+                  <input type="file" accept="image/*" multiple style={{display:'none'}} disabled={busy===key}
+                    onChange={e=>{const files=[...e.target.files];e.target.value='';if(files.length)addPhotos(key,g.l,label,files)}}/></label>
+              </div>
+            </div>}
+          </div>;
+        })}
+      </div>;
+    })}
+    {zoom&&<Plein p={zoom} close={()=>setZoom(null)}/>}
   </div>;
 }
 
