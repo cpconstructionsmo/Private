@@ -89,8 +89,9 @@ const Photo={
   async del(id){await sb.storage.from('photos').remove([id+'.jpg']);},
 };
 
-/* ---------- documents PDF : envoyés vers le Google Drive de l'utilisateur ---------- */
+/* ---------- documents PDF & photos originales : envoyés vers le Google Drive de l'utilisateur ---------- */
 let driveToken=null, driveTokenClient=null, driveFolderId=null;
+const driveSubfolders=new Map();
 
 function getDriveToken(){
   return new Promise((resolve,reject)=>{
@@ -126,11 +127,32 @@ async function driveFolder(token){
   return driveFolderId;
 }
 
-async function uploadToDrive(file){
+async function driveChantierFolder(token,chantierId,chantierNom){
+  if(driveSubfolders.has(chantierId))return driveSubfolders.get(chantierId);
+  const rootId=await driveFolder(token);
+  const safeName=chantierNom.replace(/'/g,"\\'");
+  const q=encodeURIComponent(`name='${safeName}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${rootId}' in parents`);
+  const r=await fetch('https://www.googleapis.com/drive/v3/files?q='+q,{headers:{Authorization:'Bearer '+token}});
+  const j=await r.json();
+  let id;
+  if(j.files&&j.files.length){id=j.files[0].id}
+  else{
+    const c=await fetch('https://www.googleapis.com/drive/v3/files',{
+      method:'POST',
+      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({name:chantierNom,mimeType:'application/vnd.google-apps.folder',parents:[rootId]}),
+    });
+    id=(await c.json()).id;
+  }
+  driveSubfolders.set(chantierId,id);
+  return id;
+}
+
+async function uploadToDrive(file,folderId){
   const token=await getDriveToken();
-  const folderId=await driveFolder(token);
+  const parent=folderId||await driveFolder(token);
   const form=new FormData();
-  form.append('metadata',new Blob([JSON.stringify({name:file.name,parents:[folderId]})],{type:'application/json'}));
+  form.append('metadata',new Blob([JSON.stringify({name:file.name,parents:[parent]})],{type:'application/json'}));
   form.append('file',file);
   const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',{
     method:'POST',headers:{Authorization:'Bearer '+token},body:form,
@@ -368,6 +390,7 @@ function Marches({data,ch,save,eng,fac}){
 function Photos({data,ch,save}){
   const list=data.photos.filter(p=>p.chantierId===ch.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const [busy,setBusy]=useState(false);
+  const [driveIssue,setDriveIssue]=useState(false);
   const [zoom,setZoom]=useState(null);
   const [edit,setEdit]=useState(null);
 
@@ -375,16 +398,25 @@ function Photos({data,ch,save}){
     const files=[...e.target.files]; e.target.value='';
     if(!files.length)return;
     setBusy(true);
+    setDriveIssue(false);
     const nouveaux=[];
+    let driveFailed=false;
     for(const file of files){
       try{
         const d=await compress(file);
         const id=uid();
         await Photo.put(id,d);
-        nouveaux.push({id,chantierId:ch.id,date:today(),legende:'',lot:'',lien:''});
+        let lien='';
+        try{
+          const token=await getDriveToken();
+          const folderId=await driveChantierFolder(token,ch.id,ch.nom);
+          lien=(await uploadToDrive(file,folderId)).webViewLink;
+        }catch(x){driveFailed=true}
+        nouveaux.push({id,chantierId:ch.id,date:today(),legende:'',lot:'',lien});
       }catch(x){/* photo ignorée */}
     }
     if(nouveaux.length)save({...data,photos:[...data.photos,...nouveaux]});
+    setDriveIssue(driveFailed);
     setBusy(false);
   };
   const del=async id=>{await Photo.del(id).catch(()=>{});save({...data,photos:data.photos.filter(p=>p.id!==id)})};
@@ -396,7 +428,8 @@ function Photos({data,ch,save}){
       <label className="btn acc s">{busy?'Traitement…':'+ Photos'}
         <input type="file" accept="image/*" multiple onChange={add} style={{display:'none'}}/></label>
     </div>
-    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Les photos sont réduites pour tenir dans le téléphone. Gardez les originaux dans le dossier Drive du chantier.</p>
+    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Une version réduite s'affiche dans l'app ; l'original en pleine qualité est envoyé automatiquement sur votre Google Drive (dossier « CP Constructions › {ch.nom} »).</p>
+    {driveIssue&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>Photo(s) enregistrée(s) dans l'app, mais l'envoi de l'original vers Google Drive a échoué pour au moins une photo. Vérifiez votre connexion et l'autorisation Google.</div>}
     {!list.length&&<Empty>Aucune photo. Prenez le chantier en photo à chaque visite.</Empty>}
     <div className="grid-ph">
       {list.map(p=><Vignette key={p.id} p={p} onZoom={()=>setZoom(p)} onEdit={()=>setEdit(p)}/>)}
@@ -405,7 +438,10 @@ function Photos({data,ch,save}){
       <Fld label="DATE"><input className="in" type="date" value={edit.date} onChange={e=>setEdit({...edit,date:e.target.value})}/></Fld>
       <Fld label="LÉGENDE"><input className="in" placeholder="Coulage dalle — angle nord" value={edit.legende} onChange={e=>setEdit({...edit,legende:e.target.value})}/></Fld>
       <Fld label="LOT CONCERNÉ"><select className="in" value={edit.lot} onChange={e=>setEdit({...edit,lot:e.target.value})}><option value="">— aucun —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
-      <Fld label="LIEN VERS L'ORIGINAL"><input className="in" placeholder="Lien Drive…" value={edit.lien} onChange={e=>setEdit({...edit,lien:e.target.value})}/></Fld>
+      <Fld label="LIEN VERS L'ORIGINAL">
+        <input className="in" placeholder="Lien Drive…" value={edit.lien} onChange={e=>setEdit({...edit,lien:e.target.value})}/>
+        {edit.lien&&<a href={edit.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA,display:'inline-block',marginTop:6}}>Ouvrir sur Drive</a>}
+      </Fld>
       <Acts onSave={()=>{upd(edit);setEdit(null)}} onCancel={()=>setEdit(null)} onDel={()=>{del(edit.id);setEdit(null)}}/>
     </div>}
     {zoom&&<Plein p={zoom} close={()=>setZoom(null)}/>}
