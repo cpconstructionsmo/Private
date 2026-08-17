@@ -51,7 +51,7 @@
 <div id="root" style="padding-bottom:74px"></div>
 
 <script type="text/babel">
-const {useState,useEffect} = React;
+const {useState,useEffect,useRef} = React;
 const NAVY='#2C4A5E',TERRA='#C5563A',INK='#1A2B36',RULE='#D4CFC5',MUTED='#6E7B84',GREEN='#3F7A5A',AMBER='#B07D12';
 const KEY='cp-constructions-data-v2';
 
@@ -64,7 +64,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
-const DOCS=[{id:'pc_depot',l:'Dépôt du permis de construire'},{id:'pc_arrete',l:'Arrêté de permis de construire'},{id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},{id:'daact',l:'DAACT (Cerfa 13408)'},{id:'plans_pc',l:'Plans du permis'},{id:'plans_exe',l:"Plans d'exécution"},{id:'notice',l:'Notice descriptive'},{id:'thermique',l:'Étude thermique RE2020'},{id:'sol',l:'Étude de sol G2'},{id:'do',l:'Assurance dommages-ouvrage'},{id:'pret',l:'Accord de prêt bancaire'},{id:'acte',l:'Acte notarié du terrain'},{id:'attest',l:'Attestation RE2020 fin de travaux'},{id:'pv',l:'PV de réception'}];
+const DOCS=[{id:'contrat_moe',l:'Contrat de maîtrise d\u2019œuvre'},{id:'plans_apd',l:'Plans d\u2019avant-projet (APS / APD)'},{id:'pc_depot',l:'Dépôt du permis de construire'},{id:'pc_arrete',l:'Arrêté de permis de construire'},{id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},{id:'daact',l:'DAACT (Cerfa 13408)'},{id:'plans_pc',l:'Plans du permis'},{id:'plans_exe',l:"Plans d'exécution"},{id:'notice',l:'Notice descriptive'},{id:'thermique',l:'Étude thermique RE2020'},{id:'sol',l:'Étude de sol G2'},{id:'do',l:'Assurance dommages-ouvrage'},{id:'pret',l:'Accord de prêt bancaire'},{id:'acte',l:'Acte notarié du terrain'},{id:'attest',l:'Attestation RE2020 fin de travaux'},{id:'pv',l:'PV de réception'}];
 const JALONS=['Dépôt du permis','Obtention du permis','Signature des marchés','Ouverture de chantier','Terrassement','Fondations','Élévation des murs','Charpente / couverture',"Hors d'eau — hors d'air",'Second œuvre','Réception des travaux','Levée des réserves'];
 const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Travaux',reception:'Réception',clos:'Clos'};
 
@@ -457,6 +457,15 @@ async function driveRetroFolder(token,chantierId,chantierNom){
   return id;
 }
 
+const driveSignFolders=new Map();
+async function driveSignaturesFolder(token,chantierId,chantierNom){
+  if(driveSignFolders.has(chantierId))return driveSignFolders.get(chantierId);
+  const parentId=await driveChantierFolder(token,chantierId,chantierNom);
+  const id=await driveFindOrCreateSubfolder(token,parentId,'Signatures');
+  driveSignFolders.set(chantierId,id);
+  return id;
+}
+
 let driveAttestFolderId=null;
 async function driveAttestationsFolder(token){
   if(driveAttestFolderId)return driveAttestFolderId;
@@ -585,6 +594,21 @@ function analyseAttestation(txt){
   return out;
 }
 
+/* ---------- signature manuscrite ---------- */
+/* empreinte du contexte signé : si le libellé du document, le chantier, le signataire
+   ou l'horodatage sont modifiés après coup, l'empreinte ne correspond plus. */
+async function empreinteSignature(parts){
+  const txt=parts.join('|');
+  if(!(window.crypto&&crypto.subtle))return '';
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(txt));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,16).toUpperCase();
+}
+const dateHeure=iso=>{
+  if(!iso)return '—';
+  const d=new Date(iso);
+  return d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+};
+
 function load(){try{const r=localStorage.getItem(KEY);return r?{...EMPTY,...JSON.parse(r)}:EMPTY}catch(e){return EMPTY}}
 
 function Root(){
@@ -673,6 +697,83 @@ const Acts=({onSave,onCancel,onDel})=><div className="row" style={{gap:8}}>
   <button className="btn" onClick={onSave}>Enregistrer</button>
   <button className="btn gh" onClick={onCancel}>Annuler</button>
   {onDel&&<button className="btn dg" onClick={onDel}>Supprimer</button>}</div>;
+
+const QUALITES=['Client','Maître d’œuvre','Entreprise','Autre'];
+
+function SignaturePad({titre,onAnnuler,onSigner}){
+  const cv=useRef(null), trace=useRef(false), vide=useRef(true);
+  const [nom,setNom]=useState('');
+  const [qualite,setQualite]=useState('Client');
+  const [err,setErr]=useState('');
+  const [busy,setBusy]=useState(false);
+
+  useEffect(()=>{
+    const c=cv.current; if(!c)return;
+    const r=c.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    c.width=Math.round(r.width*dpr); c.height=Math.round(r.height*dpr);
+    const x=c.getContext('2d');
+    x.scale(dpr,dpr);
+    x.fillStyle='#fff'; x.fillRect(0,0,r.width,r.height);
+    x.lineWidth=2.2; x.lineCap='round'; x.lineJoin='round'; x.strokeStyle=INK;
+  },[]);
+
+  const pos=e=>{
+    const r=cv.current.getBoundingClientRect();
+    const p=e.touches&&e.touches[0]?e.touches[0]:e;
+    return{x:p.clientX-r.left,y:p.clientY-r.top};
+  };
+  const down=e=>{e.preventDefault();trace.current=true;const{x,y}=pos(e);const c=cv.current.getContext('2d');c.beginPath();c.moveTo(x,y)};
+  const move=e=>{if(!trace.current)return;e.preventDefault();const{x,y}=pos(e);const c=cv.current.getContext('2d');c.lineTo(x,y);c.stroke();vide.current=false};
+  const up=()=>{trace.current=false};
+  const effacer=()=>{
+    const c=cv.current, r=c.getBoundingClientRect(), x=c.getContext('2d');
+    x.fillStyle='#fff'; x.fillRect(0,0,r.width,r.height);
+    vide.current=true; setErr('');
+  };
+  const valider=async()=>{
+    if(!nom.trim()){setErr('Indiquez le nom du signataire.');return}
+    if(vide.current){setErr('La signature est vide — signez dans le cadre.');return}
+    setBusy(true);
+    try{await onSigner({nom:nom.trim(),qualite,image:cv.current.toDataURL('image/jpeg',0.8)})}
+    catch(e){setErr("Enregistrement impossible : "+((e&&e.message)||e));setBusy(false);return}
+    setBusy(false);
+  };
+
+  return <div className="modal" style={{justifyContent:'center'}}>
+    <div style={{background:'#fff',padding:16,maxWidth:520,width:'100%',margin:'auto',maxHeight:'100%',overflowY:'auto'}}>
+      <div className="b" style={{color:NAVY}}>Signature</div>
+      <div className="xs mut" style={{marginTop:3,marginBottom:12,lineHeight:1.4}}>{titre}</div>
+      <div className="g2">
+        <Fld label="NOM DU SIGNATAIRE"><input className="in" value={nom} onChange={e=>setNom(e.target.value)} placeholder="Mr et Mme Barbé"/></Fld>
+        <Fld label="QUALITÉ"><select className="in" value={qualite} onChange={e=>setQualite(e.target.value)}>
+          {QUALITES.map(q=><option key={q} value={q}>{q}</option>)}</select></Fld>
+      </div>
+      <span className="lbl">SIGNEZ DANS LE CADRE</span>
+      <canvas ref={cv} style={{width:'100%',height:170,border:'1px dashed '+RULE,background:'#fff',touchAction:'none',display:'block'}}
+        onMouseDown={down} onMouseMove={move} onMouseUp={up} onMouseLeave={up}
+        onTouchStart={down} onTouchMove={move} onTouchEnd={up}/>
+      {err&&<div className="xs" style={{color:TERRA,marginTop:8}}>{err}</div>}
+      <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
+        Signature manuscrite horodatée, conservée avec le document. Elle vaut commencement de preuve, mais ce n’est pas une
+        signature électronique qualifiée : pour un engagement contractuel important, faites contresigner un exemplaire papier
+        ou passez par un prestataire certifié.
+      </div>
+      <div className="row" style={{gap:8,marginTop:12}}>
+        <button className="btn" onClick={valider} disabled={busy}>{busy?'Enregistrement…':'Valider la signature'}</button>
+        <button className="btn gh" onClick={effacer} disabled={busy}>Effacer</button>
+        <button className="btn gh" onClick={onAnnuler} disabled={busy}>Annuler</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function VignetteSign({id}){
+  const [src,setSrc]=useState(null);
+  useEffect(()=>{let a=true;Photo.get(id).then(v=>{if(a)setSrc(v)}).catch(()=>{});return()=>{a=false}},[id]);
+  return src
+    ?<img src={src} alt="signature" style={{height:52,border:'1px solid '+RULE,background:'#fff',display:'block'}}/>
+    :<div style={{height:52,width:110,border:'1px solid '+RULE,background:'#EFECE6'}}/>;
+}
 
 function DriveStatus(){
   const[connected,setConnected]=useState(driveConnected());
@@ -849,7 +950,7 @@ function Fiche({data,ch,save,back}){
     {tab==='photos'&&<Photos data={data} ch={ch} save={save}/>}
     {tab==='cmd'&&<Commandes data={data} ch={ch} save={save}/>}
     {tab==='planning'&&<Planning data={data} ch={ch} up={up}/>}
-    {tab==='docs'&&<Docs ch={ch} up={up}/>}
+    {tab==='docs'&&<Docs data={data} ch={ch} up={up} save={save}/>}
   </div>;
 }
 
@@ -1283,9 +1384,10 @@ function Planning({data,ch,up}){
 }
 
 /* ---------------- PIÈCES ---------------- */
-function Docs({ch,up}){
+function Docs({data,ch,up,save}){
   const d=ch.docs||{};
   const [busy,setBusy]=useState(null);
+  const [signe,setSigne]=useState(null);
   const tog=id=>{const c=d[id]||{};up({docs:{...d,[id]:{...c,fait:!c.fait,date:!c.fait?today():''}}})};
   const lien=(id,v)=>up({docs:{...d,[id]:{...(d[id]||{}),lien:v}}});
   const importPdf=async(id,file)=>{
@@ -1300,25 +1402,57 @@ function Docs({ch,up}){
     }
     setBusy(null);
   };
+  const enregistrerSignature=async(doc,{nom,qualite,image})=>{
+    const sid=uid(), date=new Date().toISOString();
+    await Photo.put(sid,image);
+    const empreinte=await empreinteSignature([ch.nom,doc.l,nom,qualite,date]);
+    try{
+      const blob=await (await fetch(image)).blob();
+      const fichier=new File([blob],'signature-'+doc.id+'-'+date.slice(0,10)+'.jpg',{type:'image/jpeg'});
+      const token=await getDriveToken();
+      const folderId=await driveSignaturesFolder(token,ch.id,ch.nom);
+      await uploadToDrive(fichier,folderId);
+    }catch(e){/* la signature reste enregistrée dans l'app même sans Drive */}
+    const c=d[doc.id]||{};
+    up({docs:{...d,[doc.id]:{...c,signatures:[...(c.signatures||[]),{id:sid,nom,qualite,date,empreinte}]}}});
+    setSigne(null);
+  };
+  const retirerSignature=async(docId,sid)=>{
+    if(!confirm('Retirer définitivement cette signature ?'))return;
+    await Photo.del(sid).catch(()=>{});
+    const c=d[docId]||{};
+    up({docs:{...d,[docId]:{...c,signatures:(c.signatures||[]).filter(s=>s.id!==sid)}}});
+  };
   const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
   return <div>
     <DriveStatus/>
     <p className="xs mut" style={{marginTop:0}}>{n} pièce{n>1?'s':''} sur {DOCS.length}. Importez le PDF (envoyé sur votre Google Drive, dossier « CP Constructions ») ou collez un lien existant.</p>
-    {DOCS.map(x=>{const r=d[x.id]||{};return <div key={x.id} className="card" style={{padding:10}}>
+    {DOCS.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card" style={{padding:10}}>
       <div className="row" style={{gap:10,alignItems:'flex-start'}}>
         <button className="chk" onClick={()=>tog(x.id)} style={{background:r.fait?GREEN:'#fff',borderColor:r.fait?GREEN:RULE}}>{r.fait?'✓':''}</button>
         <div style={{flex:1}}>
           <div className="sm">{x.l}</div>
           {r.fait&&<div className="xs mut">Reçu le {fd(r.date)}</div>}
           <input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}} placeholder="Lien Drive…" value={r.lien||''} onChange={e=>lien(x.id,e.target.value)}/>
-          <div className="row" style={{gap:14,marginTop:6,alignItems:'center'}}>
+          <div className="row" style={{gap:14,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
             {r.lien&&<a href={r.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir</a>}
             <label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':'Importer un PDF'}
               <input type="file" accept="application/pdf" style={{display:'none'}} disabled={busy===x.id} onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importPdf(x.id,f)}}/>
             </label>
+            <button className="xs" style={{color:NAVY,background:'none',border:'none',padding:0}} onClick={()=>setSigne(x)}>Faire signer</button>
           </div>
+          {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
+            <VignetteSign id={s.id}/>
+            <div style={{flex:1}}>
+              <div className="xs b">{s.nom} <span className="mut">— {s.qualite}</span></div>
+              <div className="xs mut">Signé le {dateHeure(s.date)}</div>
+              {s.empreinte&&<div className="xs mut" style={{fontSize:10}}>Empreinte {s.empreinte}</div>}
+            </div>
+            <button className="btn dg s" onClick={()=>retirerSignature(x.id,s.id)}>✕</button>
+          </div>)}
         </div>
       </div></div>})}
+    {signe&&<SignaturePad titre={signe.l+' — '+ch.nom} onAnnuler={()=>setSigne(null)} onSigner={v=>enregistrerSignature(signe,v)}/>}
   </div>;
 }
 
