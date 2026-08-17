@@ -13,6 +13,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2" crossorigin></script>
+<script src="https://accounts.google.com/gsi/client" async></script>
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;background:#FBFAF7;color:#1A2B36;font-family:-apple-system,Helvetica Neue,Arial,sans-serif}
@@ -57,6 +58,8 @@ const SUPABASE_URL='https://gxfrughmwkvdepvkhufv.supabase.co';
 const SUPABASE_KEY='sb_publishable_JCBSnZhTaKlpSIZeXAeMkw_2OvI6YIr';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
+const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googleusercontent.com';
+
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -84,6 +87,56 @@ const Photo={
   },
   async del(id){await sb.storage.from('photos').remove([id+'.jpg']);},
 };
+
+/* ---------- documents PDF : envoyés vers le Google Drive de l'utilisateur ---------- */
+let driveToken=null, driveTokenClient=null, driveFolderId=null;
+
+function getDriveToken(){
+  return new Promise((resolve,reject)=>{
+    if(driveToken){resolve(driveToken);return}
+    if(!driveTokenClient){
+      driveTokenClient=google.accounts.oauth2.initTokenClient({
+        client_id:GOOGLE_CLIENT_ID,
+        scope:'https://www.googleapis.com/auth/drive.file',
+        callback:resp=>{
+          if(resp.error){reject(resp);return}
+          driveToken=resp.access_token;
+          setTimeout(()=>{driveToken=null},((resp.expires_in||3600)-60)*1000);
+          resolve(driveToken);
+        },
+      });
+    }
+    driveTokenClient.requestAccessToken();
+  });
+}
+
+async function driveFolder(token){
+  if(driveFolderId)return driveFolderId;
+  const q=encodeURIComponent("name='CP Constructions' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+  const r=await fetch('https://www.googleapis.com/drive/v3/files?q='+q,{headers:{Authorization:'Bearer '+token}});
+  const j=await r.json();
+  if(j.files&&j.files.length){driveFolderId=j.files[0].id;return driveFolderId}
+  const c=await fetch('https://www.googleapis.com/drive/v3/files',{
+    method:'POST',
+    headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({name:'CP Constructions',mimeType:'application/vnd.google-apps.folder'}),
+  });
+  driveFolderId=(await c.json()).id;
+  return driveFolderId;
+}
+
+async function uploadToDrive(file){
+  const token=await getDriveToken();
+  const folderId=await driveFolder(token);
+  const form=new FormData();
+  form.append('metadata',new Blob([JSON.stringify({name:file.name,parents:[folderId]})],{type:'application/json'}));
+  form.append('file',file);
+  const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',{
+    method:'POST',headers:{Authorization:'Bearer '+token},body:form,
+  });
+  if(!r.ok)throw new Error('upload Drive échoué');
+  return r.json();
+}
 
 function compress(file,max=900,q=.6){
   return new Promise((res,rej)=>{
@@ -501,11 +554,21 @@ function Planning({data,ch,up}){
 /* ---------------- PIÈCES ---------------- */
 function Docs({ch,up}){
   const d=ch.docs||{};
+  const [busy,setBusy]=useState(null);
   const tog=id=>{const c=d[id]||{};up({docs:{...d,[id]:{...c,fait:!c.fait,date:!c.fait?today():''}}})};
   const lien=(id,v)=>up({docs:{...d,[id]:{...(d[id]||{}),lien:v}}});
+  const importPdf=async(id,file)=>{
+    setBusy(id);
+    try{
+      const{webViewLink}=await uploadToDrive(file);
+      const c=d[id]||{};
+      up({docs:{...d,[id]:{...c,lien:webViewLink,fait:true,date:c.fait?c.date:today()}}});
+    }catch(e){alert("Import Google Drive impossible. Vérifiez votre connexion et réessayez.")}
+    setBusy(null);
+  };
   const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
   return <div>
-    <p className="xs mut" style={{marginTop:0}}>{n} pièce{n>1?'s':''} sur {DOCS.length}. Le fichier reste sur votre Drive — collez ici le lien.</p>
+    <p className="xs mut" style={{marginTop:0}}>{n} pièce{n>1?'s':''} sur {DOCS.length}. Importez le PDF (envoyé sur votre Google Drive, dossier « CP Constructions ») ou collez un lien existant.</p>
     {DOCS.map(x=>{const r=d[x.id]||{};return <div key={x.id} className="card" style={{padding:10}}>
       <div className="row" style={{gap:10,alignItems:'flex-start'}}>
         <button className="chk" onClick={()=>tog(x.id)} style={{background:r.fait?GREEN:'#fff',borderColor:r.fait?GREEN:RULE}}>{r.fait?'✓':''}</button>
@@ -513,7 +576,12 @@ function Docs({ch,up}){
           <div className="sm">{x.l}</div>
           {r.fait&&<div className="xs mut">Reçu le {fd(r.date)}</div>}
           <input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}} placeholder="Lien Drive…" value={r.lien||''} onChange={e=>lien(x.id,e.target.value)}/>
-          {r.lien&&<a href={r.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir</a>}
+          <div className="row" style={{gap:14,marginTop:6,alignItems:'center'}}>
+            {r.lien&&<a href={r.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir</a>}
+            <label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':'Importer un PDF'}
+              <input type="file" accept="application/pdf" style={{display:'none'}} disabled={busy===x.id} onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importPdf(x.id,f)}}/>
+            </label>
+          </div>
         </div>
       </div></div>})}
   </div>;
@@ -661,7 +729,7 @@ function Donnees({data,save,session}){
         <li>La synchronisation nécessite une connexion internet ; hors ligne, les modifications restent sur l'appareil jusqu'au retour du réseau.</li>
         <li>Photos réduites avant envoi pour rester rapide sur mobile ; gardez les originaux sur le Drive.</li>
         <li>L'export ne contient pas les photos elles-mêmes, seulement les légendes et dates.</li>
-        <li>PDF non stockés et aucune signature électronique : liens Drive uniquement.</li>
+        <li>Les PDF importés sont envoyés sur votre Google Drive (dossier « CP Constructions ») ; la première fois, Google demande votre autorisation.</li>
       </ul>
     </div>
   </div>;
