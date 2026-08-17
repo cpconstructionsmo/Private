@@ -296,6 +296,23 @@ const joursDepuis=d=>d?Math.floor((new Date().setHours(0,0,0,0)-new Date(d).setH
 const mapsUrl=ch=>ch.lienMaps||'';
 const mapsSearchUrl=ch=>ch.adresse?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(ch.adresse):'';
 const sumMontants=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
+/* la TVA se règle par marché : autoliquidation, franchise en base (art. 293 B), taux réduits…
+   sans taux propre, le marché suit celui du chantier. 0 est une valeur valide, pas une absence. */
+const marcheTva=(m,ch)=>(m.tva!==undefined&&m.tva!==null&&m.tva!=='')?+m.tva:tvaRate(ch);
+const marcheTTC=(m,ch)=>(m.montantHT||0)*(1+marcheTva(m,ch)/100);
+const travauxHTot=ms=>ms.reduce((s,m)=>s+(m.montantHT||0),0);
+const travauxTTC=(ms,ch)=>ms.reduce((s,m)=>s+marcheTTC(m,ch),0);
+const ventilationTva=(ms,ch)=>{
+  const map=new Map();
+  for(const m of ms){
+    const t=marcheTva(m,ch);
+    const cur=map.get(t)||{taux:t,ht:0,n:0};
+    cur.ht+=(m.montantHT||0); cur.n++;
+    map.set(t,cur);
+  }
+  return [...map.values()].map(x=>({...x,tva:x.ht*x.taux/100,ttc:x.ht*(1+x.taux/100)})).sort((a,b)=>b.taux-a.taux);
+};
+
 /* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
@@ -781,8 +798,10 @@ function Fiche({data,ch,save,back}){
       <div className="xs mut" style={{marginTop:3}}>{ch.client} — {ch.adresse}</div>
       <div className="g2 xs" style={{marginTop:10}}>
         <div><div className="mut">Travaux TTC</div>
-          <div className="b" style={{fontSize:17,color:NAVY}}>{eur(ttc(ch.budget,ch))}</div>
-          <div className="mut">{eur(ch.budget)} HT · TVA {tvaRate(ch)} %</div></div>
+          <div className="b" style={{fontSize:17,color:NAVY}}>{eur(ms.length?travauxTTC(ms,ch):ttc(ch.budget,ch))}</div>
+          <div className="mut">{eur(ms.length?eng:ch.budget)} HT · {ms.length
+            ?(ventilationTva(ms,ch).length>1?'TVA par lot':'TVA '+ventilationTva(ms,ch)[0].taux+' %')
+            :'TVA '+tvaRate(ch)+' %'}</div></div>
         <div><div className="mut">Honoraires TTC</div>
           <div className="b" style={{fontSize:17,color:NAVY}}>{eur(ttc(hono,ch))}</div>
           <div className="mut">{eur(hono)} HT</div></div>
@@ -845,7 +864,7 @@ function Marches({data,ch,save,eng,fac}){
   const ok=()=>{
     if(!f.lot)return;
     const factures=f.factures||[];
-    const r={...f,montantHT:+f.montantHT||0,factures,facture:facturesTotal(factures)};
+    const r={...f,montantHT:+f.montantHT||0,tva:f.tva===''||f.tva===undefined||f.tva===null?'':+f.tva,factures,facture:facturesTotal(factures)};
     save({...data,marches:f.id?data.marches.map(m=>m.id===f.id?r:m):[...data.marches,{...r,id:uid(),chantierId:ch.id}]});
     setF(null);
   };
@@ -886,7 +905,16 @@ function Marches({data,ch,save,eng,fac}){
       <Fld label="CORPS D'ÉTAT"><input className="in" list="corps-list" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})} placeholder="Ex. Maçonnerie — Gros œuvre"/>
         <datalist id="corps-list">{CORPS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
       <Fld label="ARTISAN"><select className="in" value={f.artisanId} onChange={e=>setF({...f,artisanId:e.target.value})}><option value="">— non attribué —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom} ({a.corps})</option>)}</select></Fld>
-      <Fld label="MONTANT MARCHÉ HT (€)"><input className="in" type="number" value={f.montantHT} onChange={e=>setF({...f,montantHT:e.target.value})}/></Fld>
+      <div className="g2">
+        <Fld label="MONTANT MARCHÉ HT (€)"><input className="in" type="number" value={f.montantHT} onChange={e=>setF({...f,montantHT:e.target.value})}/></Fld>
+        <Fld label="TVA DE CE LOT (%)">
+          <input className="in" type="number" step="0.1" placeholder={'Chantier : '+tvaRate(ch)+' %'} value={f.tva===undefined||f.tva===null?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/>
+        </Fld>
+      </div>
+      <div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.5}}>
+        Laissez vide pour appliquer le taux du chantier ({tvaRate(ch)} %). Saisissez <b>0</b> pour un artisan en franchise de TVA ou en autoliquidation.
+        {f.montantHT>0&&<span> — soit <b>{eur(marcheTTC({montantHT:+f.montantHT,tva:f.tva},ch))}</b> TTC.</span>}
+      </div>
       <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{STATUTS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
       <Fld label="DATE DE SIGNATURE"><input className="in" type="date" value={f.dateSignature} onChange={e=>setF({...f,dateSignature:e.target.value})}/></Fld>
       <Fld label="CONTRAT DE MARCHÉ (PDF)">
@@ -929,7 +957,8 @@ function Marches({data,ch,save,eng,fac}){
             return <tr key={m.id} onClick={()=>openRow(m)} style={{borderBottom:'1px solid '+RULE,cursor:'pointer'}}>
               <td style={{padding:'8px 4px'}}>
                 <div className="b">{m.lot}</div>
-                <div className="mut" style={{marginTop:2}}>{nom(m.artisanId)}</div>
+                <div className="mut" style={{marginTop:2}}>{nom(m.artisanId)}
+                  {marcheTva(m,ch)!==tvaRate(ch)&&<span style={{color:TERRA}}> · TVA {marcheTva(m,ch)} %</span>}</div>
               </td>
               <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(m.montantHT)}</td>
               <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:total>m.montantHT?TERRA:total>=m.montantHT&&m.montantHT>0?GREEN:INK}}>{eur(total)}</td>
@@ -940,6 +969,69 @@ function Marches({data,ch,save,eng,fac}){
         </tbody>
       </table>
     </div>}
+    {!!ms.length&&<RecapBudget ch={ch} ms={ms}/>}
+  </div>;
+}
+
+/* récapitulatif budgétaire : travaux et honoraires, hors puis avec honoraires */
+function RecapBudget({ch,ms}){
+  const honoHT=honoAmount(ch), txHono=tvaRate(ch);
+  const travHT=travauxHTot(ms), travTTC=travauxTTC(ms,ch), travTVA=travTTC-travHT;
+  const vent=ventilationTva(ms,ch);
+  const honoTVA=honoHT*txHono/100, honoTTC=honoHT+honoTVA;
+  const totHT=travHT+honoHT, totTVA=travTVA+honoTVA, totTTC=travTTC+honoTTC;
+  const cell={padding:'7px 4px',textAlign:'right',whiteSpace:'nowrap'};
+  return <div className="card" style={{marginTop:14,borderLeft:'3px solid '+NAVY}}>
+    <div className="h2" style={{marginBottom:10}}>RÉCAPITULATIF BUDGÉTAIRE</div>
+    <div style={{overflowX:'auto'}}>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:330}}>
+        <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
+          <th style={{padding:'6px 4px'}}>Poste</th>
+          <th style={{...cell,padding:'6px 4px'}}>HT</th>
+          <th style={{...cell,padding:'6px 4px'}}>TVA</th>
+          <th style={{...cell,padding:'6px 4px'}}>TTC</th>
+        </tr></thead>
+        <tbody>
+          <tr style={{borderBottom:vent.length>1?'none':'1px solid '+RULE}}>
+            <td style={{padding:'7px 4px'}}>Travaux <span className="mut">({ms.length} lot{ms.length>1?'s':''})</span></td>
+            <td style={cell}>{eur(travHT)}</td>
+            <td style={cell} className="mut">{eur(travTVA)}</td>
+            <td style={cell}>{eur(travTTC)}</td>
+          </tr>
+          {vent.length>1&&vent.map((v,i)=>
+            <tr key={v.taux} style={{borderBottom:i===vent.length-1?'1px solid '+RULE:'none'}}>
+              <td style={{padding:'3px 4px 3px 14px'}} className="mut">dont TVA {v.taux} % <span style={{fontSize:11}}>({v.n} lot{v.n>1?'s':''})</span></td>
+              <td style={cell} className="mut">{eur(v.ht)}</td>
+              <td style={cell} className="mut">{eur(v.tva)}</td>
+              <td style={cell} className="mut">{eur(v.ttc)}</td>
+            </tr>)}
+          <tr style={{borderBottom:'1px solid '+RULE}}>
+            <td style={{padding:'7px 4px'}}>Honoraires MOE <span className="mut">(TVA {txHono} %)</span></td>
+            <td style={cell}>{eur(honoHT)}</td>
+            <td style={cell} className="mut">{eur(honoTVA)}</td>
+            <td style={cell}>{eur(honoTTC)}</td>
+          </tr>
+          <tr style={{borderTop:'2px solid '+RULE}}>
+            <td style={{padding:'8px 4px'}} className="b">Total hors honoraires</td>
+            <td style={cell} className="b">{eur(travHT)}</td>
+            <td style={cell} className="mut">{eur(travTVA)}</td>
+            <td style={cell} className="b">{eur(travTTC)}</td>
+          </tr>
+          <tr>
+            <td style={{padding:'8px 4px',color:NAVY}} className="b">Total honoraires inclus</td>
+            <td style={{...cell,color:NAVY}} className="b">{eur(totHT)}</td>
+            <td style={cell} className="mut">{eur(totTVA)}</td>
+            <td style={{...cell,color:NAVY,fontSize:15}} className="b">{eur(totTTC)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {!!ch.budget&&Math.round(ch.budget)!==Math.round(travHT)&&
+      <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
+        Calculé sur le total des marchés signés. Budget travaux annoncé au client : <b>{eur(ch.budget)}</b> HT —
+        {travHT>ch.budget?<span style={{color:TERRA}}> dépassement de {eur(travHT-ch.budget)}</span>:<span> marge de {eur(ch.budget-travHT)}</span>}.
+      </div>}
+    <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>TVA calculée lot par lot : chaque marché peut avoir son propre taux (0 % en franchise ou autoliquidation), sinon il suit celui du chantier. À vérifier avec votre comptable.</div>
   </div>;
 }
 
@@ -952,7 +1044,7 @@ function ImportMarches({data,ch,save,close}){
     for(const line of lines){
       const parts=line.split('|').map(p=>p.trim());
       if(parts.length<3)continue;
-      const[lot,artisanNom,montantStr,dateStr]=parts;
+      const[lot,artisanNom,montantStr,dateStr,tvaStr]=parts;
       let art=artisanNom?artisans.find(a=>a.nom.toLowerCase()===artisanNom.toLowerCase()):null;
       if(artisanNom&&!art){
         art={id:uid(),nom:artisanNom,corps:lot,tel:'',email:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''};
@@ -963,7 +1055,8 @@ function ImportMarches({data,ch,save,close}){
         const[j,mo,a]=dateStr.split('/');
         if(j&&mo&&a)dateSignature=a+'-'+mo.padStart(2,'0')+'-'+j.padStart(2,'0');
       }
-      marches=[...marches,{id:uid(),chantierId:ch.id,lot,artisanId:art?art.id:'',montantHT:+String(montantStr).replace(',','.')||0,facture:0,factures:[],statut:'signe',dateSignature,notes:''}];
+      const tva=(tvaStr!==undefined&&tvaStr!=='')?+String(tvaStr).replace(',','.').replace('%','').trim():'';
+      marches=[...marches,{id:uid(),chantierId:ch.id,lot,artisanId:art?art.id:'',montantHT:+String(montantStr).replace(',','.')||0,tva:isNaN(tva)?'':tva,facture:0,factures:[],statut:'signe',dateSignature,notes:''}];
       n++;
     }
     save({...data,artisans,marches});
@@ -971,8 +1064,8 @@ function ImportMarches({data,ch,save,close}){
     setTxt('');
   };
   return <div className="card">
-    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Un marché par ligne, séparé par des <code>|</code> :<br/><code>Corps d'état | Artisan | Montant HT | JJ/MM/AAAA</code></p>
-    <textarea className="in" rows="6" value={txt} onChange={e=>setTxt(e.target.value)} placeholder="Terrassement | SARL AMÉDÉE | 1664,36 | 25/05/2026"/>
+    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Un marché par ligne, séparé par des <code>|</code> :<br/><code>Corps d'état | Artisan | Montant HT | JJ/MM/AAAA | TVA %</code><br/>Les deux derniers champs sont facultatifs ; sans TVA, le lot suit le taux du chantier ({tvaRate(ch)} %).</p>
+    <textarea className="in" rows="6" value={txt} onChange={e=>setTxt(e.target.value)} placeholder={"Terrassement | SARL AMÉDÉE | 1664,36 | 25/05/2026\nBandes placo | EI SADDETIN KARA | 3033,87 | 25/05/2026 | 0"}/>
     <div className="row" style={{gap:8,marginTop:10}}>
       <button className="btn" onClick={go}>Importer</button>
       <button className="btn gh" onClick={close}>Fermer</button>
@@ -1617,7 +1710,7 @@ function Bilan({data,open}){
     const retro=retroSrc.reduce((s,x)=>s+retroMontant(x),0);
     const retroFac=retroSrc.reduce((s,x)=>s+(+x.retroFacture||0),0);
     const av=(eng||c.budget)?Math.round(fac/(eng||c.budget)*100):0;
-    return {...c,eng,fac,mat,hono,honoFac,retro,retroFac,av,budgetTTC:ttc(c.budget,c),honoTTC:ttc(hono,c),ecart:(c.budget||0)-eng};
+    return {...c,eng,fac,mat,hono,honoFac,retro,retroFac,av,budgetTTC:ms.length?travauxTTC(ms,c):ttc(c.budget,c),honoTTC:ttc(hono,c),ecart:(c.budget||0)-eng};
   });
   const T=k=>L.reduce((s,l)=>s+(l[k]||0),0);
   const tb=T('budget'),te=T('eng'),tf=T('fac'),th=T('hono'),tm=T('mat');
