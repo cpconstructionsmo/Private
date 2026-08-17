@@ -12,6 +12,7 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2" crossorigin></script>
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{margin:0;background:#FBFAF7;color:#1A2B36;font-family:-apple-system,Helvetica Neue,Arial,sans-serif}
@@ -52,6 +53,10 @@ const {useState,useEffect} = React;
 const NAVY='#2C4A5E',TERRA='#C5563A',INK='#1A2B36',RULE='#D4CFC5',MUTED='#6E7B84',GREEN='#3F7A5A',AMBER='#B07D12';
 const KEY='cp-constructions-data-v2';
 
+const SUPABASE_URL='https://gxfrughmwkvdepvkhufv.supabase.co';
+const SUPABASE_KEY='sb_publishable_JCBSnZhTaKlpSIZeXAeMkw_2OvI6YIr';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -66,24 +71,19 @@ const fd=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
 const wa=t=>t?t.replace(/[^0-9]/g,'').replace(/^0/,'33'):'';
 const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[]};
 
-/* ---------- vignettes : base séparée, pour ne pas saturer le stockage principal ---------- */
-const IDB=(()=>{
-  let p;
-  const open=()=>p||(p=new Promise((res,rej)=>{
-    const r=indexedDB.open('cp-photos',1);
-    r.onupgradeneeded=()=>r.result.createObjectStore('img');
-    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
-  }));
-  const tx=(mode,fn)=>open().then(db=>new Promise((res,rej)=>{
-    const t=db.transaction('img',mode), s=t.objectStore('img'), q=fn(s);
-    q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error);
-  }));
-  return{
-    put:(k,v)=>tx('readwrite',s=>s.put(v,k)),
-    get:k=>tx('readonly',s=>s.get(k)),
-    del:k=>tx('readwrite',s=>s.delete(k)),
-  };
-})();
+/* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
+const Photo={
+  async put(id,dataUrl){
+    const blob=await (await fetch(dataUrl)).blob();
+    const{error}=await sb.storage.from('photos').upload(id+'.jpg',blob,{contentType:'image/jpeg',upsert:true});
+    if(error)throw error;
+  },
+  async get(id){
+    const{data,error}=await sb.storage.from('photos').createSignedUrl(id+'.jpg',3600);
+    return error?null:data.signedUrl;
+  },
+  async del(id){await sb.storage.from('photos').remove([id+'.jpg']);},
+};
 
 function compress(file,max=900,q=.6){
   return new Promise((res,rej)=>{
@@ -105,15 +105,63 @@ function compress(file,max=900,q=.6){
 
 function load(){try{const r=localStorage.getItem(KEY);return r?{...EMPTY,...JSON.parse(r)}:EMPTY}catch(e){return EMPTY}}
 
-function App(){
+function Root(){
+  const [session,setSession]=useState(undefined);
+  useEffect(()=>{
+    sb.auth.getSession().then(({data})=>setSession(data.session));
+    const{data:sub}=sb.auth.onAuthStateChange((_e,s)=>setSession(s));
+    return ()=>sub.subscription.unsubscribe();
+  },[]);
+  if(session===undefined)return <div className="sm mut" style={{padding:40,textAlign:'center'}}>Chargement…</div>;
+  if(!session)return <Login/>;
+  return <App session={session}/>;
+}
+
+function Login(){
+  const [email,setEmail]=useState(''),[pw,setPw]=useState(''),[err,setErr]=useState(''),[busy,setBusy]=useState(false);
+  const go=async e=>{
+    e.preventDefault();
+    setBusy(true);setErr('');
+    const{error}=await sb.auth.signInWithPassword({email,password:pw});
+    if(error)setErr('Identifiants incorrects.');
+    setBusy(false);
+  };
+  return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+    <form onSubmit={go} style={{width:'100%',maxWidth:340}}>
+      <div className="b" style={{color:NAVY,fontSize:18,marginBottom:2}}>CP CONSTRUCTIONS</div>
+      <div className="xs mut" style={{marginBottom:20}}>Suivi de chantiers</div>
+      <Fld label="EMAIL"><input className="in" type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)}/></Fld>
+      <Fld label="MOT DE PASSE"><input className="in" type="password" autoComplete="current-password" value={pw} onChange={e=>setPw(e.target.value)}/></Fld>
+      {err&&<div className="xs" style={{color:TERRA,marginBottom:12}}>{err}</div>}
+      <button className="btn acc" style={{width:'100%'}} disabled={busy}>{busy?'Connexion…':'Se connecter'}</button>
+    </form>
+  </div>;
+}
+
+function App({session}){
   const [data,setData]=useState(load);
   const [view,setView]=useState('chantiers');
   const [open,setOpen]=useState(null);
   const [err,setErr]=useState(null);
-  const save=next=>{
+
+  useEffect(()=>{
+    let alive=true;
+    sb.from('app_data').select('data').eq('id','main').single().then(({data:row})=>{
+      if(alive&&row&&row.data)setData({...EMPTY,...row.data});
+    });
+    const channel=sb.channel('app_data_changes')
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_data',filter:'id=eq.main'},payload=>{
+        if(payload.new&&payload.new.data)setData({...EMPTY,...payload.new.data});
+      })
+      .subscribe();
+    return ()=>{alive=false;sb.removeChannel(channel)};
+  },[]);
+
+  const save=async next=>{
     setData(next);
-    try{localStorage.setItem(KEY,JSON.stringify(next));setErr(null)}
-    catch(e){setErr("Sauvegarde impossible — mémoire pleine. Exportez puis supprimez d'anciens chantiers.")}
+    try{localStorage.setItem(KEY,JSON.stringify(next))}catch(e){/* cache local best-effort */}
+    const{error}=await sb.from('app_data').upsert({id:'main',data:next,updated_at:new Date().toISOString()});
+    setErr(error?"Synchronisation impossible — vérifiez votre connexion. Vos modifications restent enregistrées sur cet appareil.":null);
   };
   const ch=open?data.chantiers.find(c=>c.id===open):null;
   return <div>
@@ -128,7 +176,7 @@ function App(){
       :view==='artisans'?<Artisans data={data} save={save}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
       :view==='bilan'?<Bilan data={data} open={setOpen}/>
-      :<Donnees data={data} save={save}/>}
+      :<Donnees data={data} save={save} session={session}/>}
     </main>
     {!ch&&<nav className="bot">
       {[['chantiers','CHANTIERS'],['artisans','ARTISANS'],['cmd','COMMANDES'],['bilan','FINANCES'],['donnees','DONNÉES']].map(([id,l])=>
@@ -279,14 +327,14 @@ function Photos({data,ch,save}){
       try{
         const d=await compress(file);
         const id=uid();
-        await IDB.put(id,d);
+        await Photo.put(id,d);
         nouveaux.push({id,chantierId:ch.id,date:today(),legende:'',lot:'',lien:''});
       }catch(x){/* photo ignorée */}
     }
     if(nouveaux.length)save({...data,photos:[...data.photos,...nouveaux]});
     setBusy(false);
   };
-  const del=async id=>{await IDB.del(id).catch(()=>{});save({...data,photos:data.photos.filter(p=>p.id!==id)})};
+  const del=async id=>{await Photo.del(id).catch(()=>{});save({...data,photos:data.photos.filter(p=>p.id!==id)})};
   const upd=p=>save({...data,photos:data.photos.map(x=>x.id===p.id?p:x)});
 
   return <div>
@@ -313,7 +361,7 @@ function Photos({data,ch,save}){
 
 function Vignette({p,onZoom,onEdit}){
   const [src,setSrc]=useState(null);
-  useEffect(()=>{let a=true;IDB.get(p.id).then(v=>{if(a)setSrc(v||null)}).catch(()=>{});return()=>{a=false}},[p.id]);
+  useEffect(()=>{let a=true;Photo.get(p.id).then(v=>{if(a)setSrc(v)}).catch(()=>{});return()=>{a=false}},[p.id]);
   return <div style={{border:'1px solid '+RULE,background:'#fff'}}>
     <div onClick={onZoom}>{src?<img className="ph" src={src} alt=""/>:<div className="ph"/>}</div>
     <div onClick={onEdit} style={{padding:'6px 7px'}}>
@@ -326,7 +374,7 @@ function Vignette({p,onZoom,onEdit}){
 
 function Plein({p,close}){
   const [src,setSrc]=useState(null);
-  useEffect(()=>{IDB.get(p.id).then(setSrc).catch(()=>{})},[p.id]);
+  useEffect(()=>{Photo.get(p.id).then(setSrc).catch(()=>{})},[p.id]);
   return <div className="modal" onClick={close}>
     <button className="xs" style={{color:'#fff',background:'none',border:'none',alignSelf:'flex-end',padding:8}}>Fermer</button>
     {src&&<img src={src} style={{maxWidth:'100%',maxHeight:'75vh',objectFit:'contain',margin:'auto'}} alt=""/>}
@@ -570,7 +618,7 @@ function Bilan({data,open}){
 const Stat=({l,v,c})=><div className="card" style={{margin:0}}><div className="xs mut" style={{lineHeight:1.3}}>{l}</div><div className="b" style={{fontSize:16,marginTop:4,color:c||INK}}>{v}</div></div>;
 
 /* ---------------- DONNÉES ---------------- */
-function Donnees({data,save}){
+function Donnees({data,save,session}){
   const [msg,setMsg]=useState('');
   const exp=()=>{
     const a=document.createElement('a');
@@ -588,8 +636,8 @@ function Donnees({data,save}){
   return <div>
     <H2>DONNÉES</H2>
     <div className="card">
-      <div className="sm b">Sauvegarde</div>
-      <p className="xs mut" style={{lineHeight:1.5}}>Tout est enregistré dans ce navigateur uniquement. Vider l'historique de Safari efface l'ensemble. Exportez chaque semaine et rangez le fichier sur votre Drive.</p>
+      <div className="sm b">Synchronisation</div>
+      <p className="xs mut" style={{lineHeight:1.5}}>Les données sont enregistrées en ligne et se synchronisent automatiquement entre tous vos appareils connectés. Exportez quand même régulièrement en secours.</p>
       <div className="row" style={{gap:8,marginTop:10}}>
         <button className="btn" onClick={exp}>Exporter</button>
         <label className="btn gh">Restaurer<input type="file" accept=".json" onChange={imp} style={{display:'none'}}/></label>
@@ -603,18 +651,23 @@ function Donnees({data,save}){
       </div>
     </div>
     <div className="card">
+      <div className="sm b">Compte</div>
+      <div className="xs mut" style={{marginTop:6}}>{session&&session.user&&session.user.email}</div>
+      <button className="btn gh s" style={{marginTop:10}} onClick={()=>sb.auth.signOut()}>Se déconnecter</button>
+    </div>
+    <div className="card">
       <div className="sm b">Limites connues</div>
       <ul className="xs mut" style={{margin:'6px 0 0',paddingLeft:16,lineHeight:1.6}}>
-        <li>Données non partagées avec votre collègue : chaque appareil a les siennes.</li>
-        <li>Photos réduites pour tenir en mémoire ; gardez les originaux sur le Drive.</li>
-        <li>L'export ne contient pas les vignettes, seulement les légendes et dates.</li>
+        <li>La synchronisation nécessite une connexion internet ; hors ligne, les modifications restent sur l'appareil jusqu'au retour du réseau.</li>
+        <li>Photos réduites avant envoi pour rester rapide sur mobile ; gardez les originaux sur le Drive.</li>
+        <li>L'export ne contient pas les photos elles-mêmes, seulement les légendes et dates.</li>
         <li>PDF non stockés et aucune signature électronique : liens Drive uniquement.</li>
       </ul>
     </div>
   </div>;
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
 </script>
 </body>
 </html>
