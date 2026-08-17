@@ -291,8 +291,12 @@ const ttc=(ht,ch)=>(ht||0)*(1+tvaRate(ch)/100);
 const DELAI_DEFAUT=365;
 const delaiPrevu=ch=>(ch&&ch.delaiPrevu)?+ch.delaiPrevu:DELAI_DEFAUT;
 const joursDepuis=d=>d?Math.floor((new Date().setHours(0,0,0,0)-new Date(d).setHours(0,0,0,0))/86400000):null;
-const mapsUrl=ch=>ch.lienMaps||(ch.adresse?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(ch.adresse):'');
+/* itinéraire : uniquement le lien que vous avez collé — une recherche sur l'adresse tombe souvent
+   à côté (lieux-dits, hameaux), donc elle est proposée à part et clairement nommée « recherche » */
+const mapsUrl=ch=>ch.lienMaps||'';
+const mapsSearchUrl=ch=>ch.adresse?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(ch.adresse):'';
 const sumMontants=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
+const retroMontant=m=>(m.montantHT||0)*(+m.retroPct||0)/100;
 const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[]};
 
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
@@ -422,6 +426,15 @@ async function driveHonoFolder(token,chantierId,chantierNom){
   const parentId=await driveChantierFolder(token,chantierId,chantierNom);
   const id=await driveFindOrCreateSubfolder(token,parentId,'Honoraires');
   driveHonoFolders.set(chantierId,id);
+  return id;
+}
+
+const driveRetroFolders=new Map();
+async function driveRetroFolder(token,chantierId,chantierNom){
+  if(driveRetroFolders.has(chantierId))return driveRetroFolders.get(chantierId);
+  const parentId=await driveChantierFolder(token,chantierId,chantierNom);
+  const id=await driveFindOrCreateSubfolder(token,parentId,'Rétrocessions');
+  driveRetroFolders.set(chantierId,id);
   return id;
 }
 
@@ -662,6 +675,7 @@ function Chantiers({data,save,open}){
     setF(null);
   };
   const eng=id=>data.marches.filter(m=>m.chantierId===id).reduce((s,m)=>s+(m.montantHT||0),0);
+  const factu=id=>data.marches.filter(m=>m.chantierId===id).reduce((s,m)=>s+(m.facture||0),0);
   return <div>
     <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',adresse:'',lienDrive:'',budget:'',honorairesPct:'',honorairesMontant:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
     {f&&<div className="card">
@@ -685,16 +699,25 @@ function Chantiers({data,save,open}){
     </div>}
     {!data.chantiers.length&&!f&&<Empty>Aucun chantier. Ajoutez le premier avec « + Chantier ».</Empty>}
     {data.chantiers.map(c=>{
-      const e=eng(c.id),pct=c.budget?Math.min(100,Math.round(e/c.budget*100)):0;
+      const e=eng(c.id),fa=factu(c.id);
+      const base=e||c.budget||0;
+      const av=base?Math.round(fa/base*100):0;
       const nd=DOCS.filter(d=>c.docs&&c.docs[d.id]&&c.docs[d.id].fait).length;
       const np=data.photos.filter(p=>p.chantierId===c.id).length;
       const nKo=Object.values(c.controles||{}).filter(r=>r.statut==='non_conforme').length;
       return <button key={c.id} className="card" style={{borderLeft:'3px solid '+NAVY}} onClick={()=>open(c.id)}>
         <div className="sp"><span className="b sm" style={{color:NAVY}}>{c.nom}</span><span className="xs mut">{PHASE[c.statut]}</span></div>
         <div className="xs mut" style={{marginTop:3}}>{c.client}{c.adresse?' — '+c.adresse:''}</div>
-        <div className="sp xs" style={{marginTop:8}}><span>Engagé <b>{eur(e)}</b> / {eur(c.budget)}</span><span className="mut">{nd}/{DOCS.length} pièces · {np} photo{np>1?'s':''}</span></div>
+        <div className="sp" style={{marginTop:8,alignItems:'flex-end'}}>
+          <span className="xs">Facturé <b>{eur(fa)}</b> / {eur(base)}</span>
+          <span className="b" style={{fontSize:19,color:NAVY,lineHeight:1}}>{av} %</span>
+        </div>
+        <div className="bar"><div style={{height:4,width:Math.min(100,av)+'%',background:GREEN}}/></div>
+        <div className="sp xs mut" style={{marginTop:6}}>
+          <span style={{color:e>c.budget?TERRA:MUTED}}>Engagé {eur(e)} / {eur(c.budget)}</span>
+          <span>{nd}/{DOCS.length} pièces · {np} photo{np>1?'s':''}</span>
+        </div>
         {nKo>0&&<div className="xs b" style={{color:TERRA,marginTop:4}}>{nKo} point{nKo>1?'s':''} de contrôle non conforme{nKo>1?'s':''}</div>}
-        <div className="bar"><div style={{height:4,width:pct+'%',background:e>c.budget?TERRA:NAVY}}/></div>
       </button>;
     })}
   </div>;
@@ -714,7 +737,7 @@ function Fiche({data,ch,save,back}){
   };
   const hono=honoAmount(ch), honoFac=sumMontants(ch.honoFactures);
   const jOuv=joursDepuis(ch.dateOuverture), dPrev=delaiPrevu(ch);
-  const maps=mapsUrl(ch);
+  const maps=mapsUrl(ch), mapsSearch=mapsSearchUrl(ch);
   return <div>
     <button onClick={back} className="xs" style={{color:TERRA,background:'none',border:'none',padding:'0 0 12px'}}>← Tous les chantiers</button>
     {edit?<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
@@ -725,7 +748,10 @@ function Fiche({data,ch,save,back}){
       </div>
       <Fld label="ADRESSE"><input className="in" value={edit.adresse} onChange={e=>setEdit({...edit,adresse:e.target.value})}/></Fld>
       <Fld label="LIEN GOOGLE MAPS DU CHANTIER">
-        <input className="in" placeholder="Laisser vide : recherche sur l'adresse ci-dessus" value={edit.lienMaps||''} onChange={e=>setEdit({...edit,lienMaps:e.target.value})}/>
+        <input className="in" placeholder="Collez ici le lien Google Maps…" value={edit.lienMaps||''} onChange={e=>setEdit({...edit,lienMaps:e.target.value})}/>
+        <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+          Dans Google Maps : placez le point exact du chantier (appui long sur la carte), puis <b>Partager → Copier le lien</b>, et collez-le ici. Le bouton « Itinéraire » de la fiche utilisera ce point précis.
+        </div>
       </Fld>
       <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" value={edit.lienDrive||''} onChange={e=>setEdit({...edit,lienDrive:e.target.value})}/></Fld>
       <div className="g2">
@@ -760,9 +786,12 @@ function Fiche({data,ch,save,back}){
           <div className="mut">{eur(hono)} HT</div></div>
       </div>
       <div className="g2 xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+        <div><div className="mut">Avancement facturé</div>
+          <div className="b" style={{fontSize:17,color:NAVY}}>{(eng||ch.budget)?Math.round(fac/(eng||ch.budget)*100):0} %</div>
+          <div className="mut">facturé {eur(fac)} / {eur(eng||ch.budget)}</div></div>
         <div><div className="mut">Reste à facturer — artisans</div>
           <div className="b" style={{color:eng-fac>0?INK:GREEN}}>{eng-fac>0?eur(eng-fac)+' HT':'soldé'}</div>
-          <div className="mut">engagé {eur(eng)} · facturé {eur(fac)}</div></div>
+          <div className="mut">engagé {eur(eng)}</div></div>
         <div><div className="mut">Reste à facturer — honoraires</div>
           <div className="b" style={{color:hono-honoFac>0?TERRA:GREEN}}>{hono-honoFac>0?eur(hono-honoFac)+' HT':'soldé'}</div>
           <div className="mut">{eur(ttc(hono-honoFac,ch))} TTC</div></div>
@@ -783,7 +812,9 @@ function Fiche({data,ch,save,back}){
       <div className="row xs" style={{gap:14,marginTop:10,flexWrap:'wrap'}}>
         {ch.telClient&&<a href={'tel:'+ch.telClient} style={{color:TERRA}}>Appeler le client</a>}
         {ch.telClient&&<a href={'https://wa.me/'+wa(ch.telClient)} style={{color:TERRA}}>WhatsApp</a>}
-        {maps&&<a href={maps} target="_blank" rel="noreferrer" style={{color:TERRA}}>Itinéraire</a>}
+        {maps
+          ?<a href={maps} target="_blank" rel="noreferrer" style={{color:TERRA}}>Itinéraire</a>
+          :mapsSearch&&<a href={mapsSearch} target="_blank" rel="noreferrer" className="mut">Chercher l'adresse</a>}
         {ch.lienDrive&&<a href={ch.lienDrive} target="_blank" rel="noreferrer" style={{color:TERRA}}>Dossier Drive</a>}
       </div>
     </div>}
@@ -1200,11 +1231,16 @@ function Docs({ch,up}){
 function Honoraires({data,ch,save}){
   const hf=ch.honoFactures||[];
   const [busy,setBusy]=useState(null);
+  const [busyRetro,setBusyRetro]=useState(null);
   const total=honoAmount(ch), facture=sumMontants(hf), reste=total-facture;
+  const ms=data.marches.filter(m=>m.chantierId===ch.id);
+  const retroDu=ms.reduce((s,m)=>s+retroMontant(m),0);
+  const retroFac=ms.reduce((s,m)=>s+(+m.retroFacture||0),0);
   const upHono=list=>save({...data,chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,honoFactures:list}:x)});
   const add=()=>upHono([...hf,{id:uid(),montant:'',date:today(),libelle:'',lien:''}]);
   const upd=(id,patch)=>upHono(hf.map(x=>x.id===id?{...x,...patch}:x));
   const del=id=>upHono(hf.filter(x=>x.id!==id));
+  const updMarche=(id,patch)=>save({...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)});
   const importFacture=async(id,file)=>{
     setBusy(id);
     try{
@@ -1216,6 +1252,18 @@ function Honoraires({data,ch,save}){
       alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous).":"Import de la facture impossible.");
     }
     setBusy(null);
+  };
+  const importRetro=async(id,file)=>{
+    setBusyRetro(id);
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveRetroFolder(token,ch.id,ch.nom);
+      const{webViewLink}=await uploadToDrive(file,folderId);
+      updMarche(id,{retroLien:webViewLink});
+    }catch(e){
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton en bas de page).":"Import de la facture impossible.");
+    }
+    setBusyRetro(null);
   };
   return <div>
     <div className="g2">
@@ -1230,6 +1278,11 @@ function Honoraires({data,ch,save}){
         Le montant des honoraires se modifie via « Modifier » sur la fiche du chantier.
       </div>
     </div>
+    {retroDu>0&&<div className="card" style={{marginTop:8,borderLeft:'3px solid '+NAVY}}>
+      <div className="xs mut">Recette totale du chantier — honoraires + rétrocessions</div>
+      <div className="b" style={{fontSize:20,marginTop:2,color:NAVY}}>{eur(total+retroDu)} HT</div>
+      <div className="xs mut" style={{marginTop:6}}>Encaissé : <b>{eur(facture+retroFac)}</b> · Reste à facturer : <b style={{color:(total+retroDu-facture-retroFac)>0?TERRA:GREEN}}>{eur(total+retroDu-facture-retroFac)}</b></div>
+    </div>}
     {reste<0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginTop:8}}>
       Vous avez facturé {eur(-reste)} HT de plus que le montant d'honoraires prévu.</div>}
     <div className="sp" style={{margin:'14px 0 12px'}}>
@@ -1255,6 +1308,65 @@ function Honoraires({data,ch,save}){
         </div>
       </div>
     </div>)}
+
+    <div className="sp" style={{margin:'20px 0 12px'}}>
+      <span className="h2">RÉTROCESSIONS</span>
+      <span className="xs mut">{eur(retroFac)} / {eur(retroDu)} HT</span>
+    </div>
+    {!ms.length
+      ?<Empty>Aucun marché sur ce chantier. Les rétrocessions se calculent à partir des marchés de travaux.</Empty>
+      :<div>
+        <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Saisissez le taux par lot (0 % s'il n'y a pas de rétrocession). Le montant dû se calcule sur le montant du marché HT.</p>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:430}}>
+            <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
+              <th style={{padding:'6px 4px'}}>Corps d'état</th>
+              <th style={{padding:'6px 4px',textAlign:'right',width:62}}>Rétro %</th>
+              <th style={{padding:'6px 4px',textAlign:'right',width:82}}>Montant dû</th>
+              <th style={{padding:'6px 4px',textAlign:'right',width:92}}>Facturé</th>
+              <th style={{padding:'6px 4px',textAlign:'right',width:74}}>Facture</th>
+            </tr></thead>
+            <tbody>
+              {ms.map(m=>{
+                const du=retroMontant(m), fac=+m.retroFacture||0;
+                return <tr key={m.id} style={{borderBottom:'1px solid '+RULE}}>
+                  <td style={{padding:'6px 4px'}}>
+                    <div className={du>0?'b':''}>{m.lot}</div>
+                    <div className="mut">{eur(m.montantHT)} HT</div>
+                  </td>
+                  <td style={{padding:'6px 4px'}}>
+                    <input className="in" type="number" step="0.5" placeholder="0" style={{padding:'5px 4px',fontSize:13,textAlign:'right'}}
+                      value={m.retroPct===undefined||m.retroPct===null?'':m.retroPct}
+                      onChange={e=>updMarche(m.id,{retroPct:e.target.value===''?'':+e.target.value})}/>
+                  </td>
+                  <td style={{padding:'6px 4px',textAlign:'right',whiteSpace:'nowrap'}} className={du>0?'b':'mut'}>{du>0?eur(du):'—'}</td>
+                  <td style={{padding:'6px 4px'}}>
+                    <input className="in" type="number" placeholder="—" style={{padding:'5px 4px',fontSize:13,textAlign:'right'}}
+                      value={m.retroFacture===undefined||m.retroFacture===null?'':m.retroFacture}
+                      onChange={e=>updMarche(m.id,{retroFacture:e.target.value===''?'':+e.target.value})}/>
+                    {du>0&&fac>0&&fac<du&&<div className="mut" style={{textAlign:'right',marginTop:2}}>reste {eur(du-fac)}</div>}
+                  </td>
+                  <td style={{padding:'6px 4px',textAlign:'right',whiteSpace:'nowrap'}}>
+                    {m.retroLien
+                      ?<a href={m.retroLien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Voir</a>
+                      :<label style={{color:NAVY}}>{busyRetro===m.id?'Envoi…':'Joindre'}
+                        <input type="file" accept="application/pdf,image/*" style={{display:'none'}} disabled={busyRetro===m.id}
+                          onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importRetro(m.id,file)}}/></label>}
+                  </td>
+                </tr>;
+              })}
+              <tr style={{borderTop:'2px solid '+RULE}}>
+                <td style={{padding:'8px 4px'}} className="b">TOTAL</td>
+                <td/>
+                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}} className="b">{eur(retroDu)}</td>
+                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}} className="b">{eur(retroFac)}</td>
+                <td/>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {retroDu-retroFac>0&&<div className="xs" style={{marginTop:10,color:TERRA}}>Reste à facturer en rétrocessions : <b>{eur(retroDu-retroFac)} HT</b></div>}
+      </div>}
     <DriveStatus/>
   </div>;
 }
@@ -1485,15 +1597,19 @@ function Bilan({data,open}){
     const fac=ms.reduce((s,m)=>s+(m.facture||0),0);
     const mat=data.commandes.filter(x=>x.chantierId===c.id).reduce((s,x)=>s+(x.montant||0),0);
     const hono=honoAmount(c), honoFac=sumMontants(c.honoFactures);
-    return {...c,eng,fac,mat,hono,honoFac,budgetTTC:ttc(c.budget,c),honoTTC:ttc(hono,c),ecart:(c.budget||0)-eng};
+    const retro=ms.reduce((s,m)=>s+retroMontant(m),0);
+    const retroFac=ms.reduce((s,m)=>s+(+m.retroFacture||0),0);
+    const av=(eng||c.budget)?Math.round(fac/(eng||c.budget)*100):0;
+    return {...c,eng,fac,mat,hono,honoFac,retro,retroFac,av,budgetTTC:ttc(c.budget,c),honoTTC:ttc(hono,c),ecart:(c.budget||0)-eng};
   });
   const T=k=>L.reduce((s,l)=>s+(l[k]||0),0);
   const tb=T('budget'),te=T('eng'),tf=T('fac'),th=T('hono'),tm=T('mat');
   const tbTTC=T('budgetTTC'),thTTC=T('honoTTC'),thFac=T('honoFac');
+  const tr=T('retro'),trFac=T('retroFac');
   const csv=()=>{
-    const rows=[['Chantier','Client','Phase','Budget travaux HT','Budget travaux TTC','Engagé HT','Facturé artisans','Reste à facturer artisans','Matériaux commandés','Écart budget','Honoraires HT','Honoraires TTC','Honoraires facturés HT','Reste à facturer honoraires HT'],
-      ...L.map(l=>[l.nom,l.client,PHASE[l.statut]||'',l.budget||0,Math.round(l.budgetTTC),l.eng,l.fac,l.eng-l.fac,l.mat,l.ecart,Math.round(l.hono),Math.round(l.honoTTC),Math.round(l.honoFac),Math.round(l.hono-l.honoFac)]),
-      ['TOTAL','','',tb,Math.round(tbTTC),te,tf,te-tf,tm,tb-te,Math.round(th),Math.round(thTTC),Math.round(thFac),Math.round(th-thFac)]];
+    const rows=[['Chantier','Client','Phase','Avancement %','Budget travaux HT','Budget travaux TTC','Engagé HT','Facturé artisans','Reste à facturer artisans','Matériaux commandés','Écart budget','Honoraires HT','Honoraires TTC','Honoraires facturés HT','Reste à facturer honoraires HT','Rétrocessions dues HT','Rétrocessions facturées HT'],
+      ...L.map(l=>[l.nom,l.client,PHASE[l.statut]||'',l.av,l.budget||0,Math.round(l.budgetTTC),l.eng,l.fac,l.eng-l.fac,l.mat,l.ecart,Math.round(l.hono),Math.round(l.honoTTC),Math.round(l.honoFac),Math.round(l.hono-l.honoFac),Math.round(l.retro),Math.round(l.retroFac)]),
+      ['TOTAL','','','',tb,Math.round(tbTTC),te,tf,te-tf,tm,tb-te,Math.round(th),Math.round(thTTC),Math.round(thFac),Math.round(th-thFac),Math.round(tr),Math.round(trFac)]];
     const a=document.createElement('a');
     a.href='data:text/csv;charset=utf-8,﻿'+encodeURIComponent(rows.map(r=>r.map(v=>'"'+v+'"').join(';')).join('\n'));
     a.download='CP-suivi-financier-'+today()+'.csv';a.click();
@@ -1516,17 +1632,29 @@ function Bilan({data,open}){
         <div><div className="mut">Honoraires facturés</div><div className="b">{eur(thFac)} HT</div></div>
         <div><div className="mut">Reste à facturer</div><div className="b" style={{color:th-thFac>0?TERRA:GREEN}}>{th-thFac>0?eur(th-thFac)+' HT':'soldé'}</div></div>
       </div>
+      {tr>0&&<div className="g2 xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+        <div><div className="mut">Rétrocessions dues</div><div className="b">{eur(tr)} HT</div></div>
+        <div><div className="mut">Rétrocessions facturées</div><div className="b" style={{color:tr-trFac>0?TERRA:GREEN}}>{eur(trFac)} HT</div></div>
+      </div>}
+      {tr>0&&<div className="xs" style={{marginTop:10,paddingTop:10,borderTop:'2px solid '+TERRA}}>
+        <div className="mut">Recette totale — honoraires + rétrocessions</div>
+        <div className="b" style={{fontSize:18,color:NAVY,marginTop:2}}>{eur(th+tr)} HT</div>
+        <div className="mut" style={{marginTop:2}}>encaissé {eur(thFac+trFac)} · reste {eur(th+tr-thFac-trFac)}</div>
+      </div>}
       <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>Montants TTC calculés avec le taux de TVA saisi sur chaque chantier (20 % par défaut). À vérifier avec votre comptable avant tout usage fiscal.</div>
     </div>
     {!L.length&&<Empty>Aucun chantier à suivre.</Empty>}
     {L.map(l=><button key={l.id} className="card" style={{borderLeft:'3px solid '+(l.ecart<0?TERRA:NAVY)}} onClick={()=>open(l.id)}>
       <div className="sp"><span className="b sm" style={{color:NAVY}}>{l.nom}</span>
         <span className="xs" style={{color:l.ecart<0?TERRA:GREEN}}>{l.ecart<0?'+'+eur(-l.ecart):eur(l.ecart)}</span></div>
+      <div className="sp xs" style={{marginTop:6}}><span className="mut">Avancement facturé</span><span className="b">{l.av} %</span></div>
+      <div className="bar"><div style={{height:4,width:Math.min(100,l.av)+'%',background:GREEN}}/></div>
       <div className="g3 xs" style={{marginTop:8}}>
         <div><div className="mut">Budget</div><div>{eur(l.budget)}</div></div>
         <div><div className="mut">Engagé</div><div>{eur(l.eng)}</div></div>
         <div><div className="mut">Honoraires</div><div>{eur(l.hono)}</div></div>
       </div>
+      {l.retro>0&&<div className="xs mut" style={{marginTop:6}}>Rétrocessions : <b>{eur(l.retro)}</b> HT dont {eur(l.retroFac)} facturé</div>}
     </button>)}
   </div>;
 }
