@@ -90,22 +90,28 @@ const Photo={
 };
 
 /* ---------- documents PDF & photos originales : envoyés vers le Google Drive de l'utilisateur ---------- */
-let driveToken=null, driveTokenClient=null, driveFolderId=null;
+let driveToken=null, driveTokenClient=null, driveFolderId=null, driveTokenCallback=null;
 const driveSubfolders=new Map();
+
+const isStandalone=()=>window.navigator.standalone===true||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);
 
 function getDriveToken(){
   return new Promise((resolve,reject)=>{
     if(driveToken){resolve(driveToken);return}
+    let settled=false;
+    const timer=setTimeout(()=>{if(settled)return;settled=true;reject({error:'timeout'})},15000);
+    driveTokenCallback=resp=>{
+      if(settled)return; settled=true; clearTimeout(timer);
+      if(resp.error){reject(resp);return}
+      driveToken=resp.access_token;
+      setTimeout(()=>{driveToken=null},((resp.expires_in||3600)-60)*1000);
+      resolve(driveToken);
+    };
     if(!driveTokenClient){
       driveTokenClient=google.accounts.oauth2.initTokenClient({
         client_id:GOOGLE_CLIENT_ID,
         scope:'https://www.googleapis.com/auth/drive.file',
-        callback:resp=>{
-          if(resp.error){reject(resp);return}
-          driveToken=resp.access_token;
-          setTimeout(()=>{driveToken=null},((resp.expires_in||3600)-60)*1000);
-          resolve(driveToken);
-        },
+        callback:resp=>{driveTokenCallback&&driveTokenCallback(resp)},
       });
     }
     driveTokenClient.requestAccessToken();
@@ -429,7 +435,9 @@ function Photos({data,ch,save}){
         <input type="file" accept="image/*" multiple onChange={add} style={{display:'none'}}/></label>
     </div>
     <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Une version réduite s'affiche dans l'app ; l'original en pleine qualité est envoyé automatiquement sur votre Google Drive (dossier « CP Constructions › {ch.nom} »).</p>
-    {driveIssue&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>Photo(s) enregistrée(s) dans l'app, mais l'envoi de l'original vers Google Drive a échoué pour au moins une photo. Vérifiez votre connexion et l'autorisation Google.</div>}
+    {isStandalone()&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12,lineHeight:1.5}}>
+      L'envoi vers Google Drive ne fonctionne pas depuis l'app installée sur l'écran d'accueil (limitation iOS). Ouvrez Safari et allez sur {location.origin+location.pathname} pour que les originaux partent vers Drive.</div>}
+    {driveIssue&&!isStandalone()&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>Photo(s) enregistrée(s) dans l'app, mais l'envoi de l'original vers Google Drive a échoué pour au moins une photo. Vérifiez votre connexion et l'autorisation Google.</div>}
     {!list.length&&<Empty>Aucune photo. Prenez le chantier en photo à chaque visite.</Empty>}
     <div className="grid-ph">
       {list.map(p=><Vignette key={p.id} p={p} onZoom={()=>setZoom(p)} onEdit={()=>setEdit(p)}/>)}
@@ -599,11 +607,17 @@ function Docs({ch,up}){
       const{webViewLink}=await uploadToDrive(file);
       const c=d[id]||{};
       up({docs:{...d,[id]:{...c,lien:webViewLink,fait:true,date:c.fait?c.date:today()}}});
-    }catch(e){alert("Import Google Drive impossible. Vérifiez votre connexion et réessayez.")}
+    }catch(e){
+      alert(isStandalone()
+        ?"Import Google Drive impossible depuis l'app installée sur l'écran d'accueil (limitation iOS). Ouvrez Safari (pas l'icône de l'app) et allez sur "+location.origin+location.pathname+" pour importer ce PDF."
+        :"Import Google Drive impossible. Vérifiez votre connexion, acceptez l'autorisation Google si elle apparaît, puis réessayez.");
+    }
     setBusy(null);
   };
   const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
   return <div>
+    {isStandalone()&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12,lineHeight:1.5}}>
+      L'import vers Google Drive ne fonctionne pas depuis l'app installée sur l'écran d'accueil (limitation iOS). Ouvrez Safari et allez sur {location.origin+location.pathname} pour importer des PDF.</div>}
     <p className="xs mut" style={{marginTop:0}}>{n} pièce{n>1?'s':''} sur {DOCS.length}. Importez le PDF (envoyé sur votre Google Drive, dossier « CP Constructions ») ou collez un lien existant.</p>
     {DOCS.map(x=>{const r=d[x.id]||{};return <div key={x.id} className="card" style={{padding:10}}>
       <div className="row" style={{gap:10,alignItems:'flex-start'}}>
