@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Chantiers CP">
+<meta name="robots" content="noindex, nofollow">
+<title>CP Constructions — Suivi de chantiers</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%232C4A5E' width='180' height='180'/><text x='90' y='118' font-size='84' font-family='Helvetica' font-weight='bold' fill='%23C5563A' text-anchor='middle'>CP</text></svg>">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#FBFAF7;color:#1A2B36;font-family:-apple-system,Helvetica Neue,Arial,sans-serif}
+  input,select,textarea,button{font-family:inherit;font-size:16px;border-radius:0}
+  a{text-decoration:none}
+  .row{display:flex}.sp{display:flex;justify-content:space-between;align-items:center}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .card{background:#fff;border:1px solid #D4CFC5;padding:12px;margin-bottom:8px;width:100%;text-align:left;display:block}
+  .xs{font-size:12px}.sm{font-size:14px}.b{font-weight:700}.mut{color:#6E7B84}
+  .in{width:100%;padding:9px 8px;border:1px solid #D4CFC5;background:#fff;color:#1A2B36;font-size:16px}
+  .lbl{display:block;font-size:11px;letter-spacing:.06em;color:#6E7B84;margin:0 0 4px}
+  .fld{margin-bottom:12px}
+  .btn{padding:9px 12px;font-size:14px;border:1px solid #2C4A5E;background:#2C4A5E;color:#fff}
+  .btn.acc{background:#C5563A;border-color:#C5563A}
+  .btn.gh{background:transparent;color:#2C4A5E;border-color:#D4CFC5}
+  .btn.dg{background:transparent;color:#C5563A;border-color:#C5563A}
+  .btn.s{padding:5px 9px;font-size:12px}
+  .h2{font-size:13px;font-weight:700;letter-spacing:.08em;color:#2C4A5E;border-bottom:2px solid #C5563A;padding-bottom:4px;display:inline-block}
+  .tabs{display:flex;overflow-x:auto;border-bottom:1px solid #D4CFC5;margin-bottom:14px}
+  .tab{flex:0 0 auto;padding:11px 12px;font-size:12px;letter-spacing:.05em;background:none;border:none;border-bottom:2px solid transparent;color:#6E7B84;white-space:nowrap}
+  .tab.on{color:#2C4A5E;font-weight:700;border-bottom-color:#C5563A}
+  nav.bot{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #D4CFC5;display:flex;padding-bottom:env(safe-area-inset-bottom)}
+  nav.bot button{flex:1;padding:12px 2px;font-size:11px;letter-spacing:.04em;background:none;border:none;border-top:2px solid transparent;color:#6E7B84}
+  nav.bot button.on{color:#2C4A5E;font-weight:700;border-top-color:#C5563A}
+  .bar{height:4px;background:#D4CFC5;margin-top:8px}
+  .chk{width:22px;height:22px;min-width:22px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;border:1px solid #D4CFC5;background:#fff}
+  .grid-ph{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .ph{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:#EFECE6}
+  .modal{position:fixed;inset:0;background:rgba(26,43,54,.94);z-index:50;display:flex;flex-direction:column;padding:16px}
+</style>
+</head>
+<body>
+<div id="root" style="padding-bottom:74px"></div>
+
+<script type="text/babel">
+const {useState,useEffect} = React;
+const NAVY='#2C4A5E',TERRA='#C5563A',INK='#1A2B36',RULE='#D4CFC5',MUTED='#6E7B84',GREEN='#3F7A5A',AMBER='#B07D12';
+const KEY='cp-constructions-data-v2';
+
+const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
+const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
+const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
+const DOCS=[{id:'pc_depot',l:'Dépôt du permis de construire'},{id:'pc_arrete',l:'Arrêté de permis de construire'},{id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},{id:'daact',l:'DAACT (Cerfa 13408)'},{id:'plans_pc',l:'Plans du permis'},{id:'plans_exe',l:"Plans d'exécution"},{id:'notice',l:'Notice descriptive'},{id:'thermique',l:'Étude thermique RE2020'},{id:'sol',l:'Étude de sol G2'},{id:'do',l:'Assurance dommages-ouvrage'},{id:'pret',l:'Accord de prêt bancaire'},{id:'acte',l:'Acte notarié du terrain'},{id:'attest',l:'Attestation RE2020 fin de travaux'},{id:'pv',l:'PV de réception'}];
+const JALONS=['Dépôt du permis','Obtention du permis','Signature des marchés','Ouverture de chantier','Terrassement','Fondations','Élévation des murs','Charpente / couverture',"Hors d'eau — hors d'air",'Second œuvre','Réception des travaux','Levée des réserves'];
+const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Travaux',reception:'Réception',clos:'Clos'};
+
+const uid=()=>Math.random().toString(36).slice(2,10);
+const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
+const today=()=>new Date().toISOString().slice(0,10);
+const fd=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
+const wa=t=>t?t.replace(/[^0-9]/g,'').replace(/^0/,'33'):'';
+const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[]};
+
+/* ---------- vignettes : base séparée, pour ne pas saturer le stockage principal ---------- */
+const IDB=(()=>{
+  let p;
+  const open=()=>p||(p=new Promise((res,rej)=>{
+    const r=indexedDB.open('cp-photos',1);
+    r.onupgradeneeded=()=>r.result.createObjectStore('img');
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+  }));
+  const tx=(mode,fn)=>open().then(db=>new Promise((res,rej)=>{
+    const t=db.transaction('img',mode), s=t.objectStore('img'), q=fn(s);
+    q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error);
+  }));
+  return{
+    put:(k,v)=>tx('readwrite',s=>s.put(v,k)),
+    get:k=>tx('readonly',s=>s.get(k)),
+    del:k=>tx('readwrite',s=>s.delete(k)),
+  };
+})();
+
+function compress(file,max=900,q=.6){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{
+      const im=new Image();
+      im.onload=()=>{
+        const r=Math.min(1,max/Math.max(im.width,im.height));
+        const cv=document.createElement('canvas');
+        cv.width=Math.round(im.width*r); cv.height=Math.round(im.height*r);
+        cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
+        res(cv.toDataURL('image/jpeg',q));
+      };
+      im.onerror=rej; im.src=fr.result;
+    };
+    fr.onerror=rej; fr.readAsDataURL(file);
+  });
+}
+
+function load(){try{const r=localStorage.getItem(KEY);return r?{...EMPTY,...JSON.parse(r)}:EMPTY}catch(e){return EMPTY}}
+
+function App(){
+  const [data,setData]=useState(load);
+  const [view,setView]=useState('chantiers');
+  const [open,setOpen]=useState(null);
+  const [err,setErr]=useState(null);
+  const save=next=>{
+    setData(next);
+    try{localStorage.setItem(KEY,JSON.stringify(next));setErr(null)}
+    catch(e){setErr("Sauvegarde impossible — mémoire pleine. Exportez puis supprimez d'anciens chantiers.")}
+  };
+  const ch=open?data.chantiers.find(c=>c.id===open):null;
+  return <div>
+    <header style={{background:NAVY,padding:'12px 16px',paddingTop:'calc(12px + env(safe-area-inset-top))'}}>
+      <div className="b" style={{color:'#fff',letterSpacing:'.04em'}}>CP CONSTRUCTIONS</div>
+      <div className="xs" style={{color:'#9FB4C2',marginTop:2}}>Maîtrise d'œuvre — suivi de chantiers</div>
+    </header>
+    {err&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:'8px 16px'}}>{err}</div>}
+    <main style={{padding:16}}>
+      {ch?<Fiche data={data} ch={ch} save={save} back={()=>setOpen(null)}/>
+      :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
+      :view==='artisans'?<Artisans data={data} save={save}/>
+      :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
+      :view==='bilan'?<Bilan data={data} open={setOpen}/>
+      :<Donnees data={data} save={save}/>}
+    </main>
+    {!ch&&<nav className="bot">
+      {[['chantiers','CHANTIERS'],['artisans','ARTISANS'],['cmd','COMMANDES'],['bilan','FINANCES'],['donnees','DONNÉES']].map(([id,l])=>
+        <button key={id} className={view===id?'on':''} onClick={()=>setView(id)}>{l}</button>)}
+    </nav>}
+  </div>;
+}
+
+const Fld=({label,children})=><div className="fld"><span className="lbl">{label}</span>{children}</div>;
+const H2=({children,action})=><div className="sp" style={{marginBottom:12}}><span className="h2">{children}</span>{action}</div>;
+const Empty=({children})=><p className="sm mut" style={{textAlign:'center',padding:'24px 0'}}>{children}</p>;
+const Acts=({onSave,onCancel,onDel})=><div className="row" style={{gap:8}}>
+  <button className="btn" onClick={onSave}>Enregistrer</button>
+  <button className="btn gh" onClick={onCancel}>Annuler</button>
+  {onDel&&<button className="btn dg" onClick={onDel}>Supprimer</button>}</div>;
+
+/* ---------------- CHANTIERS ---------------- */
+function Chantiers({data,save,open}){
+  const [f,setF]=useState(null);
+  const ok=()=>{
+    if(!f.nom.trim())return;
+    const r={...f,budget:+f.budget||0,honorairesPct:+f.honorairesPct||0};
+    save({...data,chantiers:f.id?data.chantiers.map(c=>c.id===f.id?{...c,...r}:c):[...data.chantiers,{...r,id:uid(),docs:{},jalons:[]}]});
+    setF(null);
+  };
+  const eng=id=>data.marches.filter(m=>m.chantierId===id).reduce((s,m)=>s+(m.montantHT||0),0);
+  return <div>
+    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',adresse:'',lienDrive:'',budget:'',honorairesPct:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
+    {f&&<div className="card">
+      <Fld label="NOM DU CHANTIER"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Barbé — Céaucé"/></Fld>
+      <div className="g2">
+        <Fld label="CLIENT"><input className="in" value={f.client} onChange={e=>setF({...f,client:e.target.value})}/></Fld>
+        <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={f.telClient||''} onChange={e=>setF({...f,telClient:e.target.value})}/></Fld>
+      </div>
+      <Fld label="ADRESSE"><input className="in" value={f.adresse} onChange={e=>setF({...f,adresse:e.target.value})}/></Fld>
+      <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" placeholder="Lien du dossier partagé…" value={f.lienDrive||''} onChange={e=>setF({...f,lienDrive:e.target.value})}/></Fld>
+      <div className="g2">
+        <Fld label="BUDGET TRAVAUX HT (€)"><input className="in" type="number" value={f.budget} onChange={e=>setF({...f,budget:e.target.value})}/></Fld>
+        <Fld label="HONORAIRES MOE (%)"><input className="in" type="number" step="0.1" value={f.honorairesPct} onChange={e=>setF({...f,honorairesPct:e.target.value})}/></Fld>
+      </div>
+      <Fld label="PHASE"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>
+        {Object.entries(PHASE).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,chantiers:data.chantiers.filter(c=>c.id!==f.id),marches:data.marches.filter(m=>m.chantierId!==f.id),photos:data.photos.filter(p=>p.chantierId!==f.id),commandes:data.commandes.filter(c=>c.chantierId!==f.id)});setF(null)}:null}/>
+    </div>}
+    {!data.chantiers.length&&!f&&<Empty>Aucun chantier. Ajoutez le premier avec « + Chantier ».</Empty>}
+    {data.chantiers.map(c=>{
+      const e=eng(c.id),pct=c.budget?Math.min(100,Math.round(e/c.budget*100)):0;
+      const nd=DOCS.filter(d=>c.docs&&c.docs[d.id]&&c.docs[d.id].fait).length;
+      const np=data.photos.filter(p=>p.chantierId===c.id).length;
+      return <button key={c.id} className="card" style={{borderLeft:'3px solid '+NAVY}} onClick={()=>open(c.id)}>
+        <div className="sp"><span className="b sm" style={{color:NAVY}}>{c.nom}</span><span className="xs mut">{PHASE[c.statut]}</span></div>
+        <div className="xs mut" style={{marginTop:3}}>{c.client}{c.adresse?' — '+c.adresse:''}</div>
+        <div className="sp xs" style={{marginTop:8}}><span>Engagé <b>{eur(e)}</b> / {eur(c.budget)}</span><span className="mut">{nd}/{DOCS.length} pièces · {np} photo{np>1?'s':''}</span></div>
+        <div className="bar"><div style={{height:4,width:pct+'%',background:e>c.budget?TERRA:NAVY}}/></div>
+      </button>;
+    })}
+  </div>;
+}
+
+/* ---------------- FICHE ---------------- */
+function Fiche({data,ch,save,back}){
+  const [tab,setTab]=useState('marches');
+  const up=p=>save({...data,chantiers:data.chantiers.map(c=>c.id===ch.id?{...c,...p}:c)});
+  const ms=data.marches.filter(m=>m.chantierId===ch.id);
+  const eng=ms.reduce((s,m)=>s+(m.montantHT||0),0), fac=ms.reduce((s,m)=>s+(m.facture||0),0);
+  return <div>
+    <button onClick={back} className="xs" style={{color:TERRA,background:'none',border:'none',padding:'0 0 12px'}}>← Tous les chantiers</button>
+    <div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+      <div className="b" style={{color:NAVY}}>{ch.nom}</div>
+      <div className="xs mut" style={{marginTop:3}}>{ch.client} — {ch.adresse}</div>
+      <div className="g3 xs" style={{marginTop:10}}>
+        <div><div className="mut">Budget</div><div className="b">{eur(ch.budget)}</div></div>
+        <div><div className="mut">Engagé</div><div className="b" style={{color:eng>ch.budget?TERRA:INK}}>{eur(eng)}</div></div>
+        <div><div className="mut">Honoraires</div><div className="b">{eur(ch.budget*(ch.honorairesPct||0)/100)}</div></div>
+      </div>
+      {eng>ch.budget&&ch.budget>0&&<div className="xs b" style={{color:TERRA,marginTop:8}}>Dépassement de {eur(eng-ch.budget)} sur le budget annoncé au client.</div>}
+      <div className="row xs" style={{gap:14,marginTop:10}}>
+        {ch.telClient&&<a href={'tel:'+ch.telClient} style={{color:TERRA}}>Appeler le client</a>}
+        {ch.telClient&&<a href={'https://wa.me/'+wa(ch.telClient)} style={{color:TERRA}}>WhatsApp</a>}
+        {ch.lienDrive&&<a href={ch.lienDrive} target="_blank" rel="noreferrer" style={{color:TERRA}}>Dossier Drive</a>}
+      </div>
+    </div>
+    <div className="tabs">
+      {[['marches','MARCHÉS'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
+        <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
+    </div>
+    {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}/>}
+    {tab==='photos'&&<Photos data={data} ch={ch} save={save}/>}
+    {tab==='cmd'&&<Commandes data={data} ch={ch} save={save}/>}
+    {tab==='planning'&&<Planning data={data} ch={ch} up={up}/>}
+    {tab==='docs'&&<Docs ch={ch} up={up}/>}
+  </div>;
+}
+
+/* ---------------- MARCHÉS ---------------- */
+function Marches({data,ch,save,eng,fac}){
+  const [f,setF]=useState(null);
+  const ms=data.marches.filter(m=>m.chantierId===ch.id);
+  const ok=()=>{
+    if(!f.lot)return;
+    const r={...f,montantHT:+f.montantHT||0,facture:+f.facture||0};
+    save({...data,marches:f.id?data.marches.map(m=>m.id===f.id?r:m):[...data.marches,{...r,id:uid(),chantierId:ch.id}]});
+    setF(null);
+  };
+  const nom=id=>{const a=data.artisans.find(x=>x.id===id);return a?a.nom:'Non attribué'};
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}</span>
+      <button className="btn acc s" onClick={()=>setF({lot:'',artisanId:'',montantHT:'',facture:'',statut:'consulter',dateSignature:'',notes:''})}>+ Lot</button>
+    </div>
+    {f&&<div className="card">
+      <Fld label="CORPS D'ÉTAT"><select className="in" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})}><option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
+      <Fld label="ARTISAN"><select className="in" value={f.artisanId} onChange={e=>setF({...f,artisanId:e.target.value})}><option value="">— non attribué —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom} ({a.corps})</option>)}</select></Fld>
+      <div className="g2">
+        <Fld label="MONTANT HT (€)"><input className="in" type="number" value={f.montantHT} onChange={e=>setF({...f,montantHT:e.target.value})}/></Fld>
+        <Fld label="DÉJÀ FACTURÉ (€)"><input className="in" type="number" value={f.facture} onChange={e=>setF({...f,facture:e.target.value})}/></Fld>
+      </div>
+      <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{STATUTS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
+      <Fld label="DATE DE SIGNATURE"><input className="in" type="date" value={f.dateSignature} onChange={e=>setF({...f,dateSignature:e.target.value})}/></Fld>
+      <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,marches:data.marches.filter(m=>m.id!==f.id)});setF(null)}:null}/>
+    </div>}
+    {!ms.length&&!f&&<Empty>Aucun lot. Ajoutez les corps d'état à consulter.</Empty>}
+    {ms.map(m=>{
+      const s=STATUTS.find(x=>x.id===m.statut)||STATUTS[0], r=(m.montantHT||0)-(m.facture||0);
+      return <button key={m.id} className="card" style={{borderLeft:'3px solid '+s.c}} onClick={()=>setF(m)}>
+        <div className="sp"><span className="b sm">{m.lot}</span><span className="xs b" style={{color:s.c}}>{s.label}</span></div>
+        <div className="xs mut" style={{marginTop:3}}>{nom(m.artisanId)}</div>
+        <div className="sp xs" style={{marginTop:8}}><span>{eur(m.montantHT)} HT</span><span style={{color:r>0?INK:GREEN}}>{r>0?'reste '+eur(r):'soldé'}</span></div>
+      </button>;
+    })}
+  </div>;
+}
+
+/* ---------------- PHOTOS ---------------- */
+function Photos({data,ch,save}){
+  const list=data.photos.filter(p=>p.chantierId===ch.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const [busy,setBusy]=useState(false);
+  const [zoom,setZoom]=useState(null);
+  const [edit,setEdit]=useState(null);
+
+  const add=async e=>{
+    const files=[...e.target.files]; e.target.value='';
+    if(!files.length)return;
+    setBusy(true);
+    const nouveaux=[];
+    for(const file of files){
+      try{
+        const d=await compress(file);
+        const id=uid();
+        await IDB.put(id,d);
+        nouveaux.push({id,chantierId:ch.id,date:today(),legende:'',lot:'',lien:''});
+      }catch(x){/* photo ignorée */}
+    }
+    if(nouveaux.length)save({...data,photos:[...data.photos,...nouveaux]});
+    setBusy(false);
+  };
+  const del=async id=>{await IDB.del(id).catch(()=>{});save({...data,photos:data.photos.filter(p=>p.id!==id)})};
+  const upd=p=>save({...data,photos:data.photos.map(x=>x.id===p.id?p:x)});
+
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <span className="xs mut">{list.length} photo{list.length>1?'s':''}</span>
+      <label className="btn acc s">{busy?'Traitement…':'+ Photos'}
+        <input type="file" accept="image/*" multiple onChange={add} style={{display:'none'}}/></label>
+    </div>
+    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Les photos sont réduites pour tenir dans le téléphone. Gardez les originaux dans le dossier Drive du chantier.</p>
+    {!list.length&&<Empty>Aucune photo. Prenez le chantier en photo à chaque visite.</Empty>}
+    <div className="grid-ph">
+      {list.map(p=><Vignette key={p.id} p={p} onZoom={()=>setZoom(p)} onEdit={()=>setEdit(p)}/>)}
+    </div>
+    {edit&&<div className="card" style={{marginTop:12}}>
+      <Fld label="DATE"><input className="in" type="date" value={edit.date} onChange={e=>setEdit({...edit,date:e.target.value})}/></Fld>
+      <Fld label="LÉGENDE"><input className="in" placeholder="Coulage dalle — angle nord" value={edit.legende} onChange={e=>setEdit({...edit,legende:e.target.value})}/></Fld>
+      <Fld label="LOT CONCERNÉ"><select className="in" value={edit.lot} onChange={e=>setEdit({...edit,lot:e.target.value})}><option value="">— aucun —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
+      <Fld label="LIEN VERS L'ORIGINAL"><input className="in" placeholder="Lien Drive…" value={edit.lien} onChange={e=>setEdit({...edit,lien:e.target.value})}/></Fld>
+      <Acts onSave={()=>{upd(edit);setEdit(null)}} onCancel={()=>setEdit(null)} onDel={()=>{del(edit.id);setEdit(null)}}/>
+    </div>}
+    {zoom&&<Plein p={zoom} close={()=>setZoom(null)}/>}
+  </div>;
+}
+
+function Vignette({p,onZoom,onEdit}){
+  const [src,setSrc]=useState(null);
+  useEffect(()=>{let a=true;IDB.get(p.id).then(v=>{if(a)setSrc(v||null)}).catch(()=>{});return()=>{a=false}},[p.id]);
+  return <div style={{border:'1px solid '+RULE,background:'#fff'}}>
+    <div onClick={onZoom}>{src?<img className="ph" src={src} alt=""/>:<div className="ph"/>}</div>
+    <div onClick={onEdit} style={{padding:'6px 7px'}}>
+      <div className="xs mut">{fd(p.date)}</div>
+      <div className="xs" style={{lineHeight:1.3}}>{p.legende||<span className="mut">Ajouter une légende</span>}</div>
+      {p.lot&&<div className="xs" style={{color:NAVY,marginTop:2}}>{p.lot}</div>}
+    </div>
+  </div>;
+}
+
+function Plein({p,close}){
+  const [src,setSrc]=useState(null);
+  useEffect(()=>{IDB.get(p.id).then(setSrc).catch(()=>{})},[p.id]);
+  return <div className="modal" onClick={close}>
+    <button className="xs" style={{color:'#fff',background:'none',border:'none',alignSelf:'flex-end',padding:8}}>Fermer</button>
+    {src&&<img src={src} style={{maxWidth:'100%',maxHeight:'75vh',objectFit:'contain',margin:'auto'}} alt=""/>}
+    <div className="xs" style={{color:'#D8D3CB',textAlign:'center',paddingTop:12}}>{fd(p.date)} — {p.legende||'sans légende'}</div>
+  </div>;
+}
+
+/* ---------------- COMMANDES MATÉRIAUX ---------------- */
+function Commandes({data,ch,save}){
+  const [f,setF]=useState(null);
+  const list=data.commandes.filter(c=>c.chantierId===ch.id).sort((a,b)=>(a.livrPrevue||'9999').localeCompare(b.livrPrevue||'9999'));
+  const ok=()=>{
+    if(!f.designation.trim())return;
+    const r={...f,montant:+f.montant||0};
+    save({...data,commandes:f.id?data.commandes.map(c=>c.id===f.id?r:c):[...data.commandes,{...r,id:uid(),chantierId:ch.id}]});
+    setF(null);
+  };
+  const tot=list.reduce((s,c)=>s+(c.montant||0),0);
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <span className="xs mut">{list.length} commande{list.length>1?'s':''} — {eur(tot)}</span>
+      <button className="btn acc s" onClick={()=>setF({designation:'',fournisseur:'',lot:'',montant:'',dateCommande:'',livrPrevue:'',livrReelle:'',statut:'a_commander',notes:''})}>+ Commande</button>
+    </div>
+    {f&&<div className="card">
+      <Fld label="DÉSIGNATION"><input className="in" placeholder="Menuiseries alu — 8 ouvrants" value={f.designation} onChange={e=>setF({...f,designation:e.target.value})}/></Fld>
+      <div className="g2">
+        <Fld label="FOURNISSEUR"><input className="in" value={f.fournisseur} onChange={e=>setF({...f,fournisseur:e.target.value})}/></Fld>
+        <Fld label="MONTANT HT (€)"><input className="in" type="number" value={f.montant} onChange={e=>setF({...f,montant:e.target.value})}/></Fld>
+      </div>
+      <Fld label="LOT CONCERNÉ"><select className="in" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})}><option value="">— aucun —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
+      <div className="g2">
+        <Fld label="DATE DE COMMANDE"><input className="in" type="date" value={f.dateCommande} onChange={e=>setF({...f,dateCommande:e.target.value})}/></Fld>
+        <Fld label="LIVRAISON PRÉVUE"><input className="in" type="date" value={f.livrPrevue} onChange={e=>setF({...f,livrPrevue:e.target.value})}/></Fld>
+      </div>
+      <Fld label="LIVRAISON RÉELLE"><input className="in" type="date" value={f.livrReelle} onChange={e=>setF({...f,livrReelle:e.target.value})}/></Fld>
+      <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{CMD_ST.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
+      <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,commandes:data.commandes.filter(c=>c.id!==f.id)});setF(null)}:null}/>
+    </div>}
+    {!list.length&&!f&&<Empty>Aucune commande. Suivez ici les matériaux à approvisionner.</Empty>}
+    {list.map(c=><LigneCmd key={c.id} c={c} onClick={()=>setF(c)}/>)}
+  </div>;
+}
+
+function LigneCmd({c,onClick,chantierNom}){
+  const s=CMD_ST.find(x=>x.id===c.statut)||CMD_ST[0];
+  const retard=c.livrPrevue&&!c.livrReelle&&c.livrPrevue<today()&&c.statut!=='livre';
+  return <button className="card" style={{borderLeft:'3px solid '+(retard?TERRA:s.c)}} onClick={onClick}>
+    <div className="sp"><span className="b sm">{c.designation}</span><span className="xs b" style={{color:retard?TERRA:s.c}}>{retard?'EN RETARD':s.label}</span></div>
+    <div className="xs mut" style={{marginTop:3}}>{chantierNom?chantierNom+' · ':''}{c.fournisseur||'fournisseur non précisé'}{c.lot?' · '+c.lot:''}</div>
+    <div className="sp xs" style={{marginTop:8}}>
+      <span>{eur(c.montant)} HT</span>
+      <span className="mut">{c.livrReelle?'livré le '+fd(c.livrReelle):c.livrPrevue?'prévu le '+fd(c.livrPrevue):'sans date'}</span>
+    </div>
+  </button>;
+}
+
+function CommandesGlob({data,open}){
+  const [filtre,setFiltre]=useState('actives');
+  const nom=id=>{const c=data.chantiers.find(x=>x.id===id);return c?c.nom:'—'};
+  let L=[...data.commandes];
+  if(filtre==='actives')L=L.filter(c=>c.statut!=='livre');
+  if(filtre==='retard')L=L.filter(c=>c.livrPrevue&&!c.livrReelle&&c.livrPrevue<today()&&c.statut!=='livre');
+  L.sort((a,b)=>(a.livrPrevue||'9999').localeCompare(b.livrPrevue||'9999'));
+  const nR=data.commandes.filter(c=>c.livrPrevue&&!c.livrReelle&&c.livrPrevue<today()&&c.statut!=='livre').length;
+  return <div>
+    <H2>COMMANDES MATÉRIAUX</H2>
+    {nR>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
+      {nR} livraison{nR>1?'s':''} en retard sur la date annoncée.</div>}
+    <div className="row" style={{gap:8,marginBottom:12}}>
+      {[['actives','En cours'],['retard','En retard'],['toutes','Toutes']].map(([id,l])=>
+        <button key={id} className={'btn s '+(filtre===id?'':'gh')} onClick={()=>setFiltre(id)}>{l}</button>)}
+    </div>
+    {!L.length&&<Empty>Rien à afficher dans cette vue.</Empty>}
+    {L.map(c=><LigneCmd key={c.id} c={c} chantierNom={nom(c.chantierId)} onClick={()=>open(c.chantierId)}/>)}
+  </div>;
+}
+
+/* ---------------- PLANNING ---------------- */
+function Planning({data,ch,up}){
+  const js=ch.jalons||[];
+  const [f,setF]=useState(null);
+  const livr=data.commandes.filter(c=>c.chantierId===ch.id&&(c.livrPrevue||c.livrReelle))
+    .map(c=>({type:'livr',id:c.id,label:'Livraison — '+c.designation,prevue:c.livrPrevue,reelle:c.livrReelle}));
+  const items=[...js.map(j=>({...j,type:'jalon'})),...livr]
+    .sort((a,b)=>((a.reelle||a.prevue)||'9999').localeCompare((b.reelle||b.prevue)||'9999'));
+  const ok=()=>{
+    if(!f.label)return;
+    const n=f.id?js.map(j=>j.id===f.id?f:j):[...js,{...f,id:uid()}];
+    up({jalons:n});setF(null);
+  };
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <span className="xs mut">{js.length} jalon{js.length>1?'s':''} · {livr.length} livraison{livr.length>1?'s':''}</span>
+      <div className="row" style={{gap:8}}>
+        {!js.length&&<button className="btn gh s" onClick={()=>up({jalons:JALONS.map(l=>({id:uid(),label:l,prevue:'',reelle:''}))})}>Trame standard</button>}
+        <button className="btn acc s" onClick={()=>setF({label:'',prevue:'',reelle:''})}>+ Jalon</button>
+      </div>
+    </div>
+    {f&&<div className="card">
+      <Fld label="ÉTAPE"><input className="in" list="jl" value={f.label} onChange={e=>setF({...f,label:e.target.value})}/>
+        <datalist id="jl">{JALONS.map(j=><option key={j} value={j}/>)}</datalist></Fld>
+      <div className="g2">
+        <Fld label="DATE PRÉVUE"><input className="in" type="date" value={f.prevue} onChange={e=>setF({...f,prevue:e.target.value})}/></Fld>
+        <Fld label="DATE RÉELLE"><input className="in" type="date" value={f.reelle} onChange={e=>setF({...f,reelle:e.target.value})}/></Fld>
+      </div>
+      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{up({jalons:js.filter(j=>j.id!==f.id)});setF(null)}:null}/>
+    </div>}
+    {!items.length&&!f&&<Empty>Aucune étape. « Trame standard » crée les 12 jalons d'une maison neuve.</Empty>}
+    {items.map(i=>{
+      const done=!!i.reelle, late=i.prevue&&!i.reelle&&i.prevue<today();
+      const liv=i.type==='livr';
+      return <div key={i.type+i.id} className="card sp" style={{borderLeft:'3px solid '+(done?GREEN:late?TERRA:RULE),padding:10,opacity:liv?.85:1}}
+        onClick={()=>{if(!liv)setF(js.find(j=>j.id===i.id))}}>
+        <span className="sm" style={{color:done?MUTED:INK,textDecoration:done?'line-through':'none'}}>
+          {liv&&<span className="xs" style={{color:NAVY,marginRight:6}}>▸</span>}{i.label}</span>
+        <span className="xs" style={{color:late?TERRA:MUTED,textAlign:'right',minWidth:74}}>
+          {done?fd(i.reelle):late?'retard '+fd(i.prevue):fd(i.prevue)}</span>
+      </div>;
+    })}
+  </div>;
+}
+
+/* ---------------- PIÈCES ---------------- */
+function Docs({ch,up}){
+  const d=ch.docs||{};
+  const tog=id=>{const c=d[id]||{};up({docs:{...d,[id]:{...c,fait:!c.fait,date:!c.fait?today():''}}})};
+  const lien=(id,v)=>up({docs:{...d,[id]:{...(d[id]||{}),lien:v}}});
+  const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
+  return <div>
+    <p className="xs mut" style={{marginTop:0}}>{n} pièce{n>1?'s':''} sur {DOCS.length}. Le fichier reste sur votre Drive — collez ici le lien.</p>
+    {DOCS.map(x=>{const r=d[x.id]||{};return <div key={x.id} className="card" style={{padding:10}}>
+      <div className="row" style={{gap:10,alignItems:'flex-start'}}>
+        <button className="chk" onClick={()=>tog(x.id)} style={{background:r.fait?GREEN:'#fff',borderColor:r.fait?GREEN:RULE}}>{r.fait?'✓':''}</button>
+        <div style={{flex:1}}>
+          <div className="sm">{x.l}</div>
+          {r.fait&&<div className="xs mut">Reçu le {fd(r.date)}</div>}
+          <input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}} placeholder="Lien Drive…" value={r.lien||''} onChange={e=>lien(x.id,e.target.value)}/>
+          {r.lien&&<a href={r.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir</a>}
+        </div>
+      </div></div>})}
+  </div>;
+}
+
+/* ---------------- ARTISANS ---------------- */
+function Artisans({data,save}){
+  const [f,setF]=useState(null);
+  const ok=()=>{if(!f.nom.trim())return;save({...data,artisans:f.id?data.artisans.map(a=>a.id===f.id?f:a):[...data.artisans,{...f,id:uid()}]});setF(null)};
+  const st=a=>{
+    if(!a.decennaleFin)return{t:'Décennale non renseignée',c:TERRA};
+    const j=Math.round((new Date(a.decennaleFin)-new Date())/86400000);
+    if(j<0)return{t:'Décennale expirée le '+fd(a.decennaleFin),c:TERRA};
+    if(j<60)return{t:'Décennale expire dans '+j+' j',c:AMBER};
+    return{t:'Décennale valide jusqu\u2019au '+fd(a.decennaleFin),c:GREEN};
+  };
+  const al=data.artisans.filter(a=>!a.decennaleFin||new Date(a.decennaleFin)<new Date());
+  return <div>
+    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',corps:'',tel:'',email:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''})}>+ Artisan</button>}>ARTISANS ({data.artisans.length})</H2>
+    {al.length>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
+      {al.length} artisan{al.length>1?'s':''} sans décennale valide. Ne pas signer de marché avant régularisation.</div>}
+    {f&&<div className="card">
+      <Fld label="RAISON SOCIALE"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}/></Fld>
+      <Fld label="CORPS D'ÉTAT"><select className="in" value={f.corps} onChange={e=>setF({...f,corps:e.target.value})}><option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
+      <div className="g2">
+        <Fld label="TÉLÉPHONE"><input className="in" type="tel" value={f.tel} onChange={e=>setF({...f,tel:e.target.value})}/></Fld>
+        <Fld label="EMAIL"><input className="in" type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="ASSUREUR"><input className="in" value={f.assureur} onChange={e=>setF({...f,assureur:e.target.value})}/></Fld>
+        <Fld label="N° DE POLICE"><input className="in" value={f.numPolice} onChange={e=>setF({...f,numPolice:e.target.value})}/></Fld>
+      </div>
+      <Fld label="DÉCENNALE VALIDE JUSQU'AU"><input className="in" type="date" value={f.decennaleFin} onChange={e=>setF({...f,decennaleFin:e.target.value})}/></Fld>
+      <Fld label="LIEN VERS L'ATTESTATION"><input className="in" placeholder="Lien Drive…" value={f.lienAttestation} onChange={e=>setF({...f,lienAttestation:e.target.value})}/></Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,artisans:data.artisans.filter(a=>a.id!==f.id)});setF(null)}:null}/>
+    </div>}
+    {!data.artisans.length&&!f&&<Empty>Aucun artisan. Constituez votre carnet d'adresses.</Empty>}
+    {data.artisans.map(a=>{
+      const s=st(a),n=data.marches.filter(m=>m.artisanId===a.id).length;
+      return <div key={a.id} className="card" style={{borderLeft:'3px solid '+s.c}}>
+        <div onClick={()=>setF(a)}>
+          <div className="sp"><span className="b sm" style={{color:NAVY}}>{a.nom}</span><span className="xs mut">{a.corps}</span></div>
+          <div className="xs" style={{color:s.c,marginTop:3}}>{s.t}</div>
+          <div className="xs mut" style={{marginTop:2}}>{n} lot{n>1?'s':''} attribué{n>1?'s':''}</div>
+        </div>
+        <div className="row xs" style={{gap:14,marginTop:8}}>
+          {a.tel&&<a href={'tel:'+a.tel} style={{color:TERRA}}>Appeler</a>}
+          {a.tel&&<a href={'https://wa.me/'+wa(a.tel)} style={{color:TERRA}}>WhatsApp</a>}
+          {a.email&&<a href={'mailto:'+a.email} style={{color:TERRA}}>Email</a>}
+          {a.lienAttestation&&<a href={a.lienAttestation} target="_blank" rel="noreferrer" style={{color:TERRA}}>Attestation</a>}
+        </div>
+      </div>;
+    })}
+  </div>;
+}
+
+/* ---------------- BILAN ---------------- */
+function Bilan({data,open}){
+  const L=data.chantiers.map(c=>{
+    const ms=data.marches.filter(m=>m.chantierId===c.id);
+    const eng=ms.reduce((s,m)=>s+(m.montantHT||0),0);
+    const fac=ms.reduce((s,m)=>s+(m.facture||0),0);
+    const mat=data.commandes.filter(x=>x.chantierId===c.id).reduce((s,x)=>s+(x.montant||0),0);
+    return {...c,eng,fac,mat,hono:(c.budget||0)*(c.honorairesPct||0)/100,ecart:(c.budget||0)-eng};
+  });
+  const T=k=>L.reduce((s,l)=>s+(l[k]||0),0);
+  const tb=T('budget'),te=T('eng'),tf=T('fac'),th=T('hono'),tm=T('mat');
+  const csv=()=>{
+    const rows=[['Chantier','Client','Phase','Budget travaux HT','Engagé HT','Facturé artisans','Matériaux commandés','Écart budget','Honoraires MOE'],
+      ...L.map(l=>[l.nom,l.client,PHASE[l.statut]||'',l.budget||0,l.eng,l.fac,l.mat,l.ecart,Math.round(l.hono)]),
+      ['TOTAL','','',tb,te,tf,tm,tb-te,Math.round(th)]];
+    const a=document.createElement('a');
+    a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(rows.map(r=>r.map(v=>'"'+v+'"').join(';')).join('\n'));
+    a.download='CP-suivi-financier-'+today()+'.csv';a.click();
+  };
+  return <div>
+    <H2 action={<button className="btn gh s" onClick={csv}>Export CSV</button>}>SUIVI FINANCIER</H2>
+    <div className="g2">
+      <Stat l="Budget travaux annoncé" v={eur(tb)}/>
+      <Stat l="Engagé auprès des artisans" v={eur(te)} c={te>tb?TERRA:INK}/>
+      <Stat l="Déjà facturé par les artisans" v={eur(tf)}/>
+      <Stat l="Matériaux commandés" v={eur(tm)}/>
+    </div>
+    <div className="card" style={{marginTop:8}}>
+      <div className="xs mut">Honoraires de maîtrise d'œuvre</div>
+      <div className="b" style={{fontSize:20,marginTop:2,color:NAVY}}>{eur(th)}</div>
+      <div className="xs mut" style={{marginTop:8}}>Reste à facturer par les artisans : <b>{eur(te-tf)}</b></div>
+      <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>Calcul à partir du pourcentage saisi sur chaque chantier. À vérifier avec votre comptable avant tout usage fiscal.</div>
+    </div>
+    {!L.length&&<Empty>Aucun chantier à suivre.</Empty>}
+    {L.map(l=><button key={l.id} className="card" style={{borderLeft:'3px solid '+(l.ecart<0?TERRA:NAVY)}} onClick={()=>open(l.id)}>
+      <div className="sp"><span className="b sm" style={{color:NAVY}}>{l.nom}</span>
+        <span className="xs" style={{color:l.ecart<0?TERRA:GREEN}}>{l.ecart<0?'+'+eur(-l.ecart):eur(l.ecart)}</span></div>
+      <div className="g3 xs" style={{marginTop:8}}>
+        <div><div className="mut">Budget</div><div>{eur(l.budget)}</div></div>
+        <div><div className="mut">Engagé</div><div>{eur(l.eng)}</div></div>
+        <div><div className="mut">Honoraires</div><div>{eur(l.hono)}</div></div>
+      </div>
+    </button>)}
+  </div>;
+}
+const Stat=({l,v,c})=><div className="card" style={{margin:0}}><div className="xs mut" style={{lineHeight:1.3}}>{l}</div><div className="b" style={{fontSize:16,marginTop:4,color:c||INK}}>{v}</div></div>;
+
+/* ---------------- DONNÉES ---------------- */
+function Donnees({data,save}){
+  const [msg,setMsg]=useState('');
+  const exp=()=>{
+    const a=document.createElement('a');
+    a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(data));
+    a.download='CP-sauvegarde-'+today()+'.json';a.click();
+    setMsg('Sauvegarde exportée. Les vignettes photo ne sont pas incluses.');
+  };
+  const imp=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.chantiers)throw 0;
+      save({...EMPTY,...d});setMsg('Sauvegarde restaurée.')}catch(x){setMsg('Fichier illisible — restauration annulée.')}};
+    r.readAsText(f);
+  };
+  return <div>
+    <H2>DONNÉES</H2>
+    <div className="card">
+      <div className="sm b">Sauvegarde</div>
+      <p className="xs mut" style={{lineHeight:1.5}}>Tout est enregistré dans ce navigateur uniquement. Vider l'historique de Safari efface l'ensemble. Exportez chaque semaine et rangez le fichier sur votre Drive.</p>
+      <div className="row" style={{gap:8,marginTop:10}}>
+        <button className="btn" onClick={exp}>Exporter</button>
+        <label className="btn gh">Restaurer<input type="file" accept=".json" onChange={imp} style={{display:'none'}}/></label>
+      </div>
+      {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
+    </div>
+    <div className="card">
+      <div className="sm b">Contenu</div>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.6}}>
+        {data.chantiers.length} chantier(s) · {data.marches.length} lot(s) · {data.artisans.length} artisan(s) · {data.commandes.length} commande(s) · {data.photos.length} photo(s)
+      </div>
+    </div>
+    <div className="card">
+      <div className="sm b">Limites connues</div>
+      <ul className="xs mut" style={{margin:'6px 0 0',paddingLeft:16,lineHeight:1.6}}>
+        <li>Données non partagées avec votre collègue : chaque appareil a les siennes.</li>
+        <li>Photos réduites pour tenir en mémoire ; gardez les originaux sur le Drive.</li>
+        <li>L'export ne contient pas les vignettes, seulement les légendes et dates.</li>
+        <li>PDF non stockés et aucune signature électronique : liens Drive uniquement.</li>
+      </ul>
+    </div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
