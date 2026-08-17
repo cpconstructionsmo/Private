@@ -72,6 +72,7 @@ const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
 const today=()=>new Date().toISOString().slice(0,10);
 const fd=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
 const wa=t=>t?t.replace(/[^0-9]/g,'').replace(/^0/,'33'):'';
+const honoAmount=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:(ch.budget||0)*(ch.honorairesPct||0)/100;
 const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[]};
 
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
@@ -174,6 +175,15 @@ async function driveFacturesFolder(token,chantierId,chantierNom){
   const parentId=await driveChantierFolder(token,chantierId,chantierNom);
   const id=await driveFindOrCreateSubfolder(token,parentId,'Factures');
   driveFacturesFolders.set(chantierId,id);
+  return id;
+}
+
+const driveMarchesFolders=new Map();
+async function driveMarchesFolder(token,chantierId,chantierNom){
+  if(driveMarchesFolders.has(chantierId))return driveMarchesFolders.get(chantierId);
+  const parentId=await driveChantierFolder(token,chantierId,chantierNom);
+  const id=await driveFindOrCreateSubfolder(token,parentId,'Marchés');
+  driveMarchesFolders.set(chantierId,id);
   return id;
 }
 
@@ -312,13 +322,13 @@ function Chantiers({data,save,open}){
   const [f,setF]=useState(null);
   const ok=()=>{
     if(!f.nom.trim())return;
-    const r={...f,budget:+f.budget||0,honorairesPct:+f.honorairesPct||0};
+    const r={...f,budget:+f.budget||0,honorairesPct:+f.honorairesPct||0,honorairesMontant:f.honorairesMontant===''?'':+f.honorairesMontant};
     save({...data,chantiers:f.id?data.chantiers.map(c=>c.id===f.id?{...c,...r}:c):[...data.chantiers,{...r,id:uid(),docs:{},jalons:[]}]});
     setF(null);
   };
   const eng=id=>data.marches.filter(m=>m.chantierId===id).reduce((s,m)=>s+(m.montantHT||0),0);
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',adresse:'',lienDrive:'',budget:'',honorairesPct:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
+    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',adresse:'',lienDrive:'',budget:'',honorairesPct:'',honorairesMontant:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
     {f&&<div className="card">
       <Fld label="NOM DU CHANTIER"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Barbé — Céaucé"/></Fld>
       <div className="g2">
@@ -331,6 +341,9 @@ function Chantiers({data,save,open}){
         <Fld label="BUDGET TRAVAUX HT (€)"><input className="in" type="number" value={f.budget} onChange={e=>setF({...f,budget:e.target.value})}/></Fld>
         <Fld label="HONORAIRES MOE (%)"><input className="in" type="number" step="0.1" value={f.honorairesPct} onChange={e=>setF({...f,honorairesPct:e.target.value})}/></Fld>
       </div>
+      <Fld label="MONTANT HONORAIRES (€) — remplacer le calcul automatique">
+        <input className="in" type="number" placeholder={'Auto : '+eur(f.budget*(f.honorairesPct||0)/100)} value={f.honorairesMontant||''} onChange={e=>setF({...f,honorairesMontant:e.target.value})}/>
+      </Fld>
       <Fld label="PHASE"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>
         {Object.entries(PHASE).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Fld>
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,chantiers:data.chantiers.filter(c=>c.id!==f.id),marches:data.marches.filter(m=>m.chantierId!==f.id),photos:data.photos.filter(p=>p.chantierId!==f.id),commandes:data.commandes.filter(c=>c.chantierId!==f.id)});setF(null)}:null}/>
@@ -353,18 +366,44 @@ function Chantiers({data,save,open}){
 /* ---------------- FICHE ---------------- */
 function Fiche({data,ch,save,back}){
   const [tab,setTab]=useState('marches');
+  const [edit,setEdit]=useState(null);
   const up=p=>save({...data,chantiers:data.chantiers.map(c=>c.id===ch.id?{...c,...p}:c)});
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const eng=ms.reduce((s,m)=>s+(m.montantHT||0),0), fac=ms.reduce((s,m)=>s+(m.facture||0),0);
+  const saveEdit=()=>{
+    up({...edit,budget:+edit.budget||0,honorairesPct:+edit.honorairesPct||0,honorairesMontant:edit.honorairesMontant===''?'':+edit.honorairesMontant});
+    setEdit(null);
+  };
   return <div>
     <button onClick={back} className="xs" style={{color:TERRA,background:'none',border:'none',padding:'0 0 12px'}}>← Tous les chantiers</button>
-    <div className="card" style={{borderLeft:'3px solid '+TERRA}}>
-      <div className="b" style={{color:NAVY}}>{ch.nom}</div>
+    {edit?<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+      <Fld label="NOM DU CHANTIER"><input className="in" value={edit.nom} onChange={e=>setEdit({...edit,nom:e.target.value})}/></Fld>
+      <div className="g2">
+        <Fld label="CLIENT"><input className="in" value={edit.client} onChange={e=>setEdit({...edit,client:e.target.value})}/></Fld>
+        <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={edit.telClient||''} onChange={e=>setEdit({...edit,telClient:e.target.value})}/></Fld>
+      </div>
+      <Fld label="ADRESSE"><input className="in" value={edit.adresse} onChange={e=>setEdit({...edit,adresse:e.target.value})}/></Fld>
+      <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" value={edit.lienDrive||''} onChange={e=>setEdit({...edit,lienDrive:e.target.value})}/></Fld>
+      <div className="g2">
+        <Fld label="BUDGET TRAVAUX HT (€)"><input className="in" type="number" value={edit.budget} onChange={e=>setEdit({...edit,budget:e.target.value})}/></Fld>
+        <Fld label="HONORAIRES MOE (%)"><input className="in" type="number" step="0.1" value={edit.honorairesPct} onChange={e=>setEdit({...edit,honorairesPct:e.target.value})}/></Fld>
+      </div>
+      <Fld label="MONTANT HONORAIRES (€) — remplacer le calcul automatique">
+        <input className="in" type="number" placeholder={'Auto : '+eur(edit.budget*(edit.honorairesPct||0)/100)} value={edit.honorairesMontant||''} onChange={e=>setEdit({...edit,honorairesMontant:e.target.value})}/>
+      </Fld>
+      <Fld label="PHASE"><select className="in" value={edit.statut} onChange={e=>setEdit({...edit,statut:e.target.value})}>
+        {Object.entries(PHASE).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Fld>
+      <Acts onSave={saveEdit} onCancel={()=>setEdit(null)}/>
+    </div>:<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+      <div className="sp">
+        <div className="b" style={{color:NAVY}}>{ch.nom}</div>
+        <button className="btn gh s" onClick={()=>setEdit(ch)}>Modifier</button>
+      </div>
       <div className="xs mut" style={{marginTop:3}}>{ch.client} — {ch.adresse}</div>
       <div className="g3 xs" style={{marginTop:10}}>
         <div><div className="mut">Budget</div><div className="b">{eur(ch.budget)}</div></div>
         <div><div className="mut">Engagé</div><div className="b" style={{color:eng>ch.budget?TERRA:INK}}>{eur(eng)}</div></div>
-        <div><div className="mut">Honoraires</div><div className="b">{eur(ch.budget*(ch.honorairesPct||0)/100)}</div></div>
+        <div><div className="mut">Honoraires</div><div className="b">{eur(honoAmount(ch))}</div></div>
       </div>
       {eng>ch.budget&&ch.budget>0&&<div className="xs b" style={{color:TERRA,marginTop:8}}>Dépassement de {eur(eng-ch.budget)} sur le budget annoncé au client.</div>}
       <div className="row xs" style={{gap:14,marginTop:10}}>
@@ -372,7 +411,7 @@ function Fiche({data,ch,save,back}){
         {ch.telClient&&<a href={'https://wa.me/'+wa(ch.telClient)} style={{color:TERRA}}>WhatsApp</a>}
         {ch.lienDrive&&<a href={ch.lienDrive} target="_blank" rel="noreferrer" style={{color:TERRA}}>Dossier Drive</a>}
       </div>
-    </div>
+    </div>}
     <div className="tabs">
       {[['marches','MARCHÉS'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
@@ -413,13 +452,23 @@ function Marches({data,ch,save,eng,fac}){
       alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous).":"Import de la facture impossible.");
     }
   };
+  const importContrat=async file=>{
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveMarchesFolder(token,ch.id,ch.nom);
+      const{webViewLink}=await uploadToDrive(file,folderId);
+      setF({...f,contratLien:webViewLink});
+    }catch(e){
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous).":"Import du contrat impossible.");
+    }
+  };
   const nom=id=>{const a=data.artisans.find(x=>x.id===id);return a?a.nom:'Non attribué'};
   return <div>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}</span>
       <div className="row" style={{gap:8}}>
         <button className="btn gh s" onClick={()=>setShowImport(!showImport)}>Import rapide</button>
-        <button className="btn acc s" onClick={()=>setF({lot:'',artisanId:'',montantHT:'',statut:'consulter',dateSignature:'',notes:'',factures:[]})}>+ Lot</button>
+        <button className="btn acc s" onClick={()=>setF({lot:'',artisanId:'',montantHT:'',statut:'consulter',dateSignature:'',notes:'',factures:[],contratLien:''})}>+ Lot</button>
       </div>
     </div>
     {showImport&&<ImportMarches data={data} ch={ch} save={save} close={()=>setShowImport(false)}/>}
@@ -430,6 +479,14 @@ function Marches({data,ch,save,eng,fac}){
       <Fld label="MONTANT MARCHÉ HT (€)"><input className="in" type="number" value={f.montantHT} onChange={e=>setF({...f,montantHT:e.target.value})}/></Fld>
       <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{STATUTS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
       <Fld label="DATE DE SIGNATURE"><input className="in" type="date" value={f.dateSignature} onChange={e=>setF({...f,dateSignature:e.target.value})}/></Fld>
+      <Fld label="CONTRAT DE MARCHÉ (PDF)">
+        {f.contratLien
+          ?<div className="row" style={{gap:14,alignItems:'center'}}>
+            <a href={f.contratLien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir le contrat</a>
+            <label className="xs" style={{color:NAVY}}>Remplacer<input type="file" accept="application/pdf" style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importContrat(file)}}/></label>
+          </div>
+          :<label className="xs" style={{color:NAVY}}>Importer le PDF du contrat<input type="file" accept="application/pdf" style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importContrat(file)}}/></label>}
+      </Fld>
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
       <Fld label={"FACTURES — total "+eur(facturesTotal(f.factures))}>
         {(f.factures||[]).map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
@@ -452,11 +509,13 @@ function Marches({data,ch,save,eng,fac}){
           <th style={{padding:'6px 4px'}}>Corps d'état</th>
           <th style={{padding:'6px 4px',textAlign:'right'}}>Marché HT</th>
           <th style={{padding:'6px 4px',textAlign:'right'}}>Facturé</th>
+          <th style={{padding:'6px 4px',textAlign:'right'}}>Reste à facturer</th>
           <th style={{padding:'6px 4px',textAlign:'right'}}>Factures</th>
         </tr></thead>
         <tbody>
           {ms.map(m=>{
             const total=m.factures?facturesTotal(m.factures):(m.facture||0);
+            const reste=(m.montantHT||0)-total;
             return <tr key={m.id} onClick={()=>openRow(m)} style={{borderBottom:'1px solid '+RULE,cursor:'pointer'}}>
               <td style={{padding:'8px 4px'}}>
                 <div className="b">{m.lot}</div>
@@ -464,6 +523,7 @@ function Marches({data,ch,save,eng,fac}){
               </td>
               <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(m.montantHT)}</td>
               <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:total>m.montantHT?TERRA:total>=m.montantHT&&m.montantHT>0?GREEN:INK}}>{eur(total)}</td>
+              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:reste<0?TERRA:INK}}>{reste<=0?'soldé':eur(reste)}</td>
               <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{(m.factures||[]).length||'—'}</td>
             </tr>;
           })}
@@ -817,7 +877,7 @@ function Bilan({data,open}){
     const eng=ms.reduce((s,m)=>s+(m.montantHT||0),0);
     const fac=ms.reduce((s,m)=>s+(m.facture||0),0);
     const mat=data.commandes.filter(x=>x.chantierId===c.id).reduce((s,x)=>s+(x.montant||0),0);
-    return {...c,eng,fac,mat,hono:(c.budget||0)*(c.honorairesPct||0)/100,ecart:(c.budget||0)-eng};
+    return {...c,eng,fac,mat,hono:honoAmount(c),ecart:(c.budget||0)-eng};
   });
   const T=k=>L.reduce((s,l)=>s+(l[k]||0),0);
   const tb=T('budget'),te=T('eng'),tf=T('fac'),th=T('hono'),tm=T('mat');
