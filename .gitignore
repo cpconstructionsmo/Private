@@ -1,0 +1,5 @@
+# Fichiers de données de chantier : ils contiennent les coordonnées des clients
+# (nom, téléphone, adresse). Le dépôt est public — ils ne doivent jamais y entrer.
+CP-chantier-*.json
+CP-sauvegarde-*.json
+*.export.json
