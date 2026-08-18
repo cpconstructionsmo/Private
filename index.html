@@ -293,7 +293,17 @@ const delaiPrevu=ch=>(ch&&ch.delaiPrevu)?+ch.delaiPrevu:DELAI_DEFAUT;
 const joursDepuis=d=>d?Math.floor((new Date().setHours(0,0,0,0)-new Date(d).setHours(0,0,0,0))/86400000):null;
 /* itinéraire : uniquement le lien que vous avez collé — une recherche sur l'adresse tombe souvent
    à côté (lieux-dits, hameaux), donc elle est proposée à part et clairement nommée « recherche » */
-const mapsUrl=ch=>ch.lienMaps||'';
+/* on accepte un lien Maps collé, des coordonnées GPS, ou un nom de lieu : tout est ramené à une URL ouvrable */
+const normaliseMaps=v=>{
+  const s=String(v||'').trim();
+  if(!s)return '';
+  const gps=s.match(/^\(?\s*(-?\d{1,3}[.,]\d+)\s*[,;]\s*(-?\d{1,3}[.,]\d+)\s*\)?$/);
+  if(gps)return 'https://www.google.com/maps/search/?api=1&query='+gps[1].replace(',','.')+','+gps[2].replace(',','.');
+  if(/^https?:\/\//i.test(s))return s;
+  if(/^(www\.)?(google\.[a-z.]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(s))return 'https://'+s.replace(/^www\./,'');
+  return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(s);
+};
+const mapsUrl=ch=>normaliseMaps(ch.lienMaps);
 const mapsSearchUrl=ch=>ch.adresse?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(ch.adresse):'';
 const sumMontants=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 /* la TVA se règle par marché : autoliquidation, franchise en base (art. 293 B), taux réduits…
@@ -466,6 +476,18 @@ async function driveSignaturesFolder(token,chantierId,chantierNom){
   return id;
 }
 
+/* dossiers thématiques créés à la demande sous le dossier du chantier */
+const driveSousDossiers=new Map();
+async function driveSousDossier(token,chantierId,chantierNom,nom){
+  const cle=chantierId+'/'+nom;
+  if(driveSousDossiers.has(cle))return driveSousDossiers.get(cle);
+  const parentId=await driveChantierFolder(token,chantierId,chantierNom);
+  const id=await driveFindOrCreateSubfolder(token,parentId,nom);
+  driveSousDossiers.set(cle,id);
+  return id;
+}
+const lienDossierDrive=id=>'https://drive.google.com/drive/folders/'+id;
+
 let driveAttestFolderId=null;
 async function driveAttestationsFolder(token){
   if(driveAttestFolderId)return driveAttestFolderId;
@@ -550,6 +572,36 @@ function cleanRef(s){
     if(keep.join(' ').length>28)break;
   }
   return keep.join(' ').replace(/[.,;:]+$/,'');
+}
+
+/* lecture des surfaces sur un plan : ne marche que si le PDF a une couche texte
+   (plan export DAO). Un plan scanné ne donne rien — on le dit à l'utilisateur. */
+function analysePlan(txt){
+  const t=deaccent(txt).replace(/\s+/g,' ');
+  const NB='([0-9]{1,5}(?:[.,][0-9]{1,2})?)\\s*(?:m2|m²|M2)';
+  const cherche=motifs=>{
+    for(const m of motifs){
+      const r=t.match(new RegExp(m,'i'));
+      if(r){
+        const v=parseFloat(r[1].replace(',','.'));
+        if(v>0&&v<100000)return v;
+      }
+    }
+    return '';
+  };
+  return {
+    surfacePlancher:cherche([
+      "surface\\s*(?:de\\s*)?plancher[^0-9]{0,40}?"+NB,
+      "\\bS\\.?\\s?D\\.?\\s?P\\.?\\b[^0-9]{0,20}?"+NB,
+      "surface\\s*(?:de\\s*)?plancher[^0-9]{0,40}?([0-9]{1,5}(?:[.,][0-9]{1,2})?)",
+    ]),
+    surfaceHabitable:cherche([
+      "surface\\s*habitable[^0-9]{0,40}?"+NB,
+      "\\bS\\.?\\s?H\\.?\\s?A\\.?\\s?B\\.?\\b[^0-9]{0,20}?"+NB,
+      "habitable[^0-9]{0,30}?"+NB,
+      "surface\\s*habitable[^0-9]{0,40}?([0-9]{1,5}(?:[.,][0-9]{1,2})?)",
+    ]),
+  };
 }
 
 function analyseAttestation(txt){
@@ -775,6 +827,47 @@ function VignetteSign({id}){
     :<div style={{height:52,width:110,border:'1px solid '+RULE,background:'#EFECE6'}}/>;
 }
 
+/* import d'un fichier vers un sous-dossier Drive du chantier, avec lien de consultation */
+function ImportFichier({ch,dossier,lien,onLien,label,accept}){
+  const [busy,setBusy]=useState(false);
+  const go=async file=>{
+    setBusy(true);
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,dossier);
+      onLien((await uploadToDrive(file,folderId)).webViewLink);
+    }catch(e){
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton en bas de page).":"Import impossible — "+((e&&(e.error||e.message))||e));
+    }
+    setBusy(false);
+  };
+  return <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
+    <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{busy?'Envoi…':(lien?'Remplacer':label||'Importer')}
+      <input type="file" accept={accept||'application/pdf,image/*'} style={{display:'none'}} disabled={busy}
+        onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)go(f)}}/></label>
+    {lien&&<a href={lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir</a>}
+    {lien&&<button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>onLien('')}>Retirer</button>}
+  </div>;
+}
+
+/* ouvre le dossier Drive du chantier (le crée s'il n'existe pas encore) */
+function BoutonDossierDrive({ch,sous}){
+  const [busy,setBusy]=useState(false);
+  const ouvrir=async()=>{
+    setBusy(true);
+    try{
+      const token=await getDriveToken();
+      const id=sous?await driveSousDossier(token,ch.id,ch.nom,sous):await driveChantierFolder(token,ch.id,ch.nom);
+      window.open(lienDossierDrive(id),'_blank');
+    }catch(e){
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous).":"Ouverture du dossier impossible.");
+    }
+    setBusy(false);
+  };
+  return <button className="xs" style={{color:TERRA,background:'none',border:'none',padding:0}} onClick={ouvrir} disabled={busy}>
+    {busy?'Ouverture…':'Dossier Drive'+(sous?' › '+sous:'')}</button>;
+}
+
 function DriveStatus(){
   const[connected,setConnected]=useState(driveConnected());
   return <div className="sp xs" style={{marginBottom:12,padding:'8px 10px',border:'1px solid '+RULE,background:'#fff'}}>
@@ -805,6 +898,13 @@ function Chantiers({data,save,open}){
         <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={f.telClient||''} onChange={e=>setF({...f,telClient:e.target.value})}/></Fld>
       </div>
       <Fld label="ADRESSE"><input className="in" value={f.adresse} onChange={e=>setF({...f,adresse:e.target.value})}/></Fld>
+      <Fld label="LOCALISATION (LIEN MAPS OU GPS)">
+        <input className="in" placeholder="Lien Google Maps, ou 48.5123, -0.6234" value={f.lienMaps||''} onChange={e=>setF({...f,lienMaps:e.target.value})}/>
+      </Fld>
+      <div className="g2">
+        <Fld label="SURFACE DE PLANCHER (m²)"><input className="in" type="number" step="0.01" value={f.surfacePlancher||''} onChange={e=>setF({...f,surfacePlancher:e.target.value})}/></Fld>
+        <Fld label="SURFACE HABITABLE (m²)"><input className="in" type="number" step="0.01" value={f.surfaceHabitable||''} onChange={e=>setF({...f,surfaceHabitable:e.target.value})}/></Fld>
+      </div>
       <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" placeholder="Lien du dossier partagé…" value={f.lienDrive||''} onChange={e=>setF({...f,lienDrive:e.target.value})}/></Fld>
       <div className="g2">
         <Fld label="BUDGET TRAVAUX HT (€)"><input className="in" type="number" value={f.budget} onChange={e=>setF({...f,budget:e.target.value})}/></Fld>
@@ -828,6 +928,9 @@ function Chantiers({data,save,open}){
       return <button key={c.id} className="card" style={{borderLeft:'3px solid '+NAVY}} onClick={()=>open(c.id)}>
         <div className="sp"><span className="b sm" style={{color:NAVY}}>{c.nom}</span><span className="xs mut">{PHASE[c.statut]}</span></div>
         <div className="xs mut" style={{marginTop:3}}>{c.client}{c.adresse?' — '+c.adresse:''}</div>
+        {(c.surfacePlancher||c.surfaceHabitable)&&<div className="xs mut" style={{marginTop:3}}>
+          {c.surfacePlancher?'SDP '+c.surfacePlancher+' m²':''}{c.surfacePlancher&&c.surfaceHabitable?' · ':''}{c.surfaceHabitable?'SHAB '+c.surfaceHabitable+' m²':''}
+        </div>}
         <div className="sp" style={{marginTop:8,alignItems:'flex-end'}}>
           <span className="xs">Facturé <b>{eur(fa)}</b> / {eur(base)}</span>
           <span className="b" style={{fontSize:19,color:NAVY,lineHeight:1}}>{av} %</span>
@@ -847,13 +950,27 @@ function Chantiers({data,save,open}){
 function Fiche({data,ch,save,back}){
   const [tab,setTab]=useState('marches');
   const [edit,setEdit]=useState(null);
+  const [lecturePlan,setLecturePlan]=useState('');
+  const [locSaisie,setLocSaisie]=useState('');
   const up=p=>save({...data,chantiers:data.chantiers.map(c=>c.id===ch.id?{...c,...p}:c)});
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const eng=ms.reduce((s,m)=>s+(m.montantHT||0),0), fac=ms.reduce((s,m)=>s+(m.facture||0),0);
   const saveEdit=()=>{
     up({...edit,budget:+edit.budget||0,honorairesPct:+edit.honorairesPct||0,honorairesMontant:edit.honorairesMontant===''?'':+edit.honorairesMontant,
-      tva:edit.tva===''?'':+edit.tva,delaiPrevu:edit.delaiPrevu===''?'':+edit.delaiPrevu});
-    setEdit(null);
+      tva:edit.tva===''?'':+edit.tva,delaiPrevu:edit.delaiPrevu===''?'':+edit.delaiPrevu,
+      surfacePlancher:edit.surfacePlancher===''?'':+edit.surfacePlancher,surfaceHabitable:edit.surfaceHabitable===''?'':+edit.surfaceHabitable});
+    setEdit(null); setLecturePlan('');
+  };
+  const lirePlan=async file=>{
+    setLecturePlan('lecture');
+    try{
+      const r=analysePlan(await pdfText(file));
+      const n=(r.surfacePlancher?1:0)+(r.surfaceHabitable?1:0);
+      setEdit(p=>({...p,
+        surfacePlancher:r.surfacePlancher||p.surfacePlancher,
+        surfaceHabitable:r.surfaceHabitable||p.surfaceHabitable}));
+      setLecturePlan(n===2?'ok':n===1?'partiel':'rien');
+    }catch(e){setLecturePlan('erreur')}
   };
   const hono=honoAmount(ch), honoFac=sumMontants(ch.honoFactures);
   const jOuv=joursDepuis(ch.dateOuverture), dPrev=delaiPrevu(ch);
@@ -867,11 +984,26 @@ function Fiche({data,ch,save,back}){
         <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={edit.telClient||''} onChange={e=>setEdit({...edit,telClient:e.target.value})}/></Fld>
       </div>
       <Fld label="ADRESSE"><input className="in" value={edit.adresse} onChange={e=>setEdit({...edit,adresse:e.target.value})}/></Fld>
-      <Fld label="LIEN GOOGLE MAPS DU CHANTIER">
-        <input className="in" placeholder="Collez ici le lien Google Maps…" value={edit.lienMaps||''} onChange={e=>setEdit({...edit,lienMaps:e.target.value})}/>
+      <Fld label="LOCALISATION DU CHANTIER">
+        <input className="in" placeholder="Lien Google Maps, ou 48.5123, -0.6234" value={edit.lienMaps||''} onChange={e=>setEdit({...edit,lienMaps:e.target.value})}/>
         <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
-          Dans Google Maps : placez le point exact du chantier (appui long sur la carte), puis <b>Partager → Copier le lien</b>, et collez-le ici. Le bouton « Itinéraire » de la fiche utilisera ce point précis.
+          Trois façons de faire, au choix : coller un <b>lien Google Maps</b> (appui long sur le point exact → Partager → Copier le lien),
+          saisir des <b>coordonnées GPS</b> séparées par une virgule, ou taper un <b>nom de lieu</b>.
+          {edit.lienMaps&&<span> — <a href={normaliseMaps(edit.lienMaps)} target="_blank" rel="noreferrer" style={{color:TERRA}}>tester ce lien</a></span>}
         </div>
+      </Fld>
+      <div className="g2">
+        <Fld label="SURFACE DE PLANCHER (m²)"><input className="in" type="number" step="0.01" value={edit.surfacePlancher||''} onChange={e=>setEdit({...edit,surfacePlancher:e.target.value})}/></Fld>
+        <Fld label="SURFACE HABITABLE (m²)"><input className="in" type="number" step="0.01" value={edit.surfaceHabitable||''} onChange={e=>setEdit({...edit,surfaceHabitable:e.target.value})}/></Fld>
+      </div>
+      <Fld label="LIRE LES SURFACES SUR UN PLAN (PDF)">
+        <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{lecturePlan==='lecture'?'Lecture du plan…':'Importer un plan'}
+          <input type="file" accept="application/pdf" style={{display:'none'}} disabled={lecturePlan==='lecture'}
+            onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)lirePlan(f)}}/></label>
+        {lecturePlan==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>Surfaces lues sur le plan et reportées ci-dessus. À vérifier avant d'enregistrer.</div>}
+        {lecturePlan==='partiel'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>Une seule surface a pu être lue. Complétez l'autre à la main.</div>}
+        {lecturePlan==='rien'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>Aucune surface trouvée dans ce plan (cartouche absent, ou plan scanné sans texte). Saisissez les valeurs à la main.</div>}
+        {lecturePlan==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>Lecture du PDF impossible.</div>}
       </Fld>
       <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" value={edit.lienDrive||''} onChange={e=>setEdit({...edit,lienDrive:e.target.value})}/></Fld>
       <div className="g2">
@@ -931,21 +1063,38 @@ function Fiche({data,ch,save,back}){
             <div className="mut" style={{marginTop:4}}>Délai prévu : {dPrev} j (≈ {Math.round(dPrev/30.4)} mois)</div>
           </div>}
       </div>
+      {(ch.surfacePlancher||ch.surfaceHabitable)&&<div className="g2 xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+        <div><div className="mut">Surface de plancher</div><div className="b">{ch.surfacePlancher?ch.surfacePlancher+' m²':'—'}</div></div>
+        <div><div className="mut">Surface habitable</div><div className="b">{ch.surfaceHabitable?ch.surfaceHabitable+' m²':'—'}</div></div>
+      </div>}
+      {!maps&&<div className="xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+        <span className="lbl">LOCALISATION</span>
+        <div className="row" style={{gap:8}}>
+          <input className="in" style={{flex:1,padding:'6px 8px',fontSize:13}} placeholder="Lien Google Maps, ou 48.5123, -0.6234"
+            value={locSaisie} onChange={e=>setLocSaisie(e.target.value)}/>
+          <button className="btn s" onClick={()=>{if(locSaisie.trim()){up({lienMaps:locSaisie.trim()});setLocSaisie('')}}}>Enregistrer</button>
+        </div>
+        <div className="mut" style={{marginTop:5,lineHeight:1.5}}>Collez un lien Maps, des coordonnées GPS ou un nom de lieu — puis « Enregistrer » pour activer le bouton Itinéraire.</div>
+      </div>}
       <div className="row xs" style={{gap:14,marginTop:10,flexWrap:'wrap'}}>
         {ch.telClient&&<a href={'tel:'+ch.telClient} style={{color:TERRA}}>Appeler le client</a>}
         {ch.telClient&&<a href={'https://wa.me/'+wa(ch.telClient)} style={{color:TERRA}}>WhatsApp</a>}
         {maps
           ?<a href={maps} target="_blank" rel="noreferrer" style={{color:TERRA}}>Itinéraire</a>
           :mapsSearch&&<a href={mapsSearch} target="_blank" rel="noreferrer" className="mut">Chercher l'adresse</a>}
-        {ch.lienDrive&&<a href={ch.lienDrive} target="_blank" rel="noreferrer" style={{color:TERRA}}>Dossier Drive</a>}
+        {maps&&<button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>{if(confirm('Retirer la localisation enregistrée ?'))up({lienMaps:''})}}>Changer</button>}
+        <BoutonDossierDrive ch={ch}/>
+        {ch.lienDrive&&<a href={ch.lienDrive} target="_blank" rel="noreferrer" style={{color:TERRA}}>Dossier partagé</a>}
       </div>
     </div>}
     <div className="tabs">
-      {[['marches','MARCHÉS'],['hono','HONORAIRES'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
+      {[['marches','MARCHÉS'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
     </div>
     {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}/>}
     {tab==='hono'&&<Honoraires data={data} ch={ch} save={save}/>}
+    {tab==='visite'&&<VisiteTechnique ch={ch} up={up}/>}
+    {tab==='map'&&<MAP data={data} ch={ch} up={up}/>}
     {tab==='ctrl'&&<Controles data={data} ch={ch} save={save}/>}
     {tab==='photos'&&<Photos data={data} ch={ch} save={save}/>}
     {tab==='cmd'&&<Commandes data={data} ch={ch} save={save}/>}
@@ -1393,7 +1542,9 @@ function Docs({data,ch,up,save}){
   const importPdf=async(id,file)=>{
     setBusy(id);
     try{
-      const{webViewLink}=await uploadToDrive(file);
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,'Pièces');
+      const{webViewLink}=await uploadToDrive(file,folderId);
       const c=d[id]||{};
       up({docs:{...d,[id]:{...c,lien:webViewLink,fait:true,date:c.fait?c.date:today()}}});
     }catch(e){
@@ -1426,7 +1577,10 @@ function Docs({data,ch,up,save}){
   const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
   return <div>
     <DriveStatus/>
-    <p className="xs mut" style={{marginTop:0}}>{n} pièce{n>1?'s':''} sur {DOCS.length}. Importez le PDF (envoyé sur votre Google Drive, dossier « CP Constructions ») ou collez un lien existant.</p>
+    <div className="sp xs" style={{marginTop:0,marginBottom:10}}>
+      <span className="mut">{n} pièce{n>1?'s':''} sur {DOCS.length} — rangées dans Drive › {ch.nom} › Pièces</span>
+      <BoutonDossierDrive ch={ch} sous="Pièces"/>
+    </div>
     {DOCS.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card" style={{padding:10}}>
       <div className="row" style={{gap:10,alignItems:'flex-start'}}>
         <button className="chk" onClick={()=>tog(x.id)} style={{background:r.fait?GREEN:'#fff',borderColor:r.fait?GREEN:RULE}}>{r.fait?'✓':''}</button>
@@ -1453,6 +1607,154 @@ function Docs({data,ch,up,save}){
         </div>
       </div></div>})}
     {signe&&<SignaturePad titre={signe.l+' — '+ch.nom} onAnnuler={()=>setSigne(null)} onSigner={v=>enregistrerSignature(signe,v)}/>}
+  </div>;
+}
+
+/* ---------------- MISE AU POINT TECHNIQUE (MAP) ---------------- */
+const MAP_POINTS=['Implantation et altimétrie','Dimensions et cotes intérieures','Ouvertures : dimensions et sens','Hauteurs sous plafond','Position des cloisons','Cuisine : arrivées et évacuations','Salle de bains / WC','Électricité : points et tableau','Chauffage : émetteurs et PAC','VMC : bouches et caisson','Sols et revêtements','Menuiseries : teintes et poignées','Escalier','Terrasse et extérieurs','Vide sanitaire / sous-sol'];
+
+function MAP({data,ch,up}){
+  const m=ch.map||{};
+  const pts=m.points||[];
+  const set=p=>up({map:{...m,...p}});
+  const setPt=(label,patch)=>{
+    const cur=pts.find(x=>x.label===label)||{label};
+    set({points:[...pts.filter(x=>x.label!==label),{...cur,...patch}]});
+  };
+  const nOk=pts.filter(p=>p.valide).length;
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <span className="xs mut">{nOk}/{MAP_POINTS.length} points arrêtés</span>
+      <BoutonDossierDrive ch={ch} sous="MAP"/>
+    </div>
+    <div className="card">
+      <div className="g2">
+        <Fld label="DATE DE LA MAP"><input className="in" type="date" value={m.date||''} onChange={e=>set({date:e.target.value})}/></Fld>
+        <Fld label="LIEU"><input className="in" value={m.lieu||''} onChange={e=>set({lieu:e.target.value})} placeholder="Bureau, chantier…"/></Fld>
+      </div>
+      <Fld label="PARTICIPANTS"><input className="in" value={m.participants||''} onChange={e=>set({participants:e.target.value})} placeholder="Client, MOE, entreprises présentes"/></Fld>
+      <Fld label="PLAN DE MISE AU POINT TECHNIQUE">
+        <ImportFichier ch={ch} dossier="MAP" lien={m.lienPlan} onLien={v=>set({lienPlan:v})} label="Importer le plan"/>
+      </Fld>
+      <Fld label="DOSSIER MAP (PDF)">
+        <ImportFichier ch={ch} dossier="MAP" lien={m.lienDossier} onLien={v=>set({lienDossier:v})} label="Importer le PDF de MAP"/>
+      </Fld>
+      <Fld label="OBSERVATIONS GÉNÉRALES"><textarea className="in" rows="3" value={m.notes||''} onChange={e=>set({notes:e.target.value})}/></Fld>
+    </div>
+    <div className="sp" style={{margin:'16px 0 10px'}}><span className="h2">POINTS ARRÊTÉS</span></div>
+    {MAP_POINTS.map(label=>{
+      const r=pts.find(x=>x.label===label)||{};
+      return <div key={label} className="card" style={{padding:10,borderLeft:'3px solid '+(r.valide?GREEN:RULE)}}>
+        <div className="row" style={{gap:10,alignItems:'flex-start'}}>
+          <button className="chk" onClick={()=>setPt(label,{valide:!r.valide})} style={{background:r.valide?GREEN:'#fff',borderColor:r.valide?GREEN:RULE}}>{r.valide?'✓':''}</button>
+          <div style={{flex:1}}>
+            <div className="sm">{label}</div>
+            <input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}}
+              placeholder="Décision, cote arrêtée, réserve…" value={r.decision||''} onChange={e=>setPt(label,{decision:e.target.value})}/>
+          </div>
+        </div>
+      </div>;
+    })}
+    <DriveStatus/>
+  </div>;
+}
+
+/* ---------------- VISITE TECHNIQUE ---------------- */
+const SOLS=['','Argileux','Limoneux','Sableux','Rocheux','Remblai','Humide / hydromorphe','Mixte','Inconnu'];
+const OUI_NON=['','Oui','Non','À vérifier'];
+const VISITE_CHAMPS=[
+  {t:'Visite',f:[
+    ['date','Date de la visite','date'],
+    ['participants','Participants','text'],
+  ]},
+  {t:'Terrain',f:[
+    ['superficie','Superficie du terrain (m²)','number'],
+    ['typeSol','Type de sol','select',SOLS],
+    ['etudeSol','Étude de sol G2 disponible','select',OUI_NON],
+    ['denivele','Dénivelé constaté (m)','number'],
+    ['sensPente','Sens de la pente','text'],
+    ['vegetation','Végétation, arbres à abattre','text'],
+    ['bornage','Bornage effectué','select',OUI_NON],
+    ['mitoyennete','Mitoyenneté et limites','textarea'],
+  ]},
+  {t:'Accessibilité',f:[
+    ['accesLargeur','Largeur d’accès (m)','number'],
+    ['accesToupie','Accès camion toupie','select',OUI_NON],
+    ['accesGrue','Possibilité de grue','select',OUI_NON],
+    ['stockage','Zone de stockage / cantonnement','textarea'],
+    ['contraintesAcces','Contraintes d’accès','textarea'],
+  ]},
+  {t:'Réseaux',f:[
+    ['assainissement','Assainissement','select',['','Tout-à-l’égout','Fosse / ANC à créer','Fosse existante','À déterminer']],
+    ['assainNotes','Précisions assainissement','textarea'],
+    ['eau','Eau potable — point de raccordement','text'],
+    ['elecType','Ligne électrique','select',['','Aérienne','Enterrée','À créer','Coffret en limite']],
+    ['elecDistance','Distance du raccordement élec. (m)','number'],
+    ['telecom','Télécom / fibre','select',OUI_NON],
+    ['gaz','Gaz','select',OUI_NON],
+    ['eauxPluviales','Gestion des eaux pluviales','text'],
+  ]},
+  {t:'Ouvrage',f:[
+    ['vsRangs','Nombre de rangs de vide sanitaire','number'],
+    ['vsNotes','Précisions vide sanitaire / sous-sol','textarea'],
+    ['implantation','Implantation retenue','textarea'],
+    ['contraintes','Servitudes, risques, contraintes PLU','textarea'],
+  ]},
+];
+
+function VisiteTechnique({ch,up}){
+  const v=ch.visite||{};
+  const set=p=>up({visite:{...v,...p}});
+  const niv=v.niveaux||[];
+  const setNiv=n=>set({niveaux:n});
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <span className="xs mut">{v.date?'Visite du '+fd(v.date):'Visite non datée'}</span>
+      <BoutonDossierDrive ch={ch} sous="Visite technique"/>
+    </div>
+    {VISITE_CHAMPS.map(sec=><div key={sec.t} className="card">
+      <div className="h2" style={{marginBottom:10}}>{sec.t.toUpperCase()}</div>
+      {sec.f.map(([k,label,type,opts])=>
+        <Fld key={k} label={label.toUpperCase()}>
+          {type==='textarea'
+            ?<textarea className="in" rows="2" value={v[k]||''} onChange={e=>set({[k]:e.target.value})}/>
+            :type==='select'
+              ?<select className="in" value={v[k]||''} onChange={e=>set({[k]:e.target.value})}>
+                {opts.map(o=><option key={o} value={o}>{o||'— à renseigner —'}</option>)}</select>
+              :<input className="in" type={type} step={type==='number'?'0.01':undefined} value={v[k]||''} onChange={e=>set({[k]:e.target.value})}/>}
+        </Fld>)}
+    </div>)}
+
+    <div className="card">
+      <div className="sp" style={{marginBottom:10}}>
+        <span className="h2">RELEVÉ DE NIVEAU</span>
+        <button className="btn acc s" onClick={()=>setNiv([...niv,{id:uid(),repere:'',cote:''}])}>+ Point</button>
+      </div>
+      {!niv.length&&<p className="xs mut" style={{margin:0}}>Aucun point relevé. Ajoutez vos repères et leurs cotes (NGF ou relatives).</p>}
+      {niv.map(p=><div key={p.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
+        <input className="in" style={{flex:'1 1 120px'}} placeholder="Repère (angle NE, seuil…)" value={p.repere} onChange={e=>setNiv(niv.map(x=>x.id===p.id?{...x,repere:e.target.value}:x))}/>
+        <input className="in" type="number" step="0.01" style={{flex:'0 0 96px'}} placeholder="Cote" value={p.cote} onChange={e=>setNiv(niv.map(x=>x.id===p.id?{...x,cote:e.target.value}:x))}/>
+        <button className="btn dg s" onClick={()=>setNiv(niv.filter(x=>x.id!==p.id))}>✕</button>
+      </div>)}
+      {niv.length>1&&(()=>{
+        const valides=niv.map(p=>p.cote===''?NaN:+p.cote).filter(c=>!isNaN(c));
+        if(valides.length<2)return null;
+        const ec=Math.max(...valides)-Math.min(...valides);
+        return <div className="xs mut" style={{marginTop:6}}>Écart entre le point le plus haut et le plus bas : <b>{ec.toFixed(2)} m</b></div>;
+      })()}
+    </div>
+
+    <div className="card">
+      <div className="h2" style={{marginBottom:10}}>DOCUMENTS DE LA VISITE</div>
+      <Fld label="COMPTE-RENDU / RELEVÉ (PDF)">
+        <ImportFichier ch={ch} dossier="Visite technique" lien={v.lienCr} onLien={x=>set({lienCr:x})} label="Importer le PDF"/>
+      </Fld>
+      <Fld label="PLAN DE GÉOMÈTRE / BORNAGE">
+        <ImportFichier ch={ch} dossier="Visite technique" lien={v.lienGeo} onLien={x=>set({lienGeo:x})} label="Importer le plan"/>
+      </Fld>
+      <Fld label="OBSERVATIONS"><textarea className="in" rows="3" value={v.notes||''} onChange={e=>set({notes:e.target.value})}/></Fld>
+    </div>
+    <DriveStatus/>
   </div>;
 }
 
