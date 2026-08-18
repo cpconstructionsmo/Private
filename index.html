@@ -2219,16 +2219,57 @@ function Donnees({data,save,session}){
     const f=e.target.files[0];if(!f)return;
     const r=new FileReader();
     r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.chantiers)throw 0;
+      if(!confirm("« Restaurer » REMPLACE toutes vos données actuelles ("+data.chantiers.length+" chantier(s)) par le contenu du fichier.\n\nPour ajouter un chantier sans rien perdre, utilisez « Ajouter un chantier ».\n\nRemplacer malgré tout ?"))return;
       save({...EMPTY,...d});setMsg('Sauvegarde restaurée.')}catch(x){setMsg('Fichier illisible — restauration annulée.')}};
+    r.readAsText(f);
+  };
+  /* ajoute le contenu d'un fichier sans toucher à l'existant : les artisans déjà
+     connus sont réutilisés (nom identique, casse ignorée) et seuls leurs champs
+     vides sont complétés ; tous les identifiants entrants sont régénérés. */
+  const ajouter=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const r=new FileReader();
+    r.onload=()=>{
+      let d;
+      try{d=JSON.parse(r.result)}catch(x){setMsg('Fichier illisible — rien n\'a été modifié.');return}
+      if(!d||!Array.isArray(d.chantiers)||!d.chantiers.length){setMsg("Ce fichier ne contient aucun chantier — rien n'a été modifié.");return}
+      const dejaLa=d.chantiers.filter(c=>data.chantiers.some(x=>(x.nom||'').trim().toLowerCase()===(c.nom||'').trim().toLowerCase()));
+      if(dejaLa.length){setMsg('« '+dejaLa[0].nom+" » existe déjà — ajout annulé pour ne pas créer de doublon.");return}
+      const artisans=[...data.artisans];
+      const mapA={}; let crees=0, completes=0;
+      for(const a of (d.artisans||[])){
+        const ex=artisans.find(x=>(x.nom||'').trim().toLowerCase()===(a.nom||'').trim().toLowerCase());
+        if(ex){
+          mapA[a.id]=ex.id;
+          let modif=false;
+          for(const k of ['corps','tel','email','assureur','numPolice','decennaleFin','lienAttestation'])
+            if(a[k]&&!String(ex[k]||'').trim()){ex[k]=a[k];modif=true}
+          if(modif)completes++;
+        }else{
+          const id=uid(); mapA[a.id]=id; artisans.push({...a,id}); crees++;
+        }
+      }
+      const mapC={};
+      const chantiers=[...data.chantiers,...d.chantiers.map(c=>{const id=uid();mapC[c.id]=id;return{...c,id}})];
+      const rat=(l,extra)=>(l||[]).filter(x=>mapC[x.chantierId]).map(x=>({...x,id:uid(),chantierId:mapC[x.chantierId],...extra(x)}));
+      const marches=[...data.marches,...rat(d.marches,m=>({artisanId:mapA[m.artisanId]||''}))];
+      const commandes=[...data.commandes,...rat(d.commandes,()=>({}))];
+      save({...data,chantiers,artisans,marches,commandes});
+      setMsg(d.chantiers.length+' chantier(s) ajouté(s) : '+d.chantiers.map(c=>c.nom).join(', ')+
+        ' — '+(marches.length-data.marches.length)+' marché(s), '+(commandes.length-data.commandes.length)+
+        ' commande(s), '+crees+' artisan(s) créé(s)'+(completes?', '+completes+' complété(s)':'')+'.');
+    };
     r.readAsText(f);
   };
   return <div>
     <H2>DONNÉES</H2>
     <div className="card">
       <div className="sm b">Synchronisation</div>
-      <p className="xs mut" style={{lineHeight:1.5}}>Les données sont enregistrées en ligne et se synchronisent automatiquement entre tous vos appareils connectés. Exportez quand même régulièrement en secours.</p>
+      <p className="xs mut" style={{lineHeight:1.5}}>Les données sont enregistrées en ligne et se synchronisent automatiquement entre tous vos appareils connectés. Exportez quand même régulièrement en secours.<br/>
+        <b>Ajouter un chantier</b> intègre le contenu d'un fichier à vos données actuelles, sans rien effacer. <b>Restaurer</b> remplace tout par le fichier.</p>
       <div className="row" style={{gap:8,marginTop:10}}>
         <button className="btn" onClick={exp}>Exporter</button>
+        <label className="btn acc">Ajouter un chantier<input type="file" accept=".json" onChange={ajouter} style={{display:'none'}}/></label>
         <label className="btn gh">Restaurer<input type="file" accept=".json" onChange={imp} style={{display:'none'}}/></label>
       </div>
       {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
