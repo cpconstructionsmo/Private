@@ -45,10 +45,42 @@
   .grid-ph{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .ph{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:#EFECE6}
   .modal{position:fixed;inset:0;background:rgba(26,43,54,.94);z-index:50;display:flex;flex-direction:column;padding:16px}
+  #root{padding-bottom:74px}
+  .grid-ch{display:grid;gap:8px}
+  nav.bot.masquee{display:none}
+
+  /* ---------- version ordinateur : la navigation passe en colonne à gauche ---------- */
+  @media (min-width:900px){
+    #root{padding-bottom:0;padding-left:236px}
+    header{position:fixed;top:0;left:0;width:236px;height:74px;z-index:20;display:flex;flex-direction:column;justify-content:center}
+    nav.bot{top:74px;bottom:0;right:auto;width:236px;flex-direction:column;
+            border-top:none;border-right:1px solid #D4CFC5;background:#fff;padding-bottom:0;overflow-y:auto}
+    nav.bot.masquee{display:flex}
+    nav.bot button{flex:0 0 auto;text-align:left;padding:13px 18px;font-size:12px;
+                   border-top:none;border-left:3px solid transparent}
+    nav.bot button.on{border-top-color:transparent;border-left-color:#C5563A;background:#F3F1EC}
+    nav.bot button:hover{background:#F7F5F1}
+    main{max-width:1120px;padding:26px 32px 60px!important}
+    .grid-ch{grid-template-columns:1fr 1fr;gap:12px}
+    .grid-ch>.card{margin-bottom:0}
+    .stats3{grid-template-columns:repeat(3,1fr)}
+    .fld .in{max-width:520px}
+    .fld textarea.in{max-width:760px}
+    .grid-ph{grid-template-columns:repeat(4,1fr)}
+    .tabs{position:sticky;top:0;background:#FBFAF7;z-index:10}
+    .card{transition:border-color .12s}
+    button.card:hover{border-color:#9FB4C2;cursor:pointer}
+    .in:focus{outline:2px solid #9FB4C2;outline-offset:-2px}
+  }
+  @media (min-width:1400px){
+    main{max-width:1280px}
+    .grid-ch{grid-template-columns:repeat(3,1fr)}
+    .grid-ph{grid-template-columns:repeat(5,1fr)}
+  }
 </style>
 </head>
 <body>
-<div id="root" style="padding-bottom:74px"></div>
+<div id="root"></div>
 
 <script type="text/babel">
 const {useState,useEffect,useRef} = React;
@@ -735,10 +767,10 @@ function App({session}){
       :view==='bilan'?<Bilan data={data} open={setOpen}/>
       :<Donnees data={data} save={save} session={session}/>}
     </main>
-    {!ch&&<nav className="bot">
+    <nav className={'bot'+(ch?' masquee':'')}>
       {[['chantiers','CHANTIERS'],['artisans','ARTISANS'],['cmd','COMMANDES'],['bilan','FINANCES'],['donnees','DONNÉES']].map(([id,l])=>
-        <button key={id} className={view===id?'on':''} onClick={()=>setView(id)}>{l}</button>)}
-    </nav>}
+        <button key={id} className={view===id&&!ch?'on':''} onClick={()=>{setView(id);setOpen(null)}}>{l}</button>)}
+    </nav>
   </div>;
 }
 
@@ -918,6 +950,7 @@ function Chantiers({data,save,open}){
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,chantiers:data.chantiers.filter(c=>c.id!==f.id),marches:data.marches.filter(m=>m.chantierId!==f.id),photos:data.photos.filter(p=>p.chantierId!==f.id),commandes:data.commandes.filter(c=>c.chantierId!==f.id)});setF(null)}:null}/>
     </div>}
     {!data.chantiers.length&&!f&&<Empty>Aucun chantier. Ajoutez le premier avec « + Chantier ».</Empty>}
+    <div className="grid-ch">
     {data.chantiers.map(c=>{
       const e=eng(c.id),fa=factu(c.id);
       const base=e||c.budget||0;
@@ -943,6 +976,7 @@ function Chantiers({data,save,open}){
         {nKo>0&&<div className="xs b" style={{color:TERRA,marginTop:4}}>{nKo} point{nKo>1?'s':''} de contrôle non conforme{nKo>1?'s':''}</div>}
       </button>;
     })}
+    </div>
   </div>;
 }
 
@@ -1039,7 +1073,7 @@ function Fiche({data,ch,save,back}){
           <div className="b" style={{fontSize:17,color:NAVY}}>{eur(ttc(hono,ch))}</div>
           <div className="mut">{eur(hono)} HT</div></div>
       </div>
-      <div className="g2 xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+      <div className="g2 xs stats3" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
         <div><div className="mut">Avancement facturé</div>
           <div className="b" style={{fontSize:17,color:NAVY}}>{(eng||ch.budget)?Math.round(fac/(eng||ch.budget)*100):0} %</div>
           <div className="mut">facturé {eur(fac)} / {eur(eng||ch.budget)}</div></div>
