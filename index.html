@@ -733,12 +733,32 @@ function App({session}){
   const [view,setView]=useState('chantiers');
   const [open,setOpen]=useState(null);
   const [err,setErr]=useState(null);
+  /* attente : lecture en cours — ok : contenu du serveur reçu — erreur : lecture impossible.
+     Tant que le serveur n'a pas répondu, on n'écrit rien : sinon un appareil au cache vide
+     (historique effacé, nouveau téléphone) écraserait tout le contenu enregistré. */
+  const [chargement,setChargement]=useState('attente');
+
+  const lire=()=>{
+    setChargement('attente');
+    return sb.from('app_data').select('data').eq('id','main').single()
+      .then(({data:row,error})=>{
+        if(error&&error.code!=='PGRST116'){setChargement('erreur');return}
+        if(row&&row.data)setData({...EMPTY,...row.data});
+        setChargement('ok');
+      })
+      .catch(()=>setChargement('erreur'));
+  };
 
   useEffect(()=>{
     let alive=true;
-    sb.from('app_data').select('data').eq('id','main').single().then(({data:row})=>{
-      if(alive&&row&&row.data)setData({...EMPTY,...row.data});
-    });
+    sb.from('app_data').select('data').eq('id','main').single()
+      .then(({data:row,error})=>{
+        if(!alive)return;
+        if(error&&error.code!=='PGRST116'){setChargement('erreur');return}
+        if(row&&row.data)setData({...EMPTY,...row.data});
+        setChargement('ok');
+      })
+      .catch(()=>{if(alive)setChargement('erreur')});
     const channel=sb.channel('app_data_changes')
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_data',filter:'id=eq.main'},payload=>{
         if(payload.new&&payload.new.data)setData({...EMPTY,...payload.new.data});
@@ -748,6 +768,10 @@ function App({session}){
   },[]);
 
   const save=async next=>{
+    if(chargement!=='ok'){
+      setErr("Vos données ne sont pas encore chargées depuis le serveur — modification annulée pour ne pas écraser le contenu enregistré. Rechargez la page une fois la connexion revenue.");
+      return;
+    }
     setData(next);
     try{localStorage.setItem(KEY,JSON.stringify(next))}catch(e){/* cache local best-effort */}
     const{error}=await sb.from('app_data').upsert({id:'main',data:next,updated_at:new Date().toISOString()});
@@ -758,6 +782,12 @@ function App({session}){
     <header style={{background:NAVY,padding:'10px 16px',paddingTop:'calc(10px + env(safe-area-inset-top))'}}>
       <img src="assets/logo.png" alt="CP Constructions — Maîtrise d'œuvre" style={{height:38,display:'block'}}/>
     </header>
+    {chargement==='attente'&&<div className="xs" style={{background:'#EFECE6',color:MUTED,padding:'8px 16px'}}>Chargement de vos données…</div>}
+    {chargement==='erreur'&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:'8px 16px',lineHeight:1.5}}>
+      <b>Mode consultation.</b> Vos données n'ont pas pu être chargées depuis le serveur : ce que vous voyez vient de ce téléphone et peut être incomplet.
+      Toute modification est bloquée tant que la connexion n'est pas rétablie, pour ne rien écraser.
+      <button className="btn s" style={{marginLeft:8}} onClick={lire}>Réessayer</button>
+    </div>}
     {err&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:'8px 16px'}}>{err}</div>}
     <main style={{padding:16}}>
       {ch?<Fiche data={data} ch={ch} save={save} back={()=>setOpen(null)}/>
