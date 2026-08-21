@@ -560,7 +560,7 @@ function compress(file,max=900,q=.6){
 }
 
 /* ---------- lecture des attestations décennales en PDF ---------- */
-const ASSUREURS=['SMABTP','MAAF','AXA','ALLIANZ','GROUPAMA','GENERALI','MMA','GAN','SWISS LIFE','SWISSLIFE','ALBINGIA','ZURICH','AVIVA','COVEA','ACM','CGPA','THELEM','AREAS','ABEILLE','SAGENA','L’AUXILIAIRE','AUXILIAIRE','SATEC','VERSPIEREN','MILLENIUM','ALPHA INSURANCE','HISCOX','TOKIO MARINE','EUROMAF','APRIL','ASSURPRO','ORUS','SIMPLIS','WAKAM','LEOCARE','MATMUT','CREDIT MUTUEL','BPCE','SOGESSUR','PRUDENCE','FIDELIA','QBE','CHUBB','LIBERTY','MARKEL','BEAZLEY','ACASTA','ELITE INSURANCE','GABLE','CBL','ALPHA','ONYX','ANV','TRUST INSURANCE'];
+const ASSUREURS=['SMABTP','MAAF','VHV','AXA','ALLIANZ','GROUPAMA','GENERALI','MMA','GAN','SWISS LIFE','SWISSLIFE','ALBINGIA','ZURICH','AVIVA','COVEA','ACM','CGPA','THELEM','AREAS','ABEILLE','SAGENA','L’AUXILIAIRE','AUXILIAIRE','SATEC','VERSPIEREN','MILLENIUM','ALPHA INSURANCE','HISCOX','TOKIO MARINE','EUROMAF','APRIL','ASSURPRO','ORUS','SIMPLIS','WAKAM','LEOCARE','MATMUT','CREDIT MUTUEL','BPCE','SOGESSUR','PRUDENCE','FIDELIA','QBE','CHUBB','LIBERTY','MARKEL','BEAZLEY','ACASTA','ELITE INSURANCE','GABLE','CBL','ALPHA','ONYX','ANV','TRUST INSURANCE'];
 
 async function pdfText(file){
   if(typeof pdfjsLib==='undefined')throw new Error('Lecteur PDF non chargé — vérifiez votre connexion.');
@@ -642,13 +642,16 @@ function analyseAttestation(txt){
   const out={assureur:'',numPolice:'',decennaleFin:'',siret:'',activites:'',dateIncertaine:false,champsTrouves:[]};
 
   for(const a of ASSUREURS){
-    if(T.indexOf(deaccent(a).toUpperCase())>=0){out.assureur=a.charAt(0)+a.slice(1).toLowerCase();out.champsTrouves.push('assureur');break}
+    const mot=deaccent(a).toUpperCase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    if(new RegExp('(^|[^A-Z0-9])'+mot+'([^A-Z0-9]|$)').test(T)){out.assureur=a.charAt(0)+a.slice(1).toLowerCase();out.champsTrouves.push('assureur');break}
   }
 
   const polMotifs=[
     /(?:n[\u00b0\u00bao]\s*(?:de\s*)?(?:police|contrat|societaire)|police\s*(?:d'assurance\s*)?n[\u00b0\u00bao]|contrat\s*n[\u00b0\u00bao])\s*[:\-]?\s*(.{4,40})/i,
     /(?:police|contrat)\s*[:\-]\s*(.{4,40})/i,
     /(?:police|contrat)[^.:;]{0,25}?([0-9]{6,20})/i,
+    /de\s+nature\s+d(?:e|\u00e9)cennale\s*n[\u00b0\u00bao]\s*(.{4,40})/i,
+    /\bcontrat\b[^]{0,90}?\bnum(?:e|\u00e9)ro\s*[:\-]\s*(.{4,40})/i,
   ];
   for(const re of polMotifs){
     const m=t.match(re);
@@ -691,13 +694,38 @@ function analyseAttestation(txt){
      valide ne sert a rien si le lot signe n'est pas dans la liste couverte.
      Le texte du PDF arrive sur une seule ligne, on s'arrete donc aux formules
      qui suivent systematiquement la liste. */
-  const mAct=t.match(/activit(?:e|\u00e9)s?\s+(?:professionnelles?\s+)?(?:ou\s+missions\s+)?(?:suivantes?|garanties?)\s*[:\-]?\s*([\s\S]{5,400})/i);
-  if(mAct){
-    let a=mAct[1].split(/Pour plus d.{0,2}informations|Sont exclus|aux travaux ayant fait|Attention\s*:|La pr(?:e|\u00e9)sente attestation|Ce contrat garantit|R(?:e|\u00e9)f\s*\.?\s*:/i)[0];
-    a=a.replace(/\s+/g,' ').replace(/^[-\u2022\s]+/,'').replace(/\s*[-\u2022]\s+/g,' ; ').replace(/[;\s.]+$/,'').trim();
-    if(a.length>220)a=a.slice(0,220).replace(/\s+\S*$/,'')+'\u2026';
-    if(a.length>=3){out.activites=a;out.champsTrouves.push('activites')}
-  }
+  const RENVOI=/rappel|ci-apr|ci-dessus|ci-dessous|nomenclature|d(?:e|\u00e9)finition|annexe\s*\d|^\s*voir\b|(?:pr(?:e|\u00e9)cis|d(?:e|\u00e9)fini|list)(?:e|\u00e9)e?s?\s+(?:en|dans)\s+(?:l')?annexe|voir\s+(?:l')?annexe/i;
+  /* la meme formule peut apparaitre plusieurs fois, la premiere n'etant souvent
+     qu'un renvoi vers le paragraphe qui porte vraiment la liste : on essaie
+     chaque occurrence et on garde la premiere qui donne autre chose qu'un renvoi. */
+  const listeActivites=marqueur=>{
+    const re=new RegExp(marqueur.source,'gi');
+    let m;
+    while((m=re.exec(t))!==null){
+      const debut=m.index+m[0].length;
+      if(re.lastIndex<=m.index)re.lastIndex=m.index+1;
+      let a=t.slice(debut,debut+400)
+        .split(/Pour plus d.{0,2}informations|Sont exclus|aux travaux ayant fait|Attention\s*:|La pr(?:e|\u00e9)sente attestation|Ce contrat garantit|R(?:e|\u00e9)f\s*\.?\s*:/i)[0]
+        .replace(/\s+/g,' ');
+      a=a.replace(/^[-\u2022\u25aa\s]+/,'').replace(/\s*[-\u2022\u25aa]\s+/g,' ; ').replace(/[-\u2022\u25aa;\s.,]+$/,'').trim();
+      // un chapeau du genre « selon les definitions de l'annexe 970544 » precede
+      // parfois le premier vrai item : on l'ecarte sans toucher au reste.
+      const items=a.split(' ; ');
+      while(items.length>1&&RENVOI.test(items[0]))items.shift();
+      a=items.join(' ; ');
+      if(a.length>220)a=a.slice(0,220).replace(/\s+\S*$/,'')+'\u2026';
+      // une liste d'activites est faite d'items courts ; un long bloc sans
+      // separateur est la definition d'une seule activite, pas la liste : dans
+      // le doute on ne remplit rien plutot que de laisser croire a une garantie
+      // plus etroite qu'elle ne l'est.
+      const liste=a.indexOf(' ; ')>=0||a.length<=120;
+      if(a.length>=3&&liste&&!RENVOI.test(a))return a;
+    }
+    return '';
+  };
+  out.activites=listeActivites(/activit(?:e|\u00e9)s?\s+(?:professionnelles?\s+)?(?:ou\s+missions\s+)?(?:suivantes?|garanties?)\s*[:\-]?\s*/)
+             || listeActivites(/activit(?:e|\u00e9)s?\s+souscrites\s*[:\-]?\s*/);
+  if(out.activites)out.champsTrouves.push('activites');
   return out;
 }
 
