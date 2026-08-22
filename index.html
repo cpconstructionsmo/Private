@@ -560,7 +560,7 @@ function compress(file,max=900,q=.6){
 }
 
 /* ---------- lecture des attestations décennales en PDF ---------- */
-const ASSUREURS=['SMABTP','MAAF','VHV','AXA','ALLIANZ','GROUPAMA','GENERALI','MMA','GAN','SWISS LIFE','SWISSLIFE','ALBINGIA','ZURICH','AVIVA','COVEA','ACM','CGPA','THELEM','AREAS','ABEILLE','SAGENA','L’AUXILIAIRE','AUXILIAIRE','SATEC','VERSPIEREN','MILLENIUM','ALPHA INSURANCE','HISCOX','TOKIO MARINE','EUROMAF','APRIL','ASSURPRO','ORUS','SIMPLIS','WAKAM','LEOCARE','MATMUT','CREDIT MUTUEL','BPCE','SOGESSUR','PRUDENCE','FIDELIA','QBE','CHUBB','LIBERTY','MARKEL','BEAZLEY','ACASTA','ELITE INSURANCE','GABLE','CBL','ALPHA','ONYX','ANV','TRUST INSURANCE'];
+const ASSUREURS=['SMABTP','MAAF','VHV','AXA','ALLIANZ','GROUPAMA','GENERALI','MMA','GAN','SWISS LIFE','SWISSLIFE','ALBINGIA','ZURICH','AVIVA','COVEA','ACM','CGPA','THELEM','AREAS','ABEILLE','SAGENA','L’AUXILIAIRE','AUXILIAIRE','SATEC','VERSPIEREN','MILLENIUM','ALPHA INSURANCE','HISCOX','TOKIO MARINE','EUROMAF','APRIL','ASSURPRO','ORUS','SIMPLIS','WAKAM','LEOCARE','MATMUT','CREDIT MUTUEL','BPCE','SOGESSUR','PRUDENCE','FIDELIA','QBE','ERGO','CHUBB','LIBERTY','MARKEL','BEAZLEY','ACASTA','ELITE INSURANCE','GABLE','CBL','ALPHA','ONYX','ANV','TRUST INSURANCE'];
 
 async function pdfText(file){
   if(typeof pdfjsLib==='undefined')throw new Error('Lecteur PDF non chargé — vérifiez votre connexion.');
@@ -590,10 +590,14 @@ function parseDateFr(s){
 const deaccent=s=>String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\u2018\u2019]/g,"'").replace(/[\u00a0\u202f]/g,' ');
 /* un n° de police s'arrete au premier mot de prose : on ne garde que les jetons contenant un chiffre
    (ou un bloc de 1 a 3 majuscules type « U 001 »), en ecartant les formes juridiques et petits mots */
-const STOP_REF=['SA','SAS','SASU','SARL','EI','EURL','SCI','SCOP','ET','AU','DU','DE','LA','LE','EN','ES','NE','CE','SES','SON','PAR','SUR','EST','NON','RCS','TVA','SIRET','SIREN','APE','NAF'];
+const STOP_REF=['SA','SAS','SASU','SARL','EI','EURL','SCI','SCOP','ET','AU','DU','DE','LA','LE','EN','ES','NE','CE','SES','SON','PAR','SUR','EST','NON','RCS','TVA','SIRET','SIREN','APE','NAF','RUE','AV','BD','ZA','ZI','BP','CS'];
 function cleanRef(s){
   const keep=[];
   for(const raw of String(s).trim().split(/\s+/)){
+    /* une reference qui continue en chiffres ne le fait que par groupes de 3
+       (« 145 071 551 », « AS 950 007 ») : tout autre nombre qui suit appartient
+       deja au texte voisin — sur une attestation en colonnes, le numero de rue. */
+    if(keep.length&&/^\d+$/.test(raw)&&raw.length!==3)break;
     const t=raw.replace(/^[:\-]+/,'').replace(/[.,;:)\]]+$/,'');
     if(!t)break;
     const hasDigit=/\d/.test(t);
@@ -641,10 +645,13 @@ function analyseAttestation(txt){
   const T=t.toUpperCase();
   const out={assureur:'',numPolice:'',decennaleFin:'',siret:'',activites:'',dateIncertaine:false,champsTrouves:[]};
 
+  let tot=-1;
   for(const a of ASSUREURS){
     const mot=deaccent(a).toUpperCase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    if(new RegExp('(^|[^A-Z0-9])'+mot+'([^A-Z0-9]|$)').test(T)){out.assureur=a.charAt(0)+a.slice(1).toLowerCase();out.champsTrouves.push('assureur');break}
+    const m=T.match(new RegExp('(^|[^A-Z0-9])'+mot+'([^A-Z0-9]|$)'));
+    if(m&&(tot<0||m.index<tot)){tot=m.index;out.assureur=a.charAt(0)+a.slice(1).toLowerCase()}
   }
+  if(out.assureur)out.champsTrouves.push('assureur');
 
   const polMotifs=[
     /(?:n[\u00b0\u00bao]\s*(?:de\s*)?(?:police|contrat|societaire)|police\s*(?:d'assurance\s*)?n[\u00b0\u00bao]|contrat\s*n[\u00b0\u00bao])\s*[:\-]?\s*(.{4,40})/i,
@@ -652,6 +659,7 @@ function analyseAttestation(txt){
     /(?:police|contrat)[^.:;]{0,25}?([0-9]{6,20})/i,
     /de\s+nature\s+d(?:e|\u00e9)cennale\s*n[\u00b0\u00bao]\s*(.{4,40})/i,
     /\bcontrat\b[^]{0,90}?\bnum(?:e|\u00e9)ro\s*[:\-]\s*(.{4,40})/i,
+    /\bcontrat\b[^.;:]{0,20}?n[\u00b0\u00bao]\s*(.{4,40})/i,
   ];
   for(const re of polMotifs){
     const m=t.match(re);
