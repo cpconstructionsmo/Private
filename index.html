@@ -681,14 +681,22 @@ function analyseAttestation(txt){
 
   /* SIRET (14 chiffres) sinon SIREN (9) : l'identifiant est ce qui distingue
      deux entreprises de meme nom, il vaut mieux l'avoir au dossier. */
-  const mId=t.match(/\bSIRET\b[^0-9]{0,14}((?:\d[ .]?){14})(?!\d)/i)
-         || t.match(/\bSIREN\b[^0-9]{0,14}((?:\d[ .]?){9})(?!\d)/i);
-  if(mId){
-    const c=mId[1].replace(/\D/g,'');
-    if(c.length===14)out.siret=c.replace(/(\d{3})(\d{3})(\d{3})(\d{5})/,'$1 $2 $3 $4');
-    else if(c.length===9)out.siret=c.replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3');
-    if(out.siret)out.champsTrouves.push('siret');
-  }
+  /* l'en-tete porte souvent le SIREN de l'agence d'assurance, jamais celui de
+     l'entreprise : un numero precede de pres par « ORIAS » est celui de
+     l'intermediaire, on passe au suivant. */
+  const identifiant=(mot,long)=>{
+    const re=new RegExp('\\b'+mot+'\\b[^0-9]{0,14}((?:\\d[ .]?){'+long+'})(?!\\d)','gi');
+    let m;
+    while((m=re.exec(t))!==null){
+      if(/ORIAS/i.test(t.slice(Math.max(0,m.index-60),m.index)))continue;
+      return m[1].replace(/\D/g,'');
+    }
+    return '';
+  };
+  const c=identifiant('SIRET',14)||identifiant('SIREN',9);
+  if(c.length===14)out.siret=c.replace(/(\d{3})(\d{3})(\d{3})(\d{5})/,'$1 $2 $3 $4');
+  else if(c.length===9)out.siret=c.replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3');
+  if(out.siret)out.champsTrouves.push('siret');
 
   /* activites garanties : le point qui compte vraiment en MOE — une decennale
      valide ne sert a rien si le lot signe n'est pas dans la liste couverte.
