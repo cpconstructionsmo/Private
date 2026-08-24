@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · factures sur les achats de matériaux, au même titre que les marchés';
+const VERSION='2026-08-24 · achats de matériaux facturables depuis l’onglet MARCHÉS';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -1700,6 +1700,8 @@ function Chantiers({data,save,open}){
 function Fiche({data,ch,save,back}){
   const [tab,setTab]=useState('marches');
   const [edit,setEdit]=useState(null);
+  /* « Facturer » depuis le tableau des marchés amène directement sur la commande */
+  const [ouvrirCmd,setOuvrirCmd]=useState(null);
   const [lecturePlan,setLecturePlan]=useState('');
   const [locSaisie,setLocSaisie]=useState('');
   const up=p=>save({...data,chantiers:data.chantiers.map(c=>c.id===ch.id?{...c,...p}:c)});
@@ -1868,14 +1870,15 @@ function Fiche({data,ch,save,back}){
       {[['marches','MARCHÉS'],['factu','FACTURATION'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
     </div>
-    {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}/>}
+    {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}
+      onFacturerCmd={id=>{setOuvrirCmd(id);setTab('cmd')}}/>}
     {tab==='factu'&&<SuiviFacturation data={data} ch={ch}/>}
     {tab==='hono'&&<Honoraires data={data} ch={ch} save={save}/>}
     {tab==='visite'&&<VisiteTechnique ch={ch} up={up}/>}
     {tab==='map'&&<MAP data={data} ch={ch} up={up}/>}
     {tab==='ctrl'&&<Controles data={data} ch={ch} save={save}/>}
     {tab==='photos'&&<Photos data={data} ch={ch} save={save}/>}
-    {tab==='cmd'&&<Commandes data={data} ch={ch} save={save}/>}
+    {tab==='cmd'&&<Commandes data={data} ch={ch} save={save} ouvrir={ouvrirCmd} onOuvert={()=>setOuvrirCmd(null)}/>}
     {tab==='planning'&&<Planning data={data} ch={ch} up={up}/>}
     {tab==='docs'&&<Docs data={data} ch={ch} up={up} save={save}/>}
   </div>;
@@ -1884,7 +1887,7 @@ function Fiche({data,ch,save,back}){
 /* ---------------- MARCHÉS ---------------- */
 const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 
-function Marches({data,ch,save,eng,fac}){
+function Marches({data,ch,save,eng,fac,onFacturerCmd}){
   const [f,setF]=useState(null);
   const [showImport,setShowImport]=useState(false);
   const [showLire,setShowLire]=useState(false);
@@ -2036,6 +2039,39 @@ function Marches({data,ch,save,eng,fac}){
           })}
         </tbody>
       </table>
+    </div>}
+    {!!cmds.length&&<div style={{marginTop:18}}>
+      <div className="h2" style={{marginBottom:8}}>ACHATS DE MATÉRIAUX</div>
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+        Achetés en direct, hors marchés de travaux. Ils se facturent comme un lot — touchez la ligne pour saisir une facture.
+      </div>
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+          <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
+            <th style={{padding:'6px 4px'}}>Achat</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Commande HT</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Facturé</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Reste à facturer</th>
+          </tr></thead>
+          <tbody>
+            {cmds.map(c=>{
+              const fa=facturesTotal(c.factures), reste=(+c.montant||0)-fa;
+              const n=(c.factures||[]).length;
+              return <tr key={c.id} style={{borderBottom:'1px solid '+RULE,cursor:onFacturerCmd?'pointer':'default'}}
+                onClick={onFacturerCmd?()=>onFacturerCmd(c.id):undefined}>
+                <td style={{padding:'8px 4px'}}>
+                  <div className="b">{c.designation}{n?<span style={{color:GREEN}}> ✓</span>:null}</div>
+                  <div className="mut">{c.fournisseur||'fournisseur non précisé'}{cmdTva(c,ch)!==tvaRate(ch)?' · TVA '+cmdTva(c,ch)+' %':''}</div>
+                  {onFacturerCmd&&<div style={{color:TERRA,marginTop:2}}>{n?n+' facture'+(n>1?'s':'')+' — modifier ›':'Facturer ›'}</div>}
+                </td>
+                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(c.montant)}</td>
+                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(fa)}</td>
+                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:reste<0?TERRA:INK}}>{reste<=0?'soldé':eur(reste)}</td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>}
     {(!!ms.length||!!cmds.length)&&<RecapBudget ch={ch} ms={ms} cmds={cmds}/>}
   </div>;
@@ -2696,7 +2732,7 @@ function Plein({p,close}){
 }
 
 /* ---------------- COMMANDES MATÉRIAUX ---------------- */
-function Commandes({data,ch,save}){
+function Commandes({data,ch,save,ouvrir,onOuvert}){
   const [f,setF]=useState(null);
   /* une commande de matériaux se facture comme un marché : le fournisseur envoie
      sa facture, elle se range sur la commande et entre dans le suivi de facturation. */
@@ -2741,6 +2777,12 @@ function Commandes({data,ch,save}){
     setF(null);
   };
   const tot=materiauxHT(list), totTTC=materiauxTTC(list,ch);
+  useEffect(()=>{
+    if(!ouvrir)return;
+    const c=data.commandes.find(x=>x.id===ouvrir);
+    if(c)setF(c.factures?c:{...c,factures:[]});
+    if(onOuvert)onOuvert();
+  },[ouvrir]);
   return <div>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">{list.length} commande{list.length>1?'s':''} — {eur(tot)} HT · {eur(totTTC)} TTC</span>
