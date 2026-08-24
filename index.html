@@ -96,7 +96,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · coche verte sur les marchés, factures, devis et pièces';
+const VERSION='2026-08-24 · budget comparé en TTC, matériaux comptés, tri des chantiers';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -324,9 +324,25 @@ const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
 const today=()=>new Date().toISOString().slice(0,10);
 const fd=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
 const wa=t=>t?t.replace(/[^0-9]/g,'').replace(/^0/,'33'):'';
-const honoAmount=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:(ch.budget||0)*(ch.honorairesPct||0)/100;
+const honoAmount=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:budgetHT(ch)*(ch.honorairesPct||0)/100;
 const tvaRate=ch=>(ch&&ch.tva!==undefined&&ch.tva!==null&&ch.tva!=='')?+ch.tva:20;
 const ttc=(ht,ch)=>(ht||0)*(1+tvaRate(ch)/100);
+/* Le budget annoncé au client l'est presque toujours TTC, alors que les marchés
+   se suivent en HT. On garde donc la base de saisie, sans quoi la comparaison
+   oppose deux grandeurs différentes et l'écart affiché ne veut rien dire. */
+/* « date de signature » : celle du contrat de maîtrise d'œuvre, sinon le jalon
+   de signature des marchés, sinon le plus ancien marché signé. */
+const dateSignature=(ch,marches)=>{
+  const c=(ch.docs||{}).contrat_moe;
+  if(c&&c.date)return c.date;
+  const j=(ch.jalons||[]).find(x=>/signature/i.test(x.label||''));
+  if(j&&j.reelle)return j.reelle;
+  const ds=(marches||[]).filter(m=>m.chantierId===ch.id&&m.dateSignature).map(m=>m.dateSignature).sort();
+  return ds[0]||'';
+};
+const budgetEnTTC=ch=>!!(ch&&ch.budgetBase==='ttc');
+const budgetHT=ch=>{const v=+(ch&&ch.budget)||0;return budgetEnTTC(ch)?v/(1+tvaRate(ch)/100):v};
+const budgetTTC=ch=>{const v=+(ch&&ch.budget)||0;return budgetEnTTC(ch)?v:ttc(v,ch)};
 const DELAI_DEFAUT=365;
 const delaiPrevu=ch=>(ch&&ch.delaiPrevu)?+ch.delaiPrevu:DELAI_DEFAUT;
 const joursDepuis=d=>d?Math.floor((new Date().setHours(0,0,0,0)-new Date(d).setHours(0,0,0,0))/86400000):null;
@@ -1117,6 +1133,22 @@ function Chantiers({data,save,open}){
   };
   const eng=id=>data.marches.filter(m=>m.chantierId===id).reduce((s,m)=>s+(m.montantHT||0),0);
   const factu=id=>data.marches.filter(m=>m.chantierId===id).reduce((s,m)=>s+(m.facture||0),0);
+  const [tri,setTri]=useState('signature');
+  const TRIS=[['signature','Signature'],['nom','Nom'],['montant','Montant'],['avancement','Avancement']];
+  const liste=[...data.chantiers].sort((a,b)=>{
+    if(tri==='nom')return (a.nom||'').localeCompare(b.nom||'');
+    if(tri==='montant')return eng(b.id)-eng(a.id);
+    if(tri==='avancement'){
+      const av=c=>{const e=eng(c.id)||budgetHT(c);return e?factu(c.id)/e:0};
+      return av(b)-av(a);
+    }
+    // signature : les plus récents d'abord, ceux sans date à la fin
+    const da=dateSignature(a,data.marches), db=dateSignature(b,data.marches);
+    if(!da&&!db)return (a.nom||'').localeCompare(b.nom||'');
+    if(!da)return 1;
+    if(!db)return -1;
+    return db.localeCompare(da);
+  });
   return <div>
     <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',adresse:'',lienDrive:'',budget:'',honorairesPct:'',honorairesMontant:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
     {f&&<div className="card">
@@ -1135,7 +1167,13 @@ function Chantiers({data,save,open}){
       </div>
       <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" placeholder="Lien du dossier partagé…" value={f.lienDrive||''} onChange={e=>setF({...f,lienDrive:e.target.value})}/></Fld>
       <div className="g2">
-        <Fld label="BUDGET TRAVAUX HT (€)"><input className="in" type="number" value={f.budget} onChange={e=>setF({...f,budget:e.target.value})}/></Fld>
+        <Fld label="BUDGET TRAVAUX ANNONCÉ (€)">
+          <input className="in" type="number" value={f.budget} onChange={e=>setF({...f,budget:e.target.value})}/>
+          <select className="in" style={{marginTop:6}} value={f.budgetBase||'ht'} onChange={e=>setF({...f,budgetBase:e.target.value})}>
+            <option value="ht">montant HT</option>
+            <option value="ttc">montant TTC (celui annoncé au client)</option>
+          </select>
+        </Fld>
         <Fld label="HONORAIRES MOE (%)"><input className="in" type="number" step="0.1" value={f.honorairesPct} onChange={e=>setF({...f,honorairesPct:e.target.value})}/></Fld>
       </div>
       <Fld label="MONTANT HONORAIRES (€) — remplacer le calcul automatique">
@@ -1146,8 +1184,12 @@ function Chantiers({data,save,open}){
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,chantiers:data.chantiers.filter(c=>c.id!==f.id),marches:data.marches.filter(m=>m.chantierId!==f.id),photos:data.photos.filter(p=>p.chantierId!==f.id),commandes:data.commandes.filter(c=>c.chantierId!==f.id)});setF(null)}:null}/>
     </div>}
     {!data.chantiers.length&&!f&&<Empty>Aucun chantier. Ajoutez le premier avec « + Chantier ».</Empty>}
+    {data.chantiers.length>1&&<div className="row" style={{gap:6,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+      <span className="xs mut">Trier par</span>
+      {TRIS.map(([id,l])=><button key={id} className={'btn s '+(tri===id?'':'gh')} onClick={()=>setTri(id)}>{l}</button>)}
+    </div>}
     <div className="grid-ch">
-    {data.chantiers.map(c=>{
+    {liste.map(c=>{
       const e=eng(c.id),fa=factu(c.id);
       const base=e||c.budget||0;
       const av=base?Math.round(fa/base*100):0;
@@ -1157,6 +1199,7 @@ function Chantiers({data,save,open}){
       return <button key={c.id} className="card" style={{borderLeft:'3px solid '+NAVY}} onClick={()=>open(c.id)}>
         <div className="sp"><span className="b sm" style={{color:NAVY}}>{c.nom}</span><span className="xs mut">{PHASE[c.statut]}</span></div>
         <div className="xs mut" style={{marginTop:3}}>{c.client}{c.adresse?' — '+c.adresse:''}</div>
+        {dateSignature(c,data.marches)&&<div className="xs mut" style={{marginTop:3}}>Signé le {fd(dateSignature(c,data.marches))}</div>}
         {(c.surfacePlancher||c.surfaceHabitable)&&<div className="xs mut" style={{marginTop:3}}>
           {c.surfacePlancher?'SDP '+c.surfacePlancher+' m²':''}{c.surfacePlancher&&c.surfaceHabitable?' · ':''}{c.surfaceHabitable?'SHAB '+c.surfaceHabitable+' m²':''}
         </div>}
@@ -1522,11 +1565,18 @@ function RecapBudget({ch,ms,cmds}){
         </tbody>
       </table>
     </div>
-    {!!ch.budget&&Math.round(ch.budget)!==Math.round(ouvHT)&&
-      <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
-        Calculé sur les marchés signés{cs.length?' et les matériaux commandés':''}. Budget travaux annoncé au client : <b>{eur(ch.budget)}</b> HT —
-        {ouvHT>ch.budget?<span style={{color:TERRA}}> dépassement de {eur(ouvHT-ch.budget)}</span>:<span> marge de {eur(ch.budget-ouvHT)}</span>}.
-      </div>}
+    {!!ch.budget&&<div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
+      Calculé sur les marchés signés{cs.length?' et les matériaux commandés':''}. Budget travaux annoncé au client :
+      <b> {eur(budgetTTC(ch))} TTC</b> ({eur(budgetHT(ch))} HT).
+      <br/>{Math.round(ouvTTC)===Math.round(budgetTTC(ch))
+        ?<span style={{color:GREEN}}><b>Conforme au budget annoncé.</b></span>
+        :<span>Écart sur le TTC : {ouvTTC>budgetTTC(ch)
+          ?<span style={{color:TERRA}}><b>dépassement de {eur(ouvTTC-budgetTTC(ch))}</b></span>
+          :<span style={{color:GREEN}}><b>marge de {eur(budgetTTC(ch)-ouvTTC)}</b></span>} — sur le HT : {ouvHT>budgetHT(ch)
+          ?<span style={{color:TERRA}}>dépassement de {eur(ouvHT-budgetHT(ch))}</span>
+          :<span>marge de {eur(budgetHT(ch)-ouvHT)}</span>}.</span>}
+      <br/>Honoraires exclus des deux côtés.
+    </div>}
     <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>TVA calculée lot par lot : chaque marché peut avoir son propre taux (0 % en franchise ou autoliquidation), sinon il suit celui du chantier. Les matériaux commandés suivent le taux du chantier. À vérifier avec votre comptable.
       {!!cs.length&&' N’inscrivez en commande que les matériaux achetés en direct : une fourniture déjà comprise dans un marché de travaux serait comptée deux fois.'}</div>
   </div>;
@@ -2476,17 +2526,23 @@ function Bilan({data,open}){
     const retroSrc=[...ms,...cs];
     const retro=retroSrc.reduce((s,x)=>s+retroMontant(x),0);
     const retroFac=retroSrc.reduce((s,x)=>s+(+x.retroFacture||0),0);
-    const av=(eng||c.budget)?Math.round(fac/(eng||c.budget)*100):0;
-    return {...c,eng,fac,mat,hono,honoFac,retro,retroFac,av,budgetTTC:ms.length?travauxTTC(ms,c):ttc(c.budget,c),honoTTC:ttc(hono,c),ecart:(c.budget||0)-eng};
+    const av=(eng||budgetHT(c))?Math.round(fac/(eng||budgetHT(c))*100):0;
+    /* le coût de l'ouvrage, c'est les marchés ET les matériaux achetés en direct :
+       comparer le budget au seul engagé auprès des artisans gonfle la marge. */
+    const ouvHT=eng+mat, ouvTTC=(ms.length?travauxTTC(ms,c):0)+ttc(mat,c);
+    return {...c,eng,fac,mat,hono,honoFac,retro,retroFac,av,ouvHT,ouvTTC,
+      budgetAnnonceHT:budgetHT(c),budgetAnnonceTTC:budgetTTC(c),
+      honoTTC:ttc(hono,c),ecart:budgetHT(c)-ouvHT,ecartTTC:budgetTTC(c)-ouvTTC};
   });
   const T=k=>L.reduce((s,l)=>s+(l[k]||0),0);
-  const tb=T('budget'),te=T('eng'),tf=T('fac'),th=T('hono'),tm=T('mat');
-  const tbTTC=T('budgetTTC'),thTTC=T('honoTTC'),thFac=T('honoFac');
+  const tb=T('budgetAnnonceHT'),te=T('eng'),tf=T('fac'),th=T('hono'),tm=T('mat');
+  const tbTTC=T('budgetAnnonceTTC'),thTTC=T('honoTTC'),thFac=T('honoFac');
+  const tOuvHT=T('ouvHT'),tOuvTTC=T('ouvTTC');
   const tr=T('retro'),trFac=T('retroFac');
   const csv=()=>{
     const rows=[['Chantier','Client','Phase','Avancement %','Budget travaux HT','Budget travaux TTC','Engagé HT','Facturé artisans','Reste à facturer artisans','Matériaux commandés','Écart budget','Honoraires HT','Honoraires TTC','Honoraires facturés HT','Reste à facturer honoraires HT','Rétrocessions dues HT','Rétrocessions facturées HT'],
-      ...L.map(l=>[l.nom,l.client,PHASE[l.statut]||'',l.av,l.budget||0,Math.round(l.budgetTTC),l.eng,l.fac,l.eng-l.fac,l.mat,l.ecart,Math.round(l.hono),Math.round(l.honoTTC),Math.round(l.honoFac),Math.round(l.hono-l.honoFac),Math.round(l.retro),Math.round(l.retroFac)]),
-      ['TOTAL','','','',tb,Math.round(tbTTC),te,tf,te-tf,tm,tb-te,Math.round(th),Math.round(thTTC),Math.round(thFac),Math.round(th-thFac),Math.round(tr),Math.round(trFac)]];
+      ...L.map(l=>[l.nom,l.client,PHASE[l.statut]||'',l.av,Math.round(l.budgetAnnonceHT),Math.round(l.budgetAnnonceTTC),l.eng,l.fac,l.eng-l.fac,l.mat,Math.round(l.ecart),Math.round(l.hono),Math.round(l.honoTTC),Math.round(l.honoFac),Math.round(l.hono-l.honoFac),Math.round(l.retro),Math.round(l.retroFac)]),
+      ['TOTAL','','','',Math.round(tb),Math.round(tbTTC),te,tf,te-tf,tm,Math.round(tb-tOuvHT),Math.round(th),Math.round(thTTC),Math.round(thFac),Math.round(th-thFac),Math.round(tr),Math.round(trFac)]];
     const a=document.createElement('a');
     a.href='data:text/csv;charset=utf-8,﻿'+encodeURIComponent(rows.map(r=>r.map(v=>'"'+v+'"').join(';')).join('\n'));
     a.download='CP-suivi-financier-'+today()+'.csv';a.click();
@@ -2494,12 +2550,12 @@ function Bilan({data,open}){
   return <div>
     <H2 action={<button className="btn gh s" onClick={csv}>Export CSV</button>}>SUIVI FINANCIER</H2>
     <div className="g2">
-      <Stat l="Travaux TTC" v={eur(tbTTC)} c={NAVY}/>
-      <Stat l="Travaux HT annoncés" v={eur(tb)}/>
-      <Stat l="Engagé auprès des artisans" v={eur(te)} c={te>tb?TERRA:INK}/>
-      <Stat l="Reste à facturer — artisans" v={eur(te-tf)}/>
+      <Stat l="Coût de l’ouvrage TTC" v={eur(tOuvTTC)} c={NAVY}/>
+      <Stat l="Budget annoncé TTC" v={eur(tbTTC)} c={tOuvTTC>tbTTC?TERRA:GREEN}/>
+      <Stat l="Engagé auprès des artisans" v={eur(te)}/>
       <Stat l="Matériaux commandés" v={eur(tm)}/>
       <Stat l="Déjà facturé par les artisans" v={eur(tf)}/>
+      <Stat l="Reste à facturer — artisans" v={eur(te-tf)}/>
     </div>
     <div className="card" style={{marginTop:8}}>
       <div className="xs mut">Honoraires de maîtrise d’œuvre — TTC</div>
