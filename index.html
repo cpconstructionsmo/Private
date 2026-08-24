@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · import des coordonnées client depuis une fiche Contacts (.vcf)';
+const VERSION='2026-08-24 · lecture automatique des contrats de marché et des factures';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -966,6 +966,138 @@ function analyseAttestation(txt){
   return out;
 }
 
+/* ---------- lecture des marchés et des factures ---------- */
+/* Un montant français s'écrit « 5 340,39 » ou « 5340.39 » selon le logiciel qui
+   l'a produit : on ramène tout à un nombre avant de comparer quoi que ce soit. */
+const NBFR="([0-9]{1,3}(?:[ \\u00a0\\u202f][0-9]{3})+(?:[.,][0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)";
+const nombreFr=s=>{
+  if(s===undefined||s===null)return null;
+  const v=parseFloat(String(s).replace(/[   ]/g,'').replace(',','.'));
+  return isNaN(v)?null:v;
+};
+const MOIS_FR=['janvier','fevrier','mars','avril','mai','juin','juillet','aout','septembre','octobre','novembre','decembre'];
+/* « En date du 03 Avril 2026 » : la date des marchés est écrite en toutes lettres */
+function parseDateLongueFr(s){
+  const t=deaccent(String(s||'')).toLowerCase();
+  const m=t.match(new RegExp('(\\d{1,2})\\s*(?:er)?\\s+('+MOIS_FR.join('|')+')\\s+(\\d{4})'));
+  if(!m)return '';
+  return m[3]+'-'+String(MOIS_FR.indexOf(m[2])+1).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0');
+}
+const parseDateAny=s=>parseDateFr(String(s||''))||parseDateLongueFr(s);
+/* taux de TVA légaux en France : on s'y recale, une décimale de lecture ne doit
+   pas transformer 20 % en 19,9 % */
+const TAUX_LEGAUX=[0,2.1,5.5,10,20];
+const recaleTaux=t=>{
+  if(t===null||t===undefined)return null;
+  for(const l of TAUX_LEGAUX)if(Math.abs(t-l)<=0.3)return l;
+  return Math.round(t*10)/10;
+};
+/* le taux réellement appliqué se déduit des montants — c'est plus sûr que le
+   libellé imprimé : un marché en autoliquidation porte « TVA 20% » et 0,00 € de TVA. */
+const tauxDeduit=(ht,ttc)=>(ht>0&&ttc!==null&&ttc>=0)?recaleTaux((ttc/ht-1)*100):null;
+const memeMontant=(a,b)=>a!==null&&b!==null&&Math.abs(a-b)<=Math.max(0.05,Math.abs(b)*0.005);
+
+/* Marché de travaux, modèle CP Constructions. Ne lit que les PDF qui portent une
+   couche texte : un marché signé puis scanné n'en a pas, il faut l'original. */
+function analyseMarche(txt){
+  const t=deaccent(txt).replace(/\s+/g,' ');
+  const r={numero:'',lot:'',artisan:'',montantHT:null,tva:null,montantTTC:null,date:'',
+           numPolice:'',assureur:'',alertes:[],champs:[]};
+  const pris=(k,v)=>{if(v!==null&&v!==undefined&&v!=='')r.champs.push(k);return v};
+
+  let m=t.match(/Marche de travaux n\s*[°o]?\s*(\d{1,4})/i);
+  if(m)r.numero=pris('numero',m[1]);
+  m=t.match(/En date du ([^.]{6,40}?)(?:\s+(?:Marche|Entre|Devis|Nom|Lieu)\b|$)/i);
+  if(m)r.date=pris('date',parseDateAny(m[1]));
+  if(!r.date)r.date=pris('date',parseDateAny(t.slice(0,600)));
+
+  /* le lot est titré sous le numéro ; sur certains marchés il n'est repris qu'au
+     bandeau, sur d'autres il précède le montant de la ligne « lots suivants » */
+  m=t.match(/lots suivants\s*:\s*([A-Za-z][^:]{2,60}?)\s*"?"?\s*[\d ]+[.,]\d{2}\s*[€E]/i);
+  if(m&&!/^\s*$/.test(m[1]))r.lot=m[1].trim();
+  if(!r.lot){
+    m=t.match(/Marche de travaux n\s*[°o]?\s*\d{1,4}\s*(.{2,70}?)\s*(?:En date du|Entre le Maitre)/i);
+    if(m)r.lot=m[1].replace(/En date du.*$/i,'').trim();
+  }
+  if(!r.lot){
+    m=t.match(/(?:En date du [^.]{6,30}?)\s+([A-Z][A-Z \-'\/]{3,60}?)\s+Entre le Maitre/i);
+    if(m)r.lot=m[1].trim();
+  }
+  r.lot=r.lot.replace(/[\-–—\s]+$/,'').replace(/^[\-–—\s]+/,'').trim();
+  if(r.lot)r.champs.push('lot');
+
+  /* raison sociale : uniquement celle qui suit « … l'Entreprise citée ci-dessous : »
+     — le bandeau d'en-tête porte lui aussi le mot « Entreprise », en case à cocher. */
+  const FIN_RS="(?=\\d{1,4}[,\\s]+(?:rue|impasse|route|avenue|bd|boulevard|chemin|place|za|zi|lieu)|\\b(?:Les|La|Le|ZA|ZI|Rue|Route|Impasse|Chemin|Avenue|Lieu)\\b|\\d{5}\\b|RC\\s*:|N\\s*[°o]\\s*(?:Qualification|de Police))";
+  const RS="((?:SARL|SASU|SAS|SA|EURL|EI|SCI|SCOP|Ets|Etablissements)?\\s*[A-Z0-9][A-Za-z0-9'&.\\- ]{1,45}?)\\s*";
+  m=t.match(new RegExp("ci-dessous\\s*:?\\s*Entreprise\\s+"+RS+FIN_RS,'i'))
+   ||t.match(new RegExp("citee ci-dessous[^A-Za-z0-9]{0,4}Entreprise\\s+"+RS+FIN_RS,'i'));
+  if(m)r.artisan=pris('artisan',m[1].replace(/\s+/g,' ').trim());
+
+  m=t.match(/Police d'Assurance Decennale\s*:?\s*([^\s].{0,30}?)(?=\s*(?:Compagnie|Devis Quantitatif)|$)/i);
+  if(m)r.numPolice=pris('numPolice',cleanRef(m[1]));
+  m=t.match(/Compagnie\s*:?\s*([A-Za-z][A-Za-z0-9 &'\-\.]{1,40}?)(?=\s*(?:Devis Quantitatif|L'entreprise|Commentaire)|$)/i);
+  if(m)r.assureur=pris('assureur',m[1].trim());
+
+  const cherche=re=>{const x=t.match(new RegExp(re,'i'));return x?nombreFr(x[x.length-1]):null};
+  r.montantHT=pris('montantHT',cherche("TOTAL\\s*H\\.?\\s*T\\.?\\s*[:€E]?\\s*"+NBFR));
+  r.montantTTC=pris('montantTTC',cherche("TOTAL\\s*T\\.?\\s*T\\.?\\s*C\\.?\\s*[:€E]?\\s*"+NBFR));
+  /* montant de la ligne « lots suivants », en secours du bloc récapitulatif */
+  if(r.montantHT===null)r.montantHT=pris('montantHT',cherche("lots suivants\\s*:.{0,80}?"+NBFR+"\\s*[€E]\\s*H\\.?\\s*T"));
+  const impr=t.match(/TVA\s*(\d{1,2}(?:[.,]\d)?)\s*%/i);
+  const tvaImprimee=impr?nombreFr(impr[1]):null;
+  const tvaMontant=cherche("TVA\\s*\\d{1,2}(?:[.,]\\d)?\\s*%\\s*[:€E]?\\s*"+NBFR);
+
+  /* si le TTC manque mais que le montant de TVA est là, on le reconstitue */
+  if(r.montantTTC===null&&r.montantHT!==null&&tvaMontant!==null)r.montantTTC=r.montantHT+tvaMontant;
+  const deduit=tauxDeduit(r.montantHT,r.montantTTC);
+  if(deduit!==null){
+    r.tva=deduit; r.champs.push('tva');
+    if(tvaImprimee!==null&&Math.abs(tvaImprimee-deduit)>0.3)
+      r.alertes.push('Le contrat porte « TVA '+tvaImprimee+' % » mais les montants donnent '+deduit+' % — c’est le taux réellement appliqué qui est retenu.');
+  }else if(tvaImprimee!==null){
+    r.tva=recaleTaux(tvaImprimee); r.champs.push('tva');
+  }
+  if(r.montantHT!==null&&r.montantTTC!==null&&r.tva!==null&&!memeMontant(r.montantHT*(1+r.tva/100),r.montantTTC))
+    r.alertes.push('HT, TVA et TTC ne se recoupent pas : à vérifier sur le contrat.');
+  if(r.montantHT===null)r.alertes.push('Montant HT introuvable.');
+  return r;
+}
+
+/* Facture d'artisan : chaque entreprise a sa mise en page, on s'accroche donc
+   aux libellés de totaux plutôt qu'à une position. */
+function analyseFacture(txt){
+  const t=deaccent(txt).replace(/\s+/g,' ');
+  const r={numero:'',date:'',montantHT:null,tva:null,montantTTC:null,emetteur:'',alertes:[],champs:[]};
+  const cherche=re=>{const x=t.match(new RegExp(re,'i'));return x?nombreFr(x[x.length-1]):null};
+  let m=t.match(/Facture\s*(?:n\s*[°o]?|num[eé]ro)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/\.]{1,19})/i);
+  if(m&&/\d/.test(m[1])){r.numero=m[1].replace(/[.\-\/]+$/,'');r.champs.push('numero');}
+  m=t.match(/(?:date(?:\s+de\s+facture)?|le)\s*[:\-]?\s*(\d{1,2}[\/\.\- ]\d{1,2}[\/\.\- ]\d{2,4})/i);
+  r.date=parseDateAny(m?m[1]:'')||parseDateAny(t.slice(0,700));
+  if(r.date)r.champs.push('date');
+
+  r.montantTTC=cherche("(?:TOTAL\\s*T\\.?\\s*T\\.?\\s*C\\.?|MONTANT\\s*T\\.?T\\.?C\\.?|NET\\s*A\\s*PAYER|TOTAL\\s*A\\s*PAYER)\\s*[:€E]?\\s*"+NBFR);
+  r.montantHT=cherche("(?:TOTAL\\s*H\\.?\\s*T\\.?|MONTANT\\s*H\\.?T\\.?|TOTAL\\s*HORS\\s*TAXES?)\\s*[:€E]?\\s*"+NBFR);
+  if(r.montantHT!==null)r.champs.push('montantHT');
+  if(r.montantTTC!==null)r.champs.push('montantTTC');
+  const impr=t.match(/T\.?V\.?A\.?\s*(?:au taux de|a|:)?\s*(\d{1,2}(?:[.,]\d)?)\s*%/i);
+  const tvaImprimee=impr?nombreFr(impr[1]):null;
+  const tvaMontant=cherche("T\\.?V\\.?A\\.?\\s*(?:\\d{1,2}(?:[.,]\\d)?\\s*%)?\\s*[:€E]?\\s*"+NBFR);
+  if(r.montantTTC===null&&r.montantHT!==null&&tvaMontant!==null)r.montantTTC=r.montantHT+tvaMontant;
+  if(r.montantHT===null&&r.montantTTC!==null&&tvaImprimee!==null)r.montantHT=r.montantTTC/(1+tvaImprimee/100);
+  const deduit=tauxDeduit(r.montantHT,r.montantTTC);
+  if(deduit!==null){
+    r.tva=deduit;r.champs.push('tva');
+    if(tvaImprimee!==null&&Math.abs(tvaImprimee-deduit)>0.3)
+      r.alertes.push('La facture porte « TVA '+tvaImprimee+' % » mais les montants donnent '+deduit+' %.');
+  }else if(tvaImprimee!==null){r.tva=recaleTaux(tvaImprimee);r.champs.push('tva');}
+  if(r.montantHT===null&&r.montantTTC===null)r.alertes.push('Aucun montant lisible sur cette facture.');
+  /* sur autoliquidation la facture ne porte pas de TVA : ce n'est pas une anomalie */
+  if(r.montantHT!==null&&r.montantTTC!==null&&r.tva!==null&&!memeMontant(r.montantHT*(1+r.tva/100),r.montantTTC))
+    r.alertes.push('HT, TVA et TTC ne se recoupent pas : à vérifier sur la facture.');
+  return r;
+}
+
 /* ---------- signature manuscrite ---------- */
 /* empreinte du contexte signé : si le libellé du document, le chantier, le signataire
    ou l'horodatage sont modifiés après coup, l'empreinte ne correspond plus. */
@@ -1633,6 +1765,7 @@ const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 function Marches({data,ch,save,eng,fac}){
   const [f,setF]=useState(null);
   const [showImport,setShowImport]=useState(false);
+  const [showLire,setShowLire]=useState(false);
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
   const openRow=m=>setF(m.factures?m:{...m,factures:m.facture?[{id:uid(),montant:m.facture,date:m.dateSignature||today(),lien:''}]:[]});
@@ -1646,7 +1779,28 @@ function Marches({data,ch,save,eng,fac}){
   const addFacture=()=>setF({...f,factures:[...(f.factures||[]),{id:uid(),montant:'',date:today(),lien:''}]});
   const updFacture=(fid,patch)=>setF({...f,factures:(f.factures||[]).map(x=>x.id===fid?{...x,...patch}:x)});
   const delFacture=fid=>setF({...f,factures:(f.factures||[]).filter(x=>x.id!==fid)});
+  /* à l'import d'une facture on la lit au passage : le montant et la date s'y
+     trouvent, autant les reprendre plutôt que de les retaper. On ne remplit que
+     ce qui est vide — une saisie de l'utilisateur n'est jamais écrasée. */
+  const [luFacture,setLuFacture]=useState(null);
   const importFacture=async(fid,file)=>{
+    let lu=null;
+    if(/pdf$/i.test(file.name||'')||file.type==='application/pdf'){
+      try{
+        const txt=await pdfText(file);
+        if(txt){
+          const a=analyseFacture(txt);
+          const cible=(f.factures||[]).find(x=>x.id===fid)||{};
+          const patch={};
+          const ht=a.montantHT!==null?a.montantHT:(a.montantTTC!==null&&a.tva!==null?a.montantTTC/(1+a.tva/100):null);
+          if(ht!==null&&(cible.montant===''||cible.montant===undefined||cible.montant===null))patch.montant=Math.round(ht*100)/100;
+          if(a.date&&!cible.date)patch.date=a.date;
+          if(Object.keys(patch).length){updFacture(fid,patch);lu={patch,a};}
+          else lu={patch:null,a};
+        }else lu={scan:true};
+      }catch(e){/* lecture impossible : l'envoi sur le Drive reste prioritaire */}
+    }
+    setLuFacture(lu?{...lu,fid}:null);
     try{
       const token=await getDriveToken();
       const folderId=await driveFacturesFolder(token,ch.id,ch.nom);
@@ -1668,13 +1822,15 @@ function Marches({data,ch,save,eng,fac}){
   };
   const nom=id=>{const a=data.artisans.find(x=>x.id===id);return a?a.nom:'Non attribué'};
   return <div>
-    <div className="sp" style={{marginBottom:12}}>
+    <div className="sp" style={{marginBottom:12,flexWrap:'wrap',gap:8}}>
       <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}</span>
-      <div className="row" style={{gap:8}}>
-        <button className="btn gh s" onClick={()=>setShowImport(!showImport)}>Import rapide</button>
+      <div className="row" style={{gap:8,flexWrap:'wrap'}}>
+        <button className="btn gh s" onClick={()=>{setShowLire(!showLire);setShowImport(false)}}>Lire des contrats</button>
+        <button className="btn gh s" onClick={()=>{setShowImport(!showImport);setShowLire(false)}}>Import rapide</button>
         <button className="btn acc s" onClick={()=>setF({lot:'',artisanId:'',montantHT:'',statut:'consulter',dateSignature:'',notes:'',factures:[],contratLien:''})}>+ Lot</button>
       </div>
     </div>
+    {showLire&&<LireMarches data={data} ch={ch} save={save} close={()=>setShowLire(false)}/>}
     {showImport&&<ImportMarches data={data} ch={ch} save={save} close={()=>setShowImport(false)}/>}
     {f&&<div className="card">
       <Fld label="CORPS D'ÉTAT"><input className="in" list="corps-list" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})} placeholder="Ex. Maçonnerie — Gros œuvre"/>
@@ -1713,6 +1869,15 @@ function Marches({data,ch,save,eng,fac}){
           <button className="btn dg s" onClick={()=>delFacture(x.id)}>✕</button>
         </div>)}
         <button className="btn gh s" onClick={addFacture}>+ Facture</button>
+        {luFacture&&luFacture.scan&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          Cette facture est un scan : aucun texte à lire, le montant et la date sont à saisir à la main. Le fichier est bien envoyé sur le Drive.</div>}
+        {luFacture&&luFacture.patch&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+          Lu sur la facture :{luFacture.patch.montant!==undefined&&<span> montant <b>{eur(luFacture.patch.montant)} HT</b></span>}
+          {luFacture.patch.date!==undefined&&<span> · date <b>{fd(luFacture.patch.date)}</b></span>}
+          {luFacture.a.tva!==null&&<span className="mut"> (TVA {luFacture.a.tva} % sur la facture)</span>}. À vérifier.
+          {luFacture.a.alertes.map((x,i)=><div key={i} style={{color:AMBER}}>{x}</div>)}</div>}
+        {luFacture&&luFacture.patch===null&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+          Facture lue, mais montant et date étaient déjà saisis : rien n'a été modifié.</div>}
       </Fld>
       <DriveStatus/>
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,marches:data.marches.filter(m=>m.id!==f.id)});setF(null)}:null}/>
@@ -1927,6 +2092,132 @@ function SuiviFacturation({data,ch}){
         <br/>Chaque marché peut porter son propre taux (0 % en franchise ou autoliquidation) ; à défaut il suit celui du chantier ({tvaRate(ch)} %). À vérifier avec votre comptable avant tout usage fiscal.
       </div>
     </div>}
+  </div>;
+}
+
+/* ---------------- LECTURE DES CONTRATS ---------------- */
+/* rapproche « EI SADETTIN KARA » et « SADETTIN KARA » : la forme juridique et la
+   ponctuation varient d'un document à l'autre, le nom non. */
+const cleNom=s=>deaccent(String(s||'')).toUpperCase()
+  .replace(/\b(SARL|SASU|SAS|SA|EURL|EI|SCI|SCOP|ETS|ETABLISSEMENTS|ENTREPRISE|MONSIEUR|MME|M)\b/g,'')
+  .replace(/[^A-Z0-9]/g,'');
+
+function LireMarches({data,ch,save,close}){
+  const [rows,setRows]=useState([]);
+  const [busy,setBusy]=useState('');
+  const [envoi,setEnvoi]=useState('');
+  const trouveArtisan=nom=>{
+    const k=cleNom(nom); if(k.length<3)return '';
+    const a=data.artisans.find(x=>{const c=cleNom(x.nom);
+      return c===k||(c.length>=4&&k.length>=4&&(c.indexOf(k)>=0||k.indexOf(c)>=0))});
+    return a?a.id:'';
+  };
+  const lire=async files=>{
+    setBusy('Lecture de '+files.length+' document'+(files.length>1?'s':'')+'…');
+    const out=[];
+    for(const file of files){
+      let txt='';
+      try{txt=await pdfText(file)}catch(e){}
+      if(!txt){out.push({id:uid(),file,nomFichier:file.name,scan:true,retenu:false,alertes:[]});continue}
+      const a=analyseMarche(txt);
+      out.push({id:uid(),file,nomFichier:file.name,scan:false,retenu:a.montantHT!==null,
+        numero:a.numero,lot:a.lot||'',artisanId:trouveArtisan(a.artisan),artisanNom:a.artisan||'',
+        montantHT:a.montantHT===null?'':a.montantHT,tva:a.tva===null?'':a.tva,
+        date:a.date||'',alertes:a.alertes});
+    }
+    setRows(r=>[...r,...out]);
+    setBusy('');
+  };
+  const upd=(id,patch)=>setRows(rs=>rs.map(r=>r.id===id?{...r,...patch}:r));
+  const retenus=rows.filter(r=>r.retenu&&!r.scan);
+  const scans=rows.filter(r=>r.scan);
+  const ajouter=async()=>{
+    let artisans=[...data.artisans];
+    const nouveaux=retenus.map(r=>{
+      let aid=r.artisanId;
+      if(!aid&&r.artisanNom){
+        const a={id:uid(),nom:r.artisanNom,corps:r.lot||'',tel:'',email:'',adresse:'',siret:'',activites:'',
+                 assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''};
+        artisans=[...artisans,a]; aid=a.id;
+      }
+      /* la TVA reste vide quand elle est celle du chantier : le lot suit alors
+         automatiquement toute correction faite au niveau du chantier. */
+      const taux=r.tva===''?'':(+r.tva===tvaRate(ch)?'':+r.tva);
+      return {id:uid(),chantierId:ch.id,lot:r.lot||'Lot sans intitulé',artisanId:aid,
+        montantHT:+r.montantHT||0,tva:taux,statut:'signe',dateSignature:r.date||'',
+        notes:r.numero?'Marché n°'+r.numero:'',facture:0,factures:[],contratLien:'',__src:r.id};
+    });
+    let etat={...data,artisans,marches:[...data.marches,...nouveaux.map(m=>{const{__src,...x}=m;return x})]};
+    save(etat);
+    /* le contrat lu part aussi sur le Drive : il est déjà en main, autant ne pas
+       repasser. Silencieux si le Drive n'est pas connecté. */
+    try{
+      setEnvoi('Envoi des contrats sur le Drive…');
+      const token=await getDriveToken();
+      const folderId=await driveMarchesFolder(token,ch.id,ch.nom);
+      const liens={};
+      for(const m of nouveaux){
+        const r=retenus.find(x=>x.id===m.__src);
+        if(!r||!r.file)continue;
+        try{const{webViewLink}=await uploadToDrive(r.file,folderId);liens[m.id]=webViewLink}catch(e){}
+      }
+      if(Object.keys(liens).length){
+        etat={...etat,marches:etat.marches.map(m=>liens[m.id]?{...m,contratLien:liens[m.id]}:m)};
+        save(etat);
+      }
+    }catch(e){/* Drive non connecté : les marchés sont enregistrés quand même */}
+    setEnvoi('');
+    close();
+  };
+  const dejaLa=lot=>!!lot&&data.marches.some(m=>m.chantierId===ch.id&&cleNom(m.lot)===cleNom(lot));
+  return <div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+    <div className="h2" style={{marginBottom:8}}>LIRE DES CONTRATS DE MARCHÉ</div>
+    <div className="xs mut" style={{lineHeight:1.6,marginBottom:10}}>
+      Choisissez les contrats en PDF : le lot, l'entreprise, le montant HT, le taux de TVA et la date
+      sont lus puis proposés ci-dessous. <b>Rien n'est enregistré avant votre validation.</b>
+      <br/>Un contrat signé puis scanné ne contient aucun texte : prenez le PDF d'origine, les montants sont les mêmes.
+    </div>
+    <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des contrats (PDF)'}
+      <input type="file" accept="application/pdf,.pdf" multiple style={{display:'none'}} disabled={!!busy}
+        onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)lire(fs)}}/></label>
+    {!!scans.length&&<div className="xs" style={{marginTop:10,background:'#FBF3DF',color:'#6A4E06',borderLeft:'3px solid '+AMBER,padding:8,lineHeight:1.5}}>
+      {scans.length} document{scans.length>1?'s':''} sans texte (scan) : {scans.map(s=>s.nomFichier).join(', ')}.
+      Rien n'a pu en être lu — utilisez le PDF d'origine, ou saisissez ce lot avec « + Lot ».
+    </div>}
+    {rows.filter(r=>!r.scan).map(r=><div key={r.id} className="card" style={{marginTop:10,borderLeft:'3px solid '+(r.alertes.length?AMBER:GREEN)}}>
+      <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
+        <span className="xs mut" style={{wordBreak:'break-all'}}>{r.nomFichier}</span>
+        <label className="xs" style={{whiteSpace:'nowrap'}}>
+          <input type="checkbox" checked={r.retenu} onChange={e=>upd(r.id,{retenu:e.target.checked})}/> retenir
+        </label>
+      </div>
+      <div className="g2" style={{marginTop:8}}>
+        <Fld label="CORPS D'ÉTAT"><input className="in" list="corps-lire" value={r.lot} onChange={e=>upd(r.id,{lot:e.target.value})}/>
+          <datalist id="corps-lire">{CORPS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
+        <Fld label="ARTISAN">
+          <select className="in" value={r.artisanId} onChange={e=>upd(r.id,{artisanId:e.target.value})}>
+            <option value="">{r.artisanNom?'Créer « '+r.artisanNom+' »':'— non attribué —'}</option>
+            {data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}
+          </select>
+        </Fld>
+      </div>
+      <div className="g3">
+        <Fld label="MONTANT HT (€)"><input className="in" type="number" step="0.01" value={r.montantHT} onChange={e=>upd(r.id,{montantHT:e.target.value})}/></Fld>
+        <Fld label="TVA (%)"><input className="in" type="number" step="0.1" placeholder={String(tvaRate(ch))} value={r.tva} onChange={e=>upd(r.id,{tva:e.target.value})}/></Fld>
+        <Fld label="DATE"><input className="in" type="date" value={r.date} onChange={e=>upd(r.id,{date:e.target.value})}/></Fld>
+      </div>
+      {r.montantHT!==''&&<div className="xs mut" style={{marginTop:-4}}>
+        soit <b>{eur(marcheTTC({montantHT:+r.montantHT,tva:r.tva},ch))}</b> TTC{r.numero?' · marché n°'+r.numero:''}</div>}
+      {r.alertes.map((a,i)=><div key={i} className="xs" style={{color:AMBER,marginTop:6,lineHeight:1.5}}>{a}</div>)}
+      {dejaLa(r.lot)&&<div className="xs" style={{color:TERRA,marginTop:6,lineHeight:1.5}}>Un lot « {r.lot} » existe déjà sur ce chantier — vérifiez que vous n'ajoutez pas un doublon.</div>}
+    </div>)}
+    <div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
+      <button className="btn" disabled={!retenus.length||!!envoi} onClick={ajouter}>
+        {envoi||(retenus.length?'Ajouter '+retenus.length+' marché'+(retenus.length>1?'s':''):'Ajouter les marchés')}</button>
+      <button className="btn gh" onClick={close}>Annuler</button>
+    </div>
+    {!!retenus.length&&<div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>
+      Total retenu : <b>{eur(retenus.reduce((s,r)=>s+(+r.montantHT||0),0))} HT</b>. Les contrats seront aussi déposés dans Drive › {ch.nom} › Marchés.</div>}
   </div>;
 }
 
