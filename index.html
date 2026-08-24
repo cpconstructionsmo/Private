@@ -93,6 +93,10 @@ const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googleusercontent.com';
 
+/* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
+   qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
+   page servie est à jour ou sortie du cache du navigateur. */
+const VERSION='2026-08-24 · matériaux comptés dans le récapitulatif budgétaire';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -2490,6 +2494,12 @@ function Donnees({data,save,session}){
         <label className="btn gh">Restaurer<input type="file" accept=".json,application/json,text/plain" onChange={imp} style={{display:'none'}}/></label>
       </div>
       {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
+    </div>
+    <div className="card">
+      <div className="sm b">Version</div>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.6}}>{VERSION}
+        <br/>Si ce repère ne correspond pas à la dernière mise à jour annoncée, la page vient du cache :
+        fermez complètement l’application puis rouvrez-la.</div>
     </div>
     <div className="card">
       <div className="sm b">Contenu</div>
