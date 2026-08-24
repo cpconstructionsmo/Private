@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · lecture automatique des contrats de marché et des factures';
+const VERSION='2026-08-24 · lecture automatique des contrats et des factures PDF, enregistrement direct';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -533,7 +533,7 @@ const facturesChantier=(ch,ms)=>{
     const tx=marcheTva(m,ch);
     const fs=m.factures||[];
     if(fs.length)for(const f of fs)
-      L.push({id:f.id,date:f.date||'',libelle:m.lot,poste:'Travaux',ht:+f.montant||0,taux:tx,lien:f.lien||''});
+      L.push({id:f.id,date:f.date||'',libelle:m.lot,poste:'Travaux',ht:+f.montant||0,taux:tx,lien:f.lien||'',numero:f.numero||''});
     else if(+m.facture)
       L.push({id:m.id+'-f',date:m.dateSignature||'',libelle:m.lot,poste:'Travaux',ht:+m.facture||0,taux:tx,lien:''});
   }
@@ -1766,6 +1766,7 @@ function Marches({data,ch,save,eng,fac}){
   const [f,setF]=useState(null);
   const [showImport,setShowImport]=useState(false);
   const [showLire,setShowLire]=useState(false);
+  const [showFact,setShowFact]=useState(false);
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
   const openRow=m=>setF(m.factures?m:{...m,factures:m.facture?[{id:uid(),montant:m.facture,date:m.dateSignature||today(),lien:''}]:[]});
@@ -1825,12 +1826,14 @@ function Marches({data,ch,save,eng,fac}){
     <div className="sp" style={{marginBottom:12,flexWrap:'wrap',gap:8}}>
       <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}</span>
       <div className="row" style={{gap:8,flexWrap:'wrap'}}>
-        <button className="btn gh s" onClick={()=>{setShowLire(!showLire);setShowImport(false)}}>Lire des contrats</button>
-        <button className="btn gh s" onClick={()=>{setShowImport(!showImport);setShowLire(false)}}>Import rapide</button>
+        <button className="btn gh s" onClick={()=>{setShowLire(!showLire);setShowImport(false);setShowFact(false)}}>Lire des contrats</button>
+        <button className="btn gh s" onClick={()=>{setShowFact(!showFact);setShowLire(false);setShowImport(false)}}>Lire des factures</button>
+        <button className="btn gh s" onClick={()=>{setShowImport(!showImport);setShowLire(false);setShowFact(false)}}>Import rapide</button>
         <button className="btn acc s" onClick={()=>setF({lot:'',artisanId:'',montantHT:'',statut:'consulter',dateSignature:'',notes:'',factures:[],contratLien:''})}>+ Lot</button>
       </div>
     </div>
     {showLire&&<LireMarches data={data} ch={ch} save={save} close={()=>setShowLire(false)}/>}
+    {showFact&&<LireFactures data={data} ch={ch} save={save} close={()=>setShowFact(false)}/>}
     {showImport&&<ImportMarches data={data} ch={ch} save={save} close={()=>setShowImport(false)}/>}
     {f&&<div className="card">
       <Fld label="CORPS D'ÉTAT"><input className="in" list="corps-list" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})} placeholder="Ex. Maçonnerie — Gros œuvre"/>
@@ -2045,7 +2048,7 @@ function SuiviFacturation({data,ch}){
               {F.map(f=><tr key={f.id} style={{borderBottom:'1px solid '+RULE}}>
                 <td style={{padding:'7px 4px'}}>
                   {f.lien?<a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{f.libelle}</a>:f.libelle}
-                  <div className="mut" style={{fontSize:11}}>{f.poste} · {f.date?fd(f.date):'sans date'} · TVA {f.taux} %</div>
+                  <div className="mut" style={{fontSize:11}}>{f.poste}{f.numero?' n° '+f.numero:''} · {f.date?fd(f.date):'sans date'} · TVA {f.taux} %</div>
                 </td>
                 <td style={cell}>{eur(f.ht)}</td>
                 <td style={cell} className="mut">{eur(f.ht*f.taux/100)}</td>
@@ -2218,6 +2221,156 @@ function LireMarches({data,ch,save,close}){
     </div>
     {!!retenus.length&&<div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>
       Total retenu : <b>{eur(retenus.reduce((s,r)=>s+(+r.montantHT||0),0))} HT</b>. Les contrats seront aussi déposés dans Drive › {ch.nom} › Marchés.</div>}
+  </div>;
+}
+
+/* ---------------- LECTURE DES FACTURES ---------------- */
+function LireFactures({data,ch,save,close}){
+  const [rows,setRows]=useState([]);
+  const [busy,setBusy]=useState('');
+  const [envoi,setEnvoi]=useState('');
+  const ms=data.marches.filter(m=>m.chantierId===ch.id);
+  const nomArtisan=id=>{const a=data.artisans.find(x=>x.id===id);return a?a.nom:''};
+  /* on rattache la facture à son lot par le nom de l'entreprise qui l'émet,
+     à défaut par l'intitulé du lot cité dessus. Sinon on laisse choisir. */
+  const trouveMarche=txt=>{
+    const T=cleNom(txt);
+    for(const m of ms){
+      const k=cleNom(nomArtisan(m.artisanId));
+      if(k.length>=4&&T.indexOf(k)>=0)return m.id;
+    }
+    for(const m of ms){
+      const k=cleNom(m.lot);
+      if(k.length>=5&&T.indexOf(k)>=0)return m.id;
+    }
+    return '';
+  };
+  const lire=async files=>{
+    setBusy('Lecture de '+files.length+' facture'+(files.length>1?'s':'')+'…');
+    const out=[];
+    for(const file of files){
+      let txt='';
+      try{txt=await pdfText(file)}catch(e){}
+      if(!txt){out.push({id:uid(),file,nomFichier:file.name,scan:true,retenu:false,alertes:[]});continue}
+      const a=analyseFacture(txt);
+      const ht=a.montantHT!==null?a.montantHT
+        :(a.montantTTC!==null&&a.tva!==null?a.montantTTC/(1+a.tva/100):null);
+      out.push({id:uid(),file,nomFichier:file.name,scan:false,retenu:ht!==null,
+        marcheId:trouveMarche(txt),montant:ht===null?'':Math.round(ht*100)/100,
+        date:a.date||'',numero:a.numero||'',tva:a.tva,alertes:a.alertes.slice()});
+    }
+    setRows(r=>[...r,...out]);
+    setBusy('');
+  };
+  const upd=(id,patch)=>setRows(rs=>rs.map(r=>r.id===id?{...r,...patch}:r));
+  const scans=rows.filter(r=>r.scan);
+  const retenus=rows.filter(r=>r.retenu&&!r.scan&&r.marcheId);
+  const sansLot=rows.filter(r=>r.retenu&&!r.scan&&!r.marcheId);
+  const doublon=r=>{
+    const m=ms.find(x=>x.id===r.marcheId);
+    return !!m&&(m.factures||[]).some(f=>Math.abs((+f.montant||0)-(+r.montant||0))<0.01&&f.date===r.date);
+  };
+  /* ce qu'il resterait dû sur le lot après cette facture — un dépassement se voit tout de suite */
+  const resteApres=r=>{
+    const m=ms.find(x=>x.id===r.marcheId);
+    if(!m)return null;
+    const dejaFacture=facturesTotal(m.factures)||(+m.facture||0);
+    const memeLot=retenus.filter(x=>x.marcheId===r.marcheId).reduce((s,x)=>s+(+x.montant||0),0);
+    return (+m.montantHT||0)-dejaFacture-memeLot;
+  };
+  const ajouter=async()=>{
+    const marches=data.marches.map(m=>({...m,factures:[...(m.factures||[])]}));
+    const envois=[];
+    for(const r of retenus){
+      const m=marches.find(x=>x.id===r.marcheId);
+      if(!m)continue;
+      const fid=uid();
+      m.factures.push({id:fid,montant:+r.montant||0,date:r.date||today(),lien:'',numero:r.numero||''});
+      m.facture=facturesTotal(m.factures);
+      envois.push({marcheId:m.id,fid,file:r.file});
+    }
+    let etat={...data,marches};
+    save(etat);
+    try{
+      setEnvoi('Envoi des factures sur le Drive…');
+      const token=await getDriveToken();
+      const folderId=await driveFacturesFolder(token,ch.id,ch.nom);
+      const liens=[];
+      for(const e of envois){
+        if(!e.file)continue;
+        try{const{webViewLink}=await uploadToDrive(e.file,folderId);liens.push({...e,lien:webViewLink})}catch(x){}
+      }
+      if(liens.length){
+        etat={...etat,marches:etat.marches.map(m=>{
+          const pour=liens.filter(l=>l.marcheId===m.id);
+          if(!pour.length)return m;
+          return {...m,factures:(m.factures||[]).map(f=>{
+            const l=pour.find(x=>x.fid===f.id);
+            return l?{...f,lien:l.lien}:f;
+          })};
+        })};
+        save(etat);
+      }
+    }catch(e){/* Drive non connecté : les factures restent enregistrées */}
+    setEnvoi('');
+    close();
+  };
+  return <div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+    <div className="h2" style={{marginBottom:8}}>LIRE DES FACTURES</div>
+    {!ms.length
+      ?<div className="xs mut" style={{lineHeight:1.6}}>Créez d'abord les lots — une facture se range sur un marché. Utilisez « Lire des contrats » ou « + Lot ».</div>
+      :<div>
+        <div className="xs mut" style={{lineHeight:1.6,marginBottom:10}}>
+          Choisissez les factures en PDF : le montant, la date, le numéro et le taux de TVA sont lus,
+          et chaque facture est rattachée à son lot d'après l'entreprise qui l'émet.
+          <b> Rien n'est enregistré avant votre validation.</b>
+        </div>
+        <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des factures (PDF)'}
+          <input type="file" accept="application/pdf,.pdf" multiple style={{display:'none'}} disabled={!!busy}
+            onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)lire(fs)}}/></label>
+      </div>}
+    {!!scans.length&&<div className="xs" style={{marginTop:10,background:'#FBF3DF',color:'#6A4E06',borderLeft:'3px solid '+AMBER,padding:8,lineHeight:1.5}}>
+      {scans.length} facture{scans.length>1?'s':''} sans texte (scan) : {scans.map(s=>s.nomFichier).join(', ')}.
+      Rien n'a pu en être lu — saisissez-les à la main sur le lot concerné.
+    </div>}
+    {!!sansLot.length&&<div className="xs" style={{marginTop:10,color:AMBER,lineHeight:1.5}}>
+      {sansLot.length} facture{sansLot.length>1?'s':''} sans lot reconnu : choisissez le lot ci-dessous, sinon elle{sansLot.length>1?'s ne seront':' ne sera'} pas enregistrée{sansLot.length>1?'s':''}.
+    </div>}
+    {rows.filter(r=>!r.scan).map(r=>{
+      const reste=resteApres(r);
+      return <div key={r.id} className="card" style={{marginTop:10,borderLeft:'3px solid '+(r.alertes.length||!r.marcheId?AMBER:GREEN)}}>
+        <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
+          <span className="xs mut" style={{wordBreak:'break-all'}}>{r.nomFichier}</span>
+          <label className="xs" style={{whiteSpace:'nowrap'}}>
+            <input type="checkbox" checked={r.retenu} onChange={e=>upd(r.id,{retenu:e.target.checked})}/> retenir
+          </label>
+        </div>
+        <Fld label="LOT CONCERNÉ">
+          <select className="in" value={r.marcheId} onChange={e=>upd(r.id,{marcheId:e.target.value})}>
+            <option value="">— à choisir —</option>
+            {ms.map(m=><option key={m.id} value={m.id}>{m.lot}{nomArtisan(m.artisanId)?' — '+nomArtisan(m.artisanId):''}</option>)}
+          </select>
+        </Fld>
+        <div className="g3">
+          <Fld label="MONTANT HT (€)"><input className="in" type="number" step="0.01" value={r.montant} onChange={e=>upd(r.id,{montant:e.target.value})}/></Fld>
+          <Fld label="DATE"><input className="in" type="date" value={r.date} onChange={e=>upd(r.id,{date:e.target.value})}/></Fld>
+          <Fld label="N° DE FACTURE"><input className="in" value={r.numero} onChange={e=>upd(r.id,{numero:e.target.value})}/></Fld>
+        </div>
+        {r.tva!==null&&r.tva!==undefined&&<div className="xs mut" style={{marginTop:-4}}>TVA {r.tva} % sur la facture.</div>}
+        {r.alertes.map((a,i)=><div key={i} className="xs" style={{color:AMBER,marginTop:6,lineHeight:1.5}}>{a}</div>)}
+        {doublon(r)&&<div className="xs" style={{color:TERRA,marginTop:6,lineHeight:1.5}}>Une facture du même montant et de la même date figure déjà sur ce lot — doublon probable.</div>}
+        {reste!==null&&reste<-0.01&&<div className="xs" style={{color:TERRA,marginTop:6,lineHeight:1.5}}>
+          Ce lot serait facturé {eur(-reste)} au-delà de son marché.</div>}
+        {reste!==null&&reste>=-0.01&&r.marcheId&&<div className="xs mut" style={{marginTop:6}}>Resterait à facturer sur ce lot : {eur(reste)} HT.</div>}
+      </div>;
+    })}
+    {!!rows.filter(r=>!r.scan).length&&<div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
+      <button className="btn" disabled={!retenus.length||!!envoi} onClick={ajouter}>
+        {envoi||(retenus.length?'Enregistrer '+retenus.length+' facture'+(retenus.length>1?'s':''):'Enregistrer les factures')}</button>
+      <button className="btn gh" onClick={close}>Annuler</button>
+    </div>}
+    {!!retenus.length&&<div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>
+      Total retenu : <b>{eur(retenus.reduce((s,r)=>s+(+r.montant||0),0))} HT</b>. Les factures seront aussi déposées dans Drive › {ch.nom} › Factures.</div>}
   </div>;
 }
 
