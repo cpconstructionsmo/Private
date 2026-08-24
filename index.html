@@ -2351,10 +2351,12 @@ const Stat=({l,v,c})=><div className="card" style={{margin:0}}><div className="x
 function Donnees({data,save,session}){
   const [msg,setMsg]=useState('');
   const exp=()=>{
+    const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
-    a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(data));
-    a.download='CP-sauvegarde-'+today()+'.json';a.click();
-    setMsg('Sauvegarde exportée. Les vignettes photo ne sont pas incluses.');
+    a.href=url;a.download='CP-sauvegarde-'+today()+'.json';a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    setMsg('Sauvegarde exportée. Sur iPhone, choisissez « Enregistrer dans Fichiers » pour la ranger dans iCloud Drive. Les vignettes photo ne sont pas incluses.');
   };
   const imp=e=>{
     const f=e.target.files[0];if(!f)return;
@@ -2418,8 +2420,8 @@ function Donnees({data,save,session}){
         <b>Ajouter</b> intègre le contenu d'un fichier à vos données actuelles, sans rien effacer — un chantier complet, ou seulement des artisans. <b>Restaurer</b> remplace tout par le fichier.</p>
       <div className="row" style={{gap:8,marginTop:10}}>
         <button className="btn" onClick={exp}>Exporter</button>
-        <label className="btn acc">Ajouter<input type="file" accept=".json" onChange={ajouter} style={{display:'none'}}/></label>
-        <label className="btn gh">Restaurer<input type="file" accept=".json" onChange={imp} style={{display:'none'}}/></label>
+        <label className="btn acc">Ajouter<input type="file" accept=".json,application/json,text/plain" onChange={ajouter} style={{display:'none'}}/></label>
+        <label className="btn gh">Restaurer<input type="file" accept=".json,application/json,text/plain" onChange={imp} style={{display:'none'}}/></label>
       </div>
       {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
     </div>
