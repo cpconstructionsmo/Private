@@ -96,7 +96,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · matériaux au récapitulatif + contrôles plancher béton';
+const VERSION='2026-08-24 · contrôles plancher béton + photos rangées dans « Photos » sur le Drive';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -1500,7 +1500,7 @@ function Photos({data,ch,save}){
         let lien='';
         try{
           const token=await getDriveToken();
-          const folderId=await driveChantierFolder(token,ch.id,ch.nom);
+          const folderId=await driveSousDossier(token,ch.id,ch.nom,'Photos');
           lien=(await uploadToDrive(file,folderId)).webViewLink;
         }catch(x){driveFailed=true;lastDetail=x&&x.error==='auth_required'?'auth_required':((x&&(x.error||x.message))||String(x))}
         nouveaux.push({id,chantierId:ch.id,date:today(),legende:'',lot:'',lien});
@@ -1517,11 +1517,15 @@ function Photos({data,ch,save}){
   return <div>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">{list.length} photo{list.length>1?'s':''}</span>
-      <label className="btn acc s">{busy?'Traitement…':'+ Photos'}
-        <input type="file" accept="image/*" multiple onChange={add} style={{display:'none'}}/></label>
+      <div className="row" style={{gap:14,alignItems:'center'}}>
+        <BoutonDossierDrive ch={ch} sous="Photos"/>
+        <label className="btn acc s">{busy?'Traitement…':'+ Photos'}
+          <input type="file" accept="image/*" multiple onChange={add} style={{display:'none'}}/></label>
+      </div>
     </div>
     <DriveStatus/>
-    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Une version réduite s'affiche dans l'app ; l'original en pleine qualité est envoyé automatiquement sur votre Google Drive (dossier « CP Constructions › {ch.nom} »).</p>
+    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Une version réduite s'affiche dans l'app ; l'original en pleine qualité est envoyé automatiquement sur votre Google Drive (dossier « CP Constructions › {ch.nom} › Photos »).
+      <br/>Pour donner accès à un collaborateur : ouvrez le dossier avec le lien ci-dessus, puis utilisez « Partager » dans Google Drive. L'application ne peut pas partager à votre place.</p>
     {driveIssue&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
       {driveDetail==='auth_required'
         ?"Photo(s) enregistrée(s) dans l'app, mais Google Drive n'est pas connecté (bouton ci-dessus)."
