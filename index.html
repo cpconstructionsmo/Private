@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · achats de matériaux facturables depuis l’onglet MARCHÉS';
+const VERSION='2026-08-24 · factures d’honoraires lues et suivies comme les autres';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -560,7 +560,7 @@ const facturesChantier=(ch,ms,cs)=>{
       L.push({id:f.id,date:f.date||'',libelle:c.designation||'Achat de matériaux',poste:'Matériaux',ht:+f.montant||0,taux:tx,lien:f.lien||'',numero:f.numero||''});
   }
   for(const f of (ch.honoFactures||[]))
-    L.push({id:f.id,date:f.date||'',libelle:f.libelle||'Honoraires de maîtrise d’œuvre',poste:'Honoraires',ht:+f.montant||0,taux:tvaRate(ch),lien:f.lien||''});
+    L.push({id:f.id,date:f.date||'',libelle:f.libelle||'Honoraires de maîtrise d’œuvre',poste:'Honoraires',ht:+f.montant||0,taux:tvaRate(ch),lien:f.lien||'',numero:f.numero||''});
   return L.sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
 };
 const ventileFactures=L=>{
@@ -1871,7 +1871,7 @@ function Fiche({data,ch,save,back}){
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
     </div>
     {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}
-      onFacturerCmd={id=>{setOuvrirCmd(id);setTab('cmd')}}/>}
+      onFacturerCmd={id=>{setOuvrirCmd(id);setTab('cmd')}} onFacturerHono={()=>setTab('hono')}/>}
     {tab==='factu'&&<SuiviFacturation data={data} ch={ch}/>}
     {tab==='hono'&&<Honoraires data={data} ch={ch} save={save}/>}
     {tab==='visite'&&<VisiteTechnique ch={ch} up={up}/>}
@@ -1887,7 +1887,7 @@ function Fiche({data,ch,save,back}){
 /* ---------------- MARCHÉS ---------------- */
 const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 
-function Marches({data,ch,save,eng,fac,onFacturerCmd}){
+function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const [f,setF]=useState(null);
   const [showImport,setShowImport]=useState(false);
   const [showLire,setShowLire]=useState(false);
@@ -1902,8 +1902,10 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd}){
     save({...data,marches:f.id?data.marches.map(m=>m.id===f.id?r:m):[...data.marches,{...r,id:uid(),chantierId:ch.id}]});
     setF(null);
   };
-  const addFacture=()=>setF({...f,factures:[...(f.factures||[]),{id:uid(),montant:'',date:today(),lien:''}]});
-  const updFacture=(fid,patch)=>setF({...f,factures:(f.factures||[]).map(x=>x.id===fid?{...x,...patch}:x)});
+  /* pas de date du jour par défaut : une facture porte la sienne, et une date
+     pré-remplie empêcherait la lecture du fichier de reporter la vraie. */
+  const addFacture=()=>setF({...f,factures:[...(f.factures||[]),{id:uid(),montant:'',date:'',lien:'',numero:''}]});
+  const updFacture=(fid,patch)=>setF(p=>({...p,factures:(p.factures||[]).map(x=>x.id===fid?{...x,...patch}:x)}));
   const delFacture=fid=>setF({...f,factures:(f.factures||[]).filter(x=>x.id!==fid)});
   /* à l'import d'une facture on la lit au passage : le montant et la date s'y
      trouvent, autant les reprendre plutôt que de les retaper. On ne remplit que
@@ -2069,6 +2071,36 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd}){
                 <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:reste<0?TERRA:INK}}>{reste<=0?'soldé':eur(reste)}</td>
               </tr>;
             })}
+          </tbody>
+        </table>
+      </div>
+    </div>}
+    {!!honoAmount(ch)&&<div style={{marginTop:18}}>
+      <div className="h2" style={{marginBottom:8}}>HONORAIRES DE MAÎTRISE D’ŒUVRE</div>
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+          <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
+            <th style={{padding:'6px 4px'}}>Poste</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Honoraires HT</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Facturé</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Reste à facturer</th>
+          </tr></thead>
+          <tbody>
+            {(()=>{
+              const du=honoAmount(ch), fa=sumMontants(ch.honoFactures), n=(ch.honoFactures||[]).length;
+              const reste=du-fa;
+              return <tr style={{borderBottom:'1px solid '+RULE,cursor:onFacturerHono?'pointer':'default'}}
+                onClick={onFacturerHono}>
+                <td style={{padding:'8px 4px'}}>
+                  <div className="b">Honoraires MOE{n?<span style={{color:GREEN}}> ✓</span>:null}</div>
+                  <div className="mut">CP Constructions · TVA {tvaRate(ch)} %</div>
+                  {onFacturerHono&&<div style={{color:TERRA,marginTop:2}}>{n?n+' facture'+(n>1?'s':'')+' — modifier ›':'Facturer ›'}</div>}
+                </td>
+                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(du)}</td>
+                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(fa)}</td>
+                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:reste<0?TERRA:INK}}>{reste<=0?'soldé':eur(reste)}</td>
+              </tr>;
+            })()}
           </tbody>
         </table>
       </div>
@@ -2405,6 +2437,8 @@ function LireFactures({data,ch,save,close}){
       montantHT:+m.montantHT||0,factures:m.factures||[],groupe:'Marchés de travaux'})),
     ...cs.map(c=>({cle:'c:'+c.id,type:'commande',id:c.id,titre:c.designation||'Achat de matériaux',sous:c.fournisseur||'',
       montantHT:+c.montant||0,factures:c.factures||[],groupe:'Achats de matériaux'})),
+    ...(honoAmount(ch)?[{cle:'h:'+ch.id,type:'honoraires',id:ch.id,titre:'Honoraires de maîtrise d’œuvre',sous:'CP Constructions',
+      montantHT:honoAmount(ch),factures:ch.honoFactures||[],groupe:'Honoraires'}]:[]),
   ];
   const cible=cle=>cibles.find(x=>x.cle===cle);
   /* on rattache par le nom de l'entreprise ou du fournisseur qui émet,
@@ -2450,27 +2484,40 @@ function LireFactures({data,ch,save,close}){
   const ajouter=async()=>{
     const marches=data.marches.map(m=>({...m,factures:[...(m.factures||[])]}));
     const commandes=data.commandes.map(c=>({...c,factures:[...(c.factures||[])]}));
+    const honoFactures=[...(ch.honoFactures||[])];
     const envois=[];
     for(const r of retenus){
       const t=cible(r.marcheId);
       if(!t)continue;
-      const cible2=t.type==='marche'?marches.find(x=>x.id===t.id):commandes.find(x=>x.id===t.id);
-      if(!cible2)continue;
       const fid=uid();
-      cible2.factures.push({id:fid,montant:+r.montant||0,date:r.date||today(),lien:'',numero:r.numero||''});
-      cible2.facture=facturesTotal(cible2.factures);
+      const ligne={id:fid,montant:+r.montant||0,date:r.date||today(),lien:'',numero:r.numero||''};
+      if(t.type==='honoraires'){honoFactures.push({...ligne,libelle:''})}
+      else{
+        const dest=t.type==='marche'?marches.find(x=>x.id===t.id):commandes.find(x=>x.id===t.id);
+        if(!dest)continue;
+        dest.factures.push(ligne);
+        dest.facture=facturesTotal(dest.factures);
+      }
       envois.push({type:t.type,ligneId:t.id,fid,file:r.file});
     }
-    let etat={...data,marches,commandes};
+    let etat={...data,marches,commandes,
+      chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,honoFactures}:x)};
     save(etat);
     try{
       setEnvoi('Envoi des factures sur le Drive…');
       const token=await getDriveToken();
-      const folderId=await driveFacturesFolder(token,ch.id,ch.nom);
+      const dossierFact=await driveFacturesFolder(token,ch.id,ch.nom);
+      let dossierHono=null;
       const liens=[];
       for(const e of envois){
         if(!e.file)continue;
-        try{const{webViewLink}=await uploadToDrive(e.file,folderId);liens.push({...e,lien:webViewLink})}catch(x){}
+        /* une facture d'honoraires est la nôtre : elle va dans Honoraires, pas dans Factures */
+        let dest=dossierFact;
+        if(e.type==='honoraires'){
+          if(!dossierHono)dossierHono=await driveHonoFolder(token,ch.id,ch.nom);
+          dest=dossierHono;
+        }
+        try{const{webViewLink}=await uploadToDrive(e.file,dest);liens.push({...e,lien:webViewLink})}catch(x){}
       }
       if(liens.length){
         const poser=(liste,type)=>liste.map(x=>{
@@ -2481,7 +2528,13 @@ function LireFactures({data,ch,save,close}){
             return l?{...f,lien:l.lien}:f;
           })};
         });
-        etat={...etat,marches:poser(etat.marches,'marche'),commandes:poser(etat.commandes,'commande')};
+        const pourHono=liens.filter(l=>l.type==='honoraires');
+        etat={...etat,marches:poser(etat.marches,'marche'),commandes:poser(etat.commandes,'commande'),
+          chantiers:etat.chantiers.map(x=>x.id!==ch.id||!pourHono.length?x:{...x,
+            honoFactures:(x.honoFactures||[]).map(f=>{
+              const l=pourHono.find(y=>y.fid===f.id);
+              return l?{...f,lien:l.lien}:f;
+            })})};
         save(etat);
       }
     }catch(e){/* Drive non connecté : les factures restent enregistrées */}
@@ -2523,7 +2576,7 @@ function LireFactures({data,ch,save,close}){
         <Fld label="LOT OU ACHAT CONCERNÉ">
           <select className="in" value={r.marcheId} onChange={e=>upd(r.id,{marcheId:e.target.value})}>
             <option value="">— à choisir —</option>
-            {['Marchés de travaux','Achats de matériaux'].map(g=>{
+            {['Marchés de travaux','Achats de matériaux','Honoraires'].map(g=>{
               const dedans=cibles.filter(c=>c.groupe===g);
               return dedans.length?<optgroup key={g} label={g}>
                 {dedans.map(c=><option key={c.cle} value={c.cle}>{c.titre}{c.sous?' — '+c.sous:''}</option>)}
@@ -2737,7 +2790,7 @@ function Commandes({data,ch,save,ouvrir,onOuvert}){
   /* une commande de matériaux se facture comme un marché : le fournisseur envoie
      sa facture, elle se range sur la commande et entre dans le suivi de facturation. */
   const [luFact,setLuFact]=useState(null);
-  const addFacture=()=>setF({...f,factures:[...(f.factures||[]),{id:uid(),montant:'',date:today(),lien:'',numero:''}]});
+  const addFacture=()=>setF({...f,factures:[...(f.factures||[]),{id:uid(),montant:'',date:'',lien:'',numero:''}]});
   const updFacture=(fid,patch)=>setF(p=>({...p,factures:(p.factures||[]).map(x=>x.id===fid?{...x,...patch}:x)}));
   const delFacture=fid=>setF({...f,factures:(f.factures||[]).filter(x=>x.id!==fid)});
   const importFacture=async(fid,file)=>{
@@ -3220,19 +3273,40 @@ function Honoraires({data,ch,save}){
     if(Object.keys(patch).length)upCh(patch);
     setDevisLu(null);
   };
-  const add=()=>upHono([...hf,{id:uid(),montant:'',date:today(),libelle:'',lien:''}]);
+  const add=()=>upHono([...hf,{id:uid(),montant:'',date:'',libelle:'',lien:'',numero:''}]);
+  const [luHono,setLuHono]=useState(null);
   const upd=(id,patch)=>upHono(hf.map(x=>x.id===id?{...x,...patch}:x));
   const del=id=>upHono(hf.filter(x=>x.id!==id));
   const updRetro=(type,id,patch)=>save(type==='marche'
     ?{...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)}
     :{...data,commandes:data.commandes.map(c=>c.id===id?{...c,...patch}:c)});
+  /* la facture jointe est lue au passage : montant, date et numéro s'y trouvent.
+     On ne remplit que ce qui est vide — une saisie n'est jamais écrasée. */
   const importFacture=async(id,file)=>{
-    setBusy(id);
+    setBusy(id); setLuHono(null);
+    let lu=null, acc={};
+    if(!/^image\//.test(file.type||'')){
+      try{
+        const {txt,motif}=await lireDocument(file);
+        if(txt){
+          const a=analyseFacture(txt);
+          const cible=hf.find(x=>x.id===id)||{};
+          const patch={};
+          const ht=a.montantHT!==null?a.montantHT:(a.montantTTC!==null&&a.tva!==null?a.montantTTC/(1+a.tva/100):null);
+          if(ht!==null&&(cible.montant===''||cible.montant===undefined||cible.montant===null))patch.montant=Math.round(ht*100)/100;
+          if(a.date&&!cible.date)patch.date=a.date;
+          if(a.numero&&!cible.numero)patch.numero=a.numero;
+          if(Object.keys(patch).length){acc={...acc,...patch};upd(id,acc);lu={patch,id};}else lu={patch:null,id};
+        }else lu={motif,id};
+      }catch(e){}
+    }
+    setLuHono(lu);
     try{
       const token=await getDriveToken();
       const folderId=await driveHonoFolder(token,ch.id,ch.nom);
       const{webViewLink}=await uploadToDrive(file,folderId);
-      upd(id,{lien:webViewLink});
+      acc={...acc,lien:webViewLink};
+      upd(id,acc);
     }catch(e){
       alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous).":"Import de la facture impossible.");
     }
@@ -3313,18 +3387,28 @@ function Honoraires({data,ch,save}){
         <Fld label="MONTANT HT (€)"><input className="in" type="number" value={x.montant} onChange={e=>upd(x.id,{montant:e.target.value})}/></Fld>
         <Fld label="DATE"><input className="in" type="date" value={x.date||''} onChange={e=>upd(x.id,{date:e.target.value})}/></Fld>
       </div>
-      <Fld label="LIBELLÉ"><input className="in" placeholder="Acompte, phase PC, situation n°…" value={x.libelle||''} onChange={e=>upd(x.id,{libelle:e.target.value})}/></Fld>
-      <div className="sp">
+      <div className="g2">
+        <Fld label="LIBELLÉ"><input className="in" placeholder="Acompte, phase PC, situation n°…" value={x.libelle||''} onChange={e=>upd(x.id,{libelle:e.target.value})}/></Fld>
+        <Fld label="N° DE FACTURE"><input className="in" value={x.numero||''} onChange={e=>upd(x.id,{numero:e.target.value})}/></Fld>
+      </div>
+      <div className="sp" style={{flexWrap:'wrap',gap:8}}>
         <span className="xs mut">{eur(ttc(x.montant,ch))} TTC</span>
-        <div className="row" style={{gap:14,alignItems:'center'}}>
+        <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
           {x.lien
-            ?<a href={x.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Voir la facture</a>
-            :<label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':'Joindre la facture'}
-              <input type="file" accept="application/pdf,image/*" style={{display:'none'}} disabled={busy===x.id}
+            ?<span className="row" style={{gap:10,alignItems:'center',whiteSpace:'nowrap'}}><Transmis/>
+              <a href={x.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Voir la facture</a></span>
+            :<label className="xs" style={{color:NAVY,whiteSpace:'nowrap'}}>{busy===x.id?'Lecture…':'Joindre la facture'}
+              <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}} disabled={busy===x.id}
                 onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importFacture(x.id,file)}}/></label>}
           <button className="btn dg s" onClick={()=>del(x.id)}>Supprimer</button>
         </div>
       </div>
+      {luHono&&luHono.id===x.id&&luHono.motif&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+        Rien n'a pu être lu — {luHono.motif}. Montant et date à saisir à la main ; le fichier est bien envoyé sur le Drive.</div>}
+      {luHono&&luHono.id===x.id&&luHono.patch&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+        Lu sur la facture :{luHono.patch.montant!==undefined&&<span> montant <b>{eur(luHono.patch.montant)} HT</b></span>}
+        {luHono.patch.date!==undefined&&<span> · date <b>{fd(luHono.patch.date)}</b></span>}
+        {luHono.patch.numero!==undefined&&<span> · n° <b>{luHono.patch.numero}</b></span>}. À vérifier.</div>}
     </div>)}
 
     <div className="sp" style={{margin:'20px 0 12px'}}>
