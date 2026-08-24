@@ -16,67 +16,112 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2" crossorigin></script>
 <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js" crossorigin></script>
 <style>
+  /* Charte : bleu ardoise, terre cuite, fond crème. Angles adoucis, ombres
+     légères plutôt que traits durs — l'écran reste lisible en plein soleil
+     sur un chantier, ce qui interdit les gris trop clairs et les fines lignes. */
+  :root{
+    --navy:#2C4A5E; --terra:#C5563A; --ink:#1A2B36; --rule:#E2DDD3; --mut:#6E7B84;
+    --green:#3F7A5A; --amber:#B07D12; --fond:#F7F5F0; --surface:#fff;
+    --ombre:0 1px 2px rgba(26,43,54,.05), 0 2px 8px rgba(26,43,54,.05);
+    --ombre-h:0 2px 4px rgba(26,43,54,.07), 0 6px 18px rgba(26,43,54,.09);
+    --r:12px; --r-s:9px;
+  }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{margin:0;background:#FBFAF7;color:#1A2B36;font-family:-apple-system,Helvetica Neue,Arial,sans-serif}
-  input,select,textarea,button{font-family:inherit;font-size:16px;border-radius:0}
+  body{margin:0;background:var(--fond);color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica Neue,Arial,sans-serif;
+       -webkit-font-smoothing:antialiased}
+  input,select,textarea,button{font-family:inherit;font-size:16px}
   a{text-decoration:none}
   .row{display:flex}.sp{display:flex;justify-content:space-between;align-items:center}
-  .g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-  .card{background:#fff;border:1px solid #D4CFC5;padding:12px;margin-bottom:8px;width:100%;text-align:left;display:block}
-  .xs{font-size:12px}.sm{font-size:14px}.b{font-weight:700}.mut{color:#6E7B84}
-  .in{width:100%;padding:9px 8px;border:1px solid #D4CFC5;background:#fff;color:#1A2B36;font-size:16px}
-  .lbl{display:block;font-size:11px;letter-spacing:.06em;color:#6E7B84;margin:0 0 4px}
-  .fld{margin-bottom:12px}
-  .btn{padding:9px 12px;font-size:14px;border:1px solid #2C4A5E;background:#2C4A5E;color:#fff}
-  .btn.acc{background:#C5563A;border-color:#C5563A}
-  .btn.gh{background:transparent;color:#2C4A5E;border-color:#D4CFC5}
-  .btn.dg{background:transparent;color:#C5563A;border-color:#C5563A}
-  .btn.s{padding:5px 9px;font-size:12px}
-  .h2{font-size:13px;font-weight:700;letter-spacing:.08em;color:#2C4A5E;border-bottom:2px solid #C5563A;padding-bottom:4px;display:inline-block}
-  .tabs{display:flex;overflow-x:auto;border-bottom:1px solid #D4CFC5;margin-bottom:14px}
-  .tab{flex:0 0 auto;padding:11px 12px;font-size:12px;letter-spacing:.05em;background:none;border:none;border-bottom:2px solid transparent;color:#6E7B84;white-space:nowrap}
-  .tab.on{color:#2C4A5E;font-weight:700;border-bottom-color:#C5563A}
-  nav.bot{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #D4CFC5;display:flex;padding-bottom:env(safe-area-inset-bottom)}
-  nav.bot button{flex:1;padding:12px 2px;font-size:11px;letter-spacing:.04em;background:none;border:none;border-top:2px solid transparent;color:#6E7B84}
-  nav.bot button.on{color:#2C4A5E;font-weight:700;border-top-color:#C5563A}
-  .bar{height:4px;background:#D4CFC5;margin-top:8px}
-  .chk{width:22px;height:22px;min-width:22px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;border:1px solid #D4CFC5;background:#fff}
-  .grid-ph{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .ph{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:#EFECE6}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+  .card{background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);
+        padding:14px;margin-bottom:10px;width:100%;text-align:left;display:block;
+        box-shadow:var(--ombre);transition:box-shadow .15s,transform .08s,border-color .15s}
+  button.card:active{transform:scale(.994)}
+  .xs{font-size:12px}.sm{font-size:14px}.b{font-weight:650}.mut{color:var(--mut)}
+
+  .in{width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:var(--r-s);
+      background:var(--surface);color:var(--ink);font-size:16px;transition:border-color .15s,box-shadow .15s}
+  .in:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 3px rgba(44,74,94,.12)}
+  .lbl{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+       color:var(--mut);margin:0 0 5px;font-weight:600}
+  .fld{margin-bottom:14px}
+
+  .btn{padding:10px 15px;font-size:14px;font-weight:600;border:1px solid var(--navy);
+       background:var(--navy);color:#fff;border-radius:999px;white-space:nowrap;
+       transition:filter .15s,transform .08s;cursor:pointer}
+  .btn:active{transform:scale(.97)}
+  .btn:hover{filter:brightness(1.08)}
+  .btn.acc{background:var(--terra);border-color:var(--terra)}
+  .btn.gh{background:transparent;color:var(--navy);border-color:var(--rule);font-weight:600}
+  .btn.gh:hover{background:#EFEDE7;filter:none}
+  .btn.dg{background:transparent;color:var(--terra);border-color:var(--terra)}
+  .btn.s{padding:6px 11px;font-size:12px}
+  .btn:disabled{opacity:.5;cursor:default;transform:none;filter:none}
+
+  .h2{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--navy);
+      border-bottom:2px solid var(--terra);padding-bottom:5px;display:inline-block}
+
+  .tabs{display:flex;overflow-x:auto;gap:4px;border-bottom:1px solid var(--rule);
+        margin-bottom:16px;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{flex:0 0 auto;padding:10px 13px;font-size:12px;letter-spacing:.04em;font-weight:600;
+       background:none;border:none;border-radius:var(--r-s) var(--r-s) 0 0;
+       border-bottom:2px solid transparent;color:var(--mut);white-space:nowrap;transition:color .15s,background .15s}
+  .tab.on{color:var(--navy);border-bottom-color:var(--terra);background:rgba(197,86,58,.06)}
+
+  nav.bot{position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.94);
+          backdrop-filter:saturate(180%) blur(12px);-webkit-backdrop-filter:saturate(180%) blur(12px);
+          border-top:1px solid var(--rule);display:flex;padding:6px 6px calc(6px + env(safe-area-inset-bottom));gap:2px}
+  nav.bot button{flex:1;padding:9px 2px;font-size:11px;letter-spacing:.02em;font-weight:600;
+                 background:none;border:none;border-radius:var(--r-s);color:var(--mut);transition:background .15s,color .15s}
+  nav.bot button.on{color:var(--navy);background:rgba(197,86,58,.1)}
+
+  .bar{height:6px;background:#EAE6DE;border-radius:999px;margin-top:9px;overflow:hidden}
+  .bar>div{border-radius:999px;transition:width .4s ease}
+  .chk{width:24px;height:24px;min-width:24px;display:flex;align-items:center;justify-content:center;
+       font-size:14px;color:#fff;border:1px solid var(--rule);background:var(--surface);
+       border-radius:7px;transition:background .15s,border-color .15s}
+  .grid-ph{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .ph{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:#EFECE6;border-radius:var(--r-s)}
   .modal{position:fixed;inset:0;background:rgba(26,43,54,.94);z-index:50;display:flex;flex-direction:column;padding:16px}
-  #root{padding-bottom:74px}
-  .grid-ch{display:grid;gap:8px}
+  #root{padding-bottom:82px}
+  .grid-ch{display:grid;gap:10px}
   nav.bot.masquee{display:none}
+  table{font-variant-numeric:tabular-nums}
+  /* état d'une fiche : une pastille se repère mieux qu'un mot coloré */
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;
+        font-weight:700;letter-spacing:.03em;white-space:nowrap;line-height:1.5}
 
   /* ---------- version ordinateur : la navigation passe en colonne à gauche ---------- */
   @media (min-width:900px){
-    #root{padding-bottom:0;padding-left:236px}
-    header{position:fixed;top:0;left:0;width:236px;height:74px;z-index:20;display:flex;flex-direction:column;justify-content:center}
-    nav.bot{top:74px;bottom:0;right:auto;width:236px;flex-direction:column;
-            border-top:none;border-right:1px solid #D4CFC5;background:#fff;padding-bottom:0;overflow-y:auto}
+    #root{padding-bottom:0;padding-left:244px}
+    header{position:fixed;top:0;left:0;width:244px;height:78px;z-index:20;display:flex;flex-direction:column;justify-content:center}
+    nav.bot{top:78px;bottom:0;right:auto;width:244px;flex-direction:column;gap:2px;
+            border-top:none;border-right:1px solid var(--rule);background:var(--surface);
+            backdrop-filter:none;-webkit-backdrop-filter:none;padding:10px 10px 20px;overflow-y:auto}
     nav.bot.masquee{display:flex}
-    nav.bot button{flex:0 0 auto;text-align:left;padding:13px 18px;font-size:12px;
-                   border-top:none;border-left:3px solid transparent}
-    nav.bot button.on{border-top-color:transparent;border-left-color:#C5563A;background:#F3F1EC}
-    nav.bot button:hover{background:#F7F5F1}
-    main{max-width:1120px;padding:26px 32px 60px!important}
-    .grid-ch{grid-template-columns:1fr 1fr;gap:12px}
+    nav.bot button{flex:0 0 auto;text-align:left;padding:11px 14px;font-size:12.5px;border-radius:var(--r-s)}
+    nav.bot button.on{background:rgba(197,86,58,.1)}
+    nav.bot button:hover{background:#F3F1EC}
+    main{max-width:1120px;padding:28px 34px 64px!important}
+    .grid-ch{grid-template-columns:1fr 1fr;gap:14px}
     .grid-ch>.card{margin-bottom:0}
     .stats3{grid-template-columns:repeat(3,1fr)}
     .fld .in{max-width:520px}
     .fld textarea.in{max-width:760px}
     .grid-ph{grid-template-columns:repeat(4,1fr)}
-    .tabs{position:sticky;top:0;background:#FBFAF7;z-index:10}
-    .card{transition:border-color .12s}
-    button.card:hover{border-color:#9FB4C2;cursor:pointer}
-    .in:focus{outline:2px solid #9FB4C2;outline-offset:-2px}
+    .tabs{position:sticky;top:0;background:var(--fond);z-index:10}
+    button.card:hover{box-shadow:var(--ombre-h);border-color:#CFC8BB;cursor:pointer}
   }
   @media (min-width:1400px){
     main{max-width:1280px}
     .grid-ch{grid-template-columns:repeat(3,1fr)}
     .grid-ph{grid-template-columns:repeat(5,1fr)}
   }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
@@ -96,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · budget comparé en TTC, matériaux comptés, tri des chantiers';
+const VERSION='2026-08-24 · nouvelle interface : cartes arrondies, pastilles d’état, navigation revue';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -896,7 +941,7 @@ function App({session}){
   const ch=open?data.chantiers.find(c=>c.id===open):null;
   return <div>
     <header style={{background:NAVY,padding:'10px 16px',paddingTop:'calc(10px + env(safe-area-inset-top))'}}>
-      <img src="assets/logo.png" alt="CP Constructions — Maîtrise d'œuvre" style={{height:38,display:'block'}}/>
+      <img src="assets/logo.png" alt="CP Constructions — Maîtrise d'œuvre" style={{height:38,width:'auto',maxWidth:'100%',objectFit:'contain',display:'block'}}/>
     </header>
     {chargement==='attente'&&<div className="xs" style={{background:'#EFECE6',color:MUTED,padding:'8px 16px'}}>Chargement de vos données…</div>}
     {chargement==='erreur'&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:'8px 16px',lineHeight:1.5}}>
@@ -1197,7 +1242,10 @@ function Chantiers({data,save,open}){
       const np=data.photos.filter(p=>p.chantierId===c.id).length;
       const nKo=Object.values(c.controles||{}).filter(r=>r.statut==='non_conforme').length;
       return <button key={c.id} className="card" style={{borderLeft:'3px solid '+NAVY}} onClick={()=>open(c.id)}>
-        <div className="sp"><span className="b sm" style={{color:NAVY}}>{c.nom}</span><span className="xs mut">{PHASE[c.statut]}</span></div>
+        <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
+          <span className="b sm" style={{color:NAVY}}>{c.nom}</span>
+          <span className="pill" style={{background:'rgba(44,74,94,.09)',color:NAVY}}>{PHASE[c.statut]}</span>
+        </div>
         <div className="xs mut" style={{marginTop:3}}>{c.client}{c.adresse?' — '+c.adresse:''}</div>
         {dateSignature(c,data.marches)&&<div className="xs mut" style={{marginTop:3}}>Signé le {fd(dateSignature(c,data.marches))}</div>}
         {(c.surfacePlancher||c.surfaceHabitable)&&<div className="xs mut" style={{marginTop:3}}>
@@ -1806,7 +1854,10 @@ function LigneCmd({c,onClick,chantierNom}){
   const s=CMD_ST.find(x=>x.id===c.statut)||CMD_ST[0];
   const retard=c.livrPrevue&&!c.livrReelle&&c.livrPrevue<today()&&c.statut!=='livre';
   return <button className="card" style={{borderLeft:'3px solid '+(retard?TERRA:s.c)}} onClick={onClick}>
-    <div className="sp"><span className="b sm">{c.designation}</span><span className="xs b" style={{color:retard?TERRA:s.c}}>{retard?'EN RETARD':s.label}</span></div>
+    <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
+      <span className="b sm">{c.designation}</span>
+      <span className="pill" style={{background:(retard?TERRA:s.c)+'1A',color:retard?TERRA:s.c}}>{retard?'EN RETARD':s.label}</span>
+    </div>
     <div className="xs mut" style={{marginTop:3}}>{chantierNom?chantierNom+' · ':''}{c.fournisseur||'fournisseur non précisé'}{c.lot?' · '+c.lot:''}</div>
     <div className="sp xs" style={{marginTop:8}}>
       <span>{eur(c.montant)} HT{(c.devis||[]).length?<span style={{color:GREEN}}> · ✓ {(c.devis||[]).length} devis</span>:null}</span>
