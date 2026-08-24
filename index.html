@@ -560,7 +560,7 @@ function compress(file,max=900,q=.6){
 }
 
 /* ---------- lecture des attestations décennales en PDF ---------- */
-const ASSUREURS=['SMABTP','MAAF','VHV','AXA','ALLIANZ','GROUPAMA','GENERALI','MMA','GAN','SWISS LIFE','SWISSLIFE','ALBINGIA','ZURICH','AVIVA','COVEA','ACM','CGPA','THELEM','AREAS','ABEILLE','SAGENA','L’AUXILIAIRE','AUXILIAIRE','SATEC','VERSPIEREN','MILLENIUM','ALPHA INSURANCE','HISCOX','TOKIO MARINE','EUROMAF','APRIL','ASSURPRO','ORUS','SIMPLIS','WAKAM','LEOCARE','MATMUT','CREDIT MUTUEL','BPCE','SOGESSUR','PRUDENCE','FIDELIA','QBE','CHUBB','LIBERTY','MARKEL','BEAZLEY','ACASTA','ELITE INSURANCE','GABLE','CBL','ALPHA','ONYX','ANV','TRUST INSURANCE'];
+const ASSUREURS=['SMABTP','MAAF','VHV','AXA','ALLIANZ','GROUPAMA','GENERALI','MMA','GAN','SWISS LIFE','SWISSLIFE','ALBINGIA','ZURICH','AVIVA','COVEA','ACM','CGPA','THELEM','AREAS','ABEILLE','SAGENA','L’AUXILIAIRE','AUXILIAIRE','SATEC','VERSPIEREN','MILLENIUM','ALPHA INSURANCE','HISCOX','TOKIO MARINE','EUROMAF','APRIL','ASSURPRO','ORUS','SIMPLIS','WAKAM','LEOCARE','MATMUT','CREDIT MUTUEL','BPCE','SOGESSUR','PRUDENCE','FIDELIA','QBE','ERGO','CHUBB','LIBERTY','MARKEL','BEAZLEY','ACASTA','ELITE INSURANCE','GABLE','CBL','ALPHA','ONYX','ANV','TRUST INSURANCE'];
 
 async function pdfText(file){
   if(typeof pdfjsLib==='undefined')throw new Error('Lecteur PDF non chargé — vérifiez votre connexion.');
@@ -590,10 +590,14 @@ function parseDateFr(s){
 const deaccent=s=>String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\u2018\u2019]/g,"'").replace(/[\u00a0\u202f]/g,' ');
 /* un n° de police s'arrete au premier mot de prose : on ne garde que les jetons contenant un chiffre
    (ou un bloc de 1 a 3 majuscules type « U 001 »), en ecartant les formes juridiques et petits mots */
-const STOP_REF=['SA','SAS','SASU','SARL','EI','EURL','SCI','SCOP','ET','AU','DU','DE','LA','LE','EN','ES','NE','CE','SES','SON','PAR','SUR','EST','NON','RCS','TVA','SIRET','SIREN','APE','NAF'];
+const STOP_REF=['SA','SAS','SASU','SARL','EI','EURL','SCI','SCOP','ET','AU','DU','DE','LA','LE','EN','ES','NE','CE','SES','SON','PAR','SUR','EST','NON','RCS','TVA','SIRET','SIREN','APE','NAF','RUE','AV','BD','ZA','ZI','BP','CS'];
 function cleanRef(s){
   const keep=[];
   for(const raw of String(s).trim().split(/\s+/)){
+    /* une reference qui continue en chiffres ne le fait que par groupes de 3
+       (« 145 071 551 », « AS 950 007 ») : tout autre nombre qui suit appartient
+       deja au texte voisin — sur une attestation en colonnes, le numero de rue. */
+    if(keep.length&&/^\d+$/.test(raw)&&raw.length!==3)break;
     const t=raw.replace(/^[:\-]+/,'').replace(/[.,;:)\]]+$/,'');
     if(!t)break;
     const hasDigit=/\d/.test(t);
@@ -641,10 +645,13 @@ function analyseAttestation(txt){
   const T=t.toUpperCase();
   const out={assureur:'',numPolice:'',decennaleFin:'',siret:'',activites:'',dateIncertaine:false,champsTrouves:[]};
 
+  let tot=-1;
   for(const a of ASSUREURS){
     const mot=deaccent(a).toUpperCase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    if(new RegExp('(^|[^A-Z0-9])'+mot+'([^A-Z0-9]|$)').test(T)){out.assureur=a.charAt(0)+a.slice(1).toLowerCase();out.champsTrouves.push('assureur');break}
+    const m=T.match(new RegExp('(^|[^A-Z0-9])'+mot+'([^A-Z0-9]|$)'));
+    if(m&&(tot<0||m.index<tot)){tot=m.index;out.assureur=a.charAt(0)+a.slice(1).toLowerCase()}
   }
+  if(out.assureur)out.champsTrouves.push('assureur');
 
   const polMotifs=[
     /(?:n[\u00b0\u00bao]\s*(?:de\s*)?(?:police|contrat|societaire)|police\s*(?:d'assurance\s*)?n[\u00b0\u00bao]|contrat\s*n[\u00b0\u00bao])\s*[:\-]?\s*(.{4,40})/i,
@@ -652,6 +659,7 @@ function analyseAttestation(txt){
     /(?:police|contrat)[^.:;]{0,25}?([0-9]{6,20})/i,
     /de\s+nature\s+d(?:e|\u00e9)cennale\s*n[\u00b0\u00bao]\s*(.{4,40})/i,
     /\bcontrat\b[^]{0,90}?\bnum(?:e|\u00e9)ro\s*[:\-]\s*(.{4,40})/i,
+    /\bcontrat\b[^.;:]{0,20}?n[\u00b0\u00bao]\s*(.{4,40})/i,
   ];
   for(const re of polMotifs){
     const m=t.match(re);
@@ -681,14 +689,22 @@ function analyseAttestation(txt){
 
   /* SIRET (14 chiffres) sinon SIREN (9) : l'identifiant est ce qui distingue
      deux entreprises de meme nom, il vaut mieux l'avoir au dossier. */
-  const mId=t.match(/\bSIRET\b[^0-9]{0,14}((?:\d[ .]?){14})(?!\d)/i)
-         || t.match(/\bSIREN\b[^0-9]{0,14}((?:\d[ .]?){9})(?!\d)/i);
-  if(mId){
-    const c=mId[1].replace(/\D/g,'');
-    if(c.length===14)out.siret=c.replace(/(\d{3})(\d{3})(\d{3})(\d{5})/,'$1 $2 $3 $4');
-    else if(c.length===9)out.siret=c.replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3');
-    if(out.siret)out.champsTrouves.push('siret');
-  }
+  /* l'en-tete porte souvent le SIREN de l'agence d'assurance, jamais celui de
+     l'entreprise : un numero precede de pres par « ORIAS » est celui de
+     l'intermediaire, on passe au suivant. */
+  const identifiant=(mot,long)=>{
+    const re=new RegExp('\\b'+mot+'\\b[^0-9]{0,14}((?:\\d[ .]?){'+long+'})(?!\\d)','gi');
+    let m;
+    while((m=re.exec(t))!==null){
+      if(/ORIAS/i.test(t.slice(Math.max(0,m.index-60),m.index)))continue;
+      return m[1].replace(/\D/g,'');
+    }
+    return '';
+  };
+  const c=identifiant('SIRET',14)||identifiant('SIREN',9);
+  if(c.length===14)out.siret=c.replace(/(\d{3})(\d{3})(\d{3})(\d{5})/,'$1 $2 $3 $4');
+  else if(c.length===9)out.siret=c.replace(/(\d{3})(\d{3})(\d{3})/,'$1 $2 $3');
+  if(out.siret)out.champsTrouves.push('siret');
 
   /* activites garanties : le point qui compte vraiment en MOE — une decennale
      valide ne sert a rien si le lot signe n'est pas dans la liste couverte.
@@ -2335,10 +2351,12 @@ const Stat=({l,v,c})=><div className="card" style={{margin:0}}><div className="x
 function Donnees({data,save,session}){
   const [msg,setMsg]=useState('');
   const exp=()=>{
+    const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
-    a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(data));
-    a.download='CP-sauvegarde-'+today()+'.json';a.click();
-    setMsg('Sauvegarde exportée. Les vignettes photo ne sont pas incluses.');
+    a.href=url;a.download='CP-sauvegarde-'+today()+'.json';a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    setMsg('Sauvegarde exportée. Sur iPhone, choisissez « Enregistrer dans Fichiers » pour la ranger dans iCloud Drive. Les vignettes photo ne sont pas incluses.');
   };
   const imp=e=>{
     const f=e.target.files[0];if(!f)return;
@@ -2353,6 +2371,21 @@ function Donnees({data,save,session}){
      vides sont complétés ; tous les identifiants entrants sont régénérés.
      Le fichier peut ne contenir que des artisans (carnet d'adresses) : dans ce
      cas rien d'autre n'est touché. */
+  /* ne complète que ce qui est vide : une saisie de l'utilisateur n'est jamais écrasée */
+  const vide=v=>v===''||v===null||v===undefined||(Array.isArray(v)&&!v.length)
+              ||(typeof v==='object'&&!Array.isArray(v)&&!Object.keys(v).length);
+  const combler=(ex,src,ignore)=>{
+    let n=0;
+    for(const k of Object.keys(src||{})){
+      if(k==='id'||k==='chantierId'||(ignore&&ignore.indexOf(k)>=0))continue;
+      if(vide(src[k]))continue;
+      if(vide(ex[k])){ex[k]=src[k];n++;continue}
+      // sous-objets (pièces, MAP, visite technique) : on descend d'un niveau
+      if(typeof ex[k]==='object'&&!Array.isArray(ex[k])&&typeof src[k]==='object'&&!Array.isArray(src[k]))
+        n+=combler(ex[k],src[k]);
+    }
+    return n;
+  };
   const ajouter=e=>{
     const f=e.target.files[0];if(!f)return;
     const r=new FileReader();
@@ -2363,12 +2396,18 @@ function Donnees({data,save,session}){
       const entrants=Array.isArray(d.chantiers)?d.chantiers:[];
       if(!entrants.length&&!(Array.isArray(d.artisans)&&d.artisans.length)){
         setMsg("Ce fichier ne contient ni chantier ni artisan — rien n'a été modifié.");return}
-      const dejaLa=entrants.filter(c=>data.chantiers.some(x=>(x.nom||'').trim().toLowerCase()===(c.nom||'').trim().toLowerCase()));
-      if(dejaLa.length){setMsg('« '+dejaLa[0].nom+" » existe déjà — ajout annulé pour ne pas créer de doublon.");return}
-      const artisans=[...data.artisans];
+      const cle=x=>(x||'').trim().toLowerCase();
+      const connu=c=>data.chantiers.find(x=>cle(x.nom)===cle(c.nom));
+      const aCompleter=entrants.filter(connu);
+      if(aCompleter.length&&!confirm(
+        'Ces chantiers sont déjà dans vos données :\n\n  '+aCompleter.map(c=>c.nom).join('\n  ')+
+        "\n\nIls vont être COMPLÉTÉS : les lots absents seront ajoutés et les champs restés vides remplis."+
+        "\nRien de ce que vous avez saisi ne sera modifié, et rien ne sera supprimé.\n\nContinuer ?"))return;
+
+      const artisans=data.artisans.map(a=>({...a}));
       const mapA={}; let crees=0, completes=0;
       for(const a of (d.artisans||[])){
-        const ex=artisans.find(x=>(x.nom||'').trim().toLowerCase()===(a.nom||'').trim().toLowerCase());
+        const ex=artisans.find(x=>cle(x.nom)===cle(a.nom));
         if(ex){
           mapA[a.id]=ex.id;
           let modif=false;
@@ -2379,18 +2418,49 @@ function Donnees({data,save,session}){
           const id=uid(); mapA[a.id]=id; artisans.push({...a,id}); crees++;
         }
       }
+
+      const chantiers=data.chantiers.map(c=>({...c}));
+      const marches=data.marches.map(m=>({...m}));
+      const commandes=data.commandes.map(c=>({...c}));
       const mapC={};
-      const chantiers=[...data.chantiers,...entrants.map(c=>{const id=uid();mapC[c.id]=id;return{...c,id}})];
-      const rat=(l,extra)=>(l||[]).filter(x=>mapC[x.chantierId]).map(x=>({...x,id:uid(),chantierId:mapC[x.chantierId],...extra(x)}));
-      const marches=[...data.marches,...rat(d.marches,m=>({artisanId:mapA[m.artisanId]||''}))];
-      const commandes=[...data.commandes,...rat(d.commandes,()=>({}))];
+      let ajoutes=0, fusionnes=0, lotsAjoutes=0, lotsCompletes=0, cmdAjoutees=0, champs=0;
+      for(const c of entrants){
+        const ex=connu(c);
+        if(ex){
+          const cible=chantiers.find(x=>x.id===ex.id);
+          mapC[c.id]=cible.id;
+          champs+=combler(cible,c,['nom']);
+          fusionnes++;
+        }else{
+          const id=uid(); mapC[c.id]=id; chantiers.push({...c,id}); ajoutes++;
+        }
+      }
+      for(const m of (d.marches||[])){
+        const cid=mapC[m.chantierId]; if(!cid)continue;
+        const aid=mapA[m.artisanId]||'';
+        const ex=marches.find(x=>x.chantierId===cid&&cle(x.lot)===cle(m.lot));
+        if(ex){
+          // jamais les montants déjà facturés : ils viennent du terrain, pas d'un fichier
+          if(combler(ex,{...m,artisanId:aid},['facture','factures','lot']))lotsCompletes++;
+        }else{ marches.push({...m,id:uid(),chantierId:cid,artisanId:aid}); lotsAjoutes++ }
+      }
+      for(const k of (d.commandes||[])){
+        const cid=mapC[k.chantierId]; if(!cid)continue;
+        const ex=commandes.find(x=>x.chantierId===cid&&cle(x.designation)===cle(k.designation));
+        if(ex)combler(ex,k,['designation']);
+        else{ commandes.push({...k,id:uid(),chantierId:cid}); cmdAjoutees++ }
+      }
+
       save({...data,chantiers,artisans,marches,commandes});
       const bilanArt=crees+' artisan(s) créé(s)'+(completes?', '+completes+' complété(s)':'');
-      setMsg(entrants.length
-        ? entrants.length+' chantier(s) ajouté(s) : '+entrants.map(c=>c.nom).join(', ')+
-          ' — '+(marches.length-data.marches.length)+' marché(s), '+(commandes.length-data.commandes.length)+
-          ' commande(s), '+bilanArt+'.'
-        : 'Carnet d\u2019adresses mis à jour : '+bilanArt+'. Aucun chantier dans ce fichier.');
+      if(!entrants.length){setMsg('Carnet d\u2019adresses mis à jour : '+bilanArt+'. Aucun chantier dans ce fichier.');return}
+      setMsg([
+        ajoutes?ajoutes+' chantier(s) ajouté(s)':'',
+        fusionnes?fusionnes+' chantier(s) complété(s) ('+champs+' champ(s) rempli(s))':'',
+        lotsAjoutes+' lot(s) ajouté(s)'+(lotsCompletes?', '+lotsCompletes+' complété(s)':''),
+        cmdAjoutees?cmdAjoutees+' commande(s) ajoutée(s)':'',
+        bilanArt+'.'
+      ].filter(Boolean).join(' — '));
     };
     r.readAsText(f);
   };
@@ -2402,8 +2472,8 @@ function Donnees({data,save,session}){
         <b>Ajouter</b> intègre le contenu d'un fichier à vos données actuelles, sans rien effacer — un chantier complet, ou seulement des artisans. <b>Restaurer</b> remplace tout par le fichier.</p>
       <div className="row" style={{gap:8,marginTop:10}}>
         <button className="btn" onClick={exp}>Exporter</button>
-        <label className="btn acc">Ajouter<input type="file" accept=".json" onChange={ajouter} style={{display:'none'}}/></label>
-        <label className="btn gh">Restaurer<input type="file" accept=".json" onChange={imp} style={{display:'none'}}/></label>
+        <label className="btn acc">Ajouter<input type="file" accept=".json,application/json,text/plain" onChange={ajouter} style={{display:'none'}}/></label>
+        <label className="btn gh">Restaurer<input type="file" accept=".json,application/json,text/plain" onChange={imp} style={{display:'none'}}/></label>
       </div>
       {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
     </div>
