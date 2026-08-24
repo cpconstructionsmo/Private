@@ -93,6 +93,10 @@ const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googleusercontent.com';
 
+/* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
+   qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
+   page servie est à jour ou sortie du cache du navigateur. */
+const VERSION='2026-08-24 · matériaux comptés dans le récapitulatif budgétaire';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -1241,6 +1245,7 @@ function Marches({data,ch,save,eng,fac}){
   const [f,setF]=useState(null);
   const [showImport,setShowImport]=useState(false);
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
+  const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
   const openRow=m=>setF(m.factures?m:{...m,factures:m.facture?[{id:uid(),montant:m.facture,date:m.dateSignature||today(),lien:''}]:[]});
   const ok=()=>{
     if(!f.lot)return;
@@ -1350,17 +1355,23 @@ function Marches({data,ch,save,eng,fac}){
         </tbody>
       </table>
     </div>}
-    {!!ms.length&&<RecapBudget ch={ch} ms={ms}/>}
+    {(!!ms.length||!!cmds.length)&&<RecapBudget ch={ch} ms={ms} cmds={cmds}/>}
   </div>;
 }
 
 /* récapitulatif budgétaire : travaux et honoraires, hors puis avec honoraires */
-function RecapBudget({ch,ms}){
+function RecapBudget({ch,ms,cmds}){
   const honoHT=honoAmount(ch), txHono=tvaRate(ch);
   const travHT=travauxHTot(ms), travTTC=travauxTTC(ms,ch), travTVA=travTTC-travHT;
   const vent=ventilationTva(ms,ch);
+  /* matériaux commandés directement : ils font partie du coût de l'ouvrage au
+     même titre que les marchés, et suivent le taux de TVA du chantier. */
+  const cs=cmds||[];
+  const matHT=cs.reduce((s,c)=>s+(+c.montant||0),0);
+  const matTVA=matHT*tvaRate(ch)/100, matTTC=matHT+matTVA;
   const honoTVA=honoHT*txHono/100, honoTTC=honoHT+honoTVA;
-  const totHT=travHT+honoHT, totTVA=travTVA+honoTVA, totTTC=travTTC+honoTTC;
+  const ouvHT=travHT+matHT, ouvTVA=travTVA+matTVA, ouvTTC=travTTC+matTTC;
+  const totHT=ouvHT+honoHT, totTVA=ouvTVA+honoTVA, totTTC=ouvTTC+honoTTC;
   const cell={padding:'7px 4px',textAlign:'right',whiteSpace:'nowrap'};
   return <div className="card" style={{marginTop:14,borderLeft:'3px solid '+NAVY}}>
     <div className="h2" style={{marginBottom:10}}>RÉCAPITULATIF BUDGÉTAIRE</div>
@@ -1386,6 +1397,12 @@ function RecapBudget({ch,ms}){
               <td style={cell} className="mut">{eur(v.tva)}</td>
               <td style={cell} className="mut">{eur(v.ttc)}</td>
             </tr>)}
+          {!!cs.length&&<tr style={{borderBottom:'1px solid '+RULE}}>
+            <td style={{padding:'7px 4px'}}>Matériaux commandés <span className="mut">({cs.length} commande{cs.length>1?'s':''})</span></td>
+            <td style={cell}>{eur(matHT)}</td>
+            <td style={cell} className="mut">{eur(matTVA)}</td>
+            <td style={cell}>{eur(matTTC)}</td>
+          </tr>}
           <tr style={{borderBottom:'1px solid '+RULE}}>
             <td style={{padding:'7px 4px'}}>Honoraires MOE <span className="mut">(TVA {txHono} %)</span></td>
             <td style={cell}>{eur(honoHT)}</td>
@@ -1394,9 +1411,9 @@ function RecapBudget({ch,ms}){
           </tr>
           <tr style={{borderTop:'2px solid '+RULE}}>
             <td style={{padding:'8px 4px'}} className="b">Total hors honoraires</td>
-            <td style={cell} className="b">{eur(travHT)}</td>
-            <td style={cell} className="mut">{eur(travTVA)}</td>
-            <td style={cell} className="b">{eur(travTTC)}</td>
+            <td style={cell} className="b">{eur(ouvHT)}</td>
+            <td style={cell} className="mut">{eur(ouvTVA)}</td>
+            <td style={cell} className="b">{eur(ouvTTC)}</td>
           </tr>
           <tr>
             <td style={{padding:'8px 4px',color:NAVY}} className="b">Total honoraires inclus</td>
@@ -1407,12 +1424,13 @@ function RecapBudget({ch,ms}){
         </tbody>
       </table>
     </div>
-    {!!ch.budget&&Math.round(ch.budget)!==Math.round(travHT)&&
+    {!!ch.budget&&Math.round(ch.budget)!==Math.round(ouvHT)&&
       <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
-        Calculé sur le total des marchés signés. Budget travaux annoncé au client : <b>{eur(ch.budget)}</b> HT —
-        {travHT>ch.budget?<span style={{color:TERRA}}> dépassement de {eur(travHT-ch.budget)}</span>:<span> marge de {eur(ch.budget-travHT)}</span>}.
+        Calculé sur les marchés signés{cs.length?' et les matériaux commandés':''}. Budget travaux annoncé au client : <b>{eur(ch.budget)}</b> HT —
+        {ouvHT>ch.budget?<span style={{color:TERRA}}> dépassement de {eur(ouvHT-ch.budget)}</span>:<span> marge de {eur(ch.budget-ouvHT)}</span>}.
       </div>}
-    <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>TVA calculée lot par lot : chaque marché peut avoir son propre taux (0 % en franchise ou autoliquidation), sinon il suit celui du chantier. À vérifier avec votre comptable.</div>
+    <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>TVA calculée lot par lot : chaque marché peut avoir son propre taux (0 % en franchise ou autoliquidation), sinon il suit celui du chantier. Les matériaux commandés suivent le taux du chantier. À vérifier avec votre comptable.
+      {!!cs.length&&' N’inscrivez en commande que les matériaux achetés en direct : une fourniture déjà comprise dans un marché de travaux serait comptée deux fois.'}</div>
   </div>;
 }
 
@@ -2476,6 +2494,12 @@ function Donnees({data,save,session}){
         <label className="btn gh">Restaurer<input type="file" accept=".json,application/json,text/plain" onChange={imp} style={{display:'none'}}/></label>
       </div>
       {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
+    </div>
+    <div className="card">
+      <div className="sm b">Version</div>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.6}}>{VERSION}
+        <br/>Si ce repère ne correspond pas à la dernière mise à jour annoncée, la page vient du cache :
+        fermez complètement l’application puis rouvrez-la.</div>
     </div>
     <div className="card">
       <div className="sm b">Contenu</div>
