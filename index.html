@@ -96,7 +96,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · contrôles plancher béton + photos rangées dans « Photos » sur le Drive';
+const VERSION='2026-08-24 · dossier Photos sur le Drive + rattrapage des photos non envoyées';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -1514,6 +1514,35 @@ function Photos({data,ch,save}){
   const del=async id=>{await Photo.del(id).catch(()=>{});save({...data,photos:data.photos.filter(p=>p.id!==id)})};
   const upd=p=>save({...data,photos:data.photos.map(x=>x.id===p.id?p:x)});
 
+  /* rattrapage : les photos ajoutées alors que Drive n'était pas connecté n'ont
+     jamais quitté l'application. On ne dispose plus de l'original — il n'existait
+     qu'en mémoire au moment de l'ajout — mais la version réduite, elle, est
+     conservée : mieux vaut la déposer que de laisser le dossier Drive vide. */
+  const manquantes=list.filter(p=>!p.lien);
+  const [rattrapage,setRattrapage]=useState(null);
+  const envoyerManquantes=async()=>{
+    setRattrapage({fait:0,total:manquantes.length});
+    let photos=data.photos, fait=0, echec='';
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,'Photos');
+      for(const p of manquantes){
+        try{
+          const url=await Photo.get(p.id);
+          if(!url)continue;
+          const blob=await (await fetch(url)).blob();
+          const nom=(p.date||today())+(p.legende?' — '+p.legende.replace(/[\\/:*?"<>|]/g,' '):'')+' — '+p.id+'.jpg';
+          const{webViewLink}=await uploadToDrive(new File([blob],nom,{type:'image/jpeg'}),folderId);
+          photos=photos.map(x=>x.id===p.id?{...x,lien:webViewLink}:x);
+          fait++;
+          setRattrapage({fait,total:manquantes.length});
+        }catch(x){echec=(x&&(x.error||x.message))||String(x)}
+      }
+    }catch(x){echec=x&&x.error==='auth_required'?'auth_required':((x&&(x.error||x.message))||String(x))}
+    if(fait)save({...data,photos});
+    setRattrapage({fait,total:manquantes.length,fini:true,echec});
+  };
+
   return <div>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">{list.length} photo{list.length>1?'s':''}</span>
@@ -1530,6 +1559,19 @@ function Photos({data,ch,save}){
       {driveDetail==='auth_required'
         ?"Photo(s) enregistrée(s) dans l'app, mais Google Drive n'est pas connecté (bouton ci-dessus)."
         :"Photo(s) enregistrée(s) dans l'app, mais l'envoi de l'original vers Google Drive a échoué — détail technique : "+(driveDetail||'inconnu')+"."}
+    </div>}
+    {!!manquantes.length&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12,lineHeight:1.5}}>
+      <b>{manquantes.length} photo{manquantes.length>1?'s':''} sur {list.length} ne {manquantes.length>1?'sont':'est'} pas sur le Drive.</b> La connexion Google est perdue à chaque fermeture de l’application : si elle n’a pas été rétablie avant l’ajout, l’envoi n’a pas eu lieu. {manquantes.length>1?'Elles sont':'Elle est'} bien conservée{manquantes.length>1?'s':''} dans l’application.
+      <div style={{marginTop:8}}>
+        <button className="btn acc s" disabled={!!rattrapage&&!rattrapage.fini} onClick={envoyerManquantes}>
+          {rattrapage&&!rattrapage.fini?'Envoi '+rattrapage.fait+'/'+rattrapage.total+'…':'Envoyer sur le Drive'}</button>
+      </div>
+      <div style={{marginTop:6}}>Seule la version réduite peut être envoyée : l’original n’existait qu’au moment de l’ajout.</div>
+    </div>}
+    {rattrapage&&rattrapage.fini&&<div className="xs" style={{background:rattrapage.echec?'#F6E2DC':'#E3EDE4',color:rattrapage.echec?'#8A2E14':'#2F5D3A',borderLeft:'3px solid '+(rattrapage.echec?TERRA:GREEN),padding:8,marginBottom:12,lineHeight:1.5}}>
+      {rattrapage.fait} photo{rattrapage.fait>1?'s':''} envoyée{rattrapage.fait>1?'s':''} sur le Drive.
+      {rattrapage.echec==='auth_required'?" Connectez Google Drive (bouton ci-dessus) puis relancez l'envoi."
+        :rattrapage.echec?' Interrompu — détail technique : '+rattrapage.echec+'.':''}
     </div>}
     {!list.length&&<Empty>Aucune photo. Prenez le chantier en photo à chaque visite.</Empty>}
     <div className="grid-ph">
