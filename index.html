@@ -96,7 +96,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · dossier Photos sur le Drive + rattrapage des photos non envoyées';
+const VERSION='2026-08-24 · arborescence Drive créée à l’ouverture du chantier + rattrapage des photos';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -526,6 +526,27 @@ async function driveSousDossier(token,chantierId,chantierNom,nom){
   return id;
 }
 const lienDossierDrive=id=>'https://drive.google.com/drive/folders/'+id;
+
+/* Arborescence type d'un chantier, dans l'ordre des onglets de l'application.
+   Google Drive classe les dossiers par ordre alphabétique : cet ordre-ci est
+   celui de création, pas celui d'affichage. */
+const DOSSIERS_CHANTIER=['Marchés','Factures','Honoraires','Rétrocessions','Visite technique','MAP','Contrôles','Photos','Pièces','Signatures'];
+
+/* Crée le dossier du chantier et tous ses sous-dossiers d'un coup, sans attendre
+   qu'un premier fichier soit déposé. Les dossiers déjà présents sont réutilisés :
+   la fonction peut être relancée sans rien dupliquer. */
+async function creerArborescence(token,chantierId,chantierNom){
+  const parentId=await driveChantierFolder(token,chantierId,chantierNom);
+  const crees=[];
+  for(const nom of DOSSIERS_CHANTIER){
+    const cle=chantierId+'/'+nom;
+    if(driveSousDossiers.has(cle)){crees.push(nom);continue}
+    const id=await driveFindOrCreateSubfolder(token,parentId,nom);
+    driveSousDossiers.set(cle,id);
+    crees.push(nom);
+  }
+  return {parentId,crees};
+}
 
 let driveAttestFolderId=null;
 async function driveAttestationsFolder(token){
@@ -1004,6 +1025,25 @@ function BoutonDossierDrive({ch,sous}){
     {busy?'Ouverture…':'Dossier Drive'+(sous?' › '+sous:'')}</button>;
 }
 
+/* Pour les chantiers créés avant l'automatisation, ou dont le dossier a été
+   supprimé : recrée l'arborescence complète sans rien dupliquer. */
+function BoutonArborescence({ch}){
+  const [etat,setEtat]=useState('');
+  const go=async()=>{
+    setEtat('En cours…');
+    try{
+      const token=await getDriveToken();
+      const {parentId}=await creerArborescence(token,ch.id,ch.nom);
+      setEtat(DOSSIERS_CHANTIER.length+' dossiers prêts');
+      window.open(lienDossierDrive(parentId),'_blank');
+    }catch(e){
+      setEtat(e&&e.error==='auth_required'?'Connectez Google Drive':'Échec');
+    }
+  };
+  return <button className="xs" style={{color:TERRA,background:'none',border:'none',padding:0}} onClick={go} disabled={etat==='En cours…'}>
+    {etat||'Créer l’arborescence Drive'}</button>;
+}
+
 function DriveStatus(){
   const[connected,setConnected]=useState(driveConnected());
   return <div className="sp xs" style={{marginBottom:12,padding:'8px 10px',border:'1px solid '+RULE,background:'#fff'}}>
@@ -1020,8 +1060,13 @@ function Chantiers({data,save,open}){
   const ok=()=>{
     if(!f.nom.trim())return;
     const r={...f,budget:+f.budget||0,honorairesPct:+f.honorairesPct||0,honorairesMontant:f.honorairesMontant===''?'':+f.honorairesMontant};
-    save({...data,chantiers:f.id?data.chantiers.map(c=>c.id===f.id?{...c,...r}:c):[...data.chantiers,{...r,id:uid(),docs:{},jalons:[]}]});
+    const nouveau=!f.id, id=f.id||uid();
+    save({...data,chantiers:f.id?data.chantiers.map(c=>c.id===f.id?{...c,...r}:c):[...data.chantiers,{...r,id,docs:{},jalons:[]}]});
     setF(null);
+    /* à la création, on prépare tout de suite le dossier Drive et ses sous-dossiers :
+       sans cela ils n'apparaissent qu'au premier fichier déposé, et le dossier reste
+       introuvable tant qu'on n'a rien envoyé. Silencieux si Drive n'est pas connecté. */
+    if(nouveau)getDriveToken().then(t=>creerArborescence(t,id,r.nom)).catch(()=>{});
   };
   const eng=id=>data.marches.filter(m=>m.chantierId===id).reduce((s,m)=>s+(m.montantHT||0),0);
   const factu=id=>data.marches.filter(m=>m.chantierId===id).reduce((s,m)=>s+(m.facture||0),0);
@@ -1222,6 +1267,7 @@ function Fiche({data,ch,save,back}){
           :mapsSearch&&<a href={mapsSearch} target="_blank" rel="noreferrer" className="mut">Chercher l'adresse</a>}
         {maps&&<button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>{if(confirm('Retirer la localisation enregistrée ?'))up({lienMaps:''})}}>Changer</button>}
         <BoutonDossierDrive ch={ch}/>
+        <BoutonArborescence ch={ch}/>
         {ch.lienDrive&&<a href={ch.lienDrive} target="_blank" rel="noreferrer" style={{color:TERRA}}>Dossier partagé</a>}
       </div>
     </div>}
