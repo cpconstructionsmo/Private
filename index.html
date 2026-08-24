@@ -2371,6 +2371,21 @@ function Donnees({data,save,session}){
      vides sont complétés ; tous les identifiants entrants sont régénérés.
      Le fichier peut ne contenir que des artisans (carnet d'adresses) : dans ce
      cas rien d'autre n'est touché. */
+  /* ne complète que ce qui est vide : une saisie de l'utilisateur n'est jamais écrasée */
+  const vide=v=>v===''||v===null||v===undefined||(Array.isArray(v)&&!v.length)
+              ||(typeof v==='object'&&!Array.isArray(v)&&!Object.keys(v).length);
+  const combler=(ex,src,ignore)=>{
+    let n=0;
+    for(const k of Object.keys(src||{})){
+      if(k==='id'||k==='chantierId'||(ignore&&ignore.indexOf(k)>=0))continue;
+      if(vide(src[k]))continue;
+      if(vide(ex[k])){ex[k]=src[k];n++;continue}
+      // sous-objets (pièces, MAP, visite technique) : on descend d'un niveau
+      if(typeof ex[k]==='object'&&!Array.isArray(ex[k])&&typeof src[k]==='object'&&!Array.isArray(src[k]))
+        n+=combler(ex[k],src[k]);
+    }
+    return n;
+  };
   const ajouter=e=>{
     const f=e.target.files[0];if(!f)return;
     const r=new FileReader();
@@ -2381,12 +2396,18 @@ function Donnees({data,save,session}){
       const entrants=Array.isArray(d.chantiers)?d.chantiers:[];
       if(!entrants.length&&!(Array.isArray(d.artisans)&&d.artisans.length)){
         setMsg("Ce fichier ne contient ni chantier ni artisan — rien n'a été modifié.");return}
-      const dejaLa=entrants.filter(c=>data.chantiers.some(x=>(x.nom||'').trim().toLowerCase()===(c.nom||'').trim().toLowerCase()));
-      if(dejaLa.length){setMsg('« '+dejaLa[0].nom+" » existe déjà — ajout annulé pour ne pas créer de doublon.");return}
-      const artisans=[...data.artisans];
+      const cle=x=>(x||'').trim().toLowerCase();
+      const connu=c=>data.chantiers.find(x=>cle(x.nom)===cle(c.nom));
+      const aCompleter=entrants.filter(connu);
+      if(aCompleter.length&&!confirm(
+        'Ces chantiers sont déjà dans vos données :\n\n  '+aCompleter.map(c=>c.nom).join('\n  ')+
+        "\n\nIls vont être COMPLÉTÉS : les lots absents seront ajoutés et les champs restés vides remplis."+
+        "\nRien de ce que vous avez saisi ne sera modifié, et rien ne sera supprimé.\n\nContinuer ?"))return;
+
+      const artisans=data.artisans.map(a=>({...a}));
       const mapA={}; let crees=0, completes=0;
       for(const a of (d.artisans||[])){
-        const ex=artisans.find(x=>(x.nom||'').trim().toLowerCase()===(a.nom||'').trim().toLowerCase());
+        const ex=artisans.find(x=>cle(x.nom)===cle(a.nom));
         if(ex){
           mapA[a.id]=ex.id;
           let modif=false;
@@ -2397,18 +2418,49 @@ function Donnees({data,save,session}){
           const id=uid(); mapA[a.id]=id; artisans.push({...a,id}); crees++;
         }
       }
+
+      const chantiers=data.chantiers.map(c=>({...c}));
+      const marches=data.marches.map(m=>({...m}));
+      const commandes=data.commandes.map(c=>({...c}));
       const mapC={};
-      const chantiers=[...data.chantiers,...entrants.map(c=>{const id=uid();mapC[c.id]=id;return{...c,id}})];
-      const rat=(l,extra)=>(l||[]).filter(x=>mapC[x.chantierId]).map(x=>({...x,id:uid(),chantierId:mapC[x.chantierId],...extra(x)}));
-      const marches=[...data.marches,...rat(d.marches,m=>({artisanId:mapA[m.artisanId]||''}))];
-      const commandes=[...data.commandes,...rat(d.commandes,()=>({}))];
+      let ajoutes=0, fusionnes=0, lotsAjoutes=0, lotsCompletes=0, cmdAjoutees=0, champs=0;
+      for(const c of entrants){
+        const ex=connu(c);
+        if(ex){
+          const cible=chantiers.find(x=>x.id===ex.id);
+          mapC[c.id]=cible.id;
+          champs+=combler(cible,c,['nom']);
+          fusionnes++;
+        }else{
+          const id=uid(); mapC[c.id]=id; chantiers.push({...c,id}); ajoutes++;
+        }
+      }
+      for(const m of (d.marches||[])){
+        const cid=mapC[m.chantierId]; if(!cid)continue;
+        const aid=mapA[m.artisanId]||'';
+        const ex=marches.find(x=>x.chantierId===cid&&cle(x.lot)===cle(m.lot));
+        if(ex){
+          // jamais les montants déjà facturés : ils viennent du terrain, pas d'un fichier
+          if(combler(ex,{...m,artisanId:aid},['facture','factures','lot']))lotsCompletes++;
+        }else{ marches.push({...m,id:uid(),chantierId:cid,artisanId:aid}); lotsAjoutes++ }
+      }
+      for(const k of (d.commandes||[])){
+        const cid=mapC[k.chantierId]; if(!cid)continue;
+        const ex=commandes.find(x=>x.chantierId===cid&&cle(x.designation)===cle(k.designation));
+        if(ex)combler(ex,k,['designation']);
+        else{ commandes.push({...k,id:uid(),chantierId:cid}); cmdAjoutees++ }
+      }
+
       save({...data,chantiers,artisans,marches,commandes});
       const bilanArt=crees+' artisan(s) créé(s)'+(completes?', '+completes+' complété(s)':'');
-      setMsg(entrants.length
-        ? entrants.length+' chantier(s) ajouté(s) : '+entrants.map(c=>c.nom).join(', ')+
-          ' — '+(marches.length-data.marches.length)+' marché(s), '+(commandes.length-data.commandes.length)+
-          ' commande(s), '+bilanArt+'.'
-        : 'Carnet d\u2019adresses mis à jour : '+bilanArt+'. Aucun chantier dans ce fichier.');
+      if(!entrants.length){setMsg('Carnet d\u2019adresses mis à jour : '+bilanArt+'. Aucun chantier dans ce fichier.');return}
+      setMsg([
+        ajoutes?ajoutes+' chantier(s) ajouté(s)':'',
+        fusionnes?fusionnes+' chantier(s) complété(s) ('+champs+' champ(s) rempli(s))':'',
+        lotsAjoutes+' lot(s) ajouté(s)'+(lotsCompletes?', '+lotsCompletes+' complété(s)':''),
+        cmdAjoutees?cmdAjoutees+' commande(s) ajoutée(s)':'',
+        bilanArt+'.'
+      ].filter(Boolean).join(' — '));
     };
     r.readAsText(f);
   };
