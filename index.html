@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · budget client unique en TTC et onglet FACTURATION avec le détail de TVA';
+const VERSION='2026-08-24 · import des coordonnées client depuis une fiche Contacts (.vcf)';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -369,6 +369,80 @@ const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
 const today=()=>new Date().toISOString().slice(0,10);
 const fd=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
 const wa=t=>t?t.replace(/[^0-9]/g,'').replace(/^0/,'33'):'';
+
+/* ---------- fiche contact Apple (.vcf) ----------
+   Safari n'expose pas l'API Contacts : aucune page web ne peut ouvrir le carnet
+   d'adresses de l'iPhone, même avec autorisation. Ce qui marche, c'est la fiche
+   partagée par l'app Contacts (« Partager le contact » → Enregistrer dans
+   Fichiers), qu'on lit ici. C'est un geste de plus, mais rien n'est retapé. */
+const VCARD_ACCEPT='.vcf,.vcard,text/vcard,text/x-vcard,text/directory,text/plain';
+/* découpe en respectant les séparateurs échappés (\; et \,) */
+const vcSplit=(s,sep)=>{
+  const out=[];let cur='';
+  for(let i=0;i<s.length;i++){
+    if(s[i]==='\\'&&i+1<s.length){cur+=s[i]+s[i+1];i++;continue}
+    if(s[i]===sep){out.push(cur);cur='';continue}
+    cur+=s[i];
+  }
+  out.push(cur);return out;
+};
+const vcUnescape=s=>String(s||'').replace(/\\n/gi,' ').replace(/\\([,;\\])/g,'$1').replace(/\s+/g,' ').trim();
+/* les fiches exportées par d'anciens carnets sont en quoted-printable */
+const qpDecode=s=>{
+  const t=String(s).replace(/=\n/g,'');
+  const b=[];
+  for(let i=0;i<t.length;i++){
+    if(t[i]==='='&&/^[0-9A-Fa-f]{2}$/.test(t.substr(i+1,2))){b.push(parseInt(t.substr(i+1,2),16));i+=2}
+    else b.push(t.charCodeAt(i)&0xff);
+  }
+  try{return new TextDecoder('utf-8').decode(new Uint8Array(b))}catch(e){return t}
+};
+const lireVCard=txt=>{
+  /* dépliage : une ligne continuée commence par une espace ou une tabulation */
+  const t=String(txt||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n[ \t]/g,'');
+  const cartes=t.split(/BEGIN:VCARD/i).slice(1);
+  const corps=cartes.length?cartes[0]:t;
+  const res={nom:'',tel:'',email:'',adresse:'',plusieurs:cartes.length>1};
+  const tels=[],mails=[],adrs=[];
+  let fn='',n='',org='';
+  for(const ligne of corps.split('\n')){
+    const i=ligne.indexOf(':');
+    if(i<0)continue;
+    const champs=ligne.slice(0,i).split(';');
+    /* Apple préfixe certaines lignes d'un groupe : « item1.TEL » */
+    const cle=champs[0].replace(/^[^.]+\./,'').toUpperCase();
+    const params=champs.slice(1).join(';');
+    let v=ligne.slice(i+1);
+    if(/QUOTED-PRINTABLE/i.test(params))v=qpDecode(v);
+    const mobile=/(IPHONE|CELL|MOBILE|PREF)/i.test(params)?0:1;
+    if(cle==='FN')fn=vcUnescape(v);
+    else if(cle==='N')n=v;
+    else if(cle==='ORG')org=vcUnescape(vcSplit(v,';')[0]);
+    else if(cle==='TEL')tels.push({p:mobile,v:vcUnescape(v)});
+    else if(cle==='EMAIL')mails.push({p:mobile,v:vcUnescape(v)});
+    else if(cle==='ADR')adrs.push({p:/HOME/i.test(params)?0:1,v});
+  }
+  if(!fn&&n){
+    /* N:Famille;Prénom;Autres;Titre;Suffixe */
+    const p=vcSplit(n,';').map(vcUnescape);
+    fn=[p[3],p[1],p[2],p[0],p[4]].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+  }
+  res.nom=fn||org;
+  tels.sort((a,b)=>a.p-b.p);
+  res.tel=tels.length?tels[0].v.replace(/[^\d+ ]/g,'').replace(/\s+/g,' ').trim():'';
+  mails.sort((a,b)=>a.p-b.p);
+  res.email=mails.length?mails[0].v:'';
+  adrs.sort((a,b)=>a.p-b.p);
+  if(adrs.length){
+    /* ADR:BP;Complément;Rue;Ville;Région;Code postal;Pays */
+    const p=vcSplit(adrs[0].v,';').map(vcUnescape);
+    const rue=[p[1],p[2]].filter(Boolean).join(' ');
+    const ville=[p[5],p[3]].filter(Boolean).join(' ');
+    const pays=/^(fr|france)$/i.test(p[6]||'')?'':p[6];
+    res.adresse=[rue,ville,pays].filter(Boolean).join(', ').replace(/\s+/g,' ').trim();
+  }
+  return res;
+};
 const honoAmount=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:budgetTravauxHT(ch)*(ch.honorairesPct||0)/100;
 const tvaRate=ch=>(ch&&ch.tva!==undefined&&ch.tva!==null&&ch.tva!=='')?+ch.tva:20;
 const ttc=(ht,ch)=>(ht||0)*(1+tvaRate(ch)/100);
@@ -1026,6 +1100,46 @@ const Acts=({onSave,onCancel,onDel})=><div className="row" style={{gap:8}}>
   <button className="btn gh" onClick={onCancel}>Annuler</button>
   {onDel&&<button className="btn dg" onClick={onDel}>Supprimer</button>}</div>;
 
+/* reprend les coordonnées d'une fiche partagée depuis l'app Contacts de l'iPhone */
+function ImportContact({onLu,label}){
+  const [msg,setMsg]=useState('');
+  const [aide,setAide]=useState(false);
+  const lire=file=>{
+    const r=new FileReader();
+    r.onload=()=>{
+      const c=lireVCard(String(r.result||''));
+      const champs=[c.nom&&'nom',c.tel&&'téléphone',c.email&&'e-mail',c.adresse&&'adresse'].filter(Boolean);
+      if(!champs.length){setMsg({t:'rien'});return}
+      onLu(c);
+      setMsg({t:'ok',champs,plusieurs:c.plusieurs});
+    };
+    r.onerror=()=>setMsg({t:'erreur'});
+    r.readAsText(file);
+  };
+  return <div style={{marginBottom:12}}>
+    <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
+      <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{label||'Importer depuis Contacts'}
+        <input type="file" accept={VCARD_ACCEPT} style={{display:'none'}}
+          onChange={e=>{const f=e.target.files[0];e.target.value='';setMsg('');if(f)lire(f)}}/></label>
+      <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>setAide(a=>!a)}>Comment faire ?</button>
+    </div>
+    {aide&&<div className="xs mut" style={{marginTop:6,lineHeight:1.6}}>
+      Safari ne peut pas ouvrir votre carnet d'adresses : Apple ne l'autorise pour aucun site.
+      On passe donc par la fiche du contact. Dans <b>Contacts</b> : ouvrez le contact →
+      <b> Partager le contact</b> → <b>Enregistrer dans Fichiers</b>. Revenez ici, appuyez sur
+      « {label||'Importer depuis Contacts'} » et choisissez la fiche (.vcf) que vous venez d'enregistrer.
+    </div>}
+    {msg&&msg.t==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+      Fiche lue : {msg.champs.join(', ')} report{msg.champs.length>1?'és':'é'}. À vérifier avant d'enregistrer.
+      {msg.plusieurs&&<span className="mut"> Le fichier contenait plusieurs contacts : le premier a été retenu.</span>}
+    </div>}
+    {msg&&msg.t==='rien'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+      Aucune coordonnée trouvée dans ce fichier — ce n'est peut-être pas une fiche contact (.vcf).
+    </div>}
+    {msg&&msg.t==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>Lecture du fichier impossible.</div>}
+  </div>;
+}
+
 const QUALITES=['Client','Maître d’œuvre','Entreprise','Autre'];
 
 function SignaturePad({titre,onAnnuler,onSigner}){
@@ -1249,13 +1363,17 @@ function Chantiers({data,save,open}){
     return db.localeCompare(da);
   });
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',adresse:'',lienDrive:'',budgetClientTTC:'',budget:'',honorairesPct:'',honorairesMontant:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
+    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',emailClient:'',adresse:'',lienDrive:'',budgetClientTTC:'',budget:'',honorairesPct:'',honorairesMontant:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
     {f&&<div className="card">
       <Fld label="NOM DU CHANTIER"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Barbé — Céaucé"/></Fld>
+      <ImportContact label="Remplir depuis Contacts"
+        onLu={c=>setF(p=>({...p,client:c.nom||p.client,telClient:c.tel||p.telClient,
+          emailClient:c.email||p.emailClient||'',adresse:c.adresse||p.adresse}))}/>
       <div className="g2">
         <Fld label="CLIENT"><input className="in" value={f.client} onChange={e=>setF({...f,client:e.target.value})}/></Fld>
         <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={f.telClient||''} onChange={e=>setF({...f,telClient:e.target.value})}/></Fld>
       </div>
+      <Fld label="E-MAIL CLIENT"><input className="in" type="email" value={f.emailClient||''} onChange={e=>setF({...f,emailClient:e.target.value})}/></Fld>
       <Fld label="ADRESSE"><input className="in" value={f.adresse} onChange={e=>setF({...f,adresse:e.target.value})}/></Fld>
       <Fld label="LOCALISATION (LIEN MAPS OU GPS)">
         <input className="in" placeholder="Lien Google Maps, ou 48.5123, -0.6234" value={f.lienMaps||''} onChange={e=>setF({...f,lienMaps:e.target.value})}/>
@@ -1361,10 +1479,14 @@ function Fiche({data,ch,save,back}){
     <button onClick={back} className="xs" style={{color:TERRA,background:'none',border:'none',padding:'0 0 12px'}}>← Tous les chantiers</button>
     {edit?<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
       <Fld label="NOM DU CHANTIER"><input className="in" value={edit.nom} onChange={e=>setEdit({...edit,nom:e.target.value})}/></Fld>
+      <ImportContact label="Remplir depuis Contacts"
+        onLu={c=>setEdit(p=>({...p,client:c.nom||p.client,telClient:c.tel||p.telClient,
+          emailClient:c.email||p.emailClient||'',adresse:c.adresse||p.adresse}))}/>
       <div className="g2">
         <Fld label="CLIENT"><input className="in" value={edit.client} onChange={e=>setEdit({...edit,client:e.target.value})}/></Fld>
         <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={edit.telClient||''} onChange={e=>setEdit({...edit,telClient:e.target.value})}/></Fld>
       </div>
+      <Fld label="E-MAIL CLIENT"><input className="in" type="email" value={edit.emailClient||''} onChange={e=>setEdit({...edit,emailClient:e.target.value})}/></Fld>
       <Fld label="ADRESSE"><input className="in" value={edit.adresse} onChange={e=>setEdit({...edit,adresse:e.target.value})}/></Fld>
       <Fld label="LOCALISATION DU CHANTIER">
         <input className="in" placeholder="Lien Google Maps, ou 48.5123, -0.6234" value={edit.lienMaps||''} onChange={e=>setEdit({...edit,lienMaps:e.target.value})}/>
@@ -1478,6 +1600,7 @@ function Fiche({data,ch,save,back}){
       <div className="row xs" style={{gap:14,marginTop:10,flexWrap:'wrap'}}>
         {ch.telClient&&<a href={'tel:'+ch.telClient} style={{color:TERRA}}>Appeler le client</a>}
         {ch.telClient&&<a href={'https://wa.me/'+wa(ch.telClient)} style={{color:TERRA}}>WhatsApp</a>}
+        {ch.emailClient&&<a href={'mailto:'+ch.emailClient} style={{color:TERRA}}>Écrire au client</a>}
         {maps
           ?<a href={maps} target="_blank" rel="noreferrer" style={{color:TERRA}}>Itinéraire</a>
           :mapsSearch&&<a href={mapsSearch} target="_blank" rel="noreferrer" className="mut">Chercher l'adresse</a>}
