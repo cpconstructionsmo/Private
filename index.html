@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · lecture des contrats et factures en PDF et en Word (.docx)';
+const VERSION='2026-08-24 · TVA par commande de matériaux et devis d’honoraires lu automatiquement';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -490,6 +490,22 @@ const sumMontants=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 const marcheTva=(m,ch)=>(m.tva!==undefined&&m.tva!==null&&m.tva!=='')?+m.tva:tvaRate(ch);
 const marcheTTC=(m,ch)=>(m.montantHT||0)*(1+marcheTva(m,ch)/100);
 const travauxHTot=ms=>ms.reduce((s,m)=>s+(m.montantHT||0),0);
+/* la TVA se règle aussi par commande : un escalier peut être facturé à 10 % en
+   rénovation quand le reste du chantier est à 20 %. Sans taux propre, la commande
+   suit celui du chantier. 0 est une valeur valide, pas une absence. */
+const cmdTva=(c,ch)=>(c&&c.tva!==undefined&&c.tva!==null&&c.tva!=='')?+c.tva:tvaRate(ch);
+const cmdTTC=(c,ch)=>(+(c&&c.montant)||0)*(1+cmdTva(c,ch)/100);
+const materiauxHT=cs=>(cs||[]).reduce((s,c)=>s+(+c.montant||0),0);
+const materiauxTTC=(cs,ch)=>(cs||[]).reduce((s,c)=>s+cmdTTC(c,ch),0);
+const ventilationTvaCmd=(cs,ch)=>{
+  const map=new Map();
+  for(const c of (cs||[])){
+    const t=cmdTva(c,ch);
+    const cur=map.get(t)||{taux:t,ht:0,n:0};
+    cur.ht+=(+c.montant||0); cur.n++; map.set(t,cur);
+  }
+  return [...map.values()].map(x=>({...x,tva:x.ht*x.taux/100,ttc:x.ht*(1+x.taux/100)})).sort((a,b)=>b.taux-a.taux);
+};
 const travauxTTC=(ms,ch)=>ms.reduce((s,m)=>s+marcheTTC(m,ch),0);
 const ventilationTva=(ms,ch)=>{
   const map=new Map();
@@ -507,7 +523,7 @@ const ventilationTva=(ms,ch)=>{
 const coutOperation=(ch,ms,cs)=>{
   const marches=ms||[], cmds=cs||[];
   const travHT=travauxHTot(marches), travTTC=travauxTTC(marches,ch);
-  const matHT=cmds.reduce((s,c)=>s+(+c.montant||0),0), matTTC=ttc(matHT,ch);
+  const matHT=materiauxHT(cmds), matTTC=materiauxTTC(cmds,ch);
   const honoHT=honoAmount(ch), honoTTC=ttc(honoHT,ch);
   return {travHT,travTVA:travTTC-travHT,travTTC,
           matHT,matTVA:matTTC-matHT,matTTC,
@@ -1173,6 +1189,28 @@ function analyseFacture(txt){
   /* sur autoliquidation la facture ne porte pas de TVA : ce n'est pas une anomalie */
   if(r.montantHT!==null&&r.montantTTC!==null&&r.tva!==null&&!memeMontant(r.montantHT*(1+r.tva/100),r.montantTTC))
     r.alertes.push('HT, TVA et TTC ne se recoupent pas : à vérifier sur la facture.');
+  return r;
+}
+
+/* Devis d'honoraires de maîtrise d'œuvre : mêmes totaux qu'une facture, plus le
+   pourcentage quand il est annoncé. Un « % » voisin du mot TVA n'en est pas un. */
+function analyseHonoraires(txt){
+  const r=analyseFacture(txt);
+  r.pct=null;
+  const t=deaccent(txt).replace(/\s+/g,' ');
+  const MOTIFS=[
+    "(\\d{1,2}(?:[.,]\\d{1,2})?)\\s*%\\s*(?:du|des|sur)\\s*(?:le\\s*|la\\s*)?(?:montant\\s+)?(?:total\\s+)?(?:des\\s+|du\\s+)?travaux",
+    "(?:honoraires|remuneration|mission)[^.%]{0,60}?(\\d{1,2}(?:[.,]\\d{1,2})?)\\s*%",
+    "taux\\s+(?:de\\s+)?(?:remuneration|honoraires)\\s*:?\\s*(\\d{1,2}(?:[.,]\\d{1,2})?)\\s*%"];
+  for(const m of MOTIFS){
+    const x=t.match(new RegExp(m,'i'));
+    if(!x)continue;
+    /* on écarte un pourcentage qui n'est en fait que le taux de TVA */
+    const avant=t.slice(Math.max(0,x.index-24),x.index+x[0].length);
+    if(/T\.?V\.?A\.?/i.test(avant))continue;
+    const v=nombreFr(x[1]);
+    if(v!==null&&v>0&&v<30){r.pct=v;r.champs.push('pct');break}
+  }
   return r;
 }
 
@@ -2005,8 +2043,8 @@ function RecapBudget({ch,ms,cmds}){
   /* matériaux commandés directement : ils font partie du coût de l'ouvrage au
      même titre que les marchés, et suivent le taux de TVA du chantier. */
   const cs=cmds||[];
-  const matHT=cs.reduce((s,c)=>s+(+c.montant||0),0);
-  const matTVA=matHT*tvaRate(ch)/100, matTTC=matHT+matTVA;
+  const matHT=materiauxHT(cs), matTTC=materiauxTTC(cs,ch), matTVA=matTTC-matHT;
+  const ventMat=ventilationTvaCmd(cs,ch);
   const honoTVA=honoHT*txHono/100, honoTTC=honoHT+honoTVA;
   const ouvHT=travHT+matHT, ouvTVA=travTVA+matTVA, ouvTTC=travTTC+matTTC;
   const totHT=ouvHT+honoHT, totTVA=ouvTVA+honoTVA, totTTC=ouvTTC+honoTTC;
@@ -2036,12 +2074,19 @@ function RecapBudget({ch,ms,cmds}){
               <td style={cell} className="mut">{eur(v.tva)}</td>
               <td style={cell} className="mut">{eur(v.ttc)}</td>
             </tr>)}
-          {!!cs.length&&<tr style={{borderBottom:'1px solid '+RULE}}>
+          {!!cs.length&&<tr style={{borderBottom:ventMat.length>1?'none':'1px solid '+RULE}}>
             <td style={{padding:'7px 4px'}}>Matériaux commandés <span className="mut">({cs.length} commande{cs.length>1?'s':''})</span></td>
             <td style={cell}>{eur(matHT)}</td>
             <td style={cell} className="mut">{eur(matTVA)}</td>
             <td style={cell}>{eur(matTTC)}</td>
           </tr>}
+          {ventMat.length>1&&ventMat.map((v,i)=>
+            <tr key={'mat'+v.taux} style={{borderBottom:i===ventMat.length-1?'1px solid '+RULE:'none'}}>
+              <td style={{padding:'3px 4px 3px 14px'}} className="mut">dont TVA {v.taux} % <span style={{fontSize:11}}>({v.n} commande{v.n>1?'s':''})</span></td>
+              <td style={cell} className="mut">{eur(v.ht)}</td>
+              <td style={cell} className="mut">{eur(v.tva)}</td>
+              <td style={cell} className="mut">{eur(v.ttc)}</td>
+            </tr>)}
           <tr style={{borderBottom:'1px solid '+RULE}}>
             <td style={{padding:'7px 4px'}}>Honoraires MOE <span className="mut">(TVA {txHono} %)</span></td>
             <td style={cell}>{eur(honoHT)}</td>
@@ -2077,7 +2122,7 @@ function RecapBudget({ch,ms,cmds}){
       :<div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
         Budget client non renseigné. Saisissez-le via « Modifier » sur la fiche du chantier pour voir l'écart : un seul montant TTC, tout compris.
       </div>}
-    <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>TVA calculée lot par lot : chaque marché peut avoir son propre taux (0 % en franchise ou autoliquidation), sinon il suit celui du chantier. Les matériaux commandés suivent le taux du chantier. À vérifier avec votre comptable.
+    <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>TVA calculée ligne par ligne : chaque marché et chaque commande de matériaux peut avoir son propre taux (0 % en franchise ou autoliquidation, 10 % en rénovation), sinon il suit celui du chantier ({tvaRate(ch)} %). À vérifier avec votre comptable.
       {!!cs.length&&' N’inscrivez en commande que les matériaux achetés en direct : une fourniture déjà comprise dans un marché de travaux serait comptée deux fois.'}</div>
   </div>;
 }
@@ -2636,22 +2681,30 @@ function Commandes({data,ch,save}){
   const list=data.commandes.filter(c=>c.chantierId===ch.id).sort((a,b)=>(a.livrPrevue||'9999').localeCompare(b.livrPrevue||'9999'));
   const ok=()=>{
     if(!f.designation.trim())return;
-    const r={...f,montant:+f.montant||0};
+    const r={...f,montant:+f.montant||0,tva:f.tva===''||f.tva===undefined||f.tva===null?'':+f.tva};
     save({...data,commandes:f.id?data.commandes.map(c=>c.id===f.id?r:c):[...data.commandes,{...r,id:uid(),chantierId:ch.id}]});
     setF(null);
   };
-  const tot=list.reduce((s,c)=>s+(c.montant||0),0);
+  const tot=materiauxHT(list), totTTC=materiauxTTC(list,ch);
   return <div>
     <div className="sp" style={{marginBottom:12}}>
-      <span className="xs mut">{list.length} commande{list.length>1?'s':''} — {eur(tot)}</span>
-      <button className="btn acc s" onClick={()=>setF({designation:'',fournisseur:'',lot:'',montant:'',dateCommande:'',livrPrevue:'',livrReelle:'',statut:'a_commander',notes:''})}>+ Commande</button>
+      <span className="xs mut">{list.length} commande{list.length>1?'s':''} — {eur(tot)} HT · {eur(totTTC)} TTC</span>
+      <button className="btn acc s" onClick={()=>setF({designation:'',fournisseur:'',lot:'',montant:'',tva:'',dateCommande:'',livrPrevue:'',livrReelle:'',statut:'a_commander',notes:''})}>+ Commande</button>
     </div>
     {f&&<div className="card">
       <Fld label="DÉSIGNATION"><input className="in" placeholder="Menuiseries alu — 8 ouvrants" value={f.designation} onChange={e=>setF({...f,designation:e.target.value})}/></Fld>
       <div className="g2">
         <Fld label="FOURNISSEUR"><input className="in" value={f.fournisseur} onChange={e=>setF({...f,fournisseur:e.target.value})}/></Fld>
-        <Fld label="MONTANT HT (€)"><input className="in" type="number" value={f.montant} onChange={e=>setF({...f,montant:e.target.value})}/></Fld>
+        <Fld label="MONTANT HT (€)"><input className="in" type="number" step="0.01" value={f.montant} onChange={e=>setF({...f,montant:e.target.value})}/></Fld>
       </div>
+      <Fld label="TVA DE CETTE COMMANDE (%)">
+        <input className="in" type="number" step="0.1" placeholder={'Chantier : '+tvaRate(ch)+' %'}
+          value={f.tva===undefined||f.tva===null?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+          Laissez vide pour appliquer le taux du chantier ({tvaRate(ch)} %). Saisissez <b>10</b> en rénovation, <b>0</b> en autoliquidation.
+          {f.montant>0&&<span> — soit <b>{eur(cmdTTC({montant:+f.montant,tva:f.tva},ch))}</b> TTC.</span>}
+        </div>
+      </Fld>
       <Fld label="LOT CONCERNÉ"><select className="in" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})}><option value="">— aucun —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
       <div className="g2">
         <Fld label="DATE DE COMMANDE"><input className="in" type="date" value={f.dateCommande} onChange={e=>setF({...f,dateCommande:e.target.value})}/></Fld>
@@ -2669,11 +2722,11 @@ function Commandes({data,ch,save}){
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,commandes:data.commandes.filter(c=>c.id!==f.id)});setF(null)}:null}/>
     </div>}
     {!list.length&&!f&&<Empty>Aucune commande. Suivez ici les matériaux à approvisionner.</Empty>}
-    {list.map(c=><LigneCmd key={c.id} c={c} onClick={()=>setF(c)}/>)}
+    {list.map(c=><LigneCmd key={c.id} c={c} ch={ch} onClick={()=>setF(c)}/>)}
   </div>;
 }
 
-function LigneCmd({c,onClick,chantierNom}){
+function LigneCmd({c,onClick,chantierNom,ch}){
   const s=CMD_ST.find(x=>x.id===c.statut)||CMD_ST[0];
   const retard=c.livrPrevue&&!c.livrReelle&&c.livrPrevue<today()&&c.statut!=='livre';
   return <button className="card" style={{borderLeft:'3px solid '+(retard?TERRA:s.c)}} onClick={onClick}>
@@ -2683,7 +2736,7 @@ function LigneCmd({c,onClick,chantierNom}){
     </div>
     <div className="xs mut" style={{marginTop:3}}>{chantierNom?chantierNom+' · ':''}{c.fournisseur||'fournisseur non précisé'}{c.lot?' · '+c.lot:''}</div>
     <div className="sp xs" style={{marginTop:8}}>
-      <span>{eur(c.montant)} HT{(c.devis||[]).length?<span style={{color:GREEN}}> · ✓ {(c.devis||[]).length} devis</span>:null}</span>
+      <span>{eur(c.montant)} HT{ch?<span className="mut"> · {eur(cmdTTC(c,ch))} TTC (TVA {cmdTva(c,ch)} %)</span>:null}{(c.devis||[]).length?<span style={{color:GREEN}}> · ✓ {(c.devis||[]).length} devis</span>:null}</span>
       <span className="mut">{c.livrReelle?'livré le '+fd(c.livrReelle):c.livrPrevue?'prévu le '+fd(c.livrPrevue):'sans date'}</span>
     </div>
   </button>;
@@ -3019,6 +3072,38 @@ function Honoraires({data,ch,save}){
   const retroDu=toutes.reduce((s,x)=>s+retroMontant(x),0);
   const retroFac=toutes.reduce((s,x)=>s+(+x.retroFacture||0),0);
   const upHono=list=>save({...data,chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,honoFactures:list}:x)});
+  const upCh=patch=>save({...data,chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,...patch}:x)});
+  /* le devis d'honoraires : on le range dans Drive › Honoraires et on le lit au
+     passage. Ce qui en est lu est proposé, jamais écrit d'office. */
+  const [devisBusy,setDevisBusy]=useState(false);
+  const [devisLu,setDevisLu]=useState(null);
+  const importDevisHono=async file=>{
+    setDevisBusy(true); setDevisLu(null);
+    let lu=null;
+    try{
+      const {txt,motif}=await lireDocument(file);
+      lu=txt?{a:analyseHonoraires(txt)}:{motif};
+    }catch(e){lu={motif:'lecture impossible'}}
+    let lien='';
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveHonoFolder(token,ch.id,ch.nom);
+      lien=(await uploadToDrive(file,folderId)).webViewLink;
+    }catch(e){
+      if(e&&e.error==='auth_required')alert("Connectez d'abord Google Drive : le devis n'a pas été déposé.");
+    }
+    upCh({devisHono:{nom:file.name,lien,date:today()}});
+    setDevisLu(lu); setDevisBusy(false);
+  };
+  const reporterHono=()=>{
+    const a=devisLu&&devisLu.a; if(!a)return;
+    const patch={};
+    if(a.montantHT!==null)patch.honorairesMontant=Math.round(a.montantHT*100)/100;
+    if(a.pct!==null)patch.honorairesPct=a.pct;
+    if(a.tva!==null&&a.tva!==undefined&&(ch.tva===undefined||ch.tva===null||ch.tva===''))patch.tva=a.tva;
+    if(Object.keys(patch).length)upCh(patch);
+    setDevisLu(null);
+  };
   const add=()=>upHono([...hf,{id:uid(),montant:'',date:today(),libelle:'',lien:''}]);
   const upd=(id,patch)=>upHono(hf.map(x=>x.id===id?{...x,...patch}:x));
   const del=id=>upHono(hf.filter(x=>x.id!==id));
@@ -3056,7 +3141,40 @@ function Honoraires({data,ch,save}){
       <Stat l={"Reste à facturer TTC"} v={eur(ttc(reste,ch))} c={reste>0?TERRA:GREEN}/>
       <Stat l="Reste à facturer HT" v={reste>0?eur(reste):'soldé'} c={reste>0?INK:GREEN}/>
     </div>
-    <div className="card" style={{marginTop:8}}>
+    <div className="card" style={{marginTop:8,borderLeft:'3px solid '+NAVY}}>
+      <Fld label="DEVIS D'HONORAIRES (PDF OU WORD)">
+        {ch.devisHono&&ch.devisHono.nom
+          ?<div className="row" style={{gap:12,alignItems:'center',flexWrap:'wrap'}}>
+            {ch.devisHono.lien?<Transmis/>:<span className="xs" style={{color:AMBER,whiteSpace:'nowrap'}}>non déposé sur le Drive</span>}
+            <span className="xs" style={{wordBreak:'break-all'}}>{ch.devisHono.nom}</span>
+            {ch.devisHono.lien&&<a href={ch.devisHono.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir</a>}
+            <label className="xs" style={{color:NAVY,whiteSpace:'nowrap'}}>{devisBusy?'Lecture…':'Remplacer'}
+              <input type="file" accept={DOC_ACCEPT} style={{display:'none'}} disabled={devisBusy}
+                onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importDevisHono(f)}}/></label>
+          </div>
+          :<label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{devisBusy?'Lecture…':'Importer le devis d’honoraires'}
+            <input type="file" accept={DOC_ACCEPT} style={{display:'none'}} disabled={devisBusy}
+              onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importDevisHono(f)}}/></label>}
+        <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Rangé dans Drive › {ch.nom} › Honoraires, et lu au passage pour vous proposer le montant.</div>
+        {devisLu&&devisLu.motif&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          Rien n'a pu être lu — {devisLu.motif}. Le fichier est bien enregistré.</div>}
+        {devisLu&&devisLu.a&&<div className="xs" style={{marginTop:8,padding:8,border:'1px solid '+RULE,borderRadius:8,lineHeight:1.6}}>
+          {devisLu.a.montantHT===null&&devisLu.a.pct===null
+            ?<span style={{color:AMBER}}>Devis lu, mais ni montant ni pourcentage d'honoraires n'y ont été trouvés.</span>
+            :<span>Lu sur le devis :
+              {devisLu.a.montantHT!==null&&<span> honoraires <b>{eur(devisLu.a.montantHT)} HT</b></span>}
+              {devisLu.a.pct!==null&&<span> · taux <b>{devisLu.a.pct} %</b></span>}
+              {devisLu.a.tva!==null&&<span className="mut"> · TVA {devisLu.a.tva} %</span>}
+              {devisLu.a.date&&<span className="mut"> · {fd(devisLu.a.date)}</span>}.
+            </span>}
+          {devisLu.a.alertes.map((x,i)=><div key={i} style={{color:AMBER}}>{x}</div>)}
+          <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+            {(devisLu.a.montantHT!==null||devisLu.a.pct!==null)&&
+              <button className="btn s" onClick={reporterHono}>Reporter sur le chantier</button>}
+            <button className="btn gh s" onClick={()=>setDevisLu(null)}>Ne rien changer</button>
+          </div>
+        </div>}
+      </Fld>
       <div className="xs mut" style={{lineHeight:1.6}}>
         Base HT : <b>{eur(total)}</b>{ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!==''?' (montant saisi)':' ('+(ch.honorairesPct||0)+' % de '+eur(budgetTravauxHT(ch))+' HT de travaux)'} · TVA {tvaRate(ch)} %<br/>
         Le montant des honoraires se modifie via « Modifier » sur la fiche du chantier.
