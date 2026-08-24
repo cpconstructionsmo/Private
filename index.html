@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · lecture automatique des contrats et des factures PDF, enregistrement direct';
+const VERSION='2026-08-24 · lecture des contrats et factures en PDF et en Word (.docx)';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -795,6 +795,84 @@ async function pdfText(file){
     txt+=' '+c.items.map(x=>x.str).join(' ');
   }
   return txt.replace(/\s+/g,' ').trim();
+}
+
+/* ---------- lecture des fichiers Word (.docx) ---------- */
+/* Un .docx est un ZIP : on y prend word/document.xml et on le décompresse avec
+   DecompressionStream, présent dans Safari depuis iOS 16.4 — aucune bibliothèque
+   supplémentaire à charger. L'ancien .doc, binaire, ne se lit pas ainsi. */
+async function inflateRaw(bytes){
+  if(typeof DecompressionStream==='undefined')throw new Error('nodeflate');
+  const flux=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(flux).arrayBuffer());
+}
+async function zipEntree(buf,cherche){
+  const d=new DataView(buf), u=new Uint8Array(buf), dec=new TextDecoder('utf-8');
+  /* le répertoire central se trouve par la fin : son marqueur est le dernier du fichier */
+  let eocd=-1;
+  for(let i=u.length-22;i>=0&&i>u.length-22-65558;i--)if(d.getUint32(i,true)===0x06054b50){eocd=i;break}
+  if(eocd<0)throw new Error('nozip');
+  const n=d.getUint16(eocd+10,true);
+  let p=d.getUint32(eocd+16,true);
+  for(let k=0;k<n;k++){
+    if(p+46>u.length||d.getUint32(p,true)!==0x02014b50)break;
+    const methode=d.getUint16(p+10,true), tailleComp=d.getUint32(p+20,true);
+    const lNom=d.getUint16(p+28,true), lExtra=d.getUint16(p+30,true), lCom=d.getUint16(p+32,true);
+    const offset=d.getUint32(p+42,true);
+    if(dec.decode(u.subarray(p+46,p+46+lNom))===cherche){
+      if(d.getUint32(offset,true)!==0x04034b50)throw new Error('nozip');
+      const debut=offset+30+d.getUint16(offset+26,true)+d.getUint16(offset+28,true);
+      const data=u.subarray(debut,debut+tailleComp);
+      return methode===0?data:await inflateRaw(data);
+    }
+    p+=46+lNom+lExtra+lCom;
+  }
+  throw new Error('nodoc');
+}
+const XML_ENT={amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"};
+const dexml=s=>String(s).replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g,(m,e)=>{
+  if(e[0]==='#')return String.fromCodePoint(e[1]==='x'||e[1]==='X'?parseInt(e.slice(2),16):parseInt(e.slice(1),10));
+  return XML_ENT[e]!==undefined?XML_ENT[e]:m;
+});
+/* on écarte le texte supprimé en révision et les codes de champ : ils ne font pas
+   partie du document tel qu'il se lit à l'écran. */
+function texteDocumentXml(xml){
+  const net=String(xml)
+    .replace(/<w:del\b[\s\S]*?<\/w:del>/g,'')
+    .replace(/<w:instrText[\s\S]*?<\/w:instrText>/g,'')
+    .replace(/<w:(?:tab|br|cr)\b[^>]*\/?>/g,' ')
+    .replace(/<\/w:(?:p|tc|tr)>/g,' ')
+    .replace(/<[^>]+>/g,'');
+  return dexml(net).replace(/\s+/g,' ').trim();
+}
+async function wordText(file){
+  const bytes=await zipEntree(await file.arrayBuffer(),'word/document.xml');
+  return texteDocumentXml(new TextDecoder('utf-8').decode(bytes));
+}
+
+/* Un contrat ou une facture arrive en PDF ou en Word : une seule porte d'entrée,
+   qui dit précisément pourquoi elle n'a rien pu lire plutôt que de rendre vide. */
+const DOC_ACCEPT='application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+async function lireDocument(file){
+  const nom=(file.name||'').toLowerCase(), type=file.type||'';
+  const estDocx=/\.docx$/.test(nom)||/wordprocessingml/.test(type);
+  const estDoc=/\.doc$/.test(nom)||/msword/.test(type);
+  if(estDocx){
+    try{
+      const t=await wordText(file);
+      return t?{txt:t}:{txt:'',motif:'document Word vide'};
+    }catch(e){
+      const c=String((e&&e.message)||'');
+      if(c==='nodeflate')return {txt:'',motif:'lecture Word impossible sur cet appareil (iOS 16.4 minimum)'};
+      if(c==='nodoc'||c==='nozip')return {txt:'',motif:'fichier Word illisible (peut-être protégé)'};
+      return {txt:'',motif:'fichier Word illisible'};
+    }
+  }
+  if(estDoc)return {txt:'',motif:'ancien format Word (.doc) — enregistrez-le en .docx ou en PDF'};
+  try{
+    const t=await pdfText(file);
+    return t?{txt:t}:{txt:'',motif:'PDF scanné, aucun texte à lire — reprenez le PDF d’origine'};
+  }catch(e){return {txt:'',motif:'PDF illisible'}}
 }
 
 function parseDateFr(s){
@@ -1786,9 +1864,9 @@ function Marches({data,ch,save,eng,fac}){
   const [luFacture,setLuFacture]=useState(null);
   const importFacture=async(fid,file)=>{
     let lu=null;
-    if(/pdf$/i.test(file.name||'')||file.type==='application/pdf'){
+    if(!/^image\//.test(file.type||'')){
       try{
-        const txt=await pdfText(file);
+        const {txt,motif}=await lireDocument(file);
         if(txt){
           const a=analyseFacture(txt);
           const cible=(f.factures||[]).find(x=>x.id===fid)||{};
@@ -1796,9 +1874,10 @@ function Marches({data,ch,save,eng,fac}){
           const ht=a.montantHT!==null?a.montantHT:(a.montantTTC!==null&&a.tva!==null?a.montantTTC/(1+a.tva/100):null);
           if(ht!==null&&(cible.montant===''||cible.montant===undefined||cible.montant===null))patch.montant=Math.round(ht*100)/100;
           if(a.date&&!cible.date)patch.date=a.date;
+          if(a.numero&&!cible.numero)patch.numero=a.numero;
           if(Object.keys(patch).length){updFacture(fid,patch);lu={patch,a};}
           else lu={patch:null,a};
-        }else lu={scan:true};
+        }else lu={motif};
       }catch(e){/* lecture impossible : l'envoi sur le Drive reste prioritaire */}
     }
     setLuFacture(lu?{...lu,fid}:null);
@@ -1868,12 +1947,12 @@ function Marches({data,ch,save,eng,fac}){
           {x.lien
             ?<span className="row" style={{gap:6,alignItems:'center',whiteSpace:'nowrap'}}><Transmis/>
               <a href={x.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Voir</a></span>
-            :<label className="xs" style={{color:NAVY,whiteSpace:'nowrap'}}>Importer<input type="file" accept="application/pdf,image/*" style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importFacture(x.id,file)}}/></label>}
+            :<label className="xs" style={{color:NAVY,whiteSpace:'nowrap'}}>Importer<input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importFacture(x.id,file)}}/></label>}
           <button className="btn dg s" onClick={()=>delFacture(x.id)}>✕</button>
         </div>)}
         <button className="btn gh s" onClick={addFacture}>+ Facture</button>
-        {luFacture&&luFacture.scan&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
-          Cette facture est un scan : aucun texte à lire, le montant et la date sont à saisir à la main. Le fichier est bien envoyé sur le Drive.</div>}
+        {luFacture&&luFacture.motif&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          Rien n'a pu être lu — {luFacture.motif}. Le montant et la date sont à saisir à la main ; le fichier est bien envoyé sur le Drive.</div>}
         {luFacture&&luFacture.patch&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
           Lu sur la facture :{luFacture.patch.montant!==undefined&&<span> montant <b>{eur(luFacture.patch.montant)} HT</b></span>}
           {luFacture.patch.date!==undefined&&<span> · date <b>{fd(luFacture.patch.date)}</b></span>}
@@ -2119,9 +2198,8 @@ function LireMarches({data,ch,save,close}){
     setBusy('Lecture de '+files.length+' document'+(files.length>1?'s':'')+'…');
     const out=[];
     for(const file of files){
-      let txt='';
-      try{txt=await pdfText(file)}catch(e){}
-      if(!txt){out.push({id:uid(),file,nomFichier:file.name,scan:true,retenu:false,alertes:[]});continue}
+      const {txt,motif}=await lireDocument(file);
+      if(!txt){out.push({id:uid(),file,nomFichier:file.name,scan:true,motif,retenu:false,alertes:[]});continue}
       const a=analyseMarche(txt);
       out.push({id:uid(),file,nomFichier:file.name,scan:false,retenu:a.montantHT!==null,
         numero:a.numero,lot:a.lot||'',artisanId:trouveArtisan(a.artisan),artisanNom:a.artisan||'',
@@ -2178,14 +2256,15 @@ function LireMarches({data,ch,save,close}){
     <div className="xs mut" style={{lineHeight:1.6,marginBottom:10}}>
       Choisissez les contrats en PDF : le lot, l'entreprise, le montant HT, le taux de TVA et la date
       sont lus puis proposés ci-dessous. <b>Rien n'est enregistré avant votre validation.</b>
-      <br/>Un contrat signé puis scanné ne contient aucun texte : prenez le PDF d'origine, les montants sont les mêmes.
+      <br/>PDF ou Word (.docx). Un contrat signé puis scanné ne contient aucun texte : prenez le fichier d'origine, les montants sont les mêmes.
     </div>
-    <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des contrats (PDF)'}
-      <input type="file" accept="application/pdf,.pdf" multiple style={{display:'none'}} disabled={!!busy}
+    <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des contrats (PDF ou Word)'}
+      <input type="file" accept={DOC_ACCEPT} multiple style={{display:'none'}} disabled={!!busy}
         onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)lire(fs)}}/></label>
     {!!scans.length&&<div className="xs" style={{marginTop:10,background:'#FBF3DF',color:'#6A4E06',borderLeft:'3px solid '+AMBER,padding:8,lineHeight:1.5}}>
-      {scans.length} document{scans.length>1?'s':''} sans texte (scan) : {scans.map(s=>s.nomFichier).join(', ')}.
-      Rien n'a pu en être lu — utilisez le PDF d'origine, ou saisissez ce lot avec « + Lot ».
+      {scans.length} document{scans.length>1?'s':''} n'ont rien donné :
+      {scans.map(s=><div key={s.id} style={{marginTop:3}}>· <b>{s.nomFichier}</b> — {s.motif}</div>)}
+      <div style={{marginTop:4}}>Reprenez le fichier d'origine, ou saisissez ce lot avec « + Lot ».</div>
     </div>}
     {rows.filter(r=>!r.scan).map(r=><div key={r.id} className="card" style={{marginTop:10,borderLeft:'3px solid '+(r.alertes.length?AMBER:GREEN)}}>
       <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
@@ -2249,9 +2328,8 @@ function LireFactures({data,ch,save,close}){
     setBusy('Lecture de '+files.length+' facture'+(files.length>1?'s':'')+'…');
     const out=[];
     for(const file of files){
-      let txt='';
-      try{txt=await pdfText(file)}catch(e){}
-      if(!txt){out.push({id:uid(),file,nomFichier:file.name,scan:true,retenu:false,alertes:[]});continue}
+      const {txt,motif}=await lireDocument(file);
+      if(!txt){out.push({id:uid(),file,nomFichier:file.name,scan:true,motif,retenu:false,alertes:[]});continue}
       const a=analyseFacture(txt);
       const ht=a.montantHT!==null?a.montantHT
         :(a.montantTTC!==null&&a.tva!==null?a.montantTTC/(1+a.tva/100):null);
@@ -2322,16 +2400,17 @@ function LireFactures({data,ch,save,close}){
       :<div>
         <div className="xs mut" style={{lineHeight:1.6,marginBottom:10}}>
           Choisissez les factures en PDF : le montant, la date, le numéro et le taux de TVA sont lus,
-          et chaque facture est rattachée à son lot d'après l'entreprise qui l'émet.
+          et chaque facture est rattachée à son lot d'après l'entreprise qui l'émet. PDF ou Word (.docx).
           <b> Rien n'est enregistré avant votre validation.</b>
         </div>
-        <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des factures (PDF)'}
-          <input type="file" accept="application/pdf,.pdf" multiple style={{display:'none'}} disabled={!!busy}
+        <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des factures (PDF ou Word)'}
+          <input type="file" accept={DOC_ACCEPT} multiple style={{display:'none'}} disabled={!!busy}
             onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)lire(fs)}}/></label>
       </div>}
     {!!scans.length&&<div className="xs" style={{marginTop:10,background:'#FBF3DF',color:'#6A4E06',borderLeft:'3px solid '+AMBER,padding:8,lineHeight:1.5}}>
-      {scans.length} facture{scans.length>1?'s':''} sans texte (scan) : {scans.map(s=>s.nomFichier).join(', ')}.
-      Rien n'a pu en être lu — saisissez-les à la main sur le lot concerné.
+      {scans.length} facture{scans.length>1?'s':''} n'ont rien donné :
+      {scans.map(s=><div key={s.id} style={{marginTop:3}}>· <b>{s.nomFichier}</b> — {s.motif}</div>)}
+      <div style={{marginTop:4}}>Saisissez-les à la main sur le lot concerné.</div>
     </div>}
     {!!sansLot.length&&<div className="xs" style={{marginTop:10,color:AMBER,lineHeight:1.5}}>
       {sansLot.length} facture{sansLot.length>1?'s':''} sans lot reconnu : choisissez le lot ci-dessous, sinon elle{sansLot.length>1?'s ne seront':' ne sera'} pas enregistrée{sansLot.length>1?'s':''}.
