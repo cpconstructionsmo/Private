@@ -141,8 +141,9 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · TVA par commande de matériaux et devis d’honoraires lu automatiquement';
-const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
+const VERSION='2026-08-24 · factures sur les achats de matériaux, au même titre que les marchés';
+const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
+  'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
 const DOCS=[{id:'contrat_moe',l:'Contrat de maîtrise d\u2019œuvre'},{id:'plans_apd',l:'Plans d\u2019avant-projet (APS / APD)'},{id:'pc_depot',l:'Dépôt du permis de construire'},{id:'pc_arrete',l:'Arrêté de permis de construire'},{id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},{id:'daact',l:'DAACT (Cerfa 13408)'},{id:'plans_pc',l:'Plans du permis'},{id:'plans_exe',l:"Plans d'exécution"},{id:'notice',l:'Notice descriptive'},{id:'thermique',l:'Étude thermique RE2020'},{id:'sol',l:'Étude de sol G2'},{id:'do',l:'Assurance dommages-ouvrage'},{id:'pret',l:'Accord de prêt bancaire'},{id:'acte',l:'Acte notarié du terrain'},{id:'attest',l:'Attestation RE2020 fin de travaux'},{id:'pv',l:'PV de réception'}];
@@ -543,7 +544,7 @@ const posteManquants=(ch,ms,cs)=>{
 };
 /* Toutes les factures émises au client : celles des marchés (au taux du lot)
    et celles des honoraires (au taux du chantier). */
-const facturesChantier=(ch,ms)=>{
+const facturesChantier=(ch,ms,cs)=>{
   const L=[];
   for(const m of (ms||[])){
     const tx=marcheTva(m,ch);
@@ -552,6 +553,11 @@ const facturesChantier=(ch,ms)=>{
       L.push({id:f.id,date:f.date||'',libelle:m.lot,poste:'Travaux',ht:+f.montant||0,taux:tx,lien:f.lien||'',numero:f.numero||''});
     else if(+m.facture)
       L.push({id:m.id+'-f',date:m.dateSignature||'',libelle:m.lot,poste:'Travaux',ht:+m.facture||0,taux:tx,lien:''});
+  }
+  for(const c of (cs||[])){
+    const tx=cmdTva(c,ch);
+    for(const f of (c.factures||[]))
+      L.push({id:f.id,date:f.date||'',libelle:c.designation||'Achat de matériaux',poste:'Matériaux',ht:+f.montant||0,taux:tx,lien:f.lien||'',numero:f.numero||''});
   }
   for(const f of (ch.honoFactures||[]))
     L.push({id:f.id,date:f.date||'',libelle:f.libelle||'Honoraires de maîtrise d’œuvre',poste:'Honoraires',ht:+f.montant||0,taux:tvaRate(ch),lien:f.lien||''});
@@ -2133,7 +2139,7 @@ function RecapBudget({ch,ms,cmds}){
 function SuiviFacturation({data,ch}){
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
-  const F=facturesChantier(ch,ms);
+  const F=facturesChantier(ch,ms,cmds);
   const vent=ventileFactures(F);
   const htFac=F.reduce((s,f)=>s+f.ht,0);
   const tvaFac=vent.reduce((s,v)=>s+v.tva,0);
@@ -2159,7 +2165,7 @@ function SuiviFacturation({data,ch}){
     <div className="card" style={{marginTop:12,borderLeft:'3px solid '+NAVY}}>
       <div className="h2" style={{marginBottom:10}}>FACTURES ÉMISES ({F.length})</div>
       {!F.length
-        ?<div className="xs mut" style={{lineHeight:1.5}}>Aucune facture saisie. Les factures des marchés s'ajoutent depuis l'onglet MARCHÉS, celles des honoraires depuis l'onglet HONORAIRES.</div>
+        ?<div className="xs mut" style={{lineHeight:1.5}}>Aucune facture saisie. Les factures des marchés et des achats de matériaux s'ajoutent depuis l'onglet MARCHÉS (« Lire des factures »), celles des honoraires depuis l'onglet HONORAIRES.</div>
         :<div style={{overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:320}}>
             <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
@@ -2354,19 +2360,23 @@ function LireFactures({data,ch,save,close}){
   const [busy,setBusy]=useState('');
   const [envoi,setEnvoi]=useState('');
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
+  const cs=data.commandes.filter(c=>c.chantierId===ch.id);
   const nomArtisan=id=>{const a=data.artisans.find(x=>x.id===id);return a?a.nom:''};
-  /* on rattache la facture à son lot par le nom de l'entreprise qui l'émet,
-     à défaut par l'intitulé du lot cité dessus. Sinon on laisse choisir. */
+  /* une facture se range aussi bien sur un marché de travaux que sur un achat de
+     matériaux : le fournisseur de menuiseries facture comme l'artisan. */
+  const cibles=[
+    ...ms.map(m=>({cle:'m:'+m.id,type:'marche',id:m.id,titre:m.lot,sous:nomArtisan(m.artisanId),
+      montantHT:+m.montantHT||0,factures:m.factures||[],groupe:'Marchés de travaux'})),
+    ...cs.map(c=>({cle:'c:'+c.id,type:'commande',id:c.id,titre:c.designation||'Achat de matériaux',sous:c.fournisseur||'',
+      montantHT:+c.montant||0,factures:c.factures||[],groupe:'Achats de matériaux'})),
+  ];
+  const cible=cle=>cibles.find(x=>x.cle===cle);
+  /* on rattache par le nom de l'entreprise ou du fournisseur qui émet,
+     à défaut par l'intitulé cité dessus. Sinon on laisse choisir. */
   const trouveMarche=txt=>{
     const T=cleNom(txt);
-    for(const m of ms){
-      const k=cleNom(nomArtisan(m.artisanId));
-      if(k.length>=4&&T.indexOf(k)>=0)return m.id;
-    }
-    for(const m of ms){
-      const k=cleNom(m.lot);
-      if(k.length>=5&&T.indexOf(k)>=0)return m.id;
-    }
+    for(const c of cibles){const k=cleNom(c.sous);if(k.length>=4&&T.indexOf(k)>=0)return c.cle}
+    for(const c of cibles){const k=cleNom(c.titre);if(k.length>=5&&T.indexOf(k)>=0)return c.cle}
     return '';
   };
   const lire=async files=>{
@@ -2390,29 +2400,32 @@ function LireFactures({data,ch,save,close}){
   const retenus=rows.filter(r=>r.retenu&&!r.scan&&r.marcheId);
   const sansLot=rows.filter(r=>r.retenu&&!r.scan&&!r.marcheId);
   const doublon=r=>{
-    const m=ms.find(x=>x.id===r.marcheId);
-    return !!m&&(m.factures||[]).some(f=>Math.abs((+f.montant||0)-(+r.montant||0))<0.01&&f.date===r.date);
+    const t=cible(r.marcheId);
+    return !!t&&t.factures.some(f=>Math.abs((+f.montant||0)-(+r.montant||0))<0.01&&f.date===r.date);
   };
-  /* ce qu'il resterait dû sur le lot après cette facture — un dépassement se voit tout de suite */
+  /* ce qu'il resterait dû après cette facture — un dépassement se voit tout de suite */
   const resteApres=r=>{
-    const m=ms.find(x=>x.id===r.marcheId);
-    if(!m)return null;
-    const dejaFacture=facturesTotal(m.factures)||(+m.facture||0);
-    const memeLot=retenus.filter(x=>x.marcheId===r.marcheId).reduce((s,x)=>s+(+x.montant||0),0);
-    return (+m.montantHT||0)-dejaFacture-memeLot;
+    const t=cible(r.marcheId);
+    if(!t)return null;
+    const dejaFacture=facturesTotal(t.factures);
+    const memeLigne=retenus.filter(x=>x.marcheId===r.marcheId).reduce((s,x)=>s+(+x.montant||0),0);
+    return t.montantHT-dejaFacture-memeLigne;
   };
   const ajouter=async()=>{
     const marches=data.marches.map(m=>({...m,factures:[...(m.factures||[])]}));
+    const commandes=data.commandes.map(c=>({...c,factures:[...(c.factures||[])]}));
     const envois=[];
     for(const r of retenus){
-      const m=marches.find(x=>x.id===r.marcheId);
-      if(!m)continue;
+      const t=cible(r.marcheId);
+      if(!t)continue;
+      const cible2=t.type==='marche'?marches.find(x=>x.id===t.id):commandes.find(x=>x.id===t.id);
+      if(!cible2)continue;
       const fid=uid();
-      m.factures.push({id:fid,montant:+r.montant||0,date:r.date||today(),lien:'',numero:r.numero||''});
-      m.facture=facturesTotal(m.factures);
-      envois.push({marcheId:m.id,fid,file:r.file});
+      cible2.factures.push({id:fid,montant:+r.montant||0,date:r.date||today(),lien:'',numero:r.numero||''});
+      cible2.facture=facturesTotal(cible2.factures);
+      envois.push({type:t.type,ligneId:t.id,fid,file:r.file});
     }
-    let etat={...data,marches};
+    let etat={...data,marches,commandes};
     save(etat);
     try{
       setEnvoi('Envoi des factures sur le Drive…');
@@ -2424,14 +2437,15 @@ function LireFactures({data,ch,save,close}){
         try{const{webViewLink}=await uploadToDrive(e.file,folderId);liens.push({...e,lien:webViewLink})}catch(x){}
       }
       if(liens.length){
-        etat={...etat,marches:etat.marches.map(m=>{
-          const pour=liens.filter(l=>l.marcheId===m.id);
-          if(!pour.length)return m;
-          return {...m,factures:(m.factures||[]).map(f=>{
-            const l=pour.find(x=>x.fid===f.id);
+        const poser=(liste,type)=>liste.map(x=>{
+          const pour=liens.filter(l=>l.type===type&&l.ligneId===x.id);
+          if(!pour.length)return x;
+          return {...x,factures:(x.factures||[]).map(f=>{
+            const l=pour.find(y=>y.fid===f.id);
             return l?{...f,lien:l.lien}:f;
           })};
-        })};
+        });
+        etat={...etat,marches:poser(etat.marches,'marche'),commandes:poser(etat.commandes,'commande')};
         save(etat);
       }
     }catch(e){/* Drive non connecté : les factures restent enregistrées */}
@@ -2440,12 +2454,13 @@ function LireFactures({data,ch,save,close}){
   };
   return <div className="card" style={{borderLeft:'3px solid '+TERRA}}>
     <div className="h2" style={{marginBottom:8}}>LIRE DES FACTURES</div>
-    {!ms.length
-      ?<div className="xs mut" style={{lineHeight:1.6}}>Créez d'abord les lots — une facture se range sur un marché. Utilisez « Lire des contrats » ou « + Lot ».</div>
+    {!cibles.length
+      ?<div className="xs mut" style={{lineHeight:1.6}}>Créez d'abord les lots ou les commandes de matériaux — une facture se range sur l'un ou l'autre. Utilisez « Lire des contrats », « + Lot », ou l'onglet MATÉRIAUX.</div>
       :<div>
         <div className="xs mut" style={{lineHeight:1.6,marginBottom:10}}>
           Choisissez les factures en PDF : le montant, la date, le numéro et le taux de TVA sont lus,
-          et chaque facture est rattachée à son lot d'après l'entreprise qui l'émet. PDF ou Word (.docx).
+          et chaque facture est rattachée d'après l'entreprise ou le fournisseur qui l'émet — marché de travaux
+          comme achat de matériaux. PDF ou Word (.docx).
           <b> Rien n'est enregistré avant votre validation.</b>
         </div>
         <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des factures (PDF ou Word)'}
@@ -2458,7 +2473,7 @@ function LireFactures({data,ch,save,close}){
       <div style={{marginTop:4}}>Saisissez-les à la main sur le lot concerné.</div>
     </div>}
     {!!sansLot.length&&<div className="xs" style={{marginTop:10,color:AMBER,lineHeight:1.5}}>
-      {sansLot.length} facture{sansLot.length>1?'s':''} sans lot reconnu : choisissez le lot ci-dessous, sinon elle{sansLot.length>1?'s ne seront':' ne sera'} pas enregistrée{sansLot.length>1?'s':''}.
+      {sansLot.length} facture{sansLot.length>1?'s':''} sans destination reconnue : choisissez la ligne ci-dessous, sinon elle{sansLot.length>1?'s ne seront':' ne sera'} pas enregistrée{sansLot.length>1?'s':''}.
     </div>}
     {rows.filter(r=>!r.scan).map(r=>{
       const reste=resteApres(r);
@@ -2469,10 +2484,15 @@ function LireFactures({data,ch,save,close}){
             <input type="checkbox" checked={r.retenu} onChange={e=>upd(r.id,{retenu:e.target.checked})}/> retenir
           </label>
         </div>
-        <Fld label="LOT CONCERNÉ">
+        <Fld label="LOT OU ACHAT CONCERNÉ">
           <select className="in" value={r.marcheId} onChange={e=>upd(r.id,{marcheId:e.target.value})}>
             <option value="">— à choisir —</option>
-            {ms.map(m=><option key={m.id} value={m.id}>{m.lot}{nomArtisan(m.artisanId)?' — '+nomArtisan(m.artisanId):''}</option>)}
+            {['Marchés de travaux','Achats de matériaux'].map(g=>{
+              const dedans=cibles.filter(c=>c.groupe===g);
+              return dedans.length?<optgroup key={g} label={g}>
+                {dedans.map(c=><option key={c.cle} value={c.cle}>{c.titre}{c.sous?' — '+c.sous:''}</option>)}
+              </optgroup>:null;
+            })}
           </select>
         </Fld>
         <div className="g3">
@@ -2484,8 +2504,8 @@ function LireFactures({data,ch,save,close}){
         {r.alertes.map((a,i)=><div key={i} className="xs" style={{color:AMBER,marginTop:6,lineHeight:1.5}}>{a}</div>)}
         {doublon(r)&&<div className="xs" style={{color:TERRA,marginTop:6,lineHeight:1.5}}>Une facture du même montant et de la même date figure déjà sur ce lot — doublon probable.</div>}
         {reste!==null&&reste<-0.01&&<div className="xs" style={{color:TERRA,marginTop:6,lineHeight:1.5}}>
-          Ce lot serait facturé {eur(-reste)} au-delà de son marché.</div>}
-        {reste!==null&&reste>=-0.01&&r.marcheId&&<div className="xs mut" style={{marginTop:6}}>Resterait à facturer sur ce lot : {eur(reste)} HT.</div>}
+          Cette ligne serait facturée {eur(-reste)} au-delà de son montant{(cible(r.marcheId)||{}).type==='commande'?' de commande':' de marché'}.</div>}
+        {reste!==null&&reste>=-0.01&&r.marcheId&&<div className="xs mut" style={{marginTop:6}}>Resterait à facturer sur cette ligne : {eur(reste)} HT.</div>}
       </div>;
     })}
     {!!rows.filter(r=>!r.scan).length&&<div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
@@ -2678,10 +2698,45 @@ function Plein({p,close}){
 /* ---------------- COMMANDES MATÉRIAUX ---------------- */
 function Commandes({data,ch,save}){
   const [f,setF]=useState(null);
+  /* une commande de matériaux se facture comme un marché : le fournisseur envoie
+     sa facture, elle se range sur la commande et entre dans le suivi de facturation. */
+  const [luFact,setLuFact]=useState(null);
+  const addFacture=()=>setF({...f,factures:[...(f.factures||[]),{id:uid(),montant:'',date:today(),lien:'',numero:''}]});
+  const updFacture=(fid,patch)=>setF(p=>({...p,factures:(p.factures||[]).map(x=>x.id===fid?{...x,...patch}:x)}));
+  const delFacture=fid=>setF({...f,factures:(f.factures||[]).filter(x=>x.id!==fid)});
+  const importFacture=async(fid,file)=>{
+    let lu=null;
+    if(!/^image\//.test(file.type||'')){
+      try{
+        const {txt,motif}=await lireDocument(file);
+        if(txt){
+          const a=analyseFacture(txt);
+          const cible=(f.factures||[]).find(x=>x.id===fid)||{};
+          const patch={};
+          const ht=a.montantHT!==null?a.montantHT:(a.montantTTC!==null&&a.tva!==null?a.montantTTC/(1+a.tva/100):null);
+          if(ht!==null&&(cible.montant===''||cible.montant===undefined||cible.montant===null))patch.montant=Math.round(ht*100)/100;
+          if(a.date&&!cible.date)patch.date=a.date;
+          if(a.numero&&!cible.numero)patch.numero=a.numero;
+          if(Object.keys(patch).length){updFacture(fid,patch);lu={patch,a};}else lu={patch:null,a};
+        }else lu={motif};
+      }catch(e){}
+    }
+    setLuFact(lu);
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveFacturesFolder(token,ch.id,ch.nom);
+      const{webViewLink}=await uploadToDrive(file,folderId);
+      updFacture(fid,{lien:webViewLink});
+    }catch(e){
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous).":"Import de la facture impossible.");
+    }
+  };
   const list=data.commandes.filter(c=>c.chantierId===ch.id).sort((a,b)=>(a.livrPrevue||'9999').localeCompare(b.livrPrevue||'9999'));
   const ok=()=>{
     if(!f.designation.trim())return;
-    const r={...f,montant:+f.montant||0,tva:f.tva===''||f.tva===undefined||f.tva===null?'':+f.tva};
+    const factures=f.factures||[];
+    const r={...f,montant:+f.montant||0,tva:f.tva===''||f.tva===undefined||f.tva===null?'':+f.tva,
+      factures,facture:facturesTotal(factures)};
     save({...data,commandes:f.id?data.commandes.map(c=>c.id===f.id?r:c):[...data.commandes,{...r,id:uid(),chantierId:ch.id}]});
     setF(null);
   };
@@ -2689,7 +2744,7 @@ function Commandes({data,ch,save}){
   return <div>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">{list.length} commande{list.length>1?'s':''} — {eur(tot)} HT · {eur(totTTC)} TTC</span>
-      <button className="btn acc s" onClick={()=>setF({designation:'',fournisseur:'',lot:'',montant:'',tva:'',dateCommande:'',livrPrevue:'',livrReelle:'',statut:'a_commander',notes:''})}>+ Commande</button>
+      <button className="btn acc s" onClick={()=>setF({designation:'',fournisseur:'',lot:'',montant:'',tva:'',dateCommande:'',livrPrevue:'',livrReelle:'',statut:'a_commander',notes:'',factures:[]})}>+ Commande</button>
     </div>
     {f&&<div className="card">
       <Fld label="DÉSIGNATION"><input className="in" placeholder="Menuiseries alu — 8 ouvrants" value={f.designation} onChange={e=>setF({...f,designation:e.target.value})}/></Fld>
@@ -2717,12 +2772,31 @@ function Commandes({data,ch,save}){
           onChange={v=>setF({...f,devis:v})}/>
         <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Rangés dans Drive › {ch.nom} › Matériaux. PDF, Word ou photo.</div>
       </Fld>
+      <Fld label={"FACTURES DU FOURNISSEUR — total "+eur(facturesTotal(f.factures))+" HT"}>
+        {(f.factures||[]).map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center',flexWrap:'wrap'}}>
+          <input className="in" type="number" step="0.01" placeholder="Montant HT €" value={x.montant} onChange={e=>updFacture(x.id,{montant:e.target.value})} style={{flex:'1 1 90px'}}/>
+          <input className="in" type="date" value={x.date} onChange={e=>updFacture(x.id,{date:e.target.value})} style={{flex:'1 1 120px'}}/>
+          {x.lien
+            ?<span className="row" style={{gap:6,alignItems:'center',whiteSpace:'nowrap'}}><Transmis/>
+              <a href={x.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Voir</a></span>
+            :<label className="xs" style={{color:NAVY,whiteSpace:'nowrap'}}>Importer<input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importFacture(x.id,file)}}/></label>}
+          <button className="btn dg s" onClick={()=>delFacture(x.id)}>✕</button>
+        </div>)}
+        <button className="btn gh s" onClick={addFacture}>+ Facture</button>
+        {luFact&&luFact.motif&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          Rien n'a pu être lu — {luFact.motif}. Montant et date à saisir à la main ; le fichier est bien envoyé sur le Drive.</div>}
+        {luFact&&luFact.patch&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+          Lu sur la facture :{luFact.patch.montant!==undefined&&<span> montant <b>{eur(luFact.patch.montant)} HT</b></span>}
+          {luFact.patch.date!==undefined&&<span> · date <b>{fd(luFact.patch.date)}</b></span>}. À vérifier.</div>}
+        {f.montant>0&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+          Commande {eur(f.montant)} HT — reste à facturer <b>{eur((+f.montant||0)-facturesTotal(f.factures))}</b> HT.</div>}
+      </Fld>
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
       <DriveStatus/>
-      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,commandes:data.commandes.filter(c=>c.id!==f.id)});setF(null)}:null}/>
+      <Acts onSave={ok} onCancel={()=>{setF(null);setLuFact(null)}} onDel={f.id?()=>{save({...data,commandes:data.commandes.filter(c=>c.id!==f.id)});setF(null)}:null}/>
     </div>}
     {!list.length&&!f&&<Empty>Aucune commande. Suivez ici les matériaux à approvisionner.</Empty>}
-    {list.map(c=><LigneCmd key={c.id} c={c} ch={ch} onClick={()=>setF(c)}/>)}
+    {list.map(c=><LigneCmd key={c.id} c={c} ch={ch} onClick={()=>{setLuFact(null);setF(c.factures?c:{...c,factures:[]})}}/>)}
   </div>;
 }
 
@@ -2737,7 +2811,7 @@ function LigneCmd({c,onClick,chantierNom,ch}){
     <div className="xs mut" style={{marginTop:3}}>{chantierNom?chantierNom+' · ':''}{c.fournisseur||'fournisseur non précisé'}{c.lot?' · '+c.lot:''}</div>
     <div className="sp xs" style={{marginTop:8}}>
       <span>{eur(c.montant)} HT{ch?<span className="mut"> · {eur(cmdTTC(c,ch))} TTC (TVA {cmdTva(c,ch)} %)</span>:null}{(c.devis||[]).length?<span style={{color:GREEN}}> · ✓ {(c.devis||[]).length} devis</span>:null}</span>
-      <span className="mut">{c.livrReelle?'livré le '+fd(c.livrReelle):c.livrPrevue?'prévu le '+fd(c.livrPrevue):'sans date'}</span>
+      <span className="mut">{(c.factures||[]).length?'facturé '+eur(facturesTotal(c.factures))+' HT':(c.livrReelle?'livré le '+fd(c.livrReelle):c.livrPrevue?'prévu le '+fd(c.livrPrevue):'sans date')}</span>
     </div>
   </button>;
 }
@@ -3523,7 +3597,7 @@ function Bilan({data,open}){
        ET les honoraires : c'est exactement ce que couvre le budget annoncé. */
     const co=coutOperation(c,ms,cs);
     const bc=budgetClient(c);
-    const F=facturesChantier(c,ms), ventF=ventileFactures(F);
+    const F=facturesChantier(c,ms,cs), ventF=ventileFactures(F);
     const htFac=F.reduce((s,f)=>s+f.ht,0), tvaFac=ventF.reduce((s,v)=>s+v.tva,0);
     return {...c,eng,fac,mat,hono,honoFac,retro,retroFac,av,
       ouvHT:co.travHT+co.matHT,ouvTTC:co.travTTC+co.matTTC,
