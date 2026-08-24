@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · factures d’honoraires lues et suivies comme les autres';
+const VERSION='2026-08-24 · taux de TVA propre aux honoraires, chantier et facture par facture';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -494,6 +494,12 @@ const travauxHTot=ms=>ms.reduce((s,m)=>s+(m.montantHT||0),0);
 /* la TVA se règle aussi par commande : un escalier peut être facturé à 10 % en
    rénovation quand le reste du chantier est à 20 %. Sans taux propre, la commande
    suit celui du chantier. 0 est une valeur valide, pas une absence. */
+/* les honoraires de maîtrise d'œuvre ne relèvent pas forcément du taux des
+   travaux : franchise en base côté MOE, ou taux normal quand le chantier est
+   à 10 %. Chaque facture d'honoraires peut elle-même porter le sien. */
+const honoTva=ch=>(ch&&ch.tvaHono!==undefined&&ch.tvaHono!==null&&ch.tvaHono!=='')?+ch.tvaHono:tvaRate(ch);
+const honoTTCm=(ht,ch)=>(ht||0)*(1+honoTva(ch)/100);
+const honoFactTva=(f,ch)=>(f&&f.tva!==undefined&&f.tva!==null&&f.tva!=='')?+f.tva:honoTva(ch);
 const cmdTva=(c,ch)=>(c&&c.tva!==undefined&&c.tva!==null&&c.tva!=='')?+c.tva:tvaRate(ch);
 const cmdTTC=(c,ch)=>(+(c&&c.montant)||0)*(1+cmdTva(c,ch)/100);
 const materiauxHT=cs=>(cs||[]).reduce((s,c)=>s+(+c.montant||0),0);
@@ -525,7 +531,7 @@ const coutOperation=(ch,ms,cs)=>{
   const marches=ms||[], cmds=cs||[];
   const travHT=travauxHTot(marches), travTTC=travauxTTC(marches,ch);
   const matHT=materiauxHT(cmds), matTTC=materiauxTTC(cmds,ch);
-  const honoHT=honoAmount(ch), honoTTC=ttc(honoHT,ch);
+  const honoHT=honoAmount(ch), honoTTC=honoTTCm(honoHT,ch);
   return {travHT,travTVA:travTTC-travHT,travTTC,
           matHT,matTVA:matTTC-matHT,matTTC,
           honoHT,honoTVA:honoTTC-honoHT,honoTTC,
@@ -560,7 +566,7 @@ const facturesChantier=(ch,ms,cs)=>{
       L.push({id:f.id,date:f.date||'',libelle:c.designation||'Achat de matériaux',poste:'Matériaux',ht:+f.montant||0,taux:tx,lien:f.lien||'',numero:f.numero||''});
   }
   for(const f of (ch.honoFactures||[]))
-    L.push({id:f.id,date:f.date||'',libelle:f.libelle||'Honoraires de maîtrise d’œuvre',poste:'Honoraires',ht:+f.montant||0,taux:tvaRate(ch),lien:f.lien||'',numero:f.numero||''});
+    L.push({id:f.id,date:f.date||'',libelle:f.libelle||'Honoraires de maîtrise d’œuvre',poste:'Honoraires',ht:+f.montant||0,taux:honoFactTva(f,ch),lien:f.lien||'',numero:f.numero||''});
   return L.sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
 };
 const ventileFactures=L=>{
@@ -1710,6 +1716,7 @@ function Fiche({data,ch,save,back}){
   const saveEdit=()=>{
     up({...edit,budget:+edit.budget||0,
       budgetClientTTC:(edit.budgetClientTTC===''||edit.budgetClientTTC===undefined)?'':+edit.budgetClientTTC,
+      tvaHono:(edit.tvaHono===''||edit.tvaHono===undefined||edit.tvaHono===null)?'':+edit.tvaHono,
       honorairesPct:+edit.honorairesPct||0,honorairesMontant:edit.honorairesMontant===''?'':+edit.honorairesMontant,
       tva:edit.tva===''?'':+edit.tva,delaiPrevu:edit.delaiPrevu===''?'':+edit.delaiPrevu,
       surfacePlancher:edit.surfacePlancher===''?'':+edit.surfacePlancher,surfaceHabitable:edit.surfaceHabitable===''?'':+edit.surfaceHabitable});
@@ -1780,6 +1787,14 @@ function Fiche({data,ch,save,back}){
           <input className="in" type="number" placeholder={'Auto : '+eur(edit.budget*(edit.honorairesPct||0)/100)} value={edit.honorairesMontant||''} onChange={e=>setEdit({...edit,honorairesMontant:e.target.value})}/>
         </Fld>
       </div>
+      <Fld label="TVA SUR LES HONORAIRES (%)">
+        <input className="in" type="number" step="0.1" placeholder={'Chantier : '+tvaRate(edit)+' %'}
+          value={edit.tvaHono===undefined||edit.tvaHono===null?'':edit.tvaHono} onChange={e=>setEdit({...edit,tvaHono:e.target.value})}/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+          Laissez vide pour suivre le taux du chantier ({tvaRate(edit)} %). Saisissez <b>0</b> si vous êtes en franchise en base,
+          ou <b>20</b> quand les travaux sont à taux réduit mais pas la maîtrise d'œuvre.
+        </div>
+      </Fld>
       <div className="g2">
         <Fld label="OUVERTURE DE CHANTIER"><input className="in" type="date" value={edit.dateOuverture||''} onChange={e=>setEdit({...edit,dateOuverture:e.target.value})}/></Fld>
         <Fld label="DÉLAI PRÉVU (JOURS)"><input className="in" type="number" placeholder={String(DELAI_DEFAUT)} value={edit.delaiPrevu===undefined?'':edit.delaiPrevu} onChange={e=>setEdit({...edit,delaiPrevu:e.target.value})}/></Fld>
@@ -1826,7 +1841,7 @@ function Fiche({data,ch,save,back}){
           <div className="mut">engagé {eur(eng)}</div></div>
         <div><div className="mut">Reste à facturer — honoraires</div>
           <div className="b" style={{color:hono-honoFac>0?TERRA:GREEN}}>{hono-honoFac>0?eur(hono-honoFac)+' HT':'soldé'}</div>
-          <div className="mut">{eur(ttc(hono-honoFac,ch))} TTC</div></div>
+          <div className="mut">{eur(honoTTCm(hono-honoFac,ch))} TTC</div></div>
       </div>
       <div className="xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
         {jOuv===null
@@ -2093,7 +2108,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                 onClick={onFacturerHono}>
                 <td style={{padding:'8px 4px'}}>
                   <div className="b">Honoraires MOE{n?<span style={{color:GREEN}}> ✓</span>:null}</div>
-                  <div className="mut">CP Constructions · TVA {tvaRate(ch)} %</div>
+                  <div className="mut">CP Constructions · TVA {honoTva(ch)} %</div>
                   {onFacturerHono&&<div style={{color:TERRA,marginTop:2}}>{n?n+' facture'+(n>1?'s':'')+' — modifier ›':'Facturer ›'}</div>}
                 </td>
                 <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(du)}</td>
@@ -2111,7 +2126,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
 
 /* récapitulatif budgétaire : travaux et honoraires, hors puis avec honoraires */
 function RecapBudget({ch,ms,cmds}){
-  const honoHT=honoAmount(ch), txHono=tvaRate(ch);
+  const honoHT=honoAmount(ch), txHono=honoTva(ch);
   const travHT=travauxHTot(ms), travTTC=travauxTTC(ms,ch), travTVA=travTTC-travHT;
   const vent=ventilationTva(ms,ch);
   /* matériaux commandés directement : ils font partie du coût de l'ouvrage au
@@ -2491,7 +2506,7 @@ function LireFactures({data,ch,save,close}){
       if(!t)continue;
       const fid=uid();
       const ligne={id:fid,montant:+r.montant||0,date:r.date||today(),lien:'',numero:r.numero||''};
-      if(t.type==='honoraires'){honoFactures.push({...ligne,libelle:''})}
+      if(t.type==='honoraires'){honoFactures.push({...ligne,libelle:'',tva:r.tva===null||r.tva===undefined?'':r.tva})}
       else{
         const dest=t.type==='marche'?marches.find(x=>x.id===t.id):commandes.find(x=>x.id===t.id);
         if(!dest)continue;
@@ -3231,6 +3246,8 @@ function Honoraires({data,ch,save}){
   const [busy,setBusy]=useState(null);
   const [busyRetro,setBusyRetro]=useState(null);
   const total=honoAmount(ch), facture=sumMontants(hf), reste=total-facture;
+  /* chaque facture peut porter son taux : le TTC encaissé se somme facture par facture */
+  const factureTTC=hf.reduce((s,x)=>s+(+x.montant||0)*(1+honoFactTva(x,ch)/100),0);
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
   const groupes=[
@@ -3269,11 +3286,11 @@ function Honoraires({data,ch,save}){
     const patch={};
     if(a.montantHT!==null)patch.honorairesMontant=Math.round(a.montantHT*100)/100;
     if(a.pct!==null)patch.honorairesPct=a.pct;
-    if(a.tva!==null&&a.tva!==undefined&&(ch.tva===undefined||ch.tva===null||ch.tva===''))patch.tva=a.tva;
+    if(a.tva!==null&&a.tva!==undefined&&(ch.tvaHono===undefined||ch.tvaHono===null||ch.tvaHono===''))patch.tvaHono=a.tva;
     if(Object.keys(patch).length)upCh(patch);
     setDevisLu(null);
   };
-  const add=()=>upHono([...hf,{id:uid(),montant:'',date:'',libelle:'',lien:'',numero:''}]);
+  const add=()=>upHono([...hf,{id:uid(),montant:'',date:'',libelle:'',lien:'',numero:'',tva:''}]);
   const [luHono,setLuHono]=useState(null);
   const upd=(id,patch)=>upHono(hf.map(x=>x.id===id?{...x,...patch}:x));
   const del=id=>upHono(hf.filter(x=>x.id!==id));
@@ -3296,6 +3313,7 @@ function Honoraires({data,ch,save}){
           if(ht!==null&&(cible.montant===''||cible.montant===undefined||cible.montant===null))patch.montant=Math.round(ht*100)/100;
           if(a.date&&!cible.date)patch.date=a.date;
           if(a.numero&&!cible.numero)patch.numero=a.numero;
+          if(a.tva!==null&&a.tva!==undefined&&(cible.tva===''||cible.tva===undefined||cible.tva===null))patch.tva=a.tva;
           if(Object.keys(patch).length){acc={...acc,...patch};upd(id,acc);lu={patch,id};}else lu={patch:null,id};
         }else lu={motif,id};
       }catch(e){}
@@ -3326,9 +3344,9 @@ function Honoraires({data,ch,save}){
   };
   return <div>
     <div className="g2">
-      <Stat l="Honoraires TTC" v={eur(ttc(total,ch))} c={NAVY}/>
-      <Stat l="Déjà facturé TTC" v={eur(ttc(facture,ch))}/>
-      <Stat l={"Reste à facturer TTC"} v={eur(ttc(reste,ch))} c={reste>0?TERRA:GREEN}/>
+      <Stat l="Honoraires TTC" v={eur(honoTTCm(total,ch))} c={NAVY}/>
+      <Stat l="Déjà facturé TTC" v={eur(factureTTC)}/>
+      <Stat l={"Reste à facturer TTC"} v={eur(honoTTCm(total,ch)-factureTTC)} c={reste>0?TERRA:GREEN}/>
       <Stat l="Reste à facturer HT" v={reste>0?eur(reste):'soldé'} c={reste>0?INK:GREEN}/>
     </div>
     <div className="card" style={{marginTop:8,borderLeft:'3px solid '+NAVY}}>
@@ -3366,7 +3384,7 @@ function Honoraires({data,ch,save}){
         </div>}
       </Fld>
       <div className="xs mut" style={{lineHeight:1.6}}>
-        Base HT : <b>{eur(total)}</b>{ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!==''?' (montant saisi)':' ('+(ch.honorairesPct||0)+' % de '+eur(budgetTravauxHT(ch))+' HT de travaux)'} · TVA {tvaRate(ch)} %<br/>
+        Base HT : <b>{eur(total)}</b>{ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!==''?' (montant saisi)':' ('+(ch.honorairesPct||0)+' % de '+eur(budgetTravauxHT(ch))+' HT de travaux)'} · TVA {honoTva(ch)} %{honoTva(ch)!==tvaRate(ch)?' (le chantier est à '+tvaRate(ch)+' %)':''}<br/>
         Le montant des honoraires se modifie via « Modifier » sur la fiche du chantier.
       </div>
     </div>
@@ -3391,8 +3409,12 @@ function Honoraires({data,ch,save}){
         <Fld label="LIBELLÉ"><input className="in" placeholder="Acompte, phase PC, situation n°…" value={x.libelle||''} onChange={e=>upd(x.id,{libelle:e.target.value})}/></Fld>
         <Fld label="N° DE FACTURE"><input className="in" value={x.numero||''} onChange={e=>upd(x.id,{numero:e.target.value})}/></Fld>
       </div>
+      <Fld label="TVA DE CETTE FACTURE (%)">
+        <input className="in" type="number" step="0.1" placeholder={'Honoraires : '+honoTva(ch)+' %'}
+          value={x.tva===undefined||x.tva===null?'':x.tva} onChange={e=>upd(x.id,{tva:e.target.value})}/>
+      </Fld>
       <div className="sp" style={{flexWrap:'wrap',gap:8}}>
-        <span className="xs mut">{eur(ttc(x.montant,ch))} TTC</span>
+        <span className="xs mut">{eur((+x.montant||0)*(1+honoFactTva(x,ch)/100))} TTC · TVA {honoFactTva(x,ch)} %</span>
         <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
           {x.lien
             ?<span className="row" style={{gap:10,alignItems:'center',whiteSpace:'nowrap'}}><Transmis/>
@@ -3408,7 +3430,8 @@ function Honoraires({data,ch,save}){
       {luHono&&luHono.id===x.id&&luHono.patch&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
         Lu sur la facture :{luHono.patch.montant!==undefined&&<span> montant <b>{eur(luHono.patch.montant)} HT</b></span>}
         {luHono.patch.date!==undefined&&<span> · date <b>{fd(luHono.patch.date)}</b></span>}
-        {luHono.patch.numero!==undefined&&<span> · n° <b>{luHono.patch.numero}</b></span>}. À vérifier.</div>}
+        {luHono.patch.numero!==undefined&&<span> · n° <b>{luHono.patch.numero}</b></span>}
+        {luHono.patch.tva!==undefined&&<span> · TVA <b>{luHono.patch.tva} %</b></span>}. À vérifier.</div>}
     </div>)}
 
     <div className="sp" style={{margin:'20px 0 12px'}}>
