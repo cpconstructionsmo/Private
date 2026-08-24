@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · nouvelle interface : cartes arrondies, pastilles d’état, navigation revue';
+const VERSION='2026-08-24 · budget client unique en TTC et onglet FACTURATION avec le détail de TVA';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -369,12 +369,9 @@ const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
 const today=()=>new Date().toISOString().slice(0,10);
 const fd=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
 const wa=t=>t?t.replace(/[^0-9]/g,'').replace(/^0/,'33'):'';
-const honoAmount=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:budgetHT(ch)*(ch.honorairesPct||0)/100;
+const honoAmount=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:budgetTravauxHT(ch)*(ch.honorairesPct||0)/100;
 const tvaRate=ch=>(ch&&ch.tva!==undefined&&ch.tva!==null&&ch.tva!=='')?+ch.tva:20;
 const ttc=(ht,ch)=>(ht||0)*(1+tvaRate(ch)/100);
-/* Le budget annoncé au client l'est presque toujours TTC, alors que les marchés
-   se suivent en HT. On garde donc la base de saisie, sans quoi la comparaison
-   oppose deux grandeurs différentes et l'écart affiché ne veut rien dire. */
 /* « date de signature » : celle du contrat de maîtrise d'œuvre, sinon le jalon
    de signature des marchés, sinon le plus ancien marché signé. */
 const dateSignature=(ch,marches)=>{
@@ -385,9 +382,17 @@ const dateSignature=(ch,marches)=>{
   const ds=(marches||[]).filter(m=>m.chantierId===ch.id&&m.dateSignature).map(m=>m.dateSignature).sort();
   return ds[0]||'';
 };
-const budgetEnTTC=ch=>!!(ch&&ch.budgetBase==='ttc');
-const budgetHT=ch=>{const v=+(ch&&ch.budget)||0;return budgetEnTTC(ch)?v/(1+tvaRate(ch)/100):v};
-const budgetTTC=ch=>{const v=+(ch&&ch.budget)||0;return budgetEnTTC(ch)?v:ttc(v,ch)};
+/* Un seul chiffre est annoncé au client, et il est TTC tout compris : marchés de
+   travaux, matériaux commandés en direct et honoraires de maîtrise d'œuvre.
+   C'est le seul budget saisi ; tout le reste se lit sur les pièces enregistrées. */
+const budgetClient=ch=>{
+  const v=ch&&ch.budgetClientTTC;
+  if(v!==undefined&&v!==null&&v!=='')return +v||0;
+  /* reprise de l'ancienne saisie « montant TTC annoncé au client » */
+  return (ch&&ch.budgetBase==='ttc')?+ch.budget||0:0;
+};
+/* budget de travaux HT : ne sert plus qu'à calculer des honoraires en pourcentage */
+const budgetTravauxHT=ch=>+(ch&&ch.budget)||0;
 const DELAI_DEFAUT=365;
 const delaiPrevu=ch=>(ch&&ch.delaiPrevu)?+ch.delaiPrevu:DELAI_DEFAUT;
 const joursDepuis=d=>d?Math.floor((new Date().setHours(0,0,0,0)-new Date(d).setHours(0,0,0,0))/86400000):null;
@@ -419,6 +424,54 @@ const ventilationTva=(ms,ch)=>{
     const cur=map.get(t)||{taux:t,ht:0,n:0};
     cur.ht+=(m.montantHT||0); cur.n++;
     map.set(t,cur);
+  }
+  return [...map.values()].map(x=>({...x,tva:x.ht*x.taux/100,ttc:x.ht*(1+x.taux/100)})).sort((a,b)=>b.taux-a.taux);
+};
+
+/* Coût réel de l'opération, poste par poste — c'est lui qui se compare au budget
+   annoncé au client. Les matériaux commandés en direct suivent le taux du chantier. */
+const coutOperation=(ch,ms,cs)=>{
+  const marches=ms||[], cmds=cs||[];
+  const travHT=travauxHTot(marches), travTTC=travauxTTC(marches,ch);
+  const matHT=cmds.reduce((s,c)=>s+(+c.montant||0),0), matTTC=ttc(matHT,ch);
+  const honoHT=honoAmount(ch), honoTTC=ttc(honoHT,ch);
+  return {travHT,travTVA:travTTC-travHT,travTTC,
+          matHT,matTVA:matTTC-matHT,matTTC,
+          honoHT,honoTVA:honoTTC-honoHT,honoTTC,
+          totalHT:travHT+matHT+honoHT,totalTTC:travTTC+matTTC+honoTTC};
+};
+/* une commande n'est définitive qu'une fois passée : tant qu'elle est « à commander »,
+   le chiffrage peut encore bouger, et l'écart annoncé serait prématuré. */
+const cmdDefinitive=c=>!!c&&(c.statut!=='a_commander'||!!c.dateCommande);
+/* l'écart n'a de sens qu'une fois les trois postes arrêtés */
+const posteManquants=(ch,ms,cs)=>{
+  const m=[];
+  if(!(ms||[]).length)m.push('les marchés de travaux');
+  if((cs||[]).some(c=>!cmdDefinitive(c)))m.push('les commandes de matériaux');
+  if(!honoAmount(ch))m.push('les honoraires');
+  return m;
+};
+/* Toutes les factures émises au client : celles des marchés (au taux du lot)
+   et celles des honoraires (au taux du chantier). */
+const facturesChantier=(ch,ms)=>{
+  const L=[];
+  for(const m of (ms||[])){
+    const tx=marcheTva(m,ch);
+    const fs=m.factures||[];
+    if(fs.length)for(const f of fs)
+      L.push({id:f.id,date:f.date||'',libelle:m.lot,poste:'Travaux',ht:+f.montant||0,taux:tx,lien:f.lien||''});
+    else if(+m.facture)
+      L.push({id:m.id+'-f',date:m.dateSignature||'',libelle:m.lot,poste:'Travaux',ht:+m.facture||0,taux:tx,lien:''});
+  }
+  for(const f of (ch.honoFactures||[]))
+    L.push({id:f.id,date:f.date||'',libelle:f.libelle||'Honoraires de maîtrise d’œuvre',poste:'Honoraires',ht:+f.montant||0,taux:tvaRate(ch),lien:f.lien||''});
+  return L.sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+};
+const ventileFactures=L=>{
+  const map=new Map();
+  for(const f of (L||[])){
+    const cur=map.get(f.taux)||{taux:f.taux,ht:0,n:0};
+    cur.ht+=f.ht; cur.n++; map.set(f.taux,cur);
   }
   return [...map.values()].map(x=>({...x,tva:x.ht*x.taux/100,ttc:x.ht*(1+x.taux/100)})).sort((a,b)=>b.taux-a.taux);
 };
@@ -1167,7 +1220,8 @@ function Chantiers({data,save,open}){
   const [f,setF]=useState(null);
   const ok=()=>{
     if(!f.nom.trim())return;
-    const r={...f,budget:+f.budget||0,honorairesPct:+f.honorairesPct||0,honorairesMontant:f.honorairesMontant===''?'':+f.honorairesMontant};
+    const r={...f,budget:+f.budget||0,budgetClientTTC:(f.budgetClientTTC===''||f.budgetClientTTC===undefined)?'':+f.budgetClientTTC,
+      honorairesPct:+f.honorairesPct||0,honorairesMontant:f.honorairesMontant===''?'':+f.honorairesMontant};
     const nouveau=!f.id, id=f.id||uid();
     save({...data,chantiers:f.id?data.chantiers.map(c=>c.id===f.id?{...c,...r}:c):[...data.chantiers,{...r,id,docs:{},jalons:[]}]});
     setF(null);
@@ -1184,7 +1238,7 @@ function Chantiers({data,save,open}){
     if(tri==='nom')return (a.nom||'').localeCompare(b.nom||'');
     if(tri==='montant')return eng(b.id)-eng(a.id);
     if(tri==='avancement'){
-      const av=c=>{const e=eng(c.id)||budgetHT(c);return e?factu(c.id)/e:0};
+      const av=c=>{const e=eng(c.id)||budgetTravauxHT(c);return e?factu(c.id)/e:0};
       return av(b)-av(a);
     }
     // signature : les plus récents d'abord, ceux sans date à la fin
@@ -1195,7 +1249,7 @@ function Chantiers({data,save,open}){
     return db.localeCompare(da);
   });
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',adresse:'',lienDrive:'',budget:'',honorairesPct:'',honorairesMontant:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
+    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',adresse:'',lienDrive:'',budgetClientTTC:'',budget:'',honorairesPct:'',honorairesMontant:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
     {f&&<div className="card">
       <Fld label="NOM DU CHANTIER"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Barbé — Céaucé"/></Fld>
       <div className="g2">
@@ -1211,17 +1265,15 @@ function Chantiers({data,save,open}){
         <Fld label="SURFACE HABITABLE (m²)"><input className="in" type="number" step="0.01" value={f.surfaceHabitable||''} onChange={e=>setF({...f,surfaceHabitable:e.target.value})}/></Fld>
       </div>
       <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" placeholder="Lien du dossier partagé…" value={f.lienDrive||''} onChange={e=>setF({...f,lienDrive:e.target.value})}/></Fld>
+      <Fld label="BUDGET CLIENT TTC (€) — LE MONTANT ANNONCÉ AU CLIENT">
+        <input className="in" type="number" value={f.budgetClientTTC||''} onChange={e=>setF({...f,budgetClientTTC:e.target.value})} placeholder="181500"/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Tout compris : marchés de travaux, matériaux commandés en direct et honoraires de maîtrise d'œuvre.</div>
+      </Fld>
       <div className="g2">
-        <Fld label="BUDGET TRAVAUX ANNONCÉ (€)">
-          <input className="in" type="number" value={f.budget} onChange={e=>setF({...f,budget:e.target.value})}/>
-          <select className="in" style={{marginTop:6}} value={f.budgetBase||'ht'} onChange={e=>setF({...f,budgetBase:e.target.value})}>
-            <option value="ht">montant HT</option>
-            <option value="ttc">montant TTC (celui annoncé au client)</option>
-          </select>
-        </Fld>
+        <Fld label="BUDGET TRAVAUX HT (€) — ESTIMATION"><input className="in" type="number" value={f.budget} onChange={e=>setF({...f,budget:e.target.value})}/></Fld>
         <Fld label="HONORAIRES MOE (%)"><input className="in" type="number" step="0.1" value={f.honorairesPct} onChange={e=>setF({...f,honorairesPct:e.target.value})}/></Fld>
       </div>
-      <Fld label="MONTANT HONORAIRES (€) — remplacer le calcul automatique">
+      <Fld label="MONTANT HONORAIRES HT (€) — remplacer le calcul automatique">
         <input className="in" type="number" placeholder={'Auto : '+eur(f.budget*(f.honorairesPct||0)/100)} value={f.honorairesMontant||''} onChange={e=>setF({...f,honorairesMontant:e.target.value})}/>
       </Fld>
       <Fld label="PHASE"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>
@@ -1236,8 +1288,11 @@ function Chantiers({data,save,open}){
     <div className="grid-ch">
     {liste.map(c=>{
       const e=eng(c.id),fa=factu(c.id);
-      const base=e||c.budget||0;
+      const base=e||budgetTravauxHT(c);
       const av=base?Math.round(fa/base*100):0;
+      /* on compare le TTC au TTC : le budget annoncé au client comprend tout */
+      const co=coutOperation(c,data.marches.filter(m=>m.chantierId===c.id),data.commandes.filter(x=>x.chantierId===c.id));
+      const bc=budgetClient(c);
       const nd=DOCS.filter(d=>c.docs&&c.docs[d.id]&&c.docs[d.id].fait).length;
       const np=data.photos.filter(p=>p.chantierId===c.id).length;
       const nKo=Object.values(c.controles||{}).filter(r=>r.statut==='non_conforme').length;
@@ -1257,7 +1312,9 @@ function Chantiers({data,save,open}){
         </div>
         <div className="bar"><div style={{height:4,width:Math.min(100,av)+'%',background:GREEN}}/></div>
         <div className="sp xs mut" style={{marginTop:6}}>
-          <span style={{color:e>c.budget?TERRA:MUTED}}>Engagé {eur(e)} / {eur(c.budget)}</span>
+          {bc
+            ?<span style={{color:co.totalTTC>bc?TERRA:MUTED}}>Engagé {eur(co.totalTTC)} / {eur(bc)} TTC</span>
+            :<span>Budget client non renseigné</span>}
           <span>{nd}/{DOCS.length} pièces · {np} photo{np>1?'s':''}</span>
         </div>
         {nKo>0&&<div className="xs b" style={{color:TERRA,marginTop:4}}>{nKo} point{nKo>1?'s':''} de contrôle non conforme{nKo>1?'s':''}</div>}
@@ -1277,7 +1334,9 @@ function Fiche({data,ch,save,back}){
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const eng=ms.reduce((s,m)=>s+(m.montantHT||0),0), fac=ms.reduce((s,m)=>s+(m.facture||0),0);
   const saveEdit=()=>{
-    up({...edit,budget:+edit.budget||0,honorairesPct:+edit.honorairesPct||0,honorairesMontant:edit.honorairesMontant===''?'':+edit.honorairesMontant,
+    up({...edit,budget:+edit.budget||0,
+      budgetClientTTC:(edit.budgetClientTTC===''||edit.budgetClientTTC===undefined)?'':+edit.budgetClientTTC,
+      honorairesPct:+edit.honorairesPct||0,honorairesMontant:edit.honorairesMontant===''?'':+edit.honorairesMontant,
       tva:edit.tva===''?'':+edit.tva,delaiPrevu:edit.delaiPrevu===''?'':+edit.delaiPrevu,
       surfacePlancher:edit.surfacePlancher===''?'':+edit.surfacePlancher,surfaceHabitable:edit.surfaceHabitable===''?'':+edit.surfaceHabitable});
     setEdit(null); setLecturePlan('');
@@ -1294,6 +1353,8 @@ function Fiche({data,ch,save,back}){
     }catch(e){setLecturePlan('erreur')}
   };
   const hono=honoAmount(ch), honoFac=sumMontants(ch.honoFactures);
+  const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
+  const co=coutOperation(ch,ms,cmds), bc=budgetClient(ch), manque=posteManquants(ch,ms,cmds);
   const jOuv=joursDepuis(ch.dateOuverture), dPrev=delaiPrevu(ch);
   const maps=mapsUrl(ch), mapsSearch=mapsSearchUrl(ch);
   return <div>
@@ -1327,8 +1388,12 @@ function Fiche({data,ch,save,back}){
         {lecturePlan==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>Lecture du PDF impossible.</div>}
       </Fld>
       <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" value={edit.lienDrive||''} onChange={e=>setEdit({...edit,lienDrive:e.target.value})}/></Fld>
+      <Fld label="BUDGET CLIENT TTC (€) — LE MONTANT ANNONCÉ AU CLIENT">
+        <input className="in" type="number" value={edit.budgetClientTTC===undefined?'':edit.budgetClientTTC} onChange={e=>setEdit({...edit,budgetClientTTC:e.target.value})} placeholder="181500"/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Un seul chiffre, tout compris : marchés de travaux, matériaux commandés en direct et honoraires de maîtrise d'œuvre.</div>
+      </Fld>
       <div className="g2">
-        <Fld label="BUDGET TRAVAUX HT (€)"><input className="in" type="number" value={edit.budget} onChange={e=>setEdit({...edit,budget:e.target.value})}/></Fld>
+        <Fld label="BUDGET TRAVAUX HT (€) — ESTIMATION"><input className="in" type="number" value={edit.budget} onChange={e=>setEdit({...edit,budget:e.target.value})}/></Fld>
         <Fld label="TVA (%)"><input className="in" type="number" step="0.1" placeholder="20" value={edit.tva===undefined?'':edit.tva} onChange={e=>setEdit({...edit,tva:e.target.value})}/></Fld>
       </div>
       <div className="g2">
@@ -1350,15 +1415,29 @@ function Fiche({data,ch,save,back}){
         <button className="btn gh s" onClick={()=>setEdit(ch)}>Modifier</button>
       </div>
       <div className="xs mut" style={{marginTop:3}}>{ch.client} — {ch.adresse}</div>
-      <div className="g2 xs" style={{marginTop:10}}>
-        <div><div className="mut">Travaux TTC</div>
-          <div className="b" style={{fontSize:17,color:NAVY}}>{eur(ms.length?travauxTTC(ms,ch):ttc(ch.budget,ch))}</div>
-          <div className="mut">{eur(ms.length?eng:ch.budget)} HT · {ms.length
-            ?(ventilationTva(ms,ch).length>1?'TVA par lot':'TVA '+ventilationTva(ms,ch)[0].taux+' %')
-            :'TVA '+tvaRate(ch)+' %'}</div></div>
-        <div><div className="mut">Honoraires TTC</div>
-          <div className="b" style={{fontSize:17,color:NAVY}}>{eur(ttc(hono,ch))}</div>
-          <div className="mut">{eur(hono)} HT</div></div>
+      {/* le budget client : un seul chiffre TTC, tout compris, et l'écart en regard */}
+      <div style={{marginTop:12,padding:'10px 12px',border:'1px solid '+RULE,borderRadius:10,background:'rgba(44,74,94,.045)'}}>
+        <div className="xs mut">Budget annoncé au client — TTC tout compris</div>
+        {bc
+          ?<div className="b" style={{fontSize:22,color:NAVY,lineHeight:1.2,marginTop:2}}>{eur(bc)}</div>
+          :<div className="xs" style={{marginTop:4,color:AMBER,lineHeight:1.5}}>Non renseigné. Saisissez-le via « Modifier » : c'est le montant TTC annoncé au client, marchés, matériaux et honoraires compris.</div>}
+        <div className="g3 xs" style={{marginTop:10}}>
+          <div><div className="mut">Marchés de travaux</div><div className="b">{eur(co.travTTC)}</div><div className="mut">{eur(co.travHT)} HT · {ms.length} lot{ms.length>1?'s':''}</div></div>
+          <div><div className="mut">Matériaux commandés</div><div className="b">{eur(co.matTTC)}</div><div className="mut">{eur(co.matHT)} HT · {cmds.length} commande{cmds.length>1?'s':''}</div></div>
+          <div><div className="mut">Honoraires MOE</div><div className="b">{eur(co.honoTTC)}</div><div className="mut">{eur(co.honoHT)} HT</div></div>
+        </div>
+        <div className="sp xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+          <span className="mut">Total engagé TTC</span>
+          <span className="b" style={{fontSize:17,color:NAVY}}>{eur(co.totalTTC)}</span>
+        </div>
+        {!!bc&&<div className="xs" style={{marginTop:8,lineHeight:1.5}}>
+          {Math.round(co.totalTTC)===Math.round(bc)
+            ?<span style={{color:GREEN}} className="b">Conforme au budget annoncé.</span>
+            :co.totalTTC>bc
+              ?<span style={{color:TERRA}} className="b">Dépassement de {eur(co.totalTTC-bc)} TTC sur le budget annoncé.</span>
+              :<span style={{color:GREEN}} className="b">Marge de {eur(bc-co.totalTTC)} TTC sur le budget annoncé.</span>}
+          {manque.length>0&&<div className="mut" style={{marginTop:4}}>Chiffre provisoire : il reste à arrêter {manque.join(', ')}.</div>}
+        </div>}
       </div>
       <div className="g2 xs stats3" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
         <div><div className="mut">Avancement facturé</div>
@@ -1371,7 +1450,6 @@ function Fiche({data,ch,save,back}){
           <div className="b" style={{color:hono-honoFac>0?TERRA:GREEN}}>{hono-honoFac>0?eur(hono-honoFac)+' HT':'soldé'}</div>
           <div className="mut">{eur(ttc(hono-honoFac,ch))} TTC</div></div>
       </div>
-      {eng>ch.budget&&ch.budget>0&&<div className="xs b" style={{color:TERRA,marginTop:8}}>Dépassement de {eur(eng-ch.budget)} sur le budget annoncé au client.</div>}
       <div className="xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
         {jOuv===null
           ?<span className="mut">Délai de chantier : renseignez la date d'ouverture de chantier via « Modifier ».</span>
@@ -1410,10 +1488,11 @@ function Fiche({data,ch,save,back}){
       </div>
     </div>}
     <div className="tabs">
-      {[['marches','MARCHÉS'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
+      {[['marches','MARCHÉS'],['factu','FACTURATION'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
     </div>
     {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}/>}
+    {tab==='factu'&&<SuiviFacturation data={data} ch={ch}/>}
     {tab==='hono'&&<Honoraires data={data} ch={ch} save={save}/>}
     {tab==='visite'&&<VisiteTechnique ch={ch} up={up}/>}
     {tab==='map'&&<MAP data={data} ch={ch} up={up}/>}
@@ -1561,6 +1640,7 @@ function RecapBudget({ch,ms,cmds}){
   const honoTVA=honoHT*txHono/100, honoTTC=honoHT+honoTVA;
   const ouvHT=travHT+matHT, ouvTVA=travTVA+matTVA, ouvTTC=travTTC+matTTC;
   const totHT=ouvHT+honoHT, totTVA=ouvTVA+honoTVA, totTTC=ouvTTC+honoTTC;
+  const bc=budgetClient(ch), manque=posteManquants(ch,ms,cs);
   const cell={padding:'7px 4px',textAlign:'right',whiteSpace:'nowrap'};
   return <div className="card" style={{marginTop:14,borderLeft:'3px solid '+NAVY}}>
     <div className="h2" style={{marginBottom:10}}>RÉCAPITULATIF BUDGÉTAIRE</div>
@@ -1613,20 +1693,117 @@ function RecapBudget({ch,ms,cmds}){
         </tbody>
       </table>
     </div>
-    {!!ch.budget&&<div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
-      Calculé sur les marchés signés{cs.length?' et les matériaux commandés':''}. Budget travaux annoncé au client :
-      <b> {eur(budgetTTC(ch))} TTC</b> ({eur(budgetHT(ch))} HT).
-      <br/>{Math.round(ouvTTC)===Math.round(budgetTTC(ch))
-        ?<span style={{color:GREEN}}><b>Conforme au budget annoncé.</b></span>
-        :<span>Écart sur le TTC : {ouvTTC>budgetTTC(ch)
-          ?<span style={{color:TERRA}}><b>dépassement de {eur(ouvTTC-budgetTTC(ch))}</b></span>
-          :<span style={{color:GREEN}}><b>marge de {eur(budgetTTC(ch)-ouvTTC)}</b></span>} — sur le HT : {ouvHT>budgetHT(ch)
-          ?<span style={{color:TERRA}}>dépassement de {eur(ouvHT-budgetHT(ch))}</span>
-          :<span>marge de {eur(budgetHT(ch)-ouvHT)}</span>}.</span>}
-      <br/>Honoraires exclus des deux côtés.
-    </div>}
+    {bc
+      ?<div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
+        Budget annoncé au client : <b>{eur(bc)} TTC</b>, tout compris — marchés, matériaux commandés en direct et honoraires.
+        <br/>Total honoraires inclus ci-dessus : <b>{eur(totTTC)} TTC</b>.
+        <br/>{Math.round(totTTC)===Math.round(bc)
+          ?<span style={{color:GREEN}}><b>Conforme au budget annoncé.</b></span>
+          :totTTC>bc
+            ?<span style={{color:TERRA}}><b>Dépassement de {eur(totTTC-bc)} TTC.</b></span>
+            :<span style={{color:GREEN}}><b>Marge de {eur(bc-totTTC)} TTC.</b></span>}
+        {manque.length>0&&<span> Chiffre provisoire : il reste à arrêter {manque.join(', ')}.</span>}
+      </div>
+      :<div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
+        Budget client non renseigné. Saisissez-le via « Modifier » sur la fiche du chantier pour voir l'écart : un seul montant TTC, tout compris.
+      </div>}
     <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>TVA calculée lot par lot : chaque marché peut avoir son propre taux (0 % en franchise ou autoliquidation), sinon il suit celui du chantier. Les matériaux commandés suivent le taux du chantier. À vérifier avec votre comptable.
       {!!cs.length&&' N’inscrivez en commande que les matériaux achetés en direct : une fourniture déjà comprise dans un marché de travaux serait comptée deux fois.'}</div>
+  </div>;
+}
+
+/* ---------------- SUIVI DE FACTURATION ---------------- */
+/* Toutes les factures saisies, en TTC, avec le détail de TVA et le HT en regard —
+   travaux au taux de chaque lot, honoraires au taux du chantier. */
+function SuiviFacturation({data,ch}){
+  const ms=data.marches.filter(m=>m.chantierId===ch.id);
+  const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
+  const F=facturesChantier(ch,ms);
+  const vent=ventileFactures(F);
+  const htFac=F.reduce((s,f)=>s+f.ht,0);
+  const tvaFac=vent.reduce((s,v)=>s+v.tva,0);
+  const ttcFac=htFac+tvaFac;
+  const co=coutOperation(ch,ms,cmds);
+  const bc=budgetClient(ch);
+  /* le reste à facturer se mesure sur le budget annoncé s'il est saisi,
+     sinon sur ce qui est réellement engagé */
+  const ref=bc||co.totalTTC, refLabel=bc?'budget client':'total engagé';
+  const reste=ref-ttcFac;
+  const pct=ref?Math.round(ttcFac/ref*100):0;
+  const cell={padding:'7px 4px',textAlign:'right',whiteSpace:'nowrap'};
+  return <div>
+    <div className="g2">
+      <Stat l={bc?'Budget client TTC':'Total engagé TTC'} v={eur(ref)} c={NAVY}/>
+      <Stat l="Facturé au client TTC" v={eur(ttcFac)}/>
+      <Stat l="Reste à facturer TTC" v={reste>0?eur(reste):'soldé'} c={reste>0?TERRA:GREEN}/>
+      <Stat l="Avancement de la facturation" v={pct+' %'}/>
+    </div>
+    <div className="bar" style={{marginTop:8}}><div style={{height:4,width:Math.min(100,pct)+'%',background:GREEN}}/></div>
+    {!bc&&<div className="xs" style={{background:'#FBF3DF',color:'#6A4E06',borderLeft:'3px solid '+AMBER,padding:8,marginTop:10,lineHeight:1.5}}>
+      Budget client non renseigné : l'avancement est calculé sur le total engagé. Saisissez le montant TTC annoncé au client via « Modifier » sur la fiche.</div>}
+    <div className="card" style={{marginTop:12,borderLeft:'3px solid '+NAVY}}>
+      <div className="h2" style={{marginBottom:10}}>FACTURES ÉMISES ({F.length})</div>
+      {!F.length
+        ?<div className="xs mut" style={{lineHeight:1.5}}>Aucune facture saisie. Les factures des marchés s'ajoutent depuis l'onglet MARCHÉS, celles des honoraires depuis l'onglet HONORAIRES.</div>
+        :<div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:320}}>
+            <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
+              <th style={{padding:'6px 4px'}}>Facture</th>
+              <th style={{...cell,padding:'6px 4px'}}>HT</th>
+              <th style={{...cell,padding:'6px 4px'}}>TVA</th>
+              <th style={{...cell,padding:'6px 4px'}}>TTC</th>
+            </tr></thead>
+            <tbody>
+              {F.map(f=><tr key={f.id} style={{borderBottom:'1px solid '+RULE}}>
+                <td style={{padding:'7px 4px'}}>
+                  {f.lien?<a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{f.libelle}</a>:f.libelle}
+                  <div className="mut" style={{fontSize:11}}>{f.poste} · {f.date?fd(f.date):'sans date'} · TVA {f.taux} %</div>
+                </td>
+                <td style={cell}>{eur(f.ht)}</td>
+                <td style={cell} className="mut">{eur(f.ht*f.taux/100)}</td>
+                <td style={cell}>{eur(f.ht*(1+f.taux/100))}</td>
+              </tr>)}
+              <tr style={{borderTop:'2px solid '+RULE}}>
+                <td style={{padding:'8px 4px'}} className="b">Total facturé</td>
+                <td style={cell} className="b">{eur(htFac)}</td>
+                <td style={cell} className="mut">{eur(tvaFac)}</td>
+                <td style={{...cell,color:NAVY,fontSize:15}} className="b">{eur(ttcFac)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>}
+    </div>
+    {!!vent.length&&<div className="card" style={{marginTop:12,borderLeft:'3px solid '+NAVY}}>
+      <div className="h2" style={{marginBottom:10}}>DÉTAIL DE TVA SUR LES FACTURES</div>
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:330}}>
+          <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
+            <th style={{padding:'6px 4px'}}>Taux</th>
+            <th style={{...cell,padding:'6px 4px'}}>Base HT</th>
+            <th style={{...cell,padding:'6px 4px'}}>TVA</th>
+            <th style={{...cell,padding:'6px 4px'}}>TTC</th>
+          </tr></thead>
+          <tbody>
+            {vent.map(v=><tr key={v.taux} style={{borderBottom:'1px solid '+RULE}}>
+              <td style={{padding:'7px 4px'}}>TVA {v.taux} % <span className="mut" style={{fontSize:11}}>({v.n} facture{v.n>1?'s':''})</span></td>
+              <td style={cell}>{eur(v.ht)}</td>
+              <td style={cell} className="mut">{eur(v.tva)}</td>
+              <td style={cell}>{eur(v.ttc)}</td>
+            </tr>)}
+            <tr style={{borderTop:'2px solid '+RULE}}>
+              <td style={{padding:'8px 4px'}} className="b">Total</td>
+              <td style={cell} className="b">{eur(htFac)}</td>
+              <td style={cell} className="mut">{eur(tvaFac)}</td>
+              <td style={{...cell,color:NAVY}} className="b">{eur(ttcFac)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>
+        Reste à facturer par rapport au {refLabel} : <b style={{color:reste>0?TERRA:GREEN}}>{reste>0?eur(reste)+' TTC':'soldé'}</b>.
+        <br/>Chaque marché peut porter son propre taux (0 % en franchise ou autoliquidation) ; à défaut il suit celui du chantier ({tvaRate(ch)} %). À vérifier avec votre comptable avant tout usage fiscal.
+      </div>
+    </div>}
   </div>;
 }
 
@@ -2235,7 +2412,7 @@ function Honoraires({data,ch,save}){
     </div>
     <div className="card" style={{marginTop:8}}>
       <div className="xs mut" style={{lineHeight:1.6}}>
-        Base HT : <b>{eur(total)}</b>{ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!==''?' (montant saisi)':' ('+(ch.honorairesPct||0)+' % de '+eur(ch.budget)+')'} · TVA {tvaRate(ch)} %<br/>
+        Base HT : <b>{eur(total)}</b>{ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!==''?' (montant saisi)':' ('+(ch.honorairesPct||0)+' % de '+eur(budgetTravauxHT(ch))+' HT de travaux)'} · TVA {tvaRate(ch)} %<br/>
         Le montant des honoraires se modifie via « Modifier » sur la fiche du chantier.
       </div>
     </div>
@@ -2577,23 +2754,29 @@ function Bilan({data,open}){
     const retroSrc=[...ms,...cs];
     const retro=retroSrc.reduce((s,x)=>s+retroMontant(x),0);
     const retroFac=retroSrc.reduce((s,x)=>s+(+x.retroFacture||0),0);
-    const av=(eng||budgetHT(c))?Math.round(fac/(eng||budgetHT(c))*100):0;
-    /* le coût de l'ouvrage, c'est les marchés ET les matériaux achetés en direct :
-       comparer le budget au seul engagé auprès des artisans gonfle la marge. */
-    const ouvHT=eng+mat, ouvTTC=(ms.length?travauxTTC(ms,c):0)+ttc(mat,c);
-    return {...c,eng,fac,mat,hono,honoFac,retro,retroFac,av,ouvHT,ouvTTC,
-      budgetAnnonceHT:budgetHT(c),budgetAnnonceTTC:budgetTTC(c),
-      honoTTC:ttc(hono,c),ecart:budgetHT(c)-ouvHT,ecartTTC:budgetTTC(c)-ouvTTC};
+    const av=(eng||budgetTravauxHT(c))?Math.round(fac/(eng||budgetTravauxHT(c))*100):0;
+    /* le coût de l'opération, c'est les marchés, les matériaux achetés en direct
+       ET les honoraires : c'est exactement ce que couvre le budget annoncé. */
+    const co=coutOperation(c,ms,cs);
+    const bc=budgetClient(c);
+    const F=facturesChantier(c,ms), ventF=ventileFactures(F);
+    const htFac=F.reduce((s,f)=>s+f.ht,0), tvaFac=ventF.reduce((s,v)=>s+v.tva,0);
+    return {...c,eng,fac,mat,hono,honoFac,retro,retroFac,av,
+      ouvHT:co.travHT+co.matHT,ouvTTC:co.travTTC+co.matTTC,
+      totalHT:co.totalHT,totalTTC:co.totalTTC,budgetClientTTC:bc,
+      factureHT:htFac,factureTVA:tvaFac,factureTTC:htFac+tvaFac,
+      honoTTC:co.honoTTC,ecart:bc-co.totalTTC};
   });
   const T=k=>L.reduce((s,l)=>s+(l[k]||0),0);
-  const tb=T('budgetAnnonceHT'),te=T('eng'),tf=T('fac'),th=T('hono'),tm=T('mat');
-  const tbTTC=T('budgetAnnonceTTC'),thTTC=T('honoTTC'),thFac=T('honoFac');
-  const tOuvHT=T('ouvHT'),tOuvTTC=T('ouvTTC');
+  const te=T('eng'),tf=T('fac'),th=T('hono'),tm=T('mat');
+  const tbTTC=T('budgetClientTTC'),thTTC=T('honoTTC'),thFac=T('honoFac');
+  const tOuvTTC=T('ouvTTC'),tTotTTC=T('totalTTC');
+  const tFacHT=T('factureHT'),tFacTVA=T('factureTVA'),tFacTTC=T('factureTTC');
   const tr=T('retro'),trFac=T('retroFac');
   const csv=()=>{
-    const rows=[['Chantier','Client','Phase','Avancement %','Budget travaux HT','Budget travaux TTC','Engagé HT','Facturé artisans','Reste à facturer artisans','Matériaux commandés','Écart budget','Honoraires HT','Honoraires TTC','Honoraires facturés HT','Reste à facturer honoraires HT','Rétrocessions dues HT','Rétrocessions facturées HT'],
-      ...L.map(l=>[l.nom,l.client,PHASE[l.statut]||'',l.av,Math.round(l.budgetAnnonceHT),Math.round(l.budgetAnnonceTTC),l.eng,l.fac,l.eng-l.fac,l.mat,Math.round(l.ecart),Math.round(l.hono),Math.round(l.honoTTC),Math.round(l.honoFac),Math.round(l.hono-l.honoFac),Math.round(l.retro),Math.round(l.retroFac)]),
-      ['TOTAL','','','',Math.round(tb),Math.round(tbTTC),te,tf,te-tf,tm,Math.round(tb-tOuvHT),Math.round(th),Math.round(thTTC),Math.round(thFac),Math.round(th-thFac),Math.round(tr),Math.round(trFac)]];
+    const rows=[['Chantier','Client','Phase','Avancement %','Budget client TTC','Marchés HT','Matériaux HT','Honoraires HT','Total engagé TTC','Écart TTC','Facturé HT','TVA facturée','Facturé TTC','Reste à facturer TTC','Rétrocessions dues HT','Rétrocessions facturées HT'],
+      ...L.map(l=>[l.nom,l.client,PHASE[l.statut]||'',l.av,Math.round(l.budgetClientTTC),l.eng,l.mat,Math.round(l.hono),Math.round(l.totalTTC),Math.round(l.ecart),Math.round(l.factureHT),Math.round(l.factureTVA),Math.round(l.factureTTC),Math.round((l.budgetClientTTC||l.totalTTC)-l.factureTTC),Math.round(l.retro),Math.round(l.retroFac)]),
+      ['TOTAL','','','',Math.round(tbTTC),te,tm,Math.round(th),Math.round(tTotTTC),Math.round(tbTTC-tTotTTC),Math.round(tFacHT),Math.round(tFacTVA),Math.round(tFacTTC),Math.round((tbTTC||tTotTTC)-tFacTTC),Math.round(tr),Math.round(trFac)]];
     const a=document.createElement('a');
     a.href='data:text/csv;charset=utf-8,﻿'+encodeURIComponent(rows.map(r=>r.map(v=>'"'+v+'"').join(';')).join('\n'));
     a.download='CP-suivi-financier-'+today()+'.csv';a.click();
@@ -2601,12 +2784,20 @@ function Bilan({data,open}){
   return <div>
     <H2 action={<button className="btn gh s" onClick={csv}>Export CSV</button>}>SUIVI FINANCIER</H2>
     <div className="g2">
-      <Stat l="Coût de l’ouvrage TTC" v={eur(tOuvTTC)} c={NAVY}/>
-      <Stat l="Budget annoncé TTC" v={eur(tbTTC)} c={tOuvTTC>tbTTC?TERRA:GREEN}/>
+      <Stat l="Budget client TTC — tous chantiers" v={eur(tbTTC)} c={NAVY}/>
+      <Stat l="Total engagé TTC — honoraires inclus" v={eur(tTotTTC)} c={tTotTTC>tbTTC?TERRA:GREEN}/>
+      <Stat l="Facturé au client TTC" v={eur(tFacTTC)}/>
+      <Stat l="Reste à facturer TTC" v={(tbTTC||tTotTTC)-tFacTTC>0?eur((tbTTC||tTotTTC)-tFacTTC):'soldé'} c={(tbTTC||tTotTTC)-tFacTTC>0?TERRA:GREEN}/>
+      <Stat l="Coût de l’ouvrage TTC — hors honoraires" v={eur(tOuvTTC)}/>
       <Stat l="Engagé auprès des artisans" v={eur(te)}/>
       <Stat l="Matériaux commandés" v={eur(tm)}/>
       <Stat l="Déjà facturé par les artisans" v={eur(tf)}/>
-      <Stat l="Reste à facturer — artisans" v={eur(te-tf)}/>
+    </div>
+    <div className="card" style={{marginTop:8,borderLeft:'3px solid '+NAVY}}>
+      <div className="xs mut">Facturation au client — tous chantiers</div>
+      <div className="b" style={{fontSize:20,marginTop:2,color:NAVY}}>{eur(tFacTTC)} TTC</div>
+      <div className="xs mut" style={{marginTop:2}}>{eur(tFacHT)} HT + {eur(tFacTVA)} de TVA</div>
+      <div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>Le détail facture par facture, avec la ventilation de TVA, se trouve sur l'onglet FACTURATION de chaque chantier.</div>
     </div>
     <div className="card" style={{marginTop:8}}>
       <div className="xs mut">Honoraires de maîtrise d’œuvre — TTC</div>
@@ -2628,15 +2819,17 @@ function Bilan({data,open}){
       <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>Montants TTC calculés avec le taux de TVA saisi sur chaque chantier (20 % par défaut). À vérifier avec votre comptable avant tout usage fiscal.</div>
     </div>
     {!L.length&&<Empty>Aucun chantier à suivre.</Empty>}
-    {L.map(l=><button key={l.id} className="card" style={{borderLeft:'3px solid '+(l.ecart<0?TERRA:NAVY)}} onClick={()=>open(l.id)}>
+    {L.map(l=><button key={l.id} className="card" style={{borderLeft:'3px solid '+(l.budgetClientTTC&&l.ecart<0?TERRA:NAVY)}} onClick={()=>open(l.id)}>
       <div className="sp"><span className="b sm" style={{color:NAVY}}>{l.nom}</span>
-        <span className="xs" style={{color:l.ecart<0?TERRA:GREEN}}>{l.ecart<0?'+'+eur(-l.ecart):eur(l.ecart)}</span></div>
+        {l.budgetClientTTC
+          ?<span className="xs" style={{color:l.ecart<0?TERRA:GREEN,whiteSpace:'nowrap'}}>{l.ecart<0?'dépassement '+eur(-l.ecart):'marge '+eur(l.ecart)}</span>
+          :<span className="xs mut" style={{whiteSpace:'nowrap'}}>budget non renseigné</span>}</div>
       <div className="sp xs" style={{marginTop:6}}><span className="mut">Avancement facturé</span><span className="b">{l.av} %</span></div>
       <div className="bar"><div style={{height:4,width:Math.min(100,l.av)+'%',background:GREEN}}/></div>
       <div className="g3 xs" style={{marginTop:8}}>
-        <div><div className="mut">Budget</div><div>{eur(l.budget)}</div></div>
-        <div><div className="mut">Engagé</div><div>{eur(l.eng)}</div></div>
-        <div><div className="mut">Honoraires</div><div>{eur(l.hono)}</div></div>
+        <div><div className="mut">Budget client TTC</div><div>{l.budgetClientTTC?eur(l.budgetClientTTC):'—'}</div></div>
+        <div><div className="mut">Engagé TTC</div><div>{eur(l.totalTTC)}</div></div>
+        <div><div className="mut">Facturé TTC</div><div>{eur(l.factureTTC)}</div></div>
       </div>
       {l.retro>0&&<div className="xs mut" style={{marginTop:6}}>Rétrocessions : <b>{eur(l.retro)}</b> HT dont {eur(l.retroFac)} facturé</div>}
     </button>)}
