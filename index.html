@@ -96,7 +96,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · pièces écrites en Word et en plusieurs fichiers + arborescence Drive';
+const VERSION='2026-08-24 · devis joints aux commandes + coche verte de transmission';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -530,7 +530,7 @@ const lienDossierDrive=id=>'https://drive.google.com/drive/folders/'+id;
 /* Arborescence type d'un chantier, dans l'ordre des onglets de l'application.
    Google Drive classe les dossiers par ordre alphabétique : cet ordre-ci est
    celui de création, pas celui d'affichage. */
-const DOSSIERS_CHANTIER=['Marchés','Factures','Honoraires','Rétrocessions','Visite technique','MAP','Contrôles','Photos','Pièces','Signatures'];
+const DOSSIERS_CHANTIER=['Marchés','Factures','Honoraires','Rétrocessions','Matériaux','Visite technique','MAP','Contrôles','Photos','Pièces','Signatures'];
 
 /* Pièces écrites : un dossier de maîtrise d'œuvre ne circule pas qu'en PDF —
    notices et marchés arrivent souvent en Word, les relevés en photo. iOS filtre
@@ -1047,6 +1047,48 @@ function BoutonArborescence({ch}){
   };
   return <button className="xs" style={{color:TERRA,background:'none',border:'none',padding:0}} onClick={go} disabled={etat==='En cours…'}>
     {etat||'Créer l’arborescence Drive'}</button>;
+}
+
+/* Coche verte : la preuve, à l'écran, que le fichier est bien arrivé sur le Drive.
+   Un lien enregistré ne s'obtient qu'après un envoi réussi. */
+const Transmis=()=><span className="xs b" style={{color:GREEN,whiteSpace:'nowrap'}} title="Transmis sur Google Drive">✓ Drive</span>;
+
+/* Liste de fichiers rattachés à une fiche et rangés dans un sous-dossier du
+   chantier : import multiple, nom d'origine conservé, retrait sans suppression. */
+function FichiersDrive({ch,dossier,fichiers,onChange,label}){
+  const [busy,setBusy]=useState(false);
+  const L=fichiers||[];
+  const importer=async files=>{
+    setBusy(true);
+    let ajoutes=[],erreur='';
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,dossier);
+      for(const file of files){
+        try{
+          const{webViewLink}=await uploadToDrive(file,folderId);
+          ajoutes.push({id:uid(),nom:file.name,lien:webViewLink});
+        }catch(x){erreur=(x&&(x.error||x.message))||String(x)}
+      }
+    }catch(e){erreur=e&&e.error==='auth_required'?'auth_required':((e&&(e.error||e.message))||String(e))}
+    if(ajoutes.length)onChange([...L,...ajoutes]);
+    if(erreur==='auth_required')alert("Connectez d'abord Google Drive (bouton ci-dessous), puis réessayez l'import.");
+    else if(erreur)alert((ajoutes.length?ajoutes.length+" fichier(s) importé(s), mais l'envoi s'est interrompu — ":"Import Google Drive impossible — ")+"détail technique : "+erreur);
+    setBusy(false);
+  };
+  return <div>
+    {L.map(f=><div key={f.id} className="row xs" style={{gap:8,marginTop:4,alignItems:'center'}}>
+      <Transmis/>
+      <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA,flex:1,wordBreak:'break-word'}}>{f.nom}</a>
+      <button style={{color:MUTED,background:'none',border:'none',padding:0}}
+        onClick={()=>{if(confirm('Retirer « '+f.nom+' » ? Le fichier reste sur le Drive.'))onChange(L.filter(x=>x.id!==f.id))}}>✕</button>
+    </div>)}
+    <label className="btn gh s" style={{marginTop:6,display:'inline-block',whiteSpace:'nowrap'}}>
+      {busy?'Import…':(L.length?'Ajouter des fichiers':(label||'Importer des fichiers'))}
+      <input type="file" accept={PIECES_ACCEPT} multiple style={{display:'none'}} disabled={busy}
+        onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)importer(fs)}}/>
+    </label>
+  </div>;
 }
 
 function DriveStatus(){
@@ -1694,7 +1736,13 @@ function Commandes({data,ch,save}){
       </div>
       <Fld label="LIVRAISON RÉELLE"><input className="in" type="date" value={f.livrReelle} onChange={e=>setF({...f,livrReelle:e.target.value})}/></Fld>
       <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{CMD_ST.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
+      <Fld label="DEVIS DU FOURNISSEUR">
+        <FichiersDrive ch={ch} dossier="Matériaux" fichiers={f.devis} label="Importer le devis"
+          onChange={v=>setF({...f,devis:v})}/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Rangés dans Drive › {ch.nom} › Matériaux. PDF, Word ou photo.</div>
+      </Fld>
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
+      <DriveStatus/>
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,commandes:data.commandes.filter(c=>c.id!==f.id)});setF(null)}:null}/>
     </div>}
     {!list.length&&!f&&<Empty>Aucune commande. Suivez ici les matériaux à approvisionner.</Empty>}
@@ -1709,7 +1757,7 @@ function LigneCmd({c,onClick,chantierNom}){
     <div className="sp"><span className="b sm">{c.designation}</span><span className="xs b" style={{color:retard?TERRA:s.c}}>{retard?'EN RETARD':s.label}</span></div>
     <div className="xs mut" style={{marginTop:3}}>{chantierNom?chantierNom+' · ':''}{c.fournisseur||'fournisseur non précisé'}{c.lot?' · '+c.lot:''}</div>
     <div className="sp xs" style={{marginTop:8}}>
-      <span>{eur(c.montant)} HT</span>
+      <span>{eur(c.montant)} HT{(c.devis||[]).length?<span style={{color:GREEN}}> · ✓ {(c.devis||[]).length} devis</span>:null}</span>
       <span className="mut">{c.livrReelle?'livré le '+fd(c.livrReelle):c.livrPrevue?'prévu le '+fd(c.livrPrevue):'sans date'}</span>
     </div>
   </button>;
@@ -1854,6 +1902,7 @@ function Docs({data,ch,up,save}){
           <div className="sm">{x.l}</div>
           {r.fait&&<div className="xs mut">Reçu le {fd(r.date)}</div>}
           {fichiersDe(r).map(f=><div key={f.id} className="row xs" style={{gap:8,marginTop:4,alignItems:'center'}}>
+            <Transmis/>
             <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA,flex:1,wordBreak:'break-word'}}>{f.nom}</a>
             <button style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>{if(confirm('Retirer « '+f.nom+' » de cette pièce ? Le fichier reste sur le Drive.'))retirerFichier(x.id,f.id)}}>✕</button>
           </div>)}
