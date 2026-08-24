@@ -96,7 +96,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · devis joints aux commandes + coche verte de transmission';
+const VERSION='2026-08-24 · coche verte sur les marchés, factures, devis et pièces';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -1401,11 +1401,12 @@ function Marches({data,ch,save,eng,fac}){
       <Fld label="DATE DE SIGNATURE"><input className="in" type="date" value={f.dateSignature} onChange={e=>setF({...f,dateSignature:e.target.value})}/></Fld>
       <Fld label="CONTRAT DE MARCHÉ (PDF)">
         {f.contratLien
-          ?<div className="row" style={{gap:14,alignItems:'center'}}>
+          ?<div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
+            <Transmis/>
             <a href={f.contratLien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir le contrat</a>
-            <label className="xs" style={{color:NAVY}}>Remplacer<input type="file" accept="application/pdf" style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importContrat(file)}}/></label>
+            <label className="xs" style={{color:NAVY}}>Remplacer<input type="file" accept={PIECES_ACCEPT} style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importContrat(file)}}/></label>
           </div>
-          :<label className="xs" style={{color:NAVY}}>Importer le PDF du contrat<input type="file" accept="application/pdf" style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importContrat(file)}}/></label>}
+          :<label className="xs" style={{color:NAVY}}>Importer le contrat<input type="file" accept={PIECES_ACCEPT} style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importContrat(file)}}/></label>}
       </Fld>
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
       <Fld label={"FACTURES — total "+eur(facturesTotal(f.factures))}>
@@ -1413,7 +1414,8 @@ function Marches({data,ch,save,eng,fac}){
           <input className="in" type="number" placeholder="Montant €" value={x.montant} onChange={e=>updFacture(x.id,{montant:e.target.value})} style={{flex:'1 1 90px'}}/>
           <input className="in" type="date" value={x.date} onChange={e=>updFacture(x.id,{date:e.target.value})} style={{flex:'1 1 120px'}}/>
           {x.lien
-            ?<a href={x.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA,whiteSpace:'nowrap'}}>Voir</a>
+            ?<span className="row" style={{gap:6,alignItems:'center',whiteSpace:'nowrap'}}><Transmis/>
+              <a href={x.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Voir</a></span>
             :<label className="xs" style={{color:NAVY,whiteSpace:'nowrap'}}>Importer<input type="file" accept="application/pdf,image/*" style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importFacture(x.id,file)}}/></label>}
           <button className="btn dg s" onClick={()=>delFacture(x.id)}>✕</button>
         </div>)}
@@ -1438,7 +1440,7 @@ function Marches({data,ch,save,eng,fac}){
             const reste=(m.montantHT||0)-total;
             return <tr key={m.id} onClick={()=>openRow(m)} style={{borderBottom:'1px solid '+RULE,cursor:'pointer'}}>
               <td style={{padding:'8px 4px'}}>
-                <div className="b">{m.lot}</div>
+                <div className="b">{m.lot}{m.contratLien&&<span style={{color:GREEN}} title="Contrat déposé sur le Drive"> ✓</span>}</div>
                 <div className="mut" style={{marginTop:2}}>{nom(m.artisanId)}
                   {marcheTva(m,ch)!==tvaRate(ch)&&<span style={{color:TERRA}}> · TVA {marcheTva(m,ch)} %</span>}</div>
               </td>
