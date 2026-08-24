@@ -96,7 +96,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · arborescence Drive créée à l’ouverture du chantier + rattrapage des photos';
+const VERSION='2026-08-24 · pièces écrites en Word et en plusieurs fichiers + arborescence Drive';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -531,6 +531,11 @@ const lienDossierDrive=id=>'https://drive.google.com/drive/folders/'+id;
    Google Drive classe les dossiers par ordre alphabétique : cet ordre-ci est
    celui de création, pas celui d'affichage. */
 const DOSSIERS_CHANTIER=['Marchés','Factures','Honoraires','Rétrocessions','Visite technique','MAP','Contrôles','Photos','Pièces','Signatures'];
+
+/* Pièces écrites : un dossier de maîtrise d'œuvre ne circule pas qu'en PDF —
+   notices et marchés arrivent souvent en Word, les relevés en photo. iOS filtre
+   par type MIME comme par extension, on donne les deux. */
+const PIECES_ACCEPT='application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*';
 
 /* Crée le dossier du chantier et tous ses sous-dossiers d'un coup, sans attendre
    qu'un premier fichier soit déposé. Les dossiers déjà présents sont réutilisés :
@@ -1783,19 +1788,36 @@ function Docs({data,ch,up,save}){
   const [signe,setSigne]=useState(null);
   const tog=id=>{const c=d[id]||{};up({docs:{...d,[id]:{...c,fait:!c.fait,date:!c.fait?today():''}}})};
   const lien=(id,v)=>up({docs:{...d,[id]:{...(d[id]||{}),lien:v}}});
-  const importPdf=async(id,file)=>{
+  /* une pièce écrite tient rarement en un seul fichier : plans d'exécution en
+     plusieurs planches, notice + annexes, marché + attestations. On garde donc
+     une liste. L'ancien champ « lien » unique reste lu pour les pièces déjà
+     attachées, et devient le premier élément de la liste. */
+  const fichiersDe=r=>r.fichiers&&r.fichiers.length?r.fichiers
+    :(r.lien?[{id:'ancien',nom:'Document',lien:r.lien}]:[]);
+  const importPieces=async(id,files)=>{
     setBusy(id);
+    let ajoutes=[], erreur='';
     try{
       const token=await getDriveToken();
       const folderId=await driveSousDossier(token,ch.id,ch.nom,'Pièces');
-      const{webViewLink}=await uploadToDrive(file,folderId);
+      for(const file of files){
+        try{
+          const{webViewLink}=await uploadToDrive(file,folderId);
+          ajoutes.push({id:uid(),nom:file.name,lien:webViewLink});
+        }catch(x){erreur=(x&&(x.error||x.message))||String(x)}
+      }
+    }catch(e){erreur=e&&e.error==='auth_required'?'auth_required':((e&&(e.error||e.message))||String(e))}
+    if(ajoutes.length){
       const c=d[id]||{};
-      up({docs:{...d,[id]:{...c,lien:webViewLink,fait:true,date:c.fait?c.date:today()}}});
-    }catch(e){
-      if(e&&e.error==='auth_required')alert("Connectez d'abord Google Drive (bouton ci-dessus), puis réessayez l'import.");
-      else alert("Import Google Drive impossible — détail technique : "+((e&&(e.error||e.message))||String(e)));
+      up({docs:{...d,[id]:{...c,fichiers:[...fichiersDe(c),...ajoutes],fait:true,date:c.fait?c.date:today()}}});
     }
+    if(erreur==='auth_required')alert("Connectez d'abord Google Drive (bouton ci-dessus), puis réessayez l'import.");
+    else if(erreur)alert((ajoutes.length?ajoutes.length+" fichier(s) importé(s), mais l'envoi s'est interrompu — ":"Import Google Drive impossible — ")+"détail technique : "+erreur);
     setBusy(null);
+  };
+  const retirerFichier=(id,fid)=>{
+    const c=d[id]||{};
+    up({docs:{...d,[id]:{...c,fichiers:fichiersDe(c).filter(f=>f.id!==fid),lien:''}}});
   };
   const enregistrerSignature=async(doc,{nom,qualite,image})=>{
     const sid=uid(), date=new Date().toISOString();
@@ -1831,11 +1853,15 @@ function Docs({data,ch,up,save}){
         <div style={{flex:1}}>
           <div className="sm">{x.l}</div>
           {r.fait&&<div className="xs mut">Reçu le {fd(r.date)}</div>}
-          <input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}} placeholder="Lien Drive…" value={r.lien||''} onChange={e=>lien(x.id,e.target.value)}/>
+          {fichiersDe(r).map(f=><div key={f.id} className="row xs" style={{gap:8,marginTop:4,alignItems:'center'}}>
+            <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA,flex:1,wordBreak:'break-word'}}>{f.nom}</a>
+            <button style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>{if(confirm('Retirer « '+f.nom+' » de cette pièce ? Le fichier reste sur le Drive.'))retirerFichier(x.id,f.id)}}>✕</button>
+          </div>)}
+          {!fichiersDe(r).length&&<input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}} placeholder="Lien Drive…" value={r.lien||''} onChange={e=>lien(x.id,e.target.value)}/>}
           <div className="row" style={{gap:14,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
-            {r.lien&&<a href={r.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir</a>}
-            <label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':'Importer un PDF'}
-              <input type="file" accept="application/pdf" style={{display:'none'}} disabled={busy===x.id} onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importPdf(x.id,f)}}/>
+            <label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':(fichiersDe(r).length?'Ajouter des fichiers':'Importer des fichiers')}
+              <input type="file" accept={PIECES_ACCEPT} multiple style={{display:'none'}} disabled={busy===x.id}
+                onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)importPieces(x.id,fs)}}/>
             </label>
             <button className="xs" style={{color:NAVY,background:'none',border:'none',padding:0}} onClick={()=>setSigne(x)}>Faire signer</button>
           </div>
