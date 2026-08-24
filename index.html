@@ -96,7 +96,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · matériaux comptés dans le récapitulatif budgétaire';
+const VERSION='2026-08-24 · matériaux au récapitulatif + contrôles plancher béton';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
@@ -128,13 +128,16 @@ const CONTROLES=[
   ]},
   {id:'maconnerie',l:'Maçonnerie / Gros œuvre',pts:[
     ['ferraillage',"Ferraillage des semelles conforme (sections, recouvrements, enrobage)"],
-    ['beton',"Béton conforme (classe, résistance, bons de livraison)"],
+    ['beton',"Composition du béton conforme (classe, dosage, résistance, bons de livraison)"],
     ['drainage',"Drainage périphérique et étanchéité des parties enterrées"],
     ['coupure',"Coupure de capillarité présente"],
     ['arases',"Arases de niveau, planéité vérifiée"],
     ['chainages',"Chaînages horizontaux et verticaux réalisés"],
     ['aplomb',"Aplomb et équerrage des murs"],
-    ['reservations',"Réservations et trémies conformes aux plans"],
+    ['plancher_ferraillage',"Ferraillage du plancher béton (treillis, chapeaux, recouvrements, enrobage)"],
+    ['plancher_planeite',"Planéité et niveau du plancher béton"],
+    ['reservations',"Réservations : emplacement et mise en œuvre conformes aux plans"],
+    ['evacuations',"Évacuations et fourreaux en attente : position, pente, calage et protection"],
     ['appuis',"Appuis de baies, linteaux et seuils conformes"],
     ['vs',"Vide sanitaire ventilé / plancher conforme"],
   ]},
