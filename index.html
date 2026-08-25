@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-25 · marchés en 3 colonnes : entreprise, marché, facture';
+const VERSION='2026-08-25 · bibliothèque de prix et chiffrage des lots au quantitatif';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -367,6 +367,8 @@ const CONTROLES=[
 
 const uid=()=>Math.random().toString(36).slice(2,10);
 const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
+/* un prix unitaire se lit au centime, contrairement au montant d'un marché */
+const eurc=n=>(n||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
 const today=()=>new Date().toISOString().slice(0,10);
 const fd=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
 const wa=t=>t?t.replace(/[^0-9]/g,'').replace(/^0/,'33'):'';
@@ -596,7 +598,49 @@ const ventileFactures=L=>{
 /* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
-const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[]};
+const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[]};
+
+/* ---------- bordereaux de prix ----------
+   La grille tarifaire d'un artisan : un code d'article, un libellé, une unité et
+   un prix unitaire. Le quantitatif d'un lot y puise, et le montant du marché est
+   la somme des quantités × prix. C'est le modèle des marchés déjà rédigés. */
+const UNITES=['U','M','ML','M2','M²','M3','M³','KG','H','ENS','FT','F','J','T'];
+const artUnite=u=>{const x=String(u||'').toUpperCase().replace('²','2').replace('³','3');
+  return x==='M2'?'M²':x==='M3'?'M³':x};
+const ligneQt=l=>+(l&&l.qt)||0;
+const lignePU=l=>+(l&&l.pu)||0;
+const lignePT=l=>Math.round(ligneQt(l)*lignePU(l)*100)/100;
+/* le total du lot s'arrondit une seule fois, à la fin : c'est la règle des marchés
+   déjà signés, où la colonne PT est arrondie pour l'affichage mais pas pour la somme. */
+const quantitatifHT=lignes=>Math.round((lignes||[]).reduce((s,l)=>s+ligneQt(l)*lignePU(l),0)*100)/100;
+
+/* Lecture d'un bordereau depuis un marché déjà rédigé sous Word : on y retrouve
+   « DÉSIGNATION DES TRAVAUX » puis un tableau ARTICLE / LIBELLE / QT / U / PU / PT.
+   Un même document peut porter plusieurs lots — on les rend tous. */
+function analyseBordereau(txt){
+  const L=String(txt||'').split('\n').map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const NB=/^-?[\d  ]+(?:[.,]\d+)?$/;
+  /* un code d'article ne porte jamais d'espace ; il suit soit la nomenclature à
+     tiret bas (B_1FF_5SEMEL, I_11HB*_5S18, A_CHTR_50km), soit une numérotation
+     hiérarchique (1.2.3). Sans cette exigence, un libellé d'un seul mot passerait. */
+  const estCode=s=>/^[A-Za-z][\w\-\.\*\/]*_[\w\-\.\*\/]*$/.test(s)||/^\d+(?:\.\d+)+$/.test(s);
+  const estUnite=u=>UNITES.indexOf(String(u||'').toUpperCase().replace('²','2').replace('³','3').replace('M2','M2'))>=0
+                  ||['M²','M³'].indexOf(u)>=0;
+  const lots=[]; let courant=null, i=0;
+  while(i<L.length){
+    if(/^D[EÉ]SIGNATION DES TRAVAUX$/i.test(L[i])&&i+1<L.length){
+      courant={nom:L[i+1],articles:[]}; lots.push(courant); i+=2; continue;
+    }
+    /* code, libellé, quantité, unité, prix unitaire, (prix total) */
+    if(courant&&i+4<L.length&&estCode(L[i])&&NB.test(L[i+2])&&estUnite(L[i+3])&&NB.test(L[i+4])){
+      courant.articles.push({code:L[i],libelle:L[i+1],unite:artUnite(L[i+3]),
+        pu:nombreFr(L[i+4]),qt:nombreFr(L[i+2])});
+      i+=(i+5<L.length&&NB.test(L[i+5]))?6:5; continue;
+    }
+    i++;
+  }
+  return lots.filter(l=>l.articles.length);
+}
 
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
 const Photo={
@@ -891,6 +935,35 @@ function texteDocumentXml(xml){
 async function wordText(file){
   const bytes=await zipEntree(await file.arrayBuffer(),'word/document.xml');
   return texteDocumentXml(new TextDecoder('utf-8').decode(bytes));
+}
+/* un tableau se lit ligne par ligne : la version à plat perdrait les colonnes */
+function lignesDocumentXml(xml){
+  const net=String(xml)
+    .replace(/<w:del\b[\s\S]*?<\/w:del>/g,'')
+    .replace(/<w:instrText[\s\S]*?<\/w:instrText>/g,'')
+    .replace(/<w:(?:tab|br|cr)\b[^>]*\/?>/g,' ')
+    .replace(/<\/w:(?:p|tc)>/g,'\n')
+    .replace(/<[^>]+>/g,'');
+  return dexml(net).split('\n').map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean).join('\n');
+}
+async function wordLignes(file){
+  const bytes=await zipEntree(await file.arrayBuffer(),'word/document.xml');
+  return lignesDocumentXml(new TextDecoder('utf-8').decode(bytes));
+}
+/* même porte d'entrée que lireDocument, mais en conservant les lignes */
+async function lireDocumentLignes(file){
+  const nom=(file.name||'').toLowerCase(), type=file.type||'';
+  if(/\.docx$/.test(nom)||/wordprocessingml/.test(type)){
+    try{const t=await wordLignes(file);return t?{txt:t}:{txt:'',motif:'document Word vide'}}
+    catch(e){return {txt:'',motif:'fichier Word illisible'}}
+  }
+  if(/\.doc$/.test(nom)||/msword/.test(type))
+    return {txt:'',motif:'ancien format Word (.doc) — enregistrez-le en .docx'};
+  /* un PDF rend le tableau à plat : les colonnes QT / U / PU y sont perdues,
+     inutile d'essayer de l'ouvrir pour le dire. */
+  if(/\.pdf$/.test(nom)||/pdf/.test(type))
+    return {txt:'',motif:'un bordereau se lit dans un fichier Word : le PDF perd les colonnes du tableau'};
+  return {txt:'',motif:'format non reconnu — déposez le marché au format Word (.docx)'};
 }
 
 /* Un contrat ou une facture arrive en PDF ou en Word : une seule porte d'entrée,
@@ -1917,6 +1990,90 @@ function Fiche({data,ch,save,back}){
 /* ---------------- MARCHÉS ---------------- */
 const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 
+/* ---------- chiffrage d'un lot depuis un bordereau de prix ----------
+   Le principe du serveur d'Hexaom : on ne retape pas un montant, on saisit des
+   quantités en face d'articles dont le prix est déjà négocié, et le marché en
+   découle. Le montant HT du lot n'est plus une saisie mais un résultat. */
+function Quantitatif({data,f,setF}){
+  const [ouvert,setOuvert]=useState(false);
+  const [choix,setChoix]=useState('');
+  const [servisSeuls,setServisSeuls]=useState(false);
+  const B=data.bordereaux||[];
+  const q=f.quantitatif;
+  /* les bordereaux de l'artisan retenu d'abord : ce sont ses prix à lui */
+  const dispo=f.artisanId?[...B.filter(b=>b.artisanId===f.artisanId),...B.filter(b=>b.artisanId!==f.artisanId)]:B;
+  const poser=id=>{
+    const b=B.find(x=>x.id===id);if(!b)return;
+    setF(p=>({...p,quantitatif:{bordereauId:b.id,nom:b.nom,
+      lignes:(b.articles||[]).map(a=>({id:uid(),code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu,qt:''}))},
+      montantHT:0}));
+    setOuvert(true);
+  };
+  const majQt=(id,v)=>setF(p=>{
+    const lignes=p.quantitatif.lignes.map(l=>l.id===id?{...l,qt:v===''?'':+v}:l);
+    return {...p,quantitatif:{...p.quantitatif,lignes},montantHT:quantitatifHT(lignes)};
+  });
+  const retirer=()=>setF(p=>({...p,quantitatif:undefined}));
+  if(!q)return <Fld label="CHIFFRER CE LOT DEPUIS UN BORDEREAU">
+    {B.length
+      ?<div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        <select className="in" value={choix} onChange={e=>setChoix(e.target.value)} style={{flex:'1 1 200px'}}>
+          <option value="">— aucun, je saisis le montant —</option>
+          {dispo.map(b=><option key={b.id} value={b.id}>{b.nom} ({(b.articles||[]).length} articles)</option>)}
+        </select>
+        <button className="btn gh s" disabled={!choix} onClick={()=>poser(choix)}>Chiffrer</button>
+      </div>
+      :<div className="xs mut" style={{lineHeight:1.5}}>Aucun bordereau de prix. Importez un marché déjà rédigé depuis l'onglet ARTISANS,
+        et vous pourrez ensuite chiffrer vos lots en saisissant seulement les quantités.</div>}
+  </Fld>;
+  /* la saisie se fait sur la liste entière : une ligne qui disparaît dès qu'on
+     la laisse à zéro rendrait le chiffrage impraticable. Le repli est un choix. */
+  const lignes=q.lignes||[], servies=lignes.filter(l=>ligneQt(l)>0);
+  const vues=servisSeuls?servies:lignes;
+  return <Fld label={'QUANTITATIF — '+eur(quantitatifHT(lignes))+' HT'}>
+    <div className="sp xs" style={{flexWrap:'wrap',gap:8,marginBottom:6}}>
+      <span className="mut">{q.nom} — {servies.length} article{servies.length>1?'s':''} servi{servies.length>1?'s':''} sur {lignes.length}</span>
+      <div className="row" style={{gap:10}}>
+        <button className="btn gh s" onClick={()=>setOuvert(!ouvert)}>{ouvert?'Replier':'Saisir les quantités'}</button>
+        <button className="btn dg s" onClick={retirer}>Retirer</button>
+      </div>
+    </div>
+    {ouvert&&<div>
+      {servies.length>0&&<label className="xs mut row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
+        <input type="checkbox" checked={servisSeuls} onChange={e=>setServisSeuls(e.target.checked)}/>
+        N'afficher que les {servies.length} articles servis</label>}
+      {/* le libellé et son prix tiennent sur une ligne, la quantité et son total
+          sur l'autre : sur un téléphone, rien ne sort de l'écran. */}
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,tableLayout:'fixed'}}>
+        <tbody>{vues.map(l=><tr key={l.id} style={{borderBottom:'1px solid '+RULE}}>
+          <td style={{padding:'6px 0'}}>
+            <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
+              <span>{l.libelle}</span>
+              <span className="mut" style={{whiteSpace:'nowrap'}}>{eurc(l.pu)} / {l.unite}</span>
+            </div>
+            <div className="sp" style={{gap:8,alignItems:'center',marginTop:3}}>
+              <span className="mut" style={{fontSize:11}}>{l.code}</span>
+              <span className="row" style={{gap:8,alignItems:'center',whiteSpace:'nowrap'}}>
+                <input className="in" type="number" step="0.001" placeholder="Qté" aria-label={'Quantité — '+l.libelle}
+                  style={{padding:'3px 6px',fontSize:12,width:76,textAlign:'right'}}
+                  value={l.qt===''||l.qt===undefined?'':l.qt} onChange={e=>majQt(l.id,e.target.value)}/>
+                <span className="b" style={{minWidth:74,display:'inline-block',textAlign:'right',color:ligneQt(l)?INK:MUTED}}>
+                  {ligneQt(l)?eurc(lignePT(l)):'—'}</span>
+              </span>
+            </div>
+          </td>
+        </tr>)}</tbody>
+        <tfoot><tr style={{borderTop:'2px solid '+RULE}}>
+          <td style={{padding:'8px 0'}}><div className="sp"><span className="b">TOTAL H.T.</span>
+            <span className="b" style={{color:NAVY}}>{eurc(quantitatifHT(lignes))}</span></div></td>
+        </tr></tfoot>
+      </table>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Les prix viennent du bordereau et ne se modifient pas ici :
+        pour changer un prix, corrigez le bordereau dans l'onglet ARTISANS, puis rechiffrez le lot.</div>
+    </div>}
+  </Fld>;
+}
+
 function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const [f,setF]=useState(null);
   const [showImport,setShowImport]=useState(false);
@@ -1998,15 +2155,19 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         <datalist id="corps-list">{CORPS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
       <Fld label="ARTISAN"><select className="in" value={f.artisanId} onChange={e=>setF({...f,artisanId:e.target.value})}><option value="">— non attribué —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom} ({a.corps})</option>)}</select></Fld>
       <div className="g2">
-        <Fld label="MONTANT MARCHÉ HT (€)"><input className="in" type="number" value={f.montantHT} onChange={e=>setF({...f,montantHT:e.target.value})}/></Fld>
+        <Fld label="MONTANT MARCHÉ HT (€)"><input className="in" type="number" value={f.montantHT} disabled={!!f.quantitatif}
+          onChange={e=>setF({...f,montantHT:e.target.value})} style={f.quantitatif?{background:'#F2EFE9'}:null}/></Fld>
         <Fld label="TVA DE CE LOT (%)">
           <input className="in" type="number" step="0.1" placeholder={'Chantier : '+tvaRate(ch)+' %'} value={f.tva===undefined||f.tva===null?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/>
         </Fld>
       </div>
       <div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.5}}>
-        Laissez vide pour appliquer le taux du chantier ({tvaRate(ch)} %). Saisissez <b>0</b> pour un artisan en franchise de TVA ou en autoliquidation.
-        {f.montantHT>0&&<span> — soit <b>{eur(marcheTTC({montantHT:+f.montantHT,tva:f.tva},ch))}</b> TTC.</span>}
+        {f.quantitatif
+          ?<span>Le montant est celui du quantitatif ci-dessous : il se recalcule à chaque quantité saisie. </span>
+          :<span>Laissez la TVA vide pour appliquer le taux du chantier ({tvaRate(ch)} %). Saisissez <b>0</b> pour un artisan en franchise de TVA ou en autoliquidation. </span>}
+        {f.montantHT>0&&<span>— soit <b>{eur(marcheTTC({montantHT:+f.montantHT,tva:f.tva},ch))}</b> TTC.</span>}
       </div>
+      <Quantitatif data={data} f={f} setF={setF}/>
       <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{STATUTS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
       <Fld label="DATE DE SIGNATURE"><input className="in" type="date" value={f.dateSignature} onChange={e=>setF({...f,dateSignature:e.target.value})}/></Fld>
       <Fld label="CONTRAT DE MARCHÉ (PDF)">
@@ -2072,6 +2233,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                   {m.dateSignature?'signé le '+fd(m.dateSignature):'non signé'}
                   {m.contratLien&&<span style={{color:GREEN}} title="Contrat déposé sur le Drive"> ✓</span>}
                 </div>
+                {m.quantitatif&&<div className="mut" style={{marginTop:2}}>
+                  chiffré — {(m.quantitatif.lignes||[]).filter(l=>ligneQt(l)>0).length} articles</div>}
               </td>
               {/* à droite ce qui a été facturé dessus */}
               <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>
@@ -3704,6 +3867,7 @@ function Artisans({data,save}){
   };
   const al=data.artisans.filter(a=>!a.decennaleFin||new Date(a.decennaleFin)<new Date());
   return <div>
+    <Bordereaux data={data} save={save}/>
     <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',corps:'',tel:'',email:'',adresse:'',siret:'',activites:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''})}>+ Artisan</button>}>ARTISANS ({data.artisans.length})</H2>
     {al.length>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
       {al.length} artisan{al.length>1?'s':''} sans décennale valide. Ne pas signer de marché avant régularisation.</div>}
@@ -3763,6 +3927,104 @@ function Artisans({data,save}){
           {a.lienAttestation&&<a href={a.lienAttestation} target="_blank" rel="noreferrer" style={{color:TERRA}}>Attestation</a>}
         </div>
       </div>;
+    })}
+  </div>;
+}
+
+/* ---------------- BIBLIOTHÈQUE DE PRIX ----------------
+   Un marché déjà rédigé sous Word contient sa propre grille : code, libellé,
+   unité, prix unitaire. On l'en extrait une fois pour toutes, on la rattache à
+   l'artisan qui l'applique, et elle sert ensuite à chiffrer les lots suivants. */
+function Bordereaux({data,save}){
+  const [f,setF]=useState(null);
+  const [imp,setImp]=useState(null);
+  const [deplie,setDeplie]=useState(false);
+  const B=data.bordereaux||[];
+  const nomArt=id=>(data.artisans.find(a=>a.id===id)||{}).nom||'';
+  const importer=async file=>{
+    setImp({etat:'lecture'});
+    const {txt,motif}=await lireDocumentLignes(file);
+    if(!txt){setImp({etat:'erreur',msg:motif||'fichier illisible'});return}
+    const lots=analyseBordereau(txt);
+    if(!lots.length){setImp({etat:'erreur',msg:'aucun tableau « DÉSIGNATION DES TRAVAUX » trouvé dans ce document'});return}
+    /* le prix unitaire est ce qui se garde ; la quantité appartient au chantier
+       d'origine et n'a rien à faire dans une grille tarifaire. */
+    const neufs=lots.map(l=>({id:uid(),nom:l.nom,corps:'',artisanId:'',maj:today(),
+      articles:l.articles.map(a=>({id:uid(),code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu}))}));
+    save({...data,bordereaux:[...B,...neufs]});
+    setImp({etat:'ok',lots:lots.map((l,i)=>({nom:l.nom,n:l.articles.length,ht:quantitatifHT(l.articles)}))});
+  };
+  const ok=()=>{
+    if(!f.nom.trim())return;
+    const n={...f,maj:today()};
+    save({...data,bordereaux:f.neuf?[...B,{...n,neuf:undefined}]:B.map(b=>b.id===f.id?n:b)});
+    setF(null);
+  };
+  const majArt=(i,k,v)=>setF(p=>({...p,articles:p.articles.map((a,j)=>j===i?{...a,[k]:v}:a)}));
+  const ouvert=deplie||!!f;
+  return <div style={{marginBottom:20,paddingBottom:16,borderBottom:'1px solid '+RULE}}>
+    <H2 action={ouvert
+      ?<button className="btn gh s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanId:'',articles:[]})}}>+ Bordereau</button>
+      :<button className="btn gh s" onClick={()=>setDeplie(true)}>Ouvrir</button>}>
+      BIBLIOTHÈQUE DE PRIX ({B.length})</H2>
+    {!ouvert&&<div className="xs mut" style={{lineHeight:1.5}}>
+      Les grilles tarifaires de vos artisans, article par article. Elles servent à chiffrer un lot depuis l'onglet MARCHÉS :
+      vous ne saisissez que les quantités, le montant du marché en découle.</div>}
+    {ouvert&&!f&&<div className="card">
+      <div className="xs mut" style={{lineHeight:1.5}}>Déposez un marché de travaux au format Word : l'application y lit chaque tableau
+        « DÉSIGNATION DES TRAVAUX » et en retient les prix unitaires, lot par lot.</div>
+      <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:10}}>
+        <label className="btn acc s" style={{whiteSpace:'nowrap'}}>{imp&&imp.etat==='lecture'?'Lecture du document…':'Importer un marché Word'}
+          <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{display:'none'}}
+            disabled={imp&&imp.etat==='lecture'}
+            onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)importer(x)}}/></label>
+      </div>
+      {imp&&imp.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>Rien n'a été importé : {imp.msg}.</div>}
+      {imp&&imp.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+        {imp.lots.length} bordereau{imp.lots.length>1?'x':''} importé{imp.lots.length>1?'s':''}.
+        Ouvrez chacun pour lui rattacher son artisan.
+        <div style={{marginTop:6,color:MUTED}}>{imp.lots.map(l=><div key={l.nom}>{l.nom} — {l.n} articles, {eur(l.ht)} au quantitatif d'origine</div>)}</div>
+      </div>}
+    </div>}
+    {f&&<div className="card">
+      <Fld label="INTITULÉ DU BORDEREAU"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}/></Fld>
+      <div className="g2">
+        <Fld label="CORPS D'ÉTAT"><select className="in" value={f.corps||''} onChange={e=>setF({...f,corps:e.target.value})}>
+          <option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
+        <Fld label="ARTISAN QUI APPLIQUE CES PRIX"><select className="in" value={f.artisanId||''} onChange={e=>setF({...f,artisanId:e.target.value})}>
+          <option value="">— aucun —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Fld>
+      </div>
+      <div className="lbl" style={{marginTop:14}}>ARTICLES ({f.articles.length})</div>
+      <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:520}}>
+        <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
+          <th style={{padding:'6px 4px'}}>Code</th><th style={{padding:'6px 4px'}}>Libellé</th>
+          <th style={{padding:'6px 4px'}}>U</th>
+          <th style={{padding:'6px 4px',textAlign:'right'}}>Prix unitaire</th><th/>
+        </tr></thead>
+        <tbody>{f.articles.map((a,i)=><tr key={a.id||i} style={{borderBottom:'1px solid '+RULE}}>
+          <td style={{padding:'3px 4px'}}><input className="in" style={{padding:'4px 6px',fontSize:12,width:120}} value={a.code||''} onChange={e=>majArt(i,'code',e.target.value)}/></td>
+          <td style={{padding:'3px 4px'}}><input className="in" style={{padding:'4px 6px',fontSize:12}} value={a.libelle||''} onChange={e=>majArt(i,'libelle',e.target.value)}/></td>
+          <td style={{padding:'3px 4px'}}><input className="in" style={{padding:'4px 6px',fontSize:12,width:52}} value={a.unite||''} onChange={e=>majArt(i,'unite',artUnite(e.target.value))}/></td>
+          <td style={{padding:'3px 4px'}}><input className="in" style={{padding:'4px 6px',fontSize:12,width:90,textAlign:'right'}} type="number" step="0.01" placeholder="€ HT"
+            value={a.pu===undefined||a.pu===null?'':a.pu} onChange={e=>majArt(i,'pu',e.target.value===''?'':+e.target.value)}/></td>
+          <td style={{padding:'3px 4px'}}><button className="btn gh s" onClick={()=>setF(p=>({...p,articles:p.articles.filter((x,j)=>j!==i)}))}>✕</button></td>
+        </tr>)}</tbody>
+      </table></div>
+      {!f.articles.length&&<div className="xs mut" style={{padding:'10px 0'}}>Aucun article. Ajoutez-les à la main, ou revenez en arrière et importez un marché Word.</div>}
+      <button className="btn gh s" style={{marginTop:8}}
+        onClick={()=>setF(p=>({...p,articles:[...p.articles,{id:uid(),code:'',libelle:'',unite:'U',pu:''}]}))}>+ Article</button>
+      <Acts onSave={ok} onCancel={()=>setF(null)}
+        onDel={f.neuf?null:()=>{save({...data,bordereaux:B.filter(b=>b.id!==f.id)});setF(null)}}/>
+    </div>}
+    {ouvert&&!B.length&&!f&&<Empty>Aucun bordereau. Importez un marché déjà rédigé pour constituer votre grille.</Empty>}
+    {ouvert&&!f&&B.map(b=>{
+      const art=nomArt(b.artisanId);
+      return <button key={b.id} className="card" style={{borderLeft:'3px solid '+(art?NAVY:AMBER)}} onClick={()=>setF(b)}>
+        <div className="sp"><span className="b sm" style={{color:NAVY}}>{b.nom}</span>
+          <span className="xs mut" style={{whiteSpace:'nowrap'}}>{(b.articles||[]).length} articles</span></div>
+        <div className="xs" style={{marginTop:3,color:art?MUTED:AMBER}}>{art?art+(b.corps?' — '+b.corps:''):'Aucun artisan rattaché'}</div>
+        {b.maj&&<div className="xs mut" style={{marginTop:2}}>Prix à jour au {fd(b.maj)}</div>}
+      </button>;
     })}
   </div>;
 }
