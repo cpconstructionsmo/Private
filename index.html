@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-25 · bibliothèque de prix et chiffrage des lots au quantitatif';
+const VERSION='2026-08-25 · marchés, achats et honoraires en trois colonnes dépliables';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -1448,6 +1448,89 @@ const Acts=({onSave,onCancel,onDel})=><div className="row" style={{gap:8}}>
   <button className="btn gh" onClick={onCancel}>Annuler</button>
   {onDel&&<button className="btn dg" onClick={onDel}>Supprimer</button>}</div>;
 
+/* Le « + » qui déplie un détail juste sous la ligne : on reste où l'on est,
+   sans remonter la page ni changer d'onglet. */
+const Plus=({actif,onClick,titre})=><button title={titre} aria-label={titre} aria-expanded={!!actif}
+  onClick={e=>{e.stopPropagation();onClick()}}
+  style={{width:20,height:20,lineHeight:'18px',padding:0,borderRadius:5,flex:'0 0 auto',
+    border:'1px solid '+(actif?TERRA:RULE),background:actif?TERRA:'transparent',
+    color:actif?'#fff':MUTED,fontSize:13,cursor:'pointer'}}>{actif?'−':'+'}</button>;
+
+/* le panneau lui-même : une ligne de tableau qui prend toute la largeur */
+const Volet=({cols,children})=><tr style={{borderBottom:'1px solid '+RULE}}>
+  <td colSpan={cols} style={{padding:'0 4px 12px'}}>
+    <div style={{borderLeft:'3px solid '+TERRA,background:'#F4F1EB',borderRadius:'0 8px 8px 0',padding:'10px 12px'}}>
+      {children}</div></td></tr>;
+
+const Ligne=({l,v})=>v?<div className="xs" style={{marginTop:3}}>
+  <span className="mut">{l} </span><span>{v}</span></div>:null;
+
+/* la fiche d'un artisan, telle qu'elle s'ouvre sous son nom */
+function FicheEntreprise({a}){
+  if(!a)return <div className="xs mut">Lot non attribué — aucune entreprise à afficher.</div>;
+  const j=a.decennaleFin?Math.round((new Date(a.decennaleFin)-new Date())/86400000):null;
+  const c=j===null?TERRA:(j<0?TERRA:(j<60?AMBER:GREEN));
+  return <div>
+    <div className="b sm" style={{color:NAVY}}>{a.nom}</div>
+    <Ligne l="Corps d’état" v={a.corps}/>
+    <Ligne l="Adresse" v={a.adresse}/>
+    <Ligne l="SIRET" v={a.siret}/>
+    <div className="xs" style={{marginTop:3,color:c}}>
+      {a.decennaleFin?'Décennale valide jusqu’au '+fd(a.decennaleFin):'Décennale non renseignée'}
+      {a.assureur?' · '+a.assureur:''}{a.numPolice?' · police '+a.numPolice:''}</div>
+    {a.activites&&<div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>Couvert : {a.activites}</div>}
+    <div className="row xs" style={{gap:14,marginTop:8,flexWrap:'wrap'}}>
+      {a.tel&&<a href={'tel:'+a.tel} style={{color:TERRA}}>Appeler</a>}
+      {a.tel&&<a href={'https://wa.me/'+wa(a.tel)} style={{color:TERRA}}>WhatsApp</a>}
+      {a.email&&<a href={'mailto:'+a.email} style={{color:TERRA}}>Email</a>}
+      {a.lienAttestation&&<a href={a.lienAttestation} target="_blank" rel="noreferrer" style={{color:TERRA}}>Attestation</a>}
+    </div>
+  </div>;
+}
+
+/* la colonne de droite : chaque facture avec son numéro, sa date, son montant
+   et ce qui reste dû après elle. Le « + » ouvre son justificatif. */
+function ColFactures({liste,engage,ouv,setOuv,cle,onLien}){
+  const L=liste||[];
+  const total=facturesTotal(L), reste=(engage||0)-total;
+  let cumul=0;
+  return <div style={{textAlign:'right'}}>
+    {!L.length&&<div className="mut">aucune facture</div>}
+    {L.map(f=>{
+      cumul+=(+f.montant||0);
+      const du=(engage||0)-cumul, k=cle+':'+f.id;
+      return <div key={f.id} style={{marginBottom:6}}>
+        <div className="row" style={{gap:6,justifyContent:'flex-end',alignItems:'center'}}>
+          <span className="b" style={{whiteSpace:'nowrap'}}>{eur(f.montant)}</span>
+          {f.lien&&<span style={{color:GREEN}} title="Justificatif sur le Drive">✓</span>}
+          <Plus actif={ouv===k} titre="Voir le justificatif" onClick={()=>setOuv(ouv===k?'':k)}/>
+        </div>
+        <div className="mut" style={{fontSize:11}}>
+          {f.numero?f.numero+' · ':''}{f.date?fd(f.date):'date à saisir'}
+          {/* le reste après chaque facture n'a de sens qu'à partir de la deuxième :
+              sur une facture unique il répéterait le reste à facturer du bas */}
+          {L.length>1?(du>0?' · reste '+eur(du):' · soldé'):''}</div>
+        {ouv===k&&<div style={{textAlign:'left',marginTop:4,padding:'6px 8px',background:'#F4F1EB',borderRadius:6}}>
+          {f.lien
+            ?<div className="row xs" style={{gap:10,alignItems:'center',flexWrap:'wrap'}}><Transmis/>
+              <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir la facture</a>
+              <label style={{color:NAVY,cursor:'pointer'}}>Remplacer
+                <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
+                  onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label></div>
+            :<label className="xs" style={{color:NAVY,cursor:'pointer'}}>Importer la facture — elle part sur le Drive
+              <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
+                onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label>}
+        </div>}
+      </div>;
+    })}
+    {L.length>0&&<div style={{borderTop:'1px solid '+RULE,paddingTop:4,marginTop:2}}>
+      <div className="b">{eur(total)} facturé</div>
+      <div style={{color:reste<0?TERRA:(reste<=0?GREEN:MUTED),fontSize:11}}>
+        {reste<0?'dépassement '+eur(-reste):(reste<=0?'soldé':'reste à facturer '+eur(reste))}</div>
+    </div>}
+  </div>;
+}
+
 /* reprend les coordonnées d'une fiche partagée depuis l'app Contacts de l'iPhone */
 function ImportContact({onLu,label}){
   const [msg,setMsg]=useState('');
@@ -2137,7 +2220,47 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     }
   };
   const nom=id=>{const a=data.artisans.find(x=>x.id===id);return a?a.nom:'Non attribué'};
+  /* un seul volet ouvert à la fois : la clé dit quelle ligne et quelle colonne */
+  const [ouv,setOuv]=useState('');
+  const [envoi,setEnvoi]=useState('');
+  /* tout fichier déposé depuis ces volets part sur le Drive du chantier, dans
+     son sous-dossier, et le lien est enregistré sur la ligne concernée. */
+  const versDrive=async(file,dossier)=>{
+    const token=await getDriveToken();
+    const folderId=dossier==='Marchés'?await driveMarchesFolder(token,ch.id,ch.nom)
+                  :dossier==='Factures'?await driveFacturesFolder(token,ch.id,ch.nom)
+                  :await driveSousDossier(token,ch.id,ch.nom,dossier);
+    return (await uploadToDrive(file,folderId)).webViewLink;
+  };
+  const envoyer=async(file,dossier,appliquer)=>{
+    setEnvoi(file.name);
+    try{appliquer(await versDrive(file,dossier))}
+    catch(e){alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton en bas de l'onglet)."
+      :"Envoi sur le Drive impossible — "+((e&&(e.error||e.message))||String(e)));}
+    setEnvoi('');
+  };
+  const majMarche=(id,patch)=>save({...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)});
+  const majCmd=(id,patch)=>save({...data,commandes:data.commandes.map(c=>c.id===id?{...c,...patch}:c)});
+  const majCh=patch=>save({...data,chantiers:data.chantiers.map(c=>c.id===ch.id?{...c,...patch}:c)});
+  const joindreContrat=(id,file)=>envoyer(file,'Marchés',lien=>majMarche(id,{contratLien:lien}));
+  const joindreFactureMarche=(id,fid,file)=>envoyer(file,'Factures',lien=>{
+    const m=data.marches.find(x=>x.id===id)||{};
+    majMarche(id,{factures:(m.factures||[]).map(x=>x.id===fid?{...x,lien}:x)});
+  });
+  const joindreFactureCmd=(id,fid,file)=>envoyer(file,'Factures',lien=>{
+    const c=data.commandes.find(x=>x.id===id)||{};
+    majCmd(id,{factures:(c.factures||[]).map(x=>x.id===fid?{...x,lien}:x)});
+  });
+  const joindreFactureHono=(fid,file)=>envoyer(file,'Honoraires',lien=>
+    majCh({honoFactures:(ch.honoFactures||[]).map(x=>x.id===fid?{...x,lien}:x)}));
+  const joindreDevisCmd=(id,file)=>envoyer(file,'Matériaux',lien=>{
+    const c=data.commandes.find(x=>x.id===id)||{};
+    majCmd(id,{devis:[...(c.devis||[]),{id:uid(),nom:file.name,lien}]});
+  });
+  const joindreDevisHono=file=>envoyer(file,'Honoraires',lien=>
+    majCh({devisHono:{nom:file.name,lien,date:today()}}));
   return <div>
+    {envoi&&<div className="xs" style={{color:NAVY,marginBottom:8}}>Envoi de « {envoi} » sur le Drive…</div>}
     <div className="sp" style={{marginBottom:12,flexWrap:'wrap',gap:8}}>
       <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}</span>
       <div className="row" style={{gap:8,flexWrap:'wrap'}}>
@@ -2205,44 +2328,65 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,marches:data.marches.filter(m=>m.id!==f.id)});setF(null)}:null}/>
     </div>}
     {!ms.length&&!f&&<Empty>Aucun lot. Ajoutez les corps d'état à consulter, ou utilisez « Import rapide ».</Empty>}
-    {!!ms.length&&<div style={{overflowX:'auto'}}>
-      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+    {!!ms.length&&<div>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,tableLayout:'fixed'}}>
         <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
           <th style={{padding:'6px 4px'}}>Entreprise</th>
           <th style={{padding:'6px 4px',textAlign:'right'}}>Marché de travaux</th>
-          <th style={{padding:'6px 4px',textAlign:'right'}}>Facture</th>
+          <th style={{padding:'6px 4px',textAlign:'right'}}>Factures</th>
         </tr></thead>
         <tbody>
           {ms.map(m=>{
-            const total=m.factures?facturesTotal(m.factures):(m.facture||0);
-            const reste=(m.montantHT||0)-total;
-            const n=(m.factures||[]).length;
             const st=STATUTS.find(x=>x.id===m.statut);
-            return <tr key={m.id} onClick={()=>openRow(m)} style={{borderBottom:'1px solid '+RULE,cursor:'pointer',verticalAlign:'top'}}>
-              {/* à gauche l'entreprise et son corps de métier */}
-              <td style={{padding:'8px 4px'}}>
-                <div className="b">{nom(m.artisanId)}</div>
-                <div className="mut" style={{marginTop:2}}>{m.lot}</div>
-                {st&&<div style={{color:st.c,marginTop:2}}>{st.label}</div>}
-              </td>
-              {/* au centre le marché lui-même */}
-              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>
-                <div className="b">{eur(m.montantHT)} HT</div>
-                <div className="mut" style={{marginTop:2}}>{eur(marcheTTC(m,ch))} TTC · TVA {marcheTva(m,ch)} %</div>
-                <div className="mut" style={{marginTop:2}}>
-                  {m.dateSignature?'signé le '+fd(m.dateSignature):'non signé'}
-                  {m.contratLien&&<span style={{color:GREEN}} title="Contrat déposé sur le Drive"> ✓</span>}
-                </div>
-                {m.quantitatif&&<div className="mut" style={{marginTop:2}}>
-                  chiffré — {(m.quantitatif.lignes||[]).filter(l=>ligneQt(l)>0).length} articles</div>}
-              </td>
-              {/* à droite ce qui a été facturé dessus */}
-              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>
-                <div className="b" style={{color:total>m.montantHT?TERRA:(total>=m.montantHT&&m.montantHT>0?GREEN:INK)}}>{eur(total)}</div>
-                <div className="mut" style={{marginTop:2}}>{n?n+' facture'+(n>1?'s':''):'aucune facture'}</div>
-                <div style={{marginTop:2,color:reste<0?TERRA:MUTED}}>{reste<=0?'soldé':'reste '+eur(reste)}</div>
-              </td>
-            </tr>;
+            const art=data.artisans.find(a=>a.id===m.artisanId);
+            const kE='m-ent:'+m.id, kD='m-doc:'+m.id;
+            return <React.Fragment key={m.id}>
+              <tr style={{borderBottom:'1px solid '+RULE,verticalAlign:'top'}}>
+                {/* à gauche l'entreprise et son corps de métier */}
+                <td style={{padding:'8px 4px'}}>
+                  <div className="row" style={{gap:6,alignItems:'flex-start'}}>
+                    <button onClick={()=>setOuv(ouv===kE?'':kE)} className="b"
+                      style={{textAlign:'left',background:'none',border:'none',padding:0,color:NAVY,cursor:'pointer',flex:1}}>
+                      {nom(m.artisanId)}</button>
+                    <Plus actif={ouv===kE} titre="Voir l’entreprise" onClick={()=>setOuv(ouv===kE?'':kE)}/>
+                  </div>
+                  <div className="mut" style={{marginTop:2}}>{m.lot}</div>
+                  {st&&<div style={{color:st.c,marginTop:2}}>{st.label}</div>}
+                  <button onClick={()=>openRow(m)} style={{background:'none',border:'none',padding:0,marginTop:2,color:TERRA,cursor:'pointer',textAlign:'left'}}>Modifier le lot ›</button>
+                </td>
+                {/* au centre le marché lui-même */}
+                <td style={{padding:'8px 4px',textAlign:'right'}}>
+                  <div className="row" style={{gap:6,justifyContent:'flex-end',alignItems:'center'}}>
+                    <span className="b" style={{whiteSpace:'nowrap'}}>{eur(m.montantHT)} HT</span>
+                    {m.contratLien&&<span style={{color:GREEN}} title="Marché sur le Drive">✓</span>}
+                    <Plus actif={ouv===kD} titre="Voir le marché de travaux" onClick={()=>setOuv(ouv===kD?'':kD)}/>
+                  </div>
+                  <div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>{eur(marcheTTC(m,ch))} TTC · TVA {marcheTva(m,ch)} %</div>
+                  <div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>{m.dateSignature?'signé le '+fd(m.dateSignature):'non signé'}</div>
+                  {m.quantitatif&&<div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>
+                    chiffré — {(m.quantitatif.lignes||[]).filter(l=>ligneQt(l)>0).length} articles</div>}
+                </td>
+                {/* à droite chaque facture, une par une */}
+                <td style={{padding:'8px 4px'}}>
+                  <ColFactures liste={m.factures} engage={+m.montantHT||0} ouv={ouv} setOuv={setOuv}
+                    cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}/>
+                </td>
+              </tr>
+              {ouv===kE&&<Volet cols={3}><FicheEntreprise a={art}/></Volet>}
+              {ouv===kD&&<Volet cols={3}>
+                <div className="lbl">MARCHÉ DE TRAVAUX SIGNÉ</div>
+                {m.contratLien
+                  ?<div className="row xs" style={{gap:12,alignItems:'center',flexWrap:'wrap',marginTop:4}}><Transmis/>
+                    <a href={m.contratLien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir le marché</a>
+                    <label style={{color:NAVY,cursor:'pointer'}}>Remplacer
+                      <input type="file" accept={PIECES_ACCEPT} style={{display:'none'}}
+                        onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)joindreContrat(m.id,x)}}/></label></div>
+                  :<label className="xs" style={{color:NAVY,cursor:'pointer',display:'block',marginTop:4}}>
+                    Importer le marché — il part sur le Drive › Marchés
+                    <input type="file" accept={PIECES_ACCEPT} style={{display:'none'}}
+                      onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)joindreContrat(m.id,x)}}/></label>}
+              </Volet>}
+            </React.Fragment>;
           })}
         </tbody>
       </table>
@@ -2250,31 +2394,69 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     {!!cmds.length&&<div style={{marginTop:18}}>
       <div className="h2" style={{marginBottom:8}}>ACHATS DE MATÉRIAUX</div>
       <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
-        Achetés en direct, hors marchés de travaux. Ils se facturent comme un lot — touchez la ligne pour saisir une facture.
+        Achetés en direct, hors marchés de travaux. Ils se facturent comme un lot : le « + » ouvre les devis et les justificatifs.
       </div>
-      <div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+      <div>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,tableLayout:'fixed'}}>
           <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
-            <th style={{padding:'6px 4px'}}>Achat</th>
-            <th style={{padding:'6px 4px',textAlign:'right'}}>Commande HT</th>
-            <th style={{padding:'6px 4px',textAlign:'right'}}>Facturé</th>
-            <th style={{padding:'6px 4px',textAlign:'right'}}>Reste à facturer</th>
+            <th style={{padding:'6px 4px'}}>Fournisseur</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Commande</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Factures</th>
           </tr></thead>
           <tbody>
             {cmds.map(c=>{
-              const fa=facturesTotal(c.factures), reste=(+c.montant||0)-fa;
-              const n=(c.factures||[]).length;
-              return <tr key={c.id} style={{borderBottom:'1px solid '+RULE,cursor:onFacturerCmd?'pointer':'default'}}
-                onClick={onFacturerCmd?()=>onFacturerCmd(c.id):undefined}>
-                <td style={{padding:'8px 4px'}}>
-                  <div className="b">{c.designation}{n?<span style={{color:GREEN}}> ✓</span>:null}</div>
-                  <div className="mut">{c.fournisseur||'fournisseur non précisé'}{cmdTva(c,ch)!==tvaRate(ch)?' · TVA '+cmdTva(c,ch)+' %':''}</div>
-                  {onFacturerCmd&&<div style={{color:TERRA,marginTop:2}}>{n?n+' facture'+(n>1?'s':'')+' — modifier ›':'Facturer ›'}</div>}
-                </td>
-                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(c.montant)}</td>
-                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(fa)}</td>
-                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:reste<0?TERRA:INK}}>{reste<=0?'soldé':eur(reste)}</td>
-              </tr>;
+              const kE='c-ent:'+c.id, kD='c-doc:'+c.id, dv=c.devis||[];
+              const stc=CMD_ST.find(x=>x.id===c.statut);
+              return <React.Fragment key={c.id}>
+                <tr style={{borderBottom:'1px solid '+RULE,verticalAlign:'top'}}>
+                  <td style={{padding:'8px 4px'}}>
+                    <div className="row" style={{gap:6,alignItems:'flex-start'}}>
+                      <button onClick={()=>setOuv(ouv===kE?'':kE)} className="b"
+                        style={{textAlign:'left',background:'none',border:'none',padding:0,color:NAVY,cursor:'pointer',flex:1}}>
+                        {c.fournisseur||'Fournisseur non précisé'}</button>
+                      <Plus actif={ouv===kE} titre="Voir la commande" onClick={()=>setOuv(ouv===kE?'':kE)}/>
+                    </div>
+                    <div className="mut" style={{marginTop:2}}>{c.designation}</div>
+                    {stc&&<div style={{color:stc.c,marginTop:2}}>{stc.label}</div>}
+                    {onFacturerCmd&&<button onClick={()=>onFacturerCmd(c.id)}
+                      style={{background:'none',border:'none',padding:0,marginTop:2,color:TERRA,cursor:'pointer',textAlign:'left'}}>Modifier l'achat ›</button>}
+                  </td>
+                  <td style={{padding:'8px 4px',textAlign:'right'}}>
+                    <div className="row" style={{gap:6,justifyContent:'flex-end',alignItems:'center'}}>
+                      <span className="b" style={{whiteSpace:'nowrap'}}>{eur(c.montant)} HT</span>
+                      {dv.length>0&&<span style={{color:GREEN}} title="Devis sur le Drive">✓</span>}
+                      <Plus actif={ouv===kD} titre="Voir les devis" onClick={()=>setOuv(ouv===kD?'':kD)}/>
+                    </div>
+                    <div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>{eur(cmdTTC(c,ch))} TTC · TVA {cmdTva(c,ch)} %</div>
+                    <div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>
+                      {c.dateCommande?'commandé le '+fd(c.dateCommande):'non commandé'}</div>
+                  </td>
+                  <td style={{padding:'8px 4px'}}>
+                    <ColFactures liste={c.factures} engage={+c.montant||0} ouv={ouv} setOuv={setOuv}
+                      cle={'c-fac:'+c.id} onLien={(fid,file)=>joindreFactureCmd(c.id,fid,file)}/>
+                  </td>
+                </tr>
+                {ouv===kE&&<Volet cols={3}>
+                  <div className="b sm" style={{color:NAVY}}>{c.designation}</div>
+                  <Ligne l="Fournisseur" v={c.fournisseur}/>
+                  <Ligne l="Lot rattaché" v={c.lot}/>
+                  <Ligne l="Livraison prévue" v={c.livrPrevue?fd(c.livrPrevue):''}/>
+                  <Ligne l="Livraison réelle" v={c.livrReelle?fd(c.livrReelle):''}/>
+                  <Ligne l="Notes" v={c.notes}/>
+                  <div className="xs mut" style={{marginTop:3}}>
+                    {eur(c.montant)} HT · TVA {cmdTva(c,ch)} % · {eur(cmdTTC(c,ch))} TTC</div>
+                </Volet>}
+                {ouv===kD&&<Volet cols={3}>
+                  <div className="lbl">DEVIS ET BONS DE COMMANDE</div>
+                  {dv.map(x=><div key={x.id} className="row xs" style={{gap:10,marginTop:4,alignItems:'center'}}><Transmis/>
+                    <a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA,wordBreak:'break-word'}}>{x.nom}</a></div>)}
+                  {!dv.length&&<div className="xs mut" style={{marginTop:4}}>Aucun devis déposé.</div>}
+                  <label className="xs" style={{color:NAVY,cursor:'pointer',display:'block',marginTop:6}}>
+                    Ajouter un devis — il part sur le Drive › Matériaux
+                    <input type="file" accept={PIECES_ACCEPT} style={{display:'none'}}
+                      onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)joindreDevisCmd(c.id,x)}}/></label>
+                </Volet>}
+              </React.Fragment>;
             })}
           </tbody>
         </table>
@@ -2282,29 +2464,69 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     </div>}
     {!!honoAmount(ch)&&<div style={{marginTop:18}}>
       <div className="h2" style={{marginBottom:8}}>HONORAIRES DE MAÎTRISE D’ŒUVRE</div>
-      <div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+      <div>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,tableLayout:'fixed'}}>
           <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
-            <th style={{padding:'6px 4px'}}>Poste</th>
-            <th style={{padding:'6px 4px',textAlign:'right'}}>Honoraires HT</th>
-            <th style={{padding:'6px 4px',textAlign:'right'}}>Facturé</th>
-            <th style={{padding:'6px 4px',textAlign:'right'}}>Reste à facturer</th>
+            <th style={{padding:'6px 4px'}}>Maître d’œuvre</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Honoraires</th>
+            <th style={{padding:'6px 4px',textAlign:'right'}}>Factures</th>
           </tr></thead>
           <tbody>
             {(()=>{
-              const du=honoAmount(ch), fa=sumMontants(ch.honoFactures), n=(ch.honoFactures||[]).length;
-              const reste=du-fa;
-              return <tr style={{borderBottom:'1px solid '+RULE,cursor:onFacturerHono?'pointer':'default'}}
-                onClick={onFacturerHono}>
-                <td style={{padding:'8px 4px'}}>
-                  <div className="b">Honoraires MOE{n?<span style={{color:GREEN}}> ✓</span>:null}</div>
-                  <div className="mut">CP Constructions · TVA {honoTva(ch)} %</div>
-                  {onFacturerHono&&<div style={{color:TERRA,marginTop:2}}>{n?n+' facture'+(n>1?'s':'')+' — modifier ›':'Facturer ›'}</div>}
-                </td>
-                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(du)}</td>
-                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(fa)}</td>
-                <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:reste<0?TERRA:INK}}>{reste<=0?'soldé':eur(reste)}</td>
-              </tr>;
+              const du=honoAmount(ch), dv=ch.devisHono;
+              return <React.Fragment>
+                <tr style={{borderBottom:'1px solid '+RULE,verticalAlign:'top'}}>
+                  <td style={{padding:'8px 4px'}}>
+                    <div className="row" style={{gap:6,alignItems:'flex-start'}}>
+                      <button onClick={()=>setOuv(ouv==='h-ent'?'':'h-ent')} className="b"
+                        style={{textAlign:'left',background:'none',border:'none',padding:0,color:NAVY,cursor:'pointer',flex:1}}>
+                        CP Constructions</button>
+                      <Plus actif={ouv==='h-ent'} titre="Voir le maître d’œuvre" onClick={()=>setOuv(ouv==='h-ent'?'':'h-ent')}/>
+                    </div>
+                    <div className="mut" style={{marginTop:2}}>Honoraires de maîtrise d’œuvre</div>
+                    {onFacturerHono&&<button onClick={onFacturerHono}
+                      style={{background:'none',border:'none',padding:0,marginTop:2,color:TERRA,cursor:'pointer',textAlign:'left'}}>Modifier les honoraires ›</button>}
+                  </td>
+                  <td style={{padding:'8px 4px',textAlign:'right'}}>
+                    <div className="row" style={{gap:6,justifyContent:'flex-end',alignItems:'center'}}>
+                      <span className="b" style={{whiteSpace:'nowrap'}}>{eur(du)} HT</span>
+                      {dv&&dv.lien&&<span style={{color:GREEN}} title="Devis sur le Drive">✓</span>}
+                      <Plus actif={ouv==='h-doc'} titre="Voir le devis d’honoraires" onClick={()=>setOuv(ouv==='h-doc'?'':'h-doc')}/>
+                    </div>
+                    <div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>{eur(honoTTCm(du,ch))} TTC · TVA {honoTva(ch)} %</div>
+                    {!!ch.honorairesPct&&<div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>{ch.honorairesPct} % des travaux</div>}
+                  </td>
+                  <td style={{padding:'8px 4px'}}>
+                    <ColFactures liste={ch.honoFactures} engage={du} ouv={ouv} setOuv={setOuv}
+                      cle="h-fac" onLien={(fid,file)=>joindreFactureHono(fid,file)}/>
+                  </td>
+                </tr>
+                {ouv==='h-ent'&&<Volet cols={3}>
+                  <div className="b sm" style={{color:NAVY}}>CP CONSTRUCTIONS</div>
+                  <Ligne l="Adresse" v="14 rue de congé — 61250 VALFRAMBERT"/>
+                  <Ligne l="SIRET" v="99959339500018"/>
+                  <Ligne l="Code APE" v="7112 B"/>
+                  <Ligne l="TVA appliquée" v={honoTva(ch)+' %'}/>
+                  <div className="xs mut" style={{marginTop:3}}>
+                    {eur(du)} HT · {eur(honoTTCm(du,ch))} TTC
+                    {ch.honorairesPct?' — '+ch.honorairesPct+' % des travaux':''}</div>
+                </Volet>}
+                {ouv==='h-doc'&&<Volet cols={3}>
+                  <div className="lbl">DEVIS D’HONORAIRES</div>
+                  {dv&&dv.nom
+                    ?<div className="row xs" style={{gap:12,alignItems:'center',flexWrap:'wrap',marginTop:4}}>
+                      {dv.lien?<Transmis/>:<span style={{color:AMBER}}>non déposé</span>}
+                      {dv.lien?<a href={dv.lien} target="_blank" rel="noreferrer" style={{color:TERRA,wordBreak:'break-word'}}>{dv.nom}</a>
+                              :<span style={{wordBreak:'break-word'}}>{dv.nom}</span>}
+                      <label style={{color:NAVY,cursor:'pointer'}}>Remplacer
+                        <input type="file" accept={DOC_ACCEPT} style={{display:'none'}}
+                          onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)joindreDevisHono(x)}}/></label></div>
+                    :<label className="xs" style={{color:NAVY,cursor:'pointer',display:'block',marginTop:4}}>
+                      Importer le devis — il part sur le Drive › Honoraires
+                      <input type="file" accept={DOC_ACCEPT} style={{display:'none'}}
+                        onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)joindreDevisHono(x)}}/></label>}
+                </Volet>}
+              </React.Fragment>;
             })()}
           </tbody>
         </table>
@@ -3866,12 +4088,7 @@ function Artisans({data,save}){
     return{t:'Décennale valide jusqu\u2019au '+fd(a.decennaleFin),c:GREEN};
   };
   const al=data.artisans.filter(a=>!a.decennaleFin||new Date(a.decennaleFin)<new Date());
-  return <div>
-    <Bordereaux data={data} save={save}/>
-    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',corps:'',tel:'',email:'',adresse:'',siret:'',activites:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''})}>+ Artisan</button>}>ARTISANS ({data.artisans.length})</H2>
-    {al.length>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
-      {al.length} artisan{al.length>1?'s':''} sans décennale valide. Ne pas signer de marché avant régularisation.</div>}
-    {f&&<div className="card">
+  const formulaire=f?<div className="card">
       <Fld label="RAISON SOCIALE"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}/></Fld>
       <Fld label="CORPS D'ÉTAT"><select className="in" value={f.corps} onChange={e=>setF({...f,corps:e.target.value})}><option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
       <Fld label="ATTESTATION DÉCENNALE (PDF)">
@@ -3908,12 +4125,20 @@ function Artisans({data,save}){
       <Fld label="LIEN VERS L'ATTESTATION"><input className="in" placeholder="Rempli par l'import du PDF, ou collez un lien…" value={f.lienAttestation} onChange={e=>setF({...f,lienAttestation:e.target.value})}/></Fld>
       <DriveStatus/>
       <Acts onSave={()=>{setLecture(null);ok()}} onCancel={()=>{setLecture(null);setF(null)}} onDel={f.id?()=>{save({...data,artisans:data.artisans.filter(a=>a.id!==f.id)});setLecture(null);setF(null)}:null}/>
-    </div>}
+    </div>:null;
+  return <div>
+    <Bordereaux data={data} save={save}/>
+    <H2 action={<button className="btn acc s" onClick={()=>{setLecture(null);setF({nom:'',corps:'',tel:'',email:'',adresse:'',siret:'',activites:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''})}}>+ Artisan</button>}>ARTISANS ({data.artisans.length})</H2>
+    {al.length>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
+      {al.length} artisan{al.length>1?'s':''} sans décennale valide. Ne pas signer de marché avant régularisation.</div>}
+    {f&&!f.id&&formulaire}
     {!data.artisans.length&&!f&&<Empty>Aucun artisan. Constituez votre carnet d'adresses.</Empty>}
     {data.artisans.map(a=>{
       const s=st(a),n=data.marches.filter(m=>m.artisanId===a.id).length;
+      /* la fiche s'ouvre sous la carte touchée : on ne remonte pas la page */
+      if(f&&f.id===a.id)return <React.Fragment key={a.id}>{formulaire}</React.Fragment>;
       return <div key={a.id} className="card" style={{borderLeft:'3px solid '+s.c}}>
-        <div onClick={()=>setF(a)}>
+        <div onClick={()=>{setLecture(null);setF(a)}}>
           <div className="sp"><span className="b sm" style={{color:NAVY}}>{a.nom}</span><span className="xs mut">{a.corps}</span></div>
           <div className="xs" style={{color:s.c,marginTop:3}}>{s.t}</div>
           <div className="xs mut" style={{marginTop:2}}>{n} lot{n>1?'s':''} attribué{n>1?'s':''}</div>
