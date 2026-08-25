@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-25 · marchés, achats et honoraires en trois colonnes dépliables';
+const VERSION='2026-08-25 · lignes et remise modifiables, grilles partagées, Drive rangé dans CRM CP';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -613,6 +613,14 @@ const lignePT=l=>Math.round(ligneQt(l)*lignePU(l)*100)/100;
 /* le total du lot s'arrondit une seule fois, à la fin : c'est la règle des marchés
    déjà signés, où la colonne PT est arrondie pour l'affichage mais pas pour la somme. */
 const quantitatifHT=lignes=>Math.round((lignes||[]).reduce((s,l)=>s+ligneQt(l)*lignePU(l),0)*100)/100;
+/* une quantité s'écrit au millième, comme sur les marchés : 121,340 M² */
+const nb3=n=>(+n||0).toLocaleString('fr-FR',{minimumFractionDigits:3,maximumFractionDigits:3});
+/* remise négociée sur le lot : vide ou 0 = pas de remise */
+const remisePct=x=>{const v=x&&x.remisePct;return (v===undefined||v===null||v==='')?0:(+v||0)};
+const quantitatifNet=(lignes,r)=>Math.round(quantitatifHT(lignes)*(1-(r||0)/100)*100)/100;
+/* les bordereaux d'un artisan : plusieurs entreprises peuvent partager une grille */
+const bordArtisans=b=>b?(Array.isArray(b.artisanIds)?b.artisanIds:(b.artisanId?[b.artisanId]:[])):[];
+const bordPourArtisan=(b,id)=>!!id&&bordArtisans(b).indexOf(id)>=0;
 
 /* Lecture d'un bordereau depuis un marché déjà rédigé sous Word : on y retrouve
    « DÉSIGNATION DES TRAVAUX » puis un tableau ARTICLE / LIBELLE / QT / U / PU / PT.
@@ -699,19 +707,69 @@ async function getDriveToken(){
   throw{error:'auth_required'};
 }
 
-async function driveFolder(token){
-  if(driveFolderId)return driveFolderId;
-  const q=encodeURIComponent("name='CP Constructions' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+/* Le dossier racine où tout est rangé. Les noms précédents sont conservés pour
+   pouvoir retrouver les chantiers déjà déposés et les y ranger : renommer le
+   dossier dans Drive ne doit pas couper l'application de son historique. */
+const DRIVE_RACINE='CRM CP';
+const DRIVE_RACINES_ANCIENNES=['CP Constructions Chantier','CP Constructions'];
+
+async function driveChercherDossier(token,nom){
+  const q=encodeURIComponent("name='"+String(nom).replace(/'/g,"\\'")+"' and mimeType='application/vnd.google-apps.folder' and trashed=false");
   const r=await fetch('https://www.googleapis.com/drive/v3/files?q='+q,{headers:{Authorization:'Bearer '+token}});
   const j=await r.json();
-  if(j.files&&j.files.length){driveFolderId=j.files[0].id;return driveFolderId}
-  const c=await fetch('https://www.googleapis.com/drive/v3/files',{
-    method:'POST',
-    headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-    body:JSON.stringify({name:'CP Constructions',mimeType:'application/vnd.google-apps.folder'}),
-  });
-  driveFolderId=(await c.json()).id;
+  return (j.files&&j.files.length)?j.files[0].id:'';
+}
+
+async function driveFolder(token){
+  if(driveFolderId)return driveFolderId;
+  let id=await driveChercherDossier(token,DRIVE_RACINE);
+  if(!id){
+    const c=await fetch('https://www.googleapis.com/drive/v3/files',{
+      method:'POST',
+      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({name:DRIVE_RACINE,mimeType:'application/vnd.google-apps.folder'}),
+    });
+    id=(await c.json()).id;
+  }
+  driveFolderId=id;
   return driveFolderId;
+}
+
+/* Vide les caches de dossiers : après un déplacement, les identifiants retenus
+   en mémoire ne valent plus rien. */
+function driveOublierDossiers(){
+  driveFolderId=null;
+  [driveSubfolders,driveFacturesFolders,driveMarchesFolders,driveControlesFolders,
+   driveHonoFolders,driveRetroFolders,driveSignFolders,driveSousDossiers].forEach(m=>m.clear());
+}
+
+/* Range dans CRM CP tous les dossiers de chantier restés sous un ancien nom de
+   racine. Un dossier Drive se déplace sans être copié : on ajoute le nouveau
+   parent et on retire l'ancien, le contenu et les liens déjà enregistrés dans
+   l'application restent valables. */
+async function driveRangerAnciens(token){
+  const cible=await driveFolder(token);
+  const bilan={racine:DRIVE_RACINE,deplaces:[],anciens:[],erreurs:[]};
+  for(const nom of DRIVE_RACINES_ANCIENNES){
+    const vieux=await driveChercherDossier(token,nom);
+    if(!vieux||vieux===cible)continue;
+    bilan.anciens.push(nom);
+    const q=encodeURIComponent("'"+vieux+"' in parents and trashed=false");
+    const r=await fetch('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id,name,mimeType)&pageSize=1000',
+      {headers:{Authorization:'Bearer '+token}});
+    const j=await r.json();
+    for(const f of (j.files||[])){
+      try{
+        const u=await fetch('https://www.googleapis.com/drive/v3/files/'+f.id
+          +'?addParents='+cible+'&removeParents='+vieux+'&fields=id',
+          {method:'PATCH',headers:{Authorization:'Bearer '+token}});
+        if(!u.ok)throw new Error('HTTP '+u.status);
+        bilan.deplaces.push(f.name);
+      }catch(e){bilan.erreurs.push(f.name+' — '+((e&&e.message)||String(e)))}
+    }
+  }
+  driveOublierDossiers();
+  return bilan;
 }
 
 async function driveFindOrCreateSubfolder(token,parentId,name){
@@ -2077,26 +2135,46 @@ const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
    Le principe du serveur d'Hexaom : on ne retape pas un montant, on saisit des
    quantités en face d'articles dont le prix est déjà négocié, et le marché en
    découle. Le montant HT du lot n'est plus une saisie mais un résultat. */
-function Quantitatif({data,f,setF}){
+function Quantitatif({data,f,setF,save}){
   const [ouvert,setOuvert]=useState(false);
   const [choix,setChoix]=useState('');
   const [servisSeuls,setServisSeuls]=useState(false);
+  const [detail,setDetail]=useState('');
+  const [verse,setVerse]=useState('');
   const B=data.bordereaux||[];
   const q=f.quantitatif;
   /* les bordereaux de l'artisan retenu d'abord : ce sont ses prix à lui */
-  const dispo=f.artisanId?[...B.filter(b=>b.artisanId===f.artisanId),...B.filter(b=>b.artisanId!==f.artisanId)]:B;
+  const dispo=f.artisanId?[...B.filter(b=>bordPourArtisan(b,f.artisanId)),...B.filter(b=>!bordPourArtisan(b,f.artisanId))]:B;
   const poser=id=>{
     const b=B.find(x=>x.id===id);if(!b)return;
     setF(p=>({...p,quantitatif:{bordereauId:b.id,nom:b.nom,
-      lignes:(b.articles||[]).map(a=>({id:uid(),code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu,qt:''}))},
+      lignes:(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu,qt:''}))},
       montantHT:0}));
     setOuvert(true);
   };
-  const majQt=(id,v)=>setF(p=>{
-    const lignes=p.quantitatif.lignes.map(l=>l.id===id?{...l,qt:v===''?'':+v}:l);
-    return {...p,quantitatif:{...p.quantitatif,lignes},montantHT:quantitatifHT(lignes)};
-  });
+  /* le montant du lot suit toujours le quantitatif et la remise */
+  const recale=(p,lignes)=>({...p,quantitatif:{...p.quantitatif,lignes},
+    montantHT:quantitatifNet(lignes,remisePct(p))});
+  const majL=(id,k,v)=>setF(p=>recale(p,p.quantitatif.lignes.map(l=>l.id===id?{...l,[k]:v}:l)));
+  const majRemise=v=>setF(p=>({...p,remisePct:v===''?'':+v,
+    montantHT:quantitatifNet((p.quantitatif||{}).lignes,v===''?0:+v)}));
+  const ajouterLigne=()=>setF(p=>recale(p,[...p.quantitatif.lignes,
+    {id:uid(),ref:'',code:'',libelle:'',unite:'U',pu:'',qt:''}]));
+  const retirerLigne=id=>setF(p=>recale(p,p.quantitatif.lignes.filter(l=>l.id!==id)));
   const retirer=()=>setF(p=>({...p,quantitatif:undefined}));
+  /* une ligne corrigée ici peut remonter dans le bordereau, pour ne pas la
+     ressaisir au lot suivant. Ce n'est jamais automatique : c'est un geste. */
+  const verserAuBordereau=l=>{
+    if(!save||!q.bordereauId)return;
+    const b=B.find(x=>x.id===q.bordereauId);if(!b)return;
+    const A=b.articles||[];
+    const existe=l.ref&&A.some(a=>a.id===l.ref);
+    const articles=existe
+      ?A.map(a=>a.id===l.ref?{...a,code:l.code,libelle:l.libelle,unite:l.unite,pu:+l.pu||0}:a)
+      :[...A,{id:l.ref||uid(),code:l.code,libelle:l.libelle,unite:l.unite,pu:+l.pu||0}];
+    save({...data,bordereaux:B.map(x=>x.id===b.id?{...x,articles,maj:today()}:x)});
+    setVerse(l.id);
+  };
   if(!q)return <Fld label="CHIFFRER CE LOT DEPUIS UN BORDEREAU">
     {B.length
       ?<div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
@@ -2113,13 +2191,22 @@ function Quantitatif({data,f,setF}){
      la laisse à zéro rendrait le chiffrage impraticable. Le repli est un choix. */
   const lignes=q.lignes||[], servies=lignes.filter(l=>ligneQt(l)>0);
   const vues=servisSeuls?servies:lignes;
-  return <Fld label={'QUANTITATIF — '+eur(quantitatifHT(lignes))+' HT'}>
+  const brut=quantitatifHT(lignes), r=remisePct(f), net=quantitatifNet(lignes,r);
+  return <Fld label={'QUANTITATIF — '+eur(net)+' HT'}>
     <div className="sp xs" style={{flexWrap:'wrap',gap:8,marginBottom:6}}>
       <span className="mut">{q.nom} — {servies.length} article{servies.length>1?'s':''} servi{servies.length>1?'s':''} sur {lignes.length}</span>
       <div className="row" style={{gap:10}}>
         <button className="btn gh s" onClick={()=>setOuvert(!ouvert)}>{ouvert?'Replier':'Saisir les quantités'}</button>
         <button className="btn dg s" onClick={retirer}>Retirer</button>
       </div>
+    </div>
+    <div className="row xs" style={{gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
+      <span className="mut">Remise négociée</span>
+      <input className="in" type="number" step="0.1" placeholder="0" style={{padding:'3px 6px',fontSize:12,width:70,textAlign:'right'}}
+        aria-label="Remise en pourcentage" value={f.remisePct===undefined||f.remisePct===null?'':f.remisePct}
+        onChange={e=>majRemise(e.target.value)}/>
+      <span className="mut">%</span>
+      {r>0&&<span className="mut">— {eurc(brut)} moins {eurc(Math.round(brut*r)/100)} = <b style={{color:NAVY}}>{eurc(net)}</b></span>}
     </div>
     {ouvert&&<div>
       {servies.length>0&&<label className="xs mut row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
@@ -2131,28 +2218,66 @@ function Quantitatif({data,f,setF}){
         <tbody>{vues.map(l=><tr key={l.id} style={{borderBottom:'1px solid '+RULE}}>
           <td style={{padding:'6px 0'}}>
             <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
-              <span>{l.libelle}</span>
-              <span className="mut" style={{whiteSpace:'nowrap'}}>{eurc(l.pu)} / {l.unite}</span>
+              <span style={{flex:1}}>{l.libelle||<span className="mut">sans libellé</span>}</span>
+              <span className="row" style={{gap:6,alignItems:'center',whiteSpace:'nowrap'}}>
+                <span className="mut">{eurc(l.pu)} / {l.unite}</span>
+                <Plus actif={detail===l.id} titre="Modifier cette ligne" onClick={()=>setDetail(detail===l.id?'':l.id)}/>
+              </span>
             </div>
             <div className="sp" style={{gap:8,alignItems:'center',marginTop:3}}>
               <span className="mut" style={{fontSize:11}}>{l.code}</span>
               <span className="row" style={{gap:8,alignItems:'center',whiteSpace:'nowrap'}}>
-                <input className="in" type="number" step="0.001" placeholder="Qté" aria-label={'Quantité — '+l.libelle}
+                <input className="in" type="number" step="0.001" placeholder="Qté" aria-label={'Quantité — '+(l.libelle||l.code)}
                   style={{padding:'3px 6px',fontSize:12,width:76,textAlign:'right'}}
-                  value={l.qt===''||l.qt===undefined?'':l.qt} onChange={e=>majQt(l.id,e.target.value)}/>
-                <span className="b" style={{minWidth:74,display:'inline-block',textAlign:'right',color:ligneQt(l)?INK:MUTED}}>
-                  {ligneQt(l)?eurc(lignePT(l)):'—'}</span>
+                  value={l.qt===''||l.qt===undefined?'':l.qt} onChange={e=>majL(l.id,'qt',e.target.value===''?'':+e.target.value)}/>
+                <span style={{minWidth:84,display:'inline-block',textAlign:'right'}}>
+                  <span className="b" style={{color:ligneQt(l)?INK:MUTED}}>{ligneQt(l)?eurc(lignePT(l)):'—'}</span>
+                  {/* la quantité s'écrit au millième, comme sur le marché imprimé */}
+                  {ligneQt(l)>0&&<span className="mut" style={{fontSize:11,display:'block'}}>{nb3(l.qt)} {l.unite}</span>}
+                </span>
               </span>
             </div>
+            {detail===l.id&&<div style={{marginTop:6,padding:'8px 10px',background:'#F4F1EB',borderRadius:6,
+              borderLeft:'3px solid '+TERRA}}>
+              <div className="lbl">LIBELLÉ</div>
+              <input className="in" style={{padding:'4px 6px',fontSize:12}} value={l.libelle||''}
+                onChange={e=>majL(l.id,'libelle',e.target.value)}/>
+              <div className="row" style={{gap:8,marginTop:6,flexWrap:'wrap'}}>
+                <span style={{flex:'1 1 100px'}}><div className="lbl">CODE</div>
+                  <input className="in" style={{padding:'4px 6px',fontSize:12,width:'100%'}} value={l.code||''}
+                    onChange={e=>majL(l.id,'code',e.target.value)}/></span>
+                <span style={{flex:'0 0 60px'}}><div className="lbl">UNITÉ</div>
+                  <input className="in" style={{padding:'4px 6px',fontSize:12,width:'100%'}} value={l.unite||''}
+                    onChange={e=>majL(l.id,'unite',artUnite(e.target.value))}/></span>
+                <span style={{flex:'0 0 100px'}}><div className="lbl">PRIX UNITAIRE</div>
+                  <input className="in" type="number" step="0.01" style={{padding:'4px 6px',fontSize:12,width:'100%',textAlign:'right'}}
+                    value={l.pu===''||l.pu===undefined?'':l.pu} onChange={e=>majL(l.id,'pu',e.target.value===''?'':+e.target.value)}/></span>
+              </div>
+              <div className="row" style={{gap:12,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+                {save&&q.bordereauId&&<button className="btn gh s" onClick={()=>verserAuBordereau(l)}>
+                  {verse===l.id?'Reporté ✓':'Reporter dans le bordereau'}</button>}
+                <button className="btn dg s" onClick={()=>{setDetail('');retirerLigne(l.id)}}>Retirer la ligne</button>
+              </div>
+              <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+                Ce qui est corrigé ici ne vaut que pour ce marché. « Reporter dans le bordereau » l'enregistre
+                aussi dans la grille, pour tous les lots à venir.</div>
+            </div>}
           </td>
         </tr>)}</tbody>
-        <tfoot><tr style={{borderTop:'2px solid '+RULE}}>
-          <td style={{padding:'8px 0'}}><div className="sp"><span className="b">TOTAL H.T.</span>
-            <span className="b" style={{color:NAVY}}>{eurc(quantitatifHT(lignes))}</span></div></td>
-        </tr></tfoot>
+        <tfoot>
+          {r>0&&<tr><td style={{padding:'6px 0'}}><div className="sp">
+            <span className="mut">Sous-total</span><span className="mut">{eurc(brut)}</span></div></td></tr>}
+          {r>0&&<tr><td style={{padding:'2px 0'}}><div className="sp">
+            <span className="mut">Remise {r} %</span><span className="mut">− {eurc(Math.round(brut*r)/100)}</span></div></td></tr>}
+          <tr style={{borderTop:'2px solid '+RULE}}>
+            <td style={{padding:'8px 0'}}><div className="sp"><span className="b">TOTAL H.T.</span>
+              <span className="b" style={{color:NAVY}}>{eurc(net)}</span></div></td>
+          </tr>
+        </tfoot>
       </table>
-      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Les prix viennent du bordereau et ne se modifient pas ici :
-        pour changer un prix, corrigez le bordereau dans l'onglet ARTISANS, puis rechiffrez le lot.</div>
+      <button className="btn gh s" style={{marginTop:8}} onClick={ajouterLigne}>+ Ligne</button>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Le « + » d'une ligne ouvre son libellé, son code, son unité
+        et son prix : tout se corrige ici, sans quitter le lot.</div>
     </div>}
   </Fld>;
 }
@@ -2168,7 +2293,9 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const ok=()=>{
     if(!f.lot)return;
     const factures=f.factures||[];
-    const r={...f,montantHT:+f.montantHT||0,tva:f.tva===''||f.tva===undefined||f.tva===null?'':+f.tva,factures,facture:facturesTotal(factures)};
+    const r={...f,montantHT:+f.montantHT||0,tva:f.tva===''||f.tva===undefined||f.tva===null?'':+f.tva,
+      remisePct:f.remisePct===''||f.remisePct===undefined||f.remisePct===null?'':+f.remisePct,
+      factures,facture:facturesTotal(factures)};
     save({...data,marches:f.id?data.marches.map(m=>m.id===f.id?r:m):[...data.marches,{...r,id:uid(),chantierId:ch.id}]});
     setF(null);
   };
@@ -2290,7 +2417,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           :<span>Laissez la TVA vide pour appliquer le taux du chantier ({tvaRate(ch)} %). Saisissez <b>0</b> pour un artisan en franchise de TVA ou en autoliquidation. </span>}
         {f.montantHT>0&&<span>— soit <b>{eur(marcheTTC({montantHT:+f.montantHT,tva:f.tva},ch))}</b> TTC.</span>}
       </div>
-      <Quantitatif data={data} f={f} setF={setF}/>
+      <Quantitatif data={data} f={f} setF={setF} save={save}/>
       <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{STATUTS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
       <Fld label="DATE DE SIGNATURE"><input className="in" type="date" value={f.dateSignature} onChange={e=>setF({...f,dateSignature:e.target.value})}/></Fld>
       <Fld label="CONTRAT DE MARCHÉ (PDF)">
@@ -2365,6 +2492,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                   <div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>{m.dateSignature?'signé le '+fd(m.dateSignature):'non signé'}</div>
                   {m.quantitatif&&<div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>
                     chiffré — {(m.quantitatif.lignes||[]).filter(l=>ligneQt(l)>0).length} articles</div>}
+                  {remisePct(m)>0&&<div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>
+                    remise {remisePct(m)} % sur {eur(quantitatifHT((m.quantitatif||{}).lignes))}</div>}
                 </td>
                 {/* à droite chaque facture, une par une */}
                 <td style={{padding:'8px 4px'}}>
@@ -3154,7 +3283,7 @@ function Photos({data,ch,save}){
       </div>
     </div>
     <DriveStatus/>
-    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Une version réduite s'affiche dans l'app ; l'original en pleine qualité est envoyé automatiquement sur votre Google Drive (dossier « CP Constructions › {ch.nom} › Photos »).
+    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Une version réduite s'affiche dans l'app ; l'original en pleine qualité est envoyé automatiquement sur votre Google Drive (dossier « {DRIVE_RACINE} › {ch.nom} › Photos »).
       <br/>Pour donner accès à un collaborateur : ouvrez le dossier avec le lien ci-dessus, puis utilisez « Partager » dans Google Drive. L'application ne peut pas partager à votre place.</p>
     {driveIssue&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
       {driveDetail==='auth_required'
@@ -4001,7 +4130,7 @@ function Controles({data,ch,save}){
         <button key={id} className={'btn s '+(filtre===id?'':'gh')} onClick={()=>setFiltre(id)}>{l}</button>)}
     </div>
     <DriveStatus/>
-    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Les photos de contrôle sont aussi ajoutées à l'onglet PHOTOS et envoyées sur votre Google Drive (dossier « CP Constructions › {ch.nom} › Contrôles »).</p>
+    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Les photos de contrôle sont aussi ajoutées à l'onglet PHOTOS et envoyées sur votre Google Drive (dossier « {DRIVE_RACINE} › {ch.nom} › Contrôles »).</p>
     {CONTROLES.map(g=>{
       const pts=g.pts.filter(([k])=>keep(g,k));
       if(!pts.length)return null;
@@ -4174,7 +4303,7 @@ function Bordereaux({data,save}){
     if(!lots.length){setImp({etat:'erreur',msg:'aucun tableau « DÉSIGNATION DES TRAVAUX » trouvé dans ce document'});return}
     /* le prix unitaire est ce qui se garde ; la quantité appartient au chantier
        d'origine et n'a rien à faire dans une grille tarifaire. */
-    const neufs=lots.map(l=>({id:uid(),nom:l.nom,corps:'',artisanId:'',maj:today(),
+    const neufs=lots.map(l=>({id:uid(),nom:l.nom,corps:'',artisanIds:[],maj:today(),
       articles:l.articles.map(a=>({id:uid(),code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu}))}));
     save({...data,bordereaux:[...B,...neufs]});
     setImp({etat:'ok',lots:lots.map((l,i)=>({nom:l.nom,n:l.articles.length,ht:quantitatifHT(l.articles)}))});
@@ -4189,7 +4318,7 @@ function Bordereaux({data,save}){
   const ouvert=deplie||!!f;
   return <div style={{marginBottom:20,paddingBottom:16,borderBottom:'1px solid '+RULE}}>
     <H2 action={ouvert
-      ?<button className="btn gh s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanId:'',articles:[]})}}>+ Bordereau</button>
+      ?<button className="btn gh s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanIds:[],articles:[]})}}>+ Bordereau</button>
       :<button className="btn gh s" onClick={()=>setDeplie(true)}>Ouvrir</button>}>
       BIBLIOTHÈQUE DE PRIX ({B.length})</H2>
     {!ouvert&&<div className="xs mut" style={{lineHeight:1.5}}>
@@ -4216,9 +4345,23 @@ function Bordereaux({data,save}){
       <div className="g2">
         <Fld label="CORPS D'ÉTAT"><select className="in" value={f.corps||''} onChange={e=>setF({...f,corps:e.target.value})}>
           <option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
-        <Fld label="ARTISAN QUI APPLIQUE CES PRIX"><select className="in" value={f.artisanId||''} onChange={e=>setF({...f,artisanId:e.target.value})}>
-          <option value="">— aucun —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Fld>
       </div>
+      {/* une même grille peut servir à plusieurs entreprises : Plomberie Ornaise
+          et BVPC appliquent les mêmes prix, elles la partagent. */}
+      <Fld label={'ENTREPRISES QUI APPLIQUENT CES PRIX ('+bordArtisans(f).length+')'}>
+        {!data.artisans.length&&<div className="xs mut">Aucun artisan au carnet d'adresses.</div>}
+        <div style={{display:'flex',flexWrap:'wrap',gap:'6px 16px'}}>
+          {data.artisans.map(a=>{
+            const coche=bordPourArtisan(f,a.id);
+            return <label key={a.id} className="xs row" style={{gap:6,alignItems:'center',cursor:'pointer'}}>
+              <input type="checkbox" checked={coche} onChange={()=>setF(p=>{
+                const L=bordArtisans(p);
+                return {...p,artisanId:undefined,artisanIds:coche?L.filter(x=>x!==a.id):[...L,a.id]};
+              })}/>
+              <span>{a.nom}</span></label>;
+          })}
+        </div>
+      </Fld>
       <div className="lbl" style={{marginTop:14}}>ARTICLES ({f.articles.length})</div>
       <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:520}}>
         <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
@@ -4235,19 +4378,22 @@ function Bordereaux({data,save}){
           <td style={{padding:'3px 4px'}}><button className="btn gh s" onClick={()=>setF(p=>({...p,articles:p.articles.filter((x,j)=>j!==i)}))}>✕</button></td>
         </tr>)}</tbody>
       </table></div>
-      {!f.articles.length&&<div className="xs mut" style={{padding:'10px 0'}}>Aucun article. Ajoutez-les à la main, ou revenez en arrière et importez un marché Word.</div>}
-      <button className="btn gh s" style={{marginTop:8}}
-        onClick={()=>setF(p=>({...p,articles:[...p.articles,{id:uid(),code:'',libelle:'',unite:'U',pu:''}]}))}>+ Article</button>
+      {!f.articles.length&&<div className="xs mut" style={{padding:'10px 0'}}>Aucun article. Ajoutez-en un, ou revenez en arrière et importez un marché Word.</div>}
+      {/* la référence neuve se pose en tête : on la voit, on la remplit, on n'a pas
+          à faire défiler 160 lignes pour la retrouver. */}
+      <button className="btn acc s" style={{marginTop:8}}
+        onClick={()=>setF(p=>({...p,articles:[{id:uid(),code:'',libelle:'',unite:'U',pu:''},...p.articles]}))}>+ Référence</button>
       <Acts onSave={ok} onCancel={()=>setF(null)}
         onDel={f.neuf?null:()=>{save({...data,bordereaux:B.filter(b=>b.id!==f.id)});setF(null)}}/>
     </div>}
     {ouvert&&!B.length&&!f&&<Empty>Aucun bordereau. Importez un marché déjà rédigé pour constituer votre grille.</Empty>}
     {ouvert&&!f&&B.map(b=>{
-      const art=nomArt(b.artisanId);
+      const noms=bordArtisans(b).map(nomArt).filter(Boolean);
+      const art=noms.join(', ');
       return <button key={b.id} className="card" style={{borderLeft:'3px solid '+(art?NAVY:AMBER)}} onClick={()=>setF(b)}>
         <div className="sp"><span className="b sm" style={{color:NAVY}}>{b.nom}</span>
           <span className="xs mut" style={{whiteSpace:'nowrap'}}>{(b.articles||[]).length} articles</span></div>
-        <div className="xs" style={{marginTop:3,color:art?MUTED:AMBER}}>{art?art+(b.corps?' — '+b.corps:''):'Aucun artisan rattaché'}</div>
+        <div className="xs" style={{marginTop:3,color:art?MUTED:AMBER}}>{art?art+(b.corps?' — '+b.corps:''):'Aucune entreprise rattachée'}</div>
         {b.maj&&<div className="xs mut" style={{marginTop:2}}>Prix à jour au {fd(b.maj)}</div>}
       </button>;
     })}
@@ -4352,6 +4498,23 @@ const Stat=({l,v,c})=><div className="card" style={{margin:0}}><div className="x
 /* ---------------- DONNÉES ---------------- */
 function Donnees({data,save,session}){
   const [msg,setMsg]=useState('');
+  const [rangement,setRangement]=useState('');
+  const [bilan,setBilan]=useState(null);
+  /* déplacer des dossiers dans le Drive de quelqu'un se demande avant de se faire :
+     c'est un geste, pas un effet de bord au démarrage. */
+  const ranger=async()=>{
+    if(!confirm('Déplacer dans « '+DRIVE_RACINE+' » tous les dossiers de chantier encore rangés sous un ancien nom ?\n\nLes dossiers sont déplacés, pas copiés : rien n’est dupliqué ni supprimé.'))return;
+    setRangement('en cours');setBilan(null);
+    try{
+      const token=await getDriveToken();
+      setBilan(await driveRangerAnciens(token));
+    }catch(e){
+      setBilan({erreur:e&&e.error==='auth_required'
+        ?'Connectez d’abord Google Drive (bouton ci-dessous), puis relancez le rangement.'
+        :'Rangement impossible — '+((e&&(e.error||e.message))||String(e)),anciens:[],deplaces:[],erreurs:[]});
+    }
+    setRangement('');
+  };
   const exp=()=>{
     const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
     const url=URL.createObjectURL(blob);
@@ -4480,6 +4643,32 @@ function Donnees({data,save,session}){
       {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
     </div>
     <div className="card">
+      <div className="sm b">Dossier Google Drive</div>
+      <p className="xs mut" style={{lineHeight:1.5,marginTop:6}}>
+        Tout est rangé dans <b>{DRIVE_RACINE}</b>, un dossier par chantier. Si vos anciens chantiers
+        se trouvent encore sous « {DRIVE_RACINES_ANCIENNES.join(' » ou « ')} », ce bouton les y déplace —
+        sans copie, sans rien perdre : les liens déjà enregistrés dans l'application continuent de fonctionner.
+      </p>
+      <button className="btn gh s" style={{marginTop:10}} disabled={rangement==='en cours'} onClick={ranger}>
+        {rangement==='en cours'?'Rangement…':'Ranger les dossiers dans '+DRIVE_RACINE}</button>
+      {bilan&&<div className="xs" style={{marginTop:8,lineHeight:1.6}}>
+        {bilan.erreur
+          ?<span style={{color:TERRA}}>{bilan.erreur}</span>
+          :!bilan.deplaces.length&&!bilan.erreurs.length
+            ?<span style={{color:GREEN}}>Rien à déplacer : tout est déjà dans {DRIVE_RACINE}.
+              {bilan.anciens.length?' L’ancien dossier « '+bilan.anciens.join(' », « ')+' » est vide — à vous de le supprimer si vous le souhaitez.':''}</span>
+            :<span>
+              <span style={{color:bilan.erreurs.length?AMBER:GREEN}}>
+                {bilan.deplaces.length} dossier{bilan.deplaces.length>1?'s':''} déplacé{bilan.deplaces.length>1?'s':''} dans {DRIVE_RACINE}
+                {' '}(depuis « {bilan.anciens.join(' », « ')} »).</span>
+              {!!bilan.deplaces.length&&<div className="mut" style={{marginTop:4}}>{bilan.deplaces.join(' · ')}</div>}
+              {!!bilan.erreurs.length&&<div style={{color:TERRA,marginTop:4}}>
+                Non déplacés : {bilan.erreurs.join(' ; ')}</div>}
+            </span>}
+      </div>}
+      <DriveStatus/>
+    </div>
+    <div className="card">
       <div className="sm b">Version</div>
       <div className="xs mut" style={{marginTop:6,lineHeight:1.6}}>{VERSION}
         <br/>Si ce repère ne correspond pas à la dernière mise à jour annoncée, la page vient du cache :
@@ -4502,7 +4691,7 @@ function Donnees({data,save,session}){
         <li>La synchronisation nécessite une connexion internet ; hors ligne, les modifications restent sur l'appareil jusqu'au retour du réseau.</li>
         <li>Photos réduites avant envoi pour rester rapide sur mobile ; gardez les originaux sur le Drive.</li>
         <li>L'export ne contient pas les photos elles-mêmes, seulement les légendes et dates.</li>
-        <li>Les PDF importés sont envoyés sur votre Google Drive (dossier « CP Constructions ») ; la première fois, Google demande votre autorisation.</li>
+        <li>Les PDF importés sont envoyés sur votre Google Drive (dossier « {DRIVE_RACINE} ») ; la première fois, Google demande votre autorisation.</li>
       </ul>
     </div>
   </div>;
