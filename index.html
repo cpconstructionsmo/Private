@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-25 · lignes et remise modifiables, grilles partagées, Drive rangé dans CRM CP';
+const VERSION='2026-08-25 · sortie des marchés de travaux depuis votre modèle Word';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -650,6 +650,178 @@ function analyseBordereau(txt){
   return lots.filter(l=>l.articles.length);
 }
 
+/* ---------- production d'un marché de travaux depuis votre modèle Word ----------
+   Votre modèle contient déjà treize marchés rédigés. On en prend un comme
+   gabarit — celui qui est complet et le plus court — on remplace ses valeurs,
+   on refait son tableau d'articles, et on jette les douze autres. La mise en
+   page, l'en-tête, le logo et les signatures ne sont jamais touchés. */
+const exml=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+/* le corps du document, découpé en blocs : un par marché */
+function blocsMarche(xml){
+  const i=xml.indexOf('<w:body>'), j=xml.lastIndexOf('</w:body>');
+  if(i<0||j<0)throw new Error('nobody');
+  const avant=xml.slice(0,i+8), body=xml.slice(i+8,j), apres=xml.slice(j);
+  const blocs=[]; let cur=0;
+  const re=/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?<w:sectPr[\s\S]*?<\/w:p>/g;
+  let m;
+  while((m=re.exec(body))){blocs.push(body.slice(cur,m.index+m[0].length));cur=m.index+m[0].length}
+  const queue=body.slice(cur);
+  return {avant,blocs,queue,apres};
+}
+
+/* les passages de texte du document, dans l'ordre où ils se lisent */
+function runsXml(xml){
+  const R=[], re=/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+  let m;
+  while((m=re.exec(xml)))R.push({deb:m.index,fin:re.lastIndex,txt:dexml(m[1])});
+  return R;
+}
+/* réécrit certains passages, repérés par leur rang */
+function ecrisRuns(xml,R,vals){
+  let out='',p=0;
+  R.forEach((r,k)=>{
+    if(vals[k]===undefined)return;
+    out+=xml.slice(p,r.deb)+'<w:t xml:space="preserve">'+exml(vals[k])+'</w:t>';
+    p=r.fin;
+  });
+  return out+xml.slice(p);
+}
+
+/* Un gabarit utilisable : il a sa page « DÉSIGNATION DES TRAVAUX », et son bloc
+   ENTRE / ET est renseigné — décennale, compagnie et Siret y ont une valeur.
+   À égalité, le plus court : moins de lignes à refaire. */
+function choisirGabarit(blocs){
+  const note=b=>{
+    const R=runsXml(b), t=R.map(r=>r.txt);
+    if(!t.some(x=>/D[EÉ]SIGNATION DES TRAVAUX/i.test(x)))return null;
+    const suivant=re=>{const i=t.findIndex(x=>re.test(x));return i<0?'':(t[i+1]||'')};
+    const dec=suivant(/D[ée]cennale\s*:\s*$/), cie=suivant(/^Compagnie\s*:\s*$/), sir=suivant(/^Siret\s*:\s*$/);
+    const plein=x=>x&&!/:\s*$/.test(x);
+    return {complet:plein(dec)&&plein(cie)&&plein(sir),taille:b.length};
+  };
+  let best=null;
+  blocs.forEach((b,i)=>{
+    const n=note(b);if(!n)return;
+    if(!best) {best={i,...n};return}
+    if(n.complet!==best.complet){if(n.complet)best={i,...n};return}
+    if(n.taille<best.taille)best={i,...n};
+  });
+  return best?best.i:-1;
+}
+
+/* Le tableau du quantitatif : on prend la ligne d'article du gabarit comme
+   patron et on la réémet autant de fois qu'il y a d'articles servis. */
+function refaitTableau(bloc,lignes){
+  const trs=[...bloc.matchAll(/<w:tr\b[\s\S]*?<\/w:tr>/g)];
+  /* l'en-tête ARTICLE | LIBELLE | QT | U | PU | PT, puis la première ligne d'article */
+  let iEnt=-1;
+  trs.forEach((m,k)=>{
+    const t=runsXml(m[0]).map(r=>r.txt.trim().toUpperCase());
+    if(iEnt<0&&t.indexOf('ARTICLE')>=0&&t.indexOf('LIBELLE')>=0&&t.indexOf('PU')>=0)iEnt=k;
+  });
+  if(iEnt<0||iEnt+1>=trs.length)throw new Error('notableau');
+  const patron=trs[iEnt+1][0];
+  const cellules=[...patron.matchAll(/<w:tc\b[\s\S]*?<\/w:tc>/g)].map(m=>m[0]);
+  if(cellules.length<6)throw new Error('notableau');
+  const faireCellule=(tc,valeur)=>{
+    const R=runsXml(tc);
+    if(!R.length)return tc;
+    /* la valeur va dans le premier passage, les suivants sont vidés */
+    const vals={0:valeur};
+    for(let k=1;k<R.length;k++)vals[k]='';
+    return ecrisRuns(tc,R,vals);
+  };
+  const rangs=lignes.map(l=>{
+    const v=[l.code||'',l.libelle||'',nb3(l.qt),l.unite||'',
+             eurNombre(lignePU(l)),eurNombre(lignePT(l))];
+    let out=patron, dec=0;
+    /* on remplace les six premières cellules, dans l'ordre du tableau */
+    const tcs=[...patron.matchAll(/<w:tc\b[\s\S]*?<\/w:tc>/g)];
+    out='';let p=0;
+    tcs.forEach((m,k)=>{
+      out+=patron.slice(p,m.index)+(k<6?faireCellule(m[0],v[k]):m[0]);
+      p=m.index+m[0].length;
+    });
+    return out+patron.slice(p);
+  });
+  /* on remplace la ligne patron par toutes les nôtres, et on retire les autres
+     lignes d'article du gabarit s'il en avait plusieurs. */
+  const finPatron=trs[iEnt+1].index+patron.length;
+  let apres=bloc.slice(finPatron);
+  /* les lignes d'article suivantes sont celles qui portent 6 cellules et pas de total */
+  apres=apres.replace(/<w:tr\b[\s\S]*?<\/w:tr>/g,tr=>{
+    const t=runsXml(tr).map(r=>r.txt.trim());
+    const estArticle=(tr.match(/<w:tc\b/g)||[]).length>=6&&!t.some(x=>/Total du lot/i.test(x));
+    return estArticle?'':tr;
+  });
+  return bloc.slice(0,trs[iEnt+1].index)+rangs.join('')+apres;
+}
+
+/* un montant tel qu'il s'écrit dans vos marchés : 49604,56 */
+const eurNombre=n=>(Math.round((+n||0)*100)/100).toFixed(2).replace('.',',');
+
+/* Remplit le gabarit avec les données du lot. Les champs sont repérés par les
+   intitulés du document — « Du : », « Compagnie : », « TOTAL H.T. » — et non par
+   des positions, pour que le modèle puisse évoluer. */
+function remplirGabarit(bloc,d){
+  const R=runsXml(bloc), t=R.map(r=>r.txt);
+  const vals={};
+  const idxTous=re=>R.map((r,i)=>re.test(r.txt)?i:-1).filter(i=>i>=0);
+  const apres=re=>{const L=idxTous(re);return L.length?L[0]+1:-1};
+  const pose=(i,v)=>{if(i>0&&i<R.length)vals[i]=v};
+
+  /* l'intitulé du lot : partout où il apparaît tel quel, plus la page 2 */
+  const lotGabarit=t[apres(/^MARCHE DE TRAVAUX\s*$/)-0]!==undefined?t[idxTous(/^MARCHE DE TRAVAUX\s*$/)[0]+1]:'';
+  if(lotGabarit)R.forEach((r,i)=>{if(r.txt===lotGabarit)vals[i]=d.lot});
+  const iDes=apres(/^D[EÉ]SIGNATION DES TRAVAUX$/);
+  pose(iDes,d.lotDetail||d.lot);
+
+  /* numéro et date, en tête de chaque page */
+  idxTous(/^°$/).forEach(i=>{if(R[i+1]&&!/^Du\s*:/.test(R[i+1].txt))vals[i+1]=String(d.numero||'')});
+  idxTous(/^Du\s*:\s*$/).forEach(i=>pose(i+1,d.date));
+
+  /* l'entreprise : les trois passages qui suivent « ET » */
+  const iET=idxTous(/^ET$/)[0];
+  if(iET>=0){pose(iET+1,d.entreprise);pose(iET+2,d.adresse1);pose(iET+3,d.adresse2)}
+  pose(apres(/D[ée]cennale\s*:\s*$/),d.decennale);
+  pose(apres(/^Compagnie\s*:\s*$/),d.compagnie);
+  const iSiret=apres(/^Siret\s*:\s*$/);
+  pose(iSiret,d.siret);
+  /* le client suit immédiatement le bloc entreprise */
+  if(iSiret>0){pose(iSiret+1,d.client);pose(iSiret+2,d.clientAdresse);pose(iSiret+3,d.clientVille);
+    if(R[iSiret+4]&&/^\S/.test(R[iSiret+4].txt)&&R[iSiret+4].txt.length<40)vals[iSiret+4]='';}
+
+  /* les montants : celui annoncé sous la liste des lots, puis les trois du pied */
+  const iAnnonce=apres(/^L’entreprise ci-dessus d[ée]sign[ée]e/)+1;
+  pose(iAnnonce,eurNombre(d.ht));
+  const iHT=apres(/^TOTAL H\.?T\.?$/);
+  pose(iHT,eurNombre(d.ht));
+  if(iHT>0){
+    const iTaux=R.findIndex((r,i)=>i>iHT&&/^\s*\d+([.,]\d+)?\s*%$/.test(r.txt));
+    if(iTaux>0){vals[iTaux]=' '+d.tva+'%';pose(iTaux+1,eurNombre(d.tvaMontant))}
+  }
+  pose(apres(/^TOTAL T\.?T\.?C/),eurNombre(d.ttc));
+  pose(apres(/^Total du lot H\.?T\.?/),eurNombre(d.ht)+'€');
+  return ecrisRuns(bloc,R,vals);
+}
+
+/* Assemble le marché : un seul bloc, celui du lot demandé. */
+function marcheDocumentXml(xml,d){
+  const {avant,blocs,queue,apres}=blocsMarche(xml);
+  const i=choisirGabarit(blocs);
+  if(i<0)throw new Error('nogabarit');
+  let bloc=refaitTableau(blocs[i],d.lignes||[]);
+  bloc=remplirGabarit(bloc,d);
+  return avant+bloc+queue+apres;
+}
+
+async function genererMarcheDocx(modeleBuf,d){
+  const xml=new TextDecoder('utf-8').decode(await zipEntree(modeleBuf,'word/document.xml'));
+  const neuf=new TextEncoder().encode(marcheDocumentXml(xml,d));
+  return zipReecrire(modeleBuf,{'word/document.xml':neuf});
+}
+
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
 const Photo={
   async put(id,dataUrl){
@@ -1004,6 +1176,77 @@ function lignesDocumentXml(xml){
     .replace(/<[^>]+>/g,'');
   return dexml(net).split('\n').map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean).join('\n');
 }
+/* ---------- écriture d'un .docx ----------
+   On ne fabrique pas un document : on reprend le vôtre et on n'y remplace que
+   word/document.xml. Toutes les autres entrées du ZIP sont recopiées telles
+   quelles, avec leur compression d'origine — en-tête, logo, polices, styles et
+   pieds de page restent exactement ce qu'ils étaient. */
+const CRC32=(()=>{
+  const t=new Uint32Array(256);
+  for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0}
+  return b=>{let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=t[(c^b[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0};
+})();
+
+/* toutes les entrées du ZIP, données encore compressées telles qu'elles sont */
+function zipEntrees(buf){
+  const d=new DataView(buf), u=new Uint8Array(buf), dec=new TextDecoder('utf-8');
+  let eocd=-1;
+  for(let i=u.length-22;i>=0&&i>u.length-22-65558;i--)if(d.getUint32(i,true)===0x06054b50){eocd=i;break}
+  if(eocd<0)throw new Error('nozip');
+  const n=d.getUint16(eocd+10,true);
+  let p=d.getUint32(eocd+16,true);
+  const out=[];
+  for(let k=0;k<n;k++){
+    if(p+46>u.length||d.getUint32(p,true)!==0x02014b50)throw new Error('nozip');
+    const drapeaux=d.getUint16(p+8,true), methode=d.getUint16(p+10,true);
+    const modif=d.getUint32(p+12,true), crc=d.getUint32(p+16,true);
+    const tailleComp=d.getUint32(p+20,true), tailleBrute=d.getUint32(p+24,true);
+    const lNom=d.getUint16(p+28,true), lExtra=d.getUint16(p+30,true), lCom=d.getUint16(p+32,true);
+    const offset=d.getUint32(p+42,true);
+    const nom=dec.decode(u.subarray(p+46,p+46+lNom));
+    if(d.getUint32(offset,true)!==0x04034b50)throw new Error('nozip');
+    const debut=offset+30+d.getUint16(offset+26,true)+d.getUint16(offset+28,true);
+    out.push({nom,drapeaux,methode,modif,crc,tailleComp,tailleBrute,data:u.subarray(debut,debut+tailleComp)});
+    p+=46+lNom+lExtra+lCom;
+  }
+  return out;
+}
+
+/* réécrit le ZIP en remplaçant les entrées nommées ; le reste est recopié octet
+   pour octet, sans être décompressé ni recompressé. */
+function zipReecrire(buf,remplacements){
+  const enc=new TextEncoder();
+  const u16=v=>[v&255,(v>>8)&255], u32=v=>[v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255];
+  const morceaux=[], central=[];
+  let offset=0, nb=0;
+  for(const e of zipEntrees(buf)){
+    const neuf=remplacements[e.nom];
+    /* une entrée remplacée est écrite sans compression : rien à charger pour cela,
+       et Word, Pages et LibreOffice lisent le STORE sans broncher. */
+    const methode=neuf?0:e.methode;
+    const data=neuf||e.data;
+    const crc=neuf?CRC32(neuf):e.crc;
+    const brute=neuf?neuf.length:e.tailleBrute;
+    const drapeaux=e.drapeaux&~8; /* pas de descripteur après les données */
+    const n=enc.encode(e.nom);
+    const lfh=[...u32(0x04034b50),...u16(20),...u16(drapeaux),...u16(methode),...u32(e.modif),
+      ...u32(crc),...u32(data.length),...u32(brute),...u16(n.length),...u16(0)];
+    morceaux.push(new Uint8Array(lfh),n,data);
+    central.push([...u32(0x02014b50),...u16(20),...u16(20),...u16(drapeaux),...u16(methode),...u32(e.modif),
+      ...u32(crc),...u32(data.length),...u32(brute),...u16(n.length),...u16(0),...u16(0),
+      ...u16(0),...u16(0),...u32(0),...u32(offset),...Array.from(n)]);
+    offset+=lfh.length+n.length+data.length;
+    nb++;
+  }
+  const cd=[].concat(...central), debutCD=offset;
+  const eocd=[...u32(0x06054b50),...u16(0),...u16(0),...u16(nb),...u16(nb),
+    ...u32(cd.length),...u32(debutCD),...u16(0)];
+  morceaux.push(new Uint8Array(cd),new Uint8Array(eocd));
+  const total=morceaux.reduce((s,m)=>s+m.length,0), out=new Uint8Array(total);
+  let q=0;for(const m of morceaux){out.set(m,q);q+=m.length}
+  return out;
+}
+
 async function wordLignes(file){
   const bytes=await zipEntree(await file.arrayBuffer(),'word/document.xml');
   return lignesDocumentXml(new TextDecoder('utf-8').decode(bytes));
@@ -2347,6 +2590,56 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     }
   };
   const nom=id=>{const a=data.artisans.find(x=>x.id===id);return a?a.nom:'Non attribué'};
+
+  /* ---------- sortie du marché de travaux ----------
+     Le modèle reste votre fichier : vous le désignez au moment de sortir le
+     marché, il n'est ni copié ni stocké. Le document produit part sur le Drive
+     du chantier et son lien se pose sur le lot. */
+  const [sortie,setSortie]=useState(null);
+  const numeroSuivant=()=>{
+    const n=data.marches.filter(m=>m.chantierId===ch.id)
+      .map(m=>+String(m.numeroMarche||'').replace(/\D/g,'')||0);
+    return String(Math.max(0,...n)+1);
+  };
+  const sortirMarche=async modele=>{
+    setSortie({etat:'travail'});
+    try{
+      const a=data.artisans.find(x=>x.id===f.artisanId)||{};
+      const adr=String(a.adresse||'').split(/\s+—\s+|\s*,\s*/);
+      const ht=+f.montantHT||0, tx=marcheTva(f,ch);
+      const tvaM=Math.round(ht*tx)/100, ttc=Math.round(ht*(100+tx))/100;
+      const cadr=String(ch.adresse||'').split(/\s+—\s+|\s*,\s*/);
+      const numero=f.numeroMarche||numeroSuivant();
+      const buf=await modele.arrayBuffer();
+      const doc=await genererMarcheDocx(buf,{
+        lot:f.lot, lotDetail:f.lot,
+        numero, date:fd(f.dateSignature||today()),
+        entreprise:a.nom||'', adresse1:adr[0]||'', adresse2:adr.slice(1).join(' '),
+        decennale:a.numPolice||'', compagnie:a.assureur||'', siret:a.siret||'',
+        client:ch.client||'', clientAdresse:cadr[0]||'', clientVille:cadr.slice(1).join(' '),
+        ht, tva:tx, tvaMontant:tvaM, ttc,
+        lignes:((f.quantitatif||{}).lignes||[]).filter(l=>ligneQt(l)>0),
+      });
+      const nomFichier='Marché '+numero+' — '+(f.lot||'lot')+' — '+(a.nom||'entreprise')+'.docx';
+      const fichier=new File([doc],nomFichier,
+        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+      const token=await getDriveToken();
+      const folderId=await driveMarchesFolder(token,ch.id,ch.nom);
+      const{webViewLink}=await uploadToDrive(fichier,folderId);
+      setF(p=>({...p,contratLien:webViewLink,numeroMarche:numero}));
+      setSortie({etat:'ok',nom:nomFichier,lien:webViewLink,numero});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setSortie({etat:'erreur',msg:
+        c==='auth_required'?"Le marché a été produit, mais Google Drive n'est pas connecté (bouton ci-dessous) — reconnectez-le puis relancez.":
+        c==='nogabarit'?"Ce document ne contient aucun marché utilisable comme modèle : il faut un marché avec sa page « DÉSIGNATION DES TRAVAUX ».":
+        c==='notableau'?"Le modèle n'a pas de tableau ARTICLE / LIBELLE / QT / U / PU / PT à reprendre.":
+        c==='nodoc'||c==='nozip'?"Ce fichier n'est pas un .docx lisible.":
+        c==='nodeflate'?"Lecture Word impossible sur cet appareil (iOS 16.4 minimum).":
+        "Sortie impossible — "+c});
+    }
+  };
+
   /* un seul volet ouvert à la fois : la clé dit quelle ligne et quelle colonne */
   const [ouv,setOuv]=useState('');
   const [envoi,setEnvoi]=useState('');
@@ -2428,6 +2721,33 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
             <label className="xs" style={{color:NAVY}}>Remplacer<input type="file" accept={PIECES_ACCEPT} style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importContrat(file)}}/></label>
           </div>
           :<label className="xs" style={{color:NAVY}}>Importer le contrat<input type="file" accept={PIECES_ACCEPT} style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importContrat(file)}}/></label>}
+      </Fld>
+      <Fld label={'SORTIR LE MARCHÉ DE TRAVAUX'+(f.numeroMarche?' — N° '+f.numeroMarche:'')}>
+        <div className="xs mut" style={{lineHeight:1.5}}>
+          Votre modèle Word est rempli avec le client, l'entreprise, sa décennale, les totaux
+          et le quantitatif de ce lot, puis déposé dans Drive › Marchés. Le modèle n'est ni copié ni conservé :
+          désignez-le à chaque sortie.
+        </div>
+        <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
+          <label className={'btn s '+(f.artisanId&&f.lot?'acc':'gh')} style={{whiteSpace:'nowrap',opacity:f.artisanId&&f.lot?1:.6}}>
+            {sortie&&sortie.etat==='travail'?'Rédaction…':'Choisir le modèle et sortir le marché'}
+            <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              style={{display:'none'}} disabled={!!(sortie&&sortie.etat==='travail')}
+              onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)sortirMarche(x)}}/></label>
+          <input className="in" style={{padding:'4px 8px',fontSize:12,width:110}} placeholder="N° du marché"
+            aria-label="Numéro du marché" value={f.numeroMarche||''} onChange={e=>setF({...f,numeroMarche:e.target.value})}/>
+        </div>
+        {(!f.artisanId||!f.lot)&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          Renseignez le corps d'état et l'entreprise avant de sortir le marché : ce sont eux qui remplissent le contrat.</div>}
+        {!(f.quantitatif&&((f.quantitatif.lignes||[]).some(l=>ligneQt(l)>0)))&&f.artisanId&&f.lot&&
+          <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+            Ce lot n'est pas chiffré : le marché sortira avec son contrat et ses totaux, mais sans détail d'articles.</div>}
+        {sortie&&sortie.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+          Marché n° {sortie.numero} rédigé et déposé sur le Drive.{' '}
+          <a href={sortie.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir le document</a>
+          <div className="mut" style={{marginTop:2,wordBreak:'break-word'}}>{sortie.nom}</div>
+          <div className="mut" style={{marginTop:2}}>À relire avant signature.</div></div>}
+        {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
       </Fld>
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
       <Fld label={"FACTURES — total "+eur(facturesTotal(f.factures))}>
