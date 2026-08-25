@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-25 · sortie des marchés de travaux depuis votre modèle Word';
+const VERSION='2026-08-25 · contrat de marché rédigé par l’application, avec ses clauses et ses contrôles';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -650,176 +650,448 @@ function analyseBordereau(txt){
   return lots.filter(l=>l.articles.length);
 }
 
-/* ---------- production d'un marché de travaux depuis votre modèle Word ----------
-   Votre modèle contient déjà treize marchés rédigés. On en prend un comme
-   gabarit — celui qui est complet et le plus court — on remplace ses valeurs,
-   on refait son tableau d'articles, et on jette les douze autres. La mise en
-   page, l'en-tête, le logo et les signatures ne sont jamais touchés. */
-const exml=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-/* le corps du document, découpé en blocs : un par marché */
-function blocsMarche(xml){
-  const i=xml.indexOf('<w:body>'), j=xml.lastIndexOf('</w:body>');
-  if(i<0||j<0)throw new Error('nobody');
-  const avant=xml.slice(0,i+8), body=xml.slice(i+8,j), apres=xml.slice(j);
-  const blocs=[]; let cur=0;
-  const re=/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?<w:sectPr[\s\S]*?<\/w:p>/g;
-  let m;
-  while((m=re.exec(body))){blocs.push(body.slice(cur,m.index+m[0].length));cur=m.index+m[0].length}
-  const queue=body.slice(cur);
-  return {avant,blocs,queue,apres};
-}
-
-/* les passages de texte du document, dans l'ordre où ils se lisent */
-function runsXml(xml){
-  const R=[], re=/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
-  let m;
-  while((m=re.exec(xml)))R.push({deb:m.index,fin:re.lastIndex,txt:dexml(m[1])});
-  return R;
-}
-/* réécrit certains passages, repérés par leur rang */
-function ecrisRuns(xml,R,vals){
-  let out='',p=0;
-  R.forEach((r,k)=>{
-    if(vals[k]===undefined)return;
-    out+=xml.slice(p,r.deb)+'<w:t xml:space="preserve">'+exml(vals[k])+'</w:t>';
-    p=r.fin;
-  });
-  return out+xml.slice(p);
-}
-
-/* Un gabarit utilisable : il a sa page « DÉSIGNATION DES TRAVAUX », et son bloc
-   ENTRE / ET est renseigné — décennale, compagnie et Siret y ont une valeur.
-   À égalité, le plus court : moins de lignes à refaire. */
-function choisirGabarit(blocs){
-  const note=b=>{
-    const R=runsXml(b), t=R.map(r=>r.txt);
-    if(!t.some(x=>/D[EÉ]SIGNATION DES TRAVAUX/i.test(x)))return null;
-    const suivant=re=>{const i=t.findIndex(x=>re.test(x));return i<0?'':(t[i+1]||'')};
-    const dec=suivant(/D[ée]cennale\s*:\s*$/), cie=suivant(/^Compagnie\s*:\s*$/), sir=suivant(/^Siret\s*:\s*$/);
-    const plein=x=>x&&!/:\s*$/.test(x);
-    return {complet:plein(dec)&&plein(cie)&&plein(sir),taille:b.length};
-  };
-  let best=null;
-  blocs.forEach((b,i)=>{
-    const n=note(b);if(!n)return;
-    if(!best) {best={i,...n};return}
-    if(n.complet!==best.complet){if(n.complet)best={i,...n};return}
-    if(n.taille<best.taille)best={i,...n};
-  });
-  return best?best.i:-1;
-}
-
-/* Le tableau du quantitatif : on prend la ligne d'article du gabarit comme
-   patron et on la réémet autant de fois qu'il y a d'articles servis. */
-function refaitTableau(bloc,lignes){
-  const trs=[...bloc.matchAll(/<w:tr\b[\s\S]*?<\/w:tr>/g)];
-  /* l'en-tête ARTICLE | LIBELLE | QT | U | PU | PT, puis la première ligne d'article */
-  let iEnt=-1;
-  trs.forEach((m,k)=>{
-    const t=runsXml(m[0]).map(r=>r.txt.trim().toUpperCase());
-    if(iEnt<0&&t.indexOf('ARTICLE')>=0&&t.indexOf('LIBELLE')>=0&&t.indexOf('PU')>=0)iEnt=k;
-  });
-  if(iEnt<0||iEnt+1>=trs.length)throw new Error('notableau');
-  const patron=trs[iEnt+1][0];
-  const cellules=[...patron.matchAll(/<w:tc\b[\s\S]*?<\/w:tc>/g)].map(m=>m[0]);
-  if(cellules.length<6)throw new Error('notableau');
-  const faireCellule=(tc,valeur)=>{
-    const R=runsXml(tc);
-    if(!R.length)return tc;
-    /* la valeur va dans le premier passage, les suivants sont vidés */
-    const vals={0:valeur};
-    for(let k=1;k<R.length;k++)vals[k]='';
-    return ecrisRuns(tc,R,vals);
-  };
-  const rangs=lignes.map(l=>{
-    const v=[l.code||'',l.libelle||'',nb3(l.qt),l.unite||'',
-             eurNombre(lignePU(l)),eurNombre(lignePT(l))];
-    let out=patron, dec=0;
-    /* on remplace les six premières cellules, dans l'ordre du tableau */
-    const tcs=[...patron.matchAll(/<w:tc\b[\s\S]*?<\/w:tc>/g)];
-    out='';let p=0;
-    tcs.forEach((m,k)=>{
-      out+=patron.slice(p,m.index)+(k<6?faireCellule(m[0],v[k]):m[0]);
-      p=m.index+m[0].length;
-    });
-    return out+patron.slice(p);
-  });
-  /* on remplace la ligne patron par toutes les nôtres, et on retire les autres
-     lignes d'article du gabarit s'il en avait plusieurs. */
-  const finPatron=trs[iEnt+1].index+patron.length;
-  let apres=bloc.slice(finPatron);
-  /* les lignes d'article suivantes sont celles qui portent 6 cellules et pas de total */
-  apres=apres.replace(/<w:tr\b[\s\S]*?<\/w:tr>/g,tr=>{
-    const t=runsXml(tr).map(r=>r.txt.trim());
-    const estArticle=(tr.match(/<w:tc\b/g)||[]).length>=6&&!t.some(x=>/Total du lot/i.test(x));
-    return estArticle?'':tr;
-  });
-  return bloc.slice(0,trs[iEnt+1].index)+rangs.join('')+apres;
-}
-
-/* un montant tel qu'il s'écrit dans vos marchés : 49604,56 */
-const eurNombre=n=>(Math.round((+n||0)*100)/100).toFixed(2).replace('.',',');
-
-/* Remplit le gabarit avec les données du lot. Les champs sont repérés par les
-   intitulés du document — « Du : », « Compagnie : », « TOTAL H.T. » — et non par
-   des positions, pour que le modèle puisse évoluer. */
-function remplirGabarit(bloc,d){
-  const R=runsXml(bloc), t=R.map(r=>r.txt);
-  const vals={};
-  const idxTous=re=>R.map((r,i)=>re.test(r.txt)?i:-1).filter(i=>i>=0);
-  const apres=re=>{const L=idxTous(re);return L.length?L[0]+1:-1};
-  const pose=(i,v)=>{if(i>0&&i<R.length)vals[i]=v};
-
-  /* l'intitulé du lot : partout où il apparaît tel quel, plus la page 2 */
-  const lotGabarit=t[apres(/^MARCHE DE TRAVAUX\s*$/)-0]!==undefined?t[idxTous(/^MARCHE DE TRAVAUX\s*$/)[0]+1]:'';
-  if(lotGabarit)R.forEach((r,i)=>{if(r.txt===lotGabarit)vals[i]=d.lot});
-  const iDes=apres(/^D[EÉ]SIGNATION DES TRAVAUX$/);
-  pose(iDes,d.lotDetail||d.lot);
-
-  /* numéro et date, en tête de chaque page */
-  idxTous(/^°$/).forEach(i=>{if(R[i+1]&&!/^Du\s*:/.test(R[i+1].txt))vals[i+1]=String(d.numero||'')});
-  idxTous(/^Du\s*:\s*$/).forEach(i=>pose(i+1,d.date));
-
-  /* l'entreprise : les trois passages qui suivent « ET » */
-  const iET=idxTous(/^ET$/)[0];
-  if(iET>=0){pose(iET+1,d.entreprise);pose(iET+2,d.adresse1);pose(iET+3,d.adresse2)}
-  pose(apres(/D[ée]cennale\s*:\s*$/),d.decennale);
-  pose(apres(/^Compagnie\s*:\s*$/),d.compagnie);
-  const iSiret=apres(/^Siret\s*:\s*$/);
-  pose(iSiret,d.siret);
-  /* le client suit immédiatement le bloc entreprise */
-  if(iSiret>0){pose(iSiret+1,d.client);pose(iSiret+2,d.clientAdresse);pose(iSiret+3,d.clientVille);
-    if(R[iSiret+4]&&/^\S/.test(R[iSiret+4].txt)&&R[iSiret+4].txt.length<40)vals[iSiret+4]='';}
-
-  /* les montants : celui annoncé sous la liste des lots, puis les trois du pied */
-  const iAnnonce=apres(/^L’entreprise ci-dessus d[ée]sign[ée]e/)+1;
-  pose(iAnnonce,eurNombre(d.ht));
-  const iHT=apres(/^TOTAL H\.?T\.?$/);
-  pose(iHT,eurNombre(d.ht));
-  if(iHT>0){
-    const iTaux=R.findIndex((r,i)=>i>iHT&&/^\s*\d+([.,]\d+)?\s*%$/.test(r.txt));
-    if(iTaux>0){vals[iTaux]=' '+d.tva+'%';pose(iTaux+1,eurNombre(d.tvaMontant))}
+/* ---------- contrôle avant émission d'un marché ----------
+   Un contrat part une fois. Ce qui manque, ou ce qui est faux, doit se voir
+   avant, pas après signature. Les points bloquants empêchent l'émission ;
+   les avertissements la laissent passer mais restent affichés. */
+function controlerMarche(m,artisan,ch){
+  const P=[];
+  const bloque=t=>P.push({bloquant:true,texte:t});
+  const alerte=t=>P.push({bloquant:false,texte:t});
+  if(!m||!String(m.lot||'').trim())bloque('Le corps d’état du lot n’est pas renseigné.');
+  if(!artisan)bloque('Aucune entreprise n’est attribuée à ce lot.');
+  if(!(+((m||{}).montantHT)>0))bloque('Le montant du marché est nul : chiffrez le lot ou saisissez son montant.');
+  if(!ch||!String(ch.client||'').trim())bloque('Le nom du client n’est pas renseigné sur la fiche du chantier.');
+  if(!ch||!String(ch.adresse||'').trim())bloque('L’adresse des travaux n’est pas renseignée sur la fiche du chantier.');
+  if(artisan){
+    /* la décennale : sans attestation valable à la signature, le marché ne part pas */
+    const fin=artisan.decennaleFin;
+    if(!fin)bloque('L’entreprise n’a pas de date de validité de décennale : le marché ne peut pas être émis.');
+    else{
+      const ref=new Date((m&&m.dateSignature)||today());
+      const j=Math.round((new Date(fin)-ref)/86400000);
+      if(j<0)bloque('La décennale de l’entreprise a expiré le '+fd(fin)+' : régularisez avant de signer.');
+      else if(j<60)alerte('La décennale de l’entreprise expire le '+fd(fin)+' — dans '+j+' jour'+(j>1?'s':'')+'.');
+    }
+    if(!String(artisan.assureur||'').trim())alerte('La compagnie d’assurance de l’entreprise n’est pas renseignée.');
+    if(!String(artisan.numPolice||'').trim())alerte('Le numéro de police décennale de l’entreprise n’est pas renseigné.');
+    if(!String(artisan.siret||'').trim())alerte('Le SIRET de l’entreprise n’est pas renseigné.');
+    if(!String(artisan.adresse||'').trim())alerte('L’adresse du siège de l’entreprise n’est pas renseignée.');
+    if(!artisan.lienAttestation)alerte('L’attestation de décennale n’est pas déposée : elle doit être annexée au marché.');
   }
-  pose(apres(/^TOTAL T\.?T\.?C/),eurNombre(d.ttc));
-  pose(apres(/^Total du lot H\.?T\.?/),eurNombre(d.ht)+'€');
-  return ecrisRuns(bloc,R,vals);
+  if(ch&&!String(ch.adresseClient||'').trim())
+    alerte('L’adresse du domicile du client n’est pas renseignée : le marché portera son nom sans son adresse.');
+  if(ch&&String(ch.adresseClient||'').trim()&&String(ch.adresseClient).trim()===String(ch.adresse||'').trim())
+    alerte('Le domicile du client et l’adresse des travaux sont identiques — vérifiez que c’est bien voulu.');
+  if(m&&!m.dateSignature)alerte('La date de signature n’est pas renseignée : le marché portera la date du jour.');
+  return P;
+}
+const marcheBloque=P=>(P||[]).some(x=>x.bloquant);
+
+/* ---------- composition d'un marché de travaux ----------
+   Le document est composé ici, pas décalqué : c'est la seule façon de tenir la
+   police, les filets, les couleurs de la maison et d'ajouter les clauses. Le
+   .docx produit est un fichier Word complet, fabriqué de toutes pièces. */
+const exml=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+/* un montant tel qu'il s'écrit dans un contrat : 49 604,56 € */
+const eurNombre=n=>(Math.round((+n||0)*100)/100).toFixed(2).replace('.',',');
+const eurDoc=n=>eurNombre(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' €';
+
+/* Cambria : une serif livrée avec Word sur tous les appareils, dessinée pour
+   être lue à l'écran comme à l'impression — ce qu'on demande à un contrat. */
+const DOC_POLICE='Cambria';
+const DOC_TERRA='C5563A', DOC_BRUN='6B4A2F', DOC_ENCRE='262626', DOC_GRIS='7A7A7A', DOC_SABLE='F5F1EA';
+
+const rP=(o)=>{o=o||{};
+  const f=o.f||DOC_POLICE;
+  return '<w:rPr><w:rFonts w:ascii="'+f+'" w:hAnsi="'+f+'" w:cs="'+f+'"/>'
+    +(o.b?'<w:b/>':'')+(o.i?'<w:i/>':'')+(o.caps?'<w:caps/>':'')
+    +(o.sp?'<w:spacing w:val="'+o.sp+'"/>':'')
+    +'<w:color w:val="'+(o.c||DOC_ENCRE)+'"/>'
+    +'<w:sz w:val="'+(o.sz||20)+'"/><w:szCs w:val="'+(o.sz||20)+'"/></w:rPr>';
+};
+const run=(t,o)=>'<w:r>'+rP(o)+'<w:t xml:space="preserve">'+exml(t)+'</w:t></w:r>';
+const par=(t,o)=>{o=o||{};
+  const filet=c=>'<w:bottom w:val="single" w:sz="'+(o.filetSz||8)+'" w:space="2" w:color="'+c+'"/>';
+  return '<w:p><w:pPr>'
+    +(o.jc?'<w:jc w:val="'+o.jc+'"/>':'')
+    +'<w:spacing w:before="'+(o.av||0)+'" w:after="'+(o.ap===undefined?60:o.ap)+'" w:line="'+(o.ln||264)+'" w:lineRule="auto"/>'
+    +(o.ind?'<w:ind w:left="'+o.ind+'"/>':'')
+    +(o.filet?'<w:pBdr>'+filet(o.filet)+'</w:pBdr>':'')
+    +'</w:pPr>'
+    +(typeof t==='string'?run(t,o):(t||[]).join(''))
+    +'</w:p>';
+};
+const vide=(h)=>'<w:p><w:pPr><w:spacing w:before="0" w:after="'+(h||80)+'" w:line="240" w:lineRule="auto"/></w:pPr></w:p>';
+const sautPage='<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:br w:type="page"/></w:r></w:p>';
+
+const bord=(c,sz)=>'w:val="single" w:sz="'+(sz||8)+'" w:space="0" w:color="'+c+'"';
+const tcB=(o)=>{o=o||{};const n='w:val="nil"';
+  return '<w:tcBorders>'
+    +'<w:top '+(o.h===false?n:bord(o.c||DOC_BRUN,o.t))+'/>'
+    +'<w:left '+(o.g===false?n:bord(o.c||DOC_BRUN,o.sz))+'/>'
+    +'<w:bottom '+(o.b===false?n:bord(o.c||DOC_BRUN,o.bs))+'/>'
+    +'<w:right '+(o.d===false?n:bord(o.c||DOC_BRUN,o.sz))+'/></w:tcBorders>';
+};
+const tc=(l,contenu,o)=>{o=o||{};
+  return '<w:tc><w:tcPr><w:tcW w:w="'+l+'" w:type="dxa"/>'
+    +(o.fusion?'<w:gridSpan w:val="'+o.fusion+'"/>':'')
+    +(o.bords||'')
+    +(o.fond?'<w:shd w:val="clear" w:color="auto" w:fill="'+o.fond+'"/>':'')
+    +'<w:tcMar><w:top w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/>'
+    +'<w:left w:w="'+(o.mg===undefined?90:o.mg)+'" w:type="dxa"/><w:right w:w="'+(o.mg===undefined?90:o.mg)+'" w:type="dxa"/></w:tcMar>'
+    +'<w:vAlign w:val="'+(o.v||'center')+'"/></w:tcPr>'
+    +(contenu||par('',{ap:0}))+'</w:tc>';
+};
+const tr=(cells)=>'<w:tr><w:trPr><w:cantSplit/></w:trPr>'+cells.join('')+'</w:tr>';
+/* aucun filet par défaut : chaque cellule pose les siens, on ne subit pas
+   un quadrillage dont on ne veut pas. */
+const tbl=(grille,rows,o)=>{o=o||{};
+  return '<w:tbl><w:tblPr><w:tblW w:w="'+(o.largeur||'5000')+'" w:type="'+(o.type||'pct')+'"/>'
+    +'<w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/>'
+    +'<w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders>'
+    +'<w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar>'
+    +'<w:tblLook w:val="0000"/></w:tblPr>'
+    +'<w:tblGrid>'+grille.map(w=>'<w:gridCol w:w="'+w+'"/>').join('')+'</w:tblGrid>'
+    +rows.join('')+'</w:tbl>';
+};
+
+/* le logo de la maison, aux dimensions de son fichier */
+const logoXml=(px)=>{
+  const larg=1500000, haut=Math.round(larg*(px&&px.h?px.h:505)/(px&&px.w?px.w:767));
+  return '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+    +'<wp:extent cx="'+larg+'" cy="'+haut+'"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+    +'<wp:docPr id="1" name="Logo"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+    +'<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+    +'<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+    +'<pic:nvPicPr><pic:cNvPr id="1" name="Logo"/><pic:cNvPicPr/></pic:nvPicPr>'
+    +'<pic:blipFill><a:blip r:embed="rId5"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    +'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="'+larg+'" cy="'+haut+'"/></a:xfrm>'
+    +'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
+    +'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+};
+
+/* l'identité de CP Constructions, telle qu'elle figure sur ses documents */
+const CP={nom:'CP CONSTRUCTIONS',forme:'SASU au capital de 1 000 €',
+  adresse:'14 rue de congé — 61250 VALFRAMBERT',
+  siret:'999 593 395 00018',siren:'999 593 395',ape:'7112 B',
+  tvaIntra:'FR74999593395',rcs:'RCS ALENÇON',
+  tel:'06 79 62 21 55',mail:'contact@cpconstructions.fr'};
+
+/* ---------- l'en-tête : logo à gauche, identité du marché à droite ---------- */
+function enteteMarche(d,px){
+  return tbl([4200,6200],[tr([
+    tc(4200,par([logoXml(px)],{ap:0}),{bords:tcB({h:false,g:false,b:false,d:false}),v:'top',mg:0}),
+    tc(6200,[
+      par('MARCHÉ DE TRAVAUX',{b:true,sz:32,c:DOC_TERRA,sp:24,jc:'right',ap:40}),
+      par(d.lot||'',{b:true,sz:22,c:DOC_BRUN,jc:'right',ap:40,filet:DOC_TERRA}),
+      par('N° '+(d.numero||'')+' — du '+(d.date||''),{sz:19,c:DOC_GRIS,jc:'right',ap:0}),
+    ].join(''),{bords:tcB({h:false,g:false,b:false,d:false}),v:'bottom',mg:0}),
+  ])],{});
 }
 
-/* Assemble le marché : un seul bloc, celui du lot demandé. */
-function marcheDocumentXml(xml,d){
-  const {avant,blocs,queue,apres}=blocsMarche(xml);
-  const i=choisirGabarit(blocs);
-  if(i<0)throw new Error('nogabarit');
-  let bloc=refaitTableau(blocs[i],d.lignes||[]);
-  bloc=remplirGabarit(bloc,d);
-  return avant+bloc+queue+apres;
+/* ---------- les parties ---------- */
+function partiesMarche(d){
+  const bloc=(titre,lignes)=>[
+    par(titre,{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60}),
+  ].concat(lignes.filter(Boolean).map(l=>par(l[1]?l[0]+' : '+l[1]:l[0],
+    {sz:19,c:l[2]?DOC_GRIS:DOC_ENCRE,ap:30}))).join('');
+  const g=bloc('Le maître de l’ouvrage',[
+    [d.client||'',''],
+    ['Demeurant',d.clientAdresse],
+    d.clientTel?['Téléphone',d.clientTel]:null,
+  ]);
+  const dr=bloc('L’entreprise',[
+    [d.entreprise||'',''],
+    ['Siège',d.adresse],
+    ['SIRET',d.siret],
+    ['Assurance décennale',d.compagnie+(d.decennale?' — police '+d.decennale:'')],
+    d.decennaleFin?['Attestation valable jusqu’au',d.decennaleFin]:null,
+  ]);
+  const cadre=tcB({c:DOC_BRUN,sz:4,t:4,bs:4});
+  return tbl([5200,5200],[tr([
+    tc(5200,g,{bords:cadre,fond:DOC_SABLE,v:'top',mg:140}),
+    tc(5200,dr,{bords:cadre,fond:DOC_SABLE,v:'top',mg:140}),
+  ])],{});
 }
 
-async function genererMarcheDocx(modeleBuf,d){
-  const xml=new TextDecoder('utf-8').decode(await zipEntree(modeleBuf,'word/document.xml'));
-  const neuf=new TextEncoder().encode(marcheDocumentXml(xml,d));
-  return zipReecrire(modeleBuf,{'word/document.xml':neuf});
+/* ---------- l'adresse des travaux : ce qui distingue le chantier du domicile ---------- */
+function chantierMarche(d){
+  const inner=[
+    par('Adresse des travaux',{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60}),
+    par(d.chantierAdresse||'—',{b:true,sz:21,ap:d.chantierNom?30:0}),
+    d.chantierNom?par(d.chantierNom,{sz:18,c:DOC_GRIS,ap:0}):'',
+  ].join('');
+  return tbl([10400],[tr([
+    tc(10400,inner,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4}),v:'top',mg:140}),
+  ])],{});
+}
+
+/* ---------- les montants ---------- */
+function montantsMarche(d){
+  const lig=(l,v,fort)=>tr([
+    tc(7400,par(l,{sz:fort?21:19,b:!!fort,c:fort?DOC_ENCRE:DOC_GRIS,ap:0}),
+      {bords:tcB({h:fort?8:false,g:false,b:false,d:false,c:DOC_BRUN}),mg:120}),
+    tc(3000,par(v,{sz:fort?23:19,b:true,c:fort?DOC_TERRA:DOC_ENCRE,jc:'right',ap:0}),
+      {bords:tcB({h:fort?8:false,g:false,b:false,d:false,c:DOC_BRUN}),mg:120}),
+  ]);
+  const L=[];
+  if(d.remise>0){
+    L.push(lig('Montant du quantitatif',eurDoc(d.brut)));
+    L.push(lig('Remise consentie — '+d.remise+' %','− '+eurDoc(d.brut-d.ht)));
+  }
+  L.push(lig('TOTAL H.T.',eurDoc(d.ht),true));
+  L.push(lig('TVA '+d.tva+' %',eurDoc(d.tvaMontant)));
+  L.push(lig('TOTAL T.T.C.',eurDoc(d.ttc),true));
+  return tbl([7400,3000],L,{});
+}
+
+/* ---------- le quantitatif : cadre et filets de colonnes, rien entre les articles ---------- */
+function quantitatifMarche(d){
+  const G=[1700,4700,900,600,1150,1350];
+  const cadreH=(pos)=>tcB({c:DOC_BRUN,sz:4,t:pos==='haut'?8:4,bs:pos==='bas'?8:4});
+  const rows=[];
+  /* le lot, en bandeau, dans le même cadre que le tableau */
+  rows.push(tr([tc(G.reduce((a,b)=>a+b,0),
+    par(d.lotDetail||d.lot||'',{b:true,sz:20,c:DOC_BRUN,caps:false,ap:0}),
+    {fusion:G.length,fond:DOC_SABLE,bords:tcB({c:DOC_BRUN,sz:4,t:8,bs:4}),mg:120})]));
+  /* l'en-tête de colonnes */
+  const ent=(l,t,jc)=>tc(l,par(t,{b:true,sz:17,c:DOC_TERRA,sp:16,caps:true,jc:jc,ap:0}),
+    {fond:DOC_SABLE,bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100});
+  rows.push(tr([ent(G[0],'Article'),ent(G[1],'Libellé'),ent(G[2],'Qt','right'),
+    ent(G[3],'U','center'),ent(G[4],'PU','right'),ent(G[5],'PT','right')]));
+  /* les articles : filets de colonnes seulement */
+  const cel=(l,t,jc,o)=>tc(l,par(t,{sz:18,jc:jc,ap:0,c:(o&&o.c)||DOC_ENCRE}),
+    {bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100,v:'top'});
+  (d.lignes||[]).forEach(l=>{
+    rows.push(tr([
+      cel(G[0],l.code||'','left',{c:DOC_GRIS}),
+      cel(G[1],l.libelle||'','left'),
+      cel(G[2],nb3(l.qt),'right'),
+      cel(G[3],l.unite||'','center'),
+      cel(G[4],eurNombre(lignePU(l)),'right'),
+      cel(G[5],eurNombre(lignePT(l)),'right'),
+    ]));
+  });
+  if(!(d.lignes||[]).length)
+    rows.push(tr([cel(G.reduce((a,b)=>a+b,0),'Travaux définis par le descriptif et les plans joints.','left')]));
+  /* le total, refermé par le bas du cadre */
+  const pied=(l,t,jc,gras)=>tc(l,par(t,{b:true,sz:20,jc:jc,ap:0,c:gras?DOC_TERRA:DOC_ENCRE}),
+    {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100});
+  rows.push(tr([
+    tc(G[0]+G[1]+G[2]+G[3]+G[4],par('TOTAL DU LOT H.T.',{b:true,sz:20,jc:'right',ap:0}),
+      {fusion:5,fond:DOC_SABLE,mg:100,
+       bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+        +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>'}),
+    pied(G[5],eurNombre(d.ht),'right',true),
+  ]));
+  return tbl(G,rows,{});
+}
+
+/* ---------- les signatures ---------- */
+function signaturesMarche(d){
+  const bloc=(titre,sous,mention)=>[
+    par(titre,{b:true,sz:18,c:DOC_TERRA,caps:true,sp:16,ap:40}),
+    par(sous||'',{sz:17,c:DOC_GRIS,ap:mention?40:0}),
+    mention?par(mention,{i:true,sz:16,c:DOC_GRIS,ap:0}):'',
+    vide(560),
+  ].join('');
+  const cadre=tcB({c:DOC_BRUN,sz:4,t:4,bs:4});
+  return tbl([3460,3460,3480],[tr([
+    tc(3460,bloc('Le maître de l’ouvrage',d.client||'','« Lu et approuvé — bon pour accord »'),{bords:cadre,v:'top',mg:120}),
+    tc(3460,bloc('L’entreprise',d.entreprise||'','Cachet — « Lu et approuvé — bon pour accord »'),{bords:cadre,v:'top',mg:120}),
+    tc(3480,bloc('Le maître d’œuvre',CP.nom,'Visa'),{bords:cadre,v:'top',mg:120}),
+  ])],{});
+}
+
+/* ---------- les clauses ----------
+   Rédigées d'après les usages des marchés de travaux privés et les textes
+   qu'elles citent. Elles ne remplacent pas la relecture d'un avocat et de
+   l'assureur de l'entreprise avant tout usage. */
+function clausesMarche(d){
+  const T=[
+    ['Article 1 — Objet du marché',[
+      'Le présent marché a pour objet l’exécution, par l’entreprise désignée en tête des présentes, du lot « '+(d.lot||'')+' » sur le chantier situé '+(d.chantierAdresse||'—')+'.',
+      'Les travaux sont réalisés en fourniture et pose, conformément au devis quantitatif et estimatif annexé, aux plans, au descriptif et aux règles de l’art.',
+    ]],
+    ['Article 2 — Pièces contractuelles',[
+      'Le marché est constitué, par ordre de priorité décroissant : du présent acte d’engagement et de ses conditions particulières ; du devis quantitatif et estimatif ; des plans et du descriptif remis à l’entreprise ; des normes NF DTU applicables aux ouvrages concernés.',
+      'En cas de contradiction entre ces pièces, la pièce de rang supérieur prévaut.',
+    ]],
+    ['Article 3 — Prix',[
+      'Le prix est forfaitaire, ferme et non révisable pour la durée du marché. Il s’entend hors taxes, la TVA étant appliquée au taux de '+d.tva+' % en vigueur à la date de facturation.',
+      'Le forfait couvre l’ensemble des sujétions d’exécution, y compris installation de chantier, protections, nettoyage et évacuation des déchets et gravats produits par l’entreprise.',
+      'Aucun travail supplémentaire ne sera dû s’il n’a fait l’objet d’un avenant écrit, chiffré et signé des parties avant son exécution.',
+    ]],
+    ['Article 4 — Délais d’exécution',[
+      'L’entreprise s’engage à intervenir aux dates fixées par le calendrier d’exécution établi par le maître d’œuvre et à mener les travaux sans interruption non justifiée jusqu’à leur achèvement.',
+      'Les journées d’intempéries au sens de l’article L. 5424-8 du code du travail, dûment constatées, prolongent le délai à due concurrence.',
+    ]],
+    ['Article 5 — Pénalités de retard',[
+      'En cas de retard imputable à l’entreprise, il sera appliqué une pénalité de 1/1 000e du montant hors taxes du marché par jour calendaire de retard, plafonnée à 5 % de ce montant.',
+      'Les pénalités sont déduites de plein droit des sommes dues, après mise en demeure restée sans effet pendant quinze jours.',
+    ]],
+    ['Article 6 — Assurances',[
+      'L’entreprise déclare être titulaire des assurances obligatoires prévues à l’article L. 241-1 du code des assurances, couvrant sa responsabilité décennale pour les activités objet du présent marché.',
+      'L’attestation en cours de validité est annexée au marché'+(d.decennale?' (police n° '+d.decennale+(d.compagnie?', '+d.compagnie:'')+')':'')+'. L’entreprise s’oblige à en communiquer le renouvellement sans délai et à maintenir cette garantie pendant toute la durée du chantier.',
+      'Le défaut de garantie en cours de validité constitue un manquement grave autorisant la suspension immédiate des travaux et la résiliation du marché aux torts de l’entreprise.',
+    ]],
+    ['Article 7 — Sous-traitance',[
+      'Toute sous-traitance est subordonnée à l’acceptation du sous-traitant et à l’agrément de ses conditions de paiement par le maître de l’ouvrage, dans les formes prévues par la loi n° 75-1334 du 31 décembre 1975.',
+      'Le sous-traitant non accepté et non agréé ne peut se prévaloir du marché ; l’entreprise demeure seule responsable de l’exécution de l’ensemble des ouvrages.',
+    ]],
+    ['Article 8 — Facturation et paiement',[
+      'Les travaux sont réglés sur situations, établies par l’entreprise à l’avancement et visées par le maître d’œuvre.',
+      'Le paiement intervient dans un délai de trente jours à compter de la réception de la facture visée. Tout retard de paiement fait courir des pénalités au taux d’intérêt légal majoré, ainsi que l’indemnité forfaitaire de recouvrement de 40 € prévue à l’article L. 441-10 du code de commerce lorsque celui-ci est applicable.',
+      'Les factures sont adressées à l’adresse du maître de l’ouvrage figurant en tête des présentes, ou par courriel à '+CP.mail+'.',
+    ]],
+    ['Article 9 — Retenue de garantie',[
+      'Une retenue de garantie de 5 % du montant des travaux pourra être pratiquée dans les conditions de la loi n° 71-584 du 16 juillet 1971. Elle est consignée entre les mains d’un consignataire accepté par les deux parties.',
+      'L’entreprise peut y substituer une caution personnelle et solidaire émanant d’un établissement agréé. La retenue est libérée à l’expiration du délai d’un an suivant la réception, sauf réserves non levées notifiées par écrit avant ce terme.',
+    ]],
+    ['Article 10 — Réception des travaux',[
+      'La réception est prononcée contradictoirement, à la demande de l’entreprise ou du maître de l’ouvrage, dans les conditions de l’article 1792-6 du code civil. Elle fait l’objet d’un procès-verbal signé, mentionnant le cas échéant les réserves.',
+      'Les réserves sont levées dans le délai fixé au procès-verbal ; à défaut, le maître de l’ouvrage peut faire exécuter les travaux correspondants aux frais de l’entreprise après mise en demeure.',
+    ]],
+    ['Article 11 — Garanties légales',[
+      'L’entreprise est tenue, à compter de la réception : de la garantie de parfait achèvement pendant un an (article 1792-6 du code civil) ; de la garantie de bon fonctionnement des éléments d’équipement dissociables pendant deux ans (article 1792-3) ; de la garantie décennale pendant dix ans (articles 1792 et suivants).',
+    ]],
+    ['Article 12 — Sécurité et tenue du chantier',[
+      'L’entreprise applique la réglementation en matière d’hygiène, de sécurité et de conditions de travail, et se conforme, le cas échéant, aux prescriptions du coordonnateur SPS.',
+      'Elle maintient ses ouvrages et ses abords en état de propreté et évacue ses déchets vers les filières autorisées.',
+    ]],
+    ['Article 13 — Maîtrise d’œuvre',[
+      CP.nom+', maître d’œuvre du maître de l’ouvrage, assure la direction et le suivi de l’exécution des travaux, vise les situations et convoque la réception. Elle n’est pas partie au présent marché en qualité d’entrepreneur et n’assume aucune obligation de résultat sur les ouvrages exécutés par l’entreprise.',
+    ]],
+    ['Article 14 — Résiliation',[
+      'En cas de manquement grave de l’une des parties à ses obligations, l’autre partie peut résilier le marché quinze jours après une mise en demeure restée sans effet, sans préjudice des dommages et intérêts.',
+      'Le décompte des travaux exécutés est alors arrêté contradictoirement.',
+    ]],
+    ['Article 15 — Droit de rétractation',[
+      'Lorsque le présent marché est conclu hors établissement avec un maître de l’ouvrage consommateur, celui-ci dispose d’un délai de quatorze jours pour exercer son droit de rétractation dans les conditions des articles L. 221-18 et suivants du code de la consommation.',
+      'Les travaux ne peuvent commencer avant l’expiration de ce délai, sauf demande expresse et écrite du maître de l’ouvrage.',
+    ]],
+    ['Article 16 — Litiges',[
+      'Les parties s’efforceront de régler amiablement tout différend né du présent marché. À défaut d’accord, le litige sera porté devant la juridiction compétente du lieu d’exécution des travaux.',
+    ]],
+  ];
+  const out=[par('CONDITIONS DU MARCHÉ',{b:true,sz:26,c:DOC_TERRA,sp:20,caps:true,ap:120,filet:DOC_TERRA})];
+  T.forEach(([titre,paras])=>{
+    out.push(par(titre,{b:true,sz:19,c:DOC_BRUN,av:120,ap:50}));
+    paras.forEach(p=>out.push(par(p,{sz:17,jc:'both',ap:60})));
+  });
+  out.push(vide(120));
+  out.push(par('Fait à '+(d.lieuSignature||'Valframbert')+', le '+(d.date||'')+', en trois exemplaires originaux — un pour le maître de l’ouvrage, un pour l’entreprise, un pour le maître d’œuvre.',
+    {sz:17,i:true,c:DOC_GRIS,ap:160}));
+  return out.join('');
+}
+
+/* ---------- le document complet ---------- */
+function marcheDocumentXml(d,px){
+  const corps=[
+    enteteMarche(d,px), vide(200),
+    partiesMarche(d), vide(200),
+    chantierMarche(d), vide(200),
+    par('Objet du marché',{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60}),
+    par('L’entreprise désignée ci-dessus déclare accepter d’exécuter, en fourniture et pose, l’ensemble des travaux du lot « '+(d.lot||'')+' », conformément au devis quantitatif et estimatif figurant en page 2 et aux conditions énoncées en pages suivantes.',
+      {sz:18,jc:'both',ap:60}),
+    par('Ces travaux seront réalisés sans interruption non justifiable, pour le prix forfaitaire ci-après.',{sz:18,jc:'both',ap:140}),
+    montantsMarche(d), vide(200),
+    par('Le présent acte d’engagement ne vaut que complété des conditions du marché figurant en pages 3 et suivantes, dont l’entreprise reconnaît avoir pris connaissance.',
+      {sz:16,i:true,c:DOC_GRIS,jc:'both',ap:0}),
+    sautPage,
+    enteteMarche(d,px), vide(200),
+    par('Devis quantitatif et estimatif',{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,ap:120}),
+    quantitatifMarche(d),
+    sautPage,
+    clausesMarche(d), vide(120),
+    signaturesMarche(d),
+  ].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+
+const DOC_ENTETE_XML='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+  +'<w:document xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+  +' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+  +' xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">';
+
+/* ---------- fabrication du .docx ----------
+   Un Word minimal mais complet : types de contenu, relations, styles, le
+   document et le logo. Rien d'autre n'est nécessaire pour qu'il s'ouvre. */
+const DOCX_TYPES='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+ +'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+ +'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+ +'<Default Extension="xml" ContentType="application/xml"/>'
+ +'<Default Extension="png" ContentType="image/png"/>'
+ +'<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+ +'<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+ +'<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+ +'</Types>';
+const DOCX_RELS='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+ +'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+ +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+ +'<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+ +'</Relationships>';
+const DOCX_DOCRELS='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+ +'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+ +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+ +'<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/>'
+ +'</Relationships>';
+const DOCX_STYLES='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+ +'<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+ +'<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="'+DOC_POLICE+'" w:hAnsi="'+DOC_POLICE+'" w:cs="'+DOC_POLICE+'"/>'
+ +'<w:color w:val="'+DOC_ENCRE+'"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="fr-FR"/></w:rPr></w:rPrDefault>'
+ +'<w:pPrDefault><w:pPr><w:spacing w:after="60" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
+ +'<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>'
+ +'</w:styles>';
+const docxCore=titre=>'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+ +'<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"'
+ +' xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"'
+ +' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+ +'<dc:title>'+exml(titre)+'</dc:title><dc:creator>'+CP.nom+'</dc:creator>'
+ +'<cp:lastModifiedBy>'+CP.nom+'</cp:lastModifiedBy>'
+ +'<dcterms:created xsi:type="dcterms:W3CDTF">'+new Date().toISOString().slice(0,19)+'Z</dcterms:created>'
+ +'</cp:coreProperties>';
+
+/* le logo de l'application, tel qu'il est servi à côté de la page */
+let logoCache=null;
+async function logoDocx(){
+  if(logoCache)return logoCache;
+  const r=await fetch('assets/logo.png');
+  if(!r.ok)throw new Error('nologo');
+  const b=new Uint8Array(await r.arrayBuffer());
+  /* dimensions lues dans l'entête PNG, pour ne pas déformer l'image */
+  const v=new DataView(b.buffer,b.byteOffset,b.byteLength);
+  logoCache={data:b,w:v.getUint32(16),h:v.getUint32(20)};
+  return logoCache;
+}
+
+async function fabriquerDocx(documentXml,titre,logo){
+  const enc=new TextEncoder();
+  const entrees=[
+    {nom:'[Content_Types].xml',data:enc.encode(DOCX_TYPES)},
+    {nom:'_rels/.rels',data:enc.encode(DOCX_RELS)},
+    {nom:'docProps/core.xml',data:enc.encode(docxCore(titre))},
+    {nom:'word/_rels/document.xml.rels',data:enc.encode(DOCX_DOCRELS)},
+    {nom:'word/styles.xml',data:enc.encode(DOCX_STYLES)},
+    {nom:'word/document.xml',data:enc.encode(documentXml)},
+  ];
+  if(logo)entrees.push({nom:'word/media/logo.png',data:logo.data});
+  return zipEcrire(entrees);
+}
+
+async function genererMarcheDocx(d){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, le marché reste valable */}
+  const xml=marcheDocumentXml(d,logo);
+  return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||''),logo);
 }
 
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
@@ -1240,6 +1512,31 @@ function zipReecrire(buf,remplacements){
   }
   const cd=[].concat(...central), debutCD=offset;
   const eocd=[...u32(0x06054b50),...u16(0),...u16(0),...u16(nb),...u16(nb),
+    ...u32(cd.length),...u32(debutCD),...u16(0)];
+  morceaux.push(new Uint8Array(cd),new Uint8Array(eocd));
+  const total=morceaux.reduce((s,m)=>s+m.length,0), out=new Uint8Array(total);
+  let q=0;for(const m of morceaux){out.set(m,q);q+=m.length}
+  return out;
+}
+
+/* fabrique un ZIP de toutes pièces, entrées non compressées */
+function zipEcrire(entrees){
+  const enc=new TextEncoder();
+  const u16=v=>[v&255,(v>>8)&255], u32=v=>[v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255];
+  const morceaux=[], central=[];
+  let offset=0;
+  for(const {nom,data} of entrees){
+    const n=enc.encode(nom), crc=CRC32(data);
+    const lfh=[...u32(0x04034b50),...u16(20),...u16(0),...u16(0),...u16(0),...u16(0),
+      ...u32(crc),...u32(data.length),...u32(data.length),...u16(n.length),...u16(0)];
+    morceaux.push(new Uint8Array(lfh),n,data);
+    central.push([...u32(0x02014b50),...u16(20),...u16(20),...u16(0),...u16(0),...u16(0),...u16(0),
+      ...u32(crc),...u32(data.length),...u32(data.length),...u16(n.length),...u16(0),...u16(0),
+      ...u16(0),...u16(0),...u32(0),...u32(offset),...Array.from(n)]);
+    offset+=lfh.length+n.length+data.length;
+  }
+  const cd=[].concat(...central), debutCD=offset;
+  const eocd=[...u32(0x06054b50),...u16(0),...u16(0),...u16(entrees.length),...u16(entrees.length),
     ...u32(cd.length),...u32(debutCD),...u16(0)];
   morceaux.push(new Uint8Array(cd),new Uint8Array(eocd));
   const total=morceaux.reduce((s,m)=>s+m.length,0), out=new Uint8Array(total);
@@ -2095,7 +2392,7 @@ function Chantiers({data,save,open}){
     return db.localeCompare(da);
   });
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',emailClient:'',adresse:'',lienDrive:'',budgetClientTTC:'',budget:'',honorairesPct:'',honorairesMontant:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
+    <H2 action={<button className="btn acc s" onClick={()=>setF({nom:'',client:'',telClient:'',emailClient:'',adresse:'',adresseClient:'',lienDrive:'',budgetClientTTC:'',budget:'',honorairesPct:'',honorairesMontant:'',statut:'etude'})}>+ Chantier</button>}>CHANTIERS ({data.chantiers.length})</H2>
     {f&&<div className="card">
       <Fld label="NOM DU CHANTIER"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Barbé — Céaucé"/></Fld>
       <ImportContact label="Remplir depuis Contacts"
@@ -2106,7 +2403,10 @@ function Chantiers({data,save,open}){
         <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={f.telClient||''} onChange={e=>setF({...f,telClient:e.target.value})}/></Fld>
       </div>
       <Fld label="E-MAIL CLIENT"><input className="in" type="email" value={f.emailClient||''} onChange={e=>setF({...f,emailClient:e.target.value})}/></Fld>
-      <Fld label="ADRESSE"><input className="in" value={f.adresse} onChange={e=>setF({...f,adresse:e.target.value})}/></Fld>
+      <Fld label="ADRESSE DES TRAVAUX"><input className="in" value={f.adresse} onChange={e=>setF({...f,adresse:e.target.value})} placeholder="Lot, lotissement, commune, parcelle…"/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>C'est elle qui figure sur les marchés de travaux : le lieu où l'on construit.</div></Fld>
+      <Fld label="ADRESSE DU CLIENT"><input className="in" value={f.adresseClient||''} onChange={e=>setF({...f,adresseClient:e.target.value})} placeholder="Domicile actuel du client"/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Son domicile, distinct du chantier — c'est là qu'il signe et qu'on lui écrit.</div></Fld>
       <Fld label="LOCALISATION (LIEN MAPS OU GPS)">
         <input className="in" placeholder="Lien Google Maps, ou 48.5123, -0.6234" value={f.lienMaps||''} onChange={e=>setF({...f,lienMaps:e.target.value})}/>
       </Fld>
@@ -2222,7 +2522,10 @@ function Fiche({data,ch,save,back}){
         <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={edit.telClient||''} onChange={e=>setEdit({...edit,telClient:e.target.value})}/></Fld>
       </div>
       <Fld label="E-MAIL CLIENT"><input className="in" type="email" value={edit.emailClient||''} onChange={e=>setEdit({...edit,emailClient:e.target.value})}/></Fld>
-      <Fld label="ADRESSE"><input className="in" value={edit.adresse} onChange={e=>setEdit({...edit,adresse:e.target.value})}/></Fld>
+      <Fld label="ADRESSE DES TRAVAUX"><input className="in" value={edit.adresse} onChange={e=>setEdit({...edit,adresse:e.target.value})} placeholder="Lot, lotissement, commune, parcelle…"/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>C'est elle qui figure sur les marchés de travaux : le lieu où l'on construit.</div></Fld>
+      <Fld label="ADRESSE DU CLIENT"><input className="in" value={edit.adresseClient||''} onChange={e=>setEdit({...edit,adresseClient:e.target.value})} placeholder="Domicile actuel du client"/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Son domicile, distinct du chantier — c'est là qu'il signe et qu'on lui écrit.</div></Fld>
       <Fld label="LOCALISATION DU CHANTIER">
         <input className="in" placeholder="Lien Google Maps, ou 48.5123, -0.6234" value={edit.lienMaps||''} onChange={e=>setEdit({...edit,lienMaps:e.target.value})}/>
         <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
@@ -2601,23 +2904,24 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       .map(m=>+String(m.numeroMarche||'').replace(/\D/g,'')||0);
     return String(Math.max(0,...n)+1);
   };
-  const sortirMarche=async modele=>{
+  const sortirMarche=async()=>{
+    const a=data.artisans.find(x=>x.id===f.artisanId)||null;
+    const pb=controlerMarche(f,a,ch);
+    if(marcheBloque(pb)){setSortie({etat:'refus',pb});return}
     setSortie({etat:'travail'});
     try{
-      const a=data.artisans.find(x=>x.id===f.artisanId)||{};
-      const adr=String(a.adresse||'').split(/\s+—\s+|\s*,\s*/);
-      const ht=+f.montantHT||0, tx=marcheTva(f,ch);
-      const tvaM=Math.round(ht*tx)/100, ttc=Math.round(ht*(100+tx))/100;
-      const cadr=String(ch.adresse||'').split(/\s+—\s+|\s*,\s*/);
+      const ht=+f.montantHT||0, tx=marcheTva(f,ch), r=remisePct(f);
+      const brut=f.quantitatif?quantitatifHT(f.quantitatif.lignes):ht;
       const numero=f.numeroMarche||numeroSuivant();
-      const buf=await modele.arrayBuffer();
-      const doc=await genererMarcheDocx(buf,{
-        lot:f.lot, lotDetail:f.lot,
+      const doc=await genererMarcheDocx({
+        lot:f.lot, lotDetail:(f.quantitatif&&f.quantitatif.nom)||f.lot,
         numero, date:fd(f.dateSignature||today()),
-        entreprise:a.nom||'', adresse1:adr[0]||'', adresse2:adr.slice(1).join(' '),
-        decennale:a.numPolice||'', compagnie:a.assureur||'', siret:a.siret||'',
-        client:ch.client||'', clientAdresse:cadr[0]||'', clientVille:cadr.slice(1).join(' '),
-        ht, tva:tx, tvaMontant:tvaM, ttc,
+        entreprise:a.nom||'', adresse:a.adresse||'', siret:a.siret||'',
+        decennale:a.numPolice||'', compagnie:a.assureur||'',
+        decennaleFin:a.decennaleFin?fd(a.decennaleFin):'',
+        client:ch.client||'', clientAdresse:ch.adresseClient||'', clientTel:ch.telClient||'',
+        chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'',
+        ht, brut, remise:r, tva:tx, tvaMontant:Math.round(ht*tx)/100, ttc:Math.round(ht*(100+tx))/100,
         lignes:((f.quantitatif||{}).lignes||[]).filter(l=>ligneQt(l)>0),
       });
       const nomFichier='Marché '+numero+' — '+(f.lot||'lot')+' — '+(a.nom||'entreprise')+'.docx';
@@ -2627,15 +2931,11 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       const folderId=await driveMarchesFolder(token,ch.id,ch.nom);
       const{webViewLink}=await uploadToDrive(fichier,folderId);
       setF(p=>({...p,contratLien:webViewLink,numeroMarche:numero}));
-      setSortie({etat:'ok',nom:nomFichier,lien:webViewLink,numero});
+      setSortie({etat:'ok',nom:nomFichier,lien:webViewLink,numero,pb});
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
       setSortie({etat:'erreur',msg:
-        c==='auth_required'?"Le marché a été produit, mais Google Drive n'est pas connecté (bouton ci-dessous) — reconnectez-le puis relancez.":
-        c==='nogabarit'?"Ce document ne contient aucun marché utilisable comme modèle : il faut un marché avec sa page « DÉSIGNATION DES TRAVAUX ».":
-        c==='notableau'?"Le modèle n'a pas de tableau ARTICLE / LIBELLE / QT / U / PU / PT à reprendre.":
-        c==='nodoc'||c==='nozip'?"Ce fichier n'est pas un .docx lisible.":
-        c==='nodeflate'?"Lecture Word impossible sur cet appareil (iOS 16.4 minimum).":
+        c==='auth_required'?"Le marché a été rédigé, mais Google Drive n'est pas connecté (bouton ci-dessous) — reconnectez-le puis relancez.":
         "Sortie impossible — "+c});
     }
   };
@@ -2722,33 +3022,41 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           </div>
           :<label className="xs" style={{color:NAVY}}>Importer le contrat<input type="file" accept={PIECES_ACCEPT} style={{display:'none'}} onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importContrat(file)}}/></label>}
       </Fld>
-      <Fld label={'SORTIR LE MARCHÉ DE TRAVAUX'+(f.numeroMarche?' — N° '+f.numeroMarche:'')}>
-        <div className="xs mut" style={{lineHeight:1.5}}>
-          Votre modèle Word est rempli avec le client, l'entreprise, sa décennale, les totaux
-          et le quantitatif de ce lot, puis déposé dans Drive › Marchés. Le modèle n'est ni copié ni conservé :
-          désignez-le à chaque sortie.
-        </div>
-        <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
-          <label className={'btn s '+(f.artisanId&&f.lot?'acc':'gh')} style={{whiteSpace:'nowrap',opacity:f.artisanId&&f.lot?1:.6}}>
-            {sortie&&sortie.etat==='travail'?'Rédaction…':'Choisir le modèle et sortir le marché'}
-            <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              style={{display:'none'}} disabled={!!(sortie&&sortie.etat==='travail')}
-              onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)sortirMarche(x)}}/></label>
-          <input className="in" style={{padding:'4px 8px',fontSize:12,width:110}} placeholder="N° du marché"
-            aria-label="Numéro du marché" value={f.numeroMarche||''} onChange={e=>setF({...f,numeroMarche:e.target.value})}/>
-        </div>
-        {(!f.artisanId||!f.lot)&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
-          Renseignez le corps d'état et l'entreprise avant de sortir le marché : ce sont eux qui remplissent le contrat.</div>}
-        {!(f.quantitatif&&((f.quantitatif.lignes||[]).some(l=>ligneQt(l)>0)))&&f.artisanId&&f.lot&&
-          <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
-            Ce lot n'est pas chiffré : le marché sortira avec son contrat et ses totaux, mais sans détail d'articles.</div>}
-        {sortie&&sortie.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
-          Marché n° {sortie.numero} rédigé et déposé sur le Drive.{' '}
-          <a href={sortie.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir le document</a>
-          <div className="mut" style={{marginTop:2,wordBreak:'break-word'}}>{sortie.nom}</div>
-          <div className="mut" style={{marginTop:2}}>À relire avant signature.</div></div>}
-        {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
-      </Fld>
+      {(()=>{
+        const a=data.artisans.find(x=>x.id===f.artisanId)||null;
+        const pb=controlerMarche(f,a,ch);
+        const stop=marcheBloque(pb);
+        const chiffre=!!(f.quantitatif&&(f.quantitatif.lignes||[]).some(l=>ligneQt(l)>0));
+        return <Fld label={'SORTIR LE MARCHÉ DE TRAVAUX'+(f.numeroMarche?' — N° '+f.numeroMarche:'')}>
+          <div className="xs mut" style={{lineHeight:1.5}}>
+            Le contrat est rédigé ici, avec vos couleurs, ses clauses, l'adresse des travaux
+            et le quantitatif du lot, puis déposé dans Drive › Marchés. Aucun modèle à fournir.
+          </div>
+          {/* ce qui manque se dit avant, pas après signature */}
+          {pb.length>0&&<div style={{marginTop:8,padding:'8px 10px',borderRadius:8,
+            background:stop?'#F6E2DC':'#FBF3E2',borderLeft:'3px solid '+(stop?TERRA:AMBER)}}>
+            <div className="xs b" style={{color:stop?TERRA:AMBER}}>
+              {stop?'Le marché ne peut pas être émis en l’état :':'À vérifier avant signature :'}</div>
+            {pb.map((x,i)=><div key={i} className="xs" style={{marginTop:3,lineHeight:1.5,
+              color:x.bloquant?TERRA:MUTED}}>{x.bloquant?'• ':'· '}{x.texte}</div>)}
+          </div>}
+          <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
+            <button className={'btn s '+(stop?'gh':'acc')} disabled={stop||(sortie&&sortie.etat==='travail')}
+              style={{whiteSpace:'nowrap',opacity:stop?.5:1}} onClick={sortirMarche}>
+              {sortie&&sortie.etat==='travail'?'Rédaction…':'Rédiger le marché et l’envoyer sur le Drive'}</button>
+            <input className="in" style={{padding:'4px 8px',fontSize:12,width:110}} placeholder="N° du marché"
+              aria-label="Numéro du marché" value={f.numeroMarche||''} onChange={e=>setF({...f,numeroMarche:e.target.value})}/>
+          </div>
+          {!chiffre&&!stop&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+            Ce lot n'est pas chiffré : le marché sortira avec son contrat et ses totaux, sans détail d'articles.</div>}
+          {sortie&&sortie.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+            Marché n° {sortie.numero} rédigé et déposé sur le Drive.{' '}
+            <a href={sortie.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir le document</a>
+            <div className="mut" style={{marginTop:2,wordBreak:'break-word'}}>{sortie.nom}</div>
+            <div className="mut" style={{marginTop:2}}>À relire avant signature.</div></div>}
+          {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
+        </Fld>;
+      })()}
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
       <Fld label={"FACTURES — total "+eur(facturesTotal(f.factures))}>
         {(f.factures||[]).map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
