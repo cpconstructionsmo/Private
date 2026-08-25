@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-25 · honoraires : facturé, reste et total TTC se recoupent enfin';
+const VERSION='2026-08-25 · marchés en 3 colonnes : entreprise, marché, facture';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -2047,26 +2047,38 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     {!!ms.length&&<div style={{overflowX:'auto'}}>
       <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
         <thead><tr style={{textAlign:'left',borderBottom:'2px solid '+RULE}}>
-          <th style={{padding:'6px 4px'}}>Corps d'état</th>
-          <th style={{padding:'6px 4px',textAlign:'right'}}>Marché HT</th>
-          <th style={{padding:'6px 4px',textAlign:'right'}}>Facturé</th>
-          <th style={{padding:'6px 4px',textAlign:'right'}}>Reste à facturer</th>
-          <th style={{padding:'6px 4px',textAlign:'right'}}>Factures</th>
+          <th style={{padding:'6px 4px'}}>Entreprise</th>
+          <th style={{padding:'6px 4px',textAlign:'right'}}>Marché de travaux</th>
+          <th style={{padding:'6px 4px',textAlign:'right'}}>Facture</th>
         </tr></thead>
         <tbody>
           {ms.map(m=>{
             const total=m.factures?facturesTotal(m.factures):(m.facture||0);
             const reste=(m.montantHT||0)-total;
-            return <tr key={m.id} onClick={()=>openRow(m)} style={{borderBottom:'1px solid '+RULE,cursor:'pointer'}}>
+            const n=(m.factures||[]).length;
+            const st=STATUTS.find(x=>x.id===m.statut);
+            return <tr key={m.id} onClick={()=>openRow(m)} style={{borderBottom:'1px solid '+RULE,cursor:'pointer',verticalAlign:'top'}}>
+              {/* à gauche l'entreprise et son corps de métier */}
               <td style={{padding:'8px 4px'}}>
-                <div className="b">{m.lot}{m.contratLien&&<span style={{color:GREEN}} title="Contrat déposé sur le Drive"> ✓</span>}</div>
-                <div className="mut" style={{marginTop:2}}>{nom(m.artisanId)}
-                  {marcheTva(m,ch)!==tvaRate(ch)&&<span style={{color:TERRA}}> · TVA {marcheTva(m,ch)} %</span>}</div>
+                <div className="b">{nom(m.artisanId)}</div>
+                <div className="mut" style={{marginTop:2}}>{m.lot}</div>
+                {st&&<div style={{color:st.c,marginTop:2}}>{st.label}</div>}
               </td>
-              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{eur(m.montantHT)}</td>
-              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:total>m.montantHT?TERRA:total>=m.montantHT&&m.montantHT>0?GREEN:INK}}>{eur(total)}</td>
-              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap',color:reste<0?TERRA:INK}}>{reste<=0?'soldé':eur(reste)}</td>
-              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>{(m.factures||[]).length||'—'}</td>
+              {/* au centre le marché lui-même */}
+              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>
+                <div className="b">{eur(m.montantHT)} HT</div>
+                <div className="mut" style={{marginTop:2}}>{eur(marcheTTC(m,ch))} TTC · TVA {marcheTva(m,ch)} %</div>
+                <div className="mut" style={{marginTop:2}}>
+                  {m.dateSignature?'signé le '+fd(m.dateSignature):'non signé'}
+                  {m.contratLien&&<span style={{color:GREEN}} title="Contrat déposé sur le Drive"> ✓</span>}
+                </div>
+              </td>
+              {/* à droite ce qui a été facturé dessus */}
+              <td style={{padding:'8px 4px',textAlign:'right',whiteSpace:'nowrap'}}>
+                <div className="b" style={{color:total>m.montantHT?TERRA:(total>=m.montantHT&&m.montantHT>0?GREEN:INK)}}>{eur(total)}</div>
+                <div className="mut" style={{marginTop:2}}>{n?n+' facture'+(n>1?'s':''):'aucune facture'}</div>
+                <div style={{marginTop:2,color:reste<0?TERRA:MUTED}}>{reste<=0?'soldé':'reste '+eur(reste)}</div>
+              </td>
             </tr>;
           })}
         </tbody>
