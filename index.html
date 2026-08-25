@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · taux de TVA propre aux honoraires, chantier et facture par facture';
+const VERSION='2026-08-24 · intitulés de factures uniformes : majuscules et orange';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -2260,7 +2260,11 @@ function SuiviFacturation({data,ch}){
             <tbody>
               {F.map(f=><tr key={f.id} style={{borderBottom:'1px solid '+RULE}}>
                 <td style={{padding:'7px 4px'}}>
-                  {f.lien?<a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{f.libelle}</a>:f.libelle}
+                  {/* même présentation pour toutes les lignes : le fichier joint change
+                      le lien, pas la lecture de la liste */}
+                  <span className="b" style={{color:TERRA,textTransform:'uppercase'}}>
+                    {f.lien?<a href={f.lien} target="_blank" rel="noreferrer" style={{color:'inherit'}}>{f.libelle}</a>:f.libelle}
+                  </span>
                   <div className="mut" style={{fontSize:11}}>{f.poste}{f.numero?' n° '+f.numero:''} · {f.date?fd(f.date):'sans date'} · TVA {f.taux} %</div>
                 </td>
                 <td style={cell}>{eur(f.ht)}</td>
