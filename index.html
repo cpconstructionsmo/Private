@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-24 · intitulés de factures uniformes : majuscules et orange';
+const VERSION='2026-08-25 · honoraires : facturé, reste et total TTC se recoupent enfin';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -500,6 +500,21 @@ const travauxHTot=ms=>ms.reduce((s,m)=>s+(m.montantHT||0),0);
 const honoTva=ch=>(ch&&ch.tvaHono!==undefined&&ch.tvaHono!==null&&ch.tvaHono!=='')?+ch.tvaHono:tvaRate(ch);
 const honoTTCm=(ht,ch)=>(ht||0)*(1+honoTva(ch)/100);
 const honoFactTva=(f,ch)=>(f&&f.tva!==undefined&&f.tva!==null&&f.tva!=='')?+f.tva:honoTva(ch);
+/* Ce que la maîtrise d'œuvre aura coûté au client se compose : les factures déjà
+   émises à LEUR taux, plus le solde au taux en vigueur. Appliquer le taux courant
+   à l'ensemble puis en retrancher un facturé calculé autrement oppose deux bases —
+   et donne un reste TTC qui contredit le reste HT. */
+const honoFactureHT=ch=>sumMontants(ch&&ch.honoFactures);
+const honoFactureTTC=ch=>((ch&&ch.honoFactures)||[]).reduce((s,f)=>s+(+f.montant||0)*(1+honoFactTva(f,ch)/100),0);
+const honoResteHT=ch=>honoAmount(ch)-honoFactureHT(ch);
+const honoResteTTC=ch=>honoTTCm(honoResteHT(ch),ch);
+const honoTotalTTC=ch=>honoFactureTTC(ch)+honoResteTTC(ch);
+/* factures émises sous un taux différent de celui en vigueur : c'est ce qui fait
+   que le total TTC ne se retrouve pas en multipliant simplement le HT. */
+const honoTauxDivergents=ch=>{
+  const t=honoTva(ch);
+  return [...new Set(((ch&&ch.honoFactures)||[]).map(f=>honoFactTva(f,ch)).filter(x=>Math.abs(x-t)>0.01))];
+};
 const cmdTva=(c,ch)=>(c&&c.tva!==undefined&&c.tva!==null&&c.tva!=='')?+c.tva:tvaRate(ch);
 const cmdTTC=(c,ch)=>(+(c&&c.montant)||0)*(1+cmdTva(c,ch)/100);
 const materiauxHT=cs=>(cs||[]).reduce((s,c)=>s+(+c.montant||0),0);
@@ -531,7 +546,7 @@ const coutOperation=(ch,ms,cs)=>{
   const marches=ms||[], cmds=cs||[];
   const travHT=travauxHTot(marches), travTTC=travauxTTC(marches,ch);
   const matHT=materiauxHT(cmds), matTTC=materiauxTTC(cmds,ch);
-  const honoHT=honoAmount(ch), honoTTC=honoTTCm(honoHT,ch);
+  const honoHT=honoAmount(ch), honoTTC=honoTotalTTC(ch);
   return {travHT,travTVA:travTTC-travHT,travTTC,
           matHT,matTVA:matTTC-matHT,matTTC,
           honoHT,honoTVA:honoTTC-honoHT,honoTTC,
@@ -3251,7 +3266,8 @@ function Honoraires({data,ch,save}){
   const [busyRetro,setBusyRetro]=useState(null);
   const total=honoAmount(ch), facture=sumMontants(hf), reste=total-facture;
   /* chaque facture peut porter son taux : le TTC encaissé se somme facture par facture */
-  const factureTTC=hf.reduce((s,x)=>s+(+x.montant||0)*(1+honoFactTva(x,ch)/100),0);
+  const factureTTC=honoFactureTTC(ch), resteTTC=honoResteTTC(ch), totalTTC=honoTotalTTC(ch);
+  const divergents=honoTauxDivergents(ch);
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
   const groupes=[
@@ -3348,9 +3364,9 @@ function Honoraires({data,ch,save}){
   };
   return <div>
     <div className="g2">
-      <Stat l="Honoraires TTC" v={eur(honoTTCm(total,ch))} c={NAVY}/>
+      <Stat l="Honoraires TTC" v={eur(totalTTC)} c={NAVY}/>
       <Stat l="Déjà facturé TTC" v={eur(factureTTC)}/>
-      <Stat l={"Reste à facturer TTC"} v={eur(honoTTCm(total,ch)-factureTTC)} c={reste>0?TERRA:GREEN}/>
+      <Stat l={"Reste à facturer TTC"} v={reste>0?eur(resteTTC):'soldé'} c={reste>0?TERRA:GREEN}/>
       <Stat l="Reste à facturer HT" v={reste>0?eur(reste):'soldé'} c={reste>0?INK:GREEN}/>
     </div>
     <div className="card" style={{marginTop:8,borderLeft:'3px solid '+NAVY}}>
@@ -3389,6 +3405,12 @@ function Honoraires({data,ch,save}){
       </Fld>
       <div className="xs mut" style={{lineHeight:1.6}}>
         Base HT : <b>{eur(total)}</b>{ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!==''?' (montant saisi)':' ('+(ch.honorairesPct||0)+' % de '+eur(budgetTravauxHT(ch))+' HT de travaux)'} · TVA {honoTva(ch)} %{honoTva(ch)!==tvaRate(ch)?' (le chantier est à '+tvaRate(ch)+' %)':''}<br/>
+        Déjà facturé : <b>{eur(facture)} HT</b> — reste <b>{eur(reste)} HT</b>.<br/>
+        {!!divergents.length&&<span style={{color:AMBER}}>
+          {hf.filter(x=>Math.abs(honoFactTva(x,ch)-honoTva(ch))>0.01).length} facture{hf.filter(x=>Math.abs(honoFactTva(x,ch)-honoTva(ch))>0.01).length>1?'s ont été émises':' a été émise'} à
+          {' '}{divergents.map(t=>t+' %').join(' et ')} au lieu de {honoTva(ch)} % : le total TTC les compte à leur propre taux,
+          c'est pourquoi il ne vaut pas {honoTva(ch)===0?'simplement les '+eur(total)+' HT':eur(total)+' × '+(1+honoTva(ch)/100).toFixed(2).replace('.',',')}.
+          <br/></span>}
         Le montant des honoraires se modifie via « Modifier » sur la fiche du chantier.
       </div>
     </div>
