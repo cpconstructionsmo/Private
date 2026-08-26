@@ -1047,26 +1047,22 @@ function retroClauses(d){
       CP.nom+' adresse à l’entreprise une facture portant les mentions prévues à l’article 289 du code général des impôts, référençant le marché concerné.',
       'Le règlement intervient dans un délai de trente jours à compter de la date d’émission de la facture. Tout retard fait courir de plein droit les pénalités et l’indemnité forfaitaire de recouvrement de 40 € prévues à l’article L. 441-10 du code de commerce.',
     ]],
-    ['Article 5 — Information du maître de l’ouvrage',[
-      'Les parties conviennent que le principe de la présente convention et de la rémunération qu’elle prévoit est porté à la connaissance du maître de l’ouvrage dans le contrat de maîtrise d’œuvre conclu avec lui.',
-      'Cette information est une condition essentielle de la convention. Son absence autoriserait l’entreprise à en suspendre l’exécution.',
-    ]],
-    ['Article 6 — Indépendance et probité',[
+    ['Article 5 — Indépendance et probité',[
       'Le choix des entreprises consultées et retenues relève du maître de l’ouvrage, sur proposition de '+CP.nom+' fondée sur des critères techniques et économiques objectifs — compétence, références, garanties d’assurance, prix et délais.',
       'La rémunération prévue par la présente convention ne constitue en aucun cas la contrepartie d’un choix ou d’une préférence, et ne saurait influer sur les propositions faites au maître de l’ouvrage. Les parties s’interdisent tout avantage consenti ou reçu en dehors des présentes.',
     ]],
-    ['Article 7 — Indépendance des marchés',[
+    ['Article 6 — Indépendance des marchés',[
       'La présente convention est distincte des marchés de travaux conclus entre l’entreprise et les maîtres de l’ouvrage. Elle ne modifie ni leur prix, ni leur contenu, ni les obligations et garanties qui en découlent.',
       'L’entreprise s’interdit de répercuter la rémunération objet des présentes sur les prix consentis au maître de l’ouvrage au titre des marchés concernés.',
     ]],
-    ['Article 8 — Durée',[
+    ['Article 7 — Durée',[
       'La convention prend effet à sa signature et demeure en vigueur jusqu’au complet règlement des rémunérations dues au titre des affaires qui y sont visées.',
       'Chaque partie peut y mettre fin pour l’avenir par lettre recommandée avec accusé de réception, sans effet sur les affaires déjà conclues.',
     ]],
-    ['Article 9 — Confidentialité',[
-      'Les parties tiennent confidentielles les conditions financières des présentes à l’égard des tiers, sous réserve de l’information du maître de l’ouvrage prévue à l’article 5 et des obligations légales, comptables et fiscales de chacune.',
+    ['Article 8 — Confidentialité',[
+      'Les parties tiennent confidentielles les conditions et l’existence mêmes des présentes à l’égard des tiers, sous réserve des obligations légales, comptables et fiscales de chacune.',
     ]],
-    ['Article 10 — Litiges',[
+    ['Article 9 — Litiges',[
       'Les parties s’efforceront de régler amiablement tout différend. À défaut, le litige sera porté devant le tribunal compétent du ressort du siège de '+CP.nom+'.',
     ]],
   ];
@@ -1146,8 +1142,6 @@ function retroDocumentXml(d,px){
       {sz:18,jc:'both',ap:140}),
     par('Affaires concernées',{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60}),
     retroTableau(d), vide(160),
-    par('Le principe de cette rémunération est porté à la connaissance du maître de l’ouvrage dans le contrat de maîtrise d’œuvre, conformément à l’article 5.',
-      {sz:17,i:true,c:DOC_BRUN,jc:'both',ap:0}),
     sautPage,
     retroClauses(d), vide(120),
     par('Fait à '+(d.lieuSignature||'Valframbert')+', le '+(d.date||'')+', en deux exemplaires originaux.',
@@ -4686,9 +4680,8 @@ function ConventionsRetro({data,ch,ms}){
       background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.6}}>
       <b style={{color:AMBER}}>Ce qui rend cette convention défendable</b> — elle est rédigée comme un apport
       d’affaires avec une contrepartie réelle (quantitatif, marché, planning, coordination, réception),
-      facturée et soumise à TVA. Son article 5 énonce que <b>le principe de cette rémunération est porté à
-      la connaissance du client dans votre contrat de maîtrise d’œuvre</b> : c’est cette mention qui écarte
-      le conflit d’intérêts. Ajoutez-la à vos contrats de maîtrise d’œuvre — le montant n’a pas à y figurer.
+      facturée et soumise à TVA, et son article « Indépendance et probité » écarte tout lien entre le choix
+      de l’entreprise et la rémunération.
     </div>
     {groupes.map(g=>{
       const s=etat[g.artisan.id]||{};
