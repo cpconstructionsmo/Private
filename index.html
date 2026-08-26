@@ -1532,27 +1532,25 @@ const pngChunk=(type,data)=>{
 /* la matrice devient un PNG noir/blanc (1 bit par pixel), marge de silence comprise —
    sans elle, un lecteur perd le repère de bord du QR code */
 const qrVersPng=(taille,modules,echelle,marge)=>{
-  const n=taille+2*marge, large=n*echelle, octetsLigne=Math.ceil(large/8);
-  const donnees=new Uint8Array((octetsLigne+1)*large);
+  /* 8 bits par pixel plutôt que 1 : un octet par module agrandi est bien plus
+     gros à compresser, mais c'est la profondeur que tout lecteur d'image sait
+     lire sans exception — le 1 bit par pixel, bien que valide, reste un cas
+     rare que certains lecteurs (dont, semble-t-il, celui qui a affiché un
+     marché rédigé) ne décodent pas correctement. */
+  const n=taille+2*marge, large=n*echelle;
+  const donnees=new Uint8Array((large+1)*large);
   for(let y=0;y<large;y++){
-    const my=Math.floor(y/echelle)-marge, ligne=y*(octetsLigne+1);
+    const my=Math.floor(y/echelle)-marge, ligne=y*(large+1);
     donnees[ligne]=0;
-    for(let xo=0;xo<octetsLigne;xo++){
-      let octet=0;
-      for(let bit=0;bit<8;bit++){
-        const x=xo*8+bit; let blanc=true;
-        if(x<large){
-          const mx=Math.floor(x/echelle)-marge;
-          if(my>=0&&my<taille&&mx>=0&&mx<taille)blanc=!modules[my*taille+mx];
-        }
-        if(blanc)octet|=(1<<(7-bit));
-      }
-      donnees[ligne+1+xo]=octet;
+    for(let x=0;x<large;x++){
+      const mx=Math.floor(x/echelle)-marge;
+      const noir=(my>=0&&my<taille&&mx>=0&&mx<taille)&&!!modules[my*taille+mx];
+      donnees[ligne+1+x]=noir?0:255;
     }
   }
   const idat=deflateStocke(donnees);
   const ihdr=new Uint8Array(13), dv=new DataView(ihdr.buffer);
-  dv.setUint32(0,large); dv.setUint32(4,large); ihdr[8]=1; // 1 bit par pixel, niveaux de gris
+  dv.setUint32(0,large); dv.setUint32(4,large); ihdr[8]=8; // 8 bits par pixel, niveaux de gris
   const sig=new Uint8Array([137,80,78,71,13,10,26,10]);
   const morceaux=[sig,pngChunk('IHDR',ihdr),pngChunk('IDAT',idat),pngChunk('IEND',new Uint8Array(0))];
   const total=morceaux.reduce((s,m)=>s+m.length,0), out=new Uint8Array(total);
@@ -1667,12 +1665,18 @@ function quantitatifMarche(d){
       +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100,v:'top'});
   const large=G.reduce((a,b)=>a+b,0);
   (d.lignes||[]).forEach(l=>{
-    /* un intertitre traverse toute la largeur : il annonce une pièce, une zone */
+    /* un intertitre traverse toute la largeur : il annonce une pièce, une zone, ou —
+       posé par « ajouter un autre corps d'état » — un second bordereau sur ce marché.
+       Même habillage que le bandeau du lot en tête de tableau, pour qu'un corps
+       d'état ajouté se lise aussi clairement que le premier : gras, fond beige,
+       cadre complet — suivi d'un en-tête de colonnes qui lui est propre. */
     if(ligneType(l)==='titre'){
-      rows.push(tr([tc(large,par(l.libelle||'',{b:true,sz:18,c:DOC_BRUN,caps:true,sp:16,ap:0,av:60}),
-        {fusion:G.length,mg:100,
+      rows.push(tr([tc(large,par(l.libelle||'',{b:true,sz:20,c:DOC_BRUN,caps:false,ap:0}),
+        {fusion:G.length,fond:DOC_SABLE,mg:120,
          bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,4)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
-          +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>'})]));
+          +'<w:bottom '+bord(DOC_BRUN,4)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>'})]));
+      rows.push(tr([ent(G[0],'Article'),ent(G[1],'Libellé'),ent(G[2],'Qt','right'),
+        ent(G[3],'U','center'),ent(G[4],'PU','right'),ent(G[5],'PT','right')]));
       return;
     }
     /* une précision se glisse sous l'article qu'elle décrit, en retrait */
@@ -1729,75 +1733,75 @@ function signaturesMarche(d){
    qu'elles citent. Elles ne remplacent pas la relecture d'un avocat et de
    l'assureur de l'entreprise avant tout usage. */
 function clausesMarche(d){
+  /* la numérotation se déduit du rang dans cette liste : retirer ou ajouter une
+     clause renumérote tout seul, sans jamais laisser un « Article 9 » manquant
+     ou un doublon derrière soi. Aucune retenue de garantie sur les contrats
+     CP Constructions — retirée sur demande, pour tous les marchés à venir. */
   const T=[
-    ['Article 1 — Objet du marché',[
+    ['Objet du marché',[
       'Le présent marché a pour objet l’exécution, par l’entreprise désignée en tête des présentes, du lot « '+(d.lot||'')+' » sur le chantier situé '+(d.chantierAdresse||'—')+'.',
       'Les travaux sont réalisés en fourniture et pose, conformément au devis quantitatif et estimatif annexé, aux plans, au descriptif et aux règles de l’art.',
     ]],
-    ['Article 2 — Pièces contractuelles',[
+    ['Pièces contractuelles',[
       'Le marché est constitué, par ordre de priorité décroissant : du présent acte d’engagement et de ses conditions particulières ; du devis quantitatif et estimatif ; des plans et du descriptif remis à l’entreprise ; des normes NF DTU applicables aux ouvrages concernés.',
       'En cas de contradiction entre ces pièces, la pièce de rang supérieur prévaut.',
     ]],
-    ['Article 3 — Prix',[
+    ['Prix',[
       'Le prix est forfaitaire, ferme et non révisable pour la durée du marché. Il s’entend hors taxes, la TVA étant appliquée au taux de '+d.tva+' % en vigueur à la date de facturation.',
       'Le forfait couvre l’ensemble des sujétions d’exécution, y compris installation de chantier, protections, nettoyage et évacuation des déchets et gravats produits par l’entreprise.',
       'Aucun travail supplémentaire ne sera dû s’il n’a fait l’objet d’un avenant écrit, chiffré et signé des parties avant son exécution.',
     ]],
-    ['Article 4 — Délais d’exécution',[
+    ['Délais d’exécution',[
       'L’entreprise s’engage à intervenir aux dates fixées par le calendrier d’exécution établi par le maître d’œuvre et à mener les travaux sans interruption non justifiée jusqu’à leur achèvement.',
       'Les journées d’intempéries au sens de l’article L. 5424-8 du code du travail, dûment constatées, prolongent le délai à due concurrence.',
     ]],
-    ['Article 5 — Pénalités de retard',[
+    ['Pénalités de retard',[
       'En cas de retard imputable à l’entreprise, il sera appliqué une pénalité de 1/1 000e du montant hors taxes du marché par jour calendaire de retard, plafonnée à 5 % de ce montant.',
       'Les pénalités sont déduites de plein droit des sommes dues, après mise en demeure restée sans effet pendant quinze jours.',
     ]],
-    ['Article 6 — Assurances',[
+    ['Assurances',[
       'L’entreprise déclare être titulaire des assurances obligatoires prévues à l’article L. 241-1 du code des assurances, couvrant sa responsabilité décennale pour les activités objet du présent marché.',
       'L’attestation en cours de validité est annexée au marché'+(d.decennale?' (police n° '+d.decennale+(d.compagnie?', '+d.compagnie:'')+')':'')+'. L’entreprise s’oblige à en communiquer le renouvellement sans délai et à maintenir cette garantie pendant toute la durée du chantier.',
       'Le défaut de garantie en cours de validité constitue un manquement grave autorisant la suspension immédiate des travaux et la résiliation du marché aux torts de l’entreprise.',
     ]],
-    ['Article 7 — Sous-traitance',[
+    ['Sous-traitance',[
       'Toute sous-traitance est subordonnée à l’acceptation du sous-traitant et à l’agrément de ses conditions de paiement par le maître de l’ouvrage, dans les formes prévues par la loi n° 75-1334 du 31 décembre 1975.',
       'Le sous-traitant non accepté et non agréé ne peut se prévaloir du marché ; l’entreprise demeure seule responsable de l’exécution de l’ensemble des ouvrages.',
     ]],
-    ['Article 8 — Facturation et paiement',[
+    ['Facturation et paiement',[
       'Les travaux sont réglés sur situations, établies par l’entreprise à l’avancement et visées par le maître d’œuvre.',
       'Le paiement intervient dans un délai de trente jours à compter de la réception de la facture visée. Tout retard de paiement fait courir des pénalités au taux d’intérêt légal majoré, ainsi que l’indemnité forfaitaire de recouvrement de 40 € prévue à l’article L. 441-10 du code de commerce lorsque celui-ci est applicable.',
       'Les factures sont adressées à l’adresse du maître de l’ouvrage figurant en tête des présentes, ou par courriel à '+CP.mail+'.',
     ]],
-    ['Article 9 — Retenue de garantie',[
-      'Une retenue de garantie de 5 % du montant des travaux pourra être pratiquée dans les conditions de la loi n° 71-584 du 16 juillet 1971. Elle est consignée entre les mains d’un consignataire accepté par les deux parties.',
-      'L’entreprise peut y substituer une caution personnelle et solidaire émanant d’un établissement agréé. La retenue est libérée à l’expiration du délai d’un an suivant la réception, sauf réserves non levées notifiées par écrit avant ce terme.',
-    ]],
-    ['Article 10 — Réception des travaux',[
+    ['Réception des travaux',[
       'La réception est prononcée contradictoirement, à la demande de l’entreprise ou du maître de l’ouvrage, dans les conditions de l’article 1792-6 du code civil. Elle fait l’objet d’un procès-verbal signé, mentionnant le cas échéant les réserves.',
       'Les réserves sont levées dans le délai fixé au procès-verbal ; à défaut, le maître de l’ouvrage peut faire exécuter les travaux correspondants aux frais de l’entreprise après mise en demeure.',
     ]],
-    ['Article 11 — Garanties légales',[
+    ['Garanties légales',[
       'L’entreprise est tenue, à compter de la réception : de la garantie de parfait achèvement pendant un an (article 1792-6 du code civil) ; de la garantie de bon fonctionnement des éléments d’équipement dissociables pendant deux ans (article 1792-3) ; de la garantie décennale pendant dix ans (articles 1792 et suivants).',
     ]],
-    ['Article 12 — Sécurité et tenue du chantier',[
+    ['Sécurité et tenue du chantier',[
       'L’entreprise applique la réglementation en matière d’hygiène, de sécurité et de conditions de travail, et se conforme, le cas échéant, aux prescriptions du coordonnateur SPS.',
       'Elle maintient ses ouvrages et ses abords en état de propreté et évacue ses déchets vers les filières autorisées.',
     ]],
-    ['Article 13 — Maîtrise d’œuvre',[
+    ['Maîtrise d’œuvre',[
       CP.nom+', maître d’œuvre du maître de l’ouvrage, assure la direction et le suivi de l’exécution des travaux, vise les situations et convoque la réception. Elle n’est pas partie au présent marché en qualité d’entrepreneur et n’assume aucune obligation de résultat sur les ouvrages exécutés par l’entreprise.',
     ]],
-    ['Article 14 — Résiliation',[
+    ['Résiliation',[
       'En cas de manquement grave de l’une des parties à ses obligations, l’autre partie peut résilier le marché quinze jours après une mise en demeure restée sans effet, sans préjudice des dommages et intérêts.',
       'Le décompte des travaux exécutés est alors arrêté contradictoirement.',
     ]],
-    ['Article 15 — Droit de rétractation',[
+    ['Droit de rétractation',[
       'Lorsque le présent marché est conclu hors établissement avec un maître de l’ouvrage consommateur, celui-ci dispose d’un délai de quatorze jours pour exercer son droit de rétractation dans les conditions des articles L. 221-18 et suivants du code de la consommation.',
       'Les travaux ne peuvent commencer avant l’expiration de ce délai, sauf demande expresse et écrite du maître de l’ouvrage.',
     ]],
-    ['Article 16 — Litiges',[
+    ['Litiges',[
       'Les parties s’efforceront de régler amiablement tout différend né du présent marché. À défaut d’accord, le litige sera porté devant la juridiction compétente du lieu d’exécution des travaux.',
     ]],
   ];
   const out=[par('CONDITIONS DU MARCHÉ',{b:true,sz:26,c:DOC_TERRA,sp:20,caps:true,ap:120,filet:DOC_TERRA})];
-  T.forEach(([titre,paras])=>{
-    out.push(par(titre,{b:true,sz:19,c:DOC_BRUN,av:120,ap:50}));
+  T.forEach(([titre,paras],i)=>{
+    out.push(par('Article '+(i+1)+' — '+titre,{b:true,sz:19,c:DOC_BRUN,av:120,ap:50}));
     paras.forEach(p=>out.push(par(p,{sz:17,jc:'both',ap:60})));
   });
   out.push(vide(120));
@@ -4060,7 +4064,15 @@ function Quantitatif({data,f,setF,save}){
     const b=B.find(x=>x.id===id);if(!b)return;
     const nouvelles=[{id:uid(),type:'titre',libelle:b.nom},
       ...(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu,qt:''}))];
-    setF(p=>recale(p,[...(p.quantitatif.lignes||[]),...nouvelles]));
+    setF(p=>{
+      const r=recale(p,[...(p.quantitatif.lignes||[]),...nouvelles]);
+      /* le corps d'état du lot suit ce qu'on y ajoute : « Gros œuvre » ne dit plus
+         tout une fois la couverture posée dessus — on complète plutôt que de laisser
+         l'intitulé mentir sur ce que couvre réellement le marché. */
+      const corps=(b.corps||b.nom||'').trim();
+      const deja=corps&&(r.lot||'').toLowerCase().indexOf(corps.toLowerCase())>=0;
+      return corps&&!deja?{...r,lot:(r.lot?r.lot+' / ':'')+corps}:r;
+    });
     setChoix('');
   };
   /* une ligne corrigée ici peut remonter dans le bordereau, pour ne pas la
