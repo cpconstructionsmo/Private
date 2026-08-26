@@ -1249,6 +1249,322 @@ const logoXml=(px)=>{
     +'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
     +'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
 };
+/* le QR code de localisation, toujours carré */
+const qrXml=()=>{
+  const taille=850000; // ≈ 2,4 cm de côté : lisible au téléphone depuis une feuille imprimée
+  return '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+    +'<wp:extent cx="'+taille+'" cy="'+taille+'"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+    +'<wp:docPr id="2" name="QR localisation"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+    +'<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+    +'<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+    +'<pic:nvPicPr><pic:cNvPr id="2" name="QR localisation"/><pic:cNvPicPr/></pic:nvPicPr>'
+    +'<pic:blipFill><a:blip r:embed="rId6"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    +'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="'+taille+'" cy="'+taille+'"/></a:xfrm>'
+    +'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
+    +'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+};
+
+/* ---------- QR code (mode octet, correction L), sans bibliothèque ----------
+   Standard ouvert (ISO/IEC 18004) : réimplémenté ici comme le reste des
+   documents .docx et .zip de cette page. Couvre les versions 1 à 20 (jusqu'à
+   858 caractères en mode octet, niveau L) — un lien Google Maps n'en demande
+   jamais plus d'une soixantaine. */
+const qrMulGF=(x,y)=>{
+  let z=0;
+  for(let i=7;i>=0;i--){ z=(z<<1)^((z>>>7)*0x11D); z^=((y>>>i)&1)*x; }
+  return z&0xFF;
+};
+/* le polynôme diviseur (x−r⁰)(x−r¹)…(x−r^(deg−1)), stocké sans son terme de tête
+   (toujours 1) — la représentation qui rend la division qui suit immédiate */
+const qrDiviseur=degre=>{
+  const res=new Array(degre).fill(0); res[degre-1]=1;
+  let racine=1;
+  for(let i=0;i<degre;i++){
+    for(let j=0;j<res.length;j++){
+      res[j]=qrMulGF(res[j],racine);
+      if(j+1<res.length)res[j]^=res[j+1];
+    }
+    racine=qrMulGF(racine,2);
+  }
+  return res;
+};
+/* le reste de la division du bloc de données par ce diviseur = les codewords de correction */
+const qrCorrection=(donnees,degre)=>{
+  const div=qrDiviseur(degre), reste=div.map(()=>0);
+  for(const o of donnees){
+    const f=o^reste.shift();
+    reste.push(0);
+    div.forEach((c,i)=>{reste[i]^=qrMulGF(c,f)});
+  }
+  return reste;
+};
+/* par version 1 à 20, niveau L : [codewords de correction par bloc, blocs du
+   groupe 1, données par bloc du groupe 1, blocs du groupe 2, données par bloc
+   du groupe 2] — table ISO/IEC 18004 §Annexe, recoupée avec les capacités
+   publiées (19,34,55,80,108,136,156,194,232,271… caractères, mode octet, L) */
+const QR_ECC_L=[
+  [7,1,19,0,0],[10,1,34,0,0],[15,1,55,0,0],[20,1,80,0,0],[26,1,108,0,0],
+  [18,2,68,0,0],[20,2,78,0,0],[24,2,97,0,0],[30,2,116,0,0],[18,2,68,2,69],
+  [20,4,81,0,0],[24,2,92,2,93],[26,4,107,0,0],[30,3,115,1,116],[22,5,87,1,88],
+  [24,5,98,1,99],[28,1,107,5,108],[30,5,120,1,121],[28,3,113,4,114],[28,3,107,5,108],
+];
+const qrPositionsAlignement=(version,taille)=>{
+  if(version===1)return [];
+  const nb=Math.floor(version/7)+2;
+  const pas=Math.ceil((version*4+4)/(nb*2-2))*2;
+  const pos=[6];
+  for(let p=taille-7;pos.length<nb;p-=pas)pos.splice(1,0,p);
+  return pos;
+};
+const qrMasque=(motif,r,c)=>{
+  switch(motif){
+    case 0:return (r+c)%2===0;
+    case 1:return r%2===0;
+    case 2:return c%3===0;
+    case 3:return (r+c)%3===0;
+    case 4:return (Math.floor(r/2)+Math.floor(c/3))%2===0;
+    case 5:return (r*c)%2+(r*c)%3===0;
+    case 6:return ((r*c)%2+(r*c)%3)%2===0;
+    default:return ((r+c)%2+(r*c)%3)%2===0;
+  }
+};
+/* les deux emplacements redondants des 15 bits d'information de format,
+   dans l'ordre où ils s'y posent (repère haut-gauche, puis bas-gauche/haut-droite) */
+const qrPosFormatA=taille=>[[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],
+  [7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];
+const qrPosFormatB=taille=>[[taille-1,8],[taille-2,8],[taille-3,8],[taille-4,8],[taille-5,8],[taille-6,8],[taille-7,8],
+  [8,taille-8],[8,taille-7],[8,taille-6],[8,taille-5],[8,taille-4],[8,taille-3],[8,taille-2],[8,taille-1]];
+
+/* construit la matrice de modules (0/1) prête à imprimer, pour un texte donné */
+function qrMatrice(texte){
+  const octets=new TextEncoder().encode(texte);
+  let version=-1;
+  for(let v=1;v<=20;v++){
+    const[,g1,d1,g2,d2]=QR_ECC_L[v-1];
+    const total=g1*d1+g2*d2, bitsCompte=v<10?8:16;
+    if(octets.length*8<=total*8-4-bitsCompte){version=v;break}
+  }
+  if(version<0)throw new Error('Texte trop long pour ce générateur de QR code.');
+  const[eccParBloc,g1,d1,g2,d2]=QR_ECC_L[version-1];
+  const donneesTotales=g1*d1+g2*d2, bitsCompte=version<10?8:16;
+
+  /* le flux de bits : mode octet, longueur, données, terminateur, bourrage */
+  const bits=[];
+  const pousser=(val,n)=>{for(let i=n-1;i>=0;i--)bits.push((val>>>i)&1)};
+  pousser(0b0100,4);
+  pousser(octets.length,bitsCompte);
+  for(const o of octets)pousser(o,8);
+  const capaciteBits=donneesTotales*8;
+  for(let i=0;i<4&&bits.length<capaciteBits;i++)bits.push(0);
+  while(bits.length%8!==0)bits.push(0);
+  const codewords=[];
+  for(let i=0;i<bits.length;i+=8){let o=0;for(let j=0;j<8;j++)o=(o<<1)|bits[i+j];codewords.push(o)}
+  const bourrage=[0xEC,0x11];
+  for(let k=0;codewords.length<donneesTotales;k++)codewords.push(bourrage[k%2]);
+
+  /* répartition en blocs, correction par bloc, entrelacement */
+  const blocs=[]; let p=0;
+  for(let i=0;i<g1;i++){blocs.push(codewords.slice(p,p+d1));p+=d1}
+  for(let i=0;i<g2;i++){blocs.push(codewords.slice(p,p+d2));p+=d2}
+  const eccBlocs=blocs.map(b=>qrCorrection(b,eccParBloc));
+  const finales=[];
+  const dMax=Math.max(d1,d2||d1);
+  for(let i=0;i<dMax;i++)for(const b of blocs)if(i<b.length)finales.push(b[i]);
+  for(let i=0;i<eccParBloc;i++)for(const e of eccBlocs)finales.push(e[i]);
+  const fluxBits=[];
+  for(const cw of finales)for(let i=7;i>=0;i--)fluxBits.push((cw>>>i)&1);
+
+  /* la matrice et ses motifs de fonction */
+  const taille=17+4*version;
+  const M=new Int8Array(taille*taille);
+  const reserve=new Uint8Array(taille*taille);
+  const set=(r,c,v)=>{M[r*taille+c]=v?1:0;reserve[r*taille+c]=1};
+  const repere=(R,C)=>{
+    for(let r=-1;r<=7;r++)for(let c=-1;c<=7;c++){
+      const rr=R+r,cc=C+c; if(rr<0||cc<0||rr>=taille||cc>=taille)continue;
+      const bord=(r===-1||r===7||c===-1||c===7);
+      const anneau=(r>=0&&r<=6&&c>=0&&c<=6)&&(r===0||r===6||c===0||c===6);
+      const centre=(r>=2&&r<=4&&c>=2&&c<=4);
+      set(rr,cc,bord?false:(anneau||centre));
+    }
+  };
+  repere(0,0); repere(0,taille-7); repere(taille-7,0);
+  for(let i=8;i<taille-8;i++){
+    if(!reserve[6*taille+i])set(6,i,i%2===0);
+    if(!reserve[i*taille+6])set(i,6,i%2===0);
+  }
+  set(4*version+9,8,true); // module sombre, toujours posé
+  const alPos=qrPositionsAlignement(version,taille);
+  for(const R of alPos)for(const C of alPos){
+    if((R===6&&C===6)||(R===6&&C===taille-7)||(R===taille-7&&C===6))continue;
+    for(let r=-2;r<=2;r++)for(let c=-2;c<=2;c++){
+      const anneau=(r===-2||r===2||c===-2||c===2);
+      set(R+r,C+c,anneau||(r===0&&c===0));
+    }
+  }
+  for(const[r,c]of qrPosFormatA(taille))reserve[r*taille+c]=1;
+  for(const[r,c]of qrPosFormatB(taille))reserve[r*taille+c]=1;
+  if(version>=7){
+    for(let r=0;r<6;r++)for(let c=0;c<3;c++){
+      reserve[r*taille+(taille-11+c)]=1;
+      reserve[(taille-11+c)*taille+r]=1;
+    }
+  }
+
+  /* pose des données : colonnes par paires, de bas en haut puis haut en bas,
+     en sautant la colonne du motif de synchronisation */
+  let bitIdx=0, montant=true;
+  for(let cd=taille-1;cd>=1;cd-=2){
+    if(cd===6)cd=5;
+    for(let i=0;i<taille;i++){
+      const r=montant?taille-1-i:i;
+      for(const c of[cd,cd-1]){
+        if(reserve[r*taille+c])continue;
+        M[r*taille+c]=bitIdx<fluxBits.length?fluxBits[bitIdx]:0;
+        bitIdx++;
+      }
+    }
+    montant=!montant;
+  }
+
+  /* masquage : les 8 motifs sont essayés, celui de plus faible pénalité l'emporte —
+     un motif non optimal resterait déchiffrable, il ne fait que lire moins facilement */
+  const appliquer=motif=>{
+    const N=new Int8Array(M);
+    for(let r=0;r<taille;r++)for(let c=0;c<taille;c++)
+      if(!reserve[r*taille+c]&&qrMasque(motif,r,c))N[r*taille+c]^=1;
+    return N;
+  };
+  const motifsRepere=[[1,0,1,1,1,0,1,0,0,0,0],[0,0,0,0,1,0,1,1,1,0,1]];
+  const penalite=N=>{
+    let s=0;
+    for(let r=0;r<taille;r++){
+      let run=1;
+      for(let c=1;c<taille;c++){
+        if(N[r*taille+c]===N[r*taille+c-1])run++;
+        else{if(run>=5)s+=3+(run-5);run=1}
+      }
+      if(run>=5)s+=3+(run-5);
+    }
+    for(let c=0;c<taille;c++){
+      let run=1;
+      for(let r=1;r<taille;r++){
+        if(N[r*taille+c]===N[(r-1)*taille+c])run++;
+        else{if(run>=5)s+=3+(run-5);run=1}
+      }
+      if(run>=5)s+=3+(run-5);
+    }
+    for(let r=0;r<taille-1;r++)for(let c=0;c<taille-1;c++){
+      const v=N[r*taille+c];
+      if(v===N[r*taille+c+1]&&v===N[(r+1)*taille+c]&&v===N[(r+1)*taille+c+1])s+=3;
+    }
+    for(let r=0;r<taille;r++)for(let c=0;c<=taille-11;c++)
+      for(const m of motifsRepere){
+        let ok=true; for(let k=0;k<11;k++)if(N[r*taille+c+k]!==m[k]){ok=false;break}
+        if(ok)s+=40;
+      }
+    for(let c=0;c<taille;c++)for(let r=0;r<=taille-11;r++)
+      for(const m of motifsRepere){
+        let ok=true; for(let k=0;k<11;k++)if(N[(r+k)*taille+c]!==m[k]){ok=false;break}
+        if(ok)s+=40;
+      }
+    let sombre=0; for(let i=0;i<taille*taille;i++)sombre+=N[i];
+    s+=Math.floor(Math.abs(100*sombre/(taille*taille)-50)/5)*10;
+    return s;
+  };
+  let meilleur=null,meilleureNote=Infinity,meilleurMotif=0;
+  for(let motif=0;motif<8;motif++){
+    const N=appliquer(motif), note=penalite(N);
+    if(note<meilleureNote){meilleureNote=note;meilleur=N;meilleurMotif=motif}
+  }
+
+  /* informations de format : 2 bits de niveau (L=01) + 3 bits de motif, corrigés
+     par 10 bits BCH (division binaire par 0x537), puis masqués par 0x5412 */
+  const donneesFormat=(0b01<<3)|meilleurMotif;
+  let rem=donneesFormat<<10;
+  for(let i=14;i>=10;i--)if((rem>>>i)&1)rem^=(0x537<<(i-10));
+  const bitsFormat=((donneesFormat<<10)|rem)^0x5412;
+  const seqFormat=[]; for(let i=14;i>=0;i--)seqFormat.push((bitsFormat>>>i)&1);
+  qrPosFormatA(taille).forEach(([r,c],i)=>{meilleur[r*taille+c]=seqFormat[i]});
+  qrPosFormatB(taille).forEach(([r,c],i)=>{meilleur[r*taille+c]=seqFormat[i]});
+
+  /* informations de version (à partir de la version 7) : 6 bits + 12 bits BCH,
+     posés en miroir de part et d'autre, chaque bloc lu en colonnes */
+  if(version>=7){
+    let vrem=version<<12;
+    for(let i=17;i>=12;i--)if((vrem>>>i)&1)vrem^=(0x1F25<<(i-12));
+    const bitsVersion=(version<<12)|vrem;
+    for(let r=0;r<6;r++)for(let c=0;c<3;c++){
+      const bit=(bitsVersion>>>(r+c*6))&1;
+      meilleur[r*taille+(taille-11+c)]=bit;
+      meilleur[(taille-11+c)*taille+r]=bit;
+    }
+  }
+  return {taille,modules:meilleur};
+}
+
+const ADLER32=b=>{let a=1,c=0;for(let i=0;i<b.length;i++){a=(a+b[i])%65521;c=(c+a)%65521}return((c<<16)|a)>>>0};
+/* un flux DEFLATE valide sans compresser réellement : le format prévoit des blocs
+   « stockés » (BTYPE=00) qui encapsulent des octets bruts tels quels */
+const deflateStocke=b=>{
+  const blocs=[]; let i=0;
+  if(!b.length)blocs.push(new Uint8Array([1,0,0,255,255]));
+  while(i<b.length){
+    const n=Math.min(65535,b.length-i), fin=(i+n>=b.length)?1:0;
+    const en=new Uint8Array(5+n);
+    en[0]=fin; en[1]=n&255; en[2]=(n>>8)&255; en[3]=(~n)&255&255; en[4]=((~n)>>8)&255;
+    en.set(b.subarray(i,i+n),5); blocs.push(en); i+=n;
+  }
+  const total=blocs.reduce((s,x)=>s+x.length,0), out=new Uint8Array(2+total+4);
+  out[0]=0x78; out[1]=0x01;
+  let q=2; for(const bl of blocs){out.set(bl,q);q+=bl.length}
+  const adler=ADLER32(b);
+  out[q]=(adler>>>24)&255;out[q+1]=(adler>>>16)&255;out[q+2]=(adler>>>8)&255;out[q+3]=adler&255;
+  return out;
+};
+const pngChunk=(type,data)=>{
+  const t=new TextEncoder().encode(type), corps=new Uint8Array(t.length+data.length);
+  corps.set(t); corps.set(data,t.length);
+  const crc=CRC32(corps), out=new Uint8Array(8+data.length+4), dv=new DataView(out.buffer);
+  dv.setUint32(0,data.length); out.set(corps,4); dv.setUint32(4+corps.length,crc);
+  return out;
+};
+/* la matrice devient un PNG noir/blanc (1 bit par pixel), marge de silence comprise —
+   sans elle, un lecteur perd le repère de bord du QR code */
+const qrVersPng=(taille,modules,echelle,marge)=>{
+  const n=taille+2*marge, large=n*echelle, octetsLigne=Math.ceil(large/8);
+  const donnees=new Uint8Array((octetsLigne+1)*large);
+  for(let y=0;y<large;y++){
+    const my=Math.floor(y/echelle)-marge, ligne=y*(octetsLigne+1);
+    donnees[ligne]=0;
+    for(let xo=0;xo<octetsLigne;xo++){
+      let octet=0;
+      for(let bit=0;bit<8;bit++){
+        const x=xo*8+bit; let blanc=true;
+        if(x<large){
+          const mx=Math.floor(x/echelle)-marge;
+          if(my>=0&&my<taille&&mx>=0&&mx<taille)blanc=!modules[my*taille+mx];
+        }
+        if(blanc)octet|=(1<<(7-bit));
+      }
+      donnees[ligne+1+xo]=octet;
+    }
+  }
+  const idat=deflateStocke(donnees);
+  const ihdr=new Uint8Array(13), dv=new DataView(ihdr.buffer);
+  dv.setUint32(0,large); dv.setUint32(4,large); ihdr[8]=1; // 1 bit par pixel, niveaux de gris
+  const sig=new Uint8Array([137,80,78,71,13,10,26,10]);
+  const morceaux=[sig,pngChunk('IHDR',ihdr),pngChunk('IDAT',idat),pngChunk('IEND',new Uint8Array(0))];
+  const total=morceaux.reduce((s,m)=>s+m.length,0), out=new Uint8Array(total);
+  let q=0; for(const m of morceaux){out.set(m,q);q+=m.length}
+  return {data:out,w:large,h:large};
+};
+/* le QR code prêt à embarquer dans un document — url vide : rien à générer */
+const qrPourDocument=url=>{
+  if(!url)return null;
+  const{taille,modules}=qrMatrice(url);
+  return qrVersPng(taille,modules,8,4);
+};
 
 /* l'identité de CP Constructions, telle qu'elle figure sur ses documents */
 const CP={nom:'CP CONSTRUCTIONS',forme:'SASU au capital de 1 000 €',
@@ -1301,8 +1617,13 @@ function chantierMarche(d){
     par(d.chantierAdresse||'—',{b:true,sz:21,ap:d.chantierNom?30:0}),
     d.chantierNom?par(d.chantierNom,{sz:18,c:DOC_GRIS,ap:0}):'',
   ].join('');
-  return tbl([10400],[tr([
+  if(!d.qr)return tbl([10400],[tr([
     tc(10400,inner,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4}),v:'top',mg:140}),
+  ])],{});
+  const bloc=[qrXml(),par('Scannez pour l’itinéraire',{sz:14,c:DOC_GRIS,jc:'center',ap:0})].join('');
+  return tbl([8600,1800],[tr([
+    tc(8600,inner,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,d:false}),v:'top',mg:140}),
+    tc(1800,bloc,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,g:false}),v:'center',mg:120}),
   ])],{});
 }
 
@@ -1675,10 +1996,11 @@ const DOCX_RELS='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
  +'<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
  +'</Relationships>';
-const DOCX_DOCRELS='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+const docxDocRels=avecQr=>'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
  +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
  +'<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/>'
+ +(avecQr?'<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/qr.png"/>':'')
  +'</Relationships>';
 const DOCX_STYLES='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
@@ -1709,25 +2031,28 @@ async function logoDocx(){
   return logoCache;
 }
 
-async function fabriquerDocx(documentXml,titre,logo){
+async function fabriquerDocx(documentXml,titre,logo,qr){
   const enc=new TextEncoder();
   const entrees=[
     {nom:'[Content_Types].xml',data:enc.encode(DOCX_TYPES)},
     {nom:'_rels/.rels',data:enc.encode(DOCX_RELS)},
     {nom:'docProps/core.xml',data:enc.encode(docxCore(titre))},
-    {nom:'word/_rels/document.xml.rels',data:enc.encode(DOCX_DOCRELS)},
+    {nom:'word/_rels/document.xml.rels',data:enc.encode(docxDocRels(!!qr))},
     {nom:'word/styles.xml',data:enc.encode(DOCX_STYLES)},
     {nom:'word/document.xml',data:enc.encode(documentXml)},
   ];
   if(logo)entrees.push({nom:'word/media/logo.png',data:logo.data});
+  if(qr)entrees.push({nom:'word/media/qr.png',data:qr.data});
   return zipEcrire(entrees);
 }
 
 async function genererMarcheDocx(d){
   let logo=null;
   try{logo=await logoDocx()}catch(e){/* sans logo, le marché reste valable */}
-  const xml=marcheDocumentXml(d,logo);
-  return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||''),logo);
+  let qr=null;
+  try{qr=qrPourDocument(d.mapsUrl)}catch(e){/* sans localisation enregistrée, ou QR indisponible : le marché reste valable */}
+  const xml=marcheDocumentXml({...d,qr},logo);
+  return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||''),logo,qr);
 }
 
 /* ---------- dossier de présentation au client ----------
@@ -4024,7 +4349,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         decennale:a.numPolice||'', compagnie:a.assureur||'',
         decennaleFin:a.decennaleFin?fd(a.decennaleFin):'',
         client:ch.client||'', clientAdresse:ch.adresseClient||'', clientTel:ch.telClient||'',
-        chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'',
+        chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'', mapsUrl:mapsUrl(ch),
         ht, brut, remise:r, tva:tx, tvaMontant:Math.round(ht*tx)/100, ttc:Math.round(ht*(100+tx))/100,
         /* seuls les articles non servis s'effacent du contrat imprimé — un
            intertitre ou une précision n'a pas de quantité propre (ligneQt vaut
