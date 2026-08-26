@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-26 · dossier de présentation client et fiches produits';
+const VERSION='2026-08-26 · lignes déplaçables au doigt, intertitres et précisions';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -912,12 +912,25 @@ function analyseGeorisques(txt){
 const UNITES=['U','M','ML','M2','M²','M3','M³','KG','H','ENS','FT','F','J','T'];
 const artUnite=u=>{const x=String(u||'').toUpperCase().replace('²','2').replace('³','3');
   return x==='M2'?'M²':x==='M3'?'M³':x};
-const ligneQt=l=>+(l&&l.qt)||0;
-const lignePU=l=>+(l&&l.pu)||0;
+/* Une ligne de quantitatif n'est pas toujours un article. Les marchés portent
+   aussi des intertitres — « SÉJOUR », « CUISINE » — et des lignes de précision
+   sous un article. Ni les uns ni les autres ne se chiffrent : ils décrivent. */
+const ligneType=l=>((l&&l.type)||'article');
+const estArticle=l=>ligneType(l)==='article';
+const LIGNE_TYPES=[['article','Article'],['titre','Intertitre'],['note','Précision']];
+const ligneQt=l=>estArticle(l)?(+(l&&l.qt)||0):0;
+const lignePU=l=>estArticle(l)?(+(l&&l.pu)||0):0;
 const lignePT=l=>Math.round(ligneQt(l)*lignePU(l)*100)/100;
 /* le total du lot s'arrondit une seule fois, à la fin : c'est la règle des marchés
    déjà signés, où la colonne PT est arrondie pour l'affichage mais pas pour la somme. */
 const quantitatifHT=lignes=>Math.round((lignes||[]).reduce((s,l)=>s+ligneQt(l)*lignePU(l),0)*100)/100;
+/* déplacer une ligne d'un rang à un autre, sans rien perdre au passage */
+const deplacer=(L,de,vers)=>{
+  const A=[...(L||[])];
+  if(de<0||de>=A.length||vers<0||vers>=A.length||de===vers)return A;
+  A.splice(vers,0,A.splice(de,1)[0]);
+  return A;
+};
 /* une quantité s'écrit au millième, comme sur les marchés : 121,340 M² */
 const nb3=n=>(+n||0).toLocaleString('fr-FR',{minimumFractionDigits:3,maximumFractionDigits:3});
 /* remise négociée sur le lot : vide ou 0 = pas de remise */
@@ -1322,7 +1335,24 @@ function quantitatifMarche(d){
   const cel=(l,t,jc,o)=>tc(l,par(t,{sz:18,jc:jc,ap:0,c:(o&&o.c)||DOC_ENCRE}),
     {bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
       +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100,v:'top'});
+  const large=G.reduce((a,b)=>a+b,0);
   (d.lignes||[]).forEach(l=>{
+    /* un intertitre traverse toute la largeur : il annonce une pièce, une zone */
+    if(ligneType(l)==='titre'){
+      rows.push(tr([tc(large,par(l.libelle||'',{b:true,sz:18,c:DOC_BRUN,caps:true,sp:16,ap:0,av:60}),
+        {fusion:G.length,mg:100,
+         bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,4)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+          +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>'})]));
+      return;
+    }
+    /* une précision se glisse sous l'article qu'elle décrit, en retrait */
+    if(ligneType(l)==='note'){
+      rows.push(tr([tc(large,par(l.libelle||'',{i:true,sz:16,c:DOC_GRIS,ap:0,ind:200}),
+        {fusion:G.length,mg:100,
+         bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
+          +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>'})]));
+      return;
+    }
     rows.push(tr([
       cel(G[0],l.code||'','left',{c:DOC_GRIS}),
       cel(G[1],l.libelle||'','left'),
@@ -2880,6 +2910,57 @@ const Acts=({onSave,onCancel,onDel})=><div className="row" style={{gap:8}}>
 
 /* Le « + » qui déplie un détail juste sous la ligne : on reste où l'on est,
    sans remonter la page ni changer d'onglet. */
+/* ---------- réordonner à la main ----------
+   Le glisser-déposer HTML n'existe pas sur iPhone : on suit le doigt avec les
+   événements « pointer », qui couvrent la souris et le tactile du même geste.
+   On mesure le milieu de chaque rangée pour savoir devant laquelle on passe. */
+function useGlisser(n,onOrdre){
+  const refs=useRef([]);
+  const [pris,setPris]=useState(-1);
+  const etat=useRef({de:-1,vers:-1});
+  refs.current.length=n;
+  const saisir=(i,e)=>{
+    e.preventDefault(); e.stopPropagation();
+    etat.current={de:i,vers:i};
+    setPris(i);
+    const cible=e.currentTarget;
+    try{cible.setPointerCapture(e.pointerId)}catch(x){}
+    const bouger=ev=>{
+      const y=ev.clientY;
+      let v=etat.current.de;
+      for(let k=0;k<refs.current.length;k++){
+        const el=refs.current[k]; if(!el)continue;
+        const r=el.getBoundingClientRect();
+        if(y>r.top&&y<r.bottom){v=k;break}
+        if(k===0&&y<=r.top)v=0;
+        if(k===refs.current.length-1&&y>=r.bottom)v=k;
+      }
+      if(v!==etat.current.vers){etat.current.vers=v;setPris(v)}
+    };
+    const lacher=()=>{
+      window.removeEventListener('pointermove',bouger);
+      window.removeEventListener('pointerup',lacher);
+      window.removeEventListener('pointercancel',lacher);
+      const{de,vers}=etat.current;
+      setPris(-1); etat.current={de:-1,vers:-1};
+      if(de>=0&&vers>=0&&de!==vers)onOrdre(de,vers);
+    };
+    window.addEventListener('pointermove',bouger);
+    window.addEventListener('pointerup',lacher);
+    window.addEventListener('pointercancel',lacher);
+  };
+  const attacher=i=>el=>{refs.current[i]=el};
+  return {pris,saisir,attacher};
+}
+/* la poignée : la seule zone qui déclenche le déplacement, pour qu'on puisse
+   encore faire défiler la page en posant le doigt ailleurs */
+const Poignee=({onPointerDown,titre})=><button
+  title={titre||'Glisser pour déplacer'} aria-label={titre||'Glisser pour déplacer'}
+  onPointerDown={onPointerDown} onClick={e=>e.preventDefault()}
+  style={{width:26,minWidth:26,height:26,padding:0,borderRadius:6,flex:'0 0 auto',
+    border:'1px solid '+RULE,background:'transparent',color:MUTED,fontSize:13,
+    lineHeight:'24px',cursor:'grab',touchAction:'none'}}>⠿</button>;
+
 const Plus=({actif,onClick,titre})=><button title={titre} aria-label={titre} aria-expanded={!!actif}
   onClick={e=>{e.stopPropagation();onClick()}}
   style={{width:20,height:20,lineHeight:'18px',padding:0,borderRadius:5,flex:'0 0 auto',
@@ -3597,9 +3678,19 @@ function Quantitatif({data,f,setF,save}){
   const majL=(id,k,v)=>setF(p=>recale(p,p.quantitatif.lignes.map(l=>l.id===id?{...l,[k]:v}:l)));
   const majRemise=v=>setF(p=>({...p,remisePct:v===''?'':+v,
     montantHT:quantitatifNet((p.quantitatif||{}).lignes,v===''?0:+v)}));
-  const ajouterLigne=()=>setF(p=>recale(p,[...p.quantitatif.lignes,
-    {id:uid(),ref:'',code:'',libelle:'',unite:'U',pu:'',qt:''}]));
+  const neuveLigne=type=>type==='article'
+    ?{id:uid(),type:'article',ref:'',code:'',libelle:'',unite:'U',pu:'',qt:''}
+    :{id:uid(),type,libelle:''};
+  const ajouterLigne=type=>setF(p=>recale(p,[...p.quantitatif.lignes,neuveLigne(type||'article')]));
+  /* insérer juste sous une ligne : c'est là qu'on précise une pièce ou une pose */
+  const insererApres=(id,type)=>setF(p=>{
+    const L=[...p.quantitatif.lignes];
+    const i=L.findIndex(l=>l.id===id);
+    L.splice(i<0?L.length:i+1,0,neuveLigne(type));
+    return recale(p,L);
+  });
   const retirerLigne=id=>setF(p=>recale(p,p.quantitatif.lignes.filter(l=>l.id!==id)));
+  const ordonner=(de,vers)=>setF(p=>recale(p,deplacer(p.quantitatif.lignes,de,vers)));
   const retirer=()=>setF(p=>({...p,quantitatif:undefined}));
   /* une ligne corrigée ici peut remonter dans le bordereau, pour ne pas la
      ressaisir au lot suivant. Ce n'est jamais automatique : c'est un geste. */
@@ -3614,6 +3705,14 @@ function Quantitatif({data,f,setF,save}){
     save({...data,bordereaux:B.map(x=>x.id===b.id?{...x,articles,maj:today()}:x)});
     setVerse(l.id);
   };
+  /* La saisie porte sur la liste entière : une ligne qui disparaîtrait dès
+     qu'on la laisse à zéro rendrait le chiffrage impraticable. Le repli est un
+     choix, et il empêche de réordonner — on ne déplace pas ce qu'on ne voit pas.
+     Ces trois listes et le glisser se calculent avant toute sortie anticipée :
+     un hook doit être appelé au même rang à chaque rendu. */
+  const lignes=(q&&q.lignes)||[];
+  const vues=servisSeuls?lignes.filter(l=>ligneQt(l)>0):lignes;
+  const glisse=useGlisser(vues.length,(de,vers)=>{if(!servisSeuls)ordonner(de,vers)});
   if(!q)return <Fld label="CHIFFRER CE LOT DEPUIS UN BORDEREAU">
     {B.length
       ?<div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
@@ -3626,10 +3725,7 @@ function Quantitatif({data,f,setF,save}){
       :<div className="xs mut" style={{lineHeight:1.5}}>Aucun bordereau de prix. Importez un marché déjà rédigé depuis l'onglet ARTISANS,
         et vous pourrez ensuite chiffrer vos lots en saisissant seulement les quantités.</div>}
   </Fld>;
-  /* la saisie se fait sur la liste entière : une ligne qui disparaît dès qu'on
-     la laisse à zéro rendrait le chiffrage impraticable. Le repli est un choix. */
-  const lignes=q.lignes||[], servies=lignes.filter(l=>ligneQt(l)>0);
-  const vues=servisSeuls?servies:lignes;
+  const servies=lignes.filter(l=>ligneQt(l)>0);
   const brut=quantitatifHT(lignes), r=remisePct(f), net=quantitatifNet(lignes,r);
   return <Fld label={'QUANTITATIF — '+eur(net)+' HT'}>
     <div className="sp xs" style={{flexWrap:'wrap',gap:8,marginBottom:6}}>
@@ -3654,10 +3750,36 @@ function Quantitatif({data,f,setF,save}){
       {/* le libellé et son prix tiennent sur une ligne, la quantité et son total
           sur l'autre : sur un téléphone, rien ne sort de l'écran. */}
       <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,tableLayout:'fixed'}}>
-        <tbody>{vues.map(l=><tr key={l.id} style={{borderBottom:'1px solid '+RULE}}>
+        <tbody>{vues.map((l,i)=><tr key={l.id} ref={glisse.attacher(i)}
+          style={{borderBottom:'1px solid '+RULE,
+            background:glisse.pris===i?'#EFECE6':(ligneType(l)==='titre'?'#F4F1EB':'transparent')}}>
           <td style={{padding:'6px 0'}}>
+            {/* un intertitre nomme ce qui suit — une pièce, une zone — et ne se chiffre pas */}
+            {ligneType(l)==='titre'?<div className="row" style={{gap:8,alignItems:'center'}}>
+              {!servisSeuls&&<Poignee onPointerDown={e=>glisse.saisir(i,e)} titre="Déplacer cet intertitre"/>}
+              <input className="in b" style={{padding:'4px 6px',fontSize:12,flex:1,minWidth:0,
+                color:NAVY,letterSpacing:'.04em',textTransform:'uppercase'}}
+                placeholder="Séjour, cuisine, chambre 1…" value={l.libelle||''}
+                onChange={e=>majL(l.id,'libelle',e.target.value)}/>
+              <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
+                onClick={()=>retirerLigne(l.id)}>✕</button>
+            </div>
+            /* une précision se lit sous l'article qu'elle décrit */
+            :ligneType(l)==='note'?<div className="row" style={{gap:8,alignItems:'flex-start'}}>
+              {!servisSeuls&&<Poignee onPointerDown={e=>glisse.saisir(i,e)} titre="Déplacer cette précision"/>}
+              <textarea className="in" rows="2" style={{padding:'4px 6px',fontSize:11,flex:1,minWidth:0,
+                color:MUTED,fontStyle:'italic'}}
+                placeholder="Prise de courant 10/16A avec terre, boîtier étanche…" value={l.libelle||''}
+                onChange={e=>majL(l.id,'libelle',e.target.value)}/>
+              <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
+                onClick={()=>retirerLigne(l.id)}>✕</button>
+            </div>
+            :<div>
             <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
-              <span style={{flex:1}}>{l.libelle||<span className="mut">sans libellé</span>}</span>
+              <span className="row" style={{gap:6,alignItems:'flex-start',flex:1,minWidth:0}}>
+                {!servisSeuls&&<Poignee onPointerDown={e=>glisse.saisir(i,e)} titre={'Déplacer — '+(l.libelle||l.code)}/>}
+                <span style={{flex:1,minWidth:0}}>{l.libelle||<span className="mut">sans libellé</span>}</span>
+              </span>
               <span className="row" style={{gap:6,alignItems:'center',whiteSpace:'nowrap'}}>
                 <span className="mut">{eurc(l.pu)} / {l.unite}</span>
                 <Plus actif={detail===l.id} titre="Modifier cette ligne" onClick={()=>setDetail(detail===l.id?'':l.id)}/>
@@ -3676,6 +3798,7 @@ function Quantitatif({data,f,setF,save}){
                 </span>
               </span>
             </div>
+            </div>}
             {detail===l.id&&<div style={{marginTop:6,padding:'8px 10px',background:'#F4F1EB',borderRadius:6,
               borderLeft:'3px solid '+TERRA}}>
               <div className="lbl">LIBELLÉ</div>
@@ -3691,6 +3814,10 @@ function Quantitatif({data,f,setF,save}){
                 <span style={{flex:'0 0 100px'}}><div className="lbl">PRIX UNITAIRE</div>
                   <input className="in" type="number" step="0.01" style={{padding:'4px 6px',fontSize:12,width:'100%',textAlign:'right'}}
                     value={l.pu===''||l.pu===undefined?'':l.pu} onChange={e=>majL(l.id,'pu',e.target.value===''?'':+e.target.value)}/></span>
+              </div>
+              <div className="row" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+                <button className="btn gh s" onClick={()=>{setDetail('');insererApres(l.id,'note')}}>+ Précision dessous</button>
+                <button className="btn gh s" onClick={()=>{setDetail('');insererApres(l.id,'titre')}}>+ Intertitre dessus</button>
               </div>
               <div className="row" style={{gap:12,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
                 {save&&q.bordereauId&&<button className="btn gh s" onClick={()=>verserAuBordereau(l)}>
@@ -3714,9 +3841,16 @@ function Quantitatif({data,f,setF,save}){
           </tr>
         </tfoot>
       </table>
-      <button className="btn gh s" style={{marginTop:8}} onClick={ajouterLigne}>+ Ligne</button>
-      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Le « + » d'une ligne ouvre son libellé, son code, son unité
-        et son prix : tout se corrige ici, sans quitter le lot.</div>
+      <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+        <button className="btn gh s" onClick={()=>ajouterLigne('article')}>+ Ligne</button>
+        <button className="btn gh s" onClick={()=>ajouterLigne('titre')}>+ Intertitre</button>
+        <button className="btn gh s" onClick={()=>ajouterLigne('note')}>+ Précision</button>
+      </div>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+        Le « + » d'une ligne ouvre son libellé, son code, son unité et son prix : tout se corrige ici,
+        sans quitter le lot. La poignée <b>⠿</b> à gauche déplace la ligne — appuyez dessus et glissez.
+        Un <b>intertitre</b> annonce une pièce ou une zone, une <b>précision</b> décrit l'article qu'elle suit :
+        ni l'un ni l'autre ne se chiffrent, mais tous deux figurent sur le marché.</div>
     </div>}
   </Fld>;
 }
@@ -3728,6 +3862,15 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const [showFact,setShowFact]=useState(false);
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
+  /* réordonner les lots : on ne touche qu'aux places de ce chantier, les
+     marchés des autres chantiers restent où ils sont dans la liste générale */
+  const ordonnerLots=(de,vers)=>{
+    const ordre=deplacer(ms,de,vers).map(m=>m.id);
+    let k=0;
+    save({...data,marches:data.marches.map(m=>
+      m.chantierId===ch.id?ms.find(x=>x.id===ordre[k++]):m)});
+  };
+  const glisseLots=useGlisser(ms.length,ordonnerLots);
   const openRow=m=>setF(m.factures?m:{...m,factures:m.facture?[{id:uid(),montant:m.facture,date:m.dateSignature||today(),lien:''}]:[]});
   const ok=()=>{
     if(!f.lot)return;
@@ -3984,17 +4127,20 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           <th style={{padding:'6px 4px',textAlign:'right'}}>Factures</th>
         </tr></thead>
         <tbody>
-          {ms.map(m=>{
+          {ms.map((m,i)=>{
             const st=STATUTS.find(x=>x.id===m.statut);
             const art=data.artisans.find(a=>a.id===m.artisanId);
             const kE='m-ent:'+m.id, kD='m-doc:'+m.id;
             return <React.Fragment key={m.id}>
-              <tr style={{borderBottom:'1px solid '+RULE,verticalAlign:'top'}}>
+              <tr ref={glisseLots.attacher(i)}
+                style={{borderBottom:'1px solid '+RULE,verticalAlign:'top',
+                  background:glisseLots.pris===i?'#EFECE6':'transparent'}}>
                 {/* à gauche l'entreprise et son corps de métier */}
                 <td style={{padding:'8px 4px'}}>
                   <div className="row" style={{gap:6,alignItems:'flex-start'}}>
+                    <Poignee onPointerDown={e=>glisseLots.saisir(i,e)} titre={'Déplacer le lot '+m.lot}/>
                     <button onClick={()=>setOuv(ouv===kE?'':kE)} className="b"
-                      style={{textAlign:'left',background:'none',border:'none',padding:0,color:NAVY,cursor:'pointer',flex:1}}>
+                      style={{textAlign:'left',background:'none',border:'none',padding:0,color:NAVY,cursor:'pointer',flex:1,minWidth:0}}>
                       {nom(m.artisanId)}</button>
                     <Plus actif={ouv===kE} titre="Voir l’entreprise" onClick={()=>setOuv(ouv===kE?'':kE)}/>
                   </div>
