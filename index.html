@@ -3727,6 +3727,17 @@ function Quantitatif({data,f,setF,save}){
   const retirerLigne=id=>setF(p=>recale(p,p.quantitatif.lignes.filter(l=>l.id!==id)));
   const ordonner=(de,vers)=>setF(p=>recale(p,deplacer(p.quantitatif.lignes,de,vers)));
   const retirer=()=>setF(p=>({...p,quantitatif:undefined}));
+  /* un second corps d'état sur le même marché : plutôt qu'un marché par lot,
+     ce qui multiplie les contrats à faire signer pour une même entreprise,
+     on ajoute les articles d'un autre bordereau à la suite, sous un intertitre
+     qui porte son nom — le marché reste un seul document, en plusieurs parties. */
+  const ajouterBordereau=id=>{
+    const b=B.find(x=>x.id===id);if(!b)return;
+    const nouvelles=[{id:uid(),type:'titre',libelle:b.nom},
+      ...(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu,qt:''}))];
+    setF(p=>recale(p,[...(p.quantitatif.lignes||[]),...nouvelles]));
+    setChoix('');
+  };
   /* une ligne corrigée ici peut remonter dans le bordereau, pour ne pas la
      ressaisir au lot suivant. Ce n'est jamais automatique : c'est un geste. */
   const verserAuBordereau=l=>{
@@ -3886,6 +3897,19 @@ function Quantitatif({data,f,setF,save}){
         sans quitter le lot. La poignée <b>⠿</b> à gauche déplace la ligne — appuyez dessus et glissez.
         Un <b>intertitre</b> annonce une pièce ou une zone, une <b>précision</b> décrit l'article qu'elle suit :
         ni l'un ni l'autre ne se chiffrent, mais tous deux figurent sur le marché.</div>
+      {B.length>0&&<div style={{marginTop:14,paddingTop:12,borderTop:'1px solid '+RULE}}>
+        <div className="lbl">AJOUTER UN AUTRE CORPS D'ÉTAT SUR CE MÊME MARCHÉ</div>
+        <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center',marginTop:4}}>
+          <select className="in" value={choix} onChange={e=>setChoix(e.target.value)} style={{flex:'1 1 200px'}}>
+            <option value="">— choisir un bordereau —</option>
+            {dispo.map(b=><option key={b.id} value={b.id}>{b.nom} ({(b.articles||[]).length} articles)</option>)}
+          </select>
+          <button className="btn gh s" disabled={!choix} onClick={()=>ajouterBordereau(choix)}>Ajouter</button>
+        </div>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+          Ses articles s'ajoutent à la suite, sous un intertitre à son nom — un seul marché,
+          un seul contrat à signer avec cette entreprise, pour plusieurs corps d'état.</div>
+      </div>}
     </div>}
   </Fld>;
 }
