@@ -75,8 +75,12 @@
   nav.bot{position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.94);
           backdrop-filter:saturate(180%) blur(12px);-webkit-backdrop-filter:saturate(180%) blur(12px);
           border-top:1px solid var(--rule);display:flex;padding:6px 6px calc(6px + env(safe-area-inset-bottom));gap:2px}
-  nav.bot button{flex:1;padding:9px 2px;font-size:11px;letter-spacing:.02em;font-weight:600;
-                 background:none;border:none;border-radius:var(--r-s);color:var(--mut);transition:background .15s,color .15s}
+  /* sept onglets sur une largeur d'iPhone : on resserre la graisse plutôt que
+     de couper les mots. La colonne de gauche, sur ordinateur, reprend sa taille. */
+  nav.bot button{flex:1;min-width:0;padding:9px 1px;font-size:9.5px;letter-spacing:0;font-weight:700;
+                 background:none;border:none;border-radius:var(--r-s);color:var(--mut);
+                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s,color .15s}
+  @media (min-width:430px){nav.bot button{font-size:10.5px;letter-spacing:.01em}}
   nav.bot button.on{color:var(--navy);background:rgba(197,86,58,.1)}
 
   .bar{height:6px;background:#EAE6DE;border-radius:999px;margin-top:9px;overflow:hidden}
@@ -103,7 +107,7 @@
             border-top:none;border-right:1px solid var(--rule);background:var(--surface);
             backdrop-filter:none;-webkit-backdrop-filter:none;padding:10px 10px 20px;overflow-y:auto}
     nav.bot.masquee{display:flex}
-    nav.bot button{flex:0 0 auto;text-align:left;padding:11px 14px;font-size:12.5px;border-radius:var(--r-s)}
+    nav.bot button{flex:0 0 auto;text-align:left;padding:11px 14px;font-size:12.5px;font-weight:600;letter-spacing:.02em;border-radius:var(--r-s)}
     nav.bot button.on{background:rgba(197,86,58,.1)}
     nav.bot button:hover{background:#F3F1EC}
     main{max-width:1120px;padding:28px 34px 64px!important}
@@ -141,7 +145,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-25 · convention d’apport d’affaires et connexion Drive diagnostiquée';
+const VERSION='2026-08-26 · tableau de bord à l’arrivée et onglet prospects';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -149,6 +153,36 @@ const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',lab
 const DOCS=[{id:'contrat_moe',l:'Contrat de maîtrise d\u2019œuvre'},{id:'plans_apd',l:'Plans d\u2019avant-projet (APS / APD)'},{id:'pc_depot',l:'Dépôt du permis de construire'},{id:'pc_arrete',l:'Arrêté de permis de construire'},{id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},{id:'daact',l:'DAACT (Cerfa 13408)'},{id:'plans_pc',l:'Plans du permis'},{id:'plans_exe',l:"Plans d'exécution"},{id:'notice',l:'Notice descriptive'},{id:'thermique',l:'Étude thermique RE2020'},{id:'sol',l:'Étude de sol G2'},{id:'do',l:'Assurance dommages-ouvrage'},{id:'pret',l:'Accord de prêt bancaire'},{id:'acte',l:'Acte notarié du terrain'},{id:'attest',l:'Attestation RE2020 fin de travaux'},{id:'pv',l:'PV de réception'}];
 const JALONS=['Dépôt du permis','Obtention du permis','Signature des marchés','Ouverture de chantier','Terrassement','Fondations','Élévation des murs','Charpente / couverture',"Hors d'eau — hors d'air",'Second œuvre','Réception des travaux','Levée des réserves'];
 const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Travaux',reception:'Réception',clos:'Clos'};
+
+/* Les pièces qu'on attend à chaque phase. Le tableau de bord ne réclame que
+   celles-là : réclamer les seize à un chantier qui démarre ne dit rien. */
+const DOCS_PHASE={
+  etude:['contrat_moe','plans_apd','sol','thermique'],
+  pc:['pc_depot','plans_pc','notice','acte'],
+  consultation:['pc_arrete','pret','do','plans_exe'],
+  travaux:['doc','plans_exe','do'],
+  reception:['daact','pv','attest'],
+  clos:['pv','attest'],
+};
+
+/* ---------- prospects ----------
+   Le commercial dépose une demande de chiffrage, le maître d'œuvre y répond.
+   Le statut dit de quel côté se trouve la balle. */
+const PROSPECT_ST=[
+  {id:'demande',label:'Chiffrage demandé',c:TERRA},
+  {id:'encours',label:'Chiffrage en cours',c:AMBER},
+  {id:'chiffre',label:'Chiffré — remis au commercial',c:NAVY},
+  {id:'attente',label:'En attente du client',c:MUTED},
+  {id:'gagne',label:'Signé',c:GREEN},
+  {id:'perdu',label:'Sans suite',c:MUTED},
+];
+const prospectSt=id=>PROSPECT_ST.find(s=>s.id===id)||PROSPECT_ST[0];
+/* les deux états qui appellent une réponse de votre part */
+const prospectAFaire=p=>p&&(p.statut==='demande'||p.statut==='encours');
+const TERRAINS=['Lotissement viabilisé','Terrain diffus viabilisé','Terrain diffus non viabilisé','Terrain en pente','Division parcellaire','Terrain avec démolition préalable'];
+const PRESTATIONS=['Clé en main','Hors d’eau hors d’air','Gros œuvre seul','Second œuvre seul','Extension','Surélévation','Rénovation lourde'];
+const CHAUFFAGES=['Pompe à chaleur air/eau','Pompe à chaleur air/air','Plancher chauffant hydraulique','Poêle à granulés','Poêle à bois','Chaudière gaz condensation','Radiateurs électriques','Solaire thermique en appoint'];
+const NIVEAUX=['Plain-pied','R+1','R+1 combles aménagés','R+combles perdus','R+2','Sous-sol complet'];
 
 /* ---------- trame de contrôle chantier : corps d'état → points de contrôle ---------- */
 const CTRL_ST=[{id:'conforme',label:'Conforme',c:GREEN},{id:'non_conforme',label:'Non conforme',c:TERRA},{id:'neant',label:'Néant',c:MUTED}];
@@ -598,7 +632,36 @@ const ventileFactures=L=>{
 /* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
-const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[]};
+const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[]};
+
+/* ---------- chiffrage d'un prospect ----------
+   Le coût, c'est la somme des postes chiffrés ; à défaut, le montant global saisi.
+   La marge du maître d'œuvre s'exprime en pourcentage de ce coût, ou en euros si
+   l'on préfère l'arrêter soi-même. Le prix du projet est la somme des deux. */
+const prospectPostesHT=p=>((p&&p.postes)||[]).reduce((s,x)=>s+(+x.montant||0),0);
+const prospectCoutHT=p=>{
+  const d=prospectPostesHT(p);
+  return d||+((p&&p.coutHT))||0;
+};
+const prospectMargeHT=p=>{
+  if(!p)return 0;
+  if(p.margeMontant!==undefined&&p.margeMontant!==null&&p.margeMontant!=='')return +p.margeMontant||0;
+  return Math.round(prospectCoutHT(p)*(+p.margePct||0))/100;
+};
+const prospectPrixHT=p=>Math.round((prospectCoutHT(p)+prospectMargeHT(p))*100)/100;
+const prospectTva=p=>{const v=p&&p.tva;return (v===undefined||v===null||v==='')?20:(+v||0)};
+const prospectPrixTTC=p=>Math.round(prospectPrixHT(p)*(1+prospectTva(p)/100)*100)/100;
+
+/* ---------- ratio au m² ----------
+   Le prix d'une maison ne se rapporte pas à la seule surface habitable : un
+   garage, un cellier ou un préau coûtent, sans être habitables. L'usage retient
+   la moitié de ces surfaces annexes — c'est la surface pondérée. */
+const surfaceHab=p=>+((p&&p.surfaceHabitable))||0;
+const surfaceAnn=p=>+((p&&p.surfaceAnnexes))||0;
+const surfacePonderee=p=>Math.round((surfaceHab(p)+surfaceAnn(p)*0.5)*100)/100;
+/* null quand la surface manque : un ratio sans dénominateur ne s'invente pas */
+const ratioM2=(prix,p)=>{const s=surfacePonderee(p);return s>0?Math.round((+prix||0)/s):null};
+const eurM2=v=>v===null?'—':v.toLocaleString('fr-FR',{maximumFractionDigits:0})+' €/m²';
 
 /* ---------- bordereaux de prix ----------
    La grille tarifaire d'un artisan : un code d'article, un libellé, une unité et
@@ -1361,8 +1424,10 @@ async function driveFolder(token){
    en mémoire ne valent plus rien. */
 function driveOublierDossiers(){
   driveFolderId=null;
+  driveProspectsRacineId=null;
   [driveSubfolders,driveFacturesFolders,driveMarchesFolders,driveControlesFolders,
-   driveHonoFolders,driveRetroFolders,driveSignFolders,driveSousDossiers].forEach(m=>m.clear());
+   driveHonoFolders,driveRetroFolders,driveSignFolders,driveSousDossiers,
+   driveProspectFolders].forEach(m=>m.clear());
 }
 
 /* Range dans CRM CP tous les dossiers de chantier restés sous un ancien nom de
@@ -1481,6 +1546,24 @@ async function driveSousDossier(token,chantierId,chantierNom,nom){
   return id;
 }
 const lienDossierDrive=id=>'https://drive.google.com/drive/folders/'+id;
+
+/* Les prospects vivent dans « CRM CP › Prospects », un dossier par affaire :
+   tant qu'elle n'est pas signée, elle n'a pas à encombrer les chantiers. */
+let driveProspectsRacineId=null;
+async function driveProspectsRacine(token){
+  if(driveProspectsRacineId)return driveProspectsRacineId;
+  const rootId=await driveFolder(token);
+  driveProspectsRacineId=await driveFindOrCreateSubfolder(token,rootId,'Prospects');
+  return driveProspectsRacineId;
+}
+const driveProspectFolders=new Map();
+async function driveProspectFolder(token,prospectId,prospectNom){
+  if(driveProspectFolders.has(prospectId))return driveProspectFolders.get(prospectId);
+  const parentId=await driveProspectsRacine(token);
+  const id=await driveFindOrCreateSubfolder(token,parentId,prospectNom||'Prospect');
+  driveProspectFolders.set(prospectId,id);
+  return id;
+}
 
 /* Arborescence type d'un chantier, dans l'ordre des onglets de l'application.
    Google Drive classe les dossiers par ordre alphabétique : cet ordre-ci est
@@ -2142,7 +2225,9 @@ function Login(){
 
 function App({session}){
   const [data,setData]=useState(load);
-  const [view,setView]=useState('chantiers');
+  /* on arrive sur le tableau de bord : ce qui appelle une action se voit avant
+     d'avoir à le chercher dossier par dossier */
+  const [view,setView]=useState('tdb');
   const [open,setOpen]=useState(null);
   const [err,setErr]=useState(null);
   /* attente : lecture en cours — ok : contenu du serveur reçu — erreur : lecture impossible.
@@ -2203,6 +2288,8 @@ function App({session}){
     {err&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:'8px 16px'}}>{err}</div>}
     <main style={{padding:16}}>
       {ch?<Fiche data={data} ch={ch} save={save} back={()=>setOpen(null)}/>
+      :view==='tdb'?<TableauBord data={data} open={setOpen} allerA={v=>{setView(v);setOpen(null)}}/>
+      :view==='prospects'?<Prospects data={data} save={save}/>
       :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
       :view==='artisans'?<Artisans data={data} save={save}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
@@ -2210,7 +2297,7 @@ function App({session}){
       :<Donnees data={data} save={save} session={session}/>}
     </main>
     <nav className={'bot'+(ch?' masquee':'')}>
-      {[['chantiers','CHANTIERS'],['artisans','ARTISANS'],['cmd','COMMANDES'],['bilan','FINANCES'],['donnees','DONNÉES']].map(([id,l])=>
+      {[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],['artisans','ARTISANS'],['cmd','COMMANDES'],['bilan','FINANCES'],['donnees','DONNÉES']].map(([id,l])=>
         <button key={id} className={view===id&&!ch?'on':''} onClick={()=>{setView(id);setOpen(null)}}>{l}</button>)}
     </nav>
   </div>;
@@ -2490,7 +2577,7 @@ const Transmis=()=><span className="xs b" style={{color:GREEN,whiteSpace:'nowrap
 
 /* Liste de fichiers rattachés à une fiche et rangés dans un sous-dossier du
    chantier : import multiple, nom d'origine conservé, retrait sans suppression. */
-function FichiersDrive({ch,dossier,fichiers,onChange,label}){
+function FichiersDrive({ch,dossier,fichiers,onChange,label,resoudre}){
   const [busy,setBusy]=useState(false);
   const L=fichiers||[];
   const importer=async files=>{
@@ -2498,7 +2585,8 @@ function FichiersDrive({ch,dossier,fichiers,onChange,label}){
     let ajoutes=[],erreur='';
     try{
       const token=await getDriveToken();
-      const folderId=await driveSousDossier(token,ch.id,ch.nom,dossier);
+      /* un prospect n'a pas de chantier : il range ses pièces ailleurs */
+      const folderId=resoudre?await resoudre(token):await driveSousDossier(token,ch.id,ch.nom,dossier);
       for(const file of files){
         try{
           const{webViewLink}=await uploadToDrive(file,folderId);
@@ -5315,6 +5403,358 @@ function Bordereaux({data,save}){
         {b.maj&&<div className="xs mut" style={{marginTop:2}}>Prix à jour au {fd(b.maj)}</div>}
       </button>;
     })}
+  </div>;
+}
+
+/* ---------------- TABLEAU DE BORD ----------------
+   Ce qui appelle une action aujourd'hui, et rien d'autre : les chiffrages qu'on
+   attend de vous, les étapes en retard, les pièces qui manquent à la phase où
+   en est chaque chantier, et les décennales qui tombent. */
+
+/* les pièces attendues à la phase courante et qui ne sont pas encore cochées */
+function piecesManquantes(ch){
+  const attendues=DOCS_PHASE[ch.statut]||[];
+  const d=ch.docs||{};
+  return attendues.filter(id=>!(d[id]&&d[id].fait))
+    .map(id=>(DOCS.find(x=>x.id===id)||{l:id}).l);
+}
+/* jalons en retard, et ceux qui tombent dans les quinze jours */
+function jalonsUrgents(ch){
+  const t=today();
+  const limite=new Date(Date.now()+15*86400000).toISOString().slice(0,10);
+  return (ch.jalons||[]).filter(j=>j.prevue&&!j.reelle&&j.prevue<=limite)
+    .map(j=>({...j,retard:j.prevue<t,jours:joursDepuis(j.prevue)}))
+    .sort((a,b)=>(a.prevue||'').localeCompare(b.prevue||''));
+}
+
+function TableauBord({data,open,allerA}){
+  const P=data.prospects||[];
+  const chiffrages=P.filter(prospectAFaire)
+    .map(p=>({...p,attente:joursDepuis(p.demandeLe)||0}))
+    .sort((a,b)=>b.attente-a.attente);
+  /* on ne parle que des chantiers vivants : un dossier clos n'a plus de retard */
+  const actifs=data.chantiers.filter(c=>c.statut!=='clos');
+  const retards=[];
+  actifs.forEach(c=>jalonsUrgents(c).forEach(j=>retards.push({ch:c,j})));
+  retards.sort((a,b)=>(a.j.prevue||'').localeCompare(b.j.prevue||''));
+  const pieces=actifs.map(c=>({ch:c,manque:piecesManquantes(c)})).filter(x=>x.manque.length);
+  const t=today();
+  const decen=data.artisans.map(a=>({a,j:a.decennaleFin?Math.round((new Date(a.decennaleFin)-new Date(t))/86400000):null}))
+    .filter(x=>x.j===null||x.j<60).sort((a,b)=>(a.j===null?-1e9:a.j)-(b.j===null?-1e9:b.j));
+  const rien=!chiffrages.length&&!retards.length&&!pieces.length&&!decen.length;
+  const Bloc=({titre,n,c,children})=><div className="card" style={{borderLeft:'3px solid '+c}}>
+    <div className="sp" style={{marginBottom:8}}>
+      <span className="b sm" style={{color:c}}>{titre}</span>
+      <span className="pill" style={{background:c+'1A',color:c}}>{n}</span></div>
+    {children}</div>;
+  const item=(k,onClick,gauche,droite,couleur)=><button key={k} onClick={onClick}
+    style={{display:'flex',width:'100%',justifyContent:'space-between',gap:10,alignItems:'baseline',
+      textAlign:'left',background:'none',border:'none',borderTop:'1px solid '+RULE,padding:'7px 0'}}>
+    <span className="xs" style={{flex:1,minWidth:0}}>{gauche}</span>
+    <span className="xs b" style={{color:couleur||MUTED,whiteSpace:'nowrap'}}>{droite}</span></button>;
+  return <div>
+    <H2>TABLEAU DE BORD</H2>
+    <div className="g2" style={{marginBottom:10}}>
+      <Stat l="Chiffrages à réaliser" v={String(chiffrages.length)} c={chiffrages.length?TERRA:GREEN}/>
+      <Stat l="Étapes en retard" v={String(retards.filter(r=>r.j.retard).length)} c={retards.some(r=>r.j.retard)?TERRA:GREEN}/>
+      <Stat l="Chantiers en cours" v={String(actifs.length)} c={NAVY}/>
+      <Stat l="Décennales à surveiller" v={String(decen.length)} c={decen.length?AMBER:GREEN}/>
+    </div>
+    {rien&&<div className="card" style={{borderLeft:'3px solid '+GREEN}}>
+      <div className="b sm" style={{color:GREEN}}>Rien ne réclame d’action</div>
+      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Aucun chiffrage en attente, aucune étape en retard, aucune pièce manquante à la phase en cours et aucune décennale proche de son terme.</div>
+    </div>}
+
+    {chiffrages.length>0&&<Bloc titre="DEMANDES DE CHIFFRAGE" n={chiffrages.length} c={TERRA}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Déposées par le commercial, elles attendent votre réponse.</div>
+      {chiffrages.map(p=>item(p.id,()=>allerA('prospects'),
+        <span><b>{p.nom}</b>{p.commercial?<span className="mut"> · {p.commercial}</span>:null}
+          <span className="mut">{p.commune?' · '+p.commune:''}</span></span>,
+        p.attente>0?p.attente+' j':'aujourd’hui', p.attente>7?TERRA:p.attente>3?AMBER:MUTED))}
+    </Bloc>}
+
+    {retards.length>0&&<div style={{marginTop:8}}><Bloc titre="ÉTAPES À TENIR" n={retards.length} c={retards.some(r=>r.j.retard)?TERRA:AMBER}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>En retard, ou prévues dans les quinze jours.</div>
+      {retards.map(({ch,j})=>item(ch.id+':'+j.id,()=>open(ch.id),
+        <span><b>{j.label}</b><span className="mut"> · {ch.nom}</span></span>,
+        j.retard?'retard '+j.jours+' j':fd(j.prevue), j.retard?TERRA:AMBER))}
+    </Bloc></div>}
+
+    {pieces.length>0&&<div style={{marginTop:8}}><Bloc titre="PIÈCES À AJOUTER" n={pieces.reduce((s,x)=>s+x.manque.length,0)} c={AMBER}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Les pièces attendues à la phase où en est chaque dossier.</div>
+      {pieces.map(({ch,manque})=>item(ch.id,()=>open(ch.id),
+        <span><b>{ch.nom}</b><span className="mut"> · {PHASE[ch.statut]}</span>
+          <div className="mut" style={{marginTop:2,lineHeight:1.5}}>{manque.join(' · ')}</div></span>,
+        manque.length+' pièce'+(manque.length>1?'s':''), AMBER))}
+    </Bloc></div>}
+
+    {decen.length>0&&<div style={{marginTop:8}}><Bloc titre="ASSURANCES DÉCENNALES" n={decen.length} c={AMBER}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Sans décennale à jour, l’application refuse d’émettre le marché.</div>
+      {decen.map(({a,j})=>item(a.id,()=>allerA('artisans'),
+        <span><b>{a.nom}</b>{a.corps?<span className="mut"> · {a.corps}</span>:null}</span>,
+        j===null?'non renseignée':j<0?'expirée depuis '+(-j)+' j':'dans '+j+' j',
+        j===null||j<0?TERRA:AMBER))}
+    </Bloc></div>}
+  </div>;
+}
+
+/* ---------------- PROSPECTS ----------------
+   L'affaire avant qu'elle soit une affaire : le commercial dépose ce qu'il sait
+   du projet et demande un chiffrage, le maître d'œuvre le pose et arrête sa
+   marge. Une fois signée, la fiche se transforme en chantier. */
+function Prospects({data,save}){
+  const [f,setF]=useState(null);
+  const [ouv,setOuv]=useState('');
+  const [filtre,setFiltre]=useState('actifs');
+  const P=data.prospects||[];
+  const maj=(id,p)=>save({...data,prospects:P.map(x=>x.id===id?{...x,...p}:x)});
+  const neuf=()=>({nom:'',client:'',telClient:'',emailClient:'',adresseClient:'',commune:'',
+    commercial:'',demandeLe:today(),statut:'demande',
+    typeTerrain:'',surfaceTerrain:'',prestation:'',chauffage:'',niveaux:'',nbChambres:'',
+    surfaceHabitable:'',surfaceAnnexes:'',budgetClient:'',demande:'',
+    postes:[],coutHT:'',margePct:'',margeMontant:'',tva:'',remisLe:'',reponse:'',
+    plans:[],pieces:[]});
+  const ok=()=>{
+    if(!(f.nom||'').trim())return;
+    const r={...f,surfaceTerrain:f.surfaceTerrain===''?'':+f.surfaceTerrain,
+      surfaceHabitable:f.surfaceHabitable===''?'':+f.surfaceHabitable,
+      surfaceAnnexes:f.surfaceAnnexes===''?'':+f.surfaceAnnexes,
+      nbChambres:f.nbChambres===''?'':+f.nbChambres,
+      budgetClient:f.budgetClient===''?'':+f.budgetClient,
+      coutHT:f.coutHT===''?'':+f.coutHT,margePct:f.margePct===''?'':+f.margePct,
+      margeMontant:f.margeMontant===''?'':+f.margeMontant,tva:f.tva===''?'':+f.tva};
+    save({...data,prospects:f.id?P.map(x=>x.id===f.id?{...x,...r}:x):[...P,{...r,id:uid()}]});
+    setF(null);
+  };
+  /* la fiche signée devient un chantier : on ne ressaisit pas ce qui est déjà là */
+  const transformer=p=>{
+    if(!confirm('Créer le chantier « '+p.nom+' » à partir de ce prospect ?\n\nLe prospect est conservé et passe en « Signé ».'))return;
+    const id=uid();
+    const ch={id,nom:p.nom,client:p.client||'',telClient:p.telClient||'',emailClient:p.emailClient||'',
+      adresse:p.commune||'',adresseClient:p.adresseClient||'',
+      surfaceHabitable:p.surfaceHabitable||'',surfacePlancher:'',
+      budgetClientTTC:prospectPrixTTC(p)||'',budget:prospectCoutHT(p)||'',
+      honorairesPct:'',honorairesMontant:prospectMargeHT(p)||'',
+      statut:'etude',lienDrive:'',docs:{},jalons:[],prospectId:p.id};
+    save({...data,chantiers:[...data.chantiers,ch],
+      prospects:P.map(x=>x.id===p.id?{...x,statut:'gagne',chantierId:id}:x)});
+    getDriveToken().then(t=>creerArborescence(t,id,ch.nom)).catch(()=>{});
+  };
+  const L=P.filter(p=>filtre==='tous'?true:filtre==='afaire'?prospectAFaire(p)
+    :['demande','encours','chiffre','attente'].indexOf(p.statut)>=0)
+    .sort((a,b)=>{
+      /* ce qui attend une réponse remonte, puis le plus ancien d'abord */
+      const pa=prospectAFaire(a)?0:1, pb=prospectAFaire(b)?0:1;
+      if(pa!==pb)return pa-pb;
+      return (a.demandeLe||'9999').localeCompare(b.demandeLe||'9999');
+    });
+  const nAF=P.filter(prospectAFaire).length;
+  return <div>
+    <H2 action={<button className="btn acc s" onClick={()=>setF(neuf())}>+ Prospect</button>}>PROSPECTS ({P.length})</H2>
+    {nAF>0&&<div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,
+      background:'#F6E2DC',borderLeft:'3px solid '+TERRA,lineHeight:1.6}}>
+      <b style={{color:TERRA}}>{nAF} chiffrage{nAF>1?'s':''} à réaliser</b> — ce sont les fiches en tête de liste.
+    </div>}
+    {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+      <Fld label="NOM DU PROJET"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Dupont — Ceaucé"/></Fld>
+      <ImportContact label="Remplir depuis Contacts"
+        onLu={c=>setF(p=>({...p,client:c.nom||p.client,telClient:c.tel||p.telClient,
+          emailClient:c.email||p.emailClient||'',adresseClient:c.adresse||p.adresseClient}))}/>
+      <div className="g2">
+        <Fld label="CLIENT"><input className="in" value={f.client} onChange={e=>setF({...f,client:e.target.value})}/></Fld>
+        <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={f.telClient||''} onChange={e=>setF({...f,telClient:e.target.value})}/></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="E-MAIL CLIENT"><input className="in" type="email" value={f.emailClient||''} onChange={e=>setF({...f,emailClient:e.target.value})}/></Fld>
+        <Fld label="ADRESSE DU CLIENT"><input className="in" value={f.adresseClient||''} onChange={e=>setF({...f,adresseClient:e.target.value})}/></Fld>
+      </div>
+      <Fld label="COMMUNE DE CONSTRUCTION"><input className="in" value={f.commune||''} onChange={e=>setF({...f,commune:e.target.value})} placeholder="Lotissement, commune, parcelle…"/></Fld>
+
+      <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>LA DEMANDE DU COMMERCIAL</div>
+      <div className="g2">
+        <Fld label="COMMERCIAL"><input className="in" value={f.commercial||''} onChange={e=>setF({...f,commercial:e.target.value})}/></Fld>
+        <Fld label="DEMANDÉ LE"><input className="in" type="date" value={f.demandeLe||''} onChange={e=>setF({...f,demandeLe:e.target.value})}/></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="TYPE DE TERRAIN"><input className="in" list="pterr" value={f.typeTerrain||''} onChange={e=>setF({...f,typeTerrain:e.target.value})}/>
+          <datalist id="pterr">{TERRAINS.map(t=><option key={t} value={t}/>)}</datalist></Fld>
+        <Fld label="SURFACE DU TERRAIN (m²)"><input className="in" type="number" step="1" value={f.surfaceTerrain||''} onChange={e=>setF({...f,surfaceTerrain:e.target.value})}/></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="PRESTATION SOUHAITÉE"><input className="in" list="ppres" value={f.prestation||''} onChange={e=>setF({...f,prestation:e.target.value})}/>
+          <datalist id="ppres">{PRESTATIONS.map(t=><option key={t} value={t}/>)}</datalist></Fld>
+        <Fld label="TYPE DE CHAUFFAGE"><input className="in" list="pchauf" value={f.chauffage||''} onChange={e=>setF({...f,chauffage:e.target.value})}/>
+          <datalist id="pchauf">{CHAUFFAGES.map(t=><option key={t} value={t}/>)}</datalist></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="NIVEAUX"><input className="in" list="pniv" value={f.niveaux||''} onChange={e=>setF({...f,niveaux:e.target.value})}/>
+          <datalist id="pniv">{NIVEAUX.map(t=><option key={t} value={t}/>)}</datalist></Fld>
+        <Fld label="NOMBRE DE CHAMBRES"><input className="in" type="number" step="1" value={f.nbChambres||''} onChange={e=>setF({...f,nbChambres:e.target.value})}/></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="SURFACE HABITABLE (m²)"><input className="in" type="number" step="0.01" value={f.surfaceHabitable||''} onChange={e=>setF({...f,surfaceHabitable:e.target.value})}/></Fld>
+        <Fld label="SURFACES ANNEXES (m²)"><input className="in" type="number" step="0.01" value={f.surfaceAnnexes||''} onChange={e=>setF({...f,surfaceAnnexes:e.target.value})} placeholder="Garage, cellier, préau…"/></Fld>
+      </div>
+      <div className="xs mut" style={{marginTop:-4,marginBottom:10,lineHeight:1.5}}>
+        Surface pondérée retenue pour le ratio : <b>{surfacePonderee(f).toLocaleString('fr-FR')} m²</b> — l'habitable plus la moitié des annexes.
+      </div>
+      <Fld label="BUDGET ANNONCÉ PAR LE CLIENT (€ TTC)"><input className="in" type="number" value={f.budgetClient||''} onChange={e=>setF({...f,budgetClient:e.target.value})}/></Fld>
+      <Fld label="PRÉCISIONS DE LA DEMANDE"><textarea className="in" rows="3" value={f.demande||''} onChange={e=>setF({...f,demande:e.target.value})} placeholder="Contraintes du terrain, souhaits particuliers, délais…"/></Fld>
+
+      <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>VOTRE CHIFFRAGE</div>
+      <PostesChiffrage postes={f.postes||[]} onChange={v=>setF({...f,postes:v})}/>
+      {!prospectPostesHT(f)&&<Fld label="COÛT DES TRAVAUX HT (€) — SANS DÉTAIL PAR POSTE">
+        <input className="in" type="number" value={f.coutHT||''} onChange={e=>setF({...f,coutHT:e.target.value})}/></Fld>}
+      <div className="g2">
+        <Fld label="MARGE MAÎTRE D’ŒUVRE (%)"><input className="in" type="number" step="0.1" value={f.margePct||''} onChange={e=>setF({...f,margePct:e.target.value})}/></Fld>
+        <Fld label="MARGE EN € — remplace le calcul"><input className="in" type="number"
+          placeholder={'Auto : '+eur(prospectCoutHT(f)*(+f.margePct||0)/100)}
+          value={f.margeMontant||''} onChange={e=>setF({...f,margeMontant:e.target.value})}/></Fld>
+      </div>
+      <Fld label="TVA (%)"><input className="in" type="number" step="0.1" placeholder="20" value={f.tva===undefined?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/></Fld>
+      <RecapChiffrage p={f}/>
+      <div className="g2">
+        <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>
+          {PROSPECT_ST.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
+        <Fld label="CHIFFRAGE REMIS LE"><input className="in" type="date" value={f.remisLe||''} onChange={e=>setF({...f,remisLe:e.target.value})}/></Fld>
+      </div>
+      <Fld label="VOTRE RÉPONSE AU COMMERCIAL"><textarea className="in" rows="3" value={f.reponse||''} onChange={e=>setF({...f,reponse:e.target.value})} placeholder="Hypothèses retenues, postes exclus, réserves…"/></Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)}
+        onDel={f.id?()=>{if(confirm('Supprimer ce prospect ?')){save({...data,prospects:P.filter(x=>x.id!==f.id)});setF(null)}}:null}/>
+    </div>}
+    {P.length>0&&<div className="row" style={{gap:6,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+      <span className="xs mut">Afficher</span>
+      {[['afaire','À chiffrer'],['actifs','En cours'],['tous','Tous']].map(([id,l])=>
+        <button key={id} className={'btn s '+(filtre===id?'':'gh')} onClick={()=>setFiltre(id)}>{l}</button>)}
+    </div>}
+    {!P.length&&!f&&<Empty>Aucun prospect. « + Prospect » ouvre la première demande de chiffrage.</Empty>}
+    {P.length>0&&!L.length&&<Empty>Aucun prospect dans cette vue.</Empty>}
+    {L.map(p=>{
+      const st=prospectSt(p.statut), prix=prospectPrixTTC(p), r=ratioM2(prix,p);
+      const attente=prospectAFaire(p)?joursDepuis(p.demandeLe):null;
+      return <div key={p.id} className="card" style={{borderLeft:'3px solid '+st.c}}>
+        <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
+          <span className="b sm" style={{color:NAVY}}>{p.nom}</span>
+          <div className="row" style={{gap:6,alignItems:'center',flex:'0 0 auto'}}>
+            <span className="pill" style={{background:st.c+'1A',color:st.c}}>{st.label}</span>
+            <Plus actif={ouv===p.id} titre="Voir le détail" onClick={()=>setOuv(ouv===p.id?'':p.id)}/>
+          </div>
+        </div>
+        <div className="xs mut" style={{marginTop:3}}>{p.client}{p.commune?' — '+p.commune:''}</div>
+        {attente!==null&&attente>0&&<div className="xs b" style={{color:attente>7?TERRA:AMBER,marginTop:3}}>
+          En attente depuis {attente} jour{attente>1?'s':''}</div>}
+        <div className="g3 xs" style={{marginTop:8}}>
+          <div><div className="mut">Prix du projet</div><div className="b">{prix?eur(prix)+' TTC':'à chiffrer'}</div></div>
+          <div><div className="mut">Surface pondérée</div><div>{surfacePonderee(p)?surfacePonderee(p).toLocaleString('fr-FR')+' m²':'—'}</div></div>
+          <div><div className="mut">Ratio</div><div className="b" style={{color:r?NAVY:MUTED}}>{eurM2(r)}</div></div>
+        </div>
+        {ouv===p.id&&<div style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+          <DetailProspect p={p} maj={v=>maj(p.id,v)}/>
+          <div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
+            <button className="btn s" onClick={()=>setF({...neuf(),...p})}>Modifier</button>
+            {p.statut!=='gagne'&&<button className="btn gh s" onClick={()=>transformer(p)}>Transformer en chantier</button>}
+            {p.chantierId&&<span className="xs" style={{color:GREEN,alignSelf:'center'}}>✓ Chantier créé</span>}
+          </div>
+        </div>}
+      </div>;
+    })}
+  </div>;
+}
+
+/* le chiffrage poste par poste : un libellé, un montant, et la somme en bas */
+function PostesChiffrage({postes,onChange}){
+  const L=postes||[];
+  const set=(id,p)=>onChange(L.map(x=>x.id===id?{...x,...p}:x));
+  return <Fld label="CHIFFRAGE PAR POSTE">
+    {L.map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
+      <input className="in" style={{flex:1,minWidth:0}} list="pcorps" value={x.libelle||''}
+        placeholder="Corps d’état" onChange={e=>set(x.id,{libelle:e.target.value})}/>
+      <input className="in" style={{width:110,flex:'0 0 auto'}} type="number" value={x.montant||''}
+        placeholder="€ HT" onChange={e=>set(x.id,{montant:e.target.value})}/>
+      <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
+        onClick={()=>onChange(L.filter(y=>y.id!==x.id))}>✕</button>
+    </div>)}
+    <datalist id="pcorps">{CORPS.map(c=><option key={c} value={c}/>)}</datalist>
+    <div className="row" style={{gap:10,alignItems:'center',marginTop:4}}>
+      <button className="btn gh s" onClick={()=>onChange([...L,{id:uid(),libelle:'',montant:''}])}>+ Poste</button>
+      {L.length>0&&<span className="xs b">Total {eur(prospectPostesHT({postes:L}))} HT</span>}
+    </div>
+  </Fld>;
+}
+
+/* le récapitulatif du chiffrage, tel qu'il se lit une fois les postes saisis */
+function RecapChiffrage({p}){
+  const cout=prospectCoutHT(p), marge=prospectMargeHT(p);
+  const ht=prospectPrixHT(p), ttc=prospectPrixTTC(p);
+  const rTTC=ratioM2(ttc,p), rHT=ratioM2(ht,p);
+  const bud=+((p&&p.budgetClient))||0;
+  if(!cout&&!marge)return null;
+  return <div className="card" style={{marginTop:4,marginBottom:12,background:'#F4F1EB',borderLeft:'3px solid '+NAVY}}>
+    <div className="g2 xs">
+      <div><div className="mut">Coût des travaux</div><div className="b">{eur(cout)} HT</div></div>
+      <div><div className="mut">Marge maîtrise d’œuvre</div><div className="b">{eur(marge)} HT{cout?' · '+Math.round(marge/cout*1000)/10+' %':''}</div></div>
+    </div>
+    <div className="sp" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE,alignItems:'flex-end'}}>
+      <span className="xs mut">Prix du projet</span>
+      <span className="b" style={{fontSize:19,color:NAVY,lineHeight:1}}>{eur(ttc)} TTC</span>
+    </div>
+    <div className="xs mut" style={{textAlign:'right',marginTop:2}}>{eur(ht)} HT · TVA {prospectTva(p)} %</div>
+    <div className="sp" style={{marginTop:10,paddingTop:10,borderTop:'2px solid '+TERRA,alignItems:'flex-end'}}>
+      <span className="xs mut">Ratio au m² pondéré</span>
+      <span className="b" style={{fontSize:18,color:TERRA,lineHeight:1}}>{eurM2(rTTC)} TTC</span>
+    </div>
+    <div className="xs mut" style={{textAlign:'right',marginTop:2}}>
+      {eurM2(rHT)} HT · sur {surfacePonderee(p).toLocaleString('fr-FR')} m² pondérés</div>
+    {bud>0&&<div className="xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE,
+      color:ttc>bud?TERRA:GREEN,lineHeight:1.5}}>
+      Budget annoncé par le client {eur(bud)} TTC — {ttc>bud?'dépassé de '+eur(ttc-bud):'marge de '+eur(bud-ttc)}
+    </div>}
+  </div>;
+}
+
+/* le détail déplié sous une fiche : ce qu'on sait du projet, et ses pièces */
+function DetailProspect({p,maj}){
+  const dossier=async token=>driveProspectFolder(token,p.id,p.nom);
+  return <div>
+    <div className="g2 xs" style={{marginBottom:10}}>
+      <div>
+        <div className="b" style={{color:NAVY,marginBottom:4}}>Le projet</div>
+        <Ligne l="Terrain" v={p.typeTerrain}/>
+        <Ligne l="Surface terrain" v={p.surfaceTerrain?p.surfaceTerrain+' m²':''}/>
+        <Ligne l="Prestation" v={p.prestation}/>
+        <Ligne l="Chauffage" v={p.chauffage}/>
+        <Ligne l="Niveaux" v={p.niveaux}/>
+        <Ligne l="Chambres" v={p.nbChambres}/>
+        <Ligne l="Habitable" v={p.surfaceHabitable?p.surfaceHabitable+' m²':''}/>
+        <Ligne l="Annexes" v={p.surfaceAnnexes?p.surfaceAnnexes+' m²':''}/>
+      </div>
+      <div>
+        <div className="b" style={{color:NAVY,marginBottom:4}}>La demande</div>
+        <Ligne l="Commercial" v={p.commercial}/>
+        <Ligne l="Demandé le" v={p.demandeLe?fd(p.demandeLe):''}/>
+        <Ligne l="Remis le" v={p.remisLe?fd(p.remisLe):''}/>
+        <Ligne l="Budget client" v={p.budgetClient?eur(p.budgetClient)+' TTC':''}/>
+        <Ligne l="Téléphone" v={p.telClient}/>
+        <Ligne l="E-mail" v={p.emailClient}/>
+      </div>
+    </div>
+    {p.demande&&<div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',lineHeight:1.6}}>
+      <b style={{color:AMBER}}>Précisions du commercial</b><div style={{marginTop:3,whiteSpace:'pre-wrap'}}>{p.demande}</div></div>}
+    {(p.postes||[]).length>0&&<div className="xs" style={{marginBottom:10}}>
+      <div className="b" style={{color:NAVY,marginBottom:4}}>Chiffrage par poste</div>
+      {p.postes.map(x=><div key={x.id} className="sp" style={{padding:'2px 0'}}>
+        <span className="mut">{x.libelle||'Poste'}</span><span>{eur(x.montant)} HT</span></div>)}
+    </div>}
+    <RecapChiffrage p={p}/>
+    {p.reponse&&<div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,background:'#F4F1EB',lineHeight:1.6}}>
+      <b style={{color:NAVY}}>Votre réponse</b><div style={{marginTop:3,whiteSpace:'pre-wrap'}}>{p.reponse}</div></div>}
+    <Fld label="PLAN D’AVANT-PROJET">
+      <FichiersDrive resoudre={dossier} fichiers={p.plans} onChange={v=>maj({plans:v})} label="Importer le plan"/>
+    </Fld>
+    <Fld label="AUTRES PIÈCES">
+      <FichiersDrive resoudre={dossier} fichiers={p.pieces} onChange={v=>maj({pieces:v})} label="Importer des pièces"/>
+    </Fld>
+    <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Les pièces sont rangées dans Drive › CRM CP › Prospects › {p.nom}.</div>
   </div>;
 }
 
