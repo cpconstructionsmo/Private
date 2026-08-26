@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-26 · un écran qui plante se lit, il ne reste plus figé';
+const VERSION='2026-08-26 · un chantier trou dans la liste ne fait plus tout planter';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -693,6 +693,15 @@ const ventileFactures=L=>{
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
 const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[]};
+/* un enregistrement corrompu (case null au lieu d'être absente, retiré à la main
+   dans la base) fait planter tout écran qui parcourt cette liste — un seul trou
+   suffit à rendre CHANTIERS et ARTISANS injoignables. On l'écarte silencieusement
+   à l'entrée plutôt que dans chacun des filtres qui la lisent ensuite. */
+const nettoyer=d=>{
+  const r={...d};
+  for(const k of Object.keys(EMPTY))if(Array.isArray(r[k]))r[k]=r[k].filter(Boolean);
+  return r;
+};
 
 /* ---------- chiffrage d'un prospect ----------
    Le coût, c'est la somme des postes chiffrés ; à défaut, le montant global saisi.
@@ -2776,7 +2785,7 @@ const dateHeure=iso=>{
   return d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
 };
 
-function load(){try{const r=localStorage.getItem(KEY);return r?{...EMPTY,...JSON.parse(r)}:EMPTY}catch(e){return EMPTY}}
+function load(){try{const r=localStorage.getItem(KEY);return r?nettoyer({...EMPTY,...JSON.parse(r)}):EMPTY}catch(e){return EMPTY}}
 
 function Root(){
   const [session,setSession]=useState(undefined);
@@ -2850,7 +2859,7 @@ function App({session}){
     return sb.from('app_data').select('data').eq('id','main').single()
       .then(({data:row,error})=>{
         if(error&&error.code!=='PGRST116'){setChargement('erreur');return}
-        if(row&&row.data)setData({...EMPTY,...row.data});
+        if(row&&row.data)setData(nettoyer({...EMPTY,...row.data}));
         setChargement('ok');
       })
       .catch(()=>setChargement('erreur'));
@@ -2862,23 +2871,24 @@ function App({session}){
       .then(({data:row,error})=>{
         if(!alive)return;
         if(error&&error.code!=='PGRST116'){setChargement('erreur');return}
-        if(row&&row.data)setData({...EMPTY,...row.data});
+        if(row&&row.data)setData(nettoyer({...EMPTY,...row.data}));
         setChargement('ok');
       })
       .catch(()=>{if(alive)setChargement('erreur')});
     const channel=sb.channel('app_data_changes')
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_data',filter:'id=eq.main'},payload=>{
-        if(payload.new&&payload.new.data)setData({...EMPTY,...payload.new.data});
+        if(payload.new&&payload.new.data)setData(nettoyer({...EMPTY,...payload.new.data}));
       })
       .subscribe();
     return ()=>{alive=false;sb.removeChannel(channel)};
   },[]);
 
-  const save=async next=>{
+  const save=async brut=>{
     if(chargement!=='ok'){
       setErr("Vos données ne sont pas encore chargées depuis le serveur — modification annulée pour ne pas écraser le contenu enregistré. Rechargez la page une fois la connexion revenue.");
       return;
     }
+    const next=nettoyer(brut);
     setData(next);
     try{localStorage.setItem(KEY,JSON.stringify(next))}catch(e){/* cache local best-effort */}
     const{error}=await sb.from('app_data').upsert({id:'main',data:next,updated_at:new Date().toISOString()});
