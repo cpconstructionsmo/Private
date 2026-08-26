@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-26 · lignes déplaçables au doigt, intertitres et précisions';
+const VERSION='2026-08-26 · un écran qui plante se lit, il ne reste plus figé';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -2811,6 +2811,27 @@ function Login(){
   </div>;
 }
 
+/* Un écran qui plante sans rien dire est indiscernable d'un bouton qui ne
+   répond plus : « je ne peux plus ouvrir les chantiers » peut aussi bien
+   vouloir dire « ça plante en silence ». Ce filet transforme l'un en l'autre —
+   un message qu'on peut lire, avec un retour, plutôt qu'un écran figé. Seule
+   une classe React peut intercepter une erreur de rendu : pas de hooks ici. */
+class Secours extends React.Component{
+  constructor(p){super(p);this.state={erreur:null}}
+  static getDerivedStateFromError(erreur){return {erreur}}
+  render(){
+    if(this.state.erreur)return <div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+      <div className="b sm" style={{color:TERRA}}>Cet écran n’a pas pu s’afficher</div>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+        Une erreur technique l’a interrompu — {String((this.state.erreur&&this.state.erreur.message)||this.state.erreur)}.
+        Revenez en arrière ; si cela se reproduit, ce message aide à comprendre pourquoi.
+      </div>
+      {this.props.onRetour&&<button className="btn gh s" style={{marginTop:10}} onClick={this.props.onRetour}>← Retour</button>}
+    </div>;
+    return this.props.children;
+  }
+}
+
 function App({session}){
   const [data,setData]=useState(load);
   /* on arrive sur le tableau de bord : ce qui appelle une action se voit avant
@@ -2876,6 +2897,9 @@ function App({session}){
     </div>}
     {err&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:'8px 16px'}}>{err}</div>}
     <main style={{padding:16}}>
+      {/* la clé force un nouveau montage à chaque écran : après une erreur,
+          revenir en arrière repart d'un état neuf plutôt que de rester figé */}
+      <Secours key={ch?'ch:'+ch.id:'v:'+view} onRetour={ch?()=>setOpen(null):null}>
       {ch?<Fiche data={data} ch={ch} save={save} back={()=>setOpen(null)}/>
       :view==='tdb'?<TableauBord data={data} open={setOpen} allerA={v=>{setView(v);setOpen(null)}}/>
       :view==='prospects'?<Prospects data={data} save={save}/>
@@ -2886,6 +2910,7 @@ function App({session}){
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
       :view==='bilan'?<Bilan data={data} open={setOpen}/>
       :<Donnees data={data} save={save} session={session}/>}
+      </Secours>
     </main>
     {/* neuf onglets ne tiennent pas en bas d'un iPhone : les trois derniers se
         déplient. Sur ordinateur, la colonne les montre tous d'emblée. */}
