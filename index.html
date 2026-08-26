@@ -145,7 +145,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-26 · pièces du terrain, taxes et lecture de l’étude géorisques';
+const VERSION='2026-08-26 · coût complet de l’opération, fiche navette et validation du chiffrage';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -183,6 +183,44 @@ const TERRAINS=['Lotissement viabilisé','Terrain diffus viabilisé','Terrain di
 const PRESTATIONS=['Clé en main','Hors d’eau hors d’air','Gros œuvre seul','Second œuvre seul','Extension','Surélévation','Rénovation lourde'];
 const CHAUFFAGES=['Pompe à chaleur air/eau','Pompe à chaleur air/air','Plancher chauffant hydraulique','Poêle à granulés','Poêle à bois','Chaudière gaz condensation','Radiateurs électriques','Solaire thermique en appoint'];
 const NIVEAUX=['Plain-pied','R+1','R+1 combles aménagés','R+combles perdus','R+2','Sous-sol complet'];
+const FINANCEMENTS=['Crédit immobilier classique','PTZ + crédit immobilier','PTZ seul',
+  'Financement comptant','Crédit avec apport','Prêt relais','Prêt épargne logement (PEL/CEL)',
+  'Prêt Action Logement','En cours de montage'];
+/* les raccordements qu'on retrouve sur presque toutes les opérations */
+const RACCORDEMENTS=['Raccordement Enedis','Ouverture compteur d’eau','Mise en service fibre',
+  'Raccordement gaz','Branchement assainissement collectif','Assainissement individuel',
+  'Compteur de chantier','Bornage et implantation'];
+/* ce que le client garde à sa charge et qui ne passe pas par les marchés */
+const TRAVAUX_CLIENT=['Peinture','Cuisine équipée','Salle de bain — meubles','Parquet',
+  'Terrassement d’agrément','Clôture et portail','Terrasse','Aménagement extérieur','Poêle'];
+
+/* ---------- fiche navette ----------
+   Ce que le commercial relève chez le client, poste par poste, pour que le
+   chiffrage porte sur les bons matériaux et non sur des hypothèses. */
+const NAV_MACONNERIE=['Parpaing creux','Parpaing à bancher','Brique creuse','Brique Monomur','Béton banché','Ossature bois'];
+const NAV_COUVERTURE=['Tuile béton','Tuile terre cuite','Ardoise artificielle','Ardoise naturelle','Bac acier','Zinc'];
+const NAV_TEINTE=['Brun','Rouge naturel','Ardoisé','Noir','Anthracite','Vieilli','Sablé','Terre de Beauce'];
+const NAV_MENU_MAT=['PVC','ALU','Mixte ALU/bois','Bois'];
+const NAV_MENU_COUL=['Blanc','Gris anthracite RAL 7016','Gris clair RAL 7035','Beige','Chêne doré','Noir sablé'];
+const NAV_PORTE=['Gamme d’Olt — fin de chantier','Chapuzet à peindre','Postformée à peindre','Âme pleine à peindre'];
+const NAV_LAINE=['Laine de verre soufflée','Laine de verre en rouleau','Laine de roche','Ouate de cellulose','Polystyrène graphité','Polyuréthane'];
+const NAV_CHAUFFAGE=['PAC air/eau','PAC air/air TRINEO','PAC air/air multisplit','T One','Poêle à granulés','Chaudière gaz condensation','Radiateurs électriques'];
+const NAV_EMETTEUR=['Plancher chauffant','Radiateurs à eau basse température','Plancher chauffant + radiateurs à l’étage','Cassettes / splits','Sans émetteur hydraulique'];
+const NAV_CARRELAGE=['45 × 45','60 × 60','30 × 60','20 × 120','80 × 80','Grès cérame imitation parquet'];
+const NAV_ELEC=['Prises RJ45','Volets roulants motorisés','Portail motorisé','Borne de recharge véhicule',
+  'Alarme','Domotique','Éclairage extérieur','Prises supplémentaires','Tableau pré-équipé photovoltaïque'];
+/* la fiche, dans l'ordre où on la remplit : lot, champ, liste de suggestions */
+const NAVETTE=[
+  {lot:'Gros œuvre',champs:[['maconnerie','Maçonnerie',NAV_MACONNERIE]]},
+  {lot:'Couverture',champs:[['couverture','Type de couverture',NAV_COUVERTURE],['teinteCouv','Teinte',NAV_TEINTE]]},
+  {lot:'Menuiseries extérieures',champs:[['menuMat','Matériau',NAV_MENU_MAT],['menuCoul','Couleur',NAV_MENU_COUL]]},
+  {lot:'Menuiseries intérieures',champs:[['porte','Portes intérieures',NAV_PORTE]]},
+  {lot:'Isolation',champs:[['isoCombles','Combles — épaisseur et type',NAV_LAINE],['isoMurs','Murs — épaisseur et type',NAV_LAINE]]},
+  {lot:'Chauffage',champs:[['chauffage','Génération',NAV_CHAUFFAGE],['emetteur','Émetteurs',NAV_EMETTEUR]]},
+  {lot:'Carrelage et faïence',champs:[['carrelage','Format du carrelage',NAV_CARRELAGE],['faience','Faïence',[]]]},
+  {lot:'Finitions',champs:[['peinture','Peinture',[]],['parquet','Parquet',[]]]},
+];
+
 /* les pièces qu'on réclame au commercial avant de pouvoir chiffrer */
 const PIECES_PROSPECT=[
   {id:'bornage',l:'Plan de bornage'},
@@ -682,11 +720,65 @@ const prospectRetro=p=>{
    Assurance dommages-ouvrage et taxes ne sont pas le prix du bâtiment : elles
    pèsent sur l'opération. On les additionne à part pour ne pas fausser le ratio
    au m², qui ne vaut que rapporté au coût de construction. */
-const prospectAutresTaxes=p=>((p&&p.taxes)||[]).reduce((s,x)=>s+(+x.montant||0),0);
-const prospectTaxes=p=>Math.round(((+((p&&p.taxeAmenagement))||0)
-  +(+((p&&p.taxeRaccordement))||0)+prospectAutresTaxes(p))*100)/100;
+const sommeLignes=L=>(L||[]).reduce((s,x)=>s+(+x.montant||0),0);
+const prospectAutresTaxes=p=>sommeLignes(p&&p.taxes);
+const prospectTaxes=p=>Math.round(((+((p&&p.taxeAmenagement))||0)+prospectAutresTaxes(p))*100)/100;
 const prospectDO=p=>+((p&&p.dommageOuvrage))||0;
-const prospectOperationTTC=p=>Math.round((prospectPrixTTC(p)+prospectTaxes(p)+prospectDO(p))*100)/100;
+/* le terrain et ses frais d'acte : la première dépense de l'opération */
+const prospectTerrain=p=>Math.round(((+((p&&p.terrainPrix))||0)+(+((p&&p.fraisNotaire))||0))*100)/100;
+/* Enedis, eau, fibre… « taxeRaccordement » est l'ancien champ unique : on
+   continue de le compter pour ne rien perdre des fiches déjà saisies. */
+const prospectRaccordements=p=>Math.round((sommeLignes(p&&p.raccordements)
+  +(+((p&&p.taxeRaccordement))||0))*100)/100;
+/* peinture, cuisine… payés par le client hors marchés, mais dans son budget */
+const prospectTravauxClient=p=>Math.round(sommeLignes(p&&p.travauxClient)*100)/100;
+/* tout ce que le client débourse, du terrain à la dernière taxe */
+const prospectOperationTTC=p=>Math.round((prospectPrixTTC(p)+prospectTerrain(p)
+  +prospectRaccordements(p)+prospectTravauxClient(p)+prospectTaxes(p)+prospectDO(p))*100)/100;
+/* les frais d'acte d'un terrain à bâtir tournent autour de 7,5 % chez un
+   particulier, bien moins chez un lotisseur assujetti à la TVA */
+const notaireEstime=p=>Math.round((+((p&&p.terrainPrix))||0)*0.075);
+
+/* ---------- validation d'un chiffrage ----------
+   Le site est une page statique : il ne peut pas expédier un courriel lui-même,
+   il n'a pas de serveur pour le faire. Il compose donc le message en entier —
+   objet, chiffres, lien du PDF — et ouvre la messagerie dessus : il ne reste
+   qu'à l'envoyer. */
+const MAIL_CP='contact@cpconstructions.fr';
+function mailChiffrage(p){
+  const r=ratioM2(prospectPrixTTC(p),p);
+  const C=p.chiffrages||[]; const pdf=C[C.length-1];
+  /* null : la ligne n'a pas lieu d'être — '' : un blanc voulu entre deux blocs */
+  const L=['Le chiffrage ci-dessous est validé.','',
+    'Projet : '+(p.nom||''),
+    'Client : '+(p.client||''),
+    p.commune?'Commune : '+p.commune:null,
+    p.commercial?'Commercial : '+p.commercial:null,
+    p.telClient?'Téléphone client : '+p.telClient:null,
+    '',
+    'Surface habitable : '+(p.surfaceHabitable||'—')+' m²'
+      +(p.surfaceAnnexes?' · annexes '+p.surfaceAnnexes+' m²':''),
+    'Prix de la maison : '+eur(prospectPrixTTC(p))+' TTC ('+eur(prospectPrixHT(p))+' HT)',
+    r?'Ratio : '+eurM2(r)+' TTC sur '+surfacePonderee(p)+' m² pondérés':null,
+    '',
+    prospectTerrain(p)?'Terrain et frais d’acte : '+eur(prospectTerrain(p)):null,
+    prospectRaccordements(p)?'Raccordements : '+eur(prospectRaccordements(p)):null,
+    prospectTravauxClient(p)?'Travaux à charge client : '+eur(prospectTravauxClient(p)):null,
+    prospectDO(p)?'Dommages-ouvrage : '+eur(prospectDO(p)):null,
+    prospectTaxes(p)?'Taxes : '+eur(prospectTaxes(p)):null,
+    'COÛT TOTAL DE L’OPÉRATION : '+eur(prospectOperationTTC(p))+' TTC',
+    '',
+    p.financement?'Financement : '+p.financement:null,
+    p.courtier?'Courtier : '+(p.courtierNom||'oui')+(p.courtierTel?' — '+p.courtierTel:''):null,
+    p.budgetClient?'Budget annoncé par le client : '+eur(p.budgetClient)+' TTC':null,
+    '',
+    pdf?'Chiffrage détaillé : '+pdf.lien:'Le chiffrage détaillé n’a pas encore été déposé sur le Drive.',
+  ];
+  const corps=L.filter(x=>x!==null).join('\n').replace(/\n{3,}/g,'\n\n');
+  return 'mailto:'+MAIL_CP
+    +'?subject='+encodeURIComponent('Chiffrage validé — '+(p.nom||'projet'))
+    +'&body='+encodeURIComponent(corps);
+}
 
 /* ---------- lecture d'une étude géorisques ----------
    Le rapport de georisques.gouv.fr énumère tous les risques, y compris ceux
@@ -5609,6 +5701,7 @@ function TableauBord({data,open,allerA}){
       <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Déposées par le commercial, elles attendent votre réponse.</div>
       {chiffrages.map(p=>{
         const mq=piecesProspectManquantes(p);
+        if(!navetteRemplie(p.navette))mq.push('Fiche navette');
         return item(p.id,()=>allerA('prospects'),
           <span><b>{p.nom}</b>{p.commercial?<span className="mut"> · {p.commercial}</span>:null}
             <span className="mut">{p.commune?' · '+p.commune:''}</span>
@@ -5656,11 +5749,12 @@ function Prospects({data,save}){
     commercial:'',demandeLe:today(),statut:'demande',
     typeTerrain:'',surfaceTerrain:'',prestation:'',chauffage:'',niveaux:'',nbChambres:'',
     surfaceHabitable:'',surfaceAnnexes:'',budgetClient:'',demande:'',
-    courtier:false,courtierNom:'',courtierTel:'',
+    courtier:false,courtierNom:'',courtierTel:'',financement:'',
     postes:[],coutHT:'',margePct:'',margeMontant:'',tva:'',remisLe:'',reponse:'',
     retroPct:'',retroMontant:'',
+    terrainPrix:'',fraisNotaire:'',raccordements:[],travauxClient:[],
     dommageOuvrage:'',taxeAmenagement:'',taxeRaccordement:'',taxes:[],
-    pj:{},chiffrages:[],plans:[],pieces:[]});
+    navette:{},pj:{},chiffrages:[],plans:[],pieces:[]});
   const ok=()=>{
     if(!(f.nom||'').trim())return;
     const r={...f,surfaceTerrain:f.surfaceTerrain===''?'':+f.surfaceTerrain,
@@ -5673,7 +5767,9 @@ function Prospects({data,save}){
       retroPct:f.retroPct===''?'':+f.retroPct,retroMontant:f.retroMontant===''?'':+f.retroMontant,
       dommageOuvrage:f.dommageOuvrage===''?'':+f.dommageOuvrage,
       taxeAmenagement:f.taxeAmenagement===''?'':+f.taxeAmenagement,
-      taxeRaccordement:f.taxeRaccordement===''?'':+f.taxeRaccordement};
+      taxeRaccordement:f.taxeRaccordement===''?'':+f.taxeRaccordement,
+      terrainPrix:f.terrainPrix===''?'':+f.terrainPrix,
+      fraisNotaire:f.fraisNotaire===''?'':+f.fraisNotaire};
     save({...data,prospects:f.id?P.map(x=>x.id===f.id?{...x,...r}:x):[...P,{...r,id:uid()}]});
     setF(null);
   };
@@ -5750,7 +5846,11 @@ function Prospects({data,save}){
         Surface pondérée retenue pour le ratio : <b>{surfacePonderee(f).toLocaleString('fr-FR')} m²</b> — l'habitable plus la moitié des annexes.
       </div>
       <Fld label="BUDGET ANNONCÉ PAR LE CLIENT (€ TTC)"><input className="in" type="number" value={f.budgetClient||''} onChange={e=>setF({...f,budgetClient:e.target.value})}/></Fld>
-      <Fld label="FINANCEMENT">
+      <Fld label="MODE DE FINANCEMENT">
+        <input className="in" list="pfin" value={f.financement||''} onChange={e=>setF({...f,financement:e.target.value})} placeholder="PTZ, comptant, crédit classique…"/>
+        <datalist id="pfin">{FINANCEMENTS.map(x=><option key={x} value={x}/>)}</datalist>
+      </Fld>
+      <Fld label="COURTIER">
         <label className="row xs" style={{gap:8,alignItems:'center',cursor:'pointer'}}>
           <input type="checkbox" checked={!!f.courtier} onChange={e=>setF({...f,courtier:e.target.checked})}/>
           <span>Le client passe par un courtier</span></label>
@@ -5760,6 +5860,8 @@ function Prospects({data,save}){
         </div>}
       </Fld>
       <Fld label="PRÉCISIONS DE LA DEMANDE"><textarea className="in" rows="3" value={f.demande||''} onChange={e=>setF({...f,demande:e.target.value})} placeholder="Contraintes du terrain, souhaits particuliers, délais…"/></Fld>
+
+      <FormNavette nav={f.navette||{}} onChange={v=>setF({...f,navette:v})}/>
 
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>VOTRE CHIFFRAGE</div>
       <PostesChiffrage postes={f.postes||[]} onChange={v=>setF({...f,postes:v})}/>
@@ -5773,15 +5875,28 @@ function Prospects({data,save}){
       </div>
       <Fld label="TVA (%)"><input className="in" type="number" step="0.1" placeholder="20" value={f.tva===undefined?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/></Fld>
 
-      <div className="h2" style={{marginTop:16,marginBottom:4,fontSize:13}}>ASSURANCE ET TAXES</div>
+      <div className="h2" style={{marginTop:16,marginBottom:4,fontSize:13}}>LE RESTE DE L’OPÉRATION</div>
       <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
-        Elles pèsent sur l'opération sans être le prix de la maison : elles s'ajoutent au total sans entrer dans le ratio au m².
+        Terrain, raccordements, taxes et travaux gardés par le client : ils pèsent sur son budget sans être
+        le prix de la maison. Ils s'ajoutent au total sans entrer dans le ratio au m².
       </div>
+      <div className="g2">
+        <Fld label="PRIX DU TERRAIN (€)"><input className="in" type="number" value={f.terrainPrix||''} onChange={e=>setF({...f,terrainPrix:e.target.value})}/></Fld>
+        <Fld label="FRAIS DE NOTAIRE (€)">
+          <input className="in" type="number" value={f.fraisNotaire||''} onChange={e=>setF({...f,fraisNotaire:e.target.value})}
+            placeholder={f.terrainPrix?'≈ '+eur(notaireEstime(f)):'Frais d’acte du terrain'}/>
+          {!!f.terrainPrix&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+            Environ 7,5 % chez un particulier, nettement moins chez un lotisseur assujetti à la TVA.</div>}
+        </Fld>
+      </div>
+      <LignesMontants lignes={f.raccordements||[]} onChange={v=>setF({...f,raccordements:v})}
+        label="RACCORDEMENTS" ajout="+ Raccordement" exemple="Enedis, compteur d’eau, fibre…" liste={RACCORDEMENTS}/>
+      <LignesMontants lignes={f.travauxClient||[]} onChange={v=>setF({...f,travauxClient:v})}
+        label="TRAVAUX À CHARGE DU CLIENT" ajout="+ Poste" exemple="Peinture, cuisine…" liste={TRAVAUX_CLIENT}/>
       <div className="g2">
         <Fld label="DOMMAGES-OUVRAGE ESTIMÉE (€)"><input className="in" type="number" value={f.dommageOuvrage||''} onChange={e=>setF({...f,dommageOuvrage:e.target.value})}/></Fld>
         <Fld label="TAXE D’AMÉNAGEMENT (€)"><input className="in" type="number" value={f.taxeAmenagement||''} onChange={e=>setF({...f,taxeAmenagement:e.target.value})}/></Fld>
       </div>
-      <Fld label="TAXE DE RACCORDEMENT (€)"><input className="in" type="number" value={f.taxeRaccordement||''} onChange={e=>setF({...f,taxeRaccordement:e.target.value})} placeholder="Eau, électricité, assainissement…"/></Fld>
       <LignesMontants lignes={f.taxes||[]} onChange={v=>setF({...f,taxes:v})}
         label="AUTRES TAXES ET PARTICIPATIONS" ajout="+ Taxe" exemple="Redevance archéologie, PFAC, PVR…"/>
 
@@ -5868,14 +5983,80 @@ function PostesChiffrage({postes,onChange}){
   </Fld>;
 }
 
+/* ---------- la fiche navette ----------
+   Le commercial la remplit chez le client, lot par lot. Chaque champ propose
+   ce qui se pose le plus souvent, sans jamais l'imposer : on tape ce qu'on veut. */
+function FormNavette({nav,onChange}){
+  const N=nav||{};
+  const set=(k,v)=>onChange({...N,[k]:v});
+  const elec=N.elecOptions||[];
+  const bascule=o=>set('elecOptions',elec.indexOf(o)>=0?elec.filter(x=>x!==o):[...elec,o]);
+  const remplis=NAVETTE.reduce((s,g)=>s+g.champs.filter(([k])=>(N[k]||'').trim()).length,0);
+  const total=NAVETTE.reduce((s,g)=>s+g.champs.length,0);
+  return <div style={{marginTop:16}}>
+    <div className="sp" style={{marginBottom:4}}>
+      <span className="h2" style={{fontSize:13}}>FICHE NAVETTE — MATÉRIAUX SOUHAITÉS</span>
+      <span className="xs mut">{remplis}/{total}</span>
+    </div>
+    <div className="xs mut" style={{marginBottom:10,lineHeight:1.5}}>
+      Ce que le client a choisi, poste par poste. Tapez librement ou piochez dans les suggestions.
+    </div>
+    {NAVETTE.map(g=><div key={g.lot} className="card" style={{padding:10,marginBottom:6,
+      borderLeft:'3px solid '+(g.champs.every(([k])=>(N[k]||'').trim())?GREEN:RULE)}}>
+      <div className="xs b" style={{color:NAVY,marginBottom:6,letterSpacing:'.03em'}}>{g.lot.toUpperCase()}</div>
+      {g.champs.map(([k,l,opts])=>{
+        const id='nav'+k;
+        return <div key={k} style={{marginBottom:6}}>
+          <div className="xs mut" style={{marginBottom:2}}>{l}</div>
+          <input className="in" value={N[k]||''} list={opts&&opts.length?id:undefined}
+            onChange={e=>set(k,e.target.value)}
+            placeholder={opts&&opts.length?opts[0]:'À préciser'}/>
+          {opts&&opts.length>0&&<datalist id={id}>{opts.map(o=><option key={o} value={o}/>)}</datalist>}
+        </div>;
+      })}
+    </div>)}
+    <div className="card" style={{padding:10,marginBottom:6,borderLeft:'3px solid '+(elec.length||(N.elecNotes||'').trim()?GREEN:RULE)}}>
+      <div className="xs b" style={{color:NAVY,marginBottom:6,letterSpacing:'.03em'}}>ÉLECTRICITÉ — OPTIONS À PRÉVOIR</div>
+      <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+        {NAV_ELEC.map(o=>{const on=elec.indexOf(o)>=0;
+          return <button key={o} className={'btn s '+(on?'':'gh')} onClick={()=>bascule(o)}
+            style={{fontSize:11,padding:'5px 9px'}}>{on?'✓ ':''}{o}</button>;
+        })}
+      </div>
+      <input className="in" style={{marginTop:8}} value={N.elecNotes||''}
+        onChange={e=>set('elecNotes',e.target.value)} placeholder="Autres demandes électriques…"/>
+    </div>
+    <Fld label="OBSERVATIONS DU COMMERCIAL">
+      <textarea className="in" rows="2" value={N.notes||''} onChange={e=>set('notes',e.target.value)}
+        placeholder="Ce que le client a dit et qui ne rentre dans aucune case…"/>
+    </Fld>
+  </div>;
+}
+/* ce qui a été renseigné, pour l'affichage et pour le document */
+const navetteLignes=nav=>{
+  const N=nav||{}, out=[];
+  NAVETTE.forEach(g=>{
+    const L=g.champs.filter(([k])=>(N[k]||'').trim()).map(([k,l])=>[l,N[k]]);
+    if(L.length)out.push([g.lot,L]);
+  });
+  const e=N.elecOptions||[];
+  if(e.length||(N.elecNotes||'').trim())
+    out.push(['Électricité',[['Options',e.join(' · ')+((N.elecNotes||'').trim()?(e.length?' · ':'')+N.elecNotes:'')]]]);
+  return out;
+};
+const navetteRemplie=nav=>navetteLignes(nav).length>0;
+
 /* une liste libellé + montant : taxes, participations, tout ce qui s'ajoute */
-function LignesMontants({lignes,onChange,label,ajout,exemple}){
+function LignesMontants({lignes,onChange,label,ajout,exemple,liste}){
   const L=lignes||[];
   const set=(id,p)=>onChange(L.map(x=>x.id===id?{...x,...p}:x));
-  const total=L.reduce((s,x)=>s+(+x.montant||0),0);
+  const total=sommeLignes(L);
+  /* les suggestions ont besoin d'un identifiant qui leur soit propre */
+  const dl=liste?'dl'+String(label).replace(/[^A-Za-z]/g,'').slice(0,12):null;
   return <Fld label={label}>
+    {dl&&<datalist id={dl}>{liste.map(x=><option key={x} value={x}/>)}</datalist>}
     {L.map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
-      <input className="in" style={{flex:1,minWidth:0}} value={x.libelle||''}
+      <input className="in" style={{flex:1,minWidth:0}} value={x.libelle||''} list={dl||undefined}
         placeholder={exemple} onChange={e=>set(x.id,{libelle:e.target.value})}/>
       <input className="in" style={{width:110,flex:'0 0 auto'}} type="number" value={x.montant||''}
         placeholder="€" onChange={e=>set(x.id,{montant:e.target.value})}/>
@@ -5897,8 +6078,10 @@ function RecapChiffrage({p,interne}){
   const rTTC=ratioM2(ttc,p), rHT=ratioM2(ht,p);
   const bud=+((p&&p.budgetClient))||0;
   const taxes=prospectTaxes(p), dOuv=prospectDO(p), op=prospectOperationTTC(p);
+  const terr=prospectTerrain(p), racc=prospectRaccordements(p), tvx=prospectTravauxClient(p);
+  const annexe=terr+racc+tvx+taxes+dOuv;
   const retro=prospectRetro(p);
-  if(!cout&&!marge&&!taxes&&!dOuv)return null;
+  if(!cout&&!marge&&!annexe)return null;
   const ligne=(l,v,c)=><div className="sp xs" style={{padding:'2px 0'}}>
     <span className="mut">{l}</span><span style={{color:c}}>{v}</span></div>;
   return <div className="card" style={{marginTop:4,marginBottom:12,background:'#F4F1EB',borderLeft:'3px solid '+NAVY}}>
@@ -5917,11 +6100,19 @@ function RecapChiffrage({p,interne}){
     </div>
     <div className="xs mut" style={{textAlign:'right',marginTop:2}}>
       {eurM2(rHT)} HT · sur {surfacePonderee(p).toLocaleString('fr-FR')} m² pondérés</div>
-    {(taxes>0||dOuv>0)&&<div style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+    {annexe>0&&<div style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
       <div className="xs mut" style={{marginBottom:4}}>S’ajoutent au prix de la maison</div>
+      {+p.terrainPrix>0&&ligne('Terrain',eur(p.terrainPrix))}
+      {+p.fraisNotaire>0&&ligne('Frais de notaire',eur(p.fraisNotaire))}
+      {(p.raccordements||[]).filter(x=>+x.montant).map(x=>
+        <div key={x.id} className="sp xs" style={{padding:'2px 0'}}>
+          <span className="mut">{x.libelle||'Raccordement'}</span><span>{eur(x.montant)}</span></div>)}
+      {+p.taxeRaccordement>0&&ligne('Raccordements',eur(p.taxeRaccordement))}
+      {(p.travauxClient||[]).filter(x=>+x.montant).map(x=>
+        <div key={x.id} className="sp xs" style={{padding:'2px 0'}}>
+          <span className="mut">{x.libelle||'Travaux client'} <i>(à sa charge)</i></span><span>{eur(x.montant)}</span></div>)}
       {dOuv>0&&ligne('Dommages-ouvrage estimée',eur(dOuv))}
       {+p.taxeAmenagement>0&&ligne('Taxe d’aménagement',eur(p.taxeAmenagement))}
-      {+p.taxeRaccordement>0&&ligne('Taxe de raccordement',eur(p.taxeRaccordement))}
       {(p.taxes||[]).filter(x=>+x.montant).map(x=>
         <div key={x.id} className="sp xs" style={{padding:'2px 0'}}>
           <span className="mut">{x.libelle||'Autre taxe'}</span><span>{eur(x.montant)}</span></div>)}
@@ -5929,6 +6120,8 @@ function RecapChiffrage({p,interne}){
         <span className="xs b">Coût total de l’opération</span>
         <span className="b" style={{fontSize:17,color:NAVY,lineHeight:1}}>{eur(op)} TTC</span>
       </div>
+      {tvx>0&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+        Dont {eur(tvx)} de travaux que le client garde à sa charge — hors marchés.</div>}
     </div>}
     {bud>0&&<div className="xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE,
       color:op>bud?TERRA:GREEN,lineHeight:1.5}}>
@@ -5968,6 +6161,7 @@ function DetailProspect({p,maj}){
         <Ligne l="Demandé le" v={p.demandeLe?fd(p.demandeLe):''}/>
         <Ligne l="Remis le" v={p.remisLe?fd(p.remisLe):''}/>
         <Ligne l="Budget client" v={p.budgetClient?eur(p.budgetClient)+' TTC':''}/>
+        <Ligne l="Financement" v={p.financement}/>
         <Ligne l="Courtier" v={p.courtier?(p.courtierNom||'oui')+(p.courtierTel?' · '+p.courtierTel:''):'aucun'}/>
         <Ligne l="Téléphone" v={p.telClient}/>
         <Ligne l="E-mail" v={p.emailClient}/>
@@ -5975,6 +6169,7 @@ function DetailProspect({p,maj}){
     </div>
     {p.demande&&<div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',lineHeight:1.6}}>
       <b style={{color:AMBER}}>Précisions du commercial</b><div style={{marginTop:3,whiteSpace:'pre-wrap'}}>{p.demande}</div></div>}
+    <VueNavette nav={p.navette}/>
     {(p.postes||[]).length>0&&<div className="xs" style={{marginBottom:10}}>
       <div className="b" style={{color:NAVY,marginBottom:4}}>Chiffrage par poste</div>
       {p.postes.map(x=><div key={x.id} className="sp" style={{padding:'2px 0'}}>
@@ -5990,12 +6185,68 @@ function DetailProspect({p,maj}){
         C'est ce document que le commercial présente au client. La rétrocession n'y figure pas.</div>
     </Fld>
 
+    <ValiderChiffrage p={p} maj={maj}/>
+
     <PiecesProspect p={p} maj={maj} dossier={dossier}/>
 
     <Fld label="AUTRES PIÈCES">
       <FichiersDrive resoudre={dossier} fichiers={p.pieces} onChange={v=>maj({pieces:v})} label="Importer des pièces"/>
     </Fld>
     <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Tout est rangé dans Drive › CRM CP › Prospects › {p.nom}.</div>
+  </div>;
+}
+
+/* la fiche navette telle qu'elle se relit, une fois remplie */
+function VueNavette({nav}){
+  const L=navetteLignes(nav);
+  if(!L.length&&!((nav||{}).notes||'').trim())return null;
+  return <div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,
+    background:'#F4F1EB',borderLeft:'3px solid '+NAVY,lineHeight:1.6}}>
+    <b style={{color:NAVY}}>Fiche navette — matériaux souhaités</b>
+    {L.map(([lot,champs])=><div key={lot} style={{marginTop:6}}>
+      <div className="b" style={{color:TERRA,fontSize:11,letterSpacing:'.03em'}}>{lot.toUpperCase()}</div>
+      {champs.map(([l,v])=><div key={l} className="sp" style={{padding:'1px 0',gap:10}}>
+        <span className="mut">{l}</span><span style={{textAlign:'right'}}>{v}</span></div>)}
+    </div>)}
+    {((nav||{}).notes||'').trim()&&<div style={{marginTop:6,paddingTop:6,borderTop:'1px solid '+RULE}}>
+      <span className="mut">Observations — </span><span style={{whiteSpace:'pre-wrap'}}>{nav.notes}</span></div>}
+  </div>;
+}
+
+/* ---------- valider un chiffrage ----------
+   Une page statique n'a pas de serveur pour expédier un courriel. Elle prépare
+   donc le message en entier et ouvre la messagerie dessus : il ne reste plus
+   qu'à appuyer sur « Envoyer ». La validation, elle, est enregistrée ici. */
+function ValiderChiffrage({p,maj}){
+  const pret=prospectPrixTTC(p)>0;
+  const valide=!!p.valideLe;
+  const go=()=>{
+    if(!valide)maj({valideLe:today(),statut:p.statut==='gagne'?p.statut:'chiffre',
+      remisLe:p.remisLe||today()});
+    window.location.href=mailChiffrage(p);
+  };
+  return <div className="card" style={{marginTop:12,padding:10,
+    borderLeft:'3px solid '+(valide?GREEN:TERRA),background:valide?'#F1F5F2':'#F4F1EB'}}>
+    <div className="sp" style={{alignItems:'flex-start',gap:8}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div className="b sm" style={{color:valide?GREEN:NAVY}}>
+          {valide?'Chiffrage validé le '+fd(p.valideLe):'Valider ce chiffrage'}</div>
+        <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+          {pret
+            ?<span>Le message pour <b>{MAIL_CP}</b> s'ouvre tout prêt — projet, client, montants,
+              coût de l'opération et lien du PDF. Il ne reste qu'à l'envoyer.</span>
+            :<span>Chiffrez d'abord le projet : sans montant, il n'y a rien à annoncer.</span>}
+        </div>
+      </div>
+    </div>
+    <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+      <button className={'btn '+(valide?'gh':'acc')+' s'} disabled={!pret} onClick={go}>
+        {valide?'Renvoyer l’avis':'Valider et prévenir CP Constructions'}</button>
+      {valide&&<button className="btn gh s" onClick={()=>{if(confirm('Annuler la validation de ce chiffrage ?'))maj({valideLe:''})}}>
+        Annuler la validation</button>}
+    </div>
+    {!(p.chiffrages||[]).length&&pret&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
+      Le chiffrage PDF n'est pas encore déposé : le message le signalera au lieu de porter un lien.</div>}
   </div>;
 }
 
