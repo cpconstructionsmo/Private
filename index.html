@@ -1532,25 +1532,26 @@ const pngChunk=(type,data)=>{
 /* la matrice devient un PNG noir/blanc (1 bit par pixel), marge de silence comprise —
    sans elle, un lecteur perd le repère de bord du QR code */
 const qrVersPng=(taille,modules,echelle,marge)=>{
-  /* 8 bits par pixel plutôt que 1 : un octet par module agrandi est bien plus
-     gros à compresser, mais c'est la profondeur que tout lecteur d'image sait
-     lire sans exception — le 1 bit par pixel, bien que valide, reste un cas
-     rare que certains lecteurs (dont, semble-t-il, celui qui a affiché un
-     marché rédigé) ne décodent pas correctement. */
-  const n=taille+2*marge, large=n*echelle;
-  const donnees=new Uint8Array((large+1)*large);
+  /* RGB plutôt que niveaux de gris : le logo (qui s'affiche, lui) est en RGBA —
+     le lecteur qui a avalé le marché rédigé sans faire apparaître le QR est
+     très probablement l'import .docx de Google Docs, connu pour mal gérer les
+     PNG en niveaux de gris alors qu'il lit le RGB sans souci. Même motif,
+     3 octets par pixel (noir = 0,0,0 — blanc = 255,255,255) au lieu d'un seul. */
+  const n=taille+2*marge, large=n*echelle, oParLigne=large*3;
+  const donnees=new Uint8Array((oParLigne+1)*large);
   for(let y=0;y<large;y++){
-    const my=Math.floor(y/echelle)-marge, ligne=y*(large+1);
+    const my=Math.floor(y/echelle)-marge, ligne=y*(oParLigne+1);
     donnees[ligne]=0;
     for(let x=0;x<large;x++){
       const mx=Math.floor(x/echelle)-marge;
       const noir=(my>=0&&my<taille&&mx>=0&&mx<taille)&&!!modules[my*taille+mx];
-      donnees[ligne+1+x]=noir?0:255;
+      const v=noir?0:255, p=ligne+1+x*3;
+      donnees[p]=v; donnees[p+1]=v; donnees[p+2]=v;
     }
   }
   const idat=deflateStocke(donnees);
   const ihdr=new Uint8Array(13), dv=new DataView(ihdr.buffer);
-  dv.setUint32(0,large); dv.setUint32(4,large); ihdr[8]=8; // 8 bits par pixel, niveaux de gris
+  dv.setUint32(0,large); dv.setUint32(4,large); ihdr[8]=8; ihdr[9]=2; // 8 bits par canal, RGB
   const sig=new Uint8Array([137,80,78,71,13,10,26,10]);
   const morceaux=[sig,pngChunk('IHDR',ihdr),pngChunk('IDAT',idat),pngChunk('IEND',new Uint8Array(0))];
   const total=morceaux.reduce((s,m)=>s+m.length,0), out=new Uint8Array(total);
