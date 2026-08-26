@@ -4026,7 +4026,12 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         client:ch.client||'', clientAdresse:ch.adresseClient||'', clientTel:ch.telClient||'',
         chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'',
         ht, brut, remise:r, tva:tx, tvaMontant:Math.round(ht*tx)/100, ttc:Math.round(ht*(100+tx))/100,
-        lignes:((f.quantitatif||{}).lignes||[]).filter(l=>ligneQt(l)>0),
+        /* seuls les articles non servis s'effacent du contrat imprimé — un
+           intertitre ou une précision n'a pas de quantité propre (ligneQt vaut
+           toujours 0 pour eux) : les filtrer sur ce seul critère les effaçait
+           tous, et avec eux la séparation entre plusieurs corps d'état posés
+           sur un même marché (« ajouter un autre corps d'état »). */
+        lignes:((f.quantitatif||{}).lignes||[]).filter(l=>!estArticle(l)||ligneQt(l)>0),
       });
       const nomFichier='Marché '+numero+' — '+(f.lot||'lot')+' — '+(a.nom||'entreprise')+'.docx';
       const fichier=new File([doc],nomFichier,
