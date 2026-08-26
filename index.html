@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-26 · un chantier trou dans la liste ne fait plus tout planter';
+const VERSION='2026-08-26 · envoyer le marché et le plan de permis à l’artisan par mail, en vraies pièces jointes';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -163,6 +163,12 @@ const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',lab
 const DOCS=[{id:'contrat_moe',l:'Contrat de maîtrise d\u2019œuvre'},{id:'plans_apd',l:'Plans d\u2019avant-projet (APS / APD)'},{id:'pc_depot',l:'Dépôt du permis de construire'},{id:'pc_arrete',l:'Arrêté de permis de construire'},{id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},{id:'daact',l:'DAACT (Cerfa 13408)'},{id:'plans_pc',l:'Plans du permis'},{id:'plans_exe',l:"Plans d'exécution"},{id:'notice',l:'Notice descriptive'},{id:'thermique',l:'Étude thermique RE2020'},{id:'sol',l:'Étude de sol G2'},{id:'do',l:'Assurance dommages-ouvrage'},{id:'pret',l:'Accord de prêt bancaire'},{id:'acte',l:'Acte notarié du terrain'},{id:'attest',l:'Attestation RE2020 fin de travaux'},{id:'pv',l:'PV de réception'}];
 const JALONS=['Dépôt du permis','Obtention du permis','Signature des marchés','Ouverture de chantier','Terrassement','Fondations','Élévation des murs','Charpente / couverture',"Hors d'eau — hors d'air",'Second œuvre','Réception des travaux','Levée des réserves'];
 const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Travaux',reception:'Réception',clos:'Clos'};
+/* une pièce écrite tient rarement en un seul fichier : plans d'exécution en
+   plusieurs planches, notice + annexes, marché + attestations. On garde donc
+   une liste. L'ancien champ « lien » unique reste lu pour les pièces déjà
+   attachées, et devient le premier élément de la liste. */
+const fichiersDe=r=>(r&&r.fichiers&&r.fichiers.length)?r.fichiers
+  :((r&&r.lien)?[{id:'ancien',nom:'Document',lien:r.lien}]:[]);
 
 /* La navigation. Neuf entrées ne tiennent pas en bas d'un iPhone : les trois
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
@@ -2281,7 +2287,7 @@ function startDriveAuth(){
     client_id:GOOGLE_CLIENT_ID,
     redirect_uri:GOOGLE_REDIRECT_URI,
     response_type:'token',
-    scope:'https://www.googleapis.com/auth/drive.file',
+    scope:'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send',
     include_granted_scopes:'true',
     prompt:'consent',
   });
@@ -2536,6 +2542,72 @@ async function uploadToDrive(file,folderId){
     method:'POST',headers:{Authorization:'Bearer '+token},body:form,
   });
   if(!r.ok)throw new Error('upload Drive échoué');
+  return r.json();
+}
+
+/* ---------- envoi d'un mail avec pièces jointes, via l'API Gmail ----------
+   Le même jeton Google que le Drive, avec en plus la permission gmail.send :
+   toujours sans serveur, mais un vrai envoi cette fois — pas un brouillon
+   à finir de composer. */
+const u8aBase64=bytes=>{
+  let bin=''; const pas=0x8000;
+  for(let i=0;i<bytes.length;i+=pas)bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+pas));
+  return btoa(bin);
+};
+const base64Url=bytes=>u8aBase64(bytes).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+/* le lien enregistré sur une pièce est un webViewLink ; l'identifiant du
+   fichier, dont il faut repartir pour en retélécharger le contenu, s'en
+   extrait — y compris pour des pièces déposées bien avant cette fonction */
+const driveIdDepuisLien=lien=>{
+  const m=String(lien||'').match(/\/d\/([^/]+)/)||String(lien||'').match(/[?&]id=([^&]+)/);
+  return m?decodeURIComponent(m[1]):'';
+};
+async function driveFichierBytes(token,fileId){
+  const r=await fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?alt=media',
+    {headers:{Authorization:'Bearer '+token}});
+  if(!r.ok)throw new Error('Téléchargement depuis le Drive impossible');
+  return new Uint8Array(await r.arrayBuffer());
+}
+/* un multipart/mixed écrit à la main : sujet, corps et pièces jointes en
+   base64 — ce qu'un client de messagerie fabriquerait, sans en dépendre */
+function mimeMessage({destinataire,cc,sujet,corps,pieces}){
+  const lim='====cp'+Date.now()+'====';
+  const motB64=s=>'=?UTF-8?B?'+u8aBase64(new TextEncoder().encode(s))+'?=';
+  const decoupe=b64=>{const L=[];for(let i=0;i<b64.length;i+=76)L.push(b64.slice(i,i+76));return L};
+  const entetes=[
+    'To: '+destinataire,
+    cc?'Cc: '+cc:null,
+    'Subject: '+motB64(sujet),
+    'MIME-Version: 1.0',
+    'Content-Type: multipart/mixed; boundary="'+lim+'"',
+  ].filter(Boolean);
+  const corpsLignes=[
+    '--'+lim,
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    ...decoupe(u8aBase64(new TextEncoder().encode(corps))),
+  ];
+  const piecesLignes=[];
+  for(const p of (pieces||[])){
+    piecesLignes.push('--'+lim,
+      'Content-Type: '+p.type+'; name="'+p.nom+'"',
+      'Content-Disposition: attachment; filename="'+p.nom+'"',
+      'Content-Transfer-Encoding: base64','',
+      ...decoupe(u8aBase64(p.data)));
+  }
+  return [...entetes,'',...corpsLignes,...piecesLignes,'--'+lim+'--',''].join('\r\n');
+}
+async function gmailEnvoyer(token,params){
+  const raw=base64Url(new TextEncoder().encode(mimeMessage(params)));
+  const r=await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{
+    method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({raw}),
+  });
+  if(!r.ok){
+    let msg=''; try{const j=await r.json(); msg=(j.error&&j.error.message)||''}catch(e){}
+    throw new Error(msg||('Envoi échoué (HTTP '+r.status+')'));
+  }
   return r.json();
 }
 
@@ -4346,31 +4418,38 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       .map(m=>+String(m.numeroMarche||'').replace(/\D/g,'')||0);
     return String(Math.max(0,...n)+1);
   };
+  /* la rédaction proprement dite, commune à « sortir le marché » et à
+     « l'envoyer par mail » — regénérer le même document plutôt que de le
+     retélécharger du Drive garantit que la pièce jointe suit exactement le
+     lot tel qu'il est saisi à l'instant, même si le fichier déposé date d'avant. */
+  const construireMarcheDoc=(a,numero)=>{
+    const ht=+f.montantHT||0, tx=marcheTva(f,ch), r=remisePct(f);
+    const brut=f.quantitatif?quantitatifHT(f.quantitatif.lignes):ht;
+    return genererMarcheDocx({
+      lot:f.lot, lotDetail:(f.quantitatif&&f.quantitatif.nom)||f.lot,
+      numero, date:fd(f.dateSignature||today()),
+      entreprise:a.nom||'', adresse:a.adresse||'', siret:a.siret||'',
+      decennale:a.numPolice||'', compagnie:a.assureur||'',
+      decennaleFin:a.decennaleFin?fd(a.decennaleFin):'',
+      client:ch.client||'', clientAdresse:ch.adresseClient||'', clientTel:ch.telClient||'',
+      chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'', mapsUrl:mapsUrl(ch),
+      ht, brut, remise:r, tva:tx, tvaMontant:Math.round(ht*tx)/100, ttc:Math.round(ht*(100+tx))/100,
+      /* seuls les articles non servis s'effacent du contrat imprimé — un
+         intertitre ou une précision n'a pas de quantité propre (ligneQt vaut
+         toujours 0 pour eux) : les filtrer sur ce seul critère les effaçait
+         tous, et avec eux la séparation entre plusieurs corps d'état posés
+         sur un même marché (« ajouter un autre corps d'état »). */
+      lignes:((f.quantitatif||{}).lignes||[]).filter(l=>!estArticle(l)||ligneQt(l)>0),
+    });
+  };
   const sortirMarche=async()=>{
     const a=data.artisans.find(x=>x.id===f.artisanId)||null;
     const pb=controlerMarche(f,a,ch);
     if(marcheBloque(pb)){setSortie({etat:'refus',pb});return}
     setSortie({etat:'travail'});
     try{
-      const ht=+f.montantHT||0, tx=marcheTva(f,ch), r=remisePct(f);
-      const brut=f.quantitatif?quantitatifHT(f.quantitatif.lignes):ht;
       const numero=f.numeroMarche||numeroSuivant();
-      const doc=await genererMarcheDocx({
-        lot:f.lot, lotDetail:(f.quantitatif&&f.quantitatif.nom)||f.lot,
-        numero, date:fd(f.dateSignature||today()),
-        entreprise:a.nom||'', adresse:a.adresse||'', siret:a.siret||'',
-        decennale:a.numPolice||'', compagnie:a.assureur||'',
-        decennaleFin:a.decennaleFin?fd(a.decennaleFin):'',
-        client:ch.client||'', clientAdresse:ch.adresseClient||'', clientTel:ch.telClient||'',
-        chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'', mapsUrl:mapsUrl(ch),
-        ht, brut, remise:r, tva:tx, tvaMontant:Math.round(ht*tx)/100, ttc:Math.round(ht*(100+tx))/100,
-        /* seuls les articles non servis s'effacent du contrat imprimé — un
-           intertitre ou une précision n'a pas de quantité propre (ligneQt vaut
-           toujours 0 pour eux) : les filtrer sur ce seul critère les effaçait
-           tous, et avec eux la séparation entre plusieurs corps d'état posés
-           sur un même marché (« ajouter un autre corps d'état »). */
-        lignes:((f.quantitatif||{}).lignes||[]).filter(l=>!estArticle(l)||ligneQt(l)>0),
-      });
+      const doc=await construireMarcheDoc(a,numero);
       const nomFichier='Marché '+numero+' — '+(f.lot||'lot')+' — '+(a.nom||'entreprise')+'.docx';
       const fichier=new File([doc],nomFichier,
         {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
@@ -4384,6 +4463,52 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       setSortie({etat:'erreur',msg:
         c==='auth_required'?"Le marché a été rédigé, mais Google Drive n'est pas connecté (bouton ci-dessous) — reconnectez-le puis relancez.":
         "Sortie impossible — "+c});
+    }
+  };
+
+  /* ---------- envoi du marché et du plan de permis à l'artisan, par mail ----------
+     De vraies pièces jointes : le .docx du marché est regénéré à la volée, le
+     plan est retéléchargé depuis le Drive, l'ensemble part par l'API Gmail, au
+     nom du compte Google connecté. Rien ne part sans un aperçu à relire d'abord. */
+  const EXPEDITEUR_ATTENDU='claude.portier@cpconstructions.fr';
+  const [mail,setMail]=useState(null);
+  const ouvrirMail=()=>{
+    const a=data.artisans.find(x=>x.id===f.artisanId)||null;
+    if(!a||!a.email)return;
+    const plans=fichiersDe((ch.docs||{}).plans_pc);
+    setMail({
+      etat:'apercu', compte:'',
+      destinataire:a.email,
+      sujet:'Marché '+(f.numeroMarche?'n° '+f.numeroMarche+' ':'')+'— '+(f.lot||'lot')+' — '+(ch.nom||''),
+      corps:'Bonjour,\n\nVeuillez trouver ci-joint le marché de travaux'+(plans.length?' ainsi que le plan de permis de construire':'')+' pour le chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.\n\nCordialement,\n'+CP.nom,
+      plans,
+    });
+    getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
+  };
+  const envoyerMail=async()=>{
+    setMail(p=>({...p,etat:'envoi'}));
+    try{
+      const a=data.artisans.find(x=>x.id===f.artisanId)||null;
+      const token=await getDriveToken();
+      const numero=f.numeroMarche||numeroSuivant();
+      const docMarche=await construireMarcheDoc(a,numero);
+      const pieces=[{nom:'Marché '+numero+' — '+(f.lot||'lot')+'.docx',
+        type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',data:docMarche}];
+      for(const p of mail.plans){
+        const id=driveIdDepuisLien(p.lien);
+        if(!id)continue;
+        const data2=await driveFichierBytes(token,id);
+        pieces.push({nom:p.nom||'Plan de permis',type:'application/pdf',data:data2});
+      }
+      await gmailEnvoyer(token,{destinataire:mail.destinataire,cc:CP.mail,
+        sujet:mail.sujet,corps:mail.corps,pieces});
+      setF(p=>({...p,numeroMarche:numero,mailArtisanLe:today()}));
+      setMail(p=>({...p,etat:'ok'}));
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setMail(p=>({...p,etat:'erreur',msg:
+        c==='auth_required'?"Google n'est pas connecté (bouton ci-dessous) — connectez-le, avec l'autorisation d'envoi de mail, puis relancez.":
+        "Envoi impossible — "+c}));
     }
   };
 
@@ -4502,6 +4627,51 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
             <div className="mut" style={{marginTop:2,wordBreak:'break-word'}}>{sortie.nom}</div>
             <div className="mut" style={{marginTop:2}}>À relire avant signature.</div></div>}
           {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
+        </Fld>;
+      })()}
+      {f.contratLien&&(()=>{
+        const a=data.artisans.find(x=>x.id===f.artisanId)||null;
+        const plans=fichiersDe((ch.docs||{}).plans_pc);
+        if(!a||!a.email)return <Fld label="ENVOYER À L'ARTISAN PAR MAIL">
+          <div className="xs mut" style={{lineHeight:1.5}}>
+            {a?'Cette entreprise n’a pas d’e-mail enregistré — ajoutez-en un sur sa fiche (onglet ARTISANS) pour pouvoir lui envoyer le marché.'
+              :'Aucune entreprise n’est attribuée à ce lot.'}</div>
+        </Fld>;
+        return <Fld label="ENVOYER À L'ARTISAN PAR MAIL">
+          {!mail&&<div>
+            <div className="xs mut" style={{lineHeight:1.5,marginBottom:8}}>
+              Le marché{plans.length?' et le plan de permis (onglet PIÈCES)':''} partent en pièces jointes,
+              à {a.email}. Un aperçu s’ouvre d’abord — rien ne part sans que vous ayez cliqué « Envoyer ».
+            </div>
+            <button className="btn gh s" onClick={ouvrirMail}>Préparer l’envoi</button>
+          </div>}
+          {mail&&mail.etat==='apercu'&&<div>
+            {mail.compte&&mail.compte!==EXPEDITEUR_ATTENDU&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
+              borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+              Le compte Google connecté est <b>{mail.compte}</b>, pas {EXPEDITEUR_ATTENDU} — le mail partira
+              depuis ce compte-là. Reconnectez le bon compte avant d’envoyer si ce n’est pas voulu.</div>}
+            <Fld label="DESTINATAIRE"><div className="xs">{mail.destinataire}</div></Fld>
+            <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
+            <Fld label="MESSAGE"><textarea className="in" rows="6" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
+            <div className="xs mut" style={{marginBottom:8}}>
+              Pièces jointes : Marché — {f.lot||'lot'}.docx{plans.map((p,i)=><span key={i}>, {p.nom||'Plan de permis'}</span>)}
+            </div>
+            <div className="row" style={{gap:8}}>
+              <button className="btn acc s" onClick={envoyerMail}>Envoyer</button>
+              <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+            </div>
+          </div>}
+          {mail&&mail.etat==='envoi'&&<div className="xs mut">Envoi en cours…</div>}
+          {mail&&mail.etat==='ok'&&<div className="xs" style={{color:GREEN,lineHeight:1.5}}>
+            Mail envoyé à {mail.destinataire}.
+            <button className="btn gh s" style={{marginLeft:10}} onClick={()=>setMail(null)}>Fermer</button></div>}
+          {mail&&mail.etat==='erreur'&&<div>
+            <div className="xs" style={{color:TERRA,lineHeight:1.5,marginBottom:8}}>{mail.msg}</div>
+            <div className="row" style={{gap:8}}>
+              <button className="btn gh s" onClick={envoyerMail}>Réessayer</button>
+              <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+            </div>
+          </div>}
         </Fld>;
       })()}
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
@@ -5622,12 +5792,6 @@ function Docs({data,ch,up,save}){
   const [signe,setSigne]=useState(null);
   const tog=id=>{const c=d[id]||{};up({docs:{...d,[id]:{...c,fait:!c.fait,date:!c.fait?today():''}}})};
   const lien=(id,v)=>up({docs:{...d,[id]:{...(d[id]||{}),lien:v}}});
-  /* une pièce écrite tient rarement en un seul fichier : plans d'exécution en
-     plusieurs planches, notice + annexes, marché + attestations. On garde donc
-     une liste. L'ancien champ « lien » unique reste lu pour les pièces déjà
-     attachées, et devient le premier élément de la liste. */
-  const fichiersDe=r=>r.fichiers&&r.fichiers.length?r.fichiers
-    :(r.lien?[{id:'ancien',nom:'Document',lien:r.lien}]:[]);
   const importPieces=async(id,files)=>{
     setBusy(id);
     let ajoutes=[], erreur='';
