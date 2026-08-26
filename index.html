@@ -3898,12 +3898,21 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const ms=data.marches.filter(m=>m.chantierId===ch.id);
   const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
   /* réordonner les lots : on ne touche qu'aux places de ce chantier, les
-     marchés des autres chantiers restent où ils sont dans la liste générale */
+     marchés des autres chantiers restent où ils sont dans la liste générale.
+     Le geste s'étend sur plusieurs instants (appui, glisser, relâcher) : si data
+     a bougé entre-temps (une synchronisation arrivée pendant le geste), on
+     reconstruit l'ordre depuis data au moment d'enregistrer, jamais depuis un
+     ms figé — et « r||m » garde la ligne d'origine plutôt que d'écrire un trou
+     si jamais un rang venait à ne trouver aucune correspondance. */
   const ordonnerLots=(de,vers)=>{
-    const ordre=deplacer(ms,de,vers).map(m=>m.id);
+    const actuels=data.marches.filter(m=>m.chantierId===ch.id);
+    const reordonnes=deplacer(actuels,de,vers);
     let k=0;
-    save({...data,marches:data.marches.map(m=>
-      m.chantierId===ch.id?ms.find(x=>x.id===ordre[k++]):m)});
+    save({...data,marches:data.marches.map(m=>{
+      if(m.chantierId!==ch.id)return m;
+      const r=reordonnes[k++];
+      return r||m;
+    })});
   };
   const glisseLots=useGlisser(ms.length,ordonnerLots);
   const openRow=m=>setF(m.factures?m:{...m,factures:m.facture?[{id:uid(),montant:m.facture,date:m.dateSignature||today(),lien:''}]:[]});
