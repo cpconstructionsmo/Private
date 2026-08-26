@@ -94,6 +94,12 @@
   #root{padding-bottom:82px}
   .grid-ch{display:grid;gap:10px}
   nav.bot.masquee{display:none}
+  /* les onglets secondaires ne sortent qu'au « PLUS » : la barre passe alors
+     sur deux rangs plutôt que de rogner neuf libellés à l'illisible */
+  nav.bot{flex-wrap:wrap}
+  nav.bot .sec{display:none}
+  nav.bot.deplie .sec{display:block}
+  nav.bot.deplie{padding-top:2px}
   table{font-variant-numeric:tabular-nums}
   /* état d'une fiche : une pastille se repère mieux qu'un mot coloré */
   .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;
@@ -108,6 +114,10 @@
             backdrop-filter:none;-webkit-backdrop-filter:none;padding:10px 10px 20px;overflow-y:auto}
     nav.bot.masquee{display:flex}
     nav.bot button{flex:0 0 auto;text-align:left;padding:11px 14px;font-size:12.5px;font-weight:600;letter-spacing:.02em;border-radius:var(--r-s)}
+    /* la colonne de gauche a la place : tout s'y montre, « PLUS » n'a plus lieu d'être */
+    nav.bot{flex-wrap:nowrap}
+    nav.bot .sec{display:block}
+    nav.bot .plusbtn{display:none}
     nav.bot button.on{background:rgba(197,86,58,.1)}
     nav.bot button:hover{background:#F3F1EC}
     main{max-width:1120px;padding:28px 34px 64px!important}
@@ -145,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-26 · onglet PRIX, import de la grille Excel et Drive commun';
+const VERSION='2026-08-26 · dossier de présentation client et fiches produits';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -153,6 +163,12 @@ const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',lab
 const DOCS=[{id:'contrat_moe',l:'Contrat de maîtrise d\u2019œuvre'},{id:'plans_apd',l:'Plans d\u2019avant-projet (APS / APD)'},{id:'pc_depot',l:'Dépôt du permis de construire'},{id:'pc_arrete',l:'Arrêté de permis de construire'},{id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},{id:'daact',l:'DAACT (Cerfa 13408)'},{id:'plans_pc',l:'Plans du permis'},{id:'plans_exe',l:"Plans d'exécution"},{id:'notice',l:'Notice descriptive'},{id:'thermique',l:'Étude thermique RE2020'},{id:'sol',l:'Étude de sol G2'},{id:'do',l:'Assurance dommages-ouvrage'},{id:'pret',l:'Accord de prêt bancaire'},{id:'acte',l:'Acte notarié du terrain'},{id:'attest',l:'Attestation RE2020 fin de travaux'},{id:'pv',l:'PV de réception'}];
 const JALONS=['Dépôt du permis','Obtention du permis','Signature des marchés','Ouverture de chantier','Terrassement','Fondations','Élévation des murs','Charpente / couverture',"Hors d'eau — hors d'air",'Second œuvre','Réception des travaux','Levée des réserves'];
 const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Travaux',reception:'Réception',clos:'Clos'};
+
+/* La navigation. Neuf entrées ne tiennent pas en bas d'un iPhone : les trois
+   dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
+const NAV=[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],
+  ['artisans','ARTISANS'],['cmd','ACHATS'],['bilan','FINANCES']];
+const NAV_PLUS=[['biblio','PRIX'],['produits','PRODUITS'],['donnees','DONNÉES']];
 
 /* Les pièces qu'on attend à chaque phase. Le tableau de bord ne réclame que
    celles-là : réclamer les seize à un chantier qui démarre ne dit rien. */
@@ -676,7 +692,7 @@ const ventileFactures=L=>{
 /* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
-const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[]};
+const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[]};
 
 /* ---------- chiffrage d'un prospect ----------
    Le coût, c'est la somme des postes chiffrés ; à défaut, le montant global saisi.
@@ -1675,6 +1691,159 @@ async function genererMarcheDocx(d){
   return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||''),logo);
 }
 
+/* ---------- dossier de présentation au client ----------
+   Ce que le commercial pose sur la table : la page de garde, la notice
+   technique du projet tel qu'il est envisagé, le coût prévisionnel, la mission
+   de maîtrise d'œuvre et ce qui reste à la charge du client. Rien n'y engage
+   un prix ferme — les mentions le disent, poste par poste. */
+const MISSION_MOE=[
+  'Esquisse et avant-projet (ESQ / APS / APD)',
+  'Établissement du dossier de permis de construire (PC)',
+  'Consultation des entreprises et établissement du dossier de consultation (DCE)',
+  'Assistance à la passation des marchés de travaux',
+  'Suivi et coordination de chantier',
+  'Assistance aux opérations de réception (OPR / réception des travaux)',
+];
+/* la notice technique se tire de la fiche navette : chaque poste renseigné
+   devient une ligne, suivie de « (envisagé) » qui dit son caractère indicatif */
+function noticeTechnique(p){
+  const L=[];
+  navetteLignes(p&&p.navette).forEach(([lot,champs])=>{
+    champs.forEach(([libelle,valeur])=>L.push(libelle+' : '+valeur));
+  });
+  ((p&&p.noticeLignes)||[]).filter(x=>(x.texte||'').trim()).forEach(x=>L.push(x.texte.trim()));
+  return L;
+}
+function dossierDocumentXml(p,px,com){
+  const puce=t=>par('•  '+t+' (envisagé)',{sz:18,ap:40,ind:200});
+  const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
+  const hab=+(p.surfaceHabitable)||0, ann=+(p.surfaceAnnexes)||0;
+  const notice=noticeTechnique(p);
+  const nonCompris=[]
+    .concat(prospectDO(p)?[['Assurance dommages-ouvrage (DO), par le biais de l’un de nos partenaires assureurs',eurDoc(prospectDO(p))]]:[])
+    .concat(((p.travauxClient)||[]).filter(x=>(x.libelle||'').trim())
+      .map(x=>[x.libelle,+x.montant?eurDoc(x.montant):'à la charge du client']));
+
+  /* ---- page de garde ---- */
+  const garde=[
+    tbl([4200,6200],[tr([
+      tc(4200,par([logoXml(px)],{ap:0}),{bords:tcB({h:false,g:false,b:false,d:false}),v:'top',mg:0}),
+      tc(6200,[
+        par('Chiffrage au '+(p.remisLe?fdDoc(p.remisLe):fdDoc(today())),
+          {sz:18,c:DOC_GRIS,jc:'right',ap:0}),
+      ].join(''),{bords:tcB({h:false,g:false,b:false,d:false}),v:'top',mg:0}),
+    ])],{}),
+    vide(900),
+    par('PROPOSITION DE MISSION',{b:true,sz:40,c:DOC_TERRA,sp:40,jc:'center',ap:60}),
+    par('DE MAÎTRISE D’ŒUVRE',{b:true,sz:40,c:DOC_TERRA,sp:40,jc:'center',ap:160,filet:DOC_BRUN}),
+    par('Projet de construction envisagé'+(hab?' : '+nb2(hab)+' m² habitables':'')
+      +(ann?' — annexes : '+nb2(ann)+' m²':''),
+      {sz:20,c:DOC_BRUN,jc:'center',ap:120}),
+    vide(1200),
+    tbl([5200,5200],[tr([
+      tc(5200,[
+        par('Maître de l’ouvrage',{b:true,sz:17,c:DOC_TERRA,caps:true,sp:16,ap:60}),
+        par(p.client||'',{b:true,sz:20,ap:40}),
+        par(p.adresseClient||'',{sz:18,c:DOC_GRIS,ap:0}),
+      ].join(''),{bords:tcB({c:DOC_BRUN,sz:4,t:4,bs:4}),fond:DOC_SABLE,v:'top',mg:140}),
+      tc(5200,[
+        par('Adresse de la construction',{b:true,sz:17,c:DOC_TERRA,caps:true,sp:16,ap:60}),
+        par(p.commune||'',{b:true,sz:20,ap:40}),
+        par(p.typeTerrain||'',{sz:18,c:DOC_GRIS,ap:0}),
+      ].join(''),{bords:tcB({c:DOC_BRUN,sz:4,t:4,bs:4}),fond:DOC_SABLE,v:'top',mg:140}),
+    ])],{}),
+    vide(900),
+    par((com&&com.nom)||'Service commercial',{b:true,sz:19,c:DOC_BRUN,jc:'center',ap:30}),
+    par('Service commercial'+((com&&com.tel)?' — '+com.tel:''),{sz:17,c:DOC_GRIS,jc:'center',ap:30}),
+    par(MAIL_CP,{sz:17,c:DOC_GRIS,jc:'center',ap:0}),
+    sautPage,
+  ].join('');
+
+  /* ---- 1. la notice technique ---- */
+  const p1=[
+    titre('1.  Notice de présentation technique du projet envisagé'),
+    par('Les éléments techniques ci-dessous décrivent le projet tel qu’envisagé à ce stade, à titre indicatif et non contractuel. Ils sont susceptibles d’évoluer en phase d’études et seront arrêtés définitivement dans les pièces du marché de travaux conclu directement entre le maître de l’ouvrage et les entreprises exécutantes.',
+      {sz:17,i:true,c:DOC_GRIS,jc:'both',ap:140}),
+  ].concat(notice.length?notice.map(puce)
+    :[par('La fiche navette n’a pas encore été renseignée : les postes techniques restent à préciser.',
+      {sz:18,c:DOC_GRIS,i:true,ap:60})])
+   .concat([
+    vide(160),
+    tbl([10400],[tr([tc(10400,[
+      par('Coût prévisionnel des travaux (à titre indicatif)',{b:true,sz:19,c:DOC_TERRA,caps:true,sp:16,ap:40}),
+      par(eurDoc(prospectPrixTTC(p))+' TTC',{b:true,sz:30,c:DOC_ENCRE,ap:0}),
+    ].join(''),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:160})])],{}),
+    par('Ce montant correspond au coût prévisionnel de réalisation des travaux par les entreprises exécutantes. Il ne constitue ni un engagement de prix ferme, ni les honoraires du maître d’œuvre, et sera précisé lors de la consultation des entreprises (DCE) et de la signature des marchés de travaux.',
+      {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
+  ]).join('');
+
+  /* ---- 2. la mission ---- */
+  const p2=[titre('2.  Mission de maîtrise d’œuvre confiée')]
+    .concat(MISSION_MOE.map(m=>par('•  '+m,{sz:18,ap:40,ind:200})))
+    .concat([
+      vide(160),
+      tbl([10400],[tr([tc(10400,[
+        par('Montant total des honoraires de maîtrise d’œuvre',{b:true,sz:19,c:DOC_TERRA,caps:true,sp:16,ap:40}),
+        par(eurDoc(honoDossierTTC(p))+' TTC',{b:true,sz:30,c:DOC_ENCRE,ap:0}),
+      ].join(''),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:160})])],{}),
+      par('Honoraires dus au titre de la mission de maîtrise d’œuvre définie ci-dessus, à l’exclusion de tout autre élément (coût des travaux, assurances, taxes).',
+        {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
+    ]).join('');
+
+  /* ---- 3. ce qui reste au client ---- */
+  const entC=(l,t,jc)=>tc(l,par(t,{b:true,sz:17,c:DOC_TERRA,sp:16,caps:true,jc:jc,ap:0}),
+    {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100});
+  const celC=(l,t,jc)=>tc(l,par(t,{sz:18,jc:jc,ap:0}),
+    {bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100,v:'top'});
+  const p3=[
+    titre('3.  Travaux et prestations non compris dans la mission'),
+    par('Restent à la charge exclusive du maître de l’ouvrage :',{sz:18,ap:100}),
+    nonCompris.length
+      ?tbl([7600,2800],[tr([entC(7600,'Désignation'),entC(2800,'Montant','right')])]
+        .concat(nonCompris.map(([d,m])=>tr([celC(7600,d,'left'),celC(2800,m,'right')]))),{})
+      :par('Aucun poste n’a été mis à la charge du client à ce stade.',{sz:18,i:true,c:DOC_GRIS,ap:0}),
+    par('Sont également exclus, sans que cette liste soit exhaustive : les taxes et raccordements (eau, électricité, assainissement), la taxe d’aménagement, ainsi que toute garantie légale afférente à la réalisation des travaux (parfait achèvement, biennale, décennale), due par les entreprises exécutantes à l’exclusion du maître d’œuvre.',
+      {sz:16,i:true,c:DOC_GRIS,jc:'both',av:140,ap:0}),
+  ].join('');
+
+  /* ---- 4. les produits retenus ---- */
+  const prods=(p.produitsRetenus||[]);
+  const p4=prods.length?[
+    sautPage,
+    titre('4.  Produits et équipements retenus'),
+    par('Les fiches techniques des produits ci-dessous sont jointes au présent dossier. Les références peuvent évoluer en cas d’indisponibilité, par un produit de qualité et de performance au moins équivalentes.',
+      {sz:17,i:true,c:DOC_GRIS,jc:'both',ap:140}),
+  ].concat(prods.map(x=>[
+    par(x.nom||'Produit',{b:true,sz:19,c:DOC_BRUN,av:120,ap:30}),
+    par([x.lot,x.marque,x.gamme,x.reference].filter(Boolean).join(' · '),{sz:17,c:DOC_GRIS,ap:30}),
+    x.description?par(x.description,{sz:17,jc:'both',ap:20}):'',
+    x.coloris?par('Coloris / finition : '+x.coloris,{sz:17,c:DOC_GRIS,ap:0}):'',
+  ].join(''))).join(''):'';
+
+  const corps=[garde,p1,p2,p3,p4,vide(240),
+    par('Fait à '+(p.lieuSignature||'Valframbert')+', le '+fdDoc(today())+'.',
+      {sz:17,i:true,c:DOC_GRIS,ap:0}),
+  ].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+/* les honoraires annoncés au client : la marge du maître d'œuvre, TTC */
+const honoDossierTTC=p=>Math.round(prospectMargeHT(p)*(1+prospectTva(p)/100)*100)/100;
+const nb2=n=>(+n||0).toLocaleString('fr-FR',{maximumFractionDigits:2});
+const fdDoc=d=>d?new Date(d).toLocaleDateString('fr-FR'):'';
+
+async function genererDossierDocx(p,com){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, le dossier reste lisible */}
+  return fabriquerDocx(dossierDocumentXml(p,logo,com),
+    'Dossier de présentation — '+(p.nom||''),logo);
+}
+
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
 const Photo={
   async put(id,dataUrl){
@@ -2618,6 +2787,7 @@ function App({session}){
      d'avoir à le chercher dossier par dossier */
   const [view,setView]=useState('tdb');
   const [open,setOpen]=useState(null);
+  const [plus,setPlus]=useState(false);
   const [err,setErr]=useState(null);
   /* attente : lecture en cours — ok : contenu du serveur reçu — erreur : lecture impossible.
      Tant que le serveur n'a pas répondu, on n'écrit rien : sinon un appareil au cache vide
@@ -2680,15 +2850,22 @@ function App({session}){
       :view==='tdb'?<TableauBord data={data} open={setOpen} allerA={v=>{setView(v);setOpen(null)}}/>
       :view==='prospects'?<Prospects data={data} save={save}/>
       :view==='biblio'?<Bordereaux data={data} save={save}/>
+      :view==='produits'?<Produits data={data} save={save}/>
       :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
       :view==='artisans'?<Artisans data={data} save={save}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
       :view==='bilan'?<Bilan data={data} open={setOpen}/>
       :<Donnees data={data} save={save} session={session}/>}
     </main>
-    <nav className={'bot'+(ch?' masquee':'')}>
-      {[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],['artisans','ARTISANS'],['biblio','PRIX'],['cmd','ACHATS'],['bilan','FINANCES'],['donnees','DONNÉES']].map(([id,l])=>
-        <button key={id} className={view===id&&!ch?'on':''} onClick={()=>{setView(id);setOpen(null)}}>{l}</button>)}
+    {/* neuf onglets ne tiennent pas en bas d'un iPhone : les trois derniers se
+        déplient. Sur ordinateur, la colonne les montre tous d'emblée. */}
+    <nav className={'bot'+(ch?' masquee':'')+(plus?' deplie':'')}>
+      {NAV.map(([id,l])=>
+        <button key={id} className={view===id&&!ch?'on':''} onClick={()=>{setView(id);setOpen(null);setPlus(false)}}>{l}</button>)}
+      {NAV_PLUS.map(([id,l])=>
+        <button key={id} className={'sec'+(view===id&&!ch?' on':'')} onClick={()=>{setView(id);setOpen(null);setPlus(false)}}>{l}</button>)}
+      <button className={'plusbtn'+((plus||NAV_PLUS.some(([id])=>id===view&&!ch))?' on':'')}
+        onClick={()=>setPlus(!plus)}>{plus?'MOINS':'PLUS'}</button>
     </nav>
   </div>;
 }
@@ -5865,6 +6042,101 @@ function Bordereaux({data,save}){
   </div>;
 }
 
+/* ---------------- FICHES PRODUITS ----------------
+   La base des produits qu'on pose : marque, gamme, référence, et la fiche
+   technique du fabricant. Le commercial y puise pour son dossier, et l'imprime
+   avec lui. Les fiches vivent dans Drive › CRM CP › Fiches produits. */
+let driveProduitsId=null;
+async function driveProduitsFolder(token){
+  if(driveProduitsId)return driveProduitsId;
+  const rootId=await driveFolder(token);
+  driveProduitsId=await driveFindOrCreateSubfolder(token,rootId,'Fiches produits');
+  return driveProduitsId;
+}
+function Produits({data,save}){
+  const [f,setF]=useState(null);
+  const [q,setQ]=useState('');
+  const [lot,setLot]=useState('');
+  const P=data.produits||[];
+  const dossier=async token=>driveProduitsFolder(token);
+  const neuf=()=>({id:uid(),nom:'',lot:'',marque:'',gamme:'',reference:'',coloris:'',
+    description:'',fiches:[],maj:today(),neufA:true});
+  const ok=()=>{
+    if(!(f.nom||'').trim())return;
+    const r={...f,maj:today(),neufA:undefined};
+    save({...data,produits:f.neufA?[...P,r]:P.map(x=>x.id===f.id?r:x)});
+    setF(null);
+  };
+  const dq=deaccent(q).toLowerCase().trim();
+  const lots=[...new Set(P.map(x=>x.lot).filter(Boolean))].sort();
+  const L=P.filter(x=>{
+    if(lot&&x.lot!==lot)return false;
+    if(!dq)return true;
+    return deaccent([x.nom,x.marque,x.gamme,x.reference,x.description,x.coloris].join(' '))
+      .toLowerCase().indexOf(dq)>=0;
+  }).sort((a,b)=>(a.lot||'zz').localeCompare(b.lot||'zz')||(a.nom||'').localeCompare(b.nom||''));
+  return <div>
+    <H2 action={<button className="btn acc s" onClick={()=>setF(neuf())}>+ Produit</button>}>
+      FICHES PRODUITS ({P.length})</H2>
+    {!f&&<p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>
+      Ce qu'on pose réellement, avec la fiche technique du fabricant. Le commercial coche les produits
+      du projet dans la fiche prospect : ils passent au dossier de présentation, et les fiches
+      s'impriment d'ici.
+    </p>}
+    {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+      <Fld label="DÉSIGNATION"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}
+        placeholder="Tuile terre cuite Beauvoise plate"/></Fld>
+      <div className="g2">
+        <Fld label="LOT / CORPS D’ÉTAT"><input className="in" list="prlot" value={f.lot||''} onChange={e=>setF({...f,lot:e.target.value})}/>
+          <datalist id="prlot">{CORPS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
+        <Fld label="MARQUE"><input className="in" value={f.marque||''} onChange={e=>setF({...f,marque:e.target.value})} placeholder="IMERYS, Atlantic, Bel’m…"/></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="GAMME"><input className="in" value={f.gamme||''} onChange={e=>setF({...f,gamme:e.target.value})}/></Fld>
+        <Fld label="RÉFÉRENCE"><input className="in" value={f.reference||''} onChange={e=>setF({...f,reference:e.target.value})}/></Fld>
+      </div>
+      <Fld label="COLORIS / FINITION"><input className="in" value={f.coloris||''} onChange={e=>setF({...f,coloris:e.target.value})} placeholder="RAL 7016, brun, sablé…"/></Fld>
+      <Fld label="DESCRIPTION"><textarea className="in" rows="3" value={f.description||''} onChange={e=>setF({...f,description:e.target.value})}
+        placeholder="Ce qu’on en dit au client : performance, aspect, garantie…"/></Fld>
+      <Fld label="FICHE TECHNIQUE DU FABRICANT">
+        <FichiersDrive resoudre={dossier} fichiers={f.fiches} onChange={v=>setF({...f,fiches:v})} label="Importer la fiche"/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Rangée dans Drive › {DRIVE_RACINE} › Fiches produits.</div>
+      </Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)}
+        onDel={f.neufA?null:()=>{if(confirm('Supprimer cette fiche produit ?')){save({...data,produits:P.filter(x=>x.id!==f.id)});setF(null)}}}/>
+    </div>}
+    {!f&&P.length>0&&<div style={{marginBottom:12}}>
+      <input className="in" placeholder="Chercher une marque, une gamme, une référence…" value={q} onChange={e=>setQ(e.target.value)}/>
+      {lots.length>1&&<div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
+        <button className={'btn s '+(lot?'gh':'')} onClick={()=>setLot('')}>Tous</button>
+        {lots.map(c=><button key={c} className={'btn s '+(lot===c?'':'gh')} onClick={()=>setLot(lot===c?'':c)}>{c}</button>)}
+      </div>}
+    </div>}
+    {!P.length&&!f&&<Empty>Aucune fiche produit. « + Produit » ouvre la première.</Empty>}
+    {!!P.length&&!L.length&&!f&&<Empty>Aucun produit ne correspond à cette recherche.</Empty>}
+    {!f&&L.map(x=><div key={x.id} className="card" style={{borderLeft:'3px solid '+((x.fiches||[]).length?GREEN:AMBER)}}>
+      <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
+        <button onClick={()=>setF({...neuf(),...x,neufA:false})}
+          style={{flex:1,minWidth:0,textAlign:'left',background:'none',border:'none',padding:0}}>
+          <span className="b sm" style={{color:NAVY}}>{x.nom}</span>
+          <div className="xs mut" style={{marginTop:3}}>
+            {[x.lot,x.marque,x.gamme,x.reference].filter(Boolean).join(' · ')||'à compléter'}</div>
+          {x.coloris&&<div className="xs mut" style={{marginTop:2}}>{x.coloris}</div>}
+        </button>
+        {(x.fiches||[]).length
+          ?<a href={x.fiches[0].lien} target="_blank" rel="noreferrer" className="btn gh s"
+             style={{textDecoration:'none',whiteSpace:'nowrap',flex:'0 0 auto'}}>Fiche technique</a>
+          :<span className="xs" style={{color:AMBER,whiteSpace:'nowrap',flex:'0 0 auto'}}>sans fiche</span>}
+      </div>
+    </div>)}
+    <DriveStatus/>
+  </div>;
+}
+
+/* les produits d'un prospect, tels qu'ils partent au dossier */
+const produitsRetenus=(data,p)=>((p&&p.produits)||[])
+  .map(id=>(data.produits||[]).find(x=>x.id===id)).filter(Boolean);
+
 /* ---------------- TABLEAU DE BORD ----------------
    Ce qui appelle une action aujourd'hui, et rien d'autre : les chiffrages qu'on
    attend de vous, les étapes en retard, les pièces qui manquent à la phase où
@@ -5982,7 +6254,7 @@ function Prospects({data,save}){
   const P=data.prospects||[];
   const maj=(id,p)=>save({...data,prospects:P.map(x=>x.id===id?{...x,...p}:x)});
   const neuf=()=>({nom:'',client:'',telClient:'',emailClient:'',adresseClient:'',commune:'',
-    commercial:'',demandeLe:today(),statut:'demande',
+    commercial:'',commercialTel:'',demandeLe:today(),statut:'demande',produits:[],
     typeTerrain:'',surfaceTerrain:'',prestation:'',chauffage:'',niveaux:'',nbChambres:'',
     surfaceHabitable:'',surfaceAnnexes:'',budgetClient:'',demande:'',
     courtier:false,courtierNom:'',courtierTel:'',financement:'',
@@ -6056,6 +6328,9 @@ function Prospects({data,save}){
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>LA DEMANDE DU COMMERCIAL</div>
       <div className="g2">
         <Fld label="COMMERCIAL"><input className="in" value={f.commercial||''} onChange={e=>setF({...f,commercial:e.target.value})}/></Fld>
+        <Fld label="TÉL. DU COMMERCIAL"><input className="in" type="tel" value={f.commercialTel||''} onChange={e=>setF({...f,commercialTel:e.target.value})}/></Fld>
+      </div>
+      <div className="g2">
         <Fld label="DEMANDÉ LE"><input className="in" type="date" value={f.demandeLe||''} onChange={e=>setF({...f,demandeLe:e.target.value})}/></Fld>
       </div>
       <div className="g2">
@@ -6186,7 +6461,7 @@ function Prospects({data,save}){
           <div><div className="mut">Ratio</div><div className="b" style={{color:r?NAVY:MUTED}}>{eurM2(r)}</div></div>
         </div>
         {ouv===p.id&&<div style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
-          <DetailProspect p={p} maj={v=>maj(p.id,v)}/>
+          <DetailProspect p={p} maj={v=>maj(p.id,v)} data={data}/>
           <div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
             <button className="btn s" onClick={()=>setF({...neuf(),...p})}>Modifier</button>
             {p.statut!=='gagne'&&<button className="btn gh s" onClick={()=>transformer(p)}>Transformer en chantier</button>}
@@ -6376,7 +6651,7 @@ function RecapChiffrage({p,interne}){
 }
 
 /* le détail déplié sous une fiche : ce qu'on sait du projet, et ses pièces */
-function DetailProspect({p,maj}){
+function DetailProspect({p,maj,data}){
   const dossier=async token=>driveProspectFolder(token,p.id,p.nom);
   return <div>
     <div className="g2 xs" style={{marginBottom:10}}>
@@ -6421,6 +6696,8 @@ function DetailProspect({p,maj}){
         C'est ce document que le commercial présente au client. La rétrocession n'y figure pas.</div>
     </Fld>
 
+    <ProduitsDuProjet data={data} p={p} maj={maj}/>
+    <SortirDossier data={data} p={p} maj={maj}/>
     <ValiderChiffrage p={p} maj={maj}/>
 
     <PiecesProspect p={p} maj={maj} dossier={dossier}/>
@@ -6429,6 +6706,93 @@ function DetailProspect({p,maj}){
       <FichiersDrive resoudre={dossier} fichiers={p.pieces} onChange={v=>maj({pieces:v})} label="Importer des pièces"/>
     </Fld>
     <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Tout est rangé dans Drive › CRM CP › Prospects › {p.nom}.</div>
+  </div>;
+}
+
+/* les produits que ce projet retient, cochés dans la base */
+function ProduitsDuProjet({data,p,maj}){
+  const [ouvre,setOuvre]=useState(false);
+  const base=data.produits||[];
+  const choisis=p.produits||[];
+  const bascule=id=>maj({produits:choisis.indexOf(id)>=0?choisis.filter(x=>x!==id):[...choisis,id]});
+  const retenus=produitsRetenus(data,p);
+  return <Fld label={'PRODUITS DU PROJET ('+retenus.length+')'}>
+    {!base.length&&<div className="xs mut" style={{lineHeight:1.5}}>
+      Aucune fiche produit en base. Constituez-la depuis l'onglet PRODUITS : elle servira à tous les dossiers.</div>}
+    {retenus.length>0&&<div className="xs" style={{marginBottom:6}}>
+      {retenus.map(x=><div key={x.id} className="sp" style={{padding:'2px 0',gap:10}}>
+        <span>{x.nom}<span className="mut">{[x.marque,x.reference].filter(Boolean).length?' — '+[x.marque,x.reference].filter(Boolean).join(' '):''}</span></span>
+        {(x.fiches||[]).length
+          ?<a href={x.fiches[0].lien} target="_blank" rel="noreferrer" style={{color:TERRA,whiteSpace:'nowrap'}}>Fiche</a>
+          :<span className="mut" style={{whiteSpace:'nowrap'}}>sans fiche</span>}
+      </div>)}
+    </div>}
+    {base.length>0&&<button className="btn gh s" onClick={()=>setOuvre(!ouvre)}>
+      {ouvre?'Masquer la liste':'Choisir les produits'}</button>}
+    {ouvre&&<div style={{marginTop:8,maxHeight:280,overflowY:'auto',border:'1px solid '+RULE,
+      borderRadius:8,padding:'8px 10px'}}>
+      {base.map(x=><label key={x.id} className="xs row" style={{gap:8,alignItems:'flex-start',
+        cursor:'pointer',padding:'3px 0'}}>
+        <input type="checkbox" checked={choisis.indexOf(x.id)>=0} onChange={()=>bascule(x.id)}/>
+        <span>{x.nom}<span className="mut">{[x.lot,x.marque,x.reference].filter(Boolean).length
+          ?' — '+[x.lot,x.marque,x.reference].filter(Boolean).join(' · '):''}</span></span>
+      </label>)}
+    </div>}
+  </Fld>;
+}
+
+/* ---------- le dossier de présentation ----------
+   Il se compose de ce qui est déjà saisi : la navette donne la notice, le
+   chiffrage donne les montants, les travaux client donnent les exclusions. */
+function SortirDossier({data,p,maj}){
+  const [etat,setEtat]=useState(null);
+  const notice=noticeTechnique(p);
+  const pret=prospectPrixTTC(p)>0;
+  const produire=async()=>{
+    setEtat({etat:'travail'});
+    try{
+      const buf=await genererDossierDocx({...p,produitsRetenus:produitsRetenus(data,p)},
+        {nom:p.commercial,tel:p.commercialTel});
+      const nom='Dossier de présentation — '+(p.nom||'projet')+'.docx';
+      const token=await getDriveToken();
+      const dossierId=await driveProspectFolder(token,p.id,p.nom);
+      const {webViewLink}=await uploadToDrive(new File([buf],nom,
+        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),dossierId);
+      maj({dossierLe:today()});
+      setEtat({etat:'ok',lien:webViewLink,nom});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setEtat({etat:'erreur',msg:c==='auth_required'
+        ?"Le dossier a été composé, mais Google Drive n'est pas connecté — reconnectez-le puis relancez."
+        :'Sortie impossible — '+c});
+    }
+  };
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="b sm" style={{color:NAVY}}>Dossier de présentation au client</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Page de garde, notice technique du projet, coût prévisionnel, mission de maîtrise d'œuvre et
+      ce qui reste à la charge du client. Il se compose de ce qui est déjà saisi ici.
+      {p.dossierLe?<span> Dernière sortie le {fd(p.dossierLe)}.</span>:null}
+    </div>
+    <div className="xs" style={{marginTop:6,lineHeight:1.6}}>
+      <span style={{color:notice.length?GREEN:AMBER}}>
+        {notice.length?'✓ '+notice.length+' postes techniques':'⚠ fiche navette non remplie'}</span>
+      {' · '}<span style={{color:pret?GREEN:AMBER}}>{pret?'✓ chiffrage':'⚠ projet non chiffré'}</span>
+      {' · '}<span style={{color:prospectMargeHT(p)>0?GREEN:AMBER}}>
+        {prospectMargeHT(p)>0?'✓ honoraires':'⚠ marge non fixée'}</span>
+      {' · '}<span className="mut">{(p.produits||[]).length} produit(s)</span>
+    </div>
+    <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+      <button className="btn acc s" disabled={etat&&etat.etat==='travail'} onClick={produire}>
+        {etat&&etat.etat==='travail'?'Composition…':'Sortir le dossier Word'}</button>
+      {etat&&etat.etat==='ok'&&<a href={etat.lien} target="_blank" rel="noreferrer" className="btn gh s"
+        style={{textDecoration:'none'}}>Ouvrir</a>}
+    </div>
+    {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+      Déposé dans Drive › Prospects › {p.nom} — {etat.nom}</div>}
+    {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
+    {!notice.length&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
+      Sans fiche navette, la notice technique du dossier restera vide : renseignez-la d'abord.</div>}
   </div>;
 }
 
