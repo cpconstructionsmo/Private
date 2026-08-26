@@ -145,7 +145,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-26 · tableau de bord à l’arrivée et onglet prospects';
+const VERSION='2026-08-26 · pièces du terrain, taxes et lecture de l’étude géorisques';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -183,6 +183,12 @@ const TERRAINS=['Lotissement viabilisé','Terrain diffus viabilisé','Terrain di
 const PRESTATIONS=['Clé en main','Hors d’eau hors d’air','Gros œuvre seul','Second œuvre seul','Extension','Surélévation','Rénovation lourde'];
 const CHAUFFAGES=['Pompe à chaleur air/eau','Pompe à chaleur air/air','Plancher chauffant hydraulique','Poêle à granulés','Poêle à bois','Chaudière gaz condensation','Radiateurs électriques','Solaire thermique en appoint'];
 const NIVEAUX=['Plain-pied','R+1','R+1 combles aménagés','R+combles perdus','R+2','Sous-sol complet'];
+/* les pièces qu'on réclame au commercial avant de pouvoir chiffrer */
+const PIECES_PROSPECT=[
+  {id:'bornage',l:'Plan de bornage'},
+  {id:'apd',l:'Plan d’avant-projet souhaité'},
+  {id:'georisque',l:'Étude géorisques du terrain'},
+];
 
 /* ---------- trame de contrôle chantier : corps d'état → points de contrôle ---------- */
 const CTRL_ST=[{id:'conforme',label:'Conforme',c:GREEN},{id:'non_conforme',label:'Non conforme',c:TERRA},{id:'neant',label:'Néant',c:MUTED}];
@@ -662,6 +668,131 @@ const surfacePonderee=p=>Math.round((surfaceHab(p)+surfaceAnn(p)*0.5)*100)/100;
 /* null quand la surface manque : un ratio sans dénominateur ne s'invente pas */
 const ratioM2=(prix,p)=>{const s=surfacePonderee(p);return s>0?Math.round((+prix||0)/s):null};
 const eurM2=v=>v===null?'—':v.toLocaleString('fr-FR',{maximumFractionDigits:0})+' €/m²';
+
+/* ---------- rétrocession prévue ----------
+   Elle porte sur ce que touchent les entreprises, c'est-à-dire le coût des
+   travaux — jamais sur la marge, qui vous revient déjà. */
+const prospectRetro=p=>{
+  if(!p)return 0;
+  if(p.retroMontant!==undefined&&p.retroMontant!==null&&p.retroMontant!=='')return +p.retroMontant||0;
+  return Math.round(prospectCoutHT(p)*(+p.retroPct||0))/100;
+};
+
+/* ---------- ce qui s'ajoute au prix de la maison ----------
+   Assurance dommages-ouvrage et taxes ne sont pas le prix du bâtiment : elles
+   pèsent sur l'opération. On les additionne à part pour ne pas fausser le ratio
+   au m², qui ne vaut que rapporté au coût de construction. */
+const prospectAutresTaxes=p=>((p&&p.taxes)||[]).reduce((s,x)=>s+(+x.montant||0),0);
+const prospectTaxes=p=>Math.round(((+((p&&p.taxeAmenagement))||0)
+  +(+((p&&p.taxeRaccordement))||0)+prospectAutresTaxes(p))*100)/100;
+const prospectDO=p=>+((p&&p.dommageOuvrage))||0;
+const prospectOperationTTC=p=>Math.round((prospectPrixTTC(p)+prospectTaxes(p)+prospectDO(p))*100)/100;
+
+/* ---------- lecture d'une étude géorisques ----------
+   Le rapport de georisques.gouv.fr énumère tous les risques, y compris ceux
+   dont le terrain n'est pas affecté. On ne retient donc un risque que si son
+   voisinage ne le dément pas, et on en tire les obligations réelles. */
+const geoNorm=s=>String(s||'').replace(/\s+/g,' ').toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\u2018\u2019]/g,"'");
+const GEO_NEG=/n(?:'|’|e )est pas concerne|non concerne|aucun[e]? (?:cavite|risque|information|prescription|arrete|zonage)|pas de (?:risque|cavite|termite|prescription)|neant|hors zone|niveau nul/;
+/* le terrain est-il vraiment concerné, ou le rapport le mentionne-t-il pour dire non ? */
+function geoConcerne(t,motif){
+  const re=new RegExp(motif,'g'); let m,vu=false;
+  while((m=re.exec(t)))if(!GEO_NEG.test(t.slice(m.index,m.index+180)))vu=true;
+  return vu;
+}
+/* le niveau annoncé au voisinage d'un mot : 0 nul, 1 faible, 2 moyen, 3 fort */
+function geoNiveau(t,motif){
+  const ECH=[[/\bfort|\belev/,3],[/\bmoyen|\bmodere/,2],[/\bfaible/,1],[/\bnul\b|\baucun/,0]];
+  const re=new RegExp(motif,'g'); let m,best=null;
+  while((m=re.exec(t))){
+    const f=t.slice(Math.max(0,m.index-140),m.index+240);
+    for(const [rx,n] of ECH)if(rx.test(f)&&(best===null||n>best))best=n;
+  }
+  return best;
+}
+function analyseGeorisques(txt){
+  const t=geoNorm(txt);
+  if(!t)return {lu:false,obligations:[],vigilances:[]};
+  /* un vrai rapport géorisques nomme au moins l'un de ces risques */
+  const lu=/(retrait[- ]gonflement|sismicite|radon|risques? (?:naturels|technologiques)|georisques)/.test(t);
+  const O=[],V=[];
+  const add=(L,titre,texte,ref)=>L.push({titre,texte,ref});
+
+  /* --- argiles : la seule obligation d'étude de sol pour la maison neuve --- */
+  const arg=geoNiveau(t,'retrait[- ]gonflement|argile');
+  if(arg!==null&&arg>=2)
+    add(O,'Étude géotechnique de conception (G2) obligatoire',
+      'Le terrain est exposé au retrait-gonflement des argiles à un niveau '+(arg===3?'fort':'moyen')+
+      '. Une étude géotechnique de conception G2 doit être réalisée avant l’établissement des plans, et ses préconisations suivies par le gros œuvre. L’étude préalable G1 est due par le vendeur du terrain ; la G2 incombe au constructeur.',
+      'Loi ELAN n° 2018-1021 art. 68 · art. L. 132-4 à L. 132-6 et R. 132-4 du code de la construction · décret n° 2019-495 du 22 mai 2019');
+  else if(arg===1)
+    add(V,'Retrait-gonflement des argiles — exposition faible',
+      'Aucune étude n’est imposée à ce niveau, mais une reconnaissance de sol reste prudente avant d’arrêter les fondations.',
+      'Arrêté du 22 juillet 2020 définissant les zones d’exposition');
+
+  /* --- sismicité : la zone commande les règles de construction --- */
+  let z=null;
+  const mz=t.match(/zone (?:de )?sismicite\s*:?\s*([1-5])/)||t.match(/sismicite (?:de )?(?:zone )?([1-5])/);
+  if(mz)z=+mz[1];
+  else if(/sismicite (?:forte|5)/.test(t))z=5;
+  else if(/sismicite moyenne/.test(t))z=4;
+  else if(/sismicite moderee/.test(t))z=3;
+  else if(/sismicite faible/.test(t))z=2;
+  else if(/sismicite tres faible/.test(t))z=1;
+  if(z!==null&&z>=2){
+    const regle=z>=5?'l’Eurocode 8 (NF EN 1998-1) s’applique intégralement'
+      :z>=3?'le guide CPMI-EC8 zones 3 et 4 (DHUP, août 2021) peut être suivi en lieu et place de l’Eurocode 8 — il a remplacé les anciennes règles PS-MI (NF P 06-014)'
+      :'les dispositions constructives de l’Eurocode 8 s’appliquent aux bâtiments de catégorie d’importance III et IV ; une maison individuelle de catégorie II n’est pas soumise à justification en zone 2';
+    add(z>=3?O:V,'Zone de sismicité '+z+' — règles parasismiques',
+      'Le terrain est en zone de sismicité '+z+' : '+regle+'. À faire figurer dans la notice descriptive et à répercuter sur le lot gros œuvre.',
+      'Arrêté du 22 octobre 2010 modifié · arrêté du 8 septembre 2021 · art. R. 132-4 et D. 563-8-1 du code de l’environnement');
+  }
+
+  /* --- radon : un potentiel 3 impose de traiter le soubassement --- */
+  const mr=t.match(/potentiel radon[^.]{0,60}?([123])/)||t.match(/radon[^.]{0,40}?categorie\s*([123])/);
+  const radon=mr?+mr[1]:(/radon[^.]{0,60}significatif/.test(t)?3:null);
+  if(radon===3)
+    add(O,'Zone à potentiel radon 3',
+      'Commune classée en potentiel radon significatif. Prévoir un traitement du soubassement — vide sanitaire ventilé ou dallage étanche — et une ventilation permanente du logement. Le mesurage est obligatoire dans les établissements recevant du public, pas dans la maison individuelle, mais la conception doit en tenir compte.',
+      'Art. L. 125-5 et R. 125-23 du code de l’environnement · art. R. 1333-29 du code de la santé publique · arrêté du 27 juin 2018');
+  else if(radon===2)
+    add(V,'Zone à potentiel radon 2',
+      'Potentiel modéré lié à la nature du sous-sol. Une ventilation soignée et un vide sanitaire ventilé suffisent généralement.','');
+
+  /* --- plans de prévention : leurs prescriptions priment sur tout le reste --- */
+  if(geoConcerne(t,'plan de prevention des risques|ppri|pprn|ppr[ti]\\b'))
+    add(O,'Plan de prévention des risques applicable',
+      'Le terrain est couvert par un PPR. Son règlement impose des prescriptions opposables — cote de plancher, matériaux, implantation — qui priment sur les choix du projet. Le règlement doit être obtenu en mairie et joint au dossier de permis.',
+      'Art. L. 562-1 et suivants du code de l’environnement');
+  if(geoConcerne(t,'inondation|remontee de nappe|submersion'))
+    add(V,'Risque d’inondation ou de remontée de nappe',
+      'À vérifier avant d’arrêter le niveau du plancher bas et le principe de fondation. Un sous-sol peut être proscrit.','');
+
+  /* --- les risques qui changent la conception ou le prix --- */
+  if(geoConcerne(t,'cavite'))
+    add(O,'Cavités souterraines signalées',
+      'Une reconnaissance spécifique du sous-sol est nécessaire avant tout dimensionnement de fondation. Le surcoût doit figurer au chiffrage.','');
+  if(geoConcerne(t,'mouvement de terrain|glissement|effondrement'))
+    add(V,'Mouvements de terrain répertoriés',
+      'À croiser avec l’étude géotechnique : le mode de fondation et les terrassements peuvent en dépendre.','');
+  if(geoConcerne(t,'termite'))
+    add(O,'Zone de présence de termites',
+      'Un dispositif de protection contre les termites doit être mis en œuvre entre le sol et le bâtiment, et une notice remise au maître de l’ouvrage à la réception.',
+      'Art. L. 126-6, R. 126-13 et R. 126-14 du code de la construction · arrêté du 27 juin 2006');
+  if(geoConcerne(t,"secteur d'information sur les sols|\\bsis\\b|pollution des sols|site pollue"))
+    add(O,'Secteur d’information sur les sols (SIS)',
+      'Le terrain est en secteur d’information sur les sols : une attestation de prise en compte de la pollution, établie par un bureau d’études certifié, est exigée à la demande de permis de construire.',
+      'Art. L. 556-1, L. 556-2 et R. 556-3 du code de l’environnement');
+  if(geoConcerne(t,'installation classee|icpe|seveso'))
+    add(V,'Installation classée à proximité',
+      'Vérifier les servitudes d’utilité publique et les distances d’éloignement avant d’implanter le bâtiment.','');
+  if(geoConcerne(t,'amiante|plomb|demolition'))
+    add(V,'Diagnostics avant démolition',
+      'En cas de démolition préalable, les repérages amiante et plomb sont dus avant travaux.','');
+
+  return {lu,obligations:O,vigilances:V};
+}
 
 /* ---------- bordereaux de prix ----------
    La grille tarifaire d'un artisan : un code d'article, un libellé, une unité et
@@ -5418,6 +5549,15 @@ function piecesManquantes(ch){
   return attendues.filter(id=>!(d[id]&&d[id].fait))
     .map(id=>(DOCS.find(x=>x.id===id)||{l:id}).l);
 }
+/* les pièces du terrain qui manquent encore à un prospect */
+function piecesProspectManquantes(p){
+  const pj=(p&&p.pj)||{};
+  return PIECES_PROSPECT.filter(d=>{
+    const c=pj[d.id]||{};
+    const F=c.fichiers||(d.id==='apd'?((p&&p.plans)||[]):[]);
+    return !c.fait&&!F.length;
+  }).map(d=>d.l);
+}
 /* jalons en retard, et ceux qui tombent dans les quinze jours */
 function jalonsUrgents(ch){
   const t=today();
@@ -5467,10 +5607,14 @@ function TableauBord({data,open,allerA}){
 
     {chiffrages.length>0&&<Bloc titre="DEMANDES DE CHIFFRAGE" n={chiffrages.length} c={TERRA}>
       <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Déposées par le commercial, elles attendent votre réponse.</div>
-      {chiffrages.map(p=>item(p.id,()=>allerA('prospects'),
-        <span><b>{p.nom}</b>{p.commercial?<span className="mut"> · {p.commercial}</span>:null}
-          <span className="mut">{p.commune?' · '+p.commune:''}</span></span>,
-        p.attente>0?p.attente+' j':'aujourd’hui', p.attente>7?TERRA:p.attente>3?AMBER:MUTED))}
+      {chiffrages.map(p=>{
+        const mq=piecesProspectManquantes(p);
+        return item(p.id,()=>allerA('prospects'),
+          <span><b>{p.nom}</b>{p.commercial?<span className="mut"> · {p.commercial}</span>:null}
+            <span className="mut">{p.commune?' · '+p.commune:''}</span>
+            {mq.length>0&&<div className="mut" style={{marginTop:2,lineHeight:1.5}}>Manque : {mq.join(' · ')}</div>}</span>,
+          p.attente>0?p.attente+' j':'aujourd’hui', p.attente>7?TERRA:p.attente>3?AMBER:MUTED);
+      })}
     </Bloc>}
 
     {retards.length>0&&<div style={{marginTop:8}}><Bloc titre="ÉTAPES À TENIR" n={retards.length} c={retards.some(r=>r.j.retard)?TERRA:AMBER}>
@@ -5512,8 +5656,11 @@ function Prospects({data,save}){
     commercial:'',demandeLe:today(),statut:'demande',
     typeTerrain:'',surfaceTerrain:'',prestation:'',chauffage:'',niveaux:'',nbChambres:'',
     surfaceHabitable:'',surfaceAnnexes:'',budgetClient:'',demande:'',
+    courtier:false,courtierNom:'',courtierTel:'',
     postes:[],coutHT:'',margePct:'',margeMontant:'',tva:'',remisLe:'',reponse:'',
-    plans:[],pieces:[]});
+    retroPct:'',retroMontant:'',
+    dommageOuvrage:'',taxeAmenagement:'',taxeRaccordement:'',taxes:[],
+    pj:{},chiffrages:[],plans:[],pieces:[]});
   const ok=()=>{
     if(!(f.nom||'').trim())return;
     const r={...f,surfaceTerrain:f.surfaceTerrain===''?'':+f.surfaceTerrain,
@@ -5522,7 +5669,11 @@ function Prospects({data,save}){
       nbChambres:f.nbChambres===''?'':+f.nbChambres,
       budgetClient:f.budgetClient===''?'':+f.budgetClient,
       coutHT:f.coutHT===''?'':+f.coutHT,margePct:f.margePct===''?'':+f.margePct,
-      margeMontant:f.margeMontant===''?'':+f.margeMontant,tva:f.tva===''?'':+f.tva};
+      margeMontant:f.margeMontant===''?'':+f.margeMontant,tva:f.tva===''?'':+f.tva,
+      retroPct:f.retroPct===''?'':+f.retroPct,retroMontant:f.retroMontant===''?'':+f.retroMontant,
+      dommageOuvrage:f.dommageOuvrage===''?'':+f.dommageOuvrage,
+      taxeAmenagement:f.taxeAmenagement===''?'':+f.taxeAmenagement,
+      taxeRaccordement:f.taxeRaccordement===''?'':+f.taxeRaccordement};
     save({...data,prospects:f.id?P.map(x=>x.id===f.id?{...x,...r}:x):[...P,{...r,id:uid()}]});
     setF(null);
   };
@@ -5599,6 +5750,15 @@ function Prospects({data,save}){
         Surface pondérée retenue pour le ratio : <b>{surfacePonderee(f).toLocaleString('fr-FR')} m²</b> — l'habitable plus la moitié des annexes.
       </div>
       <Fld label="BUDGET ANNONCÉ PAR LE CLIENT (€ TTC)"><input className="in" type="number" value={f.budgetClient||''} onChange={e=>setF({...f,budgetClient:e.target.value})}/></Fld>
+      <Fld label="FINANCEMENT">
+        <label className="row xs" style={{gap:8,alignItems:'center',cursor:'pointer'}}>
+          <input type="checkbox" checked={!!f.courtier} onChange={e=>setF({...f,courtier:e.target.checked})}/>
+          <span>Le client passe par un courtier</span></label>
+        {f.courtier&&<div className="g2" style={{marginTop:8}}>
+          <input className="in" placeholder="Nom du courtier" value={f.courtierNom||''} onChange={e=>setF({...f,courtierNom:e.target.value})}/>
+          <input className="in" type="tel" placeholder="Téléphone" value={f.courtierTel||''} onChange={e=>setF({...f,courtierTel:e.target.value})}/>
+        </div>}
+      </Fld>
       <Fld label="PRÉCISIONS DE LA DEMANDE"><textarea className="in" rows="3" value={f.demande||''} onChange={e=>setF({...f,demande:e.target.value})} placeholder="Contraintes du terrain, souhaits particuliers, délais…"/></Fld>
 
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>VOTRE CHIFFRAGE</div>
@@ -5612,7 +5772,33 @@ function Prospects({data,save}){
           value={f.margeMontant||''} onChange={e=>setF({...f,margeMontant:e.target.value})}/></Fld>
       </div>
       <Fld label="TVA (%)"><input className="in" type="number" step="0.1" placeholder="20" value={f.tva===undefined?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/></Fld>
-      <RecapChiffrage p={f}/>
+
+      <div className="h2" style={{marginTop:16,marginBottom:4,fontSize:13}}>ASSURANCE ET TAXES</div>
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+        Elles pèsent sur l'opération sans être le prix de la maison : elles s'ajoutent au total sans entrer dans le ratio au m².
+      </div>
+      <div className="g2">
+        <Fld label="DOMMAGES-OUVRAGE ESTIMÉE (€)"><input className="in" type="number" value={f.dommageOuvrage||''} onChange={e=>setF({...f,dommageOuvrage:e.target.value})}/></Fld>
+        <Fld label="TAXE D’AMÉNAGEMENT (€)"><input className="in" type="number" value={f.taxeAmenagement||''} onChange={e=>setF({...f,taxeAmenagement:e.target.value})}/></Fld>
+      </div>
+      <Fld label="TAXE DE RACCORDEMENT (€)"><input className="in" type="number" value={f.taxeRaccordement||''} onChange={e=>setF({...f,taxeRaccordement:e.target.value})} placeholder="Eau, électricité, assainissement…"/></Fld>
+      <LignesMontants lignes={f.taxes||[]} onChange={v=>setF({...f,taxes:v})}
+        label="AUTRES TAXES ET PARTICIPATIONS" ajout="+ Taxe" exemple="Redevance archéologie, PFAC, PVR…"/>
+
+      <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>RÉTROCESSION PRÉVUE</div>
+      <div className="xs" style={{marginBottom:8,padding:'8px 10px',borderRadius:8,
+        background:'#F4F1EB',borderLeft:'3px solid '+NAVY,lineHeight:1.6}}>
+        <b style={{color:NAVY}}>Interne</b> — elle porte sur le coût des travaux, pas sur votre marge.
+        Elle n'apparaît ni sur le chiffrage remis au commercial, ni sur aucun document client.
+      </div>
+      <div className="g2">
+        <Fld label="TAUX DE RÉTROCESSION (%)"><input className="in" type="number" step="0.1" value={f.retroPct||''} onChange={e=>setF({...f,retroPct:e.target.value})}/></Fld>
+        <Fld label="MONTANT EN € — remplace le calcul"><input className="in" type="number"
+          placeholder={'Auto : '+eur(prospectCoutHT(f)*(+f.retroPct||0)/100)}
+          value={f.retroMontant||''} onChange={e=>setF({...f,retroMontant:e.target.value})}/></Fld>
+      </div>
+
+      <RecapChiffrage p={f} interne/>
       <div className="g2">
         <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>
           {PROSPECT_ST.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
@@ -5682,20 +5868,46 @@ function PostesChiffrage({postes,onChange}){
   </Fld>;
 }
 
-/* le récapitulatif du chiffrage, tel qu'il se lit une fois les postes saisis */
-function RecapChiffrage({p}){
+/* une liste libellé + montant : taxes, participations, tout ce qui s'ajoute */
+function LignesMontants({lignes,onChange,label,ajout,exemple}){
+  const L=lignes||[];
+  const set=(id,p)=>onChange(L.map(x=>x.id===id?{...x,...p}:x));
+  const total=L.reduce((s,x)=>s+(+x.montant||0),0);
+  return <Fld label={label}>
+    {L.map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
+      <input className="in" style={{flex:1,minWidth:0}} value={x.libelle||''}
+        placeholder={exemple} onChange={e=>set(x.id,{libelle:e.target.value})}/>
+      <input className="in" style={{width:110,flex:'0 0 auto'}} type="number" value={x.montant||''}
+        placeholder="€" onChange={e=>set(x.id,{montant:e.target.value})}/>
+      <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
+        onClick={()=>onChange(L.filter(y=>y.id!==x.id))}>✕</button>
+    </div>)}
+    <div className="row" style={{gap:10,alignItems:'center',marginTop:4}}>
+      <button className="btn gh s" onClick={()=>onChange([...L,{id:uid(),libelle:'',montant:''}])}>{ajout}</button>
+      {L.length>0&&<span className="xs b">Total {eur(total)}</span>}
+    </div>
+  </Fld>;
+}
+
+/* le récapitulatif du chiffrage, tel qu'il se lit une fois les postes saisis.
+   « interne » ajoute la rétrocession : elle n'a pas à figurer ailleurs. */
+function RecapChiffrage({p,interne}){
   const cout=prospectCoutHT(p), marge=prospectMargeHT(p);
   const ht=prospectPrixHT(p), ttc=prospectPrixTTC(p);
   const rTTC=ratioM2(ttc,p), rHT=ratioM2(ht,p);
   const bud=+((p&&p.budgetClient))||0;
-  if(!cout&&!marge)return null;
+  const taxes=prospectTaxes(p), dOuv=prospectDO(p), op=prospectOperationTTC(p);
+  const retro=prospectRetro(p);
+  if(!cout&&!marge&&!taxes&&!dOuv)return null;
+  const ligne=(l,v,c)=><div className="sp xs" style={{padding:'2px 0'}}>
+    <span className="mut">{l}</span><span style={{color:c}}>{v}</span></div>;
   return <div className="card" style={{marginTop:4,marginBottom:12,background:'#F4F1EB',borderLeft:'3px solid '+NAVY}}>
     <div className="g2 xs">
       <div><div className="mut">Coût des travaux</div><div className="b">{eur(cout)} HT</div></div>
       <div><div className="mut">Marge maîtrise d’œuvre</div><div className="b">{eur(marge)} HT{cout?' · '+Math.round(marge/cout*1000)/10+' %':''}</div></div>
     </div>
     <div className="sp" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE,alignItems:'flex-end'}}>
-      <span className="xs mut">Prix du projet</span>
+      <span className="xs mut">Prix de la maison</span>
       <span className="b" style={{fontSize:19,color:NAVY,lineHeight:1}}>{eur(ttc)} TTC</span>
     </div>
     <div className="xs mut" style={{textAlign:'right',marginTop:2}}>{eur(ht)} HT · TVA {prospectTva(p)} %</div>
@@ -5705,9 +5917,31 @@ function RecapChiffrage({p}){
     </div>
     <div className="xs mut" style={{textAlign:'right',marginTop:2}}>
       {eurM2(rHT)} HT · sur {surfacePonderee(p).toLocaleString('fr-FR')} m² pondérés</div>
+    {(taxes>0||dOuv>0)&&<div style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+      <div className="xs mut" style={{marginBottom:4}}>S’ajoutent au prix de la maison</div>
+      {dOuv>0&&ligne('Dommages-ouvrage estimée',eur(dOuv))}
+      {+p.taxeAmenagement>0&&ligne('Taxe d’aménagement',eur(p.taxeAmenagement))}
+      {+p.taxeRaccordement>0&&ligne('Taxe de raccordement',eur(p.taxeRaccordement))}
+      {(p.taxes||[]).filter(x=>+x.montant).map(x=>
+        <div key={x.id} className="sp xs" style={{padding:'2px 0'}}>
+          <span className="mut">{x.libelle||'Autre taxe'}</span><span>{eur(x.montant)}</span></div>)}
+      <div className="sp" style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'flex-end'}}>
+        <span className="xs b">Coût total de l’opération</span>
+        <span className="b" style={{fontSize:17,color:NAVY,lineHeight:1}}>{eur(op)} TTC</span>
+      </div>
+    </div>}
     {bud>0&&<div className="xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE,
-      color:ttc>bud?TERRA:GREEN,lineHeight:1.5}}>
-      Budget annoncé par le client {eur(bud)} TTC — {ttc>bud?'dépassé de '+eur(ttc-bud):'marge de '+eur(bud-ttc)}
+      color:op>bud?TERRA:GREEN,lineHeight:1.5}}>
+      Budget annoncé par le client {eur(bud)} TTC — {op>bud?'dépassé de '+eur(op-bud):'marge de '+eur(bud-op)}
+      {(taxes>0||dOuv>0)&&<span className="mut"> (opération complète, taxes et assurance comprises)</span>}
+    </div>}
+    {interne&&retro>0&&<div className="xs" style={{marginTop:10,paddingTop:10,borderTop:'2px solid '+NAVY}}>
+      <div className="sp"><span className="mut">Rétrocession prévue — interne</span>
+        <span className="b" style={{color:NAVY}}>{eur(retro)} HT</span></div>
+      <div className="mut" style={{marginTop:2}}>
+        {+p.retroPct>0&&!(p.retroMontant!==''&&p.retroMontant!==undefined&&p.retroMontant!==null)
+          ? p.retroPct+' % du coût des travaux'
+          : 'montant arrêté à la main'} · recette totale {eur(marge+retro)} HT avec la marge</div>
     </div>}
   </div>;
 }
@@ -5734,6 +5968,7 @@ function DetailProspect({p,maj}){
         <Ligne l="Demandé le" v={p.demandeLe?fd(p.demandeLe):''}/>
         <Ligne l="Remis le" v={p.remisLe?fd(p.remisLe):''}/>
         <Ligne l="Budget client" v={p.budgetClient?eur(p.budgetClient)+' TTC':''}/>
+        <Ligne l="Courtier" v={p.courtier?(p.courtierNom||'oui')+(p.courtierTel?' · '+p.courtierTel:''):'aucun'}/>
         <Ligne l="Téléphone" v={p.telClient}/>
         <Ligne l="E-mail" v={p.emailClient}/>
       </div>
@@ -5745,16 +5980,93 @@ function DetailProspect({p,maj}){
       {p.postes.map(x=><div key={x.id} className="sp" style={{padding:'2px 0'}}>
         <span className="mut">{x.libelle||'Poste'}</span><span>{eur(x.montant)} HT</span></div>)}
     </div>}
-    <RecapChiffrage p={p}/>
+    <RecapChiffrage p={p} interne/>
     {p.reponse&&<div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,background:'#F4F1EB',lineHeight:1.6}}>
       <b style={{color:NAVY}}>Votre réponse</b><div style={{marginTop:3,whiteSpace:'pre-wrap'}}>{p.reponse}</div></div>}
-    <Fld label="PLAN D’AVANT-PROJET">
-      <FichiersDrive resoudre={dossier} fichiers={p.plans} onChange={v=>maj({plans:v})} label="Importer le plan"/>
+
+    <Fld label="CHIFFRAGE REMIS AU COMMERCIAL (PDF)">
+      <FichiersDrive resoudre={dossier} fichiers={p.chiffrages} onChange={v=>maj({chiffrages:v})} label="Déposer le chiffrage"/>
+      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+        C'est ce document que le commercial présente au client. La rétrocession n'y figure pas.</div>
     </Fld>
+
+    <PiecesProspect p={p} maj={maj} dossier={dossier}/>
+
     <Fld label="AUTRES PIÈCES">
       <FichiersDrive resoudre={dossier} fichiers={p.pieces} onChange={v=>maj({pieces:v})} label="Importer des pièces"/>
     </Fld>
-    <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Les pièces sont rangées dans Drive › CRM CP › Prospects › {p.nom}.</div>
+    <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Tout est rangé dans Drive › CRM CP › Prospects › {p.nom}.</div>
+  </div>;
+}
+
+/* Les trois pièces attendues avant de chiffrer : chacune se coche quand elle
+   est là. L'étude géorisques se lit en plus, pour en tirer les obligations. */
+function PiecesProspect({p,maj,dossier}){
+  const pj=p.pj||{};
+  const [lecture,setLecture]=useState('');
+  const item=id=>pj[id]||{};
+  /* le plan d'avant-projet vivait dans « plans » avant que les pièces soient
+     structurées : on continue de le lire là où il se trouve */
+  const fichiers=id=>item(id).fichiers||(id==='apd'?(p.plans||[]):[]);
+  const set=(id,v)=>maj({pj:{...pj,[id]:{...item(id),...v}}});
+  const coche=id=>{const c=item(id);set(id,{fait:!c.fait,date:!c.fait?today():''})};
+  const analyser=async file=>{
+    setLecture('lecture');
+    try{
+      const r=analyseGeorisques(await pdfText(file));
+      if(!r.lu){setLecture('rien');return}
+      set('georisque',{analyse:{...r,le:today()}});
+      setLecture(r.obligations.length||r.vigilances.length?'ok':'vide');
+    }catch(e){setLecture('erreur')}
+  };
+  const A=item('georisque').analyse;
+  return <div style={{marginTop:12}}>
+    <div className="xs b" style={{color:NAVY,marginBottom:6,letterSpacing:'.04em'}}>PIÈCES DU TERRAIN</div>
+    {PIECES_PROSPECT.map(d=>{
+      const c=item(d.id), F=fichiers(d.id);
+      return <div key={d.id} className="card" style={{padding:10,marginBottom:6,
+        borderLeft:'3px solid '+(c.fait?GREEN:RULE)}}>
+        <div className="row" style={{gap:8,alignItems:'center'}}>
+          <button className="chk" onClick={()=>coche(d.id)}
+            style={{background:c.fait?GREEN:'transparent',borderColor:c.fait?GREEN:RULE}}>{c.fait?'✓':''}</button>
+          <span className="sm" style={{flex:1,color:c.fait?MUTED:INK}}>{d.l}</span>
+          {c.fait&&c.date&&<span className="xs mut" style={{whiteSpace:'nowrap'}}>{fd(c.date)}</span>}
+        </div>
+        <div style={{marginTop:6,paddingLeft:32}}>
+          <FichiersDrive resoudre={dossier} fichiers={F}
+            onChange={v=>set(d.id,{fichiers:v,fait:v.length?true:c.fait,date:v.length&&!c.fait?today():c.date})}
+            label="Importer"/>
+        </div>
+      </div>;
+    })}
+    <Fld label="LIRE L’ÉTUDE GÉORISQUES ET EN TIRER LES OBLIGATIONS">
+      <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{lecture==='lecture'?'Lecture de l’étude…':'Analyser l’étude (PDF)'}
+        <input type="file" accept="application/pdf" style={{display:'none'}} disabled={lecture==='lecture'}
+          onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)analyser(x)}}/></label>
+      {lecture==='rien'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>Ce PDF ne ressemble pas à une étude géorisques — aucun risque n’y est nommé. S’il est scanné sans texte, il faudra le lire vous-même.</div>}
+      {lecture==='vide'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>Étude lue : aucune obligation particulière n’en ressort.</div>}
+      {lecture==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>Lecture du PDF impossible.</div>}
+    </Fld>
+    {A&&<div style={{marginTop:6}}>
+      <div className="xs mut" style={{marginBottom:6,lineHeight:1.5}}>Étude lue le {fd(A.le)}.</div>
+      {A.obligations.map((o,i)=><div key={'o'+i} className="card" style={{padding:10,marginBottom:6,
+        borderLeft:'3px solid '+TERRA,background:'#F6E2DC'}}>
+        <div className="b sm" style={{color:TERRA}}>{o.titre}</div>
+        <div className="xs" style={{marginTop:4,lineHeight:1.6}}>{o.texte}</div>
+        {o.ref&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>{o.ref}</div>}
+      </div>)}
+      {A.vigilances.map((o,i)=><div key={'v'+i} className="card" style={{padding:10,marginBottom:6,
+        borderLeft:'3px solid '+AMBER,background:'#FBF3E2'}}>
+        <div className="b sm" style={{color:AMBER}}>{o.titre}</div>
+        <div className="xs" style={{marginTop:4,lineHeight:1.6}}>{o.texte}</div>
+        {o.ref&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>{o.ref}</div>}
+      </div>)}
+      {!A.obligations.length&&!A.vigilances.length&&
+        <div className="xs" style={{color:GREEN,lineHeight:1.5}}>Aucune obligation n’a été relevée dans cette étude.</div>}
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5,fontStyle:'italic'}}>
+        Cette lecture est une aide, pas un avis : elle relève ce que le rapport nomme. Reportez-vous à l’étude elle-même et au règlement d’urbanisme avant d’engager le chiffrage.
+      </div>
+    </div>}
   </div>;
 }
 
