@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-25 · contrat de marché rédigé par l’application, avec ses clauses et ses contrôles';
+const VERSION='2026-08-25 · connexion Drive : le refus de Google s’affiche et le jeton tient';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -1112,22 +1112,50 @@ const Photo={
 /* Connexion par redirection de page (pas de pop-up) : plus fiable sur iOS, y compris en app installée. */
 let driveFolderId=null;
 const driveSubfolders=new Map();
-const GOOGLE_REDIRECT_URI=location.origin+location.pathname;
+/* Google compare l'adresse de retour au caractère près avec celle déclarée dans
+   la console : « /Private/ » et « /Private/index.html » sont deux adresses
+   différentes. On normalise pour n'en produire qu'une seule. */
+const GOOGLE_REDIRECT_URI=location.origin+location.pathname.replace(/index\.html$/,'');
 
+/* le jeton se garde entre les rechargements : après le retour de Google, l'app
+   se recharge, et un jeton rangé pour la seule session serait déjà perdu. */
+const jetonLu=k=>{try{return localStorage.getItem(k)||sessionStorage.getItem(k)}catch(e){return null}};
+const jetonEcris=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}try{sessionStorage.setItem(k,v)}catch(e){}};
+const jetonEfface=k=>{try{localStorage.removeItem(k)}catch(e){}try{sessionStorage.removeItem(k)}catch(e){}};
+
+/* ce que Google a répondu la dernière fois : sans cela, un échec est muet et
+   personne ne peut savoir pourquoi la connexion n'a pas abouti. */
+let driveRetour=null;
 function consumeDriveTokenFromUrl(){
-  if(location.hash.indexOf('access_token=')===-1)return;
-  const params=new URLSearchParams(location.hash.slice(1));
+  const h=String(location.hash||'').replace(/^#/,'');
+  const q=String(location.search||'').replace(/^\?/,'');
+  const params=new URLSearchParams(h||q);
   const token=params.get('access_token');
-  const expiresIn=+(params.get('expires_in')||3600);
+  const err=params.get('error');
+  if(!token&&!err)return;
   if(token){
-    sessionStorage.setItem('driveToken',token);
-    sessionStorage.setItem('driveTokenExpiry',String(Date.now()+(expiresIn-60)*1000));
+    const expiresIn=+(params.get('expires_in')||3600);
+    jetonEcris('driveToken',token);
+    jetonEcris('driveTokenExpiry',String(Date.now()+(expiresIn-60)*1000));
+    driveRetour={ok:true};
+  }else{
+    driveRetour={ok:false,code:err,detail:params.get('error_description')||''};
   }
-  history.replaceState(null,'',location.pathname+location.search);
+  try{history.replaceState(null,'',location.pathname+(h?location.search:''))}catch(e){}
 }
 consumeDriveTokenFromUrl();
 
-const driveConnected=()=>!!sessionStorage.getItem('driveToken')&&Date.now()<+(sessionStorage.getItem('driveTokenExpiry')||0);
+const driveConnected=()=>!!jetonLu('driveToken')&&Date.now()<+(jetonLu('driveTokenExpiry')||0);
+
+/* Traduction des refus de Google en langage utilisable. */
+const DRIVE_MOTIFS={
+  redirect_uri_mismatch:"l’adresse de retour n’est pas déclarée côté Google. Ajoutez l’adresse indiquée ci-dessous dans la console Google Cloud, en « URI de redirection autorisés ».",
+  access_denied:"l’accès a été refusé. Soit vous avez fermé la fenêtre, soit ce compte Google n’est pas autorisé : si l’application Google est en mode « Test », seuls les comptes déclarés comme testeurs peuvent se connecter.",
+  admin_policy_enforced:"l’administrateur de ce compte Google Workspace bloque les applications tierces. Il faut soit autoriser l’application, soit utiliser un compte Google personnel.",
+  org_internal:"cette application n’est ouverte qu’aux comptes de son organisation.",
+  invalid_client:"l’identifiant de l’application est refusé par Google.",
+  disallowed_useragent:"Google refuse le navigateur utilisé. Ouvrez le site dans Safari ou Chrome plutôt que depuis un lien intégré à une autre application.",
+};
 
 function startDriveAuth(){
   const params=new URLSearchParams({
@@ -1142,14 +1170,24 @@ function startDriveAuth(){
 }
 
 function disconnectDrive(){
-  sessionStorage.removeItem('driveToken');
-  sessionStorage.removeItem('driveTokenExpiry');
+  jetonEfface('driveToken');
+  jetonEfface('driveTokenExpiry');
 }
 
 async function getDriveToken(){
-  if(driveConnected())return sessionStorage.getItem('driveToken');
+  if(driveConnected())return jetonLu('driveToken');
   throw{error:'auth_required'};
 }
+
+/* Sur iPhone, une application ouverte depuis l'écran d'accueil est un contexte
+   séparé de Safari : la page de Google s'ouvre dans Safari et le jeton n'en
+   revient jamais. Il faut le savoir pour ne pas chercher ailleurs. */
+const driveDepuisEcranAccueil=()=>{
+  try{
+    return !!(window.navigator&&window.navigator.standalone)
+      ||!!(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);
+  }catch(e){return false}
+};
 
 /* Le dossier racine où tout est rangé. Les noms précédents sont conservés pour
    pouvoir retrouver les chantiers déjà déposés et les y ranger : renommer le
@@ -2350,11 +2388,47 @@ function FichiersDrive({ch,dossier,fichiers,onChange,label}){
 
 function DriveStatus(){
   const[connected,setConnected]=useState(driveConnected());
-  return <div className="sp xs" style={{marginBottom:12,padding:'8px 10px',border:'1px solid '+RULE,background:'#fff'}}>
-    <span style={{color:connected?GREEN:MUTED}}>{connected?'✓ Google Drive connecté':'Google Drive non connecté'}</span>
-    {connected
-      ?<button className="btn gh s" onClick={()=>{disconnectDrive();setConnected(false)}}>Déconnecter</button>
-      :<button className="btn acc s" onClick={startDriveAuth}>Connecter</button>}
+  const[aide,setAide]=useState(false);
+  /* le refus de Google, s'il y en a eu un au dernier retour */
+  const echec=driveRetour&&!driveRetour.ok?driveRetour:null;
+  const standalone=driveDepuisEcranAccueil();
+  return <div className="xs" style={{marginBottom:12,padding:'8px 10px',border:'1px solid '+RULE,background:'#fff'}}>
+    <div className="sp">
+      <span style={{color:connected?GREEN:(echec?TERRA:MUTED)}}>
+        {connected?'✓ Google Drive connecté':'Google Drive non connecté'}</span>
+      {connected
+        ?<button className="btn gh s" onClick={()=>{disconnectDrive();setConnected(false)}}>Déconnecter</button>
+        :<button className="btn acc s" onClick={startDriveAuth}>Connecter</button>}
+    </div>
+    {/* un refus se dit, avec son motif : sinon on revient sur l'app sans rien comprendre */}
+    {!connected&&echec&&<div style={{marginTop:6,color:TERRA,lineHeight:1.5}}>
+      Google a refusé la connexion — {DRIVE_MOTIFS[echec.code]||('code « '+echec.code+' »')}
+      {echec.detail?<div className="mut" style={{marginTop:2}}>{echec.detail}</div>:null}
+    </div>}
+    {/* la cause la plus fréquente sur iPhone, invisible autrement */}
+    {!connected&&standalone&&<div style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+      L'application est ouverte depuis l'écran d'accueil. Sur iPhone, la page de Google s'ouvre alors
+      dans Safari et n'en revient pas : ouvrez le site <b>dans Safari</b> pour connecter le Drive,
+      puis revenez ici — la connexion suit.
+    </div>}
+    {!connected&&<button className="btn gh s" style={{marginTop:8}} onClick={()=>setAide(!aide)}>
+      {aide?'Masquer le diagnostic':'La connexion ne marche pas ?'}</button>}
+    {aide&&<div className="mut" style={{marginTop:8,lineHeight:1.6}}>
+      <div>Trois causes, dans l'ordre de fréquence :</div>
+      <div style={{marginTop:6}}><b>1. Le compte Google n'est pas autorisé.</b> Si l'application Google
+        est encore en mode « Test », seuls les comptes inscrits comme testeurs peuvent se connecter —
+        les autres voient « accès bloqué ». Ajoutez le compte dans la console Google Cloud
+        (Écran de consentement OAuth › Utilisateurs tests), ou publiez l'application.</div>
+      <div style={{marginTop:6}}><b>2. L'adresse de retour n'est pas déclarée.</b> Elle doit figurer
+        au caractère près dans « URI de redirection autorisés » :</div>
+      <div style={{marginTop:4,padding:'6px 8px',background:'#F4F1EB',borderRadius:6,wordBreak:'break-all'}}>
+        <b>{GOOGLE_REDIRECT_URI}</b></div>
+      <div style={{marginTop:6}}><b>3. L'app est ouverte depuis l'écran d'accueil</b> (iPhone) :
+        passez par Safari pour la connexion.</div>
+      <div style={{marginTop:8}}>Identifiant de l'application :
+        <span style={{wordBreak:'break-all'}}> {GOOGLE_CLIENT_ID}</span></div>
+      <div style={{marginTop:6}}>Tout est déposé dans le dossier <b>{DRIVE_RACINE}</b> du Drive du compte connecté.</div>
+    </div>}
   </div>;
 }
 
