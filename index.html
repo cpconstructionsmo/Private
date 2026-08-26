@@ -141,7 +141,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-25 · connexion Drive : le refus de Google s’affiche et le jeton tient';
+const VERSION='2026-08-25 · convention d’apport d’affaires et connexion Drive diagnostiquée';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -1021,6 +1021,152 @@ const DOC_ENTETE_XML='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
   +'<w:document xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
   +' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
   +' xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">';
+
+/* ---------- convention de rétrocession ----------
+   La forme la plus solide n'est pas la commission occulte : c'est un contrat
+   d'apporteur d'affaires et de prestation, avec une contrepartie réelle, une
+   facture soumise à TVA, et surtout l'information du maître de l'ouvrage sur
+   son principe. C'est cette information qui écarte le conflit d'intérêts du
+   maître d'œuvre et la qualification de corruption privée. */
+function retroClauses(d){
+  const T=[
+    ['Article 1 — Objet',[
+      'La présente convention a pour objet de définir les conditions dans lesquelles '+CP.nom+' apporte à l’entreprise des affaires et lui fournit des prestations d’assistance, ainsi que la rémunération due en contrepartie.',
+      'Elle ne confère à '+CP.nom+' aucune qualité d’entrepreneur, de sous-traitant ni de mandataire de l’entreprise à l’égard des maîtres de l’ouvrage.',
+    ]],
+    ['Article 2 — Prestations de '+CP.nom,[
+      'En contrepartie de la rémunération définie à l’article 3, '+CP.nom+' assure : la présentation de l’affaire et la mise en relation avec le maître de l’ouvrage ; l’établissement du quantitatif et la rédaction du marché ; l’établissement et la tenue du calendrier d’exécution ; la coordination avec les autres corps d’état ; le contrôle de l’avancement, le visa des situations et l’organisation de la réception.',
+      'L’entreprise reconnaît que ces prestations lui évitent des travaux de préparation, de coordination et de suivi qu’elle aurait à supporter à défaut.',
+    ]],
+    ['Article 3 — Rémunération',[
+      'La rémunération est fixée en pourcentage du montant hors taxes de chaque marché concerné, aux taux figurant au tableau des affaires ci-avant, lequel fait partie intégrante de la présente convention.',
+      'Elle s’entend hors taxes et sera majorée de la taxe sur la valeur ajoutée au taux en vigueur, la prestation étant située en France entre assujettis.',
+      'Elle n’est due qu’à raison des marchés effectivement conclus et exécutés. En cas de résiliation d’un marché, elle est réduite à proportion des travaux effectivement réalisés.',
+    ]],
+    ['Article 4 — Facturation et paiement',[
+      CP.nom+' adresse à l’entreprise une facture portant les mentions prévues à l’article 289 du code général des impôts, référençant le marché concerné.',
+      'Le règlement intervient dans un délai de trente jours à compter de la date d’émission de la facture. Tout retard fait courir de plein droit les pénalités et l’indemnité forfaitaire de recouvrement de 40 € prévues à l’article L. 441-10 du code de commerce.',
+    ]],
+    ['Article 5 — Information du maître de l’ouvrage',[
+      'Les parties conviennent que le principe de la présente convention et de la rémunération qu’elle prévoit est porté à la connaissance du maître de l’ouvrage dans le contrat de maîtrise d’œuvre conclu avec lui.',
+      'Cette information est une condition essentielle de la convention. Son absence autoriserait l’entreprise à en suspendre l’exécution.',
+    ]],
+    ['Article 6 — Indépendance et probité',[
+      'Le choix des entreprises consultées et retenues relève du maître de l’ouvrage, sur proposition de '+CP.nom+' fondée sur des critères techniques et économiques objectifs — compétence, références, garanties d’assurance, prix et délais.',
+      'La rémunération prévue par la présente convention ne constitue en aucun cas la contrepartie d’un choix ou d’une préférence, et ne saurait influer sur les propositions faites au maître de l’ouvrage. Les parties s’interdisent tout avantage consenti ou reçu en dehors des présentes.',
+    ]],
+    ['Article 7 — Indépendance des marchés',[
+      'La présente convention est distincte des marchés de travaux conclus entre l’entreprise et les maîtres de l’ouvrage. Elle ne modifie ni leur prix, ni leur contenu, ni les obligations et garanties qui en découlent.',
+      'L’entreprise s’interdit de répercuter la rémunération objet des présentes sur les prix consentis au maître de l’ouvrage au titre des marchés concernés.',
+    ]],
+    ['Article 8 — Durée',[
+      'La convention prend effet à sa signature et demeure en vigueur jusqu’au complet règlement des rémunérations dues au titre des affaires qui y sont visées.',
+      'Chaque partie peut y mettre fin pour l’avenir par lettre recommandée avec accusé de réception, sans effet sur les affaires déjà conclues.',
+    ]],
+    ['Article 9 — Confidentialité',[
+      'Les parties tiennent confidentielles les conditions financières des présentes à l’égard des tiers, sous réserve de l’information du maître de l’ouvrage prévue à l’article 5 et des obligations légales, comptables et fiscales de chacune.',
+    ]],
+    ['Article 10 — Litiges',[
+      'Les parties s’efforceront de régler amiablement tout différend. À défaut, le litige sera porté devant le tribunal compétent du ressort du siège de '+CP.nom+'.',
+    ]],
+  ];
+  const out=[par('CONDITIONS DE LA CONVENTION',{b:true,sz:24,c:DOC_TERRA,sp:20,caps:true,ap:120,filet:DOC_TERRA})];
+  T.forEach(([titre,paras])=>{
+    out.push(par(titre,{b:true,sz:19,c:DOC_BRUN,av:120,ap:50}));
+    paras.forEach(p=>out.push(par(p,{sz:17,jc:'both',ap:60})));
+  });
+  return out.join('');
+}
+
+/* le tableau des affaires : quel marché, quel montant, quelle rétrocession */
+function retroTableau(d){
+  const G=[3300,2400,1700,900,2100];
+  const ent=(l,t,jc)=>tc(l,par(t,{b:true,sz:17,c:DOC_TERRA,sp:16,caps:true,jc:jc,ap:0}),
+    {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100});
+  const cel=(l,t,jc,gras)=>tc(l,par(t,{sz:18,jc:jc,ap:0,b:!!gras}),
+    {bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100,v:'top'});
+  const rows=[tr([ent(G[0],'Chantier'),ent(G[1],'Marché'),ent(G[2],'Montant H.T.','right'),
+    ent(G[3],'Taux','right'),ent(G[4],'Rétrocession H.T.','right')])];
+  (d.affaires||[]).forEach(a=>{
+    rows.push(tr([
+      cel(G[0],a.chantier||'','left'),
+      cel(G[1],(a.numero?'n° '+a.numero+' — ':'')+(a.lot||''),'left'),
+      cel(G[2],eurNombre(a.montant),'right'),
+      cel(G[3],(a.taux||0)+' %','right'),
+      cel(G[4],eurNombre(a.retro),'right',true),
+    ]));
+  });
+  const pied=(l,t,jc,fusion)=>tc(l,par(t,{b:true,sz:20,jc:jc,ap:0,c:fusion?DOC_ENCRE:DOC_TERRA}),
+    {fusion:fusion||undefined,fond:DOC_SABLE,mg:100,
+     bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>'});
+  rows.push(tr([
+    pied(G[0]+G[1]+G[2]+G[3],'TOTAL DES RÉTROCESSIONS H.T.','right',4),
+    pied(G[4],eurNombre(d.total),'right'),
+  ]));
+  return tbl(G,rows,{});
+}
+
+function retroDocumentXml(d,px){
+  const entete=tbl([4200,6200],[tr([
+    tc(4200,par([logoXml(px)],{ap:0}),{bords:tcB({h:false,g:false,b:false,d:false}),v:'top',mg:0}),
+    tc(6200,[
+      par('CONVENTION D’APPORT D’AFFAIRES',{b:true,sz:26,c:DOC_TERRA,sp:20,jc:'right',ap:40}),
+      par('et de prestations d’assistance',{sz:19,c:DOC_BRUN,jc:'right',ap:40,filet:DOC_TERRA}),
+      par('N° '+(d.numero||'')+' — du '+(d.date||''),{sz:19,c:DOC_GRIS,jc:'right',ap:0}),
+    ].join(''),{bords:tcB({h:false,g:false,b:false,d:false}),v:'bottom',mg:0}),
+  ])],{});
+  const bloc=(titre,lignes)=>[par(titre,{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60})]
+    .concat(lignes.filter(Boolean).map(l=>par(l,{sz:19,ap:30}))).join('');
+  const cadre=tcB({c:DOC_BRUN,sz:4,t:4,bs:4});
+  const parties=tbl([5200,5200],[tr([
+    tc(5200,bloc('Le prestataire',[CP.nom,CP.forme,'Siège : '+CP.adresse,
+      'SIRET : '+CP.siret,'APE '+CP.ape,'TVA : '+CP.tvaIntra]),
+      {bords:cadre,fond:DOC_SABLE,v:'top',mg:140}),
+    tc(5200,bloc('L’entreprise',[d.entreprise||'',
+      d.adresse?'Siège : '+d.adresse:'', d.siret?'SIRET : '+d.siret:'']),
+      {bords:cadre,fond:DOC_SABLE,v:'top',mg:140}),
+  ])],{});
+  const sign=tbl([5200,5200],[tr([
+    tc(5200,[par('Le prestataire',{b:true,sz:18,c:DOC_TERRA,caps:true,sp:16,ap:40}),
+      par(CP.nom,{sz:17,c:DOC_GRIS,ap:40}),
+      par('« Lu et approuvé — bon pour accord »',{i:true,sz:16,c:DOC_GRIS,ap:0}),vide(560)].join(''),
+      {bords:cadre,v:'top',mg:120}),
+    tc(5200,[par('L’entreprise',{b:true,sz:18,c:DOC_TERRA,caps:true,sp:16,ap:40}),
+      par(d.entreprise||'',{sz:17,c:DOC_GRIS,ap:40}),
+      par('Cachet — « Lu et approuvé — bon pour accord »',{i:true,sz:16,c:DOC_GRIS,ap:0}),vide(560)].join(''),
+      {bords:cadre,v:'top',mg:120}),
+  ])],{});
+  const corps=[
+    entete, vide(200), parties, vide(200),
+    par('Il a été convenu ce qui suit',{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60}),
+    par(CP.nom+', maître d’œuvre, a présenté à l’entreprise les affaires listées ci-après et lui fournit, pour leur exécution, les prestations d’assistance définies à l’article 2. En contrepartie, l’entreprise lui verse la rémunération portée au tableau.',
+      {sz:18,jc:'both',ap:140}),
+    par('Affaires concernées',{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60}),
+    retroTableau(d), vide(160),
+    par('Le principe de cette rémunération est porté à la connaissance du maître de l’ouvrage dans le contrat de maîtrise d’œuvre, conformément à l’article 5.',
+      {sz:17,i:true,c:DOC_BRUN,jc:'both',ap:0}),
+    sautPage,
+    retroClauses(d), vide(120),
+    par('Fait à '+(d.lieuSignature||'Valframbert')+', le '+(d.date||'')+', en deux exemplaires originaux.',
+      {sz:17,i:true,c:DOC_GRIS,ap:160}),
+    sign,
+  ].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+
+async function genererRetroDocx(d){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, la convention reste valable */}
+  return fabriquerDocx(retroDocumentXml(d,logo),
+    'Convention d’apport d’affaires — '+(d.entreprise||''),logo);
+}
 
 /* ---------- fabrication du .docx ----------
    Un Word minimal mais complet : types de contenu, relations, styles, le
@@ -4487,6 +4633,82 @@ function VisiteTechnique({ch,up}){
   </div>;
 }
 
+/* ---------------- CONVENTIONS DE RÉTROCESSION ----------------
+   Une convention par entreprise, reprenant ses marchés qui portent un taux.
+   Elle se dépose dans Drive › Rétrocessions — le dossier de la maîtrise
+   d'œuvre, pas celui que l'on remet au client. */
+function ConventionsRetro({data,ch,ms}){
+  const [etat,setEtat]=useState({});
+  const parArtisan=new Map();
+  ms.forEach(m=>{
+    const t=+m.retroPct||0;
+    if(!(t>0)||!m.artisanId)return;
+    if(!parArtisan.has(m.artisanId))parArtisan.set(m.artisanId,[]);
+    parArtisan.get(m.artisanId).push(m);
+  });
+  const groupes=[...parArtisan.entries()].map(([id,lots])=>({
+    artisan:data.artisans.find(a=>a.id===id)||{id,nom:'Entreprise inconnue'},
+    lots, total:Math.round(lots.reduce((s,m)=>s+retroMontant(m),0)*100)/100,
+  }));
+  const produire=async g=>{
+    setEtat(p=>({...p,[g.artisan.id]:{etat:'travail'}}));
+    try{
+      const doc=await genererRetroDocx({
+        numero:(g.artisan.nom||'').slice(0,3).toUpperCase()+'-'+today().replace(/-/g,''),
+        date:fd(today()),
+        entreprise:g.artisan.nom||'', adresse:g.artisan.adresse||'', siret:g.artisan.siret||'',
+        affaires:g.lots.map(m=>({chantier:ch.nom||'',lot:m.lot||'',numero:m.numeroMarche||'',
+          montant:+m.montantHT||0, taux:+m.retroPct||0, retro:retroMontant(m)})),
+        total:g.total,
+      });
+      const nom='Convention apport d’affaires — '+(g.artisan.nom||'entreprise')+' — '+(ch.nom||'')+'.docx';
+      const fichier=new File([doc],nom,
+        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+      const token=await getDriveToken();
+      const folderId=await driveRetroFolder(token,ch.id,ch.nom);
+      const{webViewLink}=await uploadToDrive(fichier,folderId);
+      setEtat(p=>({...p,[g.artisan.id]:{etat:'ok',lien:webViewLink,nom}}));
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setEtat(p=>({...p,[g.artisan.id]:{etat:'erreur',msg:c==='auth_required'
+        ?"La convention a été rédigée, mais Google Drive n'est pas connecté — reconnectez-le puis relancez."
+        :"Sortie impossible — "+c}}));
+    }
+  };
+  if(!groupes.length)return null;
+  return <div style={{marginTop:18}}>
+    <div className="h2" style={{marginBottom:8}}>CONVENTIONS D’APPORT D’AFFAIRES</div>
+    <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>
+      Une convention par entreprise ayant un taux de rétrocession sur ce chantier : elle nomme les marchés
+      concernés, leurs montants et la rémunération due, et se dépose dans Drive › Rétrocessions.
+    </p>
+    <div className="xs" style={{marginTop:8,padding:'8px 10px',borderRadius:8,
+      background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.6}}>
+      <b style={{color:AMBER}}>Ce qui rend cette convention défendable</b> — elle est rédigée comme un apport
+      d’affaires avec une contrepartie réelle (quantitatif, marché, planning, coordination, réception),
+      facturée et soumise à TVA. Son article 5 énonce que <b>le principe de cette rémunération est porté à
+      la connaissance du client dans votre contrat de maîtrise d’œuvre</b> : c’est cette mention qui écarte
+      le conflit d’intérêts. Ajoutez-la à vos contrats de maîtrise d’œuvre — le montant n’a pas à y figurer.
+    </div>
+    {groupes.map(g=>{
+      const s=etat[g.artisan.id]||{};
+      return <div key={g.artisan.id} className="card" style={{marginTop:8,borderLeft:'3px solid '+NAVY}}>
+        <div className="sp"><span className="b sm" style={{color:NAVY}}>{g.artisan.nom}</span>
+          <span className="xs b" style={{whiteSpace:'nowrap'}}>{eur(g.total)} HT</span></div>
+        <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+          {g.lots.map(m=>m.lot+' — '+eur(m.montantHT)+' × '+(+m.retroPct||0)+' %').join(' · ')}</div>
+        <button className="btn gh s" style={{marginTop:8}} disabled={s.etat==='travail'}
+          onClick={()=>produire(g)}>{s.etat==='travail'?'Rédaction…':'Rédiger la convention'}</button>
+        {s.etat==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+          Déposée dans Drive › Rétrocessions.{' '}
+          <a href={s.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir</a>
+          <div className="mut" style={{marginTop:2,wordBreak:'break-word'}}>{s.nom}</div></div>}
+        {s.etat==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA}}>{s.msg}</div>}
+      </div>;
+    })}
+  </div>;
+}
+
 /* ---------------- HONORAIRES ---------------- */
 function Honoraires({data,ch,save}){
   const hf=ch.honoFactures||[];
@@ -4750,6 +4972,7 @@ function Honoraires({data,ch,save}){
           </table>
         </div>
         {retroDu-retroFac>0&&<div className="xs" style={{marginTop:10,color:TERRA}}>Reste à facturer en rétrocessions : <b>{eur(retroDu-retroFac)} HT</b></div>}
+        <ConventionsRetro data={data} ch={ch} ms={ms}/>
       </div>}
     <DriveStatus/>
   </div>;
