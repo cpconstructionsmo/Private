@@ -145,7 +145,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-26 · coût complet de l’opération, fiche navette et validation du chiffrage';
+const VERSION='2026-08-26 · onglet PRIX, import de la grille Excel et Drive commun';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -745,7 +745,7 @@ const notaireEstime=p=>Math.round((+((p&&p.terrainPrix))||0)*0.075);
    objet, chiffres, lien du PDF — et ouvre la messagerie dessus : il ne reste
    qu'à l'envoyer. */
 const MAIL_CP='contact@cpconstructions.fr';
-function mailChiffrage(p){
+function corpsChiffrage(p){
   const r=ratioM2(prospectPrixTTC(p),p);
   const C=p.chiffrages||[]; const pdf=C[C.length-1];
   /* null : la ligne n'a pas lieu d'être — '' : un blanc voulu entre deux blocs */
@@ -774,10 +774,13 @@ function mailChiffrage(p){
     '',
     pdf?'Chiffrage détaillé : '+pdf.lien:'Le chiffrage détaillé n’a pas encore été déposé sur le Drive.',
   ];
-  const corps=L.filter(x=>x!==null).join('\n').replace(/\n{3,}/g,'\n\n');
+  return L.filter(x=>x!==null).join('\n').replace(/\n{3,}/g,'\n\n');
+}
+const sujetChiffrage=p=>'Chiffrage validé — '+(p.nom||'projet');
+function mailChiffrage(p){
   return 'mailto:'+MAIL_CP
-    +'?subject='+encodeURIComponent('Chiffrage validé — '+(p.nom||'projet'))
-    +'&body='+encodeURIComponent(corps);
+    +'?subject='+encodeURIComponent(sujetChiffrage(p))
+    +'&body='+encodeURIComponent(corpsChiffrage(p));
 }
 
 /* ---------- lecture d'une étude géorisques ----------
@@ -911,6 +914,158 @@ const bordPourArtisan=(b,id)=>!!id&&bordArtisans(b).indexOf(id)>=0;
 /* Lecture d'un bordereau depuis un marché déjà rédigé sous Word : on y retrouve
    « DÉSIGNATION DES TRAVAUX » puis un tableau ARTICLE / LIBELLE / QT / U / PU / PT.
    Un même document peut porter plusieurs lots — on les rend tous. */
+/* ---------- lecture d'une grille tarifaire Excel ----------
+   Un .xlsx est un zip : la feuille est en XML, et les libellés sont rangés à
+   part dans une table de chaînes partagées. On n'a besoin que de ces deux-là. */
+const colIndex=ref=>{
+  const m=String(ref).match(/^([A-Z]+)/); if(!m)return 0;
+  let n=0; for(const c of m[1])n=n*26+(c.charCodeAt(0)-64);
+  return n-1;
+};
+function xlsxChaines(xml){
+  const S=[];
+  const re=/<si\b[^>]*>([\s\S]*?)<\/si>/g;
+  let m;
+  while((m=re.exec(xml))){
+    /* un même libellé peut être coupé en plusieurs <t> par la mise en forme */
+    const t=(m[1].match(/<t\b[^>]*>([\s\S]*?)<\/t>/g)||[])
+      .map(x=>dexml(x.replace(/<[^>]+>/g,''))).join('');
+    S.push(t);
+  }
+  return S;
+}
+/* la feuille rendue en tableau de lignes, chaque ligne un tableau de cellules */
+function xlsxGrille(xml,chaines){
+  const lignes=[];
+  const reL=/<row\b[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
+  let m;
+  while((m=reL.exec(xml))){
+    const y=+m[1]-1, cells=[];
+    const reC=/<c\b([^>]*)>([\s\S]*?)<\/c>|<c\b([^>]*)\/>/g;
+    let c;
+    while((c=reC.exec(m[2]))){
+      const attrs=c[1]||c[3]||'', corps=c[2]||'';
+      const ref=(attrs.match(/\br="([A-Z]+\d+)"/)||[])[1];
+      const type=(attrs.match(/\bt="([^"]+)"/)||[])[1]||'n';
+      let v='';
+      if(type==='inlineStr'){
+        v=(corps.match(/<t\b[^>]*>([\s\S]*?)<\/t>/g)||[]).map(x=>dexml(x.replace(/<[^>]+>/g,''))).join('');
+      }else{
+        const raw=(corps.match(/<v>([\s\S]*?)<\/v>/)||[])[1];
+        if(raw!==undefined)v=type==='s'?(chaines[+raw]||''):dexml(raw);
+      }
+      const x=ref?colIndex(ref):cells.length;
+      cells[x]=String(v);
+    }
+    lignes[y]=cells;
+  }
+  for(let i=0;i<lignes.length;i++)if(!lignes[i])lignes[i]=[];
+  return lignes;
+}
+async function lireXlsx(file){
+  const buf=await file.arrayBuffer();
+  let chaines=[];
+  try{
+    chaines=xlsxChaines(new TextDecoder().decode(await zipEntree(buf,'xl/sharedStrings.xml')));
+  }catch(e){/* une feuille sans texte partagé reste lisible */}
+  /* le nom des feuilles, dans l'ordre où le classeur les déclare */
+  let noms=[];
+  try{
+    const wb=new TextDecoder().decode(await zipEntree(buf,'xl/workbook.xml'));
+    noms=(wb.match(/<sheet\b[^>]*\bname="([^"]*)"/g)||[]).map(x=>dexml((x.match(/name="([^"]*)"/)||[])[1]||''));
+  }catch(e){}
+  const feuilles=[];
+  for(let i=1;i<=12;i++){
+    let xml;
+    try{xml=new TextDecoder().decode(await zipEntree(buf,'xl/worksheets/sheet'+i+'.xml'))}
+    catch(e){break}
+    feuilles.push({nom:noms[i-1]||('Feuille '+i),lignes:xlsxGrille(xml,chaines)});
+  }
+  if(!feuilles.length)throw new Error('noxlsx');
+  return feuilles;
+}
+
+/* ---------- la grille tarifaire telle qu'elle est tenue ----------
+   Un titre de lot (« 031  MACONNERIE - B.A. »), puis une ligne d'en-têtes
+   ARTICLE / LIBELLE / U / PU, puis les articles. Un même lot peut porter deux
+   colonnes d'en-têtes côte à côte : deux entreprises, une grille chacune. */
+const nettoieCell=s=>String(s==null?'':s).replace(/[  ]/g,' ').replace(/\s+/g,' ').trim();
+/* Le titre d'un lot se reconnaît AVANT nettoyage : c'est la longue suite
+   d'espaces entre le numéro et l'intitulé qui le distingue d'un « 20 x 120 ». */
+const estTitreLot=s=>/^\s*\d{2,3}[  \t]{2,}\S/.test(String(s==null?'':s));
+const titreLot=s=>{
+  if(!estTitreLot(s))return null;
+  const m=nettoieCell(s).match(/^(\d{2,3})\s+(.+)$/);
+  return m?{num:m[1],nom:m[2].trim()}:null};
+/* un code d'article ne porte aucune espace : « TARIF VALIDE ICOBAT » n'en est
+   pas un. Le classeur y met aussi des « * » et des « + » : ils en font partie. */
+const estCodeArticle=s=>{const t=nettoieCell(s);
+  return !!t&&t.length<=48&&!/\s/.test(t)&&/^[A-Za-z0-9][A-Za-z0-9_\-.\/*+]*$/.test(t)};
+/* le prix unitaire se lit strictement : une unité ou un commentaire glissé dans
+   la colonne PU ne doit pas devenir un nombre */
+const prixCell=s=>{const t=nettoieCell(s).replace(/[€\s]/g,'').replace(',','.');
+  return t&&/^-?\d*\.?\d+$/.test(t)?+t:null};
+
+/* Le lot du classeur porte son propre vocabulaire (« 031 MACONNERIE - B.A. »).
+   On le rapproche du corps d'état de l'application pour éviter de le choisir
+   vingt-deux fois à la main — la correspondance reste modifiable. */
+const CORPS_MOTS=[[/MACONNERIE|GROS.?OEUVRE|V\.?R\.?D|TERRASSE?MENT/i,'Gros œuvre'],
+  [/CHARPENTE/i,'Charpente'],[/COUVERTURE|GOUTTIERE/i,'Couverture'],
+  [/MENUISERIES? (EXT|EXTERIEURES?)|PORTE D.ENTR|PORTES? DE GARAGE|COFFRE|POSE MENUISERIES/i,'Menuiseries ext.'],
+  [/MENUISERIES? (INT|INTERIEURES?)/i,'Menuiseries int.'],
+  [/ISOLATION/i,'Isolation'],[/PLAQUISTERIE|PLACO|CLOISON/i,'Cloisons / plâtrerie'],
+  [/ELECTRICITE/i,'Électricité'],[/PLOMBERIE|SANITAIRE/i,'Plomberie / sanitaire'],
+  [/CHAUFFAGE|VENTILATION|V\.?M\.?C/i,'Chauffage / VMC'],
+  [/CARRELAGE|FAIENCE/i,'Carrelage'],[/PEINTURE/i,'Peinture'],
+  [/ESCALIER/i,'Escalier'],[/FACADE|ENDUIT/i,'Gros œuvre'],
+  [/ASSAINISSEMENT/i,'Assainissement']];
+const corpsProche=nom=>{
+  for(const [rx,c] of CORPS_MOTS)if(rx.test(String(nom||'')))return c;
+  return '';
+};
+
+function analyseGrilleTarifaire(feuilles){
+  const lots=[];
+  (feuilles||[]).forEach(f=>{
+    const L=f.lignes||[];
+    /* les blocs ouverts, repérés par la colonne où commence leur en-tête */
+    let ouverts=[];
+    let lotCourant=null;
+    for(let y=0;y<L.length;y++){
+      const ligne=L[y]||[];
+      const bloc=x=>{const l={nom:(lotCourant?lotCourant.nom:f.nom),num:lotCourant?lotCourant.num:'',
+        colonne:x,feuille:f.nom,articles:[]};lots.push(l);return l};
+      /* un titre de lot ferme ce qui précède et nomme ce qui suit. Certains
+         lots enchaînent les articles sans ligne d'en-têtes : on ouvre donc un
+         bloc dès le titre, quitte à le remplacer si des en-têtes suivent. */
+      let titre=null,colTitre=0;
+      for(let x=0;x<ligne.length;x++)if(estTitreLot(ligne[x])){titre=titreLot(ligne[x]);colTitre=x;break}
+      if(titre){lotCourant=titre;ouverts=[bloc(colTitre)];continue}
+      /* une ligne d'en-têtes ouvre un bloc par occurrence d'ARTICLE */
+      const entetes=[];
+      for(let x=0;x<ligne.length;x++){
+        if(nettoieCell(ligne[x]).toUpperCase()==='ARTICLE'
+          &&/LIBELL/i.test(nettoieCell(ligne[x+1]||''))) entetes.push(x);
+      }
+      if(entetes.length){
+        /* les blocs ouverts d'office par le titre et restés vides n'ont pas lieu d'être */
+        ouverts.forEach(b=>{if(!b.articles.length){const i=lots.indexOf(b);if(i>=0)lots.splice(i,1)}});
+        ouverts=entetes.map(bloc);
+        continue;
+      }
+      /* sinon : une ligne d'articles pour chaque bloc encore ouvert */
+      ouverts.forEach(b=>{
+        const code=ligne[b.colonne], lib=ligne[b.colonne+1];
+        const unite=ligne[b.colonne+2], pu=prixCell(ligne[b.colonne+3]);
+        if(!estCodeArticle(code)||!nettoieCell(lib)||pu===null)return;
+        b.articles.push({code:nettoieCell(code),libelle:nettoieCell(lib),
+          unite:artUnite(nettoieCell(unite)),pu});
+      });
+    }
+  });
+  return lots.filter(l=>l.articles.length);
+}
+
 function analyseBordereau(txt){
   const L=String(txt||'').split('\n').map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
   const NB=/^-?[\d  ]+(?:[.,]\d+)?$/;
@@ -1770,6 +1925,17 @@ async function driveSousDossier(token,chantierId,chantierNom,nom){
 }
 const lienDossierDrive=id=>'https://drive.google.com/drive/folders/'+id;
 
+/* l'adresse du compte Google dont on tient le jeton : à plusieurs sur un même
+   dossier, savoir dans quel Drive on écrit vaut mieux que de le découvrir après */
+async function driveCompteConnecte(){
+  const token=await getDriveToken();
+  const r=await fetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)',
+    {headers:{Authorization:'Bearer '+token}});
+  if(!r.ok)return '';
+  const j=await r.json();
+  return (j&&j.user&&j.user.emailAddress)||'';
+}
+
 /* Les prospects vivent dans « CRM CP › Prospects », un dossier par affaire :
    tant qu'elle n'est pas signée, elle n'a pas à encombrer les chantiers. */
 let driveProspectsRacineId=null;
@@ -2513,6 +2679,7 @@ function App({session}){
       {ch?<Fiche data={data} ch={ch} save={save} back={()=>setOpen(null)}/>
       :view==='tdb'?<TableauBord data={data} open={setOpen} allerA={v=>{setView(v);setOpen(null)}}/>
       :view==='prospects'?<Prospects data={data} save={save}/>
+      :view==='biblio'?<Bordereaux data={data} save={save}/>
       :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
       :view==='artisans'?<Artisans data={data} save={save}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
@@ -2520,7 +2687,7 @@ function App({session}){
       :<Donnees data={data} save={save} session={session}/>}
     </main>
     <nav className={'bot'+(ch?' masquee':'')}>
-      {[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],['artisans','ARTISANS'],['cmd','COMMANDES'],['bilan','FINANCES'],['donnees','DONNÉES']].map(([id,l])=>
+      {[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],['artisans','ARTISANS'],['biblio','PRIX'],['cmd','ACHATS'],['bilan','FINANCES'],['donnees','DONNÉES']].map(([id,l])=>
         <button key={id} className={view===id&&!ch?'on':''} onClick={()=>{setView(id);setOpen(null)}}>{l}</button>)}
     </nav>
   </div>;
@@ -2837,20 +3004,44 @@ function FichiersDrive({ch,dossier,fichiers,onChange,label,resoudre}){
   </div>;
 }
 
-function DriveStatus(){
+function DriveStatus({compte,onCompte}){
   const[connected,setConnected]=useState(driveConnected());
   const[aide,setAide]=useState(false);
+  const[qui,setQui]=useState('');
   /* le refus de Google, s'il y en a eu un au dernier retour */
   const echec=driveRetour&&!driveRetour.ok?driveRetour:null;
   const standalone=driveDepuisEcranAccueil();
+  /* Savoir dans quel Drive on écrit : à plusieurs sur un dossier commun, c'est
+     la seule façon de voir qu'on s'est connecté au mauvais compte. */
+  useEffect(()=>{
+    let vivant=true;
+    if(!connected){setQui('');return}
+    driveCompteConnecte().then(m=>{if(vivant)setQui(m||'')}).catch(()=>{});
+    return()=>{vivant=false};
+  },[connected]);
+  const attendu=(compte||'').trim().toLowerCase();
+  const ecart=!!qui&&!!attendu&&qui.toLowerCase()!==attendu;
   return <div className="xs" style={{marginBottom:12,padding:'8px 10px',border:'1px solid '+RULE,background:'#fff'}}>
     <div className="sp">
-      <span style={{color:connected?GREEN:(echec?TERRA:MUTED)}}>
+      <span style={{color:connected?(ecart?TERRA:GREEN):(echec?TERRA:MUTED)}}>
         {connected?'✓ Google Drive connecté':'Google Drive non connecté'}</span>
       {connected
         ?<button className="btn gh s" onClick={()=>{disconnectDrive();setConnected(false)}}>Déconnecter</button>
         :<button className="btn acc s" onClick={startDriveAuth}>Connecter</button>}
     </div>
+    {connected&&qui&&<div style={{marginTop:4}} className="mut">Compte connecté : <b>{qui}</b></div>}
+    {ecart&&<div style={{marginTop:6,padding:'6px 8px',borderRadius:6,background:'#F6E2DC',
+      borderLeft:'3px solid '+TERRA,color:'#8A2E14',lineHeight:1.5}}>
+      <b>Ce n'est pas le Drive commun.</b> Vos fichiers partiraient dans le Drive de <b>{qui}</b> et
+      personne d'autre ne les verrait. Déconnectez-vous et reconnectez-vous avec <b>{compte}</b>.
+    </div>}
+    {onCompte&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
+      <div className="mut" style={{marginBottom:4,lineHeight:1.5}}>
+        Compte Google du Drive commun — chacun doit s'y connecter, sinon chaque appareil écrit dans son propre Drive.
+      </div>
+      <input className="in" type="email" placeholder="compte@gmail.com" value={compte||''}
+        onChange={e=>onCompte(e.target.value)}/>
+    </div>}
     {/* un refus se dit, avec son motif : sinon on revient sur l'app sans rien comprendre */}
     {!connected&&echec&&<div style={{marginTop:6,color:TERRA,lineHeight:1.5}}>
       Google a refusé la connexion — {DRIVE_MOTIFS[echec.code]||('code « '+echec.code+' »')}
@@ -5485,7 +5676,6 @@ function Artisans({data,save}){
       <Acts onSave={()=>{setLecture(null);ok()}} onCancel={()=>{setLecture(null);setF(null)}} onDel={f.id?()=>{save({...data,artisans:data.artisans.filter(a=>a.id!==f.id)});setLecture(null);setF(null)}:null}/>
     </div>:null;
   return <div>
-    <Bordereaux data={data} save={save}/>
     <H2 action={<button className="btn acc s" onClick={()=>{setLecture(null);setF({nom:'',corps:'',tel:'',email:'',adresse:'',siret:'',activites:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''})}}>+ Artisan</button>}>ARTISANS ({data.artisans.length})</H2>
     {al.length>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
       {al.length} artisan{al.length>1?'s':''} sans décennale valide. Ne pas signer de marché avant régularisation.</div>}
@@ -5521,21 +5711,38 @@ function Artisans({data,save}){
 function Bordereaux({data,save}){
   const [f,setF]=useState(null);
   const [imp,setImp]=useState(null);
-  const [deplie,setDeplie]=useState(false);
+  const [q,setQ]=useState('');
+  const [corpsFiltre,setCorpsFiltre]=useState('');
   const B=data.bordereaux||[];
   const nomArt=id=>(data.artisans.find(a=>a.id===id)||{}).nom||'';
+  /* un marché Word déjà rédigé, ou le classeur Excel de la grille tarifaire :
+     les deux mènent aux mêmes lignes, code, libellé, unité et prix unitaire. */
   const importer=async file=>{
     setImp({etat:'lecture'});
-    const {txt,motif}=await lireDocumentLignes(file);
-    if(!txt){setImp({etat:'erreur',msg:motif||'fichier illisible'});return}
-    const lots=analyseBordereau(txt);
-    if(!lots.length){setImp({etat:'erreur',msg:'aucun tableau « DÉSIGNATION DES TRAVAUX » trouvé dans ce document'});return}
+    const excel=/\.xlsx?$/i.test(file.name||'');
+    let lots=[];
+    try{
+      if(excel){
+        lots=analyseGrilleTarifaire(await lireXlsx(file));
+        if(!lots.length){setImp({etat:'erreur',msg:'aucun tableau ARTICLE / LIBELLE / U / PU trouvé dans ce classeur'});return}
+      }else{
+        const {txt,motif}=await lireDocumentLignes(file);
+        if(!txt){setImp({etat:'erreur',msg:motif||'fichier illisible'});return}
+        lots=analyseBordereau(txt);
+        if(!lots.length){setImp({etat:'erreur',msg:'aucun tableau « DÉSIGNATION DES TRAVAUX » trouvé dans ce document'});return}
+      }
+    }catch(e){
+      setImp({etat:'erreur',msg:(e&&e.message)==='nodeflate'
+        ?'ce navigateur ne sait pas ouvrir les fichiers compressés'
+        :'lecture impossible ('+((e&&e.message)||e)+')'});
+      return;
+    }
     /* le prix unitaire est ce qui se garde ; la quantité appartient au chantier
        d'origine et n'a rien à faire dans une grille tarifaire. */
-    const neufs=lots.map(l=>({id:uid(),nom:l.nom,corps:'',artisanIds:[],maj:today(),
+    const neufs=lots.map(l=>({id:uid(),nom:l.nom,corps:corpsProche(l.nom),artisanIds:[],maj:today(),
       articles:l.articles.map(a=>({id:uid(),code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu}))}));
     save({...data,bordereaux:[...B,...neufs]});
-    setImp({etat:'ok',lots:lots.map((l,i)=>({nom:l.nom,n:l.articles.length,ht:quantitatifHT(l.articles)}))});
+    setImp({etat:'ok',lots:lots.map(l=>({nom:l.nom,n:l.articles.length}))});
   };
   const ok=()=>{
     if(!f.nom.trim())return;
@@ -5544,30 +5751,57 @@ function Bordereaux({data,save}){
     setF(null);
   };
   const majArt=(i,k,v)=>setF(p=>({...p,articles:p.articles.map((a,j)=>j===i?{...a,[k]:v}:a)}));
-  const ouvert=deplie||!!f;
-  return <div style={{marginBottom:20,paddingBottom:16,borderBottom:'1px solid '+RULE}}>
-    <H2 action={ouvert
-      ?<button className="btn gh s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanIds:[],articles:[]})}}>+ Bordereau</button>
-      :<button className="btn gh s" onClick={()=>setDeplie(true)}>Ouvrir</button>}>
+  /* à cinq cents références, on ne fait plus défiler : on cherche */
+  const dq=deaccent(q).toLowerCase().trim();
+  const corpsPresents=[...new Set(B.map(b=>b.corps).filter(Boolean))].sort();
+  const liste=B.filter(b=>{
+    if(corpsFiltre&&b.corps!==corpsFiltre)return false;
+    if(!dq)return true;
+    if(deaccent(b.nom||'').toLowerCase().indexOf(dq)>=0)return true;
+    if(bordArtisans(b).some(id=>deaccent(nomArt(id)).toLowerCase().indexOf(dq)>=0))return true;
+    return (b.articles||[]).some(a=>deaccent((a.code||'')+' '+(a.libelle||'')).toLowerCase().indexOf(dq)>=0);
+  });
+  const nArt=B.reduce((s,b)=>s+(b.articles||[]).length,0);
+  return <div>
+    <H2 action={<button className="btn acc s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanIds:[],articles:[]})}}>+ Bordereau</button>}>
       BIBLIOTHÈQUE DE PRIX ({B.length})</H2>
-    {!ouvert&&<div className="xs mut" style={{lineHeight:1.5}}>
-      Les grilles tarifaires de vos artisans, article par article. Elles servent à chiffrer un lot depuis l'onglet MARCHÉS :
-      vous ne saisissez que les quantités, le montant du marché en découle.</div>}
-    {ouvert&&!f&&<div className="card">
-      <div className="xs mut" style={{lineHeight:1.5}}>Déposez un marché de travaux au format Word : l'application y lit chaque tableau
-        « DÉSIGNATION DES TRAVAUX » et en retient les prix unitaires, lot par lot.</div>
-      <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:10}}>
-        <label className="btn acc s" style={{whiteSpace:'nowrap'}}>{imp&&imp.etat==='lecture'?'Lecture du document…':'Importer un marché Word'}
+    {!f&&<div className="card">
+      <div className="xs mut" style={{lineHeight:1.5}}>
+        Les grilles tarifaires de vos artisans, article par article. Elles servent à chiffrer un lot
+        depuis l'onglet MARCHÉS : vous ne saisissez que les quantités, le montant du marché en découle.
+        <br/>Déposez votre <b>classeur Excel de grille tarifaire</b> — l'application y lit chaque bloc
+        ARTICLE / LIBELLE / U / PU, lot par lot, y compris deux entreprises côte à côte sur un même lot —
+        ou un <b>marché Word</b> déjà rédigé.
+      </div>
+      <div className="row" style={{gap:10,alignItems:'center',flexWrap:'wrap',marginTop:10}}>
+        <label className="btn acc s" style={{whiteSpace:'nowrap'}}>{imp&&imp.etat==='lecture'?'Lecture…':'Importer une grille Excel'}
+          <input type="file" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{display:'none'}}
+            disabled={imp&&imp.etat==='lecture'}
+            onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)importer(x)}}/></label>
+        <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{imp&&imp.etat==='lecture'?'Lecture…':'Importer un marché Word'}
           <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{display:'none'}}
             disabled={imp&&imp.etat==='lecture'}
             onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)importer(x)}}/></label>
       </div>
       {imp&&imp.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>Rien n'a été importé : {imp.msg}.</div>}
       {imp&&imp.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
-        {imp.lots.length} bordereau{imp.lots.length>1?'x':''} importé{imp.lots.length>1?'s':''}.
-        Ouvrez chacun pour lui rattacher son artisan.
-        <div style={{marginTop:6,color:MUTED}}>{imp.lots.map(l=><div key={l.nom}>{l.nom} — {l.n} articles, {eur(l.ht)} au quantitatif d'origine</div>)}</div>
+        {imp.lots.length} bordereau{imp.lots.length>1?'x':''} importé{imp.lots.length>1?'s':''},
+        {' '}{imp.lots.reduce((s,l)=>s+l.n,0)} références en tout.
+        Le corps d'état est proposé d'après l'intitulé — ouvrez chaque bordereau pour le confirmer et lui rattacher ses entreprises.
+        <div style={{marginTop:6,color:MUTED}}>{imp.lots.map((l,i)=><div key={i}>{l.nom} — {l.n} articles</div>)}</div>
       </div>}
+    </div>}
+    {!f&&B.length>0&&<div style={{marginBottom:12}}>
+      <input className="in" placeholder="Chercher un article, un code, un lot, une entreprise…"
+        value={q} onChange={e=>setQ(e.target.value)}/>
+      {corpsPresents.length>1&&<div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
+        <button className={'btn s '+(corpsFiltre?'gh':'')} onClick={()=>setCorpsFiltre('')}>Tous</button>
+        {corpsPresents.map(c=><button key={c} className={'btn s '+(corpsFiltre===c?'':'gh')}
+          onClick={()=>setCorpsFiltre(corpsFiltre===c?'':c)}>{c}</button>)}
+      </div>}
+      <div className="xs mut" style={{marginTop:8}}>
+        {nArt} référence{nArt>1?'s':''} au total{(dq||corpsFiltre)?' · '+liste.length+' bordereau'+(liste.length>1?'x':'')+' retenu'+(liste.length>1?'s':''):''}
+      </div>
     </div>}
     {f&&<div className="card">
       <Fld label="INTITULÉ DU BORDEREAU"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}/></Fld>
@@ -5615,8 +5849,9 @@ function Bordereaux({data,save}){
       <Acts onSave={ok} onCancel={()=>setF(null)}
         onDel={f.neuf?null:()=>{save({...data,bordereaux:B.filter(b=>b.id!==f.id)});setF(null)}}/>
     </div>}
-    {ouvert&&!B.length&&!f&&<Empty>Aucun bordereau. Importez un marché déjà rédigé pour constituer votre grille.</Empty>}
-    {ouvert&&!f&&B.map(b=>{
+    {!B.length&&!f&&<Empty>Aucun bordereau. Importez votre grille tarifaire Excel pour la constituer d'un coup.</Empty>}
+    {!!B.length&&!liste.length&&!f&&<Empty>Aucun bordereau ne correspond à cette recherche.</Empty>}
+    {!f&&liste.map(b=>{
       const noms=bordArtisans(b).map(nomArt).filter(Boolean);
       const art=noms.join(', ');
       return <button key={b.id} className="card" style={{borderLeft:'3px solid '+(art?NAVY:AMBER)}} onClick={()=>setF(b)}>
@@ -5626,6 +5861,7 @@ function Bordereaux({data,save}){
         {b.maj&&<div className="xs mut" style={{marginTop:2}}>Prix à jour au {fd(b.maj)}</div>}
       </button>;
     })}
+    <DriveStatus/>
   </div>;
 }
 
@@ -6220,10 +6456,18 @@ function VueNavette({nav}){
 function ValiderChiffrage({p,maj}){
   const pret=prospectPrixTTC(p)>0;
   const valide=!!p.valideLe;
-  const go=()=>{
+  const [copie,setCopie]=useState('');
+  /* Un vrai lien, pas une navigation par script : iOS bloque une redirection
+     « mailto: » qui ne vient pas d'un clic sur un lien, et le fait en silence. */
+  const marquer=()=>{
     if(!valide)maj({valideLe:today(),statut:p.statut==='gagne'?p.statut:'chiffre',
       remisLe:p.remisLe||today()});
-    window.location.href=mailChiffrage(p);
+  };
+  const copier=async()=>{
+    try{
+      await navigator.clipboard.writeText(corpsChiffrage(p));
+      setCopie('Message copié — collez-le dans un courriel à '+MAIL_CP);
+    }catch(e){setCopie('Copie impossible sur cet appareil.')}
   };
   return <div className="card" style={{marginTop:12,padding:10,
     borderLeft:'3px solid '+(valide?GREEN:TERRA),background:valide?'#F1F5F2':'#F4F1EB'}}>
@@ -6239,14 +6483,22 @@ function ValiderChiffrage({p,maj}){
         </div>
       </div>
     </div>
-    <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
-      <button className={'btn '+(valide?'gh':'acc')+' s'} disabled={!pret} onClick={go}>
-        {valide?'Renvoyer l’avis':'Valider et prévenir CP Constructions'}</button>
+    <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
+      {pret
+        ?<a className={'btn '+(valide?'gh':'acc')+' s'} href={mailChiffrage(p)} onClick={marquer}
+           style={{textDecoration:'none',display:'inline-block'}}>
+           {valide?'Renvoyer l’avis':'Valider et prévenir CP Constructions'}</a>
+        :<button className="btn acc s" disabled>Valider et prévenir CP Constructions</button>}
+      {pret&&<button className="btn gh s" onClick={copier}>Copier le message</button>}
       {valide&&<button className="btn gh s" onClick={()=>{if(confirm('Annuler la validation de ce chiffrage ?'))maj({valideLe:''})}}>
         Annuler la validation</button>}
     </div>
+    {copie&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>{copie}</div>}
     {!(p.chiffrages||[]).length&&pret&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       Le chiffrage PDF n'est pas encore déposé : le message le signalera au lieu de porter un lien.</div>}
+    {pret&&<div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>
+      Si votre messagerie ne s'ouvre pas — cas fréquent quand le site est lancé depuis l'écran d'accueil —
+      utilisez « Copier le message » et collez-le dans un courriel.</div>}
   </div>;
 }
 
@@ -6587,7 +6839,16 @@ function Donnees({data,save,session}){
                 Non déplacés : {bilan.erreurs.join(' ; ')}</div>}
             </span>}
       </div>}
-      <DriveStatus/>
+      <DriveStatus compte={data.driveCompte} onCompte={v=>save({...data,driveCompte:v})}/>
+      <div className="xs mut" style={{marginTop:8,lineHeight:1.6}}>
+        <b>Travailler à plusieurs sur le même Drive.</b> L'application n'accède qu'aux fichiers qu'elle
+        a elle-même créés : un dossier partagé depuis un autre compte lui reste invisible. Pour que
+        tout arrive au même endroit, chacun se connecte au Drive avec le <b>même compte Google</b>,
+        celui indiqué ci-dessus — même si chacun ouvre l'application avec son propre identifiant.
+        <br/>Pour ouvrir un accès à quelqu'un : dans Supabase › Authentication › Users › Add user,
+        créez-lui une adresse et un mot de passe. Il se connecte ensuite ici avec, puis connecte le
+        Drive commun.
+      </div>
     </div>
     <div className="card">
       <div className="sm b">Version</div>
