@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · corrige la perte de focus en tapant dans un champ de la MAP';
+const VERSION='2026-08-27 · choisir l’appui de fenêtre dans le catalogue produits, pour le présenter au client';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -2373,6 +2373,7 @@ function mapLignes(ch,data){
     ['Trappe d’accès fonte 60×60',m.vsTrappe?'Oui':''],['Cour anglaise',m.courAnglaise?'Oui':''],
     ['Hourdis',m.hourdis],['Plancher haut',m.plancherHaut],
     ['Piédroit au-dessus du plancher',m.piedroitPlancher],['Nombre de rangs (piédroit)',m.piedroitRangs],
+    ['Appuis de fenêtre — modèle',nomProduit(m.appuisFenetreProduit)],
     ['Appuis de fenêtre & seuils',m.appuisFenetre],['Coloris appuis',m.appuisCouleur],
   ]);
   add('4. Charpente, couverture & zinguerie',[
@@ -6338,6 +6339,7 @@ function MAP({data,ch,up}){
         <MapChoix m={m} set={set} k="piedroitPlancher" label="PIÉDROIT AU-DESSUS DU PLANCHER" opts={['Non','Oui']}/>
         <MapTxt m={m} set={set} k="piedroitRangs" label="NOMBRE DE RANGS"/>
       </div>
+      <ChoixProduit data={data} lot="Gros œuvre" value={m.appuisFenetreProduit} onChange={v=>set({appuisFenetreProduit:v})} label="APPUIS DE FENÊTRE — MODÈLE"/>
       <MapMulti m={m} set={set} k="appuisFenetre" label="APPUIS DE FENÊTRE & SEUILS DE PORTE" opts={MAP_APPUIS_FENETRE}/>
       <MapTxt m={m} set={set} k="appuisCouleur" label="COLORIS"/>
     </React.Fragment>)}
