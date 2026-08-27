@@ -155,9 +155,14 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · fiches produit du caisson sous-face et de la gouttière, chacune sur son propre lot';
+const VERSION='2026-08-27 · lot « Sous-face »/« Gouttière » proposés dans PRODUITS, saisie tolérante à la casse et aux espaces';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
+/* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
+   des sous-catégories plus fines (une fiche produit peut être plus précise qu'un lot de marché) —
+   pour que le champ « lot » d'une fiche se choisisse dans la liste plutôt qu'en le retapant à la main
+   et en risquant une orthographe qui ne correspondra pas exactement au picker de la MAP. */
+const CORPS_PRODUITS=[...CORPS,'Sous-face','Gouttière'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
 /* les pièces d'un chantier, rangées par dossier : l'id de chaque pièce est ce
@@ -6196,7 +6201,8 @@ const MAP_DROIT_IMAGE=[
 /* le produit s'y pioche par lot — la fiche technique et le coloris suivent
    automatiquement plutôt que d'être retapés à chaque MAP */
 function ChoixProduit({data,lot,value,onChange,label}){
-  const options=(data.produits||[]).filter(x=>x.lot===lot);
+  const norm=s=>(s||'').trim().toLowerCase();
+  const options=(data.produits||[]).filter(x=>norm(x.lot)===norm(lot));
   const choisi=options.find(x=>x.id===value);
   return <Fld label={label}>
     <select className="in" value={value||''} onChange={e=>onChange(e.target.value)}>
@@ -7418,7 +7424,7 @@ function Produits({data,save}){
         placeholder="Tuile terre cuite Beauvoise plate"/></Fld>
       <div className="g2">
         <Fld label="LOT / CORPS D’ÉTAT"><input className="in" list="prlot" value={f.lot||''} onChange={e=>setF({...f,lot:e.target.value})}/>
-          <datalist id="prlot">{CORPS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
+          <datalist id="prlot">{CORPS_PRODUITS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
         <Fld label="MARQUE"><input className="in" value={f.marque||''} onChange={e=>setF({...f,marque:e.target.value})} placeholder="IMERYS, Atlantic, Bel’m…"/></Fld>
       </div>
       <div className="g2">
