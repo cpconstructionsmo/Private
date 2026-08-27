@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · la mise au point technique se remplit dans l’application, avec le catalogue produits';
+const VERSION='2026-08-27 · corrige la perte de focus en tapant dans un champ de la MAP';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -6204,28 +6204,34 @@ function ChoixProduit({data,lot,value,onChange,label}){
   </Fld>;
 }
 
+/* les champs de la MAP, définis une fois pour de bon : les redéfinir à
+   chaque rendu du formulaire (comme des fonctions imbriquées dans MAP) leur
+   donnerait une identité différente à chaque frappe, et React détruirait
+   puis recréerait le champ DOM à chaque caractère saisi — perdant le focus
+   et la position du curseur au milieu de la saisie. */
+const MapChoix=({m,set,k,label,opts})=><Fld label={label}>
+  <select className="in" value={m[k]||''} onChange={e=>set({[k]:e.target.value})}>
+    <option value="">—</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
+  </select></Fld>;
+const MapTxt=({m,set,k,label,ph,type})=><Fld label={label}>
+  <input className="in" type={type||'text'} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
+const MapZone=({m,set,k,label,ph,rows})=><Fld label={label}>
+  <textarea className="in" rows={rows||2} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
+const MapBool=({m,set,k,label})=><label className="xs row" style={{gap:8,alignItems:'center',cursor:'pointer',marginBottom:10}}>
+  <input type="checkbox" checked={!!m[k]} onChange={e=>set({[k]:e.target.checked})}/><span>{label}</span></label>;
+const MapMulti=({m,set,k,label,opts})=>{
+  const vals=m[k]||[];
+  const tog=o=>set({[k]:vals.indexOf(o)>=0?vals.filter(x=>x!==o):[...vals,o]});
+  return <Fld label={label}><div className="row" style={{gap:6,flexWrap:'wrap'}}>
+    {opts.map(o=>{const on=vals.indexOf(o)>=0;
+      return <button key={o} className={'btn s '+(on?'':'gh')} onClick={()=>tog(o)}
+        style={{fontSize:11,padding:'5px 9px'}}>{on?'✓ ':''}{o}</button>;})}
+  </div></Fld>;
+};
+
 function MAP({data,ch,up}){
   const m=ch.map||{};
   const set=p=>up({map:{...m,...p}});
-  const Choix=({k,label,opts})=><Fld label={label}>
-    <select className="in" value={m[k]||''} onChange={e=>set({[k]:e.target.value})}>
-      <option value="">—</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
-    </select></Fld>;
-  const Txt=({k,label,ph,type})=><Fld label={label}>
-    <input className="in" type={type||'text'} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
-  const Zone=({k,label,ph,rows})=><Fld label={label}>
-    <textarea className="in" rows={rows||2} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
-  const Bool=({k,label})=><label className="xs row" style={{gap:8,alignItems:'center',cursor:'pointer',marginBottom:10}}>
-    <input type="checkbox" checked={!!m[k]} onChange={e=>set({[k]:e.target.checked})}/><span>{label}</span></label>;
-  const Multi=({k,label,opts})=>{
-    const vals=m[k]||[];
-    const tog=o=>set({[k]:vals.indexOf(o)>=0?vals.filter(x=>x!==o):[...vals,o]});
-    return <Fld label={label}><div className="row" style={{gap:6,flexWrap:'wrap'}}>
-      {opts.map(o=>{const on=vals.indexOf(o)>=0;
-        return <button key={o} className={'btn s '+(on?'':'gh')} onClick={()=>tog(o)}
-          style={{fontSize:11,padding:'5px 9px'}}>{on?'✓ ':''}{o}</button>;})}
-    </div></Fld>;
-  };
   const section=(titre,children)=><div className="card" style={{padding:10,marginBottom:6,borderLeft:'3px solid '+RULE}}>
     <div className="xs b" style={{color:NAVY,marginBottom:6,letterSpacing:'.03em'}}>{titre}</div>
     {children}
@@ -6263,215 +6269,215 @@ function MAP({data,ch,up}){
         {(ch.client||ch.adresse)&&<span><br/>{ch.client}{ch.adresse?' — '+ch.adresse:''}</span>}
       </div>
       <div className="g2">
-        <Txt k="numeroPC" label="N° DE PERMIS DE CONSTRUIRE"/>
-        <Txt k="referencesCadastrales" label="RÉFÉRENCES CADASTRALES"/>
+        <MapTxt m={m} set={set} k="numeroPC" label="N° DE PERMIS DE CONSTRUIRE"/>
+        <MapTxt m={m} set={set} k="referencesCadastrales" label="RÉFÉRENCES CADASTRALES"/>
       </div>
       <div className="g2">
         <Fld label="DATE DE LA MAP"><input className="in" type="date" value={m.date||''} onChange={e=>set({date:e.target.value})}/></Fld>
-        <Txt k="version" label="VERSION" ph="V1"/>
+        <MapTxt m={m} set={set} k="version" label="VERSION" ph="V1"/>
       </div>
-      <Txt k="participants" label="PARTICIPANTS" ph="Client, MOE, entreprises présentes"/>
+      <MapTxt m={m} set={set} k="participants" label="PARTICIPANTS" ph="Client, MOE, entreprises présentes"/>
     </React.Fragment>)}
 
     {section('2. TERRAIN, VIABILISATION ET VRD',<React.Fragment>
       <div className="g2">
-        <Choix k="bornageFait" label="BORNAGE DU TERRAIN" opts={['Oui, réalisé','Non, à réaliser']}/>
-        <Txt k="bornageDetail" label="DÉTAIL" ph="Acte notarié, à la charge de…"/>
+        <MapChoix m={m} set={set} k="bornageFait" label="BORNAGE DU TERRAIN" opts={['Oui, réalisé','Non, à réaliser']}/>
+        <MapTxt m={m} set={set} k="bornageDetail" label="DÉTAIL" ph="Acte notarié, à la charge de…"/>
       </div>
       <div className="g2">
-        <Choix k="accesChantier" label="ACCÈS CHANTIER" opts={['Réalisé','À réaliser']}/>
-        <Choix k="accesAttribution" label="ATTRIBUTION" opts={MAP_ATTRIBUTION}/>
+        <MapChoix m={m} set={set} k="accesChantier" label="ACCÈS CHANTIER" opts={['Réalisé','À réaliser']}/>
+        <MapChoix m={m} set={set} k="accesAttribution" label="ATTRIBUTION" opts={MAP_ATTRIBUTION}/>
       </div>
-      <Multi k="travauxPrepa" label="TRAVAUX PRÉPARATOIRES" opts={MAP_TRAVAUX_PREPA}/>
+      <MapMulti m={m} set={set} k="travauxPrepa" label="TRAVAUX PRÉPARATOIRES" opts={MAP_TRAVAUX_PREPA}/>
       <div className="g2">
-        <Txt k="travauxPrepaAutre" label="AUTRE TRAVAIL PRÉPARATOIRE"/>
-        <Choix k="travauxPrepaAttribution" label="ATTRIBUTION" opts={MAP_ATTRIBUTION}/>
-      </div>
-      <div className="g2">
-        <Choix k="eauPotable" label="EAU POTABLE" opts={['Branchement réalisé','Non — demande à effectuer']}/>
-        <Txt k="eauPotableDemandePar" label="DEMANDE À EFFECTUER PAR"/>
+        <MapTxt m={m} set={set} k="travauxPrepaAutre" label="AUTRE TRAVAIL PRÉPARATOIRE"/>
+        <MapChoix m={m} set={set} k="travauxPrepaAttribution" label="ATTRIBUTION" opts={MAP_ATTRIBUTION}/>
       </div>
       <div className="g2">
-        <Choix k="elecCoffret" label="COFFRET ÉLECTRICITÉ (ENEDIS)" opts={['Posé','Non posé']}/>
-        <Choix k="elecDistanceGtl" label="DISTANCE COFFRET → GTL" opts={['< 30 m','> 30 m']}/>
+        <MapChoix m={m} set={set} k="eauPotable" label="EAU POTABLE" opts={['Branchement réalisé','Non — demande à effectuer']}/>
+        <MapTxt m={m} set={set} k="eauPotableDemandePar" label="DEMANDE À EFFECTUER PAR"/>
       </div>
       <div className="g2">
-        <Txt k="elecPosePar" label="POSÉ PAR"/>
-        <Txt k="elecCout" label="COÛT RACCORDEMENT" ph="Enedis : 450 €"/>
+        <MapChoix m={m} set={set} k="elecCoffret" label="COFFRET ÉLECTRICITÉ (ENEDIS)" opts={['Posé','Non posé']}/>
+        <MapChoix m={m} set={set} k="elecDistanceGtl" label="DISTANCE COFFRET → GTL" opts={['< 30 m','> 30 m']}/>
       </div>
       <div className="g2">
-        <Choix k="gaz" label="GAZ" opts={['Gaz de ville','Cuve enterrée','Sans objet']}/>
-        <Txt k="telecom" label="TÉLÉCOM / FIBRE" ph="Nombre de fourreaux…"/>
+        <MapTxt m={m} set={set} k="elecPosePar" label="POSÉ PAR"/>
+        <MapTxt m={m} set={set} k="elecCout" label="COÛT RACCORDEMENT" ph="Enedis : 450 €"/>
       </div>
       <div className="g2">
-        <Choix k="eauxUsees" label="EAUX USÉES" opts={['Tout-à-l’égout','Assainissement autonome / micro-station']}/>
-        <Txt k="eauxUseesLot" label="LOT"/>
+        <MapChoix m={m} set={set} k="gaz" label="GAZ" opts={['Gaz de ville','Cuve enterrée','Sans objet']}/>
+        <MapTxt m={m} set={set} k="telecom" label="TÉLÉCOM / FIBRE" ph="Nombre de fourreaux…"/>
       </div>
-      <Multi k="eauxPluviales" label="EAUX PLUVIALES" opts={MAP_EAUX_PLUVIALES}/>
-      <Txt k="eauxPluvialesLot" label="LOT (EAUX PLUVIALES)"/>
+      <div className="g2">
+        <MapChoix m={m} set={set} k="eauxUsees" label="EAUX USÉES" opts={['Tout-à-l’égout','Assainissement autonome / micro-station']}/>
+        <MapTxt m={m} set={set} k="eauxUseesLot" label="LOT"/>
+      </div>
+      <MapMulti m={m} set={set} k="eauxPluviales" label="EAUX PLUVIALES" opts={MAP_EAUX_PLUVIALES}/>
+      <MapTxt m={m} set={set} k="eauxPluvialesLot" label="LOT (EAUX PLUVIALES)"/>
     </React.Fragment>)}
 
     {section('3. GROS-ŒUVRE & SUBSTRUCTURE',<React.Fragment>
       <div className="g2">
-        <Choix k="fondations" label="FONDATIONS" opts={['Semelles filantes conformément à l’étude de sol','Autre']}/>
-        <Txt k="fondationsAutre" label="PRÉCISION"/>
+        <MapChoix m={m} set={set} k="fondations" label="FONDATIONS" opts={['Semelles filantes conformément à l’étude de sol','Autre']}/>
+        <MapTxt m={m} set={set} k="fondationsAutre" label="PRÉCISION"/>
       </div>
       <div className="g2">
-        <Choix k="soubassement" label="SOUBASSEMENT & PLANCHER BAS" opts={['Vide sanitaire','Dalle sur terre-plein','Sous-sol']}/>
-        <Txt k="vsRangs" label="NOMBRE DE RANGS (VIDE SANITAIRE)" type="number"/>
+        <MapChoix m={m} set={set} k="soubassement" label="SOUBASSEMENT & PLANCHER BAS" opts={['Vide sanitaire','Dalle sur terre-plein','Sous-sol']}/>
+        <MapTxt m={m} set={set} k="vsRangs" label="NOMBRE DE RANGS (VIDE SANITAIRE)" type="number"/>
       </div>
       <div className="g2">
-        <Bool k="vsTrappe" label="Trappe d’accès fonte 60×60"/>
-        <Bool k="courAnglaise" label="Cour anglaise"/>
+        <MapBool m={m} set={set} k="vsTrappe" label="Trappe d’accès fonte 60×60"/>
+        <MapBool m={m} set={set} k="courAnglaise" label="Cour anglaise"/>
       </div>
       <div className="g2">
-        <Choix k="hourdis" label="HOURDIS" opts={['Isolant PSE avec rupteurs de ponts thermiques','Béton non isolant']}/>
-        <Choix k="plancherHaut" label="PLANCHER HAUT" opts={['Hourdis béton','Plancher bois']}/>
+        <MapChoix m={m} set={set} k="hourdis" label="HOURDIS" opts={['Isolant PSE avec rupteurs de ponts thermiques','Béton non isolant']}/>
+        <MapChoix m={m} set={set} k="plancherHaut" label="PLANCHER HAUT" opts={['Hourdis béton','Plancher bois','Néant — plain-pied']}/>
       </div>
       <div className="g2">
-        <Choix k="piedroitPlancher" label="PIÉDROIT AU-DESSUS DU PLANCHER" opts={['Non','Oui']}/>
-        <Txt k="piedroitRangs" label="NOMBRE DE RANGS"/>
+        <MapChoix m={m} set={set} k="piedroitPlancher" label="PIÉDROIT AU-DESSUS DU PLANCHER" opts={['Non','Oui']}/>
+        <MapTxt m={m} set={set} k="piedroitRangs" label="NOMBRE DE RANGS"/>
       </div>
-      <Multi k="appuisFenetre" label="APPUIS DE FENÊTRE & SEUILS DE PORTE" opts={MAP_APPUIS_FENETRE}/>
-      <Txt k="appuisCouleur" label="COLORIS"/>
+      <MapMulti m={m} set={set} k="appuisFenetre" label="APPUIS DE FENÊTRE & SEUILS DE PORTE" opts={MAP_APPUIS_FENETRE}/>
+      <MapTxt m={m} set={set} k="appuisCouleur" label="COLORIS"/>
     </React.Fragment>)}
 
     {section('4. CHARPENTE, COUVERTURE & ZINGUERIE',<React.Fragment>
       <div className="g2">
-        <Choix k="charpenteType" label="CHARPENTE & DESSOUS DE TOIT" opts={['Fermettes industrielles bois résineux','Charpente traditionnelle']}/>
-        <Choix k="sousFaces" label="SOUS-FACES" opts={['PVC','Alu','Bois']}/>
+        <MapChoix m={m} set={set} k="charpenteType" label="CHARPENTE & DESSOUS DE TOIT" opts={['Fermettes industrielles bois résineux','Charpente traditionnelle']}/>
+        <MapChoix m={m} set={set} k="sousFaces" label="SOUS-FACES" opts={['PVC','Alu','Bois']}/>
       </div>
       <div className="g2">
-        <Txt k="sousFacesColoris" label="COLORIS SOUS-FACES"/>
-        <Bool k="ecranSousToiture" label="Écran de sous-toiture HPV"/>
+        <MapTxt m={m} set={set} k="sousFacesColoris" label="COLORIS SOUS-FACES"/>
+        <MapBool m={m} set={set} k="ecranSousToiture" label="Écran de sous-toiture HPV"/>
       </div>
       <div className="g2">
-        <Choix k="gouttieres" label="ZINGUERIE / ÉVACUATION DES EAUX PLUVIALES" opts={['PVC','Alu','Zinc']}/>
-        <Txt k="gouttieresColoris" label="COLORIS GOUTTIÈRES"/>
+        <MapChoix m={m} set={set} k="gouttieres" label="ZINGUERIE / ÉVACUATION DES EAUX PLUVIALES" opts={['PVC','Alu','Zinc']}/>
+        <MapTxt m={m} set={set} k="gouttieresColoris" label="COLORIS GOUTTIÈRES"/>
       </div>
       <div className="g2">
-        <Txt k="fenetreToitModele" label="FENÊTRE(S) DE TOIT — MODÈLE" ph="type VELUX"/>
-        <Txt k="fenetreToitVitrage" label="VITRAGE"/>
+        <MapTxt m={m} set={set} k="fenetreToitModele" label="FENÊTRE(S) DE TOIT — MODÈLE" ph="type VELUX"/>
+        <MapTxt m={m} set={set} k="fenetreToitVitrage" label="VITRAGE"/>
       </div>
       <div className="g2">
-        <Bool k="fenetreToitRaccords" label="Raccords encastrés"/>
-        <Bool k="fenetreToitVolet" label="Volet roulant électrique SML"/>
+        <MapBool m={m} set={set} k="fenetreToitRaccords" label="Raccords encastrés"/>
+        <MapBool m={m} set={set} k="fenetreToitVolet" label="Volet roulant électrique SML"/>
       </div>
-      <Choix k="conduitFumee" label="CONDUIT DE FUMÉE" opts={['Conduit isolé type Poujoulat','Souche carrée','Souche « Luminance »','Souche inox + chapeau pare-pluie','Sans objet']}/>
+      <MapChoix m={m} set={set} k="conduitFumee" label="CONDUIT DE FUMÉE" opts={['Conduit isolé type Poujoulat','Souche carrée','Souche « Luminance »','Souche inox + chapeau pare-pluie','Sans objet']}/>
       <ChoixProduit data={data} lot="Couverture" value={m.couvertureProduit} onChange={v=>set({couvertureProduit:v})} label="COUVERTURE — MODÈLE"/>
-      <Txt k="couvertureColoris" label="COLORIS EXACT"/>
+      <MapTxt m={m} set={set} k="couvertureColoris" label="COLORIS EXACT"/>
     </React.Fragment>)}
 
     {section('5. MENUISERIES EXTÉRIEURES, FAÇADES & GARAGE',<React.Fragment>
       <ChoixProduit data={data} lot="Menuiseries ext." value={m.porteEntreeProduit} onChange={v=>set({porteEntreeProduit:v})} label="PORTE D’ENTRÉE — MODÈLE"/>
       <div className="g2">
-        <Choix k="porteEntreeMateriau" label="MATÉRIAU" opts={['Alu','Acier','PVC']}/>
-        <Txt k="porteEntreeVitrage" label="VITRAGE"/>
+        <MapChoix m={m} set={set} k="porteEntreeMateriau" label="MATÉRIAU" opts={['Alu','Acier','PVC']}/>
+        <MapTxt m={m} set={set} k="porteEntreeVitrage" label="VITRAGE"/>
       </div>
       <div className="g2">
-        <Txt k="porteEntreeRalInt" label="RAL INTÉRIEUR"/>
-        <Txt k="porteEntreeRalExt" label="RAL EXTÉRIEUR"/>
+        <MapTxt m={m} set={set} k="porteEntreeRalInt" label="RAL INTÉRIEUR"/>
+        <MapTxt m={m} set={set} k="porteEntreeRalExt" label="RAL EXTÉRIEUR"/>
       </div>
-      <Multi k="menuiseriesMateriau" label="MENUISERIES — MATÉRIAU" opts={MAP_MENUISERIES_MAT}/>
+      <MapMulti m={m} set={set} k="menuiseriesMateriau" label="MENUISERIES — MATÉRIAU" opts={MAP_MENUISERIES_MAT}/>
       <div className="g2">
-        <Choix k="menuiseriesCouleur" label="COULEUR" opts={['Monochrome','Bicolore']}/>
-        <Txt k="menuiseriesRal" label="RAL"/>
+        <MapChoix m={m} set={set} k="menuiseriesCouleur" label="COULEUR" opts={['Monochrome','Bicolore']}/>
+        <MapTxt m={m} set={set} k="menuiseriesRal" label="RAL"/>
       </div>
-      <Multi k="menuiseriesOuvrant" label="OUVRANTS" opts={MAP_OUVRANT}/>
-      <Multi k="vitrageOptions" label="OPTIONS DE VITRAGE" opts={MAP_VITRAGE_OPT}/>
-      <Txt k="verreSable" label="VERRE SABLÉ — LOCALISATION" ph="S.d.B, WC…"/>
-      <Choix k="voletsCoffres" label="COFFRES VOLETS ROULANTS" opts={['Coffres linteaux (à la maçonnerie)','Coffres intégrés à la menuiserie','Lames alu isolantes']}/>
+      <MapMulti m={m} set={set} k="menuiseriesOuvrant" label="OUVRANTS" opts={MAP_OUVRANT}/>
+      <MapMulti m={m} set={set} k="vitrageOptions" label="OPTIONS DE VITRAGE" opts={MAP_VITRAGE_OPT}/>
+      <MapTxt m={m} set={set} k="verreSable" label="VERRE SABLÉ — LOCALISATION" ph="S.d.B, WC…"/>
+      <MapChoix m={m} set={set} k="voletsCoffres" label="COFFRES VOLETS ROULANTS" opts={['Coffres linteaux (à la maçonnerie)','Coffres intégrés à la menuiserie','Lames alu isolantes']}/>
       <div className="g2">
-        <Choix k="voletsCommande" label="COMMANDE" opts={['Manuel(s)','Électrique(s) individuels']}/>
-        <Txt k="voletsNb" label="NOMBRE"/>
+        <MapChoix m={m} set={set} k="voletsCommande" label="COMMANDE" opts={['Manuel(s)','Électrique(s) individuels']}/>
+        <MapTxt m={m} set={set} k="voletsNb" label="NOMBRE"/>
       </div>
       <div className="g2">
-        <Bool k="voletsCentralisation" label="Centralisation"/>
-        <Bool k="voletsDomotique" label="Domotique"/>
+        <MapBool m={m} set={set} k="voletsCentralisation" label="Centralisation"/>
+        <MapBool m={m} set={set} k="voletsDomotique" label="Domotique"/>
       </div>
-      <Txt k="voletsDomotiqueMarque" label="MARQUE DOMOTIQUE" ph="Somfy…"/>
+      <MapTxt m={m} set={set} k="voletsDomotiqueMarque" label="MARQUE DOMOTIQUE" ph="Somfy…"/>
       <div className="g2">
-        <Choix k="porteGarageType" label="PORTE DE GARAGE" opts={['Sectionnelle','Basculante']}/>
-        <Choix k="porteGarageMotorisation" label="MOTORISATION" opts={['Oui','Non']}/>
+        <MapChoix m={m} set={set} k="porteGarageType" label="PORTE DE GARAGE" opts={['Sectionnelle','Basculante']}/>
+        <MapChoix m={m} set={set} k="porteGarageMotorisation" label="MOTORISATION" opts={['Oui','Non']}/>
       </div>
-      <Txt k="porteGarageFinition" label="FINITION / COLORIS PORTE DE GARAGE"/>
+      <MapTxt m={m} set={set} k="porteGarageFinition" label="FINITION / COLORIS PORTE DE GARAGE"/>
       <div className="g2">
-        <Choix k="enduitFinition" label="ENDUIT DE FAÇADE — FINITION" opts={['Finition grattée','Finition écrasée']}/>
-        <Txt k="enduitCouleur" label="COULEUR ENDUIT"/>
+        <MapChoix m={m} set={set} k="enduitFinition" label="ENDUIT DE FAÇADE — FINITION" opts={['Finition grattée','Finition écrasée']}/>
+        <MapTxt m={m} set={set} k="enduitCouleur" label="COULEUR ENDUIT"/>
       </div>
-      <Txt k="enduitRefNuancier" label="RÉF. NUANCIER" ph="À vérifier au regard du PC et du PLU"/>
+      <MapTxt m={m} set={set} k="enduitRefNuancier" label="RÉF. NUANCIER" ph="À vérifier au regard du PC et du PLU"/>
     </React.Fragment>)}
 
     {section('6. PLÂTRERIE, ISOLATION & MENUISERIES INTÉRIEURES',<React.Fragment>
-      <Txt k="doublage" label="DOUBLAGE PÉRIPHÉRIQUE" ph="Ossature métallique + laine, épaisseur…"/>
-      <Txt k="cloisons" label="CLOISONS DE DISTRIBUTION"/>
+      <MapTxt m={m} set={set} k="doublage" label="DOUBLAGE PÉRIPHÉRIQUE" ph="Ossature métallique + laine, épaisseur…"/>
+      <MapTxt m={m} set={set} k="cloisons" label="CLOISONS DE DISTRIBUTION"/>
       <div className="g2">
-        <Choix k="isolationCombles" label="ISOLATION DES COMBLES" opts={['Soufflage combles perdus','Déroulée sous rampants']}/>
-        <Txt k="isolationComblesEpaisseur" label="ÉPAISSEUR (mm)"/>
+        <MapChoix m={m} set={set} k="isolationCombles" label="ISOLATION DES COMBLES" opts={['Soufflage combles perdus','Déroulée sous rampants']}/>
+        <MapTxt m={m} set={set} k="isolationComblesEpaisseur" label="ÉPAISSEUR (mm)"/>
       </div>
-      <Txt k="isolationComblesR" label="R (m².K/W)"/>
+      <MapTxt m={m} set={set} k="isolationComblesR" label="R (m².K/W)"/>
       <ChoixProduit data={data} lot="Menuiseries int." value={m.porteInterieureProduit} onChange={v=>set({porteInterieureProduit:v})} label="PORTES INTÉRIEURES — MODÈLE"/>
       <div className="g2">
-        <Choix k="porteInterieureLargeur" label="LARGEUR (NORMES PMR)" opts={['63','73','83']}/>
-        <Txt k="porteInterieurePoignees" label="POIGNÉES"/>
+        <MapChoix m={m} set={set} k="porteInterieureLargeur" label="LARGEUR (NORMES PMR)" opts={['63','73','83']}/>
+        <MapTxt m={m} set={set} k="porteInterieurePoignees" label="POIGNÉES"/>
       </div>
-      <Multi k="escalierType" label="ESCALIER & GARDE-CORPS" opts={MAP_ESCALIER}/>
+      <MapMulti m={m} set={set} k="escalierType" label="ESCALIER & GARDE-CORPS" opts={MAP_ESCALIER}/>
     </React.Fragment>)}
 
     {section('7. ÉQUIPEMENTS THERMIQUES & SANITAIRES',<React.Fragment>
       <div className="g2">
-        <Choix k="chauffageType" label="CHAUFFAGE & ECS" opts={['PAC air/eau','PAC air/air','Chaudière hybride gaz + PAC','Poêle à granulés']}/>
+        <MapChoix m={m} set={set} k="chauffageType" label="CHAUFFAGE & ECS" opts={['PAC air/eau','PAC air/air','Chaudière hybride gaz + PAC','Poêle à granulés']}/>
         <ChoixProduit data={data} lot="Chauffage / VMC" value={m.chauffageProduit} onChange={v=>set({chauffageProduit:v})} label="MARQUE / MODÈLE"/>
       </div>
-      <Multi k="emetteursRdc" label="ÉMETTEURS RDC" opts={MAP_EMETTEURS}/>
-      <Multi k="emetteursEtage" label="ÉMETTEURS ÉTAGE" opts={MAP_EMETTEURS}/>
-      <Choix k="ecsMode" label="PRODUCTION D’EAU CHAUDE" opts={['ECS par la PAC (ballon intégré)','Chauffe-eau thermodynamique','Poêle à granulés']}/>
+      <MapMulti m={m} set={set} k="emetteursRdc" label="ÉMETTEURS RDC" opts={MAP_EMETTEURS}/>
+      <MapMulti m={m} set={set} k="emetteursEtage" label="ÉMETTEURS ÉTAGE" opts={MAP_EMETTEURS}/>
+      <MapChoix m={m} set={set} k="ecsMode" label="PRODUCTION D’EAU CHAUDE" opts={['ECS par la PAC (ballon intégré)','Chauffe-eau thermodynamique','Poêle à granulés']}/>
       <div className="g2">
-        <Choix k="vmcType" label="VENTILATION" opts={['Hygroréglable type A','Hygroréglable type B']}/>
-        <Txt k="vmcMarque" label="MARQUE / MODÈLE VMC"/>
+        <MapChoix m={m} set={set} k="vmcType" label="VENTILATION" opts={['Hygroréglable type A','Hygroréglable type B']}/>
+        <MapTxt m={m} set={set} k="vmcMarque" label="MARQUE / MODÈLE VMC"/>
       </div>
-      <Txt k="electriciteGamme" label="APPAREILLAGE ÉLECTRIQUE — GAMME" ph="Schneider…"/>
-      <Multi k="electriciteOptions" label="OPTIONS ÉLECTRIQUES" opts={MAP_ELEC_OPTIONS}/>
+      <MapTxt m={m} set={set} k="electriciteGamme" label="APPAREILLAGE ÉLECTRIQUE — GAMME" ph="Schneider…"/>
+      <MapMulti m={m} set={set} k="electriciteOptions" label="OPTIONS ÉLECTRIQUES" opts={MAP_ELEC_OPTIONS}/>
       <ChoixProduit data={data} lot="Plomberie / sanitaire" value={m.baignoireProduit} onChange={v=>set({baignoireProduit:v})} label="BAIGNOIRE"/>
       <ChoixProduit data={data} lot="Plomberie / sanitaire" value={m.receveurProduit} onChange={v=>set({receveurProduit:v})} label="RECEVEUR DE DOUCHE"/>
       <div className="g2">
-        <Txt k="receveurDimensions" label="DIMENSIONS RECEVEUR" ph="90×120…"/>
-        <Txt k="receveurColoris" label="COLORIS RECEVEUR"/>
+        <MapTxt m={m} set={set} k="receveurDimensions" label="DIMENSIONS RECEVEUR" ph="90×120…"/>
+        <MapTxt m={m} set={set} k="receveurColoris" label="COLORIS RECEVEUR"/>
       </div>
-      <Multi k="douche" label="DOUCHE" opts={MAP_DOUCHE}/>
-      <Choix k="wcType" label="WC" opts={['Pack WC suspendu','Pack WC standard']}/>
-      <Bool k="laveMains" label="Lave-mains"/>
+      <MapMulti m={m} set={set} k="douche" label="DOUCHE" opts={MAP_DOUCHE}/>
+      <MapChoix m={m} set={set} k="wcType" label="WC" opts={['Pack WC suspendu','Pack WC standard']}/>
+      <MapBool m={m} set={set} k="laveMains" label="Lave-mains"/>
       <ChoixProduit data={data} lot="Plomberie / sanitaire" value={m.meubleVasqueProduit} onChange={v=>set({meubleVasqueProduit:v})} label="MEUBLE VASQUE"/>
-      <Txt k="meubleVasqueLargeur" label="LARGEUR MEUBLE VASQUE"/>
+      <MapTxt m={m} set={set} k="meubleVasqueLargeur" label="LARGEUR MEUBLE VASQUE"/>
     </React.Fragment>)}
 
     {section('8. CHAPES ET REVÊTEMENTS DE SOLS',<React.Fragment>
-      <Choix k="chapeType" label="CHAPE" opts={['Chape fluide anhydrite (lot carrelage)','Chape fluide ciment (lot carrelage)','Dalle brute — réservés MOA']}/>
+      <MapChoix m={m} set={set} k="chapeType" label="CHAPE" opts={['Chape fluide anhydrite (lot carrelage)','Chape fluide ciment (lot carrelage)','Dalle brute — réservés MOA']}/>
       <ChoixProduit data={data} lot="Carrelage" value={m.carrelageProduit} onChange={v=>set({carrelageProduit:v})} label="CARRELAGE — MODÈLE"/>
-      <Txt k="carrelageEntreprise" label="PIÈCES TRAITÉES PAR L’ENTREPRISE"/>
-      <Txt k="carrelageReservees" label="PIÈCES RÉSERVÉES AU MAÎTRE D’OUVRAGE"/>
+      <MapTxt m={m} set={set} k="carrelageEntreprise" label="PIÈCES TRAITÉES PAR L’ENTREPRISE"/>
+      <MapTxt m={m} set={set} k="carrelageReservees" label="PIÈCES RÉSERVÉES AU MAÎTRE D’OUVRAGE"/>
       <div className="g2">
-        <Txt k="faienceLocalisation" label="FAÏENCE — LOCALISATION"/>
-        <Txt k="faienceSurface" label="SURFACE (m²)"/>
+        <MapTxt m={m} set={set} k="faienceLocalisation" label="FAÏENCE — LOCALISATION"/>
+        <MapTxt m={m} set={set} k="faienceSurface" label="SURFACE (m²)"/>
       </div>
       <div className="g2">
-        <Txt k="faienceHauteur" label="HAUTEUR DE POSE"/>
-        <Choix k="faienceLot" label="FAÏENCE — LOT" opts={['Lot carrelage','Réservé MOA']}/>
+        <MapTxt m={m} set={set} k="faienceHauteur" label="HAUTEUR DE POSE"/>
+        <MapChoix m={m} set={set} k="faienceLot" label="FAÏENCE — LOT" opts={['Lot carrelage','Réservé MOA']}/>
       </div>
     </React.Fragment>)}
 
     {section('9. RÉCAPITULATIF DES MODIFICATIONS AU PLAN DU PERMIS INITIAL',<React.Fragment>
-      <Zone k="modifTerrain" label="TERRAIN — TRAVAUX DE PRÉPARATION — VRD"/>
-      <Zone k="modifGrosOeuvre" label="GROS-ŒUVRE"/>
-      <Zone k="modifCharpente" label="CHARPENTE — COUVERTURE — ZINGUERIE"/>
-      <Zone k="modifMenuiseriesExt" label="MENUISERIES EXTÉRIEURES — FAÇADES"/>
-      <Zone k="modifCloisons" label="CLOISONS DE DISTRIBUTION — MENUISERIES INTÉRIEURES"/>
-      <Zone k="modifElecPlomberieChauffage" label="ÉLECTRICITÉ — PLOMBERIE — SANITAIRES — CHAUFFAGE"/>
-      <Zone k="modifAutres" label="AUTRES MODIFICATIONS"/>
-      <Choix k="incidenceUrbanisme" label="INCIDENCE SUR L’AUTORISATION D’URBANISME"
+      <MapZone m={m} set={set} k="modifTerrain" label="TERRAIN — TRAVAUX DE PRÉPARATION — VRD"/>
+      <MapZone m={m} set={set} k="modifGrosOeuvre" label="GROS-ŒUVRE"/>
+      <MapZone m={m} set={set} k="modifCharpente" label="CHARPENTE — COUVERTURE — ZINGUERIE"/>
+      <MapZone m={m} set={set} k="modifMenuiseriesExt" label="MENUISERIES EXTÉRIEURES — FAÇADES"/>
+      <MapZone m={m} set={set} k="modifCloisons" label="CLOISONS DE DISTRIBUTION — MENUISERIES INTÉRIEURES"/>
+      <MapZone m={m} set={set} k="modifElecPlomberieChauffage" label="ÉLECTRICITÉ — PLOMBERIE — SANITAIRES — CHAUFFAGE"/>
+      <MapZone m={m} set={set} k="modifAutres" label="AUTRES MODIFICATIONS"/>
+      <MapChoix m={m} set={set} k="incidenceUrbanisme" label="INCIDENCE SUR L’AUTORISATION D’URBANISME"
         opts={['Aucune — modifications sans effet sur l’aspect extérieur ni sur la surface autorisée','Permis de construire modificatif à déposer par le MOA']}/>
       {m.incidenceUrbanisme==='Permis de construire modificatif à déposer par le MOA'&&
-        <Txt k="incidenceObjet" label="OBJET DU PERMIS MODIFICATIF"/>}
+        <MapTxt m={m} set={set} k="incidenceObjet" label="OBJET DU PERMIS MODIFICATIF"/>}
     </React.Fragment>)}
 
     {section('11. AUTORISATION DE DIFFUSION D’IMAGES DU CHANTIER',<React.Fragment>
@@ -6479,7 +6485,7 @@ function MAP({data,ch,up}){
         Dans le cadre de sa communication, CP Constructions souhaite pouvoir diffuser des photos et vidéos
         de l’avancement du chantier. Le maître d’ouvrage reste entièrement libre de son choix.
       </div>
-      <Choix k="droitImage" label="LE MAÎTRE D’OUVRAGE" opts={MAP_DROIT_IMAGE}/>
+      <MapChoix m={m} set={set} k="droitImage" label="LE MAÎTRE D’OUVRAGE" opts={MAP_DROIT_IMAGE}/>
     </React.Fragment>)}
 
     <Fld label="LIEU DE LA MISE AU POINT">
@@ -7844,17 +7850,23 @@ function RechercheZonage({dec,set}){
       </select></Fld>
   </div>;
 }
+
+/* les champs de la fiche de découverte, définis une fois pour de bon — comme
+   pour la MAP, les redéfinir à chaque rendu du formulaire leur donnerait une
+   identité différente à chaque frappe, et React perdrait le focus du champ
+   à chaque caractère saisi. */
+const DecChoix=({N,set,k,label,opts})=><Fld label={label}>
+  <select className="in" value={N[k]||''} onChange={e=>set(k,e.target.value)}>
+    <option value="">—</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
+  </select></Fld>;
+const DecTxt=({N,set,k,label,ph,type})=><Fld label={label}>
+  <input className="in" type={type||'text'} value={N[k]||''} onChange={e=>set(k,e.target.value)} placeholder={ph}/></Fld>;
+const DecZone=({N,set,k,label,ph,rows})=><Fld label={label}>
+  <textarea className="in" rows={rows||2} value={N[k]||''} onChange={e=>set(k,e.target.value)} placeholder={ph}/></Fld>;
+
 function FormDecouverte({dec,onChange}){
   const N=dec||{};
   const set=(k,v)=>onChange({...N,[k]:v});
-  const Choix=({k,label,opts})=><Fld label={label}>
-    <select className="in" value={N[k]||''} onChange={e=>set(k,e.target.value)}>
-      <option value="">—</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
-    </select></Fld>;
-  const Txt=({k,label,ph,type})=><Fld label={label}>
-    <input className="in" type={type||'text'} value={N[k]||''} onChange={e=>set(k,e.target.value)} placeholder={ph}/></Fld>;
-  const Zone=({k,label,ph,rows})=><Fld label={label}>
-    <textarea className="in" rows={rows||2} value={N[k]||''} onChange={e=>set(k,e.target.value)} placeholder={ph}/></Fld>;
   const exts=N.exterieur||[];
   const bascExt=o=>set('exterieur',exts.indexOf(o)>=0?exts.filter(x=>x!==o):[...exts,o]);
   const section=(titre,children)=><div className="card" style={{padding:10,marginBottom:6,borderLeft:'3px solid '+RULE}}>
@@ -7871,42 +7883,42 @@ function FormDecouverte({dec,onChange}){
     </div>
 
     <div className="g2">
-      <Txt k="adresseProjet" label="ADRESSE DU PROJET"/>
-      <Txt k="sectionCadastre" label="SECTION CADASTRALE"/>
+      <DecTxt N={N} set={set} k="adresseProjet" label="ADRESSE DU PROJET"/>
+      <DecTxt N={N} set={set} k="sectionCadastre" label="SECTION CADASTRALE"/>
     </div>
     <RechercheZonage dec={N} set={set}/>
 
     {section('1. LE FOYER',<React.Fragment>
-      <div className="g2"><Txt k="nbAdultes" label="NOMBRE D'ADULTES" type="number"/>
-        <Txt k="nbEnfants" label="NOMBRE D'ENFANTS" type="number"/></div>
-      <Choix k="logementActuel" label="LOGEMENT ACTUEL" opts={DEC_LOGEMENT}/>
+      <div className="g2"><DecTxt N={N} set={set} k="nbAdultes" label="NOMBRE D'ADULTES" type="number"/>
+        <DecTxt N={N} set={set} k="nbEnfants" label="NOMBRE D'ENFANTS" type="number"/></div>
+      <DecChoix N={N} set={set} k="logementActuel" label="LOGEMENT ACTUEL" opts={DEC_LOGEMENT}/>
     </React.Fragment>)}
 
     {section('2. LE TERRAIN',<React.Fragment>
-      <Choix k="statutTerrain" label="STATUT DU TERRAIN" opts={DEC_STATUT_TERRAIN}/>
+      <DecChoix N={N} set={set} k="statutTerrain" label="STATUT DU TERRAIN" opts={DEC_STATUT_TERRAIN}/>
       <div className="g2">
-        <Choix k="viabilise" label="TERRAIN VIABILISÉ" opts={DEC_OUI_NON_VERIF}/>
-        <Choix k="etudeSol" label="ÉTUDE DE SOL RÉALISÉE" opts={DEC_OUI_NON_PREVUE}/>
+        <DecChoix N={N} set={set} k="viabilise" label="TERRAIN VIABILISÉ" opts={DEC_OUI_NON_VERIF}/>
+        <DecChoix N={N} set={set} k="etudeSol" label="ÉTUDE DE SOL RÉALISÉE" opts={DEC_OUI_NON_PREVUE}/>
       </div>
-      <Zone k="particularites" label="PARTICULARITÉS" ph="Pente, vue, exposition, voisinage, accès, lotissement…"/>
+      <DecZone N={N} set={set} k="particularites" label="PARTICULARITÉS" ph="Pente, vue, exposition, voisinage, accès, lotissement…"/>
       <div className="xs mut" style={{lineHeight:1.5}}>Commune / secteur et superficie se saisissent plus bas, avec la demande de chiffrage.</div>
     </React.Fragment>)}
 
     {section('3. BUDGET & FINANCEMENT',<React.Fragment>
       <div className="g2">
-        <Txt k="enveloppe" label="ENVELOPPE GLOBALE VISÉE (€)" type="number" ph="Terrain + construction + annexes"/>
-        <Txt k="apport" label="APPORT PERSONNEL (€)" type="number"/>
+        <DecTxt N={N} set={set} k="enveloppe" label="ENVELOPPE GLOBALE VISÉE (€)" type="number" ph="Terrain + construction + annexes"/>
+        <DecTxt N={N} set={set} k="apport" label="APPORT PERSONNEL (€)" type="number"/>
       </div>
-      <Choix k="situationFinancement" label="SITUATION DE FINANCEMENT" opts={DEC_SITUATION_FINANCEMENT}/>
+      <DecChoix N={N} set={set} k="situationFinancement" label="SITUATION DE FINANCEMENT" opts={DEC_SITUATION_FINANCEMENT}/>
     </React.Fragment>)}
 
     {section('4. LE PROGRAMME',<React.Fragment>
-      <Choix k="niveauSouhaite" label="PLAIN-PIED OU ÉTAGE" opts={DEC_NIVEAU}/>
+      <DecChoix N={N} set={set} k="niveauSouhaite" label="PLAIN-PIED OU ÉTAGE" opts={DEC_NIVEAU}/>
       <div className="g2">
-        <Choix k="suiteParentale" label="SUITE PARENTALE" opts={['Oui','Non']}/>
-        <Choix k="bureau" label="BUREAU / COIN TÉLÉTRAVAIL" opts={['Oui','Non']}/>
+        <DecChoix N={N} set={set} k="suiteParentale" label="SUITE PARENTALE" opts={['Oui','Non']}/>
+        <DecChoix N={N} set={set} k="bureau" label="BUREAU / COIN TÉLÉTRAVAIL" opts={['Oui','Non']}/>
       </div>
-      <Choix k="buanderie" label="BUANDERIE / CELLIER / DÉPENDANCE" opts={['Oui','Non']}/>
+      <DecChoix N={N} set={set} k="buanderie" label="BUANDERIE / CELLIER / DÉPENDANCE" opts={['Oui','Non']}/>
       <Fld label="EXTÉRIEUR SOUHAITÉ">
         <div className="row" style={{gap:6,flexWrap:'wrap'}}>
           {DEC_EXTERIEUR.map(o=>{const on=exts.indexOf(o)>=0;
@@ -7917,33 +7929,33 @@ function FormDecouverte({dec,onChange}){
       <div className="xs mut" style={{lineHeight:1.5}}>Surface habitable visée et nombre de chambres se saisissent plus bas, avec la demande de chiffrage.</div>
     </React.Fragment>)}
 
-    {section('5. STYLE & MATÉRIAUX',<Choix k="style" label="STYLE ARCHITECTURAL" opts={DEC_STYLE}/>)}
+    {section('5. STYLE & MATÉRIAUX',<DecChoix N={N} set={set} k="style" label="STYLE ARCHITECTURAL" opts={DEC_STYLE}/>)}
 
     {section('6. ASPECTS TECHNIQUES',<React.Fragment>
       <Fld label="TYPE DE FONDATIONS"><input className="in" list="decfond" value={N.fondations||''}
         onChange={e=>set('fondations',e.target.value)} placeholder="Semelles filantes…"/>
         <datalist id="decfond"><option value="Semelles filantes"/></datalist></Fld>
       <div className="g2">
-        <Choix k="videSanitaire" label="VIDE SANITAIRE" opts={DEC_VS}/>
+        <DecChoix N={N} set={set} k="videSanitaire" label="VIDE SANITAIRE" opts={DEC_VS}/>
         <Fld label="TYPE DE MUR"><input className="in" list="decmur" value={N.mur||''}
           onChange={e=>set('mur',e.target.value)}/>
           <datalist id="decmur">{DEC_MUR.map(o=><option key={o} value={o}/>)}</datalist></Fld>
       </div>
       <div className="g2">
-        <Choix k="charpente" label="TYPE DE CHARPENTE" opts={DEC_CHARPENTE}/>
-        <Choix k="couverture" label="COUVERTURE" opts={DEC_COUVERTURE}/>
+        <DecChoix N={N} set={set} k="charpente" label="TYPE DE CHARPENTE" opts={DEC_CHARPENTE}/>
+        <DecChoix N={N} set={set} k="couverture" label="COUVERTURE" opts={DEC_COUVERTURE}/>
       </div>
-      <Choix k="menuiseries" label="MENUISERIES EXTÉRIEURES" opts={DEC_MENUISERIES}/>
+      <DecChoix N={N} set={set} k="menuiseries" label="MENUISERIES EXTÉRIEURES" opts={DEC_MENUISERIES}/>
       <div className="g2">
-        <Choix k="ecs" label="PRODUCTION D'EAU CHAUDE" opts={DEC_ECS}/>
-        <Choix k="vmc" label="VMC" opts={DEC_VMC}/>
+        <DecChoix N={N} set={set} k="ecs" label="PRODUCTION D'EAU CHAUDE" opts={DEC_ECS}/>
+        <DecChoix N={N} set={set} k="vmc" label="VMC" opts={DEC_VMC}/>
       </div>
       <div className="xs mut" style={{lineHeight:1.5}}>Le chauffage souhaité se saisit plus bas, avec la demande de chiffrage.</div>
     </React.Fragment>)}
 
     {section('7. CALENDRIER',<React.Fragment>
-      <Txt k="echeance" label="ÉCHÉANCE SOUHAITÉE POUR L'ENTRÉE DANS LA MAISON"/>
-      <Zone k="contraintesCalendrier" label="CONTRAINTES DE CALENDRIER" ph="Fin de bail, vente du logement actuel…"/>
+      <DecTxt N={N} set={set} k="echeance" label="ÉCHÉANCE SOUHAITÉE POUR L'ENTRÉE DANS LA MAISON"/>
+      <DecZone N={N} set={set} k="contraintesCalendrier" label="CONTRAINTES DE CALENDRIER" ph="Fin de bail, vente du logement actuel…"/>
     </React.Fragment>)}
 
     {section('8. VOS PRIORITÉS — rang 1 (le plus important) à 4',<React.Fragment>
@@ -7958,18 +7970,18 @@ function FormDecouverte({dec,onChange}){
     </React.Fragment>)}
 
     {section('9. VIGILANCES & REMARQUES',<React.Fragment>
-      <Zone k="experiencePrec" label="EXPÉRIENCES PRÉCÉDENTES" ph="Projet immobilier, CCMI…"/>
-      <Zone k="craintes" label="CRAINTES OU QUESTIONS EXPRIMÉES"/>
-      <Zone k="remarques" label="AUTRES REMARQUES LIBRES"/>
+      <DecZone N={N} set={set} k="experiencePrec" label="EXPÉRIENCES PRÉCÉDENTES" ph="Projet immobilier, CCMI…"/>
+      <DecZone N={N} set={set} k="craintes" label="CRAINTES OU QUESTIONS EXPRIMÉES"/>
+      <DecZone N={N} set={set} k="remarques" label="AUTRES REMARQUES LIBRES"/>
     </React.Fragment>)}
 
     {section('SYNTHÈSE & PROCHAINES ÉTAPES',<React.Fragment>
-      <Zone k="pointsCles" label="POINTS CLÉS DU PROJET" rows={3}/>
-      <Zone k="actions" label="ACTIONS À MENER PAR CP CONSTRUCTIONS" rows={3}/>
+      <DecZone N={N} set={set} k="pointsCles" label="POINTS CLÉS DU PROJET" rows={3}/>
+      <DecZone N={N} set={set} k="actions" label="ACTIONS À MENER PAR CP CONSTRUCTIONS" rows={3}/>
       <div className="g2">
         <Fld label="PROCHAIN RENDEZ-VOUS — DATE"><input className="in" type="date" value={N.prochainRdvDate||''}
           onChange={e=>set('prochainRdvDate',e.target.value)}/></Fld>
-        <Txt k="prochainRdvObjet" label="PROCHAIN RENDEZ-VOUS — OBJET"/>
+        <DecTxt N={N} set={set} k="prochainRdvObjet" label="PROCHAIN RENDEZ-VOUS — OBJET"/>
       </div>
     </React.Fragment>)}
   </div>;
