@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · gouttière : fiche produit et 3 coloris au choix du client';
+const VERSION='2026-08-27 · caisson sous-face en menu déroulant, gouttières : modèle + coloris gouttière et descente séparés';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -2380,11 +2380,12 @@ function mapLignes(ch,data){
   add('4. Charpente, couverture & zinguerie',[
     ['Charpente',m.charpenteType],['Charpente — photo / modèle',nomProduit(m.charpenteProduit)],
     ['Charpente aménageable au-dessus du garage',m.charpenteGarageAmenageable?'Oui':''],
-    ['Sous-faces de toit',m.sousFaces],
+    ['Caisson — sous-face',m.sousFaces],
     ['Coloris sous-faces',m.sousFacesColoris],
     ['Écran de sous-toiture HPV',m.ecranSousToiture?'Oui':''],
-    ['Gouttières / descentes',m.gouttieres],['Gouttière — modèle',nomProduit(m.gouttieresProduit)],
+    ['Gouttières — modèle',m.gouttieres],['Gouttière — fiche produit',nomProduit(m.gouttieresProduit)],
     ['Coloris gouttières',m.gouttieresColoris],
+    ['Coloris descente de gouttières',m.descenteGouttieresColoris],
     ['Fenêtre(s) de toit — modèle',m.fenetreToitModele],['Vitrage',m.fenetreToitVitrage],
     ['Raccords encastrés',m.fenetreToitRaccords?'Oui':''],['Volet roulant électrique',m.fenetreToitVolet?'Oui':''],
     ['Conduit de fumée',m.conduitFumee],
@@ -6356,7 +6357,7 @@ function MAP({data,ch,up}){
     {section('4. CHARPENTE, COUVERTURE & ZINGUERIE',<React.Fragment>
       <div className="g2">
         <MapChoix m={m} set={set} k="charpenteType" label="CHARPENTE & DESSOUS DE TOIT" opts={['Fermettes industrielles bois résineux','Charpente traditionnelle','Charpente sur dalle béton','Charpente combles perdus','Charpente combles aménageables']}/>
-        <MapChoix m={m} set={set} k="sousFaces" label="SOUS-FACES" opts={['PVC','Alu','Bois']}/>
+        <MapChoix m={m} set={set} k="sousFaces" label="CAISSON — SOUS-FACE" opts={['PVC','Alu']}/>
       </div>
       <ChoixProduit data={data} lot="Charpente" value={m.charpenteProduit} onChange={v=>set({charpenteProduit:v})} label="CHARPENTE — PHOTO / MODÈLE"/>
       <MapBool m={m} set={set} k="charpenteGarageAmenageable" label="Charpente aménageable au-dessus du garage"/>
@@ -6364,11 +6365,12 @@ function MAP({data,ch,up}){
         <MapTxt m={m} set={set} k="sousFacesColoris" label="COLORIS SOUS-FACES"/>
         <MapBool m={m} set={set} k="ecranSousToiture" label="Écran de sous-toiture HPV"/>
       </div>
+      <MapChoix m={m} set={set} k="gouttieres" label="GOUTTIÈRES — MODÈLE" opts={['PVC','Alu','Zinc']}/>
       <div className="g2">
-        <MapChoix m={m} set={set} k="gouttieres" label="ZINGUERIE / ÉVACUATION DES EAUX PLUVIALES" opts={['PVC','Alu','Zinc']}/>
         <MapChoix m={m} set={set} k="gouttieresColoris" label="COLORIS GOUTTIÈRES" opts={['Gris anthracite','Cuivre','Sable']}/>
+        <MapChoix m={m} set={set} k="descenteGouttieresColoris" label="COLORIS DESCENTE DE GOUTTIÈRES" opts={['Gris anthracite','Cuivre','Sable']}/>
       </div>
-      <ChoixProduit data={data} lot="Couverture" value={m.gouttieresProduit} onChange={v=>set({gouttieresProduit:v})} label="GOUTTIÈRE — MODÈLE"/>
+      <ChoixProduit data={data} lot="Couverture" value={m.gouttieresProduit} onChange={v=>set({gouttieresProduit:v})} label="GOUTTIÈRE — FICHE PRODUIT"/>
       <div className="g2">
         <MapTxt m={m} set={set} k="fenetreToitModele" label="FENÊTRE(S) DE TOIT — MODÈLE" ph="type VELUX"/>
         <MapTxt m={m} set={set} k="fenetreToitVitrage" label="VITRAGE"/>
