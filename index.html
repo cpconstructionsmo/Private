@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-26 · envoyer le marché et le plan de permis à l’artisan par mail, en vraies pièces jointes';
+const VERSION='2026-08-27 · la fiche de découverte client, première étape d’un prospect';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -203,7 +203,7 @@ const prospectSt=id=>PROSPECT_ST.find(s=>s.id===id)||PROSPECT_ST[0];
 const prospectAFaire=p=>p&&(p.statut==='demande'||p.statut==='encours');
 const TERRAINS=['Lotissement viabilisé','Terrain diffus viabilisé','Terrain diffus non viabilisé','Terrain en pente','Division parcellaire','Terrain avec démolition préalable'];
 const PRESTATIONS=['Clé en main','Hors d’eau hors d’air','Gros œuvre seul','Second œuvre seul','Extension','Surélévation','Rénovation lourde'];
-const CHAUFFAGES=['Pompe à chaleur air/eau','Pompe à chaleur air/air','Plancher chauffant hydraulique','Poêle à granulés','Poêle à bois','Chaudière gaz condensation','Radiateurs électriques','Solaire thermique en appoint'];
+const CHAUFFAGES=['Pompe à chaleur air/eau','Pompe à chaleur air/air','Trineo — T One','Plancher chauffant hydraulique','Poêle à granulés','Poêle à bois','Chaudière gaz condensation','Radiateurs électriques','Solaire thermique en appoint'];
 const NIVEAUX=['Plain-pied','R+1','R+1 combles aménagés','R+combles perdus','R+2','Sous-sol complet'];
 const FINANCEMENTS=['Crédit immobilier classique','PTZ + crédit immobilier','PTZ seul',
   'Financement comptant','Crédit avec apport','Prêt relais','Prêt épargne logement (PEL/CEL)',
@@ -249,6 +249,57 @@ const PIECES_PROSPECT=[
   {id:'apd',l:'Plan d’avant-projet souhaité'},
   {id:'georisque',l:'Étude géorisques du terrain'},
 ];
+
+/* ---------- fiche de découverte client ----------
+   Ce que Loïc relève au tout premier rendez-vous, avant même la demande de
+   chiffrage : le foyer, le terrain, le budget, le programme envisagé — pour
+   cadrer l'entretien sans rien figer. Commune, superficie du terrain, surface
+   habitable, chambres et chauffage ne sont pas repris ici : ils se saisissent
+   avec la demande de chiffrage, plus bas sur la même fiche. */
+const DEC_LOGEMENT=['Locataire','Propriétaire — bien à vendre','Propriétaire — bien à conserver'];
+const DEC_STATUT_TERRAIN=['Déjà acquis','Compromis signé','En recherche active','Pas encore commencé'];
+const DEC_OUI_NON_VERIF=['Oui','Non','À vérifier'];
+const DEC_OUI_NON_PREVUE=['Oui','Non','Prévue'];
+const DEC_SITUATION_FINANCEMENT=['Simulation à faire','Simulation en cours','Accord de principe obtenu','Prêt déjà accordé'];
+const DEC_NIVEAU=['Plain-pied','Étage','Pas décidé'];
+const DEC_EXTERIEUR=['Terrasse','Piscine','Atelier'];
+const DEC_STYLE=['Traditionnel régional','Contemporain','Mixte','Pas encore défini'];
+const DEC_MUR=['Parpaing','Brique creuse','Brique Monomur','Béton banché','Ossature bois'];
+const DEC_VS=['3 rangs','4 rangs','5 rangs','6 rangs'];
+const DEC_CHARPENTE=['Traditionnelle bois','Fermettes industrielles','Charpente métallique'];
+const DEC_COUVERTURE=['Tuile terre cuite','Tuile minérale','Ardoise','Bac acier'];
+const DEC_MENUISERIES=['PVC','ALU','Bois','Mixte bois/alu'];
+const DEC_ECS=['Ballon thermodynamique','Couplée au chauffage'];
+const DEC_VMC=['Simple flux','Double flux'];
+const DEC_PRIORITES=[['prioBudget','Budget maîtrisé'],['prioDelai','Délai rapide'],
+  ['prioSurface','Surface généreuse'],['prioQualite','Qualité & finitions']];
+
+/* ---------- recherche de zonage du terrain ----------
+   Depuis l'adresse du projet : géocodage via la Base Adresse Nationale
+   (api-adresse.data.gouv.fr, service public sans clé), puis un lien vers
+   chacun des trois outils officiels, positionné sur le point trouvé quand le
+   géocodage réussit. Aucun de ces sites ne se laisse interroger depuis le
+   navigateur pour en extraire directement une réponse : Loïc y lit le
+   résultat et le reporte à la main dans les champs qui suivent. */
+async function geocoderAdresse(adresse){
+  const a=(adresse||'').trim();
+  if(!a)return null;
+  const r=await fetch('https://api-adresse.data.gouv.fr/search/?limit=1&q='+encodeURIComponent(a));
+  if(!r.ok)return null;
+  const j=await r.json();
+  const f=j&&j.features&&j.features[0];
+  if(!f)return null;
+  const [lon,lat]=f.geometry.coordinates;
+  const p=f.properties||{};
+  return {lon,lat,ville:p.city||'',codeInsee:p.citycode||'',adresse:p.label||a};
+}
+const lienGeorisques=g=>g
+  ?'https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi/rapport2?form-adresse=true&isCadastre=false&typeForm=adresse&adresse='+encodeURIComponent(g.adresse)+'&city='+encodeURIComponent(g.ville)+'&codeInsee='+g.codeInsee+'&lon='+g.lon+'&lat='+g.lat+'&go_back=/'
+  :'https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi';
+const lienGeoportailUrbanisme=g=>g
+  ?'https://www.geoportail-urbanisme.gouv.fr/map/#tile=1&lat='+g.lat+'&lon='+g.lon+'&zoom=17'
+  :'https://www.geoportail-urbanisme.gouv.fr/';
+const LIEN_ATLAS_PATRIMOINES='https://atlas.patrimoines.culture.fr/';
 
 /* ---------- trame de contrôle chantier : corps d'état → points de contrôle ---------- */
 const CTRL_ST=[{id:'conforme',label:'Conforme',c:GREEN},{id:'non_conforme',label:'Non conforme',c:TERRA},{id:'neant',label:'Néant',c:MUTED}];
@@ -2217,6 +2268,37 @@ async function genererDossierDocx(p,com){
   try{logo=await logoDocx()}catch(e){/* sans logo, le dossier reste lisible */}
   return fabriquerDocx(dossierDocumentXml(p,logo,com),
     'Dossier de présentation — '+(p.nom||''),logo);
+}
+
+/* ---------- fiche de découverte, éditée en Word ----------
+   Reprend tel quel ce que decouverteLignes() a déjà trié et mis en forme
+   pour l'écran — même source pour l'affichage et pour le document imprimé. */
+function decouverteDocumentXml(p,px){
+  const titre=t=>par(t,{b:true,sz:20,c:DOC_TERRA,sp:16,caps:true,av:200,ap:80,filet:DOC_TERRA});
+  const garde=[
+    par([logoXml(px)],{ap:0}),
+    vide(300),
+    par('FICHE DE DÉCOUVERTE CLIENT',{b:true,sz:34,c:DOC_TERRA,sp:30,jc:'center',ap:60}),
+    par((p.nom||'')+(p.client?' — '+p.client:''),{sz:20,c:DOC_BRUN,jc:'center',ap:20}),
+    par('Premier rendez-vous du '+fdDoc(today()),{sz:16,c:DOC_GRIS,jc:'center',ap:0}),
+    vide(300),
+  ].join('');
+  const L=decouverteLignes(p);
+  const corps=L.length?L.map(([section,champs])=>[
+    titre(section),
+    ...champs.map(([l,v])=>par(l+' : '+v,{sz:18,ap:50,jc:'both'})),
+  ].join('')).join(''):par('Fiche pas encore renseignée.',{sz:18,i:true,c:DOC_GRIS,ap:0});
+  return DOC_ENTETE_XML+'<w:body>'+garde+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+async function genererDecouverteDocx(p){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, la fiche reste lisible */}
+  return fabriquerDocx(decouverteDocumentXml(p,logo),
+    'Fiche de découverte — '+(p.nom||''),logo);
 }
 
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
@@ -6983,7 +7065,7 @@ function Prospects({data,save}){
     retroPct:'',retroMontant:'',
     terrainPrix:'',fraisNotaire:'',raccordements:[],travauxClient:[],
     dommageOuvrage:'',taxeAmenagement:'',taxeRaccordement:'',taxes:[],
-    navette:{},pj:{},chiffrages:[],plans:[],pieces:[]});
+    navette:{},decouverte:{},pj:{},chiffrages:[],plans:[],pieces:[]});
   const ok=()=>{
     if(!(f.nom||'').trim())return;
     const r={...f,surfaceTerrain:f.surfaceTerrain===''?'':+f.surfaceTerrain,
@@ -7033,6 +7115,7 @@ function Prospects({data,save}){
     </div>}
     {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
       <Fld label="NOM DU PROJET"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Dupont — Ceaucé"/></Fld>
+      <FormDecouverte dec={f.decouverte} onChange={v=>setF({...f,decouverte:v})}/>
       <ImportContact label="Remplir depuis Contacts"
         onLu={c=>setF(p=>({...p,client:c.nom||p.client,telClient:c.tel||p.telClient,
           emailClient:c.email||p.emailClient||'',adresseClient:c.adresse||p.adresseClient}))}/>
@@ -7215,6 +7298,180 @@ function PostesChiffrage({postes,onChange}){
   </Fld>;
 }
 
+/* ---------- la fiche de découverte ----------
+   Ce que Loïc remplit chez le client, au tout premier rendez-vous — avant même
+   la demande de chiffrage plus bas sur cette fiche. */
+function RechercheZonage({dec,set}){
+  const [travail,setTravail]=useState('');
+  const adresse=dec.adresseProjet||'';
+  const ouvrir=async(nom,construire)=>{
+    const onglet=window.open('','_blank');
+    setTravail(nom);
+    let g=null;
+    try{g=await geocoderAdresse(adresse)}catch(e){/* on ouvre quand même, sur la page de recherche */}
+    if(onglet)onglet.location.href=construire(g);
+    setTravail('');
+  };
+  return <div className="card" style={{padding:10,marginBottom:10,borderLeft:'3px solid '+TERRA}}>
+    <div className="xs b" style={{color:TERRA,marginBottom:4,letterSpacing:'.03em'}}>RECHERCHE DE ZONAGE DU TERRAIN</div>
+    <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+      Ouvre les outils officiels sur l'adresse du projet — vérifiez que la bonne parcelle s'affiche,
+      puis reportez le résultat ci-dessous.
+    </div>
+    <div className="row" style={{gap:6,flexWrap:'wrap',marginBottom:8}}>
+      <button className="btn gh s" disabled={!adresse||travail==='geo'} onClick={()=>ouvrir('geo',lienGeorisques)}>
+        {travail==='geo'?'Recherche…':'Géorisques (sol, risques)'}</button>
+      <button className="btn gh s" disabled={!adresse||travail==='gpu'} onClick={()=>ouvrir('gpu',lienGeoportailUrbanisme)}>
+        {travail==='gpu'?'Recherche…':'Géoportail de l’urbanisme'}</button>
+      <button className="btn gh s" onClick={()=>window.open(LIEN_ATLAS_PATRIMOINES,'_blank')}>
+        Atlas des patrimoines (bâtiments de France)</button>
+    </div>
+    {!adresse&&<div className="xs mut" style={{marginBottom:8}}>
+      Saisissez l'adresse du projet ci-dessus pour positionner la recherche.</div>}
+    <div className="g2">
+      <Fld label="TYPE DE SOL"><input className="in" value={dec.typeSol||''} onChange={e=>set('typeSol',e.target.value)}/></Fld>
+      <Fld label="BÂTIMENTS DE FRANCE">
+        <select className="in" value={dec.batimentsFrance||''} onChange={e=>set('batimentsFrance',e.target.value)}>
+          <option value="">—</option>{DEC_OUI_NON_VERIF.map(o=><option key={o} value={o}>{o}</option>)}
+        </select></Fld>
+    </div>
+    <Fld label="ZONE NATURA 2000">
+      <select className="in" value={dec.natura2000||''} onChange={e=>set('natura2000',e.target.value)}>
+        <option value="">—</option>{DEC_OUI_NON_VERIF.map(o=><option key={o} value={o}>{o}</option>)}
+      </select></Fld>
+  </div>;
+}
+function FormDecouverte({dec,onChange}){
+  const N=dec||{};
+  const set=(k,v)=>onChange({...N,[k]:v});
+  const Choix=({k,label,opts})=><Fld label={label}>
+    <select className="in" value={N[k]||''} onChange={e=>set(k,e.target.value)}>
+      <option value="">—</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
+    </select></Fld>;
+  const Txt=({k,label,ph,type})=><Fld label={label}>
+    <input className="in" type={type||'text'} value={N[k]||''} onChange={e=>set(k,e.target.value)} placeholder={ph}/></Fld>;
+  const Zone=({k,label,ph,rows})=><Fld label={label}>
+    <textarea className="in" rows={rows||2} value={N[k]||''} onChange={e=>set(k,e.target.value)} placeholder={ph}/></Fld>;
+  const exts=N.exterieur||[];
+  const bascExt=o=>set('exterieur',exts.indexOf(o)>=0?exts.filter(x=>x!==o):[...exts,o]);
+  const section=(titre,children)=><div className="card" style={{padding:10,marginBottom:6,borderLeft:'3px solid '+RULE}}>
+    <div className="xs b" style={{color:NAVY,marginBottom:6,letterSpacing:'.03em'}}>{titre}</div>
+    {children}
+  </div>;
+  const prioConflit=(()=>{const v=DEC_PRIORITES.map(([k])=>N[k]).filter(Boolean);return new Set(v).size!==v.length})();
+  return <div style={{marginTop:16}}>
+    <div className="sp" style={{marginBottom:4}}>
+      <span className="h2" style={{fontSize:13}}>FICHE DE DÉCOUVERTE CLIENT</span>
+    </div>
+    <div className="xs mut" style={{marginBottom:10,lineHeight:1.5}}>
+      À remplir au premier rendez-vous. Rien n'est obligatoire — on tape ce qu'on sait, on complète ensuite.
+    </div>
+
+    <div className="g2">
+      <Txt k="adresseProjet" label="ADRESSE DU PROJET"/>
+      <Txt k="sectionCadastre" label="SECTION CADASTRALE"/>
+    </div>
+    <RechercheZonage dec={N} set={set}/>
+
+    {section('1. LE FOYER',<React.Fragment>
+      <div className="g2"><Txt k="nbAdultes" label="NOMBRE D'ADULTES" type="number"/>
+        <Txt k="nbEnfants" label="NOMBRE D'ENFANTS" type="number"/></div>
+      <Choix k="logementActuel" label="LOGEMENT ACTUEL" opts={DEC_LOGEMENT}/>
+    </React.Fragment>)}
+
+    {section('2. LE TERRAIN',<React.Fragment>
+      <Choix k="statutTerrain" label="STATUT DU TERRAIN" opts={DEC_STATUT_TERRAIN}/>
+      <div className="g2">
+        <Choix k="viabilise" label="TERRAIN VIABILISÉ" opts={DEC_OUI_NON_VERIF}/>
+        <Choix k="etudeSol" label="ÉTUDE DE SOL RÉALISÉE" opts={DEC_OUI_NON_PREVUE}/>
+      </div>
+      <Zone k="particularites" label="PARTICULARITÉS" ph="Pente, vue, exposition, voisinage, accès, lotissement…"/>
+      <div className="xs mut" style={{lineHeight:1.5}}>Commune / secteur et superficie se saisissent plus bas, avec la demande de chiffrage.</div>
+    </React.Fragment>)}
+
+    {section('3. BUDGET & FINANCEMENT',<React.Fragment>
+      <div className="g2">
+        <Txt k="enveloppe" label="ENVELOPPE GLOBALE VISÉE (€)" type="number" ph="Terrain + construction + annexes"/>
+        <Txt k="apport" label="APPORT PERSONNEL (€)" type="number"/>
+      </div>
+      <Choix k="situationFinancement" label="SITUATION DE FINANCEMENT" opts={DEC_SITUATION_FINANCEMENT}/>
+    </React.Fragment>)}
+
+    {section('4. LE PROGRAMME',<React.Fragment>
+      <Choix k="niveauSouhaite" label="PLAIN-PIED OU ÉTAGE" opts={DEC_NIVEAU}/>
+      <div className="g2">
+        <Choix k="suiteParentale" label="SUITE PARENTALE" opts={['Oui','Non']}/>
+        <Choix k="bureau" label="BUREAU / COIN TÉLÉTRAVAIL" opts={['Oui','Non']}/>
+      </div>
+      <Choix k="buanderie" label="BUANDERIE / CELLIER / DÉPENDANCE" opts={['Oui','Non']}/>
+      <Fld label="EXTÉRIEUR SOUHAITÉ">
+        <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+          {DEC_EXTERIEUR.map(o=>{const on=exts.indexOf(o)>=0;
+            return <button key={o} className={'btn s '+(on?'':'gh')} onClick={()=>bascExt(o)}
+              style={{fontSize:11,padding:'5px 9px'}}>{on?'✓ ':''}{o}</button>;})}
+        </div>
+      </Fld>
+      <div className="xs mut" style={{lineHeight:1.5}}>Surface habitable visée et nombre de chambres se saisissent plus bas, avec la demande de chiffrage.</div>
+    </React.Fragment>)}
+
+    {section('5. STYLE & MATÉRIAUX',<Choix k="style" label="STYLE ARCHITECTURAL" opts={DEC_STYLE}/>)}
+
+    {section('6. ASPECTS TECHNIQUES',<React.Fragment>
+      <Fld label="TYPE DE FONDATIONS"><input className="in" list="decfond" value={N.fondations||''}
+        onChange={e=>set('fondations',e.target.value)} placeholder="Semelles filantes…"/>
+        <datalist id="decfond"><option value="Semelles filantes"/></datalist></Fld>
+      <div className="g2">
+        <Choix k="videSanitaire" label="VIDE SANITAIRE" opts={DEC_VS}/>
+        <Fld label="TYPE DE MUR"><input className="in" list="decmur" value={N.mur||''}
+          onChange={e=>set('mur',e.target.value)}/>
+          <datalist id="decmur">{DEC_MUR.map(o=><option key={o} value={o}/>)}</datalist></Fld>
+      </div>
+      <div className="g2">
+        <Choix k="charpente" label="TYPE DE CHARPENTE" opts={DEC_CHARPENTE}/>
+        <Choix k="couverture" label="COUVERTURE" opts={DEC_COUVERTURE}/>
+      </div>
+      <Choix k="menuiseries" label="MENUISERIES EXTÉRIEURES" opts={DEC_MENUISERIES}/>
+      <div className="g2">
+        <Choix k="ecs" label="PRODUCTION D'EAU CHAUDE" opts={DEC_ECS}/>
+        <Choix k="vmc" label="VMC" opts={DEC_VMC}/>
+      </div>
+      <div className="xs mut" style={{lineHeight:1.5}}>Le chauffage souhaité se saisit plus bas, avec la demande de chiffrage.</div>
+    </React.Fragment>)}
+
+    {section('7. CALENDRIER',<React.Fragment>
+      <Txt k="echeance" label="ÉCHÉANCE SOUHAITÉE POUR L'ENTRÉE DANS LA MAISON"/>
+      <Zone k="contraintesCalendrier" label="CONTRAINTES DE CALENDRIER" ph="Fin de bail, vente du logement actuel…"/>
+    </React.Fragment>)}
+
+    {section('8. VOS PRIORITÉS — rang 1 (le plus important) à 4',<React.Fragment>
+      {DEC_PRIORITES.map(([k,l])=><div key={k} className="sp" style={{alignItems:'center',marginBottom:6,gap:10}}>
+        <span className="xs">{l}</span>
+        <select className="in" style={{width:70}} value={N[k]||''} onChange={e=>set(k,e.target.value)}>
+          <option value="">—</option>{[1,2,3,4].map(n=><option key={n} value={n}>{n}</option>)}
+        </select>
+      </div>)}
+      {prioConflit&&<div className="xs" style={{color:AMBER,marginTop:4}}>
+        Deux priorités partagent le même rang — à corriger avant de figer l'ordre.</div>}
+    </React.Fragment>)}
+
+    {section('9. VIGILANCES & REMARQUES',<React.Fragment>
+      <Zone k="experiencePrec" label="EXPÉRIENCES PRÉCÉDENTES" ph="Projet immobilier, CCMI…"/>
+      <Zone k="craintes" label="CRAINTES OU QUESTIONS EXPRIMÉES"/>
+      <Zone k="remarques" label="AUTRES REMARQUES LIBRES"/>
+    </React.Fragment>)}
+
+    {section('SYNTHÈSE & PROCHAINES ÉTAPES',<React.Fragment>
+      <Zone k="pointsCles" label="POINTS CLÉS DU PROJET" rows={3}/>
+      <Zone k="actions" label="ACTIONS À MENER PAR CP CONSTRUCTIONS" rows={3}/>
+      <div className="g2">
+        <Fld label="PROCHAIN RENDEZ-VOUS — DATE"><input className="in" type="date" value={N.prochainRdvDate||''}
+          onChange={e=>set('prochainRdvDate',e.target.value)}/></Fld>
+        <Txt k="prochainRdvObjet" label="PROCHAIN RENDEZ-VOUS — OBJET"/>
+      </div>
+    </React.Fragment>)}
+  </div>;
+}
+
 /* ---------- la fiche navette ----------
    Le commercial la remplit chez le client, lot par lot. Chaque champ propose
    ce qui se pose le plus souvent, sans jamais l'imposer : on tape ce qu'on veut. */
@@ -7277,6 +7534,77 @@ const navetteLignes=nav=>{
   return out;
 };
 const navetteRemplie=nav=>navetteLignes(nav).length>0;
+
+/* ce qui a été renseigné dans la fiche de découverte, groupé par section — pour
+   l'écran comme pour le document Word : commune, superficie, surface habitable,
+   chambres et chauffage viennent du prospect lui-même, pas de la fiche. */
+const decouverteLignes=p=>{
+  const N=(p&&p.decouverte)||{}, out=[];
+  const projet=[['adresseProjet','Adresse du projet'],['sectionCadastre','Section cadastrale'],
+    ['typeSol','Type de sol'],['batimentsFrance','Bâtiments de France'],['natura2000','Zone Natura 2000']]
+    .filter(([k])=>(N[k]||'').trim()).map(([k,l])=>[l,N[k]]);
+  if(projet.length)out.push(['Le projet',projet]);
+
+  const foyer=[['nbAdultes',"Nombre d'adultes"],['nbEnfants',"Nombre d'enfants"],['logementActuel','Logement actuel']]
+    .filter(([k])=>(N[k]||'').toString().trim()).map(([k,l])=>[l,N[k]]);
+  if(foyer.length)out.push(['1. Le foyer',foyer]);
+
+  const terrain=[];
+  if(N.statutTerrain)terrain.push(['Statut du terrain',N.statutTerrain]);
+  if((p.commune||'').trim())terrain.push(['Commune / secteur envisagé',p.commune]);
+  if(p.surfaceTerrain)terrain.push(['Superficie',p.surfaceTerrain+' m²']);
+  if(N.viabilise)terrain.push(['Terrain viabilisé',N.viabilise]);
+  if(N.etudeSol)terrain.push(["Étude de sol réalisée",N.etudeSol]);
+  if((N.particularites||'').trim())terrain.push(['Particularités',N.particularites]);
+  if(terrain.length)out.push(['2. Le terrain',terrain]);
+
+  const budget=[['enveloppe','Enveloppe globale visée',v=>eurDoc(v)],['apport','Apport personnel',v=>eurDoc(v)],
+    ['situationFinancement','Situation de financement']]
+    .filter(([k])=>(N[k]||'').toString().trim())
+    .map(([k,l,f])=>[l,f?f(N[k]):N[k]]);
+  if(budget.length)out.push(['3. Budget & financement',budget]);
+
+  const prog=[];
+  if(N.niveauSouhaite)prog.push(['Plain-pied ou étage',N.niveauSouhaite]);
+  if(p.surfaceHabitable)prog.push(['Surface habitable visée',p.surfaceHabitable+' m²']);
+  if(p.nbChambres)prog.push(['Nombre de chambres',p.nbChambres]);
+  if(N.suiteParentale)prog.push(['Suite parentale',N.suiteParentale]);
+  if(N.bureau)prog.push(['Bureau / coin télétravail',N.bureau]);
+  if(N.buanderie)prog.push(['Buanderie / cellier / dépendance',N.buanderie]);
+  if((N.exterieur||[]).length)prog.push(['Extérieur souhaité',N.exterieur.join(', ')]);
+  if(prog.length)out.push(['4. Le programme',prog]);
+
+  if((N.style||'').trim())out.push(['5. Style & matériaux',[['Style architectural',N.style]]]);
+
+  const tech=[['fondations','Type de fondations'],['videSanitaire','Vide sanitaire'],['mur','Type de mur'],
+    ['charpente','Type de charpente'],['couverture','Couverture'],['menuiseries','Menuiseries extérieures']]
+    .filter(([k])=>(N[k]||'').trim()).map(([k,l])=>[l,N[k]]);
+  if((p.chauffage||'').trim())tech.push(['Chauffage souhaité',p.chauffage]);
+  if((N.ecs||'').trim())tech.push(["Production d'eau chaude",N.ecs]);
+  if((N.vmc||'').trim())tech.push(['VMC',N.vmc]);
+  if(tech.length)out.push(['6. Aspects techniques',tech]);
+
+  const cal=[];
+  if((N.echeance||'').trim())cal.push(['Échéance souhaitée',N.echeance]);
+  if((N.contraintesCalendrier||'').trim())cal.push(['Contraintes de calendrier',N.contraintesCalendrier]);
+  if(cal.length)out.push(['7. Calendrier',cal]);
+
+  const prio=DEC_PRIORITES.filter(([k])=>N[k]).sort((a,b)=>(+N[a[0]])-(+N[b[0]]));
+  if(prio.length)out.push(['8. Vos priorités',prio.map(([k,l])=>[l,'Rang '+N[k]])]);
+
+  const vig=[['experiencePrec','Expériences précédentes'],['craintes','Craintes ou questions exprimées'],
+    ['remarques','Autres remarques']].filter(([k])=>(N[k]||'').trim()).map(([k,l])=>[l,N[k]]);
+  if(vig.length)out.push(['9. Vigilances & remarques',vig]);
+
+  const synth=[['pointsCles','Points clés du projet'],['actions','Actions à mener par CP Constructions']]
+    .filter(([k])=>(N[k]||'').trim()).map(([k,l])=>[l,N[k]]);
+  if(N.prochainRdvDate||(N.prochainRdvObjet||'').trim())
+    synth.push(['Prochain rendez-vous',[N.prochainRdvDate?fd(N.prochainRdvDate):'',N.prochainRdvObjet].filter(Boolean).join(' — ')]);
+  if(synth.length)out.push(['Synthèse & prochaines étapes',synth]);
+
+  return out;
+};
+const decouverteRemplie=p=>decouverteLignes(p).length>0;
 
 /* une liste libellé + montant : taxes, participations, tout ce qui s'ajoute */
 function LignesMontants({lignes,onChange,label,ajout,exemple,liste}){
@@ -7375,6 +7703,7 @@ function RecapChiffrage({p,interne}){
 function DetailProspect({p,maj,data}){
   const dossier=async token=>driveProspectFolder(token,p.id,p.nom);
   return <div>
+    <VueDecouverte p={p}/>
     <div className="g2 xs" style={{marginBottom:10}}>
       <div>
         <div className="b" style={{color:NAVY,marginBottom:4}}>Le projet</div>
@@ -7418,6 +7747,7 @@ function DetailProspect({p,maj,data}){
     </Fld>
 
     <ProduitsDuProjet data={data} p={p} maj={maj}/>
+    <SortirDecouverte p={p} maj={maj}/>
     <SortirDossier data={data} p={p} maj={maj}/>
     <ValiderChiffrage p={p} maj={maj}/>
 
@@ -7460,6 +7790,48 @@ function ProduitsDuProjet({data,p,maj}){
       </label>)}
     </div>}
   </Fld>;
+}
+
+/* ---------- la fiche de découverte, sortie en Word ---------- */
+function SortirDecouverte({p,maj}){
+  const [etat,setEtat]=useState(null);
+  const rempli=decouverteRemplie(p);
+  const produire=async()=>{
+    setEtat({etat:'travail'});
+    try{
+      const buf=await genererDecouverteDocx(p);
+      const nom='Fiche de découverte — '+(p.nom||'projet')+'.docx';
+      const token=await getDriveToken();
+      const dossierId=await driveProspectFolder(token,p.id,p.nom);
+      const {webViewLink}=await uploadToDrive(new File([buf],nom,
+        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),dossierId);
+      maj({decouverteLe:today()});
+      setEtat({etat:'ok',lien:webViewLink,nom});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setEtat({etat:'erreur',msg:c==='auth_required'
+        ?"La fiche a été composée, mais Google Drive n'est pas connecté — reconnectez-le puis relancez."
+        :'Sortie impossible — '+c});
+    }
+  };
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+TERRA}}>
+    <div className="b sm" style={{color:TERRA}}>Fiche de découverte (Word)</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Reprend tout ce qui est saisi ci-dessus, pour le dossier client.
+      {p.decouverteLe?<span> Dernière sortie le {fd(p.decouverteLe)}.</span>:null}
+    </div>
+    <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+      <button className="btn acc s" disabled={etat&&etat.etat==='travail'} onClick={produire}>
+        {etat&&etat.etat==='travail'?'Composition…':'Sortir la fiche Word'}</button>
+      {etat&&etat.etat==='ok'&&<a href={etat.lien} target="_blank" rel="noreferrer" className="btn gh s"
+        style={{textDecoration:'none'}}>Ouvrir</a>}
+    </div>
+    {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+      Déposée dans Drive › Prospects › {p.nom} — {etat.nom}</div>}
+    {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
+    {!rempli&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
+      La fiche de découverte n'est pas encore renseignée : elle sortira vide.</div>}
+  </div>;
 }
 
 /* ---------- le dossier de présentation ----------
@@ -7518,6 +7890,19 @@ function SortirDossier({data,p,maj}){
 }
 
 /* la fiche navette telle qu'elle se relit, une fois remplie */
+function VueDecouverte({p}){
+  const L=decouverteLignes(p);
+  if(!L.length)return null;
+  return <div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,
+    background:'#F6E2DC',borderLeft:'3px solid '+TERRA,lineHeight:1.6}}>
+    <b style={{color:TERRA}}>Fiche de découverte</b>
+    {L.map(([section,champs])=><div key={section} style={{marginTop:6}}>
+      <div className="b" style={{color:NAVY,fontSize:11,letterSpacing:'.03em'}}>{section.toUpperCase()}</div>
+      {champs.map(([l,v])=><div key={l} className="sp" style={{padding:'1px 0',gap:10}}>
+        <span className="mut">{l}</span><span style={{textAlign:'right',whiteSpace:'pre-wrap'}}>{v}</span></div>)}
+    </div>)}
+  </div>;
+}
 function VueNavette({nav}){
   const L=navetteLignes(nav);
   if(!L.length&&!((nav||{}).notes||'').trim())return null;
