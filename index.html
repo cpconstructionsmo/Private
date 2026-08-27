@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · les pièces d’un chantier rangées par dossier';
+const VERSION='2026-08-27 · la mise au point technique se remplit dans l’application, avec le catalogue produits';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -2338,6 +2338,159 @@ async function genererDecouverteDocx(p){
   try{logo=await logoDocx()}catch(e){/* sans logo, la fiche reste lisible */}
   return fabriquerDocx(decouverteDocumentXml(p,logo),
     'Fiche de découverte — '+(p.nom||''),logo);
+}
+
+/* ---------- mise au point technique, éditée en Word ----------
+   Reprend la structure du modèle CP Constructions (SECTION 1 à 11) : ce que
+   Loïc remplit sur la fiche part tel quel dans le compte-rendu. Un produit
+   choisi dans le catalogue (ChoixProduit) est résolu par son nom et sa
+   marque — pas par l'id stocké, qui n'a pas de sens pour le client. */
+function mapLignes(ch,data){
+  const m=ch.map||{};
+  const out=[];
+  const add=(titre,champs)=>{
+    const L=champs.filter(([,v])=>Array.isArray(v)?v.length:(v||'').toString().trim());
+    if(L.length)out.push([titre,L.map(([l,v])=>[l,Array.isArray(v)?v.join(', '):v])]);
+  };
+  const nomProduit=id=>{const p=(data.produits||[]).find(x=>x.id===id);
+    return p?[p.nom,p.marque].filter(Boolean).join(' — '):''};
+
+  add('2. Terrain, viabilisation et VRD',[
+    ['Bornage du terrain',m.bornageFait],['Détail du bornage',m.bornageDetail],
+    ['Accès chantier',m.accesChantier],['Attribution accès chantier',m.accesAttribution],
+    ['Travaux préparatoires',m.travauxPrepa],['Autre travail préparatoire',m.travauxPrepaAutre],
+    ['Attribution travaux préparatoires',m.travauxPrepaAttribution],
+    ['Eau potable',m.eauPotable],['Demande à effectuer par',m.eauPotableDemandePar],
+    ['Coffret électricité',m.elecCoffret],['Distance coffret → GTL',m.elecDistanceGtl],
+    ['Posé par',m.elecPosePar],['Coût raccordement électrique',m.elecCout],
+    ['Gaz',m.gaz],['Télécom / fibre',m.telecom],
+    ['Eaux usées',m.eauxUsees],['Lot eaux usées',m.eauxUseesLot],
+    ['Eaux pluviales',m.eauxPluviales],['Lot eaux pluviales',m.eauxPluvialesLot],
+  ]);
+  add('3. Gros-œuvre & substructure',[
+    ['Fondations',m.fondations],['Précision fondations',m.fondationsAutre],
+    ['Soubassement & plancher bas',m.soubassement],['Nombre de rangs (vide sanitaire)',m.vsRangs],
+    ['Trappe d’accès fonte 60×60',m.vsTrappe?'Oui':''],['Cour anglaise',m.courAnglaise?'Oui':''],
+    ['Hourdis',m.hourdis],['Plancher haut',m.plancherHaut],
+    ['Piédroit au-dessus du plancher',m.piedroitPlancher],['Nombre de rangs (piédroit)',m.piedroitRangs],
+    ['Appuis de fenêtre & seuils',m.appuisFenetre],['Coloris appuis',m.appuisCouleur],
+  ]);
+  add('4. Charpente, couverture & zinguerie',[
+    ['Charpente',m.charpenteType],['Sous-faces de toit',m.sousFaces],['Coloris sous-faces',m.sousFacesColoris],
+    ['Écran de sous-toiture HPV',m.ecranSousToiture?'Oui':''],
+    ['Gouttières / descentes',m.gouttieres],['Coloris gouttières',m.gouttieresColoris],
+    ['Fenêtre(s) de toit — modèle',m.fenetreToitModele],['Vitrage',m.fenetreToitVitrage],
+    ['Raccords encastrés',m.fenetreToitRaccords?'Oui':''],['Volet roulant électrique',m.fenetreToitVolet?'Oui':''],
+    ['Conduit de fumée',m.conduitFumee],
+    ['Couverture — modèle',nomProduit(m.couvertureProduit)],['Coloris exact',m.couvertureColoris],
+  ]);
+  add('5. Menuiseries extérieures, façades & garage',[
+    ['Porte d’entrée — modèle',nomProduit(m.porteEntreeProduit)],['Matériau porte d’entrée',m.porteEntreeMateriau],
+    ['RAL intérieur',m.porteEntreeRalInt],['RAL extérieur',m.porteEntreeRalExt],['Vitrage porte d’entrée',m.porteEntreeVitrage],
+    ['Menuiseries — matériau',m.menuiseriesMateriau],['Couleur menuiseries',m.menuiseriesCouleur],['RAL menuiseries',m.menuiseriesRal],
+    ['Ouvrants',m.menuiseriesOuvrant],['Options de vitrage',m.vitrageOptions],['Verre sablé — localisation',m.verreSable],
+    ['Coffres volets roulants',m.voletsCoffres],['Commande volets',m.voletsCommande],['Nombre',m.voletsNb],
+    ['Centralisation volets',m.voletsCentralisation?'Oui':''],['Domotique',m.voletsDomotique?'Oui':''],['Marque domotique',m.voletsDomotiqueMarque],
+    ['Porte de garage',m.porteGarageType],['Motorisation porte de garage',m.porteGarageMotorisation],['Finition porte de garage',m.porteGarageFinition],
+    ['Enduit — finition',m.enduitFinition],['Couleur enduit',m.enduitCouleur],['Réf. nuancier enduit',m.enduitRefNuancier],
+  ]);
+  add('6. Plâtrerie, isolation & menuiseries intérieures',[
+    ['Doublage périphérique',m.doublage],['Cloisons de distribution',m.cloisons],
+    ['Isolation des combles',m.isolationCombles],['Épaisseur',m.isolationComblesEpaisseur],['R (m².K/W)',m.isolationComblesR],
+    ['Portes intérieures — modèle',nomProduit(m.porteInterieureProduit)],['Largeur',m.porteInterieureLargeur],['Poignées',m.porteInterieurePoignees],
+    ['Escalier & garde-corps',m.escalierType],
+  ]);
+  add('7. Équipements thermiques & sanitaires',[
+    ['Chauffage',m.chauffageType],['Marque / modèle',nomProduit(m.chauffageProduit)],
+    ['Émetteurs RDC',m.emetteursRdc],['Émetteurs étage',m.emetteursEtage],
+    ['Production d’eau chaude',m.ecsMode],['VMC',m.vmcType],['Marque / modèle VMC',m.vmcMarque],
+    ['Appareillage électrique — gamme',m.electriciteGamme],['Options électriques',m.electriciteOptions],
+    ['Baignoire',nomProduit(m.baignoireProduit)],['Receveur',nomProduit(m.receveurProduit)],
+    ['Dimensions receveur',m.receveurDimensions],['Coloris receveur',m.receveurColoris],
+    ['Douche',m.douche],['WC',m.wcType],['Lave-mains',m.laveMains?'Oui':''],
+    ['Meuble vasque',nomProduit(m.meubleVasqueProduit)],['Largeur meuble vasque',m.meubleVasqueLargeur],
+  ]);
+  add('8. Chapes et revêtements de sols',[
+    ['Chape',m.chapeType],['Carrelage — modèle',nomProduit(m.carrelageProduit)],
+    ['Pièces traitées par l’entreprise',m.carrelageEntreprise],['Pièces réservées au maître d’ouvrage',m.carrelageReservees],
+    ['Faïence — localisation',m.faienceLocalisation],['Surface',m.faienceSurface],['Hauteur de pose',m.faienceHauteur],['Faïence — lot',m.faienceLot],
+  ]);
+  const modifs=[['Terrain — travaux de préparation — VRD',m.modifTerrain],['Gros-œuvre',m.modifGrosOeuvre],
+    ['Charpente — couverture — zinguerie',m.modifCharpente],['Menuiseries extérieures — façades',m.modifMenuiseriesExt],
+    ['Cloisons de distribution — menuiseries intérieures',m.modifCloisons],
+    ['Électricité — plomberie — sanitaires — chauffage',m.modifElecPlomberieChauffage],['Autres modifications',m.modifAutres]]
+    .filter(([,v])=>(v||'').trim());
+  if(modifs.length||m.incidenceUrbanisme)
+    out.push(['9. Récapitulatif des modifications apportées au plan du permis initial',
+      [...modifs,...(m.incidenceUrbanisme?[['Incidence sur l’autorisation d’urbanisme',
+        m.incidenceUrbanisme+(m.incidenceObjet?' — '+m.incidenceObjet:'')]]:[])]]);
+  if(m.droitImage)out.push(['11. Autorisation de diffusion d’images du chantier',[['Le maître d’ouvrage',m.droitImage]]]);
+  return out;
+}
+function mapDocumentXml(ch,data,px){
+  const m=ch.map||{};
+  const titre=t=>par(t,{b:true,sz:20,c:DOC_TERRA,sp:16,caps:true,av:200,ap:80,filet:DOC_TERRA});
+  const ligne=(l,v)=>par(l+' : '+v,{sz:18,ap:50,jc:'both'});
+  const garde=[
+    par([logoXml(px)],{ap:0}),
+    vide(300),
+    par('MISE AU POINT TECHNIQUE',{b:true,sz:34,c:DOC_TERRA,sp:30,jc:'center',ap:20}),
+    par('COMPTE-RENDU DE MISE AU POINT DES PLANS D’EXÉCUTION',{b:true,sz:19,c:DOC_BRUN,sp:16,jc:'center',ap:60}),
+    par('Mission de Maîtrise d’Œuvre — Marchés de travaux en lots séparés',{sz:16,i:true,c:DOC_GRIS,jc:'center',ap:0}),
+    vide(300),
+  ].join('');
+  const s1=[
+    titre('1. Identification du projet et des intervenants'),
+    ligne('Maître d’ouvrage',ch.client||''),
+    ...(ch.adresseClient?[ligne('Adresse',ch.adresseClient)]:[]),
+    ...(ch.telClient||ch.emailClient?[ligne('Téléphone / courriel',[ch.telClient,ch.emailClient].filter(Boolean).join(' / '))]:[]),
+    ligne('Maître d’œuvre',CP.nom+' — '+CP.adresse+' ('+CP.rcs+' '+CP.siren+')'),
+    ligne('Pilote du projet','Claude Portier, Président'),
+    ...(m.numeroPC?[ligne('N° de permis de construire',m.numeroPC)]:[]),
+    ligne('Date de la MAP',m.date?fdDoc(m.date):fdDoc(today())),
+    ...(m.version?[ligne('Version',m.version)]:[]),
+    ligne('Adresse du terrain',ch.adresse||''),
+    ...(m.referencesCadastrales?[ligne('Références cadastrales',m.referencesCadastrales)]:[]),
+    ...(m.participants?[ligne('Participants',m.participants)]:[]),
+  ].join('');
+  const L=mapLignes(ch,data);
+  const sections=L.map(([t,champs])=>[titre(t),...champs.map(([l,v])=>ligne(l,v))].join('')).join('');
+  const s10=[
+    titre('10. Validation d’exécution'),
+    par('Le maître d’ouvrage approuve les dispositions techniques arrêtées au présent compte-rendu. Cette approbation vaut accord pour la mise à jour des pièces écrites (CCTP / DPGF de chaque lot) et pour l’établissement des ordres de service correspondants par le maître d’œuvre, chaque entreprise demeurant seule responsable de l’exécution de son marché de travaux.',{sz:16,c:DOC_GRIS,jc:'both',ap:60}),
+    par('Les modifications récapitulées ci-dessus sont reportées sur les plans d’exécution indiqués. Toute modification ultérieure fera l’objet d’un avenant au marché de travaux du lot concerné.',{sz:16,c:DOC_GRIS,jc:'both',ap:0}),
+  ].join('');
+  const lieu=m.lieuSignature||'';
+  const sign=[
+    vide(200),
+    tbl([5200,5200],[tr([
+      tc(5200,[par('LE MAÎTRE D’OUVRAGE (MOA)',{b:true,sz:17,c:DOC_TERRA,caps:true,sp:16,ap:80}),
+        par('Nom : '+(ch.client||''),{sz:17,ap:200}),
+        par('Fait à : '+lieu,{sz:17,ap:80}),
+        par('Le : '+fdDoc(m.date||today()),{sz:17,ap:200}),
+        par('Signature :',{sz:17,ap:400}),
+        par('« Lu et approuvé — bon pour accord »',{sz:14,i:true,c:DOC_GRIS,ap:0})].join(''),
+        {bords:tcB({c:DOC_BRUN,sz:4,t:4,bs:4}),v:'top',mg:140}),
+      tc(5200,[par('LE MAÎTRE D’ŒUVRE (MOE)',{b:true,sz:17,c:DOC_TERRA,caps:true,sp:16,ap:80}),
+        par(CP.nom,{sz:17,ap:20}),par('Claude Portier, Président',{sz:17,ap:200}),
+        par('Fait à : '+lieu,{sz:17,ap:80}),
+        par('Le : '+fdDoc(m.date||today()),{sz:17,ap:200}),
+        par('Signature :',{sz:17,ap:400})].join(''),
+        {bords:tcB({c:DOC_BRUN,sz:4,t:4,bs:4}),v:'top',mg:140}),
+    ])],{}),
+  ].join('');
+  const corps=[garde,s1,sections,s10,sign].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+async function genererMapDocx(ch,data){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, le compte-rendu reste lisible */}
+  return fabriquerDocx(mapDocumentXml(ch,data,logo),
+    'Mise au point technique — '+(ch.nom||''),logo);
 }
 
 /* ---------- vignettes : stockage cloud partagé (Supabase Storage) ---------- */
@@ -6009,51 +6162,353 @@ function Docs({data,ch,up,save}){
   </div>;
 }
 
-/* ---------------- MISE AU POINT TECHNIQUE (MAP) ---------------- */
-const MAP_POINTS=['Implantation et altimétrie','Dimensions et cotes intérieures','Ouvertures : dimensions et sens','Hauteurs sous plafond','Position des cloisons','Cuisine : arrivées et évacuations','Salle de bains / WC','Électricité : points et tableau','Chauffage : émetteurs et PAC','VMC : bouches et caisson','Sols et revêtements','Menuiseries : teintes et poignées','Escalier','Terrasse et extérieurs','Vide sanitaire / sous-sol'];
+/* ---------------- MISE AU POINT TECHNIQUE (MAP) ----------------
+   Reprend la structure du modèle CP Constructions (SECTION 1 à 11) tel que
+   rédigé chez le client : ce qui se remplit ici part tel quel dans le Word
+   sorti en fin de MAP. Les produits présentés (couverture, porte d'entrée,
+   sanitaires…) se piochent dans le catalogue PRODUITS plutôt que ressaisis. */
+const MAP_TRAVAUX_PREPA=['Busage du fossé','Débroussaillage','Dessouchage','Démolition'];
+const MAP_ATTRIBUTION=['[VRD]','[MOA]','[LOT.]'];
+const MAP_EAUX_PLUVIALES=['Puisard','Réseau communal / fossé','Cuve de récupération','Tranchée drainante'];
+const MAP_APPUIS_FENETRE=['Gris ciment','Blanc','Sable','Béton préfabriqué','Pierre'];
+const MAP_MENUISERIES_MAT=['PVC','Alu laqué'];
+const MAP_OUVRANT=['Ouvrant à la française / OB','Coulissant(s)'];
+const MAP_VITRAGE_OPT=['Vitrage feuilleté','Vitrage acoustique'];
+const MAP_EMETTEURS=['Plancher chauffant hydraulique','Radiateurs acier habillés','Sèche-serviettes'];
+const MAP_ELEC_OPTIONS=['Prise étanche extérieure','Tableau + GTL','Détecteur de fumée','Alarme'];
+const MAP_DOUCHE=['Colonne de douche avec mitigeur thermostatique','Paroi fixe','Porte pivotante','Porte coulissante'];
+const MAP_ESCALIER=['Avec contremarches','Sans contremarches','Balustres bois','Lisses inox','Tôle perforée','Vitrage entre lisses'];
+const MAP_DROIT_IMAGE=[
+  'Autorise la captation et la diffusion d’images du chantier (extérieurs et intérieurs)',
+  'Autorise la diffusion d’images des extérieurs uniquement',
+  'Autorise la diffusion, sous réserve de ne mentionner ni la commune ni l’adresse du projet',
+  'N’autorise pas la diffusion d’images du chantier',
+];
+
+/* le produit s'y pioche par lot — la fiche technique et le coloris suivent
+   automatiquement plutôt que d'être retapés à chaque MAP */
+function ChoixProduit({data,lot,value,onChange,label}){
+  const options=(data.produits||[]).filter(x=>x.lot===lot);
+  const choisi=options.find(x=>x.id===value);
+  return <Fld label={label}>
+    <select className="in" value={value||''} onChange={e=>onChange(e.target.value)}>
+      <option value="">—</option>
+      {options.map(x=><option key={x.id} value={x.id}>{[x.nom,x.marque].filter(Boolean).join(' — ')}</option>)}
+    </select>
+    {!options.length&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+      Aucune fiche « {lot} » dans le catalogue — ajoutez-en une depuis l’onglet PRODUITS pour la retrouver ici.</div>}
+    {choisi&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+      {[choisi.gamme,choisi.reference,choisi.coloris].filter(Boolean).join(' · ')}
+      {(choisi.fiches||[]).length?<span> · <a href={choisi.fiches[0].lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Fiche technique</a></span>:null}
+    </div>}
+  </Fld>;
+}
 
 function MAP({data,ch,up}){
   const m=ch.map||{};
-  const pts=m.points||[];
   const set=p=>up({map:{...m,...p}});
-  const setPt=(label,patch)=>{
-    const cur=pts.find(x=>x.label===label)||{label};
-    set({points:[...pts.filter(x=>x.label!==label),{...cur,...patch}]});
+  const Choix=({k,label,opts})=><Fld label={label}>
+    <select className="in" value={m[k]||''} onChange={e=>set({[k]:e.target.value})}>
+      <option value="">—</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
+    </select></Fld>;
+  const Txt=({k,label,ph,type})=><Fld label={label}>
+    <input className="in" type={type||'text'} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
+  const Zone=({k,label,ph,rows})=><Fld label={label}>
+    <textarea className="in" rows={rows||2} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
+  const Bool=({k,label})=><label className="xs row" style={{gap:8,alignItems:'center',cursor:'pointer',marginBottom:10}}>
+    <input type="checkbox" checked={!!m[k]} onChange={e=>set({[k]:e.target.checked})}/><span>{label}</span></label>;
+  const Multi=({k,label,opts})=>{
+    const vals=m[k]||[];
+    const tog=o=>set({[k]:vals.indexOf(o)>=0?vals.filter(x=>x!==o):[...vals,o]});
+    return <Fld label={label}><div className="row" style={{gap:6,flexWrap:'wrap'}}>
+      {opts.map(o=>{const on=vals.indexOf(o)>=0;
+        return <button key={o} className={'btn s '+(on?'':'gh')} onClick={()=>tog(o)}
+          style={{fontSize:11,padding:'5px 9px'}}>{on?'✓ ':''}{o}</button>;})}
+    </div></Fld>;
   };
-  const nOk=pts.filter(p=>p.valide).length;
+  const section=(titre,children)=><div className="card" style={{padding:10,marginBottom:6,borderLeft:'3px solid '+RULE}}>
+    <div className="xs b" style={{color:NAVY,marginBottom:6,letterSpacing:'.03em'}}>{titre}</div>
+    {children}
+  </div>;
+
+  const [sortie,setSortie]=useState(null);
+  const produire=async()=>{
+    setSortie({etat:'travail'});
+    try{
+      const buf=await genererMapDocx(ch,data);
+      const nom='Mise au point technique — '+(ch.nom||'projet')+'.docx';
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,'MAP');
+      const {webViewLink}=await uploadToDrive(new File([buf],nom,
+        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),folderId);
+      set({sortieLe:today()});
+      setSortie({etat:'ok',lien:webViewLink,nom});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setSortie({etat:'erreur',msg:c==='auth_required'
+        ?"Le compte-rendu a été composé, mais Google Drive n'est pas connecté — reconnectez-le puis relancez."
+        :'Sortie impossible — '+c});
+    }
+  };
+
   return <div>
     <div className="sp" style={{marginBottom:12}}>
-      <span className="xs mut">{nOk}/{MAP_POINTS.length} points arrêtés</span>
+      <span className="xs mut">Compte-rendu de mise au point technique</span>
       <BoutonDossierDrive ch={ch} sous="MAP"/>
     </div>
-    <div className="card">
+
+    {section('1. IDENTIFICATION DU PROJET ET DES INTERVENANTS',<React.Fragment>
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+        Maître d’ouvrage, adresse du terrain et coordonnées viennent de la fiche du chantier.
+        {(ch.client||ch.adresse)&&<span><br/>{ch.client}{ch.adresse?' — '+ch.adresse:''}</span>}
+      </div>
+      <div className="g2">
+        <Txt k="numeroPC" label="N° DE PERMIS DE CONSTRUIRE"/>
+        <Txt k="referencesCadastrales" label="RÉFÉRENCES CADASTRALES"/>
+      </div>
       <div className="g2">
         <Fld label="DATE DE LA MAP"><input className="in" type="date" value={m.date||''} onChange={e=>set({date:e.target.value})}/></Fld>
-        <Fld label="LIEU"><input className="in" value={m.lieu||''} onChange={e=>set({lieu:e.target.value})} placeholder="Bureau, chantier…"/></Fld>
+        <Txt k="version" label="VERSION" ph="V1"/>
       </div>
-      <Fld label="PARTICIPANTS"><input className="in" value={m.participants||''} onChange={e=>set({participants:e.target.value})} placeholder="Client, MOE, entreprises présentes"/></Fld>
-      <Fld label="PLAN DE MISE AU POINT TECHNIQUE">
-        <ImportFichier ch={ch} dossier="MAP" lien={m.lienPlan} onLien={v=>set({lienPlan:v})} label="Importer le plan"/>
-      </Fld>
-      <Fld label="DOSSIER MAP (PDF)">
-        <ImportFichier ch={ch} dossier="MAP" lien={m.lienDossier} onLien={v=>set({lienDossier:v})} label="Importer le PDF de MAP"/>
-      </Fld>
-      <Fld label="OBSERVATIONS GÉNÉRALES"><textarea className="in" rows="3" value={m.notes||''} onChange={e=>set({notes:e.target.value})}/></Fld>
+      <Txt k="participants" label="PARTICIPANTS" ph="Client, MOE, entreprises présentes"/>
+    </React.Fragment>)}
+
+    {section('2. TERRAIN, VIABILISATION ET VRD',<React.Fragment>
+      <div className="g2">
+        <Choix k="bornageFait" label="BORNAGE DU TERRAIN" opts={['Oui, réalisé','Non, à réaliser']}/>
+        <Txt k="bornageDetail" label="DÉTAIL" ph="Acte notarié, à la charge de…"/>
+      </div>
+      <div className="g2">
+        <Choix k="accesChantier" label="ACCÈS CHANTIER" opts={['Réalisé','À réaliser']}/>
+        <Choix k="accesAttribution" label="ATTRIBUTION" opts={MAP_ATTRIBUTION}/>
+      </div>
+      <Multi k="travauxPrepa" label="TRAVAUX PRÉPARATOIRES" opts={MAP_TRAVAUX_PREPA}/>
+      <div className="g2">
+        <Txt k="travauxPrepaAutre" label="AUTRE TRAVAIL PRÉPARATOIRE"/>
+        <Choix k="travauxPrepaAttribution" label="ATTRIBUTION" opts={MAP_ATTRIBUTION}/>
+      </div>
+      <div className="g2">
+        <Choix k="eauPotable" label="EAU POTABLE" opts={['Branchement réalisé','Non — demande à effectuer']}/>
+        <Txt k="eauPotableDemandePar" label="DEMANDE À EFFECTUER PAR"/>
+      </div>
+      <div className="g2">
+        <Choix k="elecCoffret" label="COFFRET ÉLECTRICITÉ (ENEDIS)" opts={['Posé','Non posé']}/>
+        <Choix k="elecDistanceGtl" label="DISTANCE COFFRET → GTL" opts={['< 30 m','> 30 m']}/>
+      </div>
+      <div className="g2">
+        <Txt k="elecPosePar" label="POSÉ PAR"/>
+        <Txt k="elecCout" label="COÛT RACCORDEMENT" ph="Enedis : 450 €"/>
+      </div>
+      <div className="g2">
+        <Choix k="gaz" label="GAZ" opts={['Gaz de ville','Cuve enterrée','Sans objet']}/>
+        <Txt k="telecom" label="TÉLÉCOM / FIBRE" ph="Nombre de fourreaux…"/>
+      </div>
+      <div className="g2">
+        <Choix k="eauxUsees" label="EAUX USÉES" opts={['Tout-à-l’égout','Assainissement autonome / micro-station']}/>
+        <Txt k="eauxUseesLot" label="LOT"/>
+      </div>
+      <Multi k="eauxPluviales" label="EAUX PLUVIALES" opts={MAP_EAUX_PLUVIALES}/>
+      <Txt k="eauxPluvialesLot" label="LOT (EAUX PLUVIALES)"/>
+    </React.Fragment>)}
+
+    {section('3. GROS-ŒUVRE & SUBSTRUCTURE',<React.Fragment>
+      <div className="g2">
+        <Choix k="fondations" label="FONDATIONS" opts={['Semelles filantes conformément à l’étude de sol','Autre']}/>
+        <Txt k="fondationsAutre" label="PRÉCISION"/>
+      </div>
+      <div className="g2">
+        <Choix k="soubassement" label="SOUBASSEMENT & PLANCHER BAS" opts={['Vide sanitaire','Dalle sur terre-plein','Sous-sol']}/>
+        <Txt k="vsRangs" label="NOMBRE DE RANGS (VIDE SANITAIRE)" type="number"/>
+      </div>
+      <div className="g2">
+        <Bool k="vsTrappe" label="Trappe d’accès fonte 60×60"/>
+        <Bool k="courAnglaise" label="Cour anglaise"/>
+      </div>
+      <div className="g2">
+        <Choix k="hourdis" label="HOURDIS" opts={['Isolant PSE avec rupteurs de ponts thermiques','Béton non isolant']}/>
+        <Choix k="plancherHaut" label="PLANCHER HAUT" opts={['Hourdis béton','Plancher bois']}/>
+      </div>
+      <div className="g2">
+        <Choix k="piedroitPlancher" label="PIÉDROIT AU-DESSUS DU PLANCHER" opts={['Non','Oui']}/>
+        <Txt k="piedroitRangs" label="NOMBRE DE RANGS"/>
+      </div>
+      <Multi k="appuisFenetre" label="APPUIS DE FENÊTRE & SEUILS DE PORTE" opts={MAP_APPUIS_FENETRE}/>
+      <Txt k="appuisCouleur" label="COLORIS"/>
+    </React.Fragment>)}
+
+    {section('4. CHARPENTE, COUVERTURE & ZINGUERIE',<React.Fragment>
+      <div className="g2">
+        <Choix k="charpenteType" label="CHARPENTE & DESSOUS DE TOIT" opts={['Fermettes industrielles bois résineux','Charpente traditionnelle']}/>
+        <Choix k="sousFaces" label="SOUS-FACES" opts={['PVC','Alu','Bois']}/>
+      </div>
+      <div className="g2">
+        <Txt k="sousFacesColoris" label="COLORIS SOUS-FACES"/>
+        <Bool k="ecranSousToiture" label="Écran de sous-toiture HPV"/>
+      </div>
+      <div className="g2">
+        <Choix k="gouttieres" label="ZINGUERIE / ÉVACUATION DES EAUX PLUVIALES" opts={['PVC','Alu','Zinc']}/>
+        <Txt k="gouttieresColoris" label="COLORIS GOUTTIÈRES"/>
+      </div>
+      <div className="g2">
+        <Txt k="fenetreToitModele" label="FENÊTRE(S) DE TOIT — MODÈLE" ph="type VELUX"/>
+        <Txt k="fenetreToitVitrage" label="VITRAGE"/>
+      </div>
+      <div className="g2">
+        <Bool k="fenetreToitRaccords" label="Raccords encastrés"/>
+        <Bool k="fenetreToitVolet" label="Volet roulant électrique SML"/>
+      </div>
+      <Choix k="conduitFumee" label="CONDUIT DE FUMÉE" opts={['Conduit isolé type Poujoulat','Souche carrée','Souche « Luminance »','Souche inox + chapeau pare-pluie','Sans objet']}/>
+      <ChoixProduit data={data} lot="Couverture" value={m.couvertureProduit} onChange={v=>set({couvertureProduit:v})} label="COUVERTURE — MODÈLE"/>
+      <Txt k="couvertureColoris" label="COLORIS EXACT"/>
+    </React.Fragment>)}
+
+    {section('5. MENUISERIES EXTÉRIEURES, FAÇADES & GARAGE',<React.Fragment>
+      <ChoixProduit data={data} lot="Menuiseries ext." value={m.porteEntreeProduit} onChange={v=>set({porteEntreeProduit:v})} label="PORTE D’ENTRÉE — MODÈLE"/>
+      <div className="g2">
+        <Choix k="porteEntreeMateriau" label="MATÉRIAU" opts={['Alu','Acier','PVC']}/>
+        <Txt k="porteEntreeVitrage" label="VITRAGE"/>
+      </div>
+      <div className="g2">
+        <Txt k="porteEntreeRalInt" label="RAL INTÉRIEUR"/>
+        <Txt k="porteEntreeRalExt" label="RAL EXTÉRIEUR"/>
+      </div>
+      <Multi k="menuiseriesMateriau" label="MENUISERIES — MATÉRIAU" opts={MAP_MENUISERIES_MAT}/>
+      <div className="g2">
+        <Choix k="menuiseriesCouleur" label="COULEUR" opts={['Monochrome','Bicolore']}/>
+        <Txt k="menuiseriesRal" label="RAL"/>
+      </div>
+      <Multi k="menuiseriesOuvrant" label="OUVRANTS" opts={MAP_OUVRANT}/>
+      <Multi k="vitrageOptions" label="OPTIONS DE VITRAGE" opts={MAP_VITRAGE_OPT}/>
+      <Txt k="verreSable" label="VERRE SABLÉ — LOCALISATION" ph="S.d.B, WC…"/>
+      <Choix k="voletsCoffres" label="COFFRES VOLETS ROULANTS" opts={['Coffres linteaux (à la maçonnerie)','Coffres intégrés à la menuiserie','Lames alu isolantes']}/>
+      <div className="g2">
+        <Choix k="voletsCommande" label="COMMANDE" opts={['Manuel(s)','Électrique(s) individuels']}/>
+        <Txt k="voletsNb" label="NOMBRE"/>
+      </div>
+      <div className="g2">
+        <Bool k="voletsCentralisation" label="Centralisation"/>
+        <Bool k="voletsDomotique" label="Domotique"/>
+      </div>
+      <Txt k="voletsDomotiqueMarque" label="MARQUE DOMOTIQUE" ph="Somfy…"/>
+      <div className="g2">
+        <Choix k="porteGarageType" label="PORTE DE GARAGE" opts={['Sectionnelle','Basculante']}/>
+        <Choix k="porteGarageMotorisation" label="MOTORISATION" opts={['Oui','Non']}/>
+      </div>
+      <Txt k="porteGarageFinition" label="FINITION / COLORIS PORTE DE GARAGE"/>
+      <div className="g2">
+        <Choix k="enduitFinition" label="ENDUIT DE FAÇADE — FINITION" opts={['Finition grattée','Finition écrasée']}/>
+        <Txt k="enduitCouleur" label="COULEUR ENDUIT"/>
+      </div>
+      <Txt k="enduitRefNuancier" label="RÉF. NUANCIER" ph="À vérifier au regard du PC et du PLU"/>
+    </React.Fragment>)}
+
+    {section('6. PLÂTRERIE, ISOLATION & MENUISERIES INTÉRIEURES',<React.Fragment>
+      <Txt k="doublage" label="DOUBLAGE PÉRIPHÉRIQUE" ph="Ossature métallique + laine, épaisseur…"/>
+      <Txt k="cloisons" label="CLOISONS DE DISTRIBUTION"/>
+      <div className="g2">
+        <Choix k="isolationCombles" label="ISOLATION DES COMBLES" opts={['Soufflage combles perdus','Déroulée sous rampants']}/>
+        <Txt k="isolationComblesEpaisseur" label="ÉPAISSEUR (mm)"/>
+      </div>
+      <Txt k="isolationComblesR" label="R (m².K/W)"/>
+      <ChoixProduit data={data} lot="Menuiseries int." value={m.porteInterieureProduit} onChange={v=>set({porteInterieureProduit:v})} label="PORTES INTÉRIEURES — MODÈLE"/>
+      <div className="g2">
+        <Choix k="porteInterieureLargeur" label="LARGEUR (NORMES PMR)" opts={['63','73','83']}/>
+        <Txt k="porteInterieurePoignees" label="POIGNÉES"/>
+      </div>
+      <Multi k="escalierType" label="ESCALIER & GARDE-CORPS" opts={MAP_ESCALIER}/>
+    </React.Fragment>)}
+
+    {section('7. ÉQUIPEMENTS THERMIQUES & SANITAIRES',<React.Fragment>
+      <div className="g2">
+        <Choix k="chauffageType" label="CHAUFFAGE & ECS" opts={['PAC air/eau','PAC air/air','Chaudière hybride gaz + PAC','Poêle à granulés']}/>
+        <ChoixProduit data={data} lot="Chauffage / VMC" value={m.chauffageProduit} onChange={v=>set({chauffageProduit:v})} label="MARQUE / MODÈLE"/>
+      </div>
+      <Multi k="emetteursRdc" label="ÉMETTEURS RDC" opts={MAP_EMETTEURS}/>
+      <Multi k="emetteursEtage" label="ÉMETTEURS ÉTAGE" opts={MAP_EMETTEURS}/>
+      <Choix k="ecsMode" label="PRODUCTION D’EAU CHAUDE" opts={['ECS par la PAC (ballon intégré)','Chauffe-eau thermodynamique','Poêle à granulés']}/>
+      <div className="g2">
+        <Choix k="vmcType" label="VENTILATION" opts={['Hygroréglable type A','Hygroréglable type B']}/>
+        <Txt k="vmcMarque" label="MARQUE / MODÈLE VMC"/>
+      </div>
+      <Txt k="electriciteGamme" label="APPAREILLAGE ÉLECTRIQUE — GAMME" ph="Schneider…"/>
+      <Multi k="electriciteOptions" label="OPTIONS ÉLECTRIQUES" opts={MAP_ELEC_OPTIONS}/>
+      <ChoixProduit data={data} lot="Plomberie / sanitaire" value={m.baignoireProduit} onChange={v=>set({baignoireProduit:v})} label="BAIGNOIRE"/>
+      <ChoixProduit data={data} lot="Plomberie / sanitaire" value={m.receveurProduit} onChange={v=>set({receveurProduit:v})} label="RECEVEUR DE DOUCHE"/>
+      <div className="g2">
+        <Txt k="receveurDimensions" label="DIMENSIONS RECEVEUR" ph="90×120…"/>
+        <Txt k="receveurColoris" label="COLORIS RECEVEUR"/>
+      </div>
+      <Multi k="douche" label="DOUCHE" opts={MAP_DOUCHE}/>
+      <Choix k="wcType" label="WC" opts={['Pack WC suspendu','Pack WC standard']}/>
+      <Bool k="laveMains" label="Lave-mains"/>
+      <ChoixProduit data={data} lot="Plomberie / sanitaire" value={m.meubleVasqueProduit} onChange={v=>set({meubleVasqueProduit:v})} label="MEUBLE VASQUE"/>
+      <Txt k="meubleVasqueLargeur" label="LARGEUR MEUBLE VASQUE"/>
+    </React.Fragment>)}
+
+    {section('8. CHAPES ET REVÊTEMENTS DE SOLS',<React.Fragment>
+      <Choix k="chapeType" label="CHAPE" opts={['Chape fluide anhydrite (lot carrelage)','Chape fluide ciment (lot carrelage)','Dalle brute — réservés MOA']}/>
+      <ChoixProduit data={data} lot="Carrelage" value={m.carrelageProduit} onChange={v=>set({carrelageProduit:v})} label="CARRELAGE — MODÈLE"/>
+      <Txt k="carrelageEntreprise" label="PIÈCES TRAITÉES PAR L’ENTREPRISE"/>
+      <Txt k="carrelageReservees" label="PIÈCES RÉSERVÉES AU MAÎTRE D’OUVRAGE"/>
+      <div className="g2">
+        <Txt k="faienceLocalisation" label="FAÏENCE — LOCALISATION"/>
+        <Txt k="faienceSurface" label="SURFACE (m²)"/>
+      </div>
+      <div className="g2">
+        <Txt k="faienceHauteur" label="HAUTEUR DE POSE"/>
+        <Choix k="faienceLot" label="FAÏENCE — LOT" opts={['Lot carrelage','Réservé MOA']}/>
+      </div>
+    </React.Fragment>)}
+
+    {section('9. RÉCAPITULATIF DES MODIFICATIONS AU PLAN DU PERMIS INITIAL',<React.Fragment>
+      <Zone k="modifTerrain" label="TERRAIN — TRAVAUX DE PRÉPARATION — VRD"/>
+      <Zone k="modifGrosOeuvre" label="GROS-ŒUVRE"/>
+      <Zone k="modifCharpente" label="CHARPENTE — COUVERTURE — ZINGUERIE"/>
+      <Zone k="modifMenuiseriesExt" label="MENUISERIES EXTÉRIEURES — FAÇADES"/>
+      <Zone k="modifCloisons" label="CLOISONS DE DISTRIBUTION — MENUISERIES INTÉRIEURES"/>
+      <Zone k="modifElecPlomberieChauffage" label="ÉLECTRICITÉ — PLOMBERIE — SANITAIRES — CHAUFFAGE"/>
+      <Zone k="modifAutres" label="AUTRES MODIFICATIONS"/>
+      <Choix k="incidenceUrbanisme" label="INCIDENCE SUR L’AUTORISATION D’URBANISME"
+        opts={['Aucune — modifications sans effet sur l’aspect extérieur ni sur la surface autorisée','Permis de construire modificatif à déposer par le MOA']}/>
+      {m.incidenceUrbanisme==='Permis de construire modificatif à déposer par le MOA'&&
+        <Txt k="incidenceObjet" label="OBJET DU PERMIS MODIFICATIF"/>}
+    </React.Fragment>)}
+
+    {section('11. AUTORISATION DE DIFFUSION D’IMAGES DU CHANTIER',<React.Fragment>
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+        Dans le cadre de sa communication, CP Constructions souhaite pouvoir diffuser des photos et vidéos
+        de l’avancement du chantier. Le maître d’ouvrage reste entièrement libre de son choix.
+      </div>
+      <Choix k="droitImage" label="LE MAÎTRE D’OUVRAGE" opts={MAP_DROIT_IMAGE}/>
+    </React.Fragment>)}
+
+    <Fld label="LIEU DE LA MISE AU POINT">
+      <input className="in" value={m.lieuSignature||''} onChange={e=>set({lieuSignature:e.target.value})} placeholder="Commune où la MAP se tient — pour le bloc signatures"/>
+    </Fld>
+    <Fld label="PLAN DE MISE AU POINT TECHNIQUE">
+      <ImportFichier ch={ch} dossier="MAP" lien={m.lienPlan} onLien={v=>set({lienPlan:v})} label="Importer le plan"/>
+    </Fld>
+    <Fld label="OBSERVATIONS GÉNÉRALES"><textarea className="in" rows="3" value={m.notes||''} onChange={e=>set({notes:e.target.value})}/></Fld>
+
+    <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+TERRA}}>
+      <div className="b sm" style={{color:TERRA}}>Compte-rendu de MAP (Word)</div>
+      <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+        Reprend les 11 sections telles que remplies ci-dessus, prêt à imprimer et faire signer sur place.
+        {m.sortieLe?<span> Dernière sortie le {fd(m.sortieLe)}.</span>:null}
+      </div>
+      <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+        <button className="btn acc s" disabled={sortie&&sortie.etat==='travail'} onClick={produire}>
+          {sortie&&sortie.etat==='travail'?'Composition…':'Sortir la MAP (Word)'}</button>
+        {sortie&&sortie.etat==='ok'&&<a href={sortie.lien} target="_blank" rel="noreferrer" className="btn gh s"
+          style={{textDecoration:'none'}}>Ouvrir</a>}
+      </div>
+      {sortie&&sortie.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+        Déposé dans Drive › {ch.nom} › MAP — {sortie.nom}</div>}
+      {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
     </div>
-    <div className="sp" style={{margin:'16px 0 10px'}}><span className="h2">POINTS ARRÊTÉS</span></div>
-    {MAP_POINTS.map(label=>{
-      const r=pts.find(x=>x.label===label)||{};
-      return <div key={label} className="card" style={{padding:10,borderLeft:'3px solid '+(r.valide?GREEN:RULE)}}>
-        <div className="row" style={{gap:10,alignItems:'flex-start'}}>
-          <button className="chk" onClick={()=>setPt(label,{valide:!r.valide})} style={{background:r.valide?GREEN:'#fff',borderColor:r.valide?GREEN:RULE}}>{r.valide?'✓':''}</button>
-          <div style={{flex:1}}>
-            <div className="sm">{label}</div>
-            <input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}}
-              placeholder="Décision, cote arrêtée, réserve…" value={r.decision||''} onChange={e=>setPt(label,{decision:e.target.value})}/>
-          </div>
-        </div>
-      </div>;
-    })}
+    <Fld label="MAP SIGNÉE (PDF)">
+      <ImportFichier ch={ch} dossier="MAP" lien={m.lienSignee} onLien={v=>set({lienSignee:v})} label="Importer la MAP signée"/>
+    </Fld>
     <DriveStatus/>
   </div>;
 }
