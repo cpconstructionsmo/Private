@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · coloris des appuis et des seuils séparés, et seuil de porte de garage';
+const VERSION='2026-08-27 · nouveaux types de charpente, et une photo acceptée pour les fiches produits';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -2378,7 +2378,8 @@ function mapLignes(ch,data){
     ['Coloris des appuis de fenêtre',m.appuisCouleur],['Coloris des seuils',m.seuilsCouleur],
   ]);
   add('4. Charpente, couverture & zinguerie',[
-    ['Charpente',m.charpenteType],['Sous-faces de toit',m.sousFaces],['Coloris sous-faces',m.sousFacesColoris],
+    ['Charpente',m.charpenteType],['Charpente aménageable au-dessus du garage',m.charpenteGarageAmenageable?'Oui':''],
+    ['Sous-faces de toit',m.sousFaces],['Coloris sous-faces',m.sousFacesColoris],
     ['Écran de sous-toiture HPV',m.ecranSousToiture?'Oui':''],
     ['Gouttières / descentes',m.gouttieres],['Coloris gouttières',m.gouttieresColoris],
     ['Fenêtre(s) de toit — modèle',m.fenetreToitModele],['Vitrage',m.fenetreToitVitrage],
@@ -6202,7 +6203,7 @@ function ChoixProduit({data,lot,value,onChange,label}){
       Aucune fiche « {lot} » dans le catalogue — ajoutez-en une depuis l’onglet PRODUITS pour la retrouver ici.</div>}
     {choisi&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
       {[choisi.gamme,choisi.reference,choisi.coloris].filter(Boolean).join(' · ')}
-      {(choisi.fiches||[]).length?<span> · <a href={choisi.fiches[0].lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Fiche technique</a></span>:null}
+      {(choisi.fiches||[]).length?<span> · <a href={choisi.fiches[0].lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Fiche / photo</a></span>:null}
     </div>}
   </Fld>;
 }
@@ -6351,9 +6352,10 @@ function MAP({data,ch,up}){
 
     {section('4. CHARPENTE, COUVERTURE & ZINGUERIE',<React.Fragment>
       <div className="g2">
-        <MapChoix m={m} set={set} k="charpenteType" label="CHARPENTE & DESSOUS DE TOIT" opts={['Fermettes industrielles bois résineux','Charpente traditionnelle']}/>
+        <MapChoix m={m} set={set} k="charpenteType" label="CHARPENTE & DESSOUS DE TOIT" opts={['Fermettes industrielles bois résineux','Charpente traditionnelle','Charpente sur dalle béton','Charpente combles perdus','Charpente combles aménageables']}/>
         <MapChoix m={m} set={set} k="sousFaces" label="SOUS-FACES" opts={['PVC','Alu','Bois']}/>
       </div>
+      <MapBool m={m} set={set} k="charpenteGarageAmenageable" label="Charpente aménageable au-dessus du garage"/>
       <div className="g2">
         <MapTxt m={m} set={set} k="sousFacesColoris" label="COLORIS SOUS-FACES"/>
         <MapBool m={m} set={set} k="ecranSousToiture" label="Écran de sous-toiture HPV"/>
@@ -7418,9 +7420,11 @@ function Produits({data,save}){
       <Fld label="COLORIS / FINITION"><input className="in" value={f.coloris||''} onChange={e=>setF({...f,coloris:e.target.value})} placeholder="RAL 7016, brun, sablé…"/></Fld>
       <Fld label="DESCRIPTION"><textarea className="in" rows="3" value={f.description||''} onChange={e=>setF({...f,description:e.target.value})}
         placeholder="Ce qu’on en dit au client : performance, aspect, garantie…"/></Fld>
-      <Fld label="FICHE TECHNIQUE DU FABRICANT">
-        <FichiersDrive resoudre={dossier} fichiers={f.fiches} onChange={v=>setF({...f,fiches:v})} label="Importer la fiche"/>
-        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Rangée dans Drive › {DRIVE_RACINE} › Fiches produits.</div>
+      <Fld label="FICHE TECHNIQUE OU PHOTO">
+        <FichiersDrive resoudre={dossier} fichiers={f.fiches} onChange={v=>setF({...f,fiches:v})} label="Importer la fiche ou une photo"/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+          Rangée dans Drive › {DRIVE_RACINE} › Fiches produits. Une photo convient aussi bien qu'un PDF —
+          utile quand le produit n'a pas de documentation fabricant à montrer au client.</div>
       </Fld>
       <Acts onSave={ok} onCancel={()=>setF(null)}
         onDel={f.neufA?null:()=>{if(confirm('Supprimer cette fiche produit ?')){save({...data,produits:P.filter(x=>x.id!==f.id)});setF(null)}}}/>
