@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · nouveaux types de charpente, et une photo acceptée pour les fiches produits';
+const VERSION='2026-08-27 · choisir la photo de charpente dans le catalogue produits';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
@@ -2378,7 +2378,8 @@ function mapLignes(ch,data){
     ['Coloris des appuis de fenêtre',m.appuisCouleur],['Coloris des seuils',m.seuilsCouleur],
   ]);
   add('4. Charpente, couverture & zinguerie',[
-    ['Charpente',m.charpenteType],['Charpente aménageable au-dessus du garage',m.charpenteGarageAmenageable?'Oui':''],
+    ['Charpente',m.charpenteType],['Charpente — photo / modèle',nomProduit(m.charpenteProduit)],
+    ['Charpente aménageable au-dessus du garage',m.charpenteGarageAmenageable?'Oui':''],
     ['Sous-faces de toit',m.sousFaces],['Coloris sous-faces',m.sousFacesColoris],
     ['Écran de sous-toiture HPV',m.ecranSousToiture?'Oui':''],
     ['Gouttières / descentes',m.gouttieres],['Coloris gouttières',m.gouttieresColoris],
@@ -6355,6 +6356,7 @@ function MAP({data,ch,up}){
         <MapChoix m={m} set={set} k="charpenteType" label="CHARPENTE & DESSOUS DE TOIT" opts={['Fermettes industrielles bois résineux','Charpente traditionnelle','Charpente sur dalle béton','Charpente combles perdus','Charpente combles aménageables']}/>
         <MapChoix m={m} set={set} k="sousFaces" label="SOUS-FACES" opts={['PVC','Alu','Bois']}/>
       </div>
+      <ChoixProduit data={data} lot="Charpente" value={m.charpenteProduit} onChange={v=>set({charpenteProduit:v})} label="CHARPENTE — PHOTO / MODÈLE"/>
       <MapBool m={m} set={set} k="charpenteGarageAmenageable" label="Charpente aménageable au-dessus du garage"/>
       <div className="g2">
         <MapTxt m={m} set={set} k="sousFacesColoris" label="COLORIS SOUS-FACES"/>
