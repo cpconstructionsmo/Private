@@ -155,12 +155,51 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · la fiche de découverte client, première étape d’un prospect';
+const VERSION='2026-08-27 · les pièces d’un chantier rangées par dossier';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
-const DOCS=[{id:'contrat_moe',l:'Contrat de maîtrise d\u2019œuvre'},{id:'plans_apd',l:'Plans d\u2019avant-projet (APS / APD)'},{id:'pc_depot',l:'Dépôt du permis de construire'},{id:'pc_arrete',l:'Arrêté de permis de construire'},{id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},{id:'daact',l:'DAACT (Cerfa 13408)'},{id:'plans_pc',l:'Plans du permis'},{id:'plans_exe',l:"Plans d'exécution"},{id:'notice',l:'Notice descriptive'},{id:'thermique',l:'Étude thermique RE2020'},{id:'sol',l:'Étude de sol G2'},{id:'do',l:'Assurance dommages-ouvrage'},{id:'pret',l:'Accord de prêt bancaire'},{id:'acte',l:'Acte notarié du terrain'},{id:'attest',l:'Attestation RE2020 fin de travaux'},{id:'pv',l:'PV de réception'}];
+/* les pièces d'un chantier, rangées par dossier : l'id de chaque pièce est ce
+   qui la relie à ce qui est déjà coché/déposé sur les chantiers existants —
+   on peut réordonner ou reformuler un libellé sans rien perdre, mais jamais
+   changer un id déjà utilisé. */
+const DOCS_GROUPES=[
+  {titre:'Document contractuel',items:[
+    {id:'plans_apd',l:'Plans d\u2019avant-projet (APS / APD)'},
+    {id:'contrat_moe',l:'Contrat de maîtrise d\u2019œuvre'},
+    {id:'notice',l:'Notice descriptive'},
+  ]},
+  {titre:'Permis de construire',items:[
+    {id:'plans_pc',l:'Plans du permis'},
+    {id:'cerfa_pc',l:'CERFA de demande de permis de construire'},
+    {id:'pc_depot',l:'Récépissé de dépôt du permis'},
+    {id:'pc_arrete',l:'Arrêté de permis de construire'},
+    {id:'attest_re_pc',l:'Attestation de prise en compte de la réglementation énergétique — dépôt du PC'},
+    {id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},
+  ]},
+  {titre:'Étude',items:[
+    {id:'sol',l:'Étude de sol G2 — si argile moyen ou fort'},
+    {id:'thermique',l:'Étude thermique RE2020'},
+  ]},
+  {titre:'Plans',items:[
+    {id:'plans_exe',l:"Plans d'exécution"},
+    {id:'plan_fermette',l:'Plan de pose des fermettes industrielles'},
+    {id:'plan_chauffant',l:'Plan du plancher chauffant — le cas échéant'},
+    {id:'plan_elec',l:'Plan électrique'},
+  ]},
+  {titre:'Administratifs',items:[
+    {id:'do',l:'Assurance dommages-ouvrage'},
+    {id:'pret',l:'Accord de prêt bancaire'},
+    {id:'acte',l:'Acte notarié du terrain'},
+  ]},
+  {titre:'Achèvement',items:[
+    {id:'daact',l:'DAACT (Cerfa 13408)'},
+    {id:'attest',l:'Attestation RE2020 fin de travaux'},
+    {id:'pv',l:'PV de réception'},
+  ]},
+];
+const DOCS=DOCS_GROUPES.flatMap(g=>g.items);
 const JALONS=['Dépôt du permis','Obtention du permis','Signature des marchés','Ouverture de chantier','Terrassement','Fondations','Élévation des murs','Charpente / couverture',"Hors d'eau — hors d'air",'Second œuvre','Réception des travaux','Levée des réserves'];
 const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Travaux',reception:'Réception',clos:'Clos'};
 /* une pièce écrite tient rarement en un seul fichier : plans d'exécution en
@@ -5927,36 +5966,45 @@ function Docs({data,ch,up,save}){
       <span className="mut">{n} pièce{n>1?'s':''} sur {DOCS.length} — rangées dans Drive › {ch.nom} › Pièces</span>
       <BoutonDossierDrive ch={ch} sous="Pièces"/>
     </div>
-    {DOCS.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card" style={{padding:10}}>
-      <div className="row" style={{gap:10,alignItems:'flex-start'}}>
-        <button className="chk" onClick={()=>tog(x.id)} style={{background:r.fait?GREEN:'#fff',borderColor:r.fait?GREEN:RULE}}>{r.fait?'✓':''}</button>
-        <div style={{flex:1}}>
-          <div className="sm">{x.l}</div>
-          {r.fait&&<div className="xs mut">Reçu le {fd(r.date)}</div>}
-          {fichiersDe(r).map(f=><div key={f.id} className="row xs" style={{gap:8,marginTop:4,alignItems:'center'}}>
-            <Transmis/>
-            <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA,flex:1,wordBreak:'break-word'}}>{f.nom}</a>
-            <button style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>{if(confirm('Retirer « '+f.nom+' » de cette pièce ? Le fichier reste sur le Drive.'))retirerFichier(x.id,f.id)}}>✕</button>
-          </div>)}
-          {!fichiersDe(r).length&&<input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}} placeholder="Lien Drive…" value={r.lien||''} onChange={e=>lien(x.id,e.target.value)}/>}
-          <div className="row" style={{gap:14,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
-            <label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':(fichiersDe(r).length?'Ajouter des fichiers':'Importer des fichiers')}
-              <input type="file" accept={PIECES_ACCEPT} multiple style={{display:'none'}} disabled={busy===x.id}
-                onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)importPieces(x.id,fs)}}/>
-            </label>
-            <button className="xs" style={{color:NAVY,background:'none',border:'none',padding:0}} onClick={()=>setSigne(x)}>Faire signer</button>
-          </div>
-          {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
-            <VignetteSign id={s.id}/>
-            <div style={{flex:1}}>
-              <div className="xs b">{s.nom} <span className="mut">— {s.qualite}</span></div>
-              <div className="xs mut">Signé le {dateHeure(s.date)}</div>
-              {s.empreinte&&<div className="xs mut" style={{fontSize:10}}>Empreinte {s.empreinte}</div>}
-            </div>
-            <button className="btn dg s" onClick={()=>retirerSignature(x.id,s.id)}>✕</button>
-          </div>)}
+    {DOCS_GROUPES.map(g=>{
+      const nG=g.items.filter(x=>d[x.id]&&d[x.id].fait).length;
+      return <div key={g.titre} style={{marginBottom:16}}>
+        <div className="sp" style={{marginBottom:6}}>
+          <span className="h2" style={{fontSize:13}}>{g.titre.toUpperCase()}</span>
+          <span className="xs mut">{nG}/{g.items.length}</span>
         </div>
-      </div></div>})}
+        {g.items.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card" style={{padding:10,marginBottom:6}}>
+          <div className="row" style={{gap:10,alignItems:'flex-start'}}>
+            <button className="chk" onClick={()=>tog(x.id)} style={{background:r.fait?GREEN:'#fff',borderColor:r.fait?GREEN:RULE}}>{r.fait?'✓':''}</button>
+            <div style={{flex:1}}>
+              <div className="sm">{x.l}</div>
+              {r.fait&&<div className="xs mut">Reçu le {fd(r.date)}</div>}
+              {fichiersDe(r).map(f=><div key={f.id} className="row xs" style={{gap:8,marginTop:4,alignItems:'center'}}>
+                <Transmis/>
+                <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA,flex:1,wordBreak:'break-word'}}>{f.nom}</a>
+                <button style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>{if(confirm('Retirer « '+f.nom+' » de cette pièce ? Le fichier reste sur le Drive.'))retirerFichier(x.id,f.id)}}>✕</button>
+              </div>)}
+              {!fichiersDe(r).length&&<input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}} placeholder="Lien Drive…" value={r.lien||''} onChange={e=>lien(x.id,e.target.value)}/>}
+              <div className="row" style={{gap:14,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+                <label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':(fichiersDe(r).length?'Ajouter des fichiers':'Importer des fichiers')}
+                  <input type="file" accept={PIECES_ACCEPT} multiple style={{display:'none'}} disabled={busy===x.id}
+                    onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)importPieces(x.id,fs)}}/>
+                </label>
+                <button className="xs" style={{color:NAVY,background:'none',border:'none',padding:0}} onClick={()=>setSigne(x)}>Faire signer</button>
+              </div>
+              {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
+                <VignetteSign id={s.id}/>
+                <div style={{flex:1}}>
+                  <div className="xs b">{s.nom} <span className="mut">— {s.qualite}</span></div>
+                  <div className="xs mut">Signé le {dateHeure(s.date)}</div>
+                  {s.empreinte&&<div className="xs mut" style={{fontSize:10}}>Empreinte {s.empreinte}</div>}
+                </div>
+                <button className="btn dg s" onClick={()=>retirerSignature(x.id,s.id)}>✕</button>
+              </div>)}
+            </div>
+          </div></div>})}
+      </div>;
+    })}
     {signe&&<SignaturePad titre={signe.l+' — '+ch.nom} onAnnuler={()=>setSigne(null)} onSigner={v=>enregistrerSignature(signe,v)}/>}
   </div>;
 }
