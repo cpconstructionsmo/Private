@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · carnet FOURNISSEURS, suggéré sur le champ « fournisseur » d’une commande d’achats';
+const VERSION='2026-08-28 · chiffrer une commande d’achats depuis un bordereau de prix, comme un lot de marché';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -4380,7 +4380,8 @@ const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
    Le principe du serveur d'Hexaom : on ne retape pas un montant, on saisit des
    quantités en face d'articles dont le prix est déjà négocié, et le marché en
    découle. Le montant HT du lot n'est plus une saisie mais un résultat. */
-function Quantitatif({data,f,setF,save}){
+function Quantitatif({data,f,setF,save,champ}){
+  const champMontant=champ||'montantHT';
   const [ouvert,setOuvert]=useState(false);
   const [choix,setChoix]=useState('');
   const [servisSeuls,setServisSeuls]=useState(false);
@@ -4394,12 +4395,12 @@ function Quantitatif({data,f,setF,save}){
     const b=B.find(x=>x.id===id);if(!b)return;
     setF(p=>({...p,quantitatif:{bordereauId:b.id,nom:b.nom,
       lignes:(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu,qt:''}))},
-      montantHT:0}));
+      [champMontant]:0}));
     setOuvert(true);
   };
-  /* le montant du lot suit toujours le quantitatif et la remise */
+  /* le montant du lot (ou de la commande) suit toujours le quantitatif et la remise */
   const recale=(p,lignes)=>({...p,quantitatif:{...p.quantitatif,lignes},
-    montantHT:quantitatifNet(lignes,remisePct(p))});
+    [champMontant]:quantitatifNet(lignes,remisePct(p))});
   const majL=(id,k,v)=>setF(p=>recale(p,p.quantitatif.lignes.map(l=>l.id===id?{...l,[k]:v}:l)));
   const majRemise=v=>setF(p=>({...p,remisePct:v===''?'':+v,
     montantHT:quantitatifNet((p.quantitatif||{}).lignes,v===''?0:+v)}));
@@ -5942,16 +5943,20 @@ function Commandes({data,ch,save,ouvrir,onOuvert}){
       <div className="g2">
         <Fld label="FOURNISSEUR"><input className="in" list="fourn-cmd" value={f.fournisseur} onChange={e=>setF({...f,fournisseur:e.target.value})}/>
           <datalist id="fourn-cmd">{(data.fournisseurs||[]).map(x=><option key={x.id} value={x.nom}/>)}</datalist></Fld>
-        <Fld label="MONTANT HT (€)"><input className="in" type="number" step="0.01" value={f.montant} onChange={e=>setF({...f,montant:e.target.value})}/></Fld>
+        <Fld label="MONTANT HT (€)"><input className="in" type="number" step="0.01" value={f.montant} disabled={!!f.quantitatif}
+          onChange={e=>setF({...f,montant:e.target.value})} style={f.quantitatif?{background:'#F2EFE9'}:null}/></Fld>
       </div>
       <Fld label="TVA DE CETTE COMMANDE (%)">
         <input className="in" type="number" step="0.1" placeholder={'Chantier : '+tvaRate(ch)+' %'}
           value={f.tva===undefined||f.tva===null?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/>
         <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
-          Laissez vide pour appliquer le taux du chantier ({tvaRate(ch)} %). Saisissez <b>10</b> en rénovation, <b>0</b> en autoliquidation.
-          {f.montant>0&&<span> — soit <b>{eur(cmdTTC({montant:+f.montant,tva:f.tva},ch))}</b> TTC.</span>}
+          {f.quantitatif
+            ?<span>Le montant est celui du quantitatif ci-dessous : il se recalcule à chaque quantité saisie. </span>
+            :<span>Laissez vide pour appliquer le taux du chantier ({tvaRate(ch)} %). Saisissez <b>10</b> en rénovation, <b>0</b> en autoliquidation. </span>}
+          {f.montant>0&&<span>— soit <b>{eur(cmdTTC({montant:+f.montant,tva:f.tva},ch))}</b> TTC.</span>}
         </div>
       </Fld>
+      <Quantitatif data={data} f={f} setF={setF} save={save} champ="montant"/>
       <Fld label="LOT CONCERNÉ"><select className="in" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})}><option value="">— aucun —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
       <div className="g2">
         <Fld label="DATE DE COMMANDE"><input className="in" type="date" value={f.dateCommande} onChange={e=>setF({...f,dateCommande:e.target.value})}/></Fld>
