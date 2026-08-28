@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-27 · lot « Sous-face »/« Gouttière » proposés dans PRODUITS, saisie tolérante à la casse et aux espaces';
+const VERSION='2026-08-27 · carnet FOURNISSEURS, suggéré sur le champ « fournisseur » d’une commande d’achats';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -218,7 +218,7 @@ const fichiersDe=r=>(r&&r.fichiers&&r.fichiers.length)?r.fichiers
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
 const NAV=[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],
   ['artisans','ARTISANS'],['cmd','ACHATS'],['bilan','FINANCES']];
-const NAV_PLUS=[['biblio','PRIX'],['produits','PRODUITS'],['donnees','DONNÉES']];
+const NAV_PLUS=[['biblio','PRIX'],['produits','PRODUITS'],['fournisseurs','FOURNISSEURS'],['donnees','DONNÉES']];
 
 /* Les pièces qu'on attend à chaque phase. Le tableau de bord ne réclame que
    celles-là : réclamer les seize à un chantier qui démarre ne dit rien. */
@@ -793,7 +793,7 @@ const ventileFactures=L=>{
 /* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
-const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[]};
+const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[],fournisseurs:[]};
 /* un enregistrement corrompu (case null au lieu d'être absente, retiré à la main
    dans la base) fait planter tout écran qui parcourt cette liste — un seul trou
    suffit à rendre CHANTIERS et ARTISANS injoignables. On l'écarte silencieusement
@@ -3604,6 +3604,7 @@ function App({session}){
       :view==='prospects'?<Prospects data={data} save={save}/>
       :view==='biblio'?<Bordereaux data={data} save={save}/>
       :view==='produits'?<Produits data={data} save={save}/>
+      :view==='fournisseurs'?<Fournisseurs data={data} save={save}/>
       :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
       :view==='artisans'?<Artisans data={data} save={save}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
@@ -5939,7 +5940,8 @@ function Commandes({data,ch,save,ouvrir,onOuvert}){
     {f&&<div className="card">
       <Fld label="DÉSIGNATION"><input className="in" placeholder="Menuiseries alu — 8 ouvrants" value={f.designation} onChange={e=>setF({...f,designation:e.target.value})}/></Fld>
       <div className="g2">
-        <Fld label="FOURNISSEUR"><input className="in" value={f.fournisseur} onChange={e=>setF({...f,fournisseur:e.target.value})}/></Fld>
+        <Fld label="FOURNISSEUR"><input className="in" list="fourn-cmd" value={f.fournisseur} onChange={e=>setF({...f,fournisseur:e.target.value})}/>
+          <datalist id="fourn-cmd">{(data.fournisseurs||[]).map(x=><option key={x.id} value={x.nom}/>)}</datalist></Fld>
         <Fld label="MONTANT HT (€)"><input className="in" type="number" step="0.01" value={f.montant} onChange={e=>setF({...f,montant:e.target.value})}/></Fld>
       </div>
       <Fld label="TVA DE CETTE COMMANDE (%)">
@@ -7474,6 +7476,58 @@ function Produits({data,save}){
 /* les produits d'un prospect, tels qu'ils partent au dossier */
 const produitsRetenus=(data,p)=>((p&&p.produits)||[])
   .map(id=>(data.produits||[]).find(x=>x.id===id)).filter(Boolean);
+
+/* ---------------- FOURNISSEURS ----------------
+   Le carnet d'adresses des négoces de matériaux (carrelage, menuiseries, gouttières…)
+   chez qui vous achetez directement — à distinguer des ARTISANS, à qui vous confiez un
+   lot de travaux sous décennale. Sert d'abord à retrouver le nom exact d'un fournisseur
+   déjà utilisé, en suggestion sur le champ « FOURNISSEUR » d'une commande d'ACHATS. */
+function Fournisseurs({data,save}){
+  const [f,setF]=useState(null);
+  const F=data.fournisseurs||[];
+  const neuf=()=>({id:uid(),nom:'',activite:'',adresse:'',siret:'',tel:'',email:'',notes:''});
+  const ok=()=>{
+    if(!(f.nom||'').trim())return;
+    save({...data,fournisseurs:F.some(x=>x.id===f.id)?F.map(x=>x.id===f.id?f:x):[...F,f]});
+    setF(null);
+  };
+  const L=F.slice().sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
+  return <div>
+    <H2 action={<button className="btn acc s" onClick={()=>setF(neuf())}>+ Fournisseur</button>}>
+      FOURNISSEURS ({F.length})</H2>
+    {!f&&<p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>
+      Les négoces de matériaux chez qui vous achetez directement (carrelage, menuiseries, gouttières…),
+      à distinguer des artisans à qui vous confiez un lot de travaux. Une fois ajoutés ici, leur nom
+      se propose automatiquement sur le champ « FOURNISSEUR » d'une commande, dans ACHATS.
+    </p>}
+    {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+      <Fld label="RAISON SOCIALE"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}
+        placeholder="ETABLISSEMENTS MAILLARD"/></Fld>
+      <Fld label="ACTIVITÉ"><input className="in" value={f.activite||''} onChange={e=>setF({...f,activite:e.target.value})}
+        placeholder="Sanitaire et produits de décoration"/></Fld>
+      <div className="g2">
+        <Fld label="TÉLÉPHONE"><input className="in" type="tel" value={f.tel||''} onChange={e=>setF({...f,tel:e.target.value})}/></Fld>
+        <Fld label="EMAIL"><input className="in" type="email" value={f.email||''} onChange={e=>setF({...f,email:e.target.value})}/></Fld>
+      </div>
+      <Fld label="ADRESSE"><input className="in" value={f.adresse||''} onChange={e=>setF({...f,adresse:e.target.value})}/></Fld>
+      <Fld label="SIRET / SIREN"><input className="in" value={f.siret||''} onChange={e=>setF({...f,siret:e.target.value})}/></Fld>
+      <Fld label="NOTES"><textarea className="in" rows="3" value={f.notes||''} onChange={e=>setF({...f,notes:e.target.value})}
+        placeholder="Conditions, remise habituelle, interlocuteur…"/></Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)}
+        onDel={!F.some(x=>x.id===f.id)?null:()=>{if(confirm('Supprimer ce fournisseur ?')){save({...data,fournisseurs:F.filter(x=>x.id!==f.id)});setF(null)}}}/>
+    </div>}
+    {!F.length&&!f&&<Empty>Aucun fournisseur. « + Fournisseur » ouvre le premier.</Empty>}
+    {!f&&L.map(x=><div key={x.id} className="card" onClick={()=>setF(x)} style={{cursor:'pointer'}}>
+      <span className="b sm" style={{color:NAVY}}>{x.nom}</span>
+      {x.activite&&<div className="xs mut" style={{marginTop:3}}>{x.activite}</div>}
+      {x.adresse&&<div className="xs mut" style={{marginTop:2}}>{x.adresse}</div>}
+      <div className="row xs" style={{gap:14,marginTop:8}}>
+        {x.tel&&<a href={'tel:'+x.tel} onClick={e=>e.stopPropagation()} style={{color:TERRA}}>Appeler</a>}
+        {x.email&&<a href={'mailto:'+x.email} onClick={e=>e.stopPropagation()} style={{color:TERRA}}>Email</a>}
+      </div>
+    </div>)}
+  </div>;
+}
 
 /* ---------------- TABLEAU DE BORD ----------------
    Ce qui appelle une action aujourd'hui, et rien d'autre : les chiffrages qu'on
