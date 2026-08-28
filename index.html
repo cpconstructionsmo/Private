@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-28 · le QR code de localisation s’affiche enfin dans Google Docs sur les marchés de travaux';
+const VERSION='2026-08-28 · QR code du marché : corrigé pour de bon, le vrai bug était dans le document Word lui-même';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -1730,7 +1730,13 @@ function chantierMarche(d){
   if(!d.qr)return tbl([10400],[tr([
     tc(10400,inner,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4}),v:'top',mg:140}),
   ])],{});
-  const bloc=[qrXml(),par('Scannez pour l’itinéraire',{sz:14,c:DOC_GRIS,jc:'center',ap:0})].join('');
+  /* qrXml() rend un <w:r> nu : il lui faut un <w:p> autour, comme le logo en
+     reçoit un dans enteteMarche() — un run posé à même la cellule (<w:tc>)
+     sans paragraphe qui l'enveloppe est hors schéma. Word s'en accommodait
+     sans broncher, mais Google Docs, plus strict à l'import d'un .docx,
+     rejetait l'élément en silence : le QR restait invisible, alors que la
+     légende juste après (elle, dans son propre <w:p>) s'affichait normalement. */
+  const bloc=[par([qrXml()],{jc:'center',ap:60}),par('Scannez pour l’itinéraire',{sz:14,c:DOC_GRIS,jc:'center',ap:0})].join('');
   return tbl([8600,1800],[tr([
     tc(8600,inner,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,d:false}),v:'top',mg:140}),
     tc(1800,bloc,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,g:false}),v:'center',mg:120}),
