@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-28 · chiffrer une commande d’achats depuis un bordereau de prix, comme un lot de marché';
+const VERSION='2026-08-28 · le QR code de localisation s’affiche enfin dans Google Docs sur les marchés de travaux';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -1605,23 +1605,29 @@ function qrMatrice(texte){
 }
 
 const ADLER32=b=>{let a=1,c=0;for(let i=0;i<b.length;i++){a=(a+b[i])%65521;c=(c+a)%65521}return((c<<16)|a)>>>0};
-/* un flux DEFLATE valide sans compresser réellement : le format prévoit des blocs
-   « stockés » (BTYPE=00) qui encapsulent des octets bruts tels quels */
-const deflateStocke=b=>{
-  const blocs=[]; let i=0;
-  if(!b.length)blocs.push(new Uint8Array([1,0,0,255,255]));
-  while(i<b.length){
-    const n=Math.min(65535,b.length-i), fin=(i+n>=b.length)?1:0;
-    const en=new Uint8Array(5+n);
-    en[0]=fin; en[1]=n&255; en[2]=(n>>8)&255; en[3]=(~n)&255&255; en[4]=((~n)>>8)&255;
-    en.set(b.subarray(i,i+n),5); blocs.push(en); i+=n;
+/* un flux DEFLATE valide, en Huffman fixe (BTYPE=01) : chaque octet part en
+   littéral, sans retour arrière — on ne cherche pas à compresser, seulement à
+   produire un flux que tout décodeur sait lire. Un bloc « stocké » (BTYPE=00)
+   serait plus simple à écrire, mais c'est un chemin de code que peu
+   d'encodeurs empruntent en pratique : l'import .docx de Google Docs ne
+   savait apparemment pas le lire (le QR code restait invisible sur le marché
+   imprimé, alors que le logo — compressé normalement par un vrai encodeur
+   PNG — s'affichait sans souci). Le Huffman fixe est l'un des deux modes
+   compressés du format, que tout décodeur PNG doit savoir décoder. */
+const deflateFixe=b=>{
+  const octets=[]; let cur=0,nb=0;
+  const bit=v=>{cur|=(v&1)<<nb;nb++;if(nb===8){octets.push(cur);cur=0;nb=0}};
+  const valeur=(v,n)=>{for(let i=0;i<n;i++)bit((v>>>i)&1)}; // bits de poids faible en premier
+  const huffman=(code,n)=>{for(let i=n-1;i>=0;i--)bit((code>>>i)&1)}; // bits de poids fort en premier
+  valeur(1,1); // BFINAL
+  valeur(1,2); // BTYPE = 01, Huffman fixe
+  for(const o of b){
+    if(o<=143)huffman(0x30+o,8);       // littéraux 0-143 : 8 bits, codes 00110000-10111111
+    else huffman(0x190+(o-144),9);     // littéraux 144-255 : 9 bits, codes 110010000-111111111
   }
-  const total=blocs.reduce((s,x)=>s+x.length,0), out=new Uint8Array(2+total+4);
-  out[0]=0x78; out[1]=0x01;
-  let q=2; for(const bl of blocs){out.set(bl,q);q+=bl.length}
-  const adler=ADLER32(b);
-  out[q]=(adler>>>24)&255;out[q+1]=(adler>>>16)&255;out[q+2]=(adler>>>8)&255;out[q+3]=adler&255;
-  return out;
+  huffman(0,7); // symbole 256 (fin de bloc) : 7 bits, code 0000000
+  if(nb>0)octets.push(cur);
+  return new Uint8Array(octets);
 };
 const pngChunk=(type,data)=>{
   const t=new TextEncoder().encode(type), corps=new Uint8Array(t.length+data.length);
@@ -1633,11 +1639,11 @@ const pngChunk=(type,data)=>{
 /* la matrice devient un PNG noir/blanc (1 bit par pixel), marge de silence comprise —
    sans elle, un lecteur perd le repère de bord du QR code */
 const qrVersPng=(taille,modules,echelle,marge)=>{
-  /* RGB plutôt que niveaux de gris : le logo (qui s'affiche, lui) est en RGBA —
-     le lecteur qui a avalé le marché rédigé sans faire apparaître le QR est
-     très probablement l'import .docx de Google Docs, connu pour mal gérer les
-     PNG en niveaux de gris alors qu'il lit le RGB sans souci. Même motif,
-     3 octets par pixel (noir = 0,0,0 — blanc = 255,255,255) au lieu d'un seul. */
+  /* RGB plutôt que niveaux de gris, comme le logo (qui, lui, s'est toujours
+     affiché) : 3 octets par pixel (noir = 0,0,0 — blanc = 255,255,255) au
+     lieu d'un seul. Ça n'a pas suffi à rendre le QR visible dans l'import
+     .docx de Google Docs — la vraie cause était ailleurs (voir deflateFixe
+     ci-dessus) : le flux DEFLATE de ce PNG. */
   const n=taille+2*marge, large=n*echelle, oParLigne=large*3;
   const donnees=new Uint8Array((oParLigne+1)*large);
   for(let y=0;y<large;y++){
@@ -1650,7 +1656,11 @@ const qrVersPng=(taille,modules,echelle,marge)=>{
       donnees[p]=v; donnees[p+1]=v; donnees[p+2]=v;
     }
   }
-  const idat=deflateStocke(donnees);
+  const compresse=deflateFixe(donnees), adler=ADLER32(donnees);
+  const idat=new Uint8Array(2+compresse.length+4);
+  idat[0]=0x78; idat[1]=0x01; idat.set(compresse,2);
+  const qz=2+compresse.length;
+  idat[qz]=(adler>>>24)&255; idat[qz+1]=(adler>>>16)&255; idat[qz+2]=(adler>>>8)&255; idat[qz+3]=adler&255;
   const ihdr=new Uint8Array(13), dv=new DataView(ihdr.buffer);
   dv.setUint32(0,large); dv.setUint32(4,large); ihdr[8]=8; ihdr[9]=2; // 8 bits par canal, RGB
   const sig=new Uint8Array([137,80,78,71,13,10,26,10]);
