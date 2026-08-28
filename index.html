@@ -871,13 +871,15 @@ const notaireEstime=p=>Math.round((+((p&&p.terrainPrix))||0)*0.075);
    objet, chiffres, lien du PDF — et ouvre la messagerie dessus : il ne reste
    qu'à l'envoyer. */
 const MAIL_CP='contact@cpconstructions.fr';
+const afficherCivilite=(civilite,nom)=>[civilite,nom].filter(Boolean).join(' ').trim();
 function corpsChiffrage(p){
   const r=ratioM2(prospectPrixTTC(p),p);
   const C=p.chiffrages||[]; const pdf=C[C.length-1];
   /* null : la ligne n'a pas lieu d'être — '' : un blanc voulu entre deux blocs */
   const L=['Le chiffrage ci-dessous est validé.','',
     'Projet : '+(p.nom||''),
-    'Client : '+(p.client||''),
+    'Client : '+afficherCivilite(p.civilite,p.client),
+    p.client2?'Client 2 : '+afficherCivilite(p.civilite2,p.client2):null,
     p.commune?'Commune : '+p.commune:null,
     p.commercial?'Commercial : '+p.commercial:null,
     p.telClient?'Téléphone client : '+p.telClient:null,
@@ -2229,7 +2231,7 @@ function dossierDocumentXml(p,px,com){
     tbl([5200,5200],[tr([
       tc(5200,[
         par('Maître de l’ouvrage',{b:true,sz:17,c:DOC_TERRA,caps:true,sp:16,ap:60}),
-        par(p.client||'',{b:true,sz:20,ap:40}),
+        par(afficherCivilite(p.civilite,p.client)||p.client||'',{b:true,sz:20,ap:40}),
         par(p.adresseClient||'',{sz:18,c:DOC_GRIS,ap:0}),
       ].join(''),{bords:tcB({c:DOC_BRUN,sz:4,t:4,bs:4}),fond:DOC_SABLE,v:'top',mg:140}),
       tc(5200,[
@@ -2339,7 +2341,7 @@ function decouverteDocumentXml(p,px){
     par([logoXml(px)],{ap:0}),
     vide(300),
     par('FICHE DE DÉCOUVERTE CLIENT',{b:true,sz:34,c:DOC_TERRA,sp:30,jc:'center',ap:60}),
-    par((p.nom||'')+(p.client?' — '+p.client:''),{sz:20,c:DOC_BRUN,jc:'center',ap:20}),
+    par((p.nom||'')+(p.client?' — '+afficherCivilite(p.civilite,p.client):''),{sz:20,c:DOC_BRUN,jc:'center',ap:20}),
     par('Premier rendez-vous du '+fdDoc(today()),{sz:16,c:DOC_GRIS,jc:'center',ap:0}),
     vide(300),
   ].join('');
@@ -7666,7 +7668,8 @@ function Prospects({data,save}){
   const [filtre,setFiltre]=useState('actifs');
   const P=data.prospects||[];
   const maj=(id,p)=>save({...data,prospects:P.map(x=>x.id===id?{...x,...p}:x)});
-  const neuf=()=>({nom:'',client:'',telClient:'',emailClient:'',adresseClient:'',commune:'',
+  const neuf=()=>({nom:'',civilite:'',client:'',telClient:'',emailClient:'',adresseClient:'',
+    afficherClient2:false,client2:'',civilite2:'',telClient2:'',emailClient2:'',adresseClient2:'',commune:'',
     commercial:'',commercialTel:'',demandeLe:today(),statut:'demande',produits:[],
     typeTerrain:'',surfaceTerrain:'',prestation:'',chauffage:'',niveaux:'',nbChambres:'',
     surfaceHabitable:'',surfaceAnnexes:'',budgetClient:'',demande:'',
@@ -7725,18 +7728,60 @@ function Prospects({data,save}){
     </div>}
     {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
       <Fld label="NOM DU PROJET"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Dupont — Ceaucé"/></Fld>
-      <FormDecouverte dec={f.decouverte} onChange={v=>setF({...f,decouverte:v})}/>
       <ImportContact label="Remplir depuis Contacts"
         onLu={c=>setF(p=>({...p,client:c.nom||p.client,telClient:c.tel||p.telClient,
           emailClient:c.email||p.emailClient||'',adresseClient:c.adresse||p.adresseClient}))}/>
       <div className="g2">
+        <Fld label="CIVILITÉ">
+          <select className="in" value={f.civilite||''} onChange={e=>setF({...f,civilite:e.target.value})}>
+            <option value="">—</option>
+            <option value="Mme">Mme</option>
+            <option value="M.">M.</option>
+            <option value="SCI">SCI</option>
+            <option value="SAS">SAS</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </Fld>
         <Fld label="CLIENT"><input className="in" value={f.client} onChange={e=>setF({...f,client:e.target.value})}/></Fld>
-        <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={f.telClient||''} onChange={e=>setF({...f,telClient:e.target.value})}/></Fld>
       </div>
       <div className="g2">
+        <Fld label="TÉL. CLIENT"><input className="in" type="tel" value={f.telClient||''} onChange={e=>setF({...f,telClient:e.target.value})}/></Fld>
         <Fld label="E-MAIL CLIENT"><input className="in" type="email" value={f.emailClient||''} onChange={e=>setF({...f,emailClient:e.target.value})}/></Fld>
-        <Fld label="ADRESSE DU CLIENT"><input className="in" value={f.adresseClient||''} onChange={e=>setF({...f,adresseClient:e.target.value})}/></Fld>
       </div>
+      <div className="g2">
+        <Fld label="ADRESSE DU CLIENT"><input className="in" value={f.adresseClient||''} onChange={e=>setF({...f,adresseClient:e.target.value})}/></Fld>
+        <div style={{display:'flex',alignItems:'flex-end'}}>
+          <label className="row xs" style={{gap:8,alignItems:'center',cursor:'pointer',width:'100%'}}>
+            <input type="checkbox" checked={!!f.afficherClient2} onChange={e=>setF({...f,afficherClient2:e.target.checked})}/>
+            <span>Afficher le 2e acheteur</span>
+          </label>
+        </div>
+      </div>
+      {f.afficherClient2&&<>
+        <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>DEUXIÈME ACHETEUR</div>
+        <div className="g2">
+          <Fld label="CIVILITÉ 2">
+            <select className="in" value={f.civilite2||''} onChange={e=>setF({...f,civilite2:e.target.value})}>
+              <option value="">—</option>
+              <option value="Mme">Mme</option>
+              <option value="M.">M.</option>
+              <option value="SCI">SCI</option>
+              <option value="SAS">SAS</option>
+              <option value="Autre">Autre</option>
+            </select>
+          </Fld>
+          <Fld label="CLIENT 2"><input className="in" value={f.client2||''} onChange={e=>setF({...f,client2:e.target.value})}/></Fld>
+        </div>
+        <div className="g2">
+          <Fld label="TÉL. CLIENT 2"><input className="in" type="tel" value={f.telClient2||''} onChange={e=>setF({...f,telClient2:e.target.value})}/></Fld>
+          <Fld label="E-MAIL CLIENT 2"><input className="in" type="email" value={f.emailClient2||''} onChange={e=>setF({...f,emailClient2:e.target.value})}/></Fld>
+        </div>
+        <div className="g2">
+          <Fld label="ADRESSE DU CLIENT 2"><input className="in" value={f.adresseClient2||''} onChange={e=>setF({...f,adresseClient2:e.target.value})}/></Fld>
+          <span />
+        </div>
+      </>}
+      <FormDecouverte dec={f.decouverte} onChange={v=>setF({...f,decouverte:v})}/>
       <Fld label="COMMUNE DE CONSTRUCTION"><input className="in" value={f.commune||''} onChange={e=>setF({...f,commune:e.target.value})} placeholder="Lotissement, commune, parcelle…"/></Fld>
 
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>LA DEMANDE DU COMMERCIAL</div>
@@ -7866,7 +7911,11 @@ function Prospects({data,save}){
             <Plus actif={ouv===p.id} titre="Voir le détail" onClick={()=>setOuv(ouv===p.id?'':p.id)}/>
           </div>
         </div>
-        <div className="xs mut" style={{marginTop:3}}>{p.client}{p.commune?' — '+p.commune:''}</div>
+        <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+          {p.adresseClient&&<div>{p.adresseClient}</div>}
+          {p.adresseClient2 && String(p.adresseClient2).trim() && String(p.adresseClient2).trim() !== String(p.adresseClient||'').trim() && <div>{p.adresseClient2}</div>}
+          {p.commune&&<div>{p.commune}</div>}
+        </div>
         {attente!==null&&attente>0&&<div className="xs b" style={{color:attente>7?TERRA:AMBER,marginTop:3}}>
           En attente depuis {attente} jour{attente>1?'s':''}</div>}
         <div className="g3 xs" style={{marginTop:8}}>
@@ -8334,6 +8383,8 @@ function DetailProspect({p,maj,data}){
       </div>
       <div>
         <div className="b" style={{color:NAVY,marginBottom:4}}>La demande</div>
+        <Ligne l="Client" v={afficherCivilite(p.civilite,p.client) || p.client}/>
+        {p.client2&&<Ligne l="Client 2" v={afficherCivilite(p.civilite2,p.client2) || p.client2}/>} 
         <Ligne l="Commercial" v={p.commercial}/>
         <Ligne l="Demandé le" v={p.demandeLe?fd(p.demandeLe):''}/>
         <Ligne l="Remis le" v={p.remisLe?fd(p.remisLe):''}/>
