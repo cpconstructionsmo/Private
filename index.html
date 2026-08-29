@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-29 · les rendez-vous des 7 prochains jours apparaissent sur le tableau de bord';
+const VERSION='2026-08-29 · onglet TÂCHES par chantier, et durée d’intervention par corps de métier dans PLANNING';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -4375,7 +4375,7 @@ function Fiche({data,ch,save,back}){
       </div>
     </div>}
     <div className="tabs">
-      {[['marches','MARCHÉS'],['factu','FACTURATION'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
+      {[['marches','MARCHÉS'],['factu','FACTURATION'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['taches','TÂCHES'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
     </div>
     {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}
@@ -4387,6 +4387,7 @@ function Fiche({data,ch,save,back}){
     {tab==='ctrl'&&<Controles data={data} ch={ch} save={save}/>}
     {tab==='photos'&&<Photos data={data} ch={ch} save={save}/>}
     {tab==='cmd'&&<Commandes data={data} ch={ch} save={save} ouvrir={ouvrirCmd} onOuvert={()=>setOuvrirCmd(null)}/>}
+    {tab==='taches'&&<Taches ch={ch} up={up}/>}
     {tab==='planning'&&<Planning data={data} ch={ch} up={up}/>}
     {tab==='docs'&&<Docs data={data} ch={ch} up={up} save={save}/>}
   </div>;
@@ -6053,7 +6054,67 @@ function CommandesGlob({data,open}){
   </div>;
 }
 
+/* ---------------- TÂCHES ----------------
+   Ce qui reste à faire sur ce chantier, en vrac — pas un jalon daté du
+   programme, juste un pense-bête : relancer un artisan, vérifier un point,
+   passer un coup de fil. Cochée, une tâche se raye plutôt que de disparaître. */
+function Taches({ch,up}){
+  const T=ch.taches||[];
+  const [texte,setTexte]=useState('');
+  const [echeance,setEcheance]=useState('');
+  const restantes=T.filter(x=>!x.fait).length;
+  const ajouter=()=>{
+    if(!texte.trim())return;
+    up({taches:[...T,{id:uid(),texte:texte.trim(),fait:false,echeance:echeance||'',creeLe:today()}]});
+    setTexte('');setEcheance('');
+  };
+  const tog=id=>up({taches:T.map(x=>x.id===id?{...x,fait:!x.fait}:x)});
+  const suppr=id=>up({taches:T.filter(x=>x.id!==id)});
+  const t=today();
+  const L=T.slice().sort((a,b)=>{
+    if(!!a.fait!==!!b.fait)return a.fait?1:-1;
+    return (a.echeance||'9999-99-99').localeCompare(b.echeance||'9999-99-99');
+  });
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <span className="xs mut">{restantes} tâche{restantes>1?'s':''} à faire sur {T.length}</span>
+    </div>
+    <div className="card" style={{marginBottom:12}}>
+      <Fld label="NOUVELLE TÂCHE">
+        <input className="in" value={texte} onChange={e=>setTexte(e.target.value)}
+          onKeyDown={e=>{if(e.key==='Enter')ajouter()}}
+          placeholder="Relancer le plombier pour le devis…"/>
+      </Fld>
+      <div className="g2">
+        <Fld label="ÉCHÉANCE (OPTIONNELLE)"><input className="in" type="date" value={echeance} onChange={e=>setEcheance(e.target.value)}/></Fld>
+        <div style={{display:'flex',alignItems:'flex-end'}}>
+          <button className="btn acc s" onClick={ajouter} style={{width:'100%'}}>+ Ajouter</button>
+        </div>
+      </div>
+    </div>
+    {!T.length&&<Empty>Aucune tâche. Notez ici ce qu'il reste à faire sur ce chantier.</Empty>}
+    {L.map(x=>{
+      const retard=x.echeance&&!x.fait&&x.echeance<t;
+      return <div key={x.id} className="card row" style={{gap:10,alignItems:'flex-start',padding:10}}>
+        <button className="chk" onClick={()=>tog(x.id)} style={{background:x.fait?GREEN:'#fff',borderColor:x.fait?GREEN:RULE,flex:'0 0 auto'}}>{x.fait?'✓':''}</button>
+        <div style={{flex:1,minWidth:0}}>
+          <div className="sm" style={{color:x.fait?MUTED:INK,textDecoration:x.fait?'line-through':'none'}}>{x.texte}</div>
+          {x.echeance&&<div className="xs" style={{color:retard?TERRA:MUTED,marginTop:2}}>{retard?'retard — échéance ':'échéance '}{fd(x.echeance)}</div>}
+        </div>
+        <button onClick={()=>suppr(x.id)} className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}}>✕</button>
+      </div>;
+    })}
+  </div>;
+}
+
 /* ---------------- PLANNING ---------------- */
+/* la date de fin prévue d'une intervention, à partir de son premier jour et
+   de sa durée en jours (le jour de début compte comme jour 1) */
+const finPrevue=(prevue,duree)=>{
+  if(!prevue||!duree)return '';
+  const[y,m,d]=prevue.split('-').map(Number);
+  return isoDate(new Date(y,m-1,d+(+duree-1)));
+};
 function Planning({data,ch,up}){
   const js=ch.jalons||[];
   const [f,setF]=useState(null);
@@ -6071,7 +6132,7 @@ function Planning({data,ch,up}){
       <span className="xs mut">{js.length} jalon{js.length>1?'s':''} · {livr.length} livraison{livr.length>1?'s':''}</span>
       <div className="row" style={{gap:8}}>
         {!js.length&&<button className="btn gh s" onClick={()=>up({jalons:JALONS.map(l=>({id:uid(),label:l,prevue:'',reelle:''}))})}>Trame standard</button>}
-        <button className="btn acc s" onClick={()=>setF({label:'',prevue:'',reelle:''})}>+ Jalon</button>
+        <button className="btn acc s" onClick={()=>setF({label:'',prevue:'',reelle:'',corps:'',duree:''})}>+ Jalon</button>
       </div>
     </div>
     {f&&<div className="card">
@@ -6081,18 +6142,33 @@ function Planning({data,ch,up}){
         <Fld label="DATE PRÉVUE"><input className="in" type="date" value={f.prevue} onChange={e=>setF({...f,prevue:e.target.value})}/></Fld>
         <Fld label="DATE RÉELLE"><input className="in" type="date" value={f.reelle} onChange={e=>setF({...f,reelle:e.target.value})}/></Fld>
       </div>
+      <div className="g2">
+        <Fld label="CORPS DE MÉTIER (OPTIONNEL)"><input className="in" list="corps-planning" value={f.corps||''} onChange={e=>setF({...f,corps:e.target.value})}/>
+          <datalist id="corps-planning">{CORPS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
+        <Fld label="DURÉE D’INTERVENTION (JOURS)">
+          <input className="in" type="number" min="1" step="1" value={f.duree||''} onChange={e=>setF({...f,duree:e.target.value===''?'':+e.target.value})}/>
+        </Fld>
+      </div>
+      {f.prevue&&f.duree>0&&<div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.5}}>
+        Soit du {fd(f.prevue)} au {fd(finPrevue(f.prevue,f.duree))}.</div>}
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{up({jalons:js.filter(j=>j.id!==f.id)});setF(null)}:null}/>
     </div>}
     {!items.length&&!f&&<Empty>Aucune étape. « Trame standard » crée les 12 jalons d'une maison neuve.</Empty>}
     {items.map(i=>{
       const done=!!i.reelle, late=i.prevue&&!i.reelle&&i.prevue<today();
       const liv=i.type==='livr';
-      return <div key={i.type+i.id} className="card sp" style={{borderLeft:'3px solid '+(done?GREEN:late?TERRA:RULE),padding:10,opacity:liv?.85:1}}
-        onClick={()=>{if(!liv)setF(js.find(j=>j.id===i.id))}}>
-        <span className="sm" style={{color:done?MUTED:INK,textDecoration:done?'line-through':'none'}}>
-          {liv&&<span className="xs" style={{color:NAVY,marginRight:6}}>▸</span>}{i.label}</span>
-        <span className="xs" style={{color:late?TERRA:MUTED,textAlign:'right',minWidth:74}}>
-          {done?fd(i.reelle):late?'retard '+fd(i.prevue):fd(i.prevue)}</span>
+      const fin=!liv&&!done?finPrevue(i.prevue,i.duree):'';
+      return <div key={i.type+i.id} className="card" style={{borderLeft:'3px solid '+(done?GREEN:late?TERRA:RULE),padding:10,opacity:liv?.85:1,cursor:liv?'default':'pointer'}}
+        onClick={()=>{if(!liv)setF({corps:'',duree:'',...js.find(j=>j.id===i.id)})}}>
+        <div className="sp">
+          <span className="sm" style={{color:done?MUTED:INK,textDecoration:done?'line-through':'none'}}>
+            {liv&&<span className="xs" style={{color:NAVY,marginRight:6}}>▸</span>}{i.label}</span>
+          <span className="xs" style={{color:late?TERRA:MUTED,textAlign:'right',minWidth:74}}>
+            {done?fd(i.reelle):late?'retard '+fd(i.prevue):fd(i.prevue)}</span>
+        </div>
+        {!liv&&(i.corps||fin)&&<div className="xs mut" style={{marginTop:3}}>
+          {i.corps}{i.corps&&fin?' · ':''}{fin?'jusqu’au '+fd(fin)+' ('+i.duree+' j)':''}
+        </div>}
       </div>;
     })}
   </div>;
