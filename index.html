@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-29 · tâches modifiables avec degré d’urgence, liste de travail sur le tableau de bord';
+const VERSION='2026-08-29 · planning maison neuve détaillé par phases, dates en cascade et vue façon Gantt';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -205,7 +205,40 @@ const DOCS_GROUPES=[
   ]},
 ];
 const DOCS=DOCS_GROUPES.flatMap(g=>g.items);
-const JALONS=['Dépôt du permis','Obtention du permis','Signature des marchés','Ouverture de chantier','Terrassement','Fondations','Élévation des murs','Charpente / couverture',"Hors d'eau — hors d'air",'Second œuvre','Réception des travaux','Levée des réserves'];
+/* la trame standard d'un planning de maison neuve, phase par phase — les
+   durées par défaut sont indicatives, à ajuster au cas par cas */
+const JALONS=[
+  {label:'Signature des marchés',phase:'Préparation',corps:'',duree:''},
+  {label:'Dépôt du permis de construire',phase:'Préparation',corps:'',duree:''},
+  {label:'Obtention du permis de construire',phase:'Préparation',corps:'',duree:''},
+  {label:'Ouverture de chantier (DROC)',phase:'Préparation',corps:'',duree:1},
+  {label:'Installation de chantier',phase:'Terrassement / VRD',corps:'Terrassement',duree:2},
+  {label:'Terrassement général',phase:'Terrassement / VRD',corps:'Terrassement',duree:3},
+  {label:'Assainissement / VRD',phase:'Terrassement / VRD',corps:'Assainissement',duree:3},
+  {label:'Fondations',phase:'Gros œuvre',corps:'Gros œuvre',duree:5},
+  {label:'Dalle / soubassement',phase:'Gros œuvre',corps:'Gros œuvre',duree:3},
+  {label:'Élévation des murs',phase:'Gros œuvre',corps:'Gros œuvre',duree:10},
+  {label:'Charpente',phase:'Charpente / couverture',corps:'Charpente',duree:4},
+  {label:'Couverture',phase:'Charpente / couverture',corps:'Couverture',duree:5},
+  {label:'Zinguerie',phase:'Charpente / couverture',corps:'Couverture',duree:2},
+  {label:'Menuiseries extérieures',phase:'Menuiseries ext. / étanchéité',corps:'Menuiseries ext.',duree:4},
+  {label:"Hors d'eau — hors d'air",phase:'Menuiseries ext. / étanchéité',corps:'',duree:1},
+  {label:'Doublage et isolation',phase:'Second œuvre',corps:'Isolation',duree:5},
+  {label:'Cloisons de distribution',phase:'Second œuvre',corps:'Cloisons / plâtrerie',duree:5},
+  {label:'Réseaux électriques',phase:'Second œuvre',corps:'Électricité',duree:4},
+  {label:'Réseaux de plomberie',phase:'Second œuvre',corps:'Plomberie / sanitaire',duree:4},
+  {label:'Chauffage / VMC',phase:'Second œuvre',corps:'Chauffage / VMC',duree:3},
+  {label:'Chape',phase:'Second œuvre',corps:'',duree:2},
+  {label:'Carrelage / faïence',phase:'Finitions',corps:'Carrelage',duree:5},
+  {label:'Peinture',phase:'Finitions',corps:'Peinture',duree:5},
+  {label:'Menuiseries intérieures',phase:'Finitions',corps:'Menuiseries int.',duree:3},
+  {label:'Escalier et garde-corps',phase:'Finitions',corps:'Escalier',duree:2},
+  {label:'Cuisine et sanitaires',phase:'Finitions',corps:'',duree:3},
+  {label:'Finitions électriques',phase:'Finitions',corps:'Électricité',duree:1},
+  {label:'Nettoyage de fin de chantier',phase:'Réception',corps:'',duree:1},
+  {label:'Réception des travaux',phase:'Réception',corps:'',duree:1},
+  {label:'Levée des réserves',phase:'Réception',corps:'',duree:1},
+];
 const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Travaux',reception:'Réception',clos:'Clos'};
 /* une pièce écrite tient rarement en un seul fichier : plans d'exécution en
    plusieurs planches, notice + annexes, marché + attestations. On garde donc
@@ -6140,9 +6173,66 @@ const finPrevue=(prevue,duree)=>{
   const[y,m,d]=prevue.split('-').map(Number);
   return isoDate(new Date(y,m-1,d+(+duree-1)));
 };
+/* enchaîne les dates prévues d'une liste de jalons à partir d'une date de
+   départ : chaque étape commence le lendemain de la fin de la précédente.
+   Une étape déjà réalisée (date réelle) n'est pas déplacée, mais sert quand
+   même de point d'ancrage pour la suite. */
+const cascaderJalons=(jalons,debut)=>{
+  let curseur=debut;
+  return jalons.map(j=>{
+    const prevue=j.reelle?j.prevue:(curseur||j.prevue);
+    if(curseur){
+      const fin=j.reelle||finPrevue(prevue,j.duree||1)||prevue;
+      if(fin){const[y,m,d]=fin.split('-').map(Number);curseur=isoDate(new Date(y,m-1,d+1))}
+    }
+    return j.reelle?j:{...j,prevue};
+  });
+};
+/* la frise chronologique : une barre par jalon daté, groupée par phase */
+function PlanningGantt({js}){
+  const items=js.filter(j=>j.prevue||j.reelle);
+  if(!items.length)return <Empty>Aucune date renseignée — renseignez une date de démarrage puis « Trame
+    standard », ou saisissez une date sur chaque étape, pour voir le planning ici.</Empty>;
+  const debut=x=>x.reelle||x.prevue;
+  const fin=x=>x.reelle||finPrevue(x.prevue,x.duree||1)||x.prevue;
+  const min=items.map(debut).reduce((a,b)=>a<b?a:b);
+  const max=items.map(fin).reduce((a,b)=>a>b?a:b);
+  const jourMin=new Date(min);
+  const total=Math.max(1,Math.round((new Date(max)-jourMin)/86400000)+1);
+  const pos=d=>Math.max(0,Math.round((new Date(d)-jourMin)/86400000));
+  const t=today();
+  let phaseCourante='';
+  return <div>
+    <div className="xs mut" style={{marginBottom:10,lineHeight:1.5}}>Du {fd(min)} au {fd(max)}.</div>
+    <div style={{overflowX:'auto'}}>
+      <div style={{minWidth:480}}>
+        {js.map(j=>{
+          if(!j.prevue&&!j.reelle)return null;
+          const entete=j.phase&&j.phase!==phaseCourante;
+          if(entete)phaseCourante=j.phase;
+          const d0=debut(j), d1=fin(j);
+          const g=pos(d0), largeur=Math.max(1,pos(d1)-g+1);
+          const done=!!j.reelle, late=j.prevue&&!j.reelle&&j.prevue<t;
+          return <React.Fragment key={j.id}>
+            {entete&&<div className="xs b" style={{color:NAVY,marginTop:12,marginBottom:5}}>{j.phase.toUpperCase()}</div>}
+            <div className="row" style={{alignItems:'center',gap:8,marginBottom:5}}>
+              <span className="xs" style={{width:160,flex:'0 0 auto',color:done?MUTED:INK,textDecoration:done?'line-through':'none',
+                overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={j.label}>{j.label}</span>
+              <div style={{flex:1,position:'relative',height:14,background:'#EFECE4',borderRadius:3}}>
+                <div style={{position:'absolute',left:(g/total*100)+'%',width:(largeur/total*100)+'%',minWidth:4,height:'100%',
+                  borderRadius:3,background:done?GREEN:late?TERRA:NAVY}}/>
+              </div>
+            </div>
+          </React.Fragment>;
+        })}
+      </div>
+    </div>
+  </div>;
+}
 function Planning({data,ch,up}){
   const js=ch.jalons||[];
   const [f,setF]=useState(null);
+  const [vue,setVue]=useState('liste');
   const livr=data.commandes.filter(c=>c.chantierId===ch.id&&(c.livrPrevue||c.livrReelle))
     .map(c=>({type:'livr',id:c.id,label:'Livraison — '+c.designation,prevue:c.livrPrevue,reelle:c.livrReelle}));
   const items=[...js.map(j=>({...j,type:'jalon'})),...livr]
@@ -6152,17 +6242,32 @@ function Planning({data,ch,up}){
     const n=f.id?js.map(j=>j.id===f.id?f:j):[...js,{...f,id:uid()}];
     up({jalons:n});setF(null);
   };
+  const trame=()=>{
+    const base=JALONS.map(l=>({id:uid(),label:l.label,phase:l.phase,corps:l.corps||'',duree:l.duree||'',prevue:'',reelle:''}));
+    up({jalons:ch.planningDebut?cascaderJalons(base,ch.planningDebut):base});
+  };
+  const recalculer=()=>{if(ch.planningDebut)up({jalons:cascaderJalons(js,ch.planningDebut)})};
   return <div>
+    <Fld label="DATE DE DÉMARRAGE DU CHANTIER">
+      <input className="in" type="date" value={ch.planningDebut||''} onChange={e=>up({planningDebut:e.target.value})}/>
+      <div className="xs mut" style={{marginTop:4,marginBottom:12,lineHeight:1.5}}>
+        Sert à calculer automatiquement la date de chaque étape, à la suite les unes des autres.</div>
+    </Fld>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">{js.length} jalon{js.length>1?'s':''} · {livr.length} livraison{livr.length>1?'s':''}</span>
-      <div className="row" style={{gap:8}}>
-        {!js.length&&<button className="btn gh s" onClick={()=>up({jalons:JALONS.map(l=>({id:uid(),label:l,prevue:'',reelle:''}))})}>Trame standard</button>}
+      <div className="row" style={{gap:8,flexWrap:'wrap'}}>
+        {!js.length&&<button className="btn gh s" onClick={trame}>Trame standard</button>}
+        {!!js.length&&<button className="btn gh s" disabled={!ch.planningDebut} onClick={recalculer}>Recalculer les dates</button>}
         <button className="btn acc s" onClick={()=>setF({label:'',prevue:'',reelle:'',corps:'',duree:''})}>+ Jalon</button>
       </div>
     </div>
+    {!!js.length&&<div className="row" style={{gap:6,marginBottom:12}}>
+      <button className={'btn s '+(vue==='liste'?'':'gh')} onClick={()=>setVue('liste')}>Liste</button>
+      <button className={'btn s '+(vue==='gantt'?'':'gh')} onClick={()=>setVue('gantt')}>Planning</button>
+    </div>}
     {f&&<div className="card">
       <Fld label="ÉTAPE"><input className="in" list="jl" value={f.label} onChange={e=>setF({...f,label:e.target.value})}/>
-        <datalist id="jl">{JALONS.map(j=><option key={j} value={j}/>)}</datalist></Fld>
+        <datalist id="jl">{JALONS.map(j=><option key={j.label} value={j.label}/>)}</datalist></Fld>
       <div className="g2">
         <Fld label="DATE PRÉVUE"><input className="in" type="date" value={f.prevue} onChange={e=>setF({...f,prevue:e.target.value})}/></Fld>
         <Fld label="DATE RÉELLE"><input className="in" type="date" value={f.reelle} onChange={e=>setF({...f,reelle:e.target.value})}/></Fld>
@@ -6178,8 +6283,9 @@ function Planning({data,ch,up}){
         Soit du {fd(f.prevue)} au {fd(finPrevue(f.prevue,f.duree))}.</div>}
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{up({jalons:js.filter(j=>j.id!==f.id)});setF(null)}:null}/>
     </div>}
-    {!items.length&&!f&&<Empty>Aucune étape. « Trame standard » crée les 12 jalons d'une maison neuve.</Empty>}
-    {items.map(i=>{
+    {!items.length&&!f&&<Empty>Aucune étape. « Trame standard » crée un planning détaillé de maison neuve, phase par phase.</Empty>}
+    {vue==='gantt'&&!!items.length&&<PlanningGantt js={js}/>}
+    {vue==='liste'&&items.map(i=>{
       const done=!!i.reelle, late=i.prevue&&!i.reelle&&i.prevue<today();
       const liv=i.type==='livr';
       const fin=!liv&&!done?finPrevue(i.prevue,i.duree):'';
@@ -6191,8 +6297,8 @@ function Planning({data,ch,up}){
           <span className="xs" style={{color:late?TERRA:MUTED,textAlign:'right',minWidth:74}}>
             {done?fd(i.reelle):late?'retard '+fd(i.prevue):fd(i.prevue)}</span>
         </div>
-        {!liv&&(i.corps||fin)&&<div className="xs mut" style={{marginTop:3}}>
-          {i.corps}{i.corps&&fin?' · ':''}{fin?'jusqu’au '+fd(fin)+' ('+i.duree+' j)':''}
+        {!liv&&(i.phase||i.corps||fin)&&<div className="xs mut" style={{marginTop:3}}>
+          {i.phase}{i.phase&&i.corps?' · ':''}{i.corps}{(i.phase||i.corps)&&fin?' · ':''}{fin?'jusqu’au '+fd(fin)+' ('+i.duree+' j)':''}
         </div>}
       </div>;
     })}
