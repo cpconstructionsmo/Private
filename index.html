@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-29 · finitions/couleurs par produit, et menu déroulant sur les portes intérieures';
+const VERSION='2026-08-29 · tâches modifiables avec degré d’urgence, liste de travail sur le tableau de bord';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -6058,50 +6058,75 @@ function CommandesGlob({data,open}){
    Ce qui reste à faire sur ce chantier, en vrac — pas un jalon daté du
    programme, juste un pense-bête : relancer un artisan, vérifier un point,
    passer un coup de fil. Cochée, une tâche se raye plutôt que de disparaître. */
+/* les degrés d'urgence d'une tâche : optionnel, une tâche « normale » n'en
+   porte aucun (chaîne vide) */
+const URGENCES=['Urgente','Très urgente'];
+const urgenceCouleur=u=>u==='Très urgente'?TERRA:u==='Urgente'?AMBER:null;
 function Taches({ch,up}){
   const T=ch.taches||[];
-  const [texte,setTexte]=useState('');
-  const [echeance,setEcheance]=useState('');
-  const restantes=T.filter(x=>!x.fait).length;
-  const ajouter=()=>{
-    if(!texte.trim())return;
-    up({taches:[...T,{id:uid(),texte:texte.trim(),fait:false,echeance:echeance||'',creeLe:today()}]});
-    setTexte('');setEcheance('');
+  const [f,setF]=useState(null);
+  const neuf=()=>({id:uid(),texte:'',echeance:'',urgence:'',fait:false,creeLe:today()});
+  const ok=()=>{
+    if(!f.texte.trim())return;
+    const r={...f,texte:f.texte.trim()};
+    up({taches:T.some(x=>x.id===r.id)?T.map(x=>x.id===r.id?r:x):[...T,r]});
+    setF(null);
   };
-  const tog=id=>up({taches:T.map(x=>x.id===id?{...x,fait:!x.fait}:x)});
-  const suppr=id=>up({taches:T.filter(x=>x.id!==id)});
+  const tog=(id,e)=>{e.stopPropagation();up({taches:T.map(x=>x.id===id?{...x,fait:!x.fait}:x)})};
+  const suppr=id=>{up({taches:T.filter(x=>x.id!==id)});setF(null)};
+  const restantes=T.filter(x=>!x.fait).length;
   const t=today();
+  const rang=x=>{
+    if(x.echeance&&!x.fait&&x.echeance<t)return 0;
+    if(x.urgence==='Très urgente')return 1;
+    if(x.urgence==='Urgente')return 2;
+    return 3;
+  };
   const L=T.slice().sort((a,b)=>{
     if(!!a.fait!==!!b.fait)return a.fait?1:-1;
-    return (a.echeance||'9999-99-99').localeCompare(b.echeance||'9999-99-99');
+    if(a.fait)return (a.echeance||'9999-99-99').localeCompare(b.echeance||'9999-99-99');
+    const d=rang(a)-rang(b);
+    return d||(a.echeance||'9999-99-99').localeCompare(b.echeance||'9999-99-99');
   });
   return <div>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">{restantes} tâche{restantes>1?'s':''} à faire sur {T.length}</span>
+      <button className="btn acc s" onClick={()=>setF(neuf())}>+ Tâche</button>
     </div>
-    <div className="card" style={{marginBottom:12}}>
-      <Fld label="NOUVELLE TÂCHE">
-        <input className="in" value={texte} onChange={e=>setTexte(e.target.value)}
-          onKeyDown={e=>{if(e.key==='Enter')ajouter()}}
+    {f&&<div className="card" style={{marginBottom:12}}>
+      <Fld label="INTITULÉ">
+        <input className="in" value={f.texte} onChange={e=>setF({...f,texte:e.target.value})}
+          onKeyDown={e=>{if(e.key==='Enter')ok()}}
           placeholder="Relancer le plombier pour le devis…"/>
       </Fld>
       <div className="g2">
-        <Fld label="ÉCHÉANCE (OPTIONNELLE)"><input className="in" type="date" value={echeance} onChange={e=>setEcheance(e.target.value)}/></Fld>
-        <div style={{display:'flex',alignItems:'flex-end'}}>
-          <button className="btn acc s" onClick={ajouter} style={{width:'100%'}}>+ Ajouter</button>
-        </div>
+        <Fld label="ÉCHÉANCE (OPTIONNELLE)"><input className="in" type="date" value={f.echeance||''} onChange={e=>setF({...f,echeance:e.target.value})}/></Fld>
+        <Fld label="DEGRÉ D’URGENCE">
+          <select className="in" value={f.urgence||''} onChange={e=>setF({...f,urgence:e.target.value})}>
+            <option value="">Normale</option>
+            {URGENCES.map(u=><option key={u} value={u}>{u}</option>)}
+          </select>
+        </Fld>
       </div>
-    </div>
-    {!T.length&&<Empty>Aucune tâche. Notez ici ce qu'il reste à faire sur ce chantier.</Empty>}
+      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={T.some(x=>x.id===f.id)?()=>suppr(f.id):null}/>
+    </div>}
+    {!T.length&&!f&&<Empty>Aucune tâche. « + Tâche » note ici ce qu'il reste à faire sur ce chantier.</Empty>}
     {L.map(x=>{
       const retard=x.echeance&&!x.fait&&x.echeance<t;
-      return <div key={x.id} className="card row" style={{gap:10,alignItems:'flex-start',padding:10}}>
-        <button className="chk" onClick={()=>tog(x.id)} style={{background:x.fait?GREEN:'#fff',borderColor:x.fait?GREEN:RULE,flex:'0 0 auto'}}>{x.fait?'✓':''}</button>
+      const coul=urgenceCouleur(x.urgence);
+      return <div key={x.id} className="card row" style={{gap:10,alignItems:'flex-start',padding:10,cursor:'pointer',
+          borderLeft:(!x.fait&&(retard||coul))?'3px solid '+(retard?TERRA:coul):undefined}}
+        onClick={()=>setF({...neuf(),...x})}>
+        <button className="chk" onClick={e=>tog(x.id,e)} style={{background:x.fait?GREEN:'#fff',borderColor:x.fait?GREEN:RULE,flex:'0 0 auto'}}>{x.fait?'✓':''}</button>
         <div style={{flex:1,minWidth:0}}>
           <div className="sm" style={{color:x.fait?MUTED:INK,textDecoration:x.fait?'line-through':'none'}}>{x.texte}</div>
-          {x.echeance&&<div className="xs" style={{color:retard?TERRA:MUTED,marginTop:2}}>{retard?'retard — échéance ':'échéance '}{fd(x.echeance)}</div>}
+          {(x.echeance||(x.urgence&&!x.fait))&&<div className="xs" style={{color:retard?TERRA:MUTED,marginTop:2}}>
+            {x.echeance&&(retard?'retard — échéance ':'échéance ')+fd(x.echeance)}
+            {x.echeance&&x.urgence&&!x.fait?' · ':''}
+            {x.urgence&&!x.fait?<span style={{color:coul}}>{x.urgence}</span>:null}
+          </div>}
         </div>
-        <button onClick={()=>suppr(x.id)} className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}}>✕</button>
+        <button onClick={e=>{e.stopPropagation();suppr(x.id)}} className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}}>✕</button>
       </div>;
     })}
   </div>;
@@ -7851,6 +7876,18 @@ function TableauBord({data,open,allerA}){
     if(!x.fait&&x.echeance&&x.echeance<t)tachesRetard.push({ch:c,x,jours:joursDepuis(x.echeance)});
   }));
   tachesRetard.sort((a,b)=>(a.x.echeance||'').localeCompare(b.x.echeance||''));
+  /* la liste de travail : toutes les tâches ouvertes, tous chantiers vivants
+     confondus — pas seulement celles en retard. En retard puis urgence
+     décroissante puis échéance ; sans échéance, en dernier. */
+  const rangTache=x=>{
+    if(x.echeance&&x.echeance<t)return 0;
+    if(x.urgence==='Très urgente')return 1;
+    if(x.urgence==='Urgente')return 2;
+    return 3;
+  };
+  const tachesAFaire=[];
+  actifs.forEach(c=>(c.taches||[]).forEach(x=>{if(!x.fait)tachesAFaire.push({ch:c,x})}));
+  tachesAFaire.sort((a,b)=>rangTache(a.x)-rangTache(b.x)||(a.x.echeance||'9999-99-99').localeCompare(b.x.echeance||'9999-99-99'));
   /* les rendez-vous des sept prochains jours — un aperçu, pas une alerte : il
      ne compte pas dans « rien ne réclame d'action », un rendez-vous n'est pas
      un problème. */
@@ -7888,6 +7925,20 @@ function TableauBord({data,open,allerA}){
         x.date===t?TERRA:NAVY))}
     </Bloc></div>}
 
+    {tachesAFaire.length>0&&<div style={{marginBottom:8}}><Bloc titre="TÂCHES À RÉALISER" n={tachesAFaire.length} c={tachesRetard.length?TERRA:NAVY}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Toutes les tâches ouvertes, tous chantiers confondus. Cochées comme faites dans l’onglet TÂCHES de chaque chantier, elles sortent d’ici.</div>
+      {tachesAFaire.map(({ch,x})=>{
+        const retard=x.echeance&&x.echeance<t;
+        const droite=retard?'retard '+joursDepuis(x.echeance)+' j'
+          :x.urgence?x.urgence+(x.echeance?' · '+fd(x.echeance):'')
+          :x.echeance?fd(x.echeance):'—';
+        const couleur=retard?TERRA:x.urgence==='Très urgente'?TERRA:x.urgence==='Urgente'?AMBER:MUTED;
+        return item(ch.id+':'+x.id,()=>open(ch.id),
+          <span><b>{x.texte}</b><span className="mut"> · {ch.nom}</span></span>,
+          droite, couleur);
+      })}
+    </Bloc></div>}
+
     {rien&&<div className="card" style={{borderLeft:'3px solid '+GREEN}}>
       <div className="b sm" style={{color:GREEN}}>Rien ne réclame d’action</div>
       <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Aucun chiffrage en attente, aucune étape en retard, aucune pièce manquante à la phase en cours, aucune décennale proche de son terme et aucune tâche en retard.</div>
@@ -7911,13 +7962,6 @@ function TableauBord({data,open,allerA}){
       {retards.map(({ch,j})=>item(ch.id+':'+j.id,()=>open(ch.id),
         <span><b>{j.label}</b><span className="mut"> · {ch.nom}</span></span>,
         j.retard?'retard '+j.jours+' j':fd(j.prevue), j.retard?TERRA:AMBER))}
-    </Bloc></div>}
-
-    {tachesRetard.length>0&&<div style={{marginTop:8}}><Bloc titre="TÂCHES EN RETARD" n={tachesRetard.length} c={TERRA}>
-      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Cochées comme faites, elles sortent d’ici.</div>
-      {tachesRetard.map(({ch,x,jours})=>item(ch.id+':'+x.id,()=>open(ch.id),
-        <span><b>{x.texte}</b><span className="mut"> · {ch.nom}</span></span>,
-        'retard '+jours+' j', TERRA))}
     </Bloc></div>}
 
     {pieces.length>0&&<div style={{marginTop:8}}><Bloc titre="PIÈCES À AJOUTER" n={pieces.reduce((s,x)=>s+x.manque.length,0)} c={AMBER}>
