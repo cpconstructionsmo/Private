@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-28 · agenda interne : rendez-vous ajoutés à la main, marqués pro ou perso';
+const VERSION='2026-08-29 · agenda en vue calendrier, avec client et lieu sur chaque rendez-vous';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -7555,37 +7555,68 @@ function Fournisseurs({data,save}){
 
 /* ---------------- AGENDA ----------------
    Des rendez-vous ajoutés à la main, marqués professionnel ou personnel — pas
-   de compte Google à connecter, juste ce que vous y mettez. */
+   de compte Google à connecter, juste ce que vous y mettez. Vue calendrier :
+   la grille garde toujours 6 semaines (42 cases), semaine commençant le lundi,
+   pour ne pas sauter en hauteur d'un mois à l'autre. */
+const MOIS_NOMS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const JOURS_NOMS=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+const isoDate=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+function grilleCalendrier(annee,mois){
+  const premier=new Date(annee,mois,1);
+  const decalage=(premier.getDay()+6)%7; // lundi=0
+  const debut=new Date(annee,mois,1-decalage);
+  const cases=[];
+  for(let i=0;i<42;i++){
+    const d=new Date(debut.getFullYear(),debut.getMonth(),debut.getDate()+i);
+    cases.push({date:isoDate(d),jour:d.getDate(),dansMois:d.getMonth()===mois});
+  }
+  return cases;
+}
 function Agenda({data,save}){
   const [f,setF]=useState(null);
+  const [mois,setMois]=useState(()=>{const d=new Date();return {annee:d.getFullYear(),m:d.getMonth()}});
   const R=data.rendezvous||[];
-  const neuf=()=>({id:uid(),titre:'',date:today(),heure:'',type:'pro',notes:''});
+  const neuf=date=>({id:uid(),titre:'',date:date||today(),heure:'',client:'',lieu:'',type:'pro',notes:''});
   const ok=()=>{
     if(!(f.titre||'').trim()||!f.date)return;
     save({...data,rendezvous:R.some(x=>x.id===f.id)?R.map(x=>x.id===f.id?f:x):[...R,f]});
     setF(null);
   };
-  const cle=x=>(x.date||'9999-99-99')+' '+(x.heure||'99:99');
-  const L=R.slice().sort((a,b)=>cle(a).localeCompare(cle(b)));
+  const del=()=>{if(confirm('Supprimer ce rendez-vous ?')){save({...data,rendezvous:R.filter(x=>x.id!==f.id)});setF(null)}};
+
+  const parJour={};
+  R.forEach(x=>{(parJour[x.date]=parJour[x.date]||[]).push(x)});
+  Object.keys(parJour).forEach(d=>parJour[d].sort((a,b)=>(a.heure||'99:99').localeCompare(b.heure||'99:99')));
+  const cases=grilleCalendrier(mois.annee,mois.m);
   const auj=today();
-  const avenir=L.filter(x=>(x.date||'')>=auj);
-  const passes=L.filter(x=>(x.date||'')<auj).slice().reverse();
+  const prochains=R.slice()
+    .filter(x=>(x.date||'')>=auj)
+    .sort((a,b)=>((a.date||'9999')+' '+(a.heure||'99:99')).localeCompare((b.date||'9999')+' '+(b.heure||'99:99')))
+    .slice(0,5);
+  const decaler=n=>setMois(m=>{const d=new Date(m.annee,m.m+n,1);return {annee:d.getFullYear(),m:d.getMonth()}});
+
   const Badge=({x})=><span className="xs" style={{marginLeft:8,padding:'1px 8px',borderRadius:20,fontWeight:600,
     background:x.type==='perso'?'#F6E2DC':'#E4EAEE',color:x.type==='perso'?TERRA:NAVY}}>
     {x.type==='perso'?'Perso':'Pro'}</span>;
-  const Ligne=({x})=><div className="card" onClick={()=>setF(x)} style={{cursor:'pointer'}}>
-    <div className="sp">
-      <span className="b sm" style={{color:NAVY}}>{x.titre}<Badge x={x}/></span>
-      <span className="xs mut" style={{whiteSpace:'nowrap'}}>{fd(x.date)}{x.heure?' · '+x.heure:''}</span>
-    </div>
-    {x.notes&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>{x.notes}</div>}
-  </div>;
+  const Puce=({x})=><div onClick={e=>{e.stopPropagation();setF(x)}}
+    title={[x.heure,x.titre,x.client,x.lieu].filter(Boolean).join(' — ')}
+    style={{fontSize:10.5,marginTop:2,padding:'1px 4px',borderRadius:4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
+      cursor:'pointer',background:x.type==='perso'?'#F6E2DC':'#E4EAEE',color:x.type==='perso'?TERRA:NAVY}}>
+    {x.heure?x.heure+' ':''}{x.titre||'(sans titre)'}</div>;
+
   return <div>
     <H2 action={<button className="btn acc s" onClick={()=>setF(neuf())}>+ Rendez-vous</button>}>
       AGENDA ({R.length})</H2>
-    {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+
+    {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA,marginBottom:20}}>
       <Fld label="TITRE"><input className="in" value={f.titre} onChange={e=>setF({...f,titre:e.target.value})}
-        placeholder="Visite chantier Louveau, RDV notaire…"/></Fld>
+        placeholder="Visite chantier, RDV notaire…"/></Fld>
+      <div className="g2">
+        <Fld label="NOM DU CLIENT"><input className="in" value={f.client||''} onChange={e=>setF({...f,client:e.target.value})}
+          placeholder="M. et Mme Louveau"/></Fld>
+        <Fld label="LIEU"><input className="in" value={f.lieu||''} onChange={e=>setF({...f,lieu:e.target.value})}
+          placeholder="23 route des Hameaux, Résenlieu"/></Fld>
+      </div>
       <div className="g2">
         <Fld label="DATE"><input className="in" type="date" value={f.date} onChange={e=>setF({...f,date:e.target.value})}/></Fld>
         <Fld label="HEURE"><input className="in" type="time" value={f.heure||''} onChange={e=>setF({...f,heure:e.target.value})}/></Fld>
@@ -7597,18 +7628,42 @@ function Agenda({data,save}){
         </select>
       </Fld>
       <Fld label="NOTES"><textarea className="in" rows="3" value={f.notes||''} onChange={e=>setF({...f,notes:e.target.value})}
-        placeholder="Lieu, contact, précisions…"/></Fld>
-      <Acts onSave={ok} onCancel={()=>setF(null)}
-        onDel={!R.some(x=>x.id===f.id)?null:()=>{if(confirm('Supprimer ce rendez-vous ?')){save({...data,rendezvous:R.filter(x=>x.id!==f.id)});setF(null)}}}/>
+        placeholder="Contact, précisions…"/></Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={!R.some(x=>x.id===f.id)?null:del}/>
     </div>}
-    {!R.length&&!f&&<Empty>Aucun rendez-vous. « + Rendez-vous » ouvre le premier.</Empty>}
-    {!f&&avenir.length>0&&<>
-      <div className="h2" style={{marginBottom:8}}>À VENIR ({avenir.length})</div>
-      {avenir.map(x=><Ligne key={x.id} x={x}/>)}
-    </>}
-    {!f&&passes.length>0&&<>
-      <div className="h2" style={{marginTop:avenir.length?20:0,marginBottom:8}}>PASSÉS ({passes.length})</div>
-      {passes.map(x=><Ligne key={x.id} x={x}/>)}
+
+    {!f&&<>
+      <div className="sp" style={{marginBottom:10,alignItems:'center'}}>
+        <button className="btn s" onClick={()=>decaler(-1)} aria-label="Mois précédent">←</button>
+        <span className="b" style={{color:NAVY}}>{MOIS_NOMS[mois.m]} {mois.annee}</span>
+        <div className="row" style={{gap:6}}>
+          <button className="btn s" onClick={()=>{const d=new Date();setMois({annee:d.getFullYear(),m:d.getMonth()})}}>Aujourd’hui</button>
+          <button className="btn s" onClick={()=>decaler(1)} aria-label="Mois suivant">→</button>
+        </div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1,background:RULE,
+        border:'1px solid '+RULE,borderRadius:8,overflow:'hidden'}}>
+        {JOURS_NOMS.map(j=><div key={j} className="xs mut" style={{background:'#F4F1EB',padding:'6px 4px',textAlign:'center',fontWeight:600}}>{j}</div>)}
+        {cases.map(c=><div key={c.date} data-date={c.date} onClick={()=>setF(neuf(c.date))}
+          style={{background:'#fff',minHeight:76,padding:'4px 5px',cursor:'pointer',opacity:c.dansMois?1:.4}}>
+          <div className="xs" style={{fontWeight:c.date===auj?700:500,color:c.date===auj?TERRA:INK}}>{c.jour}</div>
+          {(parJour[c.date]||[]).slice(0,3).map(x=><Puce key={x.id} x={x}/>)}
+          {(parJour[c.date]||[]).length>3&&<div className="xs mut" style={{marginTop:2}}>
+            +{(parJour[c.date]||[]).length-3} autre{(parJour[c.date]||[]).length-3>1?'s':''}</div>}
+        </div>)}
+      </div>
+
+      {prochains.length>0&&<div style={{marginTop:24}}>
+        <div className="h2" style={{marginBottom:8}}>PROCHAINS RENDEZ-VOUS</div>
+        {prochains.map(x=><div key={x.id} className="card" onClick={()=>setF(x)} style={{cursor:'pointer'}}>
+          <div className="sp">
+            <span className="b sm" style={{color:NAVY}}>{x.titre}<Badge x={x}/></span>
+            <span className="xs mut" style={{whiteSpace:'nowrap'}}>{fd(x.date)}{x.heure?' · '+x.heure:''}</span>
+          </div>
+          {(x.client||x.lieu)&&<div className="xs mut" style={{marginTop:3}}>{[x.client,x.lieu].filter(Boolean).join(' · ')}</div>}
+        </div>)}
+      </div>}
+      {!R.length&&<Empty>Aucun rendez-vous. Cliquez un jour du calendrier, ou « + Rendez-vous ».</Empty>}
     </>}
   </div>;
 }
