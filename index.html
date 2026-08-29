@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-29 · onglet TÂCHES par chantier, et durée d’intervention par corps de métier dans PLANNING';
+const VERSION='2026-08-29 · les tâches en retard remontent aussi sur le tableau de bord';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -7788,13 +7788,21 @@ function TableauBord({data,open,allerA}){
   const t=today();
   const decen=data.artisans.map(a=>({a,j:a.decennaleFin?Math.round((new Date(a.decennaleFin)-new Date(t))/86400000):null}))
     .filter(x=>x.j===null||x.j<60).sort((a,b)=>(a.j===null?-1e9:a.j)-(b.j===null?-1e9:b.j));
+  /* les tâches en retard, tous chantiers vivants confondus — celles qu'on a
+     notées et qu'on a laissées filer. À la différence d'un rendez-vous, c'est
+     bien un problème : ça compte dans « rien ne réclame d'action ». */
+  const tachesRetard=[];
+  actifs.forEach(c=>(c.taches||[]).forEach(x=>{
+    if(!x.fait&&x.echeance&&x.echeance<t)tachesRetard.push({ch:c,x,jours:joursDepuis(x.echeance)});
+  }));
+  tachesRetard.sort((a,b)=>(a.x.echeance||'').localeCompare(b.x.echeance||''));
   /* les rendez-vous des sept prochains jours — un aperçu, pas une alerte : il
      ne compte pas dans « rien ne réclame d'action », un rendez-vous n'est pas
      un problème. */
   const limiteRdv=new Date(Date.now()+7*86400000).toISOString().slice(0,10);
   const rdvProches=(data.rendezvous||[]).filter(x=>x.date&&x.date>=t&&x.date<=limiteRdv)
     .sort((a,b)=>((a.date||'')+' '+(a.heure||'99:99')).localeCompare((b.date||'')+' '+(b.heure||'99:99')));
-  const rien=!chiffrages.length&&!retards.length&&!pieces.length&&!decen.length;
+  const rien=!chiffrages.length&&!retards.length&&!pieces.length&&!decen.length&&!tachesRetard.length;
   const Bloc=({titre,n,c,children})=><div className="card" style={{borderLeft:'3px solid '+c}}>
     <div className="sp" style={{marginBottom:8}}>
       <span className="b sm" style={{color:c}}>{titre}</span>
@@ -7813,6 +7821,7 @@ function TableauBord({data,open,allerA}){
       <Stat l="Chantiers en cours" v={String(actifs.length)} c={NAVY}/>
       <Stat l="Décennales à surveiller" v={String(decen.length)} c={decen.length?AMBER:GREEN}/>
       <Stat l="Rendez-vous (7 j)" v={String(rdvProches.length)} c={NAVY}/>
+      <Stat l="Tâches en retard" v={String(tachesRetard.length)} c={tachesRetard.length?TERRA:GREEN}/>
     </div>
 
     {rdvProches.length>0&&<div style={{marginBottom:8}}><Bloc titre="AGENDA — 7 PROCHAINS JOURS" n={rdvProches.length} c={NAVY}>
@@ -7826,7 +7835,7 @@ function TableauBord({data,open,allerA}){
 
     {rien&&<div className="card" style={{borderLeft:'3px solid '+GREEN}}>
       <div className="b sm" style={{color:GREEN}}>Rien ne réclame d’action</div>
-      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Aucun chiffrage en attente, aucune étape en retard, aucune pièce manquante à la phase en cours et aucune décennale proche de son terme.</div>
+      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Aucun chiffrage en attente, aucune étape en retard, aucune pièce manquante à la phase en cours, aucune décennale proche de son terme et aucune tâche en retard.</div>
     </div>}
 
     {chiffrages.length>0&&<Bloc titre="DEMANDES DE CHIFFRAGE" n={chiffrages.length} c={TERRA}>
@@ -7847,6 +7856,13 @@ function TableauBord({data,open,allerA}){
       {retards.map(({ch,j})=>item(ch.id+':'+j.id,()=>open(ch.id),
         <span><b>{j.label}</b><span className="mut"> · {ch.nom}</span></span>,
         j.retard?'retard '+j.jours+' j':fd(j.prevue), j.retard?TERRA:AMBER))}
+    </Bloc></div>}
+
+    {tachesRetard.length>0&&<div style={{marginTop:8}}><Bloc titre="TÂCHES EN RETARD" n={tachesRetard.length} c={TERRA}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Cochées comme faites, elles sortent d’ici.</div>
+      {tachesRetard.map(({ch,x,jours})=>item(ch.id+':'+x.id,()=>open(ch.id),
+        <span><b>{x.texte}</b><span className="mut"> · {ch.nom}</span></span>,
+        'retard '+jours+' j', TERRA))}
     </Bloc></div>}
 
     {pieces.length>0&&<div style={{marginTop:8}}><Bloc titre="PIÈCES À AJOUTER" n={pieces.reduce((s,x)=>s+x.manque.length,0)} c={AMBER}>
