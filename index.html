@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-29 · les tâches en retard remontent aussi sur le tableau de bord';
+const VERSION='2026-08-29 · finitions/couleurs par produit, et menu déroulant sur les portes intérieures';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -2428,7 +2428,7 @@ function mapLignes(ch,data){
   add('6. Plâtrerie, isolation & menuiseries intérieures',[
     ['Doublage périphérique',m.doublage],['Cloisons de distribution',m.cloisons],
     ['Isolation des combles',m.isolationCombles],['Épaisseur',m.isolationComblesEpaisseur],['R (m².K/W)',m.isolationComblesR],
-    ['Portes intérieures — modèle',nomProduit(m.porteInterieureProduit)],['Largeur',m.porteInterieureLargeur],['Poignées',m.porteInterieurePoignees],
+    ['Portes intérieures — modèle',nomProduit(m.porteInterieureProduit)],['Finitions / couleur',m.porteInterieureFinition],['Largeur',m.porteInterieureLargeur],['Poignées',m.porteInterieurePoignees],
     ['Escalier & garde-corps',m.escalierType],
   ]);
   add('7. Équipements thermiques & sanitaires',[
@@ -6320,6 +6320,50 @@ function ChoixProduit({data,lot,value,onChange,label}){
   </Fld>;
 }
 
+/* une liste de finitions/couleurs libres, alimentée depuis la fiche produit
+   (chips + ajout au clavier) */
+function Finitions({liste,onChange}){
+  const L=liste||[];
+  const[t,setT]=useState('');
+  const ajouter=()=>{
+    const v=t.trim();
+    if(!v||L.includes(v))return;
+    onChange([...L,v]);setT('');
+  };
+  return <div>
+    {L.length>0&&<div className="row" style={{gap:6,flexWrap:'wrap',marginBottom:6}}>
+      {L.map(v=><span key={v} className="pill" style={{background:'#EEF1F4',color:NAVY}}>
+        {v}
+        <button type="button" onClick={()=>onChange(L.filter(x=>x!==v))}
+          style={{background:'none',border:'none',padding:'0 0 0 6px',color:MUTED,cursor:'pointer',font:'inherit'}}>✕</button>
+      </span>)}
+    </div>}
+    <div className="row" style={{gap:6}}>
+      <input className="in" value={t} onChange={e=>setT(e.target.value)}
+        placeholder="Décor Chêne gris galet structuré…"
+        onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();ajouter()}}}/>
+      <button type="button" className="btn gh s" onClick={ajouter}>+ Ajouter</button>
+    </div>
+  </div>;
+}
+
+/* le choix d'une finition/couleur, limité à celles enregistrées sur le
+   produit sélectionné dans la MAP */
+function ChoixFinition({data,produitId,value,onChange,label}){
+  const p=(data.produits||[]).find(x=>x.id===produitId);
+  const opts=(p&&p.finitions)||[];
+  return <Fld label={label}>
+    <select className="in" value={value||''} onChange={e=>onChange(e.target.value)} disabled={!produitId}>
+      <option value="">—</option>
+      {opts.map(v=><option key={v} value={v}>{v}</option>)}
+    </select>
+    {produitId&&!opts.length&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+      Aucune finition enregistrée pour ce produit — ajoutez-en depuis sa fiche, onglet PRODUITS.</div>}
+    {!produitId&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+      Choisissez d'abord le produit.</div>}
+  </Fld>;
+}
+
 /* les champs de la MAP, définis une fois pour de bon : les redéfinir à
    chaque rendu du formulaire (comme des fonctions imbriquées dans MAP) leur
    donnerait une identité différente à chaque frappe, et React détruirait
@@ -6542,7 +6586,10 @@ function MAP({data,ch,up}){
         <MapTxt m={m} set={set} k="isolationComblesEpaisseur" label="ÉPAISSEUR (mm)"/>
       </div>
       <MapTxt m={m} set={set} k="isolationComblesR" label="R (m².K/W)"/>
-      <ChoixProduit data={data} lot="Menuiseries int." value={m.porteInterieureProduit} onChange={v=>set({porteInterieureProduit:v})} label="PORTES INTÉRIEURES — MODÈLE"/>
+      <div className="g2">
+        <ChoixProduit data={data} lot="Menuiseries int." value={m.porteInterieureProduit} onChange={v=>set({porteInterieureProduit:v,porteInterieureFinition:''})} label="PORTES INTÉRIEURES — MODÈLE"/>
+        <ChoixFinition data={data} produitId={m.porteInterieureProduit} value={m.porteInterieureFinition} onChange={v=>set({porteInterieureFinition:v})} label="FINITIONS / COULEUR"/>
+      </div>
       <div className="g2">
         <MapChoix m={m} set={set} k="porteInterieureLargeur" label="LARGEUR (NORMES PMR)" opts={['63','73','83']}/>
         <MapTxt m={m} set={set} k="porteInterieurePoignees" label="POIGNÉES"/>
@@ -7497,7 +7544,7 @@ function Produits({data,save}){
   const [lot,setLot]=useState('');
   const P=data.produits||[];
   const dossier=async token=>driveProduitsFolder(token);
-  const neuf=()=>({id:uid(),nom:'',lot:'',marque:'',gamme:'',reference:'',coloris:'',
+  const neuf=()=>({id:uid(),nom:'',lot:'',marque:'',gamme:'',reference:'',coloris:'',finitions:[],
     description:'',fiches:[],maj:today(),neufA:true});
   const ok=()=>{
     if(!(f.nom||'').trim())return;
@@ -7510,7 +7557,7 @@ function Produits({data,save}){
   const L=P.filter(x=>{
     if(lot&&x.lot!==lot)return false;
     if(!dq)return true;
-    return deaccent([x.nom,x.marque,x.gamme,x.reference,x.description,x.coloris].join(' '))
+    return deaccent([x.nom,x.marque,x.gamme,x.reference,x.description,x.coloris,...(x.finitions||[])].join(' '))
       .toLowerCase().indexOf(dq)>=0;
   }).sort((a,b)=>(a.lot||'zz').localeCompare(b.lot||'zz')||(a.nom||'').localeCompare(b.nom||''));
   return <div>
@@ -7534,6 +7581,12 @@ function Produits({data,save}){
         <Fld label="RÉFÉRENCE"><input className="in" value={f.reference||''} onChange={e=>setF({...f,reference:e.target.value})}/></Fld>
       </div>
       <Fld label="COLORIS / FINITION"><input className="in" value={f.coloris||''} onChange={e=>setF({...f,coloris:e.target.value})} placeholder="RAL 7016, brun, sablé…"/></Fld>
+      <Fld label="FINITIONS / COULEURS DE LA GAMME">
+        <Finitions liste={f.finitions} onChange={v=>setF({...f,finitions:v})}/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+          Chaque finition ajoutée ici devient un choix possible dans le menu déroulant « Finitions /
+          couleur » de la MAP, une fois ce produit sélectionné.</div>
+      </Fld>
       <Fld label="DESCRIPTION"><textarea className="in" rows="3" value={f.description||''} onChange={e=>setF({...f,description:e.target.value})}
         placeholder="Ce qu’on en dit au client : performance, aspect, garantie…"/></Fld>
       <Fld label="FICHE TECHNIQUE OU PHOTO">
@@ -7562,6 +7615,8 @@ function Produits({data,save}){
           <div className="xs mut" style={{marginTop:3}}>
             {[x.lot,x.marque,x.gamme,x.reference].filter(Boolean).join(' · ')||'à compléter'}</div>
           {x.coloris&&<div className="xs mut" style={{marginTop:2}}>{x.coloris}</div>}
+          {!!(x.finitions||[]).length&&<div className="xs mut" style={{marginTop:2}}>
+            {x.finitions.length} finition{x.finitions.length>1?'s':''} enregistrée{x.finitions.length>1?'s':''}</div>}
         </button>
         {(x.fiches||[]).length
           ?<a href={x.fiches[0].lien} target="_blank" rel="noreferrer" className="btn gh s"
