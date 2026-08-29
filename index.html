@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-28 · QR code du marché : corrigé pour de bon, le vrai bug était dans le document Word lui-même';
+const VERSION='2026-08-28 · agenda interne : rendez-vous ajoutés à la main, marqués pro ou perso';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -218,7 +218,7 @@ const fichiersDe=r=>(r&&r.fichiers&&r.fichiers.length)?r.fichiers
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
 const NAV=[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],
   ['artisans','ARTISANS'],['cmd','ACHATS'],['bilan','FINANCES']];
-const NAV_PLUS=[['biblio','PRIX'],['produits','PRODUITS'],['fournisseurs','FOURNISSEURS'],['donnees','DONNÉES']];
+const NAV_PLUS=[['biblio','PRIX'],['produits','PRODUITS'],['fournisseurs','FOURNISSEURS'],['agenda','AGENDA'],['donnees','DONNÉES']];
 
 /* Les pièces qu'on attend à chaque phase. Le tableau de bord ne réclame que
    celles-là : réclamer les seize à un chantier qui démarre ne dit rien. */
@@ -793,7 +793,7 @@ const ventileFactures=L=>{
 /* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
-const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[],fournisseurs:[]};
+const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[],fournisseurs:[],rendezvous:[]};
 /* un enregistrement corrompu (case null au lieu d'être absente, retiré à la main
    dans la base) fait planter tout écran qui parcourt cette liste — un seul trou
    suffit à rendre CHANTIERS et ARTISANS injoignables. On l'écarte silencieusement
@@ -3623,6 +3623,7 @@ function App({session}){
       :view==='biblio'?<Bordereaux data={data} save={save}/>
       :view==='produits'?<Produits data={data} save={save}/>
       :view==='fournisseurs'?<Fournisseurs data={data} save={save}/>
+      :view==='agenda'?<Agenda data={data} save={save}/>
       :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
       :view==='artisans'?<Artisans data={data} save={save}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
@@ -7549,6 +7550,66 @@ function Fournisseurs({data,save}){
         {x.email&&<a href={'mailto:'+x.email} onClick={e=>e.stopPropagation()} style={{color:TERRA}}>Email</a>}
       </div>
     </div>)}
+  </div>;
+}
+
+/* ---------------- AGENDA ----------------
+   Des rendez-vous ajoutés à la main, marqués professionnel ou personnel — pas
+   de compte Google à connecter, juste ce que vous y mettez. */
+function Agenda({data,save}){
+  const [f,setF]=useState(null);
+  const R=data.rendezvous||[];
+  const neuf=()=>({id:uid(),titre:'',date:today(),heure:'',type:'pro',notes:''});
+  const ok=()=>{
+    if(!(f.titre||'').trim()||!f.date)return;
+    save({...data,rendezvous:R.some(x=>x.id===f.id)?R.map(x=>x.id===f.id?f:x):[...R,f]});
+    setF(null);
+  };
+  const cle=x=>(x.date||'9999-99-99')+' '+(x.heure||'99:99');
+  const L=R.slice().sort((a,b)=>cle(a).localeCompare(cle(b)));
+  const auj=today();
+  const avenir=L.filter(x=>(x.date||'')>=auj);
+  const passes=L.filter(x=>(x.date||'')<auj).slice().reverse();
+  const Badge=({x})=><span className="xs" style={{marginLeft:8,padding:'1px 8px',borderRadius:20,fontWeight:600,
+    background:x.type==='perso'?'#F6E2DC':'#E4EAEE',color:x.type==='perso'?TERRA:NAVY}}>
+    {x.type==='perso'?'Perso':'Pro'}</span>;
+  const Ligne=({x})=><div className="card" onClick={()=>setF(x)} style={{cursor:'pointer'}}>
+    <div className="sp">
+      <span className="b sm" style={{color:NAVY}}>{x.titre}<Badge x={x}/></span>
+      <span className="xs mut" style={{whiteSpace:'nowrap'}}>{fd(x.date)}{x.heure?' · '+x.heure:''}</span>
+    </div>
+    {x.notes&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>{x.notes}</div>}
+  </div>;
+  return <div>
+    <H2 action={<button className="btn acc s" onClick={()=>setF(neuf())}>+ Rendez-vous</button>}>
+      AGENDA ({R.length})</H2>
+    {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+      <Fld label="TITRE"><input className="in" value={f.titre} onChange={e=>setF({...f,titre:e.target.value})}
+        placeholder="Visite chantier Louveau, RDV notaire…"/></Fld>
+      <div className="g2">
+        <Fld label="DATE"><input className="in" type="date" value={f.date} onChange={e=>setF({...f,date:e.target.value})}/></Fld>
+        <Fld label="HEURE"><input className="in" type="time" value={f.heure||''} onChange={e=>setF({...f,heure:e.target.value})}/></Fld>
+      </div>
+      <Fld label="TYPE">
+        <select className="in" value={f.type||'pro'} onChange={e=>setF({...f,type:e.target.value})}>
+          <option value="pro">Professionnel</option>
+          <option value="perso">Personnel</option>
+        </select>
+      </Fld>
+      <Fld label="NOTES"><textarea className="in" rows="3" value={f.notes||''} onChange={e=>setF({...f,notes:e.target.value})}
+        placeholder="Lieu, contact, précisions…"/></Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)}
+        onDel={!R.some(x=>x.id===f.id)?null:()=>{if(confirm('Supprimer ce rendez-vous ?')){save({...data,rendezvous:R.filter(x=>x.id!==f.id)});setF(null)}}}/>
+    </div>}
+    {!R.length&&!f&&<Empty>Aucun rendez-vous. « + Rendez-vous » ouvre le premier.</Empty>}
+    {!f&&avenir.length>0&&<>
+      <div className="h2" style={{marginBottom:8}}>À VENIR ({avenir.length})</div>
+      {avenir.map(x=><Ligne key={x.id} x={x}/>)}
+    </>}
+    {!f&&passes.length>0&&<>
+      <div className="h2" style={{marginTop:avenir.length?20:0,marginBottom:8}}>PASSÉS ({passes.length})</div>
+      {passes.map(x=><Ligne key={x.id} x={x}/>)}
+    </>}
   </div>;
 }
 
