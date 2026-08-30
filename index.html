@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-29 · planning maison neuve détaillé par phases, dates en cascade et vue façon Gantt';
+const VERSION='2026-08-29 · récurrence sur les rendez-vous de l’agenda';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -7834,14 +7834,41 @@ function grilleCalendrier(annee,mois){
   }
   return cases;
 }
+/* la récurrence ne se pose qu'à la création : une fois les rendez-vous
+   posés, chacun s'édite ou se supprime indépendamment des autres */
+const RECURRENCES=[['','Aucune'],['semaine','Toutes les semaines'],['2semaines','Toutes les deux semaines'],['mois','Tous les mois']];
+const prochaineOccurrence=(date,rec)=>{
+  const[y,m,d]=date.split('-').map(Number);
+  if(rec==='semaine')return isoDate(new Date(y,m-1,d+7));
+  if(rec==='2semaines')return isoDate(new Date(y,m-1,d+14));
+  if(rec==='mois')return isoDate(new Date(y,m,d));
+  return date;
+};
+const genererSerie=(base,rec,fin)=>{
+  if(!rec)return [base];
+  const L=[base];
+  let cur=base.date;
+  /* avec une date de fin, elle arrête la boucle bien avant ; sans fin, on
+     plafonne pour ne pas créer des années de rendez-vous d'un coup */
+  const max=fin?200:24;
+  for(let i=1;i<max;i++){
+    cur=prochaineOccurrence(cur,rec);
+    if(fin&&cur>fin)break;
+    L.push({...base,id:uid(),date:cur});
+  }
+  return L;
+};
 function Agenda({data,save}){
   const [f,setF]=useState(null);
   const [mois,setMois]=useState(()=>{const d=new Date();return {annee:d.getFullYear(),m:d.getMonth()}});
   const R=data.rendezvous||[];
-  const neuf=date=>({id:uid(),titre:'',date:date||today(),heure:'',client:'',lieu:'',type:'pro',notes:''});
+  const neuf=date=>({id:uid(),titre:'',date:date||today(),heure:'',client:'',lieu:'',type:'pro',notes:'',recurrence:'',recurrenceFin:''});
+  const estNouveau=f&&!R.some(x=>x.id===f.id);
   const ok=()=>{
     if(!(f.titre||'').trim()||!f.date)return;
-    save({...data,rendezvous:R.some(x=>x.id===f.id)?R.map(x=>x.id===f.id?f:x):[...R,f]});
+    const {recurrence,recurrenceFin,...base}=f;
+    if(estNouveau)save({...data,rendezvous:[...R,...genererSerie(base,recurrence,recurrenceFin)]});
+    else save({...data,rendezvous:R.map(x=>x.id===f.id?base:x)});
     setF(null);
   };
   const del=()=>{if(confirm('Supprimer ce rendez-vous ?')){save({...data,rendezvous:R.filter(x=>x.id!==f.id)});setF(null)}};
@@ -7889,9 +7916,22 @@ function Agenda({data,save}){
           <option value="perso">Personnel</option>
         </select>
       </Fld>
+      {estNouveau&&<div className="g2">
+        <Fld label="RÉCURRENCE">
+          <select className="in" value={f.recurrence||''} onChange={e=>setF({...f,recurrence:e.target.value})}>
+            {RECURRENCES.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          </select>
+        </Fld>
+        {!!f.recurrence&&<Fld label="JUSQU’AU (OPTIONNEL)">
+          <input className="in" type="date" value={f.recurrenceFin||''} onChange={e=>setF({...f,recurrenceFin:e.target.value})}/>
+        </Fld>}
+      </div>}
+      {!!f.recurrence&&<div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.5}}>
+        Crée un rendez-vous par occurrence, jusqu’à la date choisie{f.recurrenceFin?'':' (24 au maximum, faute de date de fin)'}.
+        Chacun pourra ensuite être modifié ou supprimé indépendamment des autres.</div>}
       <Fld label="NOTES"><textarea className="in" rows="3" value={f.notes||''} onChange={e=>setF({...f,notes:e.target.value})}
         placeholder="Contact, précisions…"/></Fld>
-      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={!R.some(x=>x.id===f.id)?null:del}/>
+      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={estNouveau?null:del}/>
     </div>}
 
     {!f&&<>
