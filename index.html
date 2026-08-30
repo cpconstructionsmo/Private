@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-29 · récurrence sur les rendez-vous de l’agenda';
+const VERSION='2026-08-30 · plan électrique : import du PDF et pose des symboles normés';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -240,6 +240,44 @@ const JALONS=[
   {label:'Levée des réserves',phase:'Réception',corps:'',duree:1},
 ];
 const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Travaux',reception:'Réception',clos:'Clos'};
+
+/* ---------------- PLAN ÉLECTRIQUE ----------------
+   Les symboles repris de la légende des plans d'implantation que nous
+   envoient les bureaux d'études (Stevia, etc.) : mêmes intitulés, mêmes
+   hauteurs de pose, mêmes codes couleur — l'électricien qui reçoit le plan
+   retrouve exactement ce qu'il a l'habitude de lire. Les couleurs suivent
+   l'usage : rouge pour la puissance, bleu pour l'éclairage et la commande
+   centralisée, vert pour les courants faibles. */
+const ELEC_ROUGE='#C0392B',ELEC_BLEU='#1F6FA9',ELEC_VERT='#27823F';
+const ELEC_SYMBOLES=[
+  {id:'pc',      l:'PC 2P+T 16A',   h:30,  g:'Prises',      c:ELEC_ROUGE},
+  {id:'pch',     l:'PC H.',         h:110, g:'Prises',      c:ELEC_ROUGE},
+  {id:'ll',      l:'LL',            h:30,  g:'Prises',      c:ELEC_ROUGE},
+  {id:'lv',      l:'LV',            h:30,  g:'Prises',      c:ELEC_ROUGE},
+  {id:'sl',      l:'SL',            h:30,  g:'Prises',      c:ELEC_ROUGE},
+  {id:'ss',      l:'SS',            h:50,  g:'Prises',      c:ELEC_ROUGE},
+  {id:'rj45',    l:'RJ 45',         h:30,  g:'Prises',      c:ELEC_VERT},
+  {id:'tv',      l:'TV',            h:30,  g:'Prises',      c:ELEC_VERT},
+  {id:'sa',      l:'SA',            h:110, g:'Commandes',   c:ELEC_ROUGE},
+  {id:'savoy',   l:'SA Voy.',       h:110, g:'Commandes',   c:ELEC_ROUGE},
+  {id:'vv',      l:'V&V',           h:110, g:'Commandes',   c:ELEC_ROUGE},
+  {id:'vr',      l:'VR',            h:110, g:'Commandes',   c:ELEC_BLEU},
+  {id:'th',      l:'TH',            h:170, g:'Commandes',   c:ELEC_ROUGE},
+  {id:'son',     l:'Son. SS Fil',   h:110, g:'Commandes',   c:ELEC_BLEU},
+  {id:'pointc',  l:'Point C.',      h:250, g:'Éclairage',   c:ELEC_BLEU},
+  {id:'applique',l:'Applique',      h:170, g:'Éclairage',   c:ELEC_BLEU},
+  {id:'appext',  l:'Applique Ext.', h:170, g:'Éclairage',   c:ELEC_BLEU},
+  {id:'tab',     l:'Tab. Elec.',    h:105, g:'Équipements', c:ELEC_ROUGE},
+  {id:'ch',      l:'CH',            h:30,  g:'Équipements', c:ELEC_ROUGE},
+  {id:'sech',    l:'SE CH',         h:250, g:'Équipements', c:ELEC_ROUGE},
+  {id:'split',   l:'CE T Split',    h:30,  g:'Équipements', c:ELEC_BLEU},
+  {id:'splitue', l:'CE T Split UE', h:30,  g:'Équipements', c:ELEC_BLEU},
+  {id:'fumee',   l:'Dect. fumée',   h:250, g:'Équipements', c:ELEC_BLEU},
+  {id:'lesan',   l:'LE San',        h:0,   g:'Équipements', c:ELEC_VERT},
+  {id:'legen',   l:'LE Gen',        h:100, g:'Équipements', c:ELEC_VERT},
+];
+const ELEC_GROUPES=[...new Set(ELEC_SYMBOLES.map(s=>s.g))];
+const elecSymbole=t=>ELEC_SYMBOLES.find(s=>s.id===t)||null;
 /* une pièce écrite tient rarement en un seul fichier : plans d'exécution en
    plusieurs planches, notice + annexes, marché + attestations. On garde donc
    une liste. L'ancien champ « lien » unique reste lu pour les pièces déjà
@@ -6305,11 +6343,269 @@ function Planning({data,ch,up}){
   </div>;
 }
 
+/* ---------------- PLAN ÉLECTRIQUE ----------------
+   Le plan d'architecte arrive en PDF : on le rend une fois en image (pdf.js
+   est déjà chargé pour la lecture des attestations), et on pose les symboles
+   par-dessus en SVG. Le SVG plutôt qu'un canvas : les symboles restent nets
+   à tous les zooms, chacun reste un élément cliquable, et la légende se
+   dessine avec exactement les mêmes formes que le plan. */
+
+/* le dessin d'un symbole, centré sur (0,0), rayon ~9 */
+function ElecGlyph({t,c}){
+  const s=elecSymbole(t); if(!s)return null;
+  const coul=c||s.c, r=9;
+  const rond=<circle cx="0" cy="0" r={r} fill="#fff" stroke={coul} strokeWidth="1.6"/>;
+  const mot=v=><text x="0" y="3.2" textAnchor="middle" fontSize={v.length>2?6:8} fontWeight="700" fill={coul}>{v}</text>;
+  const rondMot=v=><g>{rond}{mot(v)}</g>;
+  /* l'interrupteur : le point de commande et sa manette, comme au plan */
+  const manette=(n)=><g>
+    <circle cx="0" cy="0" r="3.6" fill={coul}/>
+    {[...Array(n)].map((_,i)=><line key={i} x1="2.4" y1="-2.4" x2={8.5-i*3.2} y2={-8.5-i*0.4}
+      stroke={coul} strokeWidth="1.6" strokeLinecap="round"/>)}
+  </g>;
+  switch(t){
+    /* la prise : les deux broches et la terre */
+    case 'pc': case 'pch': return <g>{rond}
+      <circle cx="-3.2" cy="1.6" r="1.5" fill={coul}/><circle cx="3.2" cy="1.6" r="1.5" fill={coul}/>
+      <circle cx="0" cy="-3.4" r="1.5" fill={coul}/></g>;
+    case 'sa': return manette(1);
+    case 'savoy': return <g>{manette(1)}<circle cx="8.5" cy="-8.5" r="2.2" fill="#fff" stroke={coul} strokeWidth="1.4"/></g>;
+    case 'vv': return manette(2);
+    /* le point de centre : le disque en quartiers alternés du plan d'implantation */
+    case 'pointc': return <g>{rond}
+      <path d={'M0,0 L0,-'+r+' A'+r+','+r+' 0 0 1 '+r+',0 Z'} fill={coul}/>
+      <path d={'M0,0 L0,'+r+' A'+r+','+r+' 0 0 1 -'+r+',0 Z'} fill={coul}/></g>;
+    /* l'applique : le demi-disque plaqué contre son mur */
+    case 'applique': case 'appext': return <g>
+      <path d={'M-'+r+',0 A'+r+','+r+' 0 0 1 '+r+',0 Z'} fill="#fff" stroke={coul} strokeWidth="1.6"/>
+      <line x1={-r-1.5} y1="0" x2={r+1.5} y2="0" stroke={coul} strokeWidth="2"/>
+      {t==='appext'?<line x1="0" y1="-3" x2="0" y2="-7.5" stroke={coul} strokeWidth="1.4"/>:null}</g>;
+    case 'tv': return <g>{rond}
+      <line x1="-5" y1="-5" x2="5" y2="5" stroke={coul} strokeWidth="1.6"/>
+      <line x1="5" y1="-5" x2="-5" y2="5" stroke={coul} strokeWidth="1.6"/></g>;
+    case 'rj45': return <g>
+      <rect x="-8" y="-8" width="16" height="16" rx="2" fill={coul}/>
+      <rect x="-4" y="-4.5" width="8" height="6" rx="1" fill="#fff"/></g>;
+    /* le tableau : le bandeau plein, repère le plus visible du plan */
+    case 'tab': return <rect x="-11" y="-5" width="22" height="10" rx="1.5" fill={coul}/>;
+    case 'fumee': return <g>{rond}<circle cx="0" cy="0" r="3.4" fill={coul}/></g>;
+    case 'vr': return <g>
+      <rect x="-11" y="-6.5" width="22" height="13" rx="2" fill="#fff" stroke={coul} strokeWidth="1.6"/>
+      <text x="0" y="3.4" textAnchor="middle" fontSize="8" fontWeight="700" fill={coul}>VR</text></g>;
+    case 'son': return <g>{rond}
+      <path d="M-4,2.5 A4,5 0 0 1 4,2.5 Z" fill={coul}/><line x1="0" y1="-2.5" x2="0" y2="-5.5" stroke={coul} strokeWidth="1.4"/></g>;
+    case 'lesan': case 'legen': return <g>
+      <rect x="-10" y="-6" width="20" height="12" rx="2" fill="#fff" stroke={coul} strokeWidth="1.6"/>
+      <text x="0" y="3" textAnchor="middle" fontSize="6.5" fontWeight="700" fill={coul}>{t==='lesan'?'LE S':'LE G'}</text></g>;
+    case 'splitue': return <g>{rondMot('UE')}</g>;
+    case 'split': return <g>{rondMot('CE')}</g>;
+    case 'sech': return <g>{rondMot('SE')}</g>;
+    default: return rondMot(s.l.replace(/[^A-Za-z0-9&]/g,'').slice(0,3));
+  }
+}
+
+/* ce qui est posé sur le plan, résumé comme le cartouche de légende d'un plan
+   d'implantation : un symbole, son intitulé, sa hauteur de pose, sa quantité */
+const elecLegende=symboles=>{
+  const n={};
+  (symboles||[]).forEach(s=>{n[s.type]=(n[s.type]||0)+1});
+  return ELEC_SYMBOLES.filter(s=>n[s.id]).map(s=>({...s,n:n[s.id]}));
+};
+
+/* le PDF rendu en image : la page 1, assez large pour rester lisible au zoom */
+async function planEnImage(file,largeur){
+  if(/^image\//.test(file.type)){
+    const url=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(file)});
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url});
+    return {url,ratio:img.height/img.width};
+  }
+  if(typeof pdfjsLib==='undefined')throw new Error('Lecteur PDF non chargé — vérifiez votre connexion.');
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  const doc=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  const page=await doc.getPage(1);
+  const base=page.getViewport({scale:1});
+  const vp=page.getViewport({scale:(largeur||2000)/base.width});
+  const cv=document.createElement('canvas');
+  cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
+  const ctx=cv.getContext('2d');
+  /* le PDF est transparent : sans fond blanc, le plan sort sur du noir en JPEG */
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+  await page.render({canvasContext:ctx,viewport:vp}).promise;
+  return {url:cv.toDataURL('image/jpeg',0.92),ratio:cv.height/cv.width};
+}
+
+function PlanElectrique({ch,up,onFermer}){
+  const d=ch.docs||{};
+  const plan=(d.plan_elec&&d.plan_elec.plan)||{fond:'',ratio:0.707,symboles:[]};
+  const S=plan.symboles||[];
+  const [fondUrl,setFondUrl]=useState(null);
+  const [outil,setOutil]=useState('');
+  const [sel,setSel]=useState(null);
+  const [zoom,setZoom]=useState(1);
+  const [busy,setBusy]=useState('');
+  const [groupe,setGroupe]=useState(ELEC_GROUPES[0]);
+  const svgRef=useRef(null);
+  const drag=useRef(null);
+
+  useEffect(()=>{let a=true;
+    if(!plan.fond){setFondUrl(null);return}
+    Photo.get(plan.fond).then(v=>{if(a)setFondUrl(v)}).catch(()=>{});
+    return()=>{a=false};
+  },[plan.fond]);
+
+  const maj=p=>{const c=d.plan_elec||{};
+    up({docs:{...d,plan_elec:{...c,plan:{...plan,...p},fait:true,date:c.fait?c.date:today()}}})};
+
+  const importer=async file=>{
+    setBusy('Lecture du plan…');
+    try{
+      const{url,ratio}=await planEnImage(file);
+      setBusy('Enregistrement…');
+      const id=plan.fond||uid();
+      await Photo.put(id,url);
+      setFondUrl(url);
+      maj({fond:id,ratio});
+    }catch(e){alert("Ce plan n'a pas pu être lu — détail technique : "+((e&&(e.error||e.message))||String(e)))}
+    setBusy('');
+  };
+
+  /* le point cliqué, ramené en coordonnées du plan (0 à 1) : la mesure se prend
+     sur le SVG lui-même, donc le zoom et le défilement sont déjà pris en compte */
+  const pos=e=>{
+    const el=svgRef.current; if(!el)return null;
+    const r=el.getBoundingClientRect();
+    if(!r.width||!r.height)return null;
+    return {x:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),
+            y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))};
+  };
+  const poser=e=>{
+    if(!outil)return setSel(null);
+    const p=pos(e); if(!p)return;
+    const s=elecSymbole(outil);
+    maj({symboles:[...S,{id:uid(),type:outil,x:p.x,y:p.y,h:s.h,note:''}]});
+  };
+  const majSymbole=(id,p)=>maj({symboles:S.map(s=>s.id===id?{...s,...p}:s)});
+  const supprimer=id=>{maj({symboles:S.filter(s=>s.id!==id)});setSel(null)};
+
+  const H=1000*(plan.ratio||0.707);
+  const choisi=S.find(s=>s.id===sel);
+  const legende=elecLegende(S);
+
+  return <div>
+    <div className="sp" style={{marginBottom:10,alignItems:'center'}}>
+      <span className="h2" style={{fontSize:13}}>PLAN ÉLECTRIQUE — {ch.nom}</span>
+      <button className="btn gh s" onClick={onFermer}>Fermer</button>
+    </div>
+
+    {!plan.fond&&<div className="card" style={{textAlign:'center',padding:20}}>
+      <div className="sm" style={{marginBottom:6}}>Importez d’abord le plan d’implantation.</div>
+      <div className="xs mut" style={{marginBottom:12,lineHeight:1.5}}>
+        Un PDF (la première page est reprise) ou une image. Le plan est enregistré une fois pour
+        toutes : vous posez ensuite les symboles par-dessus.</div>
+      <label className="btn acc s" style={{display:'inline-block'}}>
+        {busy||'Importer le plan'}
+        <input type="file" accept="application/pdf,.pdf,image/*" style={{display:'none'}} disabled={!!busy}
+          onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importer(f)}}/>
+      </label>
+    </div>}
+
+    {!!plan.fond&&<React.Fragment>
+      <div className="row" style={{gap:6,marginBottom:8,flexWrap:'wrap',alignItems:'center'}}>
+        <button className={'btn s '+(outil?'gh':'')} onClick={()=>setOutil('')}>Sélection</button>
+        <span className="xs mut" style={{flex:1,minWidth:0}}>
+          {outil?'Cliquez sur le plan pour poser « '+elecSymbole(outil).l+' ».':'Cliquez un symbole pour le déplacer ou le modifier.'}</span>
+        <button className="btn gh s" onClick={()=>setZoom(z=>Math.max(1,+(z-.5).toFixed(1)))} aria-label="Dézoomer">−</button>
+        <span className="xs mut" style={{minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
+        <button className="btn gh s" onClick={()=>setZoom(z=>Math.min(6,+(z+.5).toFixed(1)))} aria-label="Zoomer">+</button>
+      </div>
+
+      <div className="row" style={{gap:6,marginBottom:6,flexWrap:'wrap'}}>
+        {ELEC_GROUPES.map(g=><button key={g} className={'btn s '+(groupe===g?'':'gh')} onClick={()=>setGroupe(g)}>{g}</button>)}
+      </div>
+      <div className="row" style={{gap:6,marginBottom:10,flexWrap:'wrap'}}>
+        {ELEC_SYMBOLES.filter(s=>s.g===groupe).map(s=>
+          <button key={s.id} onClick={()=>{setOutil(s.id);setSel(null)}} title={s.l+' — H : '+s.h}
+            style={{display:'flex',alignItems:'center',gap:6,padding:'4px 8px',borderRadius:6,cursor:'pointer',
+              border:'1px solid '+(outil===s.id?s.c:RULE),background:outil===s.id?s.c+'14':'#fff'}}>
+            <svg width="22" height="22" viewBox="-12 -12 24 24" style={{flex:'0 0 auto'}}><ElecGlyph t={s.id}/></svg>
+            <span className="xs" style={{color:outil===s.id?s.c:INK,whiteSpace:'nowrap'}}>{s.l}</span>
+          </button>)}
+      </div>
+
+      <div style={{border:'1px solid '+RULE,borderRadius:8,overflow:'auto',background:'#fff',maxHeight:'62vh'}}>
+        <div style={{width:(zoom*100)+'%',minWidth:'100%',position:'relative'}}>
+          {fondUrl?<img src={fondUrl} alt="" style={{width:'100%',display:'block'}}/>
+            :<div className="xs mut" style={{padding:40,textAlign:'center'}}>Chargement du plan…</div>}
+          <svg ref={svgRef} viewBox={'0 0 1000 '+H} preserveAspectRatio="none"
+            style={{position:'absolute',left:0,top:0,width:'100%',height:'100%',cursor:outil?'crosshair':'default',touchAction:'pan-x pan-y'}}
+            onClick={poser}
+            onPointerMove={e=>{if(!drag.current)return;const p=pos(e);if(p)majSymbole(drag.current,p)}}
+            onPointerUp={()=>{drag.current=null}}>
+            {S.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
+              return <g key={s.id} transform={'translate('+(s.x*1000)+','+(s.y*H)+')'}
+                style={{cursor:'move'}}
+                onClick={e=>{e.stopPropagation();if(!outil)setSel(s.id)}}
+                onPointerDown={e=>{if(outil)return;e.stopPropagation();drag.current=s.id;setSel(s.id);
+                  if(svgRef.current&&svgRef.current.setPointerCapture)svgRef.current.setPointerCapture(e.pointerId)}}>
+                {sel===s.id&&<circle cx="0" cy="0" r="15" fill="none" stroke={TERRA} strokeWidth="1.6" strokeDasharray="3 2"/>}
+                <ElecGlyph t={s.type}/>
+              </g>})}
+          </svg>
+        </div>
+      </div>
+
+      {choisi&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+TERRA}}>
+        <div className="sp" style={{marginBottom:8}}>
+          <span className="b sm" style={{color:NAVY}}>{elecSymbole(choisi.type).l}</span>
+          <button className="btn dg s" onClick={()=>supprimer(choisi.id)}>Supprimer</button>
+        </div>
+        <div className="g2">
+          <Fld label="HAUTEUR DE POSE (CM)">
+            <input className="in" type="number" value={choisi.h===''?'':choisi.h}
+              onChange={e=>majSymbole(choisi.id,{h:e.target.value===''?'':+e.target.value})}/>
+          </Fld>
+          <Fld label="REPÈRE (OPTIONNEL)">
+            <input className="in" value={choisi.note||''} placeholder="Chambre 1, plan de travail…"
+              onChange={e=>majSymbole(choisi.id,{note:e.target.value})}/>
+          </Fld>
+        </div>
+      </div>}
+
+      <div style={{marginTop:14}}>
+        <div className="sp" style={{marginBottom:6}}>
+          <span className="h2" style={{fontSize:13}}>LÉGENDE</span>
+          <span className="xs mut">{S.length} symbole{S.length>1?'s':''} posé{S.length>1?'s':''}</span>
+        </div>
+        {!legende.length&&<Empty>Aucun symbole posé. Choisissez-en un ci-dessus, puis cliquez sur le plan.</Empty>}
+        {!!legende.length&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:'4px 10px'}}>
+          {legende.map(s=><div key={s.id} className="row" style={{gap:6,alignItems:'center'}}>
+            <svg width="20" height="20" viewBox="-12 -12 24 24" style={{flex:'0 0 auto'}}><ElecGlyph t={s.id}/></svg>
+            <span className="xs" style={{flex:1,minWidth:0}}>{s.l}</span>
+            <span className="xs mut" style={{whiteSpace:'nowrap'}}>H : {s.h} · ×{s.n}</span>
+          </div>)}
+        </div>}
+      </div>
+
+      <div className="row" style={{gap:8,marginTop:14,flexWrap:'wrap'}}>
+        <label className="btn gh s" style={{display:'inline-block'}}>
+          {busy||'Remplacer le plan de fond'}
+          <input type="file" accept="application/pdf,.pdf,image/*" style={{display:'none'}} disabled={!!busy}
+            onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importer(f)}}/>
+        </label>
+        {!!S.length&&<button className="btn dg s"
+          onClick={()=>{if(confirm('Retirer les '+S.length+' symboles posés ? Le plan de fond est conservé.')){maj({symboles:[]});setSel(null)}}}>
+          Tout effacer</button>}
+      </div>
+    </React.Fragment>}
+  </div>;
+}
+
 /* ---------------- PIÈCES ---------------- */
 function Docs({data,ch,up,save}){
   const d=ch.docs||{};
   const [busy,setBusy]=useState(null);
   const [signe,setSigne]=useState(null);
+  const [planElec,setPlanElec]=useState(false);
   const tog=id=>{const c=d[id]||{};up({docs:{...d,[id]:{...c,fait:!c.fait,date:!c.fait?today():''}}})};
   const lien=(id,v)=>up({docs:{...d,[id]:{...(d[id]||{}),lien:v}}});
   const importPieces=async(id,files)=>{
@@ -6359,6 +6655,7 @@ function Docs({data,ch,up,save}){
     up({docs:{...d,[docId]:{...c,signatures:(c.signatures||[]).filter(s=>s.id!==sid)}}});
   };
   const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
+  if(planElec)return <PlanElectrique ch={ch} up={up} onFermer={()=>setPlanElec(false)}/>;
   return <div>
     <DriveStatus/>
     <div className="sp xs" style={{marginTop:0,marginBottom:10}}>
@@ -6390,6 +6687,9 @@ function Docs({data,ch,up,save}){
                     onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)importPieces(x.id,fs)}}/>
                 </label>
                 <button className="xs" style={{color:NAVY,background:'none',border:'none',padding:0}} onClick={()=>setSigne(x)}>Faire signer</button>
+                {x.id==='plan_elec'&&<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}
+                  onClick={()=>setPlanElec(true)}>
+                  {(r.plan&&r.plan.fond)?'Ouvrir le plan ('+((r.plan.symboles||[]).length)+' symboles)':'Dessiner le plan'}</button>}
               </div>
               {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
                 <VignetteSign id={s.id}/>
