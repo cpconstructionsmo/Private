@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-30 · plan électrique : import du PDF et pose des symboles normés';
+const VERSION='2026-08-30 · plan électrique : câblage, hauteurs par symbole et export PDF';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -6434,13 +6434,108 @@ async function planEnImage(file,largeur){
   return {url:cv.toDataURL('image/jpeg',0.92),ratio:cv.height/cv.width};
 }
 
+/* le câble : un arc entre deux symboles, bombé perpendiculairement à leur axe.
+   C'est ainsi que les plans d'implantation relient une commande à ce qu'elle
+   pilote — un trait droit se confondrait avec les murs et les cotes. Les deux
+   points arrivent déjà à l'échelle du plan. */
+const cheminCable=(a,b,courbure)=>{
+  if(!a||!b)return '';
+  const k=courbure===undefined||courbure===null?0.18:courbure;
+  const dx=b.x-a.x,dy=b.y-a.y;
+  const cx=(a.x+b.x)/2-dy*k, cy=(a.y+b.y)/2+dx*k;
+  return 'M'+a.x+','+a.y+' Q'+cx+','+cy+' '+b.x+','+b.y;
+};
+/* un câble ne vaut que si ses deux extrémités existent encore */
+const cablesValides=(cables,symboles)=>{
+  const ok=new Set((symboles||[]).map(s=>s.id));
+  return (cables||[]).filter(c=>ok.has(c.de)&&ok.has(c.vers)&&c.de!==c.vers);
+};
+
+/* ---------- l'export en PDF ----------
+   Le plan fini part chez l'électricien : un PDF d'une page contenant l'image
+   du plan. Les octets du JPEG y sont reposés tels quels (filtre DCTDecode),
+   sans réencodage ni bibliothèque supplémentaire — la même approche que le
+   .docx et le PNG du QR, écrits à la main ailleurs dans l'application. */
+function pdfUnePage(jpeg,largeurPx,hauteurPx,titre){
+  const enc=s=>{const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i)&0xff;return u};
+  const bouts=[]; let n=0;
+  const pousser=u=>{bouts.push(u);n+=u.length};
+  /* A3 à l'italienne pour la largeur, la hauteur suit les proportions du plan */
+  const L=1190.55, H=Math.round(L*(hauteurPx/largeurPx)*100)/100;
+  const offsets=[];
+  const obj=(i,corps,flux)=>{
+    offsets[i]=n;
+    pousser(enc(i+' 0 obj\n'+corps+'\n'));
+    if(flux){pousser(enc('stream\n'));pousser(flux);pousser(enc('\nendstream\n'))}
+    pousser(enc('endobj\n'));
+  };
+  const contenu=enc('q '+L+' 0 0 '+H+' 0 0 cm /Im0 Do Q');
+  pousser(enc('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'));
+  obj(1,'<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  obj(3,'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+L+' '+H+']'
+    +' /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>');
+  obj(4,'<< /Type /XObject /Subtype /Image /Width '+largeurPx+' /Height '+hauteurPx
+    +' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+jpeg.length+' >>',jpeg);
+  obj(5,'<< /Length '+contenu.length+' >>',contenu);
+  obj(6,'<< /Title ('+String(titre||'Plan électrique').replace(/[\\()]/g,'')+') /Producer (CP Constructions) >>');
+  const debutXref=n;
+  let xref='xref\n0 7\n0000000000 65535 f \n';
+  for(let i=1;i<=6;i++)xref+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';
+  pousser(enc(xref));
+  pousser(enc('trailer\n<< /Size 7 /Root 1 0 R /Info 6 0 R >>\nstartxref\n'+debutXref+'\n%%EOF\n'));
+  const out=new Uint8Array(n); let p=0;
+  bouts.forEach(b=>{out.set(b,p);p+=b.length});
+  return out;
+}
+
+/* le plan tel qu'il part chez l'électricien : le fond, les câbles, les
+   symboles, et le cartouche de légende en pied — la mise en page des plans
+   d'implantation qu'on reçoit des bureaux d'études. */
+function PlanExport({fond,ratio,symboles,cables,titre,hauteurs}){
+  const L=1000,H=Math.round(L*(ratio||0.707));
+  const pt=s=>({x:s.x*L,y:s.y*H});
+  const par={}; (symboles||[]).forEach(s=>{par[s.id]=s});
+  const leg=elecLegende(symboles);
+  const col=5,hLigne=26,larg=L/col;
+  const hCart=leg.length?Math.ceil(leg.length/col)*hLigne+40:0;
+  return <svg xmlns="http://www.w3.org/2000/svg" width={L} height={H+hCart} viewBox={'0 0 '+L+' '+(H+hCart)}>
+    <rect x="0" y="0" width={L} height={H+hCart} fill="#ffffff"/>
+    <image href={fond} x="0" y="0" width={L} height={H} preserveAspectRatio="none"/>
+    {cablesValides(cables,symboles).map(c=>
+      <path key={c.id} d={cheminCable(pt(par[c.de]),pt(par[c.vers]),c.courbure)}
+        fill="none" stroke={ELEC_BLEU} strokeWidth="1.5"/>)}
+    {(symboles||[]).map(s=>{const p=pt(s);
+      return <g key={s.id} transform={'translate('+p.x+','+p.y+')'}>
+        <ElecGlyph t={s.type}/>
+        {hauteurs&&s.h!==''&&s.h!==undefined&&
+          <text x="11" y="-8" fontSize="8" fontWeight="700" fill={INK}>{s.h}</text>}
+      </g>})}
+    {hCart>0&&<g transform={'translate(0,'+H+')'}>
+      <line x1="0" y1="8" x2={L} y2="8" stroke={RULE} strokeWidth="1"/>
+      <text x="6" y="27" fontSize="11" fontWeight="700" fill={NAVY}>{titre}</text>
+      {leg.map((s,i)=><g key={s.id} transform={'translate('+((i%col)*larg)+','+(36+Math.floor(i/col)*hLigne)+')'}>
+        <g transform="translate(18,10)"><ElecGlyph t={s.id}/></g>
+        <text x="33" y="14" fontSize="9" fill={INK}>{s.l}</text>
+        <text x={larg-8} y="14" fontSize="9" textAnchor="end" fill={MUTED}>{'H : '+s.h+' · ×'+s.n}</text>
+      </g>)}
+    </g>}
+  </svg>;
+}
+
+const ELEC_HAUTEURS=[0,30,50,105,110,170,250];
+
 function PlanElectrique({ch,up,onFermer}){
   const d=ch.docs||{};
-  const plan=(d.plan_elec&&d.plan_elec.plan)||{fond:'',ratio:0.707,symboles:[]};
+  const plan=(d.plan_elec&&d.plan_elec.plan)||{fond:'',ratio:0.707,symboles:[],cables:[]};
   const S=plan.symboles||[];
+  const C=cablesValides(plan.cables,S);
   const [fondUrl,setFondUrl]=useState(null);
   const [outil,setOutil]=useState('');
   const [sel,setSel]=useState(null);
+  const [selC,setSelC]=useState(null);
+  const [depart,setDepart]=useState(null);
+  const [hauteurs,setHauteurs]=useState(false);
   const [zoom,setZoom]=useState(1);
   const [busy,setBusy]=useState('');
   const [groupe,setGroupe]=useState(ELEC_GROUPES[0]);
@@ -6479,16 +6574,76 @@ function PlanElectrique({ch,up,onFermer}){
             y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))};
   };
   const poser=e=>{
-    if(!outil)return setSel(null);
+    if(!outil||outil==='cable'){setSel(null);setSelC(null);return}
     const p=pos(e); if(!p)return;
     const s=elecSymbole(outil);
     maj({symboles:[...S,{id:uid(),type:outil,x:p.x,y:p.y,h:s.h,note:''}]});
   };
   const majSymbole=(id,p)=>maj({symboles:S.map(s=>s.id===id?{...s,...p}:s)});
-  const supprimer=id=>{maj({symboles:S.filter(s=>s.id!==id)});setSel(null)};
+  /* retirer un symbole emporte les câbles qui y aboutissaient : un câble
+     accroché dans le vide n'aurait plus de sens */
+  const supprimer=id=>{
+    maj({symboles:S.filter(s=>s.id!==id),cables:C.filter(c=>c.de!==id&&c.vers!==id)});
+    setSel(null);
+  };
+  const majCable=(id,p)=>maj({cables:C.map(c=>c.id===id?{...c,...p}:c)});
+  const supprimerCable=id=>{maj({cables:C.filter(c=>c.id!==id)});setSelC(null)};
+  /* en mode câblage, le premier symbole cliqué est l'origine, le second
+     l'aboutissement — comme on relie un interrupteur à ce qu'il commande */
+  const cliquerSymbole=id=>{
+    if(outil==='cable'){
+      if(!depart)return setDepart(id);
+      if(depart===id)return setDepart(null);
+      if(!C.some(c=>(c.de===depart&&c.vers===id)||(c.de===id&&c.vers===depart)))
+        maj({cables:[...C,{id:uid(),de:depart,vers:id,courbure:0.18}]});
+      setDepart(null);
+      return;
+    }
+    if(!outil){setSel(id);setSelC(null)}
+  };
+  const changerOutil=t=>{setOutil(t);setSel(null);setSelC(null);setDepart(null)};
+
+  const exporter=async()=>{
+    if(!fondUrl)return;
+    setBusy('Préparation du PDF…');
+    try{
+      /* le fond doit voyager en clair dans le SVG : une image encore distante
+         ne se laisse pas rasteriser sur un canvas */
+      const blob=await (await fetch(fondUrl)).blob();
+      const fondData=await new Promise((res,rej)=>{
+        const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob)});
+      const hote=document.createElement('div');
+      hote.style.cssText='position:fixed;left:-10000px;top:0;width:1000px';
+      document.body.appendChild(hote);
+      const racine=ReactDOM.createRoot(hote);
+      racine.render(React.createElement(PlanExport,{fond:fondData,ratio:plan.ratio,symboles:S,cables:C,
+        titre:'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase(),hauteurs}));
+      await new Promise(r=>setTimeout(r,80));
+      const svgTxt=new XMLSerializer().serializeToString(hote.querySelector('svg'));
+      racine.unmount(); hote.remove();
+      const img=await new Promise((res,rej)=>{const i=new Image();
+        i.onload=()=>res(i);i.onerror=()=>rej(new Error('le plan n’a pas pu être dessiné'));
+        i.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgTxt)});
+      const cv=document.createElement('canvas');
+      cv.width=2400; cv.height=Math.round(2400*(img.height||1)/(img.width||1));
+      const ctx=cv.getContext('2d');
+      ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+      ctx.drawImage(img,0,0,cv.width,cv.height);
+      const jpeg=new Uint8Array(await (await (await fetch(cv.toDataURL('image/jpeg',0.9))).blob()).arrayBuffer());
+      const url=URL.createObjectURL(new Blob([pdfUnePage(jpeg,cv.width,cv.height,'Plan électrique — '+ch.nom)],{type:'application/pdf'}));
+      const a=document.createElement('a');
+      a.href=url; a.download='Plan-electrique-'+(ch.nom||'chantier').replace(/[^\wÀ-ÿ]+/g,'-')+'-'+today()+'.pdf';
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),2000);
+    }catch(e){alert("L'export du plan a échoué — détail technique : "+((e&&(e.error||e.message))||String(e)))}
+    setBusy('');
+  };
 
   const H=1000*(plan.ratio||0.707);
   const choisi=S.find(s=>s.id===sel);
+  const choisiC=C.find(c=>c.id===selC);
+  const parId={}; S.forEach(s=>{parId[s.id]=s});
+  const pt=s=>({x:s.x*1000,y:s.y*H});
   const legende=elecLegende(S);
 
   return <div>
@@ -6511,12 +6666,20 @@ function PlanElectrique({ch,up,onFermer}){
 
     {!!plan.fond&&<React.Fragment>
       <div className="row" style={{gap:6,marginBottom:8,flexWrap:'wrap',alignItems:'center'}}>
-        <button className={'btn s '+(outil?'gh':'')} onClick={()=>setOutil('')}>Sélection</button>
-        <span className="xs mut" style={{flex:1,minWidth:0}}>
-          {outil?'Cliquez sur le plan pour poser « '+elecSymbole(outil).l+' ».':'Cliquez un symbole pour le déplacer ou le modifier.'}</span>
+        <button className={'btn s '+(outil?'gh':'')} onClick={()=>changerOutil('')}>Sélection</button>
+        <button className={'btn s '+(outil==='cable'?'':'gh')} onClick={()=>changerOutil(outil==='cable'?'':'cable')}>Câbler</button>
+        <button className={'btn s '+(hauteurs?'':'gh')} onClick={()=>setHauteurs(h=>!h)}>Hauteurs</button>
+        <span style={{flex:1}}/>
         <button className="btn gh s" onClick={()=>setZoom(z=>Math.max(1,+(z-.5).toFixed(1)))} aria-label="Dézoomer">−</button>
         <span className="xs mut" style={{minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
         <button className="btn gh s" onClick={()=>setZoom(z=>Math.min(6,+(z+.5).toFixed(1)))} aria-label="Zoomer">+</button>
+      </div>
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+        {outil==='cable'
+          ?(depart?'Cliquez maintenant le symbole commandé pour terminer le câble.'
+                  :'Cliquez la commande (interrupteur, va-et-vient…), puis ce qu’elle pilote.')
+          :outil?'Cliquez sur le plan pour poser « '+elecSymbole(outil).l+' ».'
+                :'Cliquez un symbole pour le déplacer ou le régler, un câble pour le modifier.'}
       </div>
 
       <div className="row" style={{gap:6,marginBottom:6,flexWrap:'wrap'}}>
@@ -6524,7 +6687,7 @@ function PlanElectrique({ch,up,onFermer}){
       </div>
       <div className="row" style={{gap:6,marginBottom:10,flexWrap:'wrap'}}>
         {ELEC_SYMBOLES.filter(s=>s.g===groupe).map(s=>
-          <button key={s.id} onClick={()=>{setOutil(s.id);setSel(null)}} title={s.l+' — H : '+s.h}
+          <button key={s.id} onClick={()=>changerOutil(s.id)} title={s.l+' — H : '+s.h}
             style={{display:'flex',alignItems:'center',gap:6,padding:'4px 8px',borderRadius:6,cursor:'pointer',
               border:'1px solid '+(outil===s.id?s.c:RULE),background:outil===s.id?s.c+'14':'#fff'}}>
             <svg width="22" height="22" viewBox="-12 -12 24 24" style={{flex:'0 0 auto'}}><ElecGlyph t={s.id}/></svg>
@@ -6541,14 +6704,24 @@ function PlanElectrique({ch,up,onFermer}){
             onClick={poser}
             onPointerMove={e=>{if(!drag.current)return;const p=pos(e);if(p)majSymbole(drag.current,p)}}
             onPointerUp={()=>{drag.current=null}}>
+            {/* les câbles passent sous les symboles, pour ne pas les masquer */}
+            {C.map(c=>{const chemin=cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure);
+              return <g key={c.id} onClick={e=>{e.stopPropagation();if(!outil){setSelC(c.id);setSel(null)}}}>
+                <path d={chemin} fill="none" stroke="transparent" strokeWidth="14" style={{cursor:outil?'inherit':'pointer'}}/>
+                <path d={chemin} fill="none" stroke={selC===c.id?TERRA:ELEC_BLEU}
+                  strokeWidth={selC===c.id?2.6:1.6} strokeLinecap="round"/>
+              </g>})}
             {S.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
               return <g key={s.id} transform={'translate('+(s.x*1000)+','+(s.y*H)+')'}
-                style={{cursor:'move'}}
-                onClick={e=>{e.stopPropagation();if(!outil)setSel(s.id)}}
-                onPointerDown={e=>{if(outil)return;e.stopPropagation();drag.current=s.id;setSel(s.id);
+                style={{cursor:outil==='cable'?'pointer':'move'}}
+                onClick={e=>{e.stopPropagation();cliquerSymbole(s.id)}}
+                onPointerDown={e=>{if(outil)return;e.stopPropagation();drag.current=s.id;setSel(s.id);setSelC(null);
                   if(svgRef.current&&svgRef.current.setPointerCapture)svgRef.current.setPointerCapture(e.pointerId)}}>
-                {sel===s.id&&<circle cx="0" cy="0" r="15" fill="none" stroke={TERRA} strokeWidth="1.6" strokeDasharray="3 2"/>}
+                {(sel===s.id||depart===s.id)&&<circle cx="0" cy="0" r="15" fill="none"
+                  stroke={depart===s.id?ELEC_BLEU:TERRA} strokeWidth="1.8" strokeDasharray="3 2"/>}
                 <ElecGlyph t={s.type}/>
+                {hauteurs&&s.h!==''&&s.h!==undefined&&
+                  <text x="11" y="-8" fontSize="8" fontWeight="700" fill={INK}>{s.h}</text>}
               </g>})}
           </svg>
         </div>
@@ -6569,12 +6742,36 @@ function PlanElectrique({ch,up,onFermer}){
               onChange={e=>majSymbole(choisi.id,{note:e.target.value})}/>
           </Fld>
         </div>
+        {/* les hauteurs courantes en un clic : c'est le réglage qu'on reprend
+            le plus souvent d'un symbole à l'autre (30 au sol, 110 en allumage) */}
+        <div className="row" style={{gap:6,flexWrap:'wrap',marginTop:-6}}>
+          {ELEC_HAUTEURS.map(v=><button key={v} className={'btn s '+(choisi.h===v?'':'gh')}
+            onClick={()=>majSymbole(choisi.id,{h:v})}>{v}</button>)}
+        </div>
+      </div>}
+
+      {choisiC&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+ELEC_BLEU}}>
+        <div className="sp" style={{marginBottom:8}}>
+          <span className="b sm" style={{color:NAVY}}>
+            Câble — {elecSymbole((parId[choisiC.de]||{}).type)?elecSymbole(parId[choisiC.de].type).l:'?'}
+            {' → '}
+            {elecSymbole((parId[choisiC.vers]||{}).type)?elecSymbole(parId[choisiC.vers].type).l:'?'}</span>
+          <button className="btn dg s" onClick={()=>supprimerCable(choisiC.id)}>Supprimer</button>
+        </div>
+        <Fld label="COURBURE">
+          <input className="in" type="range" min="-60" max="60" step="2"
+            value={Math.round((choisiC.courbure===undefined?0.18:choisiC.courbure)*100)}
+            onChange={e=>majCable(choisiC.id,{courbure:+e.target.value/100})}/>
+        </Fld>
+        <div className="xs mut" style={{marginTop:-6,lineHeight:1.5}}>
+          Bombez le tracé pour qu’il contourne les murs et ne se confonde pas avec un autre câble.</div>
       </div>}
 
       <div style={{marginTop:14}}>
         <div className="sp" style={{marginBottom:6}}>
           <span className="h2" style={{fontSize:13}}>LÉGENDE</span>
-          <span className="xs mut">{S.length} symbole{S.length>1?'s':''} posé{S.length>1?'s':''}</span>
+          <span className="xs mut">{S.length} symbole{S.length>1?'s':''} posé{S.length>1?'s':''}
+            {C.length?' · '+C.length+' câble'+(C.length>1?'s':''):''}</span>
         </div>
         {!legende.length&&<Empty>Aucun symbole posé. Choisissez-en un ci-dessus, puis cliquez sur le plan.</Empty>}
         {!!legende.length&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:'4px 10px'}}>
@@ -6587,15 +6784,20 @@ function PlanElectrique({ch,up,onFermer}){
       </div>
 
       <div className="row" style={{gap:8,marginTop:14,flexWrap:'wrap'}}>
+        <button className="btn acc s" disabled={!!busy||!fondUrl} onClick={exporter}>
+          {busy||'Enregistrer le plan en PDF'}</button>
         <label className="btn gh s" style={{display:'inline-block'}}>
           {busy||'Remplacer le plan de fond'}
           <input type="file" accept="application/pdf,.pdf,image/*" style={{display:'none'}} disabled={!!busy}
             onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importer(f)}}/>
         </label>
-        {!!S.length&&<button className="btn dg s"
-          onClick={()=>{if(confirm('Retirer les '+S.length+' symboles posés ? Le plan de fond est conservé.')){maj({symboles:[]});setSel(null)}}}>
+        {!!(S.length||C.length)&&<button className="btn dg s"
+          onClick={()=>{if(confirm('Retirer les '+S.length+' symboles et les '+C.length+' câbles posés ? Le plan de fond est conservé.')){
+            maj({symboles:[],cables:[]});setSel(null);setSelC(null);setDepart(null)}}}>
           Tout effacer</button>}
       </div>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+        Le PDF reprend le plan, les câbles, les symboles et la légende — prêt à envoyer à l’électricien.</div>
     </React.Fragment>}
   </div>;
 }
