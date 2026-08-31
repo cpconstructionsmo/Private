@@ -136,6 +136,28 @@
     .grid-ph{grid-template-columns:repeat(5,1fr)}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  /* L'impression comme filet de sécurité : quand un navigateur refuse de
+     fabriquer le PDF lui-même, la commande d'impression du système le fait —
+     « Enregistrer au format PDF » sur ordinateur, la feuille de partage sur
+     iPhone. On masque alors tout sauf la planche à imprimer ; la visibilité
+     plutôt que l'affichage, pour ne pas défaire la mise en page de l'écran. */
+  .planche-impression{display:none}
+  @media print{
+    @page{size:A3 landscape;margin:8mm}
+    /* la planche est posée directement sous <body>, à côté de l'application :
+       masquer celle-ci d'un display:none, plutôt que d'une simple invisibilité,
+       évite qu'elle continue d'occuper de la hauteur et n'ajoute des pages blanches */
+    body>*{display:none!important}
+    body>.planche-impression{display:block!important;width:100%}
+    .planche-impression .feuille{page-break-after:always;break-after:page;text-align:center}
+    .planche-impression .feuille:last-child{page-break-after:auto;break-after:auto}
+    /* un A3 à l'italienne offre 281 mm de haut une fois les marges prises :
+       sans plafond, une planche aux proportions du plan déborde de quelques
+       millimètres et le navigateur ajoute une page blanche derrière chacune */
+    .planche-impression .cadre{position:relative;display:inline-block;max-width:100%}
+    .planche-impression .cadre>img{display:block;width:auto;max-width:100%;max-height:265mm}
+    .planche-impression .feuille>svg{width:100%;height:auto;max-height:265mm}
+  }
 </style>
 </head>
 <body>
@@ -155,7 +177,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · Plan électrique : PDF remis en main propre, épaisseur des câbles, légende sur le plan';
+const VERSION='2026-08-31 · Plan électrique : légende en page 2, secours par l’impression, échec expliqué';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -6644,12 +6666,10 @@ function ElecCartouche({leg,x,y,deplacable,onPointerDown}){
    du plan. Les octets du JPEG y sont reposés tels quels (filtre DCTDecode),
    sans réencodage ni bibliothèque supplémentaire — la même approche que le
    .docx et le PNG du QR, écrits à la main ailleurs dans l'application. */
-function pdfUnePage(jpeg,largeurPx,hauteurPx,titre){
+function pdfPages(feuilles,titre){
   const enc=s=>{const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i)&0xff;return u};
   const bouts=[]; let n=0;
   const pousser=u=>{bouts.push(u);n+=u.length};
-  /* A3 à l'italienne pour la largeur, la hauteur suit les proportions du plan */
-  const L=1190.55, H=Math.round(L*(hauteurPx/largeurPx)*100)/100;
   const offsets=[];
   const obj=(i,corps,flux)=>{
     offsets[i]=n;
@@ -6657,29 +6677,42 @@ function pdfUnePage(jpeg,largeurPx,hauteurPx,titre){
     if(flux){pousser(enc('stream\n'));pousser(flux);pousser(enc('\nendstream\n'))}
     pousser(enc('endobj\n'));
   };
-  const contenu=enc('q '+L+' 0 0 '+H+' 0 0 cm /Im0 Do Q');
+  /* A3 à l'italienne pour la largeur, la hauteur suit les proportions du dessin */
+  const L=1190.55;
+  const F=(feuilles||[]).filter(f=>f&&f.jpeg&&f.w&&f.h);
+  /* 1 catalogue, 2 arbre des pages, 3 informations, puis trois objets par feuille */
+  const numPage=k=>4+k*3, numImg=k=>5+k*3, numFlux=k=>6+k*3;
+  const dernier=3+F.length*3;
   pousser(enc('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'));
   obj(1,'<< /Type /Catalog /Pages 2 0 R >>');
-  obj(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-  obj(3,'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+L+' '+H+']'
-    +' /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>');
-  obj(4,'<< /Type /XObject /Subtype /Image /Width '+largeurPx+' /Height '+hauteurPx
-    +' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+jpeg.length+' >>',jpeg);
-  obj(5,'<< /Length '+contenu.length+' >>',contenu);
-  obj(6,'<< /Title ('+String(titre||'Plan électrique').replace(/[\\()]/g,'')+') /Producer (CP Constructions) >>');
+  obj(2,'<< /Type /Pages /Kids ['+F.map((f,k)=>numPage(k)+' 0 R').join(' ')+'] /Count '+F.length+' >>');
+  obj(3,'<< /Title ('+String(titre||'Plan électrique').replace(/[\\()]/g,'')+') /Producer (CP Constructions) >>');
+  F.forEach((f,k)=>{
+    const H=Math.round(L*(f.h/f.w)*100)/100;
+    const contenu=enc('q '+L+' 0 0 '+H+' 0 0 cm /Im0 Do Q');
+    obj(numPage(k),'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+L+' '+H+']'
+      +' /Resources << /XObject << /Im0 '+numImg(k)+' 0 R >> >> /Contents '+numFlux(k)+' 0 R >>');
+    obj(numImg(k),'<< /Type /XObject /Subtype /Image /Width '+f.w+' /Height '+f.h
+      +' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+f.jpeg.length+' >>',f.jpeg);
+    obj(numFlux(k),'<< /Length '+contenu.length+' >>',contenu);
+  });
   const debutXref=n;
-  let xref='xref\n0 7\n0000000000 65535 f \n';
-  for(let i=1;i<=6;i++)xref+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';
+  let xref='xref\n0 '+(dernier+1)+'\n0000000000 65535 f \n';
+  for(let i=1;i<=dernier;i++)xref+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';
   pousser(enc(xref));
-  pousser(enc('trailer\n<< /Size 7 /Root 1 0 R /Info 6 0 R >>\nstartxref\n'+debutXref+'\n%%EOF\n'));
+  pousser(enc('trailer\n<< /Size '+(dernier+1)+' /Root 1 0 R /Info 3 0 R >>\nstartxref\n'+debutXref+'\n%%EOF\n'));
   const out=new Uint8Array(n); let p=0;
   bouts.forEach(b=>{out.set(b,p);p+=b.length});
   return out;
 }
+const pdfUnePage=(jpeg,largeurPx,hauteurPx,titre)=>pdfPages([{jpeg,w:largeurPx,h:hauteurPx}],titre);
 
-/* le plan tel qu'il part chez l'électricien : le fond, les câbles, les
-   symboles, et le cartouche de légende en pied — la mise en page des plans
-   d'implantation qu'on reçoit des bureaux d'études. */
+/* le plan tel qu'il part chez l'électricien : les câbles, les symboles et un
+   pied de planche portant le titre. Le fond n'est PAS incorporé ici : il est
+   déposé à part sur la toile de conversion. Un plan glissé dans un SVG, puis
+   ce SVG rendu comme une image, est précisément ce que Safari refuse — le
+   dessin revient vide, ou la toile est déclarée souillée et refuse de rendre
+   quoi que ce soit. Le fond est donc dessiné d'abord, cette planche par-dessus. */
 function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,plan}){
   const ech=typeof echelle==='number'&&echelle>0?echelle:ELEC_ECHELLE_DEFAUT;
   const ep=typeof trait==='number'&&trait>0?trait:ELEC_TRAIT_DEFAUT;
@@ -6687,18 +6720,13 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,pla
   const pt=s=>({x:s.x*L,y:s.y*H});
   const par={}; (symboles||[]).forEach(s=>{par[s.id]=s});
   const leg=elecLegende(symboles);
-  /* la légende est portée soit par le plan lui-même, soit par un bandeau en
-     pied de planche — jamais les deux, l'électricien n'a pas à la lire deux fois */
-  const surPlan=!!leg.length&&(plan||{}).legende!==false;
+  /* le cartouche n'est posé sur le dessin que si on l'a demandé : sur un A3,
+     il mange le plan, et la légende a désormais sa propre page */
+  const surPlan=!!leg.length&&(plan||{}).legende===true;
   const posLeg=surPlan?cartouchePosition(plan,leg,H):null;
-  const col=5,hLigne=26,larg=L/col;
-  /* le pied de planche porte toujours le titre ; il n'accueille la légende
-     que lorsqu'elle n'est pas déjà posée sur le dessin */
-  const enPied=!surPlan&&!!leg.length;
-  const hCart=enPied?Math.ceil(leg.length/col)*hLigne+40:34;
+  const hCart=34;
   return <svg xmlns="http://www.w3.org/2000/svg" width={L} height={H+hCart} viewBox={'0 0 '+L+' '+(H+hCart)}>
-    <rect x="0" y="0" width={L} height={H+hCart} fill="#ffffff"/>
-    <image href={fond} x="0" y="0" width={L} height={H} preserveAspectRatio="none"/>
+    {!!fond&&<image href={fond} x="0" y="0" width={L} height={H} preserveAspectRatio="none"/>}
     {cablesValides(cables,symboles).map(c=>
       <path key={c.id} d={cheminCable(pt(par[c.de]),pt(par[c.vers]),c.courbure)}
         fill="none" stroke={couleurCable(c)} strokeWidth={ep} strokeDasharray={traitCable(c,ep)}/>)}
@@ -6712,15 +6740,60 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,pla
             {etiquetteHauteur(s,hauteurs)}</text>}
       </g>})}
     {surPlan&&<ElecCartouche leg={leg} x={posLeg.x} y={posLeg.y}/>}
-    {hCart>0&&<g transform={'translate(0,'+H+')'}>
+    <g transform={'translate(0,'+H+')'}>
+      <rect x="0" y="0" width={L} height={hCart} fill="#ffffff"/>
       <line x1="0" y1="8" x2={L} y2="8" stroke={RULE} strokeWidth="1"/>
       <text x="6" y="27" fontSize="11" fontWeight="700" fill={NAVY}>{titre}</text>
-      {enPied&&leg.map((s,i)=><g key={s.id} transform={'translate('+((i%col)*larg)+','+(36+Math.floor(i/col)*hLigne)+')'}>
-        <g transform="translate(18,10)"><ElecGlyph t={s.id}/></g>
-        <text x="33" y="14" fontSize="9" fill={INK}>{s.l}</text>
-        <text x={larg-8} y="14" fontSize="9" textAnchor="end" fill={MUTED}>{'H : '+s.h+' · ×'+s.n}</text>
+      <text x={L-6} y="27" fontSize="9" textAnchor="end" fill={MUTED}>Page 1/2 — le plan</text>
+    </g>
+  </svg>;
+}
+
+/* ---------- la légende, sur sa propre feuille ----------
+   Sur un A3, un cartouche posé sur le dessin mange le plan. La légende part
+   donc en page 2 : au large, à la taille où elle se lit sur un tirage plié
+   dans une poche, avec les câbles employés rappelés en pied. */
+const ELEC_LEG_L=1000, ELEC_LEG_RATIO=0.707;
+const legendeColonnes=leg=>(leg||[]).length>14?2:1;
+function LegendeExport({leg,titre,cables,trait}){
+  const L=ELEC_LEG_L, H=Math.round(L*ELEC_LEG_RATIO);
+  const ep=typeof trait==='number'&&trait>0?trait:ELEC_TRAIT_DEFAUT;
+  const col=legendeColonnes(leg), larg=(L-80)/col, hLigne=34, y0=110;
+  const parLigne=Math.ceil((leg||[]).length/col);
+  /* on ne rappelle que les allures de câble réellement employées */
+  const styles=[];
+  (cables||[]).forEach(c=>{
+    const cle=couleurCable(c)+'|'+(c.pointille?'p':'t');
+    if(!styles.some(s=>s.cle===cle))styles.push({cle,couleur:couleurCable(c),pointille:!!c.pointille,
+      nom:((ELEC_CABLE_COULEURS.find(x=>(x[0]||ELEC_BLEU)===couleurCable(c))||[,'Bleu'])[1])
+        +(c.pointille?' · pointillé':' · trait plein')});
+  });
+  return <svg xmlns="http://www.w3.org/2000/svg" width={L} height={H} viewBox={'0 0 '+L+' '+H}>
+    <rect x="0" y="0" width={L} height={H} fill="#ffffff"/>
+    <text x="40" y="56" fontSize="20" fontWeight="700" fill={NAVY}>LÉGENDE</text>
+    <text x="40" y="80" fontSize="12" fill={MUTED}>{titre}</text>
+    <line x1="40" y1="94" x2={L-40} y2="94" stroke={NAVY} strokeWidth="1.4"/>
+    {(leg||[]).map((s,i)=>{
+      const c=Math.floor(i/parLigne), r=i%parLigne;
+      return <g key={s.id} transform={'translate('+(40+c*larg)+','+(y0+r*hLigne)+')'}>
+        <g transform="translate(20,12)"><ElecGlyph t={s.id}/></g>
+        <text x="46" y="17" fontSize="13" fill={INK}>{s.l}</text>
+        <text x={larg-70} y="17" fontSize="12" textAnchor="end" fill={MUTED}>{'H : '+s.h+' cm'}</text>
+        <text x={larg-20} y="17" fontSize="12" textAnchor="end" fontWeight="700" fill={INK}>{'×'+s.n}</text>
+        <line x1="8" y1={hLigne-8} x2={larg-20} y2={hLigne-8} stroke={RULE} strokeWidth="0.6"/>
+      </g>})}
+    {!!styles.length&&<g transform={'translate(40,'+(y0+parLigne*hLigne+30)+')'}>
+      <text x="0" y="0" fontSize="12" fontWeight="700" fill={NAVY}>CÂBLES</text>
+      {styles.map((s,i)=><g key={s.cle} transform={'translate('+(i%3)*260+','+(18+Math.floor(i/3)*26)+')'}>
+        <line x1="0" y1="8" x2="46" y2="8" stroke={s.couleur} strokeWidth={Math.max(1.6,ep)}
+          strokeDasharray={traitCable({pointille:s.pointille},Math.max(1.6,ep))}/>
+        <text x="58" y="12" fontSize="11.5" fill={INK}>{s.nom}</text>
       </g>)}
     </g>}
+    <line x1="40" y1={H-46} x2={L-40} y2={H-46} stroke={RULE} strokeWidth="1"/>
+    <text x="40" y={H-26} fontSize="10" fill={MUTED}>
+      Hauteurs de pose mesurées du sol fini au centre de l’appareillage.</text>
+    <text x={L-40} y={H-26} fontSize="10" textAnchor="end" fill={MUTED}>Page 2/2 — la légende</text>
   </svg>;
 }
 
@@ -6746,6 +6819,18 @@ const echelleSymboles=plan=>{
 /* translate + rotate + scale : l'ordre compte, la rotation doit tourner le
    symbole autour de son point de pose, pas autour de l'origine du plan */
 const poseSymbole=(x,y,rot,ech)=>'translate('+x+','+y+') rotate('+(rot||0)+') scale('+ech+')';
+
+/* poser un élément directement sous <body>, hors de l'arbre de l'application :
+   la mise en page d'impression peut alors masquer l'application entière d'un
+   display:none, sans que sa hauteur ne fasse sortir des pages blanches. Là où
+   les passerelles de React ne sont pas disponibles, l'élément reste en place. */
+const horsApplication=el=>{
+  try{
+    if(typeof ReactDOM!=='undefined'&&ReactDOM.createPortal&&typeof document!=='undefined'&&document.body)
+      return ReactDOM.createPortal(el,document.body);
+  }catch(x){}
+  return el;
+};
 
 function PlanElectrique({ch,up,onFermer}){
   const d=ch.docs||{};
@@ -6885,72 +6970,121 @@ function PlanElectrique({ch,up,onFermer}){
     setPret({url:urlPret.current,nom,taille:blob.size,fichier});
   };
 
+  /* Trois tentatives ont échoué chez l'utilisateur sans que je puisse
+     reproduire la panne. On cesse de deviner : chaque étape est nommée, et
+     l'échec dit laquelle a lâché. Le message reste affiché dans l'écran, au
+     lieu de disparaître avec une alerte qu'on referme sans la lire. */
+  const [panne,setPanne]=useState(null);
+  const noterPanne=(etape,e)=>{
+    const d=(e&&(e.message||e.error))||String(e||'');
+    const nom=(e&&e.name)||'';
+    setPanne({etape,detail:d||'sans détail',
+      /* la toile souillée est le refus le plus courant sur Safari : le message
+         générique n'aide personne, celui-ci dit quoi faire */
+      souillee:/SecurityError|tainted|insecure/i.test(nom+' '+d),
+      appareil:(typeof navigator!=='undefined'&&navigator.userAgent)?navigator.userAgent.slice(0,110):'inconnu'});
+  };
+
   const exporter=async()=>{
     if(!plan.fond){alert('Importez d’abord le plan de fond.');return}
-    oublierPret();
-    setBusyPdf('Préparation du PDF…');
+    oublierPret(); setPanne(null);
+    setBusyPdf('Lecture du plan de fond…');
     try{
       /* on redemande une adresse fraîche : celle obtenue à l'ouverture de
          l'écran expire au bout d'une heure, et l'export sortirait un fond vide */
       const url=await Photo.get(plan.fond);
       if(!url)throw new Error('le plan de fond est introuvable');
       const rep=await fetch(url);
-      if(!rep.ok)throw new Error('le plan de fond n’a pas pu être relu (code '+rep.status+')');
+      if(!rep.ok)throw new Error('relecture refusée (code '+rep.status+')');
       const blob=await rep.blob();
       const fondData=await new Promise((res,rej)=>{
         const fr=new FileReader();
         fr.onload=()=>res(fr.result);
-        fr.onerror=()=>rej(new Error('le plan de fond n’a pas pu être lu'));
+        fr.onerror=()=>rej(new Error('fichier illisible'));
         fr.readAsDataURL(blob);
       });
+      setBusyPdf('Composition de la planche…');
       setAExporter({fond:fondData});
     }catch(e){
-      alert('L’export du plan a échoué — détail technique : '+((e&&(e.error||e.message))||String(e)));
+      noterPanne('lecture du plan de fond',e);
       setBusyPdf('');
     }
+  };
+
+  /* une image chargée depuis une adresse, avec un motif d'échec exploitable */
+  const charger=(src,quoi)=>new Promise((res,rej)=>{
+    const i=new Image();
+    i.onload=()=>res(i);
+    i.onerror=()=>rej(new Error(quoi+' : le navigateur a refusé de la charger'));
+    i.src=src;
+  });
+  /* une planche SVG déposée sur une toile, puis convertie en JPEG. Le fond
+     éventuel est peint d'abord, à part : c'est ce qui manquait. */
+  const enJpeg=async(svgEl,fondImg,large)=>{
+    const svgTxt=new XMLSerializer().serializeToString(svgEl);
+    const vue=(svgEl.getAttribute('viewBox')||'0 0 1000 707').split(/\s+/).map(Number);
+    const ratio=(vue[3]||707)/(vue[2]||1000);
+    const img=await charger('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgTxt),'la planche');
+    const cv=document.createElement('canvas');
+    cv.width=large; cv.height=Math.round(large*ratio);
+    const ctx=cv.getContext('2d');
+    if(!ctx)throw new Error('toile de dessin indisponible');
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+    /* le fond d'architecte : une vraie image posée directement, jamais
+       enfermée dans le SVG */
+    if(fondImg)ctx.drawImage(fondImg,0,0,cv.width,Math.round(cv.width*(fondImg.height||1)/(fondImg.width||1)));
+    ctx.drawImage(img,0,0,cv.width,cv.height);
+    const d=cv.toDataURL('image/jpeg',0.9);
+    if(!d||d.length<3000)throw new Error('la toile est revenue vide');
+    return {d,w:cv.width,h:cv.height};
   };
 
   useEffect(()=>{
     if(!aExporter)return;
     let vivant=true;
+    let etape='composition de la planche';
     (async()=>{
       try{
-        const svgEl=exportRef.current&&exportRef.current.querySelector('svg');
-        if(!svgEl)throw new Error('la planche n’a pas pu être composée');
-        const svgTxt=new XMLSerializer().serializeToString(svgEl);
-        const img=await new Promise((res,rej)=>{
-          const i=new Image();
-          i.onload=()=>res(i);
-          i.onerror=()=>rej(new Error('le plan n’a pas pu être dessiné'));
-          i.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgTxt);
-        });
-        /* Safari sur iPhone plafonne la surface d'un canvas : au-delà, il ne
-           refuse pas franchement mais rend une image vide. On tente donc une
-           taille confortable, puis on se rabat sur une plus modeste plutôt
-           que de sortir un PDF blanc sans rien dire. */
-        let dessin=null;
+        const svgs=exportRef.current?exportRef.current.querySelectorAll('svg'):[];
+        if(svgs.length<2)throw new Error('planche introuvable dans la page');
+        etape='lecture du fond';
+        const fondImg=await charger(aExporter.fond,'le plan de fond');
+        etape='conversion de la planche';
+        /* Safari plafonne la surface d'une toile : au-delà elle revient vide.
+           On tente une taille confortable, puis on se rabat. */
+        let plan1=null,derniere=null;
         for(const large of [2400,1600,1000]){
-          const cv=document.createElement('canvas');
-          cv.width=large; cv.height=Math.round(large*(img.height||1)/(img.width||1));
-          const ctx=cv.getContext('2d');
-          if(!ctx)continue;
-          ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
-          ctx.drawImage(img,0,0,cv.width,cv.height);
-          let d='';
-          try{d=cv.toDataURL('image/jpeg',0.9)}catch(x){d=''}
-          if(d&&d.length>5000){dessin={d,w:cv.width,h:cv.height};break}
+          try{plan1=await enJpeg(svgs[0],fondImg,large);break}catch(x){derniere=x}
         }
-        if(!dessin)throw new Error('cet appareil n’a pas pu convertir un plan de cette taille');
-        const jpeg=new Uint8Array(await (await (await fetch(dessin.d)).blob()).arrayBuffer());
-        proposer(pdfUnePage(jpeg,dessin.w,dessin.h,'Plan électrique — '+ch.nom),
-          'Plan-electrique-'+(ch.nom||'chantier').replace(/[^\wÀ-ÿ]+/g,'-')+'-'+today()+'.pdf');
+        if(!plan1)throw derniere||new Error('conversion impossible');
+        etape='conversion de la légende';
+        const page2=await enJpeg(svgs[1],null,1600);
+        etape='assemblage du PDF';
+        const octets=async o=>new Uint8Array(await (await (await fetch(o.d)).blob()).arrayBuffer());
+        const pdf=pdfPages([{jpeg:await octets(plan1),w:plan1.w,h:plan1.h},
+                            {jpeg:await octets(page2),w:page2.w,h:page2.h}],
+          'Plan électrique — '+ch.nom);
+        etape='remise du fichier';
+        proposer(pdf,'Plan-electrique-'+(ch.nom||'chantier').replace(/[^\wÀ-ÿ]+/g,'-')+'-'+today()+'.pdf');
       }catch(e){
-        alert('L’export du plan a échoué — détail technique : '+((e&&(e.error||e.message))||String(e)));
+        if(vivant)noterPanne(etape,e);
       }
       if(vivant){setAExporter(null);setBusyPdf('')}
     })();
     return ()=>{vivant=false};
   },[aExporter]);
+
+  /* ---------- le filet de sécurité : l'impression ----------
+     Quand un navigateur refuse de fabriquer le PDF lui-même, celui du système
+     le fait toujours : « Enregistrer au format PDF » dans la fenêtre
+     d'impression sur ordinateur, la feuille de partage sur iPhone. Aucune
+     toile, aucune adresse « blob: », aucun téléchargement à déclencher. */
+  const [impression,setImpression]=useState(false);
+  useEffect(()=>{
+    if(!impression)return;
+    const t=setTimeout(()=>{try{window.print()}catch(x){}setImpression(false)},300);
+    return ()=>clearTimeout(t);
+  },[impression]);
 
   const H=1000*(plan.ratio||0.707);
   const ech=echelleSymboles(plan);
@@ -6960,7 +7094,7 @@ function PlanElectrique({ch,up,onFermer}){
   const parId={}; S.forEach(s=>{parId[s.id]=s});
   const pt=s=>({x:s.x*1000,y:s.y*H});
   const legende=elecLegende(S);
-  const legSurPlan=!!legende.length&&plan.legende!==false;
+  const legSurPlan=!!legende.length&&plan.legende===true;
   const posLeg=legSurPlan?cartouchePosition(plan,legende,H):null;
 
   return <div>
@@ -6986,8 +7120,8 @@ function PlanElectrique({ch,up,onFermer}){
         <button className={'btn s '+(outil?'gh':'')} onClick={()=>changerOutil('')}>Sélection</button>
         <button className={'btn s '+(outil==='cable'?'':'gh')} onClick={()=>changerOutil(outil==='cable'?'':'cable')}>Câbler</button>
         <button className={'btn s '+(hauteurs?'':'gh')} onClick={()=>setHauteurs(h=>!h)}>Hauteurs</button>
-        <button className={'btn s '+(plan.legende===false?'gh':'')}
-          onClick={()=>maj({legende:plan.legende===false})}>Légende</button>
+        <button className={'btn s '+(legSurPlan?'':'gh')}
+          onClick={()=>maj({legende:!legSurPlan})}>Légende sur le plan</button>
         <span style={{flex:1}}/>
         <button className="btn gh s" onClick={()=>setZoom(z=>Math.max(1,+(z-.5).toFixed(1)))} aria-label="Dézoomer">−</button>
         <span className="xs mut" style={{minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
@@ -7155,9 +7289,11 @@ function PlanElectrique({ch,up,onFermer}){
         </div>
         {!legende.length&&<Empty>Aucun symbole posé. Choisissez-en un ci-dessus, puis cliquez sur le plan.</Empty>}
         {!!legende.length&&<div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+          Elle occupe la page 2 du PDF, au large : sur un A3, un cartouche posé sur le dessin
+          mange le plan.
           {legSurPlan
-            ?'Elle est posée sur le plan, et suivra dans le PDF. Faites-la glisser vers un coin dégagé ; le bouton « Légende » la retire du dessin et la renvoie en pied de planche.'
-            :'Elle figure en pied de planche dans le PDF. Le bouton « Légende » la pose sur le plan lui-même.'}
+            ?' Vous l’avez aussi posée sur le plan : faites-la glisser vers un coin dégagé.'
+            :' Le bouton « Légende sur le plan » la pose en plus sur le dessin, si vous y tenez.'}
         </div>}
         {!!legende.length&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:'4px 10px'}}>
           {legende.map(s=><div key={s.id} className="row" style={{gap:6,alignItems:'center'}}>
@@ -7171,6 +7307,8 @@ function PlanElectrique({ch,up,onFermer}){
       <div className="row" style={{gap:8,marginTop:14,flexWrap:'wrap'}}>
         <button className="btn acc s" disabled={!!busy||!!busyPdf} onClick={exporter}>
           {busyPdf||'Enregistrer le plan en PDF'}</button>
+        <button className="btn gh s" disabled={!!busy||!!busyPdf} onClick={()=>setImpression(true)}>
+          Imprimer / Enregistrer en PDF</button>
         <label className="btn gh s" style={{display:'inline-block'}}>
           {busy||'Remplacer le plan de fond'}
           <input type="file" accept="application/pdf,.pdf,image/*" style={{display:'none'}} disabled={!!busy||!!busyPdf}
@@ -7182,7 +7320,26 @@ function PlanElectrique({ch,up,onFermer}){
           Tout effacer</button>}
       </div>
       <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
-        Le PDF reprend le plan, les câbles, les symboles et la légende — prêt à envoyer à l’électricien.</div>
+        Deux pages : le plan avec ses câbles et ses symboles, puis la légende — prêt à envoyer
+        à l’électricien. Si l’enregistrement échoue sur votre appareil, « Imprimer » passe par
+        la fenêtre d’impression du système, qui sait toujours produire un PDF.</div>
+
+      {!!panne&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+TERRA}}>
+        <div className="sp" style={{marginBottom:8}}>
+          <span className="b sm" style={{color:TERRA}}>L’enregistrement a échoué</span>
+          <button className="btn gh s" onClick={()=>setPanne(null)}>Fermer</button>
+        </div>
+        <div className="xs" style={{marginBottom:8,lineHeight:1.6}}>
+          Étape : <b>{panne.etape}</b>.<br/>
+          Détail technique : {panne.detail}
+          {panne.souillee&&<span><br/>Ce navigateur interdit de convertir un dessin qui contient
+            une image importée. Utilisez « Imprimer / Enregistrer en PDF » : le résultat est le même.</span>}
+        </div>
+        <button className="btn acc s" onClick={()=>{setPanne(null);setImpression(true)}}>
+          Passer par l’impression</button>
+        <div className="xs mut" style={{marginTop:8,lineHeight:1.5,wordBreak:'break-word'}}>
+          Appareil : {panne.appareil}</div>
+      </div>}
 
       {!!pret&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+ELEC_VERT}}>
         <div className="sp" style={{marginBottom:8}}>
@@ -7203,12 +7360,45 @@ function PlanElectrique({ch,up,onFermer}){
             style={{textDecoration:'none',display:'inline-block'}}>Ouvrir dans un onglet</a>
         </div>
       </div>}
-      {/* la planche à convertir : hors écran, mais bien rendue par React */}
+      {/* les deux planches à convertir : hors écran, mais bien rendues par React.
+          Le fond n'est pas donné à la première : il est peint à part sur la toile. */}
       {aExporter&&<div ref={exportRef} aria-hidden="true"
         style={{position:'fixed',left:-10000,top:0,width:1000,pointerEvents:'none'}}>
-        <PlanExport fond={aExporter.fond} ratio={plan.ratio} symboles={S} cables={C} plan={plan}
+        <PlanExport ratio={plan.ratio} symboles={S} cables={C} plan={plan}
           titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()} hauteurs={hauteurs} echelle={ech} trait={ep}/>
+        <LegendeExport leg={legende} cables={C} trait={ep}
+          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())}/>
       </div>}
+
+      {/* le filet de sécurité : les mêmes deux pages, mises en page pour la
+          commande d'impression du système, qui sait toujours faire un PDF.
+          La planche est posée directement sous <body>, à côté de l'application :
+          l'impression peut alors masquer celle-ci entièrement, sans que sa
+          hauteur ne fasse sortir des pages blanches. */}
+      {impression&&horsApplication(<div className="planche-impression">
+        <div className="feuille">
+          <div className="cadre">
+          {!!fondUrl&&<img src={fondUrl} alt="" style={{width:'100%',display:'block'}}/>}
+          <svg viewBox={'0 0 1000 '+H} preserveAspectRatio="none"
+            style={{position:'absolute',left:0,top:0,width:'100%',height:'100%'}}>
+            {C.map(c=><path key={c.id} d={cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure)}
+              fill="none" stroke={couleurCable(c)} strokeWidth={ep} strokeDasharray={traitCable(c,ep)}/>)}
+            {S.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
+              return <g key={s.id}>
+                <g transform={poseSymbole(s.x*1000,s.y*H,s.rot,ech)}><ElecGlyph t={s.type}/></g>
+                {!!etiquetteHauteur(s,hauteurs)&&
+                  <text x={s.x*1000+11*ech} y={s.y*H-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
+                    {etiquetteHauteur(s,hauteurs)}</text>}
+              </g>})}
+            {legSurPlan&&<ElecCartouche leg={legende} x={posLeg.x} y={posLeg.y}/>}
+          </svg>
+          </div>
+        </div>
+        {!!legende.length&&<div className="feuille" style={{width:'100%'}}>
+          <LegendeExport leg={legende} cables={C} trait={ep}
+            titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())}/>
+        </div>}
+      </div>)}
     </React.Fragment>}
   </div>;
 }
