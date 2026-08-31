@@ -177,7 +177,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · Mail à l’artisan : choix des pièces jointes, plans d’exécution compris';
+const VERSION='2026-08-31 · Mail à l’artisan : pièces jointes au choix, et envoi depuis votre adresse';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -3095,11 +3095,23 @@ const nomPiece=nom=>{
 
 /* un multipart/mixed écrit à la main : sujet, corps et pièces jointes en
    base64 — ce qu'un client de messagerie fabriquerait, sans en dépendre */
-function mimeMessage({destinataire,cc,sujet,corps,pieces}){
+function mimeMessage({destinataire,cc,sujet,corps,pieces,expediteur,expediteurNom}){
   const lim='====cp'+Date.now()+'====';
   const motB64=s=>'=?UTF-8?B?'+u8aBase64(new TextEncoder().encode(s))+'?=';
   const decoupe=b64=>{const L=[];for(let i=0;i<b64.length;i+=76)L.push(b64.slice(i,i+76));return L};
+  /* « CP CONSTRUCTIONS <contact@…> » : le nom entre guillemets s'il tient en
+     ASCII, encodé sinon — un guillemet ou un accent brut casserait l'en-tête */
+  const boite=(adr,nom)=>{
+    if(!nom)return adr;
+    const propre=String(nom).replace(/["\\]/g,'');
+    return (/^[\x20-\x7E]*$/.test(propre)?'"'+propre+'"':motB64(propre))+' <'+adr+'>';
+  };
   const entetes=[
+    /* Sans expéditeur déclaré, la messagerie met l'adresse du compte connecté.
+       Avec, elle doit être une adresse vérifiée du compte, sinon l'envoi est
+       refusé — c'est ce qui permet d'écrire depuis une boîte d'un autre
+       hébergeur que Google. */
+    expediteur?'From: '+boite(expediteur,expediteurNom):null,
     'To: '+destinataire,
     cc?'Cc: '+cc:null,
     'Subject: '+motB64(sujet),
@@ -5039,7 +5051,11 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
      De vraies pièces jointes : le .docx du marché est regénéré à la volée, le
      plan est retéléchargé depuis le Drive, l'ensemble part par l'API Gmail, au
      nom du compte Google connecté. Rien ne part sans un aperçu à relire d'abord. */
-  const EXPEDITEUR_ATTENDU='claude.portier@cpconstructions.fr';
+  /* L'adresse d'expédition. Les boîtes cpconstructions.fr ne sont pas chez
+     Google : sans rien, le mail partirait de l'adresse Gmail connectée. On
+     écrit donc depuis une adresse déclarée dans les réglages, que la
+     messagerie doit connaître comme une de ses adresses d'envoi vérifiées. */
+  const expediteur=(data.expediteurMail||'').trim();
   const [mail,setMail]=useState(null);
   const ouvrirMail=()=>{
     const a=data.artisans.find(x=>x.id===f.artisanId)||null;
@@ -5084,7 +5100,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         pieces.push({nom:p.nom,type:typeFichier(p.nom),data:octets});
       }
       await gmailEnvoyer(token,{destinataire:mail.destinataire,cc:CP.mail,
-        sujet:mail.sujet,corps:mail.corps,pieces});
+        sujet:mail.sujet,corps:mail.corps,pieces,
+        expediteur,expediteurNom:expediteur?CP.nom:''});
       setF(p=>({...p,numeroMarche:numero,mailArtisanLe:today()}));
       setMail(p=>({...p,etat:'ok'}));
     }catch(e){
@@ -5092,6 +5109,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       setMail(p=>({...p,etat:'erreur',msg:
         c==='auth_required'?"Google n'est pas connecté (bouton ci-dessous) — connectez-le, avec l'autorisation d'envoi de mail, puis relancez.":
         /too large|size|quota/i.test(c)?"Les pièces jointes dépassent la limite de la messagerie (25 Mo au total). Décochez les plus lourdes et envoyez-les dans un second mail.":
+        /from|alias|delegat|not.*permitted|precondition/i.test(c)&&expediteur
+          ?"La messagerie refuse d’écrire depuis "+expediteur+" : cette adresse doit d’abord y être déclarée comme adresse d’envoi vérifiée (Gmail › Paramètres › Comptes et importation › « Envoyer des e-mails en tant que »). Détail : "+c:
         "Envoi impossible — "+c}));
     }
   };
@@ -5232,10 +5251,14 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
             <button className="btn gh s" onClick={ouvrirMail}>Préparer l’envoi</button>
           </div>}
           {mail&&mail.etat==='apercu'&&<div>
-            {mail.compte&&mail.compte!==EXPEDITEUR_ATTENDU&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
+            {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
               borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
-              Le compte Google connecté est <b>{mail.compte}</b>, pas {EXPEDITEUR_ATTENDU} — le mail partira
-              depuis ce compte-là. Reconnectez le bon compte avant d’envoyer si ce n’est pas voulu.</div>}
+              Le mail partira de <b>{mail.compte}</b>, le compte Google connecté. Pour qu’il parte
+              d’une adresse cpconstructions.fr, renseignez-la dans RÉGLAGES › Adresse d’expédition.</div>}
+            <Fld label="EXPÉDITEUR">
+              <div className="xs">{expediteur||mail.compte||'le compte Google connecté'}
+                {expediteur&&mail.compte&&<span className="mut"> · via {mail.compte}</span>}</div>
+            </Fld>
             <Fld label="DESTINATAIRE"><div className="xs">{mail.destinataire}</div></Fld>
             <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
             <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
@@ -10803,6 +10826,25 @@ function Donnees({data,save,session}){
         <br/>Pour ouvrir un accès à quelqu'un : dans Supabase › Authentication › Users › Add user,
         créez-lui une adresse et un mot de passe. Il se connecte ensuite ici avec, puis connecte le
         Drive commun.
+      </div>
+      {/* l'adresse d'expédition : le domaine n'étant pas hébergé par Google,
+          il faut la lui déclarer, sinon les mails partent de l'adresse Gmail */}
+      <div style={{marginTop:12,paddingTop:12,borderTop:'1px solid '+RULE}}>
+        <Fld label="ADRESSE D’EXPÉDITION DES MAILS">
+          <input className="in" type="email" placeholder="contact@cpconstructions.fr"
+            value={data.expediteurMail||''} onChange={e=>save({...data,expediteurMail:e.target.value})}/>
+        </Fld>
+        <div className="xs mut" style={{marginTop:-6,lineHeight:1.6}}>
+          C’est l’adresse que verra l’artisan. Laissée vide, les mails partent de l’adresse du
+          compte Google connecté.
+          <br/><b>À faire une seule fois</b>, dans Gmail du compte connecté : Paramètres › Comptes
+          et importation › « Envoyer des e-mails en tant que » › Ajouter une autre adresse.
+          Saisissez l’adresse ci-dessus, et <b>renseignez le serveur SMTP de votre hébergeur</b>
+          (celui de vos boîtes cpconstructions.fr) plutôt que de passer par Google : le mail est
+          alors réellement expédié par votre hébergeur, et il n’atterrit pas dans les indésirables
+          de l’artisan. Gmail envoie un code de vérification à l’adresse : saisissez-le pour finir.
+          <br/>Sans cette déclaration, l’envoi sera refusé et l’application vous le dira.
+        </div>
       </div>
     </div>
     <div className="card">
