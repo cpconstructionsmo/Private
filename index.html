@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · plan électrique : rotation, taille des symboles, et 4 symboles de plus';
+const VERSION='2026-08-31 · QR du plan d’exécution sur le marché de travaux';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -288,6 +288,12 @@ const elecSymbole=t=>ELEC_SYMBOLES.find(s=>s.id===t)||null;
    attachées, et devient le premier élément de la liste. */
 const fichiersDe=r=>(r&&r.fichiers&&r.fichiers.length)?r.fichiers
   :((r&&r.lien)?[{id:'ancien',nom:'Document',lien:r.lien}]:[]);
+/* le lien d'une pièce du chantier, pour le donner à scanner : le premier
+   fichier déposé, ou le lien saisi à la main */
+const lienPiece=(ch,id)=>{
+  const f=fichiersDe(((ch&&ch.docs)||{})[id]);
+  return (f[0]&&f[0].lien)||'';
+};
 
 /* La navigation. Neuf entrées ne tiennent pas en bas d'un iPhone : les trois
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
@@ -1457,16 +1463,19 @@ const logoXml=(px)=>{
     +'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
     +'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
 };
-/* le QR code de localisation, toujours carré */
-const qrXml=()=>{
+/* un QR code, toujours carré. Le marché en porte deux — l'itinéraire du
+   chantier et le plan d'exécution — d'où la relation et l'identifiant passés
+   en paramètre : deux images du même document ne peuvent pas les partager. */
+const qrXml=(rid,nom,id)=>{
   const taille=850000; // ≈ 2,4 cm de côté : lisible au téléphone depuis une feuille imprimée
+  const r=rid||'rId6', n=nom||'QR localisation', i=id||2;
   return '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
     +'<wp:extent cx="'+taille+'" cy="'+taille+'"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
-    +'<wp:docPr id="2" name="QR localisation"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+    +'<wp:docPr id="'+i+'" name="'+n+'"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
     +'<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
     +'<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
-    +'<pic:nvPicPr><pic:cNvPr id="2" name="QR localisation"/><pic:cNvPicPr/></pic:nvPicPr>'
-    +'<pic:blipFill><a:blip r:embed="rId6"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    +'<pic:nvPicPr><pic:cNvPr id="'+i+'" name="'+n+'"/><pic:cNvPicPr/></pic:nvPicPr>'
+    +'<pic:blipFill><a:blip r:embed="'+r+'"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
     +'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="'+taille+'" cy="'+taille+'"/></a:xfrm>'
     +'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
     +'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
@@ -1834,7 +1843,7 @@ function chantierMarche(d){
     par(d.chantierAdresse||'—',{b:true,sz:21,ap:d.chantierNom?30:0}),
     d.chantierNom?par(d.chantierNom,{sz:18,c:DOC_GRIS,ap:0}):'',
   ].join('');
-  if(!d.qr)return tbl([10400],[tr([
+  if(!d.qr&&!d.qrPlan)return tbl([10400],[tr([
     tc(10400,inner,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4}),v:'top',mg:140}),
   ])],{});
   /* qrXml() rend un <w:r> nu : il lui faut un <w:p> autour, comme le logo en
@@ -1843,11 +1852,24 @@ function chantierMarche(d){
      sans broncher, mais Google Docs, plus strict à l'import d'un .docx,
      rejetait l'élément en silence : le QR restait invisible, alors que la
      légende juste après (elle, dans son propre <w:p>) s'affichait normalement. */
-  const bloc=[par([qrXml()],{jc:'center',ap:60}),par('Scannez pour l’itinéraire',{sz:14,c:DOC_GRIS,jc:'center',ap:0})].join('');
-  return tbl([8600,1800],[tr([
-    tc(8600,inner,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,d:false}),v:'top',mg:140}),
-    tc(1800,bloc,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,g:false}),v:'center',mg:120}),
-  ])],{});
+  const vignette=(rid,nom,id,legende,dernier)=>
+    [par([qrXml(rid,nom,id)],{jc:'center',ap:40}),
+     par(legende,{sz:14,c:DOC_GRIS,jc:'center',ap:dernier?0:120})].join('');
+  const cols=[8600], cells=[tc(8600,inner,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,d:false}),v:'top',mg:140})];
+  /* chaque QR a sa colonne : empilés, ils étireraient le cadre de l'adresse */
+  if(d.qr){
+    cols.push(1800);
+    cells.push(tc(1800,vignette('rId6','QR localisation',2,'Scannez pour l’itinéraire',true),
+      {bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,g:false,d:!!d.qrPlan?false:true}),v:'center',mg:120}));
+  }
+  if(d.qrPlan){
+    cols.push(1800);
+    cells.push(tc(1800,vignette('rId7','QR plan d’exécution',3,'Scannez pour le plan d’exécution',true),
+      {bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,g:false}),v:'center',mg:120}));
+  }
+  /* la colonne du texte se resserre quand deux QR l'accompagnent */
+  if(cols.length===3)cols[0]=6800,cells[0]=tc(6800,inner,{bords:tcB({c:DOC_TERRA,sz:4,t:16,bs:4,d:false}),v:'top',mg:140});
+  return tbl(cols,[tr(cells)],{});
 }
 
 /* ---------- les montants ---------- */
@@ -2225,11 +2247,12 @@ const DOCX_RELS='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
  +'<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
  +'</Relationships>';
-const docxDocRels=avecQr=>'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+const docxDocRels=(avecQr,avecQrPlan)=>'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
  +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
  +'<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/>'
  +(avecQr?'<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/qr.png"/>':'')
+ +(avecQrPlan?'<Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/qr-plan.png"/>':'')
  +'</Relationships>';
 const DOCX_STYLES='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
@@ -2260,18 +2283,19 @@ async function logoDocx(){
   return logoCache;
 }
 
-async function fabriquerDocx(documentXml,titre,logo,qr){
+async function fabriquerDocx(documentXml,titre,logo,qr,qrPlan){
   const enc=new TextEncoder();
   const entrees=[
     {nom:'[Content_Types].xml',data:enc.encode(DOCX_TYPES)},
     {nom:'_rels/.rels',data:enc.encode(DOCX_RELS)},
     {nom:'docProps/core.xml',data:enc.encode(docxCore(titre))},
-    {nom:'word/_rels/document.xml.rels',data:enc.encode(docxDocRels(!!qr))},
+    {nom:'word/_rels/document.xml.rels',data:enc.encode(docxDocRels(!!qr,!!qrPlan))},
     {nom:'word/styles.xml',data:enc.encode(DOCX_STYLES)},
     {nom:'word/document.xml',data:enc.encode(documentXml)},
   ];
   if(logo)entrees.push({nom:'word/media/logo.png',data:logo.data});
   if(qr)entrees.push({nom:'word/media/qr.png',data:qr.data});
+  if(qrPlan)entrees.push({nom:'word/media/qr-plan.png',data:qrPlan.data});
   return zipEcrire(entrees);
 }
 
@@ -2280,8 +2304,12 @@ async function genererMarcheDocx(d){
   try{logo=await logoDocx()}catch(e){/* sans logo, le marché reste valable */}
   let qr=null;
   try{qr=qrPourDocument(d.mapsUrl)}catch(e){/* sans localisation enregistrée, ou QR indisponible : le marché reste valable */}
-  const xml=marcheDocumentXml({...d,qr},logo);
-  return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||''),logo,qr);
+  /* le plan d'exécution : l'artisan le récupère en scannant, plutôt que de
+     réclamer un envoi. Sans plan déposé, le marché s'imprime comme avant. */
+  let qrPlan=null;
+  try{qrPlan=qrPourDocument(d.planExeUrl)}catch(e){/* sans plan déposé, ou QR indisponible : le marché reste valable */}
+  const xml=marcheDocumentXml({...d,qr,qrPlan},logo);
+  return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||''),logo,qr,qrPlan);
 }
 
 /* ---------- dossier de présentation au client ----------
@@ -4885,6 +4913,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       decennaleFin:a.decennaleFin?fd(a.decennaleFin):'',
       client:ch.client||'', clientAdresse:ch.adresseClient||'', clientTel:ch.telClient||'',
       chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'', mapsUrl:mapsUrl(ch),
+      planExeUrl:lienPiece(ch,'plans_exe'),
       ht, brut, remise:r, tva:tx, tvaMontant:Math.round(ht*tx)/100, ttc:Math.round(ht*(100+tx))/100,
       /* seuls les articles non servis s'effacent du contrat imprimé — un
          intertitre ou une précision n'a pas de quantité propre (ligneQt vaut
