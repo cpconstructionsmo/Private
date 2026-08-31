@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · agenda : vue jour heure par heure · correction de la saisie qui revenait en arrière';
+const VERSION='2026-08-31 · plan électrique : rotation, taille des symboles, et 4 symboles de plus';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -256,6 +256,8 @@ const ELEC_SYMBOLES=[
   {id:'lv',      l:'LV',            h:30,  g:'Prises',      c:ELEC_ROUGE},
   {id:'sl',      l:'SL',            h:30,  g:'Prises',      c:ELEC_ROUGE},
   {id:'ss',      l:'SS',            h:50,  g:'Prises',      c:ELEC_ROUGE},
+  {id:'pc20',    l:'PC 20A four',   h:30,  g:'Prises',      c:ELEC_ROUGE},
+  {id:'pc32',    l:'PC 32A plaque', h:30,  g:'Prises',      c:ELEC_ROUGE},
   {id:'rj45',    l:'RJ 45',         h:30,  g:'Prises',      c:ELEC_VERT},
   {id:'tv',      l:'TV',            h:30,  g:'Prises',      c:ELEC_VERT},
   {id:'sa',      l:'SA',            h:110, g:'Commandes',   c:ELEC_ROUGE},
@@ -275,6 +277,8 @@ const ELEC_SYMBOLES=[
   {id:'fumee',   l:'Dect. fumée',   h:250, g:'Équipements', c:ELEC_BLEU},
   {id:'lesan',   l:'LE San',        h:0,   g:'Équipements', c:ELEC_VERT},
   {id:'legen',   l:'LE Gen',        h:100, g:'Équipements', c:ELEC_VERT},
+  {id:'secheserv',l:'Sèche-serviettes',h:110,g:'Équipements',c:ELEC_ROUGE},
+  {id:'antenne', l:'Antenne râteau',h:250, g:'Équipements', c:ELEC_VERT},
 ];
 const ELEC_GROUPES=[...new Set(ELEC_SYMBOLES.map(s=>s.g))];
 const elecSymbole=t=>ELEC_SYMBOLES.find(s=>s.id===t)||null;
@@ -6448,6 +6452,17 @@ function ElecGlyph({t,c}){
       <path d={'M-'+r+',0 A'+r+','+r+' 0 0 1 '+r+',0 Z'} fill="#fff" stroke={coul} strokeWidth="1.6"/>
       <line x1={-r-1.5} y1="0" x2={r+1.5} y2="0" stroke={coul} strokeWidth="2"/>
       {t==='appext'?<line x1="0" y1="-3" x2="0" y2="-7.5" stroke={coul} strokeWidth="1.4"/>:null}</g>;
+    /* les circuits spécialisés : la pastille chiffrée du plan d'implantation */
+    case 'pc20': case 'pc32': return <g>{rond}
+      <text x="0" y="3.4" textAnchor="middle" fontSize="8.5" fontWeight="700" fill={coul}>{t==='pc20'?'20':'32'}</text></g>;
+    /* le sèche-serviettes : le corps de chauffe et ses barres */
+    case 'secheserv': return <g>
+      <rect x="-7" y="-9" width="14" height="18" rx="2" fill="#fff" stroke={coul} strokeWidth="1.6"/>
+      {[-4.5,-1,2.5,6].map(y=><line key={y} x1="-4.5" y1={y} x2="4.5" y2={y} stroke={coul} strokeWidth="1.3"/>)}</g>;
+    /* l'antenne râteau, telle qu'elle se pose en tête de plan */
+    case 'antenne': return <g>
+      <line x1="0" y1="9" x2="0" y2="-9" stroke={coul} strokeWidth="1.6"/>
+      {[-9,-5.5,-2].map((y,i)=><line key={y} x1={-5+i*1.2} y1={y} x2={5-i*1.2} y2={y} stroke={coul} strokeWidth="1.4"/>)}</g>;
     case 'tv': return <g>{rond}
       <line x1="-5" y1="-5" x2="5" y2="5" stroke={coul} strokeWidth="1.6"/>
       <line x1="5" y1="-5" x2="-5" y2="5" stroke={coul} strokeWidth="1.6"/></g>;
@@ -6566,7 +6581,8 @@ function pdfUnePage(jpeg,largeurPx,hauteurPx,titre){
 /* le plan tel qu'il part chez l'électricien : le fond, les câbles, les
    symboles, et le cartouche de légende en pied — la mise en page des plans
    d'implantation qu'on reçoit des bureaux d'études. */
-function PlanExport({fond,ratio,symboles,cables,titre,hauteurs}){
+function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle}){
+  const ech=typeof echelle==='number'&&echelle>0?echelle:ELEC_ECHELLE_DEFAUT;
   const L=1000,H=Math.round(L*(ratio||0.707));
   const pt=s=>({x:s.x*L,y:s.y*H});
   const par={}; (symboles||[]).forEach(s=>{par[s.id]=s});
@@ -6580,10 +6596,12 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs}){
       <path key={c.id} d={cheminCable(pt(par[c.de]),pt(par[c.vers]),c.courbure)}
         fill="none" stroke={couleurCable(c)} strokeWidth="1.5" strokeDasharray={traitCable(c)}/>)}
     {(symboles||[]).map(s=>{const p=pt(s);
-      return <g key={s.id} transform={'translate('+p.x+','+p.y+')'}>
-        <ElecGlyph t={s.type}/>
+      return <g key={s.id}>
+        {/* le symbole tourne et se met à l'échelle… */}
+        <g transform={poseSymbole(p.x,p.y,s.rot,ech)}><ElecGlyph t={s.type}/></g>
+        {/* …mais pas sa hauteur, qui doit rester lisible à l'endroit */}
         {hauteurs&&s.h!==''&&s.h!==undefined&&
-          <text x="11" y="-8" fontSize="8" fontWeight="700" fill={INK}>{s.h}</text>}
+          <text x={p.x+11*ech} y={p.y-8*ech} fontSize={8*ech+2} fontWeight="700" fill={INK}>{s.h}</text>}
       </g>})}
     {hCart>0&&<g transform={'translate(0,'+H+')'}>
       <line x1="0" y1="8" x2={L} y2="8" stroke={RULE} strokeWidth="1"/>
@@ -6598,6 +6616,17 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs}){
 }
 
 const ELEC_HAUTEURS=[0,30,50,105,110,170,250];
+/* Les symboles sont dessinés à une taille de référence, puis ramenés à
+   l'échelle du plan : sur un fond très détaillé ils écrasaient le trait de
+   l'architecte. Cette échelle vaut pour tout le plan et se règle une fois. */
+const ELEC_ECHELLE_DEFAUT=0.65;
+const echelleSymboles=plan=>{
+  const e=plan&&plan.echelle;
+  return typeof e==='number'&&e>0?e:ELEC_ECHELLE_DEFAUT;
+};
+/* translate + rotate + scale : l'ordre compte, la rotation doit tourner le
+   symbole autour de son point de pose, pas autour de l'origine du plan */
+const poseSymbole=(x,y,rot,ech)=>'translate('+x+','+y+') rotate('+(rot||0)+') scale('+ech+')';
 
 function PlanElectrique({ch,up,onFermer}){
   const d=ch.docs||{};
@@ -6699,7 +6728,7 @@ function PlanElectrique({ch,up,onFermer}){
       document.body.appendChild(hote);
       const racine=ReactDOM.createRoot(hote);
       racine.render(React.createElement(PlanExport,{fond:fondData,ratio:plan.ratio,symboles:S,cables:C,
-        titre:'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase(),hauteurs}));
+        titre:'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase(),hauteurs,echelle:ech}));
       await new Promise(r=>setTimeout(r,80));
       const svgTxt=new XMLSerializer().serializeToString(hote.querySelector('svg'));
       racine.unmount(); hote.remove();
@@ -6722,6 +6751,7 @@ function PlanElectrique({ch,up,onFermer}){
   };
 
   const H=1000*(plan.ratio||0.707);
+  const ech=echelleSymboles(plan);
   const choisi=S.find(s=>s.id===sel);
   const choisiC=C.find(c=>c.id===selC);
   const parId={}; S.forEach(s=>{parId[s.id]=s});
@@ -6767,6 +6797,12 @@ function PlanElectrique({ch,up,onFermer}){
       <div className="row" style={{gap:6,marginBottom:6,flexWrap:'wrap'}}>
         {ELEC_GROUPES.map(g=><button key={g} className={'btn s '+(groupe===g?'':'gh')} onClick={()=>setGroupe(g)}>{g}</button>)}
       </div>
+      <div className="row" style={{gap:6,marginBottom:10,alignItems:'center',flexWrap:'wrap'}}>
+        <span className="xs mut">Taille des symboles</span>
+        <button className="btn gh s" onClick={()=>maj({echelle:Math.max(0.3,+(ech-0.1).toFixed(2))})} aria-label="Réduire les symboles">−</button>
+        <span className="xs mut" style={{minWidth:42,textAlign:'center'}}>{Math.round(ech*100)}%</span>
+        <button className="btn gh s" onClick={()=>maj({echelle:Math.min(2,+(ech+0.1).toFixed(2))})} aria-label="Agrandir les symboles">+</button>
+      </div>
       <div className="row" style={{gap:6,marginBottom:10,flexWrap:'wrap'}}>
         {ELEC_SYMBOLES.filter(s=>s.g===groupe).map(s=>
           <button key={s.id} onClick={()=>changerOutil(s.id)} title={s.l+' — H : '+s.h}
@@ -6794,16 +6830,21 @@ function PlanElectrique({ch,up,onFermer}){
                   strokeWidth={selC===c.id?2.6:1.6} strokeLinecap="round" strokeDasharray={traitCable(c)}/>
               </g>})}
             {S.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
-              return <g key={s.id} transform={'translate('+(s.x*1000)+','+(s.y*H)+')'}
-                style={{cursor:outil==='cable'?'pointer':'move'}}
+              const px=s.x*1000, py=s.y*H;
+              /* touchAction 'none' sur le symbole seul : sans cela, au doigt,
+                 le navigateur fait défiler le plan au lieu de le déplacer —
+                 le reste de la zone reste librement défilable */
+              return <g key={s.id} style={{cursor:outil==='cable'?'pointer':'move',touchAction:'none'}}
                 onClick={e=>{e.stopPropagation();cliquerSymbole(s.id)}}
                 onPointerDown={e=>{if(outil)return;e.stopPropagation();drag.current=s.id;setSel(s.id);setSelC(null);
                   if(svgRef.current&&svgRef.current.setPointerCapture)svgRef.current.setPointerCapture(e.pointerId)}}>
-                {(sel===s.id||depart===s.id)&&<circle cx="0" cy="0" r="15" fill="none"
+                {(sel===s.id||depart===s.id)&&<circle cx={px} cy={py} r={15*ech} fill="none"
                   stroke={depart===s.id?ELEC_BLEU:TERRA} strokeWidth="1.8" strokeDasharray="3 2"/>}
-                <ElecGlyph t={s.type}/>
+                {/* une cible de saisie confortable, même quand le symbole est petit */}
+                <circle cx={px} cy={py} r={Math.max(11,14*ech)} fill="transparent"/>
+                <g transform={poseSymbole(px,py,s.rot,ech)}><ElecGlyph t={s.type}/></g>
                 {hauteurs&&s.h!==''&&s.h!==undefined&&
-                  <text x="11" y="-8" fontSize="8" fontWeight="700" fill={INK}>{s.h}</text>}
+                  <text x={px+11*ech} y={py-8*ech} fontSize={8*ech+2} fontWeight="700" fill={INK}>{s.h}</text>}
               </g>})}
           </svg>
         </div>
@@ -6830,6 +6871,19 @@ function PlanElectrique({ch,up,onFermer}){
           {ELEC_HAUTEURS.map(v=><button key={v} className={'btn s '+(choisi.h===v?'':'gh')}
             onClick={()=>majSymbole(choisi.id,{h:v})}>{v}</button>)}
         </div>
+        {/* l'orientation : un interrupteur ou une applique se pose contre un
+            mur, et doit regarder du bon côté */}
+        <Fld label="ORIENTATION">
+          <div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center'}}>
+            <button className="btn gh s" aria-label="Tourner à gauche"
+              onClick={()=>majSymbole(choisi.id,{rot:((choisi.rot||0)-15+360)%360})}>↺</button>
+            <span className="xs mut" style={{minWidth:42,textAlign:'center'}}>{choisi.rot||0}°</span>
+            <button className="btn gh s" aria-label="Tourner à droite"
+              onClick={()=>majSymbole(choisi.id,{rot:((choisi.rot||0)+15)%360})}>↻</button>
+            {[0,90,180,270].map(a=><button key={a} className={'btn s '+((choisi.rot||0)===a?'':'gh')}
+              onClick={()=>majSymbole(choisi.id,{rot:a})}>{a}°</button>)}
+          </div>
+        </Fld>
       </div>}
 
       {choisiC&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+ELEC_BLEU}}>
