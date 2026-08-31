@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · agenda : durée des rendez-vous · plan : remplacement du fond corrigé, câbles en couleur';
+const VERSION='2026-08-31 · agenda : vue jour heure par heure · correction de la saisie qui revenait en arrière';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -869,6 +869,36 @@ const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],borderea
    dans la base) fait planter tout écran qui parcourt cette liste — un seul trou
    suffit à rendre CHANTIERS et ARTISANS injoignables. On l'écarte silencieusement
    à l'entrée plutôt que dans chacun des filtres qui la lisent ensuite. */
+/* Nos propres écritures nous reviennent par l'abonnement temps réel, comme
+   celles d'un collègue. Sans repère, l'écho d'une frappe déjà dépassée
+   réécrasait ce qui venait d'être tapé — le texte « revenait en arrière »
+   tout seul en pleine saisie. On tient donc le journal de l'horodatage de
+   nos envois : un écho qu'on y retrouve est le nôtre et ne réécrit rien,
+   les autres viennent d'ailleurs et doivent bien être appliqués.
+   On compare des instants, pas du texte : la base réordonne les clés d'un
+   jsonb et reformate les dates, une comparaison littérale échouerait. */
+const creerJournalEcritures=max=>{
+  const L=[];
+  return {
+    noter(v){L.push(new Date(v).getTime());if(L.length>(max||20))L.shift()},
+    estDeNous(v){
+      const i=L.indexOf(new Date(v).getTime());
+      if(i<0)return false;
+      L.splice(i,1);
+      return true;
+    },
+    enAttente:()=>L.length,
+  };
+};
+/* deux enregistrements dans la même milliseconde partageraient le même
+   horodatage, et l'un passerait pour l'écho de l'autre : on force l'écart */
+let dernierInstant=0;
+const horodatage=()=>{
+  const t=Math.max(Date.now(),dernierInstant+1);
+  dernierInstant=t;
+  return new Date(t).toISOString();
+};
+
 const nettoyer=d=>{
   const r={...d};
   for(const k of Object.keys(EMPTY))if(Array.isArray(r[k]))r[k]=r[k].filter(Boolean);
@@ -3631,6 +3661,7 @@ function App({session}){
      Tant que le serveur n'a pas répondu, on n'écrit rien : sinon un appareil au cache vide
      (historique effacé, nouveau téléphone) écraserait tout le contenu enregistré. */
   const [chargement,setChargement]=useState('attente');
+  const journal=useRef(creerJournalEcritures(20));
 
   const lire=()=>{
     setChargement('attente');
@@ -3655,13 +3686,49 @@ function App({session}){
       .catch(()=>{if(alive)setChargement('erreur')});
     const channel=sb.channel('app_data_changes')
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_data',filter:'id=eq.main'},payload=>{
-        if(payload.new&&payload.new.data)setData(nettoyer({...EMPTY,...payload.new.data}));
+        if(!payload.new||!payload.new.data)return;
+        /* l'écho de notre propre enregistrement ne doit rien réécrire : il
+           est déjà à l'écran, et il est peut-être déjà dépassé */
+        if(journal.current.estDeNous(payload.new.updated_at))return;
+        setData(nettoyer({...EMPTY,...payload.new.data}));
       })
       .subscribe();
     return ()=>{alive=false;sb.removeChannel(channel)};
   },[]);
 
-  const save=async brut=>{
+  /* L'enregistrement est immédiat à l'écran et sur l'appareil ; l'envoi au
+     serveur attend une courte pause. Écrire à chaque caractère saturait la
+     liaison et, surtout, deux envois pouvaient se doubler en chemin : le
+     plus ancien arrivant en dernier, le serveur gardait une version périmée.
+     Un seul envoi à la fois, le suivant part quand le précédent est revenu. */
+  const attente=useRef(null);
+  const minuteur=useRef(null);
+  const enVol=useRef(false);
+
+  const envoyer=async()=>{
+    if(minuteur.current){clearTimeout(minuteur.current);minuteur.current=null}
+    if(enVol.current||attente.current===null)return;
+    const next=attente.current; attente.current=null;
+    enVol.current=true;
+    const quand=horodatage();
+    journal.current.noter(quand);
+    const{error}=await sb.from('app_data').upsert({id:'main',data:next,updated_at:quand});
+    enVol.current=false;
+    setErr(error?"Synchronisation impossible — vérifiez votre connexion. Vos modifications restent enregistrées sur cet appareil.":null);
+    if(attente.current!==null)envoyer();
+  };
+
+  /* quitter l'application ou la mettre en arrière-plan ne doit pas emporter
+     une saisie encore en attente d'envoi */
+  useEffect(()=>{
+    const vider=()=>{if(attente.current!==null)envoyer()};
+    const masquee=()=>{if(document.visibilityState==='hidden')vider()};
+    window.addEventListener('beforeunload',vider);
+    document.addEventListener('visibilitychange',masquee);
+    return ()=>{window.removeEventListener('beforeunload',vider);document.removeEventListener('visibilitychange',masquee)};
+  },[]);
+
+  const save=brut=>{
     if(chargement!=='ok'){
       setErr("Vos données ne sont pas encore chargées depuis le serveur — modification annulée pour ne pas écraser le contenu enregistré. Rechargez la page une fois la connexion revenue.");
       return;
@@ -3669,8 +3736,9 @@ function App({session}){
     const next=nettoyer(brut);
     setData(next);
     try{localStorage.setItem(KEY,JSON.stringify(next))}catch(e){/* cache local best-effort */}
-    const{error}=await sb.from('app_data').upsert({id:'main',data:next,updated_at:new Date().toISOString()});
-    setErr(error?"Synchronisation impossible — vérifiez votre connexion. Vos modifications restent enregistrées sur cet appareil.":null);
+    attente.current=next;
+    if(minuteur.current)clearTimeout(minuteur.current);
+    minuteur.current=setTimeout(envoyer,600);
   };
   const ch=open?data.chantiers.find(c=>c.id===open):null;
   return <div>
@@ -8353,6 +8421,16 @@ function Fournisseurs({data,save}){
    pour ne pas sauter en hauteur d'un mois à l'autre. */
 const MOIS_NOMS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const JOURS_NOMS=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+const JOURS_LONGS=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+const decalerJour=(iso,n)=>{
+  const[y,m,d]=iso.split('-').map(Number);
+  return isoDate(new Date(y,m-1,d+n));
+};
+const dateLongue=iso=>{
+  if(!iso)return '';
+  const[y,m,d]=iso.split('-').map(Number);
+  return JOURS_LONGS[(new Date(y,m-1,d).getDay()+6)%7]+' '+d+' '+MOIS_NOMS[m-1].toLowerCase()+' '+y;
+};
 const isoDate=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 function grilleCalendrier(annee,mois){
   const premier=new Date(annee,mois,1);
@@ -8376,6 +8454,39 @@ const dureeRdv=(debut,fin)=>{
   return (h?h+' h':'')+(mn?(h?' ':'')+mn+' min':'');
 };
 const plageHoraire=(debut,fin)=>debut?(dureeRdv(debut,fin)?debut+' – '+fin:debut):'';
+
+/* les rendez-vous d'une journée posés sur l'axe des heures : chacun avec son
+   créneau en minutes, et sa colonne quand plusieurs se chevauchent — sans
+   quoi deux rendez-vous simultanés se recouvriraient et on n'en verrait
+   qu'un. Un rendez-vous sans heure de fin occupe une demi-heure, le temps
+   qu'il reste visible. */
+const DUREE_DEFAUT=30;
+const disposerJournee=rdvs=>{
+  const L=(rdvs||[]).map(x=>{
+    const d=minutesHeure(x.heure);
+    if(d===null)return null;
+    const f=minutesHeure(x.heureFin);
+    return {rdv:x,debut:d,fin:(f!==null&&f>d)?f:d+DUREE_DEFAUT};
+  }).filter(Boolean).sort((a,b)=>a.debut-b.debut||a.fin-b.fin);
+  /* on avance par grappes de rendez-vous qui se chevauchent : à l'intérieur
+     d'une grappe, chacun prend la première colonne encore libre, et tous se
+     partagent la largeur */
+  let grappe=[],finGrappe=-1;
+  const clore=()=>{
+    const n=grappe.reduce((m,x)=>Math.max(m,x.col+1),1);
+    grappe.forEach(x=>{x.cols=n});
+    grappe=[];
+  };
+  L.forEach(x=>{
+    if(grappe.length&&x.debut>=finGrappe)clore();
+    const prises=grappe.filter(y=>y.fin>x.debut).map(y=>y.col);
+    let c=0; while(prises.indexOf(c)>=0)c++;
+    x.col=c; grappe.push(x);
+    finGrappe=grappe.length===1?x.fin:Math.max(finGrappe,x.fin);
+  });
+  if(grappe.length)clore();
+  return L;
+};
 
 /* la récurrence ne se pose qu'à la création : une fois les rendez-vous
    posés, chacun s'édite ou se supprime indépendamment des autres */
@@ -8401,8 +8512,73 @@ const genererSerie=(base,rec,fin)=>{
   }
   return L;
 };
+/* la journée sur son axe des heures, à la manière d'un agenda classique :
+   chaque rendez-vous occupe la hauteur de sa durée, et l'on voit d'un coup
+   d'œil les plages où l'on est pris. */
+function JourAgenda({date,rdvs,onOuvrir,onCreer}){
+  const HEURE=46;
+  const poses=disposerJournee(rdvs);
+  const sansHeure=(rdvs||[]).filter(x=>minutesHeure(x.heure)===null);
+  /* les heures ouvrables par défaut, élargies à ce qui déborde */
+  const h0=Math.max(0,Math.min(7,...poses.map(p=>Math.floor(p.debut/60))));
+  const h1=Math.min(24,Math.max(20,...poses.map(p=>Math.ceil(p.fin/60))));
+  const d0=h0*60,d1=h1*60;
+  const heures=[];for(let h=h0;h<h1;h++)heures.push(h);
+  const t=today();
+  return <div>
+    {sansHeure.length>0&&<div style={{marginBottom:8}}>
+      <div className="xs mut" style={{marginBottom:4}}>SANS HEURE</div>
+      {sansHeure.map(x=><div key={x.id} onClick={()=>onOuvrir(x)}
+        style={{cursor:'pointer',marginBottom:4,padding:'5px 8px',borderRadius:5,
+          borderLeft:'3px solid '+(x.type==='perso'?TERRA:NAVY),
+          background:x.type==='perso'?'#F6E2DC':'#E4EAEE'}}>
+        <span className="xs b">{x.titre||'(sans titre)'}</span>
+        {x.client?<span className="xs mut"> · {x.client}</span>:null}</div>)}
+    </div>}
+    {!poses.length&&!sansHeure.length&&
+      <Empty>Journée libre. Cliquez une heure pour y poser un rendez-vous.</Empty>}
+    <div className="row" style={{alignItems:'stretch',gap:0}}>
+      <div style={{flex:'0 0 44px'}}>
+        {heures.map(h=><div key={h} className="xs mut"
+          style={{height:HEURE,textAlign:'right',paddingRight:6,transform:'translateY(-6px)'}}>{h}h</div>)}
+      </div>
+      <div style={{flex:1,position:'relative',borderLeft:'1px solid '+RULE}}>
+        {/* les tranches d'heure : cliquer l'une d'elles y pose un rendez-vous */}
+        {heures.map((h,i)=><div key={h} onClick={()=>onCreer(String(h).padStart(2,'0')+':00')}
+          style={{position:'absolute',left:0,right:0,top:i*HEURE,height:HEURE,cursor:'pointer',
+            borderTop:'1px solid '+RULE,background:(h<8||h>=19)?'#FAF8F4':'transparent'}}/>)}
+        <div style={{height:(d1-d0)/60*HEURE}}/>
+        {/* et par-dessus, les plages occupées */}
+        {poses.map(p=>{const perso=p.rdv.type==='perso';
+          return <div key={p.rdv.id} onClick={e=>{e.stopPropagation();onOuvrir(p.rdv)}}
+            style={{position:'absolute',
+              top:(p.debut-d0)/60*HEURE,
+              height:Math.max(20,(p.fin-p.debut)/60*HEURE-2),
+              left:'calc('+(p.col*100/p.cols)+'% + 3px)',
+              width:'calc('+(100/p.cols)+'% - 6px)',
+              background:perso?'#F6E2DC':'#E4EAEE',
+              borderLeft:'3px solid '+(perso?TERRA:NAVY),
+              borderRadius:4,padding:'2px 6px',overflow:'hidden',cursor:'pointer'}}>
+            <div className="xs b" style={{color:perso?TERRA:NAVY,lineHeight:1.3}}>{p.rdv.titre||'(sans titre)'}</div>
+            <div className="xs mut" style={{lineHeight:1.3}}>
+              {plageHoraire(p.rdv.heure,p.rdv.heureFin)}
+              {dureeRdv(p.rdv.heure,p.rdv.heureFin)?' · '+dureeRdv(p.rdv.heure,p.rdv.heureFin):''}
+              {p.rdv.client?' · '+p.rdv.client:''}</div>
+            {p.rdv.lieu&&(p.fin-p.debut)>=60?<div className="xs mut" style={{lineHeight:1.3}}>{p.rdv.lieu}</div>:null}
+          </div>})}
+        {/* le trait de l'heure courante, comme sur un agenda ouvert au jour même */}
+        {date===t&&(()=>{const n=new Date().getHours()*60+new Date().getMinutes();
+          if(n<d0||n>d1)return null;
+          return <div style={{position:'absolute',left:0,right:0,top:(n-d0)/60*HEURE,
+            borderTop:'2px solid '+TERRA,pointerEvents:'none'}}/>})()}
+      </div>
+    </div>
+  </div>;
+}
+
 function Agenda({data,save}){
   const [f,setF]=useState(null);
+  const [jour,setJour]=useState(null);   /* la journée ouverte, en vue heure par heure */
   const [mois,setMois]=useState(()=>{const d=new Date();return {annee:d.getFullYear(),m:d.getMonth()}});
   const R=data.rendezvous||[];
   const neuf=date=>({id:uid(),titre:'',date:date||today(),heure:'',heureFin:'',client:'',lieu:'',type:'pro',notes:'',recurrence:'',recurrenceFin:''});
@@ -8437,7 +8613,7 @@ function Agenda({data,save}){
     {x.heure?x.heure+' ':''}{x.titre||'(sans titre)'}</div>;
 
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>setF(neuf())}>+ Rendez-vous</button>}>
+    <H2 action={<button className="btn acc s" onClick={()=>setF(neuf(jour))}>+ Rendez-vous</button>}>
       AGENDA ({R.length})</H2>
 
     {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA,marginBottom:20}}>
@@ -8484,7 +8660,22 @@ function Agenda({data,save}){
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={estNouveau?null:del}/>
     </div>}
 
-    {!f&&<>
+    {!f&&jour&&<>
+      <div className="sp" style={{marginBottom:10,alignItems:'center'}}>
+        <button className="btn s" onClick={()=>setJour(decalerJour(jour,-1))} aria-label="Jour précédent">←</button>
+        <span className="b" style={{color:NAVY,textAlign:'center',flex:1,minWidth:0}}>{dateLongue(jour)}</span>
+        <button className="btn s" onClick={()=>setJour(decalerJour(jour,1))} aria-label="Jour suivant">→</button>
+      </div>
+      <div className="row" style={{gap:6,marginBottom:10,flexWrap:'wrap'}}>
+        <button className="btn gh s" onClick={()=>setJour(null)}>Retour au mois</button>
+        <span className="xs mut" style={{flex:1,textAlign:'right'}}>Cliquez une heure pour y poser un rendez-vous.</span>
+      </div>
+      <JourAgenda date={jour} rdvs={parJour[jour]||[]}
+        onOuvrir={x=>setF(x)}
+        onCreer={h=>setF({...neuf(jour),heure:h})}/>
+    </>}
+
+    {!f&&!jour&&<>
       <div className="sp" style={{marginBottom:10,alignItems:'center'}}>
         <button className="btn s" onClick={()=>decaler(-1)} aria-label="Mois précédent">←</button>
         <span className="b" style={{color:NAVY}}>{MOIS_NOMS[mois.m]} {mois.annee}</span>
@@ -8496,7 +8687,7 @@ function Agenda({data,save}){
       <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1,background:RULE,
         border:'1px solid '+RULE,borderRadius:8,overflow:'hidden'}}>
         {JOURS_NOMS.map(j=><div key={j} className="xs mut" style={{background:'#F4F1EB',padding:'6px 4px',textAlign:'center',fontWeight:600}}>{j}</div>)}
-        {cases.map(c=><div key={c.date} data-date={c.date} onClick={()=>setF(neuf(c.date))}
+        {cases.map(c=><div key={c.date} data-date={c.date} onClick={()=>setJour(c.date)}
           style={{background:'#fff',minHeight:76,padding:'4px 5px',cursor:'pointer',opacity:c.dansMois?1:.4}}>
           <div className="xs" style={{fontWeight:c.date===auj?700:500,color:c.date===auj?TERRA:INK}}>{c.jour}</div>
           {(parJour[c.date]||[]).slice(0,3).map(x=><Puce key={x.id} x={x}/>)}
