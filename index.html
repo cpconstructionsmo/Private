@@ -177,7 +177,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · Plan électrique : légende en page 2, secours par l’impression, échec expliqué';
+const VERSION='2026-08-31 · Mail à l’artisan : choix des pièces jointes, plans d’exécution compris';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -320,6 +320,21 @@ const lienPiece=(ch,id)=>{
    Un lien Drive ordinaire mènerait l'artisan à une demande de connexion —
    mieux vaut alors pas de QR du tout qu'un QR qui se referme sur un mur. */
 const lienPiecePublic=(ch,id)=>(((ch&&ch.docs)||{})[id]||{}).lienPublic||'';
+/* toutes les pièces du chantier qui portent un fichier, prêtes à être jointes
+   à un mail — dans l'ordre de l'onglet PIÈCES, chacune nommée par la pièce
+   dont elle vient : l'artisan qui reçoit « Plans d'exécution — lot 3.pdf »
+   sait de quoi il s'agit sans l'ouvrir. */
+const piecesAJoindre=ch=>{
+  const d=(ch&&ch.docs)||{};
+  const L=[];
+  DOCS.forEach(x=>fichiersDe(d[x.id]).forEach((f,i)=>{
+    if(f&&f.lien)L.push({cle:x.id+'|'+(f.id||i),doc:x.id,piece:x.l,nom:f.nom||x.l,lien:f.lien});
+  }));
+  return L;
+};
+/* ce qu'un artisan attend avec son marché : le plan du permis et les plans
+   d'exécution. Le reste se coche à la main, au cas par cas. */
+const PIECES_MAIL_DEFAUT=['plans_pc','plans_exe'];
 
 /* La navigation. Neuf entrées ne tiennent pas en bas d'un iPhone : les trois
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
@@ -3053,6 +3068,31 @@ async function driveFichierBytes(token,fileId){
   if(!r.ok)throw new Error('Téléchargement depuis le Drive impossible');
   return new Uint8Array(await r.arrayBuffer());
 }
+/* le type d'une pièce jointe, d'après son nom. Un PDF annoncé comme tel
+   s'ouvre d'un geste sur le téléphone de l'artisan ; sous un type générique,
+   il faut d'abord l'enregistrer puis chercher avec quoi l'ouvrir. */
+const typeFichier=nom=>({
+  pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg',
+  gif:'image/gif', webp:'image/webp', heic:'image/heic', svg:'image/svg+xml',
+  doc:'application/msword', txt:'text/plain', csv:'text/csv', zip:'application/zip',
+  docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls:'application/vnd.ms-excel',
+  xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+}[String(nom||'').toLowerCase().split('.').pop()]||'application/octet-stream');
+
+/* Le nom d'une pièce jointe voyage dans un en-tête, qui ne connaît que
+   l'ASCII : « Marché n° 12 — Terrassement.docx » y arriverait haché. On donne
+   les deux formes — un repli lisible sans accents, et la forme normalisée que
+   tous les clients modernes lisent (RFC 2231). */
+const nomPiece=nom=>{
+  const brut=String(nom||'piece');
+  const ascii=brut.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[’‘]/g,"'").replace(/[“”«»]/g,"'").replace(/[–—]/g,'-')
+    .replace(/°/g,'o').replace(/€/g,'EUR')
+    .replace(/[^\x20-\x7E]/g,'_').replace(/["\\]/g,'')||'piece';
+  return {ascii,etoile:"UTF-8''"+encodeURIComponent(brut)};
+};
+
 /* un multipart/mixed écrit à la main : sujet, corps et pièces jointes en
    base64 — ce qu'un client de messagerie fabriquerait, sans en dépendre */
 function mimeMessage({destinataire,cc,sujet,corps,pieces}){
@@ -3075,9 +3115,10 @@ function mimeMessage({destinataire,cc,sujet,corps,pieces}){
   ];
   const piecesLignes=[];
   for(const p of (pieces||[])){
+    const n=nomPiece(p.nom);
     piecesLignes.push('--'+lim,
-      'Content-Type: '+p.type+'; name="'+p.nom+'"',
-      'Content-Disposition: attachment; filename="'+p.nom+'"',
+      'Content-Type: '+p.type+'; name="'+n.ascii+'"',
+      'Content-Disposition: attachment; filename="'+n.ascii+'"; filename*='+n.etoile,
       'Content-Transfer-Encoding: base64','',
       ...decoupe(u8aBase64(p.data)));
   }
@@ -5003,16 +5044,25 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const ouvrirMail=()=>{
     const a=data.artisans.find(x=>x.id===f.artisanId)||null;
     if(!a||!a.email)return;
-    const plans=fichiersDe((ch.docs||{}).plans_pc);
+    const dispo=piecesAJoindre(ch);
+    const cochees=dispo.filter(p=>PIECES_MAIL_DEFAUT.indexOf(p.doc)>=0).map(p=>p.cle);
+    const nommees=dispo.filter(p=>cochees.indexOf(p.cle)>=0).map(p=>p.piece.toLowerCase());
+    const liste=[...new Set(nommees)];
     setMail({
       etat:'apercu', compte:'',
       destinataire:a.email,
       sujet:'Marché '+(f.numeroMarche?'n° '+f.numeroMarche+' ':'')+'— '+(f.lot||'lot')+' — '+(ch.nom||''),
-      corps:'Bonjour,\n\nVeuillez trouver ci-joint le marché de travaux'+(plans.length?' ainsi que le plan de permis de construire':'')+' pour le chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.\n\nCordialement,\n'+CP.nom,
-      plans,
+      corps:'Bonjour,\n\nVeuillez trouver ci-joint le marché de travaux'
+        +(liste.length?' ainsi que '+(liste.length>1?liste.slice(0,-1).join(', ')+' et '+liste.slice(-1):liste[0]):'')
+        +' pour le chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.'
+        +'\n\nMerci de me retourner le marché signé, et de me signaler toute réserve avant le démarrage.'
+        +'\n\nCordialement,\n'+CP.nom,
+      dispo, cochees,
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
   };
+  const cocherPiece=cle=>setMail(p=>({...p,
+    cochees:p.cochees.indexOf(cle)>=0?p.cochees.filter(x=>x!==cle):[...p.cochees,cle]}));
   const envoyerMail=async()=>{
     setMail(p=>({...p,etat:'envoi'}));
     try{
@@ -5021,12 +5071,17 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       const numero=f.numeroMarche||numeroSuivant();
       const docMarche=await construireMarcheDoc(a,numero);
       const pieces=[{nom:'Marché '+numero+' — '+(f.lot||'lot')+'.docx',
-        type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',data:docMarche}];
-      for(const p of mail.plans){
+        type:typeFichier('x.docx'),data:docMarche}];
+      for(const p of mail.dispo.filter(x=>mail.cochees.indexOf(x.cle)>=0)){
         const id=driveIdDepuisLien(p.lien);
         if(!id)continue;
-        const data2=await driveFichierBytes(token,id);
-        pieces.push({nom:p.nom||'Plan de permis',type:'application/pdf',data:data2});
+        let octets;
+        /* dire laquelle a échoué, et pourquoi : un document au format Google
+           n'a pas de contenu à télécharger tel quel, il faut l'exporter */
+        try{octets=await driveFichierBytes(token,id)}
+        catch(x){throw new Error('« '+p.nom+' » n’a pas pu être repris depuis le Drive. '
+          +'Si c’est un document au format Google (Docs, Sheets), exportez-le en PDF et redéposez-le dans l’onglet PIÈCES.')}
+        pieces.push({nom:p.nom,type:typeFichier(p.nom),data:octets});
       }
       await gmailEnvoyer(token,{destinataire:mail.destinataire,cc:CP.mail,
         sujet:mail.sujet,corps:mail.corps,pieces});
@@ -5036,6 +5091,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       const c=String((e&&(e.error||e.message))||e);
       setMail(p=>({...p,etat:'erreur',msg:
         c==='auth_required'?"Google n'est pas connecté (bouton ci-dessous) — connectez-le, avec l'autorisation d'envoi de mail, puis relancez.":
+        /too large|size|quota/i.test(c)?"Les pièces jointes dépassent la limite de la messagerie (25 Mo au total). Décochez les plus lourdes et envoyez-les dans un second mail.":
         "Envoi impossible — "+c}));
     }
   };
@@ -5159,7 +5215,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       })()}
       {f.contratLien&&(()=>{
         const a=data.artisans.find(x=>x.id===f.artisanId)||null;
-        const plans=fichiersDe((ch.docs||{}).plans_pc);
+        const joignables=piecesAJoindre(ch);
         if(!a||!a.email)return <Fld label="ENVOYER À L'ARTISAN PAR MAIL">
           <div className="xs mut" style={{lineHeight:1.5}}>
             {a?'Cette entreprise n’a pas d’e-mail enregistré — ajoutez-en un sur sa fiche (onglet ARTISANS) pour pouvoir lui envoyer le marché.'
@@ -5168,8 +5224,10 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         return <Fld label="ENVOYER À L'ARTISAN PAR MAIL">
           {!mail&&<div>
             <div className="xs mut" style={{lineHeight:1.5,marginBottom:8}}>
-              Le marché{plans.length?' et le plan de permis (onglet PIÈCES)':''} partent en pièces jointes,
-              à {a.email}. Un aperçu s’ouvre d’abord — rien ne part sans que vous ayez cliqué « Envoyer ».
+              Le marché part en pièce jointe à {a.email}, accompagné des pièces du chantier que vous
+              cochez — les plans du permis et les plans d’exécution sont proposés d’office
+              {joignables.length?'':'. Aucune pièce n’est encore déposée dans l’onglet PIÈCES'}.
+              Un aperçu s’ouvre d’abord : rien ne part sans que vous ayez cliqué « Envoyer ».
             </div>
             <button className="btn gh s" onClick={ouvrirMail}>Préparer l’envoi</button>
           </div>}
@@ -5180,10 +5238,27 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
               depuis ce compte-là. Reconnectez le bon compte avant d’envoyer si ce n’est pas voulu.</div>}
             <Fld label="DESTINATAIRE"><div className="xs">{mail.destinataire}</div></Fld>
             <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
-            <Fld label="MESSAGE"><textarea className="in" rows="6" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
-            <div className="xs mut" style={{marginBottom:8}}>
-              Pièces jointes : Marché — {f.lot||'lot'}.docx{plans.map((p,i)=><span key={i}>, {p.nom||'Plan de permis'}</span>)}
-            </div>
+            <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
+            <Fld label={'PIÈCES JOINTES ('+(mail.cochees.length+1)+')'}>
+              <div className="xs" style={{marginBottom:6,display:'flex',gap:6,alignItems:'center'}}>
+                <span style={{width:14,textAlign:'center',color:GREEN}}>✓</span>
+                <span>Marché — {f.lot||'lot'}.docx</span>
+                <span className="mut">toujours joint</span>
+              </div>
+              {!mail.dispo.length&&<div className="xs mut" style={{lineHeight:1.5}}>
+                Aucune autre pièce disponible : déposez les plans dans l’onglet PIÈCES du chantier
+                pour pouvoir les joindre.</div>}
+              {mail.dispo.map(p=>{const on=mail.cochees.indexOf(p.cle)>=0;
+                return <label key={p.cle} className="xs" style={{display:'flex',gap:6,alignItems:'flex-start',
+                  marginBottom:4,cursor:'pointer',lineHeight:1.45}}>
+                  <input type="checkbox" checked={on} onChange={()=>cocherPiece(p.cle)} style={{marginTop:2}}/>
+                  <span style={{flex:1,minWidth:0,wordBreak:'break-word'}}>
+                    {p.nom}{p.nom!==p.piece&&<span className="mut"> — {p.piece}</span>}</span>
+                </label>})}
+              <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+                Les pièces sont reprises depuis le Drive au moment de l’envoi, dans leur dernière version.
+                Le total doit rester sous 25 Mo.</div>
+            </Fld>
             <div className="row" style={{gap:8}}>
               <button className="btn acc s" onClick={envoyerMail}>Envoyer</button>
               <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
