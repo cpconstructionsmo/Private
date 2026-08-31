@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · QR vers le PDF sans compte Google, sélection qui tient, hauteurs hors norme sur le plan';
+const VERSION='2026-08-31 · Plan électrique : PDF remis en main propre, épaisseur des câbles, légende sur le plan';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -6586,13 +6586,58 @@ const cheminCable=(a,b,courbure)=>{
    besoin, le pointillé — pour un passage en plafond, une gaine en attente… */
 const ELEC_CABLE_COULEURS=[['','Bleu'],[ELEC_ROUGE,'Rouge'],[ELEC_VERT,'Vert'],[AMBER,'Orange'],[INK,'Noir']];
 const couleurCable=c=>(c&&c.couleur)||ELEC_BLEU;
-const traitCable=c=>c&&c.pointille?'7 5':null;
+/* L'épaisseur du tracé vaut pour tout le plan : sur un fond d'architecte au
+   trait fin, un câble trop gras mange les cloisons et les cotes. Le pointillé
+   suit la même épaisseur, sans quoi il se disloque quand on affine. */
+const ELEC_TRAIT_DEFAUT=1.6;
+const epaisseurCables=plan=>{
+  const t=plan&&plan.trait;
+  return typeof t==='number'&&t>0?t:ELEC_TRAIT_DEFAUT;
+};
+const traitCable=(c,ep)=>{
+  if(!c||!c.pointille)return null;
+  const e=(typeof ep==='number'&&ep>0?ep:ELEC_TRAIT_DEFAUT)/ELEC_TRAIT_DEFAUT;
+  return +(7*e).toFixed(2)+' '+ +(5*e).toFixed(2);
+};
 
 /* un câble ne vaut que si ses deux extrémités existent encore */
 const cablesValides=(cables,symboles)=>{
   const ok=new Set((symboles||[]).map(s=>s.id));
   return (cables||[]).filter(c=>ok.has(c.de)&&ok.has(c.vers)&&c.de!==c.vers);
 };
+
+/* ---------- le cartouche de légende, posé sur le plan ----------
+   Les plans d'implantation portent leur légende dans un coin, sur le dessin
+   lui-même : l'électricien lit le symbole et sa correspondance sans quitter
+   la planche des yeux. On la pose donc dans le SVG — la même sur l'écran et
+   dans le PDF — et on la laisse déplaçable, puisqu'aucun coin n'est libre
+   sur tous les plans. Les mesures sont en unités du plan (largeur 1000). */
+const ELEC_CARTOUCHE_L=300, ELEC_CARTOUCHE_LIGNE=21, ELEC_CARTOUCHE_TETE=30;
+const cartoucheHauteur=leg=>ELEC_CARTOUCHE_TETE+(leg||[]).length*ELEC_CARTOUCHE_LIGNE+9;
+/* la légende reste entière dans le plan, quel que soit l'endroit relâché */
+const cartouchePosition=(plan,leg,H)=>{
+  const h=cartoucheHauteur(leg);
+  const brut={x:typeof (plan||{}).legX==='number'?plan.legX:0.985-ELEC_CARTOUCHE_L/1000,
+              y:typeof (plan||{}).legY==='number'?plan.legY:0.015};
+  return {x:Math.min(Math.max(brut.x*1000,4),Math.max(4,1000-ELEC_CARTOUCHE_L-4)),
+          y:Math.min(Math.max(brut.y*H,4),Math.max(4,H-h-4))};
+};
+function ElecCartouche({leg,x,y,deplacable,onPointerDown}){
+  const h=cartoucheHauteur(leg);
+  return <g transform={'translate('+x+','+y+')'} onPointerDown={onPointerDown}
+    style={deplacable?{cursor:'move',touchAction:'none'}:undefined}>
+    <rect x="0" y="0" width={ELEC_CARTOUCHE_L} height={h} rx="6"
+      fill="#ffffff" fillOpacity="0.95" stroke={RULE} strokeWidth="1"/>
+    <text x="10" y="19" fontSize="10.5" fontWeight="700" fill={NAVY}>LÉGENDE</text>
+    <line x1="10" y1="25" x2={ELEC_CARTOUCHE_L-10} y2="25" stroke={RULE} strokeWidth="0.7"/>
+    {(leg||[]).map((s,i)=><g key={s.id} transform={'translate(0,'+(ELEC_CARTOUCHE_TETE+i*ELEC_CARTOUCHE_LIGNE)+')'}>
+      <g transform="translate(20,10) scale(0.62)"><ElecGlyph t={s.id}/></g>
+      <text x="38" y="14" fontSize="9.5" fill={INK}>{s.l}</text>
+      <text x={ELEC_CARTOUCHE_L-10} y="14" fontSize="9.5" textAnchor="end" fill={MUTED}>
+        {'H : '+s.h+' · ×'+s.n}</text>
+    </g>)}
+  </g>;
+}
 
 /* ---------- l'export en PDF ----------
    Le plan fini part chez l'électricien : un PDF d'une page contenant l'image
@@ -6635,20 +6680,28 @@ function pdfUnePage(jpeg,largeurPx,hauteurPx,titre){
 /* le plan tel qu'il part chez l'électricien : le fond, les câbles, les
    symboles, et le cartouche de légende en pied — la mise en page des plans
    d'implantation qu'on reçoit des bureaux d'études. */
-function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle}){
+function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,plan}){
   const ech=typeof echelle==='number'&&echelle>0?echelle:ELEC_ECHELLE_DEFAUT;
+  const ep=typeof trait==='number'&&trait>0?trait:ELEC_TRAIT_DEFAUT;
   const L=1000,H=Math.round(L*(ratio||0.707));
   const pt=s=>({x:s.x*L,y:s.y*H});
   const par={}; (symboles||[]).forEach(s=>{par[s.id]=s});
   const leg=elecLegende(symboles);
+  /* la légende est portée soit par le plan lui-même, soit par un bandeau en
+     pied de planche — jamais les deux, l'électricien n'a pas à la lire deux fois */
+  const surPlan=!!leg.length&&(plan||{}).legende!==false;
+  const posLeg=surPlan?cartouchePosition(plan,leg,H):null;
   const col=5,hLigne=26,larg=L/col;
-  const hCart=leg.length?Math.ceil(leg.length/col)*hLigne+40:0;
+  /* le pied de planche porte toujours le titre ; il n'accueille la légende
+     que lorsqu'elle n'est pas déjà posée sur le dessin */
+  const enPied=!surPlan&&!!leg.length;
+  const hCart=enPied?Math.ceil(leg.length/col)*hLigne+40:34;
   return <svg xmlns="http://www.w3.org/2000/svg" width={L} height={H+hCart} viewBox={'0 0 '+L+' '+(H+hCart)}>
     <rect x="0" y="0" width={L} height={H+hCart} fill="#ffffff"/>
     <image href={fond} x="0" y="0" width={L} height={H} preserveAspectRatio="none"/>
     {cablesValides(cables,symboles).map(c=>
       <path key={c.id} d={cheminCable(pt(par[c.de]),pt(par[c.vers]),c.courbure)}
-        fill="none" stroke={couleurCable(c)} strokeWidth="1.5" strokeDasharray={traitCable(c)}/>)}
+        fill="none" stroke={couleurCable(c)} strokeWidth={ep} strokeDasharray={traitCable(c,ep)}/>)}
     {(symboles||[]).map(s=>{const p=pt(s);
       return <g key={s.id}>
         {/* le symbole tourne et se met à l'échelle… */}
@@ -6658,10 +6711,11 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle}){
           <text x={p.x+11*ech} y={p.y-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
             {etiquetteHauteur(s,hauteurs)}</text>}
       </g>})}
+    {surPlan&&<ElecCartouche leg={leg} x={posLeg.x} y={posLeg.y}/>}
     {hCart>0&&<g transform={'translate(0,'+H+')'}>
       <line x1="0" y1="8" x2={L} y2="8" stroke={RULE} strokeWidth="1"/>
       <text x="6" y="27" fontSize="11" fontWeight="700" fill={NAVY}>{titre}</text>
-      {leg.map((s,i)=><g key={s.id} transform={'translate('+((i%col)*larg)+','+(36+Math.floor(i/col)*hLigne)+')'}>
+      {enPied&&leg.map((s,i)=><g key={s.id} transform={'translate('+((i%col)*larg)+','+(36+Math.floor(i/col)*hLigne)+')'}>
         <g transform="translate(18,10)"><ElecGlyph t={s.id}/></g>
         <text x="33" y="14" fontSize="9" fill={INK}>{s.l}</text>
         <text x={larg-8} y="14" fontSize="9" textAnchor="end" fill={MUTED}>{'H : '+s.h+' · ×'+s.n}</text>
@@ -6711,6 +6765,7 @@ function PlanElectrique({ch,up,onFermer}){
   const svgRef=useRef(null);
   const drag=useRef(null);
   const gestSymbole=useRef(false);   /* le geste en cours a-t-il commencé sur un symbole ? */
+  const decalLeg=useRef(null);       /* où, dans le cartouche, on l'a attrapé */
 
   useEffect(()=>{let a=true;
     if(!plan.fond){setFondUrl(null);return}
@@ -6796,17 +6851,43 @@ function PlanElectrique({ch,up,onFermer}){
   const [aExporter,setAExporter]=useState(null);
   const exportRef=useRef(null);
 
-  const telecharger=(octets,nom)=>{
-    const url=URL.createObjectURL(new Blob([octets],{type:'application/pdf'}));
-    const a=document.createElement('a');
-    a.href=url; a.download=nom; a.style.display='none';
-    /* le lien doit être dans la page : Firefox ignore un clic sur un lien détaché */
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),2000);
+  /* ---------- la remise du fichier ----------
+     L'ancienne version fabriquait le PDF puis cliquait elle-même sur un lien
+     invisible. Safari refuse ce clic : il n'a pas été fait par vous, et le
+     temps du calcul a effacé la trace de votre geste initial. Il tentait alors
+     d'ouvrir l'adresse « blob: » comme une page, et échouait — « WebKitBlob-
+     Resource erreur 1 », l'application disparaissait derrière une page
+     d'erreur. On rend donc le fichier autrement : le PDF fini est annoncé,
+     et c'est vous qui appuyez. Le geste est le vôtre, l'adresse reste vivante
+     tant que le panneau est ouvert, et sur iPhone la feuille de partage
+     d'iOS ouvre directement « Enregistrer dans Fichiers ». */
+  const [pret,setPret]=useState(null);
+  const urlPret=useRef(null);
+  const oublierPret=()=>{
+    if(urlPret.current){try{URL.revokeObjectURL(urlPret.current)}catch(x){}urlPret.current=null}
+    setPret(null);
+  };
+  useEffect(()=>()=>{if(urlPret.current)try{URL.revokeObjectURL(urlPret.current)}catch(x){}},[]);
+
+  const proposer=(octets,nom)=>{
+    if(urlPret.current){try{URL.revokeObjectURL(urlPret.current)}catch(x){}}
+    const blob=new Blob([octets],{type:'application/pdf'});
+    urlPret.current=URL.createObjectURL(blob);
+    /* le partage de fichier n'existe pas partout : on ne propose « Enregistrer
+       dans Fichiers » que si l'appareil sait vraiment le faire */
+    let fichier=null;
+    try{
+      if(typeof File!=='undefined'&&typeof navigator!=='undefined'&&navigator.canShare&&navigator.share){
+        const f=new File([blob],nom,{type:'application/pdf'});
+        if(navigator.canShare({files:[f]}))fichier=f;
+      }
+    }catch(x){fichier=null}
+    setPret({url:urlPret.current,nom,taille:blob.size,fichier});
   };
 
   const exporter=async()=>{
     if(!plan.fond){alert('Importez d’abord le plan de fond.');return}
+    oublierPret();
     setBusyPdf('Préparation du PDF…');
     try{
       /* on redemande une adresse fraîche : celle obtenue à l'ouverture de
@@ -6861,7 +6942,7 @@ function PlanElectrique({ch,up,onFermer}){
         }
         if(!dessin)throw new Error('cet appareil n’a pas pu convertir un plan de cette taille');
         const jpeg=new Uint8Array(await (await (await fetch(dessin.d)).blob()).arrayBuffer());
-        telecharger(pdfUnePage(jpeg,dessin.w,dessin.h,'Plan électrique — '+ch.nom),
+        proposer(pdfUnePage(jpeg,dessin.w,dessin.h,'Plan électrique — '+ch.nom),
           'Plan-electrique-'+(ch.nom||'chantier').replace(/[^\wÀ-ÿ]+/g,'-')+'-'+today()+'.pdf');
       }catch(e){
         alert('L’export du plan a échoué — détail technique : '+((e&&(e.error||e.message))||String(e)));
@@ -6873,11 +6954,14 @@ function PlanElectrique({ch,up,onFermer}){
 
   const H=1000*(plan.ratio||0.707);
   const ech=echelleSymboles(plan);
+  const ep=epaisseurCables(plan);
   const choisi=S.find(s=>s.id===sel);
   const choisiC=C.find(c=>c.id===selC);
   const parId={}; S.forEach(s=>{parId[s.id]=s});
   const pt=s=>({x:s.x*1000,y:s.y*H});
   const legende=elecLegende(S);
+  const legSurPlan=!!legende.length&&plan.legende!==false;
+  const posLeg=legSurPlan?cartouchePosition(plan,legende,H):null;
 
   return <div>
     <div className="sp" style={{marginBottom:10,alignItems:'center'}}>
@@ -6902,6 +6986,8 @@ function PlanElectrique({ch,up,onFermer}){
         <button className={'btn s '+(outil?'gh':'')} onClick={()=>changerOutil('')}>Sélection</button>
         <button className={'btn s '+(outil==='cable'?'':'gh')} onClick={()=>changerOutil(outil==='cable'?'':'cable')}>Câbler</button>
         <button className={'btn s '+(hauteurs?'':'gh')} onClick={()=>setHauteurs(h=>!h)}>Hauteurs</button>
+        <button className={'btn s '+(plan.legende===false?'gh':'')}
+          onClick={()=>maj({legende:plan.legende===false})}>Légende</button>
         <span style={{flex:1}}/>
         <button className="btn gh s" onClick={()=>setZoom(z=>Math.max(1,+(z-.5).toFixed(1)))} aria-label="Dézoomer">−</button>
         <span className="xs mut" style={{minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
@@ -6923,6 +7009,10 @@ function PlanElectrique({ch,up,onFermer}){
         <button className="btn gh s" onClick={()=>maj({echelle:Math.max(0.3,+(ech-0.1).toFixed(2))})} aria-label="Réduire les symboles">−</button>
         <span className="xs mut" style={{minWidth:42,textAlign:'center'}}>{Math.round(ech*100)}%</span>
         <button className="btn gh s" onClick={()=>maj({echelle:Math.min(2,+(ech+0.1).toFixed(2))})} aria-label="Agrandir les symboles">+</button>
+        <span className="xs mut" style={{marginLeft:10}}>Épaisseur des câbles</span>
+        <button className="btn gh s" onClick={()=>maj({trait:Math.max(0.4,+(ep-0.2).toFixed(1))})} aria-label="Affiner les câbles">−</button>
+        <span className="xs mut" style={{minWidth:42,textAlign:'center'}}>{ep.toFixed(1)}</span>
+        <button className="btn gh s" onClick={()=>maj({trait:Math.min(5,+(ep+0.2).toFixed(1))})} aria-label="Épaissir les câbles">+</button>
       </div>
       <div className="row" style={{gap:6,marginBottom:10,flexWrap:'wrap'}}>
         {ELEC_SYMBOLES.filter(s=>s.g===groupe).map(s=>
@@ -6942,7 +7032,10 @@ function PlanElectrique({ch,up,onFermer}){
             style={{position:'absolute',left:0,top:0,width:'100%',height:'100%',cursor:outil?'crosshair':'default',touchAction:'pan-x pan-y'}}
             onClick={poser}
             onPointerDown={()=>{gestSymbole.current=false}}
-            onPointerMove={e=>{if(!drag.current)return;const p=pos(e);if(p)majSymbole(drag.current,p)}}
+            onPointerMove={e=>{if(!drag.current)return;const p=pos(e);if(!p)return;
+              if(drag.current==='@legende'){const o=decalLeg.current||{x:0,y:0};
+                maj({legX:p.x-o.x,legY:p.y-o.y});return}
+              majSymbole(drag.current,p)}}
             onPointerUp={e=>{drag.current=null;
               if(svgRef.current&&svgRef.current.releasePointerCapture&&e&&e.pointerId!==undefined)
                 try{svgRef.current.releasePointerCapture(e.pointerId)}catch(x){}}}>
@@ -6951,7 +7044,7 @@ function PlanElectrique({ch,up,onFermer}){
               return <g key={c.id} onClick={e=>{e.stopPropagation();if(!outil){setSelC(c.id);setSel(null)}}}>
                 <path d={chemin} fill="none" stroke="transparent" strokeWidth="14" style={{cursor:outil?'inherit':'pointer'}}/>
                 <path d={chemin} fill="none" stroke={selC===c.id?TERRA:couleurCable(c)}
-                  strokeWidth={selC===c.id?2.6:1.6} strokeLinecap="round" strokeDasharray={traitCable(c)}/>
+                  strokeWidth={selC===c.id?ep+1:ep} strokeLinecap="round" strokeDasharray={traitCable(c,ep)}/>
               </g>})}
             {S.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
               const px=s.x*1000, py=s.y*H;
@@ -6972,6 +7065,16 @@ function PlanElectrique({ch,up,onFermer}){
                   <text x={px+11*ech} y={py-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
                     {etiquetteHauteur(s,hauteurs)}</text>}
               </g>})}
+            {/* la légende par-dessus tout : c'est elle qu'on lit en dernier,
+                et c'est elle qu'on attrape pour la ranger dans un coin libre */}
+            {legSurPlan&&<ElecCartouche leg={legende} x={posLeg.x} y={posLeg.y} deplacable
+              onPointerDown={e=>{
+                e.stopPropagation();
+                drag.current='@legende'; gestSymbole.current=true;
+                const p=pos(e);
+                decalLeg.current=p?{x:p.x-posLeg.x/1000,y:p.y-posLeg.y/H}:{x:0,y:0};
+                if(svgRef.current&&svgRef.current.setPointerCapture)svgRef.current.setPointerCapture(e.pointerId);
+              }}/>}
           </svg>
         </div>
       </div>
@@ -7051,6 +7154,11 @@ function PlanElectrique({ch,up,onFermer}){
             {C.length?' · '+C.length+' câble'+(C.length>1?'s':''):''}</span>
         </div>
         {!legende.length&&<Empty>Aucun symbole posé. Choisissez-en un ci-dessus, puis cliquez sur le plan.</Empty>}
+        {!!legende.length&&<div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+          {legSurPlan
+            ?'Elle est posée sur le plan, et suivra dans le PDF. Faites-la glisser vers un coin dégagé ; le bouton « Légende » la retire du dessin et la renvoie en pied de planche.'
+            :'Elle figure en pied de planche dans le PDF. Le bouton « Légende » la pose sur le plan lui-même.'}
+        </div>}
         {!!legende.length&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:'4px 10px'}}>
           {legende.map(s=><div key={s.id} className="row" style={{gap:6,alignItems:'center'}}>
             <svg width="20" height="20" viewBox="-12 -12 24 24" style={{flex:'0 0 auto'}}><ElecGlyph t={s.id}/></svg>
@@ -7075,11 +7183,31 @@ function PlanElectrique({ch,up,onFermer}){
       </div>
       <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
         Le PDF reprend le plan, les câbles, les symboles et la légende — prêt à envoyer à l’électricien.</div>
+
+      {!!pret&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+ELEC_VERT}}>
+        <div className="sp" style={{marginBottom:8}}>
+          <span className="b sm" style={{color:NAVY}}>Le PDF du plan est prêt</span>
+          <button className="btn gh s" onClick={oublierPret}>Fermer</button>
+        </div>
+        <div className="xs mut" style={{marginBottom:10,lineHeight:1.5}}>
+          {pret.nom} — {Math.max(1,Math.round(pret.taille/1024))} Ko.
+          {' '}C’est à vous d’appuyer : sur iPhone et iPad, un téléchargement que la page
+          déclenche toute seule est refusé par Safari.</div>
+        <div className="row" style={{gap:8,flexWrap:'wrap'}}>
+          {!!pret.fichier&&<button className="btn acc s"
+            onClick={()=>{try{navigator.share({files:[pret.fichier],title:pret.nom}).catch(()=>{})}catch(x){}}}>
+            Enregistrer dans Fichiers</button>}
+          <a className={'btn s '+(pret.fichier?'gh':'acc')} href={pret.url} download={pret.nom}
+            style={{textDecoration:'none',display:'inline-block'}}>Télécharger le PDF</a>
+          <a className="btn gh s" href={pret.url} target="_blank" rel="noopener noreferrer"
+            style={{textDecoration:'none',display:'inline-block'}}>Ouvrir dans un onglet</a>
+        </div>
+      </div>}
       {/* la planche à convertir : hors écran, mais bien rendue par React */}
       {aExporter&&<div ref={exportRef} aria-hidden="true"
         style={{position:'fixed',left:-10000,top:0,width:1000,pointerEvents:'none'}}>
-        <PlanExport fond={aExporter.fond} ratio={plan.ratio} symboles={S} cables={C}
-          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()} hauteurs={hauteurs} echelle={ech}/>
+        <PlanExport fond={aExporter.fond} ratio={plan.ratio} symboles={S} cables={C} plan={plan}
+          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()} hauteurs={hauteurs} echelle={ech} trait={ep}/>
       </div>}
     </React.Fragment>}
   </div>;
