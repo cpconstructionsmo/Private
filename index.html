@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-30 · plan électrique : câblage, hauteurs par symbole et export PDF';
+const VERSION='2026-08-31 · agenda : heure de fin et durée des rendez-vous';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -8336,6 +8336,18 @@ function grilleCalendrier(annee,mois){
   }
   return cases;
 }
+/* la plage d'un rendez-vous, quand on lui connaît une fin : « 08:00 – 12:00 »,
+   et sa durée. Une fin antérieure ou égale au début ne veut rien dire — on
+   s'en tient alors à l'heure de début plutôt que d'afficher une plage absurde. */
+const minutesHeure=h=>{const m=/^(\d{1,2}):(\d{2})$/.exec(h||'');return m?(+m[1])*60+(+m[2]):null};
+const dureeRdv=(debut,fin)=>{
+  const a=minutesHeure(debut),b=minutesHeure(fin);
+  if(a===null||b===null||b<=a)return '';
+  const n=b-a,h=Math.floor(n/60),mn=n%60;
+  return (h?h+' h':'')+(mn?(h?' ':'')+mn+' min':'');
+};
+const plageHoraire=(debut,fin)=>debut?(dureeRdv(debut,fin)?debut+' – '+fin:debut):'';
+
 /* la récurrence ne se pose qu'à la création : une fois les rendez-vous
    posés, chacun s'édite ou se supprime indépendamment des autres */
 const RECURRENCES=[['','Aucune'],['semaine','Toutes les semaines'],['2semaines','Toutes les deux semaines'],['mois','Tous les mois']];
@@ -8364,7 +8376,7 @@ function Agenda({data,save}){
   const [f,setF]=useState(null);
   const [mois,setMois]=useState(()=>{const d=new Date();return {annee:d.getFullYear(),m:d.getMonth()}});
   const R=data.rendezvous||[];
-  const neuf=date=>({id:uid(),titre:'',date:date||today(),heure:'',client:'',lieu:'',type:'pro',notes:'',recurrence:'',recurrenceFin:''});
+  const neuf=date=>({id:uid(),titre:'',date:date||today(),heure:'',heureFin:'',client:'',lieu:'',type:'pro',notes:'',recurrence:'',recurrenceFin:''});
   const estNouveau=f&&!R.some(x=>x.id===f.id);
   const ok=()=>{
     if(!(f.titre||'').trim()||!f.date)return;
@@ -8390,7 +8402,7 @@ function Agenda({data,save}){
     background:x.type==='perso'?'#F6E2DC':'#E4EAEE',color:x.type==='perso'?TERRA:NAVY}}>
     {x.type==='perso'?'Perso':'Pro'}</span>;
   const Puce=({x})=><div onClick={e=>{e.stopPropagation();setF(x)}}
-    title={[x.heure,x.titre,x.client,x.lieu].filter(Boolean).join(' — ')}
+    title={[plageHoraire(x.heure,x.heureFin),x.titre,x.client,x.lieu].filter(Boolean).join(' — ')}
     style={{fontSize:10.5,marginTop:2,padding:'1px 4px',borderRadius:4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
       cursor:'pointer',background:x.type==='perso'?'#F6E2DC':'#E4EAEE',color:x.type==='perso'?TERRA:NAVY}}>
     {x.heure?x.heure+' ':''}{x.titre||'(sans titre)'}</div>;
@@ -8410,8 +8422,15 @@ function Agenda({data,save}){
       </div>
       <div className="g2">
         <Fld label="DATE"><input className="in" type="date" value={f.date} onChange={e=>setF({...f,date:e.target.value})}/></Fld>
-        <Fld label="HEURE"><input className="in" type="time" value={f.heure||''} onChange={e=>setF({...f,heure:e.target.value})}/></Fld>
+        <Fld label="HEURE DE DÉBUT"><input className="in" type="time" value={f.heure||''} onChange={e=>setF({...f,heure:e.target.value})}/></Fld>
       </div>
+      <Fld label="HEURE DE FIN (OPTIONNELLE)">
+        <input className="in" type="time" value={f.heureFin||''} onChange={e=>setF({...f,heureFin:e.target.value})}/>
+      </Fld>
+      {!!(f.heure&&f.heureFin)&&<div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.5}}>
+        {dureeRdv(f.heure,f.heureFin)
+          ?'Soit '+dureeRdv(f.heure,f.heureFin)+', de '+f.heure+' à '+f.heureFin+'.'
+          :'L’heure de fin doit être postérieure à l’heure de début — sans quoi seul le début sera retenu.'}</div>}
       <Fld label="TYPE">
         <select className="in" value={f.type||'pro'} onChange={e=>setF({...f,type:e.target.value})}>
           <option value="pro">Professionnel</option>
@@ -8462,7 +8481,9 @@ function Agenda({data,save}){
         {prochains.map(x=><div key={x.id} className="card" onClick={()=>setF(x)} style={{cursor:'pointer'}}>
           <div className="sp">
             <span className="b sm" style={{color:NAVY}}>{x.titre}<Badge x={x}/></span>
-            <span className="xs mut" style={{whiteSpace:'nowrap'}}>{fd(x.date)}{x.heure?' · '+x.heure:''}</span>
+            <span className="xs mut" style={{whiteSpace:'nowrap'}}>{fd(x.date)}
+              {x.heure?' · '+plageHoraire(x.heure,x.heureFin):''}
+              {dureeRdv(x.heure,x.heureFin)?' ('+dureeRdv(x.heure,x.heureFin)+')':''}</span>
           </div>
           {(x.client||x.lieu)&&<div className="xs mut" style={{marginTop:3}}>{[x.client,x.lieu].filter(Boolean).join(' · ')}</div>}
         </div>)}
@@ -8569,7 +8590,7 @@ function TableauBord({data,open,allerA}){
       {rdvProches.map(x=>item(x.id,()=>allerA('agenda'),
         <span><b>{x.titre||'(sans titre)'}</b>{x.client?<span className="mut"> · {x.client}</span>:null}
           {x.lieu?<div className="mut" style={{marginTop:2,lineHeight:1.5}}>{x.lieu}</div>:null}</span>,
-        (x.date===t?'aujourd’hui':fd(x.date))+(x.heure?' · '+x.heure:''),
+        (x.date===t?'aujourd’hui':fd(x.date))+(x.heure?' · '+plageHoraire(x.heure,x.heureFin):''),
         x.date===t?TERRA:NAVY))}
     </Bloc></div>}
 
