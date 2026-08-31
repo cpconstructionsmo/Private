@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · QR du plan d’exécution sur le marché de travaux';
+const VERSION='2026-08-31 · QR vers le PDF sans compte Google, sélection qui tient, hauteurs hors norme sur le plan';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -288,12 +288,16 @@ const elecSymbole=t=>ELEC_SYMBOLES.find(s=>s.id===t)||null;
    attachées, et devient le premier élément de la liste. */
 const fichiersDe=r=>(r&&r.fichiers&&r.fichiers.length)?r.fichiers
   :((r&&r.lien)?[{id:'ancien',nom:'Document',lien:r.lien}]:[]);
-/* le lien d'une pièce du chantier, pour le donner à scanner : le premier
-   fichier déposé, ou le lien saisi à la main */
+/* le lien d'une pièce du chantier : le premier fichier déposé, ou le lien
+   saisi à la main */
 const lienPiece=(ch,id)=>{
   const f=fichiersDe(((ch&&ch.docs)||{})[id]);
   return (f[0]&&f[0].lien)||'';
 };
+/* celui qu'on peut donner à scanner : uniquement s'il a été ouvert à tous.
+   Un lien Drive ordinaire mènerait l'artisan à une demande de connexion —
+   mieux vaut alors pas de QR du tout qu'un QR qui se referme sur un mur. */
+const lienPiecePublic=(ch,id)=>(((ch&&ch.docs)||{})[id]||{}).lienPublic||'';
 
 /* La navigation. Neuf entrées ne tiennent pas en bas d'un iPhone : les trois
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
@@ -2970,6 +2974,27 @@ async function driveAttestationsFolder(token){
   return driveAttestFolderId;
 }
 
+/* ---------- rendre un fichier lisible sans compte Google ----------
+   Un lien Drive ordinaire renvoie l'artisan vers une demande de connexion :
+   il n'a pas de compte, et le plan lui reste fermé. On pose donc sur le
+   fichier la permission « toute personne disposant du lien », puis on donne
+   à scanner l'adresse du PDF lui-même plutôt que celle de la page Drive.
+   Le périmètre drive.file suffit : ce sont des fichiers déposés par l'app. */
+const lienPdfDirect=id=>id?'https://drive.google.com/uc?export=download&id='+id:'';
+async function drivePartagePublic(fileId){
+  const token=await getDriveToken();
+  const r=await fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(fileId)+'/permissions',{
+    method:'POST',
+    headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({role:'reader',type:'anyone'}),
+  });
+  if(!r.ok){
+    let d='';try{d=((await r.json()).error||{}).message||''}catch(e){}
+    throw new Error(d||('Google a refusé le partage (code '+r.status+')'));
+  }
+  return true;
+}
+
 async function uploadToDrive(file,folderId){
   const token=await getDriveToken();
   const parent=folderId||await driveFolder(token);
@@ -4913,7 +4938,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       decennaleFin:a.decennaleFin?fd(a.decennaleFin):'',
       client:ch.client||'', clientAdresse:ch.adresseClient||'', clientTel:ch.telClient||'',
       chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'', mapsUrl:mapsUrl(ch),
-      planExeUrl:lienPiece(ch,'plans_exe'),
+      planExeUrl:lienPiecePublic(ch,'plans_exe'),
       ht, brut, remise:r, tva:tx, tvaMontant:Math.round(ht*tx)/100, ttc:Math.round(ht*(100+tx))/100,
       /* seuls les articles non servis s'effacent du contrat imprimé — un
          intertitre ou une précision n'a pas de quantité propre (ligneQt vaut
@@ -6629,8 +6654,9 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle}){
         {/* le symbole tourne et se met à l'échelle… */}
         <g transform={poseSymbole(p.x,p.y,s.rot,ech)}><ElecGlyph t={s.type}/></g>
         {/* …mais pas sa hauteur, qui doit rester lisible à l'endroit */}
-        {hauteurs&&s.h!==''&&s.h!==undefined&&
-          <text x={p.x+11*ech} y={p.y-8*ech} fontSize={8*ech+2} fontWeight="700" fill={INK}>{s.h}</text>}
+        {!!etiquetteHauteur(s,hauteurs)&&
+          <text x={p.x+11*ech} y={p.y-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
+            {etiquetteHauteur(s,hauteurs)}</text>}
       </g>})}
     {hCart>0&&<g transform={'translate(0,'+H+')'}>
       <line x1="0" y1="8" x2={L} y2="8" stroke={RULE} strokeWidth="1"/>
@@ -6649,6 +6675,16 @@ const ELEC_HAUTEURS=[0,30,50,105,110,170,250];
    l'échelle du plan : sur un fond très détaillé ils écrasaient le trait de
    l'architecte. Cette échelle vaut pour tout le plan et se règle une fois. */
 const ELEC_ECHELLE_DEFAUT=0.65;
+/* La hauteur ne s'écrit sur le plan que lorsqu'elle sort de l'ordinaire :
+   une prise posée à 110 au lieu des 30 habituels doit sauter aux yeux, tandis
+   qu'un point de centre au plafond, lui, est à sa hauteur normale et n'a rien
+   à signaler. Le bouton « Hauteurs » les fait toutes apparaître au besoin. */
+const etiquetteHauteur=(s,toutes)=>{
+  if(!s||s.h===''||s.h===undefined||s.h===null)return '';
+  const d=elecSymbole(s.type);
+  if(!toutes&&d&&+s.h===+d.h)return '';
+  return 'H : '+s.h;
+};
 const echelleSymboles=plan=>{
   const e=plan&&plan.echelle;
   return typeof e==='number'&&e>0?e:ELEC_ECHELLE_DEFAUT;
@@ -6674,6 +6710,7 @@ function PlanElectrique({ch,up,onFermer}){
   const [groupe,setGroupe]=useState(ELEC_GROUPES[0]);
   const svgRef=useRef(null);
   const drag=useRef(null);
+  const gestSymbole=useRef(false);   /* le geste en cours a-t-il commencé sur un symbole ? */
 
   useEffect(()=>{let a=true;
     if(!plan.fond){setFondUrl(null);return}
@@ -6714,6 +6751,13 @@ function PlanElectrique({ch,up,onFermer}){
             y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))};
   };
   const poser=e=>{
+    /* Un geste commencé sur un symbole capture le pointeur sur la zone : le
+       clic de relâchement est alors délivré ici, et non au symbole. Sans ce
+       garde-fou il défaisait aussitôt la sélection, et les réglages du
+       symbole disparaissaient dès qu'on lâchait le bouton. */
+    /* (le drapeau est remis à zéro par le pointerdown du fond, si bien qu'un
+       déplacement resté sans clic n'avale pas le clic suivant) */
+    if(gestSymbole.current){gestSymbole.current=false;return}
     if(!outil||outil==='cable'){setSel(null);setSelC(null);return}
     const p=pos(e); if(!p)return;
     const s=elecSymbole(outil);
@@ -6743,41 +6787,89 @@ function PlanElectrique({ch,up,onFermer}){
   };
   const changerOutil=t=>{setOutil(t);setSel(null);setSelC(null);setDepart(null)};
 
+  /* ---------- l'export en PDF ----------
+     La planche est rendue par React dans l'arbre de l'écran, puis reprise par
+     un effet : celui-ci ne s'exécute qu'une fois le rendu réellement posé
+     dans la page. La version précédente montait un arbre à part et attendait
+     80 ms au jugé — quand le rendu prenait plus longtemps, il n'y avait
+     rien à convertir et l'export échouait. */
+  const [aExporter,setAExporter]=useState(null);
+  const exportRef=useRef(null);
+
+  const telecharger=(octets,nom)=>{
+    const url=URL.createObjectURL(new Blob([octets],{type:'application/pdf'}));
+    const a=document.createElement('a');
+    a.href=url; a.download=nom; a.style.display='none';
+    /* le lien doit être dans la page : Firefox ignore un clic sur un lien détaché */
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),2000);
+  };
+
   const exporter=async()=>{
-    if(!fondUrl)return;
+    if(!plan.fond){alert('Importez d’abord le plan de fond.');return}
     setBusyPdf('Préparation du PDF…');
     try{
-      /* le fond doit voyager en clair dans le SVG : une image encore distante
-         ne se laisse pas rasteriser sur un canvas */
-      const blob=await (await fetch(fondUrl)).blob();
+      /* on redemande une adresse fraîche : celle obtenue à l'ouverture de
+         l'écran expire au bout d'une heure, et l'export sortirait un fond vide */
+      const url=await Photo.get(plan.fond);
+      if(!url)throw new Error('le plan de fond est introuvable');
+      const rep=await fetch(url);
+      if(!rep.ok)throw new Error('le plan de fond n’a pas pu être relu (code '+rep.status+')');
+      const blob=await rep.blob();
       const fondData=await new Promise((res,rej)=>{
-        const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob)});
-      const hote=document.createElement('div');
-      hote.style.cssText='position:fixed;left:-10000px;top:0;width:1000px';
-      document.body.appendChild(hote);
-      const racine=ReactDOM.createRoot(hote);
-      racine.render(React.createElement(PlanExport,{fond:fondData,ratio:plan.ratio,symboles:S,cables:C,
-        titre:'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase(),hauteurs,echelle:ech}));
-      await new Promise(r=>setTimeout(r,80));
-      const svgTxt=new XMLSerializer().serializeToString(hote.querySelector('svg'));
-      racine.unmount(); hote.remove();
-      const img=await new Promise((res,rej)=>{const i=new Image();
-        i.onload=()=>res(i);i.onerror=()=>rej(new Error('le plan n’a pas pu être dessiné'));
-        i.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgTxt)});
-      const cv=document.createElement('canvas');
-      cv.width=2400; cv.height=Math.round(2400*(img.height||1)/(img.width||1));
-      const ctx=cv.getContext('2d');
-      ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
-      ctx.drawImage(img,0,0,cv.width,cv.height);
-      const jpeg=new Uint8Array(await (await (await fetch(cv.toDataURL('image/jpeg',0.9))).blob()).arrayBuffer());
-      const url=URL.createObjectURL(new Blob([pdfUnePage(jpeg,cv.width,cv.height,'Plan électrique — '+ch.nom)],{type:'application/pdf'}));
-      const a=document.createElement('a');
-      a.href=url; a.download='Plan-electrique-'+(ch.nom||'chantier').replace(/[^\wÀ-ÿ]+/g,'-')+'-'+today()+'.pdf';
-      a.click();
-      setTimeout(()=>URL.revokeObjectURL(url),2000);
-    }catch(e){alert("L'export du plan a échoué — détail technique : "+((e&&(e.error||e.message))||String(e)))}
-    setBusyPdf('');
+        const fr=new FileReader();
+        fr.onload=()=>res(fr.result);
+        fr.onerror=()=>rej(new Error('le plan de fond n’a pas pu être lu'));
+        fr.readAsDataURL(blob);
+      });
+      setAExporter({fond:fondData});
+    }catch(e){
+      alert('L’export du plan a échoué — détail technique : '+((e&&(e.error||e.message))||String(e)));
+      setBusyPdf('');
+    }
   };
+
+  useEffect(()=>{
+    if(!aExporter)return;
+    let vivant=true;
+    (async()=>{
+      try{
+        const svgEl=exportRef.current&&exportRef.current.querySelector('svg');
+        if(!svgEl)throw new Error('la planche n’a pas pu être composée');
+        const svgTxt=new XMLSerializer().serializeToString(svgEl);
+        const img=await new Promise((res,rej)=>{
+          const i=new Image();
+          i.onload=()=>res(i);
+          i.onerror=()=>rej(new Error('le plan n’a pas pu être dessiné'));
+          i.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgTxt);
+        });
+        /* Safari sur iPhone plafonne la surface d'un canvas : au-delà, il ne
+           refuse pas franchement mais rend une image vide. On tente donc une
+           taille confortable, puis on se rabat sur une plus modeste plutôt
+           que de sortir un PDF blanc sans rien dire. */
+        let dessin=null;
+        for(const large of [2400,1600,1000]){
+          const cv=document.createElement('canvas');
+          cv.width=large; cv.height=Math.round(large*(img.height||1)/(img.width||1));
+          const ctx=cv.getContext('2d');
+          if(!ctx)continue;
+          ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+          ctx.drawImage(img,0,0,cv.width,cv.height);
+          let d='';
+          try{d=cv.toDataURL('image/jpeg',0.9)}catch(x){d=''}
+          if(d&&d.length>5000){dessin={d,w:cv.width,h:cv.height};break}
+        }
+        if(!dessin)throw new Error('cet appareil n’a pas pu convertir un plan de cette taille');
+        const jpeg=new Uint8Array(await (await (await fetch(dessin.d)).blob()).arrayBuffer());
+        telecharger(pdfUnePage(jpeg,dessin.w,dessin.h,'Plan électrique — '+ch.nom),
+          'Plan-electrique-'+(ch.nom||'chantier').replace(/[^\wÀ-ÿ]+/g,'-')+'-'+today()+'.pdf');
+      }catch(e){
+        alert('L’export du plan a échoué — détail technique : '+((e&&(e.error||e.message))||String(e)));
+      }
+      if(vivant){setAExporter(null);setBusyPdf('')}
+    })();
+    return ()=>{vivant=false};
+  },[aExporter]);
 
   const H=1000*(plan.ratio||0.707);
   const ech=echelleSymboles(plan);
@@ -6849,8 +6941,11 @@ function PlanElectrique({ch,up,onFermer}){
           <svg ref={svgRef} viewBox={'0 0 1000 '+H} preserveAspectRatio="none"
             style={{position:'absolute',left:0,top:0,width:'100%',height:'100%',cursor:outil?'crosshair':'default',touchAction:'pan-x pan-y'}}
             onClick={poser}
+            onPointerDown={()=>{gestSymbole.current=false}}
             onPointerMove={e=>{if(!drag.current)return;const p=pos(e);if(p)majSymbole(drag.current,p)}}
-            onPointerUp={()=>{drag.current=null}}>
+            onPointerUp={e=>{drag.current=null;
+              if(svgRef.current&&svgRef.current.releasePointerCapture&&e&&e.pointerId!==undefined)
+                try{svgRef.current.releasePointerCapture(e.pointerId)}catch(x){}}}>
             {/* les câbles passent sous les symboles, pour ne pas les masquer */}
             {C.map(c=>{const chemin=cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure);
               return <g key={c.id} onClick={e=>{e.stopPropagation();if(!outil){setSelC(c.id);setSel(null)}}}>
@@ -6865,15 +6960,17 @@ function PlanElectrique({ch,up,onFermer}){
                  le reste de la zone reste librement défilable */
               return <g key={s.id} style={{cursor:outil==='cable'?'pointer':'move',touchAction:'none'}}
                 onClick={e=>{e.stopPropagation();cliquerSymbole(s.id)}}
-                onPointerDown={e=>{if(outil)return;e.stopPropagation();drag.current=s.id;setSel(s.id);setSelC(null);
+                onPointerDown={e=>{if(outil)return;e.stopPropagation();
+                  drag.current=s.id;gestSymbole.current=true;setSel(s.id);setSelC(null);
                   if(svgRef.current&&svgRef.current.setPointerCapture)svgRef.current.setPointerCapture(e.pointerId)}}>
                 {(sel===s.id||depart===s.id)&&<circle cx={px} cy={py} r={15*ech} fill="none"
                   stroke={depart===s.id?ELEC_BLEU:TERRA} strokeWidth="1.8" strokeDasharray="3 2"/>}
                 {/* une cible de saisie confortable, même quand le symbole est petit */}
                 <circle cx={px} cy={py} r={Math.max(11,14*ech)} fill="transparent"/>
                 <g transform={poseSymbole(px,py,s.rot,ech)}><ElecGlyph t={s.type}/></g>
-                {hauteurs&&s.h!==''&&s.h!==undefined&&
-                  <text x={px+11*ech} y={py-8*ech} fontSize={8*ech+2} fontWeight="700" fill={INK}>{s.h}</text>}
+                {!!etiquetteHauteur(s,hauteurs)&&
+                  <text x={px+11*ech} y={py-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
+                    {etiquetteHauteur(s,hauteurs)}</text>}
               </g>})}
           </svg>
         </div>
@@ -6964,7 +7061,7 @@ function PlanElectrique({ch,up,onFermer}){
       </div>
 
       <div className="row" style={{gap:8,marginTop:14,flexWrap:'wrap'}}>
-        <button className="btn acc s" disabled={!!busy||!!busyPdf||!fondUrl} onClick={exporter}>
+        <button className="btn acc s" disabled={!!busy||!!busyPdf} onClick={exporter}>
           {busyPdf||'Enregistrer le plan en PDF'}</button>
         <label className="btn gh s" style={{display:'inline-block'}}>
           {busy||'Remplacer le plan de fond'}
@@ -6978,6 +7075,12 @@ function PlanElectrique({ch,up,onFermer}){
       </div>
       <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
         Le PDF reprend le plan, les câbles, les symboles et la légende — prêt à envoyer à l’électricien.</div>
+      {/* la planche à convertir : hors écran, mais bien rendue par React */}
+      {aExporter&&<div ref={exportRef} aria-hidden="true"
+        style={{position:'fixed',left:-10000,top:0,width:1000,pointerEvents:'none'}}>
+        <PlanExport fond={aExporter.fond} ratio={plan.ratio} symboles={S} cables={C}
+          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()} hauteurs={hauteurs} echelle={ech}/>
+      </div>}
     </React.Fragment>}
   </div>;
 }
@@ -6988,6 +7091,23 @@ function Docs({data,ch,up,save}){
   const [busy,setBusy]=useState(null);
   const [signe,setSigne]=useState(null);
   const [planElec,setPlanElec]=useState(false);
+  const [partage,setPartage]=useState(null);
+  /* ouvrir le plan à qui n'a pas de compte Google : sans quoi le QR du marché
+     bute sur une demande de connexion, et l'artisan reste devant la porte */
+  const ouvrirATous=async id=>{
+    const c=d[id]||{};
+    const f=fichiersDe(c)[0];
+    const fid=driveIdDepuisLien(f&&f.lien);
+    if(!fid){alert("Aucun fichier Drive sur cette pièce : importez le plan d’exécution ici, puis réessayez.");return}
+    if(!confirm("Rendre « "+(f.nom||'ce plan')+" » lisible par toute personne disposant du lien, sans compte Google ?\n\n"
+      +"Le QR code du marché mènera alors directement au PDF. Toute personne qui possède le lien — ou le marché imprimé — pourra l’ouvrir."))return;
+    setPartage(id);
+    try{
+      await drivePartagePublic(fid);
+      up({docs:{...d,[id]:{...c,lienPublic:lienPdfDirect(fid)}}});
+    }catch(e){alert("Le partage n’a pas pu être effectué — détail technique : "+((e&&(e.error||e.message))||String(e)))}
+    setPartage(null);
+  };
   const tog=id=>{const c=d[id]||{};up({docs:{...d,[id]:{...c,fait:!c.fait,date:!c.fait?today():''}}})};
   const lien=(id,v)=>up({docs:{...d,[id]:{...(d[id]||{}),lien:v}}});
   const importPieces=async(id,files)=>{
@@ -7072,7 +7192,16 @@ function Docs({data,ch,up,save}){
                 {x.id==='plan_elec'&&<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}
                   onClick={()=>setPlanElec(true)}>
                   {(r.plan&&r.plan.fond)?'Ouvrir le plan ('+((r.plan.symboles||[]).length)+' symboles)':'Dessiner le plan'}</button>}
+                {x.id==='plans_exe'&&!!fichiersDe(r).length&&(r.lienPublic
+                  ?<span className="xs" style={{color:GREEN}}>✓ Lisible sans compte Google — le QR du marché y mène</span>
+                  :<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}
+                     disabled={partage===x.id} onClick={()=>ouvrirATous(x.id)}>
+                     {partage===x.id?'Partage…':'Rendre lisible sans compte Google'}</button>)}
               </div>
+              {x.id==='plans_exe'&&!!fichiersDe(r).length&&!r.lienPublic&&
+                <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+                  Tant que le plan n’est pas ouvert à tous, le marché ne porte pas son QR code : un lien Drive
+                  ordinaire renverrait l’artisan vers une demande de connexion.</div>}
               {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
                 <VignetteSign id={s.id}/>
                 <div style={{flex:1}}>
