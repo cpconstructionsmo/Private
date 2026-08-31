@@ -155,7 +155,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · agenda : heure de fin et durée des rendez-vous';
+const VERSION='2026-08-31 · agenda : durée des rendez-vous · plan : remplacement du fond corrigé, câbles en couleur';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -6445,6 +6445,12 @@ const cheminCable=(a,b,courbure)=>{
   const cx=(a.x+b.x)/2-dy*k, cy=(a.y+b.y)/2+dx*k;
   return 'M'+a.x+','+a.y+' Q'+cx+','+cy+' '+b.x+','+b.y;
 };
+/* de quoi distinguer les circuits entre eux : la couleur du tracé et, au
+   besoin, le pointillé — pour un passage en plafond, une gaine en attente… */
+const ELEC_CABLE_COULEURS=[['','Bleu'],[ELEC_ROUGE,'Rouge'],[ELEC_VERT,'Vert'],[AMBER,'Orange'],[INK,'Noir']];
+const couleurCable=c=>(c&&c.couleur)||ELEC_BLEU;
+const traitCable=c=>c&&c.pointille?'7 5':null;
+
 /* un câble ne vaut que si ses deux extrémités existent encore */
 const cablesValides=(cables,symboles)=>{
   const ok=new Set((symboles||[]).map(s=>s.id));
@@ -6504,7 +6510,7 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs}){
     <image href={fond} x="0" y="0" width={L} height={H} preserveAspectRatio="none"/>
     {cablesValides(cables,symboles).map(c=>
       <path key={c.id} d={cheminCable(pt(par[c.de]),pt(par[c.vers]),c.courbure)}
-        fill="none" stroke={ELEC_BLEU} strokeWidth="1.5"/>)}
+        fill="none" stroke={couleurCable(c)} strokeWidth="1.5" strokeDasharray={traitCable(c)}/>)}
     {(symboles||[]).map(s=>{const p=pt(s);
       return <g key={s.id} transform={'translate('+p.x+','+p.y+')'}>
         <ElecGlyph t={s.type}/>
@@ -6537,7 +6543,8 @@ function PlanElectrique({ch,up,onFermer}){
   const [depart,setDepart]=useState(null);
   const [hauteurs,setHauteurs]=useState(false);
   const [zoom,setZoom]=useState(1);
-  const [busy,setBusy]=useState('');
+  const [busy,setBusy]=useState('');      /* import du plan de fond */
+  const [busyPdf,setBusyPdf]=useState('');  /* export du plan fini */
   const [groupe,setGroupe]=useState(ELEC_GROUPES[0]);
   const svgRef=useRef(null);
   const drag=useRef(null);
@@ -6556,10 +6563,17 @@ function PlanElectrique({ch,up,onFermer}){
     try{
       const{url,ratio}=await planEnImage(file);
       setBusy('Enregistrement…');
-      const id=plan.fond||uid();
+      /* toujours une clé neuve, jamais un écrasement : le stockage n'autorise
+         que l'ajout, pas la mise à jour d'un objet déjà là — réécrire la même
+         clé faisait échouer tout remplacement de plan. L'ancien fond n'est
+         retiré qu'une fois le nouveau en place, et son échec est sans
+         conséquence : il ne resterait qu'un fichier inutilisé. */
+      const ancien=plan.fond;
+      const id=uid();
       await Photo.put(id,url);
       setFondUrl(url);
       maj({fond:id,ratio});
+      if(ancien&&ancien!==id)Photo.del(ancien).catch(()=>{});
     }catch(e){alert("Ce plan n'a pas pu être lu — détail technique : "+((e&&(e.error||e.message))||String(e)))}
     setBusy('');
   };
@@ -6605,7 +6619,7 @@ function PlanElectrique({ch,up,onFermer}){
 
   const exporter=async()=>{
     if(!fondUrl)return;
-    setBusy('Préparation du PDF…');
+    setBusyPdf('Préparation du PDF…');
     try{
       /* le fond doit voyager en clair dans le SVG : une image encore distante
          ne se laisse pas rasteriser sur un canvas */
@@ -6636,7 +6650,7 @@ function PlanElectrique({ch,up,onFermer}){
       a.click();
       setTimeout(()=>URL.revokeObjectURL(url),2000);
     }catch(e){alert("L'export du plan a échoué — détail technique : "+((e&&(e.error||e.message))||String(e)))}
-    setBusy('');
+    setBusyPdf('');
   };
 
   const H=1000*(plan.ratio||0.707);
@@ -6708,8 +6722,8 @@ function PlanElectrique({ch,up,onFermer}){
             {C.map(c=>{const chemin=cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure);
               return <g key={c.id} onClick={e=>{e.stopPropagation();if(!outil){setSelC(c.id);setSel(null)}}}>
                 <path d={chemin} fill="none" stroke="transparent" strokeWidth="14" style={{cursor:outil?'inherit':'pointer'}}/>
-                <path d={chemin} fill="none" stroke={selC===c.id?TERRA:ELEC_BLEU}
-                  strokeWidth={selC===c.id?2.6:1.6} strokeLinecap="round"/>
+                <path d={chemin} fill="none" stroke={selC===c.id?TERRA:couleurCable(c)}
+                  strokeWidth={selC===c.id?2.6:1.6} strokeLinecap="round" strokeDasharray={traitCable(c)}/>
               </g>})}
             {S.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
               return <g key={s.id} transform={'translate('+(s.x*1000)+','+(s.y*H)+')'}
@@ -6763,8 +6777,23 @@ function PlanElectrique({ch,up,onFermer}){
             value={Math.round((choisiC.courbure===undefined?0.18:choisiC.courbure)*100)}
             onChange={e=>majCable(choisiC.id,{courbure:+e.target.value/100})}/>
         </Fld>
-        <div className="xs mut" style={{marginTop:-6,lineHeight:1.5}}>
+        <div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.5}}>
           Bombez le tracé pour qu’il contourne les murs et ne se confonde pas avec un autre câble.</div>
+        <Fld label="COULEUR DU TRACÉ">
+          <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+            {ELEC_CABLE_COULEURS.map(([v,l])=>{const actif=(choisiC.couleur||'')===v;
+              return <button key={l} onClick={()=>majCable(choisiC.id,{couleur:v})} title={l}
+                style={{display:'flex',alignItems:'center',gap:6,padding:'4px 9px',borderRadius:6,cursor:'pointer',
+                  border:'1px solid '+(actif?(v||ELEC_BLEU):RULE),background:actif?(v||ELEC_BLEU)+'14':'#fff'}}>
+                <span style={{width:14,height:3,borderRadius:2,background:v||ELEC_BLEU,flex:'0 0 auto'}}/>
+                <span className="xs" style={{color:actif?(v||ELEC_BLEU):INK}}>{l}</span>
+              </button>})}
+          </div>
+        </Fld>
+        <div className="row" style={{gap:6,marginTop:-4}}>
+          <button className={'btn s '+(choisiC.pointille?'gh':'')} onClick={()=>majCable(choisiC.id,{pointille:false})}>Trait plein</button>
+          <button className={'btn s '+(choisiC.pointille?'':'gh')} onClick={()=>majCable(choisiC.id,{pointille:true})}>Pointillé</button>
+        </div>
       </div>}
 
       <div style={{marginTop:14}}>
@@ -6784,11 +6813,11 @@ function PlanElectrique({ch,up,onFermer}){
       </div>
 
       <div className="row" style={{gap:8,marginTop:14,flexWrap:'wrap'}}>
-        <button className="btn acc s" disabled={!!busy||!fondUrl} onClick={exporter}>
-          {busy||'Enregistrer le plan en PDF'}</button>
+        <button className="btn acc s" disabled={!!busy||!!busyPdf||!fondUrl} onClick={exporter}>
+          {busyPdf||'Enregistrer le plan en PDF'}</button>
         <label className="btn gh s" style={{display:'inline-block'}}>
           {busy||'Remplacer le plan de fond'}
-          <input type="file" accept="application/pdf,.pdf,image/*" style={{display:'none'}} disabled={!!busy}
+          <input type="file" accept="application/pdf,.pdf,image/*" style={{display:'none'}} disabled={!!busy||!!busyPdf}
             onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importer(f)}}/>
         </label>
         {!!(S.length||C.length)&&<button className="btn dg s"
