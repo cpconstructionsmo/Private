@@ -177,7 +177,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-08-31 · Mail à l’artisan : pièces jointes au choix, et envoi depuis votre adresse';
+const VERSION='2026-09-01 · Marché envoyé en PDF, sans copie · l’agenda s’ouvre depuis le tableau de bord';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -3045,6 +3045,36 @@ async function uploadToDrive(file,folderId){
   return r.json();
 }
 
+/* ---------- le marché converti en PDF ----------
+   Un .docx s'ouvre et se corrige ; un PDF, non. Le marché qui part chez
+   l'artisan doit donc être figé. La conversion est faite par le Drive
+   lui-même : on y dépose le document en demandant sa conversion, on récupère
+   le PDF, puis on retire la copie de travail. C'est le moteur qui affiche
+   déjà le document quand on l'ouvre depuis le Drive — l'artisan reçoit donc
+   exactement la page que vous relisez. */
+async function driveDocxEnPdf(token,octets,nom){
+  const form=new FormData();
+  form.append('metadata',new Blob([JSON.stringify({
+    name:nom,mimeType:'application/vnd.google-apps.document'})],{type:'application/json'}));
+  form.append('file',new Blob([octets],
+    {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}));
+  const up=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{
+    method:'POST',headers:{Authorization:'Bearer '+token},body:form,
+  });
+  if(!up.ok)throw new Error('le Drive a refusé la conversion (code '+up.status+')');
+  const {id}=await up.json();
+  try{
+    const ex=await fetch('https://www.googleapis.com/drive/v3/files/'+id+'/export?mimeType=application/pdf',
+      {headers:{Authorization:'Bearer '+token}});
+    if(!ex.ok)throw new Error('le PDF n’a pas pu être produit (code '+ex.status+')');
+    return new Uint8Array(await ex.arrayBuffer());
+  }finally{
+    /* la copie de travail n'a rien à faire dans le Drive une fois le PDF tiré */
+    try{fetch('https://www.googleapis.com/drive/v3/files/'+id,
+      {method:'DELETE',headers:{Authorization:'Bearer '+token}})}catch(x){}
+  }
+}
+
 /* ---------- envoi d'un mail avec pièces jointes, via l'API Gmail ----------
    Le même jeton Google que le Drive, avec en plus la permission gmail.send :
    toujours sans serveur, mais un vrai envoi cette fois — pas un brouillon
@@ -3786,6 +3816,8 @@ function App({session}){
   /* on arrive sur le tableau de bord : ce qui appelle une action se voit avant
      d'avoir à le chercher dossier par dossier */
   const [view,setView]=useState('tdb');
+  /* la journée sur laquelle ouvrir l'agenda, quand on y arrive depuis ailleurs */
+  const [agendaJour,setAgendaJour]=useState(null);
   const [open,setOpen]=useState(null);
   const [plus,setPlus]=useState(false);
   const [err,setErr]=useState(null);
@@ -3889,12 +3921,15 @@ function App({session}){
           revenir en arrière repart d'un état neuf plutôt que de rester figé */}
       <Secours key={ch?'ch:'+ch.id:'v:'+view} onRetour={ch?()=>setOpen(null):null}>
       {ch?<Fiche data={data} ch={ch} save={save} back={()=>setOpen(null)}/>
-      :view==='tdb'?<TableauBord data={data} open={setOpen} allerA={v=>{setView(v);setOpen(null)}}/>
+      /* allerA porte au besoin une journée : le tableau de bord ouvre alors
+         l'agenda directement sur ce jour-là, heure par heure */
+      :view==='tdb'?<TableauBord data={data} open={setOpen}
+        allerA={(v,jour)=>{setAgendaJour(jour||null);setView(v);setOpen(null)}}/>
       :view==='prospects'?<Prospects data={data} save={save}/>
       :view==='biblio'?<Bordereaux data={data} save={save}/>
       :view==='produits'?<Produits data={data} save={save}/>
       :view==='fournisseurs'?<Fournisseurs data={data} save={save}/>
-      :view==='agenda'?<Agenda data={data} save={save}/>
+      :view==='agenda'?<Agenda data={data} save={save} jourInitial={agendaJour}/>
       :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
       :view==='artisans'?<Artisans data={data} save={save}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
@@ -5086,8 +5121,14 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       const token=await getDriveToken();
       const numero=f.numeroMarche||numeroSuivant();
       const docMarche=await construireMarcheDoc(a,numero);
-      const pieces=[{nom:'Marché '+numero+' — '+(f.lot||'lot')+'.docx',
-        type:typeFichier('x.docx'),data:docMarche}];
+      /* le marché part figé : converti en PDF, il ne peut plus être retouché
+         par celui qui le reçoit */
+      const nomMarche='Marché '+numero+' — '+(f.lot||'lot');
+      let pdfMarche;
+      try{pdfMarche=await driveDocxEnPdf(token,docMarche,nomMarche)}
+      catch(x){throw new Error('Le marché n’a pas pu être converti en PDF — '
+        +((x&&(x.error||x.message))||String(x)))}
+      const pieces=[{nom:nomMarche+'.pdf',type:typeFichier('x.pdf'),data:pdfMarche}];
       for(const p of mail.dispo.filter(x=>mail.cochees.indexOf(x.cle)>=0)){
         const id=driveIdDepuisLien(p.lien);
         if(!id)continue;
@@ -5099,7 +5140,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           +'Si c’est un document au format Google (Docs, Sheets), exportez-le en PDF et redéposez-le dans l’onglet PIÈCES.')}
         pieces.push({nom:p.nom,type:typeFichier(p.nom),data:octets});
       }
-      await gmailEnvoyer(token,{destinataire:mail.destinataire,cc:CP.mail,
+      await gmailEnvoyer(token,{destinataire:mail.destinataire,
         sujet:mail.sujet,corps:mail.corps,pieces,
         expediteur,expediteurNom:expediteur?CP.nom:''});
       setF(p=>({...p,numeroMarche:numero,mailArtisanLe:today()}));
@@ -5265,8 +5306,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
             <Fld label={'PIÈCES JOINTES ('+(mail.cochees.length+1)+')'}>
               <div className="xs" style={{marginBottom:6,display:'flex',gap:6,alignItems:'center'}}>
                 <span style={{width:14,textAlign:'center',color:GREEN}}>✓</span>
-                <span>Marché — {f.lot||'lot'}.docx</span>
-                <span className="mut">toujours joint</span>
+                <span>Marché — {f.lot||'lot'}.pdf</span>
+                <span className="mut">toujours joint, en PDF</span>
               </div>
               {!mail.dispo.length&&<div className="xs mut" style={{lineHeight:1.5}}>
                 Aucune autre pièce disponible : déposez les plans dans l’onglet PIÈCES du chantier
@@ -9204,10 +9245,15 @@ function JourAgenda({date,rdvs,onOuvrir,onCreer}){
   </div>;
 }
 
-function Agenda({data,save}){
+function Agenda({data,save,jourInitial}){
   const [f,setF]=useState(null);
-  const [jour,setJour]=useState(null);   /* la journée ouverte, en vue heure par heure */
-  const [mois,setMois]=useState(()=>{const d=new Date();return {annee:d.getFullYear(),m:d.getMonth()}});
+  /* la journée ouverte, en vue heure par heure. Arriver ici depuis le tableau
+     de bord en désigne une : on s'y pose directement, sans repasser par le mois. */
+  const [jour,setJour]=useState(jourInitial||null);
+  const [mois,setMois]=useState(()=>{
+    const d=jourInitial?new Date(jourInitial+'T12:00:00'):new Date();
+    return {annee:d.getFullYear(),m:d.getMonth()};
+  });
   const R=data.rendezvous||[];
   const neuf=date=>({id:uid(),titre:'',date:date||today(),heure:'',heureFin:'',client:'',lieu:'',type:'pro',notes:'',recurrence:'',recurrenceFin:''});
   const estNouveau=f&&!R.some(x=>x.id===f.id);
@@ -9412,9 +9458,13 @@ function TableauBord({data,open,allerA}){
   const rdvProches=(data.rendezvous||[]).filter(x=>x.date&&x.date>=t&&x.date<=limiteRdv)
     .sort((a,b)=>((a.date||'')+' '+(a.heure||'99:99')).localeCompare((b.date||'')+' '+(b.heure||'99:99')));
   const rien=!chiffrages.length&&!retards.length&&!pieces.length&&!decen.length&&!tachesRetard.length;
-  const Bloc=({titre,n,c,children})=><div className="card" style={{borderLeft:'3px solid '+c}}>
+  /* le titre d'un bloc mène à l'écran dont il parle, quand il y en a un */
+  const Bloc=({titre,n,c,onTitre,children})=><div className="card" style={{borderLeft:'3px solid '+c}}>
     <div className="sp" style={{marginBottom:8}}>
-      <span className="b sm" style={{color:c}}>{titre}</span>
+      {onTitre
+        ?<button onClick={onTitre} className="b sm" style={{color:c,background:'none',border:'none',
+            padding:0,cursor:'pointer',textAlign:'left'}}>{titre} ›</button>
+        :<span className="b sm" style={{color:c}}>{titre}</span>}
       <span className="pill" style={{background:c+'1A',color:c}}>{n}</span></div>
     {children}</div>;
   const item=(k,onClick,gauche,droite,couleur)=><button key={k} onClick={onClick}
@@ -9429,13 +9479,17 @@ function TableauBord({data,open,allerA}){
       <Stat l="Étapes en retard" v={String(retards.filter(r=>r.j.retard).length)} c={retards.some(r=>r.j.retard)?TERRA:GREEN}/>
       <Stat l="Chantiers en cours" v={String(actifs.length)} c={NAVY}/>
       <Stat l="Décennales à surveiller" v={String(decen.length)} c={decen.length?AMBER:GREEN}/>
-      <Stat l="Rendez-vous (7 j)" v={String(rdvProches.length)} c={NAVY}/>
+      <Stat l="Rendez-vous (7 j)" v={String(rdvProches.length)} c={NAVY} onClick={()=>allerA('agenda')}/>
       <Stat l="Tâches en retard" v={String(tachesRetard.length)} c={tachesRetard.length?TERRA:GREEN}/>
     </div>
 
-    {rdvProches.length>0&&<div style={{marginBottom:8}}><Bloc titre="AGENDA — 7 PROCHAINS JOURS" n={rdvProches.length} c={NAVY}>
-      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Vos rendez-vous professionnels et personnels des sept prochains jours.</div>
-      {rdvProches.map(x=>item(x.id,()=>allerA('agenda'),
+    {rdvProches.length>0&&<div style={{marginBottom:8}}>
+      <Bloc titre="AGENDA — 7 PROCHAINS JOURS" n={rdvProches.length} c={NAVY} onTitre={()=>allerA('agenda')}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Vos rendez-vous professionnels et personnels des sept prochains jours.
+        Le titre ouvre l’agenda ; un rendez-vous ouvre directement sa journée.</div>
+      {/* un rendez-vous mène à sa journée, pas seulement au mois : c'est là
+          qu'on voit ce qu'on a autour, et si l'on est déjà pris */}
+      {rdvProches.map(x=>item(x.id,()=>allerA('agenda',x.date),
         <span><b>{x.titre||'(sans titre)'}</b>{x.client?<span className="mut"> · {x.client}</span>:null}
           {x.lieu?<div className="mut" style={{marginTop:2,lineHeight:1.5}}>{x.lieu}</div>:null}</span>,
         (x.date===t?'aujourd’hui':fd(x.date))+(x.heure?' · '+plageHoraire(x.heure,x.heureFin):''),
@@ -10644,7 +10698,17 @@ function Bilan({data,open}){
     </button>)}
   </div>;
 }
-const Stat=({l,v,c})=><div className="card" style={{margin:0}}><div className="xs mut" style={{lineHeight:1.3}}>{l}</div><div className="b" style={{fontSize:16,marginTop:4,color:c||INK}}>{v}</div></div>;
+/* un chiffre du tableau de bord. Cliquable quand il mène quelque part : on lit
+   « Rendez-vous (7 j) », on appuie, on est dans l'agenda. */
+const Stat=({l,v,c,onClick})=>{
+  const dedans=<React.Fragment>
+    <div className="xs mut" style={{lineHeight:1.3}}>{l}</div>
+    <div className="b" style={{fontSize:16,marginTop:4,color:c||INK}}>{v}</div>
+  </React.Fragment>;
+  return onClick
+    ?<button className="card" onClick={onClick} style={{margin:0,textAlign:'left',width:'100%',cursor:'pointer'}}>{dedans}</button>
+    :<div className="card" style={{margin:0}}>{dedans}</div>;
+};
 
 /* ---------------- DONNÉES ---------------- */
 function Donnees({data,save,session}){
