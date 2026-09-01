@@ -177,7 +177,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-01 · Marché envoyé en PDF, sans copie · l’agenda s’ouvre depuis le tableau de bord';
+const VERSION='2026-09-01 · Remise sur les honoraires · lecture des surfaces sur le bon document';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -763,7 +763,28 @@ const lireVCard=txt=>{
   }
   return res;
 };
-const honoAmount=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:budgetTravauxHT(ch)*(ch.honorairesPct||0)/100;
+/* les honoraires avant remise : un montant saisi tel quel, ou le pourcentage
+   appliqué au budget travaux */
+const honoBrutHT=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:budgetTravauxHT(ch)*(ch.honorairesPct||0)/100;
+/* la remise consentie sur le devis d'honoraires, en euros ou en pourcentage
+   du brut. Elle ne peut ni être négative — ce serait une majoration, qui se
+   saisit dans le montant — ni dépasser les honoraires eux-mêmes. */
+const remiseHonoHT=ch=>{
+  const v=+((ch||{}).remiseHono)||0;
+  if(!(v>0))return 0;
+  const brut=honoBrutHT(ch);
+  const m=(ch.remiseHonoType==='%')?brut*v/100:v;
+  return Math.min(Math.max(m,0),Math.max(brut,0));
+};
+/* ce qui est réellement dû : c'est ce chiffre qui court partout ailleurs —
+   reste à facturer, coût de l'opération, budget client */
+const honoAmount=ch=>honoBrutHT(ch)-remiseHonoHT(ch);
+/* « 10 % » ou « 1 500 € », tel qu'on l'écrit sur le devis */
+const remiseHonoTexte=ch=>{
+  const v=+((ch||{}).remiseHono)||0;
+  if(!(v>0))return '';
+  return ch.remiseHonoType==='%'?(Math.round(v*100)/100)+' %':eur(v);
+};
 const tvaRate=ch=>(ch&&ch.tva!==undefined&&ch.tva!==null&&ch.tva!=='')?+ch.tva:20;
 const ttc=(ht,ch)=>(ht||0)*(1+tvaRate(ch)/100);
 /* « date de signature » : celle du contrat de maîtrise d'œuvre, sinon le jalon
@@ -3451,35 +3472,74 @@ function cleanRef(s){
   return keep.join(' ').replace(/[.,;:]+$/,'');
 }
 
-/* lecture des surfaces sur un plan : ne marche que si le PDF a une couche texte
-   (plan export DAO). Un plan scanné ne donne rien — on le dit à l'utilisateur. */
+/* ---------- lecture des surfaces sur un document ----------
+   Un plan dessiné ne contient pas un mot de texte : ni cartouche lisible, ni
+   surface à y prendre. Les documents qui les portent en toutes lettres sont
+   la fiche descriptive, la notice et le CERFA — et là, le chiffre n'est pas
+   toujours suivi de « m² » : « Surface habitable du projet : 106 » se lit
+   ainsi sur les fiches reçues. L'unité est donc facultative. */
+const planSansTexte=txt=>deaccent(String(txt||'')).replace(/[^A-Za-z0-9]/g,'').length<20;
+
+/* la première surface plausible qui suit un intitulé. Une même fiche porte
+   souvent « du projet » et « de l'existant » : c'est le projet qu'on veut,
+   et l'existant vaut 0 sur une construction neuve. */
+const surfaceApres=(t,motif)=>{
+  const re=new RegExp(motif,'gi');
+  let m,repli='';
+  while((m=re.exec(t))){
+    const suite=t.slice(m.index+m[0].length,m.index+m[0].length+70);
+    const n=suite.match(/([0-9]{1,5}(?:[.,][0-9]{1,2})?)/);
+    if(!n)continue;
+    /* on ne lit que ce qui sépare l'intitulé de son chiffre : regarder au-delà
+       ferait déborder sur la ligne suivante, et « Surface habitable du projet »
+       serait écartée à cause de « de l'existant » qui la suit. */
+    const contexte=m[0]+suite.slice(0,n.index);
+    if(/existant|avant\s*travaux|demoli|supprim/i.test(contexte))continue;
+    const v=parseFloat(n[1].replace(',','.'));
+    if(!(v>0&&v<100000))continue;
+    if(/projet|creee|totale/i.test(contexte))return v;
+    if(!repli)repli=v;
+  }
+  return repli;
+};
+
 function analysePlan(txt){
   const t=deaccent(txt).replace(/\s+/g,' ');
-  const NB='([0-9]{1,5}(?:[.,][0-9]{1,2})?)\\s*(?:m2|m²|M2)';
-  const cherche=motifs=>{
-    for(const m of motifs){
-      const r=t.match(new RegExp(m,'i'));
-      if(r){
-        const v=parseFloat(r[1].replace(',','.'));
-        if(v>0&&v<100000)return v;
-      }
-    }
-    return '';
-  };
+  const cherche=motifs=>{for(const m of motifs){const v=surfaceApres(t,m);if(v)return v}return ''};
   return {
     surfacePlancher:cherche([
-      "surface\\s*(?:de\\s*)?plancher[^0-9]{0,40}?"+NB,
-      "\\bS\\.?\\s?D\\.?\\s?P\\.?\\b[^0-9]{0,20}?"+NB,
-      "surface\\s*(?:de\\s*)?plancher[^0-9]{0,40}?([0-9]{1,5}(?:[.,][0-9]{1,2})?)",
+      'surface\\s*(?:de\\s*)?plancher(?:\\s*(?:du\\s*projet|creee|totale))?',
+      '\\bS\\.?\\s?D\\.?\\s?P\\.?(?:\\s?T\\.?)?(?![A-Z])',
+      '\\bSHON(?:\\s?RT)?\\b',
     ]),
     surfaceHabitable:cherche([
-      "surface\\s*habitable[^0-9]{0,40}?"+NB,
-      "\\bS\\.?\\s?H\\.?\\s?A\\.?\\s?B\\.?\\b[^0-9]{0,20}?"+NB,
-      "habitable[^0-9]{0,30}?"+NB,
-      "surface\\s*habitable[^0-9]{0,40}?([0-9]{1,5}(?:[.,][0-9]{1,2})?)",
+      'surface\\s*habitable(?:\\s*(?:du\\s*projet|totale))?',
+      '\\bS\\.?\\s?H\\.?\\s?A\\.?\\s?B\\.?(?![A-Z])',
+      '\\bhabitable\\b',
     ]),
   };
 }
+
+/* toutes les surfaces citées dans le document, avec ce qui les précède : quand
+   aucun intitulé connu n'est reconnu, on montre ce qu'on a trouvé plutôt que
+   de laisser l'utilisateur devant un refus sans recours. */
+const surfacesCitees=txt=>{
+  const t=deaccent(txt).replace(/\s+/g,' ');
+  const re=/([0-9]{1,5}(?:[.,][0-9]{1,2})?)\s*(?:m2|m²)/gi;
+  const L=[]; let m;
+  while((m=re.exec(t))&&L.length<8){
+    const v=parseFloat(m[1].replace(',','.'));
+    if(!(v>0&&v<100000))continue;
+    if(L.some(x=>x.valeur===v))continue;
+    /* le premier mot n'est coupé que si l'on a tronqué en amont : au début du
+       document il est entier, et le retirer ferait perdre le seul repère */
+    const debut=Math.max(0,m.index-40);
+    let avant=t.slice(debut,m.index);
+    if(debut>0)avant=avant.replace(/^\S*\s/,'');
+    L.push({valeur:v,contexte:avant.trim()});
+  }
+  return L;
+};
 
 function analyseAttestation(txt){
   const t=deaccent(txt);
@@ -4514,18 +4574,27 @@ function Fiche({data,ch,save,back}){
       budgetClientTTC:(edit.budgetClientTTC===''||edit.budgetClientTTC===undefined)?'':+edit.budgetClientTTC,
       tvaHono:(edit.tvaHono===''||edit.tvaHono===undefined||edit.tvaHono===null)?'':+edit.tvaHono,
       honorairesPct:+edit.honorairesPct||0,honorairesMontant:edit.honorairesMontant===''?'':+edit.honorairesMontant,
+      remiseHono:(edit.remiseHono===''||edit.remiseHono===undefined||edit.remiseHono===null)?'':Math.max(0,+edit.remiseHono||0),
+      remiseHonoType:edit.remiseHonoType==='%'?'%':'€',
+      remiseHonoMotif:(edit.remiseHonoMotif||'').trim(),
       tva:edit.tva===''?'':+edit.tva,delaiPrevu:edit.delaiPrevu===''?'':+edit.delaiPrevu,
       surfacePlancher:edit.surfacePlancher===''?'':+edit.surfacePlancher,surfaceHabitable:edit.surfaceHabitable===''?'':+edit.surfaceHabitable});
     setEdit(null); setLecturePlan('');
   };
+  const [citees,setCitees]=useState([]);
   const lirePlan=async file=>{
-    setLecturePlan('lecture');
+    setLecturePlan('lecture'); setCitees([]);
     try{
-      const r=analysePlan(await pdfText(file));
+      const txt=await pdfText(file);
+      /* un plan dessiné ne porte aucun texte : le dire franchement, et dire
+         quel document, lui, se lit — plutôt que d'accuser un cartouche absent */
+      if(planSansTexte(txt)){setLecturePlan('sanstexte');return}
+      const r=analysePlan(txt);
       const n=(r.surfacePlancher?1:0)+(r.surfaceHabitable?1:0);
       setEdit(p=>({...p,
         surfacePlancher:r.surfacePlancher||p.surfacePlancher,
         surfaceHabitable:r.surfaceHabitable||p.surfaceHabitable}));
+      if(n<2)setCitees(surfacesCitees(txt));
       setLecturePlan(n===2?'ok':n===1?'partiel':'rien');
     }catch(e){setLecturePlan('erreur')}
   };
@@ -4562,14 +4631,33 @@ function Fiche({data,ch,save,back}){
         <Fld label="SURFACE DE PLANCHER (m²)"><input className="in" type="number" step="0.01" value={edit.surfacePlancher||''} onChange={e=>setEdit({...edit,surfacePlancher:e.target.value})}/></Fld>
         <Fld label="SURFACE HABITABLE (m²)"><input className="in" type="number" step="0.01" value={edit.surfaceHabitable||''} onChange={e=>setEdit({...edit,surfaceHabitable:e.target.value})}/></Fld>
       </div>
-      <Fld label="LIRE LES SURFACES SUR UN PLAN (PDF)">
-        <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{lecturePlan==='lecture'?'Lecture du plan…':'Importer un plan'}
+      <Fld label="LIRE LES SURFACES SUR UN DOCUMENT (PDF)">
+        <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{lecturePlan==='lecture'?'Lecture du document…':'Importer un document'}
           <input type="file" accept="application/pdf" style={{display:'none'}} disabled={lecturePlan==='lecture'}
             onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)lirePlan(f)}}/></label>
-        {lecturePlan==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>Surfaces lues sur le plan et reportées ci-dessus. À vérifier avant d'enregistrer.</div>}
-        {lecturePlan==='partiel'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>Une seule surface a pu être lue. Complétez l'autre à la main.</div>}
-        {lecturePlan==='rien'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>Aucune surface trouvée dans ce plan (cartouche absent, ou plan scanné sans texte). Saisissez les valeurs à la main.</div>}
+        <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+          La fiche descriptive, la notice ou le CERFA portent les surfaces en toutes lettres.
+          Un plan dessiné, lui, n’est qu’un dessin : il n’y a pas de texte à y lire.</div>
+        {lecturePlan==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>Surfaces lues et reportées ci-dessus. À vérifier avant d’enregistrer.</div>}
+        {lecturePlan==='partiel'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>Une seule surface a pu être lue. Complétez l’autre à la main, ou reprenez-la ci-dessous.</div>}
+        {lecturePlan==='rien'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>Aucun intitulé de surface reconnu dans ce document.</div>}
+        {lecturePlan==='sanstexte'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          Ce PDF ne contient aucun texte : c’est un plan dessiné, ou un document scanné en image.
+          Rien à y lire. Reprenez la <b>fiche descriptive</b> ou la <b>notice</b> du projet, qui
+          portent les surfaces écrites.</div>}
         {lecturePlan==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>Lecture du PDF impossible.</div>}
+        {/* à défaut d'intitulé reconnu, on montre les surfaces citées : un clic
+            les reporte, ce qui vaut mieux qu'un refus sans recours */}
+        {!!citees.length&&(lecturePlan==='rien'||lecturePlan==='partiel')&&<div style={{marginTop:8}}>
+          <div className="xs mut" style={{marginBottom:4,lineHeight:1.5}}>
+            Surfaces citées dans le document — reportez celle qui convient :</div>
+          {citees.map((c,i)=><div key={i} className="row" style={{gap:6,alignItems:'center',marginBottom:4,flexWrap:'wrap'}}>
+            <span className="xs b" style={{minWidth:64}}>{c.valeur} m²</span>
+            <span className="xs mut" style={{flex:'1 1 120px',minWidth:0}}>{c.contexte||'—'}</span>
+            <button className="btn gh s" onClick={()=>setEdit(p=>({...p,surfacePlancher:c.valeur}))}>Plancher</button>
+            <button className="btn gh s" onClick={()=>setEdit(p=>({...p,surfaceHabitable:c.valeur}))}>Habitable</button>
+          </div>)}
+        </div>}
       </Fld>
       <Fld label="DOSSIER DRIVE DU CHANTIER"><input className="in" value={edit.lienDrive||''} onChange={e=>setEdit({...edit,lienDrive:e.target.value})}/></Fld>
       <Fld label="BUDGET CLIENT TTC (€) — LE MONTANT ANNONCÉ AU CLIENT">
@@ -4586,6 +4674,30 @@ function Fiche({data,ch,save,back}){
           <input className="in" type="number" placeholder={'Auto : '+eur(edit.budget*(edit.honorairesPct||0)/100)} value={edit.honorairesMontant||''} onChange={e=>setEdit({...edit,honorairesMontant:e.target.value})}/>
         </Fld>
       </div>
+      {/* la remise consentie au client : elle se déduit du montant dû, et se
+          reporte partout — reste à facturer, coût de l'opération, budget */}
+      <div className="g2">
+        <Fld label="REMISE SUR LES HONORAIRES">
+          <div className="row" style={{gap:6,alignItems:'center'}}>
+            <input className="in" type="number" step="0.01" min="0" placeholder="0" style={{flex:'1 1 90px'}}
+              value={edit.remiseHono===undefined||edit.remiseHono===null?'':edit.remiseHono}
+              onChange={e=>setEdit({...edit,remiseHono:e.target.value})}/>
+            <select className="in" style={{flex:'0 0 84px'}} value={edit.remiseHonoType==='%'?'%':'€'}
+              onChange={e=>setEdit({...edit,remiseHonoType:e.target.value})}>
+              <option value="€">€</option><option value="%">%</option>
+            </select>
+          </div>
+        </Fld>
+        <Fld label="MOTIF DE LA REMISE (FACULTATIF)">
+          <input className="in" placeholder="Geste commercial, second chantier…"
+            value={edit.remiseHonoMotif||''} onChange={e=>setEdit({...edit,remiseHonoMotif:e.target.value})}/>
+        </Fld>
+      </div>
+      {!!remiseHonoHT(edit)&&<div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.6}}>
+        Honoraires bruts {eur(honoBrutHT(edit))} — remise {remiseHonoTexte(edit)}
+        {edit.remiseHonoType==='%'?' ('+eur(remiseHonoHT(edit))+')':''} ={' '}
+        <b>{eur(honoAmount(edit))} HT</b> à facturer.
+      </div>}
       <Fld label="TVA SUR LES HONORAIRES (%)">
         <input className="in" type="number" step="0.1" placeholder={'Chantier : '+tvaRate(edit)+' %'}
           value={edit.tvaHono===undefined||edit.tvaHono===null?'':edit.tvaHono} onChange={e=>setEdit({...edit,tvaHono:e.target.value})}/>
@@ -8375,6 +8487,19 @@ function Honoraires({data,ch,save}){
       <Stat l={"Reste à facturer TTC"} v={reste>0?eur(resteTTC):'soldé'} c={reste>0?TERRA:GREEN}/>
       <Stat l="Reste à facturer HT" v={reste>0?eur(reste):'soldé'} c={reste>0?INK:GREEN}/>
     </div>
+    {/* la remise se lit ici, sur le montant qu'elle diminue : sans cela le
+        total afficherait un chiffre plus bas que le devis, sans qu'on sache pourquoi */}
+    {!!remiseHonoHT(ch)&&<div className="card" style={{marginTop:8,borderLeft:'3px solid '+GREEN}}>
+      <div className="sp" style={{marginBottom:4}}>
+        <span className="b sm" style={{color:NAVY}}>Remise consentie sur les honoraires</span>
+        <span className="pill" style={{background:GREEN+'1A',color:GREEN}}>− {remiseHonoTexte(ch)}</span>
+      </div>
+      <div className="xs mut" style={{lineHeight:1.6}}>
+        Honoraires bruts {eur(honoBrutHT(ch))} HT — remise {eur(remiseHonoHT(ch))} = <b>{eur(honoAmount(ch))} HT</b>.
+        {ch.remiseHonoMotif?' Motif : '+ch.remiseHonoMotif+'.':''}
+        {' '}Elle se règle dans la fiche du chantier, et vaut pour tous les totaux.
+      </div>
+    </div>}
     <div className="card" style={{marginTop:8,borderLeft:'3px solid '+NAVY}}>
       <Fld label="DEVIS D'HONORAIRES (PDF OU WORD)">
         {ch.devisHono&&ch.devisHono.nom
