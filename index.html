@@ -177,7 +177,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-01 · Lecture des surfaces : le bon document, et ce qu’on y a trouvé';
+const VERSION='2026-09-01 · Remise sur les honoraires · lecture des surfaces sur le bon document';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -763,7 +763,28 @@ const lireVCard=txt=>{
   }
   return res;
 };
-const honoAmount=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:budgetTravauxHT(ch)*(ch.honorairesPct||0)/100;
+/* les honoraires avant remise : un montant saisi tel quel, ou le pourcentage
+   appliqué au budget travaux */
+const honoBrutHT=ch=>(ch.honorairesMontant!==undefined&&ch.honorairesMontant!==null&&ch.honorairesMontant!=='')?+ch.honorairesMontant:budgetTravauxHT(ch)*(ch.honorairesPct||0)/100;
+/* la remise consentie sur le devis d'honoraires, en euros ou en pourcentage
+   du brut. Elle ne peut ni être négative — ce serait une majoration, qui se
+   saisit dans le montant — ni dépasser les honoraires eux-mêmes. */
+const remiseHonoHT=ch=>{
+  const v=+((ch||{}).remiseHono)||0;
+  if(!(v>0))return 0;
+  const brut=honoBrutHT(ch);
+  const m=(ch.remiseHonoType==='%')?brut*v/100:v;
+  return Math.min(Math.max(m,0),Math.max(brut,0));
+};
+/* ce qui est réellement dû : c'est ce chiffre qui court partout ailleurs —
+   reste à facturer, coût de l'opération, budget client */
+const honoAmount=ch=>honoBrutHT(ch)-remiseHonoHT(ch);
+/* « 10 % » ou « 1 500 € », tel qu'on l'écrit sur le devis */
+const remiseHonoTexte=ch=>{
+  const v=+((ch||{}).remiseHono)||0;
+  if(!(v>0))return '';
+  return ch.remiseHonoType==='%'?(Math.round(v*100)/100)+' %':eur(v);
+};
 const tvaRate=ch=>(ch&&ch.tva!==undefined&&ch.tva!==null&&ch.tva!=='')?+ch.tva:20;
 const ttc=(ht,ch)=>(ht||0)*(1+tvaRate(ch)/100);
 /* « date de signature » : celle du contrat de maîtrise d'œuvre, sinon le jalon
@@ -4553,6 +4574,9 @@ function Fiche({data,ch,save,back}){
       budgetClientTTC:(edit.budgetClientTTC===''||edit.budgetClientTTC===undefined)?'':+edit.budgetClientTTC,
       tvaHono:(edit.tvaHono===''||edit.tvaHono===undefined||edit.tvaHono===null)?'':+edit.tvaHono,
       honorairesPct:+edit.honorairesPct||0,honorairesMontant:edit.honorairesMontant===''?'':+edit.honorairesMontant,
+      remiseHono:(edit.remiseHono===''||edit.remiseHono===undefined||edit.remiseHono===null)?'':Math.max(0,+edit.remiseHono||0),
+      remiseHonoType:edit.remiseHonoType==='%'?'%':'€',
+      remiseHonoMotif:(edit.remiseHonoMotif||'').trim(),
       tva:edit.tva===''?'':+edit.tva,delaiPrevu:edit.delaiPrevu===''?'':+edit.delaiPrevu,
       surfacePlancher:edit.surfacePlancher===''?'':+edit.surfacePlancher,surfaceHabitable:edit.surfaceHabitable===''?'':+edit.surfaceHabitable});
     setEdit(null); setLecturePlan('');
@@ -4650,6 +4674,30 @@ function Fiche({data,ch,save,back}){
           <input className="in" type="number" placeholder={'Auto : '+eur(edit.budget*(edit.honorairesPct||0)/100)} value={edit.honorairesMontant||''} onChange={e=>setEdit({...edit,honorairesMontant:e.target.value})}/>
         </Fld>
       </div>
+      {/* la remise consentie au client : elle se déduit du montant dû, et se
+          reporte partout — reste à facturer, coût de l'opération, budget */}
+      <div className="g2">
+        <Fld label="REMISE SUR LES HONORAIRES">
+          <div className="row" style={{gap:6,alignItems:'center'}}>
+            <input className="in" type="number" step="0.01" min="0" placeholder="0" style={{flex:'1 1 90px'}}
+              value={edit.remiseHono===undefined||edit.remiseHono===null?'':edit.remiseHono}
+              onChange={e=>setEdit({...edit,remiseHono:e.target.value})}/>
+            <select className="in" style={{flex:'0 0 84px'}} value={edit.remiseHonoType==='%'?'%':'€'}
+              onChange={e=>setEdit({...edit,remiseHonoType:e.target.value})}>
+              <option value="€">€</option><option value="%">%</option>
+            </select>
+          </div>
+        </Fld>
+        <Fld label="MOTIF DE LA REMISE (FACULTATIF)">
+          <input className="in" placeholder="Geste commercial, second chantier…"
+            value={edit.remiseHonoMotif||''} onChange={e=>setEdit({...edit,remiseHonoMotif:e.target.value})}/>
+        </Fld>
+      </div>
+      {!!remiseHonoHT(edit)&&<div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.6}}>
+        Honoraires bruts {eur(honoBrutHT(edit))} — remise {remiseHonoTexte(edit)}
+        {edit.remiseHonoType==='%'?' ('+eur(remiseHonoHT(edit))+')':''} ={' '}
+        <b>{eur(honoAmount(edit))} HT</b> à facturer.
+      </div>}
       <Fld label="TVA SUR LES HONORAIRES (%)">
         <input className="in" type="number" step="0.1" placeholder={'Chantier : '+tvaRate(edit)+' %'}
           value={edit.tvaHono===undefined||edit.tvaHono===null?'':edit.tvaHono} onChange={e=>setEdit({...edit,tvaHono:e.target.value})}/>
@@ -8439,6 +8487,19 @@ function Honoraires({data,ch,save}){
       <Stat l={"Reste à facturer TTC"} v={reste>0?eur(resteTTC):'soldé'} c={reste>0?TERRA:GREEN}/>
       <Stat l="Reste à facturer HT" v={reste>0?eur(reste):'soldé'} c={reste>0?INK:GREEN}/>
     </div>
+    {/* la remise se lit ici, sur le montant qu'elle diminue : sans cela le
+        total afficherait un chiffre plus bas que le devis, sans qu'on sache pourquoi */}
+    {!!remiseHonoHT(ch)&&<div className="card" style={{marginTop:8,borderLeft:'3px solid '+GREEN}}>
+      <div className="sp" style={{marginBottom:4}}>
+        <span className="b sm" style={{color:NAVY}}>Remise consentie sur les honoraires</span>
+        <span className="pill" style={{background:GREEN+'1A',color:GREEN}}>− {remiseHonoTexte(ch)}</span>
+      </div>
+      <div className="xs mut" style={{lineHeight:1.6}}>
+        Honoraires bruts {eur(honoBrutHT(ch))} HT — remise {eur(remiseHonoHT(ch))} = <b>{eur(honoAmount(ch))} HT</b>.
+        {ch.remiseHonoMotif?' Motif : '+ch.remiseHonoMotif+'.':''}
+        {' '}Elle se règle dans la fiche du chantier, et vaut pour tous les totaux.
+      </div>
+    </div>}
     <div className="card" style={{marginTop:8,borderLeft:'3px solid '+NAVY}}>
       <Fld label="DEVIS D'HONORAIRES (PDF OU WORD)">
         {ch.devisHono&&ch.devisHono.nom
