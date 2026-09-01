@@ -141,6 +141,30 @@
      « Enregistrer au format PDF » sur ordinateur, la feuille de partage sur
      iPhone. On masque alors tout sauf la planche à imprimer ; la visibilité
      plutôt que l'affichage, pour ne pas défaire la mise en page de l'écran. */
+  /* Le calendrier du mois. Sept colonnes qui tiennent dans la largeur, même sur
+     un téléphone : sans minmax(0,1fr), une pastille au texte insécable impose
+     sa largeur à sa colonne, la grille déborde et le cadre la coupe — on n'en
+     voyait plus que les deux premiers jours. */
+  .cal-grille{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;overflow:hidden}
+  .cal-jour{padding:6px 4px;text-align:center;font-weight:600;min-width:0}
+  .cal-case{min-height:76px;padding:4px 5px;cursor:pointer;min-width:0;overflow:hidden}
+  .cal-puce{font-size:10.5px;line-height:1.35;margin-top:2px;padding:1px 4px;border-radius:4px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+  .cal-plus{font-size:10px;margin-top:2px}
+  /* la légende des couleurs ne sert que là où les intitulés ne tiennent plus */
+  .cal-aide{display:none}
+  @media (max-width:640px){
+    .cal-aide{display:block}
+    .cal-mot{display:none}
+    /* une colonne fait alors une cinquantaine de points : trop peu pour un
+       intitulé. Chaque rendez-vous devient un trait de couleur — bleu pour le
+       professionnel, terre pour le personnel — et la journée s'ouvre d'un
+       appui, où tout se lit heure par heure. */
+    .cal-jour{padding:5px 2px;font-size:10px}
+    .cal-case{min-height:54px;padding:3px 2px}
+    .cal-puce{height:5px;padding:0;margin-top:3px;border-radius:3px;font-size:0;color:transparent!important}
+    .cal-plus{font-size:9px;margin-top:3px}
+  }
   .planche-impression{display:none}
   @media print{
     @page{size:A3 landscape;margin:8mm}
@@ -177,7 +201,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-01 · Remise sur les honoraires · lecture des surfaces sur le bon document';
+const VERSION='2026-09-01 · Le mois entier tient sur le téléphone';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -9405,10 +9429,11 @@ function Agenda({data,save,jourInitial}){
   const Badge=({x})=><span className="xs" style={{marginLeft:8,padding:'1px 8px',borderRadius:20,fontWeight:600,
     background:x.type==='perso'?'#F6E2DC':'#E4EAEE',color:x.type==='perso'?TERRA:NAVY}}>
     {x.type==='perso'?'Perso':'Pro'}</span>;
-  const Puce=({x})=><div onClick={e=>{e.stopPropagation();setF(x)}}
+  /* la mise en page est dans la feuille de style : sur un téléphone, la pastille
+     se réduit à un trait de couleur, et rien d'écrit ici ne doit l'en empêcher */
+  const Puce=({x})=><div className="cal-puce" onClick={e=>{e.stopPropagation();setF(x)}}
     title={[plageHoraire(x.heure,x.heureFin),x.titre,x.client,x.lieu].filter(Boolean).join(' — ')}
-    style={{fontSize:10.5,marginTop:2,padding:'1px 4px',borderRadius:4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
-      cursor:'pointer',background:x.type==='perso'?'#F6E2DC':'#E4EAEE',color:x.type==='perso'?TERRA:NAVY}}>
+    style={{background:x.type==='perso'?'#F6E2DC':'#E4EAEE',color:x.type==='perso'?TERRA:NAVY}}>
     {x.heure?x.heure+' ':''}{x.titre||'(sans titre)'}</div>;
 
   return <div>
@@ -9483,16 +9508,23 @@ function Agenda({data,save,jourInitial}){
           <button className="btn s" onClick={()=>decaler(1)} aria-label="Mois suivant">→</button>
         </div>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:1,background:RULE,
-        border:'1px solid '+RULE,borderRadius:8,overflow:'hidden'}}>
-        {JOURS_NOMS.map(j=><div key={j} className="xs mut" style={{background:'#F4F1EB',padding:'6px 4px',textAlign:'center',fontWeight:600}}>{j}</div>)}
-        {cases.map(c=><div key={c.date} data-date={c.date} onClick={()=>setJour(c.date)}
-          style={{background:'#fff',minHeight:76,padding:'4px 5px',cursor:'pointer',opacity:c.dansMois?1:.4}}>
+      <div className="cal-grille" style={{background:RULE,border:'1px solid '+RULE,borderRadius:8}}>
+        {JOURS_NOMS.map(j=><div key={j} className="xs mut cal-jour" style={{background:'#F4F1EB'}}>{j}</div>)}
+        {cases.map(c=><div key={c.date} data-date={c.date} className="cal-case" onClick={()=>setJour(c.date)}
+          style={{background:'#fff',opacity:c.dansMois?1:.4}}>
           <div className="xs" style={{fontWeight:c.date===auj?700:500,color:c.date===auj?TERRA:INK}}>{c.jour}</div>
           {(parJour[c.date]||[]).slice(0,3).map(x=><Puce key={x.id} x={x}/>)}
-          {(parJour[c.date]||[]).length>3&&<div className="xs mut" style={{marginTop:2}}>
-            +{(parJour[c.date]||[]).length-3} autre{(parJour[c.date]||[]).length-3>1?'s':''}</div>}
+          {(parJour[c.date]||[]).length>3&&<div className="xs mut cal-plus">
+            +{(parJour[c.date]||[]).length-3}<span className="cal-mot"> autre{(parJour[c.date]||[]).length-3>1?'s':''}</span></div>}
         </div>)}
+      </div>
+      {/* sur un téléphone, la grille ne peut plus écrire les intitulés : on dit
+          une fois ce que valent les traits de couleur, plutôt que de laisser
+          deviner */}
+      <div className="xs mut cal-aide" style={{marginTop:6,lineHeight:1.5}}>
+        Chaque trait est un rendez-vous — <span style={{color:NAVY}}>bleu</span> pour le professionnel,
+        {' '}<span style={{color:TERRA}}>terre</span> pour le personnel. Appuyez sur un jour pour l’ouvrir
+        heure par heure.
       </div>
 
       {prochains.length>0&&<div style={{marginTop:24}}>
