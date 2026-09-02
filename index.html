@@ -201,7 +201,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-01 · Le mois entier tient sur le téléphone';
+const VERSION='2026-09-02 · Le TTC des honoraires dit d’où vient sa TVA';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -4625,6 +4625,11 @@ function Fiche({data,ch,save,back}){
   const hono=honoAmount(ch), honoFac=sumMontants(ch.honoFactures);
   const cmds=data.commandes.filter(c=>c.chantierId===ch.id);
   const co=coutOperation(ch,ms,cmds), bc=budgetClient(ch), manque=posteManquants(ch,ms,cmds);
+  /* le TTC des honoraires peut dépasser le HT alors que le chantier est à 0 % :
+     ce sont les factures déjà émises sous leur propre taux. On le dit ici, là où
+     le chiffre est lu, et pas seulement sur l'écran des honoraires. */
+  const honoDiv=honoTauxDivergents(ch);
+  const honoDivN=(ch.honoFactures||[]).filter(f=>Math.abs(honoFactTva(f,ch)-honoTva(ch))>0.01).length;
   const jOuv=joursDepuis(ch.dateOuverture), dPrev=delaiPrevu(ch);
   const maps=mapsUrl(ch), mapsSearch=mapsSearchUrl(ch);
   return <div>
@@ -4754,6 +4759,11 @@ function Fiche({data,ch,save,back}){
           <div><div className="mut">Matériaux commandés</div><div className="b">{eur(co.matTTC)}</div><div className="mut">{eur(co.matHT)} HT · {cmds.length} commande{cmds.length>1?'s':''}</div></div>
           <div><div className="mut">Honoraires MOE</div><div className="b">{eur(co.honoTTC)}</div><div className="mut">{eur(co.honoHT)} HT</div></div>
         </div>
+        {!!honoDiv.length&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
+          Honoraires : {eur(co.honoTVA)} de TVA s'ajoutent au HT parce que {honoDivN} facture{honoDivN>1?'s ont été enregistrées':' a été enregistrée'} à
+          {' '}{honoDiv.map(t=>t+' %').join(' et ')} alors que les honoraires de ce chantier sont à {honoTva(ch)} %.
+          {' '}<b>Onglet Honoraires</b> pour corriger le taux de ces factures.
+        </div>}
         <div className="sp xs" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
           <span className="mut">Total engagé TTC</span>
           <span className="b" style={{fontSize:17,color:NAVY}}>{eur(co.totalTTC)}</span>
@@ -8453,6 +8463,16 @@ function Honoraires({data,ch,save}){
     setDevisLu(null);
   };
   const add=()=>upHono([...hf,{id:uid(),montant:'',date:'',libelle:'',lien:'',numero:'',tva:''}]);
+  /* remettre les factures divergentes sur le taux du chantier : on vide leur
+     taux propre plutôt que d'y recopier une valeur, pour qu'elles suivent
+     désormais celui des honoraires s'il change encore. */
+  const alignerTaux=()=>{
+    const n=hf.filter(x=>Math.abs(honoFactTva(x,ch)-honoTva(ch))>0.01).length;
+    if(!n)return;
+    if(!confirm(n+' facture'+(n>1?'s':'')+' vont suivre le taux des honoraires ('+honoTva(ch)+' %). '
+      +'Ne le faites que si les factures réellement émises portaient bien ce taux — le TTC changera.'))return;
+    upHono(hf.map(x=>Math.abs(honoFactTva(x,ch)-honoTva(ch))>0.01?{...x,tva:''}:x));
+  };
   const [luHono,setLuHono]=useState(null);
   const upd=(id,patch)=>upHono(hf.map(x=>x.id===id?{...x,...patch}:x));
   const del=id=>upHono(hf.filter(x=>x.id!==id));
@@ -8565,6 +8585,7 @@ function Honoraires({data,ch,save}){
           {hf.filter(x=>Math.abs(honoFactTva(x,ch)-honoTva(ch))>0.01).length} facture{hf.filter(x=>Math.abs(honoFactTva(x,ch)-honoTva(ch))>0.01).length>1?'s ont été émises':' a été émise'} à
           {' '}{divergents.map(t=>t+' %').join(' et ')} au lieu de {honoTva(ch)} % : le total TTC les compte à leur propre taux,
           c'est pourquoi il ne vaut pas {honoTva(ch)===0?'simplement les '+eur(total)+' HT':eur(total)+' × '+(1+honoTva(ch)/100).toFixed(2).replace('.',',')}.
+          {' '}<button className="btn gh s" style={{marginLeft:4}} onClick={alignerTaux}>Aligner ces factures sur {honoTva(ch)} %</button>
           <br/></span>}
         Le montant des honoraires se modifie via « Modifier » sur la fiche du chantier.
       </div>
