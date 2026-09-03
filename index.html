@@ -201,7 +201,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-03 · Les compteurs du tableau de bord mènent quelque part';
+const VERSION='2026-09-04 · La connexion Google dit quand elle a expiré';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -2795,6 +2795,28 @@ function consumeDriveTokenFromUrl(){
 consumeDriveTokenFromUrl();
 
 const driveConnected=()=>!!jetonLu('driveToken')&&Date.now()<+(jetonLu('driveTokenExpiry')||0);
+/* Le jeton que Google délivre ne vit qu'une heure. Passé ce délai il en reste un
+   dans le navigateur, mais il ne vaut plus rien : c'est un état à part entière,
+   à ne pas confondre avec « jamais connecté ». Sans cette distinction, l'écran
+   annonce une connexion établie pendant que les envois sont refusés. */
+const driveJetonExpire=()=>!!jetonLu('driveToken')&&Date.now()>=+(jetonLu('driveTokenExpiry')||0);
+
+/* Reprendre où l'on en était après le détour par Google. Se reconnecter recharge
+   la page : sans cette note, on repart du tableau de bord et l'envoi entamé est
+   perdu — il faut refaire tout le chemin à la main. */
+const DRIVE_REPRISE='driveReprise';
+const driveReprisePose=r=>{try{localStorage.setItem(DRIVE_REPRISE,JSON.stringify(r))}catch(e){}};
+const driveRepriseOubliee=()=>{try{localStorage.removeItem(DRIVE_REPRISE)}catch(e){}};
+const driveRepriseLue=()=>{
+  try{
+    const v=localStorage.getItem(DRIVE_REPRISE);
+    const r=v?JSON.parse(v):null;
+    /* une note trop vieille n'a plus de sens : on ne relance pas un envoi
+       demandé la veille parce qu'on se reconnecte ce matin */
+    if(!r||!r.view||!r.pose||Date.now()-r.pose>10*60000)return null;
+    return r;
+  }catch(e){return null}
+};
 
 /* Traduction des refus de Google en langage utilisable. */
 const DRIVE_MOTIFS={
@@ -2806,7 +2828,12 @@ const DRIVE_MOTIFS={
   disallowed_useragent:"Google refuse le navigateur utilisé. Ouvrez le site dans Safari ou Chrome plutôt que depuis un lien intégré à une autre application.",
 };
 
-function startDriveAuth(){
+/* reprise : où revenir après Google. Les boutons qui passent directement cette
+   fonction à onClick lui donnent un événement, qui n'a pas de « view » — il est
+   ignoré, et toute note en attente est effacée. */
+function startDriveAuth(reprise){
+  if(reprise&&reprise.view)driveReprisePose({...reprise,pose:Date.now()});
+  else driveRepriseOubliee();
   const params=new URLSearchParams({
     client_id:GOOGLE_CLIENT_ID,
     redirect_uri:GOOGLE_REDIRECT_URI,
@@ -2823,9 +2850,12 @@ function disconnectDrive(){
   jetonEfface('driveTokenExpiry');
 }
 
+/* on garde le code « auth_required », que tout l'écran connaît déjà, et on y
+   joint « expire » pour pouvoir dire la vérité : une connexion arrivée à terme
+   ne se raconte pas comme une connexion jamais faite. */
 async function getDriveToken(){
   if(driveConnected())return jetonLu('driveToken');
-  throw{error:'auth_required'};
+  throw{error:'auth_required',expire:driveJetonExpire()};
 }
 
 /* Sur iPhone, une application ouverte depuis l'écran d'accueil est un contexte
@@ -3903,6 +3933,25 @@ function App({session}){
   /* la journée sur laquelle ouvrir l'agenda, quand on y arrive depuis ailleurs */
   const [agendaJour,setAgendaJour]=useState(null);
   const [open,setOpen]=useState(null);
+  /* On revient de Google : la note laissée avant le départ dit où l'on était et
+     ce qu'on était en train de faire. Lue une seule fois, puis effacée — se
+     reconnecter demain ne doit pas rouvrir le chantier d'aujourd'hui. */
+  const [reprise,setReprise]=useState(()=>{
+    const r=(driveRetour&&driveRetour.ok)?driveRepriseLue():null;
+    driveRepriseOubliee();
+    return r;
+  });
+  useEffect(()=>{
+    if(!reprise)return;
+    setView(reprise.view);
+    if(reprise.chantierId)setOpen(reprise.chantierId);
+    /* la note a fait son office ; on la retire pour qu'un aller-retour entre
+       onglets ne relance pas l'envoi une seconde fois. Le délai laisse le temps
+       aux données de revenir du serveur : sans elles, le chantier n'existe pas
+       encore et l'écran visé ne peut pas se monter. */
+    const t=setTimeout(()=>setReprise(null),60000);
+    return()=>clearTimeout(t);
+  },[]);
   const [plus,setPlus]=useState(false);
   const [err,setErr]=useState(null);
   /* attente : lecture en cours — ok : contenu du serveur reçu — erreur : lecture impossible.
@@ -4004,7 +4053,8 @@ function App({session}){
       {/* la clé force un nouveau montage à chaque écran : après une erreur,
           revenir en arrière repart d'un état neuf plutôt que de rester figé */}
       <Secours key={ch?'ch:'+ch.id:'v:'+view} onRetour={ch?()=>setOpen(null):null}>
-      {ch?<Fiche data={data} ch={ch} save={save} back={()=>setOpen(null)}/>
+      {ch?<Fiche data={data} ch={ch} save={save} back={()=>setOpen(null)}
+        reprise={reprise&&reprise.chantierId===ch.id?reprise:null}/>
       /* allerA porte au besoin une journée : le tableau de bord ouvre alors
          l'agenda directement sur ce jour-là, heure par heure */
       :view==='tdb'?<TableauBord data={data} open={setOpen}
@@ -4396,10 +4446,33 @@ function FichiersDrive({ch,dossier,fichiers,onChange,label,resoudre}){
   </div>;
 }
 
+/* Le jeton Google expire au bout d'une heure, tout seul, sans que React en sache
+   rien. Retenu dans un état posé au montage, il restait affiché « connecté »
+   longtemps après que les envois eurent commencé à être refusés — d'où des
+   messages contradictoires sur le même écran. On le relit donc à chaque rendu,
+   et l'on provoque un rendu au retour sur l'application, moment où l'on a le
+   plus de chances d'être en retard d'une heure. Pas de minuteur : il tournerait
+   pour rien pendant que l'écran est ailleurs. */
+function useDriveEtat(){
+  const[,rendre]=useState(0);
+  useEffect(()=>{
+    const f=()=>rendre(n=>n+1);
+    if(!window.addEventListener)return;
+    window.addEventListener('focus',f);
+    if(document.addEventListener)document.addEventListener('visibilitychange',f);
+    return()=>{
+      window.removeEventListener('focus',f);
+      if(document.removeEventListener)document.removeEventListener('visibilitychange',f);
+    };
+  },[]);
+  return {connecte:driveConnected(),expire:driveJetonExpire(),relever:()=>rendre(n=>n+1)};
+}
+
 function DriveStatus({compte,onCompte}){
-  const[connected,setConnected]=useState(driveConnected());
   const[aide,setAide]=useState(false);
   const[qui,setQui]=useState('');
+  const etat=useDriveEtat();
+  const connected=etat.connecte, expire=etat.expire, relever=etat.relever;
   /* le refus de Google, s'il y en a eu un au dernier retour */
   const echec=driveRetour&&!driveRetour.ok?driveRetour:null;
   const standalone=driveDepuisEcranAccueil();
@@ -4415,12 +4488,16 @@ function DriveStatus({compte,onCompte}){
   const ecart=!!qui&&!!attendu&&qui.toLowerCase()!==attendu;
   return <div className="xs" style={{marginBottom:12,padding:'8px 10px',border:'1px solid '+RULE,background:'#fff'}}>
     <div className="sp">
-      <span style={{color:connected?(ecart?TERRA:GREEN):(echec?TERRA:MUTED)}}>
-        {connected?'✓ Google Drive connecté':'Google Drive non connecté'}</span>
+      <span style={{color:connected?(ecart?TERRA:GREEN):(echec||expire?TERRA:MUTED)}}>
+        {connected?'✓ Google Drive connecté':expire?'Connexion Google expirée':'Google Drive non connecté'}</span>
       {connected
-        ?<button className="btn gh s" onClick={()=>{disconnectDrive();setConnected(false)}}>Déconnecter</button>
-        :<button className="btn acc s" onClick={startDriveAuth}>Connecter</button>}
+        ?<button className="btn gh s" onClick={()=>{disconnectDrive();relever()}}>Déconnecter</button>
+        :<button className="btn acc s" onClick={()=>startDriveAuth()}>{expire?'Reconnecter':'Connecter'}</button>}
     </div>
+    {!connected&&expire&&<div style={{marginTop:6,color:TERRA,lineHeight:1.5}}>
+      La connexion à Google ne dure qu’une heure. La vôtre est arrivée à terme :
+      les envois vers le Drive sont refusés jusqu'à ce que vous vous reconnectiez.
+    </div>}
     {connected&&qui&&<div style={{marginTop:4}} className="mut">Compte connecté : <b>{qui}</b></div>}
     {ecart&&<div style={{marginTop:6,padding:'6px 8px',borderRadius:6,background:'#F6E2DC',
       borderLeft:'3px solid '+TERRA,color:'#8A2E14',lineHeight:1.5}}>
@@ -4583,8 +4660,9 @@ function Chantiers({data,save,open}){
 }
 
 /* ---------------- FICHE ---------------- */
-function Fiche({data,ch,save,back}){
-  const [tab,setTab]=useState('marches');
+function Fiche({data,ch,save,back,reprise}){
+  /* au retour de Google, on rouvre l'onglet d'où l'on est parti */
+  const [tab,setTab]=useState((reprise&&reprise.onglet)||'marches');
   const [edit,setEdit]=useState(null);
   /* « Facturer » depuis le tableau des marchés amène directement sur la commande */
   const [ouvrirCmd,setOuvrirCmd]=useState(null);
@@ -4837,7 +4915,8 @@ function Fiche({data,ch,save,back}){
     {tab==='visite'&&<VisiteTechnique ch={ch} up={up}/>}
     {tab==='map'&&<MAP data={data} ch={ch} up={up}/>}
     {tab==='ctrl'&&<Controles data={data} ch={ch} save={save}/>}
-    {tab==='photos'&&<Photos data={data} ch={ch} save={save}/>}
+    {tab==='photos'&&<Photos data={data} ch={ch} save={save}
+      reprendreEnvoi={!!reprise&&reprise.action==='photos'}/>}
     {tab==='cmd'&&<Commandes data={data} ch={ch} save={save} ouvrir={ouvrirCmd} onOuvert={()=>setOuvrirCmd(null)}/>}
     {tab==='taches'&&<Taches ch={ch} up={up}/>}
     {tab==='planning'&&<Planning data={data} ch={ch} up={up}/>}
@@ -6268,13 +6347,16 @@ function ImportMarches({data,ch,save,close}){
 }
 
 /* ---------------- PHOTOS ---------------- */
-function Photos({data,ch,save}){
+function Photos({data,ch,save,reprendreEnvoi}){
   const list=data.photos.filter(p=>p.chantierId===ch.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const [busy,setBusy]=useState(false);
   const [driveIssue,setDriveIssue]=useState(false);
   const [zoom,setZoom]=useState(null);
   const [edit,setEdit]=useState(null);
   const [driveDetail,setDriveDetail]=useState('');
+  /* cet écran propose de se reconnecter : il doit donc savoir, lui aussi, quand
+     la connexion tombe — et pas seulement quand son parent se redessine */
+  const drive=useDriveEtat();
 
   const add=async e=>{
     const files=[...e.target.files]; e.target.value='';
@@ -6293,7 +6375,8 @@ function Photos({data,ch,save}){
           const token=await getDriveToken();
           const folderId=await driveSousDossier(token,ch.id,ch.nom,'Photos');
           lien=(await uploadToDrive(file,folderId)).webViewLink;
-        }catch(x){driveFailed=true;lastDetail=x&&x.error==='auth_required'?'auth_required':((x&&(x.error||x.message))||String(x))}
+        }catch(x){driveFailed=true;lastDetail=x&&x.error==='auth_required'
+        ?(x.expire?'auth_expired':'auth_required'):((x&&(x.error||x.message))||String(x))}
         nouveaux.push({id,chantierId:ch.id,date:today(),legende:'',lot:'',lien});
       }catch(x){/* photo ignorée */}
     }
@@ -6331,8 +6414,20 @@ function Photos({data,ch,save}){
       }
     }catch(x){echec=x&&x.error==='auth_required'?'auth_required':((x&&(x.error||x.message))||String(x))}
     if(fait)save({...data,photos});
-    setRattrapage({fait,total:manquantes.length,fini:true,echec});
+    setRattrapage({fait,total:manquantes.length,fini:true,echec,
+      expire:echec==='auth_required'&&driveJetonExpire()});
   };
+  /* on revient de Google après avoir demandé l'envoi : on le relance sans que
+     l'utilisateur ait à retrouver le chantier, l'onglet, puis le bouton. */
+  const relance=useRef(false);
+  useEffect(()=>{
+    if(!reprendreEnvoi||relance.current||!manquantes.length||!driveConnected())return;
+    relance.current=true;
+    envoyerManquantes();
+  },[reprendreEnvoi,manquantes.length]);
+  /* se reconnecter recharge la page : on note d'abord où revenir */
+  const reconnecterEtReprendre=()=>startDriveAuth(
+    {view:'chantiers',chantierId:ch.id,onglet:'photos',action:'photos'});
 
   return <div>
     <div className="sp" style={{marginBottom:12}}>
@@ -6347,22 +6442,33 @@ function Photos({data,ch,save}){
     <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Une version réduite s'affiche dans l'app ; l'original en pleine qualité est envoyé automatiquement sur votre Google Drive (dossier « {DRIVE_RACINE} › {ch.nom} › Photos »).
       <br/>Pour donner accès à un collaborateur : ouvrez le dossier avec le lien ci-dessus, puis utilisez « Partager » dans Google Drive. L'application ne peut pas partager à votre place.</p>
     {driveIssue&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
-      {driveDetail==='auth_required'
+      {driveDetail==='auth_expired'
+        ?"Photo(s) enregistrée(s) dans l'app, mais la connexion à Google avait expiré : l'original n'est pas parti. Reconnectez-vous ci-dessous, l'envoi reprendra."
+        :driveDetail==='auth_required'
         ?"Photo(s) enregistrée(s) dans l'app, mais Google Drive n'est pas connecté (bouton ci-dessus)."
         :"Photo(s) enregistrée(s) dans l'app, mais l'envoi de l'original vers Google Drive a échoué — détail technique : "+(driveDetail||'inconnu')+"."}
     </div>}
     {!!manquantes.length&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12,lineHeight:1.5}}>
-      <b>{manquantes.length} photo{manquantes.length>1?'s':''} sur {list.length} ne {manquantes.length>1?'sont':'est'} pas sur le Drive.</b> La connexion Google est perdue à chaque fermeture de l’application : si elle n’a pas été rétablie avant l’ajout, l’envoi n’a pas eu lieu. {manquantes.length>1?'Elles sont':'Elle est'} bien conservée{manquantes.length>1?'s':''} dans l’application.
-      <div style={{marginTop:8}}>
+      <b>{manquantes.length} photo{manquantes.length>1?'s':''} sur {list.length} ne {manquantes.length>1?'sont':'est'} pas sur le Drive.</b> La connexion Google ne dure qu’une heure, puis tombe d’elle-même — même sans fermer l’application. Si elle n’était plus valable au moment de l’ajout, l’envoi n’a pas eu lieu. {manquantes.length>1?'Elles sont':'Elle est'} bien conservée{manquantes.length>1?'s':''} dans l’application.
+      <div className="row" style={{marginTop:8,gap:8,flexWrap:'wrap'}}>
         <button className="btn acc s" disabled={!!rattrapage&&!rattrapage.fini} onClick={envoyerManquantes}>
           {rattrapage&&!rattrapage.fini?'Envoi '+rattrapage.fait+'/'+rattrapage.total+'…':'Envoyer sur le Drive'}</button>
+        {/* si la connexion est déjà tombée, inutile de faire cliquer sur un
+            bouton qui échouera : on propose directement le seul geste utile */}
+        {!drive.connecte&&<button className="btn s" onClick={reconnecterEtReprendre}>
+          Reconnecter Google et reprendre l’envoi</button>}
       </div>
       <div style={{marginTop:6}}>Seule la version réduite peut être envoyée : l’original n’existait qu’au moment de l’ajout.</div>
     </div>}
     {rattrapage&&rattrapage.fini&&<div className="xs" style={{background:rattrapage.echec?'#F6E2DC':'#E3EDE4',color:rattrapage.echec?'#8A2E14':'#2F5D3A',borderLeft:'3px solid '+(rattrapage.echec?TERRA:GREEN),padding:8,marginBottom:12,lineHeight:1.5}}>
       {rattrapage.fait} photo{rattrapage.fait>1?'s':''} envoyée{rattrapage.fait>1?'s':''} sur le Drive.
-      {rattrapage.echec==='auth_required'?" Connectez Google Drive (bouton ci-dessus) puis relancez l'envoi."
+      {rattrapage.echec==='auth_required'&&rattrapage.expire
+        ?" La connexion à Google avait expiré — elle ne dure qu’une heure. Reconnectez-vous, l’envoi reprendra tout seul."
+        :rattrapage.echec==='auth_required'?" Connectez Google Drive (bouton ci-dessus) puis relancez l'envoi."
         :rattrapage.echec?' Interrompu — détail technique : '+rattrapage.echec+'.':''}
+      {rattrapage.echec==='auth_required'&&<div style={{marginTop:8}}>
+        <button className="btn s" onClick={reconnecterEtReprendre}>Reconnecter Google et reprendre l’envoi</button>
+      </div>}
     </div>}
     {!list.length&&<Empty>Aucune photo. Prenez le chantier en photo à chaque visite.</Empty>}
     <div className="grid-ph">
