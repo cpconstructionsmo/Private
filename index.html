@@ -201,7 +201,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-02 · Le TTC des honoraires dit d’où vient sa TVA';
+const VERSION='2026-09-03 · Les compteurs du tableau de bord mènent quelque part';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -9636,6 +9636,28 @@ function TableauBord({data,open,allerA}){
   const rdvProches=(data.rendezvous||[]).filter(x=>x.date&&x.date>=t&&x.date<=limiteRdv)
     .sort((a,b)=>((a.date||'')+' '+(a.heure||'99:99')).localeCompare((b.date||'')+' '+(b.heure||'99:99')));
   const rien=!chiffrages.length&&!retards.length&&!pieces.length&&!decen.length&&!tachesRetard.length;
+  /* Chaque tuile mène à ce dont elle parle. Deux cas : ou bien le détail est sur
+     un autre écran (prospects, chantiers, artisans, agenda) et on y va ; ou bien
+     il est déjà plus bas sur cette page, et on descend jusqu'au bloc plutôt que
+     de quitter le tableau de bord — c'est là que l'information est. */
+  const refEtapes=useRef(null), refTaches=useRef(null);
+  const versBloc=r=>{
+    const el=r.current;
+    if(!el)return;
+    if(el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'});
+    /* un cadre qui s'allume une seconde : sur un grand écran, le bloc visé peut
+       être déjà visible et rien ne bougerait. On éclaire la carte elle-même, pas
+       son enveloppe, qui porte une marge basse ; et on rend la main à la feuille
+       de style plutôt que d'écrire « none », pour retrouver l'ombre d'origine. */
+    const carte=el.firstElementChild||el;
+    if(!carte.style)return;
+    carte.style.boxShadow='0 0 0 2px '+TERRA;
+    setTimeout(()=>{carte.style.boxShadow=''},900);
+  };
+  /* si le compteur est à zéro, il n'y a pas de bloc où descendre : on renvoie
+     vers l'écran qui porte le sujet */
+  const versEtapes=()=>retards.length?versBloc(refEtapes):allerA('chantiers');
+  const versTaches=()=>tachesAFaire.length?versBloc(refTaches):allerA('chantiers');
   /* le titre d'un bloc mène à l'écran dont il parle, quand il y en a un */
   const Bloc=({titre,n,c,onTitre,children})=><div className="card" style={{borderLeft:'3px solid '+c}}>
     <div className="sp" style={{marginBottom:8}}>
@@ -9653,12 +9675,12 @@ function TableauBord({data,open,allerA}){
   return <div>
     <H2>TABLEAU DE BORD</H2>
     <div className="g2" style={{marginBottom:10}}>
-      <Stat l="Chiffrages à réaliser" v={String(chiffrages.length)} c={chiffrages.length?TERRA:GREEN}/>
-      <Stat l="Étapes en retard" v={String(retards.filter(r=>r.j.retard).length)} c={retards.some(r=>r.j.retard)?TERRA:GREEN}/>
-      <Stat l="Chantiers en cours" v={String(actifs.length)} c={NAVY}/>
-      <Stat l="Décennales à surveiller" v={String(decen.length)} c={decen.length?AMBER:GREEN}/>
+      <Stat l="Chiffrages à réaliser" v={String(chiffrages.length)} c={chiffrages.length?TERRA:GREEN} onClick={()=>allerA('prospects')}/>
+      <Stat l="Étapes en retard" v={String(retards.filter(r=>r.j.retard).length)} c={retards.some(r=>r.j.retard)?TERRA:GREEN} onClick={versEtapes}/>
+      <Stat l="Chantiers en cours" v={String(actifs.length)} c={NAVY} onClick={()=>allerA('chantiers')}/>
+      <Stat l="Décennales à surveiller" v={String(decen.length)} c={decen.length?AMBER:GREEN} onClick={()=>allerA('artisans')}/>
       <Stat l="Rendez-vous (7 j)" v={String(rdvProches.length)} c={NAVY} onClick={()=>allerA('agenda')}/>
-      <Stat l="Tâches en retard" v={String(tachesRetard.length)} c={tachesRetard.length?TERRA:GREEN}/>
+      <Stat l="Tâches en retard" v={String(tachesRetard.length)} c={tachesRetard.length?TERRA:GREEN} onClick={versTaches}/>
     </div>
 
     {rdvProches.length>0&&<div style={{marginBottom:8}}>
@@ -9674,7 +9696,7 @@ function TableauBord({data,open,allerA}){
         x.date===t?TERRA:NAVY))}
     </Bloc></div>}
 
-    {tachesAFaire.length>0&&<div style={{marginBottom:8}}><Bloc titre="TÂCHES À RÉALISER" n={tachesAFaire.length} c={tachesRetard.length?TERRA:NAVY}>
+    {tachesAFaire.length>0&&<div ref={refTaches} style={{marginBottom:8,borderRadius:12}}><Bloc titre="TÂCHES À RÉALISER" n={tachesAFaire.length} c={tachesRetard.length?TERRA:NAVY}>
       <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Toutes les tâches ouvertes, tous chantiers confondus. Cochées comme faites dans l’onglet TÂCHES de chaque chantier, elles sortent d’ici.</div>
       {tachesAFaire.map(({ch,x})=>{
         const retard=x.echeance&&x.echeance<t;
@@ -9693,7 +9715,7 @@ function TableauBord({data,open,allerA}){
       <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Aucun chiffrage en attente, aucune étape en retard, aucune pièce manquante à la phase en cours, aucune décennale proche de son terme et aucune tâche en retard.</div>
     </div>}
 
-    {chiffrages.length>0&&<Bloc titre="DEMANDES DE CHIFFRAGE" n={chiffrages.length} c={TERRA}>
+    {chiffrages.length>0&&<Bloc titre="DEMANDES DE CHIFFRAGE" n={chiffrages.length} c={TERRA} onTitre={()=>allerA('prospects')}>
       <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Déposées par le commercial, elles attendent votre réponse.</div>
       {chiffrages.map(p=>{
         const mq=piecesProspectManquantes(p);
@@ -9706,7 +9728,7 @@ function TableauBord({data,open,allerA}){
       })}
     </Bloc>}
 
-    {retards.length>0&&<div style={{marginTop:8}}><Bloc titre="ÉTAPES À TENIR" n={retards.length} c={retards.some(r=>r.j.retard)?TERRA:AMBER}>
+    {retards.length>0&&<div ref={refEtapes} style={{marginTop:8,borderRadius:12}}><Bloc titre="ÉTAPES À TENIR" n={retards.length} c={retards.some(r=>r.j.retard)?TERRA:AMBER}>
       <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>En retard, ou prévues dans les quinze jours.</div>
       {retards.map(({ch,j})=>item(ch.id+':'+j.id,()=>open(ch.id),
         <span><b>{j.label}</b><span className="mut"> · {ch.nom}</span></span>,
@@ -9721,7 +9743,7 @@ function TableauBord({data,open,allerA}){
         manque.length+' pièce'+(manque.length>1?'s':''), AMBER))}
     </Bloc></div>}
 
-    {decen.length>0&&<div style={{marginTop:8}}><Bloc titre="ASSURANCES DÉCENNALES" n={decen.length} c={AMBER}>
+    {decen.length>0&&<div style={{marginTop:8}}><Bloc titre="ASSURANCES DÉCENNALES" n={decen.length} c={AMBER} onTitre={()=>allerA('artisans')}>
       <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Sans décennale à jour, l’application refuse d’émettre le marché.</div>
       {decen.map(({a,j})=>item(a.id,()=>allerA('artisans'),
         <span><b>{a.nom}</b>{a.corps?<span className="mut"> · {a.corps}</span>:null}</span>,
@@ -10880,7 +10902,7 @@ function Bilan({data,open}){
    « Rendez-vous (7 j) », on appuie, on est dans l'agenda. */
 const Stat=({l,v,c,onClick})=>{
   const dedans=<React.Fragment>
-    <div className="xs mut" style={{lineHeight:1.3}}>{l}</div>
+    <div className="xs mut" style={{lineHeight:1.3}}>{l}{onClick?' ›':''}</div>
     <div className="b" style={{fontSize:16,marginTop:4,color:c||INK}}>{v}</div>
   </React.Fragment>;
   return onClick
