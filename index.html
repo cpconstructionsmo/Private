@@ -201,7 +201,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-04 · La connexion Google dit quand elle a expiré';
+const VERSION='2026-09-04 · L’envoi des photos se voit pendant qu’il se fait';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -6358,23 +6358,34 @@ function Photos({data,ch,save,reprendreEnvoi}){
      la connexion tombe — et pas seulement quand son parent se redessine */
   const drive=useDriveEtat();
 
+  /* Envoyer une dizaine de photos depuis un téléphone prend des minutes :
+     compression, écriture locale, puis dépôt sur le Drive, pour chacune. Le seul
+     signe de vie était le mot « Traitement… » sur le bouton, en haut à droite —
+     de quoi croire l'application figée, ou repartir avant la fin. On dit donc
+     où l'on en est, photo par photo, et ce qui s'est passé une fois terminé. */
+  const [envoi,setEnvoi]=useState(null);
   const add=async e=>{
     const files=[...e.target.files]; e.target.value='';
     if(!files.length)return;
     setBusy(true);
     setDriveIssue(false);
+    setEnvoi({fait:0,total:files.length,etape:'lecture',deposees:0});
     const nouveaux=[];
-    let driveFailed=false, lastDetail='';
-    for(const file of files){
+    let driveFailed=false, lastDetail='', deposees=0;
+    for(let i=0;i<files.length;i++){
+      const file=files[i];
       try{
+        setEnvoi({fait:i,total:files.length,etape:'lecture',deposees});
         const d=await compress(file);
         const id=uid();
         await Photo.put(id,d);
         let lien='';
         try{
+          setEnvoi({fait:i,total:files.length,etape:'envoi',deposees});
           const token=await getDriveToken();
           const folderId=await driveSousDossier(token,ch.id,ch.nom,'Photos');
           lien=(await uploadToDrive(file,folderId)).webViewLink;
+          deposees++;
         }catch(x){driveFailed=true;lastDetail=x&&x.error==='auth_required'
         ?(x.expire?'auth_expired':'auth_required'):((x&&(x.error||x.message))||String(x))}
         nouveaux.push({id,chantierId:ch.id,date:today(),legende:'',lot:'',lien});
@@ -6383,6 +6394,8 @@ function Photos({data,ch,save,reprendreEnvoi}){
     if(nouveaux.length)save({...data,photos:[...data.photos,...nouveaux]});
     setDriveIssue(driveFailed);
     setDriveDetail(lastDetail);
+    setEnvoi({fait:files.length,total:files.length,fini:true,
+      gardees:nouveaux.length,deposees,perdues:files.length-nouveaux.length});
     setBusy(false);
   };
   const del=async id=>{await Photo.del(id).catch(()=>{});save({...data,photos:data.photos.filter(p=>p.id!==id)})};
@@ -6434,10 +6447,40 @@ function Photos({data,ch,save,reprendreEnvoi}){
       <span className="xs mut">{list.length} photo{list.length>1?'s':''}</span>
       <div className="row" style={{gap:14,alignItems:'center'}}>
         <BoutonDossierDrive ch={ch} sous="Photos"/>
-        <label className="btn acc s">{busy?'Traitement…':'+ Photos'}
-          <input type="file" accept="image/*" multiple onChange={add} style={{display:'none'}}/></label>
+        <label className="btn acc s" style={busy?{opacity:.6,pointerEvents:'none'}:null}>
+          {envoi&&!envoi.fini?'Envoi '+(envoi.fait+1)+'/'+envoi.total+'…':'+ Photos'}
+          <input type="file" accept="image/*" multiple disabled={busy} onChange={add} style={{display:'none'}}/></label>
       </div>
     </div>
+    {/* pendant l'envoi, on occupe le haut de l'écran : c'est long, et rien
+        d'autre ne dit que l'application travaille */}
+    {envoi&&!envoi.fini&&<div className="xs" style={{background:'#EFECE6',borderLeft:'3px solid '+NAVY,
+      padding:'10px 12px',marginBottom:12,lineHeight:1.6}}>
+      <b style={{color:NAVY}}>Envoi des photos en cours — {envoi.fait+1} sur {envoi.total}.</b>
+      <div className="mut">{envoi.etape==='envoi'
+        ?'Dépôt sur le Google Drive…'
+        :'Préparation de la photo (réduction pour l’application)…'}</div>
+      <div style={{marginTop:8,height:6,borderRadius:3,background:'#DCD6CB',overflow:'hidden'}}>
+        <div style={{height:'100%',borderRadius:3,background:NAVY,
+          width:Math.round((envoi.fait+(envoi.etape==='envoi'?0.5:0))/envoi.total*100)+'%',
+          transition:'width .25s'}}/>
+      </div>
+      <div className="mut" style={{marginTop:6}}>Ne quittez pas cet écran tant que l’envoi n’est pas terminé :
+        les photos ne sont enregistrées qu’à la fin.</div>
+    </div>}
+    {envoi&&envoi.fini&&<div className="xs" style={{
+      background:envoi.gardees>0&&envoi.deposees===envoi.gardees?'#E3EDE4':'#F6E2DC',
+      color:envoi.gardees>0&&envoi.deposees===envoi.gardees?'#2F5D3A':'#8A2E14',
+      borderLeft:'3px solid '+(envoi.gardees>0&&envoi.deposees===envoi.gardees?GREEN:TERRA),
+      padding:8,marginBottom:12,lineHeight:1.6}}>
+      <b>{envoi.gardees} photo{envoi.gardees>1?'s':''} ajoutée{envoi.gardees>1?'s':''}</b>
+      {' — '}{envoi.deposees} déposée{envoi.deposees>1?'s':''} sur le Drive
+      {envoi.deposees<envoi.gardees?', '+(envoi.gardees-envoi.deposees)+' restée'
+        +(envoi.gardees-envoi.deposees>1?'s':'')+' dans l’application':''}.
+      {envoi.perdues>0?' '+envoi.perdues+' fichier'+(envoi.perdues>1?'s n’ont':' n’a')
+        +' pas pu être lu'+(envoi.perdues>1?'s':'')+'.':''}
+      <button className="btn gh s" style={{marginLeft:8}} onClick={()=>setEnvoi(null)}>Fermer</button>
+    </div>}
     <DriveStatus/>
     <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>Une version réduite s'affiche dans l'app ; l'original en pleine qualité est envoyé automatiquement sur votre Google Drive (dossier « {DRIVE_RACINE} › {ch.nom} › Photos »).
       <br/>Pour donner accès à un collaborateur : ouvrez le dossier avec le lien ci-dessus, puis utilisez « Partager » dans Google Drive. L'application ne peut pas partager à votre place.</p>
