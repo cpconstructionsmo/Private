@@ -201,7 +201,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-04 · L’envoi des photos se voit pendant qu’il se fait';
+const VERSION='2026-09-05 · Simulateur de rénovation énergétique';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -364,7 +364,7 @@ const PIECES_MAIL_DEFAUT=['plans_pc','plans_exe'];
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
 const NAV=[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],
   ['artisans','ARTISANS'],['cmd','ACHATS'],['bilan','FINANCES']];
-const NAV_PLUS=[['biblio','PRIX'],['produits','PRODUITS'],['fournisseurs','FOURNISSEURS'],['agenda','AGENDA'],['donnees','DONNÉES']];
+const NAV_PLUS=[['dpe','SIMULATEUR DPE'],['biblio','PRIX'],['produits','PRODUITS'],['fournisseurs','FOURNISSEURS'],['agenda','AGENDA'],['donnees','DONNÉES']];
 
 /* Les pièces qu'on attend à chaque phase. Le tableau de bord ne réclame que
    celles-là : réclamer les seize à un chantier qui démarre ne dit rien. */
@@ -4064,6 +4064,7 @@ function App({session}){
       :view==='produits'?<Produits data={data} save={save}/>
       :view==='fournisseurs'?<Fournisseurs data={data} save={save}/>
       :view==='agenda'?<Agenda data={data} save={save} jourInitial={agendaJour}/>
+      :view==='dpe'?<SimulateurDPE data={data} save={save} retour={()=>setView('tdb')}/>
       :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
       :view==='artisans'?<Artisans data={data} save={save}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
@@ -9714,6 +9715,755 @@ function Agenda({data,save,jourInitial}){
   </div>;
 }
 
+/* ================= SIMULATEUR DE RÉNOVATION ÉNERGÉTIQUE =================
+   Un particulier arrive avec une adresse et repart avec un ordre de grandeur :
+   la classe énergétique de son logement, ce qu'il paie, ce qu'il gagnerait à
+   isoler. Pour le maître d'œuvre, c'est une prise de contact qualifiée — la
+   simulation devient un prospect avec tout ce qu'on a appris du logement.
+
+   Ce n'est PAS un DPE. Le calcul réglementaire (méthode 3CL) demande le relevé
+   de chaque paroi. On fait ici une estimation par ratios, honnête sur ce
+   qu'elle vaut : l'écran le dit, et le prospect en garde la trace. */
+
+/* Zones climatiques de la réglementation thermique, par département. Tout ce
+   qui n'est pas listé est en H1 — la moitié nord et les massifs. */
+const DPE_H2='04,07,09,12,16,17,18,22,24,26,29,31,32,33,35,40,44,46,47,49,50,53,56,64,65,72,79,81,82,85,86'.split(',');
+const DPE_H3='06,11,13,2A,2B,20,30,34,66,83,84'.split(',');
+const dpeZone=cp=>{
+  const d=String(cp||'').slice(0,2);
+  if(DPE_H3.indexOf(d)>=0)return 'H3';
+  if(DPE_H2.indexOf(d)>=0)return 'H2';
+  return 'H1';
+};
+/* degrés-jours unifiés, base 18 °C — la rigueur du climat sur une saison */
+const DPE_DJU={H1:2500,H2:2000,H3:1400};
+
+/* Périodes de construction : chacune porte ses habitudes de chantier, et donc
+   ses déperditions quand rien n'a été repris depuis. */
+const DPE_PERIODES=[
+  {id:'avant1948',label:'Avant 1948',murs:1.8,toit:2.5,sol:1.6},
+  {id:'1948-1974',label:'1948 à 1974',murs:2.2,toit:2.5,sol:1.8},
+  {id:'1975-1989',label:'1975 à 1989',murs:0.9,toit:0.50,sol:0.90},
+  {id:'1990-2000',label:'1990 à 2000',murs:0.6,toit:0.35,sol:0.60},
+  {id:'2001-2012',label:'2001 à 2012',murs:0.45,toit:0.25,sol:0.35},
+  {id:'apres2012',label:'Après 2012',murs:0.25,toit:0.15,sol:0.22},
+];
+const dpePeriode=id=>DPE_PERIODES.find(p=>p.id===id)||DPE_PERIODES[1];
+
+/* Une isolation rapportée ramène la paroi à son niveau, sans jamais la dégrader :
+   isoler des combles déjà bons ne les rend pas moins bons. */
+const DPE_ISOL={aucune:null,ancienne:{murs:0.45,toit:0.30},recente:{murs:0.25,toit:0.16}};
+const DPE_VITRAGES=[
+  {id:'simple',label:'Simple vitrage',u:4.5},
+  {id:'double_avant2006',label:'Double avant 2006',u:2.8},
+  {id:'double_apres2006',label:'Double après 2006',u:1.8},
+  {id:'triple',label:'Triple vitrage',u:1.2},
+];
+const dpeVitrage=id=>DPE_VITRAGES.find(v=>v.id===id)||DPE_VITRAGES[1];
+
+/* Renouvellement d'air, en volumes par heure. Sans ventilation mécanique, l'air
+   part par les défauts d'étanchéité — davantage, et sans qu'on le maîtrise. */
+const DPE_VENTIL=[
+  {id:'aucune',label:'Aucune ventilation',n:0.60},
+  {id:'simple',label:'VMC simple flux',n:0.42},
+  {id:'hygro',label:'VMC hygroréglable',n:0.32},
+  {id:'double',label:'VMC double flux',n:0.18},
+];
+const dpeVentil=id=>DPE_VENTIL.find(v=>v.id===id)||DPE_VENTIL[0];
+
+/* Générateurs : rendement sur énergie finale (un COP pour les pompes à chaleur),
+   facteur d'énergie primaire, contenu carbone et prix du kWh.
+   Les prix sont ceux d'un ménage en 2026, toutes taxes comprises. */
+const DPE_ENERGIES={
+  elec:{label:'Électricité',pef:2.3,co2:0.079,prix:0.2516},
+  gaz:{label:'Gaz',pef:1,co2:0.227,prix:0.1250},
+  fioul:{label:'Fioul',pef:1,co2:0.324,prix:0.1330},
+  bois:{label:'Bois',pef:1,co2:0.030,prix:0.0790},
+  gpl:{label:'GPL / Propane',pef:1,co2:0.272,prix:0.1950},
+  reseau:{label:'Réseau de chaleur',pef:1,co2:0.116,prix:0.1080},
+};
+const DPE_CHAUFFAGES=[
+  {id:'gaz',label:'Gaz',energie:'gaz',rend:0.80},
+  {id:'gaz_condensation',label:'Gaz à condensation',energie:'gaz',rend:0.94},
+  {id:'fioul',label:'Fioul',energie:'fioul',rend:0.72},
+  {id:'elec',label:'Électrique (convecteurs)',energie:'elec',rend:0.98},
+  {id:'pac_air_eau',label:'Pompe à chaleur air/eau',energie:'elec',rend:3.1},
+  {id:'pac_air_air',label:'Pompe à chaleur air/air',energie:'elec',rend:3.3},
+  {id:'bois',label:'Bois / granulés',energie:'bois',rend:0.75},
+  {id:'gpl',label:'GPL / Propane',energie:'gpl',rend:0.82},
+  {id:'reseau',label:'Réseau de chaleur',energie:'reseau',rend:0.92},
+];
+const dpeChauffage=id=>DPE_CHAUFFAGES.find(c=>c.id===id)||DPE_CHAUFFAGES[0];
+const DPE_ECS=[
+  {id:'gaz',label:'Gaz',energie:'gaz',rend:0.70},
+  {id:'elec',label:'Ballon électrique',energie:'elec',rend:0.85},
+  {id:'thermo',label:'Chauffe-eau thermodynamique',energie:'elec',rend:2.5},
+  {id:'solaire',label:'Solaire + appoint',energie:'elec',rend:1.9},
+  {id:'fioul',label:'Fioul',energie:'fioul',rend:0.65},
+  {id:'bois',label:'Bois',energie:'bois',rend:0.60},
+];
+const dpeEcs=id=>DPE_ECS.find(c=>c.id===id)||DPE_ECS[1];
+
+/* Les seuils du DPE, tels qu'ils s'appliquent depuis 2021 : la classe retenue
+   est la moins bonne des deux, énergie ou carbone. */
+const DPE_SEUILS_E=[70,110,180,250,330,420];
+const DPE_SEUILS_G=[6,11,30,50,70,100];
+const DPE_LETTRES=['A','B','C','D','E','F','G'];
+const dpeLettre=(v,seuils)=>{
+  for(let i=0;i<seuils.length;i++)if(v<=seuils[i])return DPE_LETTRES[i];
+  return 'G';
+};
+const DPE_COULEURS={A:'#0E7C42',B:'#3F9E4D',C:'#96BE2A',D:'#F2E200',E:'#F1A81C',F:'#EA6B1F',G:'#D3262B'};
+const dpeMention={A:'Extrêmement performant',B:'Très performant',C:'Efficacité énergétique moyenne',
+  D:'Efficacité énergétique moyenne',E:'Peu performant',F:'Très peu performant',G:'Extrêmement peu performant'};
+const dpePire=(a,b)=>DPE_LETTRES.indexOf(a)>=DPE_LETTRES.indexOf(b)?a:b;
+
+/* Un logement neuf : ce dont on part quand l'utilisateur n'a rien saisi. */
+const dpeBienNeuf=()=>({
+  adresse:'',commune:'',cp:'',lat:null,lon:null,
+  surface:100,niveaux:1,periode:'',chauffage:'gaz',ecs:'elec',ventilation:'aucune',appoint:'aucun',
+  isolMurs:'aucune',isolToit:'aucune',vitrage:'double_apres2006',fenetres:8,
+});
+
+/* ---------- le calcul ----------
+   Déperditions surfaciques U×A, plus le renouvellement d'air, plus les ponts
+   thermiques. Les surfaces de parois sont déduites de la surface habitable par
+   des ratios de bâtiment courant : c'est là que l'estimation reste une
+   estimation, et c'est écrit sur l'écran. */
+function dpeCalcul(b){
+  const S=Math.max(9,+b.surface||0);
+  const niv=Math.min(3,Math.max(1,+b.niveaux||1));
+  const per=dpePeriode(b.periode);
+  const nbF=Math.max(1,+b.fenetres||1);
+  const Af=Math.min(nbF*1.5,S*0.45);      /* 1,5 m² par fenêtre, plafonné */
+  /* Les surfaces de parois se déduisent de l'emprise au sol, pas de la surface
+     habitable : une maison de 200 m² sur deux niveaux n'a pas deux fois plus de
+     toiture qu'une de 100 m². Le périmètre suit l'emprise, majoré d'un facteur
+     de compacité — un plan carré est l'exception. */
+  const emprise=S/niv;
+  const perimetre=4*Math.sqrt(emprise)*1.15;
+  const At=emprise*1.15;                  /* rampants : la toiture est en pente */
+  const Ap=emprise;
+  const Am=Math.max(perimetre*2.5*niv-Af,S*0.2);
+  const V=S*2.5;
+
+  const isolM=DPE_ISOL[b.isolMurs]||null, isolT=DPE_ISOL[b.isolToit]||null;
+  const Um=isolM?Math.min(per.murs,isolM.murs):per.murs;
+  const Ut=isolT?Math.min(per.toit,isolT.toit):per.toit;
+  const Up=per.sol;
+  const Uf=dpeVitrage(b.vitrage).u;
+
+  /* Coefficients de réduction : sous le plancher il y a la terre, pas l'air du
+     dehors, et au-dessus du plafond des combles qui tempèrent. Appliquer
+     l'écart de température complet à ces parois, comme à un mur exposé, gonfle
+     les déperditions de moitié. */
+  const bSol=0.45, bToit=0.90;
+  const dToit=Ut*At*bToit, dMurs=Um*Am, dSols=Up*Ap*bSol, dFen=Uf*Af;
+  const dVent=0.34*dpeVentil(b.ventilation).n*V;
+  const surfacique=dToit+dMurs+dSols+dFen;
+  const ponts=surfacique*0.15;              /* liaisons plancher/mur, refends */
+  const GV=surfacique+ponts+dVent;          /* W/K */
+
+  const zone=dpeZone(b.cp), dju=DPE_DJU[zone];
+  /* Deux corrections sur le besoin brut : les apports gratuits — soleil,
+     occupants, appareils — puis l'intermittence, car personne ne chauffe toutes
+     les pièces à 19 °C jour et nuit. C'est le calcul conventionnel : la facture
+     réellement payée est en général plus basse encore, et l'écran le dit. */
+  const besoinChauffage=GV*dju*24/1000*0.80*0.85;
+  const ch=dpeChauffage(b.chauffage), en=DPE_ENERGIES[ch.energie];
+  const consoChauffage=besoinChauffage/ch.rend;
+
+  const ecs=dpeEcs(b.ecs), enEcs=DPE_ENERGIES[ecs.energie];
+  const besoinEcs=1100+18*S;                /* eau chaude, besoin utile */
+  const consoEcs=besoinEcs/ecs.rend;
+
+  const consoAux=Math.max(120,S*1.6);       /* circulateurs, ventilateurs */
+  const consoEcl=S*1.4;
+  const elec=DPE_ENERGIES.elec;
+
+  const ep=consoChauffage*en.pef+consoEcs*enEcs.pef+(consoAux+consoEcl)*elec.pef;
+  const co2=consoChauffage*en.co2+consoEcs*enEcs.co2+(consoAux+consoEcl)*elec.co2;
+  const epM2=ep/S, co2M2=co2/S;
+  const classe=dpeLettre(epM2,DPE_SEUILS_E), classeGes=dpeLettre(co2M2,DPE_SEUILS_G);
+
+  const cChauffage=consoChauffage*en.prix, cEcs=consoEcs*enEcs.prix;
+  const cAux=consoAux*elec.prix, cEcl=consoEcl*elec.prix;
+  const facture=cChauffage+cEcs+cAux+cEcl;
+
+  const tot=Math.max(1,GV);
+  return {
+    surface:S,niveaux:niv,zone,dju,GV:Math.round(GV),
+    deperditions:{
+      toiture:Math.round(dToit/tot*100), murs:Math.round(dMurs/tot*100),
+      sols:Math.round(dSols/tot*100), fenetres:Math.round(dFen/tot*100),
+      ventilation:Math.round((dVent+ponts)/tot*100),
+    },
+    besoinChauffage:Math.round(besoinChauffage),
+    conso:{chauffage:consoChauffage,ecs:consoEcs,aux:consoAux,ecl:consoEcl},
+    epM2:Math.round(epM2), co2M2:Math.round(co2M2),
+    classe, classeGes, classeDPE:dpePire(classe,classeGes),
+    facture:Math.round(facture),
+    repartition:{
+      chauffage:Math.round(cChauffage/Math.max(1,facture)*100),
+      ecs:Math.round(cEcs/Math.max(1,facture)*100),
+      aux:Math.round(cAux/Math.max(1,facture)*100),
+      ecl:Math.round(cEcl/Math.max(1,facture)*100),
+    },
+  };
+}
+
+/* ---------- les travaux ----------
+   Chaque geste modifie le logement ; on recalcule alors tout, plutôt que de
+   retrancher un pourcentage. Les prix sont des ordres de grandeur TTC, pose
+   comprise, pour de la maison individuelle. */
+const DPE_GESTES=[
+  /* les prix suivent les surfaces réellement traitées : la toiture se compte sur
+     l'emprise au sol, les murs sur le développé de façade */
+  {id:'toiture',label:'Isolation de la toiture',
+    dispo:b=>b.isolToit!=='recente',
+    appliquer:b=>({...b,isolToit:'recente'}),
+    cout:b=>Math.round(Math.max(2500,(+b.surface||0)/Math.max(1,+b.niveaux||1)*1.15*52))},
+  {id:'murs',label:'Isolation des murs par l’extérieur',
+    dispo:b=>b.isolMurs!=='recente',
+    appliquer:b=>({...b,isolMurs:'recente'}),
+    cout:b=>{
+      const niv=Math.max(1,+b.niveaux||1);
+      const perim=4*Math.sqrt((+b.surface||0)/niv)*1.15;
+      return Math.round(Math.max(9000,perim*2.5*niv*168));
+    }},
+  {id:'fenetres',label:'Remplacement des menuiseries',
+    dispo:b=>b.vitrage==='simple'||b.vitrage==='double_avant2006',
+    appliquer:b=>({...b,vitrage:'double_apres2006'}),
+    cout:b=>Math.round(Math.max(2500,(+b.fenetres||0)*760))},
+  {id:'ventilation',label:'Ventilation hygroréglable',
+    dispo:b=>b.ventilation==='aucune'||b.ventilation==='simple',
+    appliquer:b=>({...b,ventilation:'hygro'}),
+    cout:()=>3200},
+  {id:'chauffage',label:'Pompe à chaleur air/eau',
+    dispo:b=>['gaz','gaz_condensation','fioul','elec','gpl'].indexOf(b.chauffage)>=0,
+    appliquer:b=>({...b,chauffage:'pac_air_eau'}),
+    cout:b=>Math.round(Math.max(13000,(+b.surface||0)*78))},
+  {id:'ecs',label:'Chauffe-eau thermodynamique',
+    dispo:b=>['elec','gaz','fioul'].indexOf(b.ecs)>=0,
+    appliquer:b=>({...b,ecs:'thermo'}),
+    cout:()=>3900},
+];
+
+/* MaPrimeRénov' : plafonds de revenu fiscal de référence hors Île-de-France,
+   par nombre de personnes au foyer. Indicatif — c'est l'accompagnateur qui
+   arrête le montant réel, et les barèmes bougent chaque année. */
+const DPE_REVENUS=[
+  {n:1,seuils:[17500,22400,31400]},
+  {n:2,seuils:[25393,32553,45842]},
+  {n:3,seuils:[30800,39500,55600]},
+  {n:4,seuils:[36000,46100,65000]},
+  {n:5,seuils:[41200,52800,74400]},
+];
+const dpeSeuilsRevenu=n=>{
+  const nb=Math.max(1,+n||1);
+  if(nb<=5)return DPE_REVENUS[nb-1].seuils;
+  const base=DPE_REVENUS[4].seuils, sup=nb-5;
+  return base.map((v,i)=>v+sup*[5200,6600,9300][i]);
+};
+const DPE_PROFILS=['tres_modeste','modeste','intermediaire','superieur'];
+const DPE_PROFIL_LABEL={tres_modeste:'Très modeste',modeste:'Modeste',
+  intermediaire:'Intermédiaire',superieur:'Supérieur'};
+/* part du montant des travaux prise en charge, tous dispositifs confondus */
+const DPE_TAUX_AIDE={tres_modeste:0.63,modeste:0.48,intermediaire:0.32,superieur:0.15};
+
+/* Ce qu'un acheteur paie de plus pour une meilleure étiquette : la « valeur
+   verte » observée par les notaires, environ 4 % par classe gagnée. */
+const dpeValeurVerte=(avant,apres)=>{
+  const g=DPE_LETTRES.indexOf(avant)-DPE_LETTRES.indexOf(apres);
+  return g>0?Math.min(g*4,20):0;
+};
+
+/* Deux scénarios, comme les artisans les présentent : ce qu'on peut faire tout
+   de suite, et le bouquet qui change vraiment la classe. */
+function dpeScenarios(b,profil){
+  const base=dpeCalcul(b);
+  const dispo=DPE_GESTES.filter(g=>g.dispo(b));
+  if(!dispo.length)return [];
+  /* on classe les gestes par euro économisé, pour que « la première étape »
+     soit celle qui rapporte le plus vite */
+  const notes=dispo.map(g=>{
+    const r=dpeCalcul(g.appliquer(b));
+    const cout=g.cout(b);
+    return {geste:g,cout,gain:base.facture-r.facture,retour:cout/Math.max(1,base.facture-r.facture)};
+  }).filter(x=>x.gain>0).sort((a,b2)=>a.retour-b2.retour);
+  if(!notes.length)return [];
+
+  const bouquet=(gestes,titre,sous)=>{
+    let bien=b, cout=0;
+    for(const g of gestes){cout+=g.cout(bien);bien=g.appliquer(bien)}
+    const apres=dpeCalcul(bien);
+    const gain=base.facture-apres.facture;
+    const taux=DPE_TAUX_AIDE[profil]!==undefined?DPE_TAUX_AIDE[profil]:0;
+    const aide=Math.round(cout*taux);
+    return {
+      titre,sous,gestes:gestes.map(g=>g.label),
+      classeAvant:base.classeDPE,classeApres:apres.classeDPE,
+      economiePct:Math.round(gain/Math.max(1,base.facture)*100),
+      economieAn:Math.round(gain),
+      factureApres:apres.facture,
+      cout:Math.round(cout),aide,reste:Math.max(0,Math.round(cout)-aide),
+      retourAns:gain>0?Math.round((Math.round(cout)-aide)/gain*10)/10:null,
+      valeurVerte:dpeValeurVerte(base.classeDPE,apres.classeDPE),
+    };
+  };
+  const premiers=notes.slice(0,Math.min(2,notes.length)).map(x=>x.geste);
+  const tous=notes.map(x=>x.geste);
+  const liste=[bouquet(premiers,'Première étape','Les gestes qui se rentabilisent le plus vite')];
+  if(tous.length>premiers.length)
+    liste.unshift(bouquet(tous,'Rénovation d’ampleur','Le bouquet complet, pour changer de classe'));
+  return liste;
+}
+
+/* ---------- la carte ----------
+   Pas de bibliothèque : les tuiles de la Géoplateforme sont de simples images,
+   et leur numérotation se calcule en dix lignes. Une dépendance de moins à
+   charger, et rien à réparer le jour où un CDN tombe. Si les tuiles ne
+   viennent pas, il reste un fond neutre et le champ d'adresse, qui est
+   l'essentiel. */
+const DPE_TUILE=256;
+const dpeTuileX=(lon,z)=>(lon+180)/360*Math.pow(2,z);
+const dpeTuileY=(lat,z)=>{
+  const r=lat*Math.PI/180;
+  return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*Math.pow(2,z);
+};
+const dpeTuileUrl=(couche,z,x,y)=>'https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0'
+  +'&REQUEST=GetTile&LAYER='+(couche==='satellite'?'ORTHOIMAGERY.ORTHOPHOTOS':'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2')
+  +'&STYLE=normal&FORMAT='+(couche==='satellite'?'image%2Fjpeg':'image%2Fpng')
+  +'&TILEMATRIXSET=PM&TILEMATRIX='+z+'&TILEROW='+y+'&TILECOL='+x;
+
+function CarteTuiles({lat,lon,zoom=18,hauteur=280,couche='satellite'}){
+  if(lat===null||lat===undefined||lon===null||lon===undefined)
+    return <div style={{height:hauteur,borderRadius:12,background:'#DDE4E8'}}/>;
+  const z=zoom;
+  const cx=dpeTuileX(lon,z), cy=dpeTuileY(lat,z);
+  const ix=Math.floor(cx), iy=Math.floor(cy);
+  const tuiles=[];
+  for(let dx=-2;dx<=2;dx++)for(let dy=-2;dy<=2;dy++){
+    const x=ix+dx, y=iy+dy;
+    if(x<0||y<0||x>=Math.pow(2,z)||y>=Math.pow(2,z))continue;
+    tuiles.push({x,y,
+      gauche:(x-cx)*DPE_TUILE, haut:(y-cy)*DPE_TUILE});
+  }
+  return <div style={{position:'relative',height:hauteur,borderRadius:12,overflow:'hidden',
+    background:'#DDE4E8',border:'1px solid '+RULE}}>
+    <div style={{position:'absolute',left:'50%',top:'50%',width:0,height:0}}>
+      {tuiles.map(t=><img key={t.x+'/'+t.y} src={dpeTuileUrl(couche,z,t.x,t.y)} alt=""
+        style={{position:'absolute',left:t.gauche,top:t.haut,width:DPE_TUILE,height:DPE_TUILE,
+          maxWidth:'none',display:'block'}}/>)}
+    </div>
+    {/* le point cherché, au centre exact */}
+    <div style={{position:'absolute',left:'50%',top:'50%',width:22,height:22,marginLeft:-11,marginTop:-11,
+      borderRadius:'50%',border:'3px solid #fff',background:TERRA,
+      boxShadow:'0 0 0 2px rgba(0,0,0,.25),0 3px 10px rgba(0,0,0,.35)'}}/>
+    <div className="xs" style={{position:'absolute',right:6,bottom:4,color:'#fff',
+      textShadow:'0 1px 3px rgba(0,0,0,.8)',fontSize:10}}>© IGN — Géoplateforme</div>
+  </div>;
+}
+
+/* L'étiquette énergie, telle qu'on la connaît sur les annonces. */
+const EtiquetteDPE=({classe,taille=44})=><div style={{width:taille,height:taille,borderRadius:'50%',
+  background:DPE_COULEURS[classe]||MUTED,color:classe==='D'?'#4A4200':'#fff',
+  display:'flex',alignItems:'center',justifyContent:'center',
+  fontWeight:800,fontSize:Math.round(taille*0.45),flex:'0 0 auto'}}>{classe}</div>;
+
+/* Un choix parmi trois ou quatre : plus rapide au pouce qu'une liste déroulante. */
+const ChoixSeg=({valeur,options,onChange})=><div className="row" style={{gap:6,flexWrap:'wrap'}}>
+  {options.map(o=><button key={o.id} type="button" onClick={()=>onChange(o.id)}
+    className={'btn s '+(valeur===o.id?'':'gh')}
+    style={valeur===o.id?{background:NAVY,borderColor:NAVY}:null}>{o.label}</button>)}
+</div>;
+
+/* ---------- le parcours ----------
+   Quatre écrans : où, quoi, qui, et ce qu'on en fait. À la fin, la simulation
+   devient un prospect — c'est la seule raison pour laquelle elle existe. */
+function SimulateurDPE({data,save,retour}){
+  const [etape,setEtape]=useState(1);
+  const [bien,setBien]=useState(dpeBienNeuf);
+  const [couche,setCouche]=useState('satellite');
+  const maj=p=>setBien(b=>({...b,...p}));
+
+  /* recherche d'adresse sur la Base Adresse Nationale : ouverte, sans clé */
+  const [q,setQ]=useState('');
+  const [choix,setChoix]=useState([]);
+  const [cherche,setCherche]=useState(false);
+  const [erreurAdr,setErreurAdr]=useState('');
+  const dernier=useRef(0);
+  useEffect(()=>{
+    const t=String(q||'').trim();
+    if(t.length<4||bien.adresse===t){setChoix([]);return}
+    const monTour=++dernier.current;
+    const minuteur=setTimeout(async()=>{
+      setCherche(true); setErreurAdr('');
+      try{
+        const r=await fetch('https://api-adresse.data.gouv.fr/search/?limit=5&q='+encodeURIComponent(t));
+        const j=await r.json();
+        if(monTour!==dernier.current)return;
+        setChoix((j.features||[]).map(f=>({
+          label:f.properties.label,cp:f.properties.postcode||'',
+          commune:f.properties.city||'',
+          lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],
+        })));
+      }catch(e){if(monTour===dernier.current)setErreurAdr('La recherche d’adresse n’a pas répondu. Saisissez la commune et le code postal à la main.')}
+      finally{if(monTour===dernier.current)setCherche(false)}
+    },350);
+    return()=>clearTimeout(minuteur);
+  },[q,bien.adresse]);
+  const prendre=a=>{
+    maj({adresse:a.label,commune:a.commune,cp:a.cp,lat:a.lat,lon:a.lon});
+    setQ(a.label); setChoix([]);
+  };
+
+  /* profil du foyer — ce qui décide des aides */
+  const [profil,setProfil]=useState({occupation:'principale',personnes:2,revenu:'',delai:''});
+  const seuils=dpeSeuilsRevenu(profil.personnes);
+  const tranches=[
+    {id:'tres_modeste',label:'< '+eur(seuils[0])},
+    {id:'modeste',label:'Entre '+eur(seuils[0])+' et '+eur(seuils[1])},
+    {id:'intermediaire',label:'Entre '+eur(seuils[1])+' et '+eur(seuils[2])},
+    {id:'superieur',label:'> '+eur(seuils[2])},
+  ];
+
+  const r=dpeCalcul(bien);
+  const scenarios=dpeScenarios(bien,profil.revenu);
+
+  /* le prospect : tout ce qu'on a appris, rangé là où il servira */
+  const [contact,setContact]=useState({nom:'',tel:'',email:''});
+  const [cree,setCree]=useState(null);
+  const creerProspect=()=>{
+    const nom=(contact.nom||'').trim()||('Simulation DPE — '+(bien.commune||bien.adresse||'sans adresse'));
+    const per=dpePeriode(bien.periode), ch=dpeChauffage(bien.chauffage);
+    const meilleur=scenarios[0];
+    const resume=['Simulation de rénovation énergétique du '+fd(today())+'.',
+      'Logement : '+r.surface+' m², '+(bien.periode?per.label.toLowerCase():'période non précisée')
+        +', chauffage '+ch.label.toLowerCase()+'.',
+      'Estimation actuelle : classe '+r.classeDPE+' ('+r.epM2+' kWh/m²/an, '+r.co2M2+' kg CO₂/m²/an)'
+        +' — facture estimée '+eur(r.facture)+' par an.',
+      meilleur?('Scénario « '+meilleur.titre+' » : '+meilleur.gestes.join(', ')
+        +' — classe '+meilleur.classeApres+', '+eur(meilleur.economieAn)+' d’économie par an, '
+        +eur(meilleur.cout)+' de travaux dont environ '+eur(meilleur.aide)+' d’aides.'):'',
+      'Estimation par ratios, à confirmer par un audit énergétique.',
+    ].filter(Boolean).join('\n');
+    const p={id:uid(),nom,civilite:'',client:(contact.nom||'').trim(),
+      telClient:(contact.tel||'').trim(),emailClient:(contact.email||'').trim(),adresseClient:bien.adresse,
+      afficherClient2:false,client2:'',civilite2:'',telClient2:'',emailClient2:'',adresseClient2:'',
+      commune:bien.commune,commercial:'',commercialTel:'',demandeLe:today(),statut:'demande',produits:[],
+      typeTerrain:'',surfaceTerrain:'',prestation:'Rénovation énergétique',chauffage:ch.label,
+      niveaux:'',nbChambres:'',surfaceHabitable:r.surface,surfaceAnnexes:'',budgetClient:'',
+      demande:resume,
+      courtier:false,courtierNom:'',courtierTel:'',financement:'',
+      postes:[],coutHT:'',margePct:'',margeMontant:'',tva:'',remisLe:'',reponse:'',
+      retroPct:'',retroMontant:'',
+      terrainPrix:'',fraisNotaire:'',raccordements:[],travauxClient:[],
+      dommageOuvrage:'',taxeAmenagement:'',taxeRaccordement:'',taxes:[],
+      navette:{},decouverte:{},pj:{},chiffrages:[],plans:[],pieces:[],
+      /* la simulation elle-même, pour pouvoir y revenir sans la refaire */
+      dpe:{bien,profil,resultat:r,scenarios,le:today()},
+    };
+    save({...data,prospects:[...(data.prospects||[]),p]});
+    setCree(p);
+  };
+
+  const Etapes=()=><div className="row" style={{gap:6,flexWrap:'wrap',marginBottom:14}}>
+    {[[1,'Votre adresse'],[2,'Votre logement'],[3,'Votre situation'],[4,'Vos solutions']].map(([n,l])=>
+      <button key={n} type="button" onClick={()=>{if(n<etape)setEtape(n)}}
+        className="row" style={{gap:6,alignItems:'center',background:'none',border:'none',padding:'2px 0',
+          marginRight:10,cursor:n<etape?'pointer':'default'}}>
+        <span style={{width:22,height:22,borderRadius:'50%',flex:'0 0 auto',
+          background:n<etape?GREEN:n===etape?TERRA:'#E4E0D8',color:n<=etape?'#fff':MUTED,
+          display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700}}>
+          {n<etape?'✓':n}</span>
+        <span className="xs" style={{color:n===etape?INK:MUTED,fontWeight:n===etape?700:500}}>{l}</span>
+      </button>)}
+  </div>;
+
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <H2>SIMULATION DE RÉNOVATION ÉNERGÉTIQUE</H2>
+      <button className="btn gh s" onClick={retour}>Fermer</button>
+    </div>
+    <Etapes/>
+
+    {/* ---------- 1. l'adresse ---------- */}
+    {etape===1&&<div>
+      <div className="card">
+        <div className="b sm" style={{color:NAVY,marginBottom:4}}>Où se trouve le logement ?</div>
+        <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>
+          L'adresse donne la commune et la zone climatique — un même logement ne consomme pas
+          la même chose à Alençon et à Perpignan.</p>
+        <Fld label="ADRESSE DU LOGEMENT">
+          <input className="in" value={q} placeholder="14 rue de Congé, Valframbert"
+            onChange={e=>{setQ(e.target.value);if(bien.adresse)maj({adresse:''})}}/>
+        </Fld>
+        {cherche&&<div className="xs mut">Recherche…</div>}
+        {!!erreurAdr&&<div className="xs" style={{color:AMBER,lineHeight:1.5}}>{erreurAdr}</div>}
+        {choix.map((a,i)=><button key={i} className="card" style={{padding:'9px 11px',marginBottom:6}}
+          onClick={()=>prendre(a)}>
+          <div className="sm">{a.label}</div>
+        </button>)}
+        {!!bien.adresse&&<div>
+          <div className="row" style={{gap:6,margin:'6px 0 8px'}}>
+            <button className={'btn s '+(couche==='plan'?'':'gh')} onClick={()=>setCouche('plan')}>Plan</button>
+            <button className={'btn s '+(couche==='satellite'?'':'gh')} onClick={()=>setCouche('satellite')}>Vue satellite</button>
+          </div>
+          <CarteTuiles lat={bien.lat} lon={bien.lon} couche={couche}/>
+          <div className="xs mut" style={{marginTop:6}}>
+            {bien.commune} ({bien.cp}) — zone climatique {r.zone}
+          </div>
+        </div>}
+      </div>
+      {/* on peut avancer sans adresse exacte : un code postal suffit au calcul */}
+      {!bien.adresse&&<Fld label="À DÉFAUT, LE CODE POSTAL">
+        <input className="in" inputMode="numeric" value={bien.cp} placeholder="61250"
+          onChange={e=>maj({cp:e.target.value.replace(/\D/g,'').slice(0,5)})}/>
+      </Fld>}
+      <button className="btn acc" disabled={!bien.adresse&&(bien.cp||'').length<5}
+        onClick={()=>setEtape(2)}>Continuer</button>
+    </div>}
+
+    {/* ---------- 2. le logement ---------- */}
+    {etape===2&&<div>
+      <div className="card">
+        <div className="b sm" style={{color:NAVY,marginBottom:8}}>Décrivez le logement</div>
+        <div className="g2">
+          <Fld label="SURFACE HABITABLE (m²)">
+            <input className="in" type="number" value={bien.surface}
+              onChange={e=>maj({surface:e.target.value})}/></Fld>
+          <Fld label="NOMBRE DE FENÊTRES">
+            <input className="in" type="number" value={bien.fenetres}
+              onChange={e=>maj({fenetres:e.target.value})}/></Fld>
+        </div>
+        <Fld label="NIVEAUX HABITÉS">
+          {/* c'est l'emprise au sol, pas la surface habitable, qui donne les
+              surfaces de toiture et de plancher — la question vaut d'être posée */}
+          <ChoixSeg valeur={String(bien.niveaux)} onChange={v=>maj({niveaux:+v})}
+            options={[{id:'1',label:'Plain-pied'},{id:'2',label:'2 niveaux'},
+              {id:'3',label:'3 niveaux'}]}/></Fld>
+        <div className="g2">
+          <Fld label="PÉRIODE DE CONSTRUCTION">
+            <select className="in" value={bien.periode} onChange={e=>maj({periode:e.target.value})}>
+              <option value="">Choisir</option>
+              {DPE_PERIODES.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+            </select></Fld>
+          <Fld label="CHAUFFAGE PRINCIPAL">
+            <select className="in" value={bien.chauffage} onChange={e=>maj({chauffage:e.target.value})}>
+              {DPE_CHAUFFAGES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+            </select></Fld>
+        </div>
+        <div className="g2">
+          <Fld label="EAU CHAUDE SANITAIRE">
+            <select className="in" value={bien.ecs} onChange={e=>maj({ecs:e.target.value})}>
+              {DPE_ECS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+            </select></Fld>
+          <Fld label="VENTILATION">
+            <select className="in" value={bien.ventilation} onChange={e=>maj({ventilation:e.target.value})}>
+              {DPE_VENTIL.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+            </select></Fld>
+        </div>
+        <Fld label="ISOLATION DES MURS">
+          <ChoixSeg valeur={bien.isolMurs} onChange={v=>maj({isolMurs:v})}
+            options={[{id:'aucune',label:'Aucune'},{id:'ancienne',label:'Plus de 10 ans'},
+              {id:'recente',label:'Moins de 10 ans'}]}/></Fld>
+        <Fld label="ISOLATION DE LA TOITURE">
+          <ChoixSeg valeur={bien.isolToit} onChange={v=>maj({isolToit:v})}
+            options={[{id:'aucune',label:'Aucune'},{id:'ancienne',label:'Plus de 10 ans'},
+              {id:'recente',label:'Moins de 10 ans'}]}/></Fld>
+        <Fld label="TYPE DE VITRAGE">
+          <ChoixSeg valeur={bien.vitrage} onChange={v=>maj({vitrage:v})}
+            options={DPE_VITRAGES.map(v=>({id:v.id,label:v.label}))}/></Fld>
+      </div>
+      <div className="row" style={{gap:8}}>
+        <button className="btn gh" onClick={()=>setEtape(1)}>Précédent</button>
+        <button className="btn acc" disabled={!bien.periode} onClick={()=>setEtape(3)}>Continuer</button>
+      </div>
+      {!bien.periode&&<div className="xs mut" style={{marginTop:8}}>
+        La période de construction est indispensable : c'est elle qui dit comment le bâtiment a été monté.</div>}
+    </div>}
+
+    {/* ---------- 3. l'estimation, et le foyer ---------- */}
+    {etape===3&&<div>
+      <BilanDPE r={r} bien={bien}/>
+      <div className="card">
+        <div className="b sm" style={{color:NAVY,marginBottom:4}}>Détaillez votre situation</div>
+        <p className="xs mut" style={{marginTop:0,lineHeight:1.5}}>
+          Ces informations servent à estimer les aides auxquelles le foyer peut prétendre,
+          et donc le reste à charge.</p>
+        <Fld label="DANS CE LOGEMENT, VOUS ÊTES">
+          <ChoixSeg valeur={profil.occupation} onChange={v=>setProfil({...profil,occupation:v})}
+            options={[{id:'principale',label:'Résidence principale'},{id:'bailleur',label:'Bailleur'},
+              {id:'secondaire',label:'Résidence secondaire'},{id:'locataire',label:'Locataire'},
+              {id:'achat',label:'Projet d’achat'}]}/></Fld>
+        <Fld label="PERSONNES DANS LE FOYER FISCAL">
+          <input className="in" type="number" min="1" value={profil.personnes}
+            onChange={e=>setProfil({...profil,personnes:Math.max(1,+e.target.value||1)})}/></Fld>
+        <Fld label="REVENU FISCAL DE RÉFÉRENCE DU FOYER">
+          <ChoixSeg valeur={profil.revenu} onChange={v=>setProfil({...profil,revenu:v})}
+            options={tranches}/></Fld>
+        <Fld label="SOUS COMBIEN DE TEMPS RÉALISER LES TRAVAUX ?">
+          <ChoixSeg valeur={profil.delai} onChange={v=>setProfil({...profil,delai:v})}
+            options={[{id:'vite',label:'Le plus vite possible'},
+              {id:'6mois',label:'Dans les 6 prochains mois'},
+              {id:'plus_tard',label:'Plus tard / je ne sais pas'}]}/></Fld>
+      </div>
+      <div className="row" style={{gap:8}}>
+        <button className="btn gh" onClick={()=>setEtape(2)}>Précédent</button>
+        <button className="btn acc" onClick={()=>setEtape(4)}>Voir les solutions</button>
+      </div>
+    </div>}
+
+    {/* ---------- 4. les solutions, et le prospect ---------- */}
+    {etape===4&&<div>
+      <div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+        <div className="sp" style={{gap:12,flexWrap:'wrap'}}>
+          <div>
+            <div className="b" style={{color:NAVY}}>Estimation actuelle : classe {r.classeDPE}</div>
+            <div className="xs mut" style={{marginTop:2}}>
+              {r.epM2} kWh/m²/an · {eur(r.facture)} de facture énergétique par an</div>
+          </div>
+          <EtiquetteDPE classe={r.classeDPE}/>
+        </div>
+      </div>
+
+      {!scenarios.length&&<div className="card">
+        <div className="sm">Ce logement est déjà bien équipé : aucun geste de rénovation
+          classique n'apporterait de gain significatif d'après les éléments saisis.</div>
+      </div>}
+
+      <div className="grid-ch" style={{marginBottom:10}}>
+        {scenarios.map((s,i)=><div key={i} className="card" style={{marginBottom:0,
+          borderTop:'3px solid '+(i===0?GREEN:NAVY)}}>
+          <div className="b sm" style={{color:i===0?GREEN:NAVY}}>{s.titre}</div>
+          <div className="xs mut" style={{marginTop:2,lineHeight:1.5}}>{s.sous}</div>
+          <div className="g2" style={{marginTop:12}}>
+            <div>
+              <div className="xs mut">Économie d'énergie</div>
+              <div className="b" style={{fontSize:24,color:GREEN,lineHeight:1.2}}>{s.economiePct} %</div>
+              <div className="xs" style={{color:GREEN}}>{eur(s.economieAn)} par an</div>
+            </div>
+            <div>
+              <div className="xs mut">Valeur du bien</div>
+              <div className="b" style={{fontSize:24,color:NAVY,lineHeight:1.2}}>+{s.valeurVerte} %</div>
+              <div className="xs mut">à la revente</div>
+            </div>
+          </div>
+          <div className="xs mut" style={{marginTop:12}}>GAIN DE CLASSE ÉNERGÉTIQUE</div>
+          <div className="row" style={{gap:10,alignItems:'center',marginTop:6}}>
+            <EtiquetteDPE classe={s.classeAvant} taille={34}/>
+            <span style={{color:MUTED}}>→</span>
+            <EtiquetteDPE classe={s.classeApres} taille={34}/>
+            <span className="xs mut">facture {eur(s.factureApres)}/an</span>
+          </div>
+          <div style={{marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
+            <div className="xs mut">TRAVAUX RETENUS</div>
+            {s.gestes.map((g,k)=><div key={k} className="xs" style={{marginTop:3}}>· {g}</div>)}
+          </div>
+          <div className="g3 xs" style={{marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
+            <div><div className="mut">Travaux</div><div className="b">{eur(s.cout)}</div></div>
+            <div><div className="mut">Aides estimées</div>
+              <div className="b" style={{color:GREEN}}>{profil.revenu?'− '+eur(s.aide):'—'}</div></div>
+            <div><div className="mut">Reste à charge</div>
+              <div className="b">{profil.revenu?eur(s.reste):eur(s.cout)}</div></div>
+          </div>
+          {s.retourAns!==null&&profil.revenu&&<div className="xs mut" style={{marginTop:8}}>
+            Rentabilisé en {String(s.retourAns).replace('.',',')} ans d'économies.</div>}
+        </div>)}
+      </div>
+
+      <div className="xs mut" style={{lineHeight:1.6,marginBottom:12}}>
+        Estimation par ratios de bâtiment courant, à partir des éléments déclarés : elle donne un
+        ordre de grandeur, pas un diagnostic. Seul un audit énergétique sur place engage des chiffres.
+        Les aides dépendent du revenu fiscal, du gain de classe et de l'accompagnement retenu.
+      </div>
+
+      {/* c'est ici que la simulation devient un dossier */}
+      {cree
+        ?<div className="card" style={{borderLeft:'3px solid '+GREEN}}>
+          <div className="b sm" style={{color:GREEN}}>Prospect créé : {cree.nom}</div>
+          <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+            La simulation complète est enregistrée dans sa fiche, onglet PROSPECTS.</div>
+        </div>
+        :<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+          <div className="b sm" style={{color:TERRA}}>Enregistrer ce contact</div>
+          <p className="xs mut" style={{marginTop:2,lineHeight:1.5}}>
+            La simulation, le logement et les scénarios seront rangés dans la fiche du prospect.</p>
+          <div className="g2">
+            <Fld label="NOM DU CONTACT"><input className="in" value={contact.nom}
+              onChange={e=>setContact({...contact,nom:e.target.value})}/></Fld>
+            <Fld label="TÉLÉPHONE"><input className="in" type="tel" value={contact.tel}
+              onChange={e=>setContact({...contact,tel:e.target.value})}/></Fld>
+          </div>
+          <Fld label="E-MAIL"><input className="in" type="email" value={contact.email}
+            onChange={e=>setContact({...contact,email:e.target.value})}/></Fld>
+          <button className="btn acc" onClick={creerProspect}>Créer le prospect</button>
+        </div>}
+
+      <div className="row" style={{gap:8,marginTop:10}}>
+        <button className="btn gh" onClick={()=>setEtape(3)}>Précédent</button>
+        <button className="btn gh" onClick={retour}>Fermer la simulation</button>
+      </div>
+    </div>}
+  </div>;
+}
+
+/* Le bilan du logement tel qu'il est aujourd'hui : deux étiquettes, ce qui fuit,
+   et ce que ça coûte. C'est l'écran qui donne envie d'aller plus loin. */
+function BilanDPE({r,bien}){
+  const parts=[['Toiture',r.deperditions.toiture],['Murs',r.deperditions.murs],
+    ['Sols',r.deperditions.sols],['Fenêtres',r.deperditions.fenetres],
+    ['Ventilation et ponts thermiques',r.deperditions.ventilation]];
+  const postes=[['Chauffage',r.repartition.chauffage],['Eau chaude',r.repartition.ecs],
+    ['Auxiliaires',r.repartition.aux],['Éclairage',r.repartition.ecl]];
+  return <div className="card">
+    <div className="b sm" style={{color:NAVY,marginBottom:10}}>Estimation du logement actuel</div>
+    <div className="g2">
+      <div className="row" style={{gap:10,alignItems:'center'}}>
+        <EtiquetteDPE classe={r.classe}/>
+        <div><div className="xs mut">CLASSE ÉNERGÉTIQUE</div>
+          <div className="xs">{dpeMention[r.classe]}</div>
+          <div className="xs mut">{r.epM2} kWh/m²/an</div></div>
+      </div>
+      <div className="row" style={{gap:10,alignItems:'center'}}>
+        <EtiquetteDPE classe={r.classeGes}/>
+        <div><div className="xs mut">CLASSE CLIMAT (GES)</div>
+          <div className="xs">{dpeMention[r.classeGes]}</div>
+          <div className="xs mut">{r.co2M2} kg CO₂/m²/an</div></div>
+      </div>
+    </div>
+
+    <div className="xs mut" style={{marginTop:14}}>PAR OÙ LA CHALEUR S'EN VA</div>
+    {parts.map(([l,v])=><div key={l} style={{marginTop:6}}>
+      <div className="sp xs"><span>{l}</span><span className="b">{v} %</span></div>
+      <div className="bar"><div style={{width:v+'%',height:'100%',background:v>=25?TERRA:v>=15?AMBER:NAVY}}/></div>
+    </div>)}
+
+    <div style={{marginTop:16,paddingTop:12,borderTop:'1px solid '+RULE}}>
+      <div className="xs mut">FACTURE D'ÉNERGIE ESTIMÉE</div>
+      <div className="b" style={{fontSize:26,color:NAVY,lineHeight:1.2}}>{eur(r.facture)}<span
+        className="xs mut" style={{fontWeight:400}}> par an</span></div>
+      {/* le calcul est conventionnel, comme celui d'un DPE : tout le logement
+          chauffé, toute la saison. Personne ne vit ainsi, et une facture
+          annoncée trop haute décrédibilise le reste. */}
+      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+        Usage conventionnel, comme au DPE : logement entier chauffé à 19 °C toute la saison.
+        La facture réellement payée est souvent inférieure de 20 à 30 %
+        (soit environ {eur(Math.round(r.facture*0.75))}).</div>
+      <div className="row" style={{gap:14,marginTop:8,flexWrap:'wrap'}}>
+        {postes.map(([l,v])=><div key={l}><div className="xs mut">{l}</div>
+          <div className="xs b">{v} %</div></div>)}
+      </div>
+    </div>
+    <div className="xs mut" style={{marginTop:12,lineHeight:1.5}}>
+      Logement de {r.surface} m² sur {r.niveaux} niveau{r.niveaux>1?'x':''},
+      zone climatique {r.zone} ({r.dju} degrés-jours).
+      Déperdition totale estimée : {r.GV} W/K.
+    </div>
+  </div>;
+}
+
 /* ---------------- TABLEAU DE BORD ----------------
    Ce qui appelle une action aujourd'hui, et rien d'autre : les chiffrages qu'on
    attend de vous, les étapes en retard, les pièces qui manquent à la phase où
@@ -9831,6 +10581,24 @@ function TableauBord({data,open,allerA}){
       <Stat l="Rendez-vous (7 j)" v={String(rdvProches.length)} c={NAVY} onClick={()=>allerA('agenda')}/>
       <Stat l="Tâches en retard" v={String(tachesRetard.length)} c={tachesRetard.length?TERRA:GREEN} onClick={versTaches}/>
     </div>
+
+    {/* La rénovation énergétique amène des affaires : encore faut-il pouvoir
+        montrer au client, en quelques minutes, ce que son logement consomme et
+        ce qu'il gagnerait. La simulation finit en prospect — c'est sa raison
+        d'être ici plutôt que sur une brochure. */}
+    <button className="card" onClick={()=>allerA('dpe')} style={{marginBottom:10,
+      background:NAVY,borderColor:NAVY,color:'#fff',padding:'16px 18px'}}>
+      <div className="sp" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
+        <div style={{flex:'1 1 240px',minWidth:0}}>
+          <div className="b" style={{fontSize:17,lineHeight:1.3}}>
+            Besoin d’améliorer le DPE d’un logement ?</div>
+          <div className="xs" style={{marginTop:6,lineHeight:1.6,color:'#D8E2E8'}}>
+            Saisissez une adresse, décrivez le bien, et obtenez sa classe énergétique estimée,
+            sa facture annuelle et les travaux qui la font baisser. La simulation devient un prospect.</div>
+        </div>
+        <span className="btn acc s" style={{flex:'0 0 auto'}}>Lancer une simulation ›</span>
+      </div>
+    </button>
 
     {rdvProches.length>0&&<div style={{marginBottom:8}}>
       <Bloc titre="AGENDA — 7 PROCHAINS JOURS" n={rdvProches.length} c={NAVY} onTitre={()=>allerA('agenda')}>
