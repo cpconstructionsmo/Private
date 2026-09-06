@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-07 · L’estimatif d’achat s’imprime pour signature';
+const VERSION='2026-09-07 · L’estimatif ne montre que les postes commandés';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -6586,6 +6586,37 @@ const estimatifNumero=c=>{
   return 'EST-'+d+(q?'-'+q:'');
 };
 
+/* Un quantitatif part d'un bordereau entier : il porte donc des articles laissés
+   à zéro, ceux qui ne concernent pas ce chantier. À l'écran ils ne gênent pas —
+   on y saisit les quantités — mais sur la feuille remise au fournisseur pour
+   qu'il établisse son devis, ils noient les postes réels.
+   On ne retient donc que ce qui porte une quantité, en trois passes : les
+   articles d'abord ; puis les intertitres, qui ne restent que s'ils annoncent
+   encore quelque chose ; enfin les précisions, qui suivent la ligne qu'elles
+   décrivent, article ou intertitre. Les lignes écartées valent zéro : les
+   totaux ne bougent pas d'un centime. */
+function estimatifLignes(lignes){
+  const L=lignes||[];
+  const garde=L.map(()=>false);
+  L.forEach((l,i)=>{if(estArticle(l)&&ligneQt(l)>0)garde[i]=true});
+  L.forEach((l,i)=>{
+    if(ligneType(l)!=='titre')return;
+    for(let k=i+1;k<L.length;k++){
+      if(ligneType(L[k])==='titre')break;
+      if(garde[k]){garde[i]=true;break}
+    }
+  });
+  L.forEach((l,i)=>{
+    if(ligneType(l)!=='note')return;
+    for(let k=i-1;k>=0;k--){
+      if(ligneType(L[k])==='note')continue;
+      garde[i]=garde[k];
+      break;
+    }
+  });
+  return L.filter((l,i)=>garde[i]);
+}
+
 function EstimatifAchat({data,ch,cmd,onFermer}){
   /* La règle @page ne se laisse pas conditionner par un sélecteur : la planche
      du plan électrique impose un A3 à l'italienne pour toute la feuille de
@@ -6611,11 +6642,16 @@ function EstimatifAchat({data,ch,cmd,onFermer}){
     };
   },[impression]);
 
-  const lignes=((cmd.quantitatif||{}).lignes)||[];
-  const brut=quantitatifHT(lignes);
+  const toutes=((cmd.quantitatif||{}).lignes)||[];
+  /* la feuille ne montre que les postes réellement commandés ; les totaux, eux,
+     restent ceux du quantitatif entier — écarter des lignes à zéro n'y change
+     rien, et le calcul demeure celui de la commande enregistrée */
+  const lignes=estimatifLignes(toutes);
+  const ecartees=toutes.filter(estArticle).length-lignes.filter(estArticle).length;
+  const brut=quantitatifHT(toutes);
   const remise=remisePct(cmd);
   /* sans quantitatif, l'estimatif porte la seule ligne du montant saisi */
-  const ht=lignes.length?quantitatifNet(lignes,remise):(+cmd.montant||0);
+  const ht=toutes.length?quantitatifNet(toutes,remise):(+cmd.montant||0);
   const taux=cmdTva(cmd,ch);
   const tva=ht*taux/100, ttc=ht+tva;
   const numero=estimatifNumero(cmd);
@@ -6708,7 +6744,9 @@ function EstimatifAchat({data,ch,cmd,onFermer}){
 
     {!lignes.length&&<div style={{marginBottom:14,fontSize:'9.5pt',padding:'8px 10px',
       border:'1px solid #D4CFC5',background:'#F9F7F3'}}>
-      {cmd.designation||'Fourniture'} — montant forfaitaire.</div>}
+      {toutes.length
+        ?(cmd.designation||'Fourniture')+' — aucun poste ne porte de quantité à ce jour.'
+        :(cmd.designation||'Fourniture')+' — montant forfaitaire.'}</div>}
 
     {/* les totaux */}
     <table className="eviter" style={{marginLeft:'auto',width:'62%',fontSize:'10pt',
@@ -6788,7 +6826,15 @@ function EstimatifAchat({data,ch,cmd,onFermer}){
             {lignes.filter(l=>ligneType(l)==='titre').length
               ?' · '+lignes.filter(l=>ligneType(l)==='titre').length+' intertitre'
                 +(lignes.filter(l=>ligneType(l)==='titre').length>1?'s':''):''}</div>
-          :<div className="xs mut" style={{marginTop:6}}>Montant forfaitaire, sans détail chiffré.</div>}
+          :<div className="xs mut" style={{marginTop:6}}>
+            {toutes.length?'Aucun poste ne porte de quantité.':'Montant forfaitaire, sans détail chiffré.'}</div>}
+        {/* rien ne disparaît en silence d'un document qui engage : on dit ce
+            qu'on a laissé de côté, et pourquoi */}
+        {ecartees>0&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          {ecartees} article{ecartees>1?'s':''} du bordereau
+          {ecartees>1?' sont laissés':' est laissé'} de côté : quantité à zéro.
+          {ecartees>1?' Ils n’apparaissent':' Il n’apparaît'} pas sur la feuille,
+          et {ecartees>1?'ne changent':'ne change'} rien aux totaux.</div>}
         <div className="sp xs" style={{marginTop:10,paddingTop:8,borderTop:'1px solid '+RULE}}>
           <span className="mut">Total H.T.</span><span className="b">{eurDoc(ht)}</span></div>
         <div className="sp xs"><span className="mut">TVA {taux} %</span><span>{eurDoc(tva)}</span></div>
