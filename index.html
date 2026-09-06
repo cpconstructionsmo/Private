@@ -201,7 +201,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-05 · Simulateur de rénovation énergétique';
+const VERSION='2026-09-06 · Les marchés non retournés signés se réclament';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -10504,8 +10504,29 @@ function TableauBord({data,open,allerA}){
   const retards=[];
   actifs.forEach(c=>jalonsUrgents(c).forEach(j=>retards.push({ch:c,j})));
   retards.sort((a,b)=>(a.j.prevue||'').localeCompare(b.j.prevue||''));
-  const pieces=actifs.map(c=>({ch:c,manque:piecesManquantes(c)})).filter(x=>x.manque.length);
   const t=today();
+  /* Un marché parti chez l'artisan et jamais revenu signé se reconnaît à ceci :
+     il porte une date de signature — donc il a bien été rédigé et daté — mais
+     son statut est resté « à consulter » ou « devis reçu ». Rien ne le
+     réclamait jusqu'ici, et un exemplaire non retourné se découvrait des mois
+     plus tard, une fois le chantier commencé. */
+  const marcheARelancer=m=>!!(m&&(m.dateSignature||m.contratLien))
+    &&['signe','encours','receptionne'].indexOf(m.statut)<0;
+  /* Un seul bloc, mais rangé par chantier : pièces attendues et marchés à
+     récupérer se lisent ensemble, dossier par dossier, plutôt qu'en une liste
+     où tout se mélange. */
+  const dossiers=[];
+  actifs.forEach(c=>{
+    const manque=piecesManquantes(c);
+    const relances=data.marches.filter(m=>m.chantierId===c.id&&marcheARelancer(m))
+      .sort((a,b)=>(a.dateSignature||'').localeCompare(b.dateSignature||''));
+    if(manque.length||relances.length)dossiers.push({ch:c,manque,relances});
+  });
+  /* les dossiers qui attendent le plus sont ceux qui pressent */
+  dossiers.sort((a,b)=>(b.relances.length-a.relances.length)
+    ||(b.manque.length-a.manque.length));
+  const nARelancer=dossiers.reduce((s,d)=>s+d.relances.length,0);
+  const nAReunir=dossiers.reduce((s,d)=>s+d.manque.length+d.relances.length,0);
   const decen=data.artisans.map(a=>({a,j:a.decennaleFin?Math.round((new Date(a.decennaleFin)-new Date(t))/86400000):null}))
     .filter(x=>x.j===null||x.j<60).sort((a,b)=>(a.j===null?-1e9:a.j)-(b.j===null?-1e9:b.j));
   /* les tâches en retard, tous chantiers vivants confondus — celles qu'on a
@@ -10534,7 +10555,7 @@ function TableauBord({data,open,allerA}){
   const limiteRdv=new Date(Date.now()+7*86400000).toISOString().slice(0,10);
   const rdvProches=(data.rendezvous||[]).filter(x=>x.date&&x.date>=t&&x.date<=limiteRdv)
     .sort((a,b)=>((a.date||'')+' '+(a.heure||'99:99')).localeCompare((b.date||'')+' '+(b.heure||'99:99')));
-  const rien=!chiffrages.length&&!retards.length&&!pieces.length&&!decen.length&&!tachesRetard.length;
+  const rien=!chiffrages.length&&!retards.length&&!dossiers.length&&!decen.length&&!tachesRetard.length;
   /* Chaque tuile mène à ce dont elle parle. Deux cas : ou bien le détail est sur
      un autre écran (prospects, chantiers, artisans, agenda) et on y va ; ou bien
      il est déjà plus bas sur cette page, et on descend jusqu'au bloc plutôt que
@@ -10652,12 +10673,49 @@ function TableauBord({data,open,allerA}){
         j.retard?'retard '+j.jours+' j':fd(j.prevue), j.retard?TERRA:AMBER))}
     </Bloc></div>}
 
-    {pieces.length>0&&<div style={{marginTop:8}}><Bloc titre="PIÈCES À AJOUTER" n={pieces.reduce((s,x)=>s+x.manque.length,0)} c={AMBER}>
-      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Les pièces attendues à la phase où en est chaque dossier.</div>
-      {pieces.map(({ch,manque})=>item(ch.id,()=>open(ch.id),
-        <span><b>{ch.nom}</b><span className="mut"> · {PHASE[ch.statut]}</span>
-          <div className="mut" style={{marginTop:2,lineHeight:1.5}}>{manque.join(' · ')}</div></span>,
-        manque.length+' pièce'+(manque.length>1?'s':''), AMBER))}
+    {dossiers.length>0&&<div style={{marginTop:8}}><Bloc titre="PIÈCES À AJOUTER" n={nAReunir}
+      c={nARelancer?TERRA:AMBER}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>
+        Les pièces attendues à la phase où en est chaque dossier, et les marchés partis
+        chez l’artisan qui ne sont pas revenus signés. Un encadré par chantier.</div>
+      {/* un chantier, un encadré : sur cinq ou six dossiers, une liste à plat
+          devient illisible et l'on ne sait plus à qui appartient quelle ligne */}
+      {dossiers.map(({ch,manque,relances})=>
+        <div key={ch.id} style={{marginTop:10,border:'1px solid '+RULE,borderRadius:10,
+          borderLeft:'3px solid '+(relances.length?TERRA:AMBER),overflow:'hidden'}}>
+          <button onClick={()=>open(ch.id)} style={{display:'flex',width:'100%',
+            justifyContent:'space-between',gap:10,alignItems:'baseline',textAlign:'left',
+            background:'rgba(44,74,94,.045)',border:'none',padding:'8px 11px'}}>
+            <span className="xs b" style={{color:NAVY,flex:1,minWidth:0}}>{ch.nom}
+              <span className="mut" style={{fontWeight:400}}> · {PHASE[ch.statut]}</span></span>
+            <span className="xs b" style={{color:relances.length?TERRA:AMBER,whiteSpace:'nowrap'}}>
+              {manque.length+relances.length} à réunir</span>
+          </button>
+
+          {relances.length>0&&<div style={{padding:'8px 11px',borderTop:'1px solid '+RULE}}>
+            <div className="xs b" style={{color:TERRA}}>
+              {relances.length} marché{relances.length>1?'s':''} non retourné{relances.length>1?'s':''} signé{relances.length>1?'s':''}</div>
+            {relances.map(m=>{
+              const a=data.artisans.find(x=>x.id===m.artisanId);
+              const j=m.dateSignature?joursDepuis(m.dateSignature):null;
+              return <div key={m.id} className="xs" style={{marginTop:5,lineHeight:1.5}}>
+                <b>{a?a.nom:'Entreprise non renseignée'}</b>
+                <span className="mut"> — {m.lot||'lot sans intitulé'}</span>
+                <div className="mut">
+                  {eur(+m.montantHT||0)} HT · {STATUTS.find(s=>s.id===m.statut)
+                    ?STATUTS.find(s=>s.id===m.statut).label:m.statut}
+                  {m.dateSignature?' · daté du '+fd(m.dateSignature):''}
+                  {j>0?<span style={{color:TERRA}}> · en attente depuis {j} jour{j>1?'s':''}</span>:null}
+                </div></div>;
+            })}
+          </div>}
+
+          {manque.length>0&&<div style={{padding:'8px 11px',borderTop:'1px solid '+RULE}}>
+            <div className="xs b" style={{color:AMBER}}>
+              {manque.length} pièce{manque.length>1?'s':''} attendue{manque.length>1?'s':''} à cette phase</div>
+            <div className="xs mut" style={{marginTop:4,lineHeight:1.6}}>{manque.join(' · ')}</div>
+          </div>}
+        </div>)}
     </Bloc></div>}
 
     {decen.length>0&&<div style={{marginTop:8}}><Bloc titre="ASSURANCES DÉCENNALES" n={decen.length} c={AMBER} onTitre={()=>allerA('artisans')}>
