@@ -182,6 +182,20 @@
     .planche-impression .cadre>img{display:block;width:auto;max-width:100%;max-height:265mm}
     .planche-impression .feuille>svg{width:100%;height:auto;max-height:265mm}
   }
+  /* Une feuille de document, à l'italienne d'un A4 : le même mécanisme que la
+     planche du plan — posée sous <body>, hors de l'application — mais un format
+     portrait. La règle @page ne se laisse pas conditionner par un sélecteur :
+     c'est la feuille elle-même qui l'injecte à l'impression. */
+  .feuille-doc{display:none}
+  @media print{
+    body>.feuille-doc{display:block!important;width:100%;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica Neue,Arial,sans-serif;
+      color:#1A2B36;font-size:10.5pt;line-height:1.45}
+    .feuille-doc table{width:100%;border-collapse:collapse}
+    .feuille-doc thead{display:table-header-group}
+    .feuille-doc tr{break-inside:avoid;page-break-inside:avoid}
+    .feuille-doc .eviter{break-inside:avoid;page-break-inside:avoid}
+  }
 </style>
 </head>
 <body>
@@ -201,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-06 · Les marchés non retournés signés se réclament';
+const VERSION='2026-09-07 · L’estimatif d’achat s’imprime pour signature';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -6556,8 +6570,243 @@ function Plein({p,close}){
 }
 
 /* ---------------- COMMANDES MATÉRIAUX ---------------- */
+/* ---------------- ESTIMATIF D'ACHAT ----------------
+   Le client doit valider une commande de matériaux avant qu'elle parte chez le
+   fournisseur : carrelage, sanitaires, menuiseries. Il lui faut une feuille à
+   signer, qui reprenne le quantitatif poste par poste et porte un « bon pour
+   accord ».
+
+   On imprime plutôt qu'on ne fabrique un fichier : la fenêtre d'impression du
+   navigateur sait déjà enregistrer en PDF sur ordinateur, et proposer la
+   feuille de partage sur iPhone. Aucune toile, aucune adresse « blob: », rien
+   à télécharger — c'est le chemin qui, sur cet appareil, a toujours marché. */
+const estimatifNumero=c=>{
+  const d=String((c&&c.dateCommande)||today()).replace(/-/g,'');
+  const q=String((c&&c.id)||'').replace(/[^a-z0-9]/gi,'').slice(-4).toUpperCase();
+  return 'EST-'+d+(q?'-'+q:'');
+};
+
+function EstimatifAchat({data,ch,cmd,onFermer}){
+  /* La règle @page ne se laisse pas conditionner par un sélecteur : la planche
+     du plan électrique impose un A3 à l'italienne pour toute la feuille de
+     style. On pose donc la règle A4 le temps de l'impression, puis on la
+     retire — sinon le plan sortirait au mauvais format ensuite. */
+  const [impression,setImpression]=useState(false);
+  useEffect(()=>{
+    if(!impression)return;
+    let style=null;
+    try{
+      style=document.createElement('style');
+      style.textContent='@page{size:A4 portrait;margin:14mm 15mm}';
+      document.head.appendChild(style);
+    }catch(x){}
+    const t=setTimeout(()=>{
+      try{window.print()}catch(x){}
+      try{if(style&&style.parentNode)style.parentNode.removeChild(style)}catch(x){}
+      setImpression(false);
+    },300);
+    return()=>{
+      clearTimeout(t);
+      try{if(style&&style.parentNode)style.parentNode.removeChild(style)}catch(x){}
+    };
+  },[impression]);
+
+  const lignes=((cmd.quantitatif||{}).lignes)||[];
+  const brut=quantitatifHT(lignes);
+  const remise=remisePct(cmd);
+  /* sans quantitatif, l'estimatif porte la seule ligne du montant saisi */
+  const ht=lignes.length?quantitatifNet(lignes,remise):(+cmd.montant||0);
+  const taux=cmdTva(cmd,ch);
+  const tva=ht*taux/100, ttc=ht+tva;
+  const numero=estimatifNumero(cmd);
+  const leJour=cmd.dateCommande||today();
+
+  const Cellule=({children,al,g,style})=><td style={{padding:'4px 6px',
+    textAlign:al||'left',fontWeight:g?650:400,verticalAlign:'top',...(style||{})}}>{children}</td>;
+
+  const feuille=<div className="feuille-doc">
+    {/* en-tête : qui édite, et quoi */}
+    <table style={{marginBottom:14}}><tbody><tr>
+      <td style={{verticalAlign:'top',width:'55%'}}>
+        <div style={{fontWeight:800,fontSize:'13pt',letterSpacing:'.02em'}}>{CP.nom}</div>
+        <div style={{fontSize:'8.5pt',lineHeight:1.5,marginTop:3}}>
+          {CP.forme}<br/>{CP.adresse}<br/>
+          SIRET {CP.siret} · TVA {CP.tvaIntra}<br/>
+          {CP.tel} · {CP.mail}
+        </div>
+      </td>
+      <td style={{verticalAlign:'top',textAlign:'right'}}>
+        <div style={{fontWeight:800,fontSize:'15pt',letterSpacing:'.04em',color:'#C5563A'}}>
+          ESTIMATIF D’ACHAT</div>
+        <div style={{fontSize:'9pt',marginTop:4}}>N° {numero}</div>
+        <div style={{fontSize:'9pt'}}>Le {fd(leJour)}</div>
+      </td>
+    </tr></tbody></table>
+
+    <div style={{height:2,background:'#C5563A',marginBottom:12}}/>
+
+    {/* à qui, pour quoi */}
+    <table style={{marginBottom:14,fontSize:'9.5pt'}}><tbody><tr>
+      <td style={{verticalAlign:'top',width:'50%',paddingRight:10}}>
+        <div style={{fontSize:'8pt',letterSpacing:'.08em',color:'#6E7B84',fontWeight:700}}>MAÎTRE DE L’OUVRAGE</div>
+        <div style={{fontWeight:650,marginTop:2}}>{ch.client||'—'}</div>
+        {ch.adresseClient?<div>{ch.adresseClient}</div>:null}
+      </td>
+      <td style={{verticalAlign:'top',width:'50%'}}>
+        <div style={{fontSize:'8pt',letterSpacing:'.08em',color:'#6E7B84',fontWeight:700}}>CHANTIER</div>
+        <div style={{fontWeight:650,marginTop:2}}>{ch.nom}</div>
+        {ch.adresse?<div>{ch.adresse}</div>:null}
+      </td>
+    </tr></tbody></table>
+
+    <table style={{marginBottom:16,fontSize:'9.5pt',border:'1px solid #D4CFC5'}}><tbody>
+      <tr style={{background:'#F4F1EB'}}>
+        <Cellule g>Fourniture</Cellule>
+        <Cellule g>Lot concerné</Cellule>
+        <Cellule g>Fournisseur</Cellule>
+        <Cellule g al="right">Livraison prévue</Cellule>
+      </tr>
+      <tr>
+        <Cellule>{cmd.designation||'—'}</Cellule>
+        <Cellule>{cmd.lot||'—'}</Cellule>
+        <Cellule>{cmd.fournisseur||'—'}</Cellule>
+        <Cellule al="right">{cmd.livrPrevue?fd(cmd.livrPrevue):'à définir'}</Cellule>
+      </tr>
+    </tbody></table>
+
+    {/* le détail, poste par poste */}
+    {lignes.length>0&&<table style={{marginBottom:14,fontSize:'9pt'}}>
+      <thead><tr style={{background:'#2C4A5E',color:'#fff'}}>
+        <Cellule g style={{width:'12%'}}>Code</Cellule>
+        <Cellule g>Désignation</Cellule>
+        <Cellule g al="center" style={{width:'7%'}}>U</Cellule>
+        <Cellule g al="right" style={{width:'13%'}}>Quantité</Cellule>
+        <Cellule g al="right" style={{width:'14%'}}>P.U. HT</Cellule>
+        <Cellule g al="right" style={{width:'15%'}}>Total HT</Cellule>
+      </tr></thead>
+      <tbody>
+        {lignes.map(l=>{
+          const t=ligneType(l);
+          if(t==='titre')return <tr key={l.id}>
+            <td colSpan="6" style={{padding:'8px 6px 3px',fontWeight:800,fontSize:'9.5pt',
+              letterSpacing:'.05em',color:'#2C4A5E',borderBottom:'1px solid #D4CFC5'}}>
+              {(l.libelle||'').toUpperCase()}</td></tr>;
+          if(t==='note')return <tr key={l.id}>
+            <td/><td colSpan="5" style={{padding:'1px 6px 4px',fontStyle:'italic',
+              fontSize:'8.5pt',color:'#4A5960'}}>{l.libelle||''}</td></tr>;
+          return <tr key={l.id} style={{borderBottom:'1px solid #EDE9E1'}}>
+            <Cellule style={{fontSize:'8.5pt',color:'#6E7B84'}}>{l.code||''}</Cellule>
+            <Cellule>{l.libelle||''}</Cellule>
+            <Cellule al="center">{artUnite(l.unite)}</Cellule>
+            <Cellule al="right">{nb3(ligneQt(l))}</Cellule>
+            <Cellule al="right">{eurDoc(lignePU(l))}</Cellule>
+            <Cellule al="right" g>{eurDoc(lignePT(l))}</Cellule>
+          </tr>;
+        })}
+      </tbody>
+    </table>}
+
+    {!lignes.length&&<div style={{marginBottom:14,fontSize:'9.5pt',padding:'8px 10px',
+      border:'1px solid #D4CFC5',background:'#F9F7F3'}}>
+      {cmd.designation||'Fourniture'} — montant forfaitaire.</div>}
+
+    {/* les totaux */}
+    <table className="eviter" style={{marginLeft:'auto',width:'62%',fontSize:'10pt',
+      border:'1px solid #D4CFC5'}}><tbody>
+      {remise>0&&<tr><Cellule>Montant du quantitatif</Cellule>
+        <Cellule al="right">{eurDoc(brut)}</Cellule></tr>}
+      {remise>0&&<tr><Cellule>Remise consentie {remise} %</Cellule>
+        <Cellule al="right">− {eurDoc(brut-ht)}</Cellule></tr>}
+      <tr><Cellule g>Total H.T.</Cellule><Cellule al="right" g>{eurDoc(ht)}</Cellule></tr>
+      <tr><Cellule>TVA {taux} %</Cellule><Cellule al="right">{eurDoc(tva)}</Cellule></tr>
+      <tr style={{background:'#2C4A5E',color:'#fff'}}>
+        <Cellule g>TOTAL T.T.C.</Cellule><Cellule al="right" g>{eurDoc(ttc)}</Cellule></tr>
+    </tbody></table>
+
+    <div style={{fontSize:'8.5pt',color:'#4A5960',lineHeight:1.6,marginTop:16}}>
+      Le présent estimatif porte sur la fourniture désignée ci-dessus, à l’exclusion de la pose,
+      sauf mention contraire portée au détail. Les quantités sont établies d’après les plans et
+      relevés en notre possession à ce jour ; elles seront ajustées au métré définitif, et le
+      montant réglé le sera au vu de la facture du fournisseur.
+      Les prix s’entendent hors taxes, la taxe sur la valeur ajoutée étant appliquée au taux en
+      vigueur pour ce chantier. Cet estimatif est valable trente jours à compter de sa date ; il
+      ne vaut commande qu’une fois retourné signé.
+    </div>
+
+    {/* le pavé qui fait de cette feuille un accord */}
+    <table className="eviter" style={{marginTop:22,fontSize:'9.5pt'}}><tbody><tr>
+      <td style={{width:'48%',border:'1px solid #1A2B36',padding:'10px 12px',verticalAlign:'top'}}>
+        <div style={{fontWeight:800,letterSpacing:'.04em'}}>BON POUR ACCORD</div>
+        <div style={{fontSize:'8.5pt',color:'#4A5960',marginTop:3}}>
+          Le maître de l’ouvrage — faire précéder la signature de la mention
+          « lu et approuvé, bon pour accord ».</div>
+        <div style={{marginTop:10,fontSize:'9pt'}}>Nom : {ch.client||''}</div>
+        <div style={{marginTop:8,fontSize:'9pt'}}>Fait à ……………………………… le ……… / ……… / ………</div>
+        <div style={{height:82}}/>
+      </td>
+      <td style={{width:'4%'}}/>
+      <td style={{width:'48%',border:'1px solid #D4CFC5',padding:'10px 12px',verticalAlign:'top'}}>
+        <div style={{fontWeight:800,letterSpacing:'.04em',color:'#6E7B84'}}>LE MAÎTRE D’ŒUVRE</div>
+        <div style={{fontSize:'8.5pt',color:'#4A5960',marginTop:3}}>{CP.nom}</div>
+        <div style={{marginTop:10,fontSize:'9pt'}}>Fait à Valframbert, le {fd(leJour)}</div>
+        <div style={{height:98}}/>
+      </td>
+    </tr></tbody></table>
+
+    <div style={{marginTop:14,fontSize:'7.5pt',color:'#6E7B84',textAlign:'center'}}>
+      {CP.nom} — {CP.forme} — {CP.adresse} — SIRET {CP.siret} — {CP.rcs} — APE {CP.ape}
+    </div>
+  </div>;
+
+  return <div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+    <div className="sp" style={{marginBottom:8,flexWrap:'wrap',gap:8}}>
+      <span className="b sm" style={{color:TERRA}}>Estimatif d’achat — {numero}</span>
+      <div className="row" style={{gap:8,flexWrap:'wrap'}}>
+        <button className="btn acc s" onClick={()=>setImpression(true)}>
+          {impression?'Ouverture…':'Imprimer'}</button>
+        <button className="btn gh s" onClick={onFermer}>Fermer</button>
+      </div>
+    </div>
+    <div className="xs mut" style={{lineHeight:1.6}}>
+      Une feuille A4 pour faire valider la fourniture au client avant de commander :
+      le détail poste par poste, les totaux, et un pavé « bon pour accord » à signer.
+      La fenêtre d’impression permet aussi d’enregistrer en PDF, ou de partager depuis un iPhone.
+    </div>
+    {/* l'aperçu à l'écran : le même contenu, à la taille de l'écran */}
+    <div style={{marginTop:12,padding:'14px 16px',background:'#fff',border:'1px solid '+RULE,
+      borderRadius:8,maxHeight:420,overflowY:'auto'}}>
+      <div className="apercu-estimatif" style={{fontSize:11,lineHeight:1.5,color:INK}}>
+        <div className="b" style={{color:TERRA,letterSpacing:'.04em'}}>ESTIMATIF D’ACHAT — {numero}</div>
+        <div className="xs mut" style={{marginTop:2}}>{ch.nom} · {ch.client||'client non renseigné'}</div>
+        <div className="xs" style={{marginTop:8}}>
+          <b>{cmd.designation||'—'}</b>{cmd.lot?' · lot '+cmd.lot:''}
+          {cmd.fournisseur?' · '+cmd.fournisseur:''}</div>
+        {lignes.length>0
+          ?<div className="xs mut" style={{marginTop:6}}>
+            {lignes.filter(estArticle).length} article{lignes.filter(estArticle).length>1?'s':''} détaillé
+            {lignes.filter(estArticle).length>1?'s':''}
+            {lignes.filter(l=>ligneType(l)==='titre').length
+              ?' · '+lignes.filter(l=>ligneType(l)==='titre').length+' intertitre'
+                +(lignes.filter(l=>ligneType(l)==='titre').length>1?'s':''):''}</div>
+          :<div className="xs mut" style={{marginTop:6}}>Montant forfaitaire, sans détail chiffré.</div>}
+        <div className="sp xs" style={{marginTop:10,paddingTop:8,borderTop:'1px solid '+RULE}}>
+          <span className="mut">Total H.T.</span><span className="b">{eurDoc(ht)}</span></div>
+        <div className="sp xs"><span className="mut">TVA {taux} %</span><span>{eurDoc(tva)}</span></div>
+        <div className="sp xs" style={{marginTop:2}}>
+          <span className="b">TOTAL T.T.C.</span>
+          <span className="b" style={{color:NAVY,fontSize:14}}>{eurDoc(ttc)}</span></div>
+        <div className="xs mut" style={{marginTop:10,paddingTop:8,borderTop:'1px solid '+RULE}}>
+          Suivi du pavé « bon pour accord » à faire signer.</div>
+      </div>
+    </div>
+    {impression&&horsApplication(feuille)}
+  </div>;
+}
+
 function Commandes({data,ch,save,ouvrir,onOuvert}){
   const [f,setF]=useState(null);
+  /* l'estimatif se déplie sous la fiche, sans quitter la commande en cours */
+  const [estimatif,setEstimatif]=useState(false);
   /* une commande de matériaux se facture comme un marché : le fournisseur envoie
      sa facture, elle se range sur la commande et entre dans le suivi de facturation. */
   const [luFact,setLuFact]=useState(null);
@@ -6610,7 +6859,7 @@ function Commandes({data,ch,save,ouvrir,onOuvert}){
   return <div>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">{list.length} commande{list.length>1?'s':''} — {eur(tot)} HT · {eur(totTTC)} TTC</span>
-      <button className="btn acc s" onClick={()=>setF({designation:'',fournisseur:'',lot:'',montant:'',tva:'',dateCommande:'',livrPrevue:'',livrReelle:'',statut:'a_commander',notes:'',factures:[]})}>+ Commande</button>
+      <button className="btn acc s" onClick={()=>{setEstimatif(false);setF({designation:'',fournisseur:'',lot:'',montant:'',tva:'',dateCommande:'',livrPrevue:'',livrReelle:'',statut:'a_commander',notes:'',factures:[]})}}>+ Commande</button>
     </div>
     {f&&<div className="card">
       <Fld label="DÉSIGNATION"><input className="in" placeholder="Menuiseries alu — 8 ouvrants" value={f.designation} onChange={e=>setF({...f,designation:e.target.value})}/></Fld>
@@ -6663,11 +6912,22 @@ function Commandes({data,ch,save,ouvrir,onOuvert}){
           Commande {eur(f.montant)} HT — reste à facturer <b>{eur((+f.montant||0)-facturesTotal(f.factures))}</b> HT.</div>}
       </Fld>
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
+      {/* la feuille à faire signer par le client avant que la commande parte */}
+      <Fld label="ACCORD DU CLIENT">
+        {estimatif
+          ?<EstimatifAchat data={data} ch={ch} cmd={f} onFermer={()=>setEstimatif(false)}/>
+          :<div>
+            <button className="btn s" onClick={()=>setEstimatif(true)}>Estimatif d’achat à signer</button>
+            <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+              Une feuille A4 reprenant le détail et les totaux, avec un pavé « bon pour accord » —
+              à imprimer, ou à enregistrer en PDF depuis la fenêtre d’impression.</div>
+          </div>}
+      </Fld>
       <DriveStatus/>
-      <Acts onSave={ok} onCancel={()=>{setF(null);setLuFact(null)}} onDel={f.id?()=>{save({...data,commandes:data.commandes.filter(c=>c.id!==f.id)});setF(null)}:null}/>
+      <Acts onSave={ok} onCancel={()=>{setF(null);setLuFact(null);setEstimatif(false)}} onDel={f.id?()=>{save({...data,commandes:data.commandes.filter(c=>c.id!==f.id)});setF(null)}:null}/>
     </div>}
     {!list.length&&!f&&<Empty>Aucune commande. Suivez ici les matériaux à approvisionner.</Empty>}
-    {list.map(c=><LigneCmd key={c.id} c={c} ch={ch} onClick={()=>{setLuFact(null);setF(c.factures?c:{...c,factures:[]})}}/>)}
+    {list.map(c=><LigneCmd key={c.id} c={c} ch={ch} onClick={()=>{setLuFact(null);setEstimatif(false);setF(c.factures?c:{...c,factures:[]})}}/>)}
   </div>;
 }
 
