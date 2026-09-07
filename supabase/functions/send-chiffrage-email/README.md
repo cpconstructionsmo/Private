@@ -58,6 +58,19 @@ Depuis l'application, ouvrez un prospect déjà chiffré et cliquez
 send-chiffrage-email --project-ref gxfrughmwkvdepvkhufv` montre les erreurs
 récentes (domaine non vérifié, clé absente, etc.).
 
+## Après une modification de `index.ts`
+
+Toute modification de ce fichier (par exemple l'ajout récent de la pièce
+jointe PDF) doit être republiée pour prendre effet :
+
+```sh
+npx supabase functions deploy send-chiffrage-email --project-ref gxfrughmwkvdepvkhufv
+```
+
+Sans ce redéploiement, la fonction en ligne continue de tourner avec
+l'ancienne version — l'application, elle, se met à jour automatiquement dès
+que la page est rechargée.
+
 ## Pour changer l'adresse d'expédition ou de réception
 
 `FROM` et `DEST` sont en dur dans `index.ts`, volontairement : les modifier

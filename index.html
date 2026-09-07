@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · L’avis de chiffrage part directement, sans passer par la messagerie';
+const VERSION='2026-09-08 · Le PDF du chiffrage part avec l’avis, et les fiches produits s’envoient au commercial';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -10665,7 +10665,7 @@ function SimulateurDPE({data,save,retour}){
     const p={id:uid(),nom,civilite:'',client:(contact.nom||'').trim(),
       telClient:(contact.tel||'').trim(),emailClient:(contact.email||'').trim(),adresseClient:bien.adresse,
       afficherClient2:false,client2:'',civilite2:'',telClient2:'',emailClient2:'',adresseClient2:'',
-      commune:bien.commune,commercial:'',commercialTel:'',demandeLe:today(),statut:'demande',produits:[],
+      commune:bien.commune,commercial:'',commercialTel:'',commercialEmail:'',demandeLe:today(),statut:'demande',produits:[],
       typeTerrain:'',surfaceTerrain:'',prestation:'Rénovation énergétique',chauffage:ch.label,
       niveaux:'',nbChambres:'',surfaceHabitable:r.surface,surfaceAnnexes:'',budgetClient:'',
       demande:resume,
@@ -11276,7 +11276,7 @@ function Prospects({data,save}){
   const maj=(id,p)=>save({...data,prospects:P.map(x=>x.id===id?{...x,...p}:x)});
   const neuf=()=>({nom:'',civilite:'',client:'',telClient:'',emailClient:'',adresseClient:'',
     afficherClient2:false,client2:'',civilite2:'',telClient2:'',emailClient2:'',adresseClient2:'',commune:'',
-    commercial:'',commercialTel:'',demandeLe:today(),statut:'demande',produits:[],
+    commercial:'',commercialTel:'',commercialEmail:'',demandeLe:today(),statut:'demande',produits:[],
     typeTerrain:'',surfaceTerrain:'',prestation:'',chauffage:'',niveaux:'',nbChambres:'',
     surfaceHabitable:'',surfaceAnnexes:'',budgetClient:'',demande:'',
     courtier:false,courtierNom:'',courtierTel:'',financement:'',
@@ -11397,6 +11397,7 @@ function Prospects({data,save}){
         <Fld label="TÉL. DU COMMERCIAL"><input className="in" type="tel" value={f.commercialTel||''} onChange={e=>setF({...f,commercialTel:e.target.value})}/></Fld>
       </div>
       <div className="g2">
+        <Fld label="E-MAIL DU COMMERCIAL"><input className="in" type="email" value={f.commercialEmail||''} onChange={e=>setF({...f,commercialEmail:e.target.value})}/></Fld>
         <Fld label="DEMANDÉ LE"><input className="in" type="date" value={f.demandeLe||''} onChange={e=>setF({...f,demandeLe:e.target.value})}/></Fld>
       </div>
       <div className="g2">
@@ -12138,9 +12139,10 @@ function DetailProspect({p,maj,data}){
     </Fld>
 
     <ProduitsDuProjet data={data} p={p} maj={maj}/>
+    <EnvoyerFichesProduits data={data} p={p} maj={maj}/>
     <SortirDecouverte p={p} maj={maj}/>
     <SortirDossier data={data} p={p} maj={maj}/>
-    <ValiderChiffrage p={p} maj={maj}/>
+    <ValiderChiffrage p={p} maj={maj} data={data}/>
 
     <PiecesProspect p={p} maj={maj} dossier={dossier}/>
 
@@ -12180,6 +12182,66 @@ function ProduitsDuProjet({data,p,maj}){
           ?' — '+[x.lot,x.marque,x.reference].filter(Boolean).join(' · '):''}</span></span>
       </label>)}
     </div>}
+  </Fld>;
+}
+
+/* ---------- envoyer les fiches produits retenues au commercial ----------
+   Réutilise le même mécanisme Gmail que l'envoi du marché aux artisans :
+   même jeton Google, mêmes helpers de pièces jointes. Le destinataire est
+   ici variable (l'adresse du commercial saisie à la volée), ce que permet
+   ce circuit puisque le mail part au nom du compte Google connecté — pas
+   un relais partagé à protéger comme la fonction Resend ci-dessus. */
+function EnvoyerFichesProduits({data,p,maj}){
+  const retenus=produitsRetenus(data,p);
+  const avecFiche=retenus.filter(x=>(x.fiches||[]).length);
+  const [dest,setDest]=useState(p.commercialEmail||'');
+  const [etat,setEtat]=useState({v:'',msg:''});
+  const expediteur=((data&&data.expediteurMail)||'').trim();
+  if(!retenus.length)return null;
+  const envoyer=async()=>{
+    if(!dest.trim())return;
+    setEtat({v:'travail',msg:''});
+    try{
+      const token=await getDriveToken();
+      const pieces=[];
+      for(const x of avecFiche){
+        const f=x.fiches[0];
+        const id=driveIdDepuisLien(f.lien);
+        if(!id)continue;
+        let octets;
+        try{octets=await driveFichierBytes(token,id)}
+        catch(e){throw new Error('« '+(f.nom||x.nom)+' » n’a pas pu être repris depuis le Drive.')}
+        pieces.push({nom:f.nom||(x.nom+'.pdf'),type:typeFichier(f.nom||'x.pdf'),data:octets});
+      }
+      if(!pieces.length)throw new Error('Aucune fiche technique n’a pu être jointe.');
+      const sujet='Fiches produits — '+(p.nom||'projet');
+      const corps='Bonjour,\n\nVeuillez trouver ci-joint '
+        +(pieces.length>1?'les fiches techniques des produits retenus':'la fiche technique du produit retenu')
+        +' pour le projet '+(p.nom||'')+' :\n\n'+avecFiche.map(x=>'- '+x.nom).join('\n')
+        +'\n\nCordialement,\n'+CP.nom;
+      await gmailEnvoyer(token,{destinataire:dest.trim(),sujet,corps,pieces,
+        expediteur,expediteurNom:expediteur?CP.nom:''});
+      if(dest.trim()!==(p.commercialEmail||''))maj({commercialEmail:dest.trim()});
+      setEtat({v:'ok',msg:''});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setEtat({v:c==='auth_required'?'auth':'erreur',msg:c});
+    }
+  };
+  return <Fld label="ENVOYER LES FICHES PRODUITS AU COMMERCIAL">
+    <input className="in" type="email" placeholder="E-mail du commercial" value={dest} onChange={e=>setDest(e.target.value)}/>
+    <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+      {avecFiche.length} fiche{avecFiche.length>1?'s':''} sur {retenus.length} produit{retenus.length>1?'s':''} retenu{retenus.length>1?'s':''}
+      {avecFiche.length<retenus.length?' — les autres n’ont pas de fiche déposée':''}.
+    </div>
+    <button className="btn s" style={{marginTop:8}} disabled={!dest.trim()||etat.v==='travail'||!avecFiche.length} onClick={envoyer}>
+      {etat.v==='travail'?'Envoi…':'Envoyer les fiches'}
+    </button>
+    {etat.v==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>✓ Envoyé à {dest} le {fd(today())}.</div>}
+    {etat.v==='auth'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
+      Connectez d’abord Google (bouton en bas de l’onglet), avec l’autorisation d’envoi de mail, puis réessayez.</div>}
+    {etat.v==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
+      Envoi impossible — {etat.msg}</div>}
   </Fld>;
 }
 
@@ -12319,21 +12381,43 @@ function VueNavette({nav}){
    CP Constructions) : la première n'attend pas que la seconde réussisse,
    pour ne jamais bloquer le commercial sur une panne réseau ou Resend.
    Le lien mailto: et la copie du message restent en secours si la fonction
-   n'a pas encore été déployée, ou si l'envoi échoue. */
-function ValiderChiffrage({p,maj}){
+   n'a pas encore été déployée, ou si l'envoi échoue.
+   Le PDF remis au client rejoint l'envoi quand c'est possible — repris
+   depuis le Drive avec le jeton Google déjà utilisé ailleurs dans l'appli.
+   Mais cette lecture peut échouer (Google pas connecté, jeton expiré au
+   bout d'une heure) sans que ça doive empêcher le message lui-même de
+   partir : l'essentiel, la notification texte, ne dépend donc jamais de
+   cette pièce jointe facultative. */
+function ValiderChiffrage({p,maj,data}){
   const pret=prospectPrixTTC(p)>0;
   const valide=!!p.valideLe;
   const [copie,setCopie]=useState('');
   const [envoi,setEnvoi]=useState('');
+  const [piece,setPiece]=useState(true);
+  const expediteur=((data&&data.expediteurMail)||'').trim();
+  const dernierPdf=(p.chiffrages||[])[(p.chiffrages||[]).length-1];
   const marquer=avecEnvoi=>{
     maj({valideLe:p.valideLe||today(),statut:p.statut==='gagne'?p.statut:'chiffre',
       remisLe:p.remisLe||today(),...(avecEnvoi?{avisEnvoyeLe:today()}:{})});
   };
   const envoyer=async()=>{
     setEnvoi('travail');
+    let attachment=null, jointe=false;
+    if(dernierPdf){
+      const id=driveIdDepuisLien(dernierPdf.lien);
+      if(id){
+        try{
+          const token=await getDriveToken();
+          const octets=await driveFichierBytes(token,id);
+          attachment={filename:nomPiece(dernierPdf.nom||'Chiffrage.pdf').ascii,content:u8aBase64(octets)};
+          jointe=true;
+        }catch(e){/* pas grave : le message part quand même, sans la pièce jointe */}
+      }
+    }
+    setPiece(jointe);
     try{
       const {error}=await sb.functions.invoke('send-chiffrage-email',
-        {body:{subject:sujetChiffrage(p),text:corpsChiffrage(p)}});
+        {body:{subject:sujetChiffrage(p),text:corpsChiffrage(p),...(attachment?{attachment}:{})}});
       if(error)throw error;
       marquer(true);
       setEnvoi('ok');
@@ -12354,7 +12438,7 @@ function ValiderChiffrage({p,maj}){
         <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
           {pret
             ?<span>L'avis part directement à <b>{MAIL_CP}</b> — projet, client, montants,
-              coût de l'opération et lien du PDF.</span>
+              coût de l'opération, lien du PDF et, quand c'est possible, le PDF lui-même en pièce jointe.</span>
             :<span>Chiffrez d'abord le projet : sans montant, il n'y a rien à annoncer.</span>}
         </div>
       </div>
@@ -12369,7 +12453,7 @@ function ValiderChiffrage({p,maj}){
         Annuler la validation</button>}
     </div>
     {envoi==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
-      ✓ Envoyé à {MAIL_CP} le {fd(today())}.</div>}
+      ✓ Envoyé à {MAIL_CP} le {fd(today())}{piece?', avec le PDF joint':dernierPdf?' — le PDF n\'a pas pu être joint, seul le lien y figure':''}.</div>}
     {envoi==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
       L'envoi automatique a échoué — le chiffrage reste validé. Réessayez, ou utilisez « Copier le message »
       ci-dessous et collez-le dans un courriel à {MAIL_CP}, ou{' '}

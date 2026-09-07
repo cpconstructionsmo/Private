@@ -51,6 +51,19 @@ Deno.serve(async (req: Request) => {
   const replyToRaw = String(payload?.replyTo ?? '').trim().slice(0, 200);
   const replyTo = EMAIL_RE.test(replyToRaw) ? replyToRaw : undefined;
 
+  // le PDF du chiffrage, s'il a pu être repris depuis le Drive côté client —
+  // cette fonction ne s'authentifie pas elle-même auprès du Drive, le contenu
+  // arrive donc déjà en base64. Une pièce jointe manquante ou trop lourde ne
+  // doit jamais empêcher l'envoi du texte : elle est simplement ignorée.
+  const piece = payload?.attachment as { filename?: unknown; content?: unknown } | undefined;
+  const piecesFilename = String(piece?.filename ?? '').trim().slice(0, 150);
+  const piecesContent = String(piece?.content ?? '').trim();
+  // ~11 Mo décodés : largement assez pour un PDF de chiffrage, loin des
+  // limites de Resend — une marge, pas un objectif à atteindre
+  const attachment = (piecesFilename && piecesContent && piecesContent.length <= 15_000_000)
+    ? [{ filename: piecesFilename, content: piecesContent }]
+    : undefined;
+
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -63,6 +76,7 @@ Deno.serve(async (req: Request) => {
       ...(replyTo ? { reply_to: replyTo } : {}),
       subject,
       text,
+      ...(attachment ? { attachments: attachment } : {}),
     }),
   });
 
