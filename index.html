@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · L’étude de sol se chiffre, et le dossier client réunit produits et pièces';
+const VERSION='2026-09-08 · L’avis de chiffrage bascule enfin vers Mail depuis l’application installée';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -12319,7 +12319,12 @@ function ValiderChiffrage({p,maj}){
   const valide=!!p.valideLe;
   const [copie,setCopie]=useState('');
   /* Un vrai lien, pas une navigation par script : iOS bloque une redirection
-     « mailto: » qui ne vient pas d'un clic sur un lien, et le fait en silence. */
+     « mailto: » qui ne vient pas d'un clic sur un lien, et le fait en silence.
+     Depuis l'écran d'accueil (application installée, sans barre d'adresse),
+     iOS refuse même ce clic direct s'il reste dans le même onglet — la
+     redirection vers Mail se perd sans aucun message d'erreur. La cible
+     _blank fait passer le lien par un contexte de navigateur, seul capable
+     de faire basculer vers l'application de messagerie. */
   const marquer=()=>{
     if(!valide)maj({valideLe:today(),statut:p.statut==='gagne'?p.statut:'chiffre',
       remisLe:p.remisLe||today()});
@@ -12347,6 +12352,7 @@ function ValiderChiffrage({p,maj}){
     <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
       {pret
         ?<a className={'btn '+(valide?'gh':'acc')+' s'} href={mailChiffrage(p)} onClick={marquer}
+           target="_blank" rel="noreferrer"
            style={{textDecoration:'none',display:'inline-block'}}>
            {valide?'Renvoyer l’avis':'Valider et prévenir CP Constructions'}</a>
         :<button className="btn acc s" disabled>Valider et prévenir CP Constructions</button>}
