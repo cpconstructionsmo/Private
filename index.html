@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-07 · L’estimatif ne montre que les postes commandés';
+const VERSION='2026-09-08 · L’accord du client se récupère et se réclame';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -4447,11 +4447,14 @@ function FichiersDrive({ch,dossier,fichiers,onChange,label,resoudre}){
     setBusy(false);
   };
   return <div>
-    {L.map(f=><div key={f.id} className="row xs" style={{gap:8,marginTop:4,alignItems:'center'}}>
+    {/* on retire par le rang, pas par l'identifiant : un fichier venu d'un
+        enregistrement ancien peut n'en porter aucun, et « tous ceux dont l'id
+        vaut undefined » les effacerait tous d'un seul clic */}
+    {L.map((f,i)=><div key={f.id||f.lien||i} className="row xs" style={{gap:8,marginTop:4,alignItems:'center'}}>
       <Transmis/>
       <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA,flex:1,wordBreak:'break-word'}}>{f.nom}</a>
       <button style={{color:MUTED,background:'none',border:'none',padding:0}}
-        onClick={()=>{if(confirm('Retirer « '+f.nom+' » ? Le fichier reste sur le Drive.'))onChange(L.filter(x=>x.id!==f.id))}}>✕</button>
+        onClick={()=>{if(confirm('Retirer « '+f.nom+' » ? Le fichier reste sur le Drive.'))onChange(L.filter((x,k)=>k!==i))}}>✕</button>
     </div>)}
     <label className="btn gh s" style={{marginTop:6,display:'inline-block',whiteSpace:'nowrap'}}>
       {busy?'Import…':(L.length?'Ajouter des fichiers':(label||'Importer des fichiers'))}
@@ -5435,21 +5438,11 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   });
   const joindreDevisHono=file=>envoyer(file,'Honoraires',lien=>
     majCh({devisHono:{nom:file.name,lien,date:today()}}));
-  return <div>
-    {envoi&&<div className="xs" style={{color:NAVY,marginBottom:8}}>Envoi de « {envoi} » sur le Drive…</div>}
-    <div className="sp" style={{marginBottom:12,flexWrap:'wrap',gap:8}}>
-      <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}</span>
-      <div className="row" style={{gap:8,flexWrap:'wrap'}}>
-        <button className="btn gh s" onClick={()=>{setShowLire(!showLire);setShowImport(false);setShowFact(false)}}>Lire des contrats</button>
-        <button className="btn gh s" onClick={()=>{setShowFact(!showFact);setShowLire(false);setShowImport(false)}}>Lire des factures</button>
-        <button className="btn gh s" onClick={()=>{setShowImport(!showImport);setShowLire(false);setShowFact(false)}}>Import rapide</button>
-        <button className="btn acc s" onClick={()=>setF({lot:'',artisanId:'',montantHT:'',statut:'consulter',dateSignature:'',notes:'',factures:[],contratLien:''})}>+ Lot</button>
-      </div>
-    </div>
-    {showLire&&<LireMarches data={data} ch={ch} save={save} close={()=>setShowLire(false)}/>}
-    {showFact&&<LireFactures data={data} ch={ch} save={save} close={()=>setShowFact(false)}/>}
-    {showImport&&<ImportMarches data={data} ch={ch} save={save} close={()=>setShowImport(false)}/>}
-    {f&&<div className="card">
+  /* Le formulaire s'ouvrait en haut de l'écran : sur un chantier de quinze
+     lots, modifier le dernier obligeait à remonter toute la page, puis à
+     redescendre. On le compose ici pour pouvoir le poser là où l'on a
+     cliqué — juste sous la ligne du lot. */
+  const formulaireLot=f?<div className="card" style={{marginBottom:0}}>
       <Fld label="CORPS D'ÉTAT"><input className="in" list="corps-list" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})} placeholder="Ex. Maçonnerie — Gros œuvre"/>
         <datalist id="corps-list">{CORPS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
       <Fld label="ARTISAN"><select className="in" value={f.artisanId} onChange={e=>setF({...f,artisanId:e.target.value})}><option value="">— non attribué —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom} ({a.corps})</option>)}</select></Fld>
@@ -5605,7 +5598,23 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       </Fld>
       <DriveStatus/>
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={f.id?()=>{save({...data,marches:data.marches.filter(m=>m.id!==f.id)});setF(null)}:null}/>
-    </div>}
+    </div>:null;
+  return <div>
+    {envoi&&<div className="xs" style={{color:NAVY,marginBottom:8}}>Envoi de « {envoi} » sur le Drive…</div>}
+    <div className="sp" style={{marginBottom:12,flexWrap:'wrap',gap:8}}>
+      <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}</span>
+      <div className="row" style={{gap:8,flexWrap:'wrap'}}>
+        <button className="btn gh s" onClick={()=>{setShowLire(!showLire);setShowImport(false);setShowFact(false)}}>Lire des contrats</button>
+        <button className="btn gh s" onClick={()=>{setShowFact(!showFact);setShowLire(false);setShowImport(false)}}>Lire des factures</button>
+        <button className="btn gh s" onClick={()=>{setShowImport(!showImport);setShowLire(false);setShowFact(false)}}>Import rapide</button>
+        <button className="btn acc s" onClick={()=>setF({lot:'',artisanId:'',montantHT:'',statut:'consulter',dateSignature:'',notes:'',factures:[],contratLien:''})}>+ Lot</button>
+      </div>
+    </div>
+    {showLire&&<LireMarches data={data} ch={ch} save={save} close={()=>setShowLire(false)}/>}
+    {showFact&&<LireFactures data={data} ch={ch} save={save} close={()=>setShowFact(false)}/>}
+    {showImport&&<ImportMarches data={data} ch={ch} save={save} close={()=>setShowImport(false)}/>}
+    {/* un lot tout neuf n'a pas encore de ligne : il s'ouvre en haut */}
+    {f&&!f.id&&formulaireLot}
     {!ms.length&&!f&&<Empty>Aucun lot. Ajoutez les corps d'état à consulter, ou utilisez « Import rapide ».</Empty>}
     {!!ms.length&&<div>
       <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,tableLayout:'fixed'}}>
@@ -5656,6 +5665,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                     cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}/>
                 </td>
               </tr>
+              {f&&f.id===m.id&&<Volet cols={3}>{formulaireLot}</Volet>}
               {ouv===kE&&<Volet cols={3}><FicheEntreprise a={art}/></Volet>}
               {ouv===kD&&<Volet cols={3}>
                 <div className="lbl">MARCHÉ DE TRAVAUX SIGNÉ</div>
@@ -6586,6 +6596,14 @@ const estimatifNumero=c=>{
   return 'EST-'+d+(q?'-'+q:'');
 };
 
+/* L'accord du client sur une commande de matériaux ne vaut que par l'écrit :
+   un estimatif édité, remis, et jamais retourné signé laisse le maître d'œuvre
+   sans rien à opposer si le client conteste la fourniture. On sait qu'un
+   exemplaire est dehors dès que la feuille a été éditée ; on sait qu'il est
+   revenu dès qu'un fichier est déposé. */
+const estimatifSigne=c=>!!(c&&(((c.estimatifSigne||[]).length)||c.estimatifSigneLe));
+const estimatifARelancer=c=>!!(c&&c.estimatifLe)&&!estimatifSigne(c);
+
 /* Un quantitatif part d'un bordereau entier : il porte donc des articles laissés
    à zéro, ceux qui ne concernent pas ce chantier. À l'écran ils ne gênent pas —
    on y saisit les quantités — mais sur la feuille remise au fournisseur pour
@@ -6617,7 +6635,7 @@ function estimatifLignes(lignes){
   return L.filter((l,i)=>garde[i]);
 }
 
-function EstimatifAchat({data,ch,cmd,onFermer}){
+function EstimatifAchat({data,ch,cmd,onFermer,onImprime}){
   /* La règle @page ne se laisse pas conditionner par un sélecteur : la planche
      du plan électrique impose un A3 à l'italienne pour toute la feuille de
      style. On pose donc la règle A4 le temps de l'impression, puis on la
@@ -6634,6 +6652,9 @@ function EstimatifAchat({data,ch,cmd,onFermer}){
     const t=setTimeout(()=>{
       try{window.print()}catch(x){}
       try{if(style&&style.parentNode)style.parentNode.removeChild(style)}catch(x){}
+      /* on note la date d'édition : c'est elle qui met la commande en attente
+         de l'exemplaire signé, et qui la fera réclamer sur l'accueil */
+      try{if(onImprime)onImprime()}catch(x){}
       setImpression(false);
     },300);
     return()=>{
@@ -6902,12 +6923,9 @@ function Commandes({data,ch,save,ouvrir,onOuvert}){
     if(c)setF(c.factures?c:{...c,factures:[]});
     if(onOuvert)onOuvert();
   },[ouvrir]);
-  return <div>
-    <div className="sp" style={{marginBottom:12}}>
-      <span className="xs mut">{list.length} commande{list.length>1?'s':''} — {eur(tot)} HT · {eur(totTTC)} TTC</span>
-      <button className="btn acc s" onClick={()=>{setEstimatif(false);setF({designation:'',fournisseur:'',lot:'',montant:'',tva:'',dateCommande:'',livrPrevue:'',livrReelle:'',statut:'a_commander',notes:'',factures:[]})}}>+ Commande</button>
-    </div>
-    {f&&<div className="card">
+  /* même parti que pour les lots : la fiche s'ouvre sous la commande sur
+     laquelle on a appuyé, et non tout en haut de la page */
+  const formulaireCmd=f?<div className="card" style={{marginBottom:0}}>
       <Fld label="DÉSIGNATION"><input className="in" placeholder="Menuiseries alu — 8 ouvrants" value={f.designation} onChange={e=>setF({...f,designation:e.target.value})}/></Fld>
       <div className="g2">
         <Fld label="FOURNISSEUR"><input className="in" list="fourn-cmd" value={f.fournisseur} onChange={e=>setF({...f,fournisseur:e.target.value})}/>
@@ -6958,22 +6976,63 @@ function Commandes({data,ch,save,ouvrir,onOuvert}){
           Commande {eur(f.montant)} HT — reste à facturer <b>{eur((+f.montant||0)-facturesTotal(f.factures))}</b> HT.</div>}
       </Fld>
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
-      {/* la feuille à faire signer par le client avant que la commande parte */}
+      {/* la feuille à faire signer par le client avant que la commande parte,
+          puis l'exemplaire qui en revient : sans lui, rien ne prouve l'accord */}
       <Fld label="ACCORD DU CLIENT">
         {estimatif
-          ?<EstimatifAchat data={data} ch={ch} cmd={f} onFermer={()=>setEstimatif(false)}/>
+          ?<EstimatifAchat data={data} ch={ch} cmd={f} onFermer={()=>setEstimatif(false)}
+            onImprime={()=>setF(p=>p.estimatifLe?p:{...p,estimatifLe:today()})}/>
           :<div>
             <button className="btn s" onClick={()=>setEstimatif(true)}>Estimatif d’achat à signer</button>
             <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
               Une feuille A4 reprenant le détail et les totaux, avec un pavé « bon pour accord » —
               à imprimer, ou à enregistrer en PDF depuis la fenêtre d’impression.</div>
           </div>}
+        <div style={{marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
+          <div className="lbl">ESTIMATIF SIGNÉ PAR LE CLIENT</div>
+          <FichiersDrive ch={ch} dossier="Matériaux" fichiers={f.estimatifSigne}
+            label="Importer l’estimatif signé"
+            onChange={v=>setF(p=>({...p,estimatifSigne:v,
+              /* la date de retour se pose au premier exemplaire reçu, et ne
+                 bouge plus : c'est elle qui fait taire le rappel */
+              estimatifSigneLe:(v&&v.length)?(p.estimatifSigneLe||today()):''}))}/>
+          {estimatifSigne(f)
+            ?<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+              Accord du client reçu{f.estimatifSigneLe?' le '+fd(f.estimatifSigneLe):''}.
+              La commande peut partir chez le fournisseur.</div>
+            :<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+              {f.estimatifLe
+                ?<span style={{color:TERRA}}>Estimatif édité le {fd(f.estimatifLe)} — l’exemplaire
+                  signé n’est pas encore revenu. Il est réclamé sur l’accueil.</span>
+                :'Rangé dans Drive › '+ch.nom+' › Matériaux. Tant qu’il n’est pas déposé, '
+                  +'l’accord du client n’est pas justifié.'}</div>}
+          <div className="g2" style={{marginTop:10}}>
+            <Fld label="ESTIMATIF ÉDITÉ LE">
+              <input className="in" type="date" value={f.estimatifLe||''}
+                onChange={e=>setF({...f,estimatifLe:e.target.value})}/></Fld>
+            <Fld label="RETOURNÉ SIGNÉ LE">
+              <input className="in" type="date" value={f.estimatifSigneLe||''}
+                onChange={e=>setF({...f,estimatifSigneLe:e.target.value})}/></Fld>
+          </div>
+        </div>
       </Fld>
       <DriveStatus/>
       <Acts onSave={ok} onCancel={()=>{setF(null);setLuFact(null);setEstimatif(false)}} onDel={f.id?()=>{save({...data,commandes:data.commandes.filter(c=>c.id!==f.id)});setF(null)}:null}/>
-    </div>}
+    </div>:null;
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <span className="xs mut">{list.length} commande{list.length>1?'s':''} — {eur(tot)} HT · {eur(totTTC)} TTC</span>
+      <button className="btn acc s" onClick={()=>{setEstimatif(false);setF({designation:'',fournisseur:'',lot:'',montant:'',tva:'',dateCommande:'',livrPrevue:'',livrReelle:'',statut:'a_commander',notes:'',factures:[],estimatifSigne:[],estimatifLe:'',estimatifSigneLe:''})}}>+ Commande</button>
+    </div>
+    {/* une commande neuve n'a pas encore de carte : elle s'ouvre en haut */}
+    {f&&!f.id&&formulaireCmd}
     {!list.length&&!f&&<Empty>Aucune commande. Suivez ici les matériaux à approvisionner.</Empty>}
-    {list.map(c=><LigneCmd key={c.id} c={c} ch={ch} onClick={()=>{setLuFact(null);setEstimatif(false);setF(c.factures?c:{...c,factures:[]})}}/>)}
+    {list.map(c=><React.Fragment key={c.id}>
+      <LigneCmd c={c} ch={ch} onClick={()=>{setLuFact(null);setEstimatif(false);
+        setF(f&&f.id===c.id?null:(c.factures?c:{...c,factures:[]}))}}/>
+      {f&&f.id===c.id&&<div style={{margin:'-2px 0 12px',borderLeft:'3px solid '+TERRA,
+        borderRadius:'0 10px 10px 0',background:'#F4F1EB',padding:'10px 12px'}}>{formulaireCmd}</div>}
+    </React.Fragment>)}
   </div>;
 }
 
@@ -10826,13 +10885,18 @@ function TableauBord({data,open,allerA}){
     const manque=piecesManquantes(c);
     const relances=data.marches.filter(m=>m.chantierId===c.id&&marcheARelancer(m))
       .sort((a,b)=>(a.dateSignature||'').localeCompare(b.dateSignature||''));
-    if(manque.length||relances.length)dossiers.push({ch:c,manque,relances});
+    /* les estimatifs d'achat remis au client et jamais retournés signés : sans
+       eux, rien ne justifie la fourniture commandée en son nom */
+    const accords=(data.commandes||[]).filter(x=>x.chantierId===c.id&&estimatifARelancer(x))
+      .sort((a,b)=>(a.estimatifLe||'').localeCompare(b.estimatifLe||''));
+    if(manque.length||relances.length||accords.length)
+      dossiers.push({ch:c,manque,relances,accords});
   });
   /* les dossiers qui attendent le plus sont ceux qui pressent */
-  dossiers.sort((a,b)=>(b.relances.length-a.relances.length)
+  dossiers.sort((a,b)=>((b.relances.length+b.accords.length)-(a.relances.length+a.accords.length))
     ||(b.manque.length-a.manque.length));
-  const nARelancer=dossiers.reduce((s,d)=>s+d.relances.length,0);
-  const nAReunir=dossiers.reduce((s,d)=>s+d.manque.length+d.relances.length,0);
+  const nARelancer=dossiers.reduce((s,d)=>s+d.relances.length+d.accords.length,0);
+  const nAReunir=dossiers.reduce((s,d)=>s+d.manque.length+d.relances.length+d.accords.length,0);
   const decen=data.artisans.map(a=>({a,j:a.decennaleFin?Math.round((new Date(a.decennaleFin)-new Date(t))/86400000):null}))
     .filter(x=>x.j===null||x.j<60).sort((a,b)=>(a.j===null?-1e9:a.j)-(b.j===null?-1e9:b.j));
   /* les tâches en retard, tous chantiers vivants confondus — celles qu'on a
@@ -10986,16 +11050,16 @@ function TableauBord({data,open,allerA}){
         chez l’artisan qui ne sont pas revenus signés. Un encadré par chantier.</div>
       {/* un chantier, un encadré : sur cinq ou six dossiers, une liste à plat
           devient illisible et l'on ne sait plus à qui appartient quelle ligne */}
-      {dossiers.map(({ch,manque,relances})=>
+      {dossiers.map(({ch,manque,relances,accords})=>
         <div key={ch.id} style={{marginTop:10,border:'1px solid '+RULE,borderRadius:10,
-          borderLeft:'3px solid '+(relances.length?TERRA:AMBER),overflow:'hidden'}}>
+          borderLeft:'3px solid '+((relances.length||accords.length)?TERRA:AMBER),overflow:'hidden'}}>
           <button onClick={()=>open(ch.id)} style={{display:'flex',width:'100%',
             justifyContent:'space-between',gap:10,alignItems:'baseline',textAlign:'left',
             background:'rgba(44,74,94,.045)',border:'none',padding:'8px 11px'}}>
             <span className="xs b" style={{color:NAVY,flex:1,minWidth:0}}>{ch.nom}
               <span className="mut" style={{fontWeight:400}}> · {PHASE[ch.statut]}</span></span>
-            <span className="xs b" style={{color:relances.length?TERRA:AMBER,whiteSpace:'nowrap'}}>
-              {manque.length+relances.length} à réunir</span>
+            <span className="xs b" style={{color:(relances.length||accords.length)?TERRA:AMBER,whiteSpace:'nowrap'}}>
+              {manque.length+relances.length+accords.length} à réunir</span>
           </button>
 
           {relances.length>0&&<div style={{padding:'8px 11px',borderTop:'1px solid '+RULE}}>
@@ -11011,6 +11075,22 @@ function TableauBord({data,open,allerA}){
                   {eur(+m.montantHT||0)} HT · {STATUTS.find(s=>s.id===m.statut)
                     ?STATUTS.find(s=>s.id===m.statut).label:m.statut}
                   {m.dateSignature?' · daté du '+fd(m.dateSignature):''}
+                  {j>0?<span style={{color:TERRA}}> · en attente depuis {j} jour{j>1?'s':''}</span>:null}
+                </div></div>;
+            })}
+          </div>}
+
+          {accords.length>0&&<div style={{padding:'8px 11px',borderTop:'1px solid '+RULE}}>
+            <div className="xs b" style={{color:TERRA}}>
+              {accords.length} estimatif{accords.length>1?'s':''} d’achat non retourné{accords.length>1?'s':''} signé{accords.length>1?'s':''}</div>
+            {accords.map(x=>{
+              const j=x.estimatifLe?joursDepuis(x.estimatifLe):null;
+              return <div key={x.id} className="xs" style={{marginTop:5,lineHeight:1.5}}>
+                <b>{x.designation||'Commande sans désignation'}</b>
+                <span className="mut"> — {x.fournisseur||'fournisseur non précisé'}</span>
+                <div className="mut">
+                  {eur(+x.montant||0)} HT{x.lot?' · lot '+x.lot:''}
+                  {x.estimatifLe?' · édité le '+fd(x.estimatifLe):''}
                   {j>0?<span style={{color:TERRA}}> · en attente depuis {j} jour{j>1?'s':''}</span>:null}
                 </div></div>;
             })}
