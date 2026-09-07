@@ -215,9 +215,15 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · Le marché signé range, tamponne et se retire de la relance';
+const VERSION='2026-09-08 · La rétrocession se règle poste par poste, le type de sol se lit tout seul';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
+/* le chiffrage d'un prospect distingue des postes plus fins que le corps de
+   métier d'un marché déjà rédigé — « Façade » se détache du gros œuvre, la
+   pose des menuiseries extérieures s'y règle à part de leur simple achat. */
+const CORPS_CHIFFRAGE=['Terrassement','Gros œuvre','Façade','Charpente','Couverture','Pose menuiseries extérieures',
+  'Achat menuiseries extérieures','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC',
+  'Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
    des sous-catégories plus fines (une fiche produit peut être plus précise qu'un lot de marché) —
    pour que le champ « lot » d'une fiche se choisisse dans la liste plutôt qu'en le retapant à la main
@@ -1046,9 +1052,15 @@ const eurM2=v=>v===null?'—':v.toLocaleString('fr-FR',{maximumFractionDigits:0}
 
 /* ---------- rétrocession prévue ----------
    Elle porte sur ce que touchent les entreprises, c'est-à-dire le coût des
-   travaux — jamais sur la marge, qui vous revient déjà. */
+   travaux — jamais sur la marge, qui vous revient déjà. Le taux varie d'un
+   corps d'état à l'autre : elle se règle poste par poste dès qu'un détail
+   existe, sinon le taux global saisi à défaut continue de s'appliquer. */
+const posteRetro=x=>Math.round((+(x&&x.montant)||0)*(+(x&&x.retroPct)||0))/100;
+const prospectPostesRetro=p=>Math.round(((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x),0)*100)/100;
 const prospectRetro=p=>{
   if(!p)return 0;
+  const parPoste=prospectPostesRetro(p);
+  if(parPoste)return parPoste;
   if(p.retroMontant!==undefined&&p.retroMontant!==null&&p.retroMontant!=='')return +p.retroMontant||0;
   return Math.round(prospectCoutHT(p)*(+p.retroPct||0))/100;
 };
@@ -1147,7 +1159,7 @@ function geoNiveau(t,motif){
 }
 function analyseGeorisques(txt){
   const t=geoNorm(txt);
-  if(!t)return {lu:false,obligations:[],vigilances:[]};
+  if(!t)return {lu:false,obligations:[],vigilances:[],typeSol:null};
   /* un vrai rapport géorisques nomme au moins l'un de ces risques */
   const lu=/(retrait[- ]gonflement|sismicite|radon|risques? (?:naturels|technologiques)|georisques)/.test(t);
   const O=[],V=[];
@@ -1225,7 +1237,11 @@ function analyseGeorisques(txt){
     add(V,'Diagnostics avant démolition',
       'En cas de démolition préalable, les repérages amiante et plomb sont dus avant travaux.','');
 
-  return {lu,obligations:O,vigilances:V};
+  /* le type de sol tel qu'on le reporte en fiche de découverte : le seul repère
+     que l'étude géorisques donne vraiment est le niveau d'argile */
+  const typeSol=arg===null?null:'Argile — retrait-gonflement '+(arg===3?'fort':arg===2?'moyen':arg===1?'faible':'non exposé');
+
+  return {lu,obligations:O,vigilances:V,typeSol};
 }
 
 /* ---------- bordereaux de prix ----------
@@ -11332,12 +11348,15 @@ function Prospects({data,save}){
         <b style={{color:NAVY}}>Interne</b> — elle porte sur le coût des travaux, pas sur votre marge.
         Elle n'apparaît ni sur le chiffrage remis au commercial, ni sur aucun document client.
       </div>
-      <div className="g2">
-        <Fld label="TAUX DE RÉTROCESSION (%)"><input className="in" type="number" step="0.1" value={f.retroPct||''} onChange={e=>setF({...f,retroPct:e.target.value})}/></Fld>
-        <Fld label="MONTANT EN € — remplace le calcul"><input className="in" type="number"
-          placeholder={'Auto : '+eur(prospectCoutHT(f)*(+f.retroPct||0)/100)}
-          value={f.retroMontant||''} onChange={e=>setF({...f,retroMontant:e.target.value})}/></Fld>
-      </div>
+      {prospectPostesRetro(f)>0
+        ?<div className="xs mut" style={{lineHeight:1.5}}>
+          Le taux se règle poste par poste, juste au-dessus — total {eur(prospectPostesRetro(f))} HT.</div>
+        :<div className="g2">
+          <Fld label="TAUX DE RÉTROCESSION (%)"><input className="in" type="number" step="0.1" value={f.retroPct||''} onChange={e=>setF({...f,retroPct:e.target.value})}/></Fld>
+          <Fld label="MONTANT EN € — remplace le calcul"><input className="in" type="number"
+            placeholder={'Auto : '+eur(prospectCoutHT(f)*(+f.retroPct||0)/100)}
+            value={f.retroMontant||''} onChange={e=>setF({...f,retroMontant:e.target.value})}/></Fld>
+        </div>}
 
       <RecapChiffrage p={f} interne/>
       <div className="g2">
@@ -11392,22 +11411,33 @@ function Prospects({data,save}){
   </div>;
 }
 
-/* le chiffrage poste par poste : un libellé, un montant, et la somme en bas */
+/* le chiffrage poste par poste : un libellé, un montant, et sa rétrocession —
+   le taux varie d'une entreprise à l'autre, elle se règle donc en face de
+   chaque corps d'état plutôt qu'en un seul taux global pour tout le chantier.
+   Interne : elle ne figure sur aucun document remis au client. */
 function PostesChiffrage({postes,onChange}){
   const L=postes||[];
   const set=(id,p)=>onChange(L.map(x=>x.id===id?{...x,...p}:x));
   return <Fld label="CHIFFRAGE PAR POSTE">
-    {L.map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
-      <input className="in" style={{flex:1,minWidth:0}} list="pcorps" value={x.libelle||''}
-        placeholder="Corps d’état" onChange={e=>set(x.id,{libelle:e.target.value})}/>
-      <input className="in" style={{width:110,flex:'0 0 auto'}} type="number" value={x.montant||''}
-        placeholder="€ HT" onChange={e=>set(x.id,{montant:e.target.value})}/>
-      <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
-        onClick={()=>onChange(L.filter(y=>y.id!==x.id))}>✕</button>
+    {L.map(x=><div key={x.id} style={{marginBottom:8}}>
+      <div className="row" style={{gap:6,alignItems:'center'}}>
+        <input className="in" style={{flex:1,minWidth:0}} list="pcorps" value={x.libelle||''}
+          placeholder="Corps d’état" onChange={e=>set(x.id,{libelle:e.target.value})}/>
+        <input className="in" style={{width:110,flex:'0 0 auto'}} type="number" value={x.montant||''}
+          placeholder="€ HT" onChange={e=>set(x.id,{montant:e.target.value})}/>
+        <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
+          onClick={()=>onChange(L.filter(y=>y.id!==x.id))}>✕</button>
+      </div>
+      <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2}}>
+        <span>Rétrocession</span>
+        <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.retroPct||''}
+          placeholder="%" onChange={e=>set(x.id,{retroPct:e.target.value})}/>
+        <span>%{+x.montant>0&&+x.retroPct>0?' soit '+eur(posteRetro(x)):''}</span>
+      </div>
     </div>)}
-    <datalist id="pcorps">{CORPS.map(c=><option key={c} value={c}/>)}</datalist>
+    <datalist id="pcorps">{CORPS_CHIFFRAGE.map(c=><option key={c} value={c}/>)}</datalist>
     <div className="row" style={{gap:10,alignItems:'center',marginTop:4}}>
-      <button className="btn gh s" onClick={()=>onChange([...L,{id:uid(),libelle:'',montant:''}])}>+ Poste</button>
+      <button className="btn gh s" onClick={()=>onChange([...L,{id:uid(),libelle:'',montant:'',retroPct:''}])}>+ Poste</button>
       {L.length>0&&<span className="xs b">Total {eur(prospectPostesHT({postes:L}))} HT</span>}
     </div>
   </Fld>;
@@ -11813,9 +11843,11 @@ function RecapChiffrage({p,interne}){
       <div className="sp"><span className="mut">Rétrocession prévue — interne</span>
         <span className="b" style={{color:NAVY}}>{eur(retro)} HT</span></div>
       <div className="mut" style={{marginTop:2}}>
-        {+p.retroPct>0&&!(p.retroMontant!==''&&p.retroMontant!==undefined&&p.retroMontant!==null)
-          ? p.retroPct+' % du coût des travaux'
-          : 'montant arrêté à la main'} · recette totale {eur(marge+retro)} HT avec la marge</div>
+        {prospectPostesRetro(p)>0
+          ? 'détail poste par poste'
+          : +p.retroPct>0&&!(p.retroMontant!==''&&p.retroMontant!==undefined&&p.retroMontant!==null)
+            ? p.retroPct+' % du coût des travaux'
+            : 'montant arrêté à la main'} · recette totale {eur(marge+retro)} HT avec la marge</div>
     </div>}
   </div>;
 }
@@ -11856,8 +11888,11 @@ function DetailProspect({p,maj,data}){
     <VueNavette nav={p.navette}/>
     {(p.postes||[]).length>0&&<div className="xs" style={{marginBottom:10}}>
       <div className="b" style={{color:NAVY,marginBottom:4}}>Chiffrage par poste</div>
-      {p.postes.map(x=><div key={x.id} className="sp" style={{padding:'2px 0'}}>
-        <span className="mut">{x.libelle||'Poste'}</span><span>{eur(x.montant)} HT</span></div>)}
+      {p.postes.map(x=><div key={x.id} style={{padding:'2px 0'}}>
+        <div className="sp"><span className="mut">{x.libelle||'Poste'}</span><span>{eur(x.montant)} HT</span></div>
+        {+x.retroPct>0&&<div className="mut" style={{textAlign:'right'}}>
+          rétrocession {x.retroPct} % soit {eur(posteRetro(x))}</div>}
+      </div>)}
     </div>}
     <RecapChiffrage p={p} interne/>
     {p.reponse&&<div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,background:'#F4F1EB',lineHeight:1.6}}>
@@ -12111,7 +12146,16 @@ function PiecesProspect({p,maj,dossier}){
     try{
       const r=analyseGeorisques(await pdfText(file));
       if(!r.lu){setLecture('rien');return}
-      set('georisque',{analyse:{...r,le:today()}});
+      /* les deux champs touchés — la pièce et la fiche de découverte — doivent
+         partir dans un seul enregistrement : deux appels successifs partiraient
+         chacun du même état non encore rafraîchi, et le second effacerait ce
+         que le premier vient d'écrire */
+      const patch={pj:{...pj,georisque:{...item('georisque'),analyse:{...r,le:today()}}}};
+      /* le type de sol se déduit de l'étude — on ne l'écrase pas si Loïc l'a
+         déjà noté à la main, lui seul sait alors pourquoi il diffère */
+      if(r.typeSol&&!((p.decouverte||{}).typeSol))
+        patch.decouverte={...(p.decouverte||{}),typeSol:r.typeSol};
+      maj(patch);
       setLecture(r.obligations.length||r.vigilances.length?'ok':'vide');
     }catch(e){setLecture('erreur')}
   };
