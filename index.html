@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · Natura 2000 et les bâtiments de France se vérifient tout seuls';
+const VERSION='2026-09-08 · La taxe d’aménagement se remplit dès l’ouverture, et connaît l’abattement PTZ';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -1122,9 +1122,24 @@ const tauxCommune=(data,commune)=>{
   if(!c)return null;
   return ((data&&data.tauxCommunes)||[]).find(x=>communeNorm(x.commune)===c)||null;
 };
+/* le PTZ ne finance, par la loi, qu'une résidence principale : le repérer
+   suffit donc à savoir qu'il s'agit bien d'une résidence principale, sans
+   champ séparé à faire tenir à jour. */
+const financementPTZ=p=>/PTZ/i.test((p&&p.financement)||'');
+/* Art. L. 331-9 c) du code de l'urbanisme : une commune peut voter un
+   abattement de 50 % de la surface taxable pour une résidence principale
+   financée en PTZ. Facultatif — certaines communes l'appliquent, d'autres
+   non — d'où le drapeau propre à chaque commune du catalogue plutôt qu'une
+   règle nationale automatique. Il ne vaut que pour la taxe d'aménagement :
+   la RAP suit ses propres exonérations, distinctes de celle-ci, et n'en
+   bénéficie pas ici tant que ce n'est pas confirmé. */
+const assietteTA=(p,t)=>{
+  const a=assietteTaxable(p);
+  return (t&&t.exoPTZ&&financementPTZ(p))?Math.round(a/2*100)/100:a;
+};
 /* null : le taux de la commune n'est pas encore renseigné, rien ne s'invente */
 const taxeAmenagementCalc=(p,data)=>{
-  const t=tauxCommune(data,p&&p.commune), a=assietteTaxable(p);
+  const t=tauxCommune(data,p&&p.commune), a=assietteTA(p,t);
   if(!t||!a)return null;
   return Math.round(a*VALEUR_FORFAITAIRE_TA*((+t.tauxCommunal||0)+(+t.tauxDepartemental||0))/100);
 };
@@ -11227,7 +11242,7 @@ function Prospects({data,save}){
   const [f,setF]=useState(null);
   const [ouv,setOuv]=useState('');
   const [filtre,setFiltre]=useState('actifs');
-  const [nvTaux,setNvTaux]=useState({communal:'',dept:''});
+  const [nvTaux,setNvTaux]=useState({communal:'',dept:'',exoPTZ:false});
   const P=data.prospects||[];
   const maj=(id,p)=>save({...data,prospects:P.map(x=>x.id===id?{...x,...p}:x)});
   const neuf=()=>({nom:'',civilite:'',client:'',telClient:'',emailClient:'',adresseClient:'',
@@ -11382,7 +11397,8 @@ function Prospects({data,save}){
       </div>
       <Fld label="BUDGET ANNONCÉ PAR LE CLIENT (€ TTC)"><input className="in" type="number" value={f.budgetClient||''} onChange={e=>setF({...f,budgetClient:e.target.value})}/></Fld>
       <Fld label="MODE DE FINANCEMENT">
-        <input className="in" list="pfin" value={f.financement||''} onChange={e=>setF({...f,financement:e.target.value})} placeholder="PTZ, comptant, crédit classique…"/>
+        <input className="in" list="pfin" value={f.financement||''}
+          onChange={e=>setF(avecTaxesAuto({...f,financement:e.target.value},data))} placeholder="PTZ, comptant, crédit classique…"/>
         <datalist id="pfin">{FINANCEMENTS.map(x=><option key={x} value={x}/>)}</datalist>
       </Fld>
       <Fld label="COURTIER">
@@ -11429,11 +11445,26 @@ function Prospects({data,save}){
       <LignesMontants lignes={f.travauxClient||[]} onChange={v=>setF({...f,travauxClient:v})}
         label="TRAVAUX À CHARGE DU CLIENT" ajout="+ Poste" exemple="Peinture, cuisine…" liste={TRAVAUX_CLIENT}/>
       <Fld label="DOMMAGES-OUVRAGE ESTIMÉE (€)"><input className="in" type="number" value={f.dommageOuvrage||''} onChange={e=>setF({...f,dommageOuvrage:e.target.value})}/></Fld>
-      {(()=>{const tc=tauxCommune(data,f.commune);return f.commune
+      {(()=>{const tc=tauxCommune(data,f.commune);
+        const majTauxCommune=patch=>{
+          const data2={...data,tauxCommunes:(data.tauxCommunes||[]).map(x=>x.id===tc.id?{...x,...patch}:x)};
+          save(data2);
+          setF(avecTaxesAuto(f,data2));
+        };
+        return f.commune
         ?tc
-          ?<div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+          ?<div className="xs mut" style={{marginBottom:8,lineHeight:1.6}}>
             Taux de {f.commune} : {tc.tauxCommunal} % communal + {tc.tauxDepartemental} % départemental, appliqué
-            sur {assietteTaxable(f).toLocaleString('fr-FR')} m² à {VALEUR_FORFAITAIRE_TA} €/m².</div>
+            sur {assietteTaxable(f).toLocaleString('fr-FR')} m² à {VALEUR_FORFAITAIRE_TA} €/m².
+            <label className="row xs" style={{gap:6,alignItems:'center',cursor:'pointer',marginTop:3}}>
+              <input type="checkbox" checked={!!tc.exoPTZ} onChange={e=>majTauxCommune({exoPTZ:e.target.checked})}/>
+              <span>{f.commune} applique l’abattement PTZ (50 % de la surface pour une résidence principale
+                financée en PTZ — art. L. 331-9 c) du code de l’urbanisme)</span>
+            </label>
+            {tc.exoPTZ&&financementPTZ(f)&&<div style={{marginTop:3,color:NAVY}}>
+              Abattement appliqué : assiette réduite à {assietteTA(f,tc).toLocaleString('fr-FR')} m² pour la taxe
+              d’aménagement (la RAP, elle, reste calculée sur la surface entière — son exonération est distincte).</div>}
+          </div>
           :<div className="xs" style={{marginBottom:8,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',lineHeight:1.6}}>
             <div style={{marginBottom:6}}>Taux de taxe d’aménagement inconnu pour <b>{f.commune}</b> — une fois
               renseigné, la taxe et la redevance d’archéologie se calculent ici toutes seules, et pour les
@@ -11444,13 +11475,19 @@ function Prospects({data,save}){
               <input className="in" style={{width:120,flex:'0 0 auto'}} type="number" step="0.01"
                 placeholder="% départemental" value={nvTaux.dept} onChange={e=>setNvTaux({...nvTaux,dept:e.target.value})}/>
               <button className="btn s" disabled={!nvTaux.communal&&!nvTaux.dept} onClick={()=>{
-                const entree={id:uid(),commune:f.commune,tauxCommunal:+nvTaux.communal||0,tauxDepartemental:+nvTaux.dept||0};
+                const entree={id:uid(),commune:f.commune,tauxCommunal:+nvTaux.communal||0,
+                  tauxDepartemental:+nvTaux.dept||0,exoPTZ:!!nvTaux.exoPTZ};
                 const data2={...data,tauxCommunes:[...(data.tauxCommunes||[]),entree]};
                 save(data2);
                 setF(avecTaxesAuto(f,data2));
-                setNvTaux({communal:'',dept:''});
+                setNvTaux({communal:'',dept:'',exoPTZ:false});
               }}>Enregistrer le taux</button>
             </div>
+            <label className="row xs" style={{gap:6,alignItems:'center',cursor:'pointer',marginTop:6}}>
+              <input type="checkbox" checked={!!nvTaux.exoPTZ} onChange={e=>setNvTaux({...nvTaux,exoPTZ:e.target.checked})}/>
+              <span>Cette commune applique l’abattement PTZ (50 % de la surface pour une résidence principale
+                financée en PTZ — facultatif, à vérifier en mairie)</span>
+            </label>
           </div>
         :null})()}
       <div className="g2">
@@ -11521,7 +11558,7 @@ function Prospects({data,save}){
         {ouv===p.id&&<div style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
           <DetailProspect p={p} maj={v=>maj(p.id,v)} data={data}/>
           <div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
-            <button className="btn s" onClick={()=>setF({...neuf(),...p})}>Modifier</button>
+            <button className="btn s" onClick={()=>setF(avecTaxesAuto({...neuf(),...p},data))}>Modifier</button>
             {p.statut!=='gagne'&&<button className="btn gh s" onClick={()=>transformer(p)}>Transformer en chantier</button>}
             {p.chantierId&&<span className="xs" style={{color:GREEN,alignSelf:'center'}}>✓ Chantier créé</span>}
           </div>
