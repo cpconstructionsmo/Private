@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · L’avis de chiffrage bascule enfin vers Mail depuis l’application installée';
+const VERSION='2026-09-08 · L’avis de chiffrage part directement, sans passer par la messagerie';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -12311,23 +12311,33 @@ function VueNavette({nav}){
 }
 
 /* ---------- valider un chiffrage ----------
-   Une page statique n'a pas de serveur pour expédier un courriel. Elle prépare
-   donc le message en entier et ouvre la messagerie dessus : il ne reste plus
-   qu'à appuyer sur « Envoyer ». La validation, elle, est enregistrée ici. */
+   L'avis part désormais directement depuis l'application, par une fonction
+   Supabase qui l'expédie via Resend — sans passer par la messagerie de
+   l'appareil, ni par le clic sur un lien mailto: qu'iOS pouvait perdre en
+   silence depuis l'écran d'accueil. La validation (l'accord donné au
+   chiffrage) reste distincte de l'envoi (la notification qui en informe
+   CP Constructions) : la première n'attend pas que la seconde réussisse,
+   pour ne jamais bloquer le commercial sur une panne réseau ou Resend.
+   Le lien mailto: et la copie du message restent en secours si la fonction
+   n'a pas encore été déployée, ou si l'envoi échoue. */
 function ValiderChiffrage({p,maj}){
   const pret=prospectPrixTTC(p)>0;
   const valide=!!p.valideLe;
   const [copie,setCopie]=useState('');
-  /* Un vrai lien, pas une navigation par script : iOS bloque une redirection
-     « mailto: » qui ne vient pas d'un clic sur un lien, et le fait en silence.
-     Depuis l'écran d'accueil (application installée, sans barre d'adresse),
-     iOS refuse même ce clic direct s'il reste dans le même onglet — la
-     redirection vers Mail se perd sans aucun message d'erreur. La cible
-     _blank fait passer le lien par un contexte de navigateur, seul capable
-     de faire basculer vers l'application de messagerie. */
-  const marquer=()=>{
-    if(!valide)maj({valideLe:today(),statut:p.statut==='gagne'?p.statut:'chiffre',
-      remisLe:p.remisLe||today()});
+  const [envoi,setEnvoi]=useState('');
+  const marquer=avecEnvoi=>{
+    maj({valideLe:p.valideLe||today(),statut:p.statut==='gagne'?p.statut:'chiffre',
+      remisLe:p.remisLe||today(),...(avecEnvoi?{avisEnvoyeLe:today()}:{})});
+  };
+  const envoyer=async()=>{
+    setEnvoi('travail');
+    try{
+      const {error}=await sb.functions.invoke('send-chiffrage-email',
+        {body:{subject:sujetChiffrage(p),text:corpsChiffrage(p)}});
+      if(error)throw error;
+      marquer(true);
+      setEnvoi('ok');
+    }catch(e){marquer(false);setEnvoi('erreur')}
   };
   const copier=async()=>{
     try{
@@ -12343,29 +12353,33 @@ function ValiderChiffrage({p,maj}){
           {valide?'Chiffrage validé le '+fd(p.valideLe):'Valider ce chiffrage'}</div>
         <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
           {pret
-            ?<span>Le message pour <b>{MAIL_CP}</b> s'ouvre tout prêt — projet, client, montants,
-              coût de l'opération et lien du PDF. Il ne reste qu'à l'envoyer.</span>
+            ?<span>L'avis part directement à <b>{MAIL_CP}</b> — projet, client, montants,
+              coût de l'opération et lien du PDF.</span>
             :<span>Chiffrez d'abord le projet : sans montant, il n'y a rien à annoncer.</span>}
         </div>
       </div>
     </div>
     <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
       {pret
-        ?<a className={'btn '+(valide?'gh':'acc')+' s'} href={mailChiffrage(p)} onClick={marquer}
-           target="_blank" rel="noreferrer"
-           style={{textDecoration:'none',display:'inline-block'}}>
-           {valide?'Renvoyer l’avis':'Valider et prévenir CP Constructions'}</a>
+        ?<button className={'btn '+(valide?'gh':'acc')+' s'} disabled={envoi==='travail'} onClick={envoyer}>
+           {envoi==='travail'?'Envoi…':valide?'Renvoyer l’avis':'Valider et prévenir CP Constructions'}</button>
         :<button className="btn acc s" disabled>Valider et prévenir CP Constructions</button>}
       {pret&&<button className="btn gh s" onClick={copier}>Copier le message</button>}
-      {valide&&<button className="btn gh s" onClick={()=>{if(confirm('Annuler la validation de ce chiffrage ?'))maj({valideLe:''})}}>
+      {valide&&<button className="btn gh s" onClick={()=>{if(confirm('Annuler la validation de ce chiffrage ?'))maj({valideLe:'',avisEnvoyeLe:''})}}>
         Annuler la validation</button>}
     </div>
+    {envoi==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+      ✓ Envoyé à {MAIL_CP} le {fd(today())}.</div>}
+    {envoi==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
+      L'envoi automatique a échoué — le chiffrage reste validé. Réessayez, ou utilisez « Copier le message »
+      ci-dessous et collez-le dans un courriel à {MAIL_CP}, ou{' '}
+      <a href={mailChiffrage(p)} target="_blank" rel="noreferrer" style={{color:TERRA}}>
+        ouvrez-le directement dans votre messagerie</a>.</div>}
     {copie&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>{copie}</div>}
+    {!!p.avisEnvoyeLe&&envoi!=='ok'&&envoi!=='erreur'&&<div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>
+      Dernier envoi automatique réussi le {fd(p.avisEnvoyeLe)}.</div>}
     {!(p.chiffrages||[]).length&&pret&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       Le chiffrage PDF n'est pas encore déposé : le message le signalera au lieu de porter un lien.</div>}
-    {pret&&<div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>
-      Si votre messagerie ne s'ouvre pas — cas fréquent quand le site est lancé depuis l'écran d'accueil —
-      utilisez « Copier le message » et collez-le dans un courriel.</div>}
   </div>;
 }
 
