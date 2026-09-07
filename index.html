@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · La taxe d’aménagement se remplit dès l’ouverture, et connaît l’abattement PTZ';
+const VERSION='2026-09-08 · L’étude de sol se chiffre, et le dossier client réunit produits et pièces';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -469,6 +469,9 @@ const PIECES_PROSPECT=[
 const DEC_LOGEMENT=['Locataire','Propriétaire — bien à vendre','Propriétaire — bien à conserver'];
 const DEC_STATUT_TERRAIN=['Déjà acquis','Compromis signé','En recherche active','Pas encore commencé'];
 const DEC_OUI_NON_VERIF=['Oui','Non','À vérifier'];
+/* les trois seuls niveaux qui changent quoi que ce soit à la conception —
+   c'est aussi le vocabulaire qu'analyseGeorisques() reprend en lisant l'étude */
+const DEC_TYPE_SOL=['Argile faible','Argile modérée','Argile fort'];
 const DEC_OUI_NON_PREVUE=['Oui','Non','Prévue'];
 const DEC_SITUATION_FINANCEMENT=['Simulation à faire','Simulation en cours','Accord de principe obtenu','Prêt déjà accordé'];
 const DEC_NIVEAU=['Plain-pied','Étage','Pas décidé'];
@@ -1177,6 +1180,12 @@ const sommeLignes=L=>(L||[]).reduce((s,x)=>s+(+x.montant||0),0);
 const prospectAutresTaxes=p=>sommeLignes(p&&p.taxes);
 const prospectTaxes=p=>Math.round(((+((p&&p.taxeAmenagement))||0)+(+((p&&p.taxeArcheo))||0)+prospectAutresTaxes(p))*100)/100;
 const prospectDO=p=>+((p&&p.dommageOuvrage))||0;
+/* un sol argileux exposé à un niveau moyen ou fort rend l'étude géotechnique
+   de conception (G2) obligatoire — le coût s'ajoute alors à l'opération,
+   comme la dommages-ouvrage, séparément du coût des travaux */
+const etudeSolObligatoire=p=>{const t=(p&&p.decouverte&&p.decouverte.typeSol)||'';
+  return t==='Argile modérée'||t==='Argile fort'};
+const prospectEtudeSol=p=>+((p&&p.etudeSol))||0;
 /* le terrain et ses frais d'acte : la première dépense de l'opération */
 const prospectTerrain=p=>Math.round(((+((p&&p.terrainPrix))||0)+(+((p&&p.fraisNotaire))||0))*100)/100;
 /* Enedis, eau, fibre… « taxeRaccordement » est l'ancien champ unique : on
@@ -1187,7 +1196,7 @@ const prospectRaccordements=p=>Math.round((sommeLignes(p&&p.raccordements)
 const prospectTravauxClient=p=>Math.round(sommeLignes(p&&p.travauxClient)*100)/100;
 /* tout ce que le client débourse, du terrain à la dernière taxe */
 const prospectOperationTTC=p=>Math.round((prospectPrixTTC(p)+prospectTerrain(p)
-  +prospectRaccordements(p)+prospectTravauxClient(p)+prospectTaxes(p)+prospectDO(p))*100)/100;
+  +prospectRaccordements(p)+prospectTravauxClient(p)+prospectTaxes(p)+prospectDO(p)+prospectEtudeSol(p))*100)/100;
 /* les frais d'acte d'un terrain à bâtir tournent autour de 7,5 % chez un
    particulier, bien moins chez un lotisseur assujetti à la TVA */
 const notaireEstime=p=>Math.round((+((p&&p.terrainPrix))||0)*0.075);
@@ -1342,8 +1351,10 @@ function analyseGeorisques(txt){
       'En cas de démolition préalable, les repérages amiante et plomb sont dus avant travaux.','');
 
   /* le type de sol tel qu'on le reporte en fiche de découverte : le seul repère
-     que l'étude géorisques donne vraiment est le niveau d'argile */
-  const typeSol=arg===null?null:'Argile — retrait-gonflement '+(arg===3?'fort':arg===2?'moyen':arg===1?'faible':'non exposé');
+     que l'étude géorisques donne vraiment est le niveau d'argile — dans le
+     même vocabulaire que la liste fermée du champ (DEC_TYPE_SOL). Un aléa nul
+     ne correspond à aucun des trois niveaux proposés : rien ne se coche. */
+  const typeSol=arg===3?'Argile fort':arg===2?'Argile modérée':arg===1?'Argile faible':null;
 
   return {lu,obligations:O,vigilances:V,typeSol};
 }
@@ -2562,6 +2573,7 @@ function dossierDocumentXml(p,px,com){
   const notice=noticeTechnique(p);
   const nonCompris=[]
     .concat(prospectDO(p)?[['Assurance dommages-ouvrage (DO), par le biais de l’un de nos partenaires assureurs',eurDoc(prospectDO(p))]]:[])
+    .concat(prospectEtudeSol(p)?[['Étude géotechnique de conception (G2), obligatoire compte tenu de la nature du sol',eurDoc(prospectEtudeSol(p))]]:[])
     .concat(((p.travauxClient)||[]).filter(x=>(x.libelle||'').trim())
       .map(x=>[x.libelle,+x.montant?eurDoc(x.montant):'à la charge du client']));
 
@@ -2661,9 +2673,26 @@ function dossierDocumentXml(p,px,com){
     par([x.lot,x.marque,x.gamme,x.reference].filter(Boolean).join(' · '),{sz:17,c:DOC_GRIS,ap:30}),
     x.description?par(x.description,{sz:17,jc:'both',ap:20}):'',
     x.coloris?par('Coloris / finition : '+x.coloris,{sz:17,c:DOC_GRIS,ap:0}):'',
+    (x.fiches||[]).length?par('Fiche technique : '+x.fiches[0].lien,{sz:15,c:DOC_GRIS,ap:0}):'',
   ].join(''))).join(''):'';
 
-  const corps=[garde,p1,p2,p3,p4,vide(240),
+  /* ---- 5. les pièces réunies pour le dossier ---- */
+  const pieceFichiers=id=>((p.pj&&p.pj[id]&&p.pj[id].fichiers)||(id==='apd'?(p.plans||[]):[]));
+  const p5=[
+    sautPage,
+    titre('5.  Pièces du dossier'),
+    par('État des pièces réunies pour l’instruction du projet, à la date d’édition du présent dossier.',
+      {sz:17,i:true,c:DOC_GRIS,jc:'both',ap:140}),
+  ].concat(PIECES_PROSPECT.map(d=>{
+    const F=pieceFichiers(d.id);
+    return [
+      par('•  '+d.l,{b:true,sz:18,c:F.length?DOC_ENCRE:DOC_GRIS,ap:20,ind:200}),
+      par(F.length?F.map(f=>f.nom||'document').join(', ')+' — '+F[0].lien:'à fournir',
+        {sz:15,c:DOC_GRIS,ap:60,ind:200}),
+    ].join('');
+  })).join('');
+
+  const corps=[garde,p1,p2,p3,p4,p5,vide(240),
     par('Fait à '+(p.lieuSignature||'Valframbert')+', le '+fdDoc(today())+'.',
       {sz:17,i:true,c:DOC_GRIS,ap:0}),
   ].join('');
@@ -10644,7 +10673,7 @@ function SimulateurDPE({data,save,retour}){
       postes:[],coutHT:'',margePct:'',margeMontant:'',tva:'',remisLe:'',reponse:'',
       retroPct:'',retroMontant:'',
       terrainPrix:'',fraisNotaire:'',raccordements:[],travauxClient:[],
-      dommageOuvrage:'',taxeAmenagement:'',taxeArcheo:'',taxeRaccordement:'',taxes:[],
+      dommageOuvrage:'',etudeSol:'',taxeAmenagement:'',taxeArcheo:'',taxeRaccordement:'',taxes:[],
       navette:{},decouverte:{},pj:{},chiffrages:[],plans:[],pieces:[],
       /* la simulation elle-même, pour pouvoir y revenir sans la refaire */
       dpe:{bien,profil,resultat:r,scenarios,le:today()},
@@ -11254,7 +11283,7 @@ function Prospects({data,save}){
     postes:[],coutHT:'',margePct:'',margeMontant:'',tva:'',remisLe:'',reponse:'',
     retroPct:'',retroMontant:'',
     terrainPrix:'',fraisNotaire:'',raccordements:[],travauxClient:[],
-    dommageOuvrage:'',taxeAmenagement:'',taxeArcheo:'',taxeRaccordement:'',taxes:[],
+    dommageOuvrage:'',etudeSol:'',taxeAmenagement:'',taxeArcheo:'',taxeRaccordement:'',taxes:[],
     navette:{},decouverte:{},pj:{},chiffrages:[],plans:[],pieces:[]});
   const ok=()=>{
     if(!(f.nom||'').trim())return;
@@ -11440,6 +11469,14 @@ function Prospects({data,save}){
             Environ 7,5 % chez un particulier, nettement moins chez un lotisseur assujetti à la TVA.</div>}
         </Fld>
       </div>
+      {etudeSolObligatoire(f)&&<Fld label="ÉTUDE DE SOL (G2) ESTIMÉE (€)">
+        <input className="in" type="number" value={f.etudeSol||''} onChange={e=>setF({...f,etudeSol:e.target.value})}/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+          Le terrain est exposé au retrait-gonflement des argiles à un niveau {(f.decouverte||{}).typeSol==='Argile fort'?'fort':'modéré'} :
+          l’étude géotechnique de conception G2 est obligatoire avant l’établissement des plans (loi ELAN, art. L. 132-4 à
+          L. 132-6 du code de la construction). Le montant du devis reste à votre charge à saisir ici.
+        </div>
+      </Fld>}
       <LignesMontants lignes={f.raccordements||[]} onChange={v=>setF({...f,raccordements:v})}
         label="RACCORDEMENTS" ajout="+ Raccordement" exemple="Enedis, compteur d’eau, fibre…" liste={RACCORDEMENTS}/>
       <LignesMontants lignes={f.travauxClient||[]} onChange={v=>setF({...f,travauxClient:v})}
@@ -11665,7 +11702,10 @@ function RechercheZonage({dec,set}){
       </div>}
     </div>}
     <div className="g2">
-      <Fld label="TYPE DE SOL"><input className="in" value={dec.typeSol||''} onChange={e=>set('typeSol',e.target.value)}/></Fld>
+      <Fld label="TYPE DE SOL">
+        <select className="in" value={dec.typeSol||''} onChange={e=>set('typeSol',e.target.value)}>
+          <option value="">—</option>{DEC_TYPE_SOL.map(o=><option key={o} value={o}>{o}</option>)}
+        </select></Fld>
       <Fld label="BÂTIMENTS DE FRANCE">
         <select className="in" value={dec.batimentsFrance||''} onChange={e=>set('batimentsFrance',e.target.value)}>
           <option value="">—</option>{DEC_OUI_NON_VERIF.map(o=><option key={o} value={o}>{o}</option>)}
@@ -11979,9 +12019,9 @@ function RecapChiffrage({p,interne}){
   const ht=prospectPrixHT(p), ttc=prospectPrixTTC(p);
   const rTTC=ratioM2(ttc,p), rHT=ratioM2(ht,p);
   const bud=+((p&&p.budgetClient))||0;
-  const taxes=prospectTaxes(p), dOuv=prospectDO(p), op=prospectOperationTTC(p);
+  const taxes=prospectTaxes(p), dOuv=prospectDO(p), eSol=prospectEtudeSol(p), op=prospectOperationTTC(p);
   const terr=prospectTerrain(p), racc=prospectRaccordements(p), tvx=prospectTravauxClient(p);
-  const annexe=terr+racc+tvx+taxes+dOuv;
+  const annexe=terr+racc+tvx+taxes+dOuv+eSol;
   const retro=prospectRetro(p);
   if(!cout&&!marge&&!annexe)return null;
   const ligne=(l,v,c)=><div className="sp xs" style={{padding:'2px 0'}}>
@@ -12014,6 +12054,7 @@ function RecapChiffrage({p,interne}){
         <div key={x.id} className="sp xs" style={{padding:'2px 0'}}>
           <span className="mut">{x.libelle||'Travaux client'} <i>(à sa charge)</i></span><span>{eur(x.montant)}</span></div>)}
       {dOuv>0&&ligne('Dommages-ouvrage estimée',eur(dOuv))}
+      {eSol>0&&ligne('Étude de sol (G2)',eur(eSol))}
       {+p.taxeAmenagement>0&&ligne('Taxe d’aménagement',eur(p.taxeAmenagement))}
       {+p.taxeArcheo>0&&ligne('Redevance d’archéologie préventive',eur(p.taxeArcheo))}
       {(p.taxes||[]).filter(x=>+x.montant).map(x=>
