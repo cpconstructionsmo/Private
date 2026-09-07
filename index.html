@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · L’accord du client se récupère et se réclame';
+const VERSION='2026-09-08 · Le marché signé range, tamponne et se retire de la relance';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
@@ -3069,7 +3069,7 @@ async function driveProspectFolder(token,prospectId,prospectNom){
 /* Arborescence type d'un chantier, dans l'ordre des onglets de l'application.
    Google Drive classe les dossiers par ordre alphabétique : cet ordre-ci est
    celui de création, pas celui d'affichage. */
-const DOSSIERS_CHANTIER=['Marchés','Factures','Honoraires','Rétrocessions','Matériaux','Visite technique','MAP','Contrôles','Photos','Pièces','Signatures'];
+const DOSSIERS_CHANTIER=['Marchés','Marché travaux signé','Factures','Honoraires','Rétrocessions','Matériaux','Visite technique','MAP','Contrôles','Photos','Pièces','Signatures'];
 
 /* Pièces écrites : un dossier de maîtrise d'œuvre ne circule pas qu'en PDF —
    notices et marchés arrivent souvent en Word, les relevés en photo. iOS filtre
@@ -5421,7 +5421,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const majMarche=(id,patch)=>save({...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)});
   const majCmd=(id,patch)=>save({...data,commandes:data.commandes.map(c=>c.id===id?{...c,...patch}:c)});
   const majCh=patch=>save({...data,chantiers:data.chantiers.map(c=>c.id===ch.id?{...c,...patch}:c)});
-  const joindreContrat=(id,file)=>envoyer(file,'Marchés',lien=>majMarche(id,{contratLien:lien}));
+  const joindreContrat=(id,file)=>envoyer(file,'Marché travaux signé',lien=>majMarche(id,{contratLien:lien,statut:'signe'}));
   const joindreFactureMarche=(id,fid,file)=>envoyer(file,'Factures',lien=>{
     const m=data.marches.find(x=>x.id===id)||{};
     majMarche(id,{factures:(m.factures||[]).map(x=>x.id===fid?{...x,lien}:x)});
@@ -5676,7 +5676,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                       <input type="file" accept={PIECES_ACCEPT} style={{display:'none'}}
                         onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)joindreContrat(m.id,x)}}/></label></div>
                   :<label className="xs" style={{color:NAVY,cursor:'pointer',display:'block',marginTop:4}}>
-                    Importer le marché — il part sur le Drive › Marchés
+                    Importer le marché — il part sur le Drive › Marché travaux signé
                     <input type="file" accept={PIECES_ACCEPT} style={{display:'none'}}
                       onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)joindreContrat(m.id,x)}}/></label>}
               </Volet>}
