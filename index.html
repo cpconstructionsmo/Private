@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · La taxe d’aménagement et la RAP se calculent toutes seules par commune';
+const VERSION='2026-09-08 · Natura 2000 et les bâtiments de France se vérifient tout seuls';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -488,9 +488,13 @@ const DEC_PRIORITES=[['prioBudget','Budget maîtrisé'],['prioDelai','Délai rap
    Depuis l'adresse du projet : géocodage via la Base Adresse Nationale
    (api-adresse.data.gouv.fr, service public sans clé), puis un lien vers
    chacun des trois outils officiels, positionné sur le point trouvé quand le
-   géocodage réussit. Aucun de ces sites ne se laisse interroger depuis le
-   navigateur pour en extraire directement une réponse : Loïc y lit le
-   résultat et le reporte à la main dans les champs qui suivent. */
+   géocodage réussit. Les PAGES de ces trois sites ne se laissent pas
+   interroger depuis le navigateur pour en extraire une réponse — Loïc les
+   ouvre et reporte lui-même ce qu'il y lit. Natura 2000 et les abords de
+   monuments historiques, en revanche, sont aussi servis en JSON par l'API
+   Carto de l'IGN (apicarto.ign.fr, service public sans clé) : voir
+   natura2000Auto et batimentsFranceAuto plus bas, qui s'en servent pour
+   proposer une réponse automatique — jamais imposée, toujours à vérifier. */
 async function geocoderAdresse(adresse){
   const a=(adresse||'').trim();
   if(!a)return null;
@@ -510,6 +514,41 @@ const lienGeoportailUrbanisme=g=>g
   ?'https://www.geoportail-urbanisme.gouv.fr/map/#tile=1&lat='+g.lat+'&lon='+g.lon+'&zoom=17'
   :'https://www.geoportail-urbanisme.gouv.fr/';
 const LIEN_ATLAS_PATRIMOINES='https://atlas.patrimoines.culture.fr/';
+
+/* le point du projet, tel que l'API Carto le demande — un GeoJSON Point */
+const geomPoint=g=>encodeURIComponent(JSON.stringify({type:'Point',coordinates:[g.lon,g.lat]}));
+/* null : la vérification n'a pas pu se faire — panne, réseau, format inattendu —
+   et ne doit surtout pas se lire comme une réponse « non concerné ». Seul un
+   { trouve, zones } où trouve vaut vraiment false est une réponse. */
+async function natura2000Auto(g){
+  if(!g)return null;
+  try{
+    const geom=geomPoint(g);
+    const [hab,ois]=await Promise.all([
+      fetch('https://apicarto.ign.fr/api/nature/natura-habitat?geom='+geom).then(r=>r.ok?r.json():null),
+      fetch('https://apicarto.ign.fr/api/nature/natura-oiseaux?geom='+geom).then(r=>r.ok?r.json():null),
+    ]);
+    if(!hab&&!ois)return null;
+    const zones=[...((hab&&hab.features)||[]),...((ois&&ois.features)||[])]
+      .map(f=>f.properties&&(f.properties.sitename||f.properties.SITENAME||f.properties.NOM||''))
+      .filter(Boolean);
+    return {trouve:zones.length>0,zones:[...new Set(zones)]};
+  }catch(e){return null}
+}
+/* AC1 : catégorie des servitudes d'utilité publique qui couvre les abords de
+   monuments historiques — la raison pour laquelle l'architecte des Bâtiments
+   de France doit être consulté. */
+async function batimentsFranceAuto(g){
+  if(!g)return null;
+  try{
+    const r=await fetch('https://apicarto.ign.fr/api/gpu/sup?geom='+geomPoint(g)+'&partition=AC1');
+    if(!r.ok)return null;
+    const j=await r.json();
+    const zones=((j&&j.features)||[]).map(f=>f.properties&&(f.properties.NOMSUP||f.properties.nomsup||''))
+      .filter(Boolean);
+    return {trouve:zones.length>0,zones:[...new Set(zones)]};
+  }catch(e){return null}
+}
 
 /* ---------- trame de contrôle chantier : corps d'état → points de contrôle ---------- */
 const CTRL_ST=[{id:'conforme',label:'Conforme',c:GREEN},{id:'non_conforme',label:'Non conforme',c:TERRA},{id:'neant',label:'Néant',c:MUTED}];
@@ -11529,6 +11568,7 @@ function PostesChiffrage({postes,onChange}){
    la demande de chiffrage plus bas sur cette fiche. */
 function RechercheZonage({dec,set}){
   const [travail,setTravail]=useState('');
+  const [auto,setAuto]=useState(null);
   const adresse=dec.adresseProjet||'';
   const ouvrir=async(nom,construire)=>{
     const onglet=window.open('','_blank');
@@ -11536,6 +11576,23 @@ function RechercheZonage({dec,set}){
     let g=null;
     try{g=await geocoderAdresse(adresse)}catch(e){/* on ouvre quand même, sur la page de recherche */}
     if(onglet)onglet.location.href=construire(g);
+    setTravail('');
+  };
+  /* Natura 2000 et les abords de monuments historiques se vérifient tout
+     seuls, via l'API Carto de l'IGN — mais une réponse automatique ne
+     s'impose jamais : elle ne fait que proposer le champ s'il est encore
+     vide, et reste doublée du lien vers l'Atlas des patrimoines pour
+     confirmation. Une panne ou une réponse illisible ne se lit jamais comme
+     un « non » — le champ reste alors à vérifier soi-même, comme avant. */
+  const verifier=async()=>{
+    setTravail('auto');
+    setAuto(null);
+    const g=await geocoderAdresse(adresse).catch(()=>null);
+    if(!g){setTravail('');setAuto('erreur');return}
+    const [natura,abf]=await Promise.all([natura2000Auto(g),batimentsFranceAuto(g)]);
+    setAuto({natura,abf});
+    if(natura&&!dec.natura2000)set('natura2000',natura.trouve?'Oui':'Non');
+    if(abf&&!dec.batimentsFrance)set('batimentsFrance',abf.trouve?'Oui':'Non');
     setTravail('');
   };
   return <div className="card" style={{padding:10,marginBottom:10,borderLeft:'3px solid '+TERRA}}>
@@ -11554,6 +11611,22 @@ function RechercheZonage({dec,set}){
     </div>
     {!adresse&&<div className="xs mut" style={{marginBottom:8}}>
       Saisissez l'adresse du projet ci-dessus pour positionner la recherche.</div>}
+    {adresse&&<div style={{marginBottom:8}}>
+      <button className="btn s" disabled={travail==='auto'} onClick={verifier}>
+        {travail==='auto'?'Vérification…':'Vérifier automatiquement Natura 2000 et les abords de monuments historiques'}</button>
+      {auto==='erreur'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+        L'adresse n'a pas pu être localisée — remplissez les champs à la main, à l'aide des liens ci-dessus.</div>}
+      {auto&&auto!=='erreur'&&<div className="xs mut" style={{marginTop:6,lineHeight:1.6}}>
+        {auto.natura
+          ?(auto.natura.trouve?'Natura 2000 : terrain dans '+auto.natura.zones.join(', '):'Natura 2000 : aucune zone repérée à cette adresse')
+          :'Natura 2000 : vérification automatique indisponible — à faire à la main'}
+        <br/>
+        {auto.abf
+          ?(auto.abf.trouve?'Bâtiments de France : abords de '+auto.abf.zones.join(', '):'Bâtiments de France : aucun abord de monument historique repéré')
+          :'Bâtiments de France : vérification automatique indisponible — à faire à la main'}
+        <br/><i>Une aide, pas un avis — la réponse qui engage reste celle des sites officiels ci-dessus.</i>
+      </div>}
+    </div>}
     <div className="g2">
       <Fld label="TYPE DE SOL"><input className="in" value={dec.typeSol||''} onChange={e=>set('typeSol',e.target.value)}/></Fld>
       <Fld label="BÂTIMENTS DE FRANCE">
