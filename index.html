@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · La rétrocession se règle poste par poste, le type de sol se lit tout seul';
+const VERSION='2026-09-08 · La taxe d’aménagement et la RAP se calculent toutes seules par commune';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -980,7 +980,7 @@ const ventileFactures=L=>{
 /* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
-const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[],fournisseurs:[],rendezvous:[]};
+const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[],fournisseurs:[],rendezvous:[],tauxCommunes:[]};
 /* un enregistrement corrompu (case null au lieu d'être absente, retiré à la main
    dans la base) fait planter tout écran qui parcourt cette liste — un seul trou
    suffit à rendre CHANTIERS et ARTISANS injoignables. On l'écarte silencieusement
@@ -1065,13 +1065,63 @@ const prospectRetro=p=>{
   return Math.round(prospectCoutHT(p)*(+p.retroPct||0))/100;
 };
 
+/* ---------- taxe d'aménagement et redevance d'archéologie préventive ----------
+   Deux prélèvements assis sur la même surface — celle du projet, plancher clos
+   et couvert — mais à des taux différents : la RAP est fixée nationalement,
+   la taxe d'aménagement se vote commune par commune, et parfois département.
+   La valeur forfaitaire au m², elle, est fixée chaque année par arrêté : elle
+   se périme et doit être corrigée à chaque revalorisation — 892 €/m² hors
+   Île-de-France pour le barème 2026. */
+const VALEUR_FORFAITAIRE_TA=892;
+const TAUX_RAP=0.4;
+const assietteTaxable=p=>Math.round(((+((p&&p.surfaceHabitable))||0)+(+((p&&p.surfaceAnnexes))||0))*100)/100;
+/* le nom d'une commune se tape rarement deux fois à l'identique — accents,
+   casse — on compare donc la forme réduite plutôt que la chaîne brute */
+const communeNorm=s=>String(s||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const tauxCommune=(data,commune)=>{
+  const c=communeNorm(commune);
+  if(!c)return null;
+  return ((data&&data.tauxCommunes)||[]).find(x=>communeNorm(x.commune)===c)||null;
+};
+/* null : le taux de la commune n'est pas encore renseigné, rien ne s'invente */
+const taxeAmenagementCalc=(p,data)=>{
+  const t=tauxCommune(data,p&&p.commune), a=assietteTaxable(p);
+  if(!t||!a)return null;
+  return Math.round(a*VALEUR_FORFAITAIRE_TA*((+t.tauxCommunal||0)+(+t.tauxDepartemental||0))/100);
+};
+const rapCalc=p=>{
+  const a=assietteTaxable(p);
+  return a?Math.round(a*VALEUR_FORFAITAIRE_TA*TAUX_RAP/100):null;
+};
+/* une fois le taux de la commune connu, le montant se propose tout seul dans
+   les deux champs. Une valeur saisie ou corrigée à la main n'est jamais
+   recouverte — mais tant qu'elle reste d'origine automatique (le drapeau
+   *Auto le dit), elle continue de suivre la commune ou la surface si l'une
+   des deux change en cours de saisie, plutôt que de rester figée sur la
+   première commune tapée. */
+const videChamp=v=>v===undefined||v===null||v==='';
+const avecTaxesAuto=(next,data)=>{
+  const patch={};
+  if(videChamp(next.taxeAmenagement)||next.taxeAmenagementAuto){
+    const v=taxeAmenagementCalc(next,data);
+    if(v){patch.taxeAmenagement=v;patch.taxeAmenagementAuto=true}
+    else if(next.taxeAmenagementAuto){patch.taxeAmenagement='';patch.taxeAmenagementAuto=false}
+  }
+  if(videChamp(next.taxeArcheo)||next.taxeArcheoAuto){
+    const v=rapCalc(next);
+    if(v){patch.taxeArcheo=v;patch.taxeArcheoAuto=true}
+    else if(next.taxeArcheoAuto){patch.taxeArcheo='';patch.taxeArcheoAuto=false}
+  }
+  return Object.keys(patch).length?{...next,...patch}:next;
+};
+
 /* ---------- ce qui s'ajoute au prix de la maison ----------
    Assurance dommages-ouvrage et taxes ne sont pas le prix du bâtiment : elles
    pèsent sur l'opération. On les additionne à part pour ne pas fausser le ratio
    au m², qui ne vaut que rapporté au coût de construction. */
 const sommeLignes=L=>(L||[]).reduce((s,x)=>s+(+x.montant||0),0);
 const prospectAutresTaxes=p=>sommeLignes(p&&p.taxes);
-const prospectTaxes=p=>Math.round(((+((p&&p.taxeAmenagement))||0)+prospectAutresTaxes(p))*100)/100;
+const prospectTaxes=p=>Math.round(((+((p&&p.taxeAmenagement))||0)+(+((p&&p.taxeArcheo))||0)+prospectAutresTaxes(p))*100)/100;
 const prospectDO=p=>+((p&&p.dommageOuvrage))||0;
 /* le terrain et ses frais d'acte : la première dépense de l'opération */
 const prospectTerrain=p=>Math.round(((+((p&&p.terrainPrix))||0)+(+((p&&p.fraisNotaire))||0))*100)/100;
@@ -10540,7 +10590,7 @@ function SimulateurDPE({data,save,retour}){
       postes:[],coutHT:'',margePct:'',margeMontant:'',tva:'',remisLe:'',reponse:'',
       retroPct:'',retroMontant:'',
       terrainPrix:'',fraisNotaire:'',raccordements:[],travauxClient:[],
-      dommageOuvrage:'',taxeAmenagement:'',taxeRaccordement:'',taxes:[],
+      dommageOuvrage:'',taxeAmenagement:'',taxeArcheo:'',taxeRaccordement:'',taxes:[],
       navette:{},decouverte:{},pj:{},chiffrages:[],plans:[],pieces:[],
       /* la simulation elle-même, pour pouvoir y revenir sans la refaire */
       dpe:{bien,profil,resultat:r,scenarios,le:today()},
@@ -11138,6 +11188,7 @@ function Prospects({data,save}){
   const [f,setF]=useState(null);
   const [ouv,setOuv]=useState('');
   const [filtre,setFiltre]=useState('actifs');
+  const [nvTaux,setNvTaux]=useState({communal:'',dept:''});
   const P=data.prospects||[];
   const maj=(id,p)=>save({...data,prospects:P.map(x=>x.id===id?{...x,...p}:x)});
   const neuf=()=>({nom:'',civilite:'',client:'',telClient:'',emailClient:'',adresseClient:'',
@@ -11149,7 +11200,7 @@ function Prospects({data,save}){
     postes:[],coutHT:'',margePct:'',margeMontant:'',tva:'',remisLe:'',reponse:'',
     retroPct:'',retroMontant:'',
     terrainPrix:'',fraisNotaire:'',raccordements:[],travauxClient:[],
-    dommageOuvrage:'',taxeAmenagement:'',taxeRaccordement:'',taxes:[],
+    dommageOuvrage:'',taxeAmenagement:'',taxeArcheo:'',taxeRaccordement:'',taxes:[],
     navette:{},decouverte:{},pj:{},chiffrages:[],plans:[],pieces:[]});
   const ok=()=>{
     if(!(f.nom||'').trim())return;
@@ -11254,7 +11305,8 @@ function Prospects({data,save}){
         </div>
       </>}
       <FormDecouverte dec={f.decouverte} onChange={v=>setF({...f,decouverte:v})}/>
-      <Fld label="COMMUNE DE CONSTRUCTION"><input className="in" value={f.commune||''} onChange={e=>setF({...f,commune:e.target.value})} placeholder="Lotissement, commune, parcelle…"/></Fld>
+      <Fld label="COMMUNE DE CONSTRUCTION"><input className="in" value={f.commune||''}
+        onChange={e=>setF(avecTaxesAuto({...f,commune:e.target.value},data))} placeholder="Lotissement, commune, parcelle…"/></Fld>
 
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>LA DEMANDE DU COMMERCIAL</div>
       <div className="g2">
@@ -11281,8 +11333,10 @@ function Prospects({data,save}){
         <Fld label="NOMBRE DE CHAMBRES"><input className="in" type="number" step="1" value={f.nbChambres||''} onChange={e=>setF({...f,nbChambres:e.target.value})}/></Fld>
       </div>
       <div className="g2">
-        <Fld label="SURFACE HABITABLE (m²)"><input className="in" type="number" step="0.01" value={f.surfaceHabitable||''} onChange={e=>setF({...f,surfaceHabitable:e.target.value})}/></Fld>
-        <Fld label="SURFACES ANNEXES (m²)"><input className="in" type="number" step="0.01" value={f.surfaceAnnexes||''} onChange={e=>setF({...f,surfaceAnnexes:e.target.value})} placeholder="Garage, cellier, préau…"/></Fld>
+        <Fld label="SURFACE HABITABLE (m²)"><input className="in" type="number" step="0.01" value={f.surfaceHabitable||''}
+          onChange={e=>setF(avecTaxesAuto({...f,surfaceHabitable:e.target.value},data))}/></Fld>
+        <Fld label="SURFACES ANNEXES (m²)"><input className="in" type="number" step="0.01" value={f.surfaceAnnexes||''}
+          onChange={e=>setF(avecTaxesAuto({...f,surfaceAnnexes:e.target.value},data))} placeholder="Garage, cellier, préau…"/></Fld>
       </div>
       <div className="xs mut" style={{marginTop:-4,marginBottom:10,lineHeight:1.5}}>
         Surface pondérée retenue pour le ratio : <b>{surfacePonderee(f).toLocaleString('fr-FR')} m²</b> — l'habitable plus la moitié des annexes.
@@ -11335,12 +11389,39 @@ function Prospects({data,save}){
         label="RACCORDEMENTS" ajout="+ Raccordement" exemple="Enedis, compteur d’eau, fibre…" liste={RACCORDEMENTS}/>
       <LignesMontants lignes={f.travauxClient||[]} onChange={v=>setF({...f,travauxClient:v})}
         label="TRAVAUX À CHARGE DU CLIENT" ajout="+ Poste" exemple="Peinture, cuisine…" liste={TRAVAUX_CLIENT}/>
+      <Fld label="DOMMAGES-OUVRAGE ESTIMÉE (€)"><input className="in" type="number" value={f.dommageOuvrage||''} onChange={e=>setF({...f,dommageOuvrage:e.target.value})}/></Fld>
+      {(()=>{const tc=tauxCommune(data,f.commune);return f.commune
+        ?tc
+          ?<div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+            Taux de {f.commune} : {tc.tauxCommunal} % communal + {tc.tauxDepartemental} % départemental, appliqué
+            sur {assietteTaxable(f).toLocaleString('fr-FR')} m² à {VALEUR_FORFAITAIRE_TA} €/m².</div>
+          :<div className="xs" style={{marginBottom:8,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',lineHeight:1.6}}>
+            <div style={{marginBottom:6}}>Taux de taxe d’aménagement inconnu pour <b>{f.commune}</b> — une fois
+              renseigné, la taxe et la redevance d’archéologie se calculent ici toutes seules, et pour les
+              prochains chiffrages sur cette commune aussi.</div>
+            <div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center'}}>
+              <input className="in" style={{width:110,flex:'0 0 auto'}} type="number" step="0.01"
+                placeholder="% communal" value={nvTaux.communal} onChange={e=>setNvTaux({...nvTaux,communal:e.target.value})}/>
+              <input className="in" style={{width:120,flex:'0 0 auto'}} type="number" step="0.01"
+                placeholder="% départemental" value={nvTaux.dept} onChange={e=>setNvTaux({...nvTaux,dept:e.target.value})}/>
+              <button className="btn s" disabled={!nvTaux.communal&&!nvTaux.dept} onClick={()=>{
+                const entree={id:uid(),commune:f.commune,tauxCommunal:+nvTaux.communal||0,tauxDepartemental:+nvTaux.dept||0};
+                const data2={...data,tauxCommunes:[...(data.tauxCommunes||[]),entree]};
+                save(data2);
+                setF(avecTaxesAuto(f,data2));
+                setNvTaux({communal:'',dept:''});
+              }}>Enregistrer le taux</button>
+            </div>
+          </div>
+        :null})()}
       <div className="g2">
-        <Fld label="DOMMAGES-OUVRAGE ESTIMÉE (€)"><input className="in" type="number" value={f.dommageOuvrage||''} onChange={e=>setF({...f,dommageOuvrage:e.target.value})}/></Fld>
-        <Fld label="TAXE D’AMÉNAGEMENT (€)"><input className="in" type="number" value={f.taxeAmenagement||''} onChange={e=>setF({...f,taxeAmenagement:e.target.value})}/></Fld>
+        <Fld label="TAXE D’AMÉNAGEMENT (€)"><input className="in" type="number" value={f.taxeAmenagement||''}
+          onChange={e=>setF({...f,taxeAmenagement:e.target.value,taxeAmenagementAuto:false})}/></Fld>
+        <Fld label="REDEVANCE D’ARCHÉOLOGIE PRÉVENTIVE (€)"><input className="in" type="number" value={f.taxeArcheo||''}
+          onChange={e=>setF({...f,taxeArcheo:e.target.value,taxeArcheoAuto:false})}/></Fld>
       </div>
       <LignesMontants lignes={f.taxes||[]} onChange={v=>setF({...f,taxes:v})}
-        label="AUTRES TAXES ET PARTICIPATIONS" ajout="+ Taxe" exemple="Redevance archéologie, PFAC, PVR…"/>
+        label="AUTRES TAXES ET PARTICIPATIONS" ajout="+ Taxe" exemple="PFAC, PVR…"/>
 
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>RÉTROCESSION PRÉVUE</div>
       <div className="xs" style={{marginBottom:8,padding:'8px 10px',borderRadius:8,
@@ -11824,6 +11905,7 @@ function RecapChiffrage({p,interne}){
           <span className="mut">{x.libelle||'Travaux client'} <i>(à sa charge)</i></span><span>{eur(x.montant)}</span></div>)}
       {dOuv>0&&ligne('Dommages-ouvrage estimée',eur(dOuv))}
       {+p.taxeAmenagement>0&&ligne('Taxe d’aménagement',eur(p.taxeAmenagement))}
+      {+p.taxeArcheo>0&&ligne('Redevance d’archéologie préventive',eur(p.taxeArcheo))}
       {(p.taxes||[]).filter(x=>+x.montant).map(x=>
         <div key={x.id} className="sp xs" style={{padding:'2px 0'}}>
           <span className="mut">{x.libelle||'Autre taxe'}</span><span>{eur(x.montant)}</span></div>)}
