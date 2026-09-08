@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · Les pièces attendues du client se relancent par mail, d’un bouton';
+const VERSION='2026-09-08 · La relance au client s’aperçoit et se corrige avant de partir';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -11053,41 +11053,74 @@ function RelanceMarche({ch,m,a,majMarche}){
 
 /* ---------- relancer le client pour les pièces attendues ----------
    Les mêmes pièces que le tableau de bord réclame déjà — accord de prêt,
-   acte notarié, DOC… — se rappellent au client d'un geste, par Gmail comme
-   les autres envois de l'application. Pas de champ à remplir : le message
-   part vers l'adresse déjà enregistrée sur le chantier. */
+   acte notarié, DOC… — se rappellent au client par Gmail comme les autres
+   envois de l'application. Comme pour l'envoi du marché à l'artisan, un
+   aperçu s'ouvre d'abord, objet et message modifiables : rien ne part sans
+   un clic sur « Envoyer ». L'adresse d'expédition suit le même réglage que
+   partout ailleurs dans l'application (RÉGLAGES › Adresse d'expédition) —
+   la déclarer une fois là suffit à toucher aussi cet envoi. */
 function RelancerClient({ch,data,manque}){
-  const [etat,setEtat]=useState({v:'',msg:''});
+  const [mail,setMail]=useState(null);
   const expediteur=((data&&data.expediteurMail)||'').trim();
-  const envoyer=async()=>{
-    setEtat({v:'travail',msg:''});
-    try{
-      const token=await getDriveToken();
-      const sujet='Pièces en attente — '+(ch.nom||'votre projet');
-      const corps='Bonjour,\n\nPour avancer votre dossier, il me manque encore '
+  const ouvrirMail=()=>{
+    setMail({
+      etat:'apercu',compte:'',
+      destinataire:ch.emailClient,
+      sujet:'Pièces en attente — '+(ch.nom||'votre projet'),
+      corps:'Bonjour,\n\nPour avancer votre dossier, il me manque encore '
         +(manque.length>1?'les pièces suivantes':'la pièce suivante')+' :\n\n'
         +manque.map(l=>'- '+l).join('\n')
-        +'\n\nMerci de me les transmettre dès que possible.\n\nCordialement,\n'+CP.nom;
-      await gmailEnvoyer(token,{destinataire:ch.emailClient,sujet,corps,
+        +'\n\nMerci de me les transmettre dès que possible.\n\nCordialement,\n'+CP.nom,
+    });
+    getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
+  };
+  const envoyer=async()=>{
+    setMail(p=>({...p,etat:'envoi'}));
+    try{
+      const token=await getDriveToken();
+      await gmailEnvoyer(token,{destinataire:mail.destinataire,sujet:mail.sujet,corps:mail.corps,
         expediteur,expediteurNom:expediteur?CP.nom:''});
-      setEtat({v:'ok',msg:''});
+      setMail(p=>({...p,etat:'ok'}));
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
-      setEtat({v:c==='auth_required'?'auth':'erreur',msg:c});
+      setMail(p=>({...p,etat:'erreur',msg:
+        c==='auth_required'?"Google n'est pas connecté (bouton en bas de l'onglet) — connectez-le, avec l'autorisation d'envoi de mail, puis relancez.":
+        "Envoi impossible — "+c}));
     }
   };
   if(!ch.emailClient)return <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
     Aucun e-mail enregistré pour {ch.client||'ce client'} — ajoutez-le dans la fiche du chantier pour pouvoir le relancer d’ici.</div>;
   return <div style={{marginTop:6}}>
-    <button className="btn gh s" disabled={etat.v==='travail'} onClick={envoyer}>
-      {etat.v==='travail'?'Envoi…':'Relancer '+(ch.client||'le client')+' par mail'}
-    </button>
-    {etat.v==='ok'&&<div className="xs" style={{marginTop:4,color:GREEN,lineHeight:1.5}}>
-      ✓ Relance envoyée à {ch.emailClient} le {fd(today())}.</div>}
-    {etat.v==='auth'&&<div className="xs" style={{marginTop:4,color:TERRA,lineHeight:1.5}}>
-      Connectez d’abord Google (bouton en bas de l’onglet), avec l’autorisation d’envoi de mail, puis réessayez.</div>}
-    {etat.v==='erreur'&&<div className="xs" style={{marginTop:4,color:TERRA,lineHeight:1.5}}>
-      Envoi impossible — {etat.msg}</div>}
+    {!mail&&<button className="btn gh s" onClick={ouvrirMail}>
+      Relancer {ch.client||'le client'} par mail</button>}
+    {mail&&mail.etat==='apercu'&&<div className="card" style={{padding:10,marginTop:6}}>
+      {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
+        borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+        Le mail partira de <b>{mail.compte}</b>, le compte Google connecté. Pour qu’il parte
+        d’une adresse cpconstructions.fr, renseignez-la dans RÉGLAGES › Adresse d’expédition.</div>}
+      <Fld label="EXPÉDITEUR">
+        <div className="xs">{expediteur||mail.compte||'le compte Google connecté'}
+          {expediteur&&mail.compte&&<span className="mut"> · via {mail.compte}</span>}</div>
+      </Fld>
+      <Fld label="DESTINATAIRE"><div className="xs">{mail.destinataire}</div></Fld>
+      <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
+      <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
+      <div className="row" style={{gap:8}}>
+        <button className="btn acc s" onClick={envoyer}>Envoyer</button>
+        <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+      </div>
+    </div>}
+    {mail&&mail.etat==='envoi'&&<div className="xs mut" style={{marginTop:6}}>Envoi en cours…</div>}
+    {mail&&mail.etat==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+      ✓ Relance envoyée à {mail.destinataire}.
+      <button className="btn gh s" style={{marginLeft:10}} onClick={()=>setMail(null)}>Fermer</button></div>}
+    {mail&&mail.etat==='erreur'&&<div style={{marginTop:6}}>
+      <div className="xs" style={{color:TERRA,lineHeight:1.5,marginBottom:8}}>{mail.msg}</div>
+      <div className="row" style={{gap:8}}>
+        <button className="btn gh s" onClick={envoyer}>Réessayer</button>
+        <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+      </div>
+    </div>}
   </div>;
 }
 
