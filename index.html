@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · Tout marché chiffré resté « à consulter » est réclamé, même sans date connue';
+const VERSION='2026-09-08 · Les pièces attendues du client se relancent par mail, d’un bouton';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -11051,6 +11051,46 @@ function RelanceMarche({ch,m,a,majMarche}){
   </div>;
 }
 
+/* ---------- relancer le client pour les pièces attendues ----------
+   Les mêmes pièces que le tableau de bord réclame déjà — accord de prêt,
+   acte notarié, DOC… — se rappellent au client d'un geste, par Gmail comme
+   les autres envois de l'application. Pas de champ à remplir : le message
+   part vers l'adresse déjà enregistrée sur le chantier. */
+function RelancerClient({ch,data,manque}){
+  const [etat,setEtat]=useState({v:'',msg:''});
+  const expediteur=((data&&data.expediteurMail)||'').trim();
+  const envoyer=async()=>{
+    setEtat({v:'travail',msg:''});
+    try{
+      const token=await getDriveToken();
+      const sujet='Pièces en attente — '+(ch.nom||'votre projet');
+      const corps='Bonjour,\n\nPour avancer votre dossier, il me manque encore '
+        +(manque.length>1?'les pièces suivantes':'la pièce suivante')+' :\n\n'
+        +manque.map(l=>'- '+l).join('\n')
+        +'\n\nMerci de me les transmettre dès que possible.\n\nCordialement,\n'+CP.nom;
+      await gmailEnvoyer(token,{destinataire:ch.emailClient,sujet,corps,
+        expediteur,expediteurNom:expediteur?CP.nom:''});
+      setEtat({v:'ok',msg:''});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setEtat({v:c==='auth_required'?'auth':'erreur',msg:c});
+    }
+  };
+  if(!ch.emailClient)return <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+    Aucun e-mail enregistré pour {ch.client||'ce client'} — ajoutez-le dans la fiche du chantier pour pouvoir le relancer d’ici.</div>;
+  return <div style={{marginTop:6}}>
+    <button className="btn gh s" disabled={etat.v==='travail'} onClick={envoyer}>
+      {etat.v==='travail'?'Envoi…':'Relancer '+(ch.client||'le client')+' par mail'}
+    </button>
+    {etat.v==='ok'&&<div className="xs" style={{marginTop:4,color:GREEN,lineHeight:1.5}}>
+      ✓ Relance envoyée à {ch.emailClient} le {fd(today())}.</div>}
+    {etat.v==='auth'&&<div className="xs" style={{marginTop:4,color:TERRA,lineHeight:1.5}}>
+      Connectez d’abord Google (bouton en bas de l’onglet), avec l’autorisation d’envoi de mail, puis réessayez.</div>}
+    {etat.v==='erreur'&&<div className="xs" style={{marginTop:4,color:TERRA,lineHeight:1.5}}>
+      Envoi impossible — {etat.msg}</div>}
+  </div>;
+}
+
 function TableauBord({data,save,open,allerA}){
   const majMarche=(id,patch)=>save({...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)});
   const P=data.prospects||[];
@@ -11286,6 +11326,7 @@ function TableauBord({data,save,open,allerA}){
             <div className="xs b" style={{color:AMBER}}>
               {manque.length} pièce{manque.length>1?'s':''} attendue{manque.length>1?'s':''} à cette phase</div>
             <div className="xs mut" style={{marginTop:4,lineHeight:1.6}}>{manque.join(' · ')}</div>
+            <RelancerClient ch={ch} data={data} manque={manque}/>
           </div>}
         </div>)}
     </Bloc></div>}
