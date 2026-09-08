@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · Un chiffrage validé peut partir en un seul envoi, avec toutes ses pièces';
+const VERSION='2026-09-08 · Le dossier complet se décoche document par document, pour tenir sous 25 Mo';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -12189,8 +12189,11 @@ function ProduitsDuProjet({data,p,maj}){
    Réunit en une seule pièce jointe multiple ce que suit la validation : le
    chiffrage, les fiches produits retenues, et les pièces du terrain déjà
    déposées (bornage, avant-projet, géorisques). Part par Gmail, comme
-   l'envoi du marché aux artisans — mais ici le destinataire est fixe
-   (CP Constructions), donc rien à saisir avant d'envoyer. */
+   l'envoi du marché aux artisans — le destinataire est fixe (CP
+   Constructions). Chaque document se décoche : la limite de 25 Mo de la
+   messagerie se heurte vite à un dossier complet (fiches produits comprises),
+   et il n'y a pas d'autre moyen de connaître son poids à l'avance que
+   d'essayer — décocher ce qui est trop lourd est le recours qui reste. */
 function EnvoyerDossierComplet({data,p}){
   if(!p.valideLe)return null;
   const dernierPdf=(p.chiffrages||[])[(p.chiffrages||[]).length-1];
@@ -12199,40 +12202,38 @@ function EnvoyerDossierComplet({data,p}){
   const pj=p.pj||{};
   const piecesTerrain=id=>(pj[id]||{}).fichiers||(id==='apd'?(p.plans||[]):[]);
   const bornage=piecesTerrain('bornage'), apd=piecesTerrain('apd'), geo=piecesTerrain('georisque');
-  const rubriques=[
-    dernierPdf&&'le chiffrage',
-    avecFiche.length&&(avecFiche.length>1?avecFiche.length+' fiches produits':'la fiche produit'),
-    bornage.length&&'le plan de bornage',
-    apd.length&&'le plan d’avant-projet',
-    geo.length&&'l’étude géorisques',
+  const items=[
+    dernierPdf&&{cle:'chiffrage',label:'Chiffrage — '+(dernierPdf.nom||'chiffrage.pdf'),f:dernierPdf,secours:'Chiffrage'},
+    ...avecFiche.map(x=>({cle:'fiche-'+x.id,label:x.nom+' (fiche produit)',f:x.fiches[0],secours:x.nom})),
+    ...bornage.map((f,i)=>({cle:'bornage-'+i,label:'Plan de bornage — '+(f.nom||'document'),f,secours:'Plan de bornage'})),
+    ...apd.map((f,i)=>({cle:'apd-'+i,label:'Plan d’avant-projet — '+(f.nom||'document'),f,secours:'Plan d’avant-projet'})),
+    ...geo.map((f,i)=>({cle:'geo-'+i,label:'Étude géorisques — '+(f.nom||'document'),f,secours:'Étude géorisques'})),
   ].filter(Boolean);
-  const texteListe=rubriques.length>1
-    ?rubriques.slice(0,-1).join(', ')+' et '+rubriques.slice(-1)[0]
-    :(rubriques[0]||'');
+  const [coches,setCoches]=useState(()=>Object.fromEntries(items.map(it=>[it.cle,true])));
+  const bascule=cle=>setCoches(c=>({...c,[cle]:c[cle]===false}));
+  const aEnvoyer=items.filter(it=>coches[it.cle]!==false);
   const [etat,setEtat]=useState({v:'',msg:''});
   const expediteur=((data&&data.expediteurMail)||'').trim();
   const envoyer=async()=>{
+    if(!aEnvoyer.length)return;
     setEtat({v:'travail',msg:''});
     try{
       const token=await getDriveToken();
       const pieces=[];
-      const ajouter=async(f,secours)=>{
-        const id=driveIdDepuisLien(f.lien);
-        if(!id)return;
+      for(const it of aEnvoyer){
+        const id=driveIdDepuisLien(it.f.lien);
+        if(!id)continue;
         let octets;
         try{octets=await driveFichierBytes(token,id)}
-        catch(e){throw new Error('« '+(f.nom||secours)+' » n’a pas pu être repris depuis le Drive.')}
-        pieces.push({nom:f.nom||(secours+'.pdf'),type:typeFichier(f.nom||'x.pdf'),data:octets});
-      };
-      if(dernierPdf)await ajouter(dernierPdf,'Chiffrage');
-      for(const x of avecFiche)await ajouter(x.fiches[0],x.nom);
-      for(const f of bornage)await ajouter(f,'Plan de bornage');
-      for(const f of apd)await ajouter(f,'Plan d’avant-projet');
-      for(const f of geo)await ajouter(f,'Étude géorisques');
+        catch(e){throw new Error('« '+(it.f.nom||it.secours)+' » n’a pas pu être repris depuis le Drive.')}
+        pieces.push({nom:it.f.nom||(it.secours+'.pdf'),type:typeFichier(it.f.nom||'x.pdf'),data:octets});
+      }
       if(!pieces.length)throw new Error('Aucun document n’a pu être joint.');
-      const sujet='Dossier complet — '+(p.nom||'projet');
-      const corps='Bonjour,\n\nVeuillez trouver ci-joint '+texteListe
-        +' pour le projet '+(p.nom||'')+'.\n\nCordialement,\n'+CP.nom;
+      const sujet='Dossier — '+(p.nom||'projet');
+      const corps='Bonjour,\n\nVeuillez trouver ci-joint '
+        +(aEnvoyer.length>1?aEnvoyer.length+' documents':'un document')
+        +' pour le projet '+(p.nom||'')+' :\n\n'+aEnvoyer.map(it=>'- '+(it.f.nom||it.secours)).join('\n')
+        +'\n\nCordialement,\n'+CP.nom;
       await gmailEnvoyer(token,{destinataire:MAIL_CP,sujet,corps,pieces,
         expediteur,expediteurNom:expediteur?CP.nom:''});
       setEtat({v:'ok',msg:''});
@@ -12243,20 +12244,27 @@ function EnvoyerDossierComplet({data,p}){
     }
   };
   return <Fld label="ENVOYER LE DOSSIER COMPLET">
-    <div className="xs mut" style={{lineHeight:1.5}}>
-      {rubriques.length
-        ?<span>Part à <b>{MAIL_CP}</b> avec {texteListe}.</span>
-        :<span>Rien à joindre pour l’instant : ni chiffrage, ni fiche produit, ni pièce du terrain déposée.</span>}
-    </div>
-    <button className="btn s" style={{marginTop:8}} disabled={etat.v==='travail'||!rubriques.length} onClick={envoyer}>
-      {etat.v==='travail'?'Envoi…':'Envoyer le dossier complet'}
+    {items.length
+      ?<>
+        <div style={{marginBottom:6}}>
+          {items.map(it=><label key={it.cle} className="xs row" style={{gap:8,alignItems:'flex-start',cursor:'pointer',padding:'3px 0'}}>
+            <input type="checkbox" checked={coches[it.cle]!==false} onChange={()=>bascule(it.cle)}/>
+            <span>{it.label}</span>
+          </label>)}
+        </div>
+        <div className="xs mut" style={{lineHeight:1.5}}>Part à <b>{MAIL_CP}</b>.</div>
+      </>
+      :<div className="xs mut" style={{lineHeight:1.5}}>
+        Rien à joindre pour l’instant : ni chiffrage, ni fiche produit, ni pièce du terrain déposée.</div>}
+    <button className="btn s" style={{marginTop:8}} disabled={etat.v==='travail'||!aEnvoyer.length} onClick={envoyer}>
+      {etat.v==='travail'?'Envoi…':'Envoyer le dossier'}
     </button>
     {etat.v==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
       ✓ Envoyé à {MAIL_CP} le {fd(today())}.</div>}
     {etat.v==='auth'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
       Connectez d’abord Google (bouton en bas de l’onglet), avec l’autorisation d’envoi de mail, puis réessayez.</div>}
     {etat.v==='taille'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
-      Les pièces jointes dépassent la limite de la messagerie (25 Mo au total) — le dossier est trop lourd pour partir en un seul envoi.</div>}
+      Les pièces jointes dépassent la limite de la messagerie (25 Mo au total) — décochez-en une ou deux ci-dessus, puis réessayez.</div>}
     {etat.v==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
       Envoi impossible — {etat.msg}</div>}
   </Fld>;
