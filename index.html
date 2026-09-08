@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · Le dossier complet se décoche document par document, pour tenir sous 25 Mo';
+const VERSION='2026-09-08 · Un marché non retourné signé se dépose directement depuis l’accueil';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -4220,7 +4220,7 @@ function App({session}){
         reprise={reprise&&reprise.chantierId===ch.id?reprise:null}/>
       /* allerA porte au besoin une journée : le tableau de bord ouvre alors
          l'agenda directement sur ce jour-là, heure par heure */
-      :view==='tdb'?<TableauBord data={data} open={setOpen}
+      :view==='tdb'?<TableauBord data={data} save={save} open={setOpen}
         allerA={(v,jour)=>{setAgendaJour(jour||null);setView(v);setOpen(null)}}/>
       :view==='prospects'?<Prospects data={data} save={save}/>
       :view==='biblio'?<Bordereaux data={data} save={save}/>
@@ -11008,7 +11008,49 @@ function jalonsUrgents(ch){
     .sort((a,b)=>(a.prevue||'').localeCompare(b.prevue||''));
 }
 
-function TableauBord({data,open,allerA}){
+/* ---------- une ligne « marché non retourné signé », depuis le tableau de bord ----------
+   Le classeur signé se dépose ici, sans passer par la fiche du chantier :
+   il part sur le Drive › Marché travaux signé, et le statut passe à « signé »
+   — exactement ce que fait l'onglet Marchés. La ligne disparaît d'elle-même
+   au rendu suivant, puisque c'est ce même changement de statut qui la
+   sortait de la liste des relances. */
+function RelanceMarche({ch,m,a,majMarche}){
+  const [envoi,setEnvoi]=useState('');
+  const j=m.dateSignature?joursDepuis(m.dateSignature):null;
+  const deposer=async file=>{
+    setEnvoi('travail');
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,'Marché travaux signé');
+      const{webViewLink}=await uploadToDrive(file,folderId);
+      majMarche(m.id,{contratLien:webViewLink,statut:'signe'});
+    }catch(e){
+      setEnvoi('');
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton en bas de l'onglet)."
+        :"Envoi sur le Drive impossible — "+((e&&(e.error||e.message))||String(e)));
+    }
+  };
+  return <div className="sp xs" style={{marginTop:5,lineHeight:1.5,gap:8,alignItems:'flex-start'}}>
+    <span>
+      <b>{a?a.nom:'Entreprise non renseignée'}</b>
+      <span className="mut"> — {m.lot||'lot sans intitulé'}</span>
+      <div className="mut">
+        {eur(+m.montantHT||0)} HT · {STATUTS.find(s=>s.id===m.statut)
+          ?STATUTS.find(s=>s.id===m.statut).label:m.statut}
+        {m.dateSignature?' · daté du '+fd(m.dateSignature):''}
+        {j>0?<span style={{color:TERRA}}> · en attente depuis {j} jour{j>1?'s':''}</span>:null}
+      </div>
+    </span>
+    <label className="btn gh s" style={{whiteSpace:'nowrap'}}>
+      {envoi==='travail'?'Envoi…':'Ajouter'}
+      <input type="file" accept={PIECES_ACCEPT} style={{display:'none'}} disabled={envoi==='travail'}
+        onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)deposer(x)}}/>
+    </label>
+  </div>;
+}
+
+function TableauBord({data,save,open,allerA}){
+  const majMarche=(id,patch)=>save({...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)});
   const P=data.prospects||[];
   const chiffrages=P.filter(prospectAFaire)
     .map(p=>({...p,attente:joursDepuis(p.demandeLe)||0}))
@@ -11214,19 +11256,8 @@ function TableauBord({data,open,allerA}){
           {relances.length>0&&<div style={{padding:'8px 11px',borderTop:'1px solid '+RULE}}>
             <div className="xs b" style={{color:TERRA}}>
               {relances.length} marché{relances.length>1?'s':''} non retourné{relances.length>1?'s':''} signé{relances.length>1?'s':''}</div>
-            {relances.map(m=>{
-              const a=data.artisans.find(x=>x.id===m.artisanId);
-              const j=m.dateSignature?joursDepuis(m.dateSignature):null;
-              return <div key={m.id} className="xs" style={{marginTop:5,lineHeight:1.5}}>
-                <b>{a?a.nom:'Entreprise non renseignée'}</b>
-                <span className="mut"> — {m.lot||'lot sans intitulé'}</span>
-                <div className="mut">
-                  {eur(+m.montantHT||0)} HT · {STATUTS.find(s=>s.id===m.statut)
-                    ?STATUTS.find(s=>s.id===m.statut).label:m.statut}
-                  {m.dateSignature?' · daté du '+fd(m.dateSignature):''}
-                  {j>0?<span style={{color:TERRA}}> · en attente depuis {j} jour{j>1?'s':''}</span>:null}
-                </div></div>;
-            })}
+            {relances.map(m=><RelanceMarche key={m.id} ch={ch} m={m}
+              a={data.artisans.find(x=>x.id===m.artisanId)} majMarche={majMarche}/>)}
           </div>}
 
           {accords.length>0&&<div style={{padding:'8px 11px',borderTop:'1px solid '+RULE}}>
