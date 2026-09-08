@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · Un marché non retourné signé se dépose directement depuis l’accueil';
+const VERSION='2026-09-08 · Un marché envoyé par mail, jamais revenu signé, est enfin réclamé';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -11016,7 +11016,8 @@ function jalonsUrgents(ch){
    sortait de la liste des relances. */
 function RelanceMarche({ch,m,a,majMarche}){
   const [envoi,setEnvoi]=useState('');
-  const j=m.dateSignature?joursDepuis(m.dateSignature):null;
+  const envoyeLe=m.mailArtisanLe||m.dateSignature;
+  const j=envoyeLe?joursDepuis(envoyeLe):null;
   const deposer=async file=>{
     setEnvoi('travail');
     try{
@@ -11037,7 +11038,8 @@ function RelanceMarche({ch,m,a,majMarche}){
       <div className="mut">
         {eur(+m.montantHT||0)} HT · {STATUTS.find(s=>s.id===m.statut)
           ?STATUTS.find(s=>s.id===m.statut).label:m.statut}
-        {m.dateSignature?' · daté du '+fd(m.dateSignature):''}
+        {m.mailArtisanLe?' · envoyé par mail le '+fd(m.mailArtisanLe)
+          :m.dateSignature?' · daté du '+fd(m.dateSignature):''}
         {j>0?<span style={{color:TERRA}}> · en attente depuis {j} jour{j>1?'s':''}</span>:null}
       </div>
     </span>
@@ -11062,11 +11064,15 @@ function TableauBord({data,save,open,allerA}){
   retards.sort((a,b)=>(a.j.prevue||'').localeCompare(b.j.prevue||''));
   const t=today();
   /* Un marché parti chez l'artisan et jamais revenu signé se reconnaît à ceci :
-     il porte une date de signature — donc il a bien été rédigé et daté — mais
-     son statut est resté « à consulter » ou « devis reçu ». Rien ne le
-     réclamait jusqu'ici, et un exemplaire non retourné se découvrait des mois
-     plus tard, une fois le chantier commencé. */
-  const marcheARelancer=m=>!!(m&&(m.dateSignature||m.contratLien))
+     il porte une date de signature — donc il a bien été rédigé et daté —, ou
+     il a été envoyé par mail depuis l'application (mailArtisanLe, souvent
+     seul renseigné : la date de signature reste vide tant qu'on n'a pas
+     rouvert le lot pour la saisir à la main) — mais son statut est resté
+     « à consulter » ou « devis reçu ». Rien ne le réclamait jusqu'ici, et un
+     exemplaire non retourné se découvrait des mois plus tard, une fois le
+     chantier commencé. */
+  const envoiMarche=m=>m&&(m.mailArtisanLe||m.dateSignature);
+  const marcheARelancer=m=>!!(m&&(envoiMarche(m)||m.contratLien))
     &&['signe','encours','receptionne'].indexOf(m.statut)<0;
   /* Un seul bloc, mais rangé par chantier : pièces attendues et marchés à
      récupérer se lisent ensemble, dossier par dossier, plutôt qu'en une liste
@@ -11075,7 +11081,7 @@ function TableauBord({data,save,open,allerA}){
   actifs.forEach(c=>{
     const manque=piecesManquantes(c);
     const relances=data.marches.filter(m=>m.chantierId===c.id&&marcheARelancer(m))
-      .sort((a,b)=>(a.dateSignature||'').localeCompare(b.dateSignature||''));
+      .sort((a,b)=>(envoiMarche(a)||'').localeCompare(envoiMarche(b)||''));
     /* les estimatifs d'achat remis au client et jamais retournés signés : sans
        eux, rien ne justifie la fourniture commandée en son nom */
     const accords=(data.commandes||[]).filter(x=>x.chantierId===c.id&&estimatifARelancer(x))
