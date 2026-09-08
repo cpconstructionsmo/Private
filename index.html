@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · Le PDF du chiffrage part avec l’avis, et les fiches produits s’envoient au commercial';
+const VERSION='2026-09-08 · Un chiffrage validé peut partir en un seul envoi, avec toutes ses pièces';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -12139,10 +12139,10 @@ function DetailProspect({p,maj,data}){
     </Fld>
 
     <ProduitsDuProjet data={data} p={p} maj={maj}/>
-    <EnvoyerFichesProduits data={data} p={p} maj={maj}/>
     <SortirDecouverte p={p} maj={maj}/>
     <SortirDossier data={data} p={p} maj={maj}/>
     <ValiderChiffrage p={p} maj={maj} data={data}/>
+    <EnvoyerDossierComplet data={data} p={p}/>
 
     <PiecesProspect p={p} maj={maj} dossier={dossier}/>
 
@@ -12185,61 +12185,78 @@ function ProduitsDuProjet({data,p,maj}){
   </Fld>;
 }
 
-/* ---------- envoyer les fiches produits retenues au commercial ----------
-   Réutilise le même mécanisme Gmail que l'envoi du marché aux artisans :
-   même jeton Google, mêmes helpers de pièces jointes. Le destinataire est
-   ici variable (l'adresse du commercial saisie à la volée), ce que permet
-   ce circuit puisque le mail part au nom du compte Google connecté — pas
-   un relais partagé à protéger comme la fonction Resend ci-dessus. */
-function EnvoyerFichesProduits({data,p,maj}){
+/* ---------- envoyer le dossier complet, une fois le chiffrage validé ----------
+   Réunit en une seule pièce jointe multiple ce que suit la validation : le
+   chiffrage, les fiches produits retenues, et les pièces du terrain déjà
+   déposées (bornage, avant-projet, géorisques). Part par Gmail, comme
+   l'envoi du marché aux artisans — mais ici le destinataire est fixe
+   (CP Constructions), donc rien à saisir avant d'envoyer. */
+function EnvoyerDossierComplet({data,p}){
+  if(!p.valideLe)return null;
+  const dernierPdf=(p.chiffrages||[])[(p.chiffrages||[]).length-1];
   const retenus=produitsRetenus(data,p);
   const avecFiche=retenus.filter(x=>(x.fiches||[]).length);
-  const [dest,setDest]=useState(p.commercialEmail||'');
+  const pj=p.pj||{};
+  const piecesTerrain=id=>(pj[id]||{}).fichiers||(id==='apd'?(p.plans||[]):[]);
+  const bornage=piecesTerrain('bornage'), apd=piecesTerrain('apd'), geo=piecesTerrain('georisque');
+  const rubriques=[
+    dernierPdf&&'le chiffrage',
+    avecFiche.length&&(avecFiche.length>1?avecFiche.length+' fiches produits':'la fiche produit'),
+    bornage.length&&'le plan de bornage',
+    apd.length&&'le plan d’avant-projet',
+    geo.length&&'l’étude géorisques',
+  ].filter(Boolean);
+  const texteListe=rubriques.length>1
+    ?rubriques.slice(0,-1).join(', ')+' et '+rubriques.slice(-1)[0]
+    :(rubriques[0]||'');
   const [etat,setEtat]=useState({v:'',msg:''});
   const expediteur=((data&&data.expediteurMail)||'').trim();
-  if(!retenus.length)return null;
   const envoyer=async()=>{
-    if(!dest.trim())return;
     setEtat({v:'travail',msg:''});
     try{
       const token=await getDriveToken();
       const pieces=[];
-      for(const x of avecFiche){
-        const f=x.fiches[0];
+      const ajouter=async(f,secours)=>{
         const id=driveIdDepuisLien(f.lien);
-        if(!id)continue;
+        if(!id)return;
         let octets;
         try{octets=await driveFichierBytes(token,id)}
-        catch(e){throw new Error('« '+(f.nom||x.nom)+' » n’a pas pu être repris depuis le Drive.')}
-        pieces.push({nom:f.nom||(x.nom+'.pdf'),type:typeFichier(f.nom||'x.pdf'),data:octets});
-      }
-      if(!pieces.length)throw new Error('Aucune fiche technique n’a pu être jointe.');
-      const sujet='Fiches produits — '+(p.nom||'projet');
-      const corps='Bonjour,\n\nVeuillez trouver ci-joint '
-        +(pieces.length>1?'les fiches techniques des produits retenus':'la fiche technique du produit retenu')
-        +' pour le projet '+(p.nom||'')+' :\n\n'+avecFiche.map(x=>'- '+x.nom).join('\n')
-        +'\n\nCordialement,\n'+CP.nom;
-      await gmailEnvoyer(token,{destinataire:dest.trim(),sujet,corps,pieces,
+        catch(e){throw new Error('« '+(f.nom||secours)+' » n’a pas pu être repris depuis le Drive.')}
+        pieces.push({nom:f.nom||(secours+'.pdf'),type:typeFichier(f.nom||'x.pdf'),data:octets});
+      };
+      if(dernierPdf)await ajouter(dernierPdf,'Chiffrage');
+      for(const x of avecFiche)await ajouter(x.fiches[0],x.nom);
+      for(const f of bornage)await ajouter(f,'Plan de bornage');
+      for(const f of apd)await ajouter(f,'Plan d’avant-projet');
+      for(const f of geo)await ajouter(f,'Étude géorisques');
+      if(!pieces.length)throw new Error('Aucun document n’a pu être joint.');
+      const sujet='Dossier complet — '+(p.nom||'projet');
+      const corps='Bonjour,\n\nVeuillez trouver ci-joint '+texteListe
+        +' pour le projet '+(p.nom||'')+'.\n\nCordialement,\n'+CP.nom;
+      await gmailEnvoyer(token,{destinataire:MAIL_CP,sujet,corps,pieces,
         expediteur,expediteurNom:expediteur?CP.nom:''});
-      if(dest.trim()!==(p.commercialEmail||''))maj({commercialEmail:dest.trim()});
       setEtat({v:'ok',msg:''});
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
-      setEtat({v:c==='auth_required'?'auth':'erreur',msg:c});
+      setEtat({v:c==='auth_required'?'auth':
+        /too large|size|quota/i.test(c)?'taille':'erreur',msg:c});
     }
   };
-  return <Fld label="ENVOYER LES FICHES PRODUITS AU COMMERCIAL">
-    <input className="in" type="email" placeholder="E-mail du commercial" value={dest} onChange={e=>setDest(e.target.value)}/>
-    <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
-      {avecFiche.length} fiche{avecFiche.length>1?'s':''} sur {retenus.length} produit{retenus.length>1?'s':''} retenu{retenus.length>1?'s':''}
-      {avecFiche.length<retenus.length?' — les autres n’ont pas de fiche déposée':''}.
+  return <Fld label="ENVOYER LE DOSSIER COMPLET">
+    <div className="xs mut" style={{lineHeight:1.5}}>
+      {rubriques.length
+        ?<span>Part à <b>{MAIL_CP}</b> avec {texteListe}.</span>
+        :<span>Rien à joindre pour l’instant : ni chiffrage, ni fiche produit, ni pièce du terrain déposée.</span>}
     </div>
-    <button className="btn s" style={{marginTop:8}} disabled={!dest.trim()||etat.v==='travail'||!avecFiche.length} onClick={envoyer}>
-      {etat.v==='travail'?'Envoi…':'Envoyer les fiches'}
+    <button className="btn s" style={{marginTop:8}} disabled={etat.v==='travail'||!rubriques.length} onClick={envoyer}>
+      {etat.v==='travail'?'Envoi…':'Envoyer le dossier complet'}
     </button>
-    {etat.v==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>✓ Envoyé à {dest} le {fd(today())}.</div>}
+    {etat.v==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+      ✓ Envoyé à {MAIL_CP} le {fd(today())}.</div>}
     {etat.v==='auth'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
       Connectez d’abord Google (bouton en bas de l’onglet), avec l’autorisation d’envoi de mail, puis réessayez.</div>}
+    {etat.v==='taille'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
+      Les pièces jointes dépassent la limite de la messagerie (25 Mo au total) — le dossier est trop lourd pour partir en un seul envoi.</div>}
     {etat.v==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
       Envoi impossible — {etat.msg}</div>}
   </Fld>;
