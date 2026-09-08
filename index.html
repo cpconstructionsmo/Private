@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · Un marché envoyé par mail, jamais revenu signé, est enfin réclamé';
+const VERSION='2026-09-08 · Tout marché chiffré resté « à consulter » est réclamé, même sans date connue';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -11063,16 +11063,16 @@ function TableauBord({data,save,open,allerA}){
   actifs.forEach(c=>jalonsUrgents(c).forEach(j=>retards.push({ch:c,j})));
   retards.sort((a,b)=>(a.j.prevue||'').localeCompare(b.j.prevue||''));
   const t=today();
-  /* Un marché parti chez l'artisan et jamais revenu signé se reconnaît à ceci :
-     il porte une date de signature — donc il a bien été rédigé et daté —, ou
-     il a été envoyé par mail depuis l'application (mailArtisanLe, souvent
-     seul renseigné : la date de signature reste vide tant qu'on n'a pas
-     rouvert le lot pour la saisir à la main) — mais son statut est resté
-     « à consulter » ou « devis reçu ». Rien ne le réclamait jusqu'ici, et un
-     exemplaire non retourné se découvrait des mois plus tard, une fois le
-     chantier commencé. */
+  /* Un marché resté à « à consulter » ou « devis reçu » alors qu'il porte un
+     montant chiffré est un marché en souffrance : un lot chiffré a forcément
+     été remis à quelqu'un, que ce soit par la messagerie de l'application
+     (mailArtisanLe), à la main, ou par un tout autre moyen que l'application
+     ne peut pas connaître. On ne peut pas toujours dire depuis quand il
+     traîne — seuls les lots datés ou envoyés depuis l'application portent
+     cette information —, mais l'absence de date ne prouve pas l'absence
+     d'envoi, et le laisser filer coûte plus cher qu'un rappel superflu. */
   const envoiMarche=m=>m&&(m.mailArtisanLe||m.dateSignature);
-  const marcheARelancer=m=>!!(m&&(envoiMarche(m)||m.contratLien))
+  const marcheARelancer=m=>!!(m&&(+m.montantHT>0||m.contratLien))
     &&['signe','encours','receptionne'].indexOf(m.statut)<0;
   /* Un seul bloc, mais rangé par chantier : pièces attendues et marchés à
      récupérer se lisent ensemble, dossier par dossier, plutôt qu'en une liste
