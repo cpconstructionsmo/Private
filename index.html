@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-09 · Le chiffrage par poste se détaille en DQE, et les options rejoignent le total';
+const VERSION='2026-09-09 · Le dossier montre les options au client, le chiffrage interne garde la marge';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -2686,11 +2686,26 @@ function dossierDocumentXml(p,px,com){
       {sz:16,i:true,c:DOC_GRIS,jc:'both',av:140,ap:0}),
   ].join('');
 
-  /* ---- 4. les produits retenus ---- */
+  /* ---- 4. les options proposées ----
+     Sans rétrocession ni aucun autre détail interne : seuls le libellé, le
+     montant et le statut (incluse ou non dans le prix ci-dessus) regardent
+     le client. */
+  const opts=(p.optionsChiffrage||[]).filter(x=>(x.libelle||'').trim());
+  const p3b=opts.length?[
+    titre('4.  Options proposées'),
+    par('Prestations complémentaires proposées, à retenir ou non selon votre choix :',{sz:18,ap:100}),
+    tbl([6200,2400,1800],[tr([entC(6200,'Désignation'),entC(2400,'Montant HT','right'),entC(1800,'Statut','right')])]
+      .concat(opts.map(x=>tr([celC(6200,x.libelle,'left'),celC(2400,eurDoc(+x.montant||0),'right'),
+        celC(1800,x.incluse?'Incluse':'En option','right')])))),
+    par('Une option « incluse » est déjà comptée dans le coût prévisionnel des travaux ci-dessus ; une option « en option » ne l’est pas encore.',
+      {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
+  ].join(''):'';
+
+  /* ---- 5. les produits retenus ---- */
   const prods=(p.produitsRetenus||[]);
   const p4=prods.length?[
     sautPage,
-    titre('4.  Produits et équipements retenus'),
+    titre('5.  Produits et équipements retenus'),
     par('Les fiches techniques des produits ci-dessous sont jointes au présent dossier. Les références peuvent évoluer en cas d’indisponibilité, par un produit de qualité et de performance au moins équivalentes.',
       {sz:17,i:true,c:DOC_GRIS,jc:'both',ap:140}),
   ].concat(prods.map(x=>[
@@ -2705,7 +2720,7 @@ function dossierDocumentXml(p,px,com){
   const pieceFichiers=id=>((p.pj&&p.pj[id]&&p.pj[id].fichiers)||(id==='apd'?(p.plans||[]):[]));
   const p5=[
     sautPage,
-    titre('5.  Pièces du dossier'),
+    titre('6.  Pièces du dossier'),
     par('État des pièces réunies pour l’instruction du projet, à la date d’édition du présent dossier.',
       {sz:17,i:true,c:DOC_GRIS,jc:'both',ap:140}),
   ].concat(PIECES_PROSPECT.map(d=>{
@@ -2717,7 +2732,7 @@ function dossierDocumentXml(p,px,com){
     ].join('');
   })).join('');
 
-  const corps=[garde,p1,p2,p3,p4,p5,vide(240),
+  const corps=[garde,p1,p2,p3,p3b,p4,p5,vide(240),
     par('Fait à '+(p.lieuSignature||'Valframbert')+', le '+fdDoc(today())+'.',
       {sz:17,i:true,c:DOC_GRIS,ap:0}),
   ].join('');
@@ -2737,6 +2752,84 @@ async function genererDossierDocx(p,com){
   try{logo=await logoDocx()}catch(e){/* sans logo, le dossier reste lisible */}
   return fabriquerDocx(dossierDocumentXml(p,logo,com),
     'Dossier de présentation — '+(p.nom||''),logo);
+}
+
+/* ---------- chiffrage interne, édité en Word ----------
+   Le pendant du dossier de présentation, mais réservé à l'interne : marge,
+   rétrocession poste par poste, coefficient de vente. Rien de tout cela ne
+   doit atteindre le client — c'est un document à part, jamais celui remis
+   en dossier de présentation. */
+function chiffrageInterneDocumentXml(p,px){
+  const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
+  const entC=(l,t,jc)=>tc(l,par(t,{b:true,sz:16,c:DOC_TERRA,sp:16,caps:true,jc:jc,ap:0}),
+    {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:80});
+  const celC=(l,t,jc)=>tc(l,par(t,{sz:17,jc:jc,ap:0}),
+    {bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:80,v:'top'});
+  const table=(largeurs,entetes,lignes)=>tbl(largeurs,
+    [tr(entetes.map((e,i)=>entC(largeurs[i],e,i?'right':'left')))]
+      .concat(lignes.map(L=>tr(L.map((v,i)=>celC(largeurs[i],v,i?'right':'left'))))),{});
+
+  const garde=[
+    par([logoXml(px)],{ap:0}),
+    vide(300),
+    par('CHIFFRAGE — DÉTAIL INTERNE',{b:true,sz:34,c:DOC_TERRA,sp:30,jc:'center',ap:60}),
+    par((p.nom||'')+(p.client?' — '+afficherCivilite(p.civilite,p.client):''),{sz:20,c:DOC_BRUN,jc:'center',ap:20}),
+    par('Édité le '+fdDoc(today())+' — document interne, à ne jamais remettre au client',
+      {sz:16,c:DOC_GRIS,i:true,jc:'center',ap:0}),
+    vide(300),
+  ].join('');
+
+  const postes=(p.postes||[]).filter(x=>(x.libelle||'').trim()||+x.montant);
+  const pPostes=[
+    titre('Postes'),
+    postes.length
+      ?table([5000,2200,1400,1800],['Poste','Montant HT','Rétro %','Rétrocédé'],
+        postes.map(x=>[x.libelle||'(sans libellé)',eurDoc(+x.montant||0),
+          (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x))]))
+      :par('Aucun poste chiffré.',{sz:18,i:true,c:DOC_GRIS,ap:0}),
+  ].join('');
+
+  const options=(p.optionsChiffrage||[]).filter(x=>(x.libelle||'').trim()||+x.montant);
+  const pOptions=options.length?[
+    titre('Options de chiffrage'),
+    table([4200,2000,1200,1400,1600],['Option','Montant HT','Inclus','Rétro %','Rétrocédé'],
+      options.map(x=>[x.libelle||'(sans libellé)',eurDoc(+x.montant||0),x.incluse?'Oui':'Non',
+        (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x))])),
+  ].join(''):'';
+
+  const cout=prospectCoutHT(p), marge=prospectMargeHT(p), ht=prospectPrixHT(p), ttc=prospectPrixTTC(p);
+  const retro=prospectRetro(p), tva=prospectTva(p), ratio=ratioM2(ttc,p);
+  const coef=cout>0?Math.round(ht/cout*1000)/1000:null;
+  const bilan=[
+    titre('Bilan financier'),
+    tbl([6200,4200],[
+      tr([celC(6200,'Prix de revient (coût des travaux, sous-traitants)','left'),celC(4200,eurDoc(cout)+' HT','right')]),
+      tr([celC(6200,'Marge maîtrise d’œuvre','left'),
+        celC(4200,eurDoc(marge)+' HT'+(cout?' ('+nb2(Math.round(marge/cout*1000)/10)+' %)':''),'right')]),
+      tr([celC(6200,'Prix de vente HT (au client)','left'),celC(4200,eurDoc(ht)+' HT','right')]),
+      tr([celC(6200,'Coefficient de vente','left'),celC(4200,coef?nb2(coef):'—','right')]),
+      tr([celC(6200,'TVA '+tva+' %','left'),celC(4200,eurDoc(Math.round((ttc-ht)*100)/100),'right')]),
+      tr([celC(6200,'Prix de vente TTC','left'),celC(4200,eurDoc(ttc)+' TTC','right')]),
+      tr([celC(6200,'Ratio au m² pondéré','left'),celC(4200,eurM2(ratio),'right')]),
+      tr([celC(6200,'Rétrocession totale prévue','left'),celC(4200,eurDoc(retro)+' HT','right')]),
+      tr([celC(6200,'Recette totale (marge + rétrocession)','left'),celC(4200,eurDoc(marge+retro)+' HT','right')]),
+    ],{}),
+  ].join('');
+
+  const corps=[garde,pPostes,pOptions,bilan].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+async function genererChiffrageInterneDocx(p){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, le document reste lisible */}
+  return fabriquerDocx(chiffrageInterneDocumentXml(p,logo),
+    'Chiffrage interne — '+(p.nom||''),logo);
 }
 
 /* ---------- fiche de découverte, éditée en Word ----------
@@ -12388,6 +12481,7 @@ function DetailProspect({p,maj,data}){
     <ProduitsDuProjet data={data} p={p} maj={maj}/>
     <SortirDecouverte p={p} maj={maj}/>
     <SortirDossier data={data} p={p} maj={maj}/>
+    <SortirChiffrageInterne p={p} maj={maj}/>
     <ValiderChiffrage p={p} maj={maj} data={data}/>
     <EnvoyerDossierComplet data={data} p={p}/>
 
@@ -12611,6 +12705,51 @@ function SortirDossier({data,p,maj}){
     {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
     {!notice.length&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       Sans fiche navette, la notice technique du dossier restera vide : renseignez-la d'abord.</div>}
+  </div>;
+}
+
+/* ---------- le chiffrage interne, en Word ----------
+   Le pendant réservé de SortirDossier : marge, rétrocession poste par
+   poste, coefficient de vente. Jamais le document remis au client — celui-
+   là reste le dossier de présentation, sans aucun de ces chiffres. */
+function SortirChiffrageInterne({p,maj}){
+  const [etat,setEtat]=useState(null);
+  const pret=prospectPrixTTC(p)>0;
+  const produire=async()=>{
+    setEtat({etat:'travail'});
+    try{
+      const buf=await genererChiffrageInterneDocx(p);
+      const nom='Chiffrage interne — '+(p.nom||'projet')+'.docx';
+      const token=await getDriveToken();
+      const dossierId=await driveProspectFolder(token,p.id,p.nom);
+      const {webViewLink}=await uploadToDrive(new File([buf],nom,
+        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),dossierId);
+      maj({chiffrageInterneLe:today()});
+      setEtat({etat:'ok',lien:webViewLink,nom});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setEtat({etat:'erreur',msg:c==='auth_required'
+        ?"Le document a été composé, mais Google Drive n'est pas connecté — reconnectez-le puis relancez."
+        :'Sortie impossible — '+c});
+    }
+  };
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+TERRA}}>
+    <div className="b sm" style={{color:TERRA}}>Chiffrage interne (à ne pas remettre au client)</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Détail des postes et des options avec rétrocession, marge et coefficient de vente — réservé à l'usage interne.
+      {p.chiffrageInterneLe?<span> Dernière sortie le {fd(p.chiffrageInterneLe)}.</span>:null}
+    </div>
+    <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+      <button className="btn gh s" disabled={!pret||(etat&&etat.etat==='travail')} onClick={produire}>
+        {etat&&etat.etat==='travail'?'Composition…':'Sortir le chiffrage interne'}</button>
+      {etat&&etat.etat==='ok'&&<a href={etat.lien} target="_blank" rel="noreferrer" className="btn gh s"
+        style={{textDecoration:'none'}}>Ouvrir</a>}
+    </div>
+    {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+      Déposé dans Drive › Prospects › {p.nom} — {etat.nom}</div>}
+    {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
+    {!pret&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
+      Chiffrez d'abord le projet : sans montant, il n'y a rien à détailler.</div>}
   </div>;
 }
 
