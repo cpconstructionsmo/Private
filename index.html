@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-09 · Un rendez-vous récurrent — semestriel, bimensuel — se supprime d’un coup';
+const VERSION='2026-09-09 · L’adresse du projet se suggère, et la section cadastrale se devine avec elle';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -550,6 +550,20 @@ async function batimentsFranceAuto(g){
     const zones=((j&&j.features)||[]).map(f=>f.properties&&(f.properties.NOMSUP||f.properties.nomsup||''))
       .filter(Boolean);
     return {trouve:zones.length>0,zones:[...new Set(zones)]};
+  }catch(e){return null}
+}
+/* la ou les sections cadastrales sous le point du projet — même API Carto,
+   même geom en entrée qu'au-dessus. Un point à cheval sur deux parcelles
+   (angle de terrain, imprécision du géocodage) peut en rendre plusieurs :
+   on les propose toutes plutôt que d'en choisir une au hasard. */
+async function cadastreAuto(g){
+  if(!g)return null;
+  try{
+    const r=await fetch('https://apicarto.ign.fr/api/cadastre/parcelle?geom='+geomPoint(g));
+    if(!r.ok)return null;
+    const j=await r.json();
+    const sections=((j&&j.features)||[]).map(f=>f.properties&&f.properties.section).filter(Boolean);
+    return {trouve:sections.length>0,sections:[...new Set(sections)]};
   }catch(e){return null}
 }
 
@@ -11872,6 +11886,58 @@ const DecChoix=({N,set,k,label,opts})=><Fld label={label}>
   </select></Fld>;
 const DecTxt=({N,set,k,label,ph,type})=><Fld label={label}>
   <input className="in" type={type||'text'} value={N[k]||''} onChange={e=>set(k,e.target.value)} placeholder={ph}/></Fld>;
+/* l'adresse du projet, avec des suggestions de la Base Adresse Nationale —
+   chaque frappe continue d'enregistrer le champ tel quel (la saisie libre
+   marche toujours, API en panne ou pas) ; choisir une suggestion reprend
+   l'adresse telle que la BAN l'écrit, et — si la section cadastrale n'est
+   pas déjà renseignée — va la chercher via l'API Carto de l'IGN sur ce
+   point précis. Jamais imposée : juste proposée, comme pour Natura 2000. */
+function DecAdresse({N,onChange,label}){
+  const [choix,setChoix]=useState([]);
+  const [cherche,setCherche]=useState(false);
+  const [dernierChoisi,setDernierChoisi]=useState('');
+  const dernier=useRef(0);
+  const valeur=N.adresseProjet||'';
+  useEffect(()=>{
+    const t=valeur.trim();
+    if(t.length<6||t===dernierChoisi){setChoix([]);return}
+    const monTour=++dernier.current;
+    const minuteur=setTimeout(async()=>{
+      setCherche(true);
+      try{
+        const r=await fetch('https://api-adresse.data.gouv.fr/search/?limit=5&q='+encodeURIComponent(t));
+        const j=await r.json();
+        if(monTour!==dernier.current)return;
+        setChoix((j.features||[]).map(f=>({label:f.properties.label,
+          lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1]})));
+      }catch(e){/* la saisie libre reste toujours possible, suggestions ou pas */}
+      finally{if(monTour===dernier.current)setCherche(false)}
+    },350);
+    return()=>clearTimeout(minuteur);
+  },[valeur,dernierChoisi]);
+  /* un seul appel à onChange, une fois tout su — deux appels distincts de
+     part et d'autre du await referaient chacun un patch depuis le N figé au
+     moment où prendre() a démarré, et le second effacerait l'adresse que
+     le premier venait de poser */
+  const prendre=async a=>{
+    setDernierChoisi(a.label);
+    setChoix([]);
+    const patch={adresseProjet:a.label};
+    if(!N.sectionCadastre){
+      const c=await cadastreAuto({lon:a.lon,lat:a.lat}).catch(()=>null);
+      if(c&&c.trouve)patch.sectionCadastre=c.sections.join(', ');
+    }
+    onChange({...N,...patch});
+  };
+  return <Fld label={label}>
+    <input className="in" value={valeur} onChange={e=>onChange({...N,adresseProjet:e.target.value})}
+      placeholder="14 rue de Congé, Valframbert"/>
+    {cherche&&<div className="xs mut" style={{marginTop:4}}>Recherche…</div>}
+    {choix.map((a,i)=><button key={i} type="button" className="card"
+      style={{padding:'7px 9px',marginTop:4,display:'block',width:'100%',textAlign:'left',cursor:'pointer'}}
+      onClick={()=>prendre(a)}><span className="xs">{a.label}</span></button>)}
+  </Fld>;
+}
 const DecZone=({N,set,k,label,ph,rows})=><Fld label={label}>
   <textarea className="in" rows={rows||2} value={N[k]||''} onChange={e=>set(k,e.target.value)} placeholder={ph}/></Fld>;
 
@@ -11894,7 +11960,7 @@ function FormDecouverte({dec,onChange}){
     </div>
 
     <div className="g2">
-      <DecTxt N={N} set={set} k="adresseProjet" label="ADRESSE DU PROJET"/>
+      <DecAdresse N={N} onChange={onChange} label="ADRESSE DU PROJET"/>
       <DecTxt N={N} set={set} k="sectionCadastre" label="SECTION CADASTRALE"/>
     </div>
     <RechercheZonage dec={N} set={set}/>
