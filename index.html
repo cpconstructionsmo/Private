@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-08 · La relance au client s’aperçoit et se corrige avant de partir';
+const VERSION='2026-09-09 · Un rendez-vous récurrent — semestriel, bimensuel — se supprime d’un coup';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -9992,18 +9992,27 @@ const disposerJournee=rdvs=>{
 };
 
 /* la récurrence ne se pose qu'à la création : une fois les rendez-vous
-   posés, chacun s'édite ou se supprime indépendamment des autres */
-const RECURRENCES=[['','Aucune'],['semaine','Toutes les semaines'],['2semaines','Toutes les deux semaines'],['mois','Tous les mois']];
+   posés, chacun s'édite indépendamment des autres. La suppression, elle,
+   sait retrouver toute la série d'un coup (voir serieId ci-dessous) — sans
+   quoi supprimer une visite semestrielle posée pour dix ans veut dire
+   cliquer vingt fois. */
+const RECURRENCES=[['','Aucune'],['semaine','Toutes les semaines'],['2semaines','Toutes les deux semaines'],
+  ['mois','Tous les mois'],['2mois','Tous les deux mois'],['6mois','Tous les six mois']];
 const prochaineOccurrence=(date,rec)=>{
   const[y,m,d]=date.split('-').map(Number);
   if(rec==='semaine')return isoDate(new Date(y,m-1,d+7));
   if(rec==='2semaines')return isoDate(new Date(y,m-1,d+14));
   if(rec==='mois')return isoDate(new Date(y,m,d));
+  if(rec==='2mois')return isoDate(new Date(y,m+1,d));
+  if(rec==='6mois')return isoDate(new Date(y,m+5,d));
   return date;
 };
 const genererSerie=(base,rec,fin)=>{
   if(!rec)return [base];
-  const L=[base];
+  /* un identifiant commun à toute la série, pour pouvoir la supprimer d'un
+     bloc plus tard sans avoir à deviner quels rendez-vous en faisaient partie */
+  const serieId=uid();
+  const L=[{...base,serieId}];
   let cur=base.date;
   /* avec une date de fin, elle arrête la boucle bien avant ; sans fin, on
      plafonne pour ne pas créer des années de rendez-vous d'un coup */
@@ -10011,10 +10020,17 @@ const genererSerie=(base,rec,fin)=>{
   for(let i=1;i<max;i++){
     cur=prochaineOccurrence(cur,rec);
     if(fin&&cur>fin)break;
-    L.push({...base,id:uid(),date:cur});
+    L.push({...base,id:uid(),date:cur,serieId});
   }
   return L;
 };
+/* la clé d'appartenance à une série : par serieId quand il existe (les
+   séries créées depuis que la récurrence le pose), et à défaut par
+   ressemblance — même titre, même type, même client — pour les séries plus
+   anciennes, posées une par une avant que cet identifiant n'existe. Une
+   ressemblance n'est pas une preuve, mais elle vaut mieux que de laisser ces
+   rendez-vous-là sans aucun moyen de suppression groupée. */
+const cleSerieRdv=x=>x.serieId?'id:'+x.serieId:'txt:'+(x.titre||'')+'|'+(x.type||'')+'|'+(x.client||'');
 /* la journée sur son axe des heures, à la manière d'un agenda classique :
    chaque rendez-vous occupe la hauteur de sa durée, et l'on voit d'un coup
    d'œil les plages où l'on est pris. */
@@ -10099,6 +10115,17 @@ function Agenda({data,save,jourInitial}){
     setF(null);
   };
   const del=()=>{if(confirm('Supprimer ce rendez-vous ?')){save({...data,rendezvous:R.filter(x=>x.id!==f.id)});setF(null)}};
+  /* les autres occurrences de la même série, pour proposer de tout supprimer
+     d'un coup — seulement pour un rendez-vous déjà posé, jamais pour celui
+     en cours de création */
+  const serie=(f&&!estNouveau)?R.filter(x=>x.id!==f.id&&cleSerieRdv(x)===cleSerieRdv(f)):[];
+  const delSerie=()=>{
+    const cle=cleSerieRdv(f);
+    if(confirm('Supprimer les '+(serie.length+1)+' rendez-vous « '+(f.titre||'sans titre')+' » ?')){
+      save({...data,rendezvous:R.filter(x=>cleSerieRdv(x)!==cle)});
+      setF(null);
+    }
+  };
 
   const parJour={};
   R.forEach(x=>{(parJour[x.date]=parJour[x.date]||[]).push(x)});
@@ -10163,10 +10190,15 @@ function Agenda({data,save,jourInitial}){
       </div>}
       {!!f.recurrence&&<div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.5}}>
         Crée un rendez-vous par occurrence, jusqu’à la date choisie{f.recurrenceFin?'':' (24 au maximum, faute de date de fin)'}.
-        Chacun pourra ensuite être modifié ou supprimé indépendamment des autres.</div>}
+        Chacun pourra ensuite être modifié séparément — et toute la série supprimée d’un coup, depuis n’importe laquelle de ses occurrences.</div>}
       <Fld label="NOTES"><textarea className="in" rows="3" value={f.notes||''} onChange={e=>setF({...f,notes:e.target.value})}
         placeholder="Contact, précisions…"/></Fld>
       <Acts onSave={ok} onCancel={()=>setF(null)} onDel={estNouveau?null:del}/>
+      {!estNouveau&&serie.length>0&&<div className="xs mut" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE,lineHeight:1.5}}>
+        Ce rendez-vous fait partie d’une série de {serie.length+1} occurrences « {f.titre||'sans titre'} ».{' '}
+        <button className="btn dg s" style={{marginLeft:4}} onClick={delSerie}>
+          Supprimer toute la série ({serie.length+1})</button>
+      </div>}
     </div>}
 
     {!f&&jour&&<>
