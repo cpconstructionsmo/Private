@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-09 · L’adresse du projet se suggère, et la section cadastrale se devine avec elle';
+const VERSION='2026-09-09 · La fiche navette reprend les gammes réelles — isolation, chauffage, carrelage';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -435,10 +435,13 @@ const NAV_TEINTE=['Brun','Rouge naturel','Ardoisé','Noir','Anthracite','Vieilli
 const NAV_MENU_MAT=['PVC','ALU','Mixte ALU/bois','Bois'];
 const NAV_MENU_COUL=['Blanc','Gris anthracite RAL 7016','Gris clair RAL 7035','Beige','Chêne doré','Noir sablé'];
 const NAV_PORTE=['Gamme d’Olt — fin de chantier','Chapuzet à peindre','Postformée à peindre','Âme pleine à peindre'];
-const NAV_LAINE=['Laine de verre soufflée','Laine de verre en rouleau','Laine de roche','Ouate de cellulose','Polystyrène graphité','Polyuréthane'];
-const NAV_CHAUFFAGE=['PAC air/eau','PAC air/air TRINEO','PAC air/air multisplit','T One','Poêle à granulés','Chaudière gaz condensation','Radiateurs électriques'];
-const NAV_EMETTEUR=['Plancher chauffant','Radiateurs à eau basse température','Plancher chauffant + radiateurs à l’étage','Cassettes / splits','Sans émetteur hydraulique'];
-const NAV_CARRELAGE=['45 × 45','60 × 60','30 × 60','20 × 120','80 × 80','Grès cérame imitation parquet'];
+/* les murs s'isolent en panneaux rigides, les combles en soufflé — deux
+   familles de produits différentes, donc deux listes de suggestions */
+const NAV_LAINE_MURS=['Laine de verre 120','Laine de verre 140','Laine de roche 120','Laine de roche 140'];
+const NAV_LAINE_COMBLES=['Laine de verre soufflée 455 mm (R = 10)','Laine de roche soufflée 445 mm (R = 10)'];
+const NAV_CHAUFFAGE=['Pompe à chaleur air/eau Alféa Extensa','Pompe à chaleur air/air TRINEO','Pompe à chaleur air/air T-One'];
+const NAV_EMETTEUR=['Plancher chauffant hydraulique','Radiateur à eau BT (basse température)','Convecteur électrique'];
+const NAV_CARRELAGE=['Gamme 1 — 45 x 45 cm','Gamme 2 — 60 x 60 cm','Gamme 3 — 20 x 120 cm','Gamme 4 — 80 x 80 cm'];
 const NAV_ELEC=['Prises RJ45','Volets roulants motorisés','Portail motorisé','Borne de recharge véhicule',
   'Alarme','Domotique','Éclairage extérieur','Prises supplémentaires','Tableau pré-équipé photovoltaïque'];
 /* la fiche, dans l'ordre où on la remplit : lot, champ, liste de suggestions */
@@ -447,7 +450,7 @@ const NAVETTE=[
   {lot:'Couverture',champs:[['couverture','Type de couverture',NAV_COUVERTURE],['teinteCouv','Teinte',NAV_TEINTE]]},
   {lot:'Menuiseries extérieures',champs:[['menuMat','Matériau',NAV_MENU_MAT],['menuCoul','Couleur',NAV_MENU_COUL]]},
   {lot:'Menuiseries intérieures',champs:[['porte','Portes intérieures',NAV_PORTE]]},
-  {lot:'Isolation',champs:[['isoCombles','Combles — épaisseur et type',NAV_LAINE],['isoMurs','Murs — épaisseur et type',NAV_LAINE]]},
+  {lot:'Isolation',champs:[['isoCombles','Combles — épaisseur et type',NAV_LAINE_COMBLES],['isoMurs','Murs — épaisseur et type',NAV_LAINE_MURS]]},
   {lot:'Chauffage',champs:[['chauffage','Génération',NAV_CHAUFFAGE],['emetteur','Émetteurs',NAV_EMETTEUR]]},
   {lot:'Carrelage et faïence',champs:[['carrelage','Format du carrelage',NAV_CARRELAGE],['faience','Faïence',[]]]},
   {lot:'Finitions',champs:[['peinture','Peinture',[]],['parquet','Parquet',[]]]},
@@ -482,7 +485,7 @@ const DEC_VS=['3 rangs','4 rangs','5 rangs','6 rangs'];
 const DEC_CHARPENTE=['Traditionnelle bois','Fermettes industrielles','Charpente métallique'];
 const DEC_COUVERTURE=['Tuile terre cuite','Tuile minérale','Ardoise','Bac acier'];
 const DEC_MENUISERIES=['PVC','ALU','Bois','Mixte bois/alu'];
-const DEC_ECS=['Ballon thermodynamique','Couplée au chauffage'];
+const DEC_ECS=['Couplée au système de chauffage','Ballon thermodynamique'];
 const DEC_VMC=['Simple flux','Double flux'];
 const DEC_PRIORITES=[['prioBudget','Budget maîtrisé'],['prioDelai','Délai rapide'],
   ['prioSurface','Surface généreuse'],['prioQualite','Qualité & finitions']];
