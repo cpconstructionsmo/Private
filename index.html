@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-09 · La fiche navette reprend les gammes réelles — isolation, chauffage, carrelage';
+const VERSION='2026-09-09 · Le chiffrage par poste se détaille en DQE, et les options rejoignent le total';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -1084,7 +1084,14 @@ const nettoyer=d=>{
    Le coût, c'est la somme des postes chiffrés ; à défaut, le montant global saisi.
    La marge du maître d'œuvre s'exprime en pourcentage de ce coût, ou en euros si
    l'on préfère l'arrêter soi-même. Le prix du projet est la somme des deux. */
-const prospectPostesHT=p=>((p&&p.postes)||[]).reduce((s,x)=>s+(+x.montant||0),0);
+/* les options de chiffrage cochées « Inclure dans le marché » comptent dans
+   le coût du projet au même titre qu'un poste ordinaire — les autres restent
+   de simples propositions, visibles dans leur bloc mais sans effet sur le
+   total tant qu'elles ne sont pas cochées. */
+const optionsInclues=p=>((p&&p.optionsChiffrage)||[]).filter(x=>x.incluse);
+const prospectPostesHT=p=>((p&&p.postes)||[]).reduce((s,x)=>s+(+x.montant||0),0)
+  +optionsInclues(p).reduce((s,x)=>s+(+x.montant||0),0);
+const prospectOptionsHT=p=>((p&&p.optionsChiffrage)||[]).reduce((s,x)=>s+(+x.montant||0),0);
 const prospectCoutHT=p=>{
   const d=prospectPostesHT(p);
   return d||+((p&&p.coutHT))||0;
@@ -1115,7 +1122,8 @@ const eurM2=v=>v===null?'—':v.toLocaleString('fr-FR',{maximumFractionDigits:0}
    corps d'état à l'autre : elle se règle poste par poste dès qu'un détail
    existe, sinon le taux global saisi à défaut continue de s'appliquer. */
 const posteRetro=x=>Math.round((+(x&&x.montant)||0)*(+(x&&x.retroPct)||0))/100;
-const prospectPostesRetro=p=>Math.round(((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x),0)*100)/100;
+const prospectPostesRetro=p=>Math.round((((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x),0)
+  +optionsInclues(p).reduce((s,x)=>s+posteRetro(x),0))*100)/100;
 const prospectRetro=p=>{
   if(!p)return 0;
   const parPoste=prospectPostesRetro(p);
@@ -11605,7 +11613,8 @@ function Prospects({data,save}){
       <FormNavette nav={f.navette||{}} onChange={v=>setF({...f,navette:v})}/>
 
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>VOTRE CHIFFRAGE</div>
-      <PostesChiffrage postes={f.postes||[]} onChange={v=>setF({...f,postes:v})}/>
+      <PostesChiffrage data={data} save={save} postes={f.postes||[]} onChange={v=>setF({...f,postes:v})}/>
+      <PostesChiffrage data={data} save={save} postes={f.optionsChiffrage||[]} onChange={v=>setF({...f,optionsChiffrage:v})} options/>
       {!prospectPostesHT(f)&&<Fld label="COÛT DES TRAVAUX HT (€) — SANS DÉTAIL PAR POSTE">
         <input className="in" type="number" value={f.coutHT||''} onChange={e=>setF({...f,coutHT:e.target.value})}/></Fld>}
       <div className="g2">
@@ -11770,30 +11779,56 @@ function Prospects({data,save}){
    le taux varie d'une entreprise à l'autre, elle se règle donc en face de
    chaque corps d'état plutôt qu'en un seul taux global pour tout le chantier.
    Interne : elle ne figure sur aucun document remis au client. */
-function PostesChiffrage({postes,onChange}){
+/* ---------- le chiffrage par poste, détaillable en DQE ----------
+   Un poste reste un simple montant par défaut — c'est le plus rapide pour un
+   premier chiffrage. Mais chaque poste peut aussi se détailler en lignes
+   d'articles piochées dans la bibliothèque de prix, exactement comme un lot
+   de marché chantier : c'est le même composant Quantitatif, réutilisé tel
+   quel, montant HT du poste qui en découle plutôt que d'être ressaisi.
+   options=true bascule sur le second bloc, celui des prestations
+   optionnelles : un même montage, mais chaque ligne porte en plus une case
+   « Inclure dans le marché » — seules les cochées comptent dans le total
+   du projet (prospectPostesHT s'en charge). */
+function PostesChiffrage({data,save,postes,onChange,options}){
   const L=postes||[];
   const set=(id,p)=>onChange(L.map(x=>x.id===id?{...x,...p}:x));
-  return <Fld label="CHIFFRAGE PAR POSTE">
-    {L.map(x=><div key={x.id} style={{marginBottom:8}}>
+  const setPoste=(id,fn)=>onChange(L.map(x=>x.id===id?(typeof fn==='function'?fn(x):fn):x));
+  const dl=options?'pcorpsopt':'pcorps';
+  const total=L.reduce((s,x)=>s+(+x.montant||0),0);
+  const totalInclues=L.filter(x=>x.incluse).reduce((s,x)=>s+(+x.montant||0),0);
+  return <Fld label={options?'OPTIONS DE CHIFFRAGE':'CHIFFRAGE PAR POSTE'}>
+    {options&&<div className="xs mut" style={{marginTop:-6,marginBottom:10,lineHeight:1.5}}>
+      Prestations proposées au client, pas encore décidées. Cochez « Inclure dans le marché »
+      pour celles qui doivent compter dans le total du projet.
+    </div>}
+    {L.map(x=><div key={x.id} style={{marginBottom:8,paddingBottom:8,borderBottom:'1px solid '+RULE}}>
       <div className="row" style={{gap:6,alignItems:'center'}}>
-        <input className="in" style={{flex:1,minWidth:0}} list="pcorps" value={x.libelle||''}
+        <input className="in" style={{flex:1,minWidth:0}} list={dl} value={x.libelle||''}
           placeholder="Corps d’état" onChange={e=>set(x.id,{libelle:e.target.value})}/>
-        <input className="in" style={{width:110,flex:'0 0 auto'}} type="number" value={x.montant||''}
+        <input className="in" style={{width:110,flex:'0 0 auto',background:x.quantitatif?'#F2EFE9':null}}
+          type="number" value={x.montant||''} disabled={!!x.quantitatif}
           placeholder="€ HT" onChange={e=>set(x.id,{montant:e.target.value})}/>
         <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
           onClick={()=>onChange(L.filter(y=>y.id!==x.id))}>✕</button>
       </div>
+      {options&&<label className="row xs" style={{gap:6,alignItems:'center',marginTop:4,paddingLeft:2,cursor:'pointer'}}>
+        <input type="checkbox" checked={!!x.incluse} onChange={e=>set(x.id,{incluse:e.target.checked})}/>
+        <span className="mut">Inclure dans le marché</span>
+      </label>}
       <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2}}>
         <span>Rétrocession</span>
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.retroPct||''}
           placeholder="%" onChange={e=>set(x.id,{retroPct:e.target.value})}/>
         <span>%{+x.montant>0&&+x.retroPct>0?' soit '+eur(posteRetro(x)):''}</span>
       </div>
+      <Quantitatif data={data} f={x} setF={fn=>setPoste(x.id,fn)} save={save} champ="montant"/>
     </div>)}
-    <datalist id="pcorps">{CORPS_CHIFFRAGE.map(c=><option key={c} value={c}/>)}</datalist>
-    <div className="row" style={{gap:10,alignItems:'center',marginTop:4}}>
-      <button className="btn gh s" onClick={()=>onChange([...L,{id:uid(),libelle:'',montant:'',retroPct:''}])}>+ Poste</button>
-      {L.length>0&&<span className="xs b">Total {eur(prospectPostesHT({postes:L}))} HT</span>}
+    <datalist id={dl}>{CORPS_CHIFFRAGE.map(c=><option key={c} value={c}/>)}</datalist>
+    <div className="row" style={{gap:10,alignItems:'center',marginTop:4,flexWrap:'wrap'}}>
+      <button className="btn gh s" onClick={()=>onChange([...L,{id:uid(),libelle:'',montant:'',retroPct:''}])}>
+        {options?'+ Option':'+ Poste'}</button>
+      {L.length>0&&<span className="xs b">Total {eur(total)} HT</span>}
+      {options&&L.length>0&&<span className="xs mut">dont {eur(totalInclues)} HT inclus au marché</span>}
     </div>
   </Fld>;
 }
