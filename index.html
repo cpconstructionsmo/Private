@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-09 · Le dossier montre les options au client, le chiffrage interne garde la marge';
+const VERSION='2026-09-09 · Les options se chiffrent en plus-value ou moins-value, avec leur impact sur la marge';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -229,6 +229,17 @@ const CORPS_CHIFFRAGE=['Terrassement','Gros œuvre','Façade','Charpente','Couve
    pour que le champ « lot » d'une fiche se choisisse dans la liste plutôt qu'en le retapant à la main
    et en risquant une orthographe qui ne correspondra pas exactement au picker de la MAP. */
 const CORPS_PRODUITS=[...CORPS,'Sous-face','Gouttière'];
+/* quelques options revenant souvent d'un chantier à l'autre — le libellé
+   seul est pré-rempli, jamais un montant : un prix daterait vite, mieux
+   vaut le rechiffrer à chaque fois depuis la bibliothèque de prix. */
+const OPTIONS_MODELES=[
+  'Charpente — fermettes combles aménageables (au lieu de fermettes perdues W)',
+  'Menuiseries extérieures — changement de gamme, matériau ou coloris',
+  'Chauffage — substitution PAC air/eau, PAC air/air Trinéo ou chaudière',
+  'Portes intérieures — isolante remplacée par une âme pleine',
+  'Porte d’entrée — remplacement ou surclassement',
+  'Option sur mesure',
+];
 const STATUTS=[{id:'consulter',label:'À consulter',c:MUTED},{id:'devis',label:'Devis reçu',c:AMBER},{id:'signe',label:'Marché signé',c:NAVY},{id:'encours',label:'En cours',c:TERRA},{id:'receptionne',label:'Réceptionné',c:GREEN}];
 const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',label:'Commandé',c:AMBER},{id:'livre',label:'Livré',c:GREEN},{id:'litige',label:'Litige / manquant',c:TERRA}];
 /* les pièces d'un chantier, rangées par dossier : l'id de chaque pièce est ce
@@ -1104,6 +1115,31 @@ const prospectMargeHT=p=>{
 const prospectPrixHT=p=>Math.round((prospectCoutHT(p)+prospectMargeHT(p))*100)/100;
 const prospectTva=p=>{const v=p&&p.tva;return (v===undefined||v===null||v==='')?20:(+v||0)};
 const prospectPrixTTC=p=>Math.round(prospectPrixHT(p)*(1+prospectTva(p)/100)*100)/100;
+/* le prix de vente rapporté au prix de revient — ce que le devis appelle
+   couramment le « coefficient » : 1,15 veut dire 15 % de marge appliquée
+   au coût. Sans coût, il n'y a rien à rapporter. */
+const prospectCoefficient=p=>{
+  const c=prospectCoutHT(p);
+  return c?Math.round((prospectPrixHT(p)/c)*1000)/1000:null;
+};
+/* ---------- impact d'une option sur la marge et le coefficient ----------
+   Plutôt que de refaire le calcul de marge à part — pourcentage ou montant
+   fixé, ce n'est jamais le même calcul — on simule le projet une fois avec
+   l'option retenue, une fois sans, et on prend l'écart : les mêmes fonctions
+   pures que pour l'ensemble du projet en tirent la bonne réponse, quel que
+   soit le mode de marge en vigueur. */
+const impactOption=(p,x)=>{
+  const options=((p&&p.optionsChiffrage)||[]);
+  const avec={...p,optionsChiffrage:options.map(o=>o.id===x.id?{...o,incluse:true}:o)};
+  const sans={...p,optionsChiffrage:options.map(o=>o.id===x.id?{...o,incluse:false}:o)};
+  return {
+    coutHT:Math.round((prospectCoutHT(avec)-prospectCoutHT(sans))*100)/100,
+    margeHT:Math.round((prospectMargeHT(avec)-prospectMargeHT(sans))*100)/100,
+    prixHT:Math.round((prospectPrixHT(avec)-prospectPrixHT(sans))*100)/100,
+    coefficientAvec:prospectCoefficient(avec),
+    coefficientSans:prospectCoefficient(sans),
+  };
+};
 
 /* ---------- ratio au m² ----------
    Le prix d'une maison ne se rapporte pas à la seule surface habitable : un
@@ -5292,7 +5328,7 @@ function Quantitatif({data,f,setF,save,champ}){
      Ces trois listes et le glisser se calculent avant toute sortie anticipée :
      un hook doit être appelé au même rang à chaque rendu. */
   const lignes=(q&&q.lignes)||[];
-  const vues=servisSeuls?lignes.filter(l=>ligneQt(l)>0):lignes;
+  const vues=servisSeuls?lignes.filter(l=>ligneQt(l)!==0):lignes;
   const glisse=useGlisser(vues.length,(de,vers)=>{if(!servisSeuls)ordonner(de,vers)});
   if(!q)return <Fld label="CHIFFRER CE LOT DEPUIS UN BORDEREAU">
     {B.length
@@ -5306,7 +5342,7 @@ function Quantitatif({data,f,setF,save,champ}){
       :<div className="xs mut" style={{lineHeight:1.5}}>Aucun bordereau de prix. Importez un marché déjà rédigé depuis l'onglet ARTISANS,
         et vous pourrez ensuite chiffrer vos lots en saisissant seulement les quantités.</div>}
   </Fld>;
-  const servies=lignes.filter(l=>ligneQt(l)>0);
+  const servies=lignes.filter(l=>ligneQt(l)!==0);
   const brut=quantitatifHT(lignes), r=remisePct(f), net=quantitatifNet(lignes,r);
   return <Fld label={'QUANTITATIF — '+eur(net)+' HT'}>
     <div className="sp xs" style={{flexWrap:'wrap',gap:8,marginBottom:6}}>
@@ -5368,14 +5404,28 @@ function Quantitatif({data,f,setF,save,champ}){
             </div>
             <div className="sp" style={{gap:8,alignItems:'center',marginTop:3}}>
               <span className="mut" style={{fontSize:11}}>{l.code}</span>
-              <span className="row" style={{gap:8,alignItems:'center',whiteSpace:'nowrap'}}>
+              <span className="row" style={{gap:6,alignItems:'center',whiteSpace:'nowrap'}}>
+                {/* le signe se choisit à part de la quantité : plus sûr que de faire
+                    taper un « - » dans un champ numérique — un clic transforme la
+                    ligne en moins-value, une fois la quantité saisie. */}
+                <button type="button" disabled={!(+l.qt)}
+                  aria-label={ligneQt(l)<0?'Moins-value — cliquer pour repasser en plus-value':'Plus-value — cliquer pour passer en moins-value'}
+                  title={!(+l.qt)?'Saisissez d’abord une quantité':(ligneQt(l)<0?'Moins-value':'Plus-value')}
+                  style={{width:20,height:20,flex:'0 0 auto',borderRadius:10,padding:0,lineHeight:'18px',
+                    border:'1px solid '+(ligneQt(l)<0?TERRA:RULE),background:ligneQt(l)<0?'#F6E2DC':'transparent',
+                    color:!(+l.qt)?'#C9C2B4':(ligneQt(l)<0?TERRA:MUTED),fontWeight:700,fontSize:13,
+                    cursor:(+l.qt)?'pointer':'default'}}
+                  onClick={()=>{if(+l.qt)majL(l.id,'qt',-(+l.qt))}}>
+                  {ligneQt(l)<0?'−':'+'}
+                </button>
                 <input className="in" type="number" step="0.001" placeholder="Qté" aria-label={'Quantité — '+(l.libelle||l.code)}
                   style={{padding:'3px 6px',fontSize:12,width:76,textAlign:'right'}}
-                  value={l.qt===''||l.qt===undefined?'':l.qt} onChange={e=>majL(l.id,'qt',e.target.value===''?'':+e.target.value)}/>
+                  value={l.qt===''||l.qt===undefined?'':Math.abs(l.qt)}
+                  onChange={e=>majL(l.id,'qt',e.target.value===''?'':(ligneQt(l)<0?-1:1)*Math.abs(+e.target.value))}/>
                 <span style={{minWidth:84,display:'inline-block',textAlign:'right'}}>
-                  <span className="b" style={{color:ligneQt(l)?INK:MUTED}}>{ligneQt(l)?eurc(lignePT(l)):'—'}</span>
+                  <span className="b" style={{color:ligneQt(l)<0?TERRA:(ligneQt(l)?INK:MUTED)}}>{ligneQt(l)?eurc(lignePT(l)):'—'}</span>
                   {/* la quantité s'écrit au millième, comme sur le marché imprimé */}
-                  {ligneQt(l)>0&&<span className="mut" style={{fontSize:11,display:'block'}}>{nb3(l.qt)} {l.unite}</span>}
+                  {ligneQt(l)!==0&&<span className="mut" style={{fontSize:11,display:'block'}}>{nb3(l.qt)} {l.unite}</span>}
                 </span>
               </span>
             </div>
@@ -5565,7 +5615,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
          toujours 0 pour eux) : les filtrer sur ce seul critère les effaçait
          tous, et avec eux la séparation entre plusieurs corps d'état posés
          sur un même marché (« ajouter un autre corps d'état »). */
-      lignes:((f.quantitatif||{}).lignes||[]).filter(l=>!estArticle(l)||ligneQt(l)>0),
+      lignes:((f.quantitatif||{}).lignes||[]).filter(l=>!estArticle(l)||ligneQt(l)!==0),
     });
   };
   const sortirMarche=async()=>{
@@ -5742,7 +5792,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         const a=data.artisans.find(x=>x.id===f.artisanId)||null;
         const pb=controlerMarche(f,a,ch);
         const stop=marcheBloque(pb);
-        const chiffre=!!(f.quantitatif&&(f.quantitatif.lignes||[]).some(l=>ligneQt(l)>0));
+        const chiffre=!!(f.quantitatif&&(f.quantitatif.lignes||[]).some(l=>ligneQt(l)!==0));
         return <Fld label={'SORTIR LE MARCHÉ DE TRAVAUX'+(f.numeroMarche?' — N° '+f.numeroMarche:'')}>
           <div className="xs mut" style={{lineHeight:1.5}}>
             Le contrat est rédigé ici, avec vos couleurs, ses clauses, l'adresse des travaux
@@ -5922,7 +5972,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                   <div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>{eur(marcheTTC(m,ch))} TTC · TVA {marcheTva(m,ch)} %</div>
                   <div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>{m.dateSignature?'signé le '+fd(m.dateSignature):'non signé'}</div>
                   {m.quantitatif&&<div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>
-                    chiffré — {(m.quantitatif.lignes||[]).filter(l=>ligneQt(l)>0).length} articles</div>}
+                    chiffré — {(m.quantitatif.lignes||[]).filter(l=>ligneQt(l)!==0).length} articles</div>}
                   {remisePct(m)>0&&<div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>
                     remise {remisePct(m)} % sur {eur(quantitatifHT((m.quantitatif||{}).lignes))}</div>}
                 </td>
@@ -11706,8 +11756,8 @@ function Prospects({data,save}){
       <FormNavette nav={f.navette||{}} onChange={v=>setF({...f,navette:v})}/>
 
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>VOTRE CHIFFRAGE</div>
-      <PostesChiffrage data={data} save={save} postes={f.postes||[]} onChange={v=>setF({...f,postes:v})}/>
-      <PostesChiffrage data={data} save={save} postes={f.optionsChiffrage||[]} onChange={v=>setF({...f,optionsChiffrage:v})} options/>
+      <PostesChiffrage data={data} save={save} p={f} postes={f.postes||[]} onChange={v=>setF({...f,postes:v})}/>
+      <PostesChiffrage data={data} save={save} p={f} postes={f.optionsChiffrage||[]} onChange={v=>setF({...f,optionsChiffrage:v})} options/>
       {!prospectPostesHT(f)&&<Fld label="COÛT DES TRAVAUX HT (€) — SANS DÉTAIL PAR POSTE">
         <input className="in" type="number" value={f.coutHT||''} onChange={e=>setF({...f,coutHT:e.target.value})}/></Fld>}
       <div className="g2">
@@ -11882,13 +11932,17 @@ function Prospects({data,save}){
    optionnelles : un même montage, mais chaque ligne porte en plus une case
    « Inclure dans le marché » — seules les cochées comptent dans le total
    du projet (prospectPostesHT s'en charge). */
-function PostesChiffrage({data,save,postes,onChange,options}){
+function PostesChiffrage({data,save,p,postes,onChange,options}){
   const L=postes||[];
-  const set=(id,p)=>onChange(L.map(x=>x.id===id?{...x,...p}:x));
+  const set=(id,d)=>onChange(L.map(x=>x.id===id?{...x,...d}:x));
   const setPoste=(id,fn)=>onChange(L.map(x=>x.id===id?(typeof fn==='function'?fn(x):fn):x));
   const dl=options?'pcorpsopt':'pcorps';
   const total=L.reduce((s,x)=>s+(+x.montant||0),0);
   const totalInclues=L.filter(x=>x.incluse).reduce((s,x)=>s+(+x.montant||0),0);
+  /* l'impact d'une option sur la marge se lit sur le projet tel qu'il est
+     réellement en train de se saisir — les autres options, pas encore
+     enregistrées via onChange, comptent donc telles qu'affichées ici. */
+  const pLive=p&&options?{...p,optionsChiffrage:L}:p;
   return <Fld label={options?'OPTIONS DE CHIFFRAGE':'CHIFFRAGE PAR POSTE'}>
     {options&&<div className="xs mut" style={{marginTop:-6,marginBottom:10,lineHeight:1.5}}>
       Prestations proposées au client, pas encore décidées. Cochez « Inclure dans le marché »
@@ -11908,6 +11962,14 @@ function PostesChiffrage({data,save,postes,onChange,options}){
         <input type="checkbox" checked={!!x.incluse} onChange={e=>set(x.id,{incluse:e.target.checked})}/>
         <span className="mut">Inclure dans le marché</span>
       </label>}
+      {options&&pLive&&!!x.montant&&(()=>{const im=impactOption(pLive,x);return im.coutHT!==0&&
+        <div className="xs mut" style={{marginTop:3,paddingLeft:2,lineHeight:1.5}}>
+          Impact sur le projet : {im.margeHT>=0?'+':''}{eur(im.margeHT)} de marge
+          {im.coefficientSans!==null&&im.coefficientAvec!==null
+            ?' — coefficient '+im.coefficientSans.toLocaleString('fr-FR',{minimumFractionDigits:3})
+              +' → '+im.coefficientAvec.toLocaleString('fr-FR',{minimumFractionDigits:3})
+            :''}
+        </div>})()}
       <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2}}>
         <span>Rétrocession</span>
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.retroPct||''}
@@ -11920,6 +11982,11 @@ function PostesChiffrage({data,save,postes,onChange,options}){
     <div className="row" style={{gap:10,alignItems:'center',marginTop:4,flexWrap:'wrap'}}>
       <button className="btn gh s" onClick={()=>onChange([...L,{id:uid(),libelle:'',montant:'',retroPct:''}])}>
         {options?'+ Option':'+ Poste'}</button>
+      {options&&<select className="in" style={{width:'auto',maxWidth:220,fontSize:12,padding:'4px 6px'}} value=""
+        onChange={e=>{if(e.target.value)onChange([...L,{id:uid(),libelle:e.target.value,montant:'',retroPct:''}])}}>
+        <option value="">Modèle…</option>
+        {OPTIONS_MODELES.map(m=><option key={m} value={m}>{m}</option>)}
+      </select>}
       {L.length>0&&<span className="xs b">Total {eur(total)} HT</span>}
       {options&&L.length>0&&<span className="xs mut">dont {eur(totalInclues)} HT inclus au marché</span>}
     </div>
