@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-10 · Le PDF du plan électrique s’ouvre et se télécharge partout, même sur Safari';
+const VERSION='2026-09-10 · Un petit H repère les prises en hauteur, Suppr efface au clavier';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -359,6 +359,17 @@ const ELEC_SYMBOLES=[
 ];
 const ELEC_GROUPES=[...new Set(ELEC_SYMBOLES.map(s=>s.g))];
 const elecSymbole=t=>ELEC_SYMBOLES.find(s=>s.id===t)||null;
+/* une prise posée en hauteur (1m10, contre les 30 cm habituels) se repère
+   d'un coup d'œil sur le plan, plutôt que de se déduire d'une étiquette de
+   cote qui se perd quand les symboles sont réduits. Le seuil de 100 cm
+   couvre aussi bien une prise « PC H. » restée à son défaut qu'une prise
+   ordinaire relevée à la main. */
+const priseHaute=s=>{
+  const d=elecSymbole(s&&s.type);
+  if(!d||d.g!=='Prises')return false;
+  const h=(s&&s.h!==undefined&&s.h!=='')?+s.h:+d.h;
+  return h>=100;
+};
 /* une pièce écrite tient rarement en un seul fichier : plans d'exécution en
    plusieurs planches, notice + annexes, marché + attestations. On garde donc
    une liste. L'ancien champ « lien » unique reste lu pour les pièces déjà
@@ -7615,8 +7626,11 @@ function Planning({data,ch,up}){
    à tous les zooms, chacun reste un élément cliquable, et la légende se
    dessine avec exactement les mêmes formes que le plan. */
 
-/* le dessin d'un symbole, centré sur (0,0), rayon ~9 */
-function ElecGlyph({t,c}){
+/* le dessin d'un symbole, centré sur (0,0), rayon ~9. eleve signale une
+   prise posée en hauteur (1m10) : un petit « H » s'ajoute alors dans le
+   coin du symbole, pour la distinguer d'une prise à 30 cm sans avoir à lire
+   une étiquette de cote à côté. */
+function ElecGlyph({t,c,eleve}){
   const s=elecSymbole(t); if(!s)return null;
   const coul=c||s.c, r=9;
   const rond=<circle cx="0" cy="0" r={r} fill="#fff" stroke={coul} strokeWidth="1.6"/>;
@@ -7628,6 +7642,7 @@ function ElecGlyph({t,c}){
     {[...Array(n)].map((_,i)=><line key={i} x1="2.4" y1="-2.4" x2={8.5-i*3.2} y2={-8.5-i*0.4}
       stroke={coul} strokeWidth="1.6" strokeLinecap="round"/>)}
   </g>;
+  const dessin=()=>{
   switch(t){
     /* la prise : les deux broches et la terre */
     case 'pc': case 'pch': return <g>{rond}
@@ -7678,6 +7693,11 @@ function ElecGlyph({t,c}){
     case 'sech': return <g>{rondMot('SE')}</g>;
     default: return rondMot(s.l.replace(/[^A-Za-z0-9&]/g,'').slice(0,3));
   }
+  };
+  return <g>{dessin()}
+    {eleve&&<g><circle cx="8" cy="-8" r="5" fill={TERRA}/>
+      <text x="8" y="-5.4" textAnchor="middle" fontSize="7" fontWeight="700" fill="#fff">H</text></g>}
+  </g>;
 }
 
 /* ce qui est posé sur le plan, résumé comme le cartouche de légende d'un plan
@@ -7850,7 +7870,7 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,pla
     {(symboles||[]).map(s=>{const p=pt(s);
       return <g key={s.id}>
         {/* le symbole tourne et se met à l'échelle… */}
-        <g transform={poseSymbole(p.x,p.y,s.rot,ech)}><ElecGlyph t={s.type}/></g>
+        <g transform={poseSymbole(p.x,p.y,s.rot,ech)}><ElecGlyph t={s.type} eleve={priseHaute(s)}/></g>
         {/* …mais pas sa hauteur, qui doit rester lisible à l'endroit */}
         {!!etiquetteHauteur(s,hauteurs)&&
           <text x={p.x+11*ech} y={p.y-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
@@ -8043,6 +8063,24 @@ function PlanElectrique({ch,up,onFermer}){
     if(!outil){setSel(id);setSelC(null)}
   };
   const changerOutil=t=>{setOutil(t);setSel(null);setSelC(null);setDepart(null)};
+
+  /* la touche Suppr retire l'élément sélectionné, comme le bouton « Supprimer »
+     du panneau — plus rapide quand on enchaîne les retouches. On l'ignore si
+     la frappe vise un champ de saisie (le libellé d'un câble, par exemple) :
+     Suppr y sert à corriger le texte, pas à effacer le plan. */
+  useEffect(()=>{
+    if(!window.addEventListener)return;
+    const surChamp=e=>{const c=e.target&&e.target.tagName;
+      return c==='INPUT'||c==='TEXTAREA'||c==='SELECT'||(e.target&&e.target.isContentEditable)};
+    const onKey=e=>{
+      if(e.key!=='Delete'&&e.key!=='Backspace')return;
+      if(surChamp(e))return;
+      if(sel){e.preventDefault();supprimer(sel)}
+      else if(selC){e.preventDefault();supprimerCable(selC)}
+    };
+    window.addEventListener('keydown',onKey);
+    return()=>window.removeEventListener('keydown',onKey);
+  },[sel,selC,S,C]);
 
   /* ---------- l'export en PDF ----------
      La planche est rendue par React dans l'arbre de l'écran, puis reprise par
@@ -8314,7 +8352,7 @@ function PlanElectrique({ch,up,onFermer}){
                   stroke={depart===s.id?ELEC_BLEU:TERRA} strokeWidth="1.8" strokeDasharray="3 2"/>}
                 {/* une cible de saisie confortable, même quand le symbole est petit */}
                 <circle cx={px} cy={py} r={Math.max(11,14*ech)} fill="transparent"/>
-                <g transform={poseSymbole(px,py,s.rot,ech)}><ElecGlyph t={s.type}/></g>
+                <g transform={poseSymbole(px,py,s.rot,ech)}><ElecGlyph t={s.type} eleve={priseHaute(s)}/></g>
                 {!!etiquetteHauteur(s,hauteurs)&&
                   <text x={px+11*ech} y={py-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
                     {etiquetteHauteur(s,hauteurs)}</text>}
@@ -8505,7 +8543,7 @@ function PlanElectrique({ch,up,onFermer}){
               fill="none" stroke={couleurCable(c)} strokeWidth={ep} strokeDasharray={traitCable(c,ep)}/>)}
             {S.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
               return <g key={s.id}>
-                <g transform={poseSymbole(s.x*1000,s.y*H,s.rot,ech)}><ElecGlyph t={s.type}/></g>
+                <g transform={poseSymbole(s.x*1000,s.y*H,s.rot,ech)}><ElecGlyph t={s.type} eleve={priseHaute(s)}/></g>
                 {!!etiquetteHauteur(s,hauteurs)&&
                   <text x={s.x*1000+11*ech} y={s.y*H-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
                     {etiquetteHauteur(s,hauteurs)}</text>}
