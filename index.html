@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-09 · Les options se chiffrent en plus-value ou moins-value, avec leur impact sur la marge';
+const VERSION='2026-09-10 · Le PDF du plan électrique s’ouvre et se télécharge partout, même sur Safari';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -8060,31 +8060,34 @@ function PlanElectrique({ch,up,onFermer}){
      d'ouvrir l'adresse « blob: » comme une page, et échouait — « WebKitBlob-
      Resource erreur 1 », l'application disparaissait derrière une page
      d'erreur. On rend donc le fichier autrement : le PDF fini est annoncé,
-     et c'est vous qui appuyez. Le geste est le vôtre, l'adresse reste vivante
-     tant que le panneau est ouvert, et sur iPhone la feuille de partage
-     d'iOS ouvre directement « Enregistrer dans Fichiers ». */
+     et c'est vous qui appuyez.
+     L'adresse elle-même n'est plus une « blob: », mais une « data: » — le
+     fichier encodé dans l'adresse même, pas une référence à une ressource à
+     part. Une « blob: » ouverte dans un nouvel onglet tourne court sur
+     Safari, qui refuse de la naviguer hors de l'onglet où elle est née (page
+     blanche, sans erreur) ; une « data: », elle, s'ouvre et se télécharge
+     pareil partout, et ne dépend d'aucun nettoyage — rien à révoquer, rien
+     qui ne meure avant que vous ayez appuyé. */
   const [pret,setPret]=useState(null);
-  const urlPret=useRef(null);
-  const oublierPret=()=>{
-    if(urlPret.current){try{URL.revokeObjectURL(urlPret.current)}catch(x){}urlPret.current=null}
-    setPret(null);
-  };
-  useEffect(()=>()=>{if(urlPret.current)try{URL.revokeObjectURL(urlPret.current)}catch(x){}},[]);
+  const oublierPret=()=>setPret(null);
 
   const proposer=(octets,nom)=>{
-    if(urlPret.current){try{URL.revokeObjectURL(urlPret.current)}catch(x){}}
-    const blob=new Blob([octets],{type:'application/pdf'});
-    urlPret.current=URL.createObjectURL(blob);
+    /* la « data: » se construit par blocs : passer tout le fichier d'un coup
+       à String.fromCharCode dépasse la limite d'arguments du moteur sur un
+       PDF de plusieurs centaines de Ko */
+    let bin='';
+    for(let i=0;i<octets.length;i+=8192)bin+=String.fromCharCode.apply(null,octets.subarray(i,i+8192));
+    const url='data:application/pdf;base64,'+btoa(bin);
     /* le partage de fichier n'existe pas partout : on ne propose « Enregistrer
        dans Fichiers » que si l'appareil sait vraiment le faire */
     let fichier=null;
     try{
       if(typeof File!=='undefined'&&typeof navigator!=='undefined'&&navigator.canShare&&navigator.share){
-        const f=new File([blob],nom,{type:'application/pdf'});
+        const f=new File([octets],nom,{type:'application/pdf'});
         if(navigator.canShare({files:[f]}))fichier=f;
       }
     }catch(x){fichier=null}
-    setPret({url:urlPret.current,nom,taille:blob.size,fichier});
+    setPret({url,nom,taille:octets.length,fichier});
   };
 
   /* Trois tentatives ont échoué chez l'utilisateur sans que je puisse
