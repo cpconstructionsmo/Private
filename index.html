@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-10 · Un petit H repère les prises en hauteur, Suppr efface au clavier';
+const VERSION='2026-09-12 · Un prospect s’ouvre en fiche, comme un chantier';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -11678,6 +11678,13 @@ function Prospects({data,save}){
       return (a.demandeLe||'9999').localeCompare(b.demandeLe||'9999');
     });
   const nAF=P.filter(prospectAFaire).length;
+  /* comme les chantiers : cliquer un prospect ouvre sa fiche en entier plutôt
+     que de la déplier sur place — le formulaire d'édition, lui, continue de
+     s'ouvrir par-dessus, qu'on parte de la liste ou de la fiche. */
+  const ouvert=ouv?P.find(x=>x.id===ouv):null;
+  if(!f&&ouvert)return <FicheProspect p={ouvert} data={data} maj={v=>maj(ouvert.id,v)}
+    back={()=>setOuv('')} onModifier={()=>setF(avecTaxesAuto({...neuf(),...ouvert},data))}
+    onTransformer={()=>transformer(ouvert)}/>;
   return <div>
     <H2 action={<button className="btn acc s" onClick={()=>setF(neuf())}>+ Prospect</button>}>PROSPECTS ({P.length})</H2>
     {nAF>0&&<div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,
@@ -11923,16 +11930,14 @@ function Prospects({data,save}){
     </div>}
     {!P.length&&!f&&<Empty>Aucun prospect. « + Prospect » ouvre la première demande de chiffrage.</Empty>}
     {P.length>0&&!L.length&&<Empty>Aucun prospect dans cette vue.</Empty>}
+    <div className="grid-ch">
     {L.map(p=>{
       const st=prospectSt(p.statut), prix=prospectPrixTTC(p), r=ratioM2(prix,p);
       const attente=prospectAFaire(p)?joursDepuis(p.demandeLe):null;
-      return <div key={p.id} className="card" style={{borderLeft:'3px solid '+st.c}}>
+      return <button key={p.id} className="card" style={{borderLeft:'3px solid '+st.c}} onClick={()=>setOuv(p.id)}>
         <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
           <span className="b sm" style={{color:NAVY}}>{p.nom}</span>
-          <div className="row" style={{gap:6,alignItems:'center',flex:'0 0 auto'}}>
-            <span className="pill" style={{background:st.c+'1A',color:st.c}}>{st.label}</span>
-            <Plus actif={ouv===p.id} titre="Voir le détail" onClick={()=>setOuv(ouv===p.id?'':p.id)}/>
-          </div>
+          <span className="pill" style={{background:st.c+'1A',color:st.c}}>{st.label}</span>
         </div>
         <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
           {p.adresseClient&&<div>{p.adresseClient}</div>}
@@ -11946,16 +11951,37 @@ function Prospects({data,save}){
           <div><div className="mut">Surface pondérée</div><div>{surfacePonderee(p)?surfacePonderee(p).toLocaleString('fr-FR')+' m²':'—'}</div></div>
           <div><div className="mut">Ratio</div><div className="b" style={{color:r?NAVY:MUTED}}>{eurM2(r)}</div></div>
         </div>
-        {ouv===p.id&&<div style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
-          <DetailProspect p={p} maj={v=>maj(p.id,v)} data={data}/>
-          <div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
-            <button className="btn s" onClick={()=>setF(avecTaxesAuto({...neuf(),...p},data))}>Modifier</button>
-            {p.statut!=='gagne'&&<button className="btn gh s" onClick={()=>transformer(p)}>Transformer en chantier</button>}
-            {p.chantierId&&<span className="xs" style={{color:GREEN,alignSelf:'center'}}>✓ Chantier créé</span>}
-          </div>
-        </div>}
-      </div>;
+        {p.chantierId&&<div className="xs" style={{color:GREEN,marginTop:6}}>✓ Chantier créé</div>}
+      </button>;
     })}
+    </div>
+  </div>;
+}
+
+/* ---------------- FICHE PROSPECT ----------------
+   Comme la fiche d'un chantier : plus une carte qu'on déplie dans la liste,
+   mais un écran à part entière, avec son propre retour. Le contenu reste
+   pour l'instant celui de l'ancien détail déplié — sa réorganisation en
+   plusieurs cases (fiche client, demande de chiffrage, votre chiffrage)
+   vient dans un lot séparé. */
+function FicheProspect({p,data,maj,back,onModifier,onTransformer}){
+  const st=prospectSt(p.statut), prix=prospectPrixTTC(p), r=ratioM2(prix,p);
+  return <div>
+    <button className="btn gh s" onClick={back}>← Prospects</button>
+    <div className="sp" style={{marginTop:12,marginBottom:4,gap:8,alignItems:'flex-start'}}>
+      <span className="h2" style={{fontSize:17}}>{p.nom}</span>
+      <span className="pill" style={{background:st.c+'1A',color:st.c}}>{st.label}</span>
+    </div>
+    <div className="xs mut" style={{marginBottom:12,lineHeight:1.5}}>
+      {[p.client,p.commune].filter(Boolean).join(' — ')}
+      {prix?' · '+eur(prix)+' TTC'+(r?' · '+eurM2(r):''):''}
+    </div>
+    <DetailProspect p={p} maj={maj} data={data}/>
+    <div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
+      <button className="btn s" onClick={onModifier}>Modifier</button>
+      {p.statut!=='gagne'&&<button className="btn gh s" onClick={onTransformer}>Transformer en chantier</button>}
+      {p.chantierId&&<span className="xs" style={{color:GREEN,alignSelf:'center'}}>✓ Chantier créé</span>}
+    </div>
   </div>;
 }
 
