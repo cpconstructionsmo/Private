@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-12 · La fiche prospect se lit en trois cases, budget compris dans la découverte';
+const VERSION='2026-09-12 · Chaque case de la fiche prospect se modifie à part, sans toucher aux deux autres';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -11620,6 +11620,10 @@ function TableauBord({data,save,open,allerA}){
    marge. Une fois signée, la fiche se transforme en chantier. */
 function Prospects({data,save}){
   const [f,setF]=useState(null);
+  /* nul en création (le formulaire complet reste utile pour tout saisir
+     d'un coup) ; 1, 2 ou 3 quand on modifie une case précise depuis la
+     fiche — alors seule cette case s'affiche, sans toucher aux deux autres */
+  const [caseModif,setCaseModif]=useState(null);
   const [ouv,setOuv]=useState('');
   const [filtre,setFiltre]=useState('actifs');
   const [nvTaux,setNvTaux]=useState({communal:'',dept:'',exoPTZ:false});
@@ -11650,7 +11654,7 @@ function Prospects({data,save}){
       terrainPrix:f.terrainPrix===''?'':+f.terrainPrix,
       fraisNotaire:f.fraisNotaire===''?'':+f.fraisNotaire};
     save({...data,prospects:f.id?P.map(x=>x.id===f.id?{...x,...r}:x):[...P,{...r,id:uid()}]});
-    setF(null);
+    setF(null);setCaseModif(null);
   };
   /* la fiche signée devient un chantier : on ne ressaisit pas ce qui est déjà là */
   const transformer=p=>{
@@ -11680,15 +11684,19 @@ function Prospects({data,save}){
      s'ouvrir par-dessus, qu'on parte de la liste ou de la fiche. */
   const ouvert=ouv?P.find(x=>x.id===ouv):null;
   if(!f&&ouvert)return <FicheProspect p={ouvert} data={data} maj={v=>maj(ouvert.id,v)}
-    back={()=>setOuv('')} onModifier={()=>setF(avecTaxesAuto({...neuf(),...ouvert},data))}
+    back={()=>setOuv('')}
+    onModifier={n=>{setCaseModif(n);setF(avecTaxesAuto({...neuf(),...ouvert},data))}}
     onTransformer={()=>transformer(ouvert)}/>;
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>setF(neuf())}>+ Prospect</button>}>PROSPECTS ({P.length})</H2>
+    <H2 action={<button className="btn acc s" onClick={()=>{setCaseModif(null);setF(neuf())}}>+ Prospect</button>}>PROSPECTS ({P.length})</H2>
     {nAF>0&&<div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,
       background:'#F6E2DC',borderLeft:'3px solid '+TERRA,lineHeight:1.6}}>
       <b style={{color:TERRA}}>{nAF} chiffrage{nAF>1?'s':''} à réaliser</b> — ce sont les fiches en tête de liste.
     </div>}
     {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+      {!!caseModif&&<div className="xs mut" style={{marginBottom:10,lineHeight:1.5}}>
+        Modification de la case {caseModif} — les deux autres ne bougent pas.</div>}
+      {(!caseModif||caseModif===1)&&<React.Fragment>
       <Fld label="NOM DU PROJET"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Dupont — Ceaucé"/></Fld>
       <ImportContact label="Remplir depuis Contacts"
         onLu={c=>setF(p=>({...p,client:c.nom||p.client,telClient:c.tel||p.telClient,
@@ -11744,6 +11752,9 @@ function Prospects({data,save}){
         </div>
       </>}
       <FormDecouverte dec={f.decouverte} onChange={v=>setF(avecTaxesAuto({...f,decouverte:v},data))}/>
+      </React.Fragment>}
+
+      {(!caseModif||caseModif===2)&&<React.Fragment>
       <Fld label="COMMUNE DE CONSTRUCTION"><input className="in" value={f.commune||''}
         onChange={e=>setF(avecTaxesAuto({...f,commune:e.target.value},data))} placeholder="Lotissement, commune, parcelle…"/></Fld>
 
@@ -11782,13 +11793,15 @@ function Prospects({data,save}){
         Surface pondérée retenue pour le ratio : <b>{surfacePonderee(f).toLocaleString('fr-FR')} m²</b> — l'habitable plus la moitié des annexes.
       </div>
       <div className="xs mut" style={{marginTop:-4,marginBottom:10,lineHeight:1.5}}>
-        Budget et mode de financement se saisissent avec la fiche de découverte, plus haut — pour ne pas les
+        Budget et mode de financement se saisissent dans la fiche de découverte (case 1) — pour ne pas les
         ressaisir deux fois.
       </div>
       <Fld label="PRÉCISIONS DE LA DEMANDE"><textarea className="in" rows="3" value={f.demande||''} onChange={e=>setF({...f,demande:e.target.value})} placeholder="Contraintes du terrain, souhaits particuliers, délais…"/></Fld>
 
       <FormNavette nav={f.navette||{}} onChange={v=>setF({...f,navette:v})}/>
+      </React.Fragment>}
 
+      {(!caseModif||caseModif===3)&&<React.Fragment>
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>VOTRE CHIFFRAGE</div>
       <PostesChiffrage data={data} save={save} p={f} postes={f.postes||[]} onChange={v=>setF({...f,postes:v})}/>
       <PostesChiffrage data={data} save={save} p={f} postes={f.optionsChiffrage||[]} onChange={v=>setF({...f,optionsChiffrage:v})} options/>
@@ -11906,8 +11919,9 @@ function Prospects({data,save}){
         <Fld label="CHIFFRAGE REMIS LE"><input className="in" type="date" value={f.remisLe||''} onChange={e=>setF({...f,remisLe:e.target.value})}/></Fld>
       </div>
       <Fld label="VOTRE RÉPONSE AU COMMERCIAL"><textarea className="in" rows="3" value={f.reponse||''} onChange={e=>setF({...f,reponse:e.target.value})} placeholder="Hypothèses retenues, postes exclus, réserves…"/></Fld>
-      <Acts onSave={ok} onCancel={()=>setF(null)}
-        onDel={f.id?()=>{if(confirm('Supprimer ce prospect ?')){save({...data,prospects:P.filter(x=>x.id!==f.id)});setF(null)}}:null}/>
+      </React.Fragment>}
+      <Acts onSave={ok} onCancel={()=>{setF(null);setCaseModif(null)}}
+        onDel={f.id?()=>{if(confirm('Supprimer ce prospect ?')){save({...data,prospects:P.filter(x=>x.id!==f.id)});setF(null);setCaseModif(null)}}:null}/>
     </div>}
     {P.length>0&&<div className="row" style={{gap:6,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
       <span className="xs mut">Afficher</span>
@@ -11962,9 +11976,8 @@ function FicheProspect({p,data,maj,back,onModifier,onTransformer}){
       {[p.client,p.commune].filter(Boolean).join(' — ')}
       {prix?' · '+eur(prix)+' TTC'+(r?' · '+eurM2(r):''):''}
     </div>
-    <DetailProspect p={p} maj={maj} data={data}/>
-    <div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
-      <button className="btn s" onClick={onModifier}>Modifier</button>
+    <DetailProspect p={p} maj={maj} data={data} onModifier={onModifier}/>
+    <div className="row" style={{gap:8,marginTop:4,flexWrap:'wrap'}}>
       {p.statut!=='gagne'&&<button className="btn gh s" onClick={onTransformer}>Transformer en chantier</button>}
       {p.chantierId&&<span className="xs" style={{color:GREEN,alignSelf:'center'}}>✓ Chantier créé</span>}
     </div>
@@ -12568,8 +12581,11 @@ function RecapChiffrage({p,interne}){
 /* le cadre commun aux trois cases : un titre numéroté, comme les sections
    de la fiche de découverte, pour qu'on s'y retrouve d'un coup d'œil sans
    inventer un code couleur qui n'existe nulle part ailleurs dans l'appli. */
-const CaseFiche=({titre,children})=><div className="card" style={{marginBottom:14,borderLeft:'3px solid '+RULE}}>
-  <div className="h2" style={{marginBottom:10,fontSize:14}}>{titre}</div>
+const CaseFiche=({titre,onModifier,children})=><div className="card" style={{marginBottom:14,borderLeft:'3px solid '+RULE}}>
+  <div className="sp" style={{marginBottom:10,alignItems:'center'}}>
+    <span className="h2" style={{fontSize:14}}>{titre}</span>
+    {onModifier&&<button className="btn gh s" onClick={onModifier}>Modifier</button>}
+  </div>
   {children}
 </div>;
 
@@ -12578,11 +12594,12 @@ const CaseFiche=({titre,children})=><div className="card" style={{marginBottom:1
    et ce que vous en avez fait (votre chiffrage). Budget et financement ne
    se saisissent qu'une fois, dans la fiche de découverte de la première
    case — la demande de chiffrage n'en a pas besoin pour chiffrer. */
-function DetailProspect({p,maj,data}){
+function DetailProspect({p,maj,data,onModifier}){
   const dossier=async token=>driveProspectFolder(token,p.id,p.nom);
   const setDec=(k,v)=>maj({decouverte:{...(p.decouverte||{}),[k]:v}});
+  const modif=onModifier&&(n=>()=>onModifier(n));
   return <div>
-    <CaseFiche titre="1. FICHE CLIENT">
+    <CaseFiche titre="1. FICHE CLIENT" onModifier={modif&&modif(1)}>
       <Ligne l="Client" v={afficherCivilite(p.civilite,p.client) || p.client}/>
       {p.client2&&<Ligne l="Client 2" v={afficherCivilite(p.civilite2,p.client2) || p.client2}/>}
       <Ligne l="Téléphone" v={p.telClient}/>
@@ -12591,7 +12608,7 @@ function DetailProspect({p,maj,data}){
       <VueDecouverte p={p}/>
     </CaseFiche>
 
-    <CaseFiche titre="2. DEMANDE DE CHIFFRAGE DU COMMERCIAL">
+    <CaseFiche titre="2. DEMANDE DE CHIFFRAGE DU COMMERCIAL" onModifier={modif&&modif(2)}>
       <div className="g2 xs" style={{marginBottom:10}}>
         <div>
           <Ligne l="Commercial" v={p.commercial}/>
@@ -12619,7 +12636,7 @@ function DetailProspect({p,maj,data}){
       <SortirDecouverte p={p} maj={maj}/>
     </CaseFiche>
 
-    <CaseFiche titre="3. VOTRE CHIFFRAGE">
+    <CaseFiche titre="3. VOTRE CHIFFRAGE" onModifier={modif&&modif(3)}>
       <Ligne l="Remis le" v={p.remisLe?fd(p.remisLe):''}/>
       {(p.postes||[]).length>0&&<div className="xs" style={{marginBottom:10}}>
         <div className="b" style={{color:NAVY,marginBottom:4}}>Chiffrage par poste</div>
