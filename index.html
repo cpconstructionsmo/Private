@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-14 · Une facture de marché peut être visée et envoyée au client, RIB à l’appui';
+const VERSION='2026-09-14 · La facture visée part aussi avec l’attestation d’assurance décennale';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -4583,6 +4583,7 @@ function ViserFacture({f,ch,art,data,lot}){
         +' du chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.'
         +'\n\nNous y apposons notre visa : cette facture est donc payable dès à présent.'
         +'\n\nVous trouverez ci-joint la facture visée ainsi que le relevé d’identité bancaire de l’entreprise pour son règlement.'
+        +(art.lienAttestation?'\n\nVous trouverez également son attestation d’assurance décennale en cours de validité.':'')
         +'\n\nCordialement,\n'+CP.nom,
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
@@ -4598,6 +4599,9 @@ function ViserFacture({f,ch,art,data,lot}){
       const idRib=driveIdDepuisLien(art.lienRib);
       if(idRib)pieces.push({nom:'RIB — '+(art.nom||'entreprise')+'.pdf',
         type:'application/pdf',data:await driveFichierBytes(token,idRib)});
+      const idAtt=driveIdDepuisLien(art.lienAttestation);
+      if(idAtt)pieces.push({nom:'Attestation décennale — '+(art.nom||'entreprise')+'.pdf',
+        type:'application/pdf',data:await driveFichierBytes(token,idAtt)});
       await gmailEnvoyer(token,{destinataire:mail.destinataire,cc:art.email||null,
         bcc:expediteur||null,sujet:mail.sujet,corps:mail.corps,pieces,
         expediteur,expediteurNom:expediteur?CP.nom:''});
@@ -4630,7 +4634,8 @@ function ViserFacture({f,ch,art,data,lot}){
       {expediteur&&<Fld label="EN COPIE CACHÉE"><div className="xs">{expediteur}</div></Fld>}
       <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
       <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
-      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Pièces jointes : la facture et le RIB de {art.nom||'l’entreprise'}.</div>
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Pièces jointes : la facture et le RIB de {art.nom||'l’entreprise'}
+        {art.lienAttestation?', ainsi que son attestation d’assurance décennale':''}.</div>
       <div className="row" style={{gap:8}}>
         <button className="btn acc s" onClick={envoyer}>Envoyer</button>
         <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
