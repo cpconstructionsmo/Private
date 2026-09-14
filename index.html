@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-14 · La facture visée part aussi avec l’attestation d’assurance décennale';
+const VERSION='2026-09-14 · Un avenant chiffre les prestations ajoutées ou retirées, et le fait signer au client';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -2615,6 +2615,198 @@ async function genererMarcheDocx(d){
   return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||''),logo,qr,qrPlan);
 }
 
+/* ---------- avenant au marché de travaux ----------
+   Une prestation ajoutée ou supprimée après la mise au point technique, avant
+   le démarrage des travaux, doit être chiffrée et acceptée par le maître de
+   l'ouvrage avant toute exécution — le marché lui-même le dit dans son
+   article « Prix ». Le client signe cet avenant ; le marché de travaux avec
+   l'entreprise est ensuite modifié, ou un nouveau marché établi, en
+   conséquence — d'où l'absence de signature de l'entreprise sur ce document :
+   ce n'est pas lui qui modifie son marché, c'est l'accord préalable du client. */
+const avenantLigneMontant=l=>(+((l&&l.qt))||0)*(+((l&&l.pu))||0)*((l&&l.signe)===-1?-1:1);
+const avenantMontantHT=a=>((a&&a.lignes)||[]).reduce((s,l)=>s+avenantLigneMontant(l),0);
+const avenantNumeroSuivant=m=>{
+  const n=((m&&m.avenants)||[]).map(a=>+String((a&&a.numero)||'').replace(/\D/g,'')||0);
+  return String(Math.max(0,...n)+1);
+};
+const signeDoc=n=>(n<0?'− ':'+ ')+eurDoc(Math.abs(n));
+
+function enteteAvenant(d,px){
+  return tbl([4200,6200],[tr([
+    tc(4200,par([logoXml(px)],{ap:0}),{bords:tcB({h:false,g:false,b:false,d:false}),v:'top',mg:0}),
+    tc(6200,[
+      par('AVENANT AU MARCHÉ DE TRAVAUX',{b:true,sz:30,c:DOC_TERRA,sp:20,jc:'right',ap:40}),
+      par(d.lot||'',{b:true,sz:22,c:DOC_BRUN,jc:'right',ap:40,filet:DOC_TERRA}),
+      par('N° '+(d.numero||'')+' — du '+(d.date||''),{sz:19,c:DOC_GRIS,jc:'right',ap:0}),
+      par('au marché n° '+(d.marcheNumero||'—')+(d.marcheDate?' du '+d.marcheDate:''),
+        {sz:16,i:true,c:DOC_GRIS,jc:'right',ap:0}),
+    ].join(''),{bords:tcB({h:false,g:false,b:false,d:false}),v:'bottom',mg:0}),
+  ])],{});
+}
+
+/* ---------- le tableau des prestations ajoutées ou supprimées ---------- */
+function lignesAvenant(d){
+  const G=[5400,900,700,1150,1650];
+  const ent=(l,t,jc)=>tc(l,par(t,{b:true,sz:17,c:DOC_TERRA,sp:16,caps:true,jc:jc,ap:0}),
+    {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100});
+  const rows=[tr([ent(G[0],'Prestation'),ent(G[1],'Qt','right'),ent(G[2],'U','center'),
+    ent(G[3],'PU','right'),ent(G[4],'Montant','right')])];
+  const cel=(l,t,jc)=>tc(l,par(t,{sz:18,jc:jc,ap:0}),
+    {bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100,v:'top'});
+  (d.lignes||[]).forEach(l=>{
+    rows.push(tr([
+      cel(G[0],(l.signe===-1?'Suppression — ':'Ajout — ')+(l.libelle||''),'left'),
+      cel(G[1],nb3(l.qt),'right'),
+      cel(G[2],l.unite||'','center'),
+      cel(G[3],eurNombre(l.pu),'right'),
+      cel(G[4],signeDoc(avenantLigneMontant(l)),'right'),
+    ]));
+  });
+  const pied=(l,t,jc,fusion)=>tc(l,par(t,{b:true,sz:19,jc:jc,ap:0,c:fusion?DOC_ENCRE:DOC_TERRA}),
+    {fusion:fusion||undefined,fond:DOC_SABLE,mg:100,
+     bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>'});
+  rows.push(tr([
+    pied(G[0]+G[1]+G[2]+G[3],'INCIDENCE DU PRÉSENT AVENANT H.T.','right',4),
+    pied(G[4],signeDoc(d.montantHT),'right'),
+  ]));
+  return tbl(G,rows,{});
+}
+
+/* ---------- les montants : avant, incidence, après ---------- */
+function montantsAvenant(d){
+  const lig=(l,v,fort)=>tr([
+    tc(7400,par(l,{sz:fort?21:19,b:!!fort,c:fort?DOC_ENCRE:DOC_GRIS,ap:0}),
+      {bords:tcB({h:fort?8:false,g:false,b:false,d:false,c:DOC_BRUN}),mg:120}),
+    tc(3000,par(v,{sz:fort?23:19,b:true,c:fort?DOC_TERRA:DOC_ENCRE,jc:'right',ap:0}),
+      {bords:tcB({h:fort?8:false,g:false,b:false,d:false,c:DOC_BRUN}),mg:120}),
+  ]);
+  const L=[
+    lig('Montant du marché avant avenant H.T.',eurDoc(d.montantInitialHT)),
+    lig('Incidence du présent avenant H.T.',signeDoc(d.montantHT)),
+    lig('NOUVEAU MONTANT DU MARCHÉ H.T.',eurDoc(d.montantApresHT),true),
+    lig('TVA '+d.tva+' % sur l’incidence',eurDoc(d.tvaMontant)),
+    lig('INCIDENCE DU PRÉSENT AVENANT T.T.C.',eurDoc(d.ttc),true),
+  ];
+  return tbl([7400,3000],L,{});
+}
+
+/* ---------- les clauses ----------
+   Rédigées pour que l'avenant, signé du seul maître de l'ouvrage, protège le
+   maître d'œuvre : il documente l'information et l'accord préalables du
+   client sur la prestation et son prix, avant toute exécution, et renvoie
+   explicitement au marché de travaux — modifié ou reconduit avec l'entreprise
+   en conséquence — pour ce qui relève de la relation contractuelle avec elle.
+   Elles ne remplacent pas la relecture d'un avocat avant tout usage. */
+function clausesAvenant(d){
+  const T=[
+    ['Objet de l’avenant',[
+      'Le présent avenant a pour objet de modifier le marché de travaux n° '+(d.marcheNumero||'—')
+        +(d.marcheDate?' du '+d.marcheDate:'')+', conclu entre le maître de l’ouvrage et l’entreprise désignés '
+        +'ci-dessus pour le lot « '+(d.lot||'')+' », à la suite de la mise au point technique intervenue avant '
+        +'le démarrage des travaux.',
+      d.contexte?('Contexte : '+d.contexte):'',
+    ].filter(Boolean)],
+    ['Prestations ajoutées ou supprimées',[
+      'Les prestations ajoutées ou supprimées par rapport au marché initial sont décrites au tableau ci-avant, '
+        +'avec leur quantité, leur prix unitaire et leur incidence chiffrée, positive ou négative.',
+      'Ce chiffrage est ferme et non révisable ; il ne préjuge d’aucune autre modification, laquelle ferait, '
+        +'le cas échéant, l’objet d’un avenant distinct.',
+    ]],
+    ['Incidence financière',[
+      'Le montant du marché est modifié ainsi qu’il est arrêté au tableau ci-avant. Il s’entend hors taxes, '
+        +'la TVA étant appliquée au taux de '+(d.tva||0)+' % en vigueur à la date de facturation.',
+    ]],
+    ['Délai d’exécution',[
+      d.incidenceDelai?('Le présent avenant a l’incidence suivante sur le délai d’exécution du marché : '+d.incidenceDelai+'.')
+        :'Le présent avenant est sans incidence sur le délai d’exécution du marché, sauf disposition contraire arrêtée entre les parties.',
+    ]],
+    ['Maintien des autres clauses',[
+      'Toutes les clauses et conditions du marché de travaux susvisé, non modifiées par le présent avenant, '
+        +'demeurent applicables sans changement, notamment celles relatives aux assurances, aux garanties légales, '
+        +'aux pénalités de retard et à la réception des travaux.',
+    ]],
+    ['Accord du maître de l’ouvrage',[
+      'Le maître de l’ouvrage reconnaît avoir été informé, avant toute exécution des prestations objet du '
+        +'présent avenant, de leur nature, de leur rattachement au lot désigné ci-dessus et de leur incidence '
+        +'chiffrée sur le coût des travaux, et donne son accord exprès sur les modalités décrites ci-avant.',
+      'Le présent avenant vaut accord du maître de l’ouvrage sur les prestations et leur incidence financière. '
+        +'Il donne lieu, préalablement à toute exécution, à la modification du marché de travaux susvisé ou à '
+        +'l’établissement d’un nouveau marché avec l’entreprise désignée, dans les conditions prévues à l’article '
+        +'« Prix » dudit marché.',
+    ]],
+    ['Rôle du maître d’œuvre',[
+      CP.nom+', maître d’œuvre du maître de l’ouvrage, établit et propose le présent avenant dans le cadre de sa '
+        +'mission de direction et de suivi de l’exécution des travaux. Elle n’est pas partie au marché de travaux '
+        +'en qualité d’entrepreneur et n’encourt aucune responsabilité au titre de l’exécution des prestations '
+        +'décrites ci-dessus, laquelle incombe exclusivement à l’entreprise désignée.',
+    ]],
+    ['Litiges',[
+      'Les parties s’efforceront de régler amiablement tout différend né du présent avenant. À défaut d’accord, '
+        +'le litige sera porté devant la juridiction compétente du lieu d’exécution des travaux.',
+    ]],
+  ];
+  const out=[par('CONDITIONS DE L’AVENANT',{b:true,sz:24,c:DOC_TERRA,sp:20,caps:true,ap:120,filet:DOC_TERRA})];
+  T.forEach(([titre,paras],i)=>{
+    out.push(par('Article '+(i+1)+' — '+titre,{b:true,sz:19,c:DOC_BRUN,av:120,ap:50}));
+    paras.forEach(p=>out.push(par(p,{sz:17,jc:'both',ap:60})));
+  });
+  out.push(vide(120));
+  out.push(par('Fait à '+(d.lieuSignature||'Valframbert')+', le '+(d.date||'')+', en deux exemplaires originaux — '
+    +'un pour le maître de l’ouvrage, un pour le maître d’œuvre.',{sz:17,i:true,c:DOC_GRIS,ap:160}));
+  return out.join('');
+}
+
+/* ---------- les signatures : le client, et le visa du maître d'œuvre ----------
+   Pas de colonne pour l'entreprise : ce n'est pas elle que cet avenant engage
+   directement, mais le maître de l'ouvrage, avant que son marché à elle ne
+   soit modifié ou reconduit en conséquence (voir « Rôle du maître d'œuvre »). */
+function signaturesAvenant(d){
+  const bloc=(titre,sous,mention)=>[
+    par(titre,{b:true,sz:18,c:DOC_TERRA,caps:true,sp:16,ap:40}),
+    par(sous||'',{sz:17,c:DOC_GRIS,ap:mention?40:0}),
+    mention?par(mention,{i:true,sz:16,c:DOC_GRIS,ap:0}):'',
+    vide(560),
+  ].join('');
+  const cadre=tcB({c:DOC_BRUN,sz:4,t:4,bs:4});
+  return tbl([5200,5200],[tr([
+    tc(5200,bloc('Le maître de l’ouvrage',d.client||'','« Lu et approuvé — bon pour accord »'),{bords:cadre,v:'top',mg:120}),
+    tc(5200,bloc('Le maître d’œuvre',CP.nom,'Visa'),{bords:cadre,v:'top',mg:120}),
+  ])],{});
+}
+
+/* ---------- le document complet ---------- */
+function avenantDocumentXml(d,px){
+  const corps=[
+    enteteAvenant(d,px), vide(200),
+    partiesMarche(d), vide(200),
+    chantierMarche(d), vide(200),
+    par('Objet de l’avenant',{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60}),
+    par('Le présent avenant modifie le marché de travaux du lot « '+(d.lot||'')+' » ainsi qu’il est décrit '
+      +'ci-après, à la suite de la mise au point technique intervenue avant le démarrage des travaux.',
+      {sz:18,jc:'both',ap:140}),
+    lignesAvenant(d), vide(200),
+    montantsAvenant(d), vide(200),
+    par('Le présent avenant ne vaut que complété des conditions figurant en page suivante, dont le maître de '
+      +'l’ouvrage reconnaît avoir pris connaissance.',{sz:16,i:true,c:DOC_GRIS,jc:'both',ap:0}),
+    sautPage,
+    clausesAvenant(d), vide(120),
+    signaturesAvenant(d),
+  ].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+async function genererAvenantDocx(d){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, l’avenant reste valable */}
+  return fabriquerDocx(avenantDocumentXml(d,logo),'Avenant n° '+(d.numero||'')+' — '+(d.lot||''),logo);
+}
+
 /* ---------- dossier de présentation au client ----------
    Ce que le commercial pose sur la table : la page de garde, la notice
    technique du projet tel qu'il est envisagé, le coût prévisionnel, la mission
@@ -3383,7 +3575,7 @@ async function driveProspectFolder(token,prospectId,prospectNom){
 /* Arborescence type d'un chantier, dans l'ordre des onglets de l'application.
    Google Drive classe les dossiers par ordre alphabétique : cet ordre-ci est
    celui de création, pas celui d'affichage. */
-const DOSSIERS_CHANTIER=['Marchés','Marché travaux signé','Factures','Honoraires','Rétrocessions','Matériaux','Visite technique','MAP','Contrôles','Photos','Pièces','Signatures'];
+const DOSSIERS_CHANTIER=['Marchés','Marché travaux signé','Avenants','Factures','Honoraires','Rétrocessions','Matériaux','Visite technique','MAP','Contrôles','Photos','Pièces','Signatures'];
 
 /* Pièces écrites : un dossier de maîtrise d'œuvre ne circule pas qu'en PDF —
    notices et marchés arrivent souvent en Word, les relevés en photo. iOS filtre
@@ -5866,6 +6058,123 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   });
   const joindreDevisHono=file=>envoyer(file,'Honoraires',lien=>
     majCh({devisHono:{nom:file.name,lien,date:today()}}));
+
+  /* ---------- avenants : une prestation ajoutée ou retirée après la mise au
+     point technique, avant le démarrage des travaux ----------
+     Comme les factures, les avenants vivent dans le formulaire du lot (le
+     tampon « f ») et ne rejoignent data qu'à l'Enregistrer — sauf l'ajout au
+     budget client, qui touche le chantier et se pose donc tout de suite,
+     comme le reste de ce qui écrit sur ch depuis cet onglet. */
+  const majAvenant=(aid,fn)=>setF(p=>({...p,avenants:(p.avenants||[]).map(a=>a.id===aid?fn(a):a)}));
+  const addAvenant=()=>setF(p=>({...p,avenants:[...(p.avenants||[]),
+    {id:uid(),numero:avenantNumeroSuivant(p),date:today(),contexte:'',incidenceDelai:'',
+     lignes:[{id:uid(),libelle:'',qt:1,unite:'',pu:'',signe:1}],lien:'',dateSignature:'',budgetAppliqueLe:''}]}));
+  const delAvenant=aid=>setF(p=>({...p,avenants:(p.avenants||[]).filter(a=>a.id!==aid)}));
+  const addLigneAv=aid=>majAvenant(aid,a=>({...a,lignes:[...(a.lignes||[]),
+    {id:uid(),libelle:'',qt:1,unite:'',pu:'',signe:1}]}));
+  const updLigneAv=(aid,lid,patch)=>majAvenant(aid,a=>({...a,lignes:a.lignes.map(l=>l.id===lid?{...l,...patch}:l)}));
+  const delLigneAv=(aid,lid)=>majAvenant(aid,a=>({...a,lignes:a.lignes.filter(l=>l.id!==lid)}));
+  const avenantPret=av=>(av.lignes||[]).some(l=>(l.libelle||'').trim()&&+l.qt>0&&l.pu!==''&&l.pu!==undefined&&l.pu!==null);
+  const impactLabel=n=>(n<0?'− ':'+ ')+eur(Math.abs(n));
+  const construireAvenantDoc=(av,a)=>{
+    const montantHT=avenantMontantHT(av), tx=marcheTva(f,ch), montantInitialHT=+f.montantHT||0;
+    return genererAvenantDocx({
+      lot:f.lot, numero:av.numero, date:fd(av.date||today()),
+      marcheNumero:f.numeroMarche||'', marcheDate:f.dateSignature?fd(f.dateSignature):'',
+      entreprise:(a&&a.nom)||'', adresse:(a&&a.adresse)||'', siret:(a&&a.siret)||'',
+      decennale:(a&&a.numPolice)||'', compagnie:(a&&a.assureur)||'',
+      decennaleFin:a&&a.decennaleFin?fd(a.decennaleFin):'',
+      client:ch.client||'', clientAdresse:ch.adresseClient||'', clientTel:ch.telClient||'',
+      chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'',
+      contexte:av.contexte||'', incidenceDelai:av.incidenceDelai||'',
+      lignes:av.lignes||[], montantHT, montantInitialHT, montantApresHT:montantInitialHT+montantHT,
+      tva:tx, tvaMontant:Math.round(montantHT*tx)/100, ttc:Math.round(montantHT*(100+tx))/100,
+    });
+  };
+  const [avenantTravail,setAvenantTravail]=useState('');
+  const redigerAvenant=async av=>{
+    setAvenantTravail(av.id);
+    try{
+      const a=data.artisans.find(x=>x.id===f.artisanId)||null;
+      const doc=await construireAvenantDoc(av,a);
+      const nomFichier='Avenant '+av.numero+' — '+(f.lot||'lot')+' — '+(ch.nom||'')+'.docx';
+      const fichier=new File([doc],nomFichier,
+        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,'Avenants');
+      const{webViewLink}=await uploadToDrive(fichier,folderId);
+      majAvenant(av.id,a2=>({...a2,lien:webViewLink}));
+    }catch(e){
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous)."
+        :"Rédaction de l'avenant impossible — "+((e&&(e.error||e.message))||String(e)));
+    }
+    setAvenantTravail('');
+  };
+  const importAvenantSigne=async(aid,file)=>{
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,'Avenants');
+      const{webViewLink}=await uploadToDrive(file,folderId);
+      majAvenant(aid,a=>({...a,lien:webViewLink}));
+    }catch(e){
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous)."
+        :"Import de l'avenant signé impossible.");
+    }
+  };
+  const [mailAvenant,setMailAvenant]=useState(null);
+  const ouvrirMailAvenant=av=>{
+    const montant=avenantMontantHT(av);
+    setMailAvenant({avenantId:av.id,etat:'apercu',compte:'',
+      destinataire:ch.emailClient,
+      sujet:'Avenant n° '+av.numero+(f.numeroMarche?' au marché n° '+f.numeroMarche:' au marché')
+        +' — '+(f.lot||'lot')+' — '+(ch.nom||''),
+      corps:'Bonjour,\n\nSuite à la mise au point technique, veuillez trouver ci-joint l’avenant n° '+av.numero
+        +' au marché de travaux du lot « '+(f.lot||'')+' », portant sur '
+        +(montant>=0?'un complément':'une diminution')+' de '+eur(Math.abs(montant))+' HT.'
+        +'\n\nMerci de me le retourner signé — « lu et approuvé, bon pour accord » — avant toute exécution des prestations concernées.'
+        +'\n\nCordialement,\n'+CP.nom,
+    });
+    getDriveToken().then(driveCompteConnecte).then(c=>setMailAvenant(p=>p&&({...p,compte:c}))).catch(()=>{});
+  };
+  const envoyerAvenant=async()=>{
+    setMailAvenant(p=>({...p,etat:'envoi'}));
+    try{
+      const av=(f.avenants||[]).find(x=>x.id===mailAvenant.avenantId);
+      const a=data.artisans.find(x=>x.id===f.artisanId)||null;
+      const token=await getDriveToken();
+      const docAvenant=await construireAvenantDoc(av,a);
+      const nomAvenant='Avenant '+av.numero+' — '+(f.lot||'lot');
+      let pdfAvenant;
+      try{pdfAvenant=await driveDocxEnPdf(token,docAvenant,nomAvenant)}
+      catch(x){throw new Error('L’avenant n’a pas pu être converti en PDF — '
+        +((x&&(x.error||x.message))||String(x)))}
+      const pieces=[{nom:nomAvenant+'.pdf',type:typeFichier('x.pdf'),data:pdfAvenant}];
+      await gmailEnvoyer(token,{destinataire:mailAvenant.destinataire,
+        sujet:mailAvenant.sujet,corps:mailAvenant.corps,pieces,
+        expediteur,expediteurNom:expediteur?CP.nom:''});
+      majAvenant(av.id,a2=>({...a2,envoyeLe:today()}));
+      setMailAvenant(p=>({...p,etat:'ok'}));
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setMailAvenant(p=>({...p,etat:'erreur',msg:
+        c==='auth_required'?"Google n'est pas connecté (bouton ci-dessous) — connectez-le, avec l'autorisation d'envoi de mail, puis relancez.":
+        /too large|size|quota/i.test(c)?"La pièce jointe dépasse la limite de la messagerie (25 Mo).":
+        /from|alias|delegat|not.*permitted|precondition/i.test(c)&&expediteur
+          ?"La messagerie refuse d’écrire depuis "+expediteur+" : cette adresse doit d’abord y être déclarée comme adresse d’envoi vérifiée (Gmail › Paramètres › Comptes et importation › « Envoyer des e-mails en tant que »). Détail : "+c:
+        "Envoi impossible — "+c}));
+    }
+  };
+  /* le budget annoncé au client n'est corrigé qu'une fois l'avenant signé —
+     pas à sa simple rédaction — et seulement à la demande, en confirmant le
+     montant : ce chiffre nourrit un engagement pris auprès du client. */
+  const appliquerBudgetAvenant=av=>{
+    const impactTTC=Math.round(avenantMontantHT(av)*(1+marcheTva(f,ch)/100));
+    if(!confirm('Ajouter '+impactLabel(impactTTC)+' TTC au budget client annoncé (actuellement '
+      +eur(ch.budgetClientTTC||0)+') ?'))return;
+    majCh({budgetClientTTC:(+ch.budgetClientTTC||0)+impactTTC});
+    majAvenant(av.id,a=>({...a,budgetAppliqueLe:today()}));
+  };
+
   /* Le formulaire s'ouvrait en haut de l'écran : sur un chantier de quinze
      lots, modifier le dernier obligeait à remonter toute la page, puis à
      redescendre. On le compose ici pour pouvoir le poser là où l'on a
@@ -6002,6 +6311,107 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           </div>}
         </Fld>;
       })()}
+      {f.id&&<Fld label="AVENANTS">
+        <div className="xs mut" style={{lineHeight:1.5,marginBottom:8}}>
+          Une prestation ajoutée ou retirée après la mise au point technique, avant le démarrage des travaux,
+          se chiffre et se fait accepter par le client ici — le marché lui-même l’exige. Le marché de travaux
+          avec l’entreprise se modifie ou se reconduit ensuite, séparément.
+        </div>
+        {(f.avenants||[]).map(av=>{
+          const montant=avenantMontantHT(av);
+          const impactTTC=Math.round(montant*(1+marcheTva(f,ch)/100));
+          return <div key={av.id} className="card" style={{marginBottom:10,padding:10}}>
+            <div className="sp" style={{alignItems:'center',marginBottom:8}}>
+              <span className="b sm" style={{color:NAVY}}>Avenant n° {av.numero}</span>
+              <span className="xs b" style={{color:montant<0?TERRA:GREEN}}>{impactLabel(montant)} HT</span>
+            </div>
+            <Fld label="DATE"><input className="in" type="date" value={av.date} onChange={e=>majAvenant(av.id,a=>({...a,date:e.target.value}))}/></Fld>
+            <Fld label="CONTEXTE"><textarea className="in" rows="2" placeholder="Mise au point technique avant démarrage des travaux"
+              value={av.contexte} onChange={e=>majAvenant(av.id,a=>({...a,contexte:e.target.value}))}/></Fld>
+            <Fld label="INCIDENCE SUR LE DÉLAI D'EXÉCUTION (FACULTATIF)">
+              <input className="in" placeholder="Laissez vide : sans incidence" value={av.incidenceDelai||''}
+                onChange={e=>majAvenant(av.id,a=>({...a,incidenceDelai:e.target.value}))}/>
+            </Fld>
+            <div className="lbl">PRESTATIONS AJOUTÉES OU SUPPRIMÉES</div>
+            {(av.lignes||[]).map(l=><div key={l.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center',flexWrap:'wrap'}}>
+              <select className="in" style={{flex:'0 0 100px'}} value={l.signe===-1?'-1':'1'}
+                onChange={e=>updLigneAv(av.id,l.id,{signe:+e.target.value})}>
+                <option value="1">+ Ajout</option><option value="-1">− Suppression</option>
+              </select>
+              <input className="in" placeholder="Prestation" value={l.libelle} style={{flex:'2 1 160px'}}
+                onChange={e=>updLigneAv(av.id,l.id,{libelle:e.target.value})}/>
+              <input className="in" type="number" placeholder="Qt" value={l.qt} style={{flex:'0 1 70px'}}
+                onChange={e=>updLigneAv(av.id,l.id,{qt:e.target.value})}/>
+              <input className="in" placeholder="Unité" value={l.unite} style={{flex:'0 1 70px'}}
+                onChange={e=>updLigneAv(av.id,l.id,{unite:e.target.value})}/>
+              <input className="in" type="number" placeholder="PU €" value={l.pu} style={{flex:'0 1 90px'}}
+                onChange={e=>updLigneAv(av.id,l.id,{pu:e.target.value})}/>
+              <span className="xs b" style={{flex:'0 0 84px',textAlign:'right'}}>{impactLabel(avenantLigneMontant(l))}</span>
+              <button className="btn dg s" onClick={()=>delLigneAv(av.id,l.id)}>✕</button>
+            </div>)}
+            <button className="btn gh s" onClick={()=>addLigneAv(av.id)}>+ Prestation</button>
+            <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE}}>
+              <button className="btn s acc" disabled={!avenantPret(av)||avenantTravail===av.id}
+                style={{opacity:avenantPret(av)?1:.5}} onClick={()=>redigerAvenant(av)}>
+                {avenantTravail===av.id?'Rédaction…':(av.lien?'Régénérer l’avenant':'Rédiger l’avenant et l’envoyer sur le Drive')}
+              </button>
+              {!avenantPret(av)&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+                Il faut au moins une prestation, avec sa quantité et son prix unitaire, pour rédiger l’avenant.</div>}
+              {av.lien&&<div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
+                <Transmis/>
+                <a href={av.lien} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir l’avenant</a>
+                <label className="xs" style={{color:NAVY,cursor:'pointer'}}>Remplacer par la version signée
+                  <input type="file" accept={PIECES_ACCEPT} style={{display:'none'}}
+                    onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importAvenantSigne(av.id,file)}}/></label>
+              </div>}
+              {av.lien&&<Fld label="DATE DE SIGNATURE">
+                <input className="in" type="date" value={av.dateSignature||''}
+                  onChange={e=>majAvenant(av.id,a=>({...a,dateSignature:e.target.value}))}/>
+              </Fld>}
+              {av.lien&&!ch.emailClient&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+                Aucun e-mail enregistré pour {ch.client||'ce client'} — ajoutez-le dans la fiche du chantier
+                pour pouvoir lui envoyer l’avenant.</div>}
+              {av.lien&&ch.emailClient&&!(mailAvenant&&mailAvenant.avenantId===av.id)&&
+                <button className="btn gh s" onClick={()=>ouvrirMailAvenant(av)}>Envoyer au client par mail</button>}
+              {mailAvenant&&mailAvenant.avenantId===av.id&&mailAvenant.etat==='apercu'&&<div className="card" style={{padding:10,marginTop:8}}>
+                {!expediteur&&!!mailAvenant.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
+                  borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+                  Le mail partira de <b>{mailAvenant.compte}</b>, le compte Google connecté. Pour qu’il parte
+                  d’une adresse cpconstructions.fr, renseignez-la dans RÉGLAGES › Adresse d’expédition.</div>}
+                <Fld label="EXPÉDITEUR">
+                  <div className="xs">{expediteur||mailAvenant.compte||'le compte Google connecté'}
+                    {expediteur&&mailAvenant.compte&&<span className="mut"> · via {mailAvenant.compte}</span>}</div>
+                </Fld>
+                <Fld label="DESTINATAIRE"><div className="xs">{mailAvenant.destinataire}</div></Fld>
+                <Fld label="OBJET"><input className="in" value={mailAvenant.sujet} onChange={e=>setMailAvenant({...mailAvenant,sujet:e.target.value})}/></Fld>
+                <Fld label="MESSAGE"><textarea className="in" rows="7" value={mailAvenant.corps} onChange={e=>setMailAvenant({...mailAvenant,corps:e.target.value})}/></Fld>
+                <div className="row" style={{gap:8}}>
+                  <button className="btn acc s" onClick={envoyerAvenant}>Envoyer</button>
+                  <button className="btn gh s" onClick={()=>setMailAvenant(null)}>Annuler</button>
+                </div>
+              </div>}
+              {mailAvenant&&mailAvenant.avenantId===av.id&&mailAvenant.etat==='envoi'&&<div className="xs mut" style={{marginTop:8}}>Envoi en cours…</div>}
+              {mailAvenant&&mailAvenant.avenantId===av.id&&mailAvenant.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+                Avenant envoyé à {mailAvenant.destinataire}.
+                <button className="btn gh s" style={{marginLeft:10}} onClick={()=>setMailAvenant(null)}>Fermer</button></div>}
+              {mailAvenant&&mailAvenant.avenantId===av.id&&mailAvenant.etat==='erreur'&&<div style={{marginTop:8}}>
+                <div className="xs" style={{color:TERRA,lineHeight:1.5,marginBottom:8}}>{mailAvenant.msg}</div>
+                <div className="row" style={{gap:8}}>
+                  <button className="btn gh s" onClick={envoyerAvenant}>Réessayer</button>
+                  <button className="btn gh s" onClick={()=>setMailAvenant(null)}>Annuler</button>
+                </div>
+              </div>}
+              {av.dateSignature&&!av.budgetAppliqueLe&&<button className="btn gh s" style={{marginTop:8}}
+                onClick={()=>appliquerBudgetAvenant(av)}>Ajouter {impactLabel(impactTTC)} TTC au budget client</button>}
+              {av.budgetAppliqueLe&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+                ✓ Intégré au budget client le {fd(av.budgetAppliqueLe)}.</div>}
+            </div>
+            <button className="btn dg s" style={{marginTop:10}}
+              onClick={()=>{if(confirm('Supprimer cet avenant ?'))delAvenant(av.id)}}>Supprimer l’avenant</button>
+          </div>;
+        })}
+        <button className="btn gh s" onClick={addAvenant}>+ Avenant</button>
+      </Fld>}
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
       <Fld label={"FACTURES — total "+eur(facturesTotal(f.factures))}>
         {(f.factures||[]).map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
