@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-12 · Chaque case de la fiche prospect se modifie à part, sans toucher aux deux autres';
+const VERSION='2026-09-14 · Une facture de marché peut être visée et envoyée au client, RIB à l’appui';
 const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
   'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
@@ -3413,6 +3413,13 @@ async function driveAttestationsFolder(token){
   driveAttestFolderId=await driveFindOrCreateSubfolder(token,rootId,'Attestations décennales');
   return driveAttestFolderId;
 }
+let driveRibFolderId=null;
+async function driveRibFolder(token){
+  if(driveRibFolderId)return driveRibFolderId;
+  const rootId=await driveFolder(token);
+  driveRibFolderId=await driveFindOrCreateSubfolder(token,rootId,'RIB artisans');
+  return driveRibFolderId;
+}
 
 /* ---------- rendre un fichier lisible sans compte Google ----------
    Un lien Drive ordinaire renvoie l'artisan vers une demande de connexion :
@@ -3528,7 +3535,7 @@ const nomPiece=nom=>{
 
 /* un multipart/mixed écrit à la main : sujet, corps et pièces jointes en
    base64 — ce qu'un client de messagerie fabriquerait, sans en dépendre */
-function mimeMessage({destinataire,cc,sujet,corps,pieces,expediteur,expediteurNom}){
+function mimeMessage({destinataire,cc,bcc,sujet,corps,pieces,expediteur,expediteurNom}){
   const lim='====cp'+Date.now()+'====';
   const motB64=s=>'=?UTF-8?B?'+u8aBase64(new TextEncoder().encode(s))+'?=';
   const decoupe=b64=>{const L=[];for(let i=0;i<b64.length;i+=76)L.push(b64.slice(i,i+76));return L};
@@ -3547,6 +3554,7 @@ function mimeMessage({destinataire,cc,sujet,corps,pieces,expediteur,expediteurNo
     expediteur?'From: '+boite(expediteur,expediteurNom):null,
     'To: '+destinataire,
     cc?'Cc: '+cc:null,
+    bcc?'Bcc: '+bcc:null,
     'Subject: '+motB64(sujet),
     'MIME-Version: 1.0',
     'Content-Type: multipart/mixed; boundary="'+lim+'"',
@@ -4514,7 +4522,7 @@ function FicheEntreprise({a}){
 
 /* la colonne de droite : chaque facture avec son numéro, sa date, son montant
    et ce qui reste dû après elle. Le « + » ouvre son justificatif. */
-function ColFactures({liste,engage,ouv,setOuv,cle,onLien}){
+function ColFactures({liste,engage,ouv,setOuv,cle,onLien,visa}){
   const L=liste||[];
   const total=facturesTotal(L), reste=(engage||0)-total;
   let cumul=0;
@@ -4544,6 +4552,9 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien}){
             :<label className="xs" style={{color:NAVY,cursor:'pointer'}}>Importer la facture — elle part sur le Drive
               <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
                 onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label>}
+          {f.lien&&visa&&visa.artisan&&<div style={{marginTop:8}}>
+            <ViserFacture f={f} ch={visa.ch} art={visa.artisan} lot={visa.lot} data={visa.data}/>
+          </div>}
         </div>}
       </div>;
     })}
@@ -4551,6 +4562,90 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien}){
       <div className="b">{eur(total)} facturé</div>
       <div style={{color:reste<0?TERRA:(reste<=0?GREEN:MUTED),fontSize:11}}>
         {reste<0?'dépassement '+eur(-reste):(reste<=0?'soldé':'reste à facturer '+eur(reste))}</div>
+    </div>}
+  </div>;
+}
+
+/* ---------- viser une facture reçue et la transmettre, visée, au client ----------
+   Le contrôle se fait ici, sur la facture déjà déposée : le mail informe le
+   client que la facture est payable, met l'entreprise en copie et transmet
+   son RIB pour le règlement. Rien ne peut partir avant que ce RIB soit
+   déposé sur la fiche de l'entreprise — c'est lui que le mail doit transmettre. */
+function ViserFacture({f,ch,art,data,lot}){
+  const [mail,setMail]=useState(null);
+  const expediteur=((data&&data.expediteurMail)||'').trim();
+  const ouvrirMail=()=>{
+    setMail({etat:'apercu',compte:'',
+      destinataire:ch.emailClient,
+      sujet:'Facture visée'+(f.numero?' n° '+f.numero:'')+' — '+(art.nom||lot||'')+' — '+(ch.nom||''),
+      corps:'Bonjour,\n\nNous avons contrôlé la facture'+(f.numero?' n° '+f.numero:'')+' de '+(art.nom||'l’entreprise')
+        +', d’un montant de '+eur(f.montant)+' HT'+(lot?' pour le lot '+lot:'')
+        +' du chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.'
+        +'\n\nNous y apposons notre visa : cette facture est donc payable dès à présent.'
+        +'\n\nVous trouverez ci-joint la facture visée ainsi que le relevé d’identité bancaire de l’entreprise pour son règlement.'
+        +'\n\nCordialement,\n'+CP.nom,
+    });
+    getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
+  };
+  const envoyer=async()=>{
+    setMail(p=>({...p,etat:'envoi'}));
+    try{
+      const token=await getDriveToken();
+      const pieces=[];
+      const idFac=driveIdDepuisLien(f.lien);
+      if(idFac)pieces.push({nom:'Facture'+(f.numero?' '+f.numero:'')+' — '+(art.nom||'entreprise')+'.pdf',
+        type:'application/pdf',data:await driveFichierBytes(token,idFac)});
+      const idRib=driveIdDepuisLien(art.lienRib);
+      if(idRib)pieces.push({nom:'RIB — '+(art.nom||'entreprise')+'.pdf',
+        type:'application/pdf',data:await driveFichierBytes(token,idRib)});
+      await gmailEnvoyer(token,{destinataire:mail.destinataire,cc:art.email||null,
+        bcc:expediteur||null,sujet:mail.sujet,corps:mail.corps,pieces,
+        expediteur,expediteurNom:expediteur?CP.nom:''});
+      setMail(p=>({...p,etat:'ok'}));
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setMail(p=>({...p,etat:'erreur',msg:
+        c==='auth_required'?"Google n'est pas connecté (bouton en bas de l'onglet) — connectez-le, avec l'autorisation d'envoi de mail, puis relancez.":
+        /too large|size|quota/i.test(c)?"Les pièces jointes dépassent la limite de la messagerie (25 Mo au total).":
+        "Envoi impossible — "+c}));
+    }
+  };
+  if(!ch.emailClient)return <div className="xs mut" style={{lineHeight:1.5}}>
+    Aucun e-mail enregistré pour {ch.client||'ce client'} — ajoutez-le dans la fiche du chantier pour pouvoir lui transmettre la facture visée.</div>;
+  if(!art.lienRib)return <div className="xs mut" style={{lineHeight:1.5}}>
+    Le RIB de {art.nom||'l’entreprise'} n’est pas encore déposé — ajoutez-le sur sa fiche (onglet ARTISANS) pour pouvoir viser et transmettre cette facture.</div>;
+  return <div>
+    {!mail&&<button className="btn gh s" onClick={ouvrirMail}>Viser et envoyer au client</button>}
+    {mail&&mail.etat==='apercu'&&<div className="card" style={{padding:10,marginTop:6}}>
+      {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
+        borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+        Le mail partira de <b>{mail.compte}</b>, le compte Google connecté. Pour qu’il parte
+        d’une adresse cpconstructions.fr, renseignez-la dans RÉGLAGES › Adresse d’expédition.</div>}
+      <Fld label="EXPÉDITEUR">
+        <div className="xs">{expediteur||mail.compte||'le compte Google connecté'}
+          {expediteur&&mail.compte&&<span className="mut"> · via {mail.compte}</span>}</div>
+      </Fld>
+      <Fld label="DESTINATAIRE"><div className="xs">{mail.destinataire}</div></Fld>
+      <Fld label="EN COPIE"><div className="xs">{art.email||'—'}</div></Fld>
+      {expediteur&&<Fld label="EN COPIE CACHÉE"><div className="xs">{expediteur}</div></Fld>}
+      <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
+      <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Pièces jointes : la facture et le RIB de {art.nom||'l’entreprise'}.</div>
+      <div className="row" style={{gap:8}}>
+        <button className="btn acc s" onClick={envoyer}>Envoyer</button>
+        <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+      </div>
+    </div>}
+    {mail&&mail.etat==='envoi'&&<div className="xs mut" style={{marginTop:6}}>Envoi en cours…</div>}
+    {mail&&mail.etat==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+      ✓ Facture visée envoyée à {mail.destinataire}.
+      <button className="btn gh s" style={{marginLeft:10}} onClick={()=>setMail(null)}>Fermer</button></div>}
+    {mail&&mail.etat==='erreur'&&<div style={{marginTop:6}}>
+      <div className="xs" style={{color:TERRA,lineHeight:1.5,marginBottom:8}}>{mail.msg}</div>
+      <div className="row" style={{gap:8}}>
+        <button className="btn gh s" onClick={envoyer}>Réessayer</button>
+        <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+      </div>
     </div>}
   </div>;
 }
@@ -5990,7 +6085,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                 {/* à droite chaque facture, une par une */}
                 <td style={{padding:'8px 4px'}}>
                   <ColFactures liste={m.factures} engage={+m.montantHT||0} ouv={ouv} setOuv={setOuv}
-                    cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}/>
+                    cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}
+                    visa={{ch,artisan:art,lot:m.lot,data}}/>
                 </td>
               </tr>
               {f&&f.id===m.id&&<Volet cols={3}>{formulaireLot}</Volet>}
@@ -6390,7 +6486,7 @@ function LireMarches({data,ch,save,close}){
       let aid=r.artisanId;
       if(!aid&&r.artisanNom){
         const a={id:uid(),nom:r.artisanNom,corps:r.lot||'',tel:'',email:'',adresse:'',siret:'',activites:'',
-                 assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''};
+                 assureur:'',numPolice:'',decennaleFin:'',lienAttestation:'',lienRib:''};
         artisans=[...artisans,a]; aid=a.id;
       }
       /* la TVA reste vide quand elle est celle du chantier : le lot suit alors
@@ -6672,7 +6768,7 @@ function ImportMarches({data,ch,save,close}){
       const[lot,artisanNom,montantStr,dateStr,tvaStr]=parts;
       let art=artisanNom?artisans.find(a=>a.nom.toLowerCase()===artisanNom.toLowerCase()):null;
       if(artisanNom&&!art){
-        art={id:uid(),nom:artisanNom,corps:lot,tel:'',email:'',adresse:'',siret:'',activites:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''};
+        art={id:uid(),nom:artisanNom,corps:lot,tel:'',email:'',adresse:'',siret:'',activites:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:'',lienRib:''};
         artisans=[...artisans,art];
       }
       let dateSignature='';
@@ -9733,6 +9829,20 @@ function Artisans({data,save}){
     else if(!extrait.champsTrouves.length)setLecture({etat:'rien'});
     else setLecture({etat:'ok',champs:extrait.champsTrouves,incertain:extrait.dateIncertaine});
   };
+  const [ribEnvoi,setRibEnvoi]=useState('');
+  const importRib=async file=>{
+    setRibEnvoi('travail');
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveRibFolder(token);
+      const{webViewLink}=await uploadToDrive(file,folderId);
+      setF(p=>({...p,lienRib:webViewLink}));
+      setRibEnvoi('');
+    }catch(e){
+      setRibEnvoi('');
+      alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton ci-dessous).":"Import du RIB impossible.");
+    }
+  };
   const st=a=>{
     if(!a.decennaleFin)return{t:'Décennale non renseignée',c:TERRA};
     const j=Math.round((new Date(a.decennaleFin)-new Date())/86400000);
@@ -9776,11 +9886,20 @@ function Artisans({data,save}){
       </div>
       <Fld label="DÉCENNALE VALIDE JUSQU'AU"><input className="in" type="date" value={f.decennaleFin} onChange={e=>setF({...f,decennaleFin:e.target.value})}/></Fld>
       <Fld label="LIEN VERS L'ATTESTATION"><input className="in" placeholder="Rempli par l'import du PDF, ou collez un lien…" value={f.lienAttestation} onChange={e=>setF({...f,lienAttestation:e.target.value})}/></Fld>
+      <Fld label="RIB">
+        <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
+          <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{ribEnvoi==='travail'?'Envoi…':(f.lienRib?'Remplacer le RIB':'Importer le RIB')}
+            <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}} disabled={ribEnvoi==='travail'}
+              onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)importRib(file)}}/></label>
+          {f.lienRib&&<a href={f.lienRib} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir le RIB</a>}
+        </div>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Nécessaire pour transmettre une facture visée au client avec les coordonnées bancaires de l'entreprise.</div>
+      </Fld>
       <DriveStatus/>
       <Acts onSave={()=>{setLecture(null);ok()}} onCancel={()=>{setLecture(null);setF(null)}} onDel={f.id?()=>{save({...data,artisans:data.artisans.filter(a=>a.id!==f.id)});setLecture(null);setF(null)}:null}/>
     </div>:null;
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>{setLecture(null);setF({nom:'',corps:'',tel:'',email:'',adresse:'',siret:'',activites:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:''})}}>+ Artisan</button>}>ARTISANS ({data.artisans.length})</H2>
+    <H2 action={<button className="btn acc s" onClick={()=>{setLecture(null);setF({nom:'',corps:'',tel:'',email:'',adresse:'',siret:'',activites:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:'',lienRib:''})}}>+ Artisan</button>}>ARTISANS ({data.artisans.length})</H2>
     {al.length>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
       {al.length} artisan{al.length>1?'s':''} sans décennale valide. Ne pas signer de marché avant régularisation.</div>}
     {f&&!f.id&&formulaire}
@@ -9802,6 +9921,7 @@ function Artisans({data,save}){
           {a.tel&&<a href={'https://wa.me/'+wa(a.tel)} style={{color:TERRA}}>WhatsApp</a>}
           {a.email&&<a href={'mailto:'+a.email} style={{color:TERRA}}>Email</a>}
           {a.lienAttestation&&<a href={a.lienAttestation} target="_blank" rel="noreferrer" style={{color:TERRA}}>Attestation</a>}
+          {a.lienRib&&<a href={a.lienRib} target="_blank" rel="noreferrer" style={{color:TERRA}}>RIB</a>}
         </div>
       </div>;
     })}
@@ -13412,7 +13532,7 @@ function Donnees({data,save,session}){
         if(ex){
           mapA[a.id]=ex.id;
           let modif=false;
-          for(const k of ['corps','tel','email','adresse','siret','activites','assureur','numPolice','decennaleFin','lienAttestation'])
+          for(const k of ['corps','tel','email','adresse','siret','activites','assureur','numPolice','decennaleFin','lienAttestation','lienRib'])
             if(a[k]&&!String(ex[k]||'').trim()){ex[k]=a[k];modif=true}
           if(modif)completes++;
         }else{
