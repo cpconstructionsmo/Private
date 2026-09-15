@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-15 · Postes de chiffrage : majoration propre, glisser pour réordonner, bordereaux avec pièces jointes et fournisseurs';
+const VERSION='2026-09-15 · Un devis PDF joint à un bordereau alimente tout seul ses articles, prix et codes';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3880,6 +3880,111 @@ async function pdfText(file){
   return txt.replace(/\s+/g,' ').trim();
 }
 
+/* ---------- lecture d'un devis PDF fournisseur, colonnes retrouvées ----------
+   pdfText() aplatit tout en un seul flux, ce qui suffit pour une attestation
+   mais détruit les tableaux d'un devis : deux articles peuvent alors se
+   retrouver mélangés. On reconstruit ici des lignes en respectant les
+   colonnes, comme le ferait `pdftotext -layout`, à partir des positions que
+   pdf.js donne pour chaque fragment de texte — deux passes bien séparées :
+   on regroupe d'abord par proximité verticale (peu importe l'ordre), puis,
+   dans chaque ligne ainsi formée, on trie par position horizontale avant de
+   recomposer le texte avec des espaces proportionnels au vide. Sans ces deux
+   passes distinctes, un fragment à peine plus haut qu'un autre (une TVA en
+   petite police, par exemple) se retrouve trié avant toute la ligne au lieu
+   d'être placé à sa colonne. */
+function lignesDepuisItems(pages){
+  const lignes=[];
+  for(const items0 of pages){
+    /* les items « blancs » du PDF (espaces de justification, souvent très
+       larges) n'apportent aucun texte utile mais faussent le calcul des
+       vides entre colonnes réelles si on les laisse déplacer la fin de ligne */
+    const items=items0.filter(x=>x.str!=null&&x.str.trim()!=='');
+    const tries=items.slice().sort((a,b)=>b.y-a.y);
+    const groupes=[];
+    let groupe=null,yRef=null;
+    for(const it of tries){
+      const h=it.h||10;
+      if(yRef===null||Math.abs(it.y-yRef)>Math.max(3,h*0.6)){groupe=[];groupes.push(groupe);yRef=it.y}
+      groupe.push(it);
+    }
+    for(const g of groupes){
+      g.sort((a,b)=>a.x-b.x);
+      let texte='',finX=null;
+      for(const it of g){
+        const h=it.h||10;
+        if(finX!==null){
+          const car=Math.max(h*0.5,4);
+          const trous=Math.round((it.x-finX)/car);
+          if(trous>=2)texte+=' '.repeat(trous);
+          else if(texte&&!texte.endsWith(' ')&&!it.str.startsWith(' '))texte+=' ';
+        }
+        texte+=it.str;
+        finX=Math.max(finX===null?-Infinity:finX,it.x+it.w);
+      }
+      lignes.push(texte);
+    }
+  }
+  return lignes;
+}
+async function pdfLignes(file){
+  if(typeof pdfjsLib==='undefined')throw new Error('Lecteur PDF non chargé — vérifiez votre connexion.');
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  const buf=await file.arrayBuffer();
+  const doc=await pdfjsLib.getDocument({data:buf}).promise;
+  const pages=[];
+  for(let i=1;i<=Math.min(doc.numPages,12);i++){
+    const page=await doc.getPage(i);
+    const c=await page.getTextContent();
+    pages.push(c.items.map(x=>({str:x.str,x:x.transform[4],y:x.transform[5],w:x.width||0,
+      h:Math.abs(x.transform[3])||Math.abs(x.transform[0])||10})));
+  }
+  return lignesDepuisItems(pages);
+}
+/* certaines polices de devis, mal sous-titrées (ToUnicode cassé), rendent le
+   séparateur de milliers comme un glyphe imprévisible (« 1 ௗ 418,22 » au lieu
+   de « 1 418,22 ») : dans un montant, tout ce qui n'est ni chiffre, ni
+   virgule, ni point, ni espace, ni € se traite comme un séparateur de
+   milliers et s'efface — parseAmount ignore de toute façon les espaces */
+const nettoyerMontantDevis=s=>String(s).replace(/[^\d,.\s€]/g,' ');
+const montantDevis=s=>+nettoyerMontantDevis(s).replace(/[ \s€]/g,'').replace(',','.');
+const estMontantDevis=s=>/^[\d ]+,\d{2}\s*€?$/.test(nettoyerMontantDevis(s).trim());
+/* une rangée d'article se termine toujours par quantité, prix unitaire,
+   total et un code de TVA — que l'on retrouve qu'il y ait ou non un repère
+   (A, B…) en tête, propre aux devis de menuiseries sur mesure ; les
+   dimensions, elles, se lisent soit sur la même rangée (largeur puis
+   hauteur), soit sur la ligne juste en dessous (« Largeur 900 mm »,
+   « Haut 2150 mm x Larg 900 mm ») selon le gabarit du devis */
+function analyseDevisFournisseur(lignes){
+  const out=[];
+  for(let i=0;i<(lignes||[]).length;i++){
+    const line=String(lignes[i]).replace(/ /g,' ');
+    if(!line.trim())continue;
+    let f=line.trim().split(/\s{2,}/).filter(Boolean);
+    if(f.length<4)continue;
+    const last=f[f.length-1];
+    if(!/^\d+([.,]\d+)?$/.test(last))continue;
+    const totalRaw=f[f.length-2], puRaw=f[f.length-3];
+    if(!estMontantDevis(totalRaw)||!estMontantDevis(puRaw))continue;
+    const qtyRaw=f[f.length-4];
+    if(!/^\d{1,4}$/.test(qtyRaw))continue;
+    let reste=f.slice(0,f.length-4);
+    let dims=[];
+    while(reste.length&&/^\d{2,4}$/.test(reste[reste.length-1])&&dims.length<2)dims.unshift(reste.pop());
+    let code='';
+    if(reste.length&&/^[A-Z]$/.test(reste[0]))code=reste.shift();
+    let libelle=reste.join(' ').trim();
+    if(!libelle)continue;
+    if(dims.length===2)libelle+=' '+dims[0]+'x'+dims[1];
+    if(!dims.length){
+      const suite=String(lignes[i+1]||'').trim();
+      if(/^(?:Haut\s+\d+\s*mm\s*x\s*Larg\s+\d+\s*mm|Largeur\s+\d+\s*mm|Hauteur\s+\d+\s*mm)$/i.test(suite))
+        libelle+=' — '+suite;
+    }
+    out.push({code,libelle,unite:'U',pu:montantDevis(puRaw)});
+  }
+  return out;
+}
+
 /* ---------- lecture des fichiers Word (.docx) ---------- */
 /* Un .docx est un ZIP : on y prend word/document.xml et on le décompresse avec
    DecompressionStream, présent dans Safari depuis iOS 16.4 — aucune bibliothèque
@@ -5093,7 +5198,7 @@ const Transmis=()=><span className="xs b" style={{color:GREEN,whiteSpace:'nowrap
 
 /* Liste de fichiers rattachés à une fiche et rangés dans un sous-dossier du
    chantier : import multiple, nom d'origine conservé, retrait sans suppression. */
-function FichiersDrive({ch,dossier,fichiers,onChange,label,resoudre}){
+function FichiersDrive({ch,dossier,fichiers,onChange,label,resoudre,onFichier}){
   const [busy,setBusy]=useState(false);
   const L=fichiers||[];
   const importer=async files=>{
@@ -5107,6 +5212,10 @@ function FichiersDrive({ch,dossier,fichiers,onChange,label,resoudre}){
         try{
           const{webViewLink}=await uploadToDrive(file,folderId);
           ajoutes.push({id:uid(),nom:file.name,lien:webViewLink});
+          /* certains appels veulent aussi regarder le contenu du fichier
+             déposé (un devis PDF, pour en tirer les articles) — jamais
+             bloquant : un fichier reste joint même si cette lecture échoue */
+          if(onFichier)try{await onFichier(file)}catch(e){}
         }catch(x){erreur=(x&&(x.error||x.message))||String(x)}
       }
     }catch(e){erreur=e&&e.error==='auth_required'?'auth_required':((e&&(e.error||e.message))||String(e))}
@@ -10420,9 +10529,48 @@ function Bordereaux({data,save}){
   const [imp,setImp]=useState(null);
   const [q,setQ]=useState('');
   const [corpsFiltre,setCorpsFiltre]=useState('');
+  const [devisImport,setDevisImport]=useState(null);
   const B=data.bordereaux||[];
   const nomArt=id=>(data.artisans.find(a=>a.id===id)||{}).nom||'';
   const nomFourn=id=>(data.fournisseurs.find(x=>x.id===id)||{}).nom||'';
+  /* un devis PDF déposé en pièce jointe vaut aussi grille tarifaire : ses
+     articles, prix et codes rejoignent le bordereau tout seuls — sans quoi
+     le devis resterait un simple fichier à relire à la main pour retrouver
+     ce qu'il contient. Un article déjà présent (même code, ou même libellé
+     à défaut) voit seulement son prix rafraîchi ; les autres champs saisis
+     à la main ne sont jamais touchés. */
+  const appliquerArticlesDevis=(extraits,nomFichier)=>{
+    if(!extraits||!extraits.length)return;
+    let ajout=0,maj=0;
+    setF(p=>{
+      if(!p)return p;
+      const articles=(p.articles||[]).slice();
+      for(const a of extraits){
+        const correspond=x=>a.code&&x.code
+          ?deaccent(x.code).toLowerCase()===deaccent(a.code).toLowerCase()
+          :deaccent(x.libelle||'').toLowerCase().trim()===deaccent(a.libelle||'').toLowerCase().trim();
+        const i=articles.findIndex(correspond);
+        if(i>=0){
+          if(articles[i].pu!==a.pu){articles[i]={...articles[i],pu:a.pu};maj++}
+        }else{
+          articles.push({id:uid(),code:a.code,libelle:a.libelle,unite:a.unite||'U',pu:a.pu});
+          ajout++;
+        }
+      }
+      return {...p,articles};
+    });
+    setDevisImport({etat:'ok',nom:nomFichier,ajout,maj,total:extraits.length});
+  };
+  const lireDevisJoint=async file=>{
+    if(!/\.pdf$/i.test(file.name||'')&&file.type!=='application/pdf')return;
+    setDevisImport({etat:'lecture'});
+    try{
+      const lignes=await pdfLignes(file);
+      const extraits=analyseDevisFournisseur(lignes);
+      if(extraits.length)appliquerArticlesDevis(extraits,file.name);
+      else setDevisImport({etat:'rien',nom:file.name});
+    }catch(e){setDevisImport({etat:'erreur',nom:file.name})}
+  };
   /* un marché Word déjà rédigé, ou le classeur Excel de la grille tarifaire :
      les deux mènent aux mêmes lignes, code, libellé, unité et prix unitaire. */
   const importer=async file=>{
@@ -10595,8 +10743,24 @@ function Bordereaux({data,save}){
       <Fld label={'PIÈCES JOINTES ('+((f.pieces||[]).length)+')'}>
         <div className="xs mut" style={{marginTop:-2,marginBottom:6,lineHeight:1.5}}>
           Devis, grilles tarifaires fournisseur… déposés sur le Drive et rattachés à ce bordereau.
+          Un devis au format PDF est aussi lu automatiquement : ses articles, prix et codes rejoignent
+          la liste ci-dessous tout seuls.
         </div>
-        <FichiersDrive resoudre={driveBordereauxFolder} fichiers={f.pieces} onChange={v=>setF({...f,pieces:v})} label="Importer un devis"/>
+        <FichiersDrive resoudre={driveBordereauxFolder} fichiers={f.pieces} onChange={v=>setF({...f,pieces:v})}
+          label="Importer un devis" onFichier={lireDevisJoint}/>
+        {devisImport&&devisImport.etat==='lecture'&&<div className="xs mut" style={{marginTop:6}}>Lecture du devis…</div>}
+        {devisImport&&devisImport.etat==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+          « {devisImport.nom} » lu : {devisImport.ajout>0?devisImport.ajout+' article'+(devisImport.ajout>1?'s':'')+' ajouté'+(devisImport.ajout>1?'s':''):''}
+          {devisImport.ajout>0&&devisImport.maj>0?', ':''}
+          {devisImport.maj>0?devisImport.maj+' prix mis à jour':''}
+          {!devisImport.ajout&&!devisImport.maj?'aucun changement (déjà à jour)':''}.
+        </div>}
+        {devisImport&&devisImport.etat==='rien'&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+          « {devisImport.nom} » est joint, mais aucun article n'y a été reconnu automatiquement — à ajouter à la main ci-dessous.
+        </div>}
+        {devisImport&&devisImport.etat==='erreur'&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          « {devisImport.nom} » est joint, mais sa lecture automatique a échoué — à ajouter à la main ci-dessous.
+        </div>}
       </Fld>
       <div className="lbl" style={{marginTop:14}}>ARTICLES ({f.articles.length})</div>
       <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:520}}>
