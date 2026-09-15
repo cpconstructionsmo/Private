@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-15 · Corps d’état en majuscules, chiffrage interne détaillé et bordereaux avec aléas/rétrocession';
+const VERSION='2026-09-15 · Une majoration de tarif par corps d’état s’applique automatiquement, sur tous les prospects';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1065,7 +1065,7 @@ const ventileFactures=L=>{
 /* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
-const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[],fournisseurs:[],rendezvous:[],tauxCommunes:[]};
+const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[],fournisseurs:[],rendezvous:[],tauxCommunes:[],majorationsCorps:[]};
 /* un enregistrement corrompu (case null au lieu d'être absente, retiré à la main
    dans la base) fait planter tout écran qui parcourt cette liste — un seul trou
    suffit à rendre CHANTIERS et ARTISANS injoignables. On l'écarte silencieusement
@@ -1114,28 +1114,45 @@ const nettoyer=d=>{
    le coût du projet au même titre qu'un poste ordinaire — les autres restent
    de simples propositions, visibles dans leur bloc mais sans effet sur le
    total tant qu'elles ne sont pas cochées. */
+/* ---------- majoration de tarif par corps d'état ----------
+   Un pourcentage global, par corps de métier plutôt que par prospect,
+   appliqué automatiquement à tout poste ou option dont le libellé
+   correspond — sur l'ensemble des prospects, présents et à venir. Le
+   montant saisi (ou repris d'un bordereau) reste la base, jamais réécrite :
+   la majoration se recalcule à chaque lecture, donc suit tout changement de
+   taux sans jamais rester figée sur un ancien pourcentage. Elle ne s'invite
+   jamais dans le champ où ce montant se saisit — seulement dans ce qui en
+   est calculé et affiché. */
+const majorationPourCorps=(majTarifs,corps)=>{
+  const c=deaccent(corps||'').toLowerCase().trim();
+  if(!c)return 0;
+  const m=(majTarifs||[]).find(x=>deaccent(x.corps||'').toLowerCase().trim()===c);
+  return m?(+m.pct||0):0;
+};
+const posteMontantMajore=(x,majTarifs)=>Math.round((+(x&&x.montant)||0)
+  *(1+majorationPourCorps(majTarifs,x&&x.libelle)/100)*100)/100;
 const optionsInclues=p=>((p&&p.optionsChiffrage)||[]).filter(x=>x.incluse);
-const prospectPostesHT=p=>((p&&p.postes)||[]).reduce((s,x)=>s+(+x.montant||0),0)
-  +optionsInclues(p).reduce((s,x)=>s+(+x.montant||0),0);
-const prospectOptionsHT=p=>((p&&p.optionsChiffrage)||[]).reduce((s,x)=>s+(+x.montant||0),0);
-const prospectCoutHT=p=>{
-  const d=prospectPostesHT(p);
+const prospectPostesHT=(p,majTarifs)=>((p&&p.postes)||[]).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0)
+  +optionsInclues(p).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0);
+const prospectOptionsHT=(p,majTarifs)=>((p&&p.optionsChiffrage)||[]).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0);
+const prospectCoutHT=(p,majTarifs)=>{
+  const d=prospectPostesHT(p,majTarifs);
   return d||+((p&&p.coutHT))||0;
 };
-const prospectMargeHT=p=>{
+const prospectMargeHT=(p,majTarifs)=>{
   if(!p)return 0;
   if(p.margeMontant!==undefined&&p.margeMontant!==null&&p.margeMontant!=='')return +p.margeMontant||0;
-  return Math.round(prospectCoutHT(p)*(+p.margePct||0))/100;
+  return Math.round(prospectCoutHT(p,majTarifs)*(+p.margePct||0))/100;
 };
-const prospectPrixHT=p=>Math.round((prospectCoutHT(p)+prospectMargeHT(p))*100)/100;
+const prospectPrixHT=(p,majTarifs)=>Math.round((prospectCoutHT(p,majTarifs)+prospectMargeHT(p,majTarifs))*100)/100;
 const prospectTva=p=>{const v=p&&p.tva;return (v===undefined||v===null||v==='')?20:(+v||0)};
-const prospectPrixTTC=p=>Math.round(prospectPrixHT(p)*(1+prospectTva(p)/100)*100)/100;
+const prospectPrixTTC=(p,majTarifs)=>Math.round(prospectPrixHT(p,majTarifs)*(1+prospectTva(p)/100)*100)/100;
 /* le prix de vente rapporté au prix de revient — ce que le devis appelle
    couramment le « coefficient » : 1,15 veut dire 15 % de marge appliquée
    au coût. Sans coût, il n'y a rien à rapporter. */
-const prospectCoefficient=p=>{
-  const c=prospectCoutHT(p);
-  return c?Math.round((prospectPrixHT(p)/c)*1000)/1000:null;
+const prospectCoefficient=(p,majTarifs)=>{
+  const c=prospectCoutHT(p,majTarifs);
+  return c?Math.round((prospectPrixHT(p,majTarifs)/c)*1000)/1000:null;
 };
 /* ---------- impact d'une option sur la marge et le coefficient ----------
    Plutôt que de refaire le calcul de marge à part — pourcentage ou montant
@@ -1143,16 +1160,16 @@ const prospectCoefficient=p=>{
    l'option retenue, une fois sans, et on prend l'écart : les mêmes fonctions
    pures que pour l'ensemble du projet en tirent la bonne réponse, quel que
    soit le mode de marge en vigueur. */
-const impactOption=(p,x)=>{
+const impactOption=(p,x,majTarifs)=>{
   const options=((p&&p.optionsChiffrage)||[]);
   const avec={...p,optionsChiffrage:options.map(o=>o.id===x.id?{...o,incluse:true}:o)};
   const sans={...p,optionsChiffrage:options.map(o=>o.id===x.id?{...o,incluse:false}:o)};
   return {
-    coutHT:Math.round((prospectCoutHT(avec)-prospectCoutHT(sans))*100)/100,
-    margeHT:Math.round((prospectMargeHT(avec)-prospectMargeHT(sans))*100)/100,
-    prixHT:Math.round((prospectPrixHT(avec)-prospectPrixHT(sans))*100)/100,
-    coefficientAvec:prospectCoefficient(avec),
-    coefficientSans:prospectCoefficient(sans),
+    coutHT:Math.round((prospectCoutHT(avec,majTarifs)-prospectCoutHT(sans,majTarifs))*100)/100,
+    margeHT:Math.round((prospectMargeHT(avec,majTarifs)-prospectMargeHT(sans,majTarifs))*100)/100,
+    prixHT:Math.round((prospectPrixHT(avec,majTarifs)-prospectPrixHT(sans,majTarifs))*100)/100,
+    coefficientAvec:prospectCoefficient(avec,majTarifs),
+    coefficientSans:prospectCoefficient(sans,majTarifs),
   };
 };
 
@@ -1172,15 +1189,15 @@ const eurM2=v=>v===null?'—':v.toLocaleString('fr-FR',{maximumFractionDigits:0}
    travaux — jamais sur la marge, qui vous revient déjà. Le taux varie d'un
    corps d'état à l'autre : elle se règle poste par poste dès qu'un détail
    existe, sinon le taux global saisi à défaut continue de s'appliquer. */
-const posteRetro=x=>Math.round((+(x&&x.montant)||0)*(+(x&&x.retroPct)||0))/100;
-const prospectPostesRetro=p=>Math.round((((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x),0)
-  +optionsInclues(p).reduce((s,x)=>s+posteRetro(x),0))*100)/100;
-const prospectRetro=p=>{
+const posteRetro=(x,majTarifs)=>Math.round(posteMontantMajore(x,majTarifs)*(+(x&&x.retroPct)||0))/100;
+const prospectPostesRetro=(p,majTarifs)=>Math.round((((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x,majTarifs),0)
+  +optionsInclues(p).reduce((s,x)=>s+posteRetro(x,majTarifs),0))*100)/100;
+const prospectRetro=(p,majTarifs)=>{
   if(!p)return 0;
-  const parPoste=prospectPostesRetro(p);
+  const parPoste=prospectPostesRetro(p,majTarifs);
   if(parPoste)return parPoste;
   if(p.retroMontant!==undefined&&p.retroMontant!==null&&p.retroMontant!=='')return +p.retroMontant||0;
-  return Math.round(prospectCoutHT(p)*(+p.retroPct||0))/100;
+  return Math.round(prospectCoutHT(p,majTarifs)*(+p.retroPct||0))/100;
 };
 
 /* ---------- taxe d'aménagement et redevance d'archéologie préventive ----------
@@ -1271,7 +1288,7 @@ const prospectRaccordements=p=>Math.round((sommeLignes(p&&p.raccordements)
 /* peinture, cuisine… payés par le client hors marchés, mais dans son budget */
 const prospectTravauxClient=p=>Math.round(sommeLignes(p&&p.travauxClient)*100)/100;
 /* tout ce que le client débourse, du terrain à la dernière taxe */
-const prospectOperationTTC=p=>Math.round((prospectPrixTTC(p)+prospectTerrain(p)
+const prospectOperationTTC=(p,majTarifs)=>Math.round((prospectPrixTTC(p,majTarifs)+prospectTerrain(p)
   +prospectRaccordements(p)+prospectTravauxClient(p)+prospectTaxes(p)+prospectDO(p)+prospectEtudeSol(p))*100)/100;
 /* les frais d'acte d'un terrain à bâtir tournent autour de 7,5 % chez un
    particulier, bien moins chez un lotisseur assujetti à la TVA */
@@ -1284,8 +1301,8 @@ const notaireEstime=p=>Math.round((+((p&&p.terrainPrix))||0)*0.075);
    qu'à l'envoyer. */
 const MAIL_CP='contact@cpconstructions.fr';
 const afficherCivilite=(civilite,nom)=>[civilite,nom].filter(Boolean).join(' ').trim();
-function corpsChiffrage(p){
-  const r=ratioM2(prospectPrixTTC(p),p);
+function corpsChiffrage(p,majTarifs){
+  const r=ratioM2(prospectPrixTTC(p,majTarifs),p);
   const C=p.chiffrages||[]; const pdf=C[C.length-1];
   /* null : la ligne n'a pas lieu d'être — '' : un blanc voulu entre deux blocs */
   const L=['Le chiffrage ci-dessous est validé.','',
@@ -1298,7 +1315,7 @@ function corpsChiffrage(p){
     '',
     'Surface habitable : '+(p.surfaceHabitable||'—')+' m²'
       +(p.surfaceAnnexes?' · annexes '+p.surfaceAnnexes+' m²':''),
-    'Prix de la maison : '+eur(prospectPrixTTC(p))+' TTC ('+eur(prospectPrixHT(p))+' HT)',
+    'Prix de la maison : '+eur(prospectPrixTTC(p,majTarifs))+' TTC ('+eur(prospectPrixHT(p,majTarifs))+' HT)',
     r?'Ratio : '+eurM2(r)+' TTC sur '+surfacePonderee(p)+' m² pondérés':null,
     '',
     prospectTerrain(p)?'Terrain et frais d’acte : '+eur(prospectTerrain(p)):null,
@@ -1306,7 +1323,7 @@ function corpsChiffrage(p){
     prospectTravauxClient(p)?'Travaux à charge client : '+eur(prospectTravauxClient(p)):null,
     prospectDO(p)?'Dommages-ouvrage : '+eur(prospectDO(p)):null,
     prospectTaxes(p)?'Taxes : '+eur(prospectTaxes(p)):null,
-    'COÛT TOTAL DE L’OPÉRATION : '+eur(prospectOperationTTC(p))+' TTC',
+    'COÛT TOTAL DE L’OPÉRATION : '+eur(prospectOperationTTC(p,majTarifs))+' TTC',
     '',
     (p.decouverte||{}).financement?'Financement : '+p.decouverte.financement:null,
     (p.decouverte||{}).courtier?'Courtier : '+(p.decouverte.courtierNom||'oui')+(p.decouverte.courtierTel?' — '+p.decouverte.courtierTel:''):null,
@@ -1317,10 +1334,10 @@ function corpsChiffrage(p){
   return L.filter(x=>x!==null).join('\n').replace(/\n{3,}/g,'\n\n');
 }
 const sujetChiffrage=p=>'Chiffrage validé — '+(p.nom||'projet');
-function mailChiffrage(p){
+function mailChiffrage(p,majTarifs){
   return 'mailto:'+MAIL_CP
     +'?subject='+encodeURIComponent(sujetChiffrage(p))
-    +'&body='+encodeURIComponent(corpsChiffrage(p));
+    +'&body='+encodeURIComponent(corpsChiffrage(p,majTarifs));
 }
 
 /* ---------- lecture d'une étude géorisques ----------
@@ -2840,7 +2857,7 @@ function noticeTechnique(p){
   ((p&&p.noticeLignes)||[]).filter(x=>(x.texte||'').trim()).forEach(x=>L.push(x.texte.trim()));
   return L;
 }
-function dossierDocumentXml(p,px,com){
+function dossierDocumentXml(p,px,com,majTarifs){
   const puce=t=>par('•  '+t+' (envisagé)',{sz:18,ap:40,ind:200});
   const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
   const hab=+(p.surfaceHabitable)||0, ann=+(p.surfaceAnnexes)||0;
@@ -2898,7 +2915,7 @@ function dossierDocumentXml(p,px,com){
     vide(160),
     tbl([10400],[tr([tc(10400,[
       par('Coût prévisionnel des travaux (à titre indicatif)',{b:true,sz:19,c:DOC_TERRA,caps:true,sp:16,ap:40}),
-      par(eurDoc(prospectPrixTTC(p))+' TTC',{b:true,sz:30,c:DOC_ENCRE,ap:0}),
+      par(eurDoc(prospectPrixTTC(p,majTarifs))+' TTC',{b:true,sz:30,c:DOC_ENCRE,ap:0}),
     ].join(''),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:160})])],{}),
     par('Ce montant correspond au coût prévisionnel de réalisation des travaux par les entreprises exécutantes. Il ne constitue ni un engagement de prix ferme, ni les honoraires du maître d’œuvre, et sera précisé lors de la consultation des entreprises (DCE) et de la signature des marchés de travaux.',
       {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
@@ -2911,7 +2928,7 @@ function dossierDocumentXml(p,px,com){
       vide(160),
       tbl([10400],[tr([tc(10400,[
         par('Montant total des honoraires de maîtrise d’œuvre',{b:true,sz:19,c:DOC_TERRA,caps:true,sp:16,ap:40}),
-        par(eurDoc(honoDossierTTC(p))+' TTC',{b:true,sz:30,c:DOC_ENCRE,ap:0}),
+        par(eurDoc(honoDossierTTC(p,majTarifs))+' TTC',{b:true,sz:30,c:DOC_ENCRE,ap:0}),
       ].join(''),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:160})])],{}),
       par('Honoraires dus au titre de la mission de maîtrise d’œuvre définie ci-dessus, à l’exclusion de tout autre élément (coût des travaux, assurances, taxes).',
         {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
@@ -2944,7 +2961,7 @@ function dossierDocumentXml(p,px,com){
     titre('4.  Options proposées'),
     par('Prestations complémentaires proposées, à retenir ou non selon votre choix :',{sz:18,ap:100}),
     tbl([6200,2400,1800],[tr([entC(6200,'Désignation'),entC(2400,'Montant HT','right'),entC(1800,'Statut','right')])]
-      .concat(opts.map(x=>tr([celC(6200,x.libelle,'left'),celC(2400,eurDoc(+x.montant||0),'right'),
+      .concat(opts.map(x=>tr([celC(6200,x.libelle,'left'),celC(2400,eurDoc(posteMontantMajore(x,majTarifs)),'right'),
         celC(1800,x.incluse?'Incluse':'En option','right')])))),
     par('Une option « incluse » est déjà comptée dans le coût prévisionnel des travaux ci-dessus ; une option « en option » ne l’est pas encore.',
       {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
@@ -2992,14 +3009,14 @@ function dossierDocumentXml(p,px,com){
     +'</w:body></w:document>';
 }
 /* les honoraires annoncés au client : la marge du maître d'œuvre, TTC */
-const honoDossierTTC=p=>Math.round(prospectMargeHT(p)*(1+prospectTva(p)/100)*100)/100;
+const honoDossierTTC=(p,majTarifs)=>Math.round(prospectMargeHT(p,majTarifs)*(1+prospectTva(p)/100)*100)/100;
 const nb2=n=>(+n||0).toLocaleString('fr-FR',{maximumFractionDigits:2});
 const fdDoc=d=>d?new Date(d).toLocaleDateString('fr-FR'):'';
 
-async function genererDossierDocx(p,com){
+async function genererDossierDocx(p,com,majTarifs){
   let logo=null;
   try{logo=await logoDocx()}catch(e){/* sans logo, le dossier reste lisible */}
-  return fabriquerDocx(dossierDocumentXml(p,logo,com),
+  return fabriquerDocx(dossierDocumentXml(p,logo,com,majTarifs),
     'Dossier de présentation — '+(p.nom||''),logo);
 }
 
@@ -3008,7 +3025,7 @@ async function genererDossierDocx(p,com){
    rétrocession poste par poste, coefficient de vente. Rien de tout cela ne
    doit atteindre le client — c'est un document à part, jamais celui remis
    en dossier de présentation. */
-function chiffrageInterneDocumentXml(p,px){
+function chiffrageInterneDocumentXml(p,px,majTarifs){
   const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
   const entC=(l,t,jc)=>tc(l,par(t,{b:true,sz:16,c:DOC_TERRA,sp:16,caps:true,jc:jc,ap:0}),
     {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
@@ -3039,7 +3056,8 @@ function chiffrageInterneDocumentXml(p,px){
     const lignes=((x.quantitatif&&x.quantitatif.lignes)||[]).filter(l=>!estArticle(l)||ligneQt(l)!==0);
     if(!lignes.length)return '';
     return [vide(80),
-      quantitatifMarche({lotDetail:(x.quantitatif&&x.quantitatif.nom)||x.libelle||'',lignes,ht:+x.montant||0}),
+      quantitatifMarche({lotDetail:(x.quantitatif&&x.quantitatif.nom)||x.libelle||'',lignes,
+        ht:posteMontantMajore(x,majTarifs)}),
       vide(160)].join('');
   };
 
@@ -3048,8 +3066,9 @@ function chiffrageInterneDocumentXml(p,px){
     titre('Postes'),
     postes.length
       ?table([5000,2200,1400,1800],['Poste','Montant HT','Rétro %','Rétrocédé'],
-        postes.map(x=>[x.libelle||'(sans libellé)',eurDoc(+x.montant||0),
-          (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x))]))
+        postes.map(x=>[x.libelle||'(sans libellé)'+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
+          eurDoc(posteMontantMajore(x,majTarifs)),
+          (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x,majTarifs))]))
       :par('Aucun poste chiffré.',{sz:18,i:true,c:DOC_GRIS,ap:0}),
     postes.map(detailQuantitatif).join(''),
   ].join('');
@@ -3058,13 +3077,15 @@ function chiffrageInterneDocumentXml(p,px){
   const pOptions=options.length?[
     titre('Options de chiffrage'),
     table([4200,2000,1200,1400,1600],['Option','Montant HT','Inclus','Rétro %','Rétrocédé'],
-      options.map(x=>[x.libelle||'(sans libellé)',eurDoc(+x.montant||0),x.incluse?'Oui':'Non',
-        (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x))])),
+      options.map(x=>[x.libelle||'(sans libellé)'+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
+        eurDoc(posteMontantMajore(x,majTarifs)),x.incluse?'Oui':'Non',
+        (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x,majTarifs))])),
     options.map(detailQuantitatif).join(''),
   ].join(''):'';
 
-  const cout=prospectCoutHT(p), marge=prospectMargeHT(p), ht=prospectPrixHT(p), ttc=prospectPrixTTC(p);
-  const retro=prospectRetro(p), tva=prospectTva(p), ratio=ratioM2(ttc,p);
+  const cout=prospectCoutHT(p,majTarifs), marge=prospectMargeHT(p,majTarifs),
+    ht=prospectPrixHT(p,majTarifs), ttc=prospectPrixTTC(p,majTarifs);
+  const retro=prospectRetro(p,majTarifs), tva=prospectTva(p), ratio=ratioM2(ttc,p);
   const coef=cout>0?Math.round(ht/cout*1000)/1000:null;
   const bilan=[
     titre('Bilan financier'),
@@ -3089,10 +3110,10 @@ function chiffrageInterneDocumentXml(p,px){
     +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
     +'</w:body></w:document>';
 }
-async function genererChiffrageInterneDocx(p){
+async function genererChiffrageInterneDocx(p,majTarifs){
   let logo=null;
   try{logo=await logoDocx()}catch(e){/* sans logo, le document reste lisible */}
-  return fabriquerDocx(chiffrageInterneDocumentXml(p,logo),
+  return fabriquerDocx(chiffrageInterneDocumentXml(p,logo,majTarifs),
     'Chiffrage interne — '+(p.nom||''),logo);
 }
 
@@ -10421,6 +10442,11 @@ function Bordereaux({data,save}){
     setF(null);
   };
   const majArt=(i,k,v)=>setF(p=>({...p,articles:p.articles.map((a,j)=>j===i?{...a,[k]:v}:a)}));
+  /* les majorations par corps d'état s'appliquent d'elles-mêmes, sur tous les
+     prospects — inutile d'ouvrir un formulaire pour en changer un taux */
+  const majorationsAdd=()=>save({...data,majorationsCorps:[...(data.majorationsCorps||[]),{id:uid(),corps:'',pct:''}]});
+  const majorationsMaj=(id,patch)=>save({...data,majorationsCorps:(data.majorationsCorps||[]).map(m=>m.id===id?{...m,...patch}:m)});
+  const majorationsDel=id=>save({...data,majorationsCorps:(data.majorationsCorps||[]).filter(m=>m.id!==id)});
   /* à cinq cents références, on ne fait plus défiler : on cherche */
   const dq=deaccent(q).toLowerCase().trim();
   const corpsPresents=[...new Set(B.map(b=>b.corps).filter(Boolean))].sort();
@@ -10435,6 +10461,24 @@ function Bordereaux({data,save}){
   return <div>
     <H2 action={<button className="btn acc s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanIds:[],aleasPct:'',retroPct:'',articles:[]})}}>+ Bordereau</button>}>
       BIBLIOTHÈQUE DE PRIX ({B.length})</H2>
+    {!f&&<div className="card" style={{marginBottom:12}}>
+      <div className="lbl">MAJORATIONS PAR CORPS D'ÉTAT</div>
+      <div className="xs mut" style={{marginTop:4,marginBottom:8,lineHeight:1.5}}>
+        Un pourcentage ajouté automatiquement au prix de tout poste ou option de chiffrage dont le corps
+        d'état correspond — sur l'ensemble des prospects, présents et à venir. Le prix saisi (ou repris
+        d'un bordereau) reste la base ; changer ce taux met aussitôt à jour tous les chiffrages concernés.
+      </div>
+      {(data.majorationsCorps||[]).map(m=><div key={m.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center',flexWrap:'wrap'}}>
+        <select className="in" style={{flex:'1 1 200px'}} value={m.corps||''} onChange={e=>majorationsMaj(m.id,{corps:e.target.value})}>
+          <option value="">— choisir un corps d'état —</option>
+          {CORPS_CHIFFRAGE.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        <input className="in" type="number" step="0.1" style={{width:90,flex:'0 0 auto'}} placeholder="%"
+          value={m.pct===undefined||m.pct===null?'':m.pct} onChange={e=>majorationsMaj(m.id,{pct:e.target.value})}/>
+        <button className="btn dg s" onClick={()=>majorationsDel(m.id)}>✕</button>
+      </div>)}
+      <button className="btn gh s" onClick={majorationsAdd}>+ Majoration</button>
+    </div>}
     {!f&&<div className="card">
       <div className="xs mut" style={{lineHeight:1.5}}>
         Les grilles tarifaires de vos artisans, article par article. Elles servent à chiffrer un lot
@@ -12252,8 +12296,8 @@ function Prospects({data,save}){
     const ch={id,nom:p.nom,client:p.client||'',telClient:p.telClient||'',emailClient:p.emailClient||'',
       adresse:p.commune||'',adresseClient:p.adresseClient||'',
       surfaceHabitable:p.surfaceHabitable||'',surfacePlancher:'',
-      budgetClientTTC:prospectPrixTTC(p)||'',budget:prospectCoutHT(p)||'',
-      honorairesPct:'',honorairesMontant:prospectMargeHT(p)||'',
+      budgetClientTTC:prospectPrixTTC(p,data.majorationsCorps)||'',budget:prospectCoutHT(p,data.majorationsCorps)||'',
+      honorairesPct:'',honorairesMontant:prospectMargeHT(p,data.majorationsCorps)||'',
       statut:'etude',lienDrive:'',docs:{},jalons:[],prospectId:p.id};
     save({...data,chantiers:[...data.chantiers,ch],
       prospects:P.map(x=>x.id===p.id?{...x,statut:'gagne',chantierId:id}:x)});
@@ -12394,12 +12438,12 @@ function Prospects({data,save}){
       <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>VOTRE CHIFFRAGE</div>
       <PostesChiffrage data={data} save={save} p={f} postes={f.postes||[]} onChange={v=>setF({...f,postes:v})}/>
       <PostesChiffrage data={data} save={save} p={f} postes={f.optionsChiffrage||[]} onChange={v=>setF({...f,optionsChiffrage:v})} options/>
-      {!prospectPostesHT(f)&&<Fld label="COÛT DES TRAVAUX HT (€) — SANS DÉTAIL PAR POSTE">
+      {!prospectPostesHT(f,data.majorationsCorps)&&<Fld label="COÛT DES TRAVAUX HT (€) — SANS DÉTAIL PAR POSTE">
         <input className="in" type="number" value={f.coutHT||''} onChange={e=>setF({...f,coutHT:e.target.value})}/></Fld>}
       <div className="g2">
         <Fld label="MARGE MAÎTRE D’ŒUVRE (%)"><input className="in" type="number" step="0.1" value={f.margePct||''} onChange={e=>setF({...f,margePct:e.target.value})}/></Fld>
         <Fld label="MARGE EN € — remplace le calcul"><input className="in" type="number"
-          placeholder={'Auto : '+eur(prospectCoutHT(f)*(+f.margePct||0)/100)}
+          placeholder={'Auto : '+eur(prospectCoutHT(f,data.majorationsCorps)*(+f.margePct||0)/100)}
           value={f.margeMontant||''} onChange={e=>setF({...f,margeMontant:e.target.value})}/></Fld>
       </div>
       <Fld label="TVA (%)"><input className="in" type="number" step="0.1" placeholder="20" value={f.tva===undefined?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/></Fld>
@@ -12491,17 +12535,17 @@ function Prospects({data,save}){
         <b style={{color:NAVY}}>Interne</b> — elle porte sur le coût des travaux, pas sur votre marge.
         Elle n'apparaît ni sur le chiffrage remis au commercial, ni sur aucun document client.
       </div>
-      {prospectPostesRetro(f)>0
+      {prospectPostesRetro(f,data.majorationsCorps)>0
         ?<div className="xs mut" style={{lineHeight:1.5}}>
-          Le taux se règle poste par poste, juste au-dessus — total {eur(prospectPostesRetro(f))} HT.</div>
+          Le taux se règle poste par poste, juste au-dessus — total {eur(prospectPostesRetro(f,data.majorationsCorps))} HT.</div>
         :<div className="g2">
           <Fld label="TAUX DE RÉTROCESSION (%)"><input className="in" type="number" step="0.1" value={f.retroPct||''} onChange={e=>setF({...f,retroPct:e.target.value})}/></Fld>
           <Fld label="MONTANT EN € — remplace le calcul"><input className="in" type="number"
-            placeholder={'Auto : '+eur(prospectCoutHT(f)*(+f.retroPct||0)/100)}
+            placeholder={'Auto : '+eur(prospectCoutHT(f,data.majorationsCorps)*(+f.retroPct||0)/100)}
             value={f.retroMontant||''} onChange={e=>setF({...f,retroMontant:e.target.value})}/></Fld>
         </div>}
 
-      <RecapChiffrage p={f} interne/>
+      <RecapChiffrage p={f} interne majTarifs={data.majorationsCorps}/>
       <div className="g2">
         <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>
           {PROSPECT_ST.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
@@ -12521,7 +12565,7 @@ function Prospects({data,save}){
     {P.length>0&&!L.length&&<Empty>Aucun prospect dans cette vue.</Empty>}
     <div className="grid-ch">
     {L.map(p=>{
-      const st=prospectSt(p.statut), prix=prospectPrixTTC(p), r=ratioM2(prix,p);
+      const st=prospectSt(p.statut), prix=prospectPrixTTC(p,data.majorationsCorps), r=ratioM2(prix,p);
       const attente=prospectAFaire(p)?joursDepuis(p.demandeLe):null;
       return <button key={p.id} className="card" style={{borderLeft:'3px solid '+st.c}} onClick={()=>setOuv(p.id)}>
         <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
@@ -12554,7 +12598,7 @@ function Prospects({data,save}){
    plusieurs cases (fiche client, demande de chiffrage, votre chiffrage)
    vient dans un lot séparé. */
 function FicheProspect({p,data,maj,back,onModifier,onTransformer}){
-  const st=prospectSt(p.statut), prix=prospectPrixTTC(p), r=ratioM2(prix,p);
+  const st=prospectSt(p.statut), prix=prospectPrixTTC(p,data.majorationsCorps), r=ratioM2(prix,p);
   return <div>
     <button className="btn gh s" onClick={back}>← Prospects</button>
     <div className="sp" style={{marginTop:12,marginBottom:4,gap:8,alignItems:'flex-start'}}>
@@ -12592,8 +12636,9 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
   const set=(id,d)=>onChange(L.map(x=>x.id===id?{...x,...d}:x));
   const setPoste=(id,fn)=>onChange(L.map(x=>x.id===id?(typeof fn==='function'?fn(x):fn):x));
   const dl=options?'pcorpsopt':'pcorps';
-  const total=L.reduce((s,x)=>s+(+x.montant||0),0);
-  const totalInclues=L.filter(x=>x.incluse).reduce((s,x)=>s+(+x.montant||0),0);
+  const majTarifs=data&&data.majorationsCorps;
+  const total=L.reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0);
+  const totalInclues=L.filter(x=>x.incluse).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0);
   /* l'impact d'une option sur la marge se lit sur le projet tel qu'il est
      réellement en train de se saisir — les autres options, pas encore
      enregistrées via onChange, comptent donc telles qu'affichées ici. */
@@ -12613,11 +12658,18 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
         <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
           onClick={()=>onChange(L.filter(y=>y.id!==x.id))}>✕</button>
       </div>
+      {/* le prix saisi (ou repris du bordereau) reste la base ; la majoration par
+          corps d'état, réglée dans l'onglet PRIX, ne fait que s'y ajouter à
+          l'affichage et dans les calculs — jamais dans ce champ */}
+      {!!majorationPourCorps(majTarifs,x.libelle)&&<div className="xs mut" style={{marginTop:3,paddingLeft:2}}>
+        Majoration {x.libelle} {majorationPourCorps(majTarifs,x.libelle)>0?'+':''}{nb2(majorationPourCorps(majTarifs,x.libelle))} %
+        → {eur(posteMontantMajore(x,majTarifs))} HT retenu
+      </div>}
       {options&&<label className="row xs" style={{gap:6,alignItems:'center',marginTop:4,paddingLeft:2,cursor:'pointer'}}>
         <input type="checkbox" checked={!!x.incluse} onChange={e=>set(x.id,{incluse:e.target.checked})}/>
         <span className="mut">Inclure dans le marché</span>
       </label>}
-      {options&&pLive&&!!x.montant&&(()=>{const im=impactOption(pLive,x);return im.coutHT!==0&&
+      {options&&pLive&&!!x.montant&&(()=>{const im=impactOption(pLive,x,majTarifs);return im.coutHT!==0&&
         <div className="xs mut" style={{marginTop:3,paddingLeft:2,lineHeight:1.5}}>
           Impact sur le projet : {im.margeHT>=0?'+':''}{eur(im.margeHT)} de marge
           {im.coefficientSans!==null&&im.coefficientAvec!==null
@@ -12629,7 +12681,7 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
         <span>Rétrocession</span>
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.retroPct||''}
           placeholder="%" onChange={e=>set(x.id,{retroPct:e.target.value})}/>
-        <span>%{+x.montant>0&&+x.retroPct>0?' soit '+eur(posteRetro(x)):''}</span>
+        <span>%{+x.montant>0&&+x.retroPct>0?' soit '+eur(posteRetro(x,majTarifs)):''}</span>
       </div>
       <Quantitatif data={data} f={x} setF={fn=>setPoste(x.id,fn)} save={save} champ="montant"/>
     </div>)}
@@ -13095,15 +13147,15 @@ function LignesMontants({lignes,onChange,label,ajout,exemple,liste}){
 
 /* le récapitulatif du chiffrage, tel qu'il se lit une fois les postes saisis.
    « interne » ajoute la rétrocession : elle n'a pas à figurer ailleurs. */
-function RecapChiffrage({p,interne}){
-  const cout=prospectCoutHT(p), marge=prospectMargeHT(p);
-  const ht=prospectPrixHT(p), ttc=prospectPrixTTC(p);
+function RecapChiffrage({p,interne,majTarifs}){
+  const cout=prospectCoutHT(p,majTarifs), marge=prospectMargeHT(p,majTarifs);
+  const ht=prospectPrixHT(p,majTarifs), ttc=prospectPrixTTC(p,majTarifs);
   const rTTC=ratioM2(ttc,p), rHT=ratioM2(ht,p);
   const bud=+(((p&&p.decouverte)||{}).enveloppe)||0;
-  const taxes=prospectTaxes(p), dOuv=prospectDO(p), eSol=prospectEtudeSol(p), op=prospectOperationTTC(p);
+  const taxes=prospectTaxes(p), dOuv=prospectDO(p), eSol=prospectEtudeSol(p), op=prospectOperationTTC(p,majTarifs);
   const terr=prospectTerrain(p), racc=prospectRaccordements(p), tvx=prospectTravauxClient(p);
   const annexe=terr+racc+tvx+taxes+dOuv+eSol;
-  const retro=prospectRetro(p);
+  const retro=prospectRetro(p,majTarifs);
   if(!cout&&!marge&&!annexe)return null;
   const ligne=(l,v,c)=><div className="sp xs" style={{padding:'2px 0'}}>
     <span className="mut">{l}</span><span style={{color:c}}>{v}</span></div>;
@@ -13157,7 +13209,7 @@ function RecapChiffrage({p,interne}){
       <div className="sp"><span className="mut">Rétrocession prévue — interne</span>
         <span className="b" style={{color:NAVY}}>{eur(retro)} HT</span></div>
       <div className="mut" style={{marginTop:2}}>
-        {prospectPostesRetro(p)>0
+        {prospectPostesRetro(p,majTarifs)>0
           ? 'détail poste par poste'
           : +p.retroPct>0&&!(p.retroMontant!==''&&p.retroMontant!==undefined&&p.retroMontant!==null)
             ? p.retroPct+' % du coût des travaux'
@@ -13230,12 +13282,13 @@ function DetailProspect({p,maj,data,onModifier}){
       {(p.postes||[]).length>0&&<div className="xs" style={{marginBottom:10}}>
         <div className="b" style={{color:NAVY,marginBottom:4}}>Chiffrage par poste</div>
         {p.postes.map(x=><div key={x.id} style={{padding:'2px 0'}}>
-          <div className="sp"><span className="mut">{x.libelle||'Poste'}</span><span>{eur(x.montant)} HT</span></div>
+          <div className="sp"><span className="mut">{x.libelle||'Poste'}</span>
+            <span>{eur(posteMontantMajore(x,data.majorationsCorps))} HT</span></div>
           {+x.retroPct>0&&<div className="mut" style={{textAlign:'right'}}>
-            rétrocession {x.retroPct} % soit {eur(posteRetro(x))}</div>}
+            rétrocession {x.retroPct} % soit {eur(posteRetro(x,data.majorationsCorps))}</div>}
         </div>)}
       </div>}
-      <RecapChiffrage p={p} interne/>
+      <RecapChiffrage p={p} interne majTarifs={data.majorationsCorps}/>
       {p.reponse&&<div className="xs" style={{marginTop:10,marginBottom:10,padding:'8px 10px',borderRadius:8,background:'#F4F1EB',lineHeight:1.6}}>
         <b style={{color:NAVY}}>Votre réponse</b><div style={{marginTop:3,whiteSpace:'pre-wrap'}}>{p.reponse}</div></div>}
 
@@ -13247,7 +13300,7 @@ function DetailProspect({p,maj,data,onModifier}){
 
       <ProduitsDuProjet data={data} p={p} maj={maj}/>
       <SortirDossier data={data} p={p} maj={maj}/>
-      <SortirChiffrageInterne p={p} maj={maj}/>
+      <SortirChiffrageInterne data={data} p={p} maj={maj}/>
       <ValiderChiffrage p={p} maj={maj} data={data}/>
       <EnvoyerCommercial p={p} data={data}/>
       <EnvoyerDossierComplet data={data} p={p}/>
@@ -13457,7 +13510,7 @@ function SortirDossier({data,p,maj}){
     setEtat({etat:'travail'});
     try{
       const buf=await genererDossierDocx({...p,produitsRetenus:produitsRetenus(data,p)},
-        {nom:p.commercial,tel:p.commercialTel});
+        {nom:p.commercial,tel:p.commercialTel},data&&data.majorationsCorps);
       const nom='Dossier de présentation — '+(p.nom||'projet')+'.docx';
       const token=await getDriveToken();
       const dossierId=await driveProspectFolder(token,p.id,p.nom);
@@ -13505,13 +13558,13 @@ function SortirDossier({data,p,maj}){
    Le pendant réservé de SortirDossier : marge, rétrocession poste par
    poste, coefficient de vente. Jamais le document remis au client — celui-
    là reste le dossier de présentation, sans aucun de ces chiffres. */
-function SortirChiffrageInterne({p,maj}){
+function SortirChiffrageInterne({data,p,maj}){
   const [etat,setEtat]=useState(null);
   const pret=prospectPrixTTC(p)>0;
   const produire=async()=>{
     setEtat({etat:'travail'});
     try{
-      const buf=await genererChiffrageInterneDocx(p);
+      const buf=await genererChiffrageInterneDocx(p,data&&data.majorationsCorps);
       const nom='Chiffrage interne — '+(p.nom||'projet')+'.docx';
       const token=await getDriveToken();
       const dossierId=await driveProspectFolder(token,p.id,p.nom);
@@ -13603,7 +13656,7 @@ function EnvoyerCommercial({p,data}){
   const expediteur=((data&&data.expediteurMail)||'').trim();
   const ouvrirMail=()=>{
     setMail({etat:'apercu',compte:'',destinataire:p.commercialEmail,
-      sujet:sujetChiffrage(p),corps:corpsChiffrage(p)});
+      sujet:sujetChiffrage(p),corps:corpsChiffrage(p,data&&data.majorationsCorps)});
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(m=>m&&({...m,compte:c}))).catch(()=>{});
   };
   const envoyer=async()=>{
@@ -13685,7 +13738,7 @@ function ValiderChiffrage({p,maj,data}){
     setPiece(jointe);
     try{
       const {error}=await sb.functions.invoke('send-chiffrage-email',
-        {body:{subject:sujetChiffrage(p),text:corpsChiffrage(p),...(attachment?{attachment}:{})}});
+        {body:{subject:sujetChiffrage(p),text:corpsChiffrage(p,data&&data.majorationsCorps),...(attachment?{attachment}:{})}});
       if(error)throw error;
       marquer(true);
       setEnvoi('ok');
@@ -13693,7 +13746,7 @@ function ValiderChiffrage({p,maj,data}){
   };
   const copier=async()=>{
     try{
-      await navigator.clipboard.writeText(corpsChiffrage(p));
+      await navigator.clipboard.writeText(corpsChiffrage(p,data&&data.majorationsCorps));
       setCopie('Message copié — collez-le dans un courriel à '+MAIL_CP);
     }catch(e){setCopie('Copie impossible sur cet appareil.')}
   };
@@ -13725,7 +13778,7 @@ function ValiderChiffrage({p,maj,data}){
     {envoi==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
       L'envoi automatique a échoué — le chiffrage reste validé. Réessayez, ou utilisez « Copier le message »
       ci-dessous et collez-le dans un courriel à {MAIL_CP}, ou{' '}
-      <a href={mailChiffrage(p)} target="_blank" rel="noreferrer" style={{color:TERRA}}>
+      <a href={mailChiffrage(p,data&&data.majorationsCorps)} target="_blank" rel="noreferrer" style={{color:TERRA}}>
         ouvrez-le directement dans votre messagerie</a>.</div>}
     {copie&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>{copie}</div>}
     {!!p.avisEnvoyeLe&&envoi!=='ok'&&envoi!=='erreur'&&<div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>
