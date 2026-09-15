@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-15 · Une majoration de tarif par corps d’état s’applique automatiquement, sur tous les prospects';
+const VERSION='2026-09-15 · Postes de chiffrage : majoration propre, glisser pour réordonner, bordereaux avec pièces jointes et fournisseurs';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -233,6 +233,11 @@ const CORPS_CHIFFRAGE=['Terrassement','Gros œuvre','Façade','Charpente','Couve
    pour que le champ « lot » d'une fiche se choisisse dans la liste plutôt qu'en le retapant à la main
    et en risquant une orthographe qui ne correspondra pas exactement au picker de la MAP. */
 const CORPS_PRODUITS=[...CORPS,'SOUS-FACE','GOUTTIÈRE'];
+/* un corps d'état peut avoir été saisi avant cette règle, ou importé d'un
+   bordereau fournisseur à la casse d'origine — plutôt que de corriger la
+   donnée en place (et risquer de casser une recherche exacte ailleurs), on
+   le montre toujours en majuscules, ici comme dans les documents générés. */
+const majCorps=s=>String(s||'').toUpperCase();
 /* quelques options revenant souvent d'un chantier à l'autre — le libellé
    seul est pré-rempli, jamais un montant : un prix daterait vite, mieux
    vaut le rechiffrer à chaque fois depuis la bibliothèque de prix. */
@@ -1492,6 +1497,11 @@ const quantitatifNet=(lignes,r)=>Math.round(quantitatifHT(lignes)*(1-(r||0)/100)
 /* les bordereaux d'un artisan : plusieurs entreprises peuvent partager une grille */
 const bordArtisans=b=>b?(Array.isArray(b.artisanIds)?b.artisanIds:(b.artisanId?[b.artisanId]:[])):[];
 const bordPourArtisan=(b,id)=>!!id&&bordArtisans(b).indexOf(id)>=0;
+/* un achat de matériaux (menuiseries, gouttières…) se fait chez un négoce,
+   pas chez un artisan sous décennale — la grille peut donc aussi se
+   rattacher à un ou plusieurs fournisseurs du carnet d'adresses FOURNISSEURS */
+const bordFournisseurs=b=>b&&Array.isArray(b.fournisseurIds)?b.fournisseurIds:[];
+const bordPourFournisseur=(b,id)=>!!id&&bordFournisseurs(b).indexOf(id)>=0;
 
 /* Lecture d'un bordereau depuis un marché déjà rédigé sous Word : on y retrouve
    « DÉSIGNATION DES TRAVAUX » puis un tableau ARTICLE / LIBELLE / QT / U / PU / PT.
@@ -2961,7 +2971,7 @@ function dossierDocumentXml(p,px,com,majTarifs){
     titre('4.  Options proposées'),
     par('Prestations complémentaires proposées, à retenir ou non selon votre choix :',{sz:18,ap:100}),
     tbl([6200,2400,1800],[tr([entC(6200,'Désignation'),entC(2400,'Montant HT','right'),entC(1800,'Statut','right')])]
-      .concat(opts.map(x=>tr([celC(6200,x.libelle,'left'),celC(2400,eurDoc(posteMontantMajore(x,majTarifs)),'right'),
+      .concat(opts.map(x=>tr([celC(6200,majCorps(x.libelle),'left'),celC(2400,eurDoc(posteMontantMajore(x,majTarifs)),'right'),
         celC(1800,x.incluse?'Incluse':'En option','right')])))),
     par('Une option « incluse » est déjà comptée dans le coût prévisionnel des travaux ci-dessus ; une option « en option » ne l’est pas encore.',
       {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
@@ -3056,7 +3066,7 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
     const lignes=((x.quantitatif&&x.quantitatif.lignes)||[]).filter(l=>!estArticle(l)||ligneQt(l)!==0);
     if(!lignes.length)return '';
     return [vide(80),
-      quantitatifMarche({lotDetail:(x.quantitatif&&x.quantitatif.nom)||x.libelle||'',lignes,
+      quantitatifMarche({lotDetail:majCorps((x.quantitatif&&x.quantitatif.nom)||x.libelle||''),lignes,
         ht:posteMontantMajore(x,majTarifs)}),
       vide(160)].join('');
   };
@@ -3066,7 +3076,7 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
     titre('Postes'),
     postes.length
       ?table([5000,2200,1400,1800],['Poste','Montant HT','Rétro %','Rétrocédé'],
-        postes.map(x=>[x.libelle||'(sans libellé)'+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
+        postes.map(x=>[(x.libelle?majCorps(x.libelle):'(sans libellé)')+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
           eurDoc(posteMontantMajore(x,majTarifs)),
           (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x,majTarifs))]))
       :par('Aucun poste chiffré.',{sz:18,i:true,c:DOC_GRIS,ap:0}),
@@ -3077,7 +3087,7 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
   const pOptions=options.length?[
     titre('Options de chiffrage'),
     table([4200,2000,1200,1400,1600],['Option','Montant HT','Inclus','Rétro %','Rétrocédé'],
-      options.map(x=>[x.libelle||'(sans libellé)'+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
+      options.map(x=>[(x.libelle?majCorps(x.libelle):'(sans libellé)')+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
         eurDoc(posteMontantMajore(x,majTarifs)),x.incluse?'Oui':'Non',
         (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x,majTarifs))])),
     options.map(detailQuantitatif).join(''),
@@ -3657,6 +3667,13 @@ async function driveRibFolder(token){
   const rootId=await driveFolder(token);
   driveRibFolderId=await driveFindOrCreateSubfolder(token,rootId,'RIB artisans');
   return driveRibFolderId;
+}
+let driveBordereauxFolderId=null;
+async function driveBordereauxFolder(token){
+  if(driveBordereauxFolderId)return driveBordereauxFolderId;
+  const rootId=await driveFolder(token);
+  driveBordereauxFolderId=await driveFindOrCreateSubfolder(token,rootId,'Bordereaux — pièces jointes');
+  return driveBordereauxFolderId;
 }
 
 /* ---------- rendre un fichier lisible sans compte Google ----------
@@ -4742,7 +4759,7 @@ function FicheEntreprise({a}){
   const c=j===null?TERRA:(j<0?TERRA:(j<60?AMBER:GREEN));
   return <div>
     <div className="b sm" style={{color:NAVY}}>{a.nom}</div>
-    <Ligne l="Corps d’état" v={a.corps}/>
+    <Ligne l="Corps d’état" v={majCorps(a.corps)}/>
     <Ligne l="Adresse" v={a.adresse}/>
     <Ligne l="SIRET" v={a.siret}/>
     <div className="xs" style={{marginTop:3,color:c}}>
@@ -6233,7 +6250,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const formulaireLot=f?<div className="card" style={{marginBottom:0}}>
       <Fld label="CORPS D'ÉTAT"><input className="in" list="corps-list" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})} placeholder="Ex. Maçonnerie — Gros œuvre"/>
         <datalist id="corps-list">{CORPS.map(c=><option key={c} value={c}/>)}</datalist></Fld>
-      <Fld label="ARTISAN"><select className="in" value={f.artisanId} onChange={e=>setF({...f,artisanId:e.target.value})}><option value="">— non attribué —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom} ({a.corps})</option>)}</select></Fld>
+      <Fld label="ARTISAN"><select className="in" value={f.artisanId} onChange={e=>setF({...f,artisanId:e.target.value})}><option value="">— non attribué —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom} ({majCorps(a.corps)})</option>)}</select></Fld>
       <div className="g2">
         <Fld label="MONTANT MARCHÉ HT (€)"><input className="in" type="number" value={f.montantHT} disabled={!!f.quantitatif}
           onChange={e=>setF({...f,montantHT:e.target.value})} style={f.quantitatif?{background:'#F2EFE9'}:null}/></Fld>
@@ -10319,7 +10336,7 @@ function Artisans({data,save}){
   const al=data.artisans.filter(a=>!a.decennaleFin||new Date(a.decennaleFin)<new Date());
   const formulaire=f?<div className="card">
       <Fld label="RAISON SOCIALE"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}/></Fld>
-      <Fld label="CORPS D'ÉTAT"><select className="in" value={f.corps} onChange={e=>setF({...f,corps:e.target.value})}><option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
+      <Fld label="CORPS D'ÉTAT"><select className="in" value={majCorps(f.corps)} onChange={e=>setF({...f,corps:e.target.value})}><option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
       <Fld label="ATTESTATION DÉCENNALE (PDF)">
         <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
           <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{lecture&&lecture.etat==='lecture'?'Lecture du PDF…':(f.lienAttestation?'Remplacer le PDF':'Importer le PDF')}
@@ -10376,7 +10393,7 @@ function Artisans({data,save}){
       if(f&&f.id===a.id)return <React.Fragment key={a.id}>{formulaire}</React.Fragment>;
       return <div key={a.id} className="card" style={{borderLeft:'3px solid '+s.c}}>
         <div onClick={()=>{setLecture(null);setF(a)}}>
-          <div className="sp"><span className="b sm" style={{color:NAVY}}>{a.nom}</span><span className="xs mut">{a.corps}</span></div>
+          <div className="sp"><span className="b sm" style={{color:NAVY}}>{a.nom}</span><span className="xs mut">{majCorps(a.corps)}</span></div>
           <div className="xs" style={{color:s.c,marginTop:3}}>{s.t}</div>
           <div className="xs mut" style={{marginTop:2}}>{n} lot{n>1?'s':''} attribué{n>1?'s':''}</div>
           {a.adresse&&<div className="xs mut" style={{marginTop:2}}>{a.adresse}</div>}
@@ -10405,6 +10422,7 @@ function Bordereaux({data,save}){
   const [corpsFiltre,setCorpsFiltre]=useState('');
   const B=data.bordereaux||[];
   const nomArt=id=>(data.artisans.find(a=>a.id===id)||{}).nom||'';
+  const nomFourn=id=>(data.fournisseurs.find(x=>x.id===id)||{}).nom||'';
   /* un marché Word déjà rédigé, ou le classeur Excel de la grille tarifaire :
      les deux mènent aux mêmes lignes, code, libellé, unité et prix unitaire. */
   const importer=async file=>{
@@ -10429,8 +10447,8 @@ function Bordereaux({data,save}){
     }
     /* le prix unitaire est ce qui se garde ; la quantité appartient au chantier
        d'origine et n'a rien à faire dans une grille tarifaire. */
-    const neufs=lots.map(l=>({id:uid(),nom:l.nom,corps:corpsProche(l.nom),artisanIds:[],maj:today(),
-      aleasPct:'',retroPct:'',
+    const neufs=lots.map(l=>({id:uid(),nom:l.nom,corps:corpsProche(l.nom),artisanIds:[],fournisseurIds:[],maj:today(),
+      aleasPct:'',retroPct:'',pieces:[],
       articles:l.articles.map(a=>({id:uid(),code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu}))}));
     save({...data,bordereaux:[...B,...neufs]});
     setImp({etat:'ok',lots:lots.map(l=>({nom:l.nom,n:l.articles.length}))});
@@ -10449,17 +10467,18 @@ function Bordereaux({data,save}){
   const majorationsDel=id=>save({...data,majorationsCorps:(data.majorationsCorps||[]).filter(m=>m.id!==id)});
   /* à cinq cents références, on ne fait plus défiler : on cherche */
   const dq=deaccent(q).toLowerCase().trim();
-  const corpsPresents=[...new Set(B.map(b=>b.corps).filter(Boolean))].sort();
+  const corpsPresents=[...new Set(B.map(b=>majCorps(b.corps)).filter(Boolean))].sort();
   const liste=B.filter(b=>{
-    if(corpsFiltre&&b.corps!==corpsFiltre)return false;
+    if(corpsFiltre&&majCorps(b.corps)!==corpsFiltre)return false;
     if(!dq)return true;
     if(deaccent(b.nom||'').toLowerCase().indexOf(dq)>=0)return true;
     if(bordArtisans(b).some(id=>deaccent(nomArt(id)).toLowerCase().indexOf(dq)>=0))return true;
+    if(bordFournisseurs(b).some(id=>deaccent(nomFourn(id)).toLowerCase().indexOf(dq)>=0))return true;
     return (b.articles||[]).some(a=>deaccent((a.code||'')+' '+(a.libelle||'')).toLowerCase().indexOf(dq)>=0);
   });
   const nArt=B.reduce((s,b)=>s+(b.articles||[]).length,0);
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanIds:[],aleasPct:'',retroPct:'',articles:[]})}}>+ Bordereau</button>}>
+    <H2 action={<button className="btn acc s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanIds:[],fournisseurIds:[],aleasPct:'',retroPct:'',pieces:[],articles:[]})}}>+ Bordereau</button>}>
       BIBLIOTHÈQUE DE PRIX ({B.length})</H2>
     {!f&&<div className="card" style={{marginBottom:12}}>
       <div className="lbl">MAJORATIONS PAR CORPS D'ÉTAT</div>
@@ -10520,7 +10539,7 @@ function Bordereaux({data,save}){
     {f&&<div className="card">
       <Fld label="INTITULÉ DU BORDEREAU"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}/></Fld>
       <div className="g2">
-        <Fld label="CORPS D'ÉTAT"><select className="in" value={f.corps||''} onChange={e=>setF({...f,corps:e.target.value})}>
+        <Fld label="CORPS D'ÉTAT"><select className="in" value={majCorps(f.corps)} onChange={e=>setF({...f,corps:e.target.value})}>
           <option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
       </div>
       <div className="g2">
@@ -10542,9 +10561,12 @@ function Bordereaux({data,save}){
         </Fld>
       </div>
       {/* une même grille peut servir à plusieurs entreprises : Plomberie Ornaise
-          et BVPC appliquent les mêmes prix, elles la partagent. */}
-      <Fld label={'ENTREPRISES QUI APPLIQUENT CES PRIX ('+bordArtisans(f).length+')'}>
-        {!data.artisans.length&&<div className="xs mut">Aucun artisan au carnet d'adresses.</div>}
+          et BVPC appliquent les mêmes prix, elles la partagent. Un achat de
+          matériaux (menuiseries, gouttières…) se fait chez un négoce du
+          carnet FOURNISSEURS, pas chez un artisan sous décennale : les deux
+          listes se cochent donc côte à côte. */}
+      <Fld label={'ENTREPRISES QUI APPLIQUENT CES PRIX ('+(bordArtisans(f).length+bordFournisseurs(f).length)+')'}>
+        {!data.artisans.length&&!data.fournisseurs.length&&<div className="xs mut">Aucun artisan ni fournisseur au carnet d'adresses.</div>}
         <div style={{display:'flex',flexWrap:'wrap',gap:'6px 16px'}}>
           {data.artisans.map(a=>{
             const coche=bordPourArtisan(f,a.id);
@@ -10555,7 +10577,26 @@ function Bordereaux({data,save}){
               })}/>
               <span>{a.nom}</span></label>;
           })}
+          {data.fournisseurs.map(fo=>{
+            const coche=bordPourFournisseur(f,fo.id);
+            return <label key={fo.id} className="xs row" style={{gap:6,alignItems:'center',cursor:'pointer'}}>
+              <input type="checkbox" checked={coche} onChange={()=>setF(p=>{
+                const L=bordFournisseurs(p);
+                return {...p,fournisseurIds:coche?L.filter(x=>x!==fo.id):[...L,fo.id]};
+              })}/>
+              <span>{fo.nom} <span className="mut">(fournisseur)</span></span></label>;
+          })}
         </div>
+        {!data.fournisseurs.length&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+          Un négoce de matériaux (GUIBOUT MATÉRIAUX, EMAPLAST…) s'ajoute depuis l'onglet FOURNISSEURS ;
+          il se propose ensuite ici, à côté des artisans.
+        </div>}
+      </Fld>
+      <Fld label={'PIÈCES JOINTES ('+((f.pieces||[]).length)+')'}>
+        <div className="xs mut" style={{marginTop:-2,marginBottom:6,lineHeight:1.5}}>
+          Devis, grilles tarifaires fournisseur… déposés sur le Drive et rattachés à ce bordereau.
+        </div>
+        <FichiersDrive resoudre={driveBordereauxFolder} fichiers={f.pieces} onChange={v=>setF({...f,pieces:v})} label="Importer un devis"/>
       </Fld>
       <div className="lbl" style={{marginTop:14}}>ARTICLES ({f.articles.length})</div>
       <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:520}}>
@@ -10584,12 +10625,12 @@ function Bordereaux({data,save}){
     {!B.length&&!f&&<Empty>Aucun bordereau. Importez votre grille tarifaire Excel pour la constituer d'un coup.</Empty>}
     {!!B.length&&!liste.length&&!f&&<Empty>Aucun bordereau ne correspond à cette recherche.</Empty>}
     {!f&&liste.map(b=>{
-      const noms=bordArtisans(b).map(nomArt).filter(Boolean);
+      const noms=[...bordArtisans(b).map(nomArt),...bordFournisseurs(b).map(nomFourn)].filter(Boolean);
       const art=noms.join(', ');
       return <button key={b.id} className="card" style={{borderLeft:'3px solid '+(art?NAVY:AMBER)}} onClick={()=>setF(b)}>
         <div className="sp"><span className="b sm" style={{color:NAVY}}>{b.nom}</span>
           <span className="xs mut" style={{whiteSpace:'nowrap'}}>{(b.articles||[]).length} articles</span></div>
-        <div className="xs" style={{marginTop:3,color:art?MUTED:AMBER}}>{art?art+(b.corps?' — '+b.corps:''):'Aucune entreprise rattachée'}</div>
+        <div className="xs" style={{marginTop:3,color:art?MUTED:AMBER}}>{art?art+(b.corps?' — '+majCorps(b.corps):''):'Aucune entreprise rattachée'}</div>
         {b.maj&&<div className="xs mut" style={{marginTop:2}}>Prix à jour au {fd(b.maj)}</div>}
         {(!!(+b.aleasPct)||!!(+b.retroPct))&&<div className="xs mut" style={{marginTop:2}}>
           {!!(+b.aleasPct)&&<span>Aléas {nb2(+b.aleasPct)} %</span>}
@@ -12240,7 +12281,7 @@ function TableauBord({data,save,open,allerA}){
     {decen.length>0&&<div style={{marginTop:8}}><Bloc titre="ASSURANCES DÉCENNALES" n={decen.length} c={AMBER} onTitre={()=>allerA('artisans')}>
       <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Sans décennale à jour, l’application refuse d’émettre le marché.</div>
       {decen.map(({a,j})=>item(a.id,()=>allerA('artisans'),
-        <span><b>{a.nom}</b>{a.corps?<span className="mut"> · {a.corps}</span>:null}</span>,
+        <span><b>{a.nom}</b>{a.corps?<span className="mut"> · {majCorps(a.corps)}</span>:null}</span>,
         j===null?'non renseignée':j<0?'expirée depuis '+(-j)+' j':'dans '+j+' j',
         j===null||j<0?TERRA:AMBER))}
     </Bloc></div>}
@@ -12643,14 +12684,38 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
      réellement en train de se saisir — les autres options, pas encore
      enregistrées via onChange, comptent donc telles qu'affichées ici. */
   const pLive=p&&options?{...p,optionsChiffrage:L}:p;
+  /* un pourcentage propre à ce poste, distinct de la majoration par corps
+     d'état (réglée une fois pour toutes dans PRIX, pour tous les prospects) :
+     celui-ci se pose au coup par coup, et s'applique une bonne fois pour
+     toutes aux prix unitaires déjà saisis — à la façon des % aléas d'un
+     bordereau — plutôt que de rester une formule vivante qui se mêlerait à
+     la majoration globale et brouillerait ce qui a été retenu. */
+  const appliquerMajPoste=id=>setPoste(id,prev=>{
+    const pct=+prev.majPct||0;
+    if(!pct)return prev;
+    const lignes=prev.quantitatif&&prev.quantitatif.lignes;
+    if(lignes&&lignes.length){
+      const majees=lignes.map(l=>estArticle(l)?{...l,pu:arrondiPu(l.pu,pct)}:l);
+      return {...prev,quantitatif:{...prev.quantitatif,lignes:majees},
+        montant:quantitatifNet(majees,remisePct(prev)),majPct:''};
+    }
+    return {...prev,montant:Math.round((+prev.montant||0)*(1+pct/100)*100)/100,majPct:''};
+  });
+  /* déplacer un poste à l'appui long, comme les lots d'un marché : on suit
+     le doigt plutôt que d'imposer l'ordre où les postes ont été créés. */
+  const ordonnerPostes=(de,vers)=>onChange(deplacer(L,de,vers));
+  const glisse=useGlisser(L.length,ordonnerPostes);
   return <Fld label={options?'OPTIONS DE CHIFFRAGE':'CHIFFRAGE PAR POSTE'}>
     {options&&<div className="xs mut" style={{marginTop:-6,marginBottom:10,lineHeight:1.5}}>
       Prestations proposées au client, pas encore décidées. Cochez « Inclure dans le marché »
       pour celles qui doivent compter dans le total du projet.
     </div>}
-    {L.map(x=><div key={x.id} style={{marginBottom:8,paddingBottom:8,borderBottom:'1px solid '+RULE}}>
+    {L.map((x,i)=><div key={x.id} ref={glisse.attacher(i)}
+      style={{marginBottom:8,paddingBottom:8,borderBottom:'1px solid '+RULE,
+        background:glisse.pris===i?'#EFECE6':'transparent'}}>
       <div className="row" style={{gap:6,alignItems:'center'}}>
-        <input className="in" style={{flex:1,minWidth:0}} list={dl} value={x.libelle||''}
+        <Poignee onPointerDown={e=>glisse.saisir(i,e)} titre={'Déplacer '+(options?'cette option':'ce poste')}/>
+        <input className="in" style={{flex:1,minWidth:0,textTransform:'uppercase'}} list={dl} value={x.libelle||''}
           placeholder="Corps d’état" onChange={e=>set(x.id,{libelle:e.target.value})}/>
         <input className="in" style={{width:110,flex:'0 0 auto',background:x.quantitatif?'#F2EFE9':null}}
           type="number" value={x.montant||''} disabled={!!x.quantitatif}
@@ -12662,7 +12727,7 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
           corps d'état, réglée dans l'onglet PRIX, ne fait que s'y ajouter à
           l'affichage et dans les calculs — jamais dans ce champ */}
       {!!majorationPourCorps(majTarifs,x.libelle)&&<div className="xs mut" style={{marginTop:3,paddingLeft:2}}>
-        Majoration {x.libelle} {majorationPourCorps(majTarifs,x.libelle)>0?'+':''}{nb2(majorationPourCorps(majTarifs,x.libelle))} %
+        Majoration {majCorps(x.libelle)} {majorationPourCorps(majTarifs,x.libelle)>0?'+':''}{nb2(majorationPourCorps(majTarifs,x.libelle))} %
         → {eur(posteMontantMajore(x,majTarifs))} HT retenu
       </div>}
       {options&&<label className="row xs" style={{gap:6,alignItems:'center',marginTop:4,paddingLeft:2,cursor:'pointer'}}>
@@ -12682,6 +12747,13 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.retroPct||''}
           placeholder="%" onChange={e=>set(x.id,{retroPct:e.target.value})}/>
         <span>%{+x.montant>0&&+x.retroPct>0?' soit '+eur(posteRetro(x,majTarifs)):''}</span>
+      </div>
+      <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2}}>
+        <span>Augmentation des prix unitaires</span>
+        <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.majPct||''}
+          placeholder="%" onChange={e=>set(x.id,{majPct:e.target.value})}/>
+        <span>%</span>
+        <button className="btn gh s" disabled={!(+x.majPct)} onClick={()=>appliquerMajPoste(x.id)}>Appliquer</button>
       </div>
       <Quantitatif data={data} f={x} setF={fn=>setPoste(x.id,fn)} save={save} champ="montant"/>
     </div>)}
@@ -13282,7 +13354,7 @@ function DetailProspect({p,maj,data,onModifier}){
       {(p.postes||[]).length>0&&<div className="xs" style={{marginBottom:10}}>
         <div className="b" style={{color:NAVY,marginBottom:4}}>Chiffrage par poste</div>
         {p.postes.map(x=><div key={x.id} style={{padding:'2px 0'}}>
-          <div className="sp"><span className="mut">{x.libelle||'Poste'}</span>
+          <div className="sp"><span className="mut">{x.libelle?majCorps(x.libelle):'Poste'}</span>
             <span>{eur(posteMontantMajore(x,data.majorationsCorps))} HT</span></div>
           {+x.retroPct>0&&<div className="mut" style={{textAlign:'right'}}>
             rétrocession {x.retroPct} % soit {eur(posteRetro(x,data.majorationsCorps))}</div>}
