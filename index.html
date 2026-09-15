@@ -215,20 +215,24 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-14 · Un avenant chiffre les prestations ajoutées ou retirées, et le fait signer au client';
-const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement',
-  'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
+const VERSION='2026-09-15 · Corps d’état en majuscules, chiffrage interne détaillé et bordereaux avec aléas/rétrocession';
+/* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
+   sur les documents imprimés — à la façon des bordereaux fournisseurs
+   (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
+   retaper chaque accentuation à la main, pour ne rien perdre au passage. */
+const CORPS=['Terrassement','Gros œuvre','Charpente','Couverture','Menuiseries ext.','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC','Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Gouttières',
+  'Achat menuiseries extérieures','Achat escalier','Achat charpente','Achats de matériaux','Autre'].map(c=>c.toUpperCase());
 /* le chiffrage d'un prospect distingue des postes plus fins que le corps de
    métier d'un marché déjà rédigé — « Façade » se détache du gros œuvre, la
    pose des menuiseries extérieures s'y règle à part de leur simple achat. */
-const CORPS_CHIFFRAGE=['Terrassement','Gros œuvre','Façade','Charpente','Couverture','Pose menuiseries extérieures',
+const CORPS_CHIFFRAGE=['Terrassement','Gros œuvre','Façade','Charpente','Couverture','Gouttières','Pose menuiseries extérieures',
   'Achat menuiseries extérieures','Isolation','Cloisons / plâtrerie','Électricité','Plomberie / sanitaire','Chauffage / VMC',
-  'Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Achat escalier','Achat charpente','Achats de matériaux','Autre'];
+  'Carrelage','Menuiseries int.','Peinture','Escalier','Assainissement','Achat escalier','Achat charpente','Achats de matériaux','Autre'].map(c=>c.toUpperCase());
 /* lots proposés dans le catalogue PRODUITS uniquement : en plus des corps d'état des marchés/devis,
    des sous-catégories plus fines (une fiche produit peut être plus précise qu'un lot de marché) —
    pour que le champ « lot » d'une fiche se choisisse dans la liste plutôt qu'en le retapant à la main
    et en risquant une orthographe qui ne correspondra pas exactement au picker de la MAP. */
-const CORPS_PRODUITS=[...CORPS,'Sous-face','Gouttière'];
+const CORPS_PRODUITS=[...CORPS,'SOUS-FACE','GOUTTIÈRE'];
 /* quelques options revenant souvent d'un chantier à l'autre — le libellé
    seul est pré-rempli, jamais un montant : un prix daterait vite, mieux
    vaut le rechiffrer à chaque fois depuis la bibliothèque de prix. */
@@ -1450,6 +1454,12 @@ const lignePT=l=>Math.round(ligneQt(l)*lignePU(l)*100)/100;
 /* le total du lot s'arrondit une seule fois, à la fin : c'est la règle des marchés
    déjà signés, où la colonne PT est arrondie pour l'affichage mais pas pour la somme. */
 const quantitatifHT=lignes=>Math.round((lignes||[]).reduce((s,l)=>s+ligneQt(l)*lignePU(l),0)*100)/100;
+/* le prix unitaire d'un bordereau peut dater du chiffrage, pas de la commande
+   à venir — un pourcentage d'aléas, propre au bordereau, l'ajuste au moment
+   où l'article rejoint un quantitatif, pour ne pas se faire rattraper par une
+   hausse tarifaire d'ici la commande. Rien n'empêche de retoucher la ligne
+   ensuite, comme n'importe quelle autre. */
+const arrondiPu=(pu,aleasPct)=>Math.round((+pu||0)*(1+(+aleasPct||0)/100)*100)/100;
 /* déplacer une ligne d'un rang à un autre, sans rien perdre au passage */
 const deplacer=(L,de,vers)=>{
   const A=[...(L||[])];
@@ -1564,16 +1574,16 @@ const prixCell=s=>{const t=nettoieCell(s).replace(/[€\s]/g,'').replace(',','.'
 /* Le lot du classeur porte son propre vocabulaire (« 031 MACONNERIE - B.A. »).
    On le rapproche du corps d'état de l'application pour éviter de le choisir
    vingt-deux fois à la main — la correspondance reste modifiable. */
-const CORPS_MOTS=[[/MACONNERIE|GROS.?OEUVRE|V\.?R\.?D|TERRASSE?MENT/i,'Gros œuvre'],
-  [/CHARPENTE/i,'Charpente'],[/COUVERTURE|GOUTTIERE/i,'Couverture'],
-  [/MENUISERIES? (EXT|EXTERIEURES?)|PORTE D.ENTR|PORTES? DE GARAGE|COFFRE|POSE MENUISERIES/i,'Menuiseries ext.'],
-  [/MENUISERIES? (INT|INTERIEURES?)/i,'Menuiseries int.'],
-  [/ISOLATION/i,'Isolation'],[/PLAQUISTERIE|PLACO|CLOISON/i,'Cloisons / plâtrerie'],
-  [/ELECTRICITE/i,'Électricité'],[/PLOMBERIE|SANITAIRE/i,'Plomberie / sanitaire'],
-  [/CHAUFFAGE|VENTILATION|V\.?M\.?C/i,'Chauffage / VMC'],
-  [/CARRELAGE|FAIENCE/i,'Carrelage'],[/PEINTURE/i,'Peinture'],
-  [/ESCALIER/i,'Escalier'],[/FACADE|ENDUIT/i,'Gros œuvre'],
-  [/ASSAINISSEMENT/i,'Assainissement']];
+const CORPS_MOTS=[[/MACONNERIE|GROS.?OEUVRE|V\.?R\.?D|TERRASSE?MENT/i,'GROS ŒUVRE'],
+  [/CHARPENTE/i,'CHARPENTE'],[/COUVERTURE|GOUTTIERE/i,'COUVERTURE'],
+  [/MENUISERIES? (EXT|EXTERIEURES?)|PORTE D.ENTR|PORTES? DE GARAGE|COFFRE|POSE MENUISERIES/i,'MENUISERIES EXT.'],
+  [/MENUISERIES? (INT|INTERIEURES?)/i,'MENUISERIES INT.'],
+  [/ISOLATION/i,'ISOLATION'],[/PLAQUISTERIE|PLACO|CLOISON/i,'CLOISONS / PLÂTRERIE'],
+  [/ELECTRICITE/i,'ÉLECTRICITÉ'],[/PLOMBERIE|SANITAIRE/i,'PLOMBERIE / SANITAIRE'],
+  [/CHAUFFAGE|VENTILATION|V\.?M\.?C/i,'CHAUFFAGE / VMC'],
+  [/CARRELAGE|FAIENCE/i,'CARRELAGE'],[/PEINTURE/i,'PEINTURE'],
+  [/ESCALIER/i,'ESCALIER'],[/FACADE|ENDUIT/i,'GROS ŒUVRE'],
+  [/ASSAINISSEMENT/i,'ASSAINISSEMENT']];
 const corpsProche=nom=>{
   for(const [rx,c] of CORPS_MOTS)if(rx.test(String(nom||'')))return c;
   return '';
@@ -3020,6 +3030,19 @@ function chiffrageInterneDocumentXml(p,px){
     vide(300),
   ].join('');
 
+  /* le détail quantifié d'un poste (ou d'une option) chiffré depuis un
+     bordereau : mêmes articles, quantités et prix unitaires que sur un
+     marché de travaux — le lecteur interne doit pouvoir vérifier le montant
+     du poste article par article, pas seulement en croire le total. Un poste
+     saisi en un seul montant, sans bordereau, n'a rien à détailler. */
+  const detailQuantitatif=x=>{
+    const lignes=((x.quantitatif&&x.quantitatif.lignes)||[]).filter(l=>!estArticle(l)||ligneQt(l)!==0);
+    if(!lignes.length)return '';
+    return [vide(80),
+      quantitatifMarche({lotDetail:(x.quantitatif&&x.quantitatif.nom)||x.libelle||'',lignes,ht:+x.montant||0}),
+      vide(160)].join('');
+  };
+
   const postes=(p.postes||[]).filter(x=>(x.libelle||'').trim()||+x.montant);
   const pPostes=[
     titre('Postes'),
@@ -3028,6 +3051,7 @@ function chiffrageInterneDocumentXml(p,px){
         postes.map(x=>[x.libelle||'(sans libellé)',eurDoc(+x.montant||0),
           (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x))]))
       :par('Aucun poste chiffré.',{sz:18,i:true,c:DOC_GRIS,ap:0}),
+    postes.map(detailQuantitatif).join(''),
   ].join('');
 
   const options=(p.optionsChiffrage||[]).filter(x=>(x.libelle||'').trim()||+x.montant);
@@ -3036,6 +3060,7 @@ function chiffrageInterneDocumentXml(p,px){
     table([4200,2000,1200,1400,1600],['Option','Montant HT','Inclus','Rétro %','Rétrocédé'],
       options.map(x=>[x.libelle||'(sans libellé)',eurDoc(+x.montant||0),x.incluse?'Oui':'Non',
         (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x))])),
+    options.map(detailQuantitatif).join(''),
   ].join(''):'';
 
   const cout=prospectCoutHT(p), marge=prospectMargeHT(p), ht=prospectPrixHT(p), ttc=prospectPrixTTC(p);
@@ -5569,8 +5594,13 @@ function Quantitatif({data,f,setF,save,champ}){
   const poser=id=>{
     const b=B.find(x=>x.id===id);if(!b)return;
     setF(p=>({...p,quantitatif:{bordereauId:b.id,nom:b.nom,
-      lignes:(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu,qt:''}))},
-      [champMontant]:0}));
+      lignes:(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:arrondiPu(a.pu,b.aleasPct),qt:''}))},
+      [champMontant]:0,
+      /* la rétrocession suggérée du bordereau ne s'impose que sur un poste de
+         chiffrage encore vierge de la sienne — elle reste ensuite ajustable
+         à la main, comme toute rétrocession de poste */
+      ...(champMontant==='montant'&&b.retroPct&&(p.retroPct===''||p.retroPct===undefined||p.retroPct===null)
+        ?{retroPct:b.retroPct}:{})}));
     setOuvert(true);
   };
   /* le montant du lot (ou de la commande) suit toujours le quantitatif et la remise */
@@ -5600,7 +5630,7 @@ function Quantitatif({data,f,setF,save,champ}){
   const ajouterBordereau=id=>{
     const b=B.find(x=>x.id===id);if(!b)return;
     const nouvelles=[{id:uid(),type:'titre',libelle:b.nom},
-      ...(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu,qt:''}))];
+      ...(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:arrondiPu(a.pu,b.aleasPct),qt:''}))];
     setF(p=>{
       const r=recale(p,[...(p.quantitatif.lignes||[]),...nouvelles]);
       /* le corps d'état du lot suit ce qu'on y ajoute : « Gros œuvre » ne dit plus
@@ -10379,6 +10409,7 @@ function Bordereaux({data,save}){
     /* le prix unitaire est ce qui se garde ; la quantité appartient au chantier
        d'origine et n'a rien à faire dans une grille tarifaire. */
     const neufs=lots.map(l=>({id:uid(),nom:l.nom,corps:corpsProche(l.nom),artisanIds:[],maj:today(),
+      aleasPct:'',retroPct:'',
       articles:l.articles.map(a=>({id:uid(),code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu}))}));
     save({...data,bordereaux:[...B,...neufs]});
     setImp({etat:'ok',lots:lots.map(l=>({nom:l.nom,n:l.articles.length}))});
@@ -10402,7 +10433,7 @@ function Bordereaux({data,save}){
   });
   const nArt=B.reduce((s,b)=>s+(b.articles||[]).length,0);
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanIds:[],articles:[]})}}>+ Bordereau</button>}>
+    <H2 action={<button className="btn acc s" onClick={()=>{setImp(null);setF({neuf:true,id:uid(),nom:'',corps:'',artisanIds:[],aleasPct:'',retroPct:'',articles:[]})}}>+ Bordereau</button>}>
       BIBLIOTHÈQUE DE PRIX ({B.length})</H2>
     {!f&&<div className="card">
       <div className="xs mut" style={{lineHeight:1.5}}>
@@ -10447,6 +10478,24 @@ function Bordereaux({data,save}){
       <div className="g2">
         <Fld label="CORPS D'ÉTAT"><select className="in" value={f.corps||''} onChange={e=>setF({...f,corps:e.target.value})}>
           <option value="">— choisir —</option>{CORPS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="% ALÉAS (HAUSSE TARIFAIRE)">
+          <input className="in" type="number" step="0.1" placeholder="Ex. 3" value={f.aleasPct===undefined||f.aleasPct===null?'':f.aleasPct}
+            onChange={e=>setF({...f,aleasPct:e.target.value})}/>
+          <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+            Ajouté au prix unitaire de chaque article dès qu'il rejoint un chiffrage, pour couvrir la hausse
+            tarifaire probable entre le chiffrage et la commande. La ligne reste ensuite modifiable comme les autres.
+          </div>
+        </Fld>
+        <Fld label="% RÉTROCESSION SUGGÉRÉE">
+          <input className="in" type="number" step="0.1" placeholder="Ex. 10" value={f.retroPct===undefined||f.retroPct===null?'':f.retroPct}
+            onChange={e=>setF({...f,retroPct:e.target.value})}/>
+          <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+            Propose ce taux sur un poste de chiffrage encore vide du sien — à ajuster vous-même selon le projet,
+            à tout moment, sur le poste.
+          </div>
+        </Fld>
       </div>
       {/* une même grille peut servir à plusieurs entreprises : Plomberie Ornaise
           et BVPC appliquent les mêmes prix, elles la partagent. */}
@@ -10498,6 +10547,11 @@ function Bordereaux({data,save}){
           <span className="xs mut" style={{whiteSpace:'nowrap'}}>{(b.articles||[]).length} articles</span></div>
         <div className="xs" style={{marginTop:3,color:art?MUTED:AMBER}}>{art?art+(b.corps?' — '+b.corps:''):'Aucune entreprise rattachée'}</div>
         {b.maj&&<div className="xs mut" style={{marginTop:2}}>Prix à jour au {fd(b.maj)}</div>}
+        {(!!(+b.aleasPct)||!!(+b.retroPct))&&<div className="xs mut" style={{marginTop:2}}>
+          {!!(+b.aleasPct)&&<span>Aléas {nb2(+b.aleasPct)} %</span>}
+          {!!(+b.aleasPct)&&!!(+b.retroPct)&&<span> · </span>}
+          {!!(+b.retroPct)&&<span>Rétrocession suggérée {nb2(+b.retroPct)} %</span>}
+        </div>}
       </button>;
     })}
     <DriveStatus/>
