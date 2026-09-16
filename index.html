@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-15 · Un devis PDF joint à un bordereau alimente tout seul ses articles, prix et codes';
+const VERSION='2026-09-16 · La rétrocession d’un poste de chiffrage peut aussi se fixer en un montant forfaitaire';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1193,8 +1193,17 @@ const eurM2=v=>v===null?'—':v.toLocaleString('fr-FR',{maximumFractionDigits:0}
    Elle porte sur ce que touchent les entreprises, c'est-à-dire le coût des
    travaux — jamais sur la marge, qui vous revient déjà. Le taux varie d'un
    corps d'état à l'autre : elle se règle poste par poste dès qu'un détail
-   existe, sinon le taux global saisi à défaut continue de s'appliquer. */
-const posteRetro=(x,majTarifs)=>Math.round(posteMontantMajore(x,majTarifs)*(+(x&&x.retroPct)||0))/100;
+   existe, sinon le taux global saisi à défaut continue de s'appliquer.
+   Un montant fixe (2 000 € pour le charpentier-couvreur, par exemple) peut
+   aussi remplacer le taux, comme au niveau du prospect : le forfait saisi
+   prime alors, quel que soit le pourcentage resté dans l'autre champ. */
+const posteRetro=(x,majTarifs)=>{
+  if(!x)return 0;
+  if(x.retroMontant!==undefined&&x.retroMontant!==null&&x.retroMontant!=='')return +x.retroMontant||0;
+  return Math.round(posteMontantMajore(x,majTarifs)*(+(x.retroPct)||0))/100;
+};
+const retroTauxAffiche=x=>(x&&x.retroMontant!==undefined&&x.retroMontant!==null&&x.retroMontant!=='')
+  ?'Forfait':((x&&+x.retroPct||0)?nb2(x.retroPct)+' %':'—');
 const prospectPostesRetro=(p,majTarifs)=>Math.round((((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x,majTarifs),0)
   +optionsInclues(p).reduce((s,x)=>s+posteRetro(x,majTarifs),0))*100)/100;
 const prospectRetro=(p,majTarifs)=>{
@@ -3078,7 +3087,7 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
       ?table([5000,2200,1400,1800],['Poste','Montant HT','Rétro %','Rétrocédé'],
         postes.map(x=>[(x.libelle?majCorps(x.libelle):'(sans libellé)')+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
           eurDoc(posteMontantMajore(x,majTarifs)),
-          (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x,majTarifs))]))
+          retroTauxAffiche(x),eurDoc(posteRetro(x,majTarifs))]))
       :par('Aucun poste chiffré.',{sz:18,i:true,c:DOC_GRIS,ap:0}),
     postes.map(detailQuantitatif).join(''),
   ].join('');
@@ -3089,7 +3098,7 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
     table([4200,2000,1200,1400,1600],['Option','Montant HT','Inclus','Rétro %','Rétrocédé'],
       options.map(x=>[(x.libelle?majCorps(x.libelle):'(sans libellé)')+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
         eurDoc(posteMontantMajore(x,majTarifs)),x.incluse?'Oui':'Non',
-        (+x.retroPct||0)?nb2(x.retroPct)+' %':'—',eurDoc(posteRetro(x,majTarifs))])),
+        retroTauxAffiche(x),eurDoc(posteRetro(x,majTarifs))])),
     options.map(detailQuantitatif).join(''),
   ].join(''):'';
 
@@ -12906,11 +12915,15 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
               +' → '+im.coefficientAvec.toLocaleString('fr-FR',{minimumFractionDigits:3})
             :''}
         </div>})()}
-      <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2}}>
+      <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2,flexWrap:'wrap'}}>
         <span>Rétrocession</span>
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.retroPct||''}
           placeholder="%" onChange={e=>set(x.id,{retroPct:e.target.value})}/>
-        <span>%{+x.montant>0&&+x.retroPct>0?' soit '+eur(posteRetro(x,majTarifs)):''}</span>
+        <span>% — ou</span>
+        <input className="in" style={{width:80,flex:'0 0 auto'}} type="number" step="1" value={x.retroMontant||''}
+          placeholder="€ forfait" onChange={e=>set(x.id,{retroMontant:e.target.value})}/>
+        <span>€ forfait, qui remplace le taux</span>
+        {+x.montant>0&&(+x.retroPct>0||!!x.retroMontant)&&<span className="b">— soit {eur(posteRetro(x,majTarifs))}</span>}
       </div>
       <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2}}>
         <span>Augmentation des prix unitaires</span>
@@ -13520,8 +13533,9 @@ function DetailProspect({p,maj,data,onModifier}){
         {p.postes.map(x=><div key={x.id} style={{padding:'2px 0'}}>
           <div className="sp"><span className="mut">{x.libelle?majCorps(x.libelle):'Poste'}</span>
             <span>{eur(posteMontantMajore(x,data.majorationsCorps))} HT</span></div>
-          {+x.retroPct>0&&<div className="mut" style={{textAlign:'right'}}>
-            rétrocession {x.retroPct} % soit {eur(posteRetro(x,data.majorationsCorps))}</div>}
+          {(+x.retroPct>0||!!(x.retroMontant!==undefined&&x.retroMontant!==null&&x.retroMontant!==''))&&
+            <div className="mut" style={{textAlign:'right'}}>
+            rétrocession {retroTauxAffiche(x)==='Forfait'?'forfait':x.retroPct+' %'} soit {eur(posteRetro(x,data.majorationsCorps))}</div>}
         </div>)}
       </div>}
       <RecapChiffrage p={p} interne majTarifs={data.majorationsCorps}/>
