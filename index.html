@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-17 · Relever les prix unitaires pour une rétrocession se fait tout seul, sans bouton à chercher';
+const VERSION='2026-09-17 · Le quantitatif d’un lot relevé de rétrocession affiche le prix avec rétro et le prix artisan';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5832,6 +5832,13 @@ function Quantitatif({data,f,setF,save,champ}){
   const lignes=(q&&q.lignes)||[];
   const vues=servisSeuls?lignes.filter(l=>ligneQt(l)!==0):lignes;
   const glisse=useGlisser(vues.length,(de,vers)=>{if(!servisSeuls)ordonner(de,vers)});
+  /* quand une rétrocession a relevé les prix de ce lot, chaque prix unitaire
+     saisi ici est déjà « avec rétrocession » — le prix qui revient réellement
+     à l'artisan se retrouve en appliquant le même taux à l'envers, pour que
+     les deux se lisent l'un à côté de l'autre plutôt que de forcer à recalculer
+     de tête */
+  const retroActif=+(f&&f.retroPctApplique)||0;
+  const prixArtisan=pu=>retroActif>0?Math.round((+pu||0)*(1-retroActif/100)*100)/100:+pu||0;
   if(!q)return <Fld label="CHIFFRER CE LOT DEPUIS UN BORDEREAU">
     {B.length
       ?<div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
@@ -5900,7 +5907,12 @@ function Quantitatif({data,f,setF,save,champ}){
                 <span style={{flex:1,minWidth:0}}>{l.libelle||<span className="mut">sans libellé</span>}</span>
               </span>
               <span className="row" style={{gap:6,alignItems:'center',whiteSpace:'nowrap'}}>
-                <span className="mut">{eurc(l.pu)} / {l.unite}</span>
+                {retroActif>0&&estArticle(l)
+                  ?<span className="mut" style={{textAlign:'right',lineHeight:1.3}}>
+                    <span style={{display:'block'}}>{eurc(l.pu)} / {l.unite}<i> avec rétro</i></span>
+                    <span style={{display:'block',fontSize:10}}>{eurc(prixArtisan(l.pu))} / {l.unite}<i> artisan</i></span>
+                  </span>
+                  :<span className="mut">{eurc(l.pu)} / {l.unite}</span>}
                 <Plus actif={detail===l.id} titre="Modifier cette ligne" onClick={()=>setDetail(detail===l.id?'':l.id)}/>
               </span>
             </div>
@@ -5969,9 +5981,12 @@ function Quantitatif({data,f,setF,save,champ}){
           {r>0&&<tr><td style={{padding:'2px 0'}}><div className="sp">
             <span className="mut">Remise {r} %</span><span className="mut">− {eurc(Math.round(brut*r)/100)}</span></div></td></tr>}
           <tr style={{borderTop:'2px solid '+RULE}}>
-            <td style={{padding:'8px 0'}}><div className="sp"><span className="b">TOTAL H.T.</span>
+            <td style={{padding:'8px 0'}}><div className="sp"><span className="b">{retroActif>0?'TOTAL H.T. — avec rétro':'TOTAL H.T.'}</span>
               <span className="b" style={{color:NAVY}}>{eurc(net)}</span></div></td>
           </tr>
+          {retroActif>0&&<tr><td style={{padding:'2px 0'}}><div className="sp">
+            <span className="mut">Total artisan — sans rétrocession</span>
+            <span className="mut">{eurc(Math.round(net*(1-retroActif/100)*100)/100)}</span></div></td></tr>}
         </tfoot>
       </table>
       <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
