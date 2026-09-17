@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-16 · La rétrocession d’un poste de chiffrage peut aussi se fixer en un montant forfaitaire';
+const VERSION='2026-09-17 · Le prix de base d’un artisan se convertit en prix de vente qui garde sa rétrocession intacte';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1204,6 +1204,19 @@ const posteRetro=(x,majTarifs)=>{
 };
 const retroTauxAffiche=x=>(x&&x.retroMontant!==undefined&&x.retroMontant!==null&&x.retroMontant!=='')
   ?'Forfait':((x&&+x.retroPct||0)?nb2(x.retroPct)+' %':'—');
+/* ---------- retrouver le prix de vente qui garde le prix de base intact ----------
+   Augmenter un prix de X % puis en retirer X % ne redonne jamais le prix de
+   départ (1,10 × 0,90 = 0,99) : la rétrocession se prend sur le prix de
+   vente, pas sur le prix de base. Pour qu'un maçon qui facture 300 € reçoive
+   toujours ses 300 €, avec 10 % de rétrocession reversés sur ce qui est
+   facturé, il faut diviser le prix de base par (1 − taux), pas le multiplier
+   par (1 + taux) : 300 / 0,90 = 333,33 €, dont 33,33 € (10 % de 333,33)
+   reviennent en rétrocession, et 300 € restent au maçon. */
+const prixAvecRetro=(base,pct)=>{
+  const b=+base||0, p=+pct||0;
+  if(!b||p<=0||p>=100)return b;
+  return Math.round(b/(1-p/100)*100)/100;
+};
 const prospectPostesRetro=(p,majTarifs)=>Math.round((((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x,majTarifs),0)
   +optionsInclues(p).reduce((s,x)=>s+posteRetro(x,majTarifs),0))*100)/100;
 const prospectRetro=(p,majTarifs)=>{
@@ -12874,6 +12887,15 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
     }
     return {...prev,montant:Math.round((+prev.montant||0)*(1+pct/100)*100)/100,majPct:''};
   });
+  /* le prix de base d'un artisan (ce qu'il facture réellement) devient le
+     prix de vente du poste, augmenté juste ce qu'il faut pour que la
+     rétrocession — prélevée sur ce prix de vente, comme partout ailleurs —
+     laisse malgré tout son prix de base intact à l'artisan */
+  const appliquerPrixBase=id=>setPoste(id,prev=>{
+    const base=+prev.prixBase||0, pct=+prev.retroPct||0;
+    if(!base||!pct)return prev;
+    return {...prev,montant:prixAvecRetro(base,pct),prixBase:''};
+  });
   /* déplacer un poste à l'appui long, comme les lots d'un marché : on suit
      le doigt plutôt que d'imposer l'ordre où les postes ont été créés. */
   const ordonnerPostes=(de,vers)=>onChange(deplacer(L,de,vers));
@@ -12925,6 +12947,13 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
         <span>€ forfait, qui remplace le taux</span>
         {+x.montant>0&&(+x.retroPct>0||!!x.retroMontant)&&<span className="b">— soit {eur(posteRetro(x,majTarifs))}</span>}
       </div>
+      {+x.retroPct>0&&<div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2,flexWrap:'wrap'}}>
+        <span>Prix de base de l’artisan</span>
+        <input className="in" style={{width:90,flex:'0 0 auto'}} type="number" step="0.01" value={x.prixBase||''}
+          placeholder="€ HT" onChange={e=>set(x.id,{prixBase:e.target.value})}/>
+        {+x.prixBase>0&&<span>→ prix de vente avec {nb2(x.retroPct)} % de rétrocession : <b>{eur(prixAvecRetro(x.prixBase,x.retroPct))}</b></span>}
+        <button className="btn gh s" disabled={!(+x.prixBase)} onClick={()=>appliquerPrixBase(x.id)}>Appliquer au poste</button>
+      </div>}
       <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2}}>
         <span>Augmentation des prix unitaires</span>
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.majPct||''}
