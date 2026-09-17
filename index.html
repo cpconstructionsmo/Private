@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-17 · La rétrocession relève aussi les prix unitaires d’un poste chiffré depuis un bordereau';
+const VERSION='2026-09-17 · Relever les prix unitaires pour une rétrocession se fait tout seul, sans bouton à chercher';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -12890,23 +12890,34 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
   /* le prix de base d'un artisan (ce qu'il facture réellement) devient le
      prix de vente du poste, augmenté juste ce qu'il faut pour que la
      rétrocession — prélevée sur ce prix de vente, comme partout ailleurs —
-     laisse malgré tout son prix de base intact à l'artisan */
+     laisse malgré tout son prix de base intact à l'artisan. Automatique dès
+     qu'on quitte l'un des deux champs : pas de bouton à chercher, et comme
+     c'est toujours recalculé depuis le prix de base gardé en mémoire (pas
+     depuis le montant déjà relevé), changer le taux plus tard ne s'accumule
+     jamais. */
   const appliquerPrixBase=id=>setPoste(id,prev=>{
     const base=+prev.prixBase||0, pct=+prev.retroPct||0;
     if(!base||!pct)return prev;
-    return {...prev,montant:prixAvecRetro(base,pct),prixBase:''};
+    return {...prev,montant:prixAvecRetro(base,pct)};
   });
   /* un poste chiffré depuis un bordereau n'a pas un seul prix à relever, mais
      un article à la fois : chacun de ses prix unitaires est déjà, en soi, le
-     prix de base d'un artisan — on les relève donc tous d'un coup, du même
-     taux de rétrocession réglé juste au-dessus, sans champ à ressaisir. */
-  const appliquerRetroQuantitatif=id=>setPoste(id,prev=>{
-    const pct=+prev.retroPct||0;
+     prix de base d'un artisan. On retient le taux déjà appliqué aux prix
+     (retroPctApplique) pour pouvoir, à tout moment, revenir au prix de base
+     avant d'appliquer le nouveau taux — sans quoi passer de 5 % à 7 % plus
+     tard relèverait des prix déjà relevés, pas le prix de base réel. */
+  const appliquerRetroLignes=id=>setPoste(id,prev=>{
     const lignes=prev.quantitatif&&prev.quantitatif.lignes;
-    if(!pct||!lignes||!lignes.length)return prev;
-    const majees=lignes.map(l=>estArticle(l)?{...l,pu:prixAvecRetro(l.pu,pct)}:l);
+    if(!lignes||!lignes.length)return prev;
+    const ancien=+prev.retroPctApplique||0, cible=+prev.retroPct||0;
+    if(ancien===cible)return prev;
+    const majees=lignes.map(l=>{
+      if(!estArticle(l))return l;
+      const base=(ancien>0&&ancien<100)?Math.round((+l.pu||0)*(1-ancien/100)*100)/100:(+l.pu||0);
+      return {...l,pu:cible>0?prixAvecRetro(base,cible):base};
+    });
     return {...prev,quantitatif:{...prev.quantitatif,lignes:majees},
-      montant:quantitatifNet(majees,remisePct(prev))};
+      montant:quantitatifNet(majees,remisePct(prev)),retroPctApplique:cible};
   });
   /* déplacer un poste à l'appui long, comme les lots d'un marché : on suit
      le doigt plutôt que d'imposer l'ordre où les postes ont été créés. */
@@ -12952,7 +12963,11 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
       <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2,flexWrap:'wrap'}}>
         <span>Rétrocession</span>
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.retroPct||''}
-          placeholder="%" onChange={e=>set(x.id,{retroPct:e.target.value})}/>
+          placeholder="%" onChange={e=>set(x.id,{retroPct:e.target.value})}
+          onBlur={()=>{
+            if(x.quantitatif&&(x.quantitatif.lignes||[]).some(estArticle))appliquerRetroLignes(x.id);
+            else if(+x.prixBase>0)appliquerPrixBase(x.id);
+          }}/>
         <span>% — ou</span>
         <input className="in" style={{width:80,flex:'0 0 auto'}} type="number" step="1" value={x.retroMontant||''}
           placeholder="€ forfait" onChange={e=>set(x.id,{retroMontant:e.target.value})}/>
@@ -12961,16 +12976,15 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
       </div>
       {+x.retroPct>0&&(x.quantitatif&&(x.quantitatif.lignes||[]).some(estArticle)
         ?<div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2,flexWrap:'wrap'}}>
-          <span>Les prix unitaires du quantitatif sont ceux de l’artisan — relevez-les de {nb2(x.retroPct)} %
-            pour que la rétrocession les laisse intacts</span>
-          <button className="btn gh s" onClick={()=>appliquerRetroQuantitatif(x.id)}>Appliquer aux prix unitaires</button>
+          <span>{(+x.retroPctApplique||0)===(+x.retroPct||0)
+            ?'Prix unitaires du quantitatif relevés de '+nb2(x.retroPct)+' % — la rétrocession laisse le prix de l’artisan intact.'
+            :'Quittez ce champ pour relever automatiquement les prix unitaires du quantitatif à '+nb2(x.retroPct)+' %.'}</span>
         </div>
         :<div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2,flexWrap:'wrap'}}>
           <span>Prix de base de l’artisan</span>
           <input className="in" style={{width:90,flex:'0 0 auto'}} type="number" step="0.01" value={x.prixBase||''}
-            placeholder="€ HT" onChange={e=>set(x.id,{prixBase:e.target.value})}/>
-          {+x.prixBase>0&&<span>→ prix de vente avec {nb2(x.retroPct)} % de rétrocession : <b>{eur(prixAvecRetro(x.prixBase,x.retroPct))}</b></span>}
-          <button className="btn gh s" disabled={!(+x.prixBase)} onClick={()=>appliquerPrixBase(x.id)}>Appliquer au poste</button>
+            placeholder="€ HT" onChange={e=>set(x.id,{prixBase:e.target.value})} onBlur={()=>appliquerPrixBase(x.id)}/>
+          {+x.prixBase>0&&<span>→ prix de vente avec {nb2(x.retroPct)} % de rétrocession, posé automatiquement : <b>{eur(prixAvecRetro(x.prixBase,x.retroPct))}</b></span>}
         </div>)}
       <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2}}>
         <span>Augmentation des prix unitaires</span>
