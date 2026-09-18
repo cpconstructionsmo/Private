@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-17 · Le quantitatif d’un lot relevé de rétrocession affiche le prix avec rétro et le prix artisan';
+const VERSION='2026-09-18 · Les e-mails envoyés depuis l’application se signent désormais du nom de leur expéditeur';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2160,6 +2160,11 @@ const CP={nom:'CP CONSTRUCTIONS',forme:'SASU au capital de 1 000 €',
   siret:'999 593 395 00018',siren:'999 593 395',ape:'7112 B',
   tvaIntra:'FR74999593395',rcs:'RCS ALENÇON',
   tel:'06 79 62 21 55',mail:'contact@cpconstructions.fr'};
+/* les documents contractuels (marchés, avenants, conventions…) engagent la
+   société et se signent donc de sa raison sociale, CP.nom ; un e-mail, lui,
+   part d'une personne — il se signe du nom de son expéditeur, en objet
+   d'affichage comme en formule de politesse. */
+const SIGNATAIRE_MAIL='Claude Portier';
 
 /* ---------- l'en-tête : logo à gauche, identité du marché à droite ---------- */
 function enteteMarche(d,px){
@@ -4966,7 +4971,7 @@ function ViserFacture({f,ch,art,data,lot}){
         +'\n\nNous y apposons notre visa : cette facture est donc payable dès à présent.'
         +'\n\nVous trouverez ci-joint la facture visée ainsi que le relevé d’identité bancaire de l’entreprise pour son règlement.'
         +(art.lienAttestation?'\n\nVous trouverez également son attestation d’assurance décennale en cours de validité.':'')
-        +'\n\nCordialement,\n'+CP.nom,
+        +'\n\nCordialement,\n'+SIGNATAIRE_MAIL,
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
   };
@@ -4986,7 +4991,7 @@ function ViserFacture({f,ch,art,data,lot}){
         type:'application/pdf',data:await driveFichierBytes(token,idAtt)});
       await gmailEnvoyer(token,{destinataire:mail.destinataire,cc:art.email||null,
         bcc:expediteur||null,sujet:mail.sujet,corps:mail.corps,pieces,
-        expediteur,expediteurNom:expediteur?CP.nom:''});
+        expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
       setMail(p=>({...p,etat:'ok'}));
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
@@ -6184,7 +6189,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         +(liste.length?' ainsi que '+(liste.length>1?liste.slice(0,-1).join(', ')+' et '+liste.slice(-1):liste[0]):'')
         +' pour le chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.'
         +'\n\nMerci de me retourner le marché signé, et de me signaler toute réserve avant le démarrage.'
-        +'\n\nCordialement,\n'+CP.nom,
+        +'\n\nCordialement,\n'+SIGNATAIRE_MAIL,
       dispo, cochees,
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
@@ -6219,7 +6224,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       }
       await gmailEnvoyer(token,{destinataire:mail.destinataire,
         sujet:mail.sujet,corps:mail.corps,pieces,
-        expediteur,expediteurNom:expediteur?CP.nom:''});
+        expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
       setF(p=>({...p,numeroMarche:numero,mailArtisanLe:today()}));
       setMail(p=>({...p,etat:'ok'}));
     }catch(e){
@@ -6346,7 +6351,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         +' au marché de travaux du lot « '+(f.lot||'')+' », portant sur '
         +(montant>=0?'un complément':'une diminution')+' de '+eur(Math.abs(montant))+' HT.'
         +'\n\nMerci de me le retourner signé — « lu et approuvé, bon pour accord » — avant toute exécution des prestations concernées.'
-        +'\n\nCordialement,\n'+CP.nom,
+        +'\n\nCordialement,\n'+SIGNATAIRE_MAIL,
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMailAvenant(p=>p&&({...p,compte:c}))).catch(()=>{});
   };
@@ -6365,7 +6370,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       const pieces=[{nom:nomAvenant+'.pdf',type:typeFichier('x.pdf'),data:pdfAvenant}];
       await gmailEnvoyer(token,{destinataire:mailAvenant.destinataire,
         sujet:mailAvenant.sujet,corps:mailAvenant.corps,pieces,
-        expediteur,expediteurNom:expediteur?CP.nom:''});
+        expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
       majAvenant(av.id,a2=>({...a2,envoyeLe:today()}));
       setMailAvenant(p=>({...p,etat:'ok'}));
     }catch(e){
@@ -12185,7 +12190,7 @@ function RelancerClient({ch,data,manque}){
       corps:'Bonjour,\n\nPour avancer votre dossier, il me manque encore '
         +(manque.length>1?'les pièces suivantes':'la pièce suivante')+' :\n\n'
         +manque.map(l=>'- '+l).join('\n')
-        +'\n\nMerci de me les transmettre dès que possible.\n\nCordialement,\n'+CP.nom,
+        +'\n\nMerci de me les transmettre dès que possible.\n\nCordialement,\n'+SIGNATAIRE_MAIL,
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
   };
@@ -12194,7 +12199,7 @@ function RelancerClient({ch,data,manque}){
     try{
       const token=await getDriveToken();
       await gmailEnvoyer(token,{destinataire:mail.destinataire,sujet:mail.sujet,corps:mail.corps,
-        expediteur,expediteurNom:expediteur?CP.nom:''});
+        expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
       setMail(p=>({...p,etat:'ok'}));
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
@@ -13716,9 +13721,9 @@ function EnvoyerDossierComplet({data,p}){
       const corps='Bonjour,\n\nVeuillez trouver ci-joint '
         +(aEnvoyer.length>1?aEnvoyer.length+' documents':'un document')
         +' pour le projet '+(p.nom||'')+' :\n\n'+aEnvoyer.map(it=>'- '+(it.f.nom||it.secours)).join('\n')
-        +'\n\nCordialement,\n'+CP.nom;
+        +'\n\nCordialement,\n'+SIGNATAIRE_MAIL;
       await gmailEnvoyer(token,{destinataire:MAIL_CP,sujet,corps,pieces,
-        expediteur,expediteurNom:expediteur?CP.nom:''});
+        expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
       setEtat({v:'ok',msg:''});
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
@@ -13990,7 +13995,7 @@ function EnvoyerCommercial({p,data}){
     try{
       const token=await getDriveToken();
       await gmailEnvoyer(token,{destinataire:mail.destinataire,sujet:mail.sujet,corps:mail.corps,
-        expediteur,expediteurNom:expediteur?CP.nom:''});
+        expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
       setMail(m=>({...m,etat:'ok'}));
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
