@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-18 · Les e-mails envoyés depuis l’application se signent désormais du nom de leur expéditeur';
+const VERSION='2026-09-21 · Une facture déjà enregistrée se corrige — montant, date, numéro — sans devoir la relire';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4909,20 +4909,25 @@ function FicheEntreprise({a}){
 
 /* la colonne de droite : chaque facture avec son numéro, sa date, son montant
    et ce qui reste dû après elle. Le « + » ouvre son justificatif. */
-function ColFactures({liste,engage,ouv,setOuv,cle,onLien,visa}){
+function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa}){
   const L=liste||[];
   const total=facturesTotal(L), reste=(engage||0)-total;
+  /* une facture lue automatiquement (Lire des factures) peut mal reprendre
+     un montant, une date ou un numéro — corrigible ici même une fois la
+     facture déjà enregistrée, sans devoir la supprimer et la relire. */
+  const [edit,setEdit]=useState(null);
   let cumul=0;
   return <div style={{textAlign:'right'}}>
     {!L.length&&<div className="mut">aucune facture</div>}
     {L.map(f=>{
       cumul+=(+f.montant||0);
       const du=(engage||0)-cumul, k=cle+':'+f.id;
+      const enEdition=edit&&edit.fid===f.id;
       return <div key={f.id} style={{marginBottom:6}}>
         <div className="row" style={{gap:6,justifyContent:'flex-end',alignItems:'center'}}>
           <span className="b" style={{whiteSpace:'nowrap'}}>{eur(f.montant)}</span>
           {f.lien&&<span style={{color:GREEN}} title="Justificatif sur le Drive">✓</span>}
-          <Plus actif={ouv===k} titre="Voir le justificatif" onClick={()=>setOuv(ouv===k?'':k)}/>
+          <Plus actif={ouv===k} titre="Voir le justificatif" onClick={()=>{setOuv(ouv===k?'':k);setEdit(null)}}/>
         </div>
         <div className="mut" style={{fontSize:11}}>
           {f.numero?f.numero+' · ':''}{f.date?fd(f.date):'date à saisir'}
@@ -4930,6 +4935,27 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,visa}){
               sur une facture unique il répéterait le reste à facturer du bas */}
           {L.length>1?(du>0?' · reste '+eur(du):' · soldé'):''}</div>
         {ouv===k&&<div style={{textAlign:'left',marginTop:4,padding:'6px 8px',background:'#F4F1EB',borderRadius:6}}>
+          {onCorriger&&(enEdition
+            ?<div style={{marginBottom:8}}>
+              <div className="g3 xs" style={{gap:8}}>
+                <Fld label="MONTANT HT"><input className="in" type="number" step="0.01"
+                  value={edit.montant} onChange={e=>setEdit({...edit,montant:e.target.value})}/></Fld>
+                <Fld label="DATE"><input className="in" type="date"
+                  value={edit.date||''} onChange={e=>setEdit({...edit,date:e.target.value})}/></Fld>
+                <Fld label="N° FACTURE"><input className="in"
+                  value={edit.numero||''} onChange={e=>setEdit({...edit,numero:e.target.value})}/></Fld>
+              </div>
+              <div className="row" style={{gap:8,marginTop:6}}>
+                <button className="btn acc s" onClick={()=>{
+                  onCorriger(f.id,{montant:+edit.montant||0,date:edit.date,numero:edit.numero});
+                  setEdit(null);
+                }}>Enregistrer</button>
+                <button className="btn gh s" onClick={()=>setEdit(null)}>Annuler</button>
+              </div>
+            </div>
+            :<button className="btn gh s" style={{marginBottom:8}}
+              onClick={()=>setEdit({fid:f.id,montant:f.montant,date:f.date,numero:f.numero})}>
+              Corriger le montant, la date ou le numéro</button>)}
           {f.lien
             ?<div className="row xs" style={{gap:10,alignItems:'center',flexWrap:'wrap'}}><Transmis/>
               <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir la facture</a>
@@ -6271,6 +6297,21 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   });
   const joindreFactureHono=(fid,file)=>envoyer(file,'Honoraires',lien=>
     majCh({honoFactures:(ch.honoFactures||[]).map(x=>x.id===fid?{...x,lien}:x)}));
+  /* une facture lue automatiquement peut se tromper de montant, de date ou
+     de numéro : corrigible après coup, sans devoir la supprimer et la relire.
+     Le marché garde aussi un total facturé mis en cache (m.facture, au
+     singulier) pour le tableau de bord — la correction le recalcule au passage. */
+  const corrigerFactureMarche=(id,fid,patch)=>{
+    const m=data.marches.find(x=>x.id===id)||{};
+    const factures=(m.factures||[]).map(x=>x.id===fid?{...x,...patch}:x);
+    majMarche(id,{factures,facture:facturesTotal(factures)});
+  };
+  const corrigerFactureCmd=(id,fid,patch)=>{
+    const c=data.commandes.find(x=>x.id===id)||{};
+    majCmd(id,{factures:(c.factures||[]).map(x=>x.id===fid?{...x,...patch}:x)});
+  };
+  const corrigerFactureHono=(fid,patch)=>
+    majCh({honoFactures:(ch.honoFactures||[]).map(x=>x.id===fid?{...x,...patch}:x)});
   const joindreDevisCmd=(id,file)=>envoyer(file,'Matériaux',lien=>{
     const c=data.commandes.find(x=>x.id===id)||{};
     majCmd(id,{devis:[...(c.devis||[]),{id:uid(),nom:file.name,lien}]});
@@ -6720,6 +6761,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                 <td style={{padding:'8px 4px'}}>
                   <ColFactures liste={m.factures} engage={+m.montantHT||0} ouv={ouv} setOuv={setOuv}
                     cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}
+                    onCorriger={(fid,patch)=>corrigerFactureMarche(m.id,fid,patch)}
                     visa={{ch,artisan:art,lot:m.lot,data}}/>
                 </td>
               </tr>
@@ -6785,7 +6827,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                   </td>
                   <td style={{padding:'8px 4px'}}>
                     <ColFactures liste={c.factures} engage={+c.montant||0} ouv={ouv} setOuv={setOuv}
-                      cle={'c-fac:'+c.id} onLien={(fid,file)=>joindreFactureCmd(c.id,fid,file)}/>
+                      cle={'c-fac:'+c.id} onLien={(fid,file)=>joindreFactureCmd(c.id,fid,file)}
+                      onCorriger={(fid,patch)=>corrigerFactureCmd(c.id,fid,patch)}/>
                   </td>
                 </tr>
                 {ouv===kE&&<Volet cols={3}>
@@ -6850,7 +6893,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                   </td>
                   <td style={{padding:'8px 4px'}}>
                     <ColFactures liste={ch.honoFactures} engage={du} ouv={ouv} setOuv={setOuv}
-                      cle="h-fac" onLien={(fid,file)=>joindreFactureHono(fid,file)}/>
+                      cle="h-fac" onLien={(fid,file)=>joindreFactureHono(fid,file)}
+                      onCorriger={(fid,patch)=>corrigerFactureHono(fid,patch)}/>
                   </td>
                 </tr>
                 {ouv==='h-ent'&&<Volet cols={3}>
