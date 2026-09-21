@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-21 · Une facture déjà enregistrée se corrige — montant, date, numéro — sans devoir la relire';
+const VERSION='2026-09-21 · Un avenant signé s’intègre d’un coup au budget et au marché ; une facture visée peut partir sans RIB';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4995,7 +4995,9 @@ function ViserFacture({f,ch,art,data,lot}){
         +', d’un montant de '+eur(f.montant)+' HT'+(lot?' pour le lot '+lot:'')
         +' du chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.'
         +'\n\nNous y apposons notre visa : cette facture est donc payable dès à présent.'
-        +'\n\nVous trouverez ci-joint la facture visée ainsi que le relevé d’identité bancaire de l’entreprise pour son règlement.'
+        +(art.lienRib
+          ?'\n\nVous trouverez ci-joint la facture visée ainsi que le relevé d’identité bancaire de l’entreprise pour son règlement.'
+          :'\n\nVous trouverez ci-joint la facture visée, à régler sur le relevé d’identité bancaire de l’entreprise déjà en votre possession.')
         +(art.lienAttestation?'\n\nVous trouverez également son attestation d’assurance décennale en cours de validité.':'')
         +'\n\nCordialement,\n'+SIGNATAIRE_MAIL,
     });
@@ -5029,9 +5031,10 @@ function ViserFacture({f,ch,art,data,lot}){
   };
   if(!ch.emailClient)return <div className="xs mut" style={{lineHeight:1.5}}>
     Aucun e-mail enregistré pour {ch.client||'ce client'} — ajoutez-le dans la fiche du chantier pour pouvoir lui transmettre la facture visée.</div>;
-  if(!art.lienRib)return <div className="xs mut" style={{lineHeight:1.5}}>
-    Le RIB de {art.nom||'l’entreprise'} n’est pas encore déposé — ajoutez-le sur sa fiche (onglet ARTISANS) pour pouvoir viser et transmettre cette facture.</div>;
   return <div>
+    {!art.lienRib&&<div className="xs mut" style={{marginBottom:6,lineHeight:1.5}}>
+      Le RIB de {art.nom||'l’entreprise'} n’est pas déposé sur sa fiche (onglet ARTISANS) — la facture visée peut
+      quand même partir sans lui, si le client dispose déjà de ce RIB.</div>}
     {!mail&&<button className="btn gh s" onClick={ouvrirMail}>Viser et envoyer au client</button>}
     {mail&&mail.etat==='apercu'&&<div className="card" style={{padding:10,marginTop:6}}>
       {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
@@ -5047,7 +5050,8 @@ function ViserFacture({f,ch,art,data,lot}){
       {expediteur&&<Fld label="EN COPIE CACHÉE"><div className="xs">{expediteur}</div></Fld>}
       <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
       <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
-      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Pièces jointes : la facture et le RIB de {art.nom||'l’entreprise'}
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Pièces jointes : la facture
+        {art.lienRib?' et le RIB de '+(art.nom||'l’entreprise'):' — sans le RIB de '+(art.nom||'l’entreprise')+', non déposé'}
         {art.lienAttestation?', ainsi que son attestation d’assurance décennale':''}.</div>
       <div className="row" style={{gap:8}}>
         <button className="btn acc s" onClick={envoyer}>Envoyer</button>
@@ -6427,12 +6431,26 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   /* le budget annoncé au client n'est corrigé qu'une fois l'avenant signé —
      pas à sa simple rédaction — et seulement à la demande, en confirmant le
      montant : ce chiffre nourrit un engagement pris auprès du client. */
+  /* Le budget client et le montant du marché doivent grandir ensemble : sinon
+     le chantier reste « en dépassement » même après avoir ajouté l'avenant
+     au budget, puisque le total engagé (basé sur le montant du marché) ne
+     bouge pas. Les deux s'appliquent donc ici en une seule fois, directement
+     sur data — comme le budget le faisait déjà — plutôt que de compter sur
+     un second geste (modifier le montant du marché, puis Enregistrer) qu'il
+     est facile d'oublier, ou de perdre si l'on quitte le lot sans enregistrer. */
   const appliquerBudgetAvenant=av=>{
-    const impactTTC=Math.round(avenantMontantHT(av)*(1+marcheTva(f,ch)/100));
+    const impactHT=avenantMontantHT(av);
+    const impactTTC=Math.round(impactHT*(1+marcheTva(f,ch)/100)*100)/100;
     if(!confirm('Ajouter '+impactLabel(impactTTC)+' TTC au budget client annoncé (actuellement '
-      +eur(ch.budgetClientTTC||0)+') ?'))return;
-    majCh({budgetClientTTC:(+ch.budgetClientTTC||0)+impactTTC});
-    majAvenant(av.id,a=>({...a,budgetAppliqueLe:today()}));
+      +eur(ch.budgetClientTTC||0)+'), et '+impactLabel(Math.round(impactHT*100)/100)
+      +' HT au montant de ce marché (actuellement '+eur(f.montantHT||0)+') ?'))return;
+    const montantHT=Math.round(((+f.montantHT||0)+impactHT)*100)/100;
+    save({...data,
+      chantiers:data.chantiers.map(c=>c.id===ch.id?{...c,budgetClientTTC:(+c.budgetClientTTC||0)+impactTTC}:c),
+      marches:data.marches.map(m=>m.id===f.id?{...m,montantHT,
+        avenants:(m.avenants||[]).map(a=>a.id===av.id?{...a,budgetAppliqueLe:today()}:a)}:m),
+    });
+    setF(p=>({...p,montantHT,avenants:(p.avenants||[]).map(a=>a.id===av.id?{...a,budgetAppliqueLe:today()}:a)}));
   };
 
   /* Le formulaire s'ouvrait en haut de l'écran : sur un chantier de quinze
@@ -6662,9 +6680,9 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                 </div>
               </div>}
               {av.dateSignature&&!av.budgetAppliqueLe&&<button className="btn gh s" style={{marginTop:8}}
-                onClick={()=>appliquerBudgetAvenant(av)}>Ajouter {impactLabel(impactTTC)} TTC au budget client</button>}
+                onClick={()=>appliquerBudgetAvenant(av)}>Ajouter {impactLabel(impactTTC)} TTC au budget client et au marché</button>}
               {av.budgetAppliqueLe&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
-                ✓ Intégré au budget client le {fd(av.budgetAppliqueLe)}.</div>}
+                ✓ Intégré au budget client et au montant du marché le {fd(av.budgetAppliqueLe)}.</div>}
             </div>
             <button className="btn dg s" style={{marginTop:10}}
               onClick={()=>{if(confirm('Supprimer cet avenant ?'))delAvenant(av.id)}}>Supprimer l’avenant</button>
