@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-21 · Un avenant signé s’intègre d’un coup au budget et au marché ; une facture visée peut partir sans RIB';
+const VERSION='2026-09-22 · Le plan électrique se transmet au client pour étude, avec suivi de sa confirmation';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -9354,6 +9354,100 @@ function PlanElectrique({ch,up,onFermer}){
 }
 
 /* ---------------- PIÈCES ---------------- */
+/* Le plan électrique, une fois déposé, doit encore partir chez le client pour
+   étude avant travaux — et il faut savoir qu'on attend son retour, sans avoir
+   à s'en souvenir soi-même. Même parti que ViserFacture/RelancerClient : un
+   aperçu du mail avant envoi, les fichiers joints depuis le Drive, et une
+   date d'envoi qui, tant qu'aucune confirmation n'est notée, fait réclamer le
+   dossier sur le tableau de bord. */
+function EnvoyerEtudeElec({ch,d,up,data}){
+  const c=d.plan_elec||{};
+  const fichiers=fichiersDe(c);
+  const [mail,setMail]=useState(null);
+  const expediteur=((data&&data.expediteurMail)||'').trim();
+  const ouvrirMail=()=>{
+    setMail({etat:'apercu',compte:'',
+      destinataire:ch.emailClient,
+      sujet:'Plan électrique — '+(ch.nom||'votre projet'),
+      corps:'Bonjour,\n\nVous trouverez ci-joint le plan électrique de votre projet, pour étude.'
+        +'\n\nConcernant la cuisine, nous suivrons les plans de cuisine que vous nous avez transmis.'
+        +'\n\nMerci de nous confirmer votre retour dès que possible.'
+        +'\n\nCordialement,\n'+SIGNATAIRE_MAIL,
+    });
+    getDriveToken().then(driveCompteConnecte).then(cc=>setMail(p=>p&&({...p,compte:cc}))).catch(()=>{});
+  };
+  const envoyer=async()=>{
+    setMail(p=>({...p,etat:'envoi'}));
+    try{
+      const token=await getDriveToken();
+      const pieces=[];
+      for(const f of fichiers){
+        const fid=driveIdDepuisLien(f.lien);
+        if(fid)pieces.push({nom:f.nom||'Plan électrique.pdf',type:'application/pdf',data:await driveFichierBytes(token,fid)});
+      }
+      await gmailEnvoyer(token,{destinataire:mail.destinataire,sujet:mail.sujet,corps:mail.corps,pieces,
+        expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
+      up({docs:{...d,plan_elec:{...c,etudeLe:today(),etudeConfirmeeLe:''}}});
+      setMail(p=>({...p,etat:'ok'}));
+    }catch(e){
+      const err=String((e&&(e.error||e.message))||e);
+      setMail(p=>({...p,etat:'erreur',msg:
+        err==='auth_required'?"Google n'est pas connecté (bouton en bas de l'onglet) — connectez-le, avec l'autorisation d'envoi de mail, puis relancez.":
+        /too large|size|quota/i.test(err)?"Les pièces jointes dépassent la limite de la messagerie (25 Mo au total).":
+        "Envoi impossible — "+err}));
+    }
+  };
+  const confirmer=()=>up({docs:{...d,plan_elec:{...c,etudeConfirmeeLe:today()}}});
+  if(!fichiers.length)return <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+    Importez d’abord le plan électrique ci-dessus pour pouvoir le transmettre au client.</div>;
+  if(!ch.emailClient)return <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+    Aucun e-mail enregistré pour {ch.client||'ce client'} — ajoutez-le dans la fiche du chantier pour transmettre le plan électrique.</div>;
+  return <div style={{marginTop:6}}>
+    {!mail&&!c.etudeLe&&<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}
+      onClick={ouvrirMail}>Transmettre au client pour étude</button>}
+    {!mail&&c.etudeLe&&!c.etudeConfirmeeLe&&<div className="xs" style={{color:TERRA,lineHeight:1.5}}>
+      Transmis pour étude le {fd(c.etudeLe)} — en attente du retour du client.
+      <div className="row" style={{gap:14,marginTop:4}}>
+        <button style={{color:NAVY,background:'none',border:'none',padding:0}} className="xs" onClick={confirmer}>Confirmer le retour du client</button>
+        <button style={{color:NAVY,background:'none',border:'none',padding:0}} className="xs" onClick={ouvrirMail}>Retransmettre</button>
+      </div>
+    </div>}
+    {!mail&&c.etudeConfirmeeLe&&<div className="xs" style={{color:GREEN,lineHeight:1.5}}>
+      ✓ Confirmé par le client le {fd(c.etudeConfirmeeLe)}.
+      <button style={{color:MUTED,background:'none',border:'none',padding:0,marginLeft:10}} onClick={ouvrirMail}>Retransmettre</button>
+    </div>}
+    {mail&&mail.etat==='apercu'&&<div className="card" style={{padding:10,marginTop:6}}>
+      {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
+        borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+        Le mail partira de <b>{mail.compte}</b>, le compte Google connecté. Pour qu’il parte
+        d’une adresse cpconstructions.fr, renseignez-la dans RÉGLAGES › Adresse d’expédition.</div>}
+      <Fld label="EXPÉDITEUR">
+        <div className="xs">{expediteur||mail.compte||'le compte Google connecté'}
+          {expediteur&&mail.compte&&<span className="mut"> · via {mail.compte}</span>}</div>
+      </Fld>
+      <Fld label="DESTINATAIRE"><div className="xs">{mail.destinataire}</div></Fld>
+      <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
+      <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+        Pièces jointes : {fichiers.map(f=>f.nom).join(', ')}.</div>
+      <div className="row" style={{gap:8}}>
+        <button className="btn acc s" onClick={envoyer}>Envoyer</button>
+        <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+      </div>
+    </div>}
+    {mail&&mail.etat==='envoi'&&<div className="xs mut" style={{marginTop:6}}>Envoi en cours…</div>}
+    {mail&&mail.etat==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+      ✓ Plan électrique transmis à {mail.destinataire}.
+      <button className="btn gh s" style={{marginLeft:10}} onClick={()=>setMail(null)}>Fermer</button></div>}
+    {mail&&mail.etat==='erreur'&&<div style={{marginTop:6}}>
+      <div className="xs" style={{color:TERRA,lineHeight:1.5,marginBottom:8}}>{mail.msg}</div>
+      <div className="row" style={{gap:8}}>
+        <button className="btn gh s" onClick={envoyer}>Réessayer</button>
+        <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+      </div>
+    </div>}
+  </div>;
+}
 function Docs({data,ch,up,save}){
   const d=ch.docs||{};
   const [busy,setBusy]=useState(null);
@@ -9470,6 +9564,9 @@ function Docs({data,ch,up,save}){
                 <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
                   Tant que le plan n’est pas ouvert à tous, le marché ne porte pas son QR code : un lien Drive
                   ordinaire renverrait l’artisan vers une demande de connexion.</div>}
+              {x.id==='plan_elec'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
+                <EnvoyerEtudeElec ch={ch} d={d} up={up} data={data}/>
+              </div>}
               {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
                 <VignetteSign id={s.id}/>
                 <div style={{flex:1}}>
@@ -12341,14 +12438,18 @@ function TableauBord({data,save,open,allerA}){
        eux, rien ne justifie la fourniture commandée en son nom */
     const accords=(data.commandes||[]).filter(x=>x.chantierId===c.id&&estimatifARelancer(x))
       .sort((a,b)=>(a.estimatifLe||'').localeCompare(b.estimatifLe||''));
-    if(manque.length||relances.length||accords.length)
-      dossiers.push({ch:c,manque,relances,accords});
+    /* le plan électrique transmis pour étude, sans confirmation du client :
+       un seul plan par chantier, pas une liste à parcourir */
+    const pe=(c.docs&&c.docs.plan_elec)||{};
+    const etude=(pe.etudeLe&&!pe.etudeConfirmeeLe)?{le:pe.etudeLe,j:joursDepuis(pe.etudeLe)}:null;
+    if(manque.length||relances.length||accords.length||etude)
+      dossiers.push({ch:c,manque,relances,accords,etude});
   });
   /* les dossiers qui attendent le plus sont ceux qui pressent */
-  dossiers.sort((a,b)=>((b.relances.length+b.accords.length)-(a.relances.length+a.accords.length))
+  dossiers.sort((a,b)=>((b.relances.length+b.accords.length+(b.etude?1:0))-(a.relances.length+a.accords.length+(a.etude?1:0)))
     ||(b.manque.length-a.manque.length));
-  const nARelancer=dossiers.reduce((s,d)=>s+d.relances.length+d.accords.length,0);
-  const nAReunir=dossiers.reduce((s,d)=>s+d.manque.length+d.relances.length+d.accords.length,0);
+  const nARelancer=dossiers.reduce((s,d)=>s+d.relances.length+d.accords.length+(d.etude?1:0),0);
+  const nAReunir=dossiers.reduce((s,d)=>s+d.manque.length+d.relances.length+d.accords.length+(d.etude?1:0),0);
   const decen=data.artisans.map(a=>({a,j:a.decennaleFin?Math.round((new Date(a.decennaleFin)-new Date(t))/86400000):null}))
     .filter(x=>x.j===null||x.j<60).sort((a,b)=>(a.j===null?-1e9:a.j)-(b.j===null?-1e9:b.j));
   /* les tâches en retard, tous chantiers vivants confondus — celles qu'on a
@@ -12502,16 +12603,16 @@ function TableauBord({data,save,open,allerA}){
         chez l’artisan qui ne sont pas revenus signés. Un encadré par chantier.</div>
       {/* un chantier, un encadré : sur cinq ou six dossiers, une liste à plat
           devient illisible et l'on ne sait plus à qui appartient quelle ligne */}
-      {dossiers.map(({ch,manque,relances,accords})=>
+      {dossiers.map(({ch,manque,relances,accords,etude})=>
         <div key={ch.id} style={{marginTop:10,border:'1px solid '+RULE,borderRadius:10,
-          borderLeft:'3px solid '+((relances.length||accords.length)?TERRA:AMBER),overflow:'hidden'}}>
+          borderLeft:'3px solid '+((relances.length||accords.length||etude)?TERRA:AMBER),overflow:'hidden'}}>
           <button onClick={()=>open(ch.id)} style={{display:'flex',width:'100%',
             justifyContent:'space-between',gap:10,alignItems:'baseline',textAlign:'left',
             background:'rgba(44,74,94,.045)',border:'none',padding:'8px 11px'}}>
             <span className="xs b" style={{color:NAVY,flex:1,minWidth:0}}>{ch.nom}
               <span className="mut" style={{fontWeight:400}}> · {PHASE[ch.statut]}</span></span>
-            <span className="xs b" style={{color:(relances.length||accords.length)?TERRA:AMBER,whiteSpace:'nowrap'}}>
-              {manque.length+relances.length+accords.length} à réunir</span>
+            <span className="xs b" style={{color:(relances.length||accords.length||etude)?TERRA:AMBER,whiteSpace:'nowrap'}}>
+              {manque.length+relances.length+accords.length+(etude?1:0)} à réunir</span>
           </button>
 
           {relances.length>0&&<div style={{padding:'8px 11px',borderTop:'1px solid '+RULE}}>
@@ -12519,6 +12620,14 @@ function TableauBord({data,save,open,allerA}){
               {relances.length} marché{relances.length>1?'s':''} non retourné{relances.length>1?'s':''} signé{relances.length>1?'s':''}</div>
             {relances.map(m=><RelanceMarche key={m.id} ch={ch} m={m}
               a={data.artisans.find(x=>x.id===m.artisanId)} majMarche={majMarche}/>)}
+          </div>}
+
+          {etude&&<div style={{padding:'8px 11px',borderTop:'1px solid '+RULE}}>
+            <div className="xs b" style={{color:TERRA}}>Plan électrique en attente de confirmation</div>
+            <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+              Transmis pour étude le {fd(etude.le)}
+              {etude.j>0?<span style={{color:TERRA}}> · en attente depuis {etude.j} jour{etude.j>1?'s':''}</span>:null}.
+            </div>
           </div>}
 
           {accords.length>0&&<div style={{padding:'8px 11px',borderTop:'1px solid '+RULE}}>
