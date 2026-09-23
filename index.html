@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-22 · Le plan électrique se transmet au client pour étude, avec suivi de sa confirmation';
+const VERSION='2026-09-23 · Le chiffrage interne s’envoie désormais par mail directement au commercial';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -14059,10 +14059,17 @@ function SortirDossier({data,p,maj}){
 /* ---------- le chiffrage interne, en Word ----------
    Le pendant réservé de SortirDossier : marge, rétrocession poste par
    poste, coefficient de vente. Jamais le document remis au client — celui-
-   là reste le dossier de présentation, sans aucun de ces chiffres. */
+   là reste le dossier de présentation, sans aucun de ces chiffres.
+   Le lien Drive se retient désormais sur la fiche (chiffrageInterneLien),
+   comme le RIB d'un artisan ou le dernier PDF client : sans lui, le bouton
+   d'envoi par mail n'aurait rien à joindre après un rechargement de la page. */
 function SortirChiffrageInterne({data,p,maj}){
   const [etat,setEtat]=useState(null);
+  const [mail,setMail]=useState(null);
   const pret=prospectPrixTTC(p)>0;
+  const expediteur=((data&&data.expediteurMail)||'').trim();
+  const lien=(etat&&etat.lien)||p.chiffrageInterneLien;
+  const nomDoc=(etat&&etat.nom)||p.chiffrageInterneNom||('Chiffrage interne — '+(p.nom||'projet')+'.docx');
   const produire=async()=>{
     setEtat({etat:'travail'});
     try{
@@ -14072,13 +14079,42 @@ function SortirChiffrageInterne({data,p,maj}){
       const dossierId=await driveProspectFolder(token,p.id,p.nom);
       const {webViewLink}=await uploadToDrive(new File([buf],nom,
         {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),dossierId);
-      maj({chiffrageInterneLe:today()});
+      maj({chiffrageInterneLe:today(),chiffrageInterneLien:webViewLink,chiffrageInterneNom:nom});
       setEtat({etat:'ok',lien:webViewLink,nom});
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
       setEtat({etat:'erreur',msg:c==='auth_required'
         ?"Le document a été composé, mais Google Drive n'est pas connecté — reconnectez-le puis relancez."
         :'Sortie impossible — '+c});
+    }
+  };
+  const ouvrirMail=()=>{
+    setMail({etat:'apercu',compte:'',destinataire:p.commercialEmail,
+      sujet:'Chiffrage interne — '+(p.nom||'projet'),
+      corps:'Bonjour,\n\nVous trouverez ci-joint le chiffrage interne du projet '+(p.nom||'')
+        +' : détail des postes et des options avec rétrocession, marge et coefficient de vente.'
+        +'\n\nÀ usage interne uniquement — ce document ne doit pas être remis au client.'
+        +'\n\nCordialement,\n'+SIGNATAIRE_MAIL});
+    getDriveToken().then(driveCompteConnecte).then(c=>setMail(m=>m&&({...m,compte:c}))).catch(()=>{});
+  };
+  const envoyerMail=async()=>{
+    setMail(m=>({...m,etat:'envoi'}));
+    try{
+      const token=await getDriveToken();
+      const pieces=[];
+      const fid=driveIdDepuisLien(lien);
+      if(fid)pieces.push({nom:nomDoc,
+        type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        data:await driveFichierBytes(token,fid)});
+      await gmailEnvoyer(token,{destinataire:mail.destinataire,sujet:mail.sujet,corps:mail.corps,pieces,
+        expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
+      setMail(m=>({...m,etat:'ok'}));
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setMail(m=>({...m,etat:'erreur',msg:
+        c==='auth_required'?"Google n'est pas connecté (bouton en bas de l'onglet) — connectez-le, avec l'autorisation d'envoi de mail, puis relancez.":
+        /too large|size|quota/i.test(c)?"La pièce jointe dépasse la limite de la messagerie (25 Mo).":
+        "Envoi impossible — "+c}));
     }
   };
   return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+TERRA}}>
@@ -14090,7 +14126,7 @@ function SortirChiffrageInterne({data,p,maj}){
     <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
       <button className="btn gh s" disabled={!pret||(etat&&etat.etat==='travail')} onClick={produire}>
         {etat&&etat.etat==='travail'?'Composition…':'Sortir le chiffrage interne'}</button>
-      {etat&&etat.etat==='ok'&&<a href={etat.lien} target="_blank" rel="noreferrer" className="btn gh s"
+      {lien&&<a href={lien} target="_blank" rel="noreferrer" className="btn gh s"
         style={{textDecoration:'none'}}>Ouvrir</a>}
     </div>
     {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
@@ -14098,6 +14134,42 @@ function SortirChiffrageInterne({data,p,maj}){
     {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
     {!pret&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       Chiffrez d'abord le projet : sans montant, il n'y a rien à détailler.</div>}
+    {lien&&<div style={{marginTop:10,paddingTop:8,borderTop:'1px solid '+RULE}}>
+      {!p.commercialEmail&&<div className="xs mut" style={{lineHeight:1.5}}>
+        Aucun e-mail enregistré pour {p.commercial||'le commercial'} — ajoutez-le dans la fiche
+        pour pouvoir lui envoyer ce chiffrage directement.</div>}
+      {p.commercialEmail&&!mail&&<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}
+        onClick={ouvrirMail}>Envoyer par mail à {p.commercial||'le commercial'}</button>}
+      {mail&&mail.etat==='apercu'&&<div className="card" style={{padding:10,marginTop:6}}>
+        {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
+          borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+          Le mail partira de <b>{mail.compte}</b>, le compte Google connecté. Pour qu'il parte
+          d'une adresse cpconstructions.fr, renseignez-la dans RÉGLAGES › Adresse d'expédition.</div>}
+        <Fld label="EXPÉDITEUR">
+          <div className="xs">{expediteur||mail.compte||'le compte Google connecté'}
+            {expediteur&&mail.compte&&<span className="mut"> · via {mail.compte}</span>}</div>
+        </Fld>
+        <Fld label="DESTINATAIRE"><div className="xs">{mail.destinataire}</div></Fld>
+        <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
+        <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
+        <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Pièce jointe : {nomDoc}.</div>
+        <div className="row" style={{gap:8}}>
+          <button className="btn acc s" onClick={envoyerMail}>Envoyer</button>
+          <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+        </div>
+      </div>}
+      {mail&&mail.etat==='envoi'&&<div className="xs mut" style={{marginTop:6}}>Envoi en cours…</div>}
+      {mail&&mail.etat==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+        ✓ Chiffrage interne envoyé à {mail.destinataire}.
+        <button className="btn gh s" style={{marginLeft:10}} onClick={()=>setMail(null)}>Fermer</button></div>}
+      {mail&&mail.etat==='erreur'&&<div style={{marginTop:6}}>
+        <div className="xs" style={{color:TERRA,lineHeight:1.5,marginBottom:8}}>{mail.msg}</div>
+        <div className="row" style={{gap:8}}>
+          <button className="btn gh s" onClick={envoyerMail}>Réessayer</button>
+          <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+        </div>
+      </div>}
+    </div>}
   </div>;
 }
 
