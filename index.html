@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-23 · Le chiffrage interne s’envoie désormais par mail directement au commercial';
+const VERSION='2026-09-24 · Le contrat de maîtrise d’œuvre et la notice précontractuelle se sortent prêts remplis';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1759,20 +1759,27 @@ const DOC_TERRA='C5563A', DOC_BRUN='6B4A2F', DOC_ENCRE='262626', DOC_GRIS='7A7A7
 
 const rP=(o)=>{o=o||{};
   const f=o.f||DOC_POLICE;
+  /* CT_RPr, elle aussi, impose son ordre : caps avant color, color avant
+     spacing, spacing avant sz — comme pour CT_PPrBase, seul un lecteur
+     strict (LibreOffice) le sanctionne ; Word se contentait de corriger. */
   return '<w:rPr><w:rFonts w:ascii="'+f+'" w:hAnsi="'+f+'" w:cs="'+f+'"/>'
     +(o.b?'<w:b/>':'')+(o.i?'<w:i/>':'')+(o.caps?'<w:caps/>':'')
-    +(o.sp?'<w:spacing w:val="'+o.sp+'"/>':'')
     +'<w:color w:val="'+(o.c||DOC_ENCRE)+'"/>'
+    +(o.sp?'<w:spacing w:val="'+o.sp+'"/>':'')
     +'<w:sz w:val="'+(o.sz||20)+'"/><w:szCs w:val="'+(o.sz||20)+'"/></w:rPr>';
 };
 const run=(t,o)=>'<w:r>'+rP(o)+'<w:t xml:space="preserve">'+exml(t)+'</w:t></w:r>';
 const par=(t,o)=>{o=o||{};
   const filet=c=>'<w:bottom w:val="single" w:sz="'+(o.filetSz||8)+'" w:space="2" w:color="'+c+'"/>';
+  /* CT_PPrBase impose un ordre précis à ses enfants — pBdr, puis spacing,
+     puis ind, puis jc en dernier. Word tolère qu'on l'ignore et corrige à la
+     volée, mais LibreOffice et tout lecteur strict refusent le fichier :
+     mieux vaut l'écrire dans le bon ordre une fois pour toutes ici. */
   return '<w:p><w:pPr>'
-    +(o.jc?'<w:jc w:val="'+o.jc+'"/>':'')
+    +(o.filet?'<w:pBdr>'+filet(o.filet)+'</w:pBdr>':'')
     +'<w:spacing w:before="'+(o.av||0)+'" w:after="'+(o.ap===undefined?60:o.ap)+'" w:line="'+(o.ln||264)+'" w:lineRule="auto"/>'
     +(o.ind?'<w:ind w:left="'+o.ind+'"/>':'')
-    +(o.filet?'<w:pBdr>'+filet(o.filet)+'</w:pBdr>':'')
+    +(o.jc?'<w:jc w:val="'+o.jc+'"/>':'')
     +'</w:pPr>'
     +(typeof t==='string'?run(t,o):(t||[]).join(''))
     +'</w:p>';
@@ -1811,8 +1818,13 @@ const tbl=(grille,rows,o)=>{o=o||{};
     +rows.join('')+'</w:tbl>';
 };
 
-/* le logo de la maison, aux dimensions de son fichier */
+/* le logo de la maison, aux dimensions de son fichier — sans fichier de logo
+   (échec réseau, actif absent), il n'y a rien à dessiner : émettre quand même
+   ce bloc renverrait vers un rId5 qu'aucune relation ni aucun média ne
+   porterait plus dans le paquet, ce qui rend le document illisible dans
+   Word malgré un fichier .docx techniquement valide en apparence. */
 const logoXml=(px)=>{
+  if(!px)return '';
   const larg=1500000, haut=Math.round(larg*(px&&px.h?px.h:505)/(px&&px.w?px.w:767));
   return '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
     +'<wp:extent cx="'+larg+'" cy="'+haut+'"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
@@ -2159,7 +2171,30 @@ const CP={nom:'CP CONSTRUCTIONS',forme:'SASU au capital de 1 000 €',
   adresse:'14 rue de congé — 61250 VALFRAMBERT',
   siret:'999 593 395 00018',siren:'999 593 395',ape:'7112 B',
   tvaIntra:'FR74999593395',rcs:'RCS ALENÇON',
-  tel:'06 79 62 21 55',mail:'contact@cpconstructions.fr'};
+  tel:'06 79 62 21 55',mail:'contact@cpconstructions.fr',
+  rcProAssureur:'ZURICH',rcProContrat:'7400042329-199800048',
+  zoneCouverture:'Calvados (14), Manche (50), Orne (61) — Basse-Normandie'};
+/* le médiateur de la consommation désigné pour les litiges — le même sur le
+   contrat de maîtrise d'œuvre et sur la notice précontractuelle qui le
+   précède, d'où sa place ici plutôt que redite dans chaque document. */
+const MEDIATEUR={nom:'MEDIMMOCONSO',
+  adresse:'1, allée du Parc Mesemena Bât. A — CS25222 — 44505 La Baule Cedex',
+  url:'https://medimmoconso.fr/adresser-une-reclamation/'};
+/* l'échéancier des honoraires du contrat de maîtrise d'œuvre : dix phases à
+   pourcentage fixe de l'honoraire total TTC, de la signature à la réception —
+   le même découpage quel que soit le projet, seul le montant change. */
+const HONO_ECHEANCIER=[
+  {phase:'Conception du projet architectural',pct:10,echeance:'Signature'},
+  {phase:'Dépôt du dossier permis de construire',pct:10,echeance:'Arrêté PC'},
+  {phase:'Assistance à la consultation des entreprises',pct:10,echeance:'OS de démarrage'},
+  {phase:'Réalisation des plans d’exécution',pct:10,echeance:'OS de démarrage'},
+  {phase:'A l’ouverture du chantier',pct:10,echeance:'OS de démarrage'},
+  {phase:'A l’achèvement des travaux de maçonnerie courante',pct:10,echeance:'Fin maçonnerie'},
+  {phase:'A la mise hors d’eau',pct:10,echeance:'Hors d’eau'},
+  {phase:'A l’achèvement des travaux de cloisonnement',pct:10,echeance:'A l’achèvement des travaux de cloisonnement'},
+  {phase:'A l’achèvement des travaux',pct:15,echeance:'A l’achèvement des travaux'},
+  {phase:'Assistance aux opérations de réception (AOR)',pct:5,echeance:'A la réception'},
+];
 /* les documents contractuels (marchés, avenants, conventions…) engagent la
    société et se signent donc de sa raison sociale, CP.nom ; un e-mail, lui,
    part d'une personne — il se signe du nom de son expéditeur, en objet
@@ -2614,10 +2649,10 @@ const DOCX_RELS='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
  +'<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
  +'</Relationships>';
-const docxDocRels=(avecQr,avecQrPlan)=>'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+const docxDocRels=(avecLogo,avecQr,avecQrPlan)=>'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
  +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
- +'<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/>'
+ +(avecLogo?'<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/>':'')
  +(avecQr?'<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/qr.png"/>':'')
  +(avecQrPlan?'<Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/qr-plan.png"/>':'')
  +'</Relationships>';
@@ -2656,7 +2691,7 @@ async function fabriquerDocx(documentXml,titre,logo,qr,qrPlan){
     {nom:'[Content_Types].xml',data:enc.encode(DOCX_TYPES)},
     {nom:'_rels/.rels',data:enc.encode(DOCX_RELS)},
     {nom:'docProps/core.xml',data:enc.encode(docxCore(titre))},
-    {nom:'word/_rels/document.xml.rels',data:enc.encode(docxDocRels(!!qr,!!qrPlan))},
+    {nom:'word/_rels/document.xml.rels',data:enc.encode(docxDocRels(!!logo,!!qr,!!qrPlan))},
     {nom:'word/styles.xml',data:enc.encode(DOCX_STYLES)},
     {nom:'word/document.xml',data:enc.encode(documentXml)},
   ];
@@ -3055,6 +3090,416 @@ async function genererDossierDocx(p,com,majTarifs){
   try{logo=await logoDocx()}catch(e){/* sans logo, le dossier reste lisible */}
   return fabriquerDocx(dossierDocumentXml(p,logo,com,majTarifs),
     'Dossier de présentation — '+(p.nom||''),logo);
+}
+
+/* ---------- le contrat de maîtrise d'œuvre, en Word ----------
+   Le texte juridique (avertissements, articles, clauses de résiliation…)
+   reprend mot pour mot le modèle sécurisé fourni par CP Constructions : ce
+   n'est pas à l'application de le reformuler. Seuls les champs que
+   l'application connaît déjà (identité du client, adresse du chantier,
+   surfaces, budget travaux, honoraires) sont remplis ; le reste — n° RCS
+   d'une société, références cadastrales, financement — reste à compléter à
+   la main, comme sur le modèle papier, faute d'un champ pour le saisir
+   ailleurs dans l'appli. */
+function contratMoeDocumentXml(p,px){
+  const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
+  const sousTitre=t=>par(t,{b:true,sz:19,c:DOC_BRUN,av:140,ap:80});
+  const texte=t=>par(t,{sz:18,jc:'both',ap:120});
+  const puce=t=>par('—  '+t,{sz:18,ap:60,ind:200,jc:'both'});
+  const champs=rows=>tbl([3200,7200],rows.map(([l,v])=>tr([
+    tc(3200,par(l,{b:true,sz:16,c:DOC_BRUN,ap:0}),{bords:tcB({c:DOC_BRUN,sz:4}),fond:DOC_SABLE,mg:100,v:'top'}),
+    tc(7200,par(v||'',{sz:18,ap:0}),{bords:tcB({c:DOC_BRUN,sz:4}),mg:100,v:'top'}),
+  ])),{});
+  const encadre=(paras,color)=>tbl([10400],[tr([tc(10400,paras.join(''),
+    {bords:tcB({c:color||DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:160,v:'top'})])],{});
+
+  const nomClient=afficherCivilite(p.civilite,p.client)||p.client||'';
+  const nomClient2=p.client2?afficherCivilite(p.civilite2,p.client2)||p.client2:'';
+  const geoObligatoire=etudeSolObligatoire(p);
+  const coutHT=prospectCoutHT(p), tva=prospectTva(p),
+    coutTTC=Math.round(coutHT*(1+tva/100)*100)/100;
+  const margeHT=prospectMargeHT(p), margeTva=Math.round(margeHT*tva)/100,
+    margeTTC=honoDossierTTC(p);
+  const surfaceFonciere=p.surfaceTerrain?nb2(+p.surfaceTerrain)+' m²':'';
+  const surfaceProjetee=(+p.surfaceHabitable||+p.surfaceAnnexes)
+    ?nb2((+p.surfaceHabitable||0)+(+p.surfaceAnnexes||0))+' m²':'';
+
+  const garde=[
+    par([logoXml(px)],{ap:0}),
+    vide(300),
+    par('CONTRAT DE MAÎTRISE D’ŒUVRE',{b:true,sz:34,c:DOC_TERRA,sp:30,jc:'center',ap:60}),
+    par('Mission de maîtrise d’œuvre — Ouvrage à usage d’habitation — Client privé',
+      {sz:19,c:DOC_BRUN,jc:'center',ap:20,filet:DOC_BRUN}),
+    par((p.nom||'')+(nomClient?' — '+nomClient:''),{sz:18,c:DOC_GRIS,jc:'center',ap:0}),
+    vide(300),
+    encadre([par('AVERTISSEMENT LÉGAL — Le présent contrat est un contrat de maîtrise d’œuvre relevant exclusivement des articles 1779 et suivants du Code civil (louage d’ouvrage intellectuel). Il n’entre pas dans le champ d’application de l’article L.231-1 du Code de la construction et de l’habitation, le Maître d’Œuvre n’étant pas constructeur de maison individuelle au sens dudit article, n’assumant aucune obligation de livraison à prix et délai convenus, et n’étant lié aux entreprises par aucun rapport contractuel direct ou indirect. Il ne constitue en aucun cas un CCMI. Le Maître d’Œuvre n’est pas constructeur, ne s’engage sur aucun prix global et forfaitaire de construction, et n’est pas lié contractuellement aux entreprises de travaux. Les marchés de travaux sont conclus directement et individuellement par le maître de l’ouvrage avec chaque entreprise titulaire. Il est bien précisé que le Maître d’Œuvre n’est pas mandataire du Maître de l’Ouvrage, qu’il est lié à ce dernier dans le cadre d’un louage d’ouvrage défini par les articles 1779 et suivants du Code Civil. Le Maître d’Œuvre exerce son art dans le cadre d’une profession libérale indépendante : sa responsabilité est limitée dans le cadre de la loi à sa propre mission, sans interférence avec celles qui seront données d’autres part aux différents entrepreneurs et hommes de l’art appelés à concourir à l’édification de la construction.',
+      {sz:16,i:true,jc:'both',ap:0})]),
+    vide(200),
+  ].join('');
+
+  const a1=[
+    titre('Article 1 — Parties contractantes'),
+    sousTitre('Le Maître de l’Ouvrage (le Client)'),
+    champs([['Nom / Prénom',[nomClient,nomClient2].filter(Boolean).join(' et ')],
+      ['Adresse',p.adresseClient||''],['Téléphone',p.telClient||''],['E-mail',p.emailClient||''],
+      ['N° RCS (si société)','']]),
+    vide(160),
+    sousTitre('Le Maître d’Œuvre'),
+    champs([['Société','SASU CP Constructions — Capital '+((CP.forme.match(/capital de (.+)/)||[])[1]||'1 000 €')],
+      ['Représentant','M. PORTIER Claude, Président'],['RCS',CP.rcs],['Adresse',CP.adresse],
+      ['Tél / E-mail',CP.tel+' — '+CP.mail],
+      ['RC Pro',CP.rcProAssureur+' — Contrat n° '+CP.rcProContrat]]),
+  ].join('');
+
+  const a2=[
+    titre('Article 2 — Description du projet'),
+    champs([['Type de maison',p.niveaux?'Ouvrage d’habitation personnalisé — '+p.niveaux:'Ouvrage d’habitation personnalisé'],
+      ['Adresse des travaux',p.commune||''],['Références cadastrales',''],
+      ['Surface foncière',surfaceFonciere],['Surface projetée',surfaceProjetee],
+      ['Nature du projet',p.prestation?p.prestation+' — RE 2020':'Construction neuve — RE 2020'],
+      ['Étude géotechnique',(geoObligatoire?'☑':'☐')+' Fournie par le client (G1/G2)    '
+        +(geoObligatoire?'☐':'☑')+' Non concerné']]),
+    texte('Les parties s’engagent conformément aux plans et au programme technique de référence annexés au présent contrat. Le Maître de l’Ouvrage fournit au Maître d’Œuvre tous les éléments nécessaires (titres de propriété, données cadastrales, règlements de lotissement, études antérieures, etc.). Il effectue la déclaration de projet de travaux (DT) auprès de chaque exploitant de réseaux et dépose lui-même ou valide la demande de permis de construire en sa qualité de pétitionnaire.'),
+  ].join('');
+
+  const a3=[
+    titre('Article 3 — Mission confiée au Maître d’Œuvre'),
+    sousTitre('Article III-1 — Décomposition de la mission'),
+    texte('La mission du Maître d’Œuvre est décomposée en deux blocs distincts, dont le périmètre et la rémunération sont définis séparément.'),
+    par('BLOC A — Mission Conception & Autorisation',{b:true,sz:18,c:DOC_TERRA,ap:60}),
+    puce('ESQ — Esquisse : première traduction du programme, orientation architecturale, vérification de faisabilité au regard du PLU et des contraintes parcellaires'),
+    puce('APS — Avant-Projet Sommaire : plans masse, coupes et façades, affinement de l’enveloppe budgétaire'),
+    puce('APD — Avant-Projet Définitif : plans précis, choix techniques, coût prévisionnel par corps d’état'),
+    puce('PC — Permis de Construire : constitution et dépôt du dossier, suivi d’instruction, interface avec les services instructeurs jusqu’à l’obtention de l’arrêté'),
+    par('BLOC B — Mission Chantier',{b:true,sz:18,c:DOC_TERRA,av:100,ap:60}),
+    puce('PRO — Projet : plans d’exécution détaillés'),
+    puce('DCE — Dossier de Consultation des Entreprises'),
+    puce('ACT — Assistance à la passation des Contrats : analyse comparative des devis, recommandation au Maître de l’Ouvrage (les marchés sont signés par le Maître de l’Ouvrage directement)'),
+    puce('VISA — Visa des études d’exécution : vérification de la conformité des plans d’exécution des entreprises'),
+    puce('DET — Direction de l’Exécution des Travaux : réunions de chantier, vérification de conformité, visa des situations de paiement'),
+    puce('AOR — Assistance aux Opérations de Réception : organisation de la réception, établissement de la liste des réserves, suivi de leur levée, déclenchement des garanties légales'),
+    sousTitre('Article III-2 — Nature de la mission'),
+    texte('Le Maître d’Œuvre exerce son art dans le cadre d’une profession libérale indépendante. Sa responsabilité est limitée à sa propre mission, sans interférence avec les obligations contractuelles propres aux différents entrepreneurs et hommes de l’art appelés à concourir à l’édification de la construction.'),
+    texte('Le Maître d’Œuvre n’est pas le mandataire du Maître de l’Ouvrage. Toute décision de nature à engager le Maître de l’Ouvrage notamment la signature des marchés avec les entreprises, les paiements, les ordres de service modificatifs appartient exclusivement au Maître de l’Ouvrage.'),
+    texte('Le Maître d’œuvre devra concevoir l’ouvrage à la destination qui lui aura été définie par le maître de l’ouvrage. Les plans seront conformes au projet ainsi arrêté.'),
+    texte('Le Maître d’Œuvre sur le vu des marchés et contrats qui seront passés, surveillera selon les règles de l’art, l’exécution de l’ouvrage conformément aux plans fournis à l’appui du permis de construire. Il signale par écrit au Maître de l’Ouvrage toute insuffisance, erreur, malfaçon ou non-conformité qu’il détecte lors de ses visites de chantier. Il appartient au seul Maître de l’Ouvrage, en sa qualité de cocontractant des entreprises, d’exiger la réparation des désordres constatés. Le Maître d’Œuvre n’assume aucune obligation de résultat sur l’exécution des travaux réalisés par des tiers.'),
+    texte('Le maître d’œuvre assistera le maitre de l’ouvrage de ses avis et de ses conseils au cours de toutes conférences ou discussions qui seraient nécessaires, il participera d’ailleurs personnellement ou par l’un de ses représentants ou préposés à toutes réunions de chantier. Il donnera au Maitre de l’ouvrage toutes indications ou lui fera toutes suggestions pour la réalisation de son projet.'),
+    texte('Dans les rapports avec les administrations, le Maitre d’œuvre se bornera à assister le maitre de l’ouvrage de ses conseils sans se substituer à lui, tout décision ne pouvant être prise que par ce dernier.'),
+    texte('Si à l’occasion de ses rapports avec des tiers, il advenait que le maitre de l’ouvrage passe outre aux avis exprimés par le Maitre d’œuvre, il en supporterait seul les conséquences, et le maitre d’œuvre serait dégagé de toute responsabilité à l’occasion des difficultés qui pourraient résulter du désaccord intervenu.'),
+  ].join('');
+
+  const a4=[
+    titre('Article 4 — Obligations du Maître de l’Ouvrage'),
+    sousTitre('Article 4-1 — Renseignements et documents'),
+    texte('Le Maître de l’Ouvrage s’engage à fournir au Maître d’Œuvre tous les éléments nécessaires à la bonne réalisation du projet, notamment : titre de propriété, relevé topographique, règlement de lotissement le cas échéant, certificat d’urbanisme.'),
+    sousTitre('Article 4-2 — Formalités'),
+    puce('Signer et présenter la demande de permis de construire préparée par le Maître d’Œuvre'),
+    puce('Sélectionner et signer directement les marchés avec les entrepreneurs, après recommandation du Maître d’Œuvre'),
+    puce('Effectuer tous paiements d’acomptes et règlements aux entreprises'),
+    puce('Souscrire une assurance dommages-ouvrage avant l’ouverture du chantier, conformément aux articles L242-1 et suivants du Code des assurances'),
+    puce('En général, effectuera toutes démarches, précédera à toutes discussions indispensables à la défense de ses intérêts. La mission du Maître d’œuvre étant limité au rôle de conseil pour tout ce qui ne concerne pas sa mission proprement dite qu’elle a été définie à l’articles 3 ci-dessus.'),
+    sousTitre('Article 4-3 — Initiatives propres du Maître de l’Ouvrage'),
+    texte('Si le Maître de l’Ouvrage passe outre aux avis exprimés par le Maître d’Œuvre dans les rapports avec les tiers ou les entreprises, il en supporterait seul les conséquences. Le Maître d’Œuvre serait dégagé de toute responsabilité à l’occasion des difficultés qui pourraient en résulter.'),
+    texte('Là où les réceptions seront faites en présence du maitre d’œuvre, celui-ci donnera toutes appréciations nécessaires au Maitre de l’Ouvrage en vue de la formulation des observations et réserves qui apparaitraient utiles. Si, nonobstant les avis du Maître d’œuvre, le Maître de l’Ouvrage passait outre, et décidait de réceptionner l’immeuble, il le ferait à ses risques et périls ; dégageant ainsi le maitre d’œuvre de toute responsabilité de ce chef.'),
+    texte('Le client s’engage à ne pas donner d’instructions directes aux entreprises sans en informer préalablement le Maître d’Œuvre, afin de préserver la cohérence de la coordination de chantier.'),
+    encadre([par('Le Maître d’Œuvre n’est pas lié contractuellement aux entreprises et ne réalise pas lui-même les travaux. Il n’assure pas de présence permanente sur le chantier. Les paiements des entreprises sont effectués directement par le Maître de l’Ouvrage à chaque entreprise. Le Maître d’Œuvre ne centralise aucun paiement. Toute mission complémentaire fait l’objet d’un avenant écrit signé des deux parties.',{sz:16,jc:'both',ap:0})]),
+  ].join('');
+
+  const a4bis=[
+    titre('Article 4 bis — Absence de qualité de constructeur — distinction expresse avec le CCMI'),
+    texte('Les parties reconnaissent expressément et irrévocablement que le présent contrat est un contrat de maîtrise d’Œuvre relevant du droit commun des obligations (articles 1779 et suivants du Code civil), et non un contrat de construction de maison individuelle au sens de l’article L.231-1 du Code de la construction et de l’habitation.'),
+    texte('À ce titre, il est expressément convenu que :'),
+    puce('Le Maître d’Œuvre n’est pas constructeur, n’assume aucune obligation de livraison de l’ouvrage à prix convenu et dans un délai déterminé ;'),
+    puce('Le Maître d’Œuvre ne contracte pas avec les entreprises de travaux en son nom propre ou au nom du Maître de l’Ouvrage — les marchés de travaux sont conclus exclusivement par le Maître de l’Ouvrage ;'),
+    puce('Le Maître d’Œuvre ne perçoit, ne centralise, ni ne redistribue aucun paiement destiné aux entreprises ;'),
+    puce('Le Maître d’Œuvre ne fournit aucune garantie de remboursement, de livraison ou d’achèvement ;'),
+    puce('La rémunération du Maître d’Œuvre constitue des honoraires intellectuels indépendants du coût final des travaux ;'),
+    puce('Le Maître de l’Ouvrage reconnaît avoir été informé de la distinction entre le contrat de maîtrise d’Œuvre et le CCMI, et avoir choisi en pleine connaissance de cause le régime de la maîtrise d’Œuvre séparée.'),
+  ].join('');
+
+  const a5=[
+    titre('Article 5 — Conditions suspensives'),
+    texte('Le présent contrat est conclu sous réserve de la réalisation, dans un délai de 6 mois à compter de sa signature, des conditions suivantes :'),
+    puce('Acquisition du terrain ou des droits réels permettant de construire'),
+    puce('Obtention du ou des prêts bancaires nécessaires au financement de l’opération'),
+    puce('Obtention du permis de construire et des autres autorisations administratives requises'),
+    texte('À défaut de réalisation de l’une de ces conditions dans le délai imparti, le contrat est réputé caduc et les sommes versées sont intégralement remboursées au Maître de l’Ouvrage. Si la non-réalisation est imputable au Maître de l’Ouvrage, celui-ci devra au Maître d’Œuvre une indemnité forfaitaire égale à 10 % du montant total des honoraires TTC.'),
+    texte('Les travaux ne pourront démarrer qu’après remise au Maître d’Œuvre des pièces suivantes : autorisation d’urbanisme purgée de tout recours, attestation de propriété, attestation d’assurance dommages-ouvrage, attestation de financement, accès chantier opérationnel (eau, électricité, bornage géomètre).'),
+  ].join('');
+
+  const echeancierRows=HONO_ECHEANCIER.map((e,i)=>[String(i+1),e.phase,e.pct+' %',
+    eurDoc(Math.round(margeTTC*e.pct)/100),e.echeance]);
+  const entEch=(l,t,jc)=>tc(l,par(t,{b:true,sz:15,c:DOC_TERRA,sp:14,caps:true,jc:jc,ap:0}),
+    {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:70});
+  const celEch=(l,t,jc)=>tc(l,par(t,{sz:16,jc:jc,ap:0}),
+    {bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:70,v:'top'});
+  const a6=[
+    titre('Article 6 — Honoraires du Maître d’Œuvre et budget travaux'),
+    texte('A la signature du présent contrat, le maître d’ouvrage dispose d’un budget travaux de :'),
+    par(eurDoc(coutHT)+' HT, soit '+eurDoc(coutTTC)+' TTC sur la base d’un taux de TVA en vigueur de '+tva+' %.',
+      {b:true,sz:20,c:DOC_ENCRE,ap:100}),
+    texte('Le budget de travaux est établi conformément au programme de l’opération. Il s’applique à un mode de dévolution des contrats de travaux envisagé par le maître d’ouvrage en corps d’état séparés.'),
+    texte('Cette estimation est établie à titre indicatif, sur la base des données disponibles à la date de signature. Elle ne constitue en aucun cas un engagement du Maître d’Œuvre sur le coût définitif de l’opération. Elle ne tient pas compte des évolutions ultérieures des prix des matériaux, de la main d’œuvre, ni des contraintes techniques susceptibles d’être révélées en cours d’instruction ou de chantier.'),
+    texte('En cas d’écart constaté entre l’estimation prévisionnelle et les offres reçues des entreprises, le Maître d’Œuvre en informera le Maître de l’Ouvrage et lui soumettra les arbitrages nécessaires. Le Maître de l’Ouvrage demeure seul décisionnaire des ajustements à apporter au programme.'),
+    texte('La rémunération du Maître d’Œuvre est constituée d’honoraires forfaitaires toutes taxes comprises, répartis selon les deux blocs de mission définis à l’article 3. Ils sont indépendants du coût des travaux et ne constituent en aucun cas un engagement du Maître d’Œuvre sur le coût global de l’opération.'),
+    champs([['Honoraires HT',eurDoc(margeHT)],['TVA ('+tva+' %)',eurDoc(margeTva)],['Honoraires TTC',eurDoc(margeTTC)]]),
+    vide(160),
+    sousTitre('Échéancier des honoraires'),
+    tbl([500,4200,1200,1800,2700],
+      [tr([entEch(500,'N°','center'),entEch(4200,'Phase / Étape','left'),entEch(1200,'% Hono.','right'),
+        entEch(1800,'Montant TTC','right'),entEch(2700,'Échéance','left')])]
+      .concat(echeancierRows.map(L=>tr([celEch(500,L[0],'center'),celEch(4200,L[1],'left'),
+        celEch(1200,L[2],'right'),celEch(1800,L[3],'right'),celEch(2700,L[4],'left')])))
+      .concat([tr([tc(500+4200,par('TOTAL HONORAIRES',{b:true,sz:16,c:DOC_TERRA,ap:0}),
+        {fusion:2,bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70}),
+        celEch(1200,'100 %','right'),
+        tc(1800,par(eurDoc(margeTTC)+' TTC',{b:true,sz:16,jc:'right',ap:0}),
+          {bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70}),
+        tc(2700,par('',{ap:0}),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70})])]),{}),
+    texte('Chaque facture est payable dans un délai de 15 jours à compter de sa date de réception. En cas de non-paiement persistant au-delà de 30 jours après l’échéance, le Maître d’Œuvre se réserve le droit de suspendre l’exécution de sa mission après notification par lettre recommandée avec accusé de réception.'),
+  ].join('');
+
+  const a7=[
+    titre('Article 7 — Financement'),
+    sousTitre('Option 1 — Financement intégral par prêt(s) bancaire(s)'),
+    champs([['Montant emprunté',''],['Taux max',''],['Durée max','']]),
+    texte('Le contrat est conclu sous condition suspensive d’obtention du ou des prêts ci-dessus, dans un délai de 4 mois à compter de la signature. Le Maître de l’Ouvrage s’engage à déposer au moins deux demandes auprès d’établissements distincts dans les 30 jours suivant la signature et à informer le Maître d’Œuvre de tout refus par LRAR sous 15 jours, justificatifs à l’appui.'),
+    sousTitre('Option 2 — Financement intégral sur fonds propres'),
+    encadre([par('Mention manuscrite obligatoire à recopier de la main du Maître de l’Ouvrage :',{b:true,sz:16,ap:80}),
+      par('« Je déclare financer cette opération sur fonds propres, sans recours à un prêt, et renonce expressément à toute condition suspensive de financement dans le cadre du présent contrat de maîtrise d’œuvre. »',{i:true,sz:16,jc:'both',ap:100}),
+      par('Mme : ……………………………………………………………………………',{sz:16,ap:60}),
+      par('M. : ……………………………………………………………………………',{sz:16,ap:100}),
+      par('Fait à ………………………………………, le ………………………',{sz:16,ap:0})]),
+  ].join('');
+
+  const a8=[
+    titre('Article 8 — Délais d’exécution'),
+    champs([['Dépôt du permis de construire','2 mois après signature du contrat'],
+      ['Réalisation des conditions suspensives','6 mois après signature du contrat']]),
+  ].join('');
+
+  const a9=[
+    titre('Article 9 — Responsabilités et assurances'),
+    texte('L’établissement des plans, du dossier de permis de construire et de l’ensemble des documents techniques s’inscrit dans le cadre exclusif de la mission intellectuelle du Maître d’Œuvre. Il ne saurait en résulter aucun engagement du Maître d’Œuvre sur le coût global de l’opération, ni aucune assimilation à la qualité de constructeur au sens de la loi du 19 décembre 1990.'),
+    texte('Le Maître d’Œuvre assume sa responsabilité professionnelle dans les limites des articles 1792 et suivants du Code civil et dans la limite des plafonds de son contrat d’assurance RC Pro ('+CP.rcProAssureur+' — n° '+CP.rcProContrat+'). Il ne peut être tenu responsable des défaillances des entreprises, des aléas techniques imprévisibles, des règles d’urbanisme annulées postérieurement ou de contraintes non signalées par le Client.'),
+    texte('La responsabilité décennale des entreprises de travaux est engagée au titre de leurs propres marchés, directement envers le Maître de l’Ouvrage. Le Maître d’Œuvre n’est pas garant des obligations des entreprises et ne peut être appelé en garantie au titre des désordres résultant exclusivement de leur exécution. Chaque entreprise titulaire fournit, préalablement à l’ouverture du chantier, son attestation d’assurance décennale en cours de validité, que le Maître de l’Ouvrage est tenu de recueillir.'),
+    sousTitre('Assurance dommages-ouvrage'),
+    texte('Conformément à l’article L.242-1 du Code des assurances, le Maître de l’Ouvrage est tenu de souscrire une assurance dommages-ouvrage avant toute déclaration d’ouverture de chantier. Le Maître d’Œuvre a expressément informé le Maître de l’Ouvrage :'),
+    puce('de l’obligation légale de souscrire une assurance dommages-ouvrage'),
+    puce('des conséquences financières d’une absence de couverture en cas de sinistre relevant de la garantie décennale'),
+    puce('de l’obligation de mention de l’absence de DO dans tout acte de vente du bien dans les 10 ans suivant la réception des travaux'),
+    encadre([par('Mention manuscrite obligatoire à recopier de la main du Maître de l’Ouvrage si volonté de ne pas y souscrire :',{b:true,sz:16,ap:80}),
+      par('« Je reconnais avoir été informé(e) de l’obligation légale de souscrire une assurance dommages-ouvrage et des risques financiers liés à mon absence de souscription. Je renonce expressément à cette assurance et en assume seul(e) les conséquences. »',{i:true,sz:16,jc:'both',ap:100}),
+      par('Mme : ……………………………………………………………………………',{sz:16,ap:60}),
+      par('M. : ……………………………………………………………………………',{sz:16,ap:100}),
+      par('Fait à ………………………………………, le ………………………',{sz:16,ap:0})]),
+  ].join('');
+
+  const a10=[
+    titre('Article 10 — Propriété intellectuelle'),
+    texte('Le Client est titulaire du droit de réaliser le projet en un seul exemplaire, sous réserve d’être à jour de ses paiements. Toute réutilisation partielle des plans suppose le règlement préalable des honoraires correspondants. Le Maître d’Œuvre conserve le droit de photographier l’ouvrage achevé pour son usage professionnel, sous réserve de l’accord du Client.'),
+  ].join('');
+
+  const a11=[
+    titre('Article 11 — Suspension et résiliation'),
+    sousTitre('11.1 — Suspension'),
+    texte('La mission peut être suspendue par l’une ou l’autre des parties par LRAR après mise en demeure restée sans effet 15 jours, en cas de : force majeure, blocage administratif, non-paiement d’une facture échue, absence de décisions nécessaires à la poursuite de la mission, ou tout manquement grave aux obligations contractuelles. Si la cause de suspension n’est pas levée dans un délai de 3 mois, la partie concernée peut constater la résiliation par nouvelle LRAR.'),
+    sousTitre('11.2 — Résiliation à l’initiative du Maître de l’Ouvrage (sans faute du MŒ)'),
+    texte('En cas de résiliation sans faute du Maître d’Œuvre, celui-ci perçoit :'),
+    puce('les honoraires des missions entièrement exécutées à la date de résiliation'),
+    puce('une indemnité de résiliation égale à 10 % des honoraires HT restant à percevoir, plafonnée à 20 % du montant total des honoraires HT convenus'),
+    sousTitre('11.3 — Résiliation pour faute du Maître d’Œuvre'),
+    texte('En cas de manquement grave du Maître d’Œuvre, le Maître de l’Ouvrage adresse une LRAR précisant les manquements reprochés. Faute de régularisation dans les 15 jours, la résiliation est prononcée par nouvelle LRAR. Le Maître d’Œuvre perçoit uniquement les honoraires des missions entièrement exécutées, sans indemnité.'),
+    sousTitre('11.4 — Résiliation à l’initiative du Maître d’Œuvre'),
+    texte('Le Maître d’Œuvre peut résilier pour motif juste et légitime (immixtion répétée du Maître de l’Ouvrage, imposition d’une entreprise sans garanties suffisantes, impossibilité de respecter les règles de l’art, non-paiement persistant). La résiliation est notifiée par LRAR avec un préavis de 15 jours. Le Maître d’Œuvre perçoit les honoraires des missions exécutées ainsi qu’une indemnité de 10 % des honoraires HT restant à percevoir.'),
+  ].join('');
+
+  const a12=[
+    titre('Article 12 — Règlement des litiges'),
+    texte('Tout litige fait l’objet d’une réclamation écrite par LRAR. En cas d’échec de la conciliation amiable, le Client consommateur peut saisir le médiateur de la consommation :'),
+    champs([['Médiateur',MEDIATEUR.nom],['Adresse',MEDIATEUR.adresse],['Plateforme',MEDIATEUR.url]]),
+  ].join('');
+
+  const a13=[
+    titre('Article 13 — Pièces contractuelles'),
+    texte('Les documents suivants sont indissociables du présent contrat :'),
+    puce('Le présent contrat de maîtrise d’œuvre signé'),
+    puce('L’avant-projet : plans, façades et visuels'),
+    puce('Le programme technique de référence (PTR)'),
+    puce('Formulaire de rétractation'),
+  ].join('');
+
+  const signatures=[
+    titre('Signatures'),
+    par('Fait en deux exemplaires originaux à ………………………………………, le ………………………',{sz:18,ap:200}),
+    tbl([5200,5200],[tr([
+      tc(5200,[
+        par('Le Maître de l’Ouvrage',{b:true,sz:18,c:DOC_TERRA,ap:80}),
+        par('Nom, prénom : '+[nomClient,nomClient2].filter(Boolean).join(' et '),{sz:17,ap:60}),
+        par('Date :',{sz:17,ap:60}),
+        par('« Lu et approuvé »',{i:true,sz:17,ap:60}),
+        par('Signature :',{sz:17,ap:0}),
+      ].join(''),{bords:tcB({c:DOC_BRUN,sz:4}),v:'top',mg:140}),
+      tc(5200,[
+        par('Le Maître d’Œuvre',{b:true,sz:18,c:DOC_TERRA,ap:80}),
+        par('M. PORTIER Claude — CP Constructions',{sz:17,ap:60}),
+        par('Date :',{sz:17,ap:60}),
+        par('« Lu et approuvé »',{i:true,sz:17,ap:60}),
+        par('Signature et cachet :',{sz:17,ap:0}),
+      ].join(''),{bords:tcB({c:DOC_BRUN,sz:4}),v:'top',mg:140}),
+    ])],{}),
+  ].join('');
+
+  const corps=[garde,a1,a2,a3,sautPage,a4,a4bis,a5,sautPage,a6,a7,a8,sautPage,a9,a10,a11,sautPage,a12,a13,vide(200),signatures].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+async function genererContratMoeDocx(p){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, le contrat reste valable */}
+  return fabriquerDocx(contratMoeDocumentXml(p,logo),
+    'Contrat de maîtrise d’œuvre — '+(p.nom||''),logo);
+}
+
+/* ---------- la notice précontractuelle, en Word ----------
+   À remettre au client avant la signature du contrat (art. L.111-1 et
+   L.221-5 et suivants du Code de la consommation) : pour l'essentiel un
+   document fixe, propre à CP Constructions plutôt qu'au projet — seuls le
+   nom du client et la date d'édition changent d'un dossier à l'autre. */
+function noticePrecontractuelleDocumentXml(p,px){
+  const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
+  const texte=t=>par(t,{sz:18,jc:'both',ap:120});
+  const puce=t=>par('☐  '+t,{sz:18,ap:60,ind:200,jc:'both'});
+  const champs=rows=>tbl([3400,7000],rows.map(([l,v])=>tr([
+    tc(3400,par(l,{b:true,sz:16,c:DOC_BRUN,ap:0}),{bords:tcB({c:DOC_BRUN,sz:4}),fond:DOC_SABLE,mg:100,v:'top'}),
+    tc(7000,par(v||'',{sz:18,ap:0}),{bords:tcB({c:DOC_BRUN,sz:4}),mg:100,v:'top'}),
+  ])),{});
+  const encadre=(paras,color)=>tbl([10400],[tr([tc(10400,paras.join(''),
+    {bords:tcB({c:color||DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:160,v:'top'})])],{});
+  const nomClient=afficherCivilite(p.civilite,p.client)||p.client||'';
+
+  const garde=[
+    par([logoXml(px)],{ap:0}),
+    vide(300),
+    par('NOTICE PRÉCONTRACTUELLE D’INFORMATION',{b:true,sz:32,c:DOC_TERRA,sp:26,jc:'center',ap:60}),
+    par('À remettre obligatoirement au client avant la signature du contrat de maîtrise d’œuvre',
+      {sz:18,c:DOC_BRUN,jc:'center',ap:20}),
+    par('Articles L.111-1 et suivants & L.221-5 et suivants du Code de la consommation',
+      {sz:16,c:DOC_GRIS,i:true,jc:'center',ap:0,filet:DOC_BRUN}),
+    par((p.nom||'')+(nomClient?' — '+nomClient:''),{sz:18,c:DOC_GRIS,jc:'center',ap:20}),
+    vide(200),
+    encadre([par('Ce document doit être remis au client au moins 24 heures avant la signature du contrat lorsque celui-ci est conclu dans les locaux du professionnel, ou préalablement à la signature s’il est conclu hors établissement (domicile du client, foire, salon). Conserver un exemplaire signé par le client dans le dossier.',
+      {sz:16,i:true,jc:'both',ap:0})]),
+    vide(200),
+  ].join('');
+
+  const s1=[
+    titre('1 — Identité et coordonnées du professionnel'),
+    champs([['Dénomination sociale',CP.nom],['Forme juridique',CP.forme],
+      ['Numéro RCS',CP.rcs],['Représentant légal','M. PORTIER Claude, Président'],
+      ['Siège social',CP.adresse],['Téléphone',CP.tel],['E-mail',CP.mail],
+      ['Assurance RC Pro',CP.rcProAssureur+' — Contrat n° '+CP.rcProContrat],
+      ['Zone de couverture géographique',CP.zoneCouverture]]),
+  ].join('');
+
+  const s2=[
+    titre('2 — Nature et objet de la prestation'),
+    texte('CP Constructions exerce une activité de maîtrise d’œuvre au sens du Code civil. Il s’agit d’une mission de nature intellectuelle comprenant :'),
+    par('—  La conception architecturale du projet (plans, façades, coupes, perspectives)',{sz:18,ap:40,ind:200}),
+    par('—  La constitution et le dépôt du dossier de demande de permis de construire',{sz:18,ap:40,ind:200}),
+    par('—  L’assistance à la consultation des entreprises et à l’analyse comparative des offres',{sz:18,ap:40,ind:200}),
+    par('—  L’assistance à la passation des marchés de travaux, conclus directement par le client',{sz:18,ap:40,ind:200}),
+    par('—  Le suivi de l’exécution des travaux et le contrôle de la facturation',{sz:18,ap:40,ind:200}),
+    par('—  L’assistance aux opérations de réception (AOR)',{sz:18,ap:0,ind:200}),
+    vide(120),
+    encadre([par('CP Constructions n’est PAS un constructeur de maison individuelle au sens de la loi du 19 décembre 1990 (CCMI). Le contrat proposé ne garantit pas un prix global et forfaitaire de construction. Les marchés de travaux sont conclus directement et individuellement entre le client (maître de l’ouvrage) et chaque entreprise titulaire. CP Constructions n’est pas partie à ces marchés et n’en est pas garant.',
+      {sz:16,jc:'both',ap:0})]),
+  ].join('');
+
+  const s3=[
+    titre('3 — Prix et conditions de paiement'),
+    texte('Les honoraires de maîtrise d’œuvre sont définis dans le contrat et constituent la seule rémunération de CP Constructions. Ils ne comprennent pas le coût des travaux, qui sont réglés directement par le client à chaque entreprise.'),
+    texte('Le prix total des honoraires est indiqué dans le contrat avant sa signature. Il est décomposé par phase et facturé progressivement à l’avancement de la mission. Aucun paiement global anticipé n’est exigé.'),
+    texte('L’estimation du coût des travaux fournie par CP Constructions est indicative et n’engage pas le maître d’œuvre sur le coût définitif de la construction.'),
+  ].join('');
+
+  const s4=[
+    titre('4 — Droit de rétractation'),
+    encadre([par('Si le présent contrat est conclu HORS ÉTABLISSEMENT (à votre domicile, sur votre lieu de travail, lors d’une foire ou d’un salon, ou à la suite d’un démarchage à distance), vous disposez d’un délai de 14 jours calendaires pour vous rétracter, sans avoir à motiver votre décision ni à supporter de pénalités, conformément aux articles L.221-18 et suivants du Code de la consommation.',
+      {sz:16,jc:'both',ap:0})]),
+    vide(120),
+    texte('Pour exercer votre droit de rétractation, vous devez notifier votre décision par lettre recommandée avec accusé de réception à l’adresse suivante :'),
+    par('SAS CP Constructions — '+CP.adresse,{b:true,sz:18,ap:60}),
+    texte('Ou par e-mail : '+CP.mail),
+    texte('En cas de rétractation dans ce délai, les sommes éventuellement versées sont intégralement remboursées dans les 14 jours suivant la réception de la notification.'),
+    texte('Si vous avez expressément demandé que la mission commence avant l’expiration du délai de rétractation (case à cocher ci-dessous), vous serez redevable d’un montant proportionnel aux prestations effectivement réalisées à la date de rétractation.'),
+    puce('Le client demande expressément à CP Constructions de commencer la mission avant l’expiration du délai de rétractation de 14 jours et reconnaît qu’en cas de rétractation, il devra payer le prorata des prestations déjà exécutées.'),
+  ].join('');
+
+  const s5=[
+    titre('5 — Assurances'),
+    champs([['Type d’assurance','Responsabilité Civile Professionnelle'],
+      ['Assureur',CP.rcProAssureur+' Insurance'],['Numéro de contrat',CP.rcProContrat],
+      ['Garanties couvertes','Dommages causés aux tiers dans le cadre de la mission de MŒ, responsabilité décennale au titre de la conception (art. 1792 C. civ.)'],
+      ['Étendue géographique','France métropolitaine']]),
+    texte('Une attestation d’assurance en cours de validité est jointe à la présente notice.'),
+  ].join('');
+
+  const s6=[
+    titre('6 — Médiation et règlement des litiges'),
+    texte('En cas de litige, le client consommateur peut, après avoir tenté de résoudre le différend directement avec CP Constructions, recourir gratuitement au médiateur de la consommation désigné :'),
+    champs([['Médiateur',MEDIATEUR.nom],['Adresse',MEDIATEUR.adresse],['Plateforme en ligne',MEDIATEUR.url]]),
+    texte('La saisine du médiateur doit intervenir dans un délai d’un an à compter de la réclamation écrite adressée au professionnel.'),
+  ].join('');
+
+  const s7=[
+    titre('7 — Fonctionnalités et limites de la mission'),
+    texte('Afin d’éviter toute ambiguïté, le client reconnaît avoir été informé des points suivants :'),
+    puce('CP Constructions ne réalise pas les travaux et n’est pas lié contractuellement aux entreprises de construction.'),
+    puce('Les marchés de travaux seront conclus et signés directement entre le client et chaque entreprise titulaire.'),
+    puce('CP Constructions ne centralise aucun paiement destiné aux entreprises. Tous les règlements sont effectués directement par le client à chaque entreprise.'),
+    puce('L’estimation du coût des travaux communiquée par CP Constructions est indicative et non garantie. Le coût définitif résultera des offres des entreprises.'),
+    puce('CP Constructions n’assure pas de présence permanente sur le chantier. Les visites de suivi sont ponctuelles et planifiées.'),
+    puce('Le client est tenu de souscrire une assurance dommages-ouvrage avant l’ouverture du chantier (obligation légale, art. L.242-1 Code des assurances).'),
+  ].join('');
+
+  const s8=[
+    titre('8 — Attestation de remise et accusé de réception'),
+    texte('Le soussigné reconnaît avoir reçu la présente notice précontractuelle d’information avant la signature du contrat de maîtrise d’œuvre, avoir eu le temps nécessaire pour en prendre connaissance, et avoir été en mesure de poser toutes questions utiles au professionnel.'),
+    par('Fait à ………………………………………, le ………………………',{sz:18,ap:200}),
+    tbl([5200,5200],[tr([
+      tc(5200,[
+        par('Le Client',{b:true,sz:18,c:DOC_TERRA,ap:80}),
+        par('Nom, prénom : '+nomClient,{sz:17,ap:60}),
+        par('« Bon pour réception de la notice précontractuelle »',{i:true,sz:16,ap:60}),
+        par('Signature :',{sz:17,ap:0}),
+      ].join(''),{bords:tcB({c:DOC_BRUN,sz:4}),v:'top',mg:140}),
+      tc(5200,[
+        par('Le Maître d’Œuvre',{b:true,sz:18,c:DOC_TERRA,ap:80}),
+        par('M. PORTIER Claude — CP Constructions',{sz:17,ap:60}),
+        par('Remise effectuée le :',{sz:17,ap:60}),
+        par('Signature et cachet :',{sz:17,ap:0}),
+      ].join(''),{bords:tcB({c:DOC_BRUN,sz:4}),v:'top',mg:140}),
+    ])],{}),
+  ].join('');
+
+  const corps=[garde,s1,s2,s3,sautPage,s4,s5,s6,sautPage,s7,s8].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+async function genererNoticePrecontractuelleDocx(p){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, la notice reste valable */}
+  return fabriquerDocx(noticePrecontractuelleDocumentXml(p,logo),
+    'Notice précontractuelle — '+(p.nom||''),logo);
 }
 
 /* ---------- chiffrage interne, édité en Word ----------
@@ -13803,6 +14248,8 @@ function DetailProspect({p,maj,data,onModifier}){
       <ProduitsDuProjet data={data} p={p} maj={maj}/>
       <SortirDossier data={data} p={p} maj={maj}/>
       <SortirChiffrageInterne data={data} p={p} maj={maj}/>
+      <SortirNoticePrecontractuelle data={data} p={p} maj={maj}/>
+      <SortirContratMoe data={data} p={p} maj={maj}/>
       <ValiderChiffrage p={p} maj={maj} data={data}/>
       <EnvoyerCommercial p={p} data={data}/>
       <EnvoyerDossierComplet data={data} p={p}/>
@@ -14170,6 +14617,100 @@ function SortirChiffrageInterne({data,p,maj}){
         </div>
       </div>}
     </div>}
+  </div>;
+}
+
+/* ---------- sortir le contrat de maîtrise d'œuvre ----------
+   Une fois le chiffrage validé par le client, le contrat se rédige — prêt
+   rempli des informations déjà saisies sur la fiche (client, adresse du
+   chantier, surfaces, budget travaux, honoraires) — plutôt que d'être
+   retapé depuis le modèle papier. Le champ N° RCS, les références
+   cadastrales et le financement restent des blancs à compléter à la main,
+   faute d'un champ pour les saisir ailleurs dans l'application. */
+function SortirContratMoe({data,p,maj}){
+  const [etat,setEtat]=useState(null);
+  const pret=prospectPrixTTC(p)>0;
+  const produire=async()=>{
+    setEtat({etat:'travail'});
+    try{
+      const buf=await genererContratMoeDocx(p);
+      const nom='Contrat de maîtrise d’œuvre — '+(p.nom||'projet')+'.docx';
+      const token=await getDriveToken();
+      const dossierId=await driveProspectFolder(token,p.id,p.nom);
+      const {webViewLink}=await uploadToDrive(new File([buf],nom,
+        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),dossierId);
+      maj({contratMoeLe:today()});
+      setEtat({etat:'ok',lien:webViewLink,nom});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setEtat({etat:'erreur',msg:c==='auth_required'
+        ?"Le contrat a été composé, mais Google Drive n'est pas connecté — reconnectez-le puis relancez."
+        :'Sortie impossible — '+c});
+    }
+  };
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="b sm" style={{color:NAVY}}>Contrat de maîtrise d’œuvre</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Le contrat prêt à signer, rempli des informations déjà saisies : identité du client, adresse du
+      chantier, surfaces, budget travaux et honoraires avec leur échéancier. Le n° RCS d’une société, les
+      références cadastrales et le financement restent à compléter à la main.
+      {p.contratMoeLe?<span> Dernière sortie le {fd(p.contratMoeLe)}.</span>:null}
+    </div>
+    <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+      <button className="btn acc s" disabled={!pret||(etat&&etat.etat==='travail')} onClick={produire}>
+        {etat&&etat.etat==='travail'?'Composition…':'Sortir le contrat de maîtrise d’œuvre'}</button>
+      {etat&&etat.etat==='ok'&&<a href={etat.lien} target="_blank" rel="noreferrer" className="btn gh s"
+        style={{textDecoration:'none'}}>Ouvrir</a>}
+    </div>
+    {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+      Déposé dans Drive › Prospects › {p.nom} — {etat.nom}</div>}
+    {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
+    {!pret&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
+      Chiffrez d'abord le projet : sans montant, il n'y a pas de budget travaux ni d'honoraires à indiquer.</div>}
+  </div>;
+}
+
+/* ---------- sortir la notice précontractuelle ----------
+   À remettre au client avant la signature du contrat (art. L.111-1 et
+   L.221-5 et suivants du Code de la consommation) — pour l'essentiel un
+   document fixe propre à CP Constructions, où seuls le nom du client et la
+   date d'édition changent d'un dossier à l'autre. */
+function SortirNoticePrecontractuelle({data,p,maj}){
+  const [etat,setEtat]=useState(null);
+  const produire=async()=>{
+    setEtat({etat:'travail'});
+    try{
+      const buf=await genererNoticePrecontractuelleDocx(p);
+      const nom='Notice précontractuelle — '+(p.nom||'projet')+'.docx';
+      const token=await getDriveToken();
+      const dossierId=await driveProspectFolder(token,p.id,p.nom);
+      const {webViewLink}=await uploadToDrive(new File([buf],nom,
+        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),dossierId);
+      maj({noticeLe:today()});
+      setEtat({etat:'ok',lien:webViewLink,nom});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setEtat({etat:'erreur',msg:c==='auth_required'
+        ?"La notice a été composée, mais Google Drive n'est pas connecté — reconnectez-le puis relancez."
+        :'Sortie impossible — '+c});
+    }
+  };
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="b sm" style={{color:NAVY}}>Notice précontractuelle</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      À remettre au client au moins 24 heures avant la signature du contrat — ou avant elle si la signature
+      a lieu hors établissement. Un document presque entièrement fixe, prêt à imprimer.
+      {p.noticeLe?<span> Dernière sortie le {fd(p.noticeLe)}.</span>:null}
+    </div>
+    <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+      <button className="btn gh s" disabled={etat&&etat.etat==='travail'} onClick={produire}>
+        {etat&&etat.etat==='travail'?'Composition…':'Sortir la notice précontractuelle'}</button>
+      {etat&&etat.etat==='ok'&&<a href={etat.lien} target="_blank" rel="noreferrer" className="btn gh s"
+        style={{textDecoration:'none'}}>Ouvrir</a>}
+    </div>
+    {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+      Déposé dans Drive › Prospects › {p.nom} — {etat.nom}</div>}
+    {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
   </div>;
 }
 
