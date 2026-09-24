@@ -1855,6 +1855,21 @@ const qrXml=(rid,nom,id)=>{
     +'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
 };
 
+/* une photo quelconque (pas nécessairement carrée, à la différence du QR) —
+   le programme technique de référence en porte plusieurs dizaines, chacune
+   avec son propre rId au-delà du trio fixe logo/QR. */
+const photoXml=(rid,id,nom,largEmu,hautEmu)=>
+  '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+  +'<wp:extent cx="'+largEmu+'" cy="'+hautEmu+'"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+  +'<wp:docPr id="'+id+'" name="'+nom+'"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+  +'<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+  +'<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+  +'<pic:nvPicPr><pic:cNvPr id="'+id+'" name="'+nom+'"/><pic:cNvPicPr/></pic:nvPicPr>'
+  +'<pic:blipFill><a:blip r:embed="'+rid+'"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+  +'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="'+largEmu+'" cy="'+hautEmu+'"/></a:xfrm>'
+  +'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
+  +'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+
 /* ---------- QR code (mode octet, correction L), sans bibliothèque ----------
    Standard ouvert (ISO/IEC 18004) : réimplémenté ici comme le reste des
    documents .docx et .zip de cette page. Couvre les versions 1 à 20 (jusqu'à
@@ -2640,6 +2655,7 @@ const DOCX_TYPES='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
  +'<Default Extension="xml" ContentType="application/xml"/>'
  +'<Default Extension="png" ContentType="image/png"/>'
+ +'<Default Extension="jpeg" ContentType="image/jpeg"/>'
  +'<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
  +'<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
  +'<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
@@ -2649,12 +2665,13 @@ const DOCX_RELS='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
  +'<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
  +'</Relationships>';
-const docxDocRels=(avecLogo,avecQr,avecQrPlan)=>'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+const docxDocRels=(avecLogo,avecQr,avecQrPlan,extra)=>'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
  +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
  +(avecLogo?'<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/>':'')
  +(avecQr?'<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/qr.png"/>':'')
  +(avecQrPlan?'<Relationship Id="rId7" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/qr-plan.png"/>':'')
+ +(extra||[]).map(e=>'<Relationship Id="'+e.id+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/'+e.nom+'"/>').join('')
  +'</Relationships>';
 const DOCX_STYLES='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
  +'<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
@@ -2685,19 +2702,23 @@ async function logoDocx(){
   return logoCache;
 }
 
-async function fabriquerDocx(documentXml,titre,logo,qr,qrPlan){
+async function fabriquerDocx(documentXml,titre,logo,qr,qrPlan,extra){
   const enc=new TextEncoder();
   const entrees=[
     {nom:'[Content_Types].xml',data:enc.encode(DOCX_TYPES)},
     {nom:'_rels/.rels',data:enc.encode(DOCX_RELS)},
     {nom:'docProps/core.xml',data:enc.encode(docxCore(titre))},
-    {nom:'word/_rels/document.xml.rels',data:enc.encode(docxDocRels(!!logo,!!qr,!!qrPlan))},
+    {nom:'word/_rels/document.xml.rels',data:enc.encode(docxDocRels(!!logo,!!qr,!!qrPlan,extra))},
     {nom:'word/styles.xml',data:enc.encode(DOCX_STYLES)},
     {nom:'word/document.xml',data:enc.encode(documentXml)},
   ];
   if(logo)entrees.push({nom:'word/media/logo.png',data:logo.data});
   if(qr)entrees.push({nom:'word/media/qr.png',data:qr.data});
   if(qrPlan)entrees.push({nom:'word/media/qr-plan.png',data:qrPlan.data});
+  /* un nombre variable de photos (programme technique de référence) : chacune
+     porte son propre rId et son propre fichier, au-delà du trio fixe logo/QR
+     ci-dessus — d'où une liste plutôt que des paramètres nommés. */
+  (extra||[]).forEach(e=>entrees.push({nom:'word/media/'+e.nom,data:e.data}));
   return zipEcrire(entrees);
 }
 
