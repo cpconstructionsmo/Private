@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-24 · Le contrat de maîtrise d’œuvre, la notice précontractuelle et le PTR se sortent prêts remplis';
+const VERSION='2026-09-24 · Le programme technique de référence se présente désormais sous forme de tableau, comme le modèle papier';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2219,7 +2219,7 @@ const HONO_ECHEANCIER=[
    adresse, surfaces) et la synthèse financière changent d'un dossier à
    l'autre, calculés comme partout ailleurs dans l'application. */
 const PTR_CATALOGUE=[
-  {id:"preparation_terrain",groupe:"PRÉPARATION DU TERRAIN",titre:"PREPARATION DU TERRAIN",texte:"Le client aura à sa charge : bornage impératif du terrain, déboisage, dessouchage, débroussaillage, busage, démolition des existants (si nécessaire).",images:[],defaut:"MO"},
+  {id:"preparation_terrain",groupe:"PRÉPARATION DU TERRAIN",titre:"PREPARATION DU TERRAIN",texte:"Le client aura à sa charge : bornage impératif du terrain, déboisage, dessouchage, débroussaillage, busage, démolition des existants (si nécessaire).",images:[],montant:"Suivant devis si nécessaire",defaut:"MO"},
   {id:"implantation",groupe:"PRÉPARATION DU TERRAIN",titre:"IMPLANTATION",texte:"L'implantation sera réalisée conformément aux autorisations administratives et aux règles de l'urbanisme. En cas de construction en limite séparative, le maître de l'Ouvrage devra fournir une autorisation écrite des propriétaires limitrophes, permettant l'accès aux entreprises pour la réalisation des travaux. La remise en état des clôtures, haies vives et toutes indemnités éventuelles, seront à la charge du Maître de l'Ouvrage.",images:[],defaut:"MO"},
   {id:"chemin_acces_chantier",groupe:"PRÉPARATION DU TERRAIN",titre:"CHEMIN D'ACCES CHANTIER",texte:"Accès chantier empierré en calcaire.\nFinition gravillonnée de l'accès, y compris bande de propreté tout autour de la construction sur 80cm environ.",images:[{fichier:"image2.jpeg",w:520,h:390},{fichier:"image3.jpeg",w:761,h:572}],defaut:"MO"},
   {id:"terrassements",groupe:"PRÉPARATION DU TERRAIN",titre:"TERRASSEMENTS",texte:"Décapage des terres végétales sur une épaisseur de 20 cm environ à l'emplacement de la construction avec aisance de 80 cm de chaque côté.\nTerrassement en pleine masse, à la pelle mécanique et stockage des terres excédentaires sur place autour de la construction.\nLes fouilles en rigole de 50 cm x 25 cm de hauteur sont réalisées à la pelle mécanique. La profondeur est déterminée par la limite hors gel.",images:[{fichier:"image4.jpeg",w:520,h:390},{fichier:"image5.jpeg",w:292,h:390}],defaut:"MO"},
@@ -2266,17 +2266,17 @@ const PTR_CATALOGUE=[
   {id:"divers_plomberie",groupe:"PLOMBERIE",titre:"DIVERS PLOMBERIE",texte:"Alimentation et évacuation avec robinets d'arrêt pour raccordement lave-linge et lave-vaisselle (emplacement au rez-de chaussée proche d'un point d'eau)\nRobinet de puisage à positionner sur le mur extérieur",images:[],defaut:"MO"},
   {id:"pompe_a_chaleur",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"POMPE A CHALEUR",texte:"Pompe à chaleur Atlantic Alféa Extensa Duo A.I. (R32)\nType : PAC air/eau split avec module intérieur et unité extérieure.\nServices : chauffage + production d'eau chaude sanitaire via ballon intégré de 190 L.\nPerformance : COP jusqu'à ~4,7, classe énergétique chauffage A++/A+++, ECS A+.\nPlage de fonctionnement : efficace jusqu'à –20 °C extérieur.\nTechnologie : compresseur Inverter, échangeur coaxial Atlantic, fluide frigorigène R32.\nConfort : niveau sonore réduit (~35–40 dB extérieur, ~39–40 dB intérieur).\nConnectivité : pilotage et programmation via application Tahoma\nFacilité d'installation : configuration rapide (EASY START) et maintenance simplifiée.",images:[{fichier:"image40.jpeg",w:616,h:390}],defaut:"MO"},
   {id:"plancher_chauffant",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"PLANCHER CHAUFFANT",texte:"Le système de chauffage est constitué d'un réseau de tubes en polyéthylène réticulé (PER), disposés en nappes sur un isolant thermique de sol conforme aux normes en vigueur.\nLes tubes sont fixés sur les plaques isolantes selon un pas de pose défini par l'étude thermique, et reliés à un collecteur de distribution équipé de vannes d'équilibrage et de régulation. L'ensemble est alimenté par une pompe à chaleur, fonctionnant en basse température (25/30 °C environ en régime nominal) pour optimiser le confort et les performances énergétiques.\nUne régulation de température est assurée à l'aide de 2 thermostats d'ambiance reliés aux collecteurs, permettant un contrôle précis des températures",images:[],defaut:"MO"},
-  {id:"seche_serviette_electrique",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"SECHE SERVIETTE ELECTRIQUE",texte:"Radiateur sèche serviette électrique modèle DORIS blanc d'Atlantic (puissance suivant étude thermique)",images:[{fichier:"image41.png",w:222,h:382}],defaut:"les_deux"},
-  {id:"revetements_sols",groupe:"REVETEMENTS DE SOLS ET MURS",titre:"REVETEMENS DE SOLS",texte:"Chape liquide à base de ciment sur plancher chauffant\nRéalisation d'une chape fluide à base de liant ciment, conforme au DTU 26.2, spécialement conçue pour l'enrobage d'un plancher chauffant hydraulique basse température.\nLa chape est coulée sur un plancher chauffant préalablement mis en place, comprenant un isolant thermique adapté et un réseau de tubes fixé sur plaques.\nLa mise en œuvre est effectuée par pompage, avec une épaisseur minimale d'enrobage au-dessus des tubes de 30 mm.\nLa surface est réglée et talochée pour garantir une planéité conforme à la classe demandée (généralement classe P3).\nAprès coulage, un temps de séchage et de cure est respecté selon les conditions climatiques et la notice du fabricant.\nCarrelage grès émaillé 90 x 90 SEVILLE AVARIO RECT. avec plinthes\nCarrelage dans toutes les pièces sauf chambres, dressing et garage.\nLes plinthes sont identiques aux matériaux du sol.\nCarrelage posé droit sur chape.",images:[{fichier:"image42.jpeg",w:1000,h:563},{fichier:"image43.jpeg",w:520,h:390}],defaut:"les_deux"},
+  {id:"seche_serviette_electrique",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"SECHE SERVIETTE ELECTRIQUE",texte:"Radiateur sèche serviette électrique modèle DORIS blanc d'Atlantic (puissance suivant étude thermique)",images:[{fichier:"image41.png",w:222,h:382}],montant:"460,00 € / unité",defaut:"les_deux"},
+  {id:"revetements_sols",groupe:"REVETEMENTS DE SOLS ET MURS",titre:"REVETEMENS DE SOLS",texte:"Chape liquide à base de ciment sur plancher chauffant\nRéalisation d'une chape fluide à base de liant ciment, conforme au DTU 26.2, spécialement conçue pour l'enrobage d'un plancher chauffant hydraulique basse température.\nLa chape est coulée sur un plancher chauffant préalablement mis en place, comprenant un isolant thermique adapté et un réseau de tubes fixé sur plaques.\nLa mise en œuvre est effectuée par pompage, avec une épaisseur minimale d'enrobage au-dessus des tubes de 30 mm.\nLa surface est réglée et talochée pour garantir une planéité conforme à la classe demandée (généralement classe P3).\nAprès coulage, un temps de séchage et de cure est respecté selon les conditions climatiques et la notice du fabricant.\nCarrelage grès émaillé 90 x 90 SEVILLE AVARIO RECT. avec plinthes\nCarrelage dans toutes les pièces sauf chambres, dressing et garage.\nLes plinthes sont identiques aux matériaux du sol.\nCarrelage posé droit sur chape.",images:[{fichier:"image42.jpeg",w:1000,h:563},{fichier:"image43.jpeg",w:520,h:390}],montant:"10 000,00 €",defaut:"les_deux"},
   {id:"revetements_muraux",groupe:"REVETEMENTS DE SOLS ET MURS",titre:"REVETEMENTS MURAUX",texte:"Faïence pose droite, sans décors ni listels, à répartir sur les côtés du receveur de douche 17,00 m2",images:[{fichier:"image44.jpeg",w:520,h:390}],defaut:"les_deux"},
   {id:"peintures",groupe:"REVETEMENTS DE SOLS ET MURS",titre:"PEINTURES",texte:"Ratissage, ponçage, une couche d'impression et une couche de finition de peinture acrylique blanc mat au rouleau sur les murs et les plafonds.",images:[],defaut:"les_deux"},
   {id:"nettoyage_interieur",groupe:"NETTOYAGE INTERIEUR",titre:"NETTOYAGE INTERIEUR",texte:"Nettoyage de l'intérieur du projet (sols, vitres, sanitaires)",images:[],defaut:"les_deux"},
   {id:"assainissement_vrd",groupe:"ASSAINISSEMENT – VRD",titre:"ASSAINISSEMENT – VRD",texte:"Les viabilisations de la parcelle comprenant les branchements des compteurs aux réseaux publics (tout à l'égout, électricité, gaz, téléphone, eau pluviale) seront effectuées, décrits et évalués par la régie au concessionnaire des services publics. Ces travaux ne sont pas coordonnés par le maitre d'œuvre.",images:[],defaut:"hors_coord"},
-  {id:"raccordements_reseaux_publics",groupe:"ASSAINISSEMENT – VRD",titre:"RACCORDEMENTS AUX RESEAUX PUBLICS",texte:"Terrassement d'une tranchée multi technique de 0,80 m de profondeur environ.\nLes tuyaux et/ou gaines permettant les raccordements aux différents réseaux. Ils seront mis en place avec un grillage plastique de signalisation et chambre de tirage si nécessaire.\nEst compris :\n1 tuyau de polyéthylène 19x25 pour l'eau potable de la pompe à chaleur au compteur en limite de propriété\n1 fourreau de diamètre 90 pour l'électricité, 2 fourreaux diamètre 32 pour le téléphone, 1 fourreau pour alimentation portail, 1 tuyau P.V.C. diamètre 100 pour le réseau T.A.E. (eaux vannes et usées) et 1 tuyau P.V.C. diamètre 100 pour réseau pluvial (raccordé au réseau ou en épandage).",images:[{fichier:"image45.jpeg",w:292,h:390}],defaut:"hors_coord"},
+  {id:"raccordements_reseaux_publics",groupe:"ASSAINISSEMENT – VRD",titre:"RACCORDEMENTS AUX RESEAUX PUBLICS",texte:"Terrassement d'une tranchée multi technique de 0,80 m de profondeur environ.\nLes tuyaux et/ou gaines permettant les raccordements aux différents réseaux. Ils seront mis en place avec un grillage plastique de signalisation et chambre de tirage si nécessaire.\nEst compris :\n1 tuyau de polyéthylène 19x25 pour l'eau potable de la pompe à chaleur au compteur en limite de propriété\n1 fourreau de diamètre 90 pour l'électricité, 2 fourreaux diamètre 32 pour le téléphone, 1 fourreau pour alimentation portail, 1 tuyau P.V.C. diamètre 100 pour le réseau T.A.E. (eaux vannes et usées) et 1 tuyau P.V.C. diamètre 100 pour réseau pluvial (raccordé au réseau ou en épandage).",images:[{fichier:"image45.jpeg",w:292,h:390}],montant:"15 000,00 €",defaut:"hors_coord"},
   {id:"eaux_pluviales",groupe:"ASSAINISSEMENT – VRD",titre:"EAUX PLUVIALES",texte:"Regards béton avec tampons ou réducteurs au pied des descentes raccordées au réseau d'eau pluvial ou sur des tranchées drainantes ou sur puisard",images:[],defaut:"hors_coord"},
-  {id:"consommation",groupe:"CONSOMMATION",titre:"CONSOMMATION",texte:"Consommation en eau et électricités nécessaires à l'exécution des travaux",images:[],defaut:"les_deux"},
+  {id:"consommation",groupe:"CONSOMMATION",titre:"CONSOMMATION",texte:"Consommation en eau et électricités nécessaires à l'exécution des travaux",images:[],montant:"150,00 €",defaut:"les_deux"},
   {id:"permeabilite_attestations_dpe",groupe:"PERMEABILITE, ATTESTATIONS DE CONFORMITES ET DPE",titre:"PERMEABILITE, ATTESTATIONS DE CONFORMITES ET DPE",texte:"A la livraison, vous sera transmis un rapport de test de perméabilité à l'air dont le résultat sera inférieur ou égal à la valeur de perméabilité à l'air prise en compte dans votre étude thermique.\nAttestation de fin de chantier : Contrôle en fin de chantier, par un contrôleur agrée par le ministère, pour vérifier la conformité de la construction aux exigences de la R.E.2020. Cette attestation de fin de chantier sera remise au client qui devra la joindre à la déclaration d'achèvement de travaux pour l'obtention du certificat de conformité.\nDPE : Le diagnostic de performance énergétique sera remis au client après la réception des travaux avec l'attestation de fin de chantier.",images:[{fichier:"image46.jpeg",w:274,h:390},{fichier:"image47.jpeg",w:674,h:374}],defaut:"les_deux"},
-  {id:"garantie",groupe:"GARANTIE",titre:"GARANTIE",texte:"Dans le cadre de la mission confiée, le maître d'œuvre s'engage à assurer le suivi technique, administratif et financier du projet.\nIl bénéficie d'une assurance de responsabilité civile professionnelle et d'une assurance responsabilité civile décennale couvrant, pendant 10 ans à compter de la réception des travaux, les dommages compromettant la solidité de l'ouvrage ou le rendant impropre à sa destination, conformément aux articles 1792 et suivants du Code civil.\nCes garanties sont distinctes de celles des entreprises exécutantes mais peuvent se cumuler si la responsabilité du maître d'œuvre est engagée.\nLe maître d'œuvre ne se substitue pas aux obligations des entreprises, mais répond de ses propres fautes, omissions ou erreurs de conception, de coordination ou de contrôle qui pourraient être à l'origine de désordres couverts par la garantie décennale.\nLes attestations d'assurance en cours de validité sont remises au maître d'ouvrage avant l'ouverture du chantier.\nGarantie Dommages-Ouvrage\nAssurance souscrite avant le chantier, la Dommages-Ouvrage couvre pendant 10 ans après la réception les réparations des dommages graves relevant de la garantie décennale (solidité du bâtiment ou impropriété à l'usage), sans attendre qu'un tribunal désigne un responsable.\nElle permet une indemnisation rapide du propriétaire, l'assureur se retournant ensuite contre les responsables.",images:[],defaut:"les_deux"},
+  {id:"garantie",groupe:"GARANTIE",titre:"GARANTIE",texte:"Dans le cadre de la mission confiée, le maître d'œuvre s'engage à assurer le suivi technique, administratif et financier du projet.\nIl bénéficie d'une assurance de responsabilité civile professionnelle et d'une assurance responsabilité civile décennale couvrant, pendant 10 ans à compter de la réception des travaux, les dommages compromettant la solidité de l'ouvrage ou le rendant impropre à sa destination, conformément aux articles 1792 et suivants du Code civil.\nCes garanties sont distinctes de celles des entreprises exécutantes mais peuvent se cumuler si la responsabilité du maître d'œuvre est engagée.\nLe maître d'œuvre ne se substitue pas aux obligations des entreprises, mais répond de ses propres fautes, omissions ou erreurs de conception, de coordination ou de contrôle qui pourraient être à l'origine de désordres couverts par la garantie décennale.\nLes attestations d'assurance en cours de validité sont remises au maître d'ouvrage avant l'ouverture du chantier.\nGarantie Dommages-Ouvrage\nAssurance souscrite avant le chantier, la Dommages-Ouvrage couvre pendant 10 ans après la réception les réparations des dommages graves relevant de la garantie décennale (solidité du bâtiment ou impropriété à l'usage), sans attendre qu'un tribunal désigne un responsable.\nElle permet une indemnisation rapide du propriétaire, l'assureur se retournant ensuite contre les responsables.",images:[],montant:"6 000,00 € environ (assurance dommages-ouvrage)",defaut:"les_deux"},
 ];
 /* la synthèse financière du PTR reprend la structure du modèle : trois
    blocs (travaux coordonnés / travaux réservés au client / prestations
@@ -3653,10 +3653,46 @@ function ptrDocumentXml(p,px,majTarifs){
         {bords:tcB({h:false,g:false,b:false,d:false}),v:'top',mg:40});
     }))],{});
   };
-  const coordination=defaut=>{
-    const mo=defaut==='MO'||defaut==='les_deux', hors=defaut==='hors_coord'||defaut==='les_deux';
-    return par((mo?'☒':'☐')+' Lot MO      '+(hors?'☒':'☐')+' Hors coordination',
-      {sz:15,i:true,c:DOC_GRIS,ap:100});
+  /* le tableau du modèle papier : désignation / Lot MO / Hors coord. /
+     montant hors coordination — une ligne par poste plutôt qu'un bloc
+     partagé par plusieurs postes comme sur l'original, dont les cases à
+     cocher, réparties une par paragraphe dans une cellule fusionnée,
+     n'auraient pas pu se retranscrire sans ambiguïté. */
+  /* le titre d'un lot répète parfois celui de son groupe, à un accent près
+     (« PREPARATION DU TERRAIN » sous « PRÉPARATION DU TERRAIN » dans le
+     modèle d'origine) — on compare sans les accents pour ne pas l'afficher
+     deux fois de suite. */
+  const sansAccentsTitre=s=>(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const LARG_DESIG=6200, LARG_MO=1100, LARG_HORS=1100, LARG_MONTANT=2000;
+  const teteLots=tr([
+    tc(LARG_DESIG,par('DÉSIGNATION DES OUVRAGES ET FOURNITURES',{b:true,sz:15,c:'FFFFFF',caps:true,sp:10,ap:0}),
+      {fond:DOC_BRUN,bords:tcB({c:DOC_BRUN,sz:4}),mg:80,v:'center'}),
+    tc(LARG_MO,par('Lot MO',{b:true,sz:14,c:'FFFFFF',jc:'center',ap:0}),
+      {fond:DOC_BRUN,bords:tcB({c:DOC_BRUN,sz:4}),mg:40,v:'center'}),
+    tc(LARG_HORS,par('Hors coord.',{b:true,sz:14,c:'FFFFFF',jc:'center',ap:0}),
+      {fond:DOC_BRUN,bords:tcB({c:DOC_BRUN,sz:4}),mg:40,v:'center'}),
+    tc(LARG_MONTANT,par('Montant hors coordination',{b:true,sz:13,c:'FFFFFF',jc:'center',ap:0}),
+      {fond:DOC_BRUN,bords:tcB({c:DOC_BRUN,sz:4}),mg:40,v:'center'}),
+  ]);
+  const ligneGroupe=g=>tr([
+    tc(LARG_DESIG+LARG_MO+LARG_HORS+LARG_MONTANT,par(g,{b:true,sz:16,c:DOC_TERRA,caps:true,sp:10,ap:0}),
+      {fusion:4,fond:DOC_SABLE,bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),mg:80,v:'center'}),
+  ]);
+  const caseCoche=coche=>par(coche?'☒':'☐',{sz:20,jc:'center',ap:0});
+  const ligneLot=x=>{
+    const mo=x.defaut==='MO'||x.defaut==='les_deux', hors=x.defaut==='hors_coord'||x.defaut==='les_deux';
+    const desig=[
+      sansAccentsTitre(x.titre)!==sansAccentsTitre(x.groupe)?par(x.titre,{b:true,sz:17,c:DOC_BRUN,ap:60}):'',
+      x.texte.split('\n').filter(Boolean).map(t=>par(t,{sz:16,jc:'both',ap:60})).join(''),
+      photoLigne(x.images),
+    ].join('');
+    return tr([
+      tc(LARG_DESIG,desig,{bords:tcB({c:DOC_BRUN,sz:4}),mg:80,v:'top'}),
+      tc(LARG_MO,caseCoche(mo),{bords:tcB({c:DOC_BRUN,sz:4}),mg:40,v:'center'}),
+      tc(LARG_HORS,caseCoche(hors),{bords:tcB({c:DOC_BRUN,sz:4}),mg:40,v:'center'}),
+      tc(LARG_MONTANT,par(x.montant||'—',{sz:15,jc:'center',c:x.montant?DOC_ENCRE:DOC_GRIS,ap:0}),
+        {bords:tcB({c:DOC_BRUN,sz:4}),mg:60,v:'center'}),
+    ]);
   };
 
   const nomClient=afficherCivilite(p.civilite,p.client)||p.client||'';
@@ -3683,21 +3719,13 @@ function ptrDocumentXml(p,px,majTarifs){
     champs([2200,8200],[['Lot MO',PTR_LEGENDE_MO],['Hors coord.',PTR_LEGENDE_HORS]]),
   ].join('');
 
-  /* le titre d'un lot répète parfois celui de son groupe, à un accent près
-     (« PREPARATION DU TERRAIN » sous « PRÉPARATION DU TERRAIN » dans le
-     modèle d'origine) — on compare sans les accents pour ne pas l'afficher
-     deux fois de suite. */
-  const sansAccents=s=>(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'');
   const groupes=[...new Set(PTR_CATALOGUE.map(x=>x.groupe))];
-  const corpsLots=groupes.map(g=>[
-    titre(g),
-    PTR_CATALOGUE.filter(x=>x.groupe===g).map(x=>[
-      sansAccents(x.titre)!==sansAccents(g)?sousTitre(x.titre):'',
-      x.texte.split('\n').filter(Boolean).map(texte).join(''),
-      photoLigne(x.images),
-      coordination(x.defaut),
-    ].join('')).join(''),
-  ].join('')).join(sautPage);
+  const lignesTableau=[teteLots];
+  groupes.forEach(g=>{
+    lignesTableau.push(ligneGroupe(g));
+    PTR_CATALOGUE.filter(x=>x.groupe===g).forEach(x=>lignesTableau.push(ligneLot(x)));
+  });
+  const corpsLots=tbl([LARG_DESIG,LARG_MO,LARG_HORS,LARG_MONTANT],lignesTableau,{});
 
   /* ---- synthèse financière : jamais recopiée, toujours recalculée ---- */
   const coutHT=prospectCoutHT(p,majTarifs), tva=prospectTva(p),
