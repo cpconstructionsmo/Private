@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-24 · Le programme technique de référence se présente désormais sous forme de tableau, comme le modèle papier';
+const VERSION='2026-09-26 · Programme technique : bibliothèque de prestations A/B/C, éditeur par projet, photos cadrées, exports Word, PDF, Excel et dossier ZIP';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1070,7 +1070,7 @@ const ventileFactures=L=>{
 /* la rétrocession porte aussi bien sur un marché (montantHT) que sur une commande de matériaux (montant) */
 const retroBase=x=>+(x.montantHT!==undefined&&x.montantHT!==null?x.montantHT:x.montant)||0;
 const retroMontant=x=>retroBase(x)*(+x.retroPct||0)/100;
-const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[],fournisseurs:[],rendezvous:[],tauxCommunes:[],majorationsCorps:[]};
+const EMPTY={chantiers:[],artisans:[],marches:[],photos:[],commandes:[],bordereaux:[],prospects:[],produits:[],fournisseurs:[],rendezvous:[],tauxCommunes:[],majorationsCorps:[],programmes:[]};
 /* un enregistrement corrompu (case null au lieu d'être absente, retiré à la main
    dans la base) fait planter tout écran qui parcourt cette liste — un seul trou
    suffit à rendre CHANTIERS et ARTISANS injoignables. On l'écarte silencieusement
@@ -2788,13 +2788,22 @@ async function logoDocx(){
   return logoCache;
 }
 
-async function fabriquerDocx(documentXml,titre,logo,qr,qrPlan,extra){
+async function fabriquerDocx(documentXml,titre,logo,qr,qrPlan,extra,hf){
   const enc=new TextEncoder();
+  /* en-tête et pied de page facultatifs (programme technique : numéros de
+     page) — rId50 et rId51, hors de la plage des images */
+  const types=hf?DOCX_TYPES.replace('</Types>',
+    '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>'
+    +'<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>'):DOCX_TYPES;
+  const rels=hf?docxDocRels(!!logo,!!qr,!!qrPlan,extra).replace('</Relationships>',
+    '<Relationship Id="rId50" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>'
+    +'<Relationship Id="rId51" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>')
+    :docxDocRels(!!logo,!!qr,!!qrPlan,extra);
   const entrees=[
-    {nom:'[Content_Types].xml',data:enc.encode(DOCX_TYPES)},
+    {nom:'[Content_Types].xml',data:enc.encode(types)},
     {nom:'_rels/.rels',data:enc.encode(DOCX_RELS)},
     {nom:'docProps/core.xml',data:enc.encode(docxCore(titre))},
-    {nom:'word/_rels/document.xml.rels',data:enc.encode(docxDocRels(!!logo,!!qr,!!qrPlan,extra))},
+    {nom:'word/_rels/document.xml.rels',data:enc.encode(rels)},
     {nom:'word/styles.xml',data:enc.encode(DOCX_STYLES)},
     {nom:'word/document.xml',data:enc.encode(documentXml)},
   ];
@@ -2805,6 +2814,10 @@ async function fabriquerDocx(documentXml,titre,logo,qr,qrPlan,extra){
      porte son propre rId et son propre fichier, au-delà du trio fixe logo/QR
      ci-dessus — d'où une liste plutôt que des paramètres nommés. */
   (extra||[]).forEach(e=>entrees.push({nom:'word/media/'+e.nom,data:e.data}));
+  if(hf){
+    entrees.push({nom:'word/header1.xml',data:enc.encode(hf.entete)});
+    entrees.push({nom:'word/footer1.xml',data:enc.encode(hf.pied)});
+  }
   return zipEcrire(entrees);
 }
 
@@ -3727,7 +3740,21 @@ function ptrDocumentXml(p,px,majTarifs){
   });
   const corpsLots=tbl([LARG_DESIG,LARG_MO,LARG_HORS,LARG_MONTANT],lignesTableau,{});
 
-  /* ---- synthèse financière : jamais recopiée, toujours recalculée ---- */
+  const synthese=ptrSyntheseXml(p,majTarifs,[nomClient,nomClient2].filter(Boolean).join(' et '));
+
+  const corps=[garde,sautPage,corpsLots,sautPage,synthese].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+/* la synthèse financière du PTR, recalculée depuis le chiffrage du prospect —
+   partagée par l'ancien générateur et par le module programme technique */
+function ptrSyntheseXml(p,majTarifs,nomClients){
+  const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
+  const sousTitre=t=>par(t,{b:true,sz:19,c:DOC_BRUN,av:140,ap:60});
+  const texte=t=>par(t,{sz:17,jc:'both',ap:80});
   const coutHT=prospectCoutHT(p,majTarifs), tva=prospectTva(p),
     coutTTC=Math.round(coutHT*(1+tva/100)*100)/100;
   const honoTTC=honoDossierTTC(p,majTarifs);
@@ -3759,7 +3786,7 @@ function ptrDocumentXml(p,px,majTarifs){
         tc(largeurs[1],par(total[1],{b:true,sz:16,jc:'right',ap:0}),
           {bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70})])]),{});
 
-  const synthese=[
+  return [
     titre(PTR_SYNTHESE.titre),
     PTR_SYNTHESE.notes.map(n=>par(n,{sz:15,i:true,c:DOC_GRIS,jc:'both',ap:100})).join(''),
     vide(120),
@@ -3790,20 +3817,13 @@ function ptrDocumentXml(p,px,majTarifs){
     vide(200),
     tbl([5200,5200],[tr([
       tc(5200,[par('Le Maître de l’Ouvrage',{b:true,sz:17,c:DOC_TERRA,ap:60}),
-        par('Nom, prénom : '+[nomClient,nomClient2].filter(Boolean).join(' et '),{sz:16,ap:40}),
+        par('Nom, prénom : '+(nomClients||''),{sz:16,ap:40}),
         par('Signature :',{sz:16,ap:0})].join(''),{bords:tcB({c:DOC_BRUN,sz:4}),v:'top',mg:120}),
       tc(5200,[par('Le Maître d’Œuvre — CP Constructions',{b:true,sz:17,c:DOC_TERRA,ap:60}),
         par('M. PORTIER Claude',{sz:16,ap:40}),
         par('Signature et cachet :',{sz:16,ap:0})].join(''),{bords:tcB({c:DOC_BRUN,sz:4}),v:'top',mg:120}),
     ])],{}),
   ].join('');
-
-  const corps=[garde,sautPage,corpsLots,sautPage,synthese].join('');
-  return DOC_ENTETE_XML+'<w:body>'+corps
-    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
-    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
-    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
-    +'</w:body></w:document>';
 }
 async function genererPtrDocx(p,majTarifs){
   let logo=null;
@@ -3821,6 +3841,574 @@ async function genererPtrDocx(p,majTarifs){
   return fabriquerDocx(ptrDocumentXml(p,logo,majTarifs),
     'Programme technique de référence — '+(p.nom||''),logo,null,null,extra);
 }
+
+/* ================= PROGRAMME TECHNIQUE — MODULE MÉTIER =================
+   Deux mondes qui ne se mélangent jamais :
+   - la BIBLIOTHÈQUE (data.ptrBiblio) : le référentiel CP Constructions —
+     catégories, prestations, et pour chacune ses propositions A/B/C… ;
+   - le PROGRAMME d'un projet (data.programmes) : des lignes qui sont des
+     COPIES des propositions choisies, jamais des renvois. Modifier la
+     bibliothèque ne touche donc aucun document déjà remis à un client ;
+     la ligne garde seulement l'identifiant et la version de la proposition
+     d'origine, pour la traçabilité.
+   La bibliothèque initiale est construite depuis PTR_CATALOGUE (le modèle
+   papier « Maison neuve ») : identifiants déterministes, pour qu'elle soit
+   la même sur tous les appareils tant que personne ne l'a modifiée. */
+const PTR_STATUTS=[
+  {id:'brouillon',l:'Brouillon',c:MUTED},{id:'en_cours',l:'En cours',c:AMBER},
+  {id:'a_valider',l:'À valider',c:NAVY},{id:'valide',l:'Validé',c:GREEN},{id:'archive',l:'Archivé',c:MUTED}];
+const ptrStatut=id=>PTR_STATUTS.find(s=>s.id===id)||PTR_STATUTS[0];
+const PTR_MONTANT_TYPES=[
+  {id:'',l:'—'},{id:'valeur',l:'Montant'},{id:'suivant_devis',l:'Suivant devis'},
+  {id:'charge_mo',l:'À la charge du maître d’ouvrage'},{id:'non_compris',l:'Non compris'},{id:'libre',l:'Texte libre'}];
+const PTR_SEED_DATE='2026-09-26T00:00:00.000Z';
+const PTR_MODELE_NOM='Modèle CP Constructions — Maison neuve';
+const PTR_MENTIONS_DEFAUT={
+  titre:'PROGRAMME TECHNIQUE DE RÉFÉRENCE',
+  sousTitre:'Ouvrage à usage d’habitation',
+  re2020:'Votre maison a été conçue et sera construite conformément à la Réglementation Environnementale 2020 (RE2020). En complément du diagnostic de performance énergétique (DPE), un document établi par un organisme de contrôle indépendant attestant de cette conformité vous sera remis.',
+  avertissement:'Le présent document est un programme technique de référence établi dans le cadre de la mission de maîtrise d’œuvre confiée à CP Constructions. Il décrit les ouvrages envisagés à titre indicatif afin de guider la consultation des entreprises. Ce document ne constitue pas une offre de prix, ni un engagement du maître d’œuvre sur le coût des travaux. Les prestations effectives et leurs prix seront définis dans les marchés de travaux conclus directement et individuellement par le Maître de l’Ouvrage avec chaque entreprise titulaire, après analyse des offres par le Maître d’Œuvre.',
+  legendeMO:PTR_LEGENDE_MO,
+  legendeHors:PTR_LEGENDE_HORS,
+};
+const ptrMaintenant=()=>new Date().toISOString();
+const ptrSlug=s=>deaccent(String(s||'')).replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+const ptrNettoyerTexte=s=>String(s==null?'':s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');
+const ptrCopie=o=>JSON.parse(JSON.stringify(o===undefined?null:o));
+const ptrLettre=i=>String.fromCharCode(65+(i%26))+(i>=26?String(Math.floor(i/26)):'');
+
+/* le montant hors coordination : une valeur chiffrée, ou l'une des mentions
+   d'usage — le modèle papier n'en porte que sur six postes */
+const ptrMontantTexte=m=>{
+  if(!m||!m.type)return '';
+  if(m.type==='valeur'){const v=String(m.valeur||'').trim();
+    return v===''?'':(isFinite(+v.replace(',','.'))?eurDoc(+v.replace(',','.')):v)}
+  if(m.type==='libre')return String(m.valeur||'').trim();
+  const t=PTR_MONTANT_TYPES.find(x=>x.id===m.type);
+  return t?t.l:'';
+};
+
+function ptrBiblioInitiale(){
+  const cats=[], prestations=[];
+  PTR_CATALOGUE.forEach(x=>{
+    let c=cats.find(k=>k.nom===x.groupe);
+    if(!c){c={id:'cat_'+ptrSlug(x.groupe).toLowerCase(),nom:x.groupe,ordre:cats.length,actif:true};cats.push(c)}
+    const photos=x.images.map(im=>({id:'ph_'+ptrSlug(im.fichier).toLowerCase(),src:'asset',fichier:im.fichier,
+      nom:im.fichier,w:im.w,h:im.h,ext:/\.png$/i.test(im.fichier)?'png':'jpeg',mode:'contain',fx:.5,fy:.5}));
+    const variante=(suffixe,nom,texte,extra)=>({id:'var_'+x.id+'_'+suffixe,nom,titre:x.titre,texte,
+      photos:suffixe==='a'?photos:[],pieces:[],marque:'',reference:'',url:'',noteInterne:'',
+      parDefaut:suffixe==='a',archivee:false,version:1,creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE,...(extra||{})});
+    const variantes=[variante('a',x.id==='pompe_a_chaleur'?'Atlantic Alféa Extensa Duo':'Standard (modèle CP)',x.texte,
+      x.id==='pompe_a_chaleur'?{marque:'Atlantic',reference:'Alféa Extensa Duo A.I. (R32)'}:null)];
+    if(x.id==='implantation')variantes.push(variante('b','Implantation par géomètre',
+      'L’implantation de la construction sera réalisée par un géomètre-expert mandaté par le Maître de l’Ouvrage, conformément au permis de construire et au plan de masse : matérialisation des axes et des angles de la construction, report du niveau de référence (piquetage).\nUn procès-verbal d’implantation sera remis au Maître d’Œuvre avant l’ouverture des fouilles. Les honoraires du géomètre sont à la charge du Maître de l’Ouvrage.\nEn cas de construction en limite séparative, le Maître de l’Ouvrage devra fournir une autorisation écrite des propriétaires limitrophes, permettant l’accès aux entreprises pour la réalisation des travaux.'));
+    if(x.id==='pompe_a_chaleur'){
+      variantes.push(variante('b','Aldes T.One',
+        'Système de chauffage / traitement d’air ALDES T.One.\nCaractéristiques et prestations suivant documentation technique jointe au présent programme.',
+        {marque:'Aldes',reference:'T.One'}));
+      variantes.push(variante('c','Autre système',
+        'Système de chauffage et de production d’eau chaude sanitaire à définir avec le Maître de l’Ouvrage.\nCaractéristiques et prestations suivant descriptif et documentation technique jointe au présent programme.'));
+    }
+    const coche=x.defaut;
+    prestations.push({id:'pr_'+x.id,categorieId:c.id,sousCategorie:'',nom:x.titre,code:'',
+      ordre:prestations.filter(p=>p.categorieId===c.id).length,actif:true,obligatoire:false,
+      defautMO:coche==='MO'||coche==='les_deux',defautHors:coche==='hors_coord'||coche==='les_deux',
+      montantDefaut:x.montant?{type:'libre',valeur:x.montant}:{type:'',valeur:''},
+      observations:'',creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE,alertesVues:[],variantes});
+  });
+  return {version:1,modeleNom:PTR_MODELE_NOM,categories:cats,prestations,mentions:{...PTR_MENTIONS_DEFAUT},
+    creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE};
+}
+let ptrBiblioSeedCache=null;
+/* tant que personne n'a touché à la bibliothèque, elle n'est pas écrite en
+   base : on sert la bibliothèque initiale, identique partout */
+const ptrBiblio=data=>{
+  if(data&&data.ptrBiblio)return data.ptrBiblio;
+  if(!ptrBiblioSeedCache)ptrBiblioSeedCache=ptrBiblioInitiale();
+  return ptrBiblioSeedCache;
+};
+const ptrMentions=b=>({...PTR_MENTIONS_DEFAUT,...((b&&b.mentions)||{})});
+const ptrVariantesActives=pr=>((pr&&pr.variantes)||[]).filter(v=>!v.archivee);
+const ptrVarianteDefaut=pr=>{const L=ptrVariantesActives(pr);return L.find(v=>v.parDefaut)||L[0]||null};
+
+/* ---------- contrôles de cohérence : on signale, on ne corrige jamais ---------- */
+const PTR_FAUTES=[
+  [/\bREVETEMENS\b/,'REVÊTEMENTS'],[/\bHAIBTATION\b/,'HABITATION'],[/\bEXERIEURS?\b/,'EXTÉRIEURS'],
+  [/\benvirons\b/,'environ'],[/\bchainages?\b/i,'chaînage'],[/\bmaitre\b/i,'maître'],[/\bMaitre\b/,'Maître'],
+  [/\bplacard\s+placard\b/i,'placard'],[/\ble le\b/i,'le'],[/\bla la\b/i,'la'],[/\bdes des\b/i,'des'],
+];
+const PTR_TITRES_ACCENTS=[['PREPARATION','PRÉPARATION'],['MACONNERIE','MAÇONNERIE'],['ELECTRICITE','ÉLECTRICITÉ'],
+  ['PLATRERIE','PLÂTRERIE'],['SECHE','SÈCHE'],['EXTERIEURES','EXTÉRIEURES'],['REVETEMENTS','REVÊTEMENTS'],
+  ['PERMEABILITE','PERMÉABILITÉ'],['CONFORMITES','CONFORMITÉS'],['ECRAN','ÉCRAN'],['DEBORDS','DÉBORDS'],
+  ['EVIER','ÉVIER'],['FENETRE','FENÊTRE'],['ACCES','ACCÈS'],['EXCEDENTAIRES','EXCÉDENTAIRES']];
+const PTR_MARQUES=['Atlantic','Aldes','Daikin','Jacob Delafon','Monier','PBM','MSEA','Celtys','Placo','Knauf','Isover',
+  'Grohe','Velux','Somfy','Legrand','Schneider','Hager','Porcher','Villeroy','Geberit','Kinedo','Saunier Duval','Rehau'];
+function ptrAlertesTexte(titre,texte){
+  const A=[], t=String(texte||''), ti=String(titre||'');
+  const ajoute=(cle,msg,niveau)=>{if(!A.some(a=>a.cle===cle))A.push({cle,msg,niveau:niveau||'attention'})};
+  if(!t.trim())ajoute('vide','Texte vide : rien ne sera imprimé pour cette prestation.');
+  PTR_FAUTES.forEach(([re,bon])=>{const m=(ti+'\n'+t).match(re);
+    if(m)ajoute('faute:'+m[0],'Faute de frappe probable : « '+m[0]+' » → « '+bon+' » ?')});
+  PTR_TITRES_ACCENTS.forEach(([sans,avec])=>{if(sans!==avec&&new RegExp('\\b'+sans+'\\b').test(ti))
+    ajoute('accent:'+sans,'Titre sans accent : « '+sans+' » → « '+avec+' » ?','info')});
+  const colle=t.match(/[a-zàâäéèêëîïôöùûüç][A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-zàâäéèêëîïôöùûüç]+/);
+  if(colle)ajoute('colle:'+colle[0],'Mots collés : « …'+colle[0]+'… » — espace ou retour à la ligne manquant ?');
+  const dim=t.match(/\b0,\d+\s*cm\b/);
+  if(dim)ajoute('dim:'+dim[0],'Dimension suspecte : « '+dim[0]+' » — s’agit-il de '+Math.round(parseFloat(dim[0].replace(',','.'))*100)+' cm ?');
+  const m2=t.match(/\b\d+(?:[.,]\d+)?\s?m[23]\b/);
+  if(m2)ajoute('unite:'+m2[0],'Unité à harmoniser : « '+m2[0]+' » → m² / m³ ?','info');
+  if(/\S {2,}\S/.test(t))ajoute('espaces','Espaces multiples dans le texte.','info');
+  if(/\bRT\s?2012\b/i.test(t))ajoute('rt2012','Mention de la RT 2012 : texte peut-être obsolète (RE 2020 en vigueur).');
+  PTR_MARQUES.forEach(mq=>{if(new RegExp('\\b'+mq+'\\b','i').test(t))
+    ajoute('marque:'+mq,'Référence produit citée (« '+mq+' ») : vérifier qu’elle est toujours proposée.','info')});
+  return A;
+}
+function ptrAlertesPhoto(ph){
+  const A=[];
+  if(!ph)return A;
+  const w=+ph.w||0, h=+ph.h||0;
+  if(ph.src==='drive'&&!ph.fileId)A.push({cle:'photo-manque:'+ph.id,msg:'Photo « '+(ph.nom||'?')+' » : fichier introuvable.',niveau:'attention'});
+  if(w&&h&&Math.min(w,h)<300)A.push({cle:'photo-petite:'+ph.id,msg:'Photo « '+(ph.nom||'?')+' » de faible résolution ('+w+'×'+h+' px).',niveau:'info'});
+  if(w&&h&&(w/h>2.4||h/w>2.4))A.push({cle:'photo-ratio:'+ph.id,msg:'Photo « '+(ph.nom||'?')+' » très allongée : cadrage à vérifier.',niveau:'info'});
+  return A;
+}
+/* les alertes d'une prestation de bibliothèque (toutes ses propositions) ou
+   d'une ligne de programme, moins celles que l'utilisateur a déjà vues */
+function ptrAlertesPrestation(pr,biblio){
+  const A=[];
+  ptrVariantesActives(pr).forEach(v=>{
+    ptrAlertesTexte(v.titre||pr.nom,v.texte).forEach(a=>A.push({...a,cle:v.id+'|'+a.cle,msg:(ptrVariantesActives(pr).length>1?v.nom+' — ':'')+a.msg}));
+    (v.photos||[]).forEach(ph=>ptrAlertesPhoto(ph).forEach(a=>A.push({...a,cle:v.id+'|'+a.cle})));
+  });
+  if(biblio){
+    const doublon=biblio.prestations.find(o=>o.id!==pr.id&&o.categorieId===pr.categorieId
+      &&deaccent(o.nom).toLowerCase().trim()===deaccent(pr.nom).toLowerCase().trim());
+    if(doublon)A.push({cle:'doublon:'+doublon.id,msg:'Doublon possible avec « '+doublon.nom+' » dans la même catégorie.',niveau:'attention'});
+  }
+  const vues=pr.alertesVues||[];
+  return A.filter(a=>vues.indexOf(a.cle)<0);
+}
+function ptrAlertesLigne(l){
+  const A=ptrAlertesTexte(l.titre||l.nom,l.texte).concat((l.photos||[]).flatMap(ptrAlertesPhoto))
+    .concat((l.pieces||[]).filter(x=>!x.lien).map(x=>({cle:'piece:'+x.id,msg:'Pièce jointe « '+(x.nom||'?')+' » introuvable.',niveau:'attention'})));
+  const vues=l.alertesVues||[];
+  return A.filter(a=>vues.indexOf(a.cle)<0);
+}
+
+/* ---------- lignes et programmes ---------- */
+/* la COPIE d'une proposition dans un programme : texte, photos, pièces —
+   tout est dupliqué, pour qu'aucune retouche ultérieure de la bibliothèque
+   ne vienne réécrire un document déjà remis */
+function ptrLigneDepuis(pr,v){
+  return {id:uid(),prestationId:pr.id,categorieId:pr.categorieId,nom:pr.nom,obligatoire:!!pr.obligatoire,
+    incluse:true,lotMO:!!pr.defautMO,horsCoord:!!pr.defautHors,montant:ptrCopie(pr.montantDefaut||{type:'',valeur:''}),
+    observations:'',alertesVues:[],modifie:false,...ptrSnapshotVariante(v,pr)};
+}
+const ptrSnapshotVariante=(v,pr)=>v?{varianteId:v.id,varianteVersion:v.version||1,varianteNom:v.nom,
+  titre:v.titre||(pr&&pr.nom)||'',texte:v.texte||'',photos:ptrCopie(v.photos||[]),pieces:ptrCopie(v.pieces||[]),
+  marque:v.marque||'',reference:v.reference||'',url:v.url||'',noteInterne:v.noteInterne||'',modifie:false}
+  :{varianteId:null,varianteVersion:0,varianteNom:'',titre:(pr&&pr.nom)||'',texte:'',photos:[],pieces:[],
+    marque:'',reference:'',url:'',noteInterne:'',modifie:false};
+const ptrLigneManuelle=(categorieId,nom)=>({id:uid(),prestationId:null,categorieId,nom:nom||'Nouvelle prestation',
+  obligatoire:false,incluse:true,lotMO:true,horsCoord:false,montant:{type:'',valeur:''},observations:'',alertesVues:[],
+  varianteId:null,varianteVersion:0,varianteNom:'Texte personnalisé',titre:nom||'Nouvelle prestation',texte:'',
+  photos:[],pieces:[],marque:'',reference:'',url:'',noteInterne:'',modifie:true});
+const ptrCategoriesDe=biblio=>biblio.categories.filter(c=>c.actif!==false)
+  .sort((a,b)=>(a.ordre||0)-(b.ordre||0)).map(c=>({id:c.id,nom:c.nom,ordre:c.ordre||0}));
+const ptrPrestationsDe=(biblio,categorieId)=>biblio.prestations
+  .filter(p=>p.categorieId===categorieId&&p.actif!==false).sort((a,b)=>(a.ordre||0)-(b.ordre||0));
+function ptrNouveauProgramme(biblio,cible,source,autre){
+  const t=ptrMaintenant();
+  const base={id:uid(),prospectId:cible.prospectId||null,chantierId:cible.chantierId||null,reference:'',
+    statut:'brouillon',version:1,fige:false,options:{synthese:true,annexes:true},versions:[],exports:[],
+    creeLe:t,modifieLe:t,source:{type:source,depuis:autre?autre.id:null,le:t}};
+  if(source==='copie'&&autre){
+    const cats=ptrCopie(autre.categories||[]);
+    const lignes=ptrCopie(autre.lignes||[]).map(l=>({...l,id:uid()}));
+    return {...base,categories:cats,lignes,options:{...base.options,...(autre.options||{})}};
+  }
+  const categories=ptrCategoriesDe(biblio);
+  if(source==='vierge')return {...base,categories,lignes:[]};
+  const lignes=[];
+  categories.forEach(c=>ptrPrestationsDe(biblio,c.id).forEach(pr=>lignes.push(ptrLigneDepuis(pr,ptrVarianteDefaut(pr)))));
+  return {...base,categories,lignes};
+}
+const ptrLignesTriees=(prog,categorieId)=>(prog.lignes||[]).filter(l=>l.categorieId===categorieId);
+const ptrConfiguree=l=>!l.incluse||(String(l.texte||'').trim()!==''&&(l.lotMO||l.horsCoord));
+function ptrStats(prog){
+  const L=prog.lignes||[], inc=L.filter(l=>l.incluse);
+  return {total:L.length,incluses:inc.length,configurees:inc.filter(ptrConfiguree).length};
+}
+const ptrProgrammePour=(data,cible)=>{
+  const L=(data&&data.programmes)||[];
+  return (cible.prospectId&&L.find(x=>x.prospectId===cible.prospectId))
+    ||(cible.chantierId&&L.find(x=>x.chantierId===cible.chantierId))||null;
+};
+/* ce que l'application sait déjà du projet : rien n'est ressaisi */
+function ptrProjet(data,prog){
+  const P=(data&&data.prospects)||[], C=(data&&data.chantiers)||[];
+  let p=prog.prospectId?P.find(x=>x.id===prog.prospectId):null;
+  let ch=prog.chantierId?C.find(x=>x.id===prog.chantierId):null;
+  if(!ch&&p&&p.chantierId)ch=C.find(x=>x.id===p.chantierId)||null;
+  if(!p&&ch&&ch.prospectId)p=P.find(x=>x.id===ch.prospectId)||null;
+  const src=p||ch||{};
+  const nomCivil=(civ,nom)=>afficherCivilite(civ,nom)||nom||'';
+  const client=[nomCivil(src.civilite,src.client),src.client2?nomCivil(src.civilite2,src.client2):''].filter(Boolean).join(' et ');
+  const nom=(p&&p.nom)||(ch&&ch.nom)||'';
+  return {p,ch,nom,client,adresseClient:src.adresseClient||'',adresseChantier:(p&&p.commune)||(ch&&ch.adresse)||'',
+    tel:src.telClient||'',email:src.emailClient||'',niveaux:(p&&p.niveaux)||'',
+    reference:prog.reference||('PT-'+String(prog.creeLe||ptrMaintenant()).slice(0,4)+'-'+String(prog.id).slice(0,4).toUpperCase())};
+}
+const ptrNomFichier=(projet,prog,prefixe,ext,version)=>{
+  const base=ptrSlug(String(projet.nom||projet.client||'Projet').replace(/^(maison|projet|villa)\s+/i,''))||'Projet';
+  return prefixe+'_'+base+'_V'+(version||prog.version||1)+'.'+ext;
+};
+/* le contrôle avant export : chaque anomalie renvoie à sa ligne */
+function ptrControles(prog,projet){
+  const R=[];
+  R.push({cle:'client',ok:!!String(projet.client||'').trim(),msg:'Client renseigné'});
+  R.push({cle:'adresse',ok:!!String(projet.adresseChantier||'').trim(),msg:'Adresse du projet renseignée'});
+  const inc=(prog.lignes||[]).filter(l=>l.incluse);
+  R.push({cle:'lignes',ok:inc.length>0,msg:'Au moins une prestation incluse'});
+  (prog.lignes||[]).forEach(l=>{
+    if(l.obligatoire&&!l.incluse)R.push({cle:'oblig:'+l.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » est obligatoire mais non incluse'});
+    if(!l.incluse)return;
+    if(!String(l.texte||'').trim())R.push({cle:'vide:'+l.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : texte vide'});
+    if(!l.lotMO&&!l.horsCoord)R.push({cle:'statut:'+l.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : ni Lot MO ni hors coordination'});
+    (l.photos||[]).forEach(ph=>{if(ph.src==='drive'&&!ph.fileId)R.push({cle:'ph:'+ph.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : photo introuvable'})});
+    (l.pieces||[]).forEach(x=>{if(!x.lien&&!x.fileId)R.push({cle:'pj:'+x.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : pièce jointe introuvable'})});
+  });
+  return R;
+}
+
+/* ---------- mise en page des images : une seule règle pour tout le document ----------
+   formatDocumentImage(image, container) : dimensions en EMU (914 400 par pouce).
+   « contain » : l'image entière, à l'échelle, jusqu'à toucher un bord de la zone ;
+   « cover » : la zone remplie, l'excédent rogné autour du point d'intérêt (fx, fy).
+   Jamais d'étirement : le rapport largeur/hauteur est toujours conservé. */
+function formatDocumentImage(image,container){
+  const w=Math.max(1,+(image&&image.w)||1), h=Math.max(1,+(image&&image.h)||1);
+  const cw=Math.max(1,container.w), ch=Math.max(1,container.h);
+  const borne=v=>Math.min(1,Math.max(0,v===undefined||v===null||v===''?.5:+v));
+  if(image&&image.mode==='cover'){
+    const rImg=w/h, rBox=cw/ch;
+    let l=0,r=0,t=0,b=0;
+    if(rImg>rBox){const crop=1-rBox/rImg; l=crop*borne(image.fx); r=crop-l}
+    else if(rImg<rBox){const crop=1-rImg/rBox; t=crop*borne(image.fy); b=crop-t}
+    const pc=v=>Math.round(v*100000);
+    return {cx:Math.round(cw),cy:Math.round(ch),srcRect:(l||r||t||b)?{l:pc(l),t:pc(t),r:pc(r),b:pc(b)}:null};
+  }
+  const s=Math.min(cw/w,ch/h);
+  return {cx:Math.round(w*s),cy:Math.round(h*s),srcRect:null};
+}
+/* 1 photo centrée ; 2 côte à côte ; 3 = deux puis une centrée ; 4 = 2 × 2 ;
+   au-delà, par rangées de deux */
+const ptrGrillePhotos=n=>{
+  if(n<=0)return [];
+  if(n===1)return [[0]];
+  const R=[];for(let i=0;i<n;i+=2)R.push(i+1<n?[i,i+1]:[i]);
+  return R;
+};
+const ptrCleImage=ph=>ph.src==='asset'?'asset:'+ph.fichier:'drive:'+(ph.fileId||ph.id);
+function ptrPhotoRun(rid,docPrId,nom,dim){
+  return '<w:r><w:rPr><w:noProof/></w:rPr><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">'
+    +'<wp:extent cx="'+dim.cx+'" cy="'+dim.cy+'"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
+    +'<wp:docPr id="'+docPrId+'" name="'+exml(nom)+'"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+    +'<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+    +'<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+    +'<pic:nvPicPr><pic:cNvPr id="'+docPrId+'" name="'+exml(nom)+'"/><pic:cNvPicPr/></pic:nvPicPr>'
+    +'<pic:blipFill><a:blip r:embed="'+rid+'"/>'
+    +(dim.srcRect?'<a:srcRect l="'+dim.srcRect.l+'" t="'+dim.srcRect.t+'" r="'+dim.srcRect.r+'" b="'+dim.srcRect.b+'"/>':'')
+    +'<a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+    +'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="'+dim.cx+'" cy="'+dim.cy+'"/></a:xfrm>'
+    +'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
+    +'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+}
+/* un bloc de photos, dans une cellule de largeur donnée (dxa) : zones de même
+   format 4:3 pour toutes, image centrée dans sa zone, marges régulières */
+function ptrPhotosXml(photos,largeurDxa,ctx){
+  const ok=(photos||[]).filter(ph=>ctx.rids[ptrCleImage(ph)]);
+  if(!ok.length)return '';
+  const demi=Math.floor(largeurDxa/2), marge=70;
+  const boite=ok.length===1?{w:Math.round(Math.min(largeurDxa*0.62,4300)*635),h:0}
+    :{w:Math.round((demi-2*marge)*635*0.96),h:0};
+  boite.h=Math.round(boite.w*0.75);
+  const hauteurRangee=Math.round(boite.h/635)+2*marge+40;
+  const sansBord=tcB({h:false,g:false,b:false,d:false});
+  const cellule=(ph,span)=>{
+    const dim=formatDocumentImage(ph,boite);
+    ctx.docPr++;
+    return tc(span?largeurDxa:demi,
+      '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>'
+      +ptrPhotoRun(ctx.rids[ptrCleImage(ph)],ctx.docPr,ph.nom||'Photo',dim)+'</w:p>',
+      {fusion:span?2:undefined,bords:sansBord,v:'center',mg:marge});
+  };
+  const rangees=ptrGrillePhotos(ok.length).map(R=>
+    '<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="'+hauteurRangee+'" w:hRule="atLeast"/><w:jc w:val="center"/></w:trPr>'
+    +(R.length===1?cellule(ok[R[0]],true):R.map(i=>cellule(ok[i],false)).join(''))+'</w:tr>');
+  /* une cellule Word doit se terminer par un paragraphe, jamais par un tableau */
+  return tbl([demi,largeurDxa-demi],rangees,{largeur:largeurDxa,type:'dxa'})
+    +'<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="120" w:lineRule="exact"/></w:pPr></w:p>';
+}
+/* texte d'une prestation : un paragraphe par ligne, « - » en début de ligne
+   pour une puce, **…** pour du gras */
+function ptrTexteXml(texte,o){
+  o=o||{};
+  const runs=(t,base)=>String(t).split(/(\*\*[^*]+\*\*)/).filter(s=>s!=='')
+    .map(s=>/^\*\*[^*]+\*\*$/.test(s)?run(s.slice(2,-2),{...base,b:true}):run(s,base)).join('');
+  return ptrNettoyerTexte(texte).split('\n').map(x=>x.replace(/\s+$/,'')).filter(x=>x.trim()!=='').map(ligne=>{
+    const puce=/^\s*[-•]\s+/.test(ligne);
+    const t=puce?'•  '+ligne.replace(/^\s*[-•]\s+/,''):ligne;
+    return par([runs(t,{sz:o.sz||17,c:o.c})],{sz:o.sz||17,jc:'both',ap:50,ind:puce?260:undefined});
+  }).join('');
+}
+const ptrParGarde=(xml)=>xml.replace('<w:pPr>','<w:pPr><w:keepNext/><w:keepLines/>');
+
+function ptrEnteteXml(projet,mentions){
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    +par([run(mentions.titre,{sz:15,b:true,c:DOC_TERRA,caps:true,sp:10}),run('   ·   '+(projet.nom||''),{sz:15,c:DOC_GRIS})],
+      {jc:'right',ap:0,filet:DOC_TERRA,filetSz:6})
+    +'</w:hdr>';
+}
+function ptrPiedXml(projet,prog){
+  const champ=instr=>'<w:fldSimple w:instr=" '+instr+' "><w:r>'+rP({sz:14,c:DOC_GRIS})+'<w:t>1</w:t></w:r></w:fldSimple>';
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    +'<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="'+DOC_BRUN+'"/></w:pBdr>'
+    +'<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>'
+    +run('CP Constructions — '+projet.reference+' — Version '+(prog.version||1)+' — Page ',{sz:14,c:DOC_GRIS})
+    +champ('PAGE')+run(' sur ',{sz:14,c:DOC_GRIS})+champ('NUMPAGES')
+    +'</w:p></w:ftr>';
+}
+
+/* ---------- le document Word du programme ---------- */
+const PTR_LARG={desig:6900,mo:900,hors:1000,montant:1400};
+function ptrProgrammeDocumentXml(prog,projet,biblio,ctx,majTarifs){
+  const M=ptrMentions(biblio);
+  const L=PTR_LARG, total=L.desig+L.mo+L.hors+L.montant;
+  const bordure=tcB({c:DOC_BRUN,sz:4});
+  const sansBord=tcB({h:false,g:false,b:false,d:false});
+  const titre=t=>ptrParGarde(par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA}));
+  const champs=(largeurs,rows)=>tbl(largeurs,rows.filter(r=>r).map(([l,v])=>tr([
+    tc(largeurs[0],par(l,{b:true,sz:15,c:DOC_BRUN,ap:0}),{bords:bordure,fond:DOC_SABLE,mg:90,v:'center'}),
+    tc(largeurs[1],(Array.isArray(v)?v:[v]).map(x=>par(x||'',{sz:17,ap:0})).join(''),{bords:bordure,mg:90,v:'center'}),
+  ])),{largeur:total,type:'dxa'});
+  const encadre=paras=>tbl([total],[tr([tc(total,paras.join(''),
+    {bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:160,v:'top'})])],{largeur:total,type:'dxa'});
+  const date=fdDoc(today());
+  const statut=ptrStatut(prog.statut);
+
+  const badge=ctx.rids['asset:image1.png']
+    ?(ctx.docPr++,ptrPhotoRun(ctx.rids['asset:image1.png'],ctx.docPr,'RE2020',formatDocumentImage({w:385,h:124},{w:1500000,h:600000}))):'';
+  const garde=[
+    tbl([total/2,total/2],[tr([
+      tc(total/2,par([logoXml(ctx.logo)],{ap:0}),{bords:sansBord,v:'top',mg:0}),
+      tc(total/2,[par('Référence : '+projet.reference,{sz:16,c:DOC_GRIS,jc:'right',ap:20}),
+        par('Version '+(prog.version||1)+' — '+statut.l+' — '+date,{sz:16,c:DOC_GRIS,jc:'right',ap:0})].join(''),
+        {bords:sansBord,v:'top',mg:0}),
+    ])],{largeur:total,type:'dxa'}),
+    vide(700),
+    par(M.titre,{b:true,sz:36,c:DOC_TERRA,sp:30,jc:'center',ap:80}),
+    par(M.sousTitre+(projet.niveaux?' — '+projet.niveaux:''),{sz:21,c:DOC_BRUN,jc:'center',ap:40,filet:DOC_BRUN}),
+    par(projet.nom||'',{b:true,sz:22,c:DOC_ENCRE,jc:'center',av:80,ap:0}),
+    vide(500),
+    champs([3000,total-3000],[
+      ['Pour le compte de',projet.client],
+      ['Adresse',projet.adresseClient],
+      ['Adresse de construction',projet.adresseChantier],
+      ['Votre conseiller',[SIGNATAIRE_MAIL+' — CP Constructions',[CP.tel,CP.mail].filter(Boolean).join(' — ')]],
+    ]),
+    vide(300),
+    badge?tbl([2600,total-2600],[tr([
+      tc(2600,par([badge],{jc:'center',ap:0}),{bords:sansBord,v:'center',mg:60}),
+      tc(total-2600,par(M.re2020,{sz:15,c:DOC_BRUN,jc:'both',ap:0}),{bords:sansBord,v:'center',mg:100}),
+    ])],{largeur:total,type:'dxa'}):par(M.re2020,{sz:15,c:DOC_BRUN,jc:'both',ap:0}),
+    vide(240),
+    encadre([par(M.avertissement,{sz:15,i:true,jc:'both',ap:0})]),
+    vide(200),
+    champs([1800,total-1800],[['Lot MO',M.legendeMO],['Hors coord.',M.legendeHors]]),
+  ].join('');
+
+  /* le tableau : en-tête répété à chaque page, une rangée par prestation
+     (jamais coupée d'une page à l'autre si elle y tient), le titre de
+     catégorie toujours accroché à sa première prestation */
+  const blanc='FFFFFF';
+  const tete='<w:tr><w:trPr><w:cantSplit/><w:tblHeader/></w:trPr>'
+    +tc(L.desig,par('DÉSIGNATION DES OUVRAGES ET FOURNITURES',{b:true,sz:15,c:blanc,caps:true,sp:10,ap:0}),{fond:DOC_BRUN,bords:bordure,mg:90,v:'center'})
+    +tc(L.mo,par('Lot MO',{b:true,sz:14,c:blanc,jc:'center',ap:0}),{fond:DOC_BRUN,bords:bordure,mg:30,v:'center'})
+    +tc(L.hors,par('Hors coord.',{b:true,sz:14,c:blanc,jc:'center',ap:0}),{fond:DOC_BRUN,bords:bordure,mg:30,v:'center'})
+    +tc(L.montant,par('Montant hors coordination',{b:true,sz:13,c:blanc,jc:'center',ap:0}),{fond:DOC_BRUN,bords:bordure,mg:30,v:'center'})
+    +'</w:tr>';
+  const caseCoche=v=>par([run(v?'☒':'☐',{sz:22,f:'Segoe UI Symbol',c:v?DOC_ENCRE:DOC_GRIS})],{jc:'center',ap:0,ln:240});
+  const rangees=[tete];
+  const cats=(prog.categories||[]).filter(c=>ptrLignesTriees(prog,c.id).some(l=>l.incluse));
+  cats.forEach((c,ci)=>{
+    rangees.push('<w:tr><w:trPr><w:cantSplit/></w:trPr>'
+      +tc(total,ptrParGarde(par((ci+1)+'.  '+c.nom,{b:true,sz:17,c:DOC_TERRA,caps:true,sp:10,ap:0})),
+        {fusion:4,fond:DOC_SABLE,bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),mg:90,v:'center'})+'</w:tr>');
+    ptrLignesTriees(prog,c.id).filter(l=>l.incluse).forEach((l,li)=>{
+      const infos=[l.marque?'Marque : '+l.marque:'',l.reference?'Référence : '+l.reference:''].filter(Boolean).join('   ·   ');
+      const pj=prog.options&&prog.options.annexes!==false?(l.pieces||[]).map(x=>x.nom).filter(Boolean):[];
+      const desig=[
+        par((ci+1)+'.'+(li+1)+'   '+(l.titre||l.nom),{b:true,sz:17,c:DOC_BRUN,ap:60}),
+        ptrTexteXml(l.texte),
+        infos?par(infos,{sz:15,c:DOC_GRIS,ap:50}):'',
+        ptrPhotosXml(l.photos,L.desig-180,ctx),
+        pj.length?par('Documentation jointe : '+pj.join(', '),{sz:15,i:true,c:DOC_GRIS,av:40,ap:0}):'',
+      ].join('');
+      const montant=ptrMontantTexte(l.montant);
+      rangees.push('<w:tr><w:trPr><w:cantSplit/></w:trPr>'
+        +tc(L.desig,desig,{bords:bordure,mg:90,v:'top'})
+        +tc(L.mo,caseCoche(l.lotMO),{bords:bordure,mg:20,v:'center'})
+        +tc(L.hors,caseCoche(l.horsCoord),{bords:bordure,mg:20,v:'center'})
+        +tc(L.montant,par(montant||'—',{sz:15,jc:'center',c:montant?DOC_ENCRE:DOC_GRIS,ap:0}),{bords:bordure,mg:50,v:'center'})
+        +'</w:tr>');
+    });
+  });
+  const tableau=tbl([L.desig,L.mo,L.hors,L.montant],rangees,{largeur:total,type:'dxa'});
+
+  const syntheseOk=projet.p&&prog.options&&prog.options.synthese!==false&&prospectPrixTTC(projet.p,majTarifs)>0;
+  const corps=[garde,sautPage,tableau,
+    syntheseOk?sautPage+ptrSyntheseXml(projet.p,majTarifs,projet.client):''].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:headerReference w:type="default" r:id="rId50"/><w:footerReference w:type="default" r:id="rId51"/>'
+    +'<w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="1020" w:right="850" w:bottom="1020" w:left="850" w:header="400" w:footer="400" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:titlePg/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+/* toutes les images du programme, une seule fois chacune : les photos-modèles
+   viennent des fichiers de l'application, les autres du Drive */
+async function ptrChargerImages(prog){
+  const vues={}, liste=[];
+  const ajoute=ph=>{const k=ptrCleImage(ph);if(!vues[k]){vues[k]=1;liste.push(ph)}};
+  ajoute({src:'asset',fichier:'image1.png',nom:'RE2020',ext:'png'});
+  (prog.lignes||[]).filter(l=>l.incluse).forEach(l=>(l.photos||[]).forEach(ajoute));
+  const octets={}, manquantes=[];
+  let jeton=null;
+  await Promise.all(liste.map(async ph=>{
+    const k=ptrCleImage(ph);
+    try{
+      if(ph.src==='asset'){
+        const r=await fetch('assets/ptr/'+ph.fichier);
+        if(!r.ok)throw new Error('absente');
+        octets[k]=new Uint8Array(await r.arrayBuffer());
+      }else{
+        if(!ph.fileId)throw new Error('sans fichier');
+        if(!jeton)jeton=getDriveToken();
+        octets[k]=await driveFichierBytes(await jeton,ph.fileId);
+      }
+    }catch(e){if(k!=='asset:image1.png')manquantes.push(ph.nom||k)}
+  }));
+  return {liste,octets,manquantes};
+}
+async function genererProgrammeDocx(prog,projet,biblio,majTarifs){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, le document reste valable */}
+  const {liste,octets,manquantes}=await ptrChargerImages(prog);
+  const rids={}, extra=[];
+  let n=300;
+  liste.forEach(ph=>{
+    const k=ptrCleImage(ph);
+    if(!octets[k])return;
+    const ext=ph.ext||(/\.png$/i.test(ph.fichier||ph.nom||'')?'png':'jpeg');
+    rids[k]='rId'+n;
+    extra.push({id:'rId'+n,nom:'ptr-'+n+'.'+ext,data:octets[k]});
+    n++;
+  });
+  const ctx={rids,docPr:500,logo};
+  const xml=ptrProgrammeDocumentXml(prog,projet,biblio,ctx,majTarifs);
+  const hf={entete:ptrEnteteXml(projet,ptrMentions(biblio)),pied:ptrPiedXml(projet,prog)};
+  const octetsDocx=await fabriquerDocx(xml,ptrMentions(biblio).titre+' — '+(projet.nom||''),logo,null,null,extra,hf);
+  return {octets:octetsDocx,manquantes};
+}
+
+/* ---------- export Excel : la synthèse des prestations, pour contrôle ----------
+   Un classeur .xlsx minimal écrit à la main, comme les .docx : une feuille,
+   en-tête figé et filtrable. */
+function xlsxOctets(nomFeuille,lignes,largeurs){
+  const enc=new TextEncoder();
+  const col=i=>{let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s};
+  const nettoie=v=>exml(ptrNettoyerTexte(v));
+  const rows=lignes.map((L,r)=>'<row r="'+(r+1)+'">'+L.map((v,c)=>{
+    const ref=col(c)+(r+1), st=r===0?' s="1"':' s="2"';
+    if(typeof v==='number'&&isFinite(v))return '<c r="'+ref+'"'+st+'><v>'+v+'</v></c>';
+    return '<c r="'+ref+'"'+st+' t="inlineStr"><is><t xml:space="preserve">'+nettoie(v==null?'':v)+'</t></is></c>';
+  }).join('')+'</row>').join('');
+  const nbCol=Math.max(1,...lignes.map(L=>L.length));
+  const dernier=col(nbCol-1)+Math.max(1,lignes.length);
+  const feuille='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    +'<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+    +'<cols>'+(largeurs||[]).map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>').join('')+'</cols>'
+    +'<sheetData>'+rows+'</sheetData>'
+    +'<autoFilter ref="A1:'+dernier+'"/></worksheet>';
+  const styles='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    +'<fonts count="2"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>'
+    +'<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'
+    +'<fill><patternFill patternType="solid"><fgColor rgb="FF'+DOC_BRUN+'"/><bgColor indexed="64"/></patternFill></fill></fills>'
+    +'<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+    +'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    +'<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+    +'<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
+    +'<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs>'
+    +'<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+  const nom=exml(String(nomFeuille||'Feuille').replace(/[\\\/?*\[\]:]/g,' ').slice(0,31));
+  return zipEcrire([
+    {nom:'[Content_Types].xml',data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      +'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      +'<Default Extension="xml" ContentType="application/xml"/>'
+      +'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      +'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      +'<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      +'</Types>')},
+    {nom:'_rels/.rels',data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+      +'</Relationships>')},
+    {nom:'xl/workbook.xml',data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      +'<sheets><sheet name="'+nom+'" sheetId="1" r:id="rId1"/></sheets>'
+      +'<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">\''+nom.replace(/'/g,"''")+'\'!$A$1:$'+col(nbCol-1)+'$'+Math.max(1,lignes.length)+'</definedName></definedNames>'
+      +'</workbook>')},
+    {nom:'xl/_rels/workbook.xml.rels',data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+      +'<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+      +'</Relationships>')},
+    {nom:'xl/worksheets/sheet1.xml',data:enc.encode(feuille)},
+    {nom:'xl/styles.xml',data:enc.encode(styles)},
+  ]);
+}
+function genererProgrammeXlsx(prog,projet){
+  const lignes=[['Catégorie','N°','Prestation','Proposition','Incluse','Lot MO','Hors coord.','Montant hors coordination',
+    'Marque','Référence','Photos','Pièces jointes','Observations (interne)','Texte']];
+  (prog.categories||[]).forEach((c,ci)=>{
+    let n=0;
+    ptrLignesTriees(prog,c.id).forEach(l=>{
+      if(l.incluse)n++;
+      lignes.push([c.nom,l.incluse?(ci+1)+'.'+n:'',l.titre||l.nom,(l.varianteNom||'')+(l.modifie?' (modifiée pour ce projet)':''),
+        l.incluse?'Oui':'Non',l.lotMO?'Oui':'Non',l.horsCoord?'Oui':'Non',ptrMontantTexte(l.montant),
+        l.marque||'',l.reference||'',(l.photos||[]).length,(l.pieces||[]).map(x=>x.nom).join(', '),l.observations||'',l.texte||'']);
+    });
+  });
+  return xlsxOctets('Prestations',lignes,[26,6,34,30,8,8,10,22,16,20,8,26,30,80]);
+}
+const telechargerOctets=(octets,nom,type)=>{
+  try{
+    const u=URL.createObjectURL(new Blob([octets],{type:type||'application/octet-stream'}));
+    const a=document.createElement('a');a.href=u;a.download=nom;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),5000);
+  }catch(e){/* hors navigateur : rien à télécharger */}
+};
+const PTR_MIME={
+  docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pdf:'application/pdf',zip:'application/zip'};
 
 /* ---------- chiffrage interne, édité en Word ----------
    Le pendant du dossier de présentation, mais réservé à l'interne : marge,
@@ -6523,7 +7111,7 @@ function Fiche({data,ch,save,back,reprise}){
       </div>
     </div>}
     <div className="tabs">
-      {[['marches','MARCHÉS'],['factu','FACTURATION'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['taches','TÂCHES'],['planning','PLANNING'],['docs','PIÈCES']].map(([id,l])=>
+      {[['marches','MARCHÉS'],['factu','FACTURATION'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['taches','TÂCHES'],['planning','PLANNING'],['docs','PIÈCES'],['ptr','PROG. TECHNIQUE']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
     </div>
     {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}
@@ -6539,6 +7127,7 @@ function Fiche({data,ch,save,back,reprise}){
     {tab==='taches'&&<Taches ch={ch} up={up}/>}
     {tab==='planning'&&<Planning data={data} ch={ch} up={up}/>}
     {tab==='docs'&&<Docs data={data} ch={ch} up={up} save={save}/>}
+    {tab==='ptr'&&<ProgrammeTechnique data={data} save={save} cible={{chantierId:ch.id,prospectId:ch.prospectId||null}}/>}
   </div>;
 }
 
@@ -13499,7 +14088,7 @@ function Prospects({data,save}){
      que de la déplier sur place — le formulaire d'édition, lui, continue de
      s'ouvrir par-dessus, qu'on parte de la liste ou de la fiche. */
   const ouvert=ouv?P.find(x=>x.id===ouv):null;
-  if(!f&&ouvert)return <FicheProspect p={ouvert} data={data} maj={v=>maj(ouvert.id,v)}
+  if(!f&&ouvert)return <FicheProspect p={ouvert} data={data} save={save} maj={v=>maj(ouvert.id,v)}
     back={()=>setOuv('')}
     onModifier={n=>{setCaseModif(n);setF(avecTaxesAuto({...neuf(),...ouvert},data))}}
     onTransformer={()=>transformer(ouvert)}/>;
@@ -13780,8 +14369,12 @@ function Prospects({data,save}){
    pour l'instant celui de l'ancien détail déplié — sa réorganisation en
    plusieurs cases (fiche client, demande de chiffrage, votre chiffrage)
    vient dans un lot séparé. */
-function FicheProspect({p,data,maj,back,onModifier,onTransformer}){
+function FicheProspect({p,data,save,maj,back,onModifier,onTransformer}){
   const st=prospectSt(p.statut), prix=prospectPrixTTC(p,data.majorationsCorps), r=ratioM2(prix,p);
+  /* le programme technique s'ouvre en plein écran, à la place de la fiche */
+  const [ptr,setPtr]=useState(false);
+  if(ptr&&save)return <ProgrammeTechnique data={data} save={save} cible={{prospectId:p.id,chantierId:p.chantierId||null}}
+    onFermer={()=>setPtr(false)}/>;
   return <div>
     <button className="btn gh s" onClick={back}>← Prospects</button>
     <div className="sp" style={{marginTop:12,marginBottom:4,gap:8,alignItems:'flex-start'}}>
@@ -13792,7 +14385,7 @@ function FicheProspect({p,data,maj,back,onModifier,onTransformer}){
       {[p.client,p.commune].filter(Boolean).join(' — ')}
       {prix?' · '+eur(prix)+' TTC'+(r?' · '+eurM2(r):''):''}
     </div>
-    <DetailProspect p={p} maj={maj} data={data} onModifier={onModifier}/>
+    <DetailProspect p={p} maj={maj} data={data} onModifier={onModifier} onPtr={save?()=>setPtr(true):null}/>
     <div className="row" style={{gap:8,marginTop:4,flexWrap:'wrap'}}>
       {p.statut!=='gagne'&&<button className="btn gh s" onClick={onTransformer}>Transformer en chantier</button>}
       {p.chantierId&&<span className="xs" style={{color:GREEN,alignSelf:'center'}}>✓ Chantier créé</span>}
@@ -14501,7 +15094,7 @@ const CaseFiche=({titre,onModifier,children})=><div className="card" style={{mar
    et ce que vous en avez fait (votre chiffrage). Budget et financement ne
    se saisissent qu'une fois, dans la fiche de découverte de la première
    case — la demande de chiffrage n'en a pas besoin pour chiffrer. */
-function DetailProspect({p,maj,data,onModifier}){
+function DetailProspect({p,maj,data,onModifier,onPtr}){
   const dossier=async token=>driveProspectFolder(token,p.id,p.nom);
   const setDec=(k,v)=>maj({decouverte:{...(p.decouverte||{}),[k]:v}});
   const modif=onModifier&&(n=>()=>onModifier(n));
@@ -14570,7 +15163,8 @@ function DetailProspect({p,maj,data,onModifier}){
       <SortirChiffrageInterne data={data} p={p} maj={maj}/>
       <SortirNoticePrecontractuelle data={data} p={p} maj={maj}/>
       <SortirContratMoe data={data} p={p} maj={maj}/>
-      <SortirPtr data={data} p={p} maj={maj}/>
+      {onPtr?<CarteProgrammeTechnique data={data} cible={{prospectId:p.id,chantierId:p.chantierId||null}} onOuvrir={onPtr}/>
+        :<SortirPtr data={data} p={p} maj={maj}/>}
       <ValiderChiffrage p={p} maj={maj} data={data}/>
       <EnvoyerCommercial p={p} data={data}/>
       <EnvoyerDossierComplet data={data} p={p}/>
@@ -15081,6 +15675,1160 @@ function SortirPtr({data,p,maj}){
   </div>;
 }
 
+/* ================= PROGRAMME TECHNIQUE — INTERFACE ================= */
+/* aperçu des photos : les photos-modèles sont des fichiers de l'appli, les
+   autres vivent sur le Drive et se lisent avec le jeton Google */
+const ptrApercus=new Map(), ptrApercusEnCours=new Map();
+function ptrUrlImage(ph){
+  if(!ph)return Promise.resolve('');
+  if(ph.src==='asset')return Promise.resolve('assets/ptr/'+ph.fichier);
+  const k=ptrCleImage(ph);
+  if(ptrApercus.has(k))return Promise.resolve(ptrApercus.get(k));
+  if(ptrApercusEnCours.has(k))return ptrApercusEnCours.get(k);
+  const pr=(async()=>{
+    if(!ph.fileId)return '';
+    const o=await driveFichierBytes(await getDriveToken(),ph.fileId);
+    const u=URL.createObjectURL(new Blob([o],{type:'image/'+(ph.ext||'jpeg')}));
+    ptrApercus.set(k,u);return u;
+  })().catch(()=>'');
+  ptrApercusEnCours.set(k,pr);
+  pr.then(()=>ptrApercusEnCours.delete(k));
+  return pr;
+}
+function PtrImage({ph,w,h,mode,onClick,titre}){
+  const cle=ph?ptrCleImage(ph):'';
+  const [url,setUrl]=useState(ph&&ph.src==='asset'?'assets/ptr/'+ph.fichier:(ptrApercus.get(cle)||''));
+  useEffect(()=>{let vivant=true;ptrUrlImage(ph).then(u=>{if(vivant&&u)setUrl(u)});return()=>{vivant=false}},[cle]);
+  const m=mode||(ph&&ph.mode)||'contain';
+  const pos=v=>((v===undefined||v===null?.5:+v)*100)+'%';
+  return <div onClick={onClick} title={titre} style={{width:w,height:h,background:'#F4F1EB',border:'1px solid '+RULE,
+    borderRadius:6,overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',
+    cursor:onClick?'pointer':'default',flex:'0 0 auto'}}>
+    {url?<img src={url} alt={(ph&&ph.nom)||''} draggable={false} style={{width:'100%',height:'100%',objectFit:m,
+      objectPosition:pos(ph&&ph.fx)+' '+pos(ph&&ph.fy),display:'block'}}/>
+      :<span className="xs mut">photo</span>}
+  </div>;
+}
+/* une photo déposée est redressée (orientation de l'appareil appliquée par le
+   navigateur au dessin), réduite à 1 600 px et réenregistrée en JPEG : Word
+   ne la verra donc jamais couchée, ni trop lourde */
+function ptrNormaliserImage(file){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{
+      const im=new Image();
+      im.onload=()=>{
+        const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
+        const r=Math.min(1,1600/Math.max(W,H));
+        const cv=document.createElement('canvas');
+        cv.width=Math.max(1,Math.round(W*r));cv.height=Math.max(1,Math.round(H*r));
+        const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);
+        g.drawImage(im,0,0,cv.width,cv.height);
+        cv.toBlob(b=>b?res({blob:b,w:cv.width,h:cv.height}):rej(new Error('image illisible')),'image/jpeg',.86);
+      };
+      im.onerror=()=>rej(new Error('image illisible'));
+      im.src=fr.result;
+    };
+    fr.onerror=()=>rej(new Error('lecture impossible'));
+    fr.readAsDataURL(file);
+  });
+}
+async function ptrDossierDrive(token,data,cible){
+  if(cible==='biblio')return driveFindOrCreateSubfolder(token,await driveFolder(token),'Bibliothèque des prestations');
+  const C=cible&&cible.chantierId?data.chantiers.find(x=>x.id===cible.chantierId):null;
+  if(C)return driveSousDossier(token,C.id,C.nom,'Programme technique');
+  const P=cible&&cible.prospectId?(data.prospects||[]).find(x=>x.id===cible.prospectId):null;
+  if(P)return driveFindOrCreateSubfolder(token,await driveProspectFolder(token,P.id,P.nom),'Programme technique');
+  return driveFolder(token);
+}
+const ptrMessageErreur=e=>{
+  const c=String((e&&(e.error||e.message))||e);
+  return c==='auth_required'?'Google Drive n’est pas connecté — connectez-le (onglet PIÈCES ou DONNÉES), puis recommencez.':c;
+};
+async function ptrDeposerPhotos(files,data,cible){
+  const token=await getDriveToken();
+  const dossier=await ptrDossierDrive(token,data,cible);
+  const out=[];
+  for(const f of files){
+    const {blob,w,h}=await ptrNormaliserImage(f);
+    const nom=(f.name||'photo').replace(/\.[^.]+$/,'')+'.jpg';
+    const r=await uploadToDrive(new File([blob],nom,{type:'image/jpeg'}),dossier);
+    const ph={id:uid(),src:'drive',fileId:r.id||driveIdDepuisLien(r.webViewLink),lien:r.webViewLink||'',nom,w,h,
+      ext:'jpeg',mode:'contain',fx:.5,fy:.5};
+    try{ptrApercus.set(ptrCleImage(ph),URL.createObjectURL(blob))}catch(e){}
+    out.push(ph);
+  }
+  return out;
+}
+async function ptrDeposerPieces(files,data,cible){
+  const token=await getDriveToken();
+  const dossier=await ptrDossierDrive(token,data,cible);
+  const out=[];
+  for(const f of files){
+    const r=await uploadToDrive(f,dossier);
+    out.push({id:uid(),nom:f.name||'document',lien:r.webViewLink||'',fileId:r.id||driveIdDepuisLien(r.webViewLink)});
+  }
+  return out;
+}
+const ptrDeplacer=(arr,de,vers)=>{
+  if(de<0||vers<0||de>=arr.length||vers>=arr.length||de===vers)return arr;
+  const a=arr.slice();const [x]=a.splice(de,1);a.splice(vers,0,x);return a;
+};
+/* glisser-déposer très simple (souris) doublé de flèches (tablette) : on
+   saisit par la poignée ⋮⋮ — jamais par la carte entière, qui empêcherait de
+   sélectionner du texte dans ses champs — et on dépose sur la carte */
+const ptrGlisse={type:'',id:''};
+const ptrPoignee=(type,id)=>({draggable:true,
+  onDragStart:e=>{e.stopPropagation();ptrGlisse.type=type;ptrGlisse.id=id;
+    try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',id)}catch(x){}}});
+const ptrCible=(type,id,onDepose)=>({
+  onDragOver:e=>{if(ptrGlisse.type===type)e.preventDefault()},
+  onDrop:e=>{if(ptrGlisse.type===type&&ptrGlisse.id&&ptrGlisse.id!==id){e.preventDefault();e.stopPropagation();
+    const de=ptrGlisse.id;ptrGlisse.type='';ptrGlisse.id='';onDepose(de,id)}}});
+
+function PtrModale({titre,onFermer,children,large}){
+  return horsApplication(<div onClick={e=>{if(e.target===e.currentTarget)onFermer()}}
+    style={{position:'fixed',inset:0,background:'rgba(26,43,54,.45)',zIndex:1000,display:'flex',
+      alignItems:'flex-start',justifyContent:'center',padding:'4vh 12px',overflowY:'auto'}}>
+    <div className="card" style={{maxWidth:large?1100:720,width:'100%',marginBottom:40,cursor:'default'}}>
+      <div className="sp" style={{marginBottom:12,gap:10}}>
+        <span className="h2" style={{fontSize:15}}>{titre}</span>
+        <button className="btn gh s" onClick={onFermer}>Fermer</button>
+      </div>
+      {children}
+    </div>
+  </div>);
+}
+
+/* un texte qui ne réécrit pas toute l'application à chaque frappe : on garde
+   la saisie ici et on l'enregistre après une courte pause, ou en quittant */
+function PtrTexte({valeur,onValide,lignes,placeholder,disabled,multiligne}){
+  const [v,setV]=useState(valeur||'');
+  const dernier=useRef(valeur||''), minuteur=useRef(null), rappel=useRef(onValide);
+  rappel.current=onValide;
+  useEffect(()=>{if((valeur||'')!==dernier.current){dernier.current=valeur||'';setV(valeur||'')}},[valeur]);
+  const valider=t=>{if(minuteur.current){clearTimeout(minuteur.current);minuteur.current=null}
+    if(t!==dernier.current){dernier.current=t;rappel.current(t)}};
+  useEffect(()=>()=>{if(minuteur.current)clearTimeout(minuteur.current)},[]);
+  const change=t=>{setV(t);if(minuteur.current)clearTimeout(minuteur.current);minuteur.current=setTimeout(()=>valider(t),700)};
+  const props={className:'in',value:v,disabled,placeholder,onChange:e=>change(e.target.value),onBlur:()=>valider(v)};
+  return multiligne===false?<input {...props}/>:<textarea {...props} rows={lignes||5} style={{fontSize:14,lineHeight:1.5}}/>;
+}
+
+/* ---------- formulaire d'une proposition (nouvelle, ou retouche) ---------- */
+function PtrFormProposition({data,biblio,cible,initial,modeBiblio,demanderPrestation,onProjet,onBiblio,onFermer,titre}){
+  const [f,setF]=useState({nom:'',titre:'',texte:'',photos:[],pieces:[],marque:'',reference:'',url:'',
+    noteInterne:'',parDefaut:false,...(initial||{})});
+  const [busy,setBusy]=useState('');
+  const [err,setErr]=useState('');
+  const cats=biblio.categories.filter(c=>c.actif!==false).sort((a,b)=>(a.ordre||0)-(b.ordre||0));
+  const [cat,setCat]=useState((initial&&initial.categorieId&&cats.some(c=>c.id===initial.categorieId))?initial.categorieId:(cats[0]&&cats[0].id)||'');
+  const [prest,setPrest]=useState((initial&&initial.prestationId)||'__nouvelle');
+  const [nomPrest,setNomPrest]=useState((initial&&initial.nomPrestation)||'');
+  const prestsCat=biblio.prestations.filter(p=>p.categorieId===cat);
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const ajouterPhotos=async files=>{setBusy('photos');setErr('');
+    try{const L=await ptrDeposerPhotos(files,data,modeBiblio?'biblio':cible);setF(p=>({...p,photos:[...p.photos,...L]}))}
+    catch(e){setErr(ptrMessageErreur(e))}setBusy('')};
+  const ajouterPieces=async files=>{setBusy('pieces');setErr('');
+    try{const L=await ptrDeposerPieces(files,data,modeBiblio?'biblio':cible);setF(p=>({...p,pieces:[...p.pieces,...L]}))}
+    catch(e){setErr(ptrMessageErreur(e))}setBusy('')};
+  const pret=f.nom.trim()&&f.texte.trim();
+  const choixPrestation=demanderPrestation?{categorieId:cat,prestationId:prest==='__nouvelle'?null:prest,
+    nomPrestation:prest==='__nouvelle'?(nomPrest.trim()||f.titre.trim()||f.nom.trim()):''}:null;
+  return <PtrModale titre={titre||'Nouvelle proposition'} onFermer={onFermer}>
+    <div className="g2">
+      <Fld label="NOM DE LA PROPOSITION"><input className="in" value={f.nom} placeholder="PAC Daikin Altherma 3"
+        onChange={e=>set('nom',e.target.value)}/></Fld>
+      <Fld label="TITRE AFFICHÉ DANS LE DOCUMENT"><input className="in" value={f.titre} placeholder="POMPE À CHALEUR"
+        onChange={e=>set('titre',e.target.value)}/></Fld>
+    </div>
+    <Fld label="DESCRIPTION">
+      <textarea className="in" rows="8" value={f.texte} style={{fontSize:14,lineHeight:1.5}} onChange={e=>set('texte',e.target.value)}/>
+      <div className="xs mut" style={{marginTop:4}}>Une ligne par paragraphe · « - » en début de ligne pour une puce · **texte** pour du gras.</div>
+    </Fld>
+    <div className="g3">
+      <Fld label="MARQUE"><input className="in" value={f.marque} onChange={e=>set('marque',e.target.value)}/></Fld>
+      <Fld label="RÉFÉRENCE"><input className="in" value={f.reference} onChange={e=>set('reference',e.target.value)}/></Fld>
+      <Fld label="URL FABRICANT"><input className="in" value={f.url} onChange={e=>set('url',e.target.value)}/></Fld>
+    </div>
+    <Fld label="PHOTOS">
+      <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        {f.photos.map((ph,i)=><div key={ph.id} style={{position:'relative'}}>
+          <PtrImage ph={ph} w={96} h={72}/>
+          <button className="xs" style={{position:'absolute',top:2,right:2,background:'#fff',border:'1px solid '+RULE,borderRadius:4,padding:'0 4px'}}
+            onClick={()=>set('photos',f.photos.filter((x,k)=>k!==i))}>✕</button>
+        </div>)}
+        <label className="btn gh s">{busy==='photos'?'Envoi…':'+ Photos'}
+          <input type="file" accept="image/*" multiple style={{display:'none'}} disabled={!!busy}
+            onChange={e=>{const L=[...e.target.files];e.target.value='';if(L.length)ajouterPhotos(L)}}/></label>
+      </div>
+    </Fld>
+    <Fld label="PIÈCE JOINTE (FICHE TECHNIQUE, DOCUMENTATION)">
+      {f.pieces.map((x,i)=><div key={x.id} className="row xs" style={{gap:8,marginBottom:4}}>
+        <a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA,flex:1}}>{x.nom}</a>
+        <button className="xs" style={{background:'none',border:'none',color:MUTED}} onClick={()=>set('pieces',f.pieces.filter((y,k)=>k!==i))}>✕</button>
+      </div>)}
+      <label className="btn gh s">{busy==='pieces'?'Envoi…':'+ Ajouter un PDF / document'}
+        <input type="file" accept={PIECES_ACCEPT} multiple style={{display:'none'}} disabled={!!busy}
+          onChange={e=>{const L=[...e.target.files];e.target.value='';if(L.length)ajouterPieces(L)}}/></label>
+    </Fld>
+    <Fld label="NOTE INTERNE (JAMAIS IMPRIMÉE)"><textarea className="in" rows="2" value={f.noteInterne}
+      onChange={e=>set('noteInterne',e.target.value)}/></Fld>
+    {demanderPrestation&&<div className="card" style={{background:'#F4F1EB'}}>
+      <div className="xs b" style={{marginBottom:8}}>Où ranger cette proposition dans la bibliothèque ?</div>
+      <div className="g2">
+        <Fld label="CATÉGORIE"><select className="in" value={cat} onChange={e=>{setCat(e.target.value);setPrest('__nouvelle')}}>
+          {cats.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}</select></Fld>
+        <Fld label="PRESTATION"><select className="in" value={prest} onChange={e=>setPrest(e.target.value)}>
+          <option value="__nouvelle">— Nouvelle prestation —</option>
+          {prestsCat.map(p=><option key={p.id} value={p.id}>{p.nom}</option>)}</select></Fld>
+      </div>
+      {prest==='__nouvelle'&&<Fld label="NOM DE LA NOUVELLE PRESTATION"><input className="in" value={nomPrest}
+        placeholder={f.titre||f.nom} onChange={e=>setNomPrest(e.target.value)}/></Fld>}
+    </div>}
+    {(onBiblio||modeBiblio)&&<label className="row sm" style={{gap:8,alignItems:'center',marginBottom:12}}>
+      <input type="checkbox" checked={!!f.parDefaut} onChange={e=>set('parDefaut',e.target.checked)}/>
+      Définir comme proposition par défaut</label>}
+    {err&&<div className="xs" style={{color:TERRA,marginBottom:8}}>{err}</div>}
+    <div className="row" style={{gap:8,flexWrap:'wrap'}}>
+      {onProjet&&<button className="btn gh" disabled={!pret||!!busy} onClick={()=>onProjet(f)}>Enregistrer pour ce projet uniquement</button>}
+      {onBiblio&&<button className="btn acc" disabled={!pret||!!busy} onClick={()=>onBiblio(f,choixPrestation)}>
+        {modeBiblio?'Enregistrer':'Enregistrer dans la bibliothèque CP Constructions'}</button>}
+    </div>
+    {!pret&&<div className="xs mut" style={{marginTop:6}}>Un nom et une description sont nécessaires.</div>}
+  </PtrModale>;
+}
+
+/* comparer les propositions d'une prestation — usage interne */
+function PtrComparer({pr,ligne,onFermer}){
+  const cols=ptrVariantesActives(pr).map((v,i)=>({cle:v.id,tete:'Proposition '+ptrLettre(i)+' — '+v.nom,v}));
+  if(ligne&&ligne.modifie)cols.push({cle:'projet',tete:'Ce projet (texte modifié)',v:ligne});
+  const cell={padding:'6px 8px',borderTop:'1px solid '+RULE,verticalAlign:'top',fontSize:13,lineHeight:1.5};
+  const rangs=[['Marque',v=>v.marque||'—'],['Référence',v=>v.reference||'—'],
+    ['Description',v=><div style={{whiteSpace:'pre-wrap'}}>{v.texte}</div>],
+    ['Photos',v=><div className="row" style={{gap:4,flexWrap:'wrap'}}>{(v.photos||[]).map(ph=><PtrImage key={ph.id} ph={ph} w={60} h={45}/>)}
+      {!(v.photos||[]).length&&'—'}</div>],
+    ['Documentation',v=>(v.pieces||[]).map(x=>x.nom).join(', ')||'—'],
+    ['Note interne',v=>v.noteInterne||'—']];
+  return <PtrModale titre={'Comparer — '+pr.nom} onFermer={onFermer} large>
+    <div style={{overflowX:'auto'}}><table style={{borderCollapse:'collapse',width:'100%',minWidth:cols.length*220}}>
+      <thead><tr><th style={{...cell,borderTop:'none'}}/>{cols.map(c=><th key={c.cle} style={{...cell,borderTop:'none',textAlign:'left',color:NAVY}}>{c.tete}</th>)}</tr></thead>
+      <tbody>{rangs.map(([l,f])=><tr key={l}><td style={{...cell,fontWeight:650,color:MUTED,width:110}}>{l}</td>
+        {cols.map(c=><td key={c.cle} style={cell}>{f(c.v)}</td>)}</tr>)}</tbody>
+    </table></div>
+  </PtrModale>;
+}
+
+/* recadrer une photo : ajustée (image entière) ou remplie (rognée autour
+   d'un point choisi d'un clic) — même rendu que dans le document */
+function PtrCadrage({ph,onValide,onFermer}){
+  const [m,setM]=useState({mode:ph.mode||'contain',fx:ph.fx===undefined?.5:ph.fx,fy:ph.fy===undefined?.5:ph.fy});
+  const vise=e=>{const r=e.currentTarget.getBoundingClientRect();
+    setM(p=>({...p,mode:'cover',fx:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),fy:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))}))};
+  return <PtrModale titre={'Cadrage — '+(ph.nom||'photo')} onFermer={onFermer}>
+    <div className="row" style={{gap:8,marginBottom:10,flexWrap:'wrap'}}>
+      <button className={'btn s '+(m.mode==='contain'?'':'gh')} onClick={()=>setM(p=>({...p,mode:'contain'}))}>Image entière (ajustée)</button>
+      <button className={'btn s '+(m.mode==='cover'?'':'gh')} onClick={()=>setM(p=>({...p,mode:'cover'}))}>Remplir la zone (recadrée)</button>
+    </div>
+    <div className="row" style={{gap:16,flexWrap:'wrap',alignItems:'flex-start'}}>
+      <div>
+        <div className="xs mut" style={{marginBottom:4}}>Photo d’origine — cliquez sur le sujet à garder au centre</div>
+        <div onClick={vise} style={{position:'relative',cursor:'crosshair'}}>
+          <PtrImage ph={{...ph,mode:'contain'}} w={300} h={225}/>
+        </div>
+      </div>
+      <div>
+        <div className="xs mut" style={{marginBottom:4}}>Rendu dans le document (zone 4:3)</div>
+        <PtrImage ph={{...ph,...m}} w={300} h={225}/>
+      </div>
+    </div>
+    <div className="row" style={{gap:8,marginTop:12}}>
+      <button className="btn" onClick={()=>onValide(m)}>Appliquer</button>
+      <button className="btn gh" onClick={()=>setM({mode:'contain',fx:.5,fy:.5})}>Réinitialiser</button>
+    </div>
+  </PtrModale>;
+}
+
+/* ---------- l'aperçu : le document tel qu'il sortira, à l'écran ---------- */
+function PtrApercu({prog,projet,biblio,data,onFermer,onPdfExact,pdfBusy}){
+  const M=ptrMentions(biblio);
+  const feuille={background:'#fff',maxWidth:794,margin:'0 auto 18px',padding:'40px 44px',boxShadow:'0 2px 10px rgba(0,0,0,.12)',
+    fontFamily:'Cambria, Georgia, serif',color:'#262626'};
+  const cats=(prog.categories||[]).filter(c=>ptrLignesTriees(prog,c.id).some(l=>l.incluse));
+  const th={background:'#6B4A2F',color:'#fff',fontSize:10,padding:'6px 6px',textAlign:'center',fontWeight:700};
+  const td={border:'1px solid #6B4A2F',padding:'8px',verticalAlign:'top',fontSize:12,lineHeight:1.45};
+  const coche=v=><span style={{fontSize:16,color:v?'#262626':'#999'}}>{v?'☒':'☐'}</span>;
+  const photos=L=>{
+    if(!L||!L.length)return null;
+    const un=L.length===1;
+    return <div style={{display:'grid',gridTemplateColumns:un?'1fr':'1fr 1fr',gap:8,marginTop:8,justifyItems:'center'}}>
+      {L.map((ph,i)=><div key={ph.id} style={{gridColumn:(!un&&L.length%2===1&&i===L.length-1)?'1 / span 2':'auto'}}>
+        <PtrImage ph={ph} w={un?300:200} h={un?225:150}/></div>)}
+    </div>;
+  };
+  const p=projet.p;
+  const synth=p&&prog.options&&prog.options.synthese!==false&&prospectPrixTTC(p,data.majorationsCorps)>0;
+  return <div style={{position:'fixed',inset:0,background:'#E9E6DF',zIndex:900,overflowY:'auto',padding:'12px 8px 60px'}}>
+    <div className="sp" style={{maxWidth:794,margin:'0 auto 12px',gap:8,flexWrap:'wrap'}}>
+      <button className="btn" onClick={onFermer}>← Revenir à l’édition</button>
+      <button className="btn gh" disabled={pdfBusy} onClick={onPdfExact}>{pdfBusy?'Conversion…':'Aperçu exact en PDF (A4 paginé)'}</button>
+    </div>
+    <div style={feuille}>
+      <div className="sp"><img src="assets/logo.png" alt="" style={{height:60}}/>
+        <div style={{textAlign:'right',fontSize:11,color:'#7A7A7A'}}>Référence : {projet.reference}<br/>
+          Version {prog.version||1} — {ptrStatut(prog.statut).l}</div></div>
+      <div style={{textAlign:'center',marginTop:60}}>
+        <div style={{color:'#C5563A',fontWeight:700,fontSize:24,letterSpacing:'.06em'}}>{M.titre}</div>
+        <div style={{color:'#6B4A2F',marginTop:6,borderBottom:'1px solid #6B4A2F',paddingBottom:6}}>{M.sousTitre}{projet.niveaux?' — '+projet.niveaux:''}</div>
+        <div style={{fontWeight:700,marginTop:10}}>{projet.nom}</div>
+      </div>
+      <table style={{width:'100%',borderCollapse:'collapse',marginTop:40,fontSize:12}}><tbody>
+        {[['Pour le compte de',projet.client],['Adresse',projet.adresseClient],['Adresse de construction',projet.adresseChantier],
+          ['Votre conseiller',SIGNATAIRE_MAIL+' — CP Constructions · '+[CP.tel,CP.mail].join(' · ')]].map(([l,v])=>
+          <tr key={l}><td style={{...td,background:'#F5F1EA',fontWeight:700,color:'#6B4A2F',width:170}}>{l}</td><td style={td}>{v||<i style={{color:'#C5563A'}}>non renseigné</i>}</td></tr>)}
+      </tbody></table>
+      <div style={{fontSize:11,fontStyle:'italic',border:'1px solid #6B4A2F',background:'#F5F1EA',padding:10,marginTop:20,textAlign:'justify'}}>{M.avertissement}</div>
+    </div>
+    <div style={feuille}>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr><th style={{...th,textAlign:'left'}}>DÉSIGNATION DES OUVRAGES ET FOURNITURES</th><th style={{...th,width:54}}>Lot MO</th>
+          <th style={{...th,width:60}}>Hors coord.</th><th style={{...th,width:90}}>Montant hors coordination</th></tr></thead>
+        <tbody>{cats.map((c,ci)=><React.Fragment key={c.id}>
+          <tr><td colSpan="4" style={{...td,background:'#F5F1EA',color:'#C5563A',fontWeight:700,textTransform:'uppercase'}}>{ci+1}.  {c.nom}</td></tr>
+          {ptrLignesTriees(prog,c.id).filter(l=>l.incluse).map((l,li)=><tr key={l.id}>
+            <td style={td}><div style={{fontWeight:700,color:'#6B4A2F'}}>{ci+1}.{li+1}   {l.titre||l.nom}</div>
+              <div style={{whiteSpace:'pre-wrap',textAlign:'justify',marginTop:4}}>{String(l.texte||'').replace(/\*\*/g,'')}</div>
+              {(l.marque||l.reference)&&<div style={{color:'#7A7A7A',fontSize:11,marginTop:4}}>{[l.marque&&'Marque : '+l.marque,l.reference&&'Référence : '+l.reference].filter(Boolean).join('   ·   ')}</div>}
+              {photos(l.photos)}
+              {prog.options&&prog.options.annexes!==false&&(l.pieces||[]).length>0&&<div style={{fontStyle:'italic',color:'#7A7A7A',fontSize:11,marginTop:6}}>
+                Documentation jointe : {(l.pieces||[]).map(x=>x.nom).join(', ')}</div>}
+            </td>
+            <td style={{...td,textAlign:'center',verticalAlign:'middle'}}>{coche(l.lotMO)}</td>
+            <td style={{...td,textAlign:'center',verticalAlign:'middle'}}>{coche(l.horsCoord)}</td>
+            <td style={{...td,textAlign:'center',verticalAlign:'middle',fontSize:11}}>{ptrMontantTexte(l.montant)||'—'}</td>
+          </tr>)}
+        </React.Fragment>)}</tbody>
+      </table>
+    </div>
+    {synth&&<div style={feuille}>
+      <div style={{color:'#C5563A',fontWeight:700,letterSpacing:'.05em'}}>{PTR_SYNTHESE.titre}</div>
+      <div style={{fontSize:12,marginTop:8}}>Calculée à l’export depuis le chiffrage du projet — budget total prévisionnel :
+        <b> {eur(prospectOperationTTC(p,data.majorationsCorps))} TTC</b>.</div>
+    </div>}
+  </div>;
+}
+
+/* ---------- une prestation du programme ---------- */
+function PtrLigne({l,index,nb,prog,biblio,data,cible,fige,maj,onBouger,onDupliquer,onRetirer,onNouvelle,onVersBiblio,onComparer,onCadrage}){
+  const pr=l.prestationId?biblio.prestations.find(p=>p.id===l.prestationId):null;
+  const variantes=pr?ptrVariantesActives(pr):[];
+  const vLib=pr&&l.varianteId?(pr.variantes||[]).find(v=>v.id===l.varianteId):null;
+  const plusRecente=vLib&&(vLib.version||1)>(l.varianteVersion||1);
+  const alertes=ptrAlertesLigne(l);
+  const [busy,setBusy]=useState('');
+  const [err,setErr]=useState('');
+  const [details,setDetails]=useState(false);
+  const d=fige;
+  const choisir=id=>{
+    if(id==='__nouvelle'){onNouvelle(l);return}
+    const v=variantes.find(x=>x.id===id);
+    if(!v)return;
+    if(l.modifie&&!confirm('Le texte de cette prestation a été modifié pour ce projet.\n\nLe remplacer par « '+v.nom+' » ?'))return;
+    maj({...ptrSnapshotVariante(v,pr)});
+  };
+  const revenir=()=>{if(!vLib)return;
+    if(l.modifie&&!confirm('Remplacer le texte de ce projet par celui de la bibliothèque (« '+vLib.nom+' », version '+(vLib.version||1)+') ?'))return;
+    maj({...ptrSnapshotVariante(vLib,pr)})};
+  const ajouterPhotos=async files=>{setBusy('photos');setErr('');
+    try{const L=await ptrDeposerPhotos(files,data,cible);maj({photos:[...(l.photos||[]),...L],modifie:true})}
+    catch(e){setErr(ptrMessageErreur(e))}setBusy('')};
+  const ajouterPieces=async files=>{setBusy('pieces');setErr('');
+    try{const L=await ptrDeposerPieces(files,data,cible);maj({pieces:[...(l.pieces||[]),...L],modifie:true})}
+    catch(e){setErr(ptrMessageErreur(e))}setBusy('')};
+  const photos=l.photos||[];
+  const majPhotos=L=>maj({photos:L,modifie:true});
+  const valeurSelect=l.varianteId&&variantes.some(v=>v.id===l.varianteId)?l.varianteId:'__projet';
+  const bouton={background:'none',border:'none',padding:'0 4px',color:MUTED,cursor:'pointer',fontSize:13};
+  return <div id={'ptr-l-'+l.id} {...(d?{}:ptrCible('ligne:'+l.categorieId,l.id,onBouger))}
+    className="card" style={{padding:12,marginBottom:8,opacity:l.incluse?1:.62,borderLeft:'3px solid '+(l.incluse?(ptrConfiguree(l)?GREEN:AMBER):RULE)}}>
+    <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
+      <div className="row" style={{gap:6,alignItems:'center',flex:1,minWidth:0}}>
+        {!d&&<span {...ptrPoignee('ligne:'+l.categorieId,l.id)} title="Glisser pour réordonner" style={{cursor:'grab',color:MUTED}}>⋮⋮</span>}
+        <span className="b sm" style={{color:NAVY,wordBreak:'break-word'}}>{l.titre||l.nom}</span>
+        {l.modifie&&l.varianteId&&<span className="pill" style={{background:AMBER+'1A',color:AMBER}}>modifiée pour ce projet</span>}
+        {alertes.length>0&&<span className="pill" style={{background:TERRA+'1A',color:TERRA}}>⚠ {alertes.length}</span>}
+      </div>
+      <div className="row" style={{gap:4,alignItems:'center'}}>
+        {!d&&<button style={bouton} disabled={index===0} onClick={()=>onBouger(l.id,null,-1)} title="Monter">▲</button>}
+        {!d&&<button style={bouton} disabled={index===nb-1} onClick={()=>onBouger(l.id,null,1)} title="Descendre">▼</button>}
+        <label className="row xs b" style={{gap:6,alignItems:'center',whiteSpace:'nowrap'}}>
+          <input type="checkbox" checked={!!l.incluse} disabled={d} onChange={e=>maj({incluse:e.target.checked})}/>
+          {l.incluse?'Incluse':'Non incluse'}</label>
+      </div>
+    </div>
+    {l.incluse&&<div style={{marginTop:10}}>
+      <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        <select className="in" style={{flex:'1 1 260px',maxWidth:460,fontSize:14,padding:'8px 10px'}} value={valeurSelect} disabled={d}
+          onChange={e=>choisir(e.target.value)}>
+          {variantes.map((v,i)=><option key={v.id} value={v.id}>Proposition {ptrLettre(i)} — {v.nom}{v.parDefaut?' (défaut)':''}</option>)}
+          {valeurSelect==='__projet'&&<option value="__projet">{l.varianteNom||'Texte personnalisé'} — propre à ce projet</option>}
+          <option value="__nouvelle">+ Créer une nouvelle proposition…</option>
+        </select>
+        {!d&&<button className="btn gh s" onClick={()=>onNouvelle(l)}>+ Nouvelle proposition</button>}
+        {variantes.length>1&&<button className="btn gh s" onClick={()=>onComparer(l)}>Comparer</button>}
+      </div>
+      <div className="row" style={{gap:16,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
+        <label className="row sm" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!l.lotMO} disabled={d}
+          onChange={e=>maj({lotMO:e.target.checked})}/>Lot MO</label>
+        <label className="row sm" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!l.horsCoord} disabled={d}
+          onChange={e=>maj({horsCoord:e.target.checked})}/>Hors coord.</label>
+        <select className="in" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={(l.montant&&l.montant.type)||''} disabled={d}
+          onChange={e=>maj({montant:{...(l.montant||{}),type:e.target.value}})}>
+          {PTR_MONTANT_TYPES.map(t=><option key={t.id} value={t.id}>{t.id?t.l:'Montant hors coord. : —'}</option>)}
+        </select>
+        {l.montant&&(l.montant.type==='valeur'||l.montant.type==='libre')&&<div style={{width:180}}>
+          <PtrTexte multiligne={false} valeur={l.montant.valeur||''} disabled={d} placeholder={l.montant.type==='valeur'?'€':'texte'}
+            onValide={t=>maj({montant:{...l.montant,valeur:t}})}/></div>}
+      </div>
+      {plusRecente&&<div className="xs" style={{marginTop:8,color:NAVY}}>
+        Une version plus récente de « {vLib.nom} » existe dans la bibliothèque (v{vLib.version}, ce projet : v{l.varianteVersion||1}).
+        {!d&&<button className="btn gh s" style={{marginLeft:8}} onClick={revenir}>Mettre à jour cette ligne</button>}</div>}
+      <div style={{marginTop:10}}>
+        <PtrTexte multiligne={false} valeur={l.titre||''} disabled={d} placeholder="Titre affiché"
+          onValide={t=>maj({titre:t,modifie:true})}/>
+      </div>
+      <div style={{marginTop:6}}>
+        <PtrTexte valeur={l.texte||''} disabled={d} lignes={Math.min(10,Math.max(3,String(l.texte||'').split('\n').length+1))}
+          onValide={t=>maj({texte:t,modifie:true})}/>
+      </div>
+      {l.modifie&&l.varianteId&&!d&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+        Modifiée uniquement pour ce projet — la bibliothèque n’est pas touchée.
+        {vLib&&<button className="btn gh s" style={{marginLeft:8}} onClick={revenir}>Revenir au texte de la bibliothèque</button>}
+        <button className="btn gh s" style={{marginLeft:8}} onClick={()=>onVersBiblio(l)}>Enregistrer aussi comme nouvelle proposition dans la bibliothèque</button>
+      </div>}
+      <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'flex-end',marginTop:10}}>
+        {photos.map((ph,i)=><div key={ph.id} {...(d?{}:{...ptrPoignee('photo:'+l.id,ph.id),...ptrCible('photo:'+l.id,ph.id,(de,vers)=>{
+            const a=photos.findIndex(x=>x.id===de), b=photos.findIndex(x=>x.id===vers);majPhotos(ptrDeplacer(photos,a,b))})})}
+          style={{display:'flex',flexDirection:'column',gap:3,alignItems:'center'}}>
+          <PtrImage ph={ph} w={120} h={90} onClick={d?null:()=>onCadrage(l,ph)} titre="Modifier le cadrage"/>
+          {!d&&<div className="row xs" style={{gap:2}}>
+            <button style={bouton} disabled={i===0} onClick={()=>majPhotos(ptrDeplacer(photos,i,i-1))}>◀</button>
+            <button style={bouton} onClick={()=>onCadrage(l,ph)} title="Modifier le cadrage">Cadrage</button>
+            <button style={bouton} disabled={i===photos.length-1} onClick={()=>majPhotos(ptrDeplacer(photos,i,i+1))}>▶</button>
+            <button style={{...bouton,color:TERRA}} onClick={()=>majPhotos(photos.filter(x=>x.id!==ph.id))}>✕</button>
+          </div>}
+        </div>)}
+        {!d&&<label className="btn gh s" style={{alignSelf:'center'}}>{busy==='photos'?'Envoi…':'+ Photo'}
+          <input type="file" accept="image/*" multiple style={{display:'none'}} disabled={!!busy}
+            onChange={e=>{const L=[...e.target.files];e.target.value='';if(L.length)ajouterPhotos(L)}}/></label>}
+      </div>
+      {(l.pieces||[]).length>0&&<div className="xs" style={{marginTop:8}}>
+        {(l.pieces||[]).map(x=><div key={x.id} className="row" style={{gap:6}}>📎
+          <a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{x.nom}</a>
+          {!d&&<button style={bouton} onClick={()=>maj({pieces:l.pieces.filter(y=>y.id!==x.id),modifie:true})}>✕</button>}</div>)}
+      </div>}
+      <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:8}}>
+        {!d&&<label className="btn gh s">{busy==='pieces'?'Envoi…':'+ Pièce jointe'}
+          <input type="file" accept={PIECES_ACCEPT} multiple style={{display:'none'}} disabled={!!busy}
+            onChange={e=>{const L=[...e.target.files];e.target.value='';if(L.length)ajouterPieces(L)}}/></label>}
+        <button className="btn gh s" onClick={()=>setDetails(!details)}>{details?'Masquer les détails':'Marque, référence, notes…'}</button>
+        {!d&&<button className="btn gh s" onClick={onDupliquer}>Dupliquer</button>}
+        {!d&&!l.prestationId&&<button className="btn gh s" onClick={()=>onVersBiblio(l)}>+ Ajouter cette prestation à ma bibliothèque</button>}
+        {!d&&<button className="btn dg s" onClick={onRetirer}>Retirer du programme</button>}
+      </div>
+      {details&&<div style={{marginTop:10}}>
+        <div className="g3">
+          <Fld label="MARQUE"><PtrTexte multiligne={false} valeur={l.marque||''} disabled={d} onValide={t=>maj({marque:t,modifie:true})}/></Fld>
+          <Fld label="RÉFÉRENCE"><PtrTexte multiligne={false} valeur={l.reference||''} disabled={d} onValide={t=>maj({reference:t,modifie:true})}/></Fld>
+          <Fld label="URL FABRICANT"><PtrTexte multiligne={false} valeur={l.url||''} disabled={d} onValide={t=>maj({url:t})}/></Fld>
+        </div>
+        {l.noteInterne&&<div className="xs mut" style={{marginBottom:8}}>Note interne de la proposition : {l.noteInterne}</div>}
+        <Fld label="OBSERVATIONS POUR CE PROJET (NON IMPRIMÉES)"><PtrTexte lignes={2} valeur={l.observations||''} disabled={d}
+          onValide={t=>maj({observations:t})}/></Fld>
+      </div>}
+      {err&&<div className="xs" style={{color:TERRA,marginTop:6}}>{err}</div>}
+      {alertes.length>0&&<div className="xs" style={{marginTop:10,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',lineHeight:1.6}}>
+        <b style={{color:AMBER}}>⚠ Vérification recommandée</b>
+        {alertes.map(a=><div key={a.cle} className="sp" style={{gap:8}}><span>{a.msg}</span>
+          {!d&&<button className="btn gh s" onClick={()=>maj({alertesVues:[...(l.alertesVues||[]),a.cle]})}>Vu</button>}</div>)}
+      </div>}
+    </div>}
+  </div>;
+}
+
+/* ---------- l'éditeur du programme technique d'un projet ---------- */
+function ProgrammeTechnique({data,save,cible,onFermer}){
+  const dataRef=useRef(data);dataRef.current=data;
+  const prog=ptrProgrammePour(data,cible);
+  const biblio=ptrBiblio(data);
+  const [ouverts,setOuverts]=useState({});
+  const [q,setQ]=useState('');
+  const [modale,setModale]=useState(null);
+  const [sauve,setSauve]=useState('ok');
+  const [exp,setExp]=useState(null);
+  const [nouvelleCat,setNouvelleCat]=useState('');
+  const [creation,setCreation]=useState({source:'modele',depuis:''});
+  const minuteurSauve=useRef(null);
+  const enregistrer=d=>{dataRef.current=d;save(d);setSauve('encours');
+    if(minuteurSauve.current)clearTimeout(minuteurSauve.current);
+    minuteurSauve.current=setTimeout(()=>setSauve('ok'),900)};
+  useEffect(()=>()=>{if(minuteurSauve.current)clearTimeout(minuteurSauve.current)},[]);
+  /* la bibliothèque initiale n'est écrite en base qu'à la première retouche */
+  const biblioModifiable=d=>d.ptrBiblio?d.ptrBiblio:ptrCopie(ptrBiblio(d));
+  const majProg=(fn,o)=>{
+    const d=dataRef.current, t=ptrMaintenant();
+    const suivant=x=>{const y=fn(x);
+      return {...y,modifieLe:t,statut:(o&&o.statut===false)?y.statut:(y.statut==='brouillon'?'en_cours':y.statut)}};
+    const nd={...d,programmes:(d.programmes||[]).map(x=>x.id===prog.id?suivant(x):x)};
+    if(o&&o.biblio)nd.ptrBiblio={...o.biblio(biblioModifiable(d)),modifieLe:t};
+    enregistrer(nd);
+  };
+  const majLigne=(id,patch)=>majProg(x=>({...x,lignes:x.lignes.map(l=>l.id===id?{...l,...patch}:l)}));
+
+  if(!prog){
+    const autres=(data.programmes||[]);
+    const nomDe=pg=>{const pj=ptrProjet(data,pg);return (pj.nom||pj.client||'Projet')+' — V'+(pg.version||1)+' ('+fd(String(pg.modifieLe||pg.creeLe).slice(0,10))+')'};
+    const creer=()=>{
+      const autre=creation.source==='copie'?autres.find(x=>x.id===creation.depuis):null;
+      if(creation.source==='copie'&&!autre)return;
+      const pg=ptrNouveauProgramme(biblio,cible,creation.source,autre);
+      enregistrer({...dataRef.current,programmes:[...(dataRef.current.programmes||[]),pg]});
+    };
+    return <div>
+      {onFermer&&<button className="btn gh s" onClick={onFermer}>← Retour</button>}
+      <div className="card" style={{marginTop:12,borderLeft:'3px solid '+NAVY}}>
+        <div className="h2" style={{fontSize:16,marginBottom:10}}>Créer le programme technique</div>
+        {[['modele',PTR_MODELE_NOM,'Toutes les prestations de la bibliothèque, avec leur proposition par défaut — il ne reste qu’à ajuster les particularités.'],
+          ['vierge','Programme vierge','Les catégories seules : les prestations s’ajoutent une à une depuis la bibliothèque.'],
+          ['copie','Copie d’un programme précédent','Reprend les choix et les textes d’un autre projet, dans un document entièrement indépendant.']].map(([id,l,t])=>
+          <label key={id} className="row" style={{gap:10,alignItems:'flex-start',marginBottom:10,cursor:'pointer'}}>
+            <input type="radio" name="ptr-source" checked={creation.source===id} onChange={()=>setCreation({...creation,source:id})} style={{marginTop:4}}/>
+            <span><span className="b sm">{l}</span><br/><span className="xs mut">{t}</span></span>
+          </label>)}
+        {creation.source==='copie'&&<Fld label="PROGRAMME À REPRENDRE">
+          <select className="in" value={creation.depuis} onChange={e=>setCreation({...creation,depuis:e.target.value})}>
+            <option value="">—</option>{autres.map(pg=><option key={pg.id} value={pg.id}>{nomDe(pg)}</option>)}</select>
+          {!autres.length&&<div className="xs mut" style={{marginTop:4}}>Aucun autre programme pour l’instant.</div>}
+        </Fld>}
+        <button className="btn acc" disabled={creation.source==='copie'&&!creation.depuis} onClick={creer}>Créer le programme technique</button>
+      </div>
+    </div>;
+  }
+
+  const projet=ptrProjet(data,prog);
+  const fige=!!prog.fige;
+  const stats=ptrStats(prog);
+  const statut=ptrStatut(prog.statut);
+  const norme=s=>deaccent(String(s||'')).toLowerCase();
+  const nq=norme(q.trim());
+  const correspond=(l,c)=>!nq||[l.titre,l.nom,l.texte,l.varianteNom,l.marque,l.reference].some(x=>norme(x).indexOf(nq)>=0)
+    ||norme(c.nom).indexOf(nq)>=0;
+  const cats=prog.categories||[];
+  const tousOuverts=cats.length>0&&cats.every(c=>ouverts[c.id]);
+  const basculer=id=>setOuverts(o=>({...o,[id]:!o[id]}));
+  const toutOuvrir=v=>setOuverts(Object.fromEntries(cats.map(c=>[c.id,v])));
+
+  const bougerCategorie=(de,vers,delta)=>majProg(x=>{
+    const a=x.categories.findIndex(c=>c.id===de);
+    const b=delta?a+delta:x.categories.findIndex(c=>c.id===vers);
+    return {...x,categories:ptrDeplacer(x.categories,a,b)};
+  });
+  const bougerLigne=(de,vers,delta)=>majProg(x=>{
+    const L=x.lignes, l=L.find(y=>y.id===de);
+    if(!l)return x;
+    const memes=L.filter(y=>y.categorieId===l.categorieId);
+    const i=memes.findIndex(y=>y.id===de);
+    const cibleL=delta?memes[i+delta]:L.find(y=>y.id===vers);
+    if(!cibleL||cibleL.categorieId!==l.categorieId)return x;
+    return {...x,lignes:ptrDeplacer(L,L.findIndex(y=>y.id===de),L.findIndex(y=>y.id===cibleL.id))};
+  });
+  const dupliquer=l=>majProg(x=>{const i=x.lignes.findIndex(y=>y.id===l.id);
+    const a=x.lignes.slice();a.splice(i+1,0,{...ptrCopie(l),id:uid(),titre:(l.titre||l.nom)+' (copie)',modifie:true});return {...x,lignes:a}});
+  const retirer=l=>{if(confirm('Retirer « '+(l.titre||l.nom)+' » de ce programme ?\n\nLa bibliothèque n’est pas touchée. Pour simplement l’écarter du document, décochez plutôt « Incluse ».'))
+    majProg(x=>({...x,lignes:x.lignes.filter(y=>y.id!==l.id)}))};
+  const ajouterDepuisBiblio=(c,prId)=>{const pr=biblio.prestations.find(p=>p.id===prId);if(!pr)return;
+    majProg(x=>({...x,lignes:[...x.lignes,{...ptrLigneDepuis(pr,ptrVarianteDefaut(pr)),categorieId:c.id}]}))};
+  const ajouterManuelle=c=>majProg(x=>({...x,lignes:[...x.lignes,ptrLigneManuelle(c.id,'Nouvelle prestation')]}));
+  const ajouterCategorie=()=>{const nom=nouvelleCat.trim();if(!nom)return;
+    const c={id:'cat_p_'+uid(),nom:nom.toUpperCase(),ordre:cats.length};
+    majProg(x=>({...x,categories:[...x.categories,c]}));setNouvelleCat('');setOuverts(o=>({...o,[c.id]:true}))};
+
+  /* enregistrer une proposition dans la bibliothèque (nouvelle ou tirée d'une
+     ligne), et rattacher la ligne à cette nouvelle proposition */
+  const versBiblio=(l,f,choix)=>{
+    const t=ptrMaintenant();
+    const v={id:'var_'+uid(),nom:f.nom.trim(),titre:(f.titre||'').trim()||f.nom.trim(),texte:f.texte,photos:ptrCopie(f.photos||[]),
+      pieces:ptrCopie(f.pieces||[]),marque:f.marque||'',reference:f.reference||'',url:f.url||'',noteInterne:f.noteInterne||'',
+      parDefaut:!!f.parDefaut,archivee:false,version:1,creeLe:t,modifieLe:t};
+    let prId=l.prestationId, catId=l.categorieId, nomPr=l.nom, nouvelle=null;
+    if(!prId||(choix&&!choix.prestationId&&choix.nomPrestation)){
+      if(choix&&choix.prestationId)prId=choix.prestationId;
+      else{
+        catId=(choix&&choix.categorieId)||catId;
+        nomPr=((choix&&choix.nomPrestation)||v.titre).toUpperCase();
+        nouvelle={id:'pr_'+uid(),categorieId:catId,sousCategorie:'',nom:nomPr,code:'',ordre:999,actif:true,obligatoire:false,
+          defautMO:!!l.lotMO,defautHors:!!l.horsCoord,montantDefaut:ptrCopie(l.montant||{type:'',valeur:''}),observations:'',
+          creeLe:t,modifieLe:t,alertesVues:[],variantes:[]};
+        prId=nouvelle.id;
+      }
+    }
+    /* une catégorie propre au projet rejoint la bibliothèque si on y range une prestation */
+    const catProjet=(prog.categories||[]).find(c=>c.id===catId);
+    majProg(x=>({...x,lignes:x.lignes.map(y=>y.id===l.id?{...y,prestationId:prId,varianteId:v.id,varianteVersion:1,
+      varianteNom:v.nom,titre:v.titre,texte:v.texte,photos:ptrCopie(v.photos),pieces:ptrCopie(v.pieces),marque:v.marque,
+      reference:v.reference,url:v.url,noteInterne:v.noteInterne,nom:nouvelle?nouvelle.nom:y.nom,modifie:false}:y)}),
+      {biblio:b=>{
+        let cats2=b.categories;
+        if(!cats2.some(c=>c.id===catId)&&catProjet)cats2=[...cats2,{id:catId,nom:catProjet.nom,ordre:cats2.length,actif:true}];
+        let prs=nouvelle?[...b.prestations,{...nouvelle,ordre:b.prestations.filter(p=>p.categorieId===catId).length}]:b.prestations;
+        prs=prs.map(p=>p.id!==prId?p:{...p,modifieLe:t,variantes:[...(p.variantes||[]).map(o=>v.parDefaut?{...o,parDefaut:false}:o),v]});
+        return {...b,categories:cats2,prestations:prs};
+      }});
+  };
+  const surNouvelle=l=>setModale({type:'nouvelle',l});
+  const surVersBiblio=l=>setModale({type:'versBiblio',l});
+
+  /* ---------- statuts et versions ---------- */
+  const figer=()=>{
+    if(!confirm('Valider la version '+prog.version+' ?\n\nElle sera figée : toute modification ultérieure passera par une nouvelle version.'))return;
+    const t=ptrMaintenant();
+    majProg(x=>({...x,statut:'valide',fige:true,valideLe:t,
+      versions:[...(x.versions||[]).filter(v=>v.numero!==x.version),
+        {numero:x.version,date:t,statut:'valide',reference:x.reference||'',categories:ptrCopie(x.categories),lignes:ptrCopie(x.lignes)}]}),{statut:false});
+  };
+  const nouvelleVersion=()=>{
+    const t=ptrMaintenant();
+    majProg(x=>({...x,version:(x.version||1)+1,statut:'brouillon',fige:false,
+      versions:(x.versions||[]).some(v=>v.numero===x.version)?x.versions
+        :[...(x.versions||[]),{numero:x.version,date:t,statut:x.statut,reference:x.reference||'',categories:ptrCopie(x.categories),lignes:ptrCopie(x.lignes)}]}),{statut:false});
+  };
+  const archiver=()=>{if(!confirm('Archiver ce programme technique ? Il restera consultable et exportable, mais figé.'))return;
+    majProg(x=>({...x,statut:'archive',fige:true}),{statut:false})};
+  const reprendreDepuis=id=>{
+    const autre=(data.programmes||[]).find(x=>x.id===id);if(!autre)return;
+    if(!confirm('Remplacer toutes les prestations de ce programme par celles du programme choisi ?'))return;
+    majProg(x=>({...x,categories:ptrCopie(autre.categories),lignes:ptrCopie(autre.lignes).map(l=>({...l,id:uid()})),
+      source:{type:'copie',depuis:autre.id,le:ptrMaintenant()}}));
+  };
+  const rechargerModele=()=>{
+    if(!confirm('Recharger le '+PTR_MODELE_NOM+' ? Toutes les prestations de ce programme seront remplacées par les propositions par défaut de la bibliothèque.'))return;
+    const neuf=ptrNouveauProgramme(biblio,cible,'modele');
+    majProg(x=>({...x,categories:neuf.categories,lignes:neuf.lignes,source:neuf.source}));
+  };
+
+  /* ---------- exports ---------- */
+  const deposer=async(octets,nom,type)=>{
+    try{const token=await getDriveToken();const dossier=await ptrDossierDrive(token,dataRef.current,cible);
+      const r=await uploadToDrive(new File([octets],nom,{type}),dossier);return r.webViewLink||''}catch(e){return ''}
+  };
+  const noter=(type,nom,lien)=>majProg(x=>({...x,exports:[...(x.exports||[]),{type,nom,lien,version:x.version,date:ptrMaintenant()}].slice(-30)}),{statut:false});
+  const exporter=async(type,forcer,version)=>{
+    const pg=version?{...prog,categories:version.categories,lignes:version.lignes,version:version.numero,statut:version.statut,reference:version.reference||prog.reference}:prog;
+    const pj=ptrProjet(dataRef.current,pg);
+    const anomalies=ptrControles(pg,pj).filter(c=>!c.ok);
+    if(anomalies.length&&!forcer&&!version){setModale({type:'controles',apres:type});return}
+    setModale(m=>m&&m.type==='controles'?null:m);
+    setExp({type,etat:'travail'});
+    try{
+      const base=ptrNomFichier(pj,pg,'Programme_Technique','',pg.version).replace(/\.$/,'');
+      if(type==='xlsx'){
+        const nom=ptrNomFichier(pj,pg,'Synthese_Prestations','xlsx',pg.version);
+        const o=genererProgrammeXlsx(pg,pj);
+        telechargerOctets(o,nom,PTR_MIME.xlsx);
+        const lien=await deposer(o,nom,PTR_MIME.xlsx);noter('xlsx',nom,lien);
+        setExp({type,etat:'ok',msg:'Synthèse Excel téléchargée'+(lien?' et déposée sur le Drive':'')+' — '+nom});return;
+      }
+      const {octets,manquantes}=await genererProgrammeDocx(pg,pj,biblio,dataRef.current.majorationsCorps);
+      const nomDocx=base+'.docx', nomPdf=base+'.pdf';
+      const note=manquantes.length?' — '+manquantes.length+' photo(s) introuvable(s) : '+manquantes.join(', '):'';
+      if(type==='docx'){
+        telechargerOctets(octets,nomDocx,PTR_MIME.docx);
+        const lien=await deposer(octets,nomDocx,PTR_MIME.docx);noter('docx',nomDocx,lien);
+        setExp({type,etat:'ok',msg:'Document Word téléchargé'+(lien?' et déposé sur le Drive':'')+' — '+nomDocx+note,lien});return;
+      }
+      if(type==='pdf'||type==='apercu'){
+        const pdf=await driveDocxEnPdf(await getDriveToken(),octets,base);
+        if(type==='apercu'){
+          try{window.open(URL.createObjectURL(new Blob([pdf],{type:'application/pdf'})),'_blank')}catch(e){}
+          setExp({type,etat:'ok',msg:'Aperçu PDF ouvert dans un nouvel onglet.'});return;
+        }
+        telechargerOctets(pdf,nomPdf,PTR_MIME.pdf);
+        const lien=await deposer(pdf,nomPdf,PTR_MIME.pdf);noter('pdf',nomPdf,lien);
+        setExp({type,etat:'ok',msg:'PDF téléchargé'+(lien?' et déposé sur le Drive':'')+' — '+nomPdf+note,lien});return;
+      }
+      if(type==='zip'){
+        const enc=[{nom:base+'/'+nomDocx,data:octets}];
+        let notePdf='';
+        try{enc.push({nom:base+'/'+nomPdf,data:await driveDocxEnPdf(await getDriveToken(),octets,base)})}
+        catch(e){notePdf=' (PDF non inclus : '+ptrMessageErreur(e)+')'}
+        const pieces=[];
+        if(pg.options&&pg.options.annexes!==false)(pg.lignes||[]).filter(l=>l.incluse).forEach(l=>(l.pieces||[]).forEach(x=>pieces.push(x)));
+        const vus={};
+        let manquePieces=0;
+        for(const x of pieces){
+          const fid=x.fileId||driveIdDepuisLien(x.lien);
+          if(!fid){manquePieces++;continue}
+          if(vus[fid])continue;vus[fid]=1;
+          try{const o=await driveFichierBytes(await getDriveToken(),fid);
+            enc.push({nom:base+'/Annexes/'+(ptrSlug(String(x.nom||'annexe').replace(/\.[^.]+$/,''))||'annexe')+(String(x.nom||'').match(/\.[A-Za-z0-9]+$/)||['.pdf'])[0],data:o})}
+          catch(e){manquePieces++}
+        }
+        const zip=zipEcrire(enc);
+        telechargerOctets(zip,base+'.zip',PTR_MIME.zip);
+        noter('zip',base+'.zip','');
+        setExp({type,etat:'ok',msg:'Dossier ZIP téléchargé — '+base+'.zip'+notePdf+(manquePieces?' — '+manquePieces+' pièce(s) jointe(s) introuvable(s)':'')+note});
+      }
+    }catch(e){setExp({type,etat:'erreur',msg:'Export impossible — '+ptrMessageErreur(e)})}
+  };
+
+  const controles=ptrControles(prog,projet);
+  const anomalies=controles.filter(c=>!c.ok);
+  const allerA=id=>{const l=prog.lignes.find(x=>x.id===id);if(!l)return;
+    setQ('');setOuverts(o=>({...o,[l.categorieId]:true}));setModale(null);
+    setTimeout(()=>{try{const el=document.getElementById('ptr-l-'+id);if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'})}catch(e){}},80)};
+  const ligneModale=modale&&modale.l?prog.lignes.find(x=>x.id===modale.l.id)||modale.l:null;
+  const prModale=ligneModale&&ligneModale.prestationId?biblio.prestations.find(p=>p.id===ligneModale.prestationId):null;
+
+  return <div>
+    <div className="sp" style={{gap:8,flexWrap:'wrap',marginBottom:10}}>
+      {onFermer?<button className="btn gh s" onClick={onFermer}>← Retour</button>:<span/>}
+      <span className="xs" style={{color:sauve==='ok'?GREEN:MUTED}}>{sauve==='ok'?'✓ Enregistré':'Enregistrement…'}</span>
+    </div>
+    <div className="card" style={{borderLeft:'3px solid '+NAVY}}>
+      <div className="sp" style={{gap:10,flexWrap:'wrap',alignItems:'flex-start'}}>
+        <div>
+          <div className="h2" style={{fontSize:17}}>Programme technique</div>
+          <div className="xs mut" style={{marginTop:2}}>{projet.nom||'—'} · {projet.client||'client non renseigné'} · {projet.adresseChantier||'adresse non renseignée'}</div>
+        </div>
+        <div className="row" style={{gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          <span className="pill" style={{background:statut.c+'1A',color:statut.c}}>{statut.l}</span>
+          <span className="xs b">Version {prog.version||1}</span>
+          {!fige&&<select className="in" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={prog.statut}
+            onChange={e=>majProg(x=>({...x,statut:e.target.value}),{statut:false})}>
+            {PTR_STATUTS.filter(s=>['brouillon','en_cours','a_valider'].indexOf(s.id)>=0).map(s=><option key={s.id} value={s.id}>{s.l}</option>)}
+          </select>}
+        </div>
+      </div>
+      <div className="row" style={{gap:10,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
+        <span className="xs mut">Référence</span>
+        <div style={{width:180}}><PtrTexte multiligne={false} valeur={prog.reference||''} disabled={fige} placeholder={projet.reference}
+          onValide={t=>majProg(x=>({...x,reference:t}),{statut:false})}/></div>
+        <span className="xs b" style={{color:stats.configurees===stats.incluses?GREEN:AMBER}}>
+          {stats.configurees} / {stats.incluses} prestations configurées</span>
+        <span className="xs mut">({stats.total-stats.incluses} non incluse{stats.total-stats.incluses>1?'s':''})</span>
+      </div>
+      {fige&&<div className="xs" style={{marginTop:10,padding:'8px 10px',borderRadius:8,background:'#EEF4F0',lineHeight:1.5}}>
+        Version {prog.version} {prog.statut==='archive'?'archivée':'validée'}{prog.valideLe?' le '+fd(prog.valideLe.slice(0,10)):''} — figée.
+        {prog.statut!=='archive'&&<button className="btn s" style={{marginLeft:8}} onClick={nouvelleVersion}>Créer la version {(prog.version||1)+1} pour modifier</button>}
+        {prog.statut==='archive'&&<button className="btn gh s" style={{marginLeft:8}} onClick={nouvelleVersion}>Rouvrir en version {(prog.version||1)+1}</button>}
+      </div>}
+      <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12}}>
+        <button className="btn gh s" onClick={()=>setModale({type:'apercu'})}>Aperçu du programme</button>
+        <button className="btn gh s" onClick={()=>setModale({type:'controles'})}>
+          Contrôler {anomalies.length?<span style={{color:TERRA}}>({anomalies.length})</span>:'✓'}</button>
+        <button className="btn acc s" disabled={exp&&exp.etat==='travail'} onClick={()=>exporter('docx')}>Générer le programme (Word)</button>
+        <button className="btn gh s" disabled={exp&&exp.etat==='travail'} onClick={()=>exporter('pdf')}>Exporter PDF</button>
+        <button className="btn gh s" disabled={exp&&exp.etat==='travail'} onClick={()=>exporter('xlsx')}>Exporter Excel</button>
+        <button className="btn gh s" disabled={exp&&exp.etat==='travail'} onClick={()=>exporter('zip')}>Dossier ZIP</button>
+      </div>
+      <div className="row xs" style={{gap:14,flexWrap:'wrap',marginTop:10}}>
+        <label className="row" style={{gap:6,alignItems:'center'}}><input type="checkbox" disabled={fige}
+          checked={!prog.options||prog.options.synthese!==false} onChange={e=>majProg(x=>({...x,options:{...(x.options||{}),synthese:e.target.checked}}),{statut:false})}/>
+          Inclure la synthèse financière{projet.p?'':' (projet sans chiffrage)'}</label>
+        <label className="row" style={{gap:6,alignItems:'center'}}><input type="checkbox" disabled={fige}
+          checked={!prog.options||prog.options.annexes!==false} onChange={e=>majProg(x=>({...x,options:{...(x.options||{}),annexes:e.target.checked}}),{statut:false})}/>
+          Inclure les pièces jointes au dossier exporté</label>
+      </div>
+      {exp&&<div className="xs" style={{marginTop:10,lineHeight:1.5,color:exp.etat==='erreur'?TERRA:exp.etat==='ok'?GREEN:MUTED}}>
+        {exp.etat==='travail'?'Composition du document…':exp.msg}
+        {exp.lien&&<a href={exp.lien} target="_blank" rel="noreferrer" style={{color:TERRA,marginLeft:8}}>Ouvrir sur le Drive</a>}</div>}
+      <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
+        {!fige&&<button className="btn s" onClick={figer}>Valider et figer la version {prog.version||1}</button>}
+        {prog.statut!=='archive'&&<button className="btn gh s" onClick={archiver}>Archiver</button>}
+        <button className="btn gh s" onClick={()=>setModale({type:'versions'})}>Versions ({(prog.versions||[]).length+(fige?0:1)})</button>
+        {!fige&&<button className="btn gh s" onClick={rechargerModele}>Recharger le modèle</button>}
+        {!fige&&(data.programmes||[]).length>1&&<select className="in" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value=""
+          onChange={e=>reprendreDepuis(e.target.value)}>
+          <option value="">Reprendre un autre programme…</option>
+          {(data.programmes||[]).filter(x=>x.id!==prog.id).map(x=>{const pj=ptrProjet(data,x);
+            return <option key={x.id} value={x.id}>{(pj.nom||pj.client||'Projet')+' — V'+(x.version||1)}</option>})}
+        </select>}
+      </div>
+    </div>
+
+    <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center',margin:'12px 0'}}>
+      <input className="in" style={{flex:'1 1 240px',maxWidth:420}} placeholder="Rechercher une prestation…" value={q} onChange={e=>setQ(e.target.value)}/>
+      <button className="btn gh s" onClick={()=>toutOuvrir(true)}>Tout développer</button>
+      <button className="btn gh s" onClick={()=>toutOuvrir(false)}>Tout réduire</button>
+    </div>
+
+    {cats.map((c,ci)=>{
+      const lignes=ptrLignesTriees(prog,c.id);
+      const visibles=lignes.filter(l=>correspond(l,c));
+      if(nq&&!visibles.length)return null;
+      const ouvert=nq?true:!!ouverts[c.id];
+      const inc=lignes.filter(l=>l.incluse), ok=inc.filter(ptrConfiguree);
+      const dejaLa=lignes.map(l=>l.prestationId).filter(Boolean);
+      const dispo=biblio.prestations.filter(p=>p.categorieId===c.id&&p.actif!==false&&dejaLa.indexOf(p.id)<0);
+      return <div key={c.id} {...(fige?{}:ptrCible('categorie',c.id,(de,vers)=>bougerCategorie(de,vers)))} style={{marginBottom:10}}>
+        <div className="sp" style={{gap:8,background:'#F4F1EB',border:'1px solid '+RULE,borderRadius:10,padding:'10px 12px',cursor:'pointer'}}
+          onClick={()=>basculer(c.id)}>
+          <span className="row" style={{gap:8,alignItems:'center'}}>
+            {!fige&&<span {...ptrPoignee('categorie',c.id)} onClick={e=>e.stopPropagation()} style={{cursor:'grab',color:MUTED}} title="Glisser pour réordonner">⋮⋮</span>}
+            <span style={{color:MUTED}}>{ouvert?'▾':'▸'}</span>
+            <span className="b sm" style={{color:TERRA,letterSpacing:'.03em'}}>{ci+1}. {c.nom}</span>
+          </span>
+          <span className="row" style={{gap:6,alignItems:'center'}} onClick={e=>e.stopPropagation()}>
+            <span className="xs" style={{color:ok.length===inc.length?GREEN:AMBER}}>{ok.length}/{inc.length}</span>
+            <span className="xs mut">· {lignes.length-inc.length} non incl.</span>
+            {!fige&&<button className="xs" style={{background:'none',border:'none',color:MUTED}} disabled={ci===0} onClick={()=>bougerCategorie(c.id,null,-1)}>▲</button>}
+            {!fige&&<button className="xs" style={{background:'none',border:'none',color:MUTED}} disabled={ci===cats.length-1} onClick={()=>bougerCategorie(c.id,null,1)}>▼</button>}
+          </span>
+        </div>
+        {ouvert&&<div style={{padding:'8px 0 0 8px'}}>
+          {visibles.map((l,i)=><PtrLigne key={l.id} l={l} index={lignes.indexOf(l)} nb={lignes.length} prog={prog} biblio={biblio}
+            data={data} cible={cible} fige={fige} maj={patch=>majLigne(l.id,patch)} onBouger={bougerLigne}
+            onDupliquer={()=>dupliquer(l)} onRetirer={()=>retirer(l)} onNouvelle={surNouvelle} onVersBiblio={surVersBiblio}
+            onComparer={x=>setModale({type:'comparer',l:x})} onCadrage={(x,ph)=>setModale({type:'cadrage',l:x,ph})}/>)}
+          {!fige&&!nq&&<div className="row" style={{gap:8,flexWrap:'wrap',marginBottom:6}}>
+            {dispo.length>0&&<select className="in" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value=""
+              onChange={e=>ajouterDepuisBiblio(c,e.target.value)}>
+              <option value="">+ Prestation de la bibliothèque…</option>
+              {dispo.map(p=><option key={p.id} value={p.id}>{p.nom}</option>)}</select>}
+            <button className="btn gh s" onClick={()=>ajouterManuelle(c)}>+ Prestation personnalisée</button>
+          </div>}
+        </div>}
+      </div>;
+    })}
+    {!fige&&!nq&&<div className="row" style={{gap:8,marginTop:8,maxWidth:520}}>
+      <input className="in" placeholder="Nouvelle catégorie" value={nouvelleCat} onChange={e=>setNouvelleCat(e.target.value)}/>
+      <button className="btn gh s" disabled={!nouvelleCat.trim()} onClick={ajouterCategorie}>+ Catégorie</button>
+    </div>}
+
+    {modale&&modale.type==='nouvelle'&&ligneModale&&<PtrFormProposition data={data} biblio={biblio} cible={cible}
+      titre={'Nouvelle proposition — '+(ligneModale.titre||ligneModale.nom)}
+      initial={{titre:ligneModale.titre||ligneModale.nom,categorieId:ligneModale.categorieId,prestationId:ligneModale.prestationId||null,
+        nomPrestation:ligneModale.prestationId?'':(ligneModale.titre||ligneModale.nom)}}
+      demanderPrestation={!ligneModale.prestationId}
+      onFermer={()=>setModale(null)}
+      onProjet={f=>{majLigne(ligneModale.id,{varianteId:null,varianteVersion:0,varianteNom:f.nom,titre:f.titre||f.nom,texte:f.texte,
+        photos:f.photos,pieces:f.pieces,marque:f.marque,reference:f.reference,url:f.url,noteInterne:f.noteInterne,modifie:true});setModale(null)}}
+      onBiblio={(f,choix)=>{versBiblio(ligneModale,f,choix);setModale(null)}}/>}
+    {modale&&modale.type==='versBiblio'&&ligneModale&&<PtrFormProposition data={data} biblio={biblio} cible={cible}
+      titre="Ajouter à ma bibliothèque"
+      initial={{nom:ligneModale.prestationId?((ligneModale.varianteNom||'Proposition')+' — variante '+(projet.nom||'')).trim():'Standard',
+        titre:ligneModale.titre,texte:ligneModale.texte,photos:ptrCopie(ligneModale.photos||[]),pieces:ptrCopie(ligneModale.pieces||[]),
+        marque:ligneModale.marque,reference:ligneModale.reference,url:ligneModale.url,noteInterne:ligneModale.noteInterne,
+        categorieId:ligneModale.categorieId,prestationId:ligneModale.prestationId,nomPrestation:ligneModale.titre||ligneModale.nom}}
+      demanderPrestation={!ligneModale.prestationId}
+      onFermer={()=>setModale(null)}
+      onBiblio={(f,choix)=>{versBiblio(ligneModale,f,choix);setModale(null)}}/>}
+    {modale&&modale.type==='comparer'&&prModale&&<PtrComparer pr={prModale} ligne={ligneModale} onFermer={()=>setModale(null)}/>}
+    {modale&&modale.type==='cadrage'&&ligneModale&&<PtrCadrage ph={(ligneModale.photos||[]).find(x=>x.id===modale.ph.id)||modale.ph}
+      onFermer={()=>setModale(null)}
+      onValide={m=>{majLigne(ligneModale.id,{photos:(ligneModale.photos||[]).map(x=>x.id===modale.ph.id?{...x,...m}:x),modifie:true});setModale(null)}}/>}
+    {modale&&modale.type==='apercu'&&<PtrApercu prog={prog} projet={projet} biblio={biblio} data={data} onFermer={()=>setModale(null)}
+      pdfBusy={exp&&exp.type==='apercu'&&exp.etat==='travail'} onPdfExact={()=>exporter('apercu',true)}/>}
+    {modale&&modale.type==='controles'&&<PtrModale titre="Contrôles avant export" onFermer={()=>setModale(null)}>
+      <div className="sm b" style={{marginBottom:8,color:anomalies.length?TERRA:GREEN}}>
+        {anomalies.length?anomalies.length+' élément'+(anomalies.length>1?'s nécessitent':' nécessite')+' votre attention':'Tout est prêt pour l’export.'}</div>
+      {controles.map(c=><div key={c.cle} className="row sm" style={{gap:8,padding:'4px 0',alignItems:'center'}}>
+        <span style={{color:c.ok?GREEN:TERRA,width:18}}>{c.ok?'✓':'⚠'}</span>
+        {c.ligneId?<button className="sm" style={{background:'none',border:'none',padding:0,color:NAVY,textAlign:'left',textDecoration:'underline'}}
+          onClick={()=>allerA(c.ligneId)}>{c.msg}</button>:<span>{c.msg}</span>}
+      </div>)}
+      {modale.apres&&<div className="row" style={{gap:8,marginTop:12}}>
+        <button className="btn acc" onClick={()=>exporter(modale.apres,true)}>Exporter malgré tout</button>
+        <button className="btn gh" onClick={()=>setModale(null)}>Corriger d’abord</button></div>}
+    </PtrModale>}
+    {modale&&modale.type==='versions'&&<PtrModale titre="Versions du programme" onFermer={()=>setModale(null)}>
+      {[...(prog.versions||[])].sort((a,b)=>b.numero-a.numero).map(v=><div key={v.numero} className="sp sm" style={{gap:8,padding:'6px 0',borderBottom:'1px solid '+RULE}}>
+        <span>Version {v.numero} — {fd(String(v.date).slice(0,10))} — <b style={{color:ptrStatut(v.statut).c}}>{ptrStatut(v.statut).l}</b></span>
+        <button className="btn gh s" onClick={()=>exporter('docx',true,v)}>Word</button>
+      </div>)}
+      {!fige&&<div className="sm" style={{padding:'6px 0'}}>Version {prog.version} — en cours d’édition ({ptrStatut(prog.statut).l})</div>}
+      {(prog.exports||[]).length>0&&<div style={{marginTop:12}}>
+        <div className="lbl">Derniers exports</div>
+        {[...prog.exports].reverse().slice(0,10).map((x,i)=><div key={i} className="xs" style={{padding:'2px 0'}}>
+          {fd(String(x.date).slice(0,10))} · V{x.version} · {x.type.toUpperCase()} · {x.lien?<a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{x.nom}</a>:x.nom}</div>)}
+      </div>}
+    </PtrModale>}
+  </div>;
+}
+
+/* la carte d'accès, sur la fiche d'un prospect */
+function CarteProgrammeTechnique({data,cible,onOuvrir}){
+  const prog=ptrProgrammePour(data,cible);
+  const s=prog?ptrStats(prog):null, st=prog?ptrStatut(prog.statut):null;
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="b sm" style={{color:NAVY}}>Programme technique de référence</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      {prog?<span>Version {prog.version} — <b style={{color:st.c}}>{st.l}</b> — {s.configurees} / {s.incluses} prestations configurées
+        — modifié le {fd(String(prog.modifieLe||prog.creeLe).slice(0,10))}.</span>
+        :'Construit depuis la bibliothèque de prestations CP Constructions : propositions A/B/C, photos, Lot MO / hors coordination, puis Word, PDF ou Excel.'}
+    </div>
+    <button className="btn acc s" style={{marginTop:8}} onClick={onOuvrir}>{prog?'Ouvrir le programme technique':'Créer le programme technique'}</button>
+  </div>;
+}
+
+/* ---------- DONNÉES › Bibliothèque des prestations ----------
+   Le référentiel CP Constructions. Toute retouche d'une proposition en crée
+   une nouvelle version : les programmes déjà établis gardent leur copie et
+   signalent simplement qu'une version plus récente existe. Une proposition
+   déjà utilisée ne se supprime pas — elle s'archive. */
+function ptrUsages(data){
+  const U={variantes:{},prestations:{}};
+  (data.programmes||[]).forEach(pg=>{
+    const vues={};
+    [pg.lignes||[]].concat((pg.versions||[]).map(v=>v.lignes||[])).forEach(L=>L.forEach(l=>{
+      if(l.varianteId&&!vues['v'+l.varianteId]){vues['v'+l.varianteId]=1;U.variantes[l.varianteId]=(U.variantes[l.varianteId]||0)+1}
+      if(l.prestationId&&!vues['p'+l.prestationId]){vues['p'+l.prestationId]=1;U.prestations[l.prestationId]=(U.prestations[l.prestationId]||0)+1}
+    }));
+  });
+  return U;
+}
+function BibliothequePrestations({data,save,onFermer}){
+  const dataRef=useRef(data);dataRef.current=data;
+  const biblio=ptrBiblio(data);
+  const [q,setQ]=useState('');
+  const [ouverts,setOuverts]=useState({});
+  const [prOuverte,setPrOuverte]=useState('');
+  const [modale,setModale]=useState(null);
+  const [nouvelleCat,setNouvelleCat]=useState('');
+  const [nouvellePr,setNouvellePr]=useState({});
+  const [sauve,setSauve]=useState('ok');
+  const minuteur=useRef(null);
+  useEffect(()=>()=>{if(minuteur.current)clearTimeout(minuteur.current)},[]);
+  const majBiblio=fn=>{
+    const d=dataRef.current, t=ptrMaintenant();
+    const b=d.ptrBiblio?d.ptrBiblio:ptrCopie(ptrBiblio(d));
+    const nd={...d,ptrBiblio:{...fn(b),modifieLe:t}};
+    dataRef.current=nd;save(nd);setSauve('encours');
+    if(minuteur.current)clearTimeout(minuteur.current);
+    minuteur.current=setTimeout(()=>setSauve('ok'),900);
+  };
+  const t=()=>ptrMaintenant();
+  const majPr=(id,patch)=>majBiblio(b=>({...b,prestations:b.prestations.map(p=>p.id===id?{...p,...patch,modifieLe:t()}:p)}));
+  const majVar=(prId,fn)=>majBiblio(b=>({...b,prestations:b.prestations.map(p=>p.id!==prId?p:{...p,modifieLe:t(),variantes:fn(p.variantes||[])})}));
+  const usages=ptrUsages(data);
+  const cats=[...biblio.categories].sort((a,b)=>(a.ordre||0)-(b.ordre||0));
+  const prestsDe=c=>biblio.prestations.filter(p=>p.categorieId===c.id).sort((a,b)=>(a.ordre||0)-(b.ordre||0));
+  const norme=s=>deaccent(String(s||'')).toLowerCase();
+  const nq=norme(q.trim());
+  const trouve=pr=>!nq||norme(pr.nom).indexOf(nq)>=0||(pr.variantes||[]).some(v=>[v.nom,v.texte,v.marque,v.reference].some(x=>norme(x).indexOf(nq)>=0));
+  const nbAlertes=biblio.prestations.reduce((s,p)=>s+ptrAlertesPrestation(p,biblio).length,0);
+  const nbVar=biblio.prestations.reduce((s,p)=>s+ptrVariantesActives(p).length,0);
+  const M=ptrMentions(biblio);
+
+  const bougerCat=(id,delta,versId)=>majBiblio(b=>{
+    const L=[...b.categories].sort((x,y)=>(x.ordre||0)-(y.ordre||0));
+    const i=L.findIndex(c=>c.id===id), j=versId?L.findIndex(c=>c.id===versId):i+delta;
+    return {...b,categories:ptrDeplacer(L,i,j).map((c,k)=>({...c,ordre:k}))};
+  });
+  const bougerPr=(id,delta,versId)=>majBiblio(b=>{
+    const pr=b.prestations.find(p=>p.id===id);
+    const L=b.prestations.filter(p=>p.categorieId===pr.categorieId).sort((x,y)=>(x.ordre||0)-(y.ordre||0));
+    const i=L.findIndex(p=>p.id===id), j=versId?L.findIndex(p=>p.id===versId):i+delta;
+    if(j<0||j>=L.length)return b;
+    const ordres={};ptrDeplacer(L,i,j).forEach((p,k)=>{ordres[p.id]=k});
+    return {...b,prestations:b.prestations.map(p=>ordres[p.id]!==undefined?{...p,ordre:ordres[p.id]}:p)};
+  });
+  const ajouterCat=()=>{const nom=nouvelleCat.trim().toUpperCase();if(!nom)return;
+    majBiblio(b=>({...b,categories:[...b.categories,{id:'cat_'+uid(),nom,ordre:b.categories.length,actif:true}]}));setNouvelleCat('')};
+  const ajouterPr=c=>{const nom=String(nouvellePr[c.id]||'').trim().toUpperCase();if(!nom)return;
+    const pr={id:'pr_'+uid(),categorieId:c.id,sousCategorie:'',nom,code:'',ordre:prestsDe(c).length,actif:true,obligatoire:false,
+      defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},observations:'',creeLe:t(),modifieLe:t(),alertesVues:[],variantes:[]};
+    majBiblio(b=>({...b,prestations:[...b.prestations,pr]}));setNouvellePr(o=>({...o,[c.id]:''}));setPrOuverte(pr.id);
+    setModale({type:'variante',prId:pr.id,v:null})};
+  const supprimerPr=pr=>{
+    if(usages.prestations[pr.id]){
+      if(confirm('« '+pr.nom+' » figure dans '+usages.prestations[pr.id]+' programme(s). Elle sera désactivée (plus proposée sur les nouveaux projets) plutôt que supprimée. Continuer ?'))
+        majPr(pr.id,{actif:false});
+      return;
+    }
+    if(confirm('Supprimer définitivement la prestation « '+pr.nom+' » et ses propositions ?'))
+      majBiblio(b=>({...b,prestations:b.prestations.filter(p=>p.id!==pr.id)}));
+  };
+  const enregistrerVariante=(pr,v0,f)=>{
+    const tt=t(), idNeuf='var_'+uid();
+    majVar(pr.id,L=>{
+      let res;
+      if(v0){
+        const change=['titre','texte','marque','reference','url'].some(k=>(f[k]||'')!==(v0[k]||''))
+          ||JSON.stringify(f.photos||[])!==JSON.stringify(v0.photos||[])||JSON.stringify(f.pieces||[])!==JSON.stringify(v0.pieces||[]);
+        res=L.map(v=>v.id!==v0.id?v:{...v,nom:f.nom.trim(),titre:(f.titre||'').trim()||pr.nom,texte:f.texte,photos:f.photos||[],pieces:f.pieces||[],
+          marque:f.marque||'',reference:f.reference||'',url:f.url||'',noteInterne:f.noteInterne||'',parDefaut:!!f.parDefaut,
+          version:(v.version||1)+(change?1:0),modifieLe:tt});
+      }else{
+        res=[...L,{id:idNeuf,nom:f.nom.trim(),titre:(f.titre||'').trim()||pr.nom,texte:f.texte,photos:f.photos||[],pieces:f.pieces||[],
+          marque:f.marque||'',reference:f.reference||'',url:f.url||'',noteInterne:f.noteInterne||'',parDefaut:!!f.parDefaut||!L.length,
+          archivee:false,version:1,creeLe:tt,modifieLe:tt}];
+      }
+      const idCible=v0?v0.id:idNeuf;
+      if(f.parDefaut)res=res.map(v=>({...v,parDefaut:v.id===idCible}));
+      return res;
+    });
+  };
+  const definirDefaut=(pr,v)=>majVar(pr.id,L=>L.map(x=>({...x,parDefaut:x.id===v.id})));
+  const dupliquerVar=(pr,v)=>majVar(pr.id,L=>[...L,{...ptrCopie(v),id:'var_'+uid(),nom:v.nom+' (copie)',parDefaut:false,archivee:false,
+    version:1,creeLe:t(),modifieLe:t()}]);
+  const archiverVar=(pr,v,a)=>majVar(pr.id,L=>{
+    const R=L.map(x=>x.id===v.id?{...x,archivee:a,parDefaut:a?false:x.parDefaut}:x);
+    if(a&&v.parDefaut){const autre=R.find(x=>!x.archivee);if(autre)return R.map(x=>({...x,parDefaut:x.id===autre.id}))}
+    return R;
+  });
+  const supprimerVar=(pr,v)=>{
+    if(usages.variantes[v.id]){alert('« '+v.nom+' » est utilisée dans '+usages.variantes[v.id]+' programme(s) : archivez-la plutôt, pour garantir les documents déjà remis.');return}
+    if(!confirm('Supprimer définitivement la proposition « '+v.nom+' » ?'))return;
+    majVar(pr.id,L=>{const R=L.filter(x=>x.id!==v.id);
+      return v.parDefaut&&R.length&&!R.some(x=>x.parDefaut)?R.map((x,i)=>({...x,parDefaut:i===0})):R});
+  };
+  const bouton={background:'none',border:'none',padding:'0 4px',color:MUTED,cursor:'pointer',fontSize:13};
+  const prModale=modale&&modale.prId?biblio.prestations.find(p=>p.id===modale.prId):null;
+
+  return <div>
+    <div className="sp" style={{gap:8,flexWrap:'wrap',marginBottom:10}}>
+      <button className="btn gh s" onClick={onFermer}>← Données</button>
+      <span className="xs" style={{color:sauve==='ok'?GREEN:MUTED}}>{sauve==='ok'?'✓ Enregistré':'Enregistrement…'}</span>
+    </div>
+    <H2>BIBLIOTHÈQUE DES PRESTATIONS</H2>
+    <div className="card" style={{borderLeft:'3px solid '+NAVY}}>
+      <div className="xs mut" style={{lineHeight:1.6}}>
+        {biblio.modeleNom||PTR_MODELE_NOM} — {cats.length} catégories · {biblio.prestations.length} prestations · {nbVar} propositions actives
+        {nbAlertes>0&&<span style={{color:AMBER}}> · ⚠ {nbAlertes} vérification{nbAlertes>1?'s':''} recommandée{nbAlertes>1?'s':''}</span>}.
+        <br/>Modifier une proposition ne change aucun programme déjà établi : chaque projet garde sa copie.
+        {!data.ptrBiblio&&<span> Bibliothèque initiale, importée du modèle papier « Maison neuve ».</span>}
+      </div>
+      <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:10}}>
+        <input className="in" style={{flex:'1 1 220px',maxWidth:380}} placeholder="Rechercher une prestation, une proposition…" value={q} onChange={e=>setQ(e.target.value)}/>
+        <button className="btn gh s" onClick={()=>setOuverts(Object.fromEntries(cats.map(c=>[c.id,true])))}>Tout développer</button>
+        <button className="btn gh s" onClick={()=>setOuverts({})}>Tout réduire</button>
+        <button className="btn gh s" onClick={()=>setModale({type:'mentions'})}>Textes de la page de garde</button>
+      </div>
+    </div>
+
+    {cats.map((c,ci)=>{
+      const L=prestsDe(c).filter(trouve);
+      if(nq&&!L.length)return null;
+      const ouvert=nq?true:!!ouverts[c.id];
+      return <div key={c.id} {...ptrCible('b-cat',c.id,(de,vers)=>bougerCat(de,0,vers))} style={{marginBottom:10,opacity:c.actif===false?.6:1}}>
+        <div className="sp" style={{gap:8,background:'#F4F1EB',border:'1px solid '+RULE,borderRadius:10,padding:'10px 12px',cursor:'pointer'}}
+          onClick={()=>setOuverts(o=>({...o,[c.id]:!o[c.id]}))}>
+          <span className="row" style={{gap:8,alignItems:'center',flex:1,minWidth:0}}>
+            <span {...ptrPoignee('b-cat',c.id)} onClick={e=>e.stopPropagation()} style={{cursor:'grab',color:MUTED}}>⋮⋮</span>
+            <span style={{color:MUTED}}>{ouvert?'▾':'▸'}</span>
+            <span className="b sm" style={{color:TERRA}}>{c.nom}</span>
+            <span className="xs mut">{prestsDe(c).length} prestation{prestsDe(c).length>1?'s':''}</span>
+          </span>
+          <span className="row" style={{gap:4,alignItems:'center'}} onClick={e=>e.stopPropagation()}>
+            <button style={bouton} disabled={ci===0} onClick={()=>bougerCat(c.id,-1)}>▲</button>
+            <button style={bouton} disabled={ci===cats.length-1} onClick={()=>bougerCat(c.id,1)}>▼</button>
+            <button style={bouton} onClick={()=>{const n=prompt('Nom de la catégorie',c.nom);if(n&&n.trim())
+              majBiblio(b=>({...b,categories:b.categories.map(x=>x.id===c.id?{...x,nom:n.trim().toUpperCase()}:x)}))}}>Renommer</button>
+            <label className="row xs" style={{gap:4,alignItems:'center'}}><input type="checkbox" checked={c.actif!==false}
+              onChange={e=>majBiblio(b=>({...b,categories:b.categories.map(x=>x.id===c.id?{...x,actif:e.target.checked}:x)}))}/>active</label>
+          </span>
+        </div>
+        {ouvert&&<div style={{padding:'8px 0 0 8px'}}>
+          {L.map((pr,pi)=>{
+            const al=ptrAlertesPrestation(pr,biblio);
+            const vs=pr.variantes||[];
+            const det=prOuverte===pr.id||!!nq;
+            return <div key={pr.id} {...ptrCible('b-pr:'+c.id,pr.id,(de,vers)=>bougerPr(de,0,vers))} className="card"
+              style={{padding:10,marginBottom:8,opacity:pr.actif===false?.6:1}}>
+              <div className="sp" style={{gap:8,cursor:'pointer'}} onClick={()=>setPrOuverte(det&&!nq?'':pr.id)}>
+                <span className="row" style={{gap:6,alignItems:'center',flex:1,minWidth:0}}>
+                  <span {...ptrPoignee('b-pr:'+c.id,pr.id)} onClick={e=>e.stopPropagation()} style={{cursor:'grab',color:MUTED}}>⋮⋮</span>
+                  <span className="b sm" style={{color:NAVY}}>{pr.nom}</span>
+                  <span className="xs mut">{ptrVariantesActives(pr).length} proposition{ptrVariantesActives(pr).length>1?'s':''}
+                    {usages.prestations[pr.id]?' · utilisée dans '+usages.prestations[pr.id]+' programme(s)':''}</span>
+                  {al.length>0&&<span className="pill" style={{background:TERRA+'1A',color:TERRA}}>⚠ {al.length}</span>}
+                  {pr.actif===false&&<span className="pill" style={{background:RULE,color:MUTED}}>désactivée</span>}
+                </span>
+                <span className="row" onClick={e=>e.stopPropagation()}>
+                  <button style={bouton} disabled={pi===0||!!nq} onClick={()=>bougerPr(pr.id,-1)}>▲</button>
+                  <button style={bouton} disabled={pi===L.length-1||!!nq} onClick={()=>bougerPr(pr.id,1)}>▼</button>
+                </span>
+              </div>
+              {det&&<div style={{marginTop:10}}>
+                <div className="g2">
+                  <Fld label="PRESTATION"><PtrTexte multiligne={false} valeur={pr.nom} onValide={v=>majPr(pr.id,{nom:v})}/></Fld>
+                  <div className="g2">
+                    <Fld label="CODE"><PtrTexte multiligne={false} valeur={pr.code||''} onValide={v=>majPr(pr.id,{code:v})}/></Fld>
+                    <Fld label="SOUS-CATÉGORIE"><PtrTexte multiligne={false} valeur={pr.sousCategorie||''} onValide={v=>majPr(pr.id,{sousCategorie:v})}/></Fld>
+                  </div>
+                </div>
+                <div className="row sm" style={{gap:14,flexWrap:'wrap',alignItems:'center',marginBottom:10}}>
+                  <label className="row" style={{gap:6}}><input type="checkbox" checked={pr.actif!==false} onChange={e=>majPr(pr.id,{actif:e.target.checked})}/>Active</label>
+                  <label className="row" style={{gap:6}}><input type="checkbox" checked={!!pr.obligatoire} onChange={e=>majPr(pr.id,{obligatoire:e.target.checked})}/>Obligatoire</label>
+                  <label className="row" style={{gap:6}}><input type="checkbox" checked={!!pr.defautMO} onChange={e=>majPr(pr.id,{defautMO:e.target.checked})}/>Lot MO par défaut</label>
+                  <label className="row" style={{gap:6}}><input type="checkbox" checked={!!pr.defautHors} onChange={e=>majPr(pr.id,{defautHors:e.target.checked})}/>Hors coord. par défaut</label>
+                  <select className="in" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={(pr.montantDefaut&&pr.montantDefaut.type)||''}
+                    onChange={e=>majPr(pr.id,{montantDefaut:{...(pr.montantDefaut||{}),type:e.target.value}})}>
+                    {PTR_MONTANT_TYPES.map(x=><option key={x.id} value={x.id}>{x.id?'Montant par défaut : '+x.l:'Montant par défaut : —'}</option>)}</select>
+                  {pr.montantDefaut&&(pr.montantDefaut.type==='valeur'||pr.montantDefaut.type==='libre')&&<div style={{width:200}}>
+                    <PtrTexte multiligne={false} valeur={pr.montantDefaut.valeur||''} onValide={v=>majPr(pr.id,{montantDefaut:{...pr.montantDefaut,valeur:v}})}/></div>}
+                </div>
+                <Fld label="OBSERVATIONS (INTERNES)"><PtrTexte lignes={2} valeur={pr.observations||''} onValide={v=>majPr(pr.id,{observations:v})}/></Fld>
+                <div className="lbl">Propositions</div>
+                {vs.map((v,vi)=><div key={v.id} className="sp sm" style={{gap:8,padding:'6px 0',borderTop:'1px solid '+RULE,flexWrap:'wrap',opacity:v.archivee?.55:1}}>
+                  <span style={{flex:1,minWidth:200}}>
+                    <b>{v.archivee?'Archivée':'Proposition '+ptrLettre(ptrVariantesActives(pr).indexOf(v))}</b> — {v.nom}
+                    {v.parDefaut&&<span className="pill" style={{background:GREEN+'1A',color:GREEN,marginLeft:6}}>Défaut</span>}
+                    <span className="xs mut"> · v{v.version||1}{(v.photos||[]).length?' · '+v.photos.length+' photo(s)':''}
+                      {(v.pieces||[]).length?' · '+v.pieces.length+' pièce(s)':''}{usages.variantes[v.id]?' · utilisée ×'+usages.variantes[v.id]:''}</span>
+                  </span>
+                  <span className="row" style={{gap:4,flexWrap:'wrap'}}>
+                    <button className="btn gh s" onClick={()=>setModale({type:'variante',prId:pr.id,v})}>Modifier</button>
+                    <button className="btn gh s" onClick={()=>dupliquerVar(pr,v)}>Dupliquer</button>
+                    {!v.archivee&&!v.parDefaut&&<button className="btn gh s" onClick={()=>definirDefaut(pr,v)}>Définir par défaut</button>}
+                    <button className="btn gh s" onClick={()=>archiverVar(pr,v,!v.archivee)}>{v.archivee?'Désarchiver':'Archiver'}</button>
+                    <button className="btn dg s" onClick={()=>supprimerVar(pr,v)}>Supprimer</button>
+                  </span>
+                </div>)}
+                <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:8}}>
+                  <button className="btn s" onClick={()=>setModale({type:'variante',prId:pr.id,v:null})}>+ Ajouter une proposition</button>
+                  {vs.filter(v=>!v.archivee).length>1&&<button className="btn gh s" onClick={()=>setModale({type:'comparer',prId:pr.id})}>Comparer les propositions</button>}
+                  <button className="btn dg s" onClick={()=>supprimerPr(pr)}>{usages.prestations[pr.id]?'Désactiver la prestation':'Supprimer la prestation'}</button>
+                </div>
+                {al.length>0&&<div className="xs" style={{marginTop:10,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',lineHeight:1.6}}>
+                  <b style={{color:AMBER}}>⚠ Vérification recommandée</b> — rien n’est corrigé automatiquement.
+                  {al.map(a=><div key={a.cle} className="sp" style={{gap:8}}><span>{a.msg}</span>
+                    <button className="btn gh s" onClick={()=>majPr(pr.id,{alertesVues:[...(pr.alertesVues||[]),a.cle]})}>Vu</button></div>)}
+                </div>}
+              </div>}
+            </div>;
+          })}
+          {!nq&&<div className="row" style={{gap:8,maxWidth:520,marginBottom:6}}>
+            <input className="in" placeholder="Nouvelle prestation" value={nouvellePr[c.id]||''} onChange={e=>setNouvellePr(o=>({...o,[c.id]:e.target.value}))}/>
+            <button className="btn gh s" disabled={!String(nouvellePr[c.id]||'').trim()} onClick={()=>ajouterPr(c)}>+ Prestation</button>
+          </div>}
+        </div>}
+      </div>;
+    })}
+    {!nq&&<div className="row" style={{gap:8,maxWidth:520,marginTop:8}}>
+      <input className="in" placeholder="Nouvelle catégorie" value={nouvelleCat} onChange={e=>setNouvelleCat(e.target.value)}/>
+      <button className="btn gh s" disabled={!nouvelleCat.trim()} onClick={ajouterCat}>+ Catégorie</button>
+    </div>}
+
+    {modale&&modale.type==='variante'&&prModale&&<PtrFormProposition data={data} biblio={biblio} cible="biblio" modeBiblio
+      titre={(modale.v?'Modifier « '+modale.v.nom+' »':'Nouvelle proposition')+' — '+prModale.nom}
+      initial={modale.v?{...ptrCopie(modale.v)}:{titre:prModale.nom}}
+      onFermer={()=>setModale(null)}
+      onBiblio={f=>{enregistrerVariante(prModale,modale.v,f);setModale(null)}}/>}
+    {modale&&modale.type==='comparer'&&prModale&&<PtrComparer pr={prModale} onFermer={()=>setModale(null)}/>}
+    {modale&&modale.type==='mentions'&&<PtrModale titre="Textes de la page de garde" onFermer={()=>setModale(null)}>
+      {[['titre','TITRE DU DOCUMENT',1],['sousTitre','SOUS-TITRE',1],['re2020','MENTION RE 2020',3],['avertissement','AVERTISSEMENT',6],
+        ['legendeMO','LÉGENDE « LOT MO »',2],['legendeHors','LÉGENDE « HORS COORD. »',2]].map(([k,l,n])=>
+        <Fld key={k} label={l}><PtrTexte multiligne={n>1} lignes={n} valeur={M[k]||''}
+          onValide={v=>majBiblio(b=>({...b,mentions:{...ptrMentions(b),[k]:v}}))}/></Fld>)}
+      <button className="btn gh s" onClick={()=>{if(confirm('Rétablir les textes d’origine du modèle ?'))majBiblio(b=>({...b,mentions:{...PTR_MENTIONS_DEFAUT}}))}}>
+        Rétablir les textes d’origine</button>
+    </PtrModale>}
+  </div>;
+}
+
 /* la fiche navette telle qu'elle se relit, une fois remplie */
 function VueDecouverte({p}){
   const L=decouverteLignes(p);
@@ -15460,6 +17208,7 @@ function Donnees({data,save,session}){
   const [msg,setMsg]=useState('');
   const [rangement,setRangement]=useState('');
   const [bilan,setBilan]=useState(null);
+  const [biblioOuverte,setBiblioOuverte]=useState(false);
   /* déplacer des dossiers dans le Drive de quelqu'un se demande avant de se faire :
      c'est un geste, pas un effet de bord au démarrage. */
   const ranger=async()=>{
@@ -15589,8 +17338,15 @@ function Donnees({data,save,session}){
     };
     r.readAsText(f);
   };
+  if(biblioOuverte)return <BibliothequePrestations data={data} save={save} onFermer={()=>setBiblioOuverte(false)}/>;
   return <div>
     <H2>DONNÉES</H2>
+    <div className="card" style={{borderLeft:'3px solid '+NAVY}}>
+      <div className="sm b">Bibliothèque des prestations — programme technique</div>
+      <p className="xs mut" style={{lineHeight:1.5,marginTop:6}}>Catégories, prestations et propositions A / B / C… réutilisées
+        par chaque programme technique ; textes de la page de garde.</p>
+      <button className="btn s" style={{marginTop:6}} onClick={()=>setBiblioOuverte(true)}>Ouvrir la bibliothèque</button>
+    </div>
     <div className="card">
       <div className="sm b">Synchronisation</div>
       <p className="xs mut" style={{lineHeight:1.5}}>Les données sont enregistrées en ligne et se synchronisent automatiquement entre tous vos appareils connectés. Exportez quand même régulièrement en secours.<br/>
