@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-27 · Programme technique : porte d’entrée Bel’M Abscisse Evo et porte de garage Hörmann RenoMatic, avec photos et documentation';
+const VERSION='2026-09-27 · Programme technique : menuiseries EMAPLAST PVC et aluminium, vitrages, volets roulants électriques à coffre demi-linteau et box domotique io';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3893,7 +3893,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=9;
+const PTR_SEED_REV=10;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -3913,6 +3913,10 @@ PTR_SEED_DATES[8]=PTR_SEED_DATE_8;
 /* révision 9 : porte d'entrée Bel'M Abscisse Evo, porte de garage Hörmann RenoMatic */
 const PTR_SEED_DATE_9='2026-09-27T08:00:00.000Z';
 PTR_SEED_DATES[9]=PTR_SEED_DATE_9;
+/* révision 10 : menuiseries EMAPLAST (PVC VEKA, alu REYNAERS), volets
+   roulants électriques à coffre demi-linteau, box domotique io */
+const PTR_SEED_DATE_10='2026-09-27T09:00:00.000Z';
+PTR_SEED_DATES[10]=PTR_SEED_DATE_10;
 /* propositions dont le texte a été réécrit après la révision 4 */
 const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
@@ -3950,6 +3954,7 @@ const PTR_SEED_NOUVELLES={
   3:['var_planchers_b'],
   7:['var_enduit_decoratif_pierre_a'],
   9:['var_porte_entree_b','var_porte_garage_a'],
+  10:['var_chassis_fenetres_francaise_b','var_coulissant_b','var_vitrerie_b','var_volets_roulants_b','var_domotique_b'],
 };
 const ptrRevNaissance=id=>{for(const r in PTR_SEED_NOUVELLES)if(PTR_SEED_NOUVELLES[r].indexOf(id)>=0)return +r;return 1};
 /* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
@@ -4000,6 +4005,19 @@ const PTR_COMPLEMENTS_A={
     pieces:[ptrPieceAsset('docs/Alkern_Elibloc_Bloc20.pdf','Fiche produit Alkern ELIBLOC Bloc 20.pdf')]},
 };
 const PTR_PROPOSITIONS_2={
+  chassis_fenetres_francaise:{nom:'EMAPLAST — PVC VEKA EMA-SOFT 70',marque:'EMAPLAST / VEKA',reference:'EMA-SOFT 70 — dormant 160 mm',
+    photos:[ptrPhotoAsset('image24.jpeg',520,390)],
+    texte:'Menuiseries en PVC VEKA, gamme **EMA-SOFT 70**, fabriquées sur mesure par EMAPLAST (Parné-sur-Roc), ouvrant à la française ; quantités et dimensions selon plans :\n- fenêtres 1 vantail oscillo-battantes ; porte-fenêtre de service 1 vantail à serrure, panneau lisse plaxé de 28 mm et seuil aluminium de 20 mm à rupture de pont thermique ;\n- dormant large de 160 mm, adapté au doublage ;\n- finition filmée anthracite à l’extérieur, blanche à l’intérieur ;\n- double vitrage à isolation renforcée (voir vitrerie) ;\n- performances : Uw = 1,3 à 1,4 W/m².K selon vitrage, affaiblissement acoustique 30 à 33 dB(A).\nCertification NF-CSTBat : classement air A4, eau E7B, vent VA2 ; label Acotherm AC2 Th11 selon vitrages.'},
+  coulissant:{nom:'EMAPLAST — aluminium REYNAERS Patio-Mono',marque:'EMAPLAST / REYNAERS',reference:'Patio-Mono — dormant 160 mm',
+    photos:[ptrPhotoAsset('image25.jpeg',390,520)],
+    texte:'Baies coulissantes 2 vantaux en aluminium à rupture de pont thermique REYNAERS, gamme **Patio-Mono**, fabriquées sur mesure par EMAPLAST ; positionnement et dimensions selon plans :\n- dormant de 160 mm ; seuil encastré sur les baies toute hauteur ;\n- finition blanc RAL 9016 à l’intérieur, gris RAL 7016 finition sablée à l’extérieur ;\n- fermeture 2 points à crochets, 4 points au-delà de 1,95 m de hauteur ; poignée Saréna déportée ;\n- double vitrage à isolation renforcée, phonique sur les baies toute hauteur (voir vitrerie) ;\n- performances : Uw = 1,5 W/m².K pour les baies toute hauteur, 1,87 à 1,96 W/m².K pour les châssis bas.\nCertification NF-CSTBat : classement air A4, eau E7B, vent VA2.'},
+  vitrerie:{nom:'EMAPLAST — isolation renforcée',
+    texte:'Double vitrage à isolation renforcée, lame d’argon et intercalaire warm edge TGI noir (Ug = 1,1 à 1,2 W/m².K) :\n- 4/20/4 argon sur les fenêtres et les coulissants ;\n- 4/18/6 phonique (34 dB(A)) sur les baies coulissantes toute hauteur ;\n- verre feuilleté 44.2 sur la porte-fenêtre de service et le châssis des WC ;\n- verre granité (translucide) sur les châssis des salles de bains et des WC.'},
+  volets_roulants:{nom:'Électriques, coffre demi-linteau (SOMFY io)',marque:'SOMFY / GEMAPLAST',reference:'Moteur radio io — coffre IRYS 1/2 linteau',
+    photos:[ptrPhotoAsset('image14.jpeg',520,390)],
+    texte:'Volets roulants électriques intégrés aux menuiseries, fournis par EMAPLAST, sur les ouvertures indiquées aux plans :\n- coffre demi-linteau GEMAPLAST IRYS, posé sur la menuiserie et engagé à mi-hauteur dans le linteau ;\n- tablier à lames aluminium double paroi de 43 mm, gris RAL 7016 ;\n- motorisation radio SOMFY io, compatible avec la box domotique (commande centralisée et à distance).'},
+  domotique:{nom:'Box SOMFY TaHoma Switch (volets radio io)',marque:'SOMFY',reference:'TaHoma Switch',url:'https://www.somfy.fr',
+    texte:'Box SOMFY TAHOMA SWITCH associée aux moteurs radio io des volets roulants :\n- commande centralisée des volets, scénarios et programmation horaire ;\n- pilotage à distance depuis un smartphone ou une tablette (application TaHoma) ;\n- gestion du chauffage compatible, selon équipement retenu.'},
   porte_entree:{nom:'Bel’M Abscisse Evo (acier 48)',marque:'Bel’M',reference:'Abscisse Evo — gamme Acier 48',url:'https://www.belm.fr',
     photos:[ptrPhotoAsset('belm_abscisse_evo.jpeg',365,813),ptrPhotoAsset('belm_coupe_acier48.jpeg',405,525)],
     pieces:[ptrPieceAsset('docs/BelM_Abscisse_Evo.pdf','Fiche produit Bel’M — Abscisse Evo.pdf')],
@@ -4162,7 +4180,7 @@ const PTR_TITRES_ACCENTS=[['PREPARATION','PRÉPARATION'],['MACONNERIE','MAÇONNE
   ['EVIER','ÉVIER'],['FENETRE','FENÊTRE'],['ACCES','ACCÈS'],['EXCEDENTAIRES','EXCÉDENTAIRES']];
 const PTR_MARQUES=['Atlantic','Aldes','Daikin','Jacob Delafon','Monier','PBM','MSEA','Celtys','Placo','Knauf','Isover',
   'Grohe','Velux','Somfy','Legrand','Schneider','Hager','Porcher','Villeroy','Geberit','Kinedo','Saunier Duval','Rehau',
-  'Edilians','Biobric','Alkern','Elibloc','Dal.Alu','Hörmann','Hormann'];
+  'Edilians','Biobric','Alkern','Elibloc','Dal.Alu','Hörmann','Hormann','Emaplast','Veka','Reynaers','Gemaplast'];
 const PTR_MOTS_MARQUES=['TaHoma','AldesConnect','EasyHOME','AquaAIR','T.One','ProMatic','BiSecur','RenoMatic','ProLift'];
 function ptrAlertesTexte(titre,texte){
   const A=[], t=String(texte||''), ti=String(titre||'');
