@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-27 · Programme technique : menuiseries EMAPLAST PVC et aluminium, vitrages, volets roulants électriques à coffre demi-linteau et box domotique io';
+const VERSION='2026-09-27 · Programme technique : cloisons KNAUF METAL 72/48 et doublage ISOVER OPTIMA, avec schémas et fiches techniques';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2243,8 +2243,8 @@ const PTR_CATALOGUE=[
   {id:"volets_roulants",groupe:"MENUISERIES EXTÉRIEURES",titre:"VOLETS ROULANTS",texte:"Volets roulants à lames en aluminium laqué, dans coffre maçonné.\nMotorisation filaire à commande centralisée SOMFY RS 100.\nCouleur : aluminium gris RAL 7016.",images:[{fichier:"image14.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"domotique",groupe:"MENUISERIES EXTÉRIEURES",titre:"DOMOTIQUE",texte:"Box SOMFY TAHOMA SWITCH permettant de piloter les volets roulants et de gérer le chauffage à distance, depuis un smartphone ou une tablette.",images:[],defaut:"MO"},
   {id:"plafonds",groupe:"PLÂTRERIE SÈCHE",titre:"PLAFONDS",texte:"Plaques de plâtre de 13 mm d'épaisseur, vissées sur ossature métallique suspendue. Hauteur sous plafond dans les pièces habitables : environ 2,50 m.\nUne trappe isolée d'environ 0,60 x 0,60 m donne accès aux combles perdus (dans les WC, le dégagement, la salle de bains ou le garage, selon les impératifs techniques).\nPlafond du garage en plaques BA13 sur rails suspendus aux fermettes.",images:[{fichier:"image26.jpeg",w:519,h:691}],defaut:"MO"},
-  {id:"doublage",groupe:"PLÂTRERIE SÈCHE",titre:"DOUBLAGE – 160 mm",texte:"Doublage des murs extérieurs sur ossature métallique (rails et montants) intégrant une laine de verre d'une épaisseur minimale de 140 mm (épaisseur et nature suivant étude thermique), avec pare-vapeur papier et parement en plaque de plâtre de 13 mm.",images:[{fichier:"image27.jpeg",w:433,h:557}],defaut:"MO"},
-  {id:"cloisons_72mm",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS – 72 mm",texte:"Cloisons de distribution constituées de 2 plaques de plâtre sur ossature métallique, intégrant une laine de verre PARPHONIC de 45 mm.\nÉpaisseur finie : 72 mm.\nParois verticales des salles de bains, salles d'eau et du garage en plaques de plâtre hydrofugées ; les plafonds restent en plaques BA13 standard.",images:[{fichier:"image28.jpeg",w:410,h:390}],defaut:"MO"},
+  {id:"doublage",groupe:"PLÂTRERIE SÈCHE",titre:"DOUBLAGE – 160 mm",texte:"Doublage des murs extérieurs par le système ISOVER OPTIMA ou équivalent, sous Avis Technique et conforme au DTU 25.41 :\n- ossature métallique (lisses et fourrures) fixée au mur par des appuis Optima2 en composite, rupteurs de pont thermique ;\n- laine de verre GR 32 ou GR 30 certifiée ACERMI, d'une épaisseur minimale de 140 mm (épaisseur et nature suivant étude thermique) ;\n- pare-vapeur papier ;\n- parement en plaque de plâtre de 13 mm.",images:[{fichier:"image27.jpeg",w:433,h:557}],defaut:"MO"},
+  {id:"cloisons_72mm",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS – 72 mm",texte:"Cloisons de distribution KNAUF METAL 72/48 ou équivalent, conformes au NF DTU 25.41 :\n- une plaque de plâtre KNAUF KS BA13 A1 vissée de chaque côté d'une ossature métallique (montants M48, entraxe de 600 mm, ou 400 mm selon la hauteur) ;\n- laine de verre PARPHONIC de 45 mm incorporée ;\n- épaisseur finie : 72 mm ; avec la laine minérale, affaiblissement acoustique RA = 39 dB et résistance au feu EI 30.\nParois verticales des salles de bains, salles d'eau et du garage en plaques de plâtre hydrofugées ; les plafonds restent en plaques BA13 standard.",images:[{fichier:"image28.jpeg",w:410,h:390}],defaut:"MO"},
   {id:"cloisons_100mm",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS – 100 mm",texte:"Cloisons de distribution constituées de 2 plaques de plâtre sur ossature métallique, intégrant une laine de verre PARPHONIC de 85 mm.\nÉpaisseur finie : 102 mm.\nLocalisation : suivant plans.",images:[],defaut:"MO"},
   {id:"cloisons_separation_volumes_non_chauffes",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS DE SÉPARATION VOLUMES NON CHAUFFÉS",texte:"Entre les parties chauffées et non chauffées, cloison isolante sur ossature métallique, composée de deux plaques de plâtre durci de 13 mm d'épaisseur et d'une laine de verre (épaisseur suivant étude thermique).",images:[{fichier:"image29.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"bandes_joints_plaque_platre",groupe:"PLÂTRERIE SÈCHE",titre:"BANDES JOINTS PLAQUES DE PLÂTRE",texte:"Collage et serrage de la bande à joints, remplissage de l'aminci et passe de finition.\nBandes armées sur les angles saillants.\nÉtat de finition « courant » au sens du DTU 59.1 « peinture ».\nTravaux préparatoires (égrenage, ponçage, enduits de finition et couche d'impression) non compris, à la charge du lot peinture.",images:[{fichier:"image30.jpeg",w:520,h:390}],defaut:"MO"},
@@ -3893,7 +3893,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=10;
+const PTR_SEED_REV=11;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -3917,8 +3917,11 @@ PTR_SEED_DATES[9]=PTR_SEED_DATE_9;
    roulants électriques à coffre demi-linteau, box domotique io */
 const PTR_SEED_DATE_10='2026-09-27T09:00:00.000Z';
 PTR_SEED_DATES[10]=PTR_SEED_DATE_10;
+/* révision 11 : cloisons KNAUF METAL 72/48, doublage ISOVER OPTIMA */
+const PTR_SEED_DATE_11='2026-09-27T10:00:00.000Z';
+PTR_SEED_DATES[11]=PTR_SEED_DATE_11;
 /* propositions dont le texte a été réécrit après la révision 4 */
-const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a']};
+const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a'],11:['var_cloisons_72mm_a','var_doublage_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
    rectifiés B60. Pour chaque proposition dont le texte a changé, les
    empreintes des textes livrés auparavant : une bibliothèque enregistrée
@@ -3934,7 +3937,7 @@ const PTR_TEXTES_ANCIENS={
   var_charpente_a:['1uzgv0i','608cua'],var_debords_toits_a:['1edn4zx','1g4ibag'],var_ecran_sous_toiture_a:['1uiinn1','1s1q0v7'],
   var_couverture_a:['7lvssw'],var_gouttieres_tuyaux_descente_a:['pu7zi3','1cea0bq'],var_porte_entree_a:['19hba3s','1hax9pk'],
   var_chassis_fenetres_francaise_a:['1u32ocs'],var_coulissant_a:['3c6v4e'],var_vitrerie_a:['1izyyqu'],var_volets_roulants_a:['cus9ae','1s3a8gz'],
-  var_domotique_a:['cjndgj','4nsl49'],var_plafonds_a:['1hfks3d','1fbdef5'],var_doublage_a:['9omws7','zfblvb'],var_cloisons_72mm_a:['oxzvjj','ppxmzz'],
+  var_domotique_a:['cjndgj','4nsl49'],var_plafonds_a:['1hfks3d','1fbdef5'],var_doublage_a:['9omws7','zfblvb','ytkxyx'],var_cloisons_72mm_a:['oxzvjj','ppxmzz','1ooq8i1'],
   var_cloisons_100mm_a:['js7lv7','1kg71q5'],var_cloisons_separation_volumes_non_chauffes_a:['1pa1sq5','u4ag2a'],
   var_bandes_joints_plaque_platre_a:['16mzlw0','y33ffs'],var_portes_interieures_a:['1vwutda','1f8bvar'],var_portes_interieures_galandage_a:['898spw','1ndq5sa'],
   var_isolation_thermique_plafond_a:['mzbjt','1g4ksrg'],var_isolation_thermique_sol_a:['1kurhlf','1n4qvry'],var_electricite_a:['1rhieo5','s3dg4e','qjicfo'],
@@ -3994,6 +3997,12 @@ const ptrDimsPhoto=ph=>{
 const ptrRevPrestation=id=>{const a=PTR_PRESTATIONS_AJOUTEES.find(x=>'pr_'+x.id===id);return a?a.rev:1};
 /* compléments de la proposition standard (A) : fiche produit et photo */
 const PTR_COMPLEMENTS_A={
+  cloisons_72mm:{marque:'Knauf',reference:'KNAUF METAL 72/48 — KS BA13 A1 (ou équivalent)',url:'https://www.knauf.com/fr-FR',
+    photosAvant:[ptrPhotoAsset('knauf_cloison_72_48.jpeg',520,480)],
+    pieces:[ptrPieceAsset('docs/Knauf_Cloison_Metal_72_48.pdf','Fiche technique Knauf — Cloison Metal 72-48.pdf')]},
+  doublage:{marque:'Isover',reference:'Système OPTIMA Murs (ou équivalent)',url:'https://www.isover.fr',
+    photosAvant:[ptrPhotoAsset('isover_optima_murs.jpeg',709,501)],
+    pieces:[ptrPieceAsset('docs/Isover_Systeme_Optima_Murs.pdf','Documentation Isover — Système OPTIMA Murs.pdf')]},
   gouttieres_tuyaux_descente:{marque:'DAL’ALU',reference:'Gouttière G300 (ou équivalent)',url:'https://www.dalalu.fr',
     photosAvant:[ptrPhotoAsset('gouttiere_g300.jpeg',1600,1202)],
     pieces:[ptrPieceAsset('docs/DalAlu_Gouttiere_G300.pdf','Fiche produit DAL’ALU — Gouttière G300.pdf')]},
@@ -4180,7 +4189,7 @@ const PTR_TITRES_ACCENTS=[['PREPARATION','PRÉPARATION'],['MACONNERIE','MAÇONNE
   ['EVIER','ÉVIER'],['FENETRE','FENÊTRE'],['ACCES','ACCÈS'],['EXCEDENTAIRES','EXCÉDENTAIRES']];
 const PTR_MARQUES=['Atlantic','Aldes','Daikin','Jacob Delafon','Monier','PBM','MSEA','Celtys','Placo','Knauf','Isover',
   'Grohe','Velux','Somfy','Legrand','Schneider','Hager','Porcher','Villeroy','Geberit','Kinedo','Saunier Duval','Rehau',
-  'Edilians','Biobric','Alkern','Elibloc','Dal.Alu','Hörmann','Hormann','Emaplast','Veka','Reynaers','Gemaplast'];
+  'Edilians','Biobric','Alkern','Elibloc','Dal.Alu','Hörmann','Hormann','Emaplast','Veka','Reynaers','Gemaplast','Knauf','Isover'];
 const PTR_MOTS_MARQUES=['TaHoma','AldesConnect','EasyHOME','AquaAIR','T.One','ProMatic','BiSecur','RenoMatic','ProLift'];
 function ptrAlertesTexte(titre,texte){
   const A=[], t=String(texte||''), ti=String(titre||'');
