@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-26 · Programme technique : bibliothèque de prestations A/B/C, éditeur par projet, photos cadrées, exports Word, PDF, Excel et dossier ZIP';
+const VERSION='2026-09-26 · Programme technique : orthographe du modèle corrigée, nouvelles propositions brique Biobric, tuile Edilians HP 20 et Aldes T.One AquaAIR';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2219,63 +2219,63 @@ const HONO_ECHEANCIER=[
    adresse, surfaces) et la synthèse financière changent d'un dossier à
    l'autre, calculés comme partout ailleurs dans l'application. */
 const PTR_CATALOGUE=[
-  {id:"preparation_terrain",groupe:"PRÉPARATION DU TERRAIN",titre:"PREPARATION DU TERRAIN",texte:"Le client aura à sa charge : bornage impératif du terrain, déboisage, dessouchage, débroussaillage, busage, démolition des existants (si nécessaire).",images:[],montant:"Suivant devis si nécessaire",defaut:"MO"},
+  {id:"preparation_terrain",groupe:"PRÉPARATION DU TERRAIN",titre:"PRÉPARATION DU TERRAIN",texte:"Le client aura à sa charge : bornage impératif du terrain, déboisage, dessouchage, débroussaillage, busage, démolition des existants (si nécessaire).",images:[],montant:"Suivant devis si nécessaire",defaut:"MO"},
   {id:"implantation",groupe:"PRÉPARATION DU TERRAIN",titre:"IMPLANTATION",texte:"L'implantation sera réalisée conformément aux autorisations administratives et aux règles de l'urbanisme. En cas de construction en limite séparative, le maître de l'Ouvrage devra fournir une autorisation écrite des propriétaires limitrophes, permettant l'accès aux entreprises pour la réalisation des travaux. La remise en état des clôtures, haies vives et toutes indemnités éventuelles, seront à la charge du Maître de l'Ouvrage.",images:[],defaut:"MO"},
-  {id:"chemin_acces_chantier",groupe:"PRÉPARATION DU TERRAIN",titre:"CHEMIN D'ACCES CHANTIER",texte:"Accès chantier empierré en calcaire.\nFinition gravillonnée de l'accès, y compris bande de propreté tout autour de la construction sur 80cm environ.",images:[{fichier:"image2.jpeg",w:520,h:390},{fichier:"image3.jpeg",w:761,h:572}],defaut:"MO"},
+  {id:"chemin_acces_chantier",groupe:"PRÉPARATION DU TERRAIN",titre:"CHEMIN D'ACCÈS CHANTIER",texte:"Accès chantier empierré en calcaire.\nFinition gravillonnée de l'accès, y compris bande de propreté tout autour de la construction sur 80 cm environ.",images:[{fichier:"image2.jpeg",w:520,h:390},{fichier:"image3.jpeg",w:761,h:572}],defaut:"MO"},
   {id:"terrassements",groupe:"PRÉPARATION DU TERRAIN",titre:"TERRASSEMENTS",texte:"Décapage des terres végétales sur une épaisseur de 20 cm environ à l'emplacement de la construction avec aisance de 80 cm de chaque côté.\nTerrassement en pleine masse, à la pelle mécanique et stockage des terres excédentaires sur place autour de la construction.\nLes fouilles en rigole de 50 cm x 25 cm de hauteur sont réalisées à la pelle mécanique. La profondeur est déterminée par la limite hors gel.",images:[{fichier:"image4.jpeg",w:520,h:390},{fichier:"image5.jpeg",w:292,h:390}],defaut:"MO"},
-  {id:"terres_excedentaires",groupe:"PRÉPARATION DU TERRAIN",titre:"TERRES EXCEDENTAIRES",texte:"Régalage des terres excédentaires de la construction. Aucun apport de terre supplémentaire n'est prévu. Les terres végétales seront étalées sur le terrain et les terres excédentaires ne seront pas évacuées",images:[],defaut:"MO"},
-  {id:"fondations",groupe:"MACONNERIE",titre:"FONDATIONS",texte:"Par semelles filantes sous murs périphériques et de refend, en béton armé type XC2 – C25/30. Armatures par 6 barres filantes avec cadres.",images:[{fichier:"image6.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"vide_sanitaire",groupe:"MACONNERIE",titre:"VIDE SANITAIRE",texte:"Réalisation du soubassement du vide sanitaire par des agglos creux de 25cm de hauteur. 3 rangs pour une hauteur fini de 75 cm.\nLe soubassement du vide sanitaire enterré sera revêtu d'un enduit ciment hydrofugé.\nCet enduit n'est pas un système d'étanchéité, il accompagne un mur de troisième catégorie (cas des vides sanitaires) ou des circulations d'eau temporaires sont admises.\nVentilation du vide sanitaire à l'aide de grille positionnées en mur d'élévation.\nDans le cas d'un vide sanitaire enterré, l'accès sera réalisé par une réservation dans le garage refermé par une trappe métallique.",images:[{fichier:"image7.jpeg",w:768,h:576},{fichier:"image8.jpeg",w:695,h:708},{fichier:"image9.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"planchers",groupe:"MACONNERIE",titre:"PLANCHERS",texte:"Plancher du rez-de-chaussée constitué de poutrelles béton et hourdis plastique avec dalle de compression en béton brut de règle, compris chainage en béton armée. Valeur Up du plancher conforme à la réglementation thermique en vigueur.",images:[{fichier:"image10.jpeg",w:292,h:390},{fichier:"image11.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"murs",groupe:"MACONNERIE",titre:"MURS",texte:"Murs de façade et de pignons assurant une hauteur sous plafond de 2,50 m environs.\nMaçonnerie en agglos creux de 0,20 cm d'épaisseur ( R=0.20 m2.K/W)\nLinteaux chainages verticaux et horizontaux en béton armé coulés dans des éléments spécifiques (éléments d'angle ou en U). Les poteaux ou chainage BA ou linteaux d'une certaine section pourront au choix du maitre d'œuvre être coffrés et garder un aspect de parement en béton avant application des enduits de façades.",images:[{fichier:"image12.jpeg",w:520,h:390},{fichier:"image13.jpeg",w:292,h:390}],defaut:"MO"},
-  {id:"pointes_pignons",groupe:"MACONNERIE",titre:"POINTES DE PIGNONS",texte:"En agglos creux de 0,20 cm d'épaisseur maçonnés au mortier.\nArase béton suivant rampants",images:[],defaut:"les_deux"},
-  {id:"seuils_porte_appuis_fenetre",groupe:"MACONNERIE",titre:"SEUILS DE PORTE ET APPUIS DE FENETRE",texte:"Appuis de fenêtre aspect béton (en deux éléments suivants dimensions) de chez PBM, MSEA ou Celtys et un renfort grillagé sous les appuis dans l'enduit.\nSeuil de porte de garage en béton finition lisse coulée en place. Le maitre d'ouvrage devra prévoir une finition de peinture ou carrelée.",images:[{fichier:"image14.jpeg",w:520,h:390}],defaut:"les_deux"},
-  {id:"revetements_exterieurs",groupe:"MACONNERIE",titre:"REVETEMENTS EXERIEURS",texte:"Enduit monocouche suivant plan (pigmentation des façades suivant choix de la teinte). Enduit finition gratté grain moyen. Épaisseur minimum de 10 mm en tout point. Le maitre d'œuvre déconseille l'utilisation de couleur foncée et décline toute responsabilité dans l'utilisation de couleurs foncées qui entraine des phénomènes tels que le faïençage, nuançage et de microfissurations.",images:[{fichier:"image15.jpeg",w:520,h:390},{fichier:"image16.jpeg",w:520,h:390}],defaut:"les_deux"},
-  {id:"charpente",groupe:"LA TOITURE",titre:"LA CHARPENTE",texte:"Pente de la toiture : 35°\nFermettes en sapin industrielles de types combles perdus (entraxe environ 60cm) compris accessoires, étrésillons, et contreventement. L'ensemble de la charpente est traitée insecticide et fongicide.",images:[{fichier:"image17.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"debords_toits",groupe:"LA TOITURE",titre:"DEBORDS DE TOITS",texte:"Les débords de toit en PVC blanc d'une largeur d'environ 20 cm\nLes débords de toits sont constitués par les fermettes habillés d'une plaque en PVC blanc en sous-face.\nPositionnement selon plans et façades",images:[{fichier:"image18.jpeg",w:584,h:390},{fichier:"image19.jpeg",w:584,h:390}],defaut:"MO"},
-  {id:"ecran_sous_toiture",groupe:"LA TOITURE",titre:"ECRAN DE SOUS-TOITURE",texte:"Écran de sous-toiture qualité HPV avec contreliteaunage.\nType SPIRTECH de chez Monier ou équivalent",images:[{fichier:"image20.jpeg",w:520,h:390},{fichier:"image21.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"terres_excedentaires",groupe:"PRÉPARATION DU TERRAIN",titre:"TERRES EXCÉDENTAIRES",texte:"Régalage des terres excédentaires de la construction. Aucun apport de terre supplémentaire n'est prévu. Les terres végétales seront étalées sur le terrain et les terres excédentaires ne seront pas évacuées.",images:[],defaut:"MO"},
+  {id:"fondations",groupe:"MAÇONNERIE",titre:"FONDATIONS",texte:"Par semelles filantes sous murs périphériques et de refend, en béton armé type XC2 – C25/30. Armatures par 6 barres filantes avec cadres.",images:[{fichier:"image6.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"vide_sanitaire",groupe:"MAÇONNERIE",titre:"VIDE SANITAIRE",texte:"Réalisation du soubassement du vide sanitaire par des agglos creux de 25 cm de hauteur : 3 rangs pour une hauteur finie de 75 cm.\nLe soubassement du vide sanitaire enterré sera revêtu d'un enduit ciment hydrofugé.\nCet enduit n'est pas un système d'étanchéité, il accompagne un mur de troisième catégorie (cas des vides sanitaires) où des circulations d'eau temporaires sont admises.\nVentilation du vide sanitaire à l'aide de grilles positionnées en mur d'élévation.\nDans le cas d'un vide sanitaire enterré, l'accès sera réalisé par une réservation dans le garage refermé par une trappe métallique.",images:[{fichier:"image7.jpeg",w:768,h:576},{fichier:"image8.jpeg",w:695,h:708},{fichier:"image9.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"planchers",groupe:"MAÇONNERIE",titre:"PLANCHERS",texte:"Plancher du rez-de-chaussée constitué de poutrelles béton et hourdis plastique avec dalle de compression en béton brut de règle, compris chaînage en béton armé. Valeur Up du plancher conforme à la réglementation thermique en vigueur.",images:[{fichier:"image10.jpeg",w:292,h:390},{fichier:"image11.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"murs",groupe:"MAÇONNERIE",titre:"MURS",texte:"Murs de façade et de pignons assurant une hauteur sous plafond de 2,50 m environ.\nMaçonnerie en agglos creux de 20 cm d'épaisseur (R = 0,20 m².K/W).\nLinteaux, chaînages verticaux et horizontaux en béton armé coulés dans des éléments spécifiques (éléments d'angle ou en U). Les poteaux, chaînages BA ou linteaux d'une certaine section pourront, au choix du maître d'œuvre, être coffrés et garder un aspect de parement en béton avant application des enduits de façades.",images:[{fichier:"image12.jpeg",w:520,h:390},{fichier:"image13.jpeg",w:292,h:390}],defaut:"MO"},
+  {id:"pointes_pignons",groupe:"MAÇONNERIE",titre:"POINTES DE PIGNONS",texte:"En agglos creux de 20 cm d'épaisseur maçonnés au mortier.\nArase béton suivant rampants.",images:[],defaut:"les_deux"},
+  {id:"seuils_porte_appuis_fenetre",groupe:"MAÇONNERIE",titre:"SEUILS DE PORTE ET APPUIS DE FENÊTRE",texte:"Appuis de fenêtre aspect béton (en deux éléments suivant dimensions) de chez PBM, MSEA ou Celtys et un renfort grillagé sous les appuis dans l'enduit.\nSeuil de porte de garage en béton finition lisse coulé en place. Le maître d'ouvrage devra prévoir une finition de peinture ou carrelée.",images:[{fichier:"image14.jpeg",w:520,h:390}],defaut:"les_deux"},
+  {id:"revetements_exterieurs",groupe:"MAÇONNERIE",titre:"REVÊTEMENTS EXTÉRIEURS",texte:"Enduit monocouche suivant plan (pigmentation des façades suivant choix de la teinte). Enduit finition gratté grain moyen. Épaisseur minimum de 10 mm en tout point. Le maître d'œuvre déconseille l'utilisation de couleurs foncées et décline toute responsabilité dans leur utilisation, qui entraîne des phénomènes tels que le faïençage, le nuançage et la microfissuration.",images:[{fichier:"image15.jpeg",w:520,h:390},{fichier:"image16.jpeg",w:520,h:390}],defaut:"les_deux"},
+  {id:"charpente",groupe:"LA TOITURE",titre:"LA CHARPENTE",texte:"Pente de la toiture : 35°\nFermettes en sapin industrielles de types combles perdus (entraxe environ 60 cm) compris accessoires, étrésillons, et contreventement. L'ensemble de la charpente est traitée insecticide et fongicide.",images:[{fichier:"image17.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"debords_toits",groupe:"LA TOITURE",titre:"DÉBORDS DE TOITS",texte:"Les débords de toit en PVC blanc d'une largeur d'environ 20 cm.\nLes débords de toits sont constitués par les fermettes habillées d'une plaque en PVC blanc en sous-face.\nPositionnement selon plans et façades.",images:[{fichier:"image18.jpeg",w:584,h:390},{fichier:"image19.jpeg",w:584,h:390}],defaut:"MO"},
+  {id:"ecran_sous_toiture",groupe:"LA TOITURE",titre:"ÉCRAN DE SOUS-TOITURE",texte:"Écran de sous-toiture qualité HPV avec contreliteaunage.\nType SPIRTECH de chez Monier ou équivalent.",images:[{fichier:"image20.jpeg",w:520,h:390},{fichier:"image21.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"couverture",groupe:"LA TOITURE",titre:"COUVERTURE",texte:"Une couverture en ardoise artificielle 40×24 type Orléane utilise des éléments en fibres-ciment imitant l'ardoise naturelle, de dimensions 40 cm × 24 cm. Ce format, courant en toiture, est posé avec un recouvrement adapté à la pente pour garantir l'étanchéité.",images:[{fichier:"image22.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"gouttieres_tuyaux_descente",groupe:"LA TOITURE",titre:"GOUTTIERES – TUYAUX DE DESCENTE",texte:"Gouttière en aluminium modèle corniche y compris descentes en aluminium.\nTeinte au choix : gris anthracite, sable ou cuivre",images:[],defaut:"MO"},
-  {id:"porte_entree",groupe:"MENUISERIES EXTERIEURES",titre:"PORTE D'ENTREE – RAL 7016",texte:"Porte d'entrée acier 170 X 215 type « DREAM » avec châssis latéral fixe de chez Bel'm – Ud = 0,75 W/m2.K ou similaire\nBarre de tirage ronde ton inox 1800 mm",images:[{fichier:"image23.png",w:436,h:452}],defaut:"MO"},
-  {id:"chassis_fenetres_francaise",groupe:"MENUISERIES EXTERIEURES",titre:"CHASSIS ET FENETRES OUVRANT A LA FRANCAISE",texte:"Menuiseries en PVC, ouvrants à la française, grand vitrage, quantitatif et dimensions selon plan.\nOscillo-battant intégré sur menuiserie à 1 battant.\nCouleur extérieure : RAL 7016 gris\nCouleur intérieure : RAL 7016 gris",images:[{fichier:"image24.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"coulissant",groupe:"MENUISERIES EXTERIEURES",titre:"COULISSANT",texte:"Baies et fenêtres coulissantes en aluminium laqué. Repli d'un vantail sur l'autre. Positionnement et dimension selon plan\nCouleur extérieure : RAL 7016 gris\nCouleur intérieure : RAL 7016 gris",images:[{fichier:"image25.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"vitrerie",groupe:"MENUISERIES EXTERIEURES",titre:"VITRERIE",texte:"Double vitrage isolant avec warm-edge avec gaz argon.\nVerre transparent sur croisées, portes fenêtres et coulissants.\nVerre blanc translucide sur châssis WC et salle de bains ou salle d'eau.",images:[],defaut:"MO"},
-  {id:"volets_roulants",groupe:"MENUISERIES EXTERIEURES",titre:"VOLETS ROULANTS",texte:"Volets roulants à lames aluminium laquées dans coffre maçonné.\nMotorisation filaire centralisé SOMFY RS 100\nCouleur : ALU RAL 7016 gris",images:[{fichier:"image14.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"domotique",groupe:"MENUISERIES EXTERIEURES",titre:"DOMOTIQUE",texte:"Box SOMFY TAHOMA SWITCH pour pilotage des volets roulants et gestion du chauffage à distance via un smartphone ou une tablette",images:[],defaut:"MO"},
-  {id:"plafonds",groupe:"PLATRERIE SECHE",titre:"PLAFONDS",texte:"Plaque de plâtre de 13 mm d'épaisseur suspendues et visées sur ossature métallique. Hauteur sous plafond dans les parties habitables environ 2.50 m.\nUne trappe isolée d'environ 0.60 x 0.60 m pour accès aux combles perdus. (Emplacement dans WC, dégagement, salle de bain ou garage suivant impératif technique).\nPlafond garage BA 13 sur rails suspendus sur fermettes.",images:[{fichier:"image26.jpeg",w:691,h:519}],defaut:"MO"},
-  {id:"doublage",groupe:"PLATRERIE SECHE",titre:"DOUBLAGE – 160 mm",texte:"Cloisons de doublage en isolation périphérique constituées d'une ossature métallique (rails et montants) comportant une laine de verre.\n(Épaisseur et nature suivant étude thermique avec un minimum de 140 mm) revêtue de pare vapeur papier et d'une plaque de plâtre de 13mm.",images:[{fichier:"image27.jpeg",w:557,h:433}],defaut:"MO"},
-  {id:"cloisons_72mm",groupe:"PLATRERIE SECHE",titre:"CLOISONS – 72 mm",texte:"Cloison de distribution constituées de 2 plaques de plâtres sur ossature métallique intégrant une laine de verre PARPHONIC 45mm\nÉpaisseur finie de 72mm\nParois verticales pour salle de bains, salle d'eau et garage en plaques de plâtre hydrofugées.\nLes surfaces des plafonds restent en plaque BA13 standards.",images:[{fichier:"image28.jpeg",w:410,h:390}],defaut:"MO"},
-  {id:"cloisons_100mm",groupe:"PLATRERIE SECHE",titre:"CLOISONS – 100 mm",texte:"Cloison de distribution constituées de 2 plaques de plâtres sur ossature métallique intégrant une laine de verre PARPHONIC 85mm\nÉpaisseur finie de 102mm\nLocalisation : suivant plan",images:[],defaut:"MO"},
-  {id:"cloisons_separation_volumes_non_chauffes",groupe:"PLATRERIE SECHE",titre:"CLOISONS DE SEPARATION VOLUMES NON-CHAUFFES",texte:"Entre les parties chauffées et non chauffées, cloison isolante, composées de deux plaques de plâtre durci de 13 mm d'épaisseur et d'une couche de laine de verre (épaisseur suivant étude thermique) avec structure métallique.",images:[{fichier:"image29.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"bandes_joints_plaque_platre",groupe:"PLATRERIE SECHE",titre:"BANDES JOINTS PLAQUE DE PLATRE",texte:"Collage et serrage de la bande de joints, remplissage de l'aminci, passe de finition.\nBandes armées dans les angles saillants.\nÉtat de finition « courant » au sens du D.T.U 59.10 « peinture ».\nTravaux préparatoires (égrenage, ponçage et enduits de finition et couche d'impression) non compris au contrat et à charge du lot peinture.",images:[{fichier:"image30.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"portes_interieures",groupe:"PLATRERIE SECHE",titre:"PORTES INTERIEURES",texte:"Les portes intérieures sont équipées de poignées en aluminium.\nBec de canne et condamnation pour WC, salle d'eau et salles de bains (sauf si porte coulissante)\nSerrure pêne dormant ½ tour à larder pour pièces principales.\nBloc porte intérieure rive droite en pose fin de chantier composé d'huisserie laqué KM1 (204 x 83) de chez Menuiseries d'Olt, panneau à âme alvéolaire gravé pré peint blanc. Choix dans la gamme «ZEN FUJI » MENUISERIES D'OLT.\nPorte isolante 0.83 x 2.04 avec serrure 3 points gamme « ZEN FUJI »",images:[{fichier:"image31.png",w:502,h:390}],defaut:"MO"},
-  {id:"portes_interieures_galandage",groupe:"PLATRERIE SECHE",titre:"PORTES INTERIEURES à GALANDAGE",texte:"Système de porte coulissante intégrée dans un châssis métallique (appelé galandage), lui-même incorporé dans une cloison.\nLocalisation : suivant plan",images:[],defaut:"MO"},
-  {id:"isolation_thermique_plafond",groupe:"ISOLATION THERMIQUE",titre:"ISOLATION THERMIQUE PLAFOND",texte:"Isolation soufflée en combles perdus : laine de verre soufflée conforme à la réglementation thermique et environnementale en vigueur.\nÉpaisseur de 455 mm pour un R = 10)",images:[{fichier:"image32.jpeg",w:290,h:174}],defaut:"MO"},
-  {id:"isolation_thermique_sol",groupe:"ISOLATION THERMIQUE",titre:"ISOLATION THERMIQUE SOL",texte:"Isolation de la dalle de la partie habitable par TMS. Épaisseur suivant étude thermique. Une chape liquide sera ensuite réalisée.\nEp préconisé : 56 mm",images:[{fichier:"image33.jpeg",w:822,h:390}],defaut:"MO"},
-  {id:"electricite",groupe:"ELECTRICITE",titre:"ELECTRICITE",texte:"L'installation générale est en conformité avec les textes réglementaires, notamment la Norme C 15-100 en vigueur. Elle comprend un dispositif de protection par micro-disjoncteurs. L'installation est pourvue de prises de courant 16A, simple ou double à éclipse, et d'un conducteur de terre dans tous les circuits électriques.\nTableau de communication pouvant recevoir une box internet, équipé d'un répartiteur TV (sans amplificateur, ni d'antenne), 1 prise de test DTI + DTIO (fibre optique), 2 prises de courants. Toutes les prises sont raccordées. Le réseau de prise RJ45 est alimenté par des câbles grade 2 TV1.\nInstallation générale avec alimentation monophasé »e 220 volts. Liaisons équipotentielles sur la baignoire et la douche.\nAppareillage électrique blanc gamme Céliane de chez LEGRAND ou Odace de chez SCHNEIDER.\nL'ensemble des installations est protégé par un dispositif différentiel.",images:[],defaut:"MO"},
-  {id:"points_lumineux",groupe:"ELECTRICITE",titre:"POINTS LUMINEUX",texte:"Il est compris un point lumineux par pièce : séjour, salon cuisine, chambres, bureau, cellier et garage commandés en va-et-vient, wc et salles de bains en simple allumage,\n10 spots étanche et 6 points lumineux extérieurs.",images:[],defaut:"MO"},
-  {id:"prises_courant",groupe:"ELECTRICITE",titre:"PRISES DE COURANT",texte:"Cuisine :\n4 P.C 16 A + T à hauteur\n4 P.C 16 A + T pour lave-vaisselle, réfrigérateur, micro-onde, hotte\n1 P.C 20 A + T pour four\n1 cache fil 32 A + T\nSéjour-salon :\n5 P.C de 16 A pour surface habitable inférieure à 28 m2 et 12 au-delà\n1 prise T.V\n2 prises R.J 45\nSalle de bains :\n2 P.C 16 A + T\nChambre ou bureau (par pièce) :\n3 P.C + T\n1 prise R.J 45\n1 prise T.V\nDégagement :\n1 P.C 16 A + T\nEmplacement à déterminer :\n2 P.C + T pour lave-linge et sèche-linge\n1 P.C + T extérieure\nSonnette sans fil sur tableau de la porte d'entrée",images:[],defaut:"MO"},
-  {id:"options_electriques",groupe:"ELECTRICITE",titre:"OPTIONS ELECTRIQUES",texte:"Détecteur de fumée autonome conforme aux normes NF\nInterrupteur d'arrêt d'urgence dans le cas où le tableau électrique est placé dans un local qui ne communique pas directement avec l'habitation.",images:[],defaut:"MO"},
-  {id:"ventilation_mecanique_controlee",groupe:"ELECTRICITE",titre:"VENTILATION MECANIQUE CONTROLEE",texte:"Évacuation de l'air vicié dans la cuisine, salle de bains, salle d'eau, cellier et WC assuré par une V.M.C hygro B basse consommation suivant réglementation en vigueur de chez ATLANTIC ou ALDES. Caisson extracteur suspendu à la charpente ou posé sur le plancher. Les gaines de raccordement seront isolantes et l'évacuation se fera hors toiture.\nRenouvellement de l'air par grilles hygroréglables (sauf en cas de VMC double flux), dans le séjour, les chambres et le bureau conformément à la réglementation en vigueur.",images:[{fichier:"image34.jpeg",w:300,h:230},{fichier:"image35.jpeg",w:197,h:255}],defaut:"MO"},
-  {id:"plomberie",groupe:"PLOMBERIE",titre:"PLOMBERIE",texte:"Alimentation eau froide / eau chaude par tubes polyéthylène encastrées de diamètres appropriés aux éléments à desservir.\nL'installation est protégée par un réducteur de pression. Robinet d'arrêt général de l'installation. Évacuation apparente dans les volumes chauffés des différentes eaux assuré par des tuyaux plastiques rigides.\nVentilation primaire de la décompression des eaux vannes raccordées en toiture.",images:[],defaut:"les_deux"},
-  {id:"evier",groupe:"PLOMBERIE",titre:"EVIER",texte:"Alimentation eau chaude, eau froide et évacuation de l'évier",images:[],defaut:"les_deux"},
-  {id:"lavabo_meuble_vasque",groupe:"PLOMBERIE",titre:"LAVABO OU MEUBLE VASQUE",texte:"Meuble 1 vasque modèle CONCERTO 2 à poser ou à suspendre comprenant meuble en 800 mm avec tiroirs ou portes, mitigeur lavabo chromé.\nSimple vasque en céramique, miroir rectangulaire et applique à led rectangulaires",images:[{fichier:"image36.jpeg",w:216,h:216}],defaut:"les_deux"},
-  {id:"douche",groupe:"PLOMBERIE",titre:"DOUCHE – 2 unités",texte:"Receveur de douche extra-plat d'une dimension de 90x140 cm\nModèle Flight de chez Jacob Delafon ou équivalent",images:[{fichier:"image37.jpeg",w:579,h:390}],defaut:"les_deux"},
-  {id:"colonne_douche",groupe:"PLOMBERIE",titre:"COLONNE DE DOUCHE – 2 unités",texte:"Colonne de douche avec mitigeur thermostatique.\nDouche de tête ronde Ø 200 mm.\nDouchette à mai Ø 100 mm, 5 jets (débit : 10 l/mn).\nFlexible de douche lisse anti-torsion 1600 mm, aspect métal.\nInverseur intégré à la poignée.\nButée de sécurité à 38°C. Température maxi inférieur à 50°C.\nClapets anti-retour sur les alimentations.",images:[{fichier:"image38.jpeg",w:216,h:216}],defaut:"MO"},
-  {id:"wc",groupe:"PLOMBERIE",titre:"WC – 2 unités",texte:"Pack WC suspendu sans bride PATIO, 53.5 x 36 cm, double chasse 3/6 L, avec abattant standard, finition blanc brillant",images:[{fichier:"image39.jpeg",w:216,h:216}],defaut:"MO"},
-  {id:"divers_plomberie",groupe:"PLOMBERIE",titre:"DIVERS PLOMBERIE",texte:"Alimentation et évacuation avec robinets d'arrêt pour raccordement lave-linge et lave-vaisselle (emplacement au rez-de chaussée proche d'un point d'eau)\nRobinet de puisage à positionner sur le mur extérieur",images:[],defaut:"MO"},
-  {id:"pompe_a_chaleur",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"POMPE A CHALEUR",texte:"Pompe à chaleur Atlantic Alféa Extensa Duo A.I. (R32)\nType : PAC air/eau split avec module intérieur et unité extérieure.\nServices : chauffage + production d'eau chaude sanitaire via ballon intégré de 190 L.\nPerformance : COP jusqu'à ~4,7, classe énergétique chauffage A++/A+++, ECS A+.\nPlage de fonctionnement : efficace jusqu'à –20 °C extérieur.\nTechnologie : compresseur Inverter, échangeur coaxial Atlantic, fluide frigorigène R32.\nConfort : niveau sonore réduit (~35–40 dB extérieur, ~39–40 dB intérieur).\nConnectivité : pilotage et programmation via application Tahoma\nFacilité d'installation : configuration rapide (EASY START) et maintenance simplifiée.",images:[{fichier:"image40.jpeg",w:616,h:390}],defaut:"MO"},
-  {id:"plancher_chauffant",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"PLANCHER CHAUFFANT",texte:"Le système de chauffage est constitué d'un réseau de tubes en polyéthylène réticulé (PER), disposés en nappes sur un isolant thermique de sol conforme aux normes en vigueur.\nLes tubes sont fixés sur les plaques isolantes selon un pas de pose défini par l'étude thermique, et reliés à un collecteur de distribution équipé de vannes d'équilibrage et de régulation. L'ensemble est alimenté par une pompe à chaleur, fonctionnant en basse température (25/30 °C environ en régime nominal) pour optimiser le confort et les performances énergétiques.\nUne régulation de température est assurée à l'aide de 2 thermostats d'ambiance reliés aux collecteurs, permettant un contrôle précis des températures",images:[],defaut:"MO"},
-  {id:"seche_serviette_electrique",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"SECHE SERVIETTE ELECTRIQUE",texte:"Radiateur sèche serviette électrique modèle DORIS blanc d'Atlantic (puissance suivant étude thermique)",images:[{fichier:"image41.png",w:222,h:382}],montant:"460,00 € / unité",defaut:"les_deux"},
-  {id:"revetements_sols",groupe:"REVETEMENTS DE SOLS ET MURS",titre:"REVETEMENS DE SOLS",texte:"Chape liquide à base de ciment sur plancher chauffant\nRéalisation d'une chape fluide à base de liant ciment, conforme au DTU 26.2, spécialement conçue pour l'enrobage d'un plancher chauffant hydraulique basse température.\nLa chape est coulée sur un plancher chauffant préalablement mis en place, comprenant un isolant thermique adapté et un réseau de tubes fixé sur plaques.\nLa mise en œuvre est effectuée par pompage, avec une épaisseur minimale d'enrobage au-dessus des tubes de 30 mm.\nLa surface est réglée et talochée pour garantir une planéité conforme à la classe demandée (généralement classe P3).\nAprès coulage, un temps de séchage et de cure est respecté selon les conditions climatiques et la notice du fabricant.\nCarrelage grès émaillé 90 x 90 SEVILLE AVARIO RECT. avec plinthes\nCarrelage dans toutes les pièces sauf chambres, dressing et garage.\nLes plinthes sont identiques aux matériaux du sol.\nCarrelage posé droit sur chape.",images:[{fichier:"image42.jpeg",w:1000,h:563},{fichier:"image43.jpeg",w:520,h:390}],montant:"10 000,00 €",defaut:"les_deux"},
-  {id:"revetements_muraux",groupe:"REVETEMENTS DE SOLS ET MURS",titre:"REVETEMENTS MURAUX",texte:"Faïence pose droite, sans décors ni listels, à répartir sur les côtés du receveur de douche 17,00 m2",images:[{fichier:"image44.jpeg",w:520,h:390}],defaut:"les_deux"},
-  {id:"peintures",groupe:"REVETEMENTS DE SOLS ET MURS",titre:"PEINTURES",texte:"Ratissage, ponçage, une couche d'impression et une couche de finition de peinture acrylique blanc mat au rouleau sur les murs et les plafonds.",images:[],defaut:"les_deux"},
-  {id:"nettoyage_interieur",groupe:"NETTOYAGE INTERIEUR",titre:"NETTOYAGE INTERIEUR",texte:"Nettoyage de l'intérieur du projet (sols, vitres, sanitaires)",images:[],defaut:"les_deux"},
-  {id:"assainissement_vrd",groupe:"ASSAINISSEMENT – VRD",titre:"ASSAINISSEMENT – VRD",texte:"Les viabilisations de la parcelle comprenant les branchements des compteurs aux réseaux publics (tout à l'égout, électricité, gaz, téléphone, eau pluviale) seront effectuées, décrits et évalués par la régie au concessionnaire des services publics. Ces travaux ne sont pas coordonnés par le maitre d'œuvre.",images:[],defaut:"hors_coord"},
-  {id:"raccordements_reseaux_publics",groupe:"ASSAINISSEMENT – VRD",titre:"RACCORDEMENTS AUX RESEAUX PUBLICS",texte:"Terrassement d'une tranchée multi technique de 0,80 m de profondeur environ.\nLes tuyaux et/ou gaines permettant les raccordements aux différents réseaux. Ils seront mis en place avec un grillage plastique de signalisation et chambre de tirage si nécessaire.\nEst compris :\n1 tuyau de polyéthylène 19x25 pour l'eau potable de la pompe à chaleur au compteur en limite de propriété\n1 fourreau de diamètre 90 pour l'électricité, 2 fourreaux diamètre 32 pour le téléphone, 1 fourreau pour alimentation portail, 1 tuyau P.V.C. diamètre 100 pour le réseau T.A.E. (eaux vannes et usées) et 1 tuyau P.V.C. diamètre 100 pour réseau pluvial (raccordé au réseau ou en épandage).",images:[{fichier:"image45.jpeg",w:292,h:390}],montant:"15 000,00 €",defaut:"hors_coord"},
-  {id:"eaux_pluviales",groupe:"ASSAINISSEMENT – VRD",titre:"EAUX PLUVIALES",texte:"Regards béton avec tampons ou réducteurs au pied des descentes raccordées au réseau d'eau pluvial ou sur des tranchées drainantes ou sur puisard",images:[],defaut:"hors_coord"},
-  {id:"consommation",groupe:"CONSOMMATION",titre:"CONSOMMATION",texte:"Consommation en eau et électricités nécessaires à l'exécution des travaux",images:[],montant:"150,00 €",defaut:"les_deux"},
-  {id:"permeabilite_attestations_dpe",groupe:"PERMEABILITE, ATTESTATIONS DE CONFORMITES ET DPE",titre:"PERMEABILITE, ATTESTATIONS DE CONFORMITES ET DPE",texte:"A la livraison, vous sera transmis un rapport de test de perméabilité à l'air dont le résultat sera inférieur ou égal à la valeur de perméabilité à l'air prise en compte dans votre étude thermique.\nAttestation de fin de chantier : Contrôle en fin de chantier, par un contrôleur agrée par le ministère, pour vérifier la conformité de la construction aux exigences de la R.E.2020. Cette attestation de fin de chantier sera remise au client qui devra la joindre à la déclaration d'achèvement de travaux pour l'obtention du certificat de conformité.\nDPE : Le diagnostic de performance énergétique sera remis au client après la réception des travaux avec l'attestation de fin de chantier.",images:[{fichier:"image46.jpeg",w:274,h:390},{fichier:"image47.jpeg",w:674,h:374}],defaut:"les_deux"},
+  {id:"gouttieres_tuyaux_descente",groupe:"LA TOITURE",titre:"GOUTTIÈRES – TUYAUX DE DESCENTE",texte:"Gouttière en aluminium modèle corniche y compris descentes en aluminium.\nTeinte au choix : gris anthracite, sable ou cuivre",images:[],defaut:"MO"},
+  {id:"porte_entree",groupe:"MENUISERIES EXTÉRIEURES",titre:"PORTE D'ENTRÉE – RAL 7016",texte:"Porte d'entrée acier 170 X 215 type « DREAM » avec châssis latéral fixe de chez Bel'm – Ud = 0,75 W/m².K ou similaire\nBarre de tirage ronde ton inox 1800 mm",images:[{fichier:"image23.png",w:436,h:452}],defaut:"MO"},
+  {id:"chassis_fenetres_francaise",groupe:"MENUISERIES EXTÉRIEURES",titre:"CHÂSSIS ET FENÊTRES OUVRANT À LA FRANÇAISE",texte:"Menuiseries en PVC, ouvrants à la française, grand vitrage, quantitatif et dimensions selon plan.\nOscillo-battant intégré sur menuiserie à 1 battant.\nCouleur extérieure : RAL 7016 gris\nCouleur intérieure : RAL 7016 gris",images:[{fichier:"image24.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"coulissant",groupe:"MENUISERIES EXTÉRIEURES",titre:"COULISSANT",texte:"Baies et fenêtres coulissantes en aluminium laqué. Repli d'un vantail sur l'autre. Positionnement et dimension selon plan\nCouleur extérieure : RAL 7016 gris\nCouleur intérieure : RAL 7016 gris",images:[{fichier:"image25.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"vitrerie",groupe:"MENUISERIES EXTÉRIEURES",titre:"VITRERIE",texte:"Double vitrage isolant avec warm-edge avec gaz argon.\nVerre transparent sur croisées, portes fenêtres et coulissants.\nVerre blanc translucide sur châssis WC et salle de bains ou salle d'eau.",images:[],defaut:"MO"},
+  {id:"volets_roulants",groupe:"MENUISERIES EXTÉRIEURES",titre:"VOLETS ROULANTS",texte:"Volets roulants à lames aluminium laquées dans coffre maçonné.\nMotorisation filaire centralisée SOMFY RS 100\nCouleur : ALU RAL 7016 gris",images:[{fichier:"image14.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"domotique",groupe:"MENUISERIES EXTÉRIEURES",titre:"DOMOTIQUE",texte:"Box SOMFY TAHOMA SWITCH pour le pilotage des volets roulants et la gestion du chauffage à distance via un smartphone ou une tablette.",images:[],defaut:"MO"},
+  {id:"plafonds",groupe:"PLÂTRERIE SÈCHE",titre:"PLAFONDS",texte:"Plaques de plâtre de 13 mm d'épaisseur suspendues et vissées sur ossature métallique. Hauteur sous plafond dans les parties habitables : environ 2,50 m.\nUne trappe isolée d'environ 0,60 x 0,60 m pour accès aux combles perdus. (Emplacement dans WC, dégagement, salle de bain ou garage suivant impératif technique).\nPlafond garage BA 13 sur rails suspendus sur fermettes.",images:[{fichier:"image26.jpeg",w:691,h:519}],defaut:"MO"},
+  {id:"doublage",groupe:"PLÂTRERIE SÈCHE",titre:"DOUBLAGE – 160 mm",texte:"Cloisons de doublage en isolation périphérique constituées d'une ossature métallique (rails et montants) comportant une laine de verre.\n(Épaisseur et nature suivant étude thermique avec un minimum de 140 mm) revêtue de pare vapeur papier et d'une plaque de plâtre de 13 mm.",images:[{fichier:"image27.jpeg",w:557,h:433}],defaut:"MO"},
+  {id:"cloisons_72mm",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS – 72 mm",texte:"Cloisons de distribution constituées de 2 plaques de plâtre sur ossature métallique intégrant une laine de verre PARPHONIC 45 mm.\nÉpaisseur finie de 72 mm.\nParois verticales pour salle de bains, salle d'eau et garage en plaques de plâtre hydrofugées.\nLes surfaces des plafonds restent en plaques BA13 standard.",images:[{fichier:"image28.jpeg",w:410,h:390}],defaut:"MO"},
+  {id:"cloisons_100mm",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS – 100 mm",texte:"Cloisons de distribution constituées de 2 plaques de plâtre sur ossature métallique intégrant une laine de verre PARPHONIC 85 mm.\nÉpaisseur finie de 102 mm.\nLocalisation : suivant plan.",images:[],defaut:"MO"},
+  {id:"cloisons_separation_volumes_non_chauffes",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS DE SÉPARATION VOLUMES NON CHAUFFÉS",texte:"Entre les parties chauffées et non chauffées, cloison isolante composée de deux plaques de plâtre durci de 13 mm d'épaisseur et d'une couche de laine de verre (épaisseur suivant étude thermique) avec structure métallique.",images:[{fichier:"image29.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"bandes_joints_plaque_platre",groupe:"PLÂTRERIE SÈCHE",titre:"BANDES JOINTS PLAQUES DE PLÂTRE",texte:"Collage et serrage de la bande de joints, remplissage de l'aminci, passe de finition.\nBandes armées dans les angles saillants.\nÉtat de finition « courant » au sens du D.T.U 59.10 « peinture ».\nTravaux préparatoires (égrenage, ponçage et enduits de finition et couche d'impression) non compris au contrat et à charge du lot peinture.",images:[{fichier:"image30.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"portes_interieures",groupe:"PLÂTRERIE SÈCHE",titre:"PORTES INTÉRIEURES",texte:"Les portes intérieures sont équipées de poignées en aluminium.\nBec de canne et condamnation pour WC, salle d'eau et salles de bains (sauf si porte coulissante).\nSerrure pêne dormant ½ tour à larder pour pièces principales.\nBloc-porte intérieur rive droite en pose fin de chantier composé d'une huisserie laquée KM1 (204 x 83) de chez Menuiseries d'Olt, panneau à âme alvéolaire gravé pré peint blanc. Choix dans la gamme « ZEN FUJI » MENUISERIES D'OLT.\nPorte isolante 0.83 x 2.04 avec serrure 3 points gamme « ZEN FUJI »",images:[{fichier:"image31.png",w:502,h:390}],defaut:"MO"},
+  {id:"portes_interieures_galandage",groupe:"PLÂTRERIE SÈCHE",titre:"PORTES INTÉRIEURES À GALANDAGE",texte:"Système de porte coulissante intégrée dans un châssis métallique (appelé galandage), lui-même incorporé dans une cloison.\nLocalisation : suivant plan.",images:[],defaut:"MO"},
+  {id:"isolation_thermique_plafond",groupe:"ISOLATION THERMIQUE",titre:"ISOLATION THERMIQUE PLAFOND",texte:"Isolation soufflée en combles perdus : laine de verre soufflée conforme à la réglementation thermique et environnementale en vigueur.\nÉpaisseur de 455 mm pour un R = 10 m².K/W.",images:[{fichier:"image32.jpeg",w:290,h:174}],defaut:"MO"},
+  {id:"isolation_thermique_sol",groupe:"ISOLATION THERMIQUE",titre:"ISOLATION THERMIQUE SOL",texte:"Isolation de la dalle de la partie habitable par TMS. Épaisseur suivant étude thermique. Une chape liquide sera ensuite réalisée.\nÉpaisseur préconisée : 56 mm.",images:[{fichier:"image33.jpeg",w:822,h:390}],defaut:"MO"},
+  {id:"electricite",groupe:"ÉLECTRICITÉ",titre:"ÉLECTRICITÉ",texte:"L'installation générale est en conformité avec les textes réglementaires, notamment la Norme C 15-100 en vigueur. Elle comprend un dispositif de protection par micro-disjoncteurs. L'installation est pourvue de prises de courant 16A, simple ou double à éclipse, et d'un conducteur de terre dans tous les circuits électriques.\nTableau de communication pouvant recevoir une box internet, équipé d'un répartiteur TV (sans amplificateur, ni d'antenne), 1 prise de test DTI + DTIO (fibre optique), 2 prises de courants. Toutes les prises sont raccordées. Le réseau de prise RJ45 est alimenté par des câbles grade 2 TV1.\nInstallation générale avec alimentation monophasée 220 volts. Liaisons équipotentielles sur la baignoire et la douche.\nAppareillage électrique blanc gamme Céliane de chez LEGRAND ou Odace de chez SCHNEIDER.\nL'ensemble des installations est protégé par un dispositif différentiel.",images:[],defaut:"MO"},
+  {id:"points_lumineux",groupe:"ÉLECTRICITÉ",titre:"POINTS LUMINEUX",texte:"Il est compris un point lumineux par pièce : séjour, salon, cuisine, chambres, bureau, cellier et garage commandés en va-et-vient, WC et salles de bains en simple allumage.\n10 spots étanches et 6 points lumineux extérieurs.",images:[],defaut:"MO"},
+  {id:"prises_courant",groupe:"ÉLECTRICITÉ",titre:"PRISES DE COURANT",texte:"Cuisine :\n4 P.C 16 A + T à hauteur\n4 P.C 16 A + T pour lave-vaisselle, réfrigérateur, micro-onde, hotte\n1 P.C 20 A + T pour four\n1 cache fil 32 A + T\nSéjour-salon :\n5 P.C de 16 A pour une surface inférieure à 28 m² et 12 au-delà\n1 prise T.V\n2 prises R.J 45\nSalle de bains :\n2 P.C 16 A + T\nChambre ou bureau (par pièce) :\n3 P.C + T\n1 prise R.J 45\n1 prise T.V\nDégagement :\n1 P.C 16 A + T\nEmplacement à déterminer :\n2 P.C + T pour lave-linge et sèche-linge\n1 P.C + T extérieure\nSonnette sans fil sur tableau de la porte d'entrée",images:[],defaut:"MO"},
+  {id:"options_electriques",groupe:"ÉLECTRICITÉ",titre:"OPTIONS ÉLECTRIQUES",texte:"Détecteur de fumée autonome conforme aux normes NF\nInterrupteur d'arrêt d'urgence dans le cas où le tableau électrique est placé dans un local qui ne communique pas directement avec l'habitation.",images:[],defaut:"MO"},
+  {id:"ventilation_mecanique_controlee",groupe:"ÉLECTRICITÉ",titre:"VENTILATION MÉCANIQUE CONTRÔLÉE",texte:"Évacuation de l'air vicié dans la cuisine, la salle de bains, la salle d'eau, le cellier et les WC, assurée par une VMC hygro B basse consommation suivant réglementation en vigueur de chez ATLANTIC ou ALDES. Caisson extracteur suspendu à la charpente ou posé sur le plancher. Les gaines de raccordement seront isolantes et l'évacuation se fera hors toiture.\nRenouvellement de l'air par grilles hygroréglables (sauf en cas de VMC double flux), dans le séjour, les chambres et le bureau conformément à la réglementation en vigueur.",images:[{fichier:"image34.jpeg",w:300,h:230},{fichier:"image35.jpeg",w:197,h:255}],defaut:"MO"},
+  {id:"plomberie",groupe:"PLOMBERIE",titre:"PLOMBERIE",texte:"Alimentation eau froide / eau chaude par tubes polyéthylène encastrés de diamètres appropriés aux éléments à desservir.\nL'installation est protégée par un réducteur de pression. Robinet d'arrêt général de l'installation. Évacuation apparente dans les volumes chauffés des différentes eaux, assurée par des tuyaux plastiques rigides.\nVentilation primaire de la décompression des eaux vannes raccordées en toiture.",images:[],defaut:"les_deux"},
+  {id:"evier",groupe:"PLOMBERIE",titre:"ÉVIER",texte:"Alimentation eau chaude, eau froide et évacuation de l'évier.",images:[],defaut:"les_deux"},
+  {id:"lavabo_meuble_vasque",groupe:"PLOMBERIE",titre:"LAVABO OU MEUBLE VASQUE",texte:"Meuble 1 vasque modèle CONCERTO 2 à poser ou à suspendre comprenant meuble en 800 mm avec tiroirs ou portes, mitigeur lavabo chromé.\nSimple vasque en céramique, miroir rectangulaire et applique LED rectangulaire.",images:[{fichier:"image36.jpeg",w:216,h:216}],defaut:"les_deux"},
+  {id:"douche",groupe:"PLOMBERIE",titre:"DOUCHE – 2 unités",texte:"Receveur de douche extra-plat d'une dimension de 90x140 cm\nModèle Flight de chez Jacob Delafon ou équivalent.",images:[{fichier:"image37.jpeg",w:579,h:390}],defaut:"les_deux"},
+  {id:"colonne_douche",groupe:"PLOMBERIE",titre:"COLONNE DE DOUCHE – 2 unités",texte:"Colonne de douche avec mitigeur thermostatique.\nDouche de tête ronde Ø 200 mm.\nDouchette à main Ø 100 mm, 5 jets (débit : 10 l/mn).\nFlexible de douche lisse anti-torsion 1600 mm, aspect métal.\nInverseur intégré à la poignée.\nButée de sécurité à 38 °C. Température maxi inférieure à 50 °C.\nClapets anti-retour sur les alimentations.",images:[{fichier:"image38.jpeg",w:216,h:216}],defaut:"MO"},
+  {id:"wc",groupe:"PLOMBERIE",titre:"WC – 2 unités",texte:"Pack WC suspendu sans bride PATIO, 53,5 x 36 cm, double chasse 3/6 L, avec abattant standard, finition blanc brillant.",images:[{fichier:"image39.jpeg",w:216,h:216}],defaut:"MO"},
+  {id:"divers_plomberie",groupe:"PLOMBERIE",titre:"DIVERS PLOMBERIE",texte:"Alimentation et évacuation avec robinets d'arrêt pour raccordement lave-linge et lave-vaisselle (emplacement au rez-de-chaussée proche d'un point d'eau).\nRobinet de puisage à positionner sur le mur extérieur.",images:[],defaut:"MO"},
+  {id:"pompe_a_chaleur",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"POMPE À CHALEUR",texte:"Pompe à chaleur Atlantic Alféa Extensa Duo A.I. (R32)\nType : PAC air/eau split avec module intérieur et unité extérieure.\nServices : chauffage + production d'eau chaude sanitaire via ballon intégré de 190 L.\nPerformance : COP jusqu'à ~4,7, classe énergétique chauffage A++/A+++, ECS A+.\nPlage de fonctionnement : efficace jusqu'à –20 °C extérieur.\nTechnologie : compresseur Inverter, échangeur coaxial Atlantic, fluide frigorigène R32.\nConfort : niveau sonore réduit (~35–40 dB extérieur, ~39–40 dB intérieur).\nConnectivité : pilotage et programmation via l'application TaHoma\nFacilité d'installation : configuration rapide (EASY START) et maintenance simplifiée.",images:[{fichier:"image40.jpeg",w:616,h:390}],defaut:"MO"},
+  {id:"plancher_chauffant",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"PLANCHER CHAUFFANT",texte:"Le système de chauffage est constitué d'un réseau de tubes en polyéthylène réticulé (PER), disposés en nappes sur un isolant thermique de sol conforme aux normes en vigueur.\nLes tubes sont fixés sur les plaques isolantes selon un pas de pose défini par l'étude thermique, et reliés à un collecteur de distribution équipé de vannes d'équilibrage et de régulation. L'ensemble est alimenté par une pompe à chaleur, fonctionnant en basse température (25/30 °C environ en régime nominal) pour optimiser le confort et les performances énergétiques.\nUne régulation de température est assurée à l'aide de 2 thermostats d'ambiance reliés aux collecteurs, permettant un contrôle précis des températures.",images:[],defaut:"MO"},
+  {id:"seche_serviette_electrique",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"SÈCHE-SERVIETTES ÉLECTRIQUE",texte:"Radiateur sèche-serviettes électrique modèle DORIS blanc d'Atlantic (puissance suivant étude thermique).",images:[{fichier:"image41.png",w:222,h:382}],montant:"460,00 € / unité",defaut:"les_deux"},
+  {id:"revetements_sols",groupe:"REVÊTEMENTS DE SOLS ET MURS",titre:"REVÊTEMENTS DE SOLS",texte:"Chape liquide à base de ciment sur plancher chauffant\nRéalisation d'une chape fluide à base de liant ciment, conforme au DTU 26.2, spécialement conçue pour l'enrobage d'un plancher chauffant hydraulique basse température.\nLa chape est coulée sur un plancher chauffant préalablement mis en place, comprenant un isolant thermique adapté et un réseau de tubes fixé sur plaques.\nLa mise en œuvre est effectuée par pompage, avec une épaisseur minimale d'enrobage au-dessus des tubes de 30 mm.\nLa surface est réglée et talochée pour garantir une planéité conforme à la classe demandée (généralement classe P3).\nAprès coulage, un temps de séchage et de cure est respecté selon les conditions climatiques et la notice du fabricant.\nCarrelage grès émaillé 90 x 90 SEVILLE AVARIO RECT. avec plinthes.\nCarrelage dans toutes les pièces sauf chambres, dressing et garage.\nLes plinthes sont identiques aux matériaux du sol.\nCarrelage posé droit sur chape.",images:[{fichier:"image42.jpeg",w:1000,h:563},{fichier:"image43.jpeg",w:520,h:390}],montant:"10 000,00 €",defaut:"les_deux"},
+  {id:"revetements_muraux",groupe:"REVÊTEMENTS DE SOLS ET MURS",titre:"REVÊTEMENTS MURAUX",texte:"Faïence pose droite, sans décors ni listels, à répartir sur les côtés du receveur de douche : 17,00 m².",images:[{fichier:"image44.jpeg",w:520,h:390}],defaut:"les_deux"},
+  {id:"peintures",groupe:"REVÊTEMENTS DE SOLS ET MURS",titre:"PEINTURES",texte:"Ratissage, ponçage, une couche d'impression et une couche de finition de peinture acrylique blanc mat au rouleau sur les murs et les plafonds.",images:[],defaut:"les_deux"},
+  {id:"nettoyage_interieur",groupe:"NETTOYAGE INTÉRIEUR",titre:"NETTOYAGE INTÉRIEUR",texte:"Nettoyage de l'intérieur du projet (sols, vitres, sanitaires).",images:[],defaut:"les_deux"},
+  {id:"assainissement_vrd",groupe:"ASSAINISSEMENT – VRD",titre:"ASSAINISSEMENT – VRD",texte:"Les viabilisations de la parcelle comprenant les branchements des compteurs aux réseaux publics (tout à l'égout, électricité, gaz, téléphone, eau pluviale) seront effectuées, décrits et évalués par la régie au concessionnaire des services publics. Ces travaux ne sont pas coordonnés par le maître d'œuvre.",images:[],defaut:"hors_coord"},
+  {id:"raccordements_reseaux_publics",groupe:"ASSAINISSEMENT – VRD",titre:"RACCORDEMENTS AUX RÉSEAUX PUBLICS",texte:"Terrassement d'une tranchée multi technique de 0,80 m de profondeur environ.\nLes tuyaux et/ou gaines permettant les raccordements aux différents réseaux. Ils seront mis en place avec un grillage plastique avertisseur et chambre de tirage si nécessaire.\nEst compris :\n1 tuyau de polyéthylène 19x25 pour l'eau potable de la pompe à chaleur au compteur en limite de propriété\n1 fourreau de diamètre 90 pour l'électricité, 2 fourreaux diamètre 32 pour le téléphone, 1 fourreau pour alimentation portail, 1 tuyau P.V.C. diamètre 100 pour le réseau T.A.E. (eaux vannes et usées) et 1 tuyau P.V.C. diamètre 100 pour réseau pluvial (raccordé au réseau ou en épandage).",images:[{fichier:"image45.jpeg",w:292,h:390}],montant:"15 000,00 €",defaut:"hors_coord"},
+  {id:"eaux_pluviales",groupe:"ASSAINISSEMENT – VRD",titre:"EAUX PLUVIALES",texte:"Regards béton avec tampons ou réducteurs au pied des descentes, raccordés au réseau d'eaux pluviales, à des tranchées drainantes ou à un puisard.",images:[],defaut:"hors_coord"},
+  {id:"consommation",groupe:"CONSOMMATION",titre:"CONSOMMATION",texte:"Consommation en eau et électricité nécessaire à l'exécution des travaux.",images:[],montant:"150,00 €",defaut:"les_deux"},
+  {id:"permeabilite_attestations_dpe",groupe:"PERMÉABILITÉ, ATTESTATIONS DE CONFORMITÉ ET DPE",titre:"PERMÉABILITÉ, ATTESTATIONS DE CONFORMITÉ ET DPE",texte:"A la livraison, vous sera transmis un rapport de test de perméabilité à l'air dont le résultat sera inférieur ou égal à la valeur de perméabilité à l'air prise en compte dans votre étude thermique.\nAttestation de fin de chantier : Contrôle en fin de chantier, par un contrôleur agréé par le ministère, pour vérifier la conformité de la construction aux exigences de la RE2020. Cette attestation de fin de chantier sera remise au client qui devra la joindre à la déclaration d'achèvement de travaux pour l'obtention du certificat de conformité.\nDPE : Le diagnostic de performance énergétique sera remis au client après la réception des travaux avec l'attestation de fin de chantier.",images:[{fichier:"image46.jpeg",w:274,h:390},{fichier:"image47.jpeg",w:674,h:374}],defaut:"les_deux"},
   {id:"garantie",groupe:"GARANTIE",titre:"GARANTIE",texte:"Dans le cadre de la mission confiée, le maître d'œuvre s'engage à assurer le suivi technique, administratif et financier du projet.\nIl bénéficie d'une assurance de responsabilité civile professionnelle et d'une assurance responsabilité civile décennale couvrant, pendant 10 ans à compter de la réception des travaux, les dommages compromettant la solidité de l'ouvrage ou le rendant impropre à sa destination, conformément aux articles 1792 et suivants du Code civil.\nCes garanties sont distinctes de celles des entreprises exécutantes mais peuvent se cumuler si la responsabilité du maître d'œuvre est engagée.\nLe maître d'œuvre ne se substitue pas aux obligations des entreprises, mais répond de ses propres fautes, omissions ou erreurs de conception, de coordination ou de contrôle qui pourraient être à l'origine de désordres couverts par la garantie décennale.\nLes attestations d'assurance en cours de validité sont remises au maître d'ouvrage avant l'ouverture du chantier.\nGarantie Dommages-Ouvrage\nAssurance souscrite avant le chantier, la Dommages-Ouvrage couvre pendant 10 ans après la réception les réparations des dommages graves relevant de la garantie décennale (solidité du bâtiment ou impropriété à l'usage), sans attendre qu'un tribunal désigne un responsable.\nElle permet une indemnisation rapide du propriétaire, l'assureur se retournant ensuite contre les responsables.",images:[],montant:"6 000,00 € environ (assurance dommages-ouvrage)",defaut:"les_deux"},
 ];
 /* la synthèse financière du PTR reprend la structure du modèle : trois
@@ -3888,27 +3888,61 @@ const ptrMontantTexte=m=>{
   return t?t.l:'';
 };
 
+/* révisions du modèle livré avec l'application : la 2 corrige l'orthographe
+   et ajoute les propositions brique Biobric, tuile Edilians HP 20 et Aldes
+   T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
+   déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
+   de l'utilisateur (ptrMigrerBiblio). */
+const PTR_SEED_REV=2;
+const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
+const PTR_SEED_NOUVELLES_2=['var_murs_b','var_pointes_pignons_b','var_couverture_b','var_plancher_chauffant_b','var_revetements_sols_b'];
+/* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
+   constantes précèdent dans le fichier */
+const ptrIdFichier=f=>String(f).replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').toLowerCase();
+const ptrPhotoAsset=(fichier,w,h)=>({id:'ph_'+ptrIdFichier(fichier),src:'asset',fichier,
+  nom:fichier,w,h,ext:/\.png$/i.test(fichier)?'png':'jpeg',mode:'contain',fx:.5,fy:.5});
+const ptrPieceAsset=(fichier,nom)=>({id:'pj_'+ptrIdFichier(fichier),src:'asset',fichier,nom,lien:'assets/ptr/'+fichier});
+const PTR_PROPOSITIONS_2={
+  murs:{nom:'Brique Biobric bgv’thermo 20 cm',marque:'Biobric',reference:'bgv’thermo BGVT2031',
+    photos:[ptrPhotoAsset('brique_bgvthermo.jpeg',1164,905),ptrPhotoAsset('brique_pose_colle.jpeg',1220,908)],
+    pieces:[ptrPieceAsset('docs/Biobric_bgvthermo_BGVT2031.pdf','Fiche produit Biobric bgv’thermo BGVT2031.pdf')],
+    texte:'Murs de façade et de pignons assurant une hauteur sous plafond de 2,50 m environ.\nMaçonnerie en briques de terre cuite isolantes et rectifiées Biobric **bgv’thermo** (réf. BGVT2031), de 20 cm d’épaisseur, fabrication française :\n- dimensions 500 × 200 × 314 mm (L × l × h), 6,35 briques au m² ;\n- résistance thermique R = 1,25 m².K/W (maçonnerie isolante de type a) ;\n- pose à joint mince, au pistolet à colle Fixbric ou au mortier joint mince, conformément au DTU 20.1 ;\n- marquage NF, impact carbone 16,70 kg éq. CO2/m² en pose collée.\nLinteaux, chaînages verticaux et horizontaux en béton armé coulés dans des éléments spécifiques (éléments d’angle ou en U).\nSupport d’enduit classé Rt3 (DTU 26.1) : enduit monocouche OC1 ou OC2, ou enduit multicouche.'},
+  pointes_pignons:{nom:'Brique de terre cuite 20 cm',
+    texte:'En briques de terre cuite de 20 cm d’épaisseur, de la même gamme que les murs, montées à joint mince.\nArase béton suivant rampants.'},
+  couverture:{nom:'Tuile Edilians Double HP 20 Huguenot',marque:'Edilians',reference:'Double HP 20 Huguenot',url:'https://www.edilians.com',
+    photos:[ptrPhotoAsset('tuile_hp20_toiture.jpeg',1192,1209),ptrPhotoAsset('tuile_hp20.jpeg',564,406)],
+    pieces:[ptrPieceAsset('docs/Edilians_Double_HP20_Huguenot.pdf','Fiche produit Edilians Double HP 20 Huguenot.pdf')],
+    texte:'Couverture en tuiles de terre cuite à emboîtement grand moule EDILIANS **DOUBLE HP 20 Huguenot**, faiblement galbées à pureau plat : l’esthétique d’une tuile petit moule avec la rapidité de pose d’une tuile grand moule.\n- aspect tuile plate, pose à joints croisés au quart ;\n- double barrette d’emboîtement pour une étanchéité optimale ;\n- pureau variable ;\n- tuiles conformes à la norme NF EN 1304.\nPose sur liteaux, avec les accessoires de la gamme (rives, faîtage, arêtiers, closoirs ventilés), conformément au DTU 40.21 et aux prescriptions du fabricant.\nColoris au choix du Maître de l’Ouvrage dans la gamme du fabricant (Ardoisé, Flammé rustique, Terre de Beauce, Vallée de Chevreuse, Black Chevreuse…), sous réserve des prescriptions d’urbanisme.'},
+  pompe_a_chaleur:{nom:'Aldes T.One AquaAIR',marque:'Aldes',reference:'T.One AquaAIR (R32)',url:'https://www.aldes.fr',
+    photos:[ptrPhotoAsset('tone_aquaair.jpeg',832,1247),ptrPhotoAsset('tone_diffusion.jpeg',839,961)],
+    pieces:[ptrPieceAsset('docs/Aldes_T-One_AIR_AquaAIR.pdf','Documentation Aldes T.One AIR - AquaAIR.pdf')],
+    texte:'Pompe à chaleur air/air ALDES **T.One AquaAIR** (fluide R32) : solution 3 en 1 assurant le chauffage, le rafraîchissement (version réversible) et la production d’eau chaude sanitaire.\n- unité extérieure R32, puissance 4, 5 ou 6 kW suivant étude thermique ;\n- unité intérieure installée en placard au-dessus du ballon d’eau chaude sanitaire de 180 L (environ 240 L d’eau chaude disponibles à 40 °C) ;\n- appoint électrique de 1 500 W de série ;\n- diffusion de l’air par gaines et bouches motorisées dans les pièces principales, un thermostat sans fil tactile par zone ;\n- classes énergétiques : A+ en chauffage, A++ en rafraîchissement, A+ en eau chaude sanitaire.\nConfort : montée en température rapide, vitesse de diffusion de l’air inférieure à 3 m/s, fonctionnement silencieux.\nPilotage par la commande centralisée (modes Confort, Éco, Boost, programmation, vacances, relevé des consommations) ; application AldesConnect en option.\nProduit sous avis technique du CSTB, associé à la VMC hygroréglable Aldes EasyHOME.\nGarantie constructeur : 2 ans sur les pièces, 7 ans sur la cuve du ballon. Filtre à remplacer une fois par an.\nCaractéristiques détaillées suivant documentation technique jointe au présent programme.'},
+  plancher_chauffant:{nom:'Diffusion par air T.One (sans plancher chauffant)',titre:'DIFFUSION DU CHAUFFAGE PAR AIR',marque:'Aldes',
+    texte:'Pas de plancher chauffant hydraulique : la chaleur (et la fraîcheur en version réversible) est distribuée par l’air depuis l’unité intérieure T.One.\nRéseau de gaines de soufflage depuis le plénum de l’unité intérieure jusqu’aux bouches de diffusion motorisées (aluminium blanc RAL 9016) des pièces principales.\nUn thermostat d’ambiance sans fil par zone : 4 zones et 5 bouches motorisées de série, jusqu’à 9 zones et 10 bouches avec la carte d’extension.\nReprise d’air par grille dans les circulations ; grilles de transfert si le détalonnage des portes est insuffisant.\nEmplacement des bouches et des thermostats suivant plan.'},
+  revetements_sols:{nom:'Chape fluide sans plancher chauffant',
+    texte:'Chape fluide à base de ciment sur isolant thermique de sol\nRéalisation d’une chape fluide à base de liant ciment, conforme au DTU 26.2, coulée sur l’isolant thermique de sol.\nLa mise en œuvre est effectuée par pompage, en épaisseur conforme à l’avis technique du produit.\nLa surface est réglée et talochée pour garantir une planéité conforme à la classe demandée (généralement classe P3).\nAprès coulage, un temps de séchage et de cure est respecté selon les conditions climatiques et la notice du fabricant.\nCarrelage grès émaillé 90 x 90 SEVILLE AVARIO RECT. avec plinthes.\nCarrelage dans toutes les pièces sauf chambres, dressing et garage.\nLes plinthes sont identiques aux matériaux du sol.\nCarrelage posé droit sur chape.'},
+};
 function ptrBiblioInitiale(){
   const cats=[], prestations=[];
   PTR_CATALOGUE.forEach(x=>{
     let c=cats.find(k=>k.nom===x.groupe);
     if(!c){c={id:'cat_'+ptrSlug(x.groupe).toLowerCase(),nom:x.groupe,ordre:cats.length,actif:true};cats.push(c)}
-    const photos=x.images.map(im=>({id:'ph_'+ptrSlug(im.fichier).toLowerCase(),src:'asset',fichier:im.fichier,
-      nom:im.fichier,w:im.w,h:im.h,ext:/\.png$/i.test(im.fichier)?'png':'jpeg',mode:'contain',fx:.5,fy:.5}));
-    const variante=(suffixe,nom,texte,extra)=>({id:'var_'+x.id+'_'+suffixe,nom,titre:x.titre,texte,
+    const photos=x.images.map(im=>ptrPhotoAsset(im.fichier,im.w,im.h));
+    /* révision 2 : toutes les propositions d'origine passent en version 2
+       (orthographe corrigée) ; les nouvelles naissent en version 1 */
+    const variante=(suffixe,nom,texte,extra)=>{const neuve=PTR_SEED_NOUVELLES_2.indexOf('var_'+x.id+'_'+suffixe)>=0;
+      return {id:'var_'+x.id+'_'+suffixe,nom,titre:x.titre,texte,
       photos:suffixe==='a'?photos:[],pieces:[],marque:'',reference:'',url:'',noteInterne:'',
-      parDefaut:suffixe==='a',archivee:false,version:1,creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE,...(extra||{})});
+      parDefaut:suffixe==='a',archivee:false,version:neuve?1:2,creeLe:neuve?PTR_SEED_DATE_2:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE_2,...(extra||{})}};
     const variantes=[variante('a',x.id==='pompe_a_chaleur'?'Atlantic Alféa Extensa Duo':'Standard (modèle CP)',x.texte,
       x.id==='pompe_a_chaleur'?{marque:'Atlantic',reference:'Alféa Extensa Duo A.I. (R32)'}:null)];
     if(x.id==='implantation')variantes.push(variante('b','Implantation par géomètre',
       'L’implantation de la construction sera réalisée par un géomètre-expert mandaté par le Maître de l’Ouvrage, conformément au permis de construire et au plan de masse : matérialisation des axes et des angles de la construction, report du niveau de référence (piquetage).\nUn procès-verbal d’implantation sera remis au Maître d’Œuvre avant l’ouverture des fouilles. Les honoraires du géomètre sont à la charge du Maître de l’Ouvrage.\nEn cas de construction en limite séparative, le Maître de l’Ouvrage devra fournir une autorisation écrite des propriétaires limitrophes, permettant l’accès aux entreprises pour la réalisation des travaux.'));
-    if(x.id==='pompe_a_chaleur'){
-      variantes.push(variante('b','Aldes T.One',
-        'Système de chauffage / traitement d’air ALDES T.One.\nCaractéristiques et prestations suivant documentation technique jointe au présent programme.',
-        {marque:'Aldes',reference:'T.One'}));
-      variantes.push(variante('c','Autre système',
-        'Système de chauffage et de production d’eau chaude sanitaire à définir avec le Maître de l’Ouvrage.\nCaractéristiques et prestations suivant descriptif et documentation technique jointe au présent programme.'));
-    }
+    const p2=PTR_PROPOSITIONS_2[x.id];
+    if(p2)variantes.push(variante('b',p2.nom,p2.texte,{titre:p2.titre||x.titre,photos:p2.photos||[],pieces:p2.pieces||[],
+      marque:p2.marque||'',reference:p2.reference||'',url:p2.url||''}));
+    if(x.id==='pompe_a_chaleur')variantes.push(variante('c','Autre système',
+      'Système de chauffage et de production d’eau chaude sanitaire à définir avec le Maître de l’Ouvrage.\nCaractéristiques et prestations suivant descriptif et documentation technique jointe au présent programme.'));
     const coche=x.defaut;
     prestations.push({id:'pr_'+x.id,categorieId:c.id,sousCategorie:'',nom:x.titre,code:'',
       ordre:prestations.filter(p=>p.categorieId===c.id).length,actif:true,obligatoire:false,
@@ -3916,16 +3950,60 @@ function ptrBiblioInitiale(){
       montantDefaut:x.montant?{type:'libre',valeur:x.montant}:{type:'',valeur:''},
       observations:'',creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE,alertesVues:[],variantes});
   });
-  return {version:1,modeleNom:PTR_MODELE_NOM,categories:cats,prestations,mentions:{...PTR_MENTIONS_DEFAUT},
-    creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE};
+  return {version:1,seedRev:PTR_SEED_REV,modeleNom:PTR_MODELE_NOM,categories:cats,prestations,mentions:{...PTR_MENTIONS_DEFAUT},
+    creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE_2};
+}
+/* deux libellés identiques à l'accent, à la casse et à la ponctuation près */
+const ptrMemeLibelle=(a,b)=>{const n=s=>deaccent(String(s||'')).toUpperCase().replace(/[^A-Z0-9]/g,'');return n(a)===n(b)};
+/* une bibliothèque enregistrée avant la révision 2 : les propositions jamais
+   retouchées reçoivent le texte corrigé, les nouvelles propositions sont
+   ajoutées (sans devenir la proposition par défaut), les libellés ne sont
+   repris que s'ils ne diffèrent que par les accents. Tout ce que
+   l'utilisateur a modifié, archivé ou supprimé reste tel quel. */
+function ptrMigrerBiblio(b){
+  if(!b||(b.seedRev||1)>=PTR_SEED_REV)return b;
+  const s=ptrBiblioInitiale();
+  const categories=(b.categories||[]).map(c=>{const sc=s.categories.find(x=>x.id===c.id);
+    return sc&&ptrMemeLibelle(c.nom,sc.nom)?{...c,nom:sc.nom}:c});
+  const prestations=(b.prestations||[]).map(pr=>{
+    const sp=s.prestations.find(x=>x.id===pr.id);
+    if(!sp)return pr;
+    const variantes=(pr.variantes||[]).map(v=>{
+      const sv=sp.variantes.find(x=>x.id===v.id);
+      if(!sv||(v.version||1)!==1||v.modifieLe!==PTR_SEED_DATE)return v;
+      return {...v,nom:sv.nom,titre:ptrMemeLibelle(v.titre,sv.titre)?sv.titre:v.titre,texte:sv.texte,
+        photos:sv.photos,pieces:sv.pieces,marque:sv.marque,reference:sv.reference,url:sv.url,
+        version:sv.version,modifieLe:sv.modifieLe};
+    });
+    sp.variantes.forEach(sv=>{if(PTR_SEED_NOUVELLES_2.indexOf(sv.id)>=0&&!variantes.some(v=>v.id===sv.id))
+      variantes.push({...ptrCopie(sv),parDefaut:false})});
+    return {...pr,nom:ptrMemeLibelle(pr.nom,sp.nom)?sp.nom:pr.nom,variantes};
+  });
+  return {...b,categories,prestations,seedRev:PTR_SEED_REV};
 }
 let ptrBiblioSeedCache=null;
+const ptrBiblioMigrees=new WeakMap();
 /* tant que personne n'a touché à la bibliothèque, elle n'est pas écrite en
    base : on sert la bibliothèque initiale, identique partout */
 const ptrBiblio=data=>{
-  if(data&&data.ptrBiblio)return data.ptrBiblio;
+  if(data&&data.ptrBiblio){
+    const b=data.ptrBiblio;
+    if((b.seedRev||1)>=PTR_SEED_REV)return b;
+    if(!ptrBiblioMigrees.has(b))ptrBiblioMigrees.set(b,ptrMigrerBiblio(b));
+    return ptrBiblioMigrees.get(b);
+  }
   if(!ptrBiblioSeedCache)ptrBiblioSeedCache=ptrBiblioInitiale();
   return ptrBiblioSeedCache;
+};
+/* la proposition de bibliothèque a évolué depuis que la ligne l'a copiée
+   (numéro de version plus élevé ET contenu réellement différent) */
+const ptrMajDisponible=(l,biblio)=>{
+  if(!l||!l.prestationId||!l.varianteId)return null;
+  const pr=biblio.prestations.find(p=>p.id===l.prestationId);
+  const v=pr&&(pr.variantes||[]).find(x=>x.id===l.varianteId);
+  if(!v||(v.version||1)<=(l.varianteVersion||1))return null;
+  const ids=L=>(L||[]).map(x=>x.id).join('|');
+  return v.titre!==l.titre||v.texte!==l.texte||ids(v.photos)!==ids(l.photos)||ids(v.pieces)!==ids(l.pieces)?v:null;
 };
 const ptrMentions=b=>({...PTR_MENTIONS_DEFAUT,...((b&&b.mentions)||{})});
 const ptrVariantesActives=pr=>((pr&&pr.variantes)||[]).filter(v=>!v.archivee);
@@ -3942,7 +4020,9 @@ const PTR_TITRES_ACCENTS=[['PREPARATION','PRÉPARATION'],['MACONNERIE','MAÇONNE
   ['PERMEABILITE','PERMÉABILITÉ'],['CONFORMITES','CONFORMITÉS'],['ECRAN','ÉCRAN'],['DEBORDS','DÉBORDS'],
   ['EVIER','ÉVIER'],['FENETRE','FENÊTRE'],['ACCES','ACCÈS'],['EXCEDENTAIRES','EXCÉDENTAIRES']];
 const PTR_MARQUES=['Atlantic','Aldes','Daikin','Jacob Delafon','Monier','PBM','MSEA','Celtys','Placo','Knauf','Isover',
-  'Grohe','Velux','Somfy','Legrand','Schneider','Hager','Porcher','Villeroy','Geberit','Kinedo','Saunier Duval','Rehau'];
+  'Grohe','Velux','Somfy','Legrand','Schneider','Hager','Porcher','Villeroy','Geberit','Kinedo','Saunier Duval','Rehau',
+  'Edilians','Biobric'];
+const PTR_MOTS_MARQUES=['TaHoma','AldesConnect','EasyHOME','AquaAIR','T.One'];
 function ptrAlertesTexte(titre,texte){
   const A=[], t=String(texte||''), ti=String(titre||'');
   const ajoute=(cle,msg,niveau)=>{if(!A.some(a=>a.cle===cle))A.push({cle,msg,niveau:niveau||'attention'})};
@@ -3951,7 +4031,9 @@ function ptrAlertesTexte(titre,texte){
     if(m)ajoute('faute:'+m[0],'Faute de frappe probable : « '+m[0]+' » → « '+bon+' » ?')});
   PTR_TITRES_ACCENTS.forEach(([sans,avec])=>{if(sans!==avec&&new RegExp('\\b'+sans+'\\b').test(ti))
     ajoute('accent:'+sans,'Titre sans accent : « '+sans+' » → « '+avec+' » ?','info')});
-  const colle=t.match(/[a-zàâäéèêëîïôöùûüç][A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-zàâäéèêëîïôöùûüç]+/);
+  /* les noms de marque en un seul mot (TaHoma, AldesConnect…) ne sont pas des mots collés */
+  const mot=t.split(/[^A-Za-zÀ-ÖØ-öø-ÿ]+/).find(w=>/[a-zàâäéèêëîïôöùûüç][A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-zàâäéèêëîïôöùûüç]+/.test(w)&&PTR_MOTS_MARQUES.indexOf(w)<0);
+  const colle=mot&&mot.match(/[a-zàâäéèêëîïôöùûüç][A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-zàâäéèêëîïôöùûüç]+/);
   if(colle)ajoute('colle:'+colle[0],'Mots collés : « …'+colle[0]+'… » — espace ou retour à la ligne manquant ?');
   const dim=t.match(/\b0,\d+\s*cm\b/);
   if(dim)ajoute('dim:'+dim[0],'Dimension suspecte : « '+dim[0]+' » — s’agit-il de '+Math.round(parseFloat(dim[0].replace(',','.'))*100)+' cm ?');
@@ -4078,6 +4160,19 @@ function ptrControles(prog,projet){
     (l.photos||[]).forEach(ph=>{if(ph.src==='drive'&&!ph.fileId)R.push({cle:'ph:'+ph.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : photo introuvable'})});
     (l.pieces||[]).forEach(x=>{if(!x.lien&&!x.fileId)R.push({cle:'pj:'+x.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : pièce jointe introuvable'})});
   });
+  /* cohérence du mode de chauffage : T.One chauffe par l'air, sans réseau
+     hydraulique — on le signale, on ne retire rien soi-même */
+  const nomL=l=>'« '+(l.titre||l.nom)+' »';
+  const sansPlancher=l=>/pas de plancher chauffant/i.test(l.texte||'');
+  const plancher=inc.filter(l=>l.prestationId==='pr_plancher_chauffant'||/plancher chauffant/i.test(l.titre||''));
+  const tOne=inc.some(l=>plancher.indexOf(l)<0&&/\bT\.One\b/i.test(l.texte||''));
+  if(tOne){
+    plancher.filter(l=>!sansPlancher(l)).forEach(l=>R.push({cle:'tone-plancher:'+l.id,ok:false,ligneId:l.id,
+      msg:nomL(l)+' : le chauffage T.One diffuse par l’air — le plancher chauffant hydraulique est-il encore prévu ?'}));
+    inc.filter(l=>plancher.indexOf(l)<0&&/(sur|d.un) plancher chauffant/i.test(l.texte||'')).forEach(l=>R.push({cle:'tone-chape:'+l.id,ok:false,ligneId:l.id,
+      msg:nomL(l)+' : le texte décrit une chape sur plancher chauffant, alors que le chauffage retenu est T.One'}));
+  }else plancher.filter(sansPlancher).forEach(l=>R.push({cle:'tone-absent:'+l.id,ok:false,ligneId:l.id,
+    msg:nomL(l)+' : diffusion par air T.One retenue, mais aucun système T.One dans la production de chauffage'}));
   return R;
 }
 
@@ -16024,7 +16119,7 @@ function PtrLigne({l,index,nb,prog,biblio,data,cible,fige,maj,onBouger,onDupliqu
   const pr=l.prestationId?biblio.prestations.find(p=>p.id===l.prestationId):null;
   const variantes=pr?ptrVariantesActives(pr):[];
   const vLib=pr&&l.varianteId?(pr.variantes||[]).find(v=>v.id===l.varianteId):null;
-  const plusRecente=vLib&&(vLib.version||1)>(l.varianteVersion||1);
+  const plusRecente=!!ptrMajDisponible(l,biblio);
   const alertes=ptrAlertesLigne(l);
   const [busy,setBusy]=useState('');
   const [err,setErr]=useState('');
@@ -16175,7 +16270,7 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
     minuteurSauve.current=setTimeout(()=>setSauve('ok'),900)};
   useEffect(()=>()=>{if(minuteurSauve.current)clearTimeout(minuteurSauve.current)},[]);
   /* la bibliothèque initiale n'est écrite en base qu'à la première retouche */
-  const biblioModifiable=d=>d.ptrBiblio?d.ptrBiblio:ptrCopie(ptrBiblio(d));
+  const biblioModifiable=d=>d.ptrBiblio?ptrBiblio(d):ptrCopie(ptrBiblio(d));
   const majProg=(fn,o)=>{
     const d=dataRef.current, t=ptrMaintenant();
     const suivant=x=>{const y=fn(x);
@@ -16250,6 +16345,23 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
   const ajouterDepuisBiblio=(c,prId)=>{const pr=biblio.prestations.find(p=>p.id===prId);if(!pr)return;
     majProg(x=>({...x,lignes:[...x.lignes,{...ptrLigneDepuis(pr,ptrVarianteDefaut(pr)),categorieId:c.id}]}))};
   const ajouterManuelle=c=>majProg(x=>({...x,lignes:[...x.lignes,ptrLigneManuelle(c.id,'Nouvelle prestation')]}));
+  /* reprendre, sur demande, les textes corrigés de la bibliothèque — jamais
+     pour une ligne retouchée spécialement pour ce projet */
+  const aMettreAJour=fige?[]:(prog.lignes||[]).filter(l=>!l.modifie&&ptrMajDisponible(l,biblio));
+  const catsARenommer=fige?[]:cats.filter(c=>{const bc=biblio.categories.find(x=>x.id===c.id);
+    return bc&&bc.nom!==c.nom&&ptrMemeLibelle(bc.nom,c.nom)});
+  const mettreAJourDepuisBiblio=()=>{
+    if(!confirm('Reprendre le texte à jour de la bibliothèque pour '+aMettreAJour.length+' prestation(s)'
+      +(catsARenommer.length?' et '+catsARenommer.length+' intitulé(s) de catégorie':'')+' ?\n\nLes prestations modifiées pour ce projet restent telles quelles.'))return;
+    majProg(x=>({...x,
+      categories:x.categories.map(c=>{const bc=biblio.categories.find(y=>y.id===c.id);return bc&&ptrMemeLibelle(bc.nom,c.nom)?{...c,nom:bc.nom}:c}),
+      lignes:x.lignes.map(l=>{
+        if(l.modifie)return l;
+        const v=ptrMajDisponible(l,biblio);if(!v)return l;
+        const pr=biblio.prestations.find(p=>p.id===l.prestationId);
+        return {...l,...ptrSnapshotVariante(v,pr),nom:pr&&ptrMemeLibelle(pr.nom,l.nom)?pr.nom:l.nom};
+      })}),{statut:false});
+  };
   const ajouterCategorie=()=>{const nom=nouvelleCat.trim();if(!nom)return;
     const c={id:'cat_p_'+uid(),nom:nom.toUpperCase(),ordre:cats.length};
     majProg(x=>({...x,categories:[...x.categories,c]}));setNouvelleCat('');setOuverts(o=>({...o,[c.id]:true}))};
@@ -16367,11 +16479,20 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
         const vus={};
         let manquePieces=0;
         for(const x of pieces){
+          const nomAnnexe=base+'/Annexes/'+(ptrSlug(String(x.nom||'annexe').replace(/\.[^.]+$/,''))||'annexe')+(String(x.nom||'').match(/\.[A-Za-z0-9]+$/)||['.pdf'])[0];
+          /* fiche technique livrée avec l'application (bibliothèque initiale) */
+          if(x.src==='asset'){
+            if(vus['asset:'+x.fichier])continue;vus['asset:'+x.fichier]=1;
+            try{const r=await fetch('assets/ptr/'+x.fichier);if(!r.ok)throw new Error(String(r.status));
+              enc.push({nom:nomAnnexe,data:new Uint8Array(await r.arrayBuffer())})}
+            catch(e){manquePieces++}
+            continue;
+          }
           const fid=x.fileId||driveIdDepuisLien(x.lien);
           if(!fid){manquePieces++;continue}
           if(vus[fid])continue;vus[fid]=1;
           try{const o=await driveFichierBytes(await getDriveToken(),fid);
-            enc.push({nom:base+'/Annexes/'+(ptrSlug(String(x.nom||'annexe').replace(/\.[^.]+$/,''))||'annexe')+(String(x.nom||'').match(/\.[A-Za-z0-9]+$/)||['.pdf'])[0],data:o})}
+            enc.push({nom:nomAnnexe,data:o})}
           catch(e){manquePieces++}
         }
         const zip=zipEcrire(enc);
@@ -16422,6 +16543,13 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
         Version {prog.version} {prog.statut==='archive'?'archivée':'validée'}{prog.valideLe?' le '+fd(prog.valideLe.slice(0,10)):''} — figée.
         {prog.statut!=='archive'&&<button className="btn s" style={{marginLeft:8}} onClick={nouvelleVersion}>Créer la version {(prog.version||1)+1} pour modifier</button>}
         {prog.statut==='archive'&&<button className="btn gh s" style={{marginLeft:8}} onClick={nouvelleVersion}>Rouvrir en version {(prog.version||1)+1}</button>}
+      </div>}
+      {!fige&&(aMettreAJour.length>0||catsARenommer.length>0)&&<div className="xs" style={{marginTop:10,padding:'8px 10px',borderRadius:8,background:'#EEF1F6',lineHeight:1.5}}>
+        La bibliothèque a évolué depuis la création de ce programme (textes corrigés) :
+        {aMettreAJour.length>0?' '+aMettreAJour.length+' prestation'+(aMettreAJour.length>1?'s peuvent':' peut')+' reprendre le texte à jour':''}
+        {catsARenommer.length>0?(aMettreAJour.length?', et ':' ')+catsARenommer.length+' intitulé'+(catsARenommer.length>1?'s':'')+' de catégorie':''}.
+        Les prestations modifiées pour ce projet ne sont pas concernées.
+        <button className="btn s" style={{marginLeft:8}} onClick={mettreAJourDepuisBiblio}>Mettre à jour</button>
       </div>}
       <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12}}>
         <button className="btn gh s" onClick={()=>setModale({type:'apercu'})}>Aperçu du programme</button>
@@ -16602,7 +16730,7 @@ function BibliothequePrestations({data,save,onFermer}){
   useEffect(()=>()=>{if(minuteur.current)clearTimeout(minuteur.current)},[]);
   const majBiblio=fn=>{
     const d=dataRef.current, t=ptrMaintenant();
-    const b=d.ptrBiblio?d.ptrBiblio:ptrCopie(ptrBiblio(d));
+    const b=d.ptrBiblio?ptrBiblio(d):ptrCopie(ptrBiblio(d));
     const nd={...d,ptrBiblio:{...fn(b),modifieLe:t}};
     dataRef.current=nd;save(nd);setSauve('encours');
     if(minuteur.current)clearTimeout(minuteur.current);
