@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-26 · Programme technique : gouttières aluminium G300 DAL’ALU ou équivalent, avec photo et fiche produit';
+const VERSION='2026-09-27 · Programme technique : porte d’entrée Bel’M Abscisse Evo et porte de garage Hörmann RenoMatic, avec photos et documentation';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3893,7 +3893,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=8;
+const PTR_SEED_REV=9;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -3910,6 +3910,9 @@ PTR_SEED_DATES[7]=PTR_SEED_DATE_7;
 /* révision 8 : gouttières aluminium G300 DAL'ALU ou équivalent, fiche jointe */
 const PTR_SEED_DATE_8='2026-09-26T23:00:00.000Z';
 PTR_SEED_DATES[8]=PTR_SEED_DATE_8;
+/* révision 9 : porte d'entrée Bel'M Abscisse Evo, porte de garage Hörmann RenoMatic */
+const PTR_SEED_DATE_9='2026-09-27T08:00:00.000Z';
+PTR_SEED_DATES[9]=PTR_SEED_DATE_9;
 /* propositions dont le texte a été réécrit après la révision 4 */
 const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
@@ -3946,6 +3949,7 @@ const PTR_SEED_NOUVELLES={
   2:['var_murs_b','var_pointes_pignons_b','var_couverture_b','var_plancher_chauffant_b','var_revetements_sols_b'],
   3:['var_planchers_b'],
   7:['var_enduit_decoratif_pierre_a'],
+  9:['var_porte_entree_b','var_porte_garage_a'],
 };
 const ptrRevNaissance=id=>{for(const r in PTR_SEED_NOUVELLES)if(PTR_SEED_NOUVELLES[r].indexOf(id)>=0)return +r;return 1};
 /* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
@@ -3958,6 +3962,12 @@ const ptrPieceAsset=(fichier,nom)=>({id:'pj_'+ptrIdFichier(fichier),src:'asset',
    la catégorie : juste après « apres ») ; « optionnelle » : non incluse
    d'office dans un nouveau programme */
 const PTR_PRESTATIONS_AJOUTEES=[
+  {rev:9,apres:'porte_entree',id:'porte_garage',titre:'PORTE DE GARAGE SECTIONNELLE',
+    optionnelle:false,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
+    nom:'Hörmann RenoMatic motorisée',marque:'Hörmann',reference:'RenoMatic — Planar, rainures L',url:'https://www.hormann.fr',
+    photos:[ptrPhotoAsset('hormann_renomatic.jpeg',684,469),ptrPhotoAsset('hormann_renomatic_entree.jpeg',682,469)],
+    pieces:[ptrPieceAsset('docs/Hormann_RenoMatic.pdf','Documentation Hörmann — Porte de garage RenoMatic.pdf')],
+    texte:'Porte de garage sectionnelle HÖRMANN **RENOMATIC**, motorisée, dimensions selon plans :\n- panneaux en acier galvanisé à double paroi de 42 mm, injectés de mousse polyuréthane haute densité (Ud = 1,3 W/m².K) ;\n- surface Planar lisse mate à rainures L ;\n- couleur extérieure gris anthracite CH 7016 Matt deluxe, intérieure blanc gris RAL 9002 ;\n- montage derrière la baie, ferrure à ressorts de traction, faux-linteau assorti ;\n- motorisation ProMatic avec éclairage LED et sécurité anti-relevage, émetteur 4 touches HSE 4 BS (radio BiSecur 868 MHz).\nGarantie du fabricant : 10 ans (conditions sur www.hormann.fr).'},
   {rev:7,apres:'revetements_exterieurs',id:'enduit_decoratif_pierre',titre:'DÉCORATION EN ENDUIT IMITATION PIERRE',
     optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'suivant_devis',valeur:''},
     nom:'Enduit décoratif imitation pierre (option)',
@@ -3990,6 +4000,10 @@ const PTR_COMPLEMENTS_A={
     pieces:[ptrPieceAsset('docs/Alkern_Elibloc_Bloc20.pdf','Fiche produit Alkern ELIBLOC Bloc 20.pdf')]},
 };
 const PTR_PROPOSITIONS_2={
+  porte_entree:{nom:'Bel’M Abscisse Evo (acier 48)',marque:'Bel’M',reference:'Abscisse Evo — gamme Acier 48',url:'https://www.belm.fr',
+    photos:[ptrPhotoAsset('belm_abscisse_evo.jpeg',365,813),ptrPhotoAsset('belm_coupe_acier48.jpeg',405,525)],
+    pieces:[ptrPieceAsset('docs/BelM_Abscisse_Evo.pdf','Fiche produit Bel’M — Abscisse Evo.pdf')],
+    texte:'Porte d’entrée en acier BEL’M, modèle **ABSCISSE EVO**, gamme Acier 48 (ouvrant de 48 mm), dormant aluminium, fabrication française :\n- 1 vantail, dimensions et sens d’ouverture selon plans ;\n- couleur gris RAL 7016 texturé, à l’extérieur comme à l’intérieur ;\n- pose en applique, dormant pour isolation de 160 mm ;\n- seuil aluminium de 20 mm, accessible aux personnes à mobilité réduite ;\n- vitrage vertical en double vitrage de classe P2A affleurant, sablé ;\n- poignée rosace ton argent sur les 2 faces, serrure à relevage 4 rouleaux, barillet standard 3 clés.\nPerformance thermique du vantail : Ud = 1,4 W/m².K selon la norme NF EN 14351-1 ; affaiblissement acoustique 30 (-3 ; -4) dB.\nGarantie brillance et couleur : 15 ans.'},
   planchers:{nom:'Vide sanitaire — hourdis isolants (sauf garage)',
     photos:[ptrPhotoAsset('plancher_hourdis_isolant.jpeg',1200,1600),ptrPhotoAsset('plancher_hourdis_plastique.jpeg',1500,1125)],
     texte:'Plancher du rez-de-chaussée sur vide sanitaire, constitué de poutrelles béton et d’entrevous (hourdis) **isolants** en polystyrène expansé dans les parties habitables, avec dalle de compression en béton armé sur treillis soudé, y compris chaînage en béton armé.\nGarage (volume non chauffé) : poutrelles béton et hourdis plastique, sans isolant.\nValeur Up du plancher conforme à l’étude thermique RE2020 ; épaisseur de l’isolant sous chape suivant cette même étude.'},
@@ -4049,8 +4063,8 @@ function ptrBiblioInitiale(){
         ordre:prestations.filter(p=>p.categorieId===c.id).length,actif:true,obligatoire:false,optionnelle:!!a.optionnelle,
         defautMO:!!a.defautMO,defautHors:!!a.defautHors,montantDefaut:{...a.montantDefaut},
         observations:'',creeLe:d,modifieLe:d,alertesVues:[],
-        variantes:[{id:'var_'+a.id+'_a',nom:a.nom,titre:a.titre,texte:a.texte,photos:ptrCopie(a.photos||[]),pieces:[],
-          marque:'',reference:'',url:'',noteInterne:'',parDefaut:true,archivee:false,version:1,creeLe:d,modifieLe:d}]});
+        variantes:[{id:'var_'+a.id+'_a',nom:a.nom,titre:a.titre,texte:a.texte,photos:ptrCopie(a.photos||[]),pieces:ptrCopie(a.pieces||[]),
+          marque:a.marque||'',reference:a.reference||'',url:a.url||'',noteInterne:'',parDefaut:true,archivee:false,version:1,creeLe:d,modifieLe:d}]});
     });
   });
   return {version:1,seedRev:PTR_SEED_REV,modeleNom:PTR_MODELE_NOM,categories:cats,prestations,mentions:{...PTR_MENTIONS_DEFAUT},
@@ -4102,7 +4116,9 @@ function ptrMigrerBiblio(b){
   s.prestations.forEach(sp=>{
     if(ptrRevPrestation(sp.id)<=(b.seedRev||1)||prestations.some(p=>p.id===sp.id)||!categories.some(c=>c.id===sp.categorieId))return;
     const memes=prestations.filter(p=>p.categorieId===sp.categorieId);
-    prestations.push({...ptrCopie(sp),ordre:memes.length?Math.max(...memes.map(p=>+p.ordre||0))+1:0});
+    const aj=PTR_PRESTATIONS_AJOUTEES.find(a=>'pr_'+a.id===sp.id);
+    const ancre=aj&&memes.find(p=>p.id==='pr_'+aj.apres);
+    prestations.push({...ptrCopie(sp),ordre:ancre?(+ancre.ordre||0)+0.5:memes.length?Math.max(...memes.map(p=>+p.ordre||0))+1:0});
   });
   return {...b,categories,prestations,seedRev:PTR_SEED_REV};
 }
@@ -4146,8 +4162,8 @@ const PTR_TITRES_ACCENTS=[['PREPARATION','PRÉPARATION'],['MACONNERIE','MAÇONNE
   ['EVIER','ÉVIER'],['FENETRE','FENÊTRE'],['ACCES','ACCÈS'],['EXCEDENTAIRES','EXCÉDENTAIRES']];
 const PTR_MARQUES=['Atlantic','Aldes','Daikin','Jacob Delafon','Monier','PBM','MSEA','Celtys','Placo','Knauf','Isover',
   'Grohe','Velux','Somfy','Legrand','Schneider','Hager','Porcher','Villeroy','Geberit','Kinedo','Saunier Duval','Rehau',
-  'Edilians','Biobric','Alkern','Elibloc','Dal.Alu'];
-const PTR_MOTS_MARQUES=['TaHoma','AldesConnect','EasyHOME','AquaAIR','T.One'];
+  'Edilians','Biobric','Alkern','Elibloc','Dal.Alu','Hörmann','Hormann'];
+const PTR_MOTS_MARQUES=['TaHoma','AldesConnect','EasyHOME','AquaAIR','T.One','ProMatic','BiSecur','RenoMatic','ProLift'];
 function ptrAlertesTexte(titre,texte){
   const A=[], t=String(texte||''), ti=String(titre||'');
   const ajoute=(cle,msg,niveau)=>{if(!A.some(a=>a.cle===cle))A.push({cle,msg,niveau:niveau||'attention'})};
