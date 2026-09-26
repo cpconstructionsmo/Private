@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-26 · Programme technique : appuis de fenêtre PBM ou Celtys, avec leurs fiches produits';
+const VERSION='2026-09-26 · Programme technique : option décoration en enduit imitation pierre, et 9 photos du modèle remises d’aplomb';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2225,7 +2225,7 @@ const PTR_CATALOGUE=[
   {id:"terrassements",groupe:"PRÉPARATION DU TERRAIN",titre:"TERRASSEMENTS",texte:"Décapage de la terre végétale sur une épaisseur d'environ 20 cm à l'emplacement de la construction, avec une aisance de 80 cm de chaque côté.\nTerrassement en pleine masse à la pelle mécanique, avec stockage des terres excédentaires sur place, autour de la construction.\nLes fouilles en rigole, de 50 cm x 25 cm de hauteur, sont réalisées à la pelle mécanique ; leur profondeur est déterminée par la limite hors gel.",images:[{fichier:"image4.jpeg",w:520,h:390},{fichier:"image5.jpeg",w:292,h:390}],defaut:"MO"},
   {id:"terres_excedentaires",groupe:"PRÉPARATION DU TERRAIN",titre:"TERRES EXCÉDENTAIRES",texte:"Régalage des terres excédentaires issues de la construction, sans apport de terre supplémentaire. Les terres végétales seront étalées sur le terrain ; les terres excédentaires ne seront pas évacuées.",images:[],defaut:"MO"},
   {id:"fondations",groupe:"MAÇONNERIE",titre:"FONDATIONS",texte:"Semelles filantes en béton armé (type XC2 – C25/30) sous les murs périphériques et de refend.\nArmatures constituées de 6 barres filantes avec cadres.",images:[{fichier:"image6.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"vide_sanitaire",groupe:"MAÇONNERIE",titre:"VIDE SANITAIRE",texte:"Soubassement du vide sanitaire réalisé en agglos creux de 25 cm de hauteur, sur 3 rangs, pour une hauteur finie de 75 cm.\nLa partie enterrée du soubassement sera revêtue d'un enduit ciment hydrofugé. Cet enduit ne constitue pas un système d'étanchéité : il convient à un mur de troisième catégorie (cas des vides sanitaires), où des circulations d'eau temporaires sont admises.\nVentilation du vide sanitaire par des grilles placées dans le mur d'élévation.\nDans le cas d'un vide sanitaire enterré, l'accès se fera par une réservation dans le garage, fermée par une trappe métallique.",images:[{fichier:"image7.jpeg",w:768,h:576},{fichier:"image8.jpeg",w:695,h:708},{fichier:"image9.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"vide_sanitaire",groupe:"MAÇONNERIE",titre:"VIDE SANITAIRE",texte:"Soubassement du vide sanitaire réalisé en agglos creux de 25 cm de hauteur, sur 3 rangs, pour une hauteur finie de 75 cm.\nLa partie enterrée du soubassement sera revêtue d'un enduit ciment hydrofugé. Cet enduit ne constitue pas un système d'étanchéité : il convient à un mur de troisième catégorie (cas des vides sanitaires), où des circulations d'eau temporaires sont admises.\nVentilation du vide sanitaire par des grilles placées dans le mur d'élévation.\nDans le cas d'un vide sanitaire enterré, l'accès se fera par une réservation dans le garage, fermée par une trappe métallique.",images:[{fichier:"image7.jpeg",w:768,h:576},{fichier:"image8.jpeg",w:708,h:695},{fichier:"image9.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"planchers",groupe:"MAÇONNERIE",titre:"PLANCHERS",texte:"Plancher du rez-de-chaussée constitué de poutrelles béton et d'entrevous (hourdis) plastique, avec dalle de compression en béton brut de règle, y compris chaînage en béton armé.\nValeur Up du plancher conforme à la réglementation thermique en vigueur.",images:[{fichier:"image10.jpeg",w:292,h:390},{fichier:"image11.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"murs",groupe:"MAÇONNERIE",titre:"MURS",texte:"Murs de façade et de pignons assurant une hauteur sous plafond d'environ 2,50 m.\nMaçonnerie en blocs béton creux **rectifiés**, classe **B60**, de 20 cm d'épaisseur, type ELIBLOC d'Alkern ou équivalent :\n- dimensions 500 x 200 x 200 mm (L x l x h) ;\n- pose à joint mince au mortier-colle, conformément au DTU 20.1 ;\n- blocs certifiés NF, résistance au feu REI 60 en mur porteur ;\n- support d'enduit classé Rt3, recevant un enduit monocouche de type OC3.\nLinteaux, chaînages verticaux et horizontaux en béton armé coulés dans des blocs spécifiques (blocs d'angle, de chaînage ou en U). Au choix du Maître d'Œuvre, les poteaux, chaînages ou linteaux en béton armé de forte section pourront être coffrés et conserver un parement béton avant l'application des enduits de façade.",images:[{fichier:"image12.jpeg",w:520,h:390},{fichier:"image13.jpeg",w:292,h:390}],defaut:"MO"},
   {id:"pointes_pignons",groupe:"MAÇONNERIE",titre:"POINTES DE PIGNONS",texte:"En blocs béton de 20 cm d'épaisseur, de même type que les murs.\nArase en béton suivant les rampants.",images:[],defaut:"les_deux"},
@@ -2233,17 +2233,17 @@ const PTR_CATALOGUE=[
   {id:"revetements_exterieurs",groupe:"MAÇONNERIE",titre:"REVÊTEMENTS EXTÉRIEURS",texte:"Enduit monocouche suivant plans, pigmenté selon la teinte choisie pour les façades, finition grattée grain moyen, d'une épaisseur minimale de 10 mm en tout point.\nLe Maître d'Œuvre déconseille les teintes foncées, qui favorisent le faïençage, le nuançage et la microfissuration, et décline toute responsabilité en cas de choix d'une teinte foncée.",images:[{fichier:"image15.jpeg",w:520,h:390},{fichier:"image16.jpeg",w:520,h:390}],defaut:"les_deux"},
   {id:"charpente",groupe:"LA TOITURE",titre:"LA CHARPENTE",texte:"Pente de la toiture : 35°.\nFermettes industrielles en sapin, type combles perdus (entraxe d'environ 60 cm), y compris accessoires, étrésillons et contreventement. L'ensemble de la charpente reçoit un traitement insecticide et fongicide.",images:[{fichier:"image17.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"debords_toits",groupe:"LA TOITURE",titre:"DÉBORDS DE TOITS",texte:"Débords de toit d'une largeur d'environ 20 cm, constitués par les fermettes et habillés en sous-face d'une plaque en PVC blanc.\nPositionnement selon plans et façades.",images:[{fichier:"image18.jpeg",w:584,h:390},{fichier:"image19.jpeg",w:584,h:390}],defaut:"MO"},
-  {id:"ecran_sous_toiture",groupe:"LA TOITURE",titre:"ÉCRAN DE SOUS-TOITURE",texte:"Écran de sous-toiture HPV (hautement perméable à la vapeur d'eau) avec contre-liteaunage, type SPIRTECH de Monier ou équivalent.",images:[{fichier:"image20.jpeg",w:520,h:390},{fichier:"image21.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"ecran_sous_toiture",groupe:"LA TOITURE",titre:"ÉCRAN DE SOUS-TOITURE",texte:"Écran de sous-toiture HPV (hautement perméable à la vapeur d'eau) avec contre-liteaunage, type SPIRTECH de Monier ou équivalent.",images:[{fichier:"image20.jpeg",w:390,h:520},{fichier:"image21.jpeg",w:390,h:520}],defaut:"MO"},
   {id:"couverture",groupe:"LA TOITURE",titre:"COUVERTURE",texte:"Couverture en ardoises artificielles en fibres-ciment imitant l'ardoise naturelle, format 40 x 24 cm, type Orléane. Ce format courant est posé avec un recouvrement adapté à la pente afin de garantir l'étanchéité.",images:[{fichier:"image22.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"gouttieres_tuyaux_descente",groupe:"LA TOITURE",titre:"GOUTTIÈRES – TUYAUX DE DESCENTE",texte:"Gouttières en aluminium, modèle corniche, y compris descentes en aluminium.\nTeinte au choix : gris anthracite, sable ou cuivre.",images:[],defaut:"MO"},
   {id:"porte_entree",groupe:"MENUISERIES EXTÉRIEURES",titre:"PORTE D'ENTRÉE – RAL 7016",texte:"Porte d'entrée en acier de 170 x 215, type « DREAM », avec châssis latéral fixe, de marque Bel'm ou similaire – Ud = 0,75 W/m².K.\nBarre de tirage ronde ton inox de 1 800 mm.",images:[{fichier:"image23.png",w:436,h:452}],defaut:"MO"},
   {id:"chassis_fenetres_francaise",groupe:"MENUISERIES EXTÉRIEURES",titre:"CHÂSSIS ET FENÊTRES OUVRANT À LA FRANÇAISE",texte:"Menuiseries en PVC à ouvrants à la française, grand vitrage ; quantités et dimensions selon plans.\nOscillo-battant intégré sur les menuiseries à un vantail.\nCouleur extérieure : gris RAL 7016.\nCouleur intérieure : gris RAL 7016.",images:[{fichier:"image24.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"coulissant",groupe:"MENUISERIES EXTÉRIEURES",titre:"COULISSANT",texte:"Baies et fenêtres coulissantes en aluminium laqué, un vantail se repliant sur l'autre. Positionnement et dimensions selon plans.\nCouleur extérieure : gris RAL 7016.\nCouleur intérieure : gris RAL 7016.",images:[{fichier:"image25.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"coulissant",groupe:"MENUISERIES EXTÉRIEURES",titre:"COULISSANT",texte:"Baies et fenêtres coulissantes en aluminium laqué, un vantail se repliant sur l'autre. Positionnement et dimensions selon plans.\nCouleur extérieure : gris RAL 7016.\nCouleur intérieure : gris RAL 7016.",images:[{fichier:"image25.jpeg",w:390,h:520}],defaut:"MO"},
   {id:"vitrerie",groupe:"MENUISERIES EXTÉRIEURES",titre:"VITRERIE",texte:"Double vitrage isolant à intercalaire warm-edge et lame de gaz argon.\nVerre transparent sur les fenêtres, portes-fenêtres et coulissants.\nVerre blanc translucide sur les châssis des WC, salles de bains et salles d'eau.",images:[],defaut:"MO"},
   {id:"volets_roulants",groupe:"MENUISERIES EXTÉRIEURES",titre:"VOLETS ROULANTS",texte:"Volets roulants à lames en aluminium laqué, dans coffre maçonné.\nMotorisation filaire à commande centralisée SOMFY RS 100.\nCouleur : aluminium gris RAL 7016.",images:[{fichier:"image14.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"domotique",groupe:"MENUISERIES EXTÉRIEURES",titre:"DOMOTIQUE",texte:"Box SOMFY TAHOMA SWITCH permettant de piloter les volets roulants et de gérer le chauffage à distance, depuis un smartphone ou une tablette.",images:[],defaut:"MO"},
-  {id:"plafonds",groupe:"PLÂTRERIE SÈCHE",titre:"PLAFONDS",texte:"Plaques de plâtre de 13 mm d'épaisseur, vissées sur ossature métallique suspendue. Hauteur sous plafond dans les pièces habitables : environ 2,50 m.\nUne trappe isolée d'environ 0,60 x 0,60 m donne accès aux combles perdus (dans les WC, le dégagement, la salle de bains ou le garage, selon les impératifs techniques).\nPlafond du garage en plaques BA13 sur rails suspendus aux fermettes.",images:[{fichier:"image26.jpeg",w:691,h:519}],defaut:"MO"},
-  {id:"doublage",groupe:"PLÂTRERIE SÈCHE",titre:"DOUBLAGE – 160 mm",texte:"Doublage des murs extérieurs sur ossature métallique (rails et montants) intégrant une laine de verre d'une épaisseur minimale de 140 mm (épaisseur et nature suivant étude thermique), avec pare-vapeur papier et parement en plaque de plâtre de 13 mm.",images:[{fichier:"image27.jpeg",w:557,h:433}],defaut:"MO"},
+  {id:"plafonds",groupe:"PLÂTRERIE SÈCHE",titre:"PLAFONDS",texte:"Plaques de plâtre de 13 mm d'épaisseur, vissées sur ossature métallique suspendue. Hauteur sous plafond dans les pièces habitables : environ 2,50 m.\nUne trappe isolée d'environ 0,60 x 0,60 m donne accès aux combles perdus (dans les WC, le dégagement, la salle de bains ou le garage, selon les impératifs techniques).\nPlafond du garage en plaques BA13 sur rails suspendus aux fermettes.",images:[{fichier:"image26.jpeg",w:519,h:691}],defaut:"MO"},
+  {id:"doublage",groupe:"PLÂTRERIE SÈCHE",titre:"DOUBLAGE – 160 mm",texte:"Doublage des murs extérieurs sur ossature métallique (rails et montants) intégrant une laine de verre d'une épaisseur minimale de 140 mm (épaisseur et nature suivant étude thermique), avec pare-vapeur papier et parement en plaque de plâtre de 13 mm.",images:[{fichier:"image27.jpeg",w:433,h:557}],defaut:"MO"},
   {id:"cloisons_72mm",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS – 72 mm",texte:"Cloisons de distribution constituées de 2 plaques de plâtre sur ossature métallique, intégrant une laine de verre PARPHONIC de 45 mm.\nÉpaisseur finie : 72 mm.\nParois verticales des salles de bains, salles d'eau et du garage en plaques de plâtre hydrofugées ; les plafonds restent en plaques BA13 standard.",images:[{fichier:"image28.jpeg",w:410,h:390}],defaut:"MO"},
   {id:"cloisons_100mm",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS – 100 mm",texte:"Cloisons de distribution constituées de 2 plaques de plâtre sur ossature métallique, intégrant une laine de verre PARPHONIC de 85 mm.\nÉpaisseur finie : 102 mm.\nLocalisation : suivant plans.",images:[],defaut:"MO"},
   {id:"cloisons_separation_volumes_non_chauffes",groupe:"PLÂTRERIE SÈCHE",titre:"CLOISONS DE SÉPARATION VOLUMES NON CHAUFFÉS",texte:"Entre les parties chauffées et non chauffées, cloison isolante sur ossature métallique, composée de deux plaques de plâtre durci de 13 mm d'épaisseur et d'une laine de verre (épaisseur suivant étude thermique).",images:[{fichier:"image29.jpeg",w:520,h:390}],defaut:"MO"},
@@ -2268,7 +2268,7 @@ const PTR_CATALOGUE=[
   {id:"plancher_chauffant",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"PLANCHER CHAUFFANT",texte:"Réseau de tubes en polyéthylène réticulé (PER) disposés en nappes sur un isolant thermique de sol conforme aux normes en vigueur.\nLes tubes sont fixés sur les plaques isolantes selon un pas de pose défini par l'étude thermique, et reliés à un collecteur de distribution équipé de vannes d'équilibrage et de régulation. L'ensemble est alimenté par la pompe à chaleur, qui fonctionne à basse température (environ 25/30 °C en régime nominal) pour optimiser le confort et les performances énergétiques.\nRégulation par 2 thermostats d'ambiance reliés au collecteur, pour un contrôle précis des températures.",images:[],defaut:"MO"},
   {id:"seche_serviette_electrique",groupe:"PRODUCTION DE CHAUFFAGE ET D'EAU CHAUDE SANITAIRE",titre:"SÈCHE-SERVIETTES ÉLECTRIQUE",texte:"Radiateur sèche-serviettes électrique modèle DORIS blanc d'Atlantic (puissance suivant étude thermique).",images:[{fichier:"image41.png",w:222,h:382}],montant:"460,00 € / unité",defaut:"les_deux"},
   {id:"revetements_sols",groupe:"REVÊTEMENTS DE SOLS ET MURS",titre:"REVÊTEMENTS DE SOLS",texte:"Chape fluide à base de ciment sur plancher chauffant :\nChape fluide à liant ciment conforme au DTU 26.2, spécialement conçue pour l'enrobage d'un plancher chauffant hydraulique basse température, coulée sur le plancher chauffant préalablement mis en place (isolant thermique adapté et réseau de tubes fixé sur plaques).\nMise en œuvre par pompage, avec une épaisseur minimale d'enrobage de 30 mm au-dessus des tubes. Surface réglée et talochée pour obtenir une planéité conforme à la classe demandée (généralement classe P3). Temps de séchage et de cure respecté selon les conditions climatiques et la notice du fabricant.\nCarrelage :\nCarrelage en grès émaillé 90 x 90 SEVILLE AVARIO rectifié, posé droit sur chape, dans toutes les pièces sauf les chambres, le dressing et le garage.\nPlinthes assorties au carrelage du sol.",images:[{fichier:"image42.jpeg",w:1000,h:563},{fichier:"image43.jpeg",w:520,h:390}],montant:"10 000,00 €",defaut:"les_deux"},
-  {id:"revetements_muraux",groupe:"REVÊTEMENTS DE SOLS ET MURS",titre:"REVÊTEMENTS MURAUX",texte:"Faïence posée droite, sans décors ni listels, à répartir autour des receveurs de douche : 17,00 m².",images:[{fichier:"image44.jpeg",w:520,h:390}],defaut:"les_deux"},
+  {id:"revetements_muraux",groupe:"REVÊTEMENTS DE SOLS ET MURS",titre:"REVÊTEMENTS MURAUX",texte:"Faïence posée droite, sans décors ni listels, à répartir autour des receveurs de douche : 17,00 m².",images:[{fichier:"image44.jpeg",w:390,h:520}],defaut:"les_deux"},
   {id:"peintures",groupe:"REVÊTEMENTS DE SOLS ET MURS",titre:"PEINTURES",texte:"Ratissage, ponçage, une couche d'impression et une couche de finition en peinture acrylique blanc mat, appliquées au rouleau sur les murs et les plafonds.",images:[],defaut:"les_deux"},
   {id:"nettoyage_interieur",groupe:"NETTOYAGE INTÉRIEUR",titre:"NETTOYAGE INTÉRIEUR",texte:"Nettoyage intérieur de la maison (sols, vitres, sanitaires).",images:[],defaut:"les_deux"},
   {id:"assainissement_vrd",groupe:"ASSAINISSEMENT – VRD",titre:"ASSAINISSEMENT – VRD",texte:"La viabilisation de la parcelle, comprenant les branchements et compteurs des réseaux publics (tout-à-l'égout, électricité, gaz, téléphone, eaux pluviales), sera réalisée, décrite et chiffrée par la régie ou le concessionnaire des services publics. Ces travaux ne sont pas coordonnés par le Maître d'Œuvre.",images:[],defaut:"hors_coord"},
@@ -3893,7 +3893,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=6;
+const PTR_SEED_REV=7;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -3904,6 +3904,9 @@ const PTR_TEXTES_REV5=['var_electricite_a','var_bandes_joints_plaque_platre_a'];
 /* révision 6 : appuis de fenêtre PBM ou Celtys, fiches produits jointes */
 const PTR_SEED_DATE_6='2026-09-26T21:00:00.000Z';
 PTR_SEED_DATES[6]=PTR_SEED_DATE_6;
+/* révision 7 : option décoration en enduit imitation pierre */
+const PTR_SEED_DATE_7='2026-09-26T22:00:00.000Z';
+PTR_SEED_DATES[7]=PTR_SEED_DATE_7;
 /* propositions dont le texte a été réécrit après la révision 4 */
 const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
@@ -3939,6 +3942,7 @@ const PTR_TEXTES_ANCIENS={
 const PTR_SEED_NOUVELLES={
   2:['var_murs_b','var_pointes_pignons_b','var_couverture_b','var_plancher_chauffant_b','var_revetements_sols_b'],
   3:['var_planchers_b'],
+  7:['var_enduit_decoratif_pierre_a'],
 };
 const ptrRevNaissance=id=>{for(const r in PTR_SEED_NOUVELLES)if(PTR_SEED_NOUVELLES[r].indexOf(id)>=0)return +r;return 1};
 /* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
@@ -3947,6 +3951,29 @@ const ptrIdFichier=f=>String(f).replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g
 const ptrPhotoAsset=(fichier,w,h)=>({id:'ph_'+ptrIdFichier(fichier),src:'asset',fichier,
   nom:fichier,w,h,ext:/\.png$/i.test(fichier)?'png':'jpeg',mode:'contain',fx:.5,fy:.5});
 const ptrPieceAsset=(fichier,nom)=>({id:'pj_'+ptrIdFichier(fichier),src:'asset',fichier,nom,lien:'assets/ptr/'+fichier});
+/* prestations ajoutées au modèle papier (révision de naissance, place dans
+   la catégorie : juste après « apres ») ; « optionnelle » : non incluse
+   d'office dans un nouveau programme */
+const PTR_PRESTATIONS_AJOUTEES=[
+  {rev:7,apres:'revetements_exterieurs',id:'enduit_decoratif_pierre',titre:'DÉCORATION EN ENDUIT IMITATION PIERRE',
+    optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'suivant_devis',valeur:''},
+    nom:'Enduit décoratif imitation pierre (option)',
+    photos:[ptrPhotoAsset('enduit_pierre_facade.jpeg',1600,1262),ptrPhotoAsset('enduit_pierre_interieur.jpeg',1379,1600)],
+    texte:'Option : décoration en enduit imitation pierre, réalisée à la main sur l’enduit de façade ou sur un mur intérieur. Pierres (et, le cas échéant, briques) sculptées en relief dans un mortier à la chaux, joints creusés, puis patine teintée pour un rendu de pierre naturelle.\nAspect, calepinage et teintes au choix du Maître de l’Ouvrage, sur échantillon ou nuancier de l’applicateur.\nSurface : [à préciser] m².\nLocalisation : [à préciser].'},
+];
+/* les photos du modèle : dimensions toujours lues dans le catalogue, qui
+   fait foi — une photo copiée avant la remise d'aplomb de 9 images
+   (tournées par Word dans le document d'origine, pas dans le fichier)
+   garde sinon l'ancienne largeur / hauteur */
+let ptrDimsAssets=null;
+const ptrDimsPhoto=ph=>{
+  if(!ph||ph.src!=='asset')return ph;
+  if(!ptrDimsAssets){ptrDimsAssets={};
+    PTR_CATALOGUE.forEach(x=>x.images.forEach(im=>{ptrDimsAssets[im.fichier]={w:im.w,h:im.h}}))}
+  const d=ptrDimsAssets[ph.fichier];
+  return d?{...ph,w:d.w,h:d.h}:ph;
+};
+const ptrRevPrestation=id=>{const a=PTR_PRESTATIONS_AJOUTEES.find(x=>'pr_'+x.id===id);return a?a.rev:1};
 /* compléments de la proposition standard (A) : fiche produit et photo */
 const PTR_COMPLEMENTS_A={
   seuils_porte_appuis_fenetre:{marque:'PBM / Celtys',reference:'Appui de baie ABS (PBM) · Appui Rexlan nez carré (Celtys)',url:'https://www.pbm.fr',
@@ -4011,6 +4038,14 @@ function ptrBiblioInitiale(){
       defautMO:coche==='MO'||coche==='les_deux',defautHors:coche==='hors_coord'||coche==='les_deux',
       montantDefaut:x.montant?{type:'libre',valeur:x.montant}:{type:'',valeur:''},
       observations:'',creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE,alertesVues:[],variantes});
+    PTR_PRESTATIONS_AJOUTEES.filter(a=>a.apres===x.id).forEach(a=>{const d=PTR_SEED_DATES[a.rev];
+      prestations.push({id:'pr_'+a.id,categorieId:c.id,sousCategorie:'',nom:a.titre,code:'',
+        ordre:prestations.filter(p=>p.categorieId===c.id).length,actif:true,obligatoire:false,optionnelle:!!a.optionnelle,
+        defautMO:!!a.defautMO,defautHors:!!a.defautHors,montantDefaut:{...a.montantDefaut},
+        observations:'',creeLe:d,modifieLe:d,alertesVues:[],
+        variantes:[{id:'var_'+a.id+'_a',nom:a.nom,titre:a.titre,texte:a.texte,photos:ptrCopie(a.photos||[]),pieces:[],
+          marque:'',reference:'',url:'',noteInterne:'',parDefaut:true,archivee:false,version:1,creeLe:d,modifieLe:d}]});
+    });
   });
   return {version:1,seedRev:PTR_SEED_REV,modeleNom:PTR_MODELE_NOM,categories:cats,prestations,mentions:{...PTR_MENTIONS_DEFAUT},
     creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATES[PTR_SEED_REV]};
@@ -4057,6 +4092,11 @@ function ptrMigrerBiblio(b){
     sp.variantes.forEach(sv=>{if(ptrRevNaissance(sv.id)>(b.seedRev||1)&&!variantes.some(v=>v.id===sv.id))
       variantes.push({...ptrCopie(sv),parDefaut:false})});
     return {...pr,nom:ptrMemeLibelle(pr.nom,sp.nom)?sp.nom:pr.nom,variantes};
+  });
+  s.prestations.forEach(sp=>{
+    if(ptrRevPrestation(sp.id)<=(b.seedRev||1)||prestations.some(p=>p.id===sp.id)||!categories.some(c=>c.id===sp.categorieId))return;
+    const memes=prestations.filter(p=>p.categorieId===sp.categorieId);
+    prestations.push({...ptrCopie(sp),ordre:memes.length?Math.max(...memes.map(p=>+p.ordre||0))+1:0});
   });
   return {...b,categories,prestations,seedRev:PTR_SEED_REV};
 }
@@ -4127,7 +4167,7 @@ function ptrAlertesTexte(titre,texte){
 function ptrAlertesPhoto(ph){
   const A=[];
   if(!ph)return A;
-  const w=+ph.w||0, h=+ph.h||0;
+  const d=ptrDimsPhoto(ph), w=+d.w||0, h=+d.h||0;
   if(ph.src==='drive'&&!ph.fileId)A.push({cle:'photo-manque:'+ph.id,msg:'Photo « '+(ph.nom||'?')+' » : fichier introuvable.',niveau:'attention'});
   if(w&&h&&Math.min(w,h)<300)A.push({cle:'photo-petite:'+ph.id,msg:'Photo « '+(ph.nom||'?')+' » de faible résolution ('+w+'×'+h+' px).',niveau:'info'});
   if(w&&h&&(w/h>2.4||h/w>2.4))A.push({cle:'photo-ratio:'+ph.id,msg:'Photo « '+(ph.nom||'?')+' » très allongée : cadrage à vérifier.',niveau:'info'});
@@ -4150,7 +4190,8 @@ function ptrAlertesPrestation(pr,biblio){
   return A.filter(a=>vues.indexOf(a.cle)<0);
 }
 function ptrAlertesLigne(l){
-  const A=ptrAlertesTexte(l.titre||l.nom,l.texte).concat((l.photos||[]).flatMap(ptrAlertesPhoto))
+  const A=(/\[à préciser\]/i.test(l.texte||'')?[{cle:'apreciser',msg:'Des éléments restent « [à préciser] » dans le texte (surface, localisation…) : à compléter pour ce projet.',niveau:'attention'}]:[])
+    .concat(ptrAlertesTexte(l.titre||l.nom,l.texte)).concat((l.photos||[]).flatMap(ptrAlertesPhoto))
     .concat((l.pieces||[]).filter(x=>!x.lien).map(x=>({cle:'piece:'+x.id,msg:'Pièce jointe « '+(x.nom||'?')+' » introuvable.',niveau:'attention'})));
   const vues=l.alertesVues||[];
   return A.filter(a=>vues.indexOf(a.cle)<0);
@@ -4162,7 +4203,7 @@ function ptrAlertesLigne(l){
    ne vienne réécrire un document déjà remis */
 function ptrLigneDepuis(pr,v){
   return {id:uid(),prestationId:pr.id,categorieId:pr.categorieId,nom:pr.nom,obligatoire:!!pr.obligatoire,
-    incluse:true,lotMO:!!pr.defautMO,horsCoord:!!pr.defautHors,montant:ptrCopie(pr.montantDefaut||{type:'',valeur:''}),
+    incluse:!pr.optionnelle,lotMO:!!pr.defautMO,horsCoord:!!pr.defautHors,montant:ptrCopie(pr.montantDefaut||{type:'',valeur:''}),
     observations:'',alertesVues:[],modifie:false,...ptrSnapshotVariante(v,pr)};
 }
 const ptrSnapshotVariante=(v,pr)=>v?{varianteId:v.id,varianteVersion:v.version||1,varianteNom:v.nom,
@@ -4235,6 +4276,7 @@ function ptrControles(prog,projet){
     if(l.obligatoire&&!l.incluse)R.push({cle:'oblig:'+l.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » est obligatoire mais non incluse'});
     if(!l.incluse)return;
     if(!String(l.texte||'').trim())R.push({cle:'vide:'+l.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : texte vide'});
+    if(/\[à préciser\]/i.test((l.titre||'')+' '+(l.texte||'')))R.push({cle:'apreciser:'+l.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : des éléments restent « [à préciser] » (surface, localisation…)'});
     if(!l.lotMO&&!l.horsCoord)R.push({cle:'statut:'+l.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : ni Lot MO ni hors coordination'});
     (l.photos||[]).forEach(ph=>{if(ph.src==='drive'&&!ph.fileId)R.push({cle:'ph:'+ph.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : photo introuvable'})});
     (l.pieces||[]).forEach(x=>{if(!x.lien&&!x.fileId)R.push({cle:'pj:'+x.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » : pièce jointe introuvable'})});
@@ -4310,7 +4352,7 @@ function ptrPhotosXml(photos,largeurDxa,ctx){
   const hauteurRangee=Math.round(boite.h/635)+2*marge+40;
   const sansBord=tcB({h:false,g:false,b:false,d:false});
   const cellule=(ph,span)=>{
-    const dim=formatDocumentImage(ph,boite);
+    const dim=formatDocumentImage(ptrDimsPhoto(ph),boite);
     ctx.docPr++;
     return tc(span?largeurDxa:demi,
       '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr>'
@@ -16469,7 +16511,7 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
   const retirer=l=>{if(confirm('Retirer « '+(l.titre||l.nom)+' » de ce programme ?\n\nLa bibliothèque n’est pas touchée. Pour simplement l’écarter du document, décochez plutôt « Incluse ».'))
     majProg(x=>({...x,lignes:x.lignes.filter(y=>y.id!==l.id)}))};
   const ajouterDepuisBiblio=(c,prId)=>{const pr=biblio.prestations.find(p=>p.id===prId);if(!pr)return;
-    majProg(x=>({...x,lignes:[...x.lignes,{...ptrLigneDepuis(pr,ptrVarianteDefaut(pr)),categorieId:c.id}]}))};
+    majProg(x=>({...x,lignes:[...x.lignes,{...ptrLigneDepuis(pr,ptrVarianteDefaut(pr)),categorieId:c.id,incluse:true}]}))};
   const ajouterManuelle=c=>majProg(x=>({...x,lignes:[...x.lignes,ptrLigneManuelle(c.id,'Nouvelle prestation')]}));
   /* reprendre, sur demande, les textes corrigés de la bibliothèque — jamais
      pour une ligne retouchée spécialement pour ce projet */
@@ -17016,6 +17058,7 @@ function BibliothequePrestations({data,save,onFermer}){
                 <div className="row sm" style={{gap:14,flexWrap:'wrap',alignItems:'center',marginBottom:10}}>
                   <label className="row" style={{gap:6}}><input type="checkbox" checked={pr.actif!==false} onChange={e=>majPr(pr.id,{actif:e.target.checked})}/>Active</label>
                   <label className="row" style={{gap:6}}><input type="checkbox" checked={!!pr.obligatoire} onChange={e=>majPr(pr.id,{obligatoire:e.target.checked})}/>Obligatoire</label>
+                  <label className="row" style={{gap:6}} title="Non incluse d’office dans un nouveau programme"><input type="checkbox" checked={!!pr.optionnelle} onChange={e=>majPr(pr.id,{optionnelle:e.target.checked})}/>Option (non incluse par défaut)</label>
                   <label className="row" style={{gap:6}}><input type="checkbox" checked={!!pr.defautMO} onChange={e=>majPr(pr.id,{defautMO:e.target.checked})}/>Lot MO par défaut</label>
                   <label className="row" style={{gap:6}}><input type="checkbox" checked={!!pr.defautHors} onChange={e=>majPr(pr.id,{defautHors:e.target.checked})}/>Hors coord. par défaut</label>
                   <select className="in" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={(pr.montantDefaut&&pr.montantDefaut.type)||''}
