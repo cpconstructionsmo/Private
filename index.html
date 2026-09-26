@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-24 · Le programme technique de référence se présente désormais sous forme de tableau, comme le modèle papier';
+const VERSION='2026-09-26 · Programme technique : bibliothèque de prestations A/B/C, éditeur par projet, photos cadrées, exports Word, PDF, Excel et dossier ZIP';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -16572,6 +16572,263 @@ function CarteProgrammeTechnique({data,cible,onOuvrir}){
   </div>;
 }
 
+/* ---------- DONNÉES › Bibliothèque des prestations ----------
+   Le référentiel CP Constructions. Toute retouche d'une proposition en crée
+   une nouvelle version : les programmes déjà établis gardent leur copie et
+   signalent simplement qu'une version plus récente existe. Une proposition
+   déjà utilisée ne se supprime pas — elle s'archive. */
+function ptrUsages(data){
+  const U={variantes:{},prestations:{}};
+  (data.programmes||[]).forEach(pg=>{
+    const vues={};
+    [pg.lignes||[]].concat((pg.versions||[]).map(v=>v.lignes||[])).forEach(L=>L.forEach(l=>{
+      if(l.varianteId&&!vues['v'+l.varianteId]){vues['v'+l.varianteId]=1;U.variantes[l.varianteId]=(U.variantes[l.varianteId]||0)+1}
+      if(l.prestationId&&!vues['p'+l.prestationId]){vues['p'+l.prestationId]=1;U.prestations[l.prestationId]=(U.prestations[l.prestationId]||0)+1}
+    }));
+  });
+  return U;
+}
+function BibliothequePrestations({data,save,onFermer}){
+  const dataRef=useRef(data);dataRef.current=data;
+  const biblio=ptrBiblio(data);
+  const [q,setQ]=useState('');
+  const [ouverts,setOuverts]=useState({});
+  const [prOuverte,setPrOuverte]=useState('');
+  const [modale,setModale]=useState(null);
+  const [nouvelleCat,setNouvelleCat]=useState('');
+  const [nouvellePr,setNouvellePr]=useState({});
+  const [sauve,setSauve]=useState('ok');
+  const minuteur=useRef(null);
+  useEffect(()=>()=>{if(minuteur.current)clearTimeout(minuteur.current)},[]);
+  const majBiblio=fn=>{
+    const d=dataRef.current, t=ptrMaintenant();
+    const b=d.ptrBiblio?d.ptrBiblio:ptrCopie(ptrBiblio(d));
+    const nd={...d,ptrBiblio:{...fn(b),modifieLe:t}};
+    dataRef.current=nd;save(nd);setSauve('encours');
+    if(minuteur.current)clearTimeout(minuteur.current);
+    minuteur.current=setTimeout(()=>setSauve('ok'),900);
+  };
+  const t=()=>ptrMaintenant();
+  const majPr=(id,patch)=>majBiblio(b=>({...b,prestations:b.prestations.map(p=>p.id===id?{...p,...patch,modifieLe:t()}:p)}));
+  const majVar=(prId,fn)=>majBiblio(b=>({...b,prestations:b.prestations.map(p=>p.id!==prId?p:{...p,modifieLe:t(),variantes:fn(p.variantes||[])})}));
+  const usages=ptrUsages(data);
+  const cats=[...biblio.categories].sort((a,b)=>(a.ordre||0)-(b.ordre||0));
+  const prestsDe=c=>biblio.prestations.filter(p=>p.categorieId===c.id).sort((a,b)=>(a.ordre||0)-(b.ordre||0));
+  const norme=s=>deaccent(String(s||'')).toLowerCase();
+  const nq=norme(q.trim());
+  const trouve=pr=>!nq||norme(pr.nom).indexOf(nq)>=0||(pr.variantes||[]).some(v=>[v.nom,v.texte,v.marque,v.reference].some(x=>norme(x).indexOf(nq)>=0));
+  const nbAlertes=biblio.prestations.reduce((s,p)=>s+ptrAlertesPrestation(p,biblio).length,0);
+  const nbVar=biblio.prestations.reduce((s,p)=>s+ptrVariantesActives(p).length,0);
+  const M=ptrMentions(biblio);
+
+  const bougerCat=(id,delta,versId)=>majBiblio(b=>{
+    const L=[...b.categories].sort((x,y)=>(x.ordre||0)-(y.ordre||0));
+    const i=L.findIndex(c=>c.id===id), j=versId?L.findIndex(c=>c.id===versId):i+delta;
+    return {...b,categories:ptrDeplacer(L,i,j).map((c,k)=>({...c,ordre:k}))};
+  });
+  const bougerPr=(id,delta,versId)=>majBiblio(b=>{
+    const pr=b.prestations.find(p=>p.id===id);
+    const L=b.prestations.filter(p=>p.categorieId===pr.categorieId).sort((x,y)=>(x.ordre||0)-(y.ordre||0));
+    const i=L.findIndex(p=>p.id===id), j=versId?L.findIndex(p=>p.id===versId):i+delta;
+    if(j<0||j>=L.length)return b;
+    const ordres={};ptrDeplacer(L,i,j).forEach((p,k)=>{ordres[p.id]=k});
+    return {...b,prestations:b.prestations.map(p=>ordres[p.id]!==undefined?{...p,ordre:ordres[p.id]}:p)};
+  });
+  const ajouterCat=()=>{const nom=nouvelleCat.trim().toUpperCase();if(!nom)return;
+    majBiblio(b=>({...b,categories:[...b.categories,{id:'cat_'+uid(),nom,ordre:b.categories.length,actif:true}]}));setNouvelleCat('')};
+  const ajouterPr=c=>{const nom=String(nouvellePr[c.id]||'').trim().toUpperCase();if(!nom)return;
+    const pr={id:'pr_'+uid(),categorieId:c.id,sousCategorie:'',nom,code:'',ordre:prestsDe(c).length,actif:true,obligatoire:false,
+      defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},observations:'',creeLe:t(),modifieLe:t(),alertesVues:[],variantes:[]};
+    majBiblio(b=>({...b,prestations:[...b.prestations,pr]}));setNouvellePr(o=>({...o,[c.id]:''}));setPrOuverte(pr.id);
+    setModale({type:'variante',prId:pr.id,v:null})};
+  const supprimerPr=pr=>{
+    if(usages.prestations[pr.id]){
+      if(confirm('« '+pr.nom+' » figure dans '+usages.prestations[pr.id]+' programme(s). Elle sera désactivée (plus proposée sur les nouveaux projets) plutôt que supprimée. Continuer ?'))
+        majPr(pr.id,{actif:false});
+      return;
+    }
+    if(confirm('Supprimer définitivement la prestation « '+pr.nom+' » et ses propositions ?'))
+      majBiblio(b=>({...b,prestations:b.prestations.filter(p=>p.id!==pr.id)}));
+  };
+  const enregistrerVariante=(pr,v0,f)=>{
+    const tt=t(), idNeuf='var_'+uid();
+    majVar(pr.id,L=>{
+      let res;
+      if(v0){
+        const change=['titre','texte','marque','reference','url'].some(k=>(f[k]||'')!==(v0[k]||''))
+          ||JSON.stringify(f.photos||[])!==JSON.stringify(v0.photos||[])||JSON.stringify(f.pieces||[])!==JSON.stringify(v0.pieces||[]);
+        res=L.map(v=>v.id!==v0.id?v:{...v,nom:f.nom.trim(),titre:(f.titre||'').trim()||pr.nom,texte:f.texte,photos:f.photos||[],pieces:f.pieces||[],
+          marque:f.marque||'',reference:f.reference||'',url:f.url||'',noteInterne:f.noteInterne||'',parDefaut:!!f.parDefaut,
+          version:(v.version||1)+(change?1:0),modifieLe:tt});
+      }else{
+        res=[...L,{id:idNeuf,nom:f.nom.trim(),titre:(f.titre||'').trim()||pr.nom,texte:f.texte,photos:f.photos||[],pieces:f.pieces||[],
+          marque:f.marque||'',reference:f.reference||'',url:f.url||'',noteInterne:f.noteInterne||'',parDefaut:!!f.parDefaut||!L.length,
+          archivee:false,version:1,creeLe:tt,modifieLe:tt}];
+      }
+      const idCible=v0?v0.id:idNeuf;
+      if(f.parDefaut)res=res.map(v=>({...v,parDefaut:v.id===idCible}));
+      return res;
+    });
+  };
+  const definirDefaut=(pr,v)=>majVar(pr.id,L=>L.map(x=>({...x,parDefaut:x.id===v.id})));
+  const dupliquerVar=(pr,v)=>majVar(pr.id,L=>[...L,{...ptrCopie(v),id:'var_'+uid(),nom:v.nom+' (copie)',parDefaut:false,archivee:false,
+    version:1,creeLe:t(),modifieLe:t()}]);
+  const archiverVar=(pr,v,a)=>majVar(pr.id,L=>{
+    const R=L.map(x=>x.id===v.id?{...x,archivee:a,parDefaut:a?false:x.parDefaut}:x);
+    if(a&&v.parDefaut){const autre=R.find(x=>!x.archivee);if(autre)return R.map(x=>({...x,parDefaut:x.id===autre.id}))}
+    return R;
+  });
+  const supprimerVar=(pr,v)=>{
+    if(usages.variantes[v.id]){alert('« '+v.nom+' » est utilisée dans '+usages.variantes[v.id]+' programme(s) : archivez-la plutôt, pour garantir les documents déjà remis.');return}
+    if(!confirm('Supprimer définitivement la proposition « '+v.nom+' » ?'))return;
+    majVar(pr.id,L=>{const R=L.filter(x=>x.id!==v.id);
+      return v.parDefaut&&R.length&&!R.some(x=>x.parDefaut)?R.map((x,i)=>({...x,parDefaut:i===0})):R});
+  };
+  const bouton={background:'none',border:'none',padding:'0 4px',color:MUTED,cursor:'pointer',fontSize:13};
+  const prModale=modale&&modale.prId?biblio.prestations.find(p=>p.id===modale.prId):null;
+
+  return <div>
+    <div className="sp" style={{gap:8,flexWrap:'wrap',marginBottom:10}}>
+      <button className="btn gh s" onClick={onFermer}>← Données</button>
+      <span className="xs" style={{color:sauve==='ok'?GREEN:MUTED}}>{sauve==='ok'?'✓ Enregistré':'Enregistrement…'}</span>
+    </div>
+    <H2>BIBLIOTHÈQUE DES PRESTATIONS</H2>
+    <div className="card" style={{borderLeft:'3px solid '+NAVY}}>
+      <div className="xs mut" style={{lineHeight:1.6}}>
+        {biblio.modeleNom||PTR_MODELE_NOM} — {cats.length} catégories · {biblio.prestations.length} prestations · {nbVar} propositions actives
+        {nbAlertes>0&&<span style={{color:AMBER}}> · ⚠ {nbAlertes} vérification{nbAlertes>1?'s':''} recommandée{nbAlertes>1?'s':''}</span>}.
+        <br/>Modifier une proposition ne change aucun programme déjà établi : chaque projet garde sa copie.
+        {!data.ptrBiblio&&<span> Bibliothèque initiale, importée du modèle papier « Maison neuve ».</span>}
+      </div>
+      <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:10}}>
+        <input className="in" style={{flex:'1 1 220px',maxWidth:380}} placeholder="Rechercher une prestation, une proposition…" value={q} onChange={e=>setQ(e.target.value)}/>
+        <button className="btn gh s" onClick={()=>setOuverts(Object.fromEntries(cats.map(c=>[c.id,true])))}>Tout développer</button>
+        <button className="btn gh s" onClick={()=>setOuverts({})}>Tout réduire</button>
+        <button className="btn gh s" onClick={()=>setModale({type:'mentions'})}>Textes de la page de garde</button>
+      </div>
+    </div>
+
+    {cats.map((c,ci)=>{
+      const L=prestsDe(c).filter(trouve);
+      if(nq&&!L.length)return null;
+      const ouvert=nq?true:!!ouverts[c.id];
+      return <div key={c.id} {...ptrCible('b-cat',c.id,(de,vers)=>bougerCat(de,0,vers))} style={{marginBottom:10,opacity:c.actif===false?.6:1}}>
+        <div className="sp" style={{gap:8,background:'#F4F1EB',border:'1px solid '+RULE,borderRadius:10,padding:'10px 12px',cursor:'pointer'}}
+          onClick={()=>setOuverts(o=>({...o,[c.id]:!o[c.id]}))}>
+          <span className="row" style={{gap:8,alignItems:'center',flex:1,minWidth:0}}>
+            <span {...ptrPoignee('b-cat',c.id)} onClick={e=>e.stopPropagation()} style={{cursor:'grab',color:MUTED}}>⋮⋮</span>
+            <span style={{color:MUTED}}>{ouvert?'▾':'▸'}</span>
+            <span className="b sm" style={{color:TERRA}}>{c.nom}</span>
+            <span className="xs mut">{prestsDe(c).length} prestation{prestsDe(c).length>1?'s':''}</span>
+          </span>
+          <span className="row" style={{gap:4,alignItems:'center'}} onClick={e=>e.stopPropagation()}>
+            <button style={bouton} disabled={ci===0} onClick={()=>bougerCat(c.id,-1)}>▲</button>
+            <button style={bouton} disabled={ci===cats.length-1} onClick={()=>bougerCat(c.id,1)}>▼</button>
+            <button style={bouton} onClick={()=>{const n=prompt('Nom de la catégorie',c.nom);if(n&&n.trim())
+              majBiblio(b=>({...b,categories:b.categories.map(x=>x.id===c.id?{...x,nom:n.trim().toUpperCase()}:x)}))}}>Renommer</button>
+            <label className="row xs" style={{gap:4,alignItems:'center'}}><input type="checkbox" checked={c.actif!==false}
+              onChange={e=>majBiblio(b=>({...b,categories:b.categories.map(x=>x.id===c.id?{...x,actif:e.target.checked}:x)}))}/>active</label>
+          </span>
+        </div>
+        {ouvert&&<div style={{padding:'8px 0 0 8px'}}>
+          {L.map((pr,pi)=>{
+            const al=ptrAlertesPrestation(pr,biblio);
+            const vs=pr.variantes||[];
+            const det=prOuverte===pr.id||!!nq;
+            return <div key={pr.id} {...ptrCible('b-pr:'+c.id,pr.id,(de,vers)=>bougerPr(de,0,vers))} className="card"
+              style={{padding:10,marginBottom:8,opacity:pr.actif===false?.6:1}}>
+              <div className="sp" style={{gap:8,cursor:'pointer'}} onClick={()=>setPrOuverte(det&&!nq?'':pr.id)}>
+                <span className="row" style={{gap:6,alignItems:'center',flex:1,minWidth:0}}>
+                  <span {...ptrPoignee('b-pr:'+c.id,pr.id)} onClick={e=>e.stopPropagation()} style={{cursor:'grab',color:MUTED}}>⋮⋮</span>
+                  <span className="b sm" style={{color:NAVY}}>{pr.nom}</span>
+                  <span className="xs mut">{ptrVariantesActives(pr).length} proposition{ptrVariantesActives(pr).length>1?'s':''}
+                    {usages.prestations[pr.id]?' · utilisée dans '+usages.prestations[pr.id]+' programme(s)':''}</span>
+                  {al.length>0&&<span className="pill" style={{background:TERRA+'1A',color:TERRA}}>⚠ {al.length}</span>}
+                  {pr.actif===false&&<span className="pill" style={{background:RULE,color:MUTED}}>désactivée</span>}
+                </span>
+                <span className="row" onClick={e=>e.stopPropagation()}>
+                  <button style={bouton} disabled={pi===0||!!nq} onClick={()=>bougerPr(pr.id,-1)}>▲</button>
+                  <button style={bouton} disabled={pi===L.length-1||!!nq} onClick={()=>bougerPr(pr.id,1)}>▼</button>
+                </span>
+              </div>
+              {det&&<div style={{marginTop:10}}>
+                <div className="g2">
+                  <Fld label="PRESTATION"><PtrTexte multiligne={false} valeur={pr.nom} onValide={v=>majPr(pr.id,{nom:v})}/></Fld>
+                  <div className="g2">
+                    <Fld label="CODE"><PtrTexte multiligne={false} valeur={pr.code||''} onValide={v=>majPr(pr.id,{code:v})}/></Fld>
+                    <Fld label="SOUS-CATÉGORIE"><PtrTexte multiligne={false} valeur={pr.sousCategorie||''} onValide={v=>majPr(pr.id,{sousCategorie:v})}/></Fld>
+                  </div>
+                </div>
+                <div className="row sm" style={{gap:14,flexWrap:'wrap',alignItems:'center',marginBottom:10}}>
+                  <label className="row" style={{gap:6}}><input type="checkbox" checked={pr.actif!==false} onChange={e=>majPr(pr.id,{actif:e.target.checked})}/>Active</label>
+                  <label className="row" style={{gap:6}}><input type="checkbox" checked={!!pr.obligatoire} onChange={e=>majPr(pr.id,{obligatoire:e.target.checked})}/>Obligatoire</label>
+                  <label className="row" style={{gap:6}}><input type="checkbox" checked={!!pr.defautMO} onChange={e=>majPr(pr.id,{defautMO:e.target.checked})}/>Lot MO par défaut</label>
+                  <label className="row" style={{gap:6}}><input type="checkbox" checked={!!pr.defautHors} onChange={e=>majPr(pr.id,{defautHors:e.target.checked})}/>Hors coord. par défaut</label>
+                  <select className="in" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={(pr.montantDefaut&&pr.montantDefaut.type)||''}
+                    onChange={e=>majPr(pr.id,{montantDefaut:{...(pr.montantDefaut||{}),type:e.target.value}})}>
+                    {PTR_MONTANT_TYPES.map(x=><option key={x.id} value={x.id}>{x.id?'Montant par défaut : '+x.l:'Montant par défaut : —'}</option>)}</select>
+                  {pr.montantDefaut&&(pr.montantDefaut.type==='valeur'||pr.montantDefaut.type==='libre')&&<div style={{width:200}}>
+                    <PtrTexte multiligne={false} valeur={pr.montantDefaut.valeur||''} onValide={v=>majPr(pr.id,{montantDefaut:{...pr.montantDefaut,valeur:v}})}/></div>}
+                </div>
+                <Fld label="OBSERVATIONS (INTERNES)"><PtrTexte lignes={2} valeur={pr.observations||''} onValide={v=>majPr(pr.id,{observations:v})}/></Fld>
+                <div className="lbl">Propositions</div>
+                {vs.map((v,vi)=><div key={v.id} className="sp sm" style={{gap:8,padding:'6px 0',borderTop:'1px solid '+RULE,flexWrap:'wrap',opacity:v.archivee?.55:1}}>
+                  <span style={{flex:1,minWidth:200}}>
+                    <b>{v.archivee?'Archivée':'Proposition '+ptrLettre(ptrVariantesActives(pr).indexOf(v))}</b> — {v.nom}
+                    {v.parDefaut&&<span className="pill" style={{background:GREEN+'1A',color:GREEN,marginLeft:6}}>Défaut</span>}
+                    <span className="xs mut"> · v{v.version||1}{(v.photos||[]).length?' · '+v.photos.length+' photo(s)':''}
+                      {(v.pieces||[]).length?' · '+v.pieces.length+' pièce(s)':''}{usages.variantes[v.id]?' · utilisée ×'+usages.variantes[v.id]:''}</span>
+                  </span>
+                  <span className="row" style={{gap:4,flexWrap:'wrap'}}>
+                    <button className="btn gh s" onClick={()=>setModale({type:'variante',prId:pr.id,v})}>Modifier</button>
+                    <button className="btn gh s" onClick={()=>dupliquerVar(pr,v)}>Dupliquer</button>
+                    {!v.archivee&&!v.parDefaut&&<button className="btn gh s" onClick={()=>definirDefaut(pr,v)}>Définir par défaut</button>}
+                    <button className="btn gh s" onClick={()=>archiverVar(pr,v,!v.archivee)}>{v.archivee?'Désarchiver':'Archiver'}</button>
+                    <button className="btn dg s" onClick={()=>supprimerVar(pr,v)}>Supprimer</button>
+                  </span>
+                </div>)}
+                <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:8}}>
+                  <button className="btn s" onClick={()=>setModale({type:'variante',prId:pr.id,v:null})}>+ Ajouter une proposition</button>
+                  {vs.filter(v=>!v.archivee).length>1&&<button className="btn gh s" onClick={()=>setModale({type:'comparer',prId:pr.id})}>Comparer les propositions</button>}
+                  <button className="btn dg s" onClick={()=>supprimerPr(pr)}>{usages.prestations[pr.id]?'Désactiver la prestation':'Supprimer la prestation'}</button>
+                </div>
+                {al.length>0&&<div className="xs" style={{marginTop:10,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',lineHeight:1.6}}>
+                  <b style={{color:AMBER}}>⚠ Vérification recommandée</b> — rien n’est corrigé automatiquement.
+                  {al.map(a=><div key={a.cle} className="sp" style={{gap:8}}><span>{a.msg}</span>
+                    <button className="btn gh s" onClick={()=>majPr(pr.id,{alertesVues:[...(pr.alertesVues||[]),a.cle]})}>Vu</button></div>)}
+                </div>}
+              </div>}
+            </div>;
+          })}
+          {!nq&&<div className="row" style={{gap:8,maxWidth:520,marginBottom:6}}>
+            <input className="in" placeholder="Nouvelle prestation" value={nouvellePr[c.id]||''} onChange={e=>setNouvellePr(o=>({...o,[c.id]:e.target.value}))}/>
+            <button className="btn gh s" disabled={!String(nouvellePr[c.id]||'').trim()} onClick={()=>ajouterPr(c)}>+ Prestation</button>
+          </div>}
+        </div>}
+      </div>;
+    })}
+    {!nq&&<div className="row" style={{gap:8,maxWidth:520,marginTop:8}}>
+      <input className="in" placeholder="Nouvelle catégorie" value={nouvelleCat} onChange={e=>setNouvelleCat(e.target.value)}/>
+      <button className="btn gh s" disabled={!nouvelleCat.trim()} onClick={ajouterCat}>+ Catégorie</button>
+    </div>}
+
+    {modale&&modale.type==='variante'&&prModale&&<PtrFormProposition data={data} biblio={biblio} cible="biblio" modeBiblio
+      titre={(modale.v?'Modifier « '+modale.v.nom+' »':'Nouvelle proposition')+' — '+prModale.nom}
+      initial={modale.v?{...ptrCopie(modale.v)}:{titre:prModale.nom}}
+      onFermer={()=>setModale(null)}
+      onBiblio={f=>{enregistrerVariante(prModale,modale.v,f);setModale(null)}}/>}
+    {modale&&modale.type==='comparer'&&prModale&&<PtrComparer pr={prModale} onFermer={()=>setModale(null)}/>}
+    {modale&&modale.type==='mentions'&&<PtrModale titre="Textes de la page de garde" onFermer={()=>setModale(null)}>
+      {[['titre','TITRE DU DOCUMENT',1],['sousTitre','SOUS-TITRE',1],['re2020','MENTION RE 2020',3],['avertissement','AVERTISSEMENT',6],
+        ['legendeMO','LÉGENDE « LOT MO »',2],['legendeHors','LÉGENDE « HORS COORD. »',2]].map(([k,l,n])=>
+        <Fld key={k} label={l}><PtrTexte multiligne={n>1} lignes={n} valeur={M[k]||''}
+          onValide={v=>majBiblio(b=>({...b,mentions:{...ptrMentions(b),[k]:v}}))}/></Fld>)}
+      <button className="btn gh s" onClick={()=>{if(confirm('Rétablir les textes d’origine du modèle ?'))majBiblio(b=>({...b,mentions:{...PTR_MENTIONS_DEFAUT}}))}}>
+        Rétablir les textes d’origine</button>
+    </PtrModale>}
+  </div>;
+}
+
 /* la fiche navette telle qu'elle se relit, une fois remplie */
 function VueDecouverte({p}){
   const L=decouverteLignes(p);
@@ -16951,6 +17208,7 @@ function Donnees({data,save,session}){
   const [msg,setMsg]=useState('');
   const [rangement,setRangement]=useState('');
   const [bilan,setBilan]=useState(null);
+  const [biblioOuverte,setBiblioOuverte]=useState(false);
   /* déplacer des dossiers dans le Drive de quelqu'un se demande avant de se faire :
      c'est un geste, pas un effet de bord au démarrage. */
   const ranger=async()=>{
@@ -17080,8 +17338,15 @@ function Donnees({data,save,session}){
     };
     r.readAsText(f);
   };
+  if(biblioOuverte)return <BibliothequePrestations data={data} save={save} onFermer={()=>setBiblioOuverte(false)}/>;
   return <div>
     <H2>DONNÉES</H2>
+    <div className="card" style={{borderLeft:'3px solid '+NAVY}}>
+      <div className="sm b">Bibliothèque des prestations — programme technique</div>
+      <p className="xs mut" style={{lineHeight:1.5,marginTop:6}}>Catégories, prestations et propositions A / B / C… réutilisées
+        par chaque programme technique ; textes de la page de garde.</p>
+      <button className="btn s" style={{marginTop:6}} onClick={()=>setBiblioOuverte(true)}>Ouvrir la bibliothèque</button>
+    </div>
     <div className="card">
       <div className="sm b">Synchronisation</div>
       <p className="xs mut" style={{lineHeight:1.5}}>Les données sont enregistrées en ligne et se synchronisent automatiquement entre tous vos appareils connectés. Exportez quand même régulièrement en secours.<br/>
