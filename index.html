@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-26 · Programme technique : orthographe du modèle corrigée, nouvelles propositions brique Biobric, tuile Edilians HP 20 et Aldes T.One AquaAIR';
+const VERSION='2026-09-26 · Programme technique : les photos s’ajoutent sans « image illisible », nouvelle proposition plancher sur vide sanitaire en hourdis isolants';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3893,9 +3893,17 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=2;
+const PTR_SEED_REV=3;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
-const PTR_SEED_NOUVELLES_2=['var_murs_b','var_pointes_pignons_b','var_couverture_b','var_plancher_chauffant_b','var_revetements_sols_b'];
+const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
+const PTR_SEED_DATES={1:PTR_SEED_DATE,2:PTR_SEED_DATE_2,3:PTR_SEED_DATE_3};
+/* les propositions apparues à chaque révision (la 3 : plancher sur vide
+   sanitaire en hourdis isolants, garage en hourdis plastique) */
+const PTR_SEED_NOUVELLES={
+  2:['var_murs_b','var_pointes_pignons_b','var_couverture_b','var_plancher_chauffant_b','var_revetements_sols_b'],
+  3:['var_planchers_b'],
+};
+const ptrRevNaissance=id=>{for(const r in PTR_SEED_NOUVELLES)if(PTR_SEED_NOUVELLES[r].indexOf(id)>=0)return +r;return 1};
 /* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
    constantes précèdent dans le fichier */
 const ptrIdFichier=f=>String(f).replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'').toLowerCase();
@@ -3903,6 +3911,9 @@ const ptrPhotoAsset=(fichier,w,h)=>({id:'ph_'+ptrIdFichier(fichier),src:'asset',
   nom:fichier,w,h,ext:/\.png$/i.test(fichier)?'png':'jpeg',mode:'contain',fx:.5,fy:.5});
 const ptrPieceAsset=(fichier,nom)=>({id:'pj_'+ptrIdFichier(fichier),src:'asset',fichier,nom,lien:'assets/ptr/'+fichier});
 const PTR_PROPOSITIONS_2={
+  planchers:{nom:'Vide sanitaire — hourdis isolants (sauf garage)',
+    photos:[ptrPhotoAsset('plancher_hourdis_isolant.jpeg',1200,1600),ptrPhotoAsset('plancher_hourdis_plastique.jpeg',1500,1125)],
+    texte:'Plancher du rez-de-chaussée sur vide sanitaire, constitué de poutrelles béton et d’entrevous (hourdis) **isolants** en polystyrène expansé dans les parties habitables, avec dalle de compression en béton armé sur treillis soudé, compris chaînage en béton armé.\nGarage (volume non chauffé) : poutrelles béton et hourdis plastique, sans isolant.\nValeur Up du plancher conforme à l’étude thermique RE2020 ; épaisseur de l’isolant sous chape suivant cette même étude.'},
   murs:{nom:'Brique Biobric bgv’thermo 20 cm',marque:'Biobric',reference:'bgv’thermo BGVT2031',
     photos:[ptrPhotoAsset('brique_bgvthermo.jpeg',1164,905),ptrPhotoAsset('brique_pose_colle.jpeg',1220,908)],
     pieces:[ptrPieceAsset('docs/Biobric_bgvthermo_BGVT2031.pdf','Fiche produit Biobric bgv’thermo BGVT2031.pdf')],
@@ -3930,10 +3941,10 @@ function ptrBiblioInitiale(){
     const photos=x.images.map(im=>ptrPhotoAsset(im.fichier,im.w,im.h));
     /* révision 2 : toutes les propositions d'origine passent en version 2
        (orthographe corrigée) ; les nouvelles naissent en version 1 */
-    const variante=(suffixe,nom,texte,extra)=>{const neuve=PTR_SEED_NOUVELLES_2.indexOf('var_'+x.id+'_'+suffixe)>=0;
+    const variante=(suffixe,nom,texte,extra)=>{const rev=ptrRevNaissance('var_'+x.id+'_'+suffixe), neuve=rev>1;
       return {id:'var_'+x.id+'_'+suffixe,nom,titre:x.titre,texte,
       photos:suffixe==='a'?photos:[],pieces:[],marque:'',reference:'',url:'',noteInterne:'',
-      parDefaut:suffixe==='a',archivee:false,version:neuve?1:2,creeLe:neuve?PTR_SEED_DATE_2:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE_2,...(extra||{})}};
+      parDefaut:suffixe==='a',archivee:false,version:neuve?1:2,creeLe:PTR_SEED_DATES[rev],modifieLe:neuve?PTR_SEED_DATES[rev]:PTR_SEED_DATE_2,...(extra||{})}};
     const variantes=[variante('a',x.id==='pompe_a_chaleur'?'Atlantic Alféa Extensa Duo':'Standard (modèle CP)',x.texte,
       x.id==='pompe_a_chaleur'?{marque:'Atlantic',reference:'Alféa Extensa Duo A.I. (R32)'}:null)];
     if(x.id==='implantation')variantes.push(variante('b','Implantation par géomètre',
@@ -3951,11 +3962,11 @@ function ptrBiblioInitiale(){
       observations:'',creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE,alertesVues:[],variantes});
   });
   return {version:1,seedRev:PTR_SEED_REV,modeleNom:PTR_MODELE_NOM,categories:cats,prestations,mentions:{...PTR_MENTIONS_DEFAUT},
-    creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATE_2};
+    creeLe:PTR_SEED_DATE,modifieLe:PTR_SEED_DATES[PTR_SEED_REV]};
 }
 /* deux libellés identiques à l'accent, à la casse et à la ponctuation près */
 const ptrMemeLibelle=(a,b)=>{const n=s=>deaccent(String(s||'')).toUpperCase().replace(/[^A-Z0-9]/g,'');return n(a)===n(b)};
-/* une bibliothèque enregistrée avant la révision 2 : les propositions jamais
+/* une bibliothèque enregistrée avant la dernière révision : les propositions jamais
    retouchées reçoivent le texte corrigé, les nouvelles propositions sont
    ajoutées (sans devenir la proposition par défaut), les libellés ne sont
    repris que s'ils ne diffèrent que par les accents. Tout ce que
@@ -3975,7 +3986,7 @@ function ptrMigrerBiblio(b){
         photos:sv.photos,pieces:sv.pieces,marque:sv.marque,reference:sv.reference,url:sv.url,
         version:sv.version,modifieLe:sv.modifieLe};
     });
-    sp.variantes.forEach(sv=>{if(PTR_SEED_NOUVELLES_2.indexOf(sv.id)>=0&&!variantes.some(v=>v.id===sv.id))
+    sp.variantes.forEach(sv=>{if(ptrRevNaissance(sv.id)>(b.seedRev||1)&&!variantes.some(v=>v.id===sv.id))
       variantes.push({...ptrCopie(sv),parDefaut:false})});
     return {...pr,nom:ptrMemeLibelle(pr.nom,sp.nom)?sp.nom:pr.nom,variantes};
   });
@@ -15807,26 +15818,73 @@ function PtrImage({ph,w,h,mode,onClick,titre}){
 /* une photo déposée est redressée (orientation de l'appareil appliquée par le
    navigateur au dessin), réduite à 1 600 px et réenregistrée en JPEG : Word
    ne la verra donc jamais couchée, ni trop lourde */
-function ptrNormaliserImage(file){
-  return new Promise((res,rej)=>{
-    const fr=new FileReader();
-    fr.onload=()=>{
-      const im=new Image();
-      im.onload=()=>{
-        const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
-        const r=Math.min(1,1600/Math.max(W,H));
-        const cv=document.createElement('canvas');
-        cv.width=Math.max(1,Math.round(W*r));cv.height=Math.max(1,Math.round(H*r));
-        const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);
-        g.drawImage(im,0,0,cv.width,cv.height);
-        cv.toBlob(b=>b?res({blob:b,w:cv.width,h:cv.height}):rej(new Error('image illisible')),'image/jpeg',.86);
-      };
-      im.onerror=()=>rej(new Error('image illisible'));
-      im.src=fr.result;
-    };
-    fr.onerror=()=>rej(new Error('lecture impossible'));
-    fr.readAsDataURL(file);
-  });
+/* dimensions lues dans l'en-tête d'un JPEG ou d'un PNG, sans décoder l'image */
+function ptrDimensionsBrutes(o){
+  if(o.length>24&&o[0]===0x89&&o[1]===0x50&&o[2]===0x4E&&o[3]===0x47)
+    return {w:((o[16]<<24)|(o[17]<<16)|(o[18]<<8)|o[19])>>>0,h:((o[20]<<24)|(o[21]<<16)|(o[22]<<8)|o[23])>>>0,type:'image/png',ext:'png'};
+  if(o.length>4&&o[0]===0xFF&&o[1]===0xD8){
+    let i=2;
+    while(i+9<o.length){
+      if(o[i]!==0xFF){i++;continue}
+      const m=o[i+1];
+      if(m===0xFF){i++;continue}
+      if(m===0xD8||m===0x01||(m>=0xD0&&m<=0xD7)){i+=2;continue}
+      if(m>=0xC0&&m<=0xCF&&m!==0xC4&&m!==0xC8&&m!==0xCC)
+        return {h:(o[i+5]<<8)|o[i+6],w:(o[i+7]<<8)|o[i+8],type:'image/jpeg',ext:'jpeg'};
+      i+=2+((o[i+2]<<8)|o[i+3]);
+    }
+  }
+  return null;
+}
+/* photo HEIC / HEIF (format par défaut de l'iPhone), reconnue au nom, au
+   type ou à la signature du fichier */
+const ptrEstHeic=(file,o)=>/\.(heic|heif)$/i.test((file&&file.name)||'')||/hei[cf]/i.test((file&&file.type)||'')
+  ||(!!o&&o.length>12&&String.fromCharCode(o[4],o[5],o[6],o[7])==='ftyp'
+    &&['heic','heix','hevc','heim','heis','mif1','msf1'].indexOf(String.fromCharCode(o[8],o[9],o[10],o[11]))>=0);
+/* décodage par le navigateur : balise image sur une URL d'objet (orientation
+   EXIF appliquée), puis createImageBitmap en second recours */
+async function ptrDecoderImage(file){
+  let url='';
+  try{
+    url=URL.createObjectURL(file);
+    const im=await new Promise((res,rej)=>{const x=new Image();x.onload=()=>res(x);x.onerror=()=>rej(new Error('decodage'));x.src=url});
+    const w=im.naturalWidth||im.width, h=im.naturalHeight||im.height;
+    if(w&&h)return {src:im,w,h,fin:()=>URL.revokeObjectURL(url)};
+  }catch(e){}
+  if(url)try{URL.revokeObjectURL(url)}catch(e){}
+  if(typeof createImageBitmap==='function'){
+    try{const bm=await createImageBitmap(file);if(bm.width&&bm.height)return {src:bm,w:bm.width,h:bm.height,fin:()=>{try{bm.close()}catch(e){}}}}
+    catch(e){}
+  }
+  return null;
+}
+/* une photo prête pour le document : ramenée à 1 600 px, en JPEG. Si le
+   navigateur ne sait pas la redessiner, un JPEG ou un PNG est gardé tel
+   quel (ses dimensions sont lues dans le fichier) ; un HEIC reçoit une
+   explication plutôt qu'un simple « image illisible ». */
+async function ptrNormaliserImage(file){
+  const nom=(file&&file.name)||'photo';
+  let o=null;
+  try{o=new Uint8Array(await new Response(file).arrayBuffer())}catch(e){}
+  const d=await ptrDecoderImage(file);
+  if(d){
+    try{
+      const r=Math.min(1,1600/Math.max(d.w,d.h));
+      const cv=document.createElement('canvas');
+      cv.width=Math.max(1,Math.round(d.w*r));cv.height=Math.max(1,Math.round(d.h*r));
+      const g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,cv.width,cv.height);
+      g.drawImage(d.src,0,0,cv.width,cv.height);
+      const blob=await new Promise(res=>{try{cv.toBlob(b=>res(b),'image/jpeg',.86)}catch(e){res(null)}});
+      if(blob&&blob.size)return {blob,w:cv.width,h:cv.height,ext:'jpeg',type:'image/jpeg'};
+    }catch(e){}
+    finally{d.fin()}
+  }
+  const dim=o&&ptrDimensionsBrutes(o);
+  if(dim&&dim.w&&dim.h)return {blob:new Blob([o],{type:dim.type}),w:dim.w,h:dim.h,ext:dim.ext,type:dim.type};
+  if(ptrEstHeic(file,o))throw new Error('« '+nom+' » est une photo HEIC (format de l’iPhone) que ce navigateur ne sait pas lire. '
+    +'Enregistrez-la en JPEG (sur Mac : ouvrir avec Aperçu › Fichier › Exporter › format JPEG), puis ajoutez-la de nouveau. '
+    +'Pour les prochaines photos : iPhone › Réglages › Appareil photo › Formats › « Le plus compatible ».');
+  throw new Error('« '+nom+' » : image illisible — formats acceptés : JPEG, PNG (et HEIC si le navigateur sait l’ouvrir).');
 }
 async function ptrDossierDrive(token,data,cible){
   if(cible==='biblio')return driveFindOrCreateSubfolder(token,await driveFolder(token),'Bibliothèque des prestations');
@@ -15845,11 +15903,11 @@ async function ptrDeposerPhotos(files,data,cible){
   const dossier=await ptrDossierDrive(token,data,cible);
   const out=[];
   for(const f of files){
-    const {blob,w,h}=await ptrNormaliserImage(f);
-    const nom=(f.name||'photo').replace(/\.[^.]+$/,'')+'.jpg';
-    const r=await uploadToDrive(new File([blob],nom,{type:'image/jpeg'}),dossier);
+    const {blob,w,h,ext,type}=await ptrNormaliserImage(f);
+    const nom=(f.name||'photo').replace(/\.[^.]+$/,'')+(ext==='png'?'.png':'.jpg');
+    const r=await uploadToDrive(new File([blob],nom,{type}),dossier);
     const ph={id:uid(),src:'drive',fileId:r.id||driveIdDepuisLien(r.webViewLink),lien:r.webViewLink||'',nom,w,h,
-      ext:'jpeg',mode:'contain',fx:.5,fy:.5};
+      ext,mode:'contain',fx:.5,fy:.5};
     try{ptrApercus.set(ptrCleImage(ph),URL.createObjectURL(blob))}catch(e){}
     out.push(ph);
   }
