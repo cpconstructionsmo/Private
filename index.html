@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-26 · Programme technique : option décoration en enduit imitation pierre, et 9 photos du modèle remises d’aplomb';
+const VERSION='2026-09-26 · Programme technique : gouttières aluminium G300 DAL’ALU ou équivalent, avec photo et fiche produit';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2235,7 +2235,7 @@ const PTR_CATALOGUE=[
   {id:"debords_toits",groupe:"LA TOITURE",titre:"DÉBORDS DE TOITS",texte:"Débords de toit d'une largeur d'environ 20 cm, constitués par les fermettes et habillés en sous-face d'une plaque en PVC blanc.\nPositionnement selon plans et façades.",images:[{fichier:"image18.jpeg",w:584,h:390},{fichier:"image19.jpeg",w:584,h:390}],defaut:"MO"},
   {id:"ecran_sous_toiture",groupe:"LA TOITURE",titre:"ÉCRAN DE SOUS-TOITURE",texte:"Écran de sous-toiture HPV (hautement perméable à la vapeur d'eau) avec contre-liteaunage, type SPIRTECH de Monier ou équivalent.",images:[{fichier:"image20.jpeg",w:390,h:520},{fichier:"image21.jpeg",w:390,h:520}],defaut:"MO"},
   {id:"couverture",groupe:"LA TOITURE",titre:"COUVERTURE",texte:"Couverture en ardoises artificielles en fibres-ciment imitant l'ardoise naturelle, format 40 x 24 cm, type Orléane. Ce format courant est posé avec un recouvrement adapté à la pente afin de garantir l'étanchéité.",images:[{fichier:"image22.jpeg",w:520,h:390}],defaut:"MO"},
-  {id:"gouttieres_tuyaux_descente",groupe:"LA TOITURE",titre:"GOUTTIÈRES – TUYAUX DE DESCENTE",texte:"Gouttières en aluminium, modèle corniche, y compris descentes en aluminium.\nTeinte au choix : gris anthracite, sable ou cuivre.",images:[],defaut:"MO"},
+  {id:"gouttieres_tuyaux_descente",groupe:"LA TOITURE",titre:"GOUTTIÈRES – TUYAUX DE DESCENTE",texte:"Gouttières en aluminium de forme corniche, profilées en continu sur le chantier (sans raccord), type G300 de DAL'ALU ou équivalent : épaisseur 6/10e, développé 300 mm, section 90 cm², y compris crochets, naissances, angles et fonds de gouttière.\nDescentes en aluminium avec coudes et colliers de fixation.\nComposants conformes aux normes NF EN 573-3, NF EN 1396, NF EN 612 et NF P 36-201.\nTeinte au choix : gris anthracite, sable ou cuivre, dans le nuancier du fabricant.",images:[],defaut:"MO"},
   {id:"porte_entree",groupe:"MENUISERIES EXTÉRIEURES",titre:"PORTE D'ENTRÉE – RAL 7016",texte:"Porte d'entrée en acier de 170 x 215, type « DREAM », avec châssis latéral fixe, de marque Bel'm ou similaire – Ud = 0,75 W/m².K.\nBarre de tirage ronde ton inox de 1 800 mm.",images:[{fichier:"image23.png",w:436,h:452}],defaut:"MO"},
   {id:"chassis_fenetres_francaise",groupe:"MENUISERIES EXTÉRIEURES",titre:"CHÂSSIS ET FENÊTRES OUVRANT À LA FRANÇAISE",texte:"Menuiseries en PVC à ouvrants à la française, grand vitrage ; quantités et dimensions selon plans.\nOscillo-battant intégré sur les menuiseries à un vantail.\nCouleur extérieure : gris RAL 7016.\nCouleur intérieure : gris RAL 7016.",images:[{fichier:"image24.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"coulissant",groupe:"MENUISERIES EXTÉRIEURES",titre:"COULISSANT",texte:"Baies et fenêtres coulissantes en aluminium laqué, un vantail se repliant sur l'autre. Positionnement et dimensions selon plans.\nCouleur extérieure : gris RAL 7016.\nCouleur intérieure : gris RAL 7016.",images:[{fichier:"image25.jpeg",w:390,h:520}],defaut:"MO"},
@@ -3893,7 +3893,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=7;
+const PTR_SEED_REV=8;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -3907,8 +3907,11 @@ PTR_SEED_DATES[6]=PTR_SEED_DATE_6;
 /* révision 7 : option décoration en enduit imitation pierre */
 const PTR_SEED_DATE_7='2026-09-26T22:00:00.000Z';
 PTR_SEED_DATES[7]=PTR_SEED_DATE_7;
+/* révision 8 : gouttières aluminium G300 DAL'ALU ou équivalent, fiche jointe */
+const PTR_SEED_DATE_8='2026-09-26T23:00:00.000Z';
+PTR_SEED_DATES[8]=PTR_SEED_DATE_8;
 /* propositions dont le texte a été réécrit après la révision 4 */
-const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a']};
+const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
    rectifiés B60. Pour chaque proposition dont le texte a changé, les
    empreintes des textes livrés auparavant : une bibliothèque enregistrée
@@ -3922,7 +3925,7 @@ const PTR_TEXTES_ANCIENS={
   var_planchers_a:['iv4o3k','1plrszm'],var_planchers_b:['fg90hg'],var_murs_a:['h89oci','106jpvz'],var_pointes_pignons_a:['p0nfzh','qltjb3'],
   var_pointes_pignons_b:['1736yvq'],var_seuils_porte_appuis_fenetre_a:['3l6uxd','1y3mugw','2htkdn'],var_revetements_exterieurs_a:['wwst9q','1r0dpjj'],
   var_charpente_a:['1uzgv0i','608cua'],var_debords_toits_a:['1edn4zx','1g4ibag'],var_ecran_sous_toiture_a:['1uiinn1','1s1q0v7'],
-  var_couverture_a:['7lvssw'],var_gouttieres_tuyaux_descente_a:['pu7zi3'],var_porte_entree_a:['19hba3s','1hax9pk'],
+  var_couverture_a:['7lvssw'],var_gouttieres_tuyaux_descente_a:['pu7zi3','1cea0bq'],var_porte_entree_a:['19hba3s','1hax9pk'],
   var_chassis_fenetres_francaise_a:['1u32ocs'],var_coulissant_a:['3c6v4e'],var_vitrerie_a:['1izyyqu'],var_volets_roulants_a:['cus9ae','1s3a8gz'],
   var_domotique_a:['cjndgj','4nsl49'],var_plafonds_a:['1hfks3d','1fbdef5'],var_doublage_a:['9omws7','zfblvb'],var_cloisons_72mm_a:['oxzvjj','ppxmzz'],
   var_cloisons_100mm_a:['js7lv7','1kg71q5'],var_cloisons_separation_volumes_non_chauffes_a:['1pa1sq5','u4ag2a'],
@@ -3976,6 +3979,9 @@ const ptrDimsPhoto=ph=>{
 const ptrRevPrestation=id=>{const a=PTR_PRESTATIONS_AJOUTEES.find(x=>'pr_'+x.id===id);return a?a.rev:1};
 /* compléments de la proposition standard (A) : fiche produit et photo */
 const PTR_COMPLEMENTS_A={
+  gouttieres_tuyaux_descente:{marque:'DAL’ALU',reference:'Gouttière G300 (ou équivalent)',url:'https://www.dalalu.fr',
+    photosAvant:[ptrPhotoAsset('gouttiere_g300.jpeg',1600,1202)],
+    pieces:[ptrPieceAsset('docs/DalAlu_Gouttiere_G300.pdf','Fiche produit DAL’ALU — Gouttière G300.pdf')]},
   seuils_porte_appuis_fenetre:{marque:'PBM / Celtys',reference:'Appui de baie ABS (PBM) · Appui Rexlan nez carré (Celtys)',url:'https://www.pbm.fr',
     pieces:[ptrPieceAsset('docs/PBM_Appui_de_baie_ABS.pdf','Fiche produit PBM — Appui de baie ABS.pdf'),
       ptrPieceAsset('docs/Celtys_Appuis_Rexlan_nez_carre.pdf','Fiche produit Celtys — Appuis Rexlan nez carré.pdf')]},
@@ -4140,7 +4146,7 @@ const PTR_TITRES_ACCENTS=[['PREPARATION','PRÉPARATION'],['MACONNERIE','MAÇONNE
   ['EVIER','ÉVIER'],['FENETRE','FENÊTRE'],['ACCES','ACCÈS'],['EXCEDENTAIRES','EXCÉDENTAIRES']];
 const PTR_MARQUES=['Atlantic','Aldes','Daikin','Jacob Delafon','Monier','PBM','MSEA','Celtys','Placo','Knauf','Isover',
   'Grohe','Velux','Somfy','Legrand','Schneider','Hager','Porcher','Villeroy','Geberit','Kinedo','Saunier Duval','Rehau',
-  'Edilians','Biobric','Alkern','Elibloc'];
+  'Edilians','Biobric','Alkern','Elibloc','Dal.Alu'];
 const PTR_MOTS_MARQUES=['TaHoma','AldesConnect','EasyHOME','AquaAIR','T.One'];
 function ptrAlertesTexte(titre,texte){
   const A=[], t=String(texte||''), ti=String(titre||'');
