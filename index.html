@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-26 · Programme technique : électricité en 230 volts et câblage grade 2TV, bandes de plâtre selon le DTU 59.1';
+const VERSION='2026-09-26 · Programme technique : appuis de fenêtre PBM ou Celtys, avec leurs fiches produits';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2229,7 +2229,7 @@ const PTR_CATALOGUE=[
   {id:"planchers",groupe:"MAÇONNERIE",titre:"PLANCHERS",texte:"Plancher du rez-de-chaussée constitué de poutrelles béton et d'entrevous (hourdis) plastique, avec dalle de compression en béton brut de règle, y compris chaînage en béton armé.\nValeur Up du plancher conforme à la réglementation thermique en vigueur.",images:[{fichier:"image10.jpeg",w:292,h:390},{fichier:"image11.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"murs",groupe:"MAÇONNERIE",titre:"MURS",texte:"Murs de façade et de pignons assurant une hauteur sous plafond d'environ 2,50 m.\nMaçonnerie en blocs béton creux **rectifiés**, classe **B60**, de 20 cm d'épaisseur, type ELIBLOC d'Alkern ou équivalent :\n- dimensions 500 x 200 x 200 mm (L x l x h) ;\n- pose à joint mince au mortier-colle, conformément au DTU 20.1 ;\n- blocs certifiés NF, résistance au feu REI 60 en mur porteur ;\n- support d'enduit classé Rt3, recevant un enduit monocouche de type OC3.\nLinteaux, chaînages verticaux et horizontaux en béton armé coulés dans des blocs spécifiques (blocs d'angle, de chaînage ou en U). Au choix du Maître d'Œuvre, les poteaux, chaînages ou linteaux en béton armé de forte section pourront être coffrés et conserver un parement béton avant l'application des enduits de façade.",images:[{fichier:"image12.jpeg",w:520,h:390},{fichier:"image13.jpeg",w:292,h:390}],defaut:"MO"},
   {id:"pointes_pignons",groupe:"MAÇONNERIE",titre:"POINTES DE PIGNONS",texte:"En blocs béton de 20 cm d'épaisseur, de même type que les murs.\nArase en béton suivant les rampants.",images:[],defaut:"les_deux"},
-  {id:"seuils_porte_appuis_fenetre",groupe:"MAÇONNERIE",titre:"SEUILS DE PORTE ET APPUIS DE FENÊTRE",texte:"Appuis de fenêtre aspect béton (en deux éléments selon les dimensions), de marque PBM, MSEA ou Celtys, avec un renfort grillagé dans l'enduit sous les appuis.\nSeuil de porte de garage en béton coulé en place, finition lisse. Le Maître de l'Ouvrage devra prévoir une finition peinte ou carrelée.",images:[{fichier:"image14.jpeg",w:520,h:390}],defaut:"les_deux"},
+  {id:"seuils_porte_appuis_fenetre",groupe:"MAÇONNERIE",titre:"SEUILS DE PORTE ET APPUIS DE FENÊTRE",texte:"Appuis de fenêtre préfabriqués aspect béton, certifiés NF, à relevés latéraux encastrés dans les tableaux, en un ou deux éléments selon les dimensions : appui de baie ABS de PBM (béton gris ou blanc) ou appui Rexlan nez carré de Celtys (béton polymère, gris ou blanc littoral).\nPose conforme au DTU 20.1, avec un renfort grillagé dans l'enduit sous les appuis.\nSeuil de porte de garage en béton coulé en place, finition lisse. Le Maître de l'Ouvrage devra prévoir une finition peinte ou carrelée.",images:[{fichier:"image14.jpeg",w:520,h:390}],defaut:"les_deux"},
   {id:"revetements_exterieurs",groupe:"MAÇONNERIE",titre:"REVÊTEMENTS EXTÉRIEURS",texte:"Enduit monocouche suivant plans, pigmenté selon la teinte choisie pour les façades, finition grattée grain moyen, d'une épaisseur minimale de 10 mm en tout point.\nLe Maître d'Œuvre déconseille les teintes foncées, qui favorisent le faïençage, le nuançage et la microfissuration, et décline toute responsabilité en cas de choix d'une teinte foncée.",images:[{fichier:"image15.jpeg",w:520,h:390},{fichier:"image16.jpeg",w:520,h:390}],defaut:"les_deux"},
   {id:"charpente",groupe:"LA TOITURE",titre:"LA CHARPENTE",texte:"Pente de la toiture : 35°.\nFermettes industrielles en sapin, type combles perdus (entraxe d'environ 60 cm), y compris accessoires, étrésillons et contreventement. L'ensemble de la charpente reçoit un traitement insecticide et fongicide.",images:[{fichier:"image17.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"debords_toits",groupe:"LA TOITURE",titre:"DÉBORDS DE TOITS",texte:"Débords de toit d'une largeur d'environ 20 cm, constitués par les fermettes et habillés en sous-face d'une plaque en PVC blanc.\nPositionnement selon plans et façades.",images:[{fichier:"image18.jpeg",w:584,h:390},{fichier:"image19.jpeg",w:584,h:390}],defaut:"MO"},
@@ -3893,7 +3893,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=5;
+const PTR_SEED_REV=6;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -3901,6 +3901,11 @@ const PTR_SEED_DATE_5='2026-09-26T20:00:00.000Z';
 const PTR_SEED_DATES={1:PTR_SEED_DATE,2:PTR_SEED_DATE_2,3:PTR_SEED_DATE_3,4:PTR_SEED_DATE_4,5:PTR_SEED_DATE_5};
 /* révision 5 : 230 V, DTU 59.1 et câblage grade 2TV (validés par CP) */
 const PTR_TEXTES_REV5=['var_electricite_a','var_bandes_joints_plaque_platre_a'];
+/* révision 6 : appuis de fenêtre PBM ou Celtys, fiches produits jointes */
+const PTR_SEED_DATE_6='2026-09-26T21:00:00.000Z';
+PTR_SEED_DATES[6]=PTR_SEED_DATE_6;
+/* propositions dont le texte a été réécrit après la révision 4 */
+const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
    rectifiés B60. Pour chaque proposition dont le texte a changé, les
    empreintes des textes livrés auparavant : une bibliothèque enregistrée
@@ -3912,7 +3917,7 @@ const PTR_TEXTES_ANCIENS={
   var_preparation_terrain_a:['1dpo8oo'],var_implantation_a:['9ezfc8'],var_chemin_acces_chantier_a:['k5emur','1neejo3'],var_terrassements_a:['1x7belp'],
   var_terres_excedentaires_a:['1htak3f','2v1rp'],var_fondations_a:['1gpyn5g'],var_vide_sanitaire_a:['dvocxf','8sim9p'],
   var_planchers_a:['iv4o3k','1plrszm'],var_planchers_b:['fg90hg'],var_murs_a:['h89oci','106jpvz'],var_pointes_pignons_a:['p0nfzh','qltjb3'],
-  var_pointes_pignons_b:['1736yvq'],var_seuils_porte_appuis_fenetre_a:['3l6uxd','1y3mugw'],var_revetements_exterieurs_a:['wwst9q','1r0dpjj'],
+  var_pointes_pignons_b:['1736yvq'],var_seuils_porte_appuis_fenetre_a:['3l6uxd','1y3mugw','2htkdn'],var_revetements_exterieurs_a:['wwst9q','1r0dpjj'],
   var_charpente_a:['1uzgv0i','608cua'],var_debords_toits_a:['1edn4zx','1g4ibag'],var_ecran_sous_toiture_a:['1uiinn1','1s1q0v7'],
   var_couverture_a:['7lvssw'],var_gouttieres_tuyaux_descente_a:['pu7zi3'],var_porte_entree_a:['19hba3s','1hax9pk'],
   var_chassis_fenetres_francaise_a:['1u32ocs'],var_coulissant_a:['3c6v4e'],var_vitrerie_a:['1izyyqu'],var_volets_roulants_a:['cus9ae','1s3a8gz'],
@@ -3944,6 +3949,9 @@ const ptrPhotoAsset=(fichier,w,h)=>({id:'ph_'+ptrIdFichier(fichier),src:'asset',
 const ptrPieceAsset=(fichier,nom)=>({id:'pj_'+ptrIdFichier(fichier),src:'asset',fichier,nom,lien:'assets/ptr/'+fichier});
 /* compléments de la proposition standard (A) : fiche produit et photo */
 const PTR_COMPLEMENTS_A={
+  seuils_porte_appuis_fenetre:{marque:'PBM / Celtys',reference:'Appui de baie ABS (PBM) · Appui Rexlan nez carré (Celtys)',url:'https://www.pbm.fr',
+    pieces:[ptrPieceAsset('docs/PBM_Appui_de_baie_ABS.pdf','Fiche produit PBM — Appui de baie ABS.pdf'),
+      ptrPieceAsset('docs/Celtys_Appuis_Rexlan_nez_carre.pdf','Fiche produit Celtys — Appuis Rexlan nez carré.pdf')]},
   murs:{marque:'Alkern',reference:'ELIBLOC B60 (ou équivalent)',url:'https://www.alkern.fr',
     photosAvant:[ptrPhotoAsset('bloc_elibloc.jpeg',1383,1007)],
     pieces:[ptrPieceAsset('docs/Alkern_Elibloc_Bloc20.pdf','Fiche produit Alkern ELIBLOC Bloc 20.pdf')]},
@@ -3980,11 +3988,11 @@ function ptrBiblioInitiale(){
     /* révision 2 : toutes les propositions d'origine passent en version 2
        (orthographe corrigée) ; les nouvelles naissent en version 1 ; la
        révision 4 ajoute une version à chaque texte qu'elle réécrit */
-    const variante=(suffixe,nom,texte,extra)=>{const id='var_'+x.id+'_'+suffixe, rev=ptrRevNaissance(id), neuve=rev>1, rev4=!!PTR_TEXTES_ANCIENS[id], rev5=PTR_TEXTES_REV5.indexOf(id)>=0;
+    const variante=(suffixe,nom,texte,extra)=>{const id='var_'+x.id+'_'+suffixe, rev=ptrRevNaissance(id), neuve=rev>1, rev4=!!PTR_TEXTES_ANCIENS[id], apres=Object.keys(PTR_TEXTES_REVISIONS).map(Number).filter(r=>PTR_TEXTES_REVISIONS[r].indexOf(id)>=0);
       return {id,nom,titre:x.titre,texte,
       photos:suffixe==='a'?photos:[],pieces:[],marque:'',reference:'',url:'',noteInterne:'',
-      parDefaut:suffixe==='a',archivee:false,version:(neuve?1:2)+(rev4?1:0)+(rev5?1:0),creeLe:PTR_SEED_DATES[rev],
-      modifieLe:rev5?PTR_SEED_DATE_5:rev4?PTR_SEED_DATE_4:neuve?PTR_SEED_DATES[rev]:PTR_SEED_DATE_2,...(extra||{})}};
+      parDefaut:suffixe==='a',archivee:false,version:(neuve?1:2)+(rev4?1:0)+apres.length,creeLe:PTR_SEED_DATES[rev],
+      modifieLe:apres.length?PTR_SEED_DATES[Math.max(...apres)]:rev4?PTR_SEED_DATE_4:neuve?PTR_SEED_DATES[rev]:PTR_SEED_DATE_2,...(extra||{})}};
     const compA=PTR_COMPLEMENTS_A[x.id];
     const variantes=[variante('a',x.id==='pompe_a_chaleur'?'Atlantic Alféa Extensa Duo':'Standard (modèle CP)',x.texte,
       x.id==='pompe_a_chaleur'?{marque:'Atlantic',reference:'Alféa Extensa Duo A.I. (R32)'}
