@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-27 · Programme technique : revêtements de sols, carrelage imitation bois 20 x 120 et plinthes bois en proposition C';
+const VERSION='2026-09-27 · Programme technique : faïence 60 x 60 beige et faïence décorative verte, baguettes d’angle et étanchéité SPEC en proposition B';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3893,7 +3893,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=21;
+const PTR_SEED_REV=22;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -3955,6 +3955,10 @@ PTR_SEED_DATES[20]=PTR_SEED_DATE_20;
    plinthes bois sauf garage (proposition C) */
 const PTR_SEED_DATE_21='2026-09-27T20:00:00.000Z';
 PTR_SEED_DATES[21]=PTR_SEED_DATE_21;
+/* révision 22 : revêtements muraux — faïence 60 x 60 beige et faïence
+   décorative verte 29,5 x 59,5, baguettes d'angle, SPEC (proposition B) */
+const PTR_SEED_DATE_22='2026-09-27T21:00:00.000Z';
+PTR_SEED_DATES[22]=PTR_SEED_DATE_22;
 /* propositions dont le texte a été réécrit après la révision 4 */
 const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a'],11:['var_cloisons_72mm_a','var_doublage_a'],12:['var_cloisons_separation_volumes_non_chauffes_a','var_cloisons_100mm_a','var_portes_interieures_galandage_a'],13:['var_bandes_joints_plaque_platre_a'],14:['var_portes_interieures_a','var_portes_interieures_galandage_a'],15:['var_isolation_thermique_plafond_a'],16:['var_ventilation_mecanique_controlee_a','var_electricite_a'],17:['var_prises_courant_a','var_points_lumineux_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
@@ -3998,6 +4002,7 @@ const PTR_SEED_NOUVELLES={
   19:['var_douche_b'],
   20:['var_colonne_douche_b','var_colonne_douche_c'],
   21:['var_revetements_sols_c'],
+  22:['var_revetements_muraux_b'],
 };
 const ptrRevNaissance=id=>{for(const r in PTR_SEED_NOUVELLES)if(PTR_SEED_NOUVELLES[r].indexOf(id)>=0)return +r;return 1};
 /* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
@@ -4098,6 +4103,9 @@ const PTR_PROPOSITIONS_3={
     texte:'Ensemble de douche en remplacement de la colonne de douche, finition chromée :\n- mitigeur thermostatique mural, butée de sécurité à 38 °C, raccords excentrés avec rosaces ;\n- barre de douche murale avec support de douchette coulissant ;\n- douchette à main et flexible lisse anti-torsion.\nClapets anti-retour sur les alimentations.'},
 };
 const PTR_PROPOSITIONS_2={
+  revetements_muraux:{nom:'Faïence 60 x 60 beige et faïence décorative verte 29,5 x 59,5, étanchéité SPEC',marque:'Torchio (distributeur)',reference:'CICO826F000277 · COLO345F000695 (ou équivalent)',
+    photos:[ptrPhotoAsset('faience_beige_60x60.jpeg',1210,590),ptrPhotoAsset('faience_verte_29x59.jpeg',1565,610)],
+    texte:'Faïence murale posée droite, collée conformément au DTU 52.2, sans listels ; localisation selon plans (pourtour des douches, des baignoires et des lavabos) :\n- faïence grand format 60 x 60 cm, coloris beige, épaisseur 8 mm (réf. TORCHIO CICO826F000277, 60,5 x 60,5 cm, ou équivalent) : [à préciser] m² ;\n- faïence décorative verte 29,5 x 59,5 cm, rectifiée, finition brillante (réf. TORCHIO COLO345F000695 DECOR, ou équivalent) : [à préciser] m² ;\n- baguettes de finition sur les angles saillants.\nÉtanchéité : système de protection à l’eau sous carrelage (SPEC) dans les douches et au pourtour des baignoires, avec bandes d’angle et traitement des traversées de tuyauterie, selon l’avis technique du produit.'},
   colonne_douche:{nom:'RAMON SOLER — Valmont 2',marque:'Ramon Soler',reference:'Valmont 2 — colonne de douche thermostatique (ou équivalent)',
     photos:[ptrPhotoAsset('ramon_soler_valmont2.jpeg',900,1002)],
     pieces:[ptrPieceAsset('docs/Ramon_Soler_Valmont_2.pdf','Fiche produit Ramon Soler — Colonne Valmont 2.pdf')],
