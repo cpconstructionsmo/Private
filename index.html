@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-27 · Programme technique : receveur de douche Acquabella Compact en proposition B, avec photos et fiche produit';
+const VERSION='2026-09-27 · Programme technique : baignoire Jacob Delafon Corvette avec tablier à carreler, colonne Ramon Soler Valmont 2 et mitigeur thermostatique avec douchette';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3893,7 +3893,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=19;
+const PTR_SEED_REV=20;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -3947,6 +3947,10 @@ PTR_SEED_DATES[18]=PTR_SEED_DATE_18;
 /* révision 19 : receveur de douche ACQUABELLA Compact (proposition B) */
 const PTR_SEED_DATE_19='2026-09-27T18:00:00.000Z';
 PTR_SEED_DATES[19]=PTR_SEED_DATE_19;
+/* révision 20 : baignoire JACOB DELAFON Corvette avec tablier à carreler,
+   colonne RAMON SOLER Valmont 2 (B), mitigeur thermostatique et douchette (C) */
+const PTR_SEED_DATE_20='2026-09-27T19:00:00.000Z';
+PTR_SEED_DATES[20]=PTR_SEED_DATE_20;
 /* propositions dont le texte a été réécrit après la révision 4 */
 const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a'],11:['var_cloisons_72mm_a','var_doublage_a'],12:['var_cloisons_separation_volumes_non_chauffes_a','var_cloisons_100mm_a','var_portes_interieures_galandage_a'],13:['var_bandes_joints_plaque_platre_a'],14:['var_portes_interieures_a','var_portes_interieures_galandage_a'],15:['var_isolation_thermique_plafond_a'],16:['var_ventilation_mecanique_controlee_a','var_electricite_a'],17:['var_prises_courant_a','var_points_lumineux_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
@@ -3988,6 +3992,7 @@ const PTR_SEED_NOUVELLES={
   15:['var_isolation_thermique_plafond_b'],
   18:['var_lavabo_meuble_vasque_b'],
   19:['var_douche_b'],
+  20:['var_colonne_douche_b','var_colonne_douche_c'],
 };
 const ptrRevNaissance=id=>{for(const r in PTR_SEED_NOUVELLES)if(PTR_SEED_NOUVELLES[r].indexOf(id)>=0)return +r;return 1};
 /* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
@@ -4000,6 +4005,12 @@ const ptrPieceAsset=(fichier,nom)=>({id:'pj_'+ptrIdFichier(fichier),src:'asset',
    la catégorie : juste après « apres ») ; « optionnelle » : non incluse
    d'office dans un nouveau programme */
 const PTR_PRESTATIONS_AJOUTEES=[
+  {rev:20,apres:'douche',id:'baignoire',titre:'BAIGNOIRE',
+    optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
+    nom:'Jacob Delafon Corvette, tablier à carreler',marque:'Jacob Delafon',reference:'Corvette 160 x 70 cm — E60903 (ou équivalent)',url:'https://www.jacobdelafon.fr',
+    photos:[ptrPhotoAsset('jacob_delafon_corvette.jpeg',960,440)],
+    pieces:[ptrPieceAsset('docs/Jacob_Delafon_Corvette_E60903.pdf','Fiche produit Jacob Delafon — Baignoire Corvette E60903.pdf')],
+    texte:'Baignoire rectangulaire JACOB DELAFON **CORVETTE** en Minéracryl® ou équivalent, coloris blanc brillant, installation encastrée contre mur ; dimensions selon plans (modèle de référence : 160 x 70 cm, réf. E60903) :\n- dossier rehaussé formant repose-tête et accoudoirs intégrés ;\n- hauteur 54,6 cm, hauteur d’eau 31,5 cm ;\n- pieds réglables Quick Clip fournis ;\n- vidage chromé (réf. E70174 ou équivalent) ;\n- baignoire certifiée NF, garantie du fabricant 10 ans.\nTablier à carreler : habillage de la face visible de la baignoire par un tablier en panneau prêt à carreler, avec trappe de visite donnant accès au vidage ; carrelage du tablier assorti à la faïence de la salle de bains.'},
   {rev:9,apres:'porte_entree',id:'porte_garage',titre:'PORTE DE GARAGE SECTIONNELLE',
     optionnelle:false,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
     nom:'Hörmann RenoMatic motorisée',marque:'Hörmann',reference:'RenoMatic — Planar, rainures L',url:'https://www.hormann.fr',
@@ -4072,7 +4083,17 @@ const PTR_COMPLEMENTS_A={
     photosAvant:[ptrPhotoAsset('bloc_elibloc.jpeg',1383,1007)],
     pieces:[ptrPieceAsset('docs/Alkern_Elibloc_Bloc20.pdf','Fiche produit Alkern ELIBLOC Bloc 20.pdf')]},
 };
+/* troisièmes propositions (C) du modèle, par identifiant du catalogue */
+const PTR_PROPOSITIONS_3={
+  colonne_douche:{nom:'Mitigeur thermostatique et barre de douche',titre:'MITIGEUR THERMOSTATIQUE ET DOUCHETTE – 2 unités',
+    photos:[ptrPhotoAsset('mitigeur_thermostatique_douche.jpeg',1200,1600),ptrPhotoAsset('mitigeur_thermostatique_detail.jpeg',1200,1600)],
+    texte:'Ensemble de douche en remplacement de la colonne de douche, finition chromée :\n- mitigeur thermostatique mural, butée de sécurité à 38 °C, raccords excentrés avec rosaces ;\n- barre de douche murale avec support de douchette coulissant ;\n- douchette à main et flexible lisse anti-torsion.\nClapets anti-retour sur les alimentations.'},
+};
 const PTR_PROPOSITIONS_2={
+  colonne_douche:{nom:'RAMON SOLER — Valmont 2',marque:'Ramon Soler',reference:'Valmont 2 — colonne de douche thermostatique (ou équivalent)',
+    photos:[ptrPhotoAsset('ramon_soler_valmont2.jpeg',900,1002)],
+    pieces:[ptrPieceAsset('docs/Ramon_Soler_Valmont_2.pdf','Fiche produit Ramon Soler — Colonne Valmont 2.pdf')],
+    texte:'Colonne de douche thermostatique télescopique RAMON SOLER **VALMONT 2** ou équivalent, finition chromée :\n- mitigeur thermostatique à corps tiède, sécurité anti-brûlure Hot Block et butée Termostop à 38 °C ;\n- douche de tête Ø 200 mm en ABS anticalcaire ;\n- douchette à main Ø 110 mm en ABS, 1 fonction, anticalcaire ;\n- flexible lisse anti-torsion de 1 700 mm ;\n- débit de 12 l/min à 3 bar (douchette et douche de tête), niveau acoustique inférieur à 20 dB, pression d’utilisation de 1 à 5 bar ;\n- chromage : 15 microns de nickel et 0,3 micron de chrome.\nCertification NF ; garantie du fabricant : 8 ans sur la robinetterie, 3 ans sur les accessoires.'},
   douche:{nom:'ACQUABELLA — Compact (Granite / Epur)',marque:'Acquabella',reference:'Compact Granite / Compact Epur (ou équivalent)',
     photos:[ptrPhotoAsset('acquabella_compact_granite.jpeg',663,473),ptrPhotoAsset('acquabella_compact_vue.jpeg',1000,713)],
     pieces:[ptrPieceAsset('docs/Acquabella_Compact_Granite_Epur.pdf','Fiche produit Acquabella — Compact Granite et Epur.pdf')],
@@ -4148,6 +4169,9 @@ function ptrBiblioInitiale(){
     const p2=PTR_PROPOSITIONS_2[x.id];
     if(p2)variantes.push(variante('b',p2.nom,p2.texte,{titre:p2.titre||x.titre,photos:p2.photos||[],pieces:p2.pieces||[],
       marque:p2.marque||'',reference:p2.reference||'',url:p2.url||''}));
+    const p3=PTR_PROPOSITIONS_3[x.id];
+    if(p3)variantes.push(variante('c',p3.nom,p3.texte,{titre:p3.titre||x.titre,photos:p3.photos||[],pieces:p3.pieces||[],
+      marque:p3.marque||'',reference:p3.reference||'',url:p3.url||''}));
     if(x.id==='pompe_a_chaleur')variantes.push(variante('c','Autre système',
       'Système de chauffage et de production d’eau chaude sanitaire à définir avec le Maître de l’Ouvrage.\nCaractéristiques et prestations suivant descriptif et documentation technique jointe au présent programme.'));
     const coche=x.defaut;
