@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-27 · Programme technique : fiches Odace sur les prises et BLM No Air sur les points lumineux ; joindre en un clic une fiche de la bibliothèque à une ligne de projet';
+const VERSION='2026-09-27 · Programme technique : meuble vasque Ambiance Bain Elyps 2 en proposition B, avec photos et fiche produit';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3893,7 +3893,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=17;
+const PTR_SEED_REV=18;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -3941,6 +3941,9 @@ PTR_SEED_DATES[16]=PTR_SEED_DATE_16;
    BLM No Air sur les points lumineux */
 const PTR_SEED_DATE_17='2026-09-27T16:00:00.000Z';
 PTR_SEED_DATES[17]=PTR_SEED_DATE_17;
+/* révision 18 : meuble vasque AMBIANCE BAIN ELYPS 2 (proposition B) */
+const PTR_SEED_DATE_18='2026-09-27T17:00:00.000Z';
+PTR_SEED_DATES[18]=PTR_SEED_DATE_18;
 /* propositions dont le texte a été réécrit après la révision 4 */
 const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a'],11:['var_cloisons_72mm_a','var_doublage_a'],12:['var_cloisons_separation_volumes_non_chauffes_a','var_cloisons_100mm_a','var_portes_interieures_galandage_a'],13:['var_bandes_joints_plaque_platre_a'],14:['var_portes_interieures_a','var_portes_interieures_galandage_a'],15:['var_isolation_thermique_plafond_a'],16:['var_ventilation_mecanique_controlee_a','var_electricite_a'],17:['var_prises_courant_a','var_points_lumineux_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
@@ -3980,6 +3983,7 @@ const PTR_SEED_NOUVELLES={
   9:['var_porte_entree_b','var_porte_garage_a'],
   10:['var_chassis_fenetres_francaise_b','var_coulissant_b','var_vitrerie_b','var_volets_roulants_b','var_domotique_b'],
   15:['var_isolation_thermique_plafond_b'],
+  18:['var_lavabo_meuble_vasque_b'],
 };
 const ptrRevNaissance=id=>{for(const r in PTR_SEED_NOUVELLES)if(PTR_SEED_NOUVELLES[r].indexOf(id)>=0)return +r;return 1};
 /* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
@@ -4065,6 +4069,10 @@ const PTR_COMPLEMENTS_A={
     pieces:[ptrPieceAsset('docs/Alkern_Elibloc_Bloc20.pdf','Fiche produit Alkern ELIBLOC Bloc 20.pdf')]},
 };
 const PTR_PROPOSITIONS_2={
+  lavabo_meuble_vasque:{nom:'AMBIANCE BAIN — Elyps 2',marque:'Ambiance Bain',reference:'Elyps 2 — ELYPS2… (ou équivalent)',
+    photos:[ptrPhotoAsset('ambiance_bain_elyps2.jpeg',527,527),ptrPhotoAsset('ambiance_bain_elyps2_sdb.jpeg',503,670)],
+    pieces:[ptrPieceAsset('docs/Ambiance_Bain_Elyps_2.pdf','Fiche produit Ambiance Bain — Elyps 2.pdf')],
+    texte:'Meuble vasque suspendu AMBIANCE BAIN **ELYPS 2** ou équivalent, livré monté :\n- plan vasque intégré en céramique blanc brillant, avec perçages du trop-plein et de la robinetterie ;\n- largeur au choix : 60, 70, 80, 90, 100 ou 120 cm (simple ou double vasque en 120 cm) ; hauteur 58,4 cm, profondeur 46,7 cm ;\n- façades et côtés en MDF de 16 mm à décor polymère, caisson en panneau de particules mélaminé de 16 mm (classe E1) ;\n- tiroirs à ouverture par prise de main, coulisses double paroi avec amortisseur de fermeture, tiroir sous-vasque avec passe-siphon et casier range-cosmétiques ;\n- coloris au choix dans le nuancier du fabricant (neige brillant, Chamonix, cashmere, safari, fjord, vert forêt, Siena, matcha, volcan, noir mat, décors bois…).\nMitigeur lavabo chromé, miroir rectangulaire et applique LED rectangulaire.'},
   isolation_thermique_plafond:{nom:'Laine de roche soufflée — ROCKWOOL Rockair 2',marque:'ROCKWOOL',reference:'Rockair 2 (ou équivalent)',url:'https://www.rockwool.com/fr',
     photos:[ptrPhotoAsset('rockwool_rockair2.jpeg',242,251),ptrPhotoAsset('image32.jpeg',290,174)],
     pieces:[ptrPieceAsset('docs/Rockwool_Rockair_2.pdf','Fiche produit ROCKWOOL — Rockair 2.pdf')],
@@ -4262,7 +4270,7 @@ const PTR_TITRES_ACCENTS=[['PREPARATION','PRÉPARATION'],['MACONNERIE','MAÇONNE
   ['EVIER','ÉVIER'],['FENETRE','FENÊTRE'],['ACCES','ACCÈS'],['EXCEDENTAIRES','EXCÉDENTAIRES']];
 const PTR_MARQUES=['Atlantic','Aldes','Daikin','Jacob Delafon','Monier','PBM','MSEA','Celtys','Placo','Knauf','Isover',
   'Grohe','Velux','Somfy','Legrand','Schneider','Hager','Porcher','Villeroy','Geberit','Kinedo','Saunier Duval','Rehau',
-  'Edilians','Biobric','Alkern','Elibloc','Dal.Alu','Hörmann','Hormann','Emaplast','Veka','Reynaers','Gemaplast','Knauf','Isover','Placostyl','Placomarine','Habito','Placojoint','Rockwool','Supafil','BLM'];
+  'Edilians','Biobric','Alkern','Elibloc','Dal.Alu','Hörmann','Hormann','Emaplast','Veka','Reynaers','Gemaplast','Knauf','Isover','Placostyl','Placomarine','Habito','Placojoint','Rockwool','Supafil','BLM','Ambiance Bain'];
 const PTR_MOTS_MARQUES=['TaHoma','AldesConnect','EasyHOME','AquaAIR','T.One','ProMatic','BiSecur','RenoMatic','ProLift'];
 function ptrAlertesTexte(titre,texte){
   const A=[], t=String(texte||''), ti=String(titre||'');
