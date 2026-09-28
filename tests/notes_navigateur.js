@@ -1,5 +1,6 @@
 /* Vérification dans Chromium : rechargement au même endroit, bandeau de
    gauche escamotable à la souris, simulateur DPE retiré. */
+require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
 const {chromium}=require('playwright-core');const fs=require('fs');const path=require('path');
 const R=require('path').resolve(__dirname,'..'), NM=__dirname+'/node_modules';
 const DATA={chantiers:[{id:'c1',nom:'Maison Leroux',statut:'chantier',map:{}}],marches:[],
@@ -39,7 +40,7 @@ const jour=n=>new Date(Date.now()+n*86400000).toISOString().slice(0,10);
   const tb=await bloc.textContent();
   chk(/Relancer le plombier/.test(tb)&&/Client absent le vendredi/.test(tb)&&tb.indexOf('Relancer le plombier')<tb.indexOf('Client absent'),'deux notes, le rappel en tête');
   chk(/rappel en retard/.test(tb)&&/1 rappel à traiter/.test(tb)&&/cp@x\.fr/.test(tb),'rappel échu signalé, note signée du compte connecté');
-  await p.screenshot({path:'notes_chantier.png'});
+  await p.screenshot({path:require('os').tmpdir()+'/cp-tests/notes_chantier.png'});
   /* prospect : rappel aujourd'hui */
   await menu('PROSPECTS');await p.click('text=Maison Moualid');
   const bp=p.locator('.notes-dossier');
@@ -52,7 +53,7 @@ const jour=n=>new Date(Date.now()+n*86400000).toISOString().slice(0,10);
   const r=p.locator('.card',{hasText:'RAPPELS'}).first();
   const tr=await r.textContent();
   chk(/Relancer le plombier/.test(tr)&&/Maison Leroux/.test(tr)&&/retard 2 j/.test(tr)&&/Envoyer la variante/.test(tr)&&/aujourd’hui/.test(tr)&&!/Client absent/.test(tr),'accueil : les deux rappels, pas la note simple');
-  await p.screenshot({path:'notes_accueil.png'});
+  await p.screenshot({path:require('os').tmpdir()+'/cp-tests/notes_accueil.png'});
   await r.locator('button:has-text("Envoyer la variante")').click();await p.waitForTimeout(300);
   chk(/← Prospects/.test(await p.textContent('main'))&&/Maison Moualid/.test(await p.textContent('main')),'clic sur le rappel : ouvre la fiche du prospect');
   await p.locator('.notes-dossier input[type=checkbox]').first().check();await p.waitForTimeout(200);
@@ -85,7 +86,7 @@ const jour=n=>new Date(Date.now()+n*86400000).toISOString().slice(0,10);
   await m.click('nav.bot >> text=CHANTIERS');await m.click('text=Maison Leroux');await m.waitForSelector('.notes-dossier');
   const bb=await m.locator('.notes-dossier').boundingBox();
   chk(bb.width<=390,'téléphone : le bloc tient dans la largeur');
-  await m.locator('.notes-dossier').screenshot({path:'notes_tel.png'});
+  await m.locator('.notes-dossier').screenshot({path:require('os').tmpdir()+'/cp-tests/notes_tel.png'});
   await tel.close();await b.close();
   console.log(ko?'\n'+ko+' echec(s)':'\nTout est bon.');process.exitCode=ko?1:0;
 })().catch(e=>{console.error(e);process.exitCode=1});
