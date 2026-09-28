@@ -77,6 +77,22 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
 - Pour une nouvelle fonction, ajoutez un `t_<sujet>.js` sur le modèle des
   autres (`verif()`, `chk(condition, 'message')`, `fin()`).
 
+## Atelier de conception (`atelier/`, Python)
+
+- Application **locale, sur le Mac** (FastAPI sur 127.0.0.1) qui prépare
+  le dossier PCMI à partir du plan du RDC (DXF ou PDF vectoriel). Mode
+  d'emploi et règles R1–R10 : `atelier/README.md`.
+- **Plain-pied par défaut** : un étage (module B) ne s'étudie que sur
+  demande.
+- Les projets (plans, données clients) restent dans
+  `~/CP Constructions/Atelier/projets/`. **Jamais dans le dépôt.** Les
+  tests n'utilisent que le plan fictif de `atelier/tests/cas_fictif.py`.
+- Ne rien inventer (R2) : aucun document tiers fabriqué, statut ✅ / ⚠️ / ❓
+  sur toute valeur discutable. Articles de loi « à vérifier » tant qu'ils
+  n'ont pas été lus sur Légifrance. Seuil de 150 m² bloquant.
+- Tests : `cd atelier && python3 -m venv .venv &&
+  .venv/bin/pip install -r requirements.txt && .venv/bin/python -m pytest -q tests`.
+
 ## Programme technique (PTR) : la bibliothèque et ses révisions
 
 - **La bibliothèque**
