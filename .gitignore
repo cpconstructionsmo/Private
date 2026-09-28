@@ -4,3 +4,6 @@ CP-chantier-*.json
 CP-sauvegarde-*.json
 *.export.json
 CP-artisans-*.json
+
+# dépendances des tests (npm install dans tests/)
+tests/node_modules/
