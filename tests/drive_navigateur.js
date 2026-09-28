@@ -1,5 +1,6 @@
 /* Vérification dans Chromium : rechargement au même endroit, bandeau de
    gauche escamotable à la souris, simulateur DPE retiré. */
+require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
 const {chromium}=require('playwright-core');const fs=require('fs');const path=require('path');
 const R=require('path').resolve(__dirname,'..'), NM=__dirname+'/node_modules';
 const DATA={chantiers:[{id:'c1',nom:'Maison Leroux',statut:'chantier',map:{}}],marches:[],

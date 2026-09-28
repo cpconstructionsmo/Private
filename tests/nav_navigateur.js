@@ -1,5 +1,6 @@
 /* Vérification dans Chromium : rechargement au même endroit, bandeau de
    gauche escamotable à la souris, simulateur DPE retiré. */
+require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
 const {chromium}=require('playwright-core');const fs=require('fs');const path=require('path');
 const R=require('path').resolve(__dirname,'..'), NM=__dirname+'/node_modules';
 const DATA={chantiers:[{id:'c1',nom:'Maison Leroux',statut:'chantier',map:{}}],marches:[],
@@ -29,10 +30,10 @@ let ko=0;const chk=(c,m)=>{console.log((c?'OK  ':'KO  ')+m);if(!c)ko++};
   const navX=async()=>(await p.locator('nav.bot').boundingBox()).x;
   await p.mouse.move(700,450);await p.waitForTimeout(500);
   chk(await navX()<-200,'bandeau caché quand la souris est au milieu');
-  await p.screenshot({path:'nav_cache.png'});
+  await p.screenshot({path:require('os').tmpdir()+'/cp-tests/nav_cache.png'});
   await p.mouse.move(4,450);await p.waitForTimeout(400);
   chk(await navX()>=0,'bandeau sorti quand la souris touche le bord gauche');
-  await p.screenshot({path:'nav_ouvert.png'});
+  await p.screenshot({path:require('os').tmpdir()+'/cp-tests/nav_ouvert.png'});
   await p.mouse.move(120,300);await p.waitForTimeout(400);
   chk(await navX()>=0,'reste ouvert tant que la souris est dessus');
   await p.mouse.move(800,450);await p.waitForTimeout(600);
@@ -78,7 +79,7 @@ let ko=0;const chk=(c,m)=>{console.log((c?'OK  ':'KO  ')+m);if(!c)ko++};
   chk(bb.x>=0&&bb.y>700,'téléphone : barre de navigation en bas');
   await m.click('nav.bot >> text=PLUS');await m.waitForTimeout(200);
   chk(!/DPE/.test(await m.textContent('nav.bot')),'téléphone : « PLUS » sans DPE');
-  await m.screenshot({path:'nav_tel.png'});
+  await m.screenshot({path:require('os').tmpdir()+'/cp-tests/nav_tel.png'});
   await tel.close();await b.close();
   console.log(ko?'\n'+ko+' echec(s)':'\nTout est bon.');process.exitCode=ko?1:0;
 })().catch(e=>{console.error(e);process.exitCode=1});

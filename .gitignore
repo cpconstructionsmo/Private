@@ -7,3 +7,4 @@ CP-artisans-*.json
 
 # dépendances des tests (npm install dans tests/)
 tests/node_modules/
+tests/*.png
