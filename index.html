@@ -229,7 +229,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-28 · Synchronisation : deux appareils ne s’effacent plus — les modifications sont fusionnées, et le téléphone relit le serveur au retour de veille';
+const VERSION='2026-09-28 · Sauvegardes automatiques : version du jour sur l’appareil et sur le Drive, version gardée avant chaque restauration';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5602,6 +5602,92 @@ async function uploadToDrive(file,folderId){
   return r.json();
 }
 
+/* ---------- versions sauvegardées ----------
+   L'export manuel restait le seul filet : on l'oublie, et « Restaurer »
+   remplaçait tout sans retour possible. Désormais :
+   - chaque jour, à la première ouverture, une version des données est
+     rangée sur l'appareil (IndexedDB) — les 14 derniers jours sont gardés ;
+   - avant toute restauration ou tout ajout depuis un fichier, la version
+     en place est rangée elle aussi (les 10 dernières) ;
+   - si Google Drive est connecté, une copie du jour part dans
+     « CRM CP › Sauvegardes » (les 30 dernières sont gardées).
+   Les photos n'y sont pas : elles vivent dans le stockage en ligne et sur
+   le Drive, les versions n'en portent que les légendes et les liens. */
+const VERSIONS_BASE='cp-versions', VERSIONS_TABLE='versions';
+const VERSIONS_JOURS=14, VERSIONS_AUTRES=10, SAUVEGARDES_DRIVE=30;
+const versionsBase=()=>new Promise((ok,ko)=>{
+  try{
+    if(typeof indexedDB==='undefined'||!indexedDB)return ko(new Error('stockage indisponible'));
+    const r=indexedDB.open(VERSIONS_BASE,1);
+    r.onupgradeneeded=()=>{r.result.createObjectStore(VERSIONS_TABLE,{keyPath:'id'})};
+    r.onsuccess=()=>ok(r.result);
+    r.onerror=()=>ko(r.error||new Error('stockage indisponible'));
+  }catch(e){ko(e)}
+});
+const versionsRequete=async(mode,faire)=>{
+  const db=await versionsBase();
+  return new Promise((ok,ko)=>{
+    const tx=db.transaction(VERSIONS_TABLE,mode);
+    const req=faire(tx.objectStore(VERSIONS_TABLE));
+    let res;
+    if(req)req.onsuccess=()=>{res=req.result};
+    tx.oncomplete=()=>{db.close();ok(res)};
+    tx.onerror=tx.onabort=()=>{db.close();ko(tx.error||new Error('écriture impossible'))};
+  });
+};
+const versionResume=d=>({chantiers:(d.chantiers||[]).length,prospects:(d.prospects||[]).length,
+  artisans:(d.artisans||[]).length,marches:(d.marches||[]).length});
+async function versionsListe(){
+  const L=await versionsRequete('readonly',st=>st.getAll());
+  return (L||[]).sort((a,b)=>(b.le||'').localeCompare(a.le||''));
+}
+async function versionRanger(motif,d,id){
+  const v={id:id||('v-'+Date.now()+'-'+uid()),le:new Date().toISOString(),motif,resume:versionResume(d),data:d};
+  await versionsRequete('readwrite',st=>st.put(v));
+  /* on ne garde que les plus récentes de chaque sorte */
+  const L=await versionsListe();
+  const jours=L.filter(x=>/^jour-/.test(x.id)), autres=L.filter(x=>!/^jour-/.test(x.id));
+  const trop=[...jours.slice(VERSIONS_JOURS),...autres.slice(VERSIONS_AUTRES)];
+  if(trop.length)await versionsRequete('readwrite',st=>{trop.forEach(x=>st.delete(x.id));return null});
+  return v;
+}
+/* la version du jour, une seule fois par jour */
+async function versionDuJour(d){
+  const id='jour-'+today();
+  const deja=await versionsRequete('readonly',st=>st.get(id));
+  if(deja)return null;
+  return versionRanger('Version automatique du jour',d,id);
+}
+const SAUVEGARDE_DRIVE_LE='cpSauvegardeDriveLe';
+async function sauvegardeDriveDuJour(d){
+  if(!driveConnected())return null;
+  let le='';try{le=localStorage.getItem(SAUVEGARDE_DRIVE_LE)||''}catch(e){}
+  if(le===today())return null;
+  const token=await getDriveToken();
+  const dossier=await driveFindOrCreateSubfolder(token,await driveFolder(token),'Sauvegardes');
+  const nom='CP-sauvegarde-'+today()+'.json';
+  await uploadToDrive(new File([JSON.stringify(d)],nom,{type:'application/json'}),dossier);
+  try{localStorage.setItem(SAUVEGARDE_DRIVE_LE,today())}catch(e){}
+  /* les plus anciennes au-delà de trente partent à la corbeille du Drive */
+  try{
+    const q=encodeURIComponent("'"+dossier+"' in parents and name contains 'CP-sauvegarde-' and trashed=false");
+    const r=await fetch('https://www.googleapis.com/drive/v3/files?orderBy=name%20desc&pageSize=100&fields=files(id,name)&q='+q,
+      {headers:{Authorization:'Bearer '+token}});
+    const j=await r.json();
+    for(const f of (j.files||[]).slice(SAUVEGARDES_DRIVE))
+      await fetch('https://www.googleapis.com/drive/v3/files/'+f.id,{method:'PATCH',
+        headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({trashed:true})});
+  }catch(e){/* le ménage peut attendre le jour suivant */}
+  return nom;
+}
+const telechargerJson=(d,nom)=>{
+  const blob=new Blob([JSON.stringify(d)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=nom;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+
 /* ---------- le marché converti en PDF ----------
    Un .docx s'ouvre et se corrige ; un PDF, non. Le marché qui part chez
    l'artisan doit donc être figé. La conversion est faite par le Drive
@@ -6744,6 +6830,18 @@ function App({session}){
     if(minuteur.current)clearTimeout(minuteur.current);
     minuteur.current=setTimeout(envoyer,600);
   };
+  /* une fois les données du serveur arrivées : la version du jour sur
+     l'appareil, et la copie du jour sur le Drive s'il est connecté */
+  useEffect(()=>{
+    if(chargement!=='ok')return;
+    const t=setTimeout(()=>{
+      const d=base.current.data;
+      if(!d)return;
+      versionDuJour(d).catch(()=>{});
+      sauvegardeDriveDuJour(d).catch(()=>{});
+    },3000);
+    return ()=>clearTimeout(t);
+  },[chargement]);
   const defilementRepris=useRef(false);
   useEffect(()=>{
     if(chargement!=='ok'||defilementRepris.current)return;
@@ -17334,21 +17432,39 @@ function Donnees({data,save,session}){
     setRangement('');
   };
   const exp=()=>{
-    const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;a.download='CP-sauvegarde-'+today()+'.json';a.click();
-    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    telechargerJson(data,'CP-sauvegarde-'+today()+'.json');
     setMsg('Sauvegarde exportée. Sur iPhone, choisissez « Enregistrer dans Fichiers » pour la ranger dans iCloud Drive. Les vignettes photo ne sont pas incluses.');
+  };
+  /* avant de remplacer quoi que ce soit, la version en place est rangée :
+     une restauration malheureuse se défait depuis « Versions sauvegardées » */
+  const [versions,setVersions]=useState(null);
+  const relireVersions=()=>versionsListe().then(setVersions).catch(()=>setVersions(false));
+  useEffect(()=>{relireVersions()},[]);
+  const filet=async motif=>{try{await versionRanger(motif,data);return true}catch(e){return false}};
+  const remplacerPar=async(d,origine)=>{
+    const ok=await filet('Avant restauration ('+origine+')');
+    if(!ok&&!confirm('La version actuelle n’a pas pu être mise de côté sur cet appareil. Remplacer quand même, sans retour possible ?'))return;
+    save({...EMPTY,...d});
+    setMsg('Données restaurées ('+origine+').'+(ok?' La version précédente est gardée dans « Versions sauvegardées ».':''));
+    relireVersions();
   };
   const imp=e=>{
     const f=e.target.files[0];if(!f)return;
     const r=new FileReader();
     r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.chantiers)throw 0;
-      if(!confirm("« Restaurer » REMPLACE toutes vos données actuelles ("+data.chantiers.length+" chantier(s)) par le contenu du fichier.\n\nPour ajouter sans rien perdre, utilisez « Ajouter ».\n\nRemplacer malgré tout ?"))return;
-      save({...EMPTY,...d});setMsg('Sauvegarde restaurée.')}catch(x){setMsg('Fichier illisible — restauration annulée.')}};
+      if(!confirm("« Restaurer » REMPLACE toutes vos données actuelles ("+data.chantiers.length+" chantier(s)) par le contenu du fichier.\n\nLa version actuelle sera d’abord mise de côté dans « Versions sauvegardées ».\n\nRemplacer ?"))return;
+      remplacerPar(d,'fichier '+f.name)}catch(x){setMsg('Fichier illisible — restauration annulée.')}};
     r.readAsText(f);
   };
+  const restaurerVersion=v=>{
+    if(!confirm('Revenir à la version du '+new Date(v.le).toLocaleString('fr-FR')+' ('+v.resume.chantiers+' chantier(s), '+v.resume.prospects+' prospect(s)) ?\n\nLa version actuelle sera d’abord mise de côté.'))return;
+    remplacerPar(v.data,'version du '+new Date(v.le).toLocaleDateString('fr-FR'));
+  };
+  const versionMaintenant=async()=>{
+    try{await versionRanger('Version enregistrée à la main',data);setMsg('Version enregistrée sur cet appareil.');relireVersions()}
+    catch(e){setMsg('Impossible d’enregistrer une version sur cet appareil (navigation privée ?). Utilisez « Exporter ».')}
+  };
+  let copieDrive='';try{copieDrive=localStorage.getItem(SAUVEGARDE_DRIVE_LE)||''}catch(e){}
   /* ajoute le contenu d'un fichier sans toucher à l'existant : les artisans déjà
      connus sont réutilisés (nom identique, casse ignorée) et seuls leurs champs
      vides sont complétés ; tous les identifiants entrants sont régénérés.
@@ -17434,6 +17550,7 @@ function Donnees({data,save,session}){
         else{ commandes.push({...k,id:uid(),chantierId:cid}); cmdAjoutees++ }
       }
 
+      filet('Avant ajout depuis un fichier').then(relireVersions);
       save({...data,chantiers,artisans,marches,commandes});
       const bilanArt=crees+' artisan(s) créé(s)'+(completes?', '+completes+' complété(s)':'');
       if(!entrants.length){setMsg('Carnet d\u2019adresses mis à jour : '+bilanArt+'. Aucun chantier dans ce fichier.');return}
@@ -17466,6 +17583,24 @@ function Donnees({data,save,session}){
         <label className="btn gh">Restaurer<input type="file" accept=".json,application/json,text/plain" onChange={imp} style={{display:'none'}}/></label>
       </div>
       {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
+    </div>
+    <div className="card versions-sauvegardees">
+      <div className="sp"><span className="sm b">Versions sauvegardées</span>
+        <button className="btn gh s" onClick={versionMaintenant}>Enregistrer une version maintenant</button></div>
+      <p className="xs mut" style={{lineHeight:1.5,marginTop:6}}>
+        Chaque jour, une version de toutes vos données est gardée sur cet appareil (14 jours), ainsi qu’avant
+        chaque restauration ou ajout depuis un fichier. Si Google Drive est connecté, une copie du jour part aussi
+        dans <b>{DRIVE_RACINE} › Sauvegardes</b> (30 jours).
+        {' '}{copieDrive?<span>Dernière copie sur le Drive : <b>{fd(copieDrive)}</b>.</span>:<span>Aucune copie sur le Drive pour l’instant.</span>}</p>
+      {versions===false&&<div className="xs" style={{color:TERRA,marginTop:6}}>Ce navigateur ne permet pas de garder des versions (navigation privée ?) : pensez à « Exporter ».</div>}
+      {versions&&!versions.length&&<div className="xs mut" style={{marginTop:6}}>Aucune version pour l’instant — la première sera prise à la prochaine ouverture.</div>}
+      {versions&&versions.map(v=><div key={v.id} className="sp xs" style={{borderTop:'1px solid '+RULE,padding:'7px 0',gap:10,flexWrap:'wrap'}}>
+        <span style={{flex:'1 1 220px'}}><b>{new Date(v.le).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'})}</b>
+          <span className="mut"> · {v.motif} · {v.resume.chantiers} chantier{v.resume.chantiers>1?'s':''}, {v.resume.prospects} prospect{v.resume.prospects>1?'s':''}</span></span>
+        <span className="row" style={{gap:6}}>
+          <button className="btn gh s" onClick={()=>telechargerJson(v.data,'CP-sauvegarde-'+v.le.slice(0,10)+'.json')}>Télécharger</button>
+          <button className="btn gh s" onClick={()=>restaurerVersion(v)}>Restaurer</button>
+        </span></div>)}
     </div>
     <div className="card">
       <div className="sm b">Dossier Google Drive</div>
