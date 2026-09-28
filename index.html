@@ -229,7 +229,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-28 · Google Drive : reconnexion sans choix de compte ni écran d’autorisation, et automatique à l’ouverture de l’application';
+const VERSION='2026-09-28 · Synchronisation : deux appareils ne s’effacent plus — les modifications sont fusionnées, et le téléphone relit le serveur au retour de veille';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1124,6 +1124,76 @@ const nettoyer=d=>{
   for(const k of Object.keys(EMPTY))if(Array.isArray(r[k]))r[k]=r[k].filter(Boolean);
   return r;
 };
+
+/* ---------- fusion de deux versions des données ----------
+   Toutes les données tiennent dans un seul document, réécrit en entier à
+   chaque enregistrement. Deux appareils (l'ordinateur et un téléphone resté
+   en veille, ou deux personnes) qui écrivent chacun leur copie : le dernier
+   arrivé effaçait ce que l'autre avait fait entre-temps. On fusionne donc à
+   trois voies : « base » est la version du serveur dont on est parti,
+   « nous » notre version, « eux » celle qu'on trouve sur le serveur.
+   - ce que nous n'avons pas touché prend la valeur du serveur ;
+   - ce qu'eux n'ont pas touché garde la nôtre ;
+   - touché des deux côtés : les listes de fiches (un « id » chacune) se
+     fusionnent fiche par fiche, les objets champ par champ ; pour une même
+     valeur modifiée des deux côtés, la nôtre l'emporte (c'est le geste le
+     plus récent sur cet appareil).
+   Une fiche supprimée d'un côté disparaît, sauf si l'autre côté l'a modifiée
+   entre-temps : on la garde plutôt que de perdre une saisie. */
+const memeValeur=(a,b)=>a===b||JSON.stringify(a)===JSON.stringify(b);
+const estObjetSimple=v=>!!v&&typeof v==='object'&&!Array.isArray(v);
+const estListeDeFiches=v=>Array.isArray(v)&&v.every(x=>estObjetSimple(x)&&x.id!==undefined&&x.id!==null&&x.id!=='');
+function fusionnerListe(base,nous,eux){
+  const parId=L=>{const m=new Map();(L||[]).forEach(x=>m.set(String(x.id),x));return m};
+  const B=parId(base),N=parId(nous),E=parId(eux);
+  const ordre=L=>(L||[]).map(x=>String(x.id));
+  /* l'ordre : le nôtre si nous avons réordonné la liste, sinon celui du serveur */
+  const communs=L=>ordre(L).filter(id=>B.has(id)&&N.has(id)&&E.has(id));
+  const reordonne=communs(nous).join('|')!==communs(base).join('|');
+  const ids=[];const vu=new Set();
+  const ajoute=id=>{if(!vu.has(id)){vu.add(id);ids.push(id)}};
+  (reordonne?ordre(nous):ordre(eux)).forEach(ajoute);
+  (reordonne?ordre(eux):ordre(nous)).forEach(ajoute);
+  const out=[];
+  ids.forEach(id=>{
+    const b=B.get(id),n=N.get(id),e=E.get(id);
+    if(b===undefined){
+      /* ajoutée par l'un ou l'autre (ou par les deux sous le même id) */
+      if(n&&e)out.push(memeValeur(n,e)?e:fusionnerDonnees({},n,e));
+      else out.push(n||e);
+      return;
+    }
+    if(!n){
+      /* supprimée chez nous : on la retire, sauf si eux l'ont modifiée */
+      if(e&&!memeValeur(e,b))out.push(e);
+      return;
+    }
+    if(!e){
+      /* supprimée chez eux : on la garde seulement si nous l'avons modifiée */
+      if(!memeValeur(n,b))out.push(n);
+      return;
+    }
+    out.push(memeValeur(n,b)?e:memeValeur(e,b)?n:fusionnerDonnees(b,n,e));
+  });
+  return out;
+}
+function fusionnerDonnees(base,nous,eux){
+  if(!estObjetSimple(nous)||!estObjetSimple(eux))return nous;
+  base=estObjetSimple(base)?base:{};
+  const out={};
+  const cles=new Set([...Object.keys(base),...Object.keys(nous),...Object.keys(eux)]);
+  cles.forEach(k=>{
+    const b=base[k],n=nous[k],e=eux[k];
+    let v;
+    if(memeValeur(n,b))v=e;
+    else if(memeValeur(e,b))v=n;
+    else if(estListeDeFiches(n)&&estListeDeFiches(e)&&(b===undefined||estListeDeFiches(b)))v=fusionnerListe(b||[],n,e);
+    else if(estObjetSimple(n)&&estObjetSimple(e))v=fusionnerDonnees(b,n,e);
+    else v=n;
+    if(v!==undefined)out[k]=v;
+  });
+  return out;
+}
 
 /* ---------- chiffrage d'un prospect ----------
    Le coût, c'est la somme des postes chiffrés ; à défaut, le montant global saisi.
@@ -6521,13 +6591,31 @@ function App({session}){
      (historique effacé, nouveau téléphone) écraserait tout le contenu enregistré. */
   const [chargement,setChargement]=useState('attente');
   const journal=useRef(creerJournalEcritures(20));
+  /* la version du serveur dont nos données à l'écran sont parties (contenu
+     et horodatage) : c'est la « base » de la fusion, et la condition de nos
+     écritures — on n'écrit que si le serveur en est toujours là */
+  const base=useRef({data:null,quand:null});
+  const cacheLocal=d=>{try{localStorage.setItem(KEY,JSON.stringify(d))}catch(e){/* cache local best-effort */}};
+
+  /* une version du serveur arrive (lecture, temps réel, retour au premier
+     plan) : sans saisie en attente, on la prend telle quelle ; avec une
+     saisie pas encore partie, on la fusionne pour ne pas la perdre */
+  const appliquerServeur=(brut,quand)=>{
+    const serveur=nettoyer({...EMPTY,...brut});
+    if(enVol.current)return; /* l'envoi en cours détectera l'écart et fusionnera */
+    if(attente.current!==null){
+      const m=nettoyer(fusionnerDonnees(base.current.data,attente.current,serveur));
+      attente.current=m;setData(m);cacheLocal(m);
+    }else{setData(serveur);cacheLocal(serveur)}
+    base.current={data:serveur,quand:quand||null};
+  };
 
   const lire=()=>{
     setChargement('attente');
-    return sb.from('app_data').select('data').eq('id','main').single()
+    return sb.from('app_data').select('data,updated_at').eq('id','main').single()
       .then(({data:row,error})=>{
         if(error&&error.code!=='PGRST116'){setChargement('erreur');return}
-        if(row&&row.data)setData(nettoyer({...EMPTY,...row.data}));
+        if(row&&row.data)appliquerServeur(row.data,row.updated_at);
         setChargement('ok');
       })
       .catch(()=>setChargement('erreur'));
@@ -6535,11 +6623,11 @@ function App({session}){
 
   useEffect(()=>{
     let alive=true;
-    sb.from('app_data').select('data').eq('id','main').single()
+    sb.from('app_data').select('data,updated_at').eq('id','main').single()
       .then(({data:row,error})=>{
         if(!alive)return;
         if(error&&error.code!=='PGRST116'){setChargement('erreur');return}
-        if(row&&row.data)setData(nettoyer({...EMPTY,...row.data}));
+        if(row&&row.data)appliquerServeur(row.data,row.updated_at);
         setChargement('ok');
       })
       .catch(()=>{if(alive)setChargement('erreur')});
@@ -6549,10 +6637,26 @@ function App({session}){
         /* l'écho de notre propre enregistrement ne doit rien réécrire : il
            est déjà à l'écran, et il est peut-être déjà dépassé */
         if(journal.current.estDeNous(payload.new.updated_at))return;
-        setData(nettoyer({...EMPTY,...payload.new.data}));
+        if(base.current.quand&&payload.new.updated_at===base.current.quand)return;
+        appliquerServeur(payload.new.data,payload.new.updated_at);
       })
       .subscribe();
-    return ()=>{alive=false;sb.removeChannel(channel)};
+    /* Un téléphone en veille ne reçoit plus le temps réel, et ce qu'il a
+       manqué ne lui est pas renvoyé. Au retour au premier plan (ou du
+       réseau), on relit donc le serveur. */
+    const rafraichir=()=>{
+      if(document.visibilityState==='hidden'||!base.current.quand)return;
+      sb.from('app_data').select('data,updated_at').eq('id','main').single()
+        .then(({data:row,error})=>{
+          if(!alive||error||!row||!row.data)return;
+          if(row.updated_at===base.current.quand)return;
+          appliquerServeur(row.data,row.updated_at);
+        }).catch(()=>{});
+    };
+    document.addEventListener('visibilitychange',rafraichir);
+    window.addEventListener('online',rafraichir);
+    return ()=>{alive=false;sb.removeChannel(channel);
+      document.removeEventListener('visibilitychange',rafraichir);window.removeEventListener('online',rafraichir)};
   },[]);
 
   /* L'enregistrement est immédiat à l'écran et sur l'appareil ; l'envoi au
@@ -6564,16 +6668,57 @@ function App({session}){
   const minuteur=useRef(null);
   const enVol=useRef(false);
 
+  /* L'écriture est conditionnelle : elle ne passe que si le serveur est
+     toujours à la version dont on est parti. Sinon quelqu'un (un autre
+     appareil) a écrit entre-temps : on relit, on fusionne, on réessaie. Au
+     bout de trois écarts de suite, on écrit la version fusionnée sans
+     condition plutôt que de ne rien enregistrer. */
   const envoyer=async()=>{
     if(minuteur.current){clearTimeout(minuteur.current);minuteur.current=null}
     if(enVol.current||attente.current===null)return;
     const next=attente.current; attente.current=null;
     enVol.current=true;
-    const quand=horodatage();
-    journal.current.noter(quand);
-    const{error}=await sb.from('app_data').upsert({id:'main',data:next,updated_at:quand});
+    let aEcrire=next, erreur=null, fusion=false;
+    try{
+      for(let essai=0;essai<4;essai++){
+        const quand=horodatage();
+        journal.current.noter(quand);
+        const conditionnel=!!base.current.quand&&essai<3;
+        const r=conditionnel
+          ?await sb.from('app_data').update({data:aEcrire,updated_at:quand}).eq('id','main').eq('updated_at',base.current.quand).select('updated_at')
+          :await sb.from('app_data').upsert({id:'main',data:aEcrire,updated_at:quand}).select('updated_at');
+        if(r.error){erreur=r.error;break}
+        if(!conditionnel||(r.data&&r.data.length)){
+          const q=(r.data&&r.data[0]&&r.data[0].updated_at)||quand;
+          base.current={data:aEcrire,quand:q};
+          break;
+        }
+        /* écart : on repart de la version du serveur */
+        const lu=await sb.from('app_data').select('data,updated_at').eq('id','main').single();
+        if(lu.error||!lu.data){erreur=lu.error||{message:'lecture impossible'};break}
+        const serveur=nettoyer({...EMPTY,...lu.data.data});
+        aEcrire=nettoyer(fusionnerDonnees(base.current.data,aEcrire,serveur));
+        base.current={data:serveur,quand:lu.data.updated_at};
+        fusion=true;
+      }
+    }catch(e){erreur=e}
     enVol.current=false;
-    setErr(error?"Synchronisation impossible — vérifiez votre connexion. Vos modifications restent enregistrées sur cet appareil.":null);
+    if(erreur){
+      /* rien n'est perdu : la version reste à envoyer au prochain essai */
+      if(attente.current===null)attente.current=aEcrire;
+      else attente.current=nettoyer(fusionnerDonnees(next,attente.current,aEcrire));
+      setErr("Synchronisation impossible — vérifiez votre connexion. Vos modifications restent enregistrées sur cet appareil.");
+      if(!minuteur.current)minuteur.current=setTimeout(envoyer,15000);
+      return;
+    }
+    setErr(null);
+    if(fusion){
+      /* l'écran montre la version fusionnée, et une saisie faite pendant
+         l'envoi est reportée dessus */
+      const ecran=attente.current!==null?nettoyer(fusionnerDonnees(next,attente.current,aEcrire)):aEcrire;
+      if(attente.current!==null)attente.current=ecran;
+      setData(ecran);cacheLocal(ecran);
+    }
     if(attente.current!==null)envoyer();
   };
 
@@ -6594,7 +6739,7 @@ function App({session}){
     }
     const next=nettoyer(brut);
     setData(next);
-    try{localStorage.setItem(KEY,JSON.stringify(next))}catch(e){/* cache local best-effort */}
+    cacheLocal(next);
     attente.current=next;
     if(minuteur.current)clearTimeout(minuteur.current);
     minuteur.current=setTimeout(envoyer,600);
