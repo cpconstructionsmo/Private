@@ -8,3 +8,9 @@ CP-artisans-*.json
 # dépendances des tests (npm install dans tests/)
 tests/node_modules/
 tests/*.png
+
+# atelier de conception : environnement Python local et projets (données clients)
+atelier/.venv/
+atelier/**/__pycache__/
+atelier/.pytest_cache/
+atelier/projets/
