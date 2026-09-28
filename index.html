@@ -244,7 +244,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-28 · Recherche globale (Ctrl K) : chantiers, prospects, artisans, fournisseurs, marchés, commandes, tâches, notes et rendez-vous';
+const VERSION='2026-09-28 · Tableau de bord : prospects à relancer, permis en cours et commandes à suivre, chaque ligne ouvre le dossier';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -7011,7 +7011,7 @@ function App({session}){
         ongletInitial={cible&&cible.type==='chantier'&&cible.id===ch.id?cible.onglet:null}/>
       /* allerA porte au besoin une journée : le tableau de bord ouvre alors
          l'agenda directement sur ce jour-là, heure par heure */
-      :view==='tdb'?<TableauBord data={data} save={save} open={setOpen}
+      :view==='tdb'?<TableauBord data={data} save={save} open={setOpen} allerVers={allerVers}
         allerA={(v,jour,prospectId)=>{setAgendaJour(jour||null);setCible(prospectId?{type:'prospect',id:prospectId,n:Date.now()}:null);setView(v);setOpen(null)}}/>
       :view==='prospects'?<Prospects data={data} save={save} cible={cible&&cible.type==='prospect'?cible.id:null}/>
       :view==='biblio'?<Bordereaux data={data} save={save}/>
@@ -13925,7 +13925,7 @@ function RelancerClient({ch,data,manque}){
   </div>;
 }
 
-function TableauBord({data,save,open,allerA}){
+function TableauBord({data,save,open,allerA,allerVers}){
   const majMarche=(id,patch)=>save({...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)});
   const P=data.prospects||[];
   const chiffrages=P.filter(prospectAFaire)
@@ -14011,7 +14011,45 @@ function TableauBord({data,save,open,allerA}){
     if(n.rappel&&!n.fait&&n.rappel<=limiteRappel)rappels.push({n,nom:p.nom,aller:()=>allerA('prospects',null,p.id)})}));
   rappels.sort((a,b)=>a.n.rappel.localeCompare(b.n.rappel));
   const rappelsDus=rappels.filter(r=>r.n.rappel<=t);
-  const rien=!chiffrages.length&&!retards.length&&!dossiers.length&&!decen.length&&!tachesRetard.length&&!rappelsDus.length;
+  /* Les prospects chiffrés qui attendent une réponse (du commercial ou du
+     client) depuis plus de deux semaines : sans relance, ils se perdent.
+     Un rappel déjà posé sur le dossier vaut relance prévue : on n'en parle
+     pas deux fois. */
+  const aUnRappel=x=>(x.notesDossier||[]).some(n=>n.rappel&&!n.fait);
+  const prospectsARelancer=P.filter(p=>!p.chantierId&&(p.statut==='chiffre'||p.statut==='attente')&&!aUnRappel(p))
+    .map(p=>({p,j:joursDepuis(p.avisEnvoyeLe||p.remisLe||p.demandeLe)||0}))
+    .filter(x=>x.j>=RELANCE_PROSPECT_JOURS).sort((a,b)=>b.j-a.j);
+  /* Les permis en cours d'instruction, avec les dates du planning quand
+     elles y sont (aucun délai n'est supposé : on ne montre que ce qui est
+     saisi) */
+  const jalonNomme=(c,re)=>(c.jalons||[]).find(j=>re.test(rechercheNorme(j.label)));
+  const permis=actifs.map(c=>{
+    const dep=jalonNomme(c,/depot du permis/), obt=jalonNomme(c,/obtention du permis/);
+    const enCours=c.statut==='pc'||(dep&&dep.reelle&&!(obt&&obt.reelle));
+    if(!enCours)return null;
+    let droite='dépôt à faire',couleur=AMBER;
+    if(obt&&obt.prevue&&!obt.reelle){droite=obt.prevue<t?'obtention attendue depuis '+joursDepuis(obt.prevue)+' j':'obtention prévue le '+fd(obt.prevue);couleur=obt.prevue<t?TERRA:NAVY}
+    else if(dep&&dep.reelle){droite='déposé le '+fd(dep.reelle);couleur=NAVY}
+    else if(dep&&dep.prevue){droite='dépôt prévu le '+fd(dep.prevue);couleur=dep.prevue<t?TERRA:AMBER}
+    return {ch:c,droite,couleur};
+  }).filter(Boolean);
+  /* Les commandes à suivre sur les chantiers vivants : à passer (livraison
+     dans les trois semaines, ou non datée alors que le chantier est en
+     travaux), livraison dépassée, litige. */
+  const dans21=dansJours(21);
+  const commandesASuivre=[];
+  (data.commandes||[]).forEach(k=>{
+    const c=actifs.find(x=>x.id===k.chantierId);if(!c)return;
+    let motif=null,couleur=AMBER,rang=2;
+    if(k.statut==='litige'){motif='litige / manquant';couleur=TERRA;rang=0}
+    else if(k.statut==='commande'&&k.livrPrevue&&!k.livrReelle&&k.livrPrevue<t){motif='livraison dépassée ('+fd(k.livrPrevue)+')';couleur=TERRA;rang=0}
+    else if(k.statut==='a_commander'&&((k.livrPrevue&&k.livrPrevue<=dans21)||(!k.livrPrevue&&c.statut==='travaux'))){
+      motif='à commander'+(k.livrPrevue?' · livraison '+fd(k.livrPrevue):'');couleur=k.livrPrevue&&k.livrPrevue<t?TERRA:AMBER;rang=1}
+    if(motif)commandesASuivre.push({k,ch:c,motif,couleur,rang});
+  });
+  commandesASuivre.sort((a,b)=>a.rang-b.rang||(a.k.livrPrevue||'9').localeCompare(b.k.livrPrevue||'9'));
+  const rien=!chiffrages.length&&!retards.length&&!dossiers.length&&!decen.length&&!tachesRetard.length&&!rappelsDus.length
+    &&!prospectsARelancer.length&&!commandesASuivre.length;
   /* Chaque tuile mène à ce dont elle parle. Deux cas : ou bien le détail est sur
      un autre écran (prospects, chantiers, artisans, agenda) et on y va ; ou bien
      il est déjà plus bas sur cette page, et on descend jusqu'au bloc plutôt que
@@ -14098,7 +14136,7 @@ function TableauBord({data,save,open,allerA}){
 
     {rien&&<div className="card" style={{borderLeft:'3px solid '+GREEN}}>
       <div className="b sm" style={{color:GREEN}}>Rien ne réclame d’action</div>
-      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Aucun chiffrage en attente, aucune étape en retard, aucune pièce manquante à la phase en cours, aucune décennale proche de son terme, aucune tâche en retard et aucun rappel échu.</div>
+      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Aucun chiffrage en attente, aucune étape en retard, aucune pièce manquante à la phase en cours, aucune décennale proche de son terme, aucune tâche en retard, aucun rappel échu, aucun prospect à relancer et aucune commande à suivre.</div>
     </div>}
 
     {chiffrages.length>0&&<Bloc titre="DEMANDES DE CHIFFRAGE" n={chiffrages.length} c={TERRA} onTitre={()=>allerA('prospects')}>
@@ -14114,11 +14152,31 @@ function TableauBord({data,save,open,allerA}){
       })}
     </Bloc>}
 
+    {prospectsARelancer.length>0&&<div style={{marginTop:8}}><Bloc titre="PROSPECTS À RELANCER" n={prospectsARelancer.length} c={AMBER} onTitre={()=>allerA('prospects')}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Chiffrés et sans réponse depuis plus de {RELANCE_PROSPECT_JOURS} jours.
+        Posez un rappel dans une note du dossier pour le retirer d’ici jusqu’à la date choisie.</div>
+      {prospectsARelancer.map(({p,j})=>item('r'+p.id,()=>allerA('prospects',null,p.id),
+        <span><b>{p.nom}</b><span className="mut"> · {prospectSt(p.statut).label}{p.commercial?' · '+p.commercial:''}</span></span>,
+        'depuis '+j+' j', j>=30?TERRA:AMBER))}
+    </Bloc></div>}
+
     {retards.length>0&&<div ref={refEtapes} style={{marginTop:8,borderRadius:12}}><Bloc titre="ÉTAPES À TENIR" n={retards.length} c={retards.some(r=>r.j.retard)?TERRA:AMBER}>
       <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>En retard, ou prévues dans les quinze jours.</div>
       {retards.map(({ch,j})=>item(ch.id+':'+j.id,()=>open(ch.id),
         <span><b>{j.label}</b><span className="mut"> · {ch.nom}</span></span>,
         j.retard?'retard '+j.jours+' j':fd(j.prevue), j.retard?TERRA:AMBER))}
+    </Bloc></div>}
+
+    {permis.length>0&&<div style={{marginTop:8}}><Bloc titre="PERMIS EN COURS" n={permis.length} c={permis.some(x=>x.couleur===TERRA)?TERRA:NAVY}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Chantiers en phase Permis, ou permis déposé et pas encore obtenu. Les dates viennent du planning du chantier.</div>
+      {permis.map(({ch,droite,couleur})=>item('pc'+ch.id,()=>allerVers?allerVers({type:'chantier',id:ch.id,onglet:'planning'}):open(ch.id),
+        <span><b>{ch.nom}</b>{ch.client?<span className="mut"> · {ch.client}</span>:null}</span>,droite,couleur))}
+    </Bloc></div>}
+
+    {commandesASuivre.length>0&&<div style={{marginTop:8}}><Bloc titre="COMMANDES À SUIVRE" n={commandesASuivre.length} c={commandesASuivre.some(x=>x.couleur===TERRA)?TERRA:AMBER} onTitre={()=>allerA('cmd')}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>À passer (livraison dans les trois semaines, ou non datée sur un chantier en travaux), livraison dépassée, litige.</div>
+      {commandesASuivre.map(({k,ch,motif,couleur})=>item('k'+k.id,()=>allerVers?allerVers({type:'chantier',id:ch.id,onglet:'cmd'}):open(ch.id),
+        <span><b>{k.designation||'Commande'}</b><span className="mut"> · {ch.nom}{k.fournisseur?' · '+k.fournisseur:''}</span></span>,motif,couleur))}
     </Bloc></div>}
 
     {dossiers.length>0&&<div style={{marginTop:8}}><Bloc titre="PIÈCES À AJOUTER" n={nAReunir}
@@ -14544,6 +14602,8 @@ function Prospects({data,save,cible}){
    jusqu'à ce qu'on la coche comme faite. Rangées dans notesDossier. */
 let UTILISATEUR='';
 const RAPPEL_AVANCE=7;
+/* au-delà, un prospect chiffré sans réponse est à relancer */
+const RELANCE_PROSPECT_JOURS=14;
 const dansJours=n=>new Date(Date.now()+n*86400000).toISOString().slice(0,10);
 const noteTri=L=>[...(L||[])].sort((a,b)=>{
   const ra=a.rappel&&!a.fait?0:1, rb=b.rappel&&!b.fait?0:1;
