@@ -229,7 +229,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-28 · Relancer la page ramène au même écran ; bandeau de gauche escamotable à la souris ; simulateur DPE retiré';
+const VERSION='2026-09-28 · Notes et rappels sur les fiches chantier et prospect, rappels au tableau de bord';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -6426,6 +6426,7 @@ const positionOubliee=()=>{positionInitiale={}};
 const VUES=[...NAV,...NAV_PLUS].map(([id])=>id);
 
 function App({session}){
+  UTILISATEUR=(session&&session.user&&session.user.email)||'';
   const [data,setData]=useState(load);
   /* on arrive sur le tableau de bord : ce qui appelle une action se voit avant
      d'avoir à le chercher dossier par dossier — sauf si l'on vient de relancer
@@ -6433,6 +6434,8 @@ function App({session}){
   const [view,setView]=useState(()=>{const v=positionReprise().view;return VUES.indexOf(v)>=0?v:'tdb'});
   /* la journée sur laquelle ouvrir l'agenda, quand on y arrive depuis ailleurs */
   const [agendaJour,setAgendaJour]=useState(null);
+  /* le prospect à ouvrir, quand on y arrive depuis un rappel du tableau de bord */
+  const [prospectCible,setProspectCible]=useState(null);
   const [open,setOpen]=useState(()=>positionReprise().open||null);
   /* le premier déplacement après un rechargement oublie la position lue ;
      chaque déplacement est noté pour le prochain rechargement */
@@ -6595,8 +6598,8 @@ function App({session}){
       /* allerA porte au besoin une journée : le tableau de bord ouvre alors
          l'agenda directement sur ce jour-là, heure par heure */
       :view==='tdb'?<TableauBord data={data} save={save} open={setOpen}
-        allerA={(v,jour)=>{setAgendaJour(jour||null);setView(v);setOpen(null)}}/>
-      :view==='prospects'?<Prospects data={data} save={save}/>
+        allerA={(v,jour,prospectId)=>{setAgendaJour(jour||null);setProspectCible(prospectId||null);setView(v);setOpen(null)}}/>
+      :view==='prospects'?<Prospects data={data} save={save} cible={prospectCible}/>
       :view==='biblio'?<Bordereaux data={data} save={save}/>
       :view==='produits'?<Produits data={data} save={save}/>
       :view==='fournisseurs'?<Fournisseurs data={data} save={save}/>
@@ -7573,6 +7576,7 @@ function Fiche({data,ch,save,back,reprise}){
         {ch.lienDrive&&<a href={ch.lienDrive} target="_blank" rel="noreferrer" style={{color:TERRA}}>Dossier partagé</a>}
       </div>
     </div>}
+    <NotesDossier notes={ch.notesDossier} onChange={L=>up({notesDossier:L})}/>
     <div className="tabs">
       {[['marches','MARCHÉS'],['factu','FACTURATION'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['taches','TÂCHES'],['planning','PLANNING'],['docs','PIÈCES'],['ptr','PROG. TECHNIQUE']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
@@ -13582,7 +13586,18 @@ function TableauBord({data,save,open,allerA}){
   const limiteRdv=new Date(Date.now()+7*86400000).toISOString().slice(0,10);
   const rdvProches=(data.rendezvous||[]).filter(x=>x.date&&x.date>=t&&x.date<=limiteRdv)
     .sort((a,b)=>((a.date||'')+' '+(a.heure||'99:99')).localeCompare((b.date||'')+' '+(b.heure||'99:99')));
-  const rien=!chiffrages.length&&!retards.length&&!dossiers.length&&!decen.length&&!tachesRetard.length;
+  /* les rappels posés sur les notes des dossiers : échus ou dans les sept
+     jours, non cochés. Un prospect devenu chantier a passé ses notes au
+     chantier : on ne les compte qu'une fois. */
+  const rappels=[];
+  const limiteRappel=dansJours(RAPPEL_AVANCE);
+  (data.chantiers||[]).forEach(c=>(c.notesDossier||[]).forEach(n=>{
+    if(n.rappel&&!n.fait&&n.rappel<=limiteRappel)rappels.push({n,nom:c.nom,aller:()=>open(c.id)})}));
+  (data.prospects||[]).filter(p=>!p.chantierId).forEach(p=>(p.notesDossier||[]).forEach(n=>{
+    if(n.rappel&&!n.fait&&n.rappel<=limiteRappel)rappels.push({n,nom:p.nom,aller:()=>allerA('prospects',null,p.id)})}));
+  rappels.sort((a,b)=>a.n.rappel.localeCompare(b.n.rappel));
+  const rappelsDus=rappels.filter(r=>r.n.rappel<=t);
+  const rien=!chiffrages.length&&!retards.length&&!dossiers.length&&!decen.length&&!tachesRetard.length&&!rappelsDus.length;
   /* Chaque tuile mène à ce dont elle parle. Deux cas : ou bien le détail est sur
      un autre écran (prospects, chantiers, artisans, agenda) et on y va ; ou bien
      il est déjà plus bas sur cette page, et on descend jusqu'au bloc plutôt que
@@ -13630,6 +13645,16 @@ function TableauBord({data,save,open,allerA}){
       <Stat l="Tâches en retard" v={String(tachesRetard.length)} c={tachesRetard.length?TERRA:GREEN} onClick={versTaches}/>
     </div>
 
+    {rappels.length>0&&<div style={{marginBottom:8}}>
+      <Bloc titre="RAPPELS" n={rappels.length} c={rappelsDus.length?TERRA:AMBER}>
+      <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Les notes des dossiers dont le rappel est passé ou tombe dans les sept jours.
+        Cochez « fait » dans la note, sur la fiche du dossier, pour la retirer d’ici.</div>
+      {rappels.map(({n,nom,aller})=>item(n.id,aller,
+        <span><b style={{whiteSpace:'pre-wrap'}}>{n.texte.length>160?n.texte.slice(0,160)+'…':n.texte}</b><span className="mut"> · {nom}</span></span>,
+        n.rappel<t?'retard '+joursDepuis(n.rappel)+' j':n.rappel===t?'aujourd’hui':fd(n.rappel),
+        n.rappel<=t?TERRA:AMBER))}
+    </Bloc></div>}
+
     {rdvProches.length>0&&<div style={{marginBottom:8}}>
       <Bloc titre="AGENDA — 7 PROCHAINS JOURS" n={rdvProches.length} c={NAVY} onTitre={()=>allerA('agenda')}>
       <div className="xs mut" style={{marginBottom:2,lineHeight:1.5}}>Vos rendez-vous professionnels et personnels des sept prochains jours.
@@ -13659,7 +13684,7 @@ function TableauBord({data,save,open,allerA}){
 
     {rien&&<div className="card" style={{borderLeft:'3px solid '+GREEN}}>
       <div className="b sm" style={{color:GREEN}}>Rien ne réclame d’action</div>
-      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Aucun chiffrage en attente, aucune étape en retard, aucune pièce manquante à la phase en cours, aucune décennale proche de son terme et aucune tâche en retard.</div>
+      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Aucun chiffrage en attente, aucune étape en retard, aucune pièce manquante à la phase en cours, aucune décennale proche de son terme, aucune tâche en retard et aucun rappel échu.</div>
     </div>}
 
     {chiffrages.length>0&&<Bloc titre="DEMANDES DE CHIFFRAGE" n={chiffrages.length} c={TERRA} onTitre={()=>allerA('prospects')}>
@@ -13755,13 +13780,13 @@ function TableauBord({data,save,open,allerA}){
    L'affaire avant qu'elle soit une affaire : le commercial dépose ce qu'il sait
    du projet et demande un chiffrage, le maître d'œuvre le pose et arrête sa
    marge. Une fois signée, la fiche se transforme en chantier. */
-function Prospects({data,save}){
+function Prospects({data,save,cible}){
   const [f,setF]=useState(null);
   /* nul en création (le formulaire complet reste utile pour tout saisir
      d'un coup) ; 1, 2 ou 3 quand on modifie une case précise depuis la
      fiche — alors seule cette case s'affiche, sans toucher aux deux autres */
   const [caseModif,setCaseModif]=useState(null);
-  const [ouv,setOuv]=useState(()=>(positionReprise().view==='prospects'&&!positionReprise().open&&positionReprise().prospect)||'');
+  const [ouv,setOuv]=useState(()=>cible||(positionReprise().view==='prospects'&&!positionReprise().open&&positionReprise().prospect)||'');
   useEffect(()=>{positionNotee({prospect:ouv})},[ouv]);
   const [filtre,setFiltre]=useState('actifs');
   const [nvTaux,setNvTaux]=useState({communal:'',dept:'',exoPTZ:false});
@@ -13803,7 +13828,8 @@ function Prospects({data,save}){
       surfaceHabitable:p.surfaceHabitable||'',surfacePlancher:'',
       budgetClientTTC:prospectPrixTTC(p,data.majorationsCorps)||'',budget:prospectCoutHT(p,data.majorationsCorps)||'',
       honorairesPct:'',honorairesMontant:prospectMargeHT(p,data.majorationsCorps)||'',
-      statut:'etude',lienDrive:'',docs:{},jalons:[],prospectId:p.id};
+      statut:'etude',lienDrive:'',docs:{},jalons:[],prospectId:p.id,
+      notesDossier:(p.notesDossier||[]).map(n=>({...n}))};
     save({...data,chantiers:[...data.chantiers,ch],
       prospects:P.map(x=>x.id===p.id?{...x,statut:'gagne',chantierId:id}:x)});
     getDriveToken().then(t=>creerArborescence(t,id,ch.nom)).catch(()=>{});
@@ -14096,6 +14122,87 @@ function Prospects({data,save}){
   </div>;
 }
 
+/* ---------------- NOTES ET RAPPELS ----------------
+   Sur chaque dossier, chantier ou prospect : des notes libres, datées et
+   signées (le compte connecté), pour garder la trace d'un appel, d'une
+   décision, d'une chose à ne pas oublier. Une note peut porter une date de
+   rappel : elle remonte alors au tableau de bord à l'approche de la date,
+   jusqu'à ce qu'on la coche comme faite. Rangées dans notesDossier. */
+let UTILISATEUR='';
+const RAPPEL_AVANCE=7;
+const dansJours=n=>new Date(Date.now()+n*86400000).toISOString().slice(0,10);
+const noteTri=L=>[...(L||[])].sort((a,b)=>{
+  const ra=a.rappel&&!a.fait?0:1, rb=b.rappel&&!b.fait?0:1;
+  if(ra!==rb)return ra-rb;
+  if(!ra)return a.rappel.localeCompare(b.rappel);
+  return (b.creeLe||'').localeCompare(a.creeLe||'');
+});
+const noteQuand=iso=>{if(!iso)return '';const d=new Date(iso);
+  return d.toLocaleDateString('fr-FR')+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})};
+/* l'état d'un rappel : échu (ou du jour), proche, lointain */
+const rappelEtat=(n,t)=>!n.rappel||n.fait?null:n.rappel<t?{mot:'rappel en retard ('+fd(n.rappel)+')',c:TERRA}
+  :n.rappel===t?{mot:'rappel aujourd’hui',c:TERRA}
+  :n.rappel<=dansJours(RAPPEL_AVANCE)?{mot:'rappel le '+fd(n.rappel),c:AMBER}:{mot:'rappel le '+fd(n.rappel),c:MUTED};
+function NotesDossier({notes,onChange}){
+  const L=notes||[];
+  const [texte,setTexte]=useState('');
+  const [rappel,setRappel]=useState('');
+  const [edit,setEdit]=useState(null);
+  const [tout,setTout]=useState(false);
+  const t=today();
+  const ajouter=()=>{
+    const x=texte.trim();if(!x)return;
+    onChange([{id:uid(),texte:x,rappel:rappel||'',fait:false,creeLe:new Date().toISOString(),auteur:UTILISATEUR},...L]);
+    setTexte('');setRappel('');
+  };
+  const maj=(id,p)=>onChange(L.map(n=>n.id===id?{...n,...p}:n));
+  const suppr=id=>{if(confirm('Supprimer cette note ?'))onChange(L.filter(n=>n.id!==id))};
+  const tri=noteTri(L), vus=tout?tri:tri.slice(0,4);
+  const dus=L.filter(n=>n.rappel&&!n.fait&&n.rappel<=t).length;
+  const lien={background:'none',border:'none',padding:0,cursor:'pointer',fontSize:12};
+  return <div className="card notes-dossier" style={{borderLeft:'3px solid '+AMBER}}>
+    <div className="sp" style={{marginBottom:8}}>
+      <span className="b sm" style={{color:NAVY}}>NOTES ET RAPPELS{L.length?' ('+L.length+')':''}</span>
+      {dus>0&&<span className="pill" style={{background:TERRA+'1A',color:TERRA}}>{dus} rappel{dus>1?'s':''} à traiter</span>}
+    </div>
+    <textarea className="in" rows={2} value={texte} placeholder="Écrire une note : un appel, une décision, une chose à ne pas oublier…"
+      onChange={e=>setTexte(e.target.value)}
+      onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();ajouter()}}}/>
+    <div className="row" style={{gap:10,alignItems:'center',flexWrap:'wrap',marginTop:6}}>
+      <label className="xs mut row" style={{gap:6,alignItems:'center'}}>Me le rappeler le
+        <input type="date" className="in" style={{width:'auto',padding:'4px 6px',fontSize:13}} value={rappel}
+          onChange={e=>setRappel(e.target.value)}/></label>
+      <button className="btn acc s" disabled={!texte.trim()} onClick={ajouter}>Ajouter la note</button>
+    </div>
+    {vus.map(n=>{
+      const et=rappelEtat(n,t);
+      if(edit&&edit.id===n.id)return <div key={n.id} style={{borderTop:'1px solid '+RULE,marginTop:10,paddingTop:8}}>
+        <textarea className="in" rows={3} value={edit.texte} onChange={e=>setEdit({...edit,texte:e.target.value})}/>
+        <div className="row" style={{gap:10,alignItems:'center',flexWrap:'wrap',marginTop:6}}>
+          <label className="xs mut row" style={{gap:6,alignItems:'center'}}>Rappel le
+            <input type="date" className="in" style={{width:'auto',padding:'4px 6px',fontSize:13}} value={edit.rappel||''}
+              onChange={e=>setEdit({...edit,rappel:e.target.value})}/></label>
+          <button className="btn acc s" disabled={!edit.texte.trim()}
+            onClick={()=>{maj(n.id,{texte:edit.texte.trim(),rappel:edit.rappel||'',fait:edit.rappel!==n.rappel?false:n.fait,modifieLe:new Date().toISOString()});setEdit(null)}}>Enregistrer</button>
+          <button className="btn gh s" onClick={()=>setEdit(null)}>Annuler</button>
+        </div></div>;
+      return <div key={n.id} style={{borderTop:'1px solid '+RULE,marginTop:10,paddingTop:8,opacity:n.fait?.6:1}}>
+        <div className="sm" style={{whiteSpace:'pre-wrap',lineHeight:1.5,textDecoration:n.fait?'line-through':'none'}}>{n.texte}</div>
+        <div className="row xs" style={{gap:12,flexWrap:'wrap',alignItems:'center',marginTop:4}}>
+          <span className="mut">{noteQuand(n.creeLe)}{n.auteur?' · '+n.auteur:''}</span>
+          {et&&<span className="b" style={{color:et.c}}>{et.mot}</span>}
+          {n.rappel&&<label className="row" style={{gap:5,alignItems:'center',cursor:'pointer'}}>
+            <input type="checkbox" checked={!!n.fait} onChange={e=>maj(n.id,{fait:e.target.checked})}/>
+            <span>{n.fait?'fait':'marquer comme fait'}</span></label>}
+          <button style={{...lien,color:NAVY}} onClick={()=>setEdit({id:n.id,texte:n.texte,rappel:n.rappel||''})}>Modifier</button>
+          <button style={{...lien,color:TERRA}} onClick={()=>suppr(n.id)}>Supprimer</button>
+        </div></div>;
+    })}
+    {tri.length>4&&<button className="btn gh s" style={{marginTop:10}} onClick={()=>setTout(!tout)}>
+      {tout?'Afficher moins':'Voir les '+tri.length+' notes'}</button>}
+  </div>;
+}
+
 /* ---------------- FICHE PROSPECT ----------------
    Comme la fiche d'un chantier : plus une carte qu'on déplie dans la liste,
    mais un écran à part entière, avec son propre retour. Le contenu reste
@@ -14120,6 +14227,7 @@ function FicheProspect({p,data,save,maj,back,onModifier,onTransformer}){
       {[p.client,p.commune].filter(Boolean).join(' — ')}
       {prix?' · '+eur(prix)+' TTC'+(r?' · '+eurM2(r):''):''}
     </div>
+    <NotesDossier notes={p.notesDossier} onChange={L=>maj({notesDossier:L})}/>
     <DetailProspect p={p} maj={maj} data={data} onModifier={onModifier} onPtr={save?()=>setPtr(true):null}/>
     <div className="row" style={{gap:8,marginTop:4,flexWrap:'wrap'}}>
       {p.statut!=='gagne'&&<button className="btn gh s" onClick={onTransformer}>Transformer en chantier</button>}
