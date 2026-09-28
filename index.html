@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-28 · MAP : option de la porte d’entrée (fixe en dormant, semi-fixe, imposte) et sa dimension (300, 400 ou 500 mm)';
+const VERSION='2026-09-28 · MAP : ouvrants à la française (PVC, ALU, MIXTE, option OB) et coulissants (PVC, ALU, MIXTE)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4988,7 +4988,8 @@ function mapLignes(ch,data){
     ['Option porte d’entrée',m.porteEntreeOption],['Dimension de l’option',m.porteEntreeOptionDim],['Matériau porte d’entrée',m.porteEntreeMateriau],
     ['RAL intérieur',m.porteEntreeRalInt],['RAL extérieur',m.porteEntreeRalExt],['Vitrage porte d’entrée',m.porteEntreeVitrage],
     ['Menuiseries — matériau',m.menuiseriesMateriau],['Couleur menuiseries',m.menuiseriesCouleur],['RAL menuiseries',m.menuiseriesRal],
-    ['Ouvrants',m.menuiseriesOuvrant],['Options de vitrage',m.vitrageOptions],['Verre sablé — localisation',m.verreSable],
+    ['Ouvrants à la française',mapOuvrantsFrancaise(m)],['Ouvrants coulissants',(m.ouvrantsCoulissantMat||[]).join(', ')],
+    ['Ouvrants',mapOuvrantsSaisis(m)?'':m.menuiseriesOuvrant],['Options de vitrage',m.vitrageOptions],['Verre sablé — localisation',m.verreSable],
     ['Coffres volets roulants',m.voletsCoffres],['Commande volets',m.voletsCommande],['Nombre',m.voletsNb],
     ['Centralisation volets',m.voletsCentralisation?'Oui':''],['Domotique',m.voletsDomotique?'Oui':''],['Marque domotique',m.voletsDomotiqueMarque],
     ['Porte de garage',m.porteGarageType],['Motorisation porte de garage',m.porteGarageMotorisation],['Finition porte de garage',m.porteGarageFinition],
@@ -11344,6 +11345,9 @@ const MAP_EAUX_PLUVIALES=['Puisard','Réseau communal / fossé','Cuve de récup�
 const MAP_APPUIS_FENETRE=['Gris ciment','Blanc','Sable','Béton préfabriqué','Pierre'];
 const MAP_MENUISERIES_MAT=['PVC','Alu laqué'];
 const MAP_OUVRANT=['Ouvrant à la française / OB','Coulissant(s)'];
+/* ouvrants : matériau coché par type d'ouvrant (l'ancienne liste
+   MAP_OUVRANT ne sert plus qu'à relire les MAP déjà saisies) */
+const MAP_OUVRANT_MAT=['PVC','ALU','MIXTE'];
 const MAP_VITRAGE_OPT=['Vitrage feuilleté','Vitrage acoustique'];
 const MAP_EMETTEURS=['Plancher chauffant hydraulique','Radiateurs acier habillés','Sèche-serviettes'];
 const MAP_ELEC_OPTIONS=['Prise étanche extérieure','Tableau + GTL','Détecteur de fumée','Alarme'];
@@ -11436,6 +11440,17 @@ const MapTxt=({m,set,k,label,ph,type})=><Fld label={label}>
   <input className="in" type={type||'text'} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
 const MapZone=({m,set,k,label,ph,rows})=><Fld label={label}>
   <textarea className="in" rows={rows||2} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
+/* cases à cocher : plusieurs choix possibles, enregistrés en liste */
+const MapCases=({m,set,k,opts})=>{
+  const vals=m[k]||[];
+  const tog=o=>set({[k]:vals.indexOf(o)>=0?vals.filter(x=>x!==o):[...vals,o]});
+  return <div className="row" style={{gap:14,flexWrap:'wrap',marginBottom:8}}>
+    {opts.map(o=><label key={o} className="xs row" style={{gap:6,alignItems:'center',cursor:'pointer'}}>
+      <input type="checkbox" checked={vals.indexOf(o)>=0} onChange={()=>tog(o)}/><span>{o}</span></label>)}
+  </div>;
+};
+const mapOuvrantsSaisis=m=>(m.ouvrantsFrancaiseMat||[]).length>0||(m.ouvrantsCoulissantMat||[]).length>0||!!m.ouvrantsFrancaiseOB;
+const mapOuvrantsFrancaise=m=>[(m.ouvrantsFrancaiseMat||[]).join(', '),m.ouvrantsFrancaiseOB?'option OB':''].filter(Boolean).join(' — ');
 const MapBool=({m,set,k,label})=><label className="xs row" style={{gap:8,alignItems:'center',cursor:'pointer',marginBottom:10}}>
   <input type="checkbox" checked={!!m[k]} onChange={e=>set({[k]:e.target.checked})}/><span>{label}</span></label>;
 const MapMulti=({m,set,k,label,opts})=>{
@@ -11615,7 +11630,21 @@ function MAP({data,ch,up}){
         <MapChoix m={m} set={set} k="menuiseriesCouleur" label="COULEUR" opts={['Monochrome','Bicolore']}/>
         <MapTxt m={m} set={set} k="menuiseriesRal" label="RAL"/>
       </div>
-      <MapMulti m={m} set={set} k="menuiseriesOuvrant" label="OUVRANTS" opts={MAP_OUVRANT}/>
+      <Fld label="OUVRANTS">
+        <div className="g2">
+          <div>
+            <div className="xs b" style={{marginBottom:4}}>Ouvrants à la française</div>
+            <MapCases m={m} set={set} k="ouvrantsFrancaiseMat" opts={MAP_OUVRANT_MAT}/>
+            <MapBool m={m} set={set} k="ouvrantsFrancaiseOB" label="Option : OB (oscillo-battant)"/>
+          </div>
+          <div>
+            <div className="xs b" style={{marginBottom:4}}>Ouvrants coulissants</div>
+            <MapCases m={m} set={set} k="ouvrantsCoulissantMat" opts={MAP_OUVRANT_MAT}/>
+          </div>
+        </div>
+        {(m.menuiseriesOuvrant||[]).length>0&&!mapOuvrantsSaisis(m)&&<div className="xs mu" style={{marginTop:4}}>
+          Saisie précédente : {m.menuiseriesOuvrant.join(', ')} — cochez le matériau de chaque type d’ouvrant.</div>}
+      </Fld>
       <MapMulti m={m} set={set} k="vitrageOptions" label="OPTIONS DE VITRAGE" opts={MAP_VITRAGE_OPT}/>
       <MapTxt m={m} set={set} k="verreSable" label="VERRE SABLÉ — LOCALISATION" ph="S.d.B, WC…"/>
       <MapChoix m={m} set={set} k="voletsCoffres" label="COFFRES VOLETS ROULANTS" opts={['Coffres linteaux (à la maçonnerie)','Coffres intégrés à la menuiserie','Lames alu isolantes']}/>
