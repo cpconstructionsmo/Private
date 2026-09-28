@@ -218,10 +218,17 @@ const tous=()=>Object.values(G.ev).flatMap(E=>Object.values(E));
   chk(tous().length===avant,'nouvelle tentative : aucun doublon créé');
   const V=await p.evaluate(()=>new Promise(ok=>{const r=indexedDB.open('cp-versions',1);r.onsuccess=()=>{const q=r.result.transaction('versions').objectStore('versions').getAll();q.onsuccess=()=>ok(q.result.map(v=>v.motif))}}));
   chk(V.some(m=>/Avant transfert vers Google Agenda/.test(m)),'sauvegarde faite avant le transfert');
+  /* 12 bis. retrait des anciens rendez-vous : doublon compris */
+  chk(await rep.locator('button:has-text("Retirer les 2 rendez-vous déjà transférés")').count()===1&&await rep.locator('button:has-text("Retirer tous les anciens rendez-vous (3)")').count()===1,'retrait possible même avec un doublon non transféré');
+  await rep.locator('button:has-text("Retirer tous les anciens rendez-vous")').click();await p.waitForTimeout(1500);
+  chk(!(serveur.data.rendezvous||[]).length,'tous les anciens rendez-vous retirés des données de l’application');
+  const V2=await p.evaluate(()=>new Promise(ok=>{const r=indexedDB.open('cp-versions',1);r.onsuccess=()=>{const q=r.result.transaction('versions').objectStore('versions').getAll();q.onsuccess=()=>ok(q.result.filter(v=>/Avant retrait de tous/.test(v.motif)).map(v=>v.data.rendezvous.length))}}));
+  chk(V2.length===1&&V2[0]===3,'version gardée avant le retrait, avec les 3 anciens rendez-vous');
+  chk(!/pas encore dans Google Agenda/.test(await p.textContent('main')),'plus de rendez-vous en pointillés');
   /* 13. tableau de bord */
   await menu('ACCUEIL');
   const tb=await p.locator('.card',{hasText:'AGENDA — 7 PROCHAINS JOURS'}).first().textContent();
-  chk(/Ajouté sur le téléphone/.test(tb)&&/Réunion notaire/.test(tb)&&(tb.match(/Réunion notaire/g)||[]).length===1,'tableau de bord : rendez-vous de Google, sans doublon avec les transférés');
+  chk(/Ajouté sur le téléphone/.test(tb)&&(tb.match(/Réunion notaire/g)||[]).length===1,'tableau de bord : rendez-vous de Google, sans doublon avec les transférés');
   await p.screenshot({path:SORTIE+'/agenda_tdb.png'});
   await menu('AGENDA');await p.waitForTimeout(800);await p.click('button:has-text("Mois")');await p.waitForTimeout(200);
   await p.screenshot({path:SORTIE+'/agenda_mois.png',fullPage:true});

@@ -250,7 +250,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · Google Agenda : connexion, rendez-vous lus et enregistrés dans Google, liens avec les dossiers, reprise des anciens rendez-vous';
+const VERSION='2026-09-29 · Agenda : retrait des anciens rendez-vous de l’application (transférés, ou tous, doublons compris), avec sauvegarde';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -14046,15 +14046,30 @@ function RepriseAgenda({data,save,agendas,evenements,onFini}){
     cal:(x.type==='perso'&&perso?perso.id:(pro&&pro.id))||''}});return o});
   const [etat,setEtat]=useState(null);
   const transferes=(data.rendezvous||[]).filter(x=>x&&x.google);
+  /* Retirer les anciens rendez-vous de l'application, une fois vérifiés
+     dans Google : ceux déjà transférés, ou tous — les doublons qu'on n'a
+     pas transférés, parce qu'ils étaient déjà dans Google, compris. Une
+     version des données est toujours gardée avant. */
+  const retirer=async tous=>{
+    const L=(data.rendezvous||[]).filter(x=>x&&(tous||x.google));
+    if(!L.length)return;
+    const nonTransferes=L.filter(x=>!x.google).length;
+    if(!confirm('Retirer de l’application '+L.length+' ancien'+(L.length>1?'s':'')+' rendez-vous'
+      +(nonTransferes?', dont '+nonTransferes+' qui ne sont PAS dans Google Agenda par ce transfert (doublons décochés, ou non transférés)':'')+' ?'
+      +'\n\nVérifiez d’abord dans Google Agenda que tout y est. Une version des données est gardée avant le retrait (Données › Versions sauvegardées).'))return;
+    let garde=true;
+    try{await versionRanger(tous?'Avant retrait de tous les anciens rendez-vous':'Avant retrait des rendez-vous transférés',data)}catch(e){garde=false}
+    if(!garde&&!confirm('La version de sécurité n’a pas pu être gardée sur cet appareil. Retirer quand même, sans retour possible ?'))return;
+    save({...data,rendezvous:(data.rendezvous||[]).filter(x=>x&&!(tous||x.google))});onFini&&onFini();
+  };
+  const boutonsRetrait=<div className="row" style={{gap:8,marginTop:10,flexWrap:'wrap'}}>
+    {transferes.length>0&&<button className="btn gh s" onClick={()=>retirer(false)}>Retirer les {transferes.length} rendez-vous déjà transférés</button>}
+    {aTransferer.length>0&&<button className="btn dg s" onClick={()=>retirer(true)}>Retirer tous les anciens rendez-vous ({(data.rendezvous||[]).filter(Boolean).length})</button>}
+  </div>;
   if(!aTransferer.length)return <div className="card">
     <div className="sm b">Reprise des rendez-vous de l’application</div>
-    <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Tous les rendez-vous de l’application ont été transférés ({transferes.length}).
-      {transferes.length>0&&' Ils restent dans les données de l’application tant que vous ne les retirez pas.'}</div>
-    {transferes.length>0&&<button className="btn gh s" style={{marginTop:8}} onClick={async()=>{
-      if(!confirm('Retirer de l’application les '+transferes.length+' rendez-vous déjà transférés dans Google Agenda ?\n\nVérifiez d’abord qu’ils y sont bien. Une version des données est gardée avant le retrait.'))return;
-      try{await versionRanger('Avant retrait des rendez-vous transférés',data)}catch(e){}
-      save({...data,rendezvous:(data.rendezvous||[]).filter(x=>!(x&&x.google))});onFini&&onFini();
-    }}>Retirer les rendez-vous déjà transférés</button>}
+    <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>{transferes.length?'Tous les rendez-vous de l’application ont été transférés ('+transferes.length+'). Ils restent dans les données de l’application tant que vous ne les retirez pas.':'L’ancien agenda de l’application est vide.'}</div>
+    {boutonsRetrait}
   </div>;
   const nb=aTransferer.filter(x=>(choix[x.id]||{}).ok).length;
   const lancer=async()=>{
@@ -14107,6 +14122,9 @@ function RepriseAgenda({data,save,agendas,evenements,onFini}){
     </div>
     {etat&&etat.fini&&etat.echecs.length>0&&<div className="xs" style={{color:TERRA,marginTop:6,lineHeight:1.5}}>
       {etat.echecs.map((m,i)=><div key={i}>{m}</div>)}</div>}
+    <div className="xs mut" style={{marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE,lineHeight:1.5}}>Une fois le transfert vérifié dans Google Agenda,
+      retirez les anciens rendez-vous de l’application : les transférés seulement, ou tous — y compris les doublons laissés décochés parce qu’ils étaient déjà dans Google.</div>
+    {boutonsRetrait}
   </div>;
 }
 
