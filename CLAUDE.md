@@ -35,6 +35,21 @@ qu'on ait à les redire.
 - **Plusieurs personnes travaillent sur le dépôt.** Une session = une
   branche. On ne pousse jamais directement sur `main`.
 
+## Google (Drive, Gmail, Agenda)
+
+- Connexion OAuth « implicite » depuis le navigateur (`GOOGLE_CLIENT_ID`,
+  jeton d'une heure, aucun secret dans le dépôt). Le paramètre `state`
+  distingue le retour de Google Agenda (`state=agenda`) de celui de Drive.
+- **Agenda** : Google Agenda est la référence. Réglages, compte connecté
+  et copie locale des événements sont propres à chaque utilisateur, sur
+  son appareil (`localStorage`, clés `cpAgenda:*:<e-mail>`). Seuls les
+  liens avec les dossiers (`data.agendaLiens` : agenda, événement ou série,
+  dossier) sont partagés — jamais le titre ni le contenu d'un événement.
+  Toute écriture passe `sendUpdates=none` (aucune invitation) et `If-Match`
+  (etag) ; les heures sont envoyées en `Europe/Paris`.
+- Les anciens rendez-vous (`data.rendezvous`) restent lisibles ; un
+  rendez-vous transféré porte `google:{calId,eventId}`.
+
 ## Livrer une modification
 
 1. Travailler sur la branche de la session.
