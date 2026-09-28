@@ -229,7 +229,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-28 · Notes et rappels sur les fiches chantier et prospect, rappels au tableau de bord';
+const VERSION='2026-09-28 · Google Drive : reconnexion sans choix de compte ni écran d’autorisation, et automatique à l’ouverture de l’application';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5153,6 +5153,9 @@ function consumeDriveTokenFromUrl(){
     jetonEcris('driveToken',token);
     jetonEcris('driveTokenExpiry',String(Date.now()+(expiresIn-60)*1000));
     driveRetour={ok:true};
+    /* le compte Google qui vient de se connecter, pour que la prochaine
+       reconnexion le désigne d'office (voir startDriveAuth) */
+    setTimeout(()=>{driveCompteConnecte().catch(()=>{})},0);
   }else{
     driveRetour={ok:false,code:err,detail:params.get('error_description')||''};
   }
@@ -5197,16 +5200,22 @@ const DRIVE_MOTIFS={
 /* reprise : où revenir après Google. Les boutons qui passent directement cette
    fonction à onClick lui donnent un événement, qui n'a pas de « view » — il est
    ignoré, et toute note en attente est effacée. */
+/* Google ne délivre qu'un jeton d'une heure, sans moyen de le prolonger côté
+   navigateur. Pour que la reconnexion soit un simple aller-retour : on ne
+   force plus l'écran d'autorisation (déjà accordée une fois, Google ne la
+   redemande pas) et on désigne le compte déjà utilisé (login_hint), ce qui
+   évite l'écran « Sélectionnez un compte ». */
 function startDriveAuth(reprise){
   if(reprise&&reprise.view)driveReprisePose({...reprise,pose:Date.now()});
   else driveRepriseOubliee();
+  const compte=jetonLu('driveCompte');
   const params=new URLSearchParams({
     client_id:GOOGLE_CLIENT_ID,
     redirect_uri:GOOGLE_REDIRECT_URI,
     response_type:'token',
     scope:'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.send',
     include_granted_scopes:'true',
-    prompt:'consent',
+    ...(compte?{login_hint:compte}:{}),
   });
   location.href='https://accounts.google.com/o/oauth2/v2/auth?'+params.toString();
 }
@@ -5214,6 +5223,9 @@ function startDriveAuth(reprise){
 function disconnectDrive(){
   jetonEfface('driveToken');
   jetonEfface('driveTokenExpiry');
+  /* se déconnecter, c'est souvent vouloir changer de compte : on ne
+     désigne plus l'ancien à la prochaine connexion */
+  jetonEfface('driveCompte');
 }
 
 /* on garde le code « auth_required », que tout l'écran connaît déjà, et on y
@@ -5397,7 +5409,27 @@ async function driveCompteConnecte(){
     {headers:{Authorization:'Bearer '+token}});
   if(!r.ok)return '';
   const j=await r.json();
-  return (j&&j.user&&j.user.emailAddress)||'';
+  const mail=(j&&j.user&&j.user.emailAddress)||'';
+  if(mail)jetonEcris('driveCompte',mail);
+  return mail;
+}
+/* À l'ouverture de l'application, une connexion Google arrivée à terme est
+   renouvelée d'elle-même : un aller-retour chez Google, sans clic quand le
+   compte est connu, et l'on revient au même écran (position notée dans
+   l'onglet). Rien n'est encore saisi à ce moment-là, rien ne se perd. Une
+   seule tentative par quart d'heure : si l'on revient de Google sans jeton
+   (bouton retour, page fermée), on ne boucle pas. Pas depuis l'écran
+   d'accueil de l'iPhone, où Google s'ouvre dans Safari et ne revient pas. */
+const DRIVE_AUTO='driveAutoLe';
+function driveReconnexionAuto(){
+  try{
+    if(!driveJetonExpire()||!jetonLu('driveCompte')||driveDepuisEcranAccueil())return false;
+    if(driveRetour&&!driveRetour.ok)return false;
+    if(Date.now()-(+(jetonLu(DRIVE_AUTO)||0))<15*60000)return false;
+    jetonEcris(DRIVE_AUTO,String(Date.now()));
+    startDriveAuth();
+    return true;
+  }catch(e){return false}
 }
 
 /* Les prospects vivent dans « CRM CP › Prospects », un dossier par affaire :
@@ -6427,6 +6459,7 @@ const VUES=[...NAV,...NAV_PLUS].map(([id])=>id);
 
 function App({session}){
   UTILISATEUR=(session&&session.user&&session.user.email)||'';
+  useEffect(()=>{driveReconnexionAuto()},[]);
   const [data,setData]=useState(load);
   /* on arrive sur le tableau de bord : ce qui appelle une action se voit avant
      d'avoir à le chercher dossier par dossier — sauf si l'on vient de relancer
