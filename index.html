@@ -215,7 +215,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-27 · Programme technique : faïence 60 x 60 beige et faïence décorative verte, baguettes d’angle et étanchéité SPEC en proposition B';
+const VERSION='2026-09-28 · MAP : option de la porte d’entrée (fixe en dormant, semi-fixe, imposte) et sa dimension (300, 400 ou 500 mm)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4984,7 +4984,8 @@ function mapLignes(ch,data){
     ['Couverture — modèle',nomProduit(m.couvertureProduit)],['Coloris exact',m.couvertureColoris],
   ]);
   add('5. Menuiseries extérieures, façades & garage',[
-    ['Porte d’entrée — modèle',nomProduit(m.porteEntreeProduit)],['Matériau porte d’entrée',m.porteEntreeMateriau],
+    ['Porte d’entrée — modèle',nomProduit(m.porteEntreeProduit)],
+    ['Option porte d’entrée',m.porteEntreeOption],['Dimension de l’option',m.porteEntreeOptionDim],['Matériau porte d’entrée',m.porteEntreeMateriau],
     ['RAL intérieur',m.porteEntreeRalInt],['RAL extérieur',m.porteEntreeRalExt],['Vitrage porte d’entrée',m.porteEntreeVitrage],
     ['Menuiseries — matériau',m.menuiseriesMateriau],['Couleur menuiseries',m.menuiseriesCouleur],['RAL menuiseries',m.menuiseriesRal],
     ['Ouvrants',m.menuiseriesOuvrant],['Options de vitrage',m.vitrageOptions],['Verre sablé — localisation',m.verreSable],
@@ -11424,6 +11425,9 @@ function ChoixFinition({data,produitId,value,onChange,label}){
    donnerait une identité différente à chaque frappe, et React détruirait
    puis recréerait le champ DOM à chaque caractère saisi — perdant le focus
    et la position du curseur au milieu de la saisie. */
+/* porte d'entrée : partie fixe associée et sa dimension */
+const MAP_PORTE_ENTREE_OPTION=['Fixe en dormant','Semi-fixe','Imposte'];
+const MAP_PORTE_ENTREE_DIM=['300 mm','400 mm','500 mm'];
 const MapChoix=({m,set,k,label,opts})=><Fld label={label}>
   <select className="in" value={m[k]||''} onChange={e=>set({[k]:e.target.value})}>
     <option value="">—</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
@@ -11594,6 +11598,10 @@ function MAP({data,ch,up}){
 
     {section('5. MENUISERIES EXTÉRIEURES, FAÇADES & GARAGE',<React.Fragment>
       <ChoixProduit data={data} lot="Menuiseries ext." value={m.porteEntreeProduit} onChange={v=>set({porteEntreeProduit:v})} label="PORTE D’ENTRÉE — MODÈLE"/>
+      <div className="g2">
+        <MapChoix m={m} set={set} k="porteEntreeOption" label="OPTION" opts={MAP_PORTE_ENTREE_OPTION}/>
+        <MapChoix m={m} set={set} k="porteEntreeOptionDim" label="DIMENSION" opts={MAP_PORTE_ENTREE_DIM}/>
+      </div>
       <div className="g2">
         <MapChoix m={m} set={set} k="porteEntreeMateriau" label="MATÉRIAU" opts={['Alu','Acier','PVC']}/>
         <MapTxt m={m} set={set} k="porteEntreeVitrage" label="VITRAGE"/>
