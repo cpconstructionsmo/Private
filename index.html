@@ -130,6 +130,12 @@
     .tabs{position:sticky;top:0;background:var(--fond);z-index:10}
     button.card:hover{box-shadow:var(--ombre-h);border-color:#CFC8BB;cursor:pointer}
   }
+  /* agenda : vue semaine — sept colonnes sur ordinateur, les jours à la suite sur téléphone */
+  .agenda-semaine{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+  .agenda-semaine-jour{background:#fff;border:1px solid var(--rule);border-radius:8px;padding:6px;min-height:90px}
+  /* en semaine, la place ne manque pas : les rendez-vous gardent leur texte, même sur téléphone */
+  .agenda-semaine .cal-puce{height:auto!important;padding:3px 6px!important;font-size:12px!important;color:var(--ink)!important;white-space:normal}
+  @media (max-width:760px){.agenda-semaine{grid-template-columns:1fr}.agenda-semaine-jour{min-height:0}}
   /* recherche globale */
   .barre-recherche{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;
     margin:0 0 14px;padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r-s);background:#fff;
@@ -244,7 +250,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-28 · Tableau de bord : prospects à relancer, permis en cours et commandes à suivre, chaque ligne ouvre le dossier';
+const VERSION='2026-09-29 · Google Agenda : connexion, rendez-vous lus et enregistrés dans Google, liens avec les dossiers, reprise des anciens rendez-vous';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -849,8 +855,11 @@ const uid=()=>Math.random().toString(36).slice(2,10);
 const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
 /* un prix unitaire se lit au centime, contrairement au montant d'un marché */
 const eurc=n=>(n||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
-const today=()=>new Date().toISOString().slice(0,10);
-const fd=d=>d?new Date(d).toLocaleDateString('fr-FR'):'—';
+/* la date du jour et l'affichage d'une date se font à l'heure locale : en
+   UTC, entre minuit et deux heures du matin, « aujourd'hui » était encore la
+   veille, et une date seule (AAAA-MM-JJ) pouvait s'afficher un jour plus tôt */
+const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const fd=d=>d?new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(d))?d+'T12:00:00':d).toLocaleDateString('fr-FR'):'—';
 const wa=t=>t?t.replace(/[^0-9]/g,'').replace(/^0/,'33'):'';
 
 /* ---------- fiche contact Apple (.vcf) ----------
@@ -5226,6 +5235,9 @@ const jetonEfface=k=>{try{localStorage.removeItem(k)}catch(e){}try{sessionStorag
 /* ce que Google a répondu la dernière fois : sans cela, un échec est muet et
    personne ne peut savoir pourquoi la connexion n'a pas abouti. */
 let driveRetour=null;
+/* la même adresse de retour sert à Google Drive et à Google Agenda : le
+   paramètre « state » dit laquelle des deux connexions revient */
+let agendaRetour=null;
 function consumeDriveTokenFromUrl(){
   const h=String(location.hash||'').replace(/^#/,'');
   const q=String(location.search||'').replace(/^\?/,'');
@@ -5233,6 +5245,15 @@ function consumeDriveTokenFromUrl(){
   const token=params.get('access_token');
   const err=params.get('error');
   if(!token&&!err)return;
+  if(params.get('state')==='agenda'){
+    if(token){
+      jetonEcris('agToken',token);
+      jetonEcris('agTokenExpiry',String(Date.now()+((+(params.get('expires_in')||3600))-60)*1000));
+      agendaRetour={ok:true};
+    }else agendaRetour={ok:false,code:err,detail:params.get('error_description')||''};
+    try{history.replaceState(null,'',location.pathname+(h?location.search:''))}catch(e){}
+    return;
+  }
   if(token){
     const expiresIn=+(params.get('expires_in')||3600);
     jetonEcris('driveToken',token);
@@ -6653,7 +6674,9 @@ function rechercheIndex(data){
   (data.commandes||[]).forEach(k=>{if(!chNom[k.chantierId])return;
     ajoute('commande',k.id,k.designation,[chNom[k.chantierId],k.fournisseur].filter(Boolean).join(' · '),[k.lot,k.notes],
       {type:'chantier',id:k.chantierId,onglet:'cmd'})});
-  (data.rendezvous||[]).forEach(r=>ajoute('rdv',r.id,r.titre,[r.date?fd(r.date):'',r.heure,r.client].filter(Boolean).join(' · '),
+  ((agLire('cache')||{}).evenements||[]).filter(x=>(agReglages().agendas[x.calId]||{}).afficher).forEach(x=>
+    ajoute('rdv',x.cle,x.titre,[fd(x.date),x.journee?'journée':x.heure,'Google Agenda'].filter(Boolean).join(' · '),[x.lieu,x.notes],{type:'agenda',jour:x.date}));
+  (data.rendezvous||[]).filter(r=>r&&!r.google).forEach(r=>ajoute('rdv',r.id,r.titre,[r.date?fd(r.date):'',r.heure,r.client].filter(Boolean).join(' · '),
     [r.lieu,r.notes],{type:'agenda',jour:r.date}));
   return L;
 }
@@ -6749,6 +6772,12 @@ function App({session}){
     };
     window.addEventListener('keydown',touche);
     return ()=>window.removeEventListener('keydown',touche);
+  },[]);
+  /* l'agenda demande d'ouvrir un dossier (bouton « Ouvrir le dossier ») */
+  useEffect(()=>{
+    const f=e=>allerVers(e.detail);
+    window.addEventListener('cp-aller',f);
+    return ()=>window.removeEventListener('cp-aller',f);
   },[]);
   const allerVers=a=>{
     if(!a)return;
@@ -13613,7 +13642,7 @@ function JourAgenda({date,rdvs,onOuvrir,onCreer}){
   </div>;
 }
 
-function Agenda({data,save,jourInitial}){
+function AgendaLocal({data,save,jourInitial}){
   const [f,setF]=useState(null);
   /* la journée ouverte, en vue heure par heure. Arriver ici depuis le tableau
      de bord en désigne une : on s'y pose directement, sans repasser par le mois. */
@@ -13776,6 +13805,630 @@ function Agenda({data,save,jourInitial}){
       </div>}
       {!R.length&&<Empty>Aucun rendez-vous. Cliquez un jour du calendrier, ou « + Rendez-vous ».</Empty>}
     </>}
+  </div>;
+}
+
+/* ================= GOOGLE AGENDA =================
+   Google Agenda devient l'agenda de référence : les rendez-vous se lisent,
+   se créent, se modifient et se suppriment directement dans l'agenda Google
+   choisi, et l'on retrouve dans l'application ce qui a été fait depuis le
+   téléphone. Aucun secret : la connexion suit le même principe que Google
+   Drive (jeton d'une heure délivré au navigateur, renouvelé par un simple
+   aller-retour), mais sur un compte Google à part — celui de son agenda,
+   qui peut différer du Drive commun. Autorisations demandées : la liste des
+   agendas (lecture seule) et les événements, rien d'autre.
+   Ce qui reste propre à chaque utilisateur (compte connecté, agendas
+   affichés, catégories Pro/Perso, copie locale des événements) est gardé
+   sur l'appareil, jamais dans les données partagées. Seuls les liens avec
+   les dossiers (identifiant de l'agenda, de l'événement, du dossier — sans
+   titre ni détail) sont partagés, dans agendaLiens. */
+const AG_SCOPES='https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events';
+const AG_API='https://www.googleapis.com/calendar/v3';
+const AG_TZ='Europe/Paris';
+/* réglages et copie locale : par utilisateur de l'application */
+const agCle=k=>'cpAgenda:'+k+':'+(UTILISATEUR||'-');
+const agLire=k=>{try{return JSON.parse(localStorage.getItem(agCle(k))||'null')}catch(e){return null}};
+const agEcrire=(k,v)=>{try{if(v===null)localStorage.removeItem(agCle(k));else localStorage.setItem(agCle(k),JSON.stringify(v))}catch(e){}};
+const agReglages=()=>agLire('reglages')||{compte:'',agendas:{},parDefaut:'',derniereSynchro:''};
+const agConnecte=()=>!!jetonLu('agToken')&&Date.now()<+(jetonLu('agTokenExpiry')||0);
+const agExpire=()=>!!jetonLu('agToken')&&!agConnecte();
+/* se connecter : « choisir » ouvre le choix du compte Google ; sinon le
+   compte déjà connecté est désigné d'office, pour un aller-retour sans clic */
+function agConnexion(choisir){
+  const compte=agReglages().compte;
+  const params=new URLSearchParams({client_id:GOOGLE_CLIENT_ID,redirect_uri:GOOGLE_REDIRECT_URI,response_type:'token',
+    scope:AG_SCOPES,include_granted_scopes:'false',state:'agenda',
+    ...((choisir||!compte)?{prompt:'select_account'}:{login_hint:compte})});
+  location.href='https://accounts.google.com/o/oauth2/v2/auth?'+params.toString();
+}
+function agDeconnexion(){
+  const t=jetonLu('agToken');
+  if(t)fetch('https://oauth2.googleapis.com/revoke?token='+encodeURIComponent(t),
+    {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).catch(()=>{});
+  jetonEfface('agToken');jetonEfface('agTokenExpiry');
+  agEcrire('reglages',null);agEcrire('cache',null);
+}
+/* à l'ouverture de l'agenda, une connexion arrivée à terme se renouvelle
+   d'elle-même (une fois par quart d'heure au plus, pas depuis l'écran
+   d'accueil de l'iPhone) */
+function agReconnexionAuto(){
+  try{
+    if(!agExpire()||!agReglages().compte||driveDepuisEcranAccueil())return false;
+    if(agendaRetour&&!agendaRetour.ok)return false;
+    if(Date.now()-(+(jetonLu('agAutoLe')||0))<15*60000)return false;
+    jetonEcris('agAutoLe',String(Date.now()));
+    agConnexion(false);
+    return true;
+  }catch(e){return false}
+}
+/* un appel à l'API, avec des erreurs qu'on sait expliquer */
+async function agFetch(chemin,opts){
+  const o=opts||{};
+  const token=jetonLu('agToken');
+  if(!token||!agConnecte())throw {code:'auth'};
+  const h={Authorization:'Bearer '+token};
+  if(o.body)h['Content-Type']='application/json';
+  if(o.etag)h['If-Match']=o.etag;
+  let r;
+  try{r=await fetch(AG_API+chemin,{method:o.method||'GET',headers:h,body:o.body?JSON.stringify(o.body):undefined})}
+  catch(e){throw {code:'reseau'}}
+  if(r.status===401){jetonEcris('agTokenExpiry','0');throw {code:'auth'}}
+  if(r.status===412)throw {code:'conflit'};
+  if(r.status===404||r.status===410)throw {code:'introuvable'};
+  if(r.status===403||r.status===429){let d='';try{d=(await r.json()).error.message}catch(e){}throw {code:'refus',detail:d}}
+  if(!r.ok){let d='';try{d=(await r.json()).error.message}catch(e){}throw {code:'erreur',status:r.status,detail:d}}
+  return r.status===204?null:r.json();
+}
+const agMessageErreur=e=>{
+  const c=e&&e.code;
+  if(c==='auth')return 'La connexion à Google Agenda a expiré ou n’est pas établie. Reconnectez-vous : rien n’a été enregistré.';
+  if(c==='reseau')return 'Pas de connexion Internet : rien n’a été enregistré dans Google Agenda.';
+  if(c==='conflit')return 'Ce rendez-vous a été modifié ailleurs entre-temps (téléphone, autre personne). Rien n’a été écrasé : la version à jour est rechargée, vérifiez puis enregistrez de nouveau.';
+  if(c==='introuvable')return 'Ce rendez-vous n’existe plus dans Google Agenda (supprimé ailleurs ?).';
+  if(c==='refus')return 'Google refuse l’opération'+(e.detail?' : '+e.detail:'')+'. L’agenda est peut-être en lecture seule.';
+  return 'Google Agenda n’a pas pu enregistrer'+(e&&e.detail?' : '+e.detail:'')+'. Rien n’a été modifié.';
+};
+/* les heures se lisent toujours à l'heure de Paris, quel que soit le fuseau
+   de l'appareil — changements d'heure compris */
+const AG_PARIS=(()=>{try{return new Intl.DateTimeFormat('fr-FR',{timeZone:AG_TZ,year:'numeric',month:'2-digit',day:'2-digit',
+  hour:'2-digit',minute:'2-digit',hourCycle:'h23'})}catch(e){return null}})();
+function agEnParis(iso){
+  const d=new Date(iso);
+  if(!AG_PARIS)return {date:isoDate(d),heure:String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+  const p={};AG_PARIS.formatToParts(d).forEach(x=>{p[x.type]=x.value});
+  return {date:p.year+'-'+p.month+'-'+p.day,heure:(p.hour==='24'?'00':p.hour)+':'+p.minute};
+}
+/* un événement Google, dans la forme de l'agenda de l'application */
+function agDepuisGoogle(e,calId){
+  const s=e.start||{},f=e.end||{};
+  const x={cle:calId+'|'+e.id,calId,id:e.id,etag:e.etag||'',titre:e.summary||'(sans titre)',lieu:e.location||'',
+    notes:e.description||'',serieId:e.recurringEventId||'',lien:e.htmlLink||'',google:true};
+  if(s.date){
+    const fin=decalerJour(f.date||s.date,-1);
+    return {...x,journee:true,date:s.date,dateFin:fin>s.date?fin:s.date,heure:'',heureFin:''};
+  }
+  const a=agEnParis(s.dateTime),b=f.dateTime?agEnParis(f.dateTime):null;
+  const surPlusieursJours=!!b&&b.date>a.date;
+  return {...x,journee:false,date:a.date,dateFin:surPlusieursJours?b.date:a.date,heure:a.heure,heureFin:b&&!surPlusieursJours?b.heure:''};
+}
+/* l'heure de fin retenue : celle saisie si elle suit le début, sinon une heure plus tard */
+function agFin(heure,heureFin){
+  const a=minutesHeure(heure),b=minutesHeure(heureFin);
+  if(b!==null&&a!==null&&b>a)return heureFin;
+  const n=Math.min((a||0)+60,23*60+59);
+  return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
+}
+const AG_RRULE={semaine:'FREQ=WEEKLY','2semaines':'FREQ=WEEKLY;INTERVAL=2',mois:'FREQ=MONTHLY','2mois':'FREQ=MONTHLY;INTERVAL=2','6mois':'FREQ=MONTHLY;INTERVAL=6'};
+/* le formulaire, dans la forme attendue par Google */
+function agVersGoogle(f){
+  const b={summary:(f.titre||'').trim(),location:f.lieu||'',description:f.notes||''};
+  if(f.journee||!f.heure){
+    const fin=f.dateFin&&f.dateFin>f.date?f.dateFin:f.date;
+    b.start={date:f.date};b.end={date:decalerJour(fin,1)};
+  }else{
+    b.start={dateTime:f.date+'T'+f.heure+':00',timeZone:AG_TZ};
+    b.end={dateTime:f.date+'T'+agFin(f.heure,f.heureFin)+':00',timeZone:AG_TZ};
+  }
+  if(f.recurrence&&AG_RRULE[f.recurrence]){
+    const fin=f.recurrenceFin?';UNTIL='+f.recurrenceFin.replace(/-/g,'')+((f.journee||!f.heure)?'':'T235959Z'):'';
+    b.recurrence=['RRULE:'+AG_RRULE[f.recurrence]+fin];
+  }
+  return b;
+}
+async function agAgendas(){
+  let L=[],page='';
+  do{
+    const j=await agFetch('/users/me/calendarList?maxResults=250'+(page?'&pageToken='+encodeURIComponent(page):''));
+    L=L.concat((j&&j.items)||[]);page=(j&&j.nextPageToken)||'';
+  }while(page);
+  return L.map(c=>({id:c.id,nom:c.summaryOverride||c.summary||c.id,couleur:c.backgroundColor||NAVY,
+    role:c.accessRole||'reader',principal:!!c.primary}));
+}
+const agModifiable=a=>!!a&&(a.role==='owner'||a.role==='writer');
+async function agEvenements(calId,du,au){
+  const tMin=decalerJour(du,-1)+'T00:00:00Z',tMax=decalerJour(au,2)+'T00:00:00Z';
+  let L=[],page='';
+  do{
+    const q='?singleEvents=true&orderBy=startTime&maxResults=2500&timeMin='+encodeURIComponent(tMin)
+      +'&timeMax='+encodeURIComponent(tMax)+(page?'&pageToken='+encodeURIComponent(page):'');
+    const j=await agFetch('/calendars/'+encodeURIComponent(calId)+'/events'+q);
+    L=L.concat((j&&j.items)||[]);page=(j&&j.nextPageToken)||'';
+  }while(page);
+  return L.filter(e=>e.status!=='cancelled').map(e=>agDepuisGoogle(e,calId))
+    .filter(x=>x.date<=au&&(x.dateFin||x.date)>=du);
+}
+const agChemin=(calId,evId)=>'/calendars/'+encodeURIComponent(calId)+'/events'+(evId?'/'+encodeURIComponent(evId):'');
+/* le lien d'un événement avec un dossier (partagé) : par l'événement, ou
+   par sa série quand il a été posé sur toute la série */
+const agLienDe=(liens,x)=>(liens||[]).find(l=>l.calId===x.calId&&(l.eventId===x.id||(!!l.serieId&&l.serieId===x.serieId)))||null;
+const agDossiers=data=>[
+  ...(data.chantiers||[]).filter(c=>c.statut!=='clos').map(c=>({cle:'chantier:'+c.id,type:'chantier',id:c.id,nom:c.nom,adresse:c.adresse||''})),
+  ...(data.prospects||[]).filter(p=>!p.chantierId&&p.statut!=='perdu').map(p=>({cle:'prospect:'+p.id,type:'prospect',id:p.id,nom:p.nom,
+    adresse:(p.decouverte&&p.decouverte.adresseProjet)||p.commune||''})),
+  ...(data.chantiers||[]).filter(c=>c.statut==='clos').map(c=>({cle:'chantier:'+c.id,type:'chantier',id:c.id,nom:c.nom+' (clos)',adresse:c.adresse||''})),
+];
+/* les événements Google gardés sur l'appareil, pour le tableau de bord :
+   ceux des agendas affichés, dans les jours qui viennent */
+function agProchains(du,au){
+  const r=agReglages(),c=agLire('cache');
+  if(!r.compte||!c||!c.evenements)return null;
+  return c.evenements.filter(x=>(r.agendas[x.calId]||{}).afficher&&x.date<=au&&(x.dateFin||x.date)>=du);
+}
+
+/* ---------- réglages : connexion, agendas affichés, catégories, agenda par défaut ---------- */
+function ReglagesAgendaGoogle({agendas,onRelire,onChange,occupe}){
+  const [r,setR]=useState(agReglages);
+  const maj=p=>{const n={...agReglages(),...p};agEcrire('reglages',n);setR(n);onChange&&onChange(n)};
+  const majAgenda=(id,p)=>maj({agendas:{...r.agendas,[id]:{...(r.agendas[id]||{}),...p}}});
+  const connecte=agConnecte(),expire=agExpire();
+  const echec=agendaRetour&&!agendaRetour.ok?agendaRetour:null;
+  const L=agendas||(agLire('cache')||{}).agendas||[];
+  return <div className="card reglages-agenda" style={{borderLeft:'3px solid '+(connecte?GREEN:expire?TERRA:NAVY)}}>
+    <div className="sp" style={{gap:8,flexWrap:'wrap'}}>
+      <span className="sm b">Google Agenda</span>
+      <span className="xs" style={{color:connecte?GREEN:expire?TERRA:MUTED}}>
+        {connecte?'✓ Connecté':expire?'Connexion expirée':r.compte?'Déconnecté':'Non connecté'}</span>
+    </div>
+    <div className="xs mut" style={{marginTop:6,lineHeight:1.6}}>
+      {r.compte?<span>Compte : <b>{r.compte}</b>. </span>:null}
+      {r.derniereSynchro?<span>Dernière synchronisation réussie : <b>{new Date(r.derniereSynchro).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'})}</b>. </span>:null}
+      Les rendez-vous sont lus et enregistrés directement dans Google Agenda, relus à l’ouverture de l’agenda,
+      au retour dans l’application et après chaque opération. Google limite la connexion à une heure :
+      elle se renouvelle d’elle-même à l’ouverture de l’agenda.
+    </div>
+    {echec&&<div className="xs" style={{color:TERRA,marginTop:6}}>Google a refusé la connexion : {DRIVE_MOTIFS[echec.code]||echec.code}</div>}
+    <div className="row" style={{gap:8,marginTop:10,flexWrap:'wrap'}}>
+      {!r.compte&&<button className="btn acc s" onClick={()=>agConnexion(true)}>Connecter mon Google Agenda</button>}
+      {!!r.compte&&connecte&&<button className="btn s" disabled={occupe} onClick={onRelire}>{occupe?'Actualisation…':'Actualiser'}</button>}
+      {!!r.compte&&<button className={'btn s'+(connecte?' gh':' acc')} onClick={()=>agConnexion(false)}>Reconnecter</button>}
+      {!!r.compte&&<button className="btn gh s" onClick={()=>agConnexion(true)}>Changer de compte</button>}
+      {!!r.compte&&<button className="btn gh s" onClick={()=>{if(confirm('Déconnecter Google Agenda de cet appareil ?\n\nRien n’est supprimé dans Google Agenda ; la copie locale et vos réglages d’affichage sont effacés de cet appareil.')){agDeconnexion();setR(agReglages());onChange&&onChange(agReglages())}}}>Déconnecter</button>}
+    </div>
+    {L.length>0&&<div style={{marginTop:12}}>
+      <div className="xs b" style={{marginBottom:4}}>AGENDAS ACCESSIBLES</div>
+      <div className="xs mut" style={{marginBottom:6,lineHeight:1.5}}>Cochez ceux à afficher. La catégorie sert aux filtres Pro / Perso ;
+        un agenda personnel n’est affiché que si vous le cochez, et seulement sur votre appareil.</div>
+      {L.map(a=>{const g=r.agendas[a.id]||{};const modif=agModifiable(a);
+        return <div key={a.id} className="row xs agenda-ligne" style={{gap:10,alignItems:'center',flexWrap:'wrap',padding:'6px 0',borderTop:'1px solid '+RULE}}>
+          <label className="row" style={{gap:6,alignItems:'center',flex:'1 1 220px',minWidth:0,cursor:'pointer'}}>
+            <input type="checkbox" checked={!!g.afficher} onChange={e=>majAgenda(a.id,{afficher:e.target.checked})}/>
+            <span style={{width:10,height:10,borderRadius:3,background:a.couleur,flex:'0 0 auto'}}/>
+            <span className="b" style={{overflow:'hidden',textOverflow:'ellipsis'}}>{a.nom}</span>
+            {!modif&&<span className="mut">(lecture seule)</span>}
+          </label>
+          <select className="in" style={{width:'auto',padding:'4px 6px',fontSize:12}} value={g.categorie||''}
+            onChange={e=>majAgenda(a.id,{categorie:e.target.value})} aria-label={'Catégorie de '+a.nom}>
+            <option value="">— catégorie —</option><option value="pro">Pro</option><option value="perso">Perso</option></select>
+          {modif&&<label className="row" style={{gap:4,alignItems:'center',cursor:'pointer'}}>
+            <input type="radio" name="agenda-defaut" checked={r.parDefaut===a.id} onChange={()=>maj({parDefaut:a.id})}/>par défaut</label>}
+        </div>})}
+    </div>}
+  </div>;
+}
+
+/* ---------- reprise des rendez-vous de l'application ----------
+   Transfert contrôlé : sauvegarde d'abord, aperçu, choix des rendez-vous et
+   de l'agenda de destination, doublons possibles signalés (et décochés),
+   validation. Chaque rendez-vous transféré garde la trace de son événement
+   Google (champ google) : une nouvelle tentative ne le recrée pas. Aucune
+   invitation n'est envoyée. Les anciens rendez-vous restent dans les
+   données jusqu'à ce que vous les retiriez vous-même. */
+function RepriseAgenda({data,save,agendas,evenements,onFini}){
+  const r=agReglages();
+  const ecrivables=(agendas||[]).filter(agModifiable);
+  const perso=ecrivables.find(a=>(r.agendas[a.id]||{}).categorie==='perso');
+  const pro=ecrivables.find(a=>a.id===r.parDefaut)||ecrivables.find(a=>(r.agendas[a.id]||{}).categorie==='pro')||ecrivables[0];
+  const aTransferer=(data.rendezvous||[]).filter(x=>x&&x.date&&!x.google)
+    .sort((a,b)=>((a.date||'')+(a.heure||'')).localeCompare((b.date||'')+(b.heure||'')));
+  const norme=t=>rechercheNorme(t).replace(/\s+/g,' ').trim();
+  const doublon=x=>(evenements||[]).some(e=>e.date===x.date&&norme(e.titre)===norme(x.titre)&&(!x.heure||!e.heure||e.heure===x.heure));
+  const [choix,setChoix]=useState(()=>{const o={};aTransferer.forEach(x=>{o[x.id]={ok:!doublon(x),
+    cal:(x.type==='perso'&&perso?perso.id:(pro&&pro.id))||''}});return o});
+  const [etat,setEtat]=useState(null);
+  const transferes=(data.rendezvous||[]).filter(x=>x&&x.google);
+  if(!aTransferer.length)return <div className="card">
+    <div className="sm b">Reprise des rendez-vous de l’application</div>
+    <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Tous les rendez-vous de l’application ont été transférés ({transferes.length}).
+      {transferes.length>0&&' Ils restent dans les données de l’application tant que vous ne les retirez pas.'}</div>
+    {transferes.length>0&&<button className="btn gh s" style={{marginTop:8}} onClick={async()=>{
+      if(!confirm('Retirer de l’application les '+transferes.length+' rendez-vous déjà transférés dans Google Agenda ?\n\nVérifiez d’abord qu’ils y sont bien. Une version des données est gardée avant le retrait.'))return;
+      try{await versionRanger('Avant retrait des rendez-vous transférés',data)}catch(e){}
+      save({...data,rendezvous:(data.rendezvous||[]).filter(x=>!(x&&x.google))});onFini&&onFini();
+    }}>Retirer les rendez-vous déjà transférés</button>}
+  </div>;
+  const nb=aTransferer.filter(x=>(choix[x.id]||{}).ok).length;
+  const lancer=async()=>{
+    const L=aTransferer.filter(x=>(choix[x.id]||{}).ok&&(choix[x.id]||{}).cal);
+    if(!L.length)return;
+    if(!confirm('Transférer '+L.length+' rendez-vous dans Google Agenda ?\n\nUne version des données est gardée avant le transfert. Aucune invitation n’est envoyée. Les rendez-vous restent aussi dans l’application.'))return;
+    try{await versionRanger('Avant transfert vers Google Agenda',data)}catch(e){
+      if(!confirm('La sauvegarde préalable n’a pas pu être faite sur cet appareil. Continuer quand même ?'))return}
+    let courant=data,faits=0,echecs=[];
+    for(const x of L){
+      setEtat({encours:true,faits,total:L.length});
+      /* déjà transféré entre-temps (nouvelle tentative) : on ne recrée pas */
+      if((courant.rendezvous||[]).some(y=>y&&y.id===x.id&&y.google)){faits++;continue}
+      const cal=choix[x.id].cal;
+      try{
+        const corps=agVersGoogle({titre:x.titre||'(sans titre)',date:x.date,heure:x.heure||'',heureFin:x.heureFin||'',
+          journee:!x.heure,lieu:x.lieu||'',notes:[x.client?'Client : '+x.client:'',x.notes||''].filter(Boolean).join('\n')});
+        corps.extendedProperties={private:{cpRdvId:x.id}};
+        const ev=await agFetch(agChemin(cal)+'?sendUpdates=none',{method:'POST',body:corps});
+        courant={...courant,rendezvous:(courant.rendezvous||[]).map(y=>y&&y.id===x.id?{...y,google:{calId:cal,eventId:ev.id,le:new Date().toISOString()}}:y)};
+        save(courant);faits++;
+      }catch(e){echecs.push((x.titre||'(sans titre)')+' ('+fd(x.date)+') — '+agMessageErreur(e));if(e&&e.code==='auth')break}
+    }
+    setEtat({fini:true,faits,total:L.length,echecs});
+    onFini&&onFini();
+  };
+  return <div className="card reprise-agenda" style={{borderLeft:'3px solid '+AMBER}}>
+    <div className="sm b">Reprise des rendez-vous de l’application ({aTransferer.length})</div>
+    <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Choisissez les rendez-vous à transférer et l’agenda de destination.
+      Ceux qui ressemblent à un événement déjà présent dans Google (même jour, même titre) sont signalés et décochés.
+      Une sauvegarde est faite avant ; aucune invitation n’est envoyée ; rien n’est supprimé de l’application.</div>
+    {!ecrivables.length&&<div className="xs" style={{color:TERRA,marginTop:6}}>Aucun agenda Google modifiable n’est accessible avec ce compte.</div>}
+    <div style={{marginTop:8,maxHeight:360,overflowY:'auto'}}>
+      {aTransferer.map(x=>{const c=choix[x.id]||{};const dbl=doublon(x);
+        return <div key={x.id} className="row xs" style={{gap:8,alignItems:'center',flexWrap:'wrap',padding:'6px 0',borderTop:'1px solid '+RULE}}>
+          <input type="checkbox" checked={!!c.ok} onChange={e=>setChoix({...choix,[x.id]:{...c,ok:e.target.checked}})} aria-label={'Transférer '+x.titre}/>
+          <span style={{flex:'1 1 220px',minWidth:0}}><b>{fd(x.date)}{x.heure?' · '+plageHoraire(x.heure,x.heureFin):''}</b> — {x.titre||'(sans titre)'}
+            <span className="mut"> · {x.type==='perso'?'Perso':'Pro'}{x.client?' · '+x.client:''}</span>
+            {dbl&&<span className="b" style={{color:TERRA}}> · doublon possible</span>}</span>
+          <select className="in" style={{width:'auto',padding:'4px 6px',fontSize:12}} value={c.cal||''}
+            onChange={e=>setChoix({...choix,[x.id]:{...c,cal:e.target.value}})}>
+            {ecrivables.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select>
+        </div>})}
+    </div>
+    <div className="row" style={{gap:8,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn acc s" disabled={!nb||!ecrivables.length||(etat&&etat.encours&&!etat.fini)} onClick={lancer}>
+        {etat&&etat.encours&&!etat.fini?'Transfert… '+etat.faits+' / '+etat.total:'Transférer '+nb+' rendez-vous'}</button>
+      {etat&&etat.fini&&<span className="xs" style={{color:etat.echecs.length?TERRA:GREEN}}>
+        {etat.faits} transféré{etat.faits>1?'s':''} sur {etat.total}{etat.echecs.length?' — '+etat.echecs.length+' en échec : relancez, ceux déjà transférés ne seront pas recréés.':'.'}</span>}
+    </div>
+    {etat&&etat.fini&&etat.echecs.length>0&&<div className="xs" style={{color:TERRA,marginTop:6,lineHeight:1.5}}>
+      {etat.echecs.map((m,i)=><div key={i}>{m}</div>)}</div>}
+  </div>;
+}
+
+/* ---------- l'agenda, alimenté par Google ---------- */
+const AG_VUES=[['mois','Mois'],['semaine','Semaine'],['liste','Liste']];
+function AgendaGoogle({data,save,jourInitial,onEtat}){
+  const cache=agLire('cache')||{};
+  const [agendas,setAgendas]=useState(cache.agendas||[]);
+  const [evs,setEvs]=useState(cache.evenements||[]);
+  const [reglages,setReglages]=useState(agReglages);
+  const [etat,setEtat]=useState(agConnecte()?'chargement':'auth');
+  const [erreur,setErreur]=useState('');
+  const [vue,setVue]=useState('mois');
+  const [jour,setJour]=useState(jourInitial||null);
+  const [mois,setMois]=useState(()=>{const d=jourInitial?new Date(jourInitial+'T12:00:00'):new Date();return {annee:d.getFullYear(),m:d.getMonth()}});
+  const [semaine,setSemaine]=useState(()=>{const d=jourInitial||today();const[y,m,j]=d.split('-').map(Number);const w=(new Date(y,m-1,j).getDay()+6)%7;return decalerJour(d,-w)});
+  const [filtreCat,setFiltreCat]=useState('');
+  const [filtreDossier,setFiltreDossier]=useState('');
+  const [f,setF]=useState(null);
+  const [envoi,setEnvoi]=useState(null);
+  const [reglagesOuverts,setReglagesOuverts]=useState(false);
+  const [reprise,setReprise]=useState(false);
+  const liens=data.agendaLiens||[];
+  const dossiers=agDossiers(data);
+  const auj=today();
+  const cases=grilleCalendrier(mois.annee,mois.m);
+  const plage=()=>{
+    const bornes=[cases[0].date,cases[cases.length-1].date,auj,decalerJour(auj,60),semaine,decalerJour(semaine,6)];
+    if(jour)bornes.push(jour);
+    return {du:bornes.slice().sort()[0],au:bornes.slice().sort()[bornes.length-1]};
+  };
+  const actualiser=async()=>{
+    if(!agConnecte()){setEtat('auth');return}
+    setEtat('chargement');setErreur('');
+    try{
+      const A=await agAgendas();
+      const r0=agReglages();
+      const principal=A.find(a=>a.principal);
+      const ag={...r0.agendas};
+      /* un agenda qu'on découvre : seul l'agenda principal s'affiche d'office */
+      A.forEach(a=>{if(!ag[a.id])ag[a.id]={afficher:!!a.principal,categorie:''}});
+      const r1={...r0,compte:r0.compte||(principal&&principal.id)||'',agendas:ag,
+        parDefaut:(r0.parDefaut&&A.some(a=>a.id===r0.parDefaut&&agModifiable(a)))?r0.parDefaut:((principal&&agModifiable(principal)&&principal.id)||'')};
+      const {du,au}=plage();
+      let E=[];
+      for(const a of A.filter(a=>(r1.agendas[a.id]||{}).afficher))E=E.concat(await agEvenements(a.id,du,au));
+      r1.derniereSynchro=new Date().toISOString();
+      agEcrire('reglages',r1);agEcrire('cache',{agendas:A,evenements:E,du,au,le:r1.derniereSynchro});
+      setAgendas(A);setEvs(E);setReglages(r1);setEtat('ok');onEtat&&onEtat();
+    }catch(e){setEtat(e&&e.code==='auth'?'auth':'erreur');setErreur(agMessageErreur(e))}
+  };
+  useEffect(()=>{if(!agReconnexionAuto())actualiser()},[mois.annee,mois.m,semaine,vue]);
+  useEffect(()=>{
+    const f2=()=>{if(document.visibilityState!=='hidden')actualiser()};
+    document.addEventListener('visibilitychange',f2);
+    return ()=>document.removeEventListener('visibilitychange',f2);
+  },[mois.annee,mois.m,semaine,reglages]);
+  const agendaDe=id=>agendas.find(a=>a.id===id);
+  const cat=x=>(reglages.agendas[x.calId]||{}).categorie||'';
+  /* les rendez-vous de l'application pas encore transférés restent visibles,
+     signalés comme tels, le temps de la reprise */
+  const locaux=(data.rendezvous||[]).filter(x=>x&&x.date&&!x.google).map(x=>({...x,cle:'local|'+x.id,local:true,journee:!x.heure,dateFin:x.date}));
+  const visibles=[...evs.filter(x=>(reglages.agendas[x.calId]||{}).afficher),...locaux].filter(x=>{
+    if(filtreCat&&(x.local?(x.type||'pro'):cat(x))!==filtreCat)return false;
+    if(filtreDossier){const l=x.local?null:agLienDe(liens,x);if(!l||(l.type+':'+l.dossierId)!==filtreDossier)return false}
+    return true;
+  });
+  const parJour={};
+  visibles.forEach(x=>{let d=x.date;const fin=x.dateFin||x.date;let n=0;
+    while(d<=fin&&n<62){(parJour[d]=parJour[d]||[]).push(x);d=decalerJour(d,1);n++}});
+  Object.keys(parJour).forEach(d=>parJour[d].sort((a,b)=>(a.journee?'00:00':a.heure||'99:99').localeCompare(b.journee?'00:00':b.heure||'99:99')));
+  const couleur=x=>x.local?(x.type==='perso'?TERRA:NAVY):((agendaDe(x.calId)||{}).couleur||NAVY);
+  const Puce=({x})=><div className="cal-puce" onClick={e=>{e.stopPropagation();ouvrir(x)}}
+    title={[x.journee?'Journée':plageHoraire(x.heure,x.heureFin),x.titre,x.lieu].filter(Boolean).join(' — ')}
+    style={{background:couleur(x)+'22',color:INK,borderLeft:'3px solid '+couleur(x),outline:x.local?'1px dashed '+MUTED:'none'}}>
+    {!x.journee&&x.heure?x.heure+' ':''}{x.titre||'(sans titre)'}</div>;
+  const dossierDe=x=>{const l=x.local?null:agLienDe(liens,x);return l?dossiers.find(d=>d.cle===l.type+':'+l.dossierId)||{cle:l.type+':'+l.dossierId,nom:'(dossier introuvable)',type:l.type,id:l.dossierId}:null};
+  const ecrivables=agendas.filter(agModifiable);
+  const ouvrir=x=>{
+    setEnvoi(null);
+    if(x.local){setF({...x,modeLocal:true});return}
+    const d=dossierDe(x);
+    setF({...x,dossier:d?d.cle:'',portee:'occurrence'});
+  };
+  const nouveau=(date,heure)=>{
+    setEnvoi(null);
+    setF({nouveau:true,calId:reglages.parDefaut||(ecrivables[0]&&ecrivables[0].id)||'',titre:'',date:date||jour||auj,heure:heure||'',heureFin:'',
+      journee:false,lieu:'',notes:'',dossier:filtreDossier||'',recurrence:'',recurrenceFin:''});
+  };
+  /* enregistrer : la réussite ne s'affiche qu'une fois Google d'accord */
+  const enregistrer=async()=>{
+    if(!(f.titre||'').trim()||!f.date||!f.calId)return;
+    setEnvoi({encours:true});
+    try{
+      let ev,cleLien;
+      if(f.nouveau){
+        ev=await agFetch(agChemin(f.calId)+'?sendUpdates=none',{method:'POST',body:agVersGoogle(f)});
+        cleLien={eventId:ev.id,serieId:f.recurrence?ev.id:''};
+      }else if(f.serieId&&f.portee==='serie'){
+        /* toute la série : on part de l'événement d'origine, dont on garde la
+           date — seuls titre, lieu, description et horaires changent */
+        const m=await agFetch(agChemin(f.calId,f.serieId));
+        const corps={summary:f.titre.trim(),location:f.lieu||'',description:f.notes||''};
+        if(m.start&&m.start.dateTime&&f.heure&&!f.journee){
+          const d0=agEnParis(m.start.dateTime).date;
+          corps.start={dateTime:d0+'T'+f.heure+':00',timeZone:AG_TZ};
+          corps.end={dateTime:d0+'T'+agFin(f.heure,f.heureFin)+':00',timeZone:AG_TZ};
+        }
+        ev=await agFetch(agChemin(f.calId,f.serieId)+'?sendUpdates=none',{method:'PATCH',body:corps,etag:m.etag});
+        cleLien={eventId:'',serieId:f.serieId};
+      }else{
+        const corps=agVersGoogle({...f,recurrence:''});
+        ev=await agFetch(agChemin(f.calId,f.id)+'?sendUpdates=none',{method:'PATCH',body:corps,etag:f.etag});
+        cleLien={eventId:f.id,serieId:''};
+      }
+      /* le lien avec le dossier (partagé), relié aux identifiants Google */
+      const autres=liens.filter(l=>!(l.calId===f.calId&&((cleLien.eventId&&l.eventId===cleLien.eventId)||(cleLien.serieId&&l.serieId===cleLien.serieId))));
+      if(f.dossier){const[t,id]=f.dossier.split(':');autres.push({id:uid(),calId:f.calId,eventId:cleLien.eventId,serieId:cleLien.serieId,type:t,dossierId:id,le:new Date().toISOString()})}
+      if(JSON.stringify(autres)!==JSON.stringify(liens))save({...data,agendaLiens:autres});
+      setEnvoi({ok:'Enregistré dans Google Agenda.',lien:ev&&ev.htmlLink});
+      setF(null);
+      await actualiser();
+    }catch(e){
+      setEnvoi({erreur:agMessageErreur(e)});
+      if(e&&e.code==='conflit'){try{const a=await agFetch(agChemin(f.calId,f.id));setF(g=>({...g,...agDepuisGoogle(a,f.calId),dossier:g.dossier,portee:g.portee}))}catch(x){}}
+      if(e&&e.code==='auth')setEtat('auth');
+    }
+  };
+  const supprimer=async()=>{
+    const serie=f.serieId&&f.portee==='serie';
+    if(!confirm(serie?'Supprimer TOUTE la série « '+f.titre+' » dans Google Agenda ?':'Supprimer « '+f.titre+' » du '+fd(f.date)+' dans Google Agenda ?'))return;
+    setEnvoi({encours:true});
+    try{
+      await agFetch(agChemin(f.calId,serie?f.serieId:f.id)+'?sendUpdates=none',{method:'DELETE',etag:serie?undefined:f.etag});
+      const reste=liens.filter(l=>!(l.calId===f.calId&&(l.eventId===f.id||(serie&&l.serieId===f.serieId))));
+      if(reste.length!==liens.length)save({...data,agendaLiens:reste});
+      setEnvoi({ok:'Supprimé de Google Agenda.'});setF(null);
+      await actualiser();
+    }catch(e){setEnvoi({erreur:agMessageErreur(e)});if(e&&e.code==='auth')setEtat('auth')}
+  };
+  const allerDossier=cle=>{
+    const[t,id]=cle.split(':');
+    if(t==='chantier')window.dispatchEvent(new CustomEvent('cp-aller',{detail:{type:'chantier',id}}));
+    else window.dispatchEvent(new CustomEvent('cp-aller',{detail:{type:'prospect',id}}));
+  };
+  const decalerMois=n=>setMois(m=>{const d=new Date(m.annee,m.m+n,1);return {annee:d.getFullYear(),m:d.getMonth()}});
+  const prochains=visibles.filter(x=>(x.dateFin||x.date)>=auj).sort((a,b)=>((a.date)+(a.journee?'00:00':a.heure||'99:99')).localeCompare(b.date+(b.journee?'00:00':b.heure||'99:99')));
+  const LigneEvt=({x})=>{const d=x.local?null:dossierDe(x);
+    return <div className="card agenda-evt" onClick={()=>ouvrir(x)} style={{cursor:'pointer',borderLeft:'3px solid '+couleur(x),marginBottom:6}}>
+      <div className="sp" style={{gap:8}}>
+        <span className="b sm" style={{color:NAVY}}>{x.titre}</span>
+        <span className="xs mut" style={{whiteSpace:'nowrap'}}>{fd(x.date)}{x.dateFin&&x.dateFin>x.date?' → '+fd(x.dateFin):''}
+          {x.journee?' · journée':x.heure?' · '+plageHoraire(x.heure,x.heureFin):''}</span>
+      </div>
+      <div className="xs mut" style={{marginTop:3}}>{[x.local?'pas encore dans Google Agenda':(agendaDe(x.calId)||{}).nom,x.lieu,d?d.nom:'',x.serieId?'série':''].filter(Boolean).join(' · ')}</div>
+    </div>};
+  const r=reglages;
+  const agF=f&&!f.modeLocal?agendaDe(f.calId):null;
+  const lectureSeule=f&&!f.nouveau&&!f.modeLocal&&!agModifiable(agF);
+  return <div>
+    <H2 action={<button className="btn acc s" disabled={etat==='auth'||!ecrivables.length} onClick={()=>nouveau()}>+ Rendez-vous</button>}>AGENDA</H2>
+    <div className="row xs agenda-etat" style={{gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
+      <span style={{color:etat==='ok'?GREEN:etat==='chargement'?MUTED:TERRA}}>
+        {etat==='ok'?'✓ Google Agenda'+(r.compte?' · '+r.compte:''):etat==='chargement'?'Synchronisation avec Google Agenda…':etat==='auth'?'Connexion à Google Agenda expirée':'Google Agenda injoignable'}</span>
+      {r.derniereSynchro&&<span className="mut">à jour à {new Date(r.derniereSynchro).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>}
+      {etat==='auth'?<button className="btn acc s" onClick={()=>agConnexion(false)}>Reconnecter</button>
+        :<button className="btn gh s" disabled={etat==='chargement'} onClick={actualiser}>Actualiser</button>}
+      <button className="btn gh s" onClick={()=>setReglagesOuverts(!reglagesOuverts)}>{reglagesOuverts?'Fermer les réglages':'Réglages'}</button>
+      {locaux.length>0&&<button className="btn gh s" onClick={()=>setReprise(!reprise)}>Reprendre les rendez-vous de l’application ({locaux.length})</button>}
+    </div>
+    {erreur&&<div className="xs" style={{color:TERRA,marginBottom:8,lineHeight:1.5}}>{erreur}{etat==='auth'?'':' Les rendez-vous affichés sont ceux de la dernière synchronisation.'}</div>}
+    {reglagesOuverts&&<ReglagesAgendaGoogle agendas={agendas} occupe={etat==='chargement'} onRelire={actualiser} onChange={n=>{setReglages(n);if(!n.compte&&onEtat)onEtat()}}/>}
+    {reprise&&<RepriseAgenda data={data} save={save} agendas={agendas} evenements={evs} onFini={actualiser}/>}
+    {envoi&&envoi.ok&&<div className="xs" style={{color:GREEN,marginBottom:8}}>✓ {envoi.ok}{envoi.lien&&<a href={envoi.lien} target="_blank" rel="noreferrer" style={{color:TERRA,marginLeft:8}}>Ouvrir dans Google Agenda</a>}</div>}
+
+    {f&&f.modeLocal&&<div className="card" style={{borderLeft:'3px solid '+MUTED,marginBottom:16}}>
+      <div className="b sm">{f.titre||'(sans titre)'}</div>
+      <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>{fd(f.date)}{f.heure?' · '+plageHoraire(f.heure,f.heureFin):''}{f.client?' · '+f.client:''}{f.lieu?' · '+f.lieu:''}</div>
+      <div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>Ce rendez-vous est encore dans l’ancien agenda de l’application. Transférez-le dans Google Agenda
+        depuis « Reprendre les rendez-vous de l’application » pour pouvoir le modifier.</div>
+      <button className="btn gh s" style={{marginTop:8}} onClick={()=>setF(null)}>Fermer</button>
+    </div>}
+
+    {f&&!f.modeLocal&&<div className="card agenda-form" style={{borderLeft:'3px solid '+TERRA,marginBottom:16}}>
+      {lectureSeule&&<div className="xs" style={{color:AMBER,marginBottom:8}}>Agenda en lecture seule : ce rendez-vous ne peut pas être modifié depuis l’application.</div>}
+      {f.nouveau?<Fld label="AGENDA">
+        <select className="in" value={f.calId} onChange={e=>setF({...f,calId:e.target.value})}>
+          {ecrivables.map(a=><option key={a.id} value={a.id}>{a.nom}</option>)}</select></Fld>
+        :<div className="xs mut" style={{marginBottom:8}}>Agenda : <b>{(agF||{}).nom||f.calId}</b>{f.serieId?' · occurrence d’une série':''}</div>}
+      {!f.nouveau&&f.serieId&&!lectureSeule&&<div className="row xs" style={{gap:14,marginBottom:10,flexWrap:'wrap'}}>
+        <label className="row" style={{gap:5,alignItems:'center'}}><input type="radio" checked={f.portee!=='serie'} onChange={()=>setF({...f,portee:'occurrence'})}/>Cette occurrence seulement</label>
+        <label className="row" style={{gap:5,alignItems:'center'}}><input type="radio" checked={f.portee==='serie'} onChange={()=>setF({...f,portee:'serie'})}/>Toute la série</label>
+      </div>}
+      <fieldset disabled={lectureSeule||(envoi&&envoi.encours)} style={{border:'none',padding:0,margin:0}}>
+        <Fld label="TITRE"><input className="in" value={f.titre} onChange={e=>setF({...f,titre:e.target.value})} placeholder="Visite chantier, RDV notaire…"/></Fld>
+        <label className="row xs" style={{gap:6,alignItems:'center',marginBottom:10}}>
+          <input type="checkbox" checked={!!f.journee} disabled={f.portee==='serie'} onChange={e=>setF({...f,journee:e.target.checked})}/>Toute la journée</label>
+        <div className="g2">
+          <Fld label={f.journee?'DU':'DATE'}><input className="in" type="date" value={f.date} disabled={f.portee==='serie'} onChange={e=>setF({...f,date:e.target.value})}/></Fld>
+          {f.journee?<Fld label="AU"><input className="in" type="date" value={f.dateFin&&f.dateFin>f.date?f.dateFin:f.date} disabled={f.portee==='serie'} onChange={e=>setF({...f,dateFin:e.target.value})}/></Fld>
+            :<Fld label="DÉBUT"><input className="in" type="time" value={f.heure||''} onChange={e=>setF({...f,heure:e.target.value})}/></Fld>}
+        </div>
+        {!f.journee&&<Fld label="FIN"><input className="in" type="time" value={f.heureFin||''} onChange={e=>setF({...f,heureFin:e.target.value})}/></Fld>}
+        {!f.journee&&f.heure&&<div className="xs mut" style={{marginTop:-6,marginBottom:10}}>
+          {f.heureFin&&dureeRdv(f.heure,f.heureFin)?'Soit '+dureeRdv(f.heure,f.heureFin)+'.':'Sans fin valable, le rendez-vous durera une heure (jusqu’à '+agFin(f.heure,f.heureFin)+').'} Heure de Paris.</div>}
+        {!f.journee&&!f.heure&&<div className="xs mut" style={{marginTop:-6,marginBottom:10}}>Sans heure de début, le rendez-vous sera posé sur la journée entière.</div>}
+        {f.portee==='serie'&&<div className="xs mut" style={{marginTop:-4,marginBottom:10,lineHeight:1.5}}>Pour toute la série, la date de départ ne change pas : seuls le titre, les horaires, le lieu, la description et le dossier sont modifiés.</div>}
+        <Fld label="DOSSIER (CHANTIER OU PROSPECT)">
+          <select className="in" value={f.dossier||''} onChange={e=>setF({...f,dossier:e.target.value})}>
+            <option value="">— aucun —</option>
+            {dossiers.map(d=><option key={d.cle} value={d.cle}>{d.type==='chantier'?'Chantier — ':'Prospect — '}{d.nom}</option>)}</select></Fld>
+        <Fld label="LIEU"><input className="in" value={f.lieu||''} onChange={e=>setF({...f,lieu:e.target.value})} placeholder="Adresse"/></Fld>
+        {(()=>{const d=dossiers.find(x=>x.cle===f.dossier);return d&&d.adresse&&d.adresse!==f.lieu?
+          <button className="btn gh s" style={{marginTop:-6,marginBottom:10}} onClick={()=>setF({...f,lieu:d.adresse})}>Utiliser l’adresse du dossier : {d.adresse}</button>:null})()}
+        <Fld label="DESCRIPTION"><textarea className="in" rows="3" value={f.notes||''} onChange={e=>setF({...f,notes:e.target.value})} placeholder="Contact, précisions…"/></Fld>
+        {f.nouveau&&<div className="g2">
+          <Fld label="RÉCURRENCE"><select className="in" value={f.recurrence||''} onChange={e=>setF({...f,recurrence:e.target.value})}>
+            {RECURRENCES.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Fld>
+          {!!f.recurrence&&<Fld label="JUSQU’AU (OPTIONNEL)"><input className="in" type="date" value={f.recurrenceFin||''} onChange={e=>setF({...f,recurrenceFin:e.target.value})}/></Fld>}
+        </div>}
+      </fieldset>
+      {envoi&&envoi.erreur&&<div className="xs" style={{color:TERRA,marginBottom:8,lineHeight:1.5}}>{envoi.erreur}</div>}
+      <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        {!lectureSeule&&<button className="btn acc s" disabled={!(f.titre||'').trim()||!f.date||!f.calId||(envoi&&envoi.encours)} onClick={enregistrer}>
+          {envoi&&envoi.encours?'Enregistrement dans Google…':'Enregistrer'}</button>}
+        <button className="btn gh s" onClick={()=>{setF(null);setEnvoi(null)}}>{lectureSeule?'Fermer':'Annuler'}</button>
+        {!f.nouveau&&!lectureSeule&&<button className="btn dg s" disabled={envoi&&envoi.encours} onClick={supprimer}>{f.serieId&&f.portee==='serie'?'Supprimer la série':'Supprimer'}</button>}
+        {!f.nouveau&&f.lien&&<a className="xs" href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir dans Google Agenda</a>}
+        {f.dossier&&<button className="btn gh s" onClick={()=>allerDossier(f.dossier)}>Ouvrir le dossier</button>}
+      </div>
+    </div>}
+
+    <div className="row agenda-filtres" style={{gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:10}}>
+      {AG_VUES.map(([v,l])=><button key={v} className={'btn s'+(vue===v&&!jour?'':' gh')} onClick={()=>{setJour(null);setVue(v)}}>{l}</button>)}
+      <span style={{width:8}}/>
+      {[['','Tous'],['pro','Pro'],['perso','Perso']].map(([v,l])=><button key={v||'tous'} className={'btn s'+(filtreCat===v?'':' gh')} onClick={()=>setFiltreCat(v)}>{l}</button>)}
+      <select className="in" style={{width:'auto',padding:'5px 8px',fontSize:12}} value={filtreDossier} onChange={e=>setFiltreDossier(e.target.value)} aria-label="Filtrer par dossier">
+        <option value="">Tous les dossiers</option>
+        {dossiers.filter(d=>liens.some(l=>l.type+':'+l.dossierId===d.cle)).map(d=><option key={d.cle} value={d.cle}>{d.nom}</option>)}</select>
+    </div>
+
+    {jour&&<>
+      <div className="sp" style={{marginBottom:10,alignItems:'center'}}>
+        <button className="btn s" onClick={()=>setJour(decalerJour(jour,-1))} aria-label="Jour précédent">←</button>
+        <span className="b" style={{color:NAVY,textAlign:'center',flex:1,minWidth:0}}>{dateLongue(jour)}</span>
+        <button className="btn s" onClick={()=>setJour(decalerJour(jour,1))} aria-label="Jour suivant">→</button>
+      </div>
+      <button className="btn gh s" style={{marginBottom:10}} onClick={()=>setJour(null)}>Retour</button>
+      {(parJour[jour]||[]).filter(x=>x.journee).map(x=><LigneEvt key={x.cle} x={x}/>)}
+      <JourAgenda date={jour} rdvs={(parJour[jour]||[]).filter(x=>!x.journee).map(x=>({...x,id:x.cle,type:cat(x)==='perso'||(x.local&&x.type==='perso')?'perso':'pro'}))}
+        onOuvrir={x=>ouvrir(visibles.find(y=>y.cle===x.id)||x)} onCreer={h=>nouveau(jour,h)}/>
+    </>}
+
+    {!jour&&vue==='mois'&&<>
+      <div className="sp" style={{marginBottom:10,alignItems:'center'}}>
+        <button className="btn s" onClick={()=>decalerMois(-1)} aria-label="Mois précédent">←</button>
+        <span className="b" style={{color:NAVY}}>{MOIS_NOMS[mois.m]} {mois.annee}</span>
+        <div className="row" style={{gap:6}}>
+          <button className="btn s" onClick={()=>{const d=new Date();setMois({annee:d.getFullYear(),m:d.getMonth()})}}>Aujourd’hui</button>
+          <button className="btn s" onClick={()=>decalerMois(1)} aria-label="Mois suivant">→</button>
+        </div>
+      </div>
+      <div className="cal-grille" style={{background:RULE,border:'1px solid '+RULE,borderRadius:8}}>
+        {JOURS_NOMS.map(j=><div key={j} className="xs mut cal-jour" style={{background:'#F4F1EB'}}>{j}</div>)}
+        {cases.map(c=><div key={c.date} data-date={c.date} className="cal-case" onClick={()=>setJour(c.date)} style={{background:'#fff',opacity:c.dansMois?1:.4}}>
+          <div className="xs" style={{fontWeight:c.date===auj?700:500,color:c.date===auj?TERRA:INK}}>{c.jour}</div>
+          {(parJour[c.date]||[]).slice(0,3).map(x=><Puce key={x.cle} x={x}/>)}
+          {(parJour[c.date]||[]).length>3&&<div className="xs mut cal-plus">+{(parJour[c.date]||[]).length-3}<span className="cal-mot"> autre{(parJour[c.date]||[]).length-3>1?'s':''}</span></div>}
+        </div>)}
+      </div>
+    </>}
+
+    {!jour&&vue==='semaine'&&<>
+      <div className="sp" style={{marginBottom:10,alignItems:'center'}}>
+        <button className="btn s" onClick={()=>setSemaine(decalerJour(semaine,-7))} aria-label="Semaine précédente">←</button>
+        <span className="b" style={{color:NAVY}}>Semaine du {fd(semaine)}</span>
+        <button className="btn s" onClick={()=>setSemaine(decalerJour(semaine,7))} aria-label="Semaine suivante">→</button>
+      </div>
+      <div className="agenda-semaine">
+        {[0,1,2,3,4,5,6].map(i=>{const d=decalerJour(semaine,i);return <div key={d} className="agenda-semaine-jour">
+          <button className="xs b" onClick={()=>setJour(d)} style={{background:'none',border:'none',padding:0,cursor:'pointer',color:d===auj?TERRA:NAVY}}>{dateLongue(d)}</button>
+          {(parJour[d]||[]).map(x=><Puce key={x.cle} x={x}/>)}
+          {!(parJour[d]||[]).length&&<div className="xs mut">—</div>}
+        </div>})}
+      </div>
+    </>}
+
+    {!jour&&vue==='liste'&&<div>
+      {prochains.slice(0,60).map(x=><LigneEvt key={x.cle} x={x}/>)}
+      {!prochains.length&&<Empty>Aucun rendez-vous à venir dans les agendas affichés.</Empty>}
+    </div>}
+
+    {!jour&&vue!=='liste'&&prochains.length>0&&<div style={{marginTop:24}}>
+      <div className="h2" style={{marginBottom:8}}>PROCHAINS RENDEZ-VOUS</div>
+      {prochains.slice(0,5).map(x=><LigneEvt key={x.cle} x={x}/>)}
+    </div>}
+
+    {agendas.length>0&&<div className="xs mut" style={{marginTop:10,lineHeight:1.8}}>
+      {agendas.filter(a=>(r.agendas[a.id]||{}).afficher).map(a=><span key={a.id} style={{marginRight:12,whiteSpace:'nowrap'}}>
+        <span style={{display:'inline-block',width:9,height:9,borderRadius:2,background:a.couleur,marginRight:4}}/>{a.nom}
+        {(r.agendas[a.id]||{}).categorie?' ('+((r.agendas[a.id]||{}).categorie==='pro'?'Pro':'Perso')+')':''}</span>)}
+      {locaux.length>0&&<span style={{whiteSpace:'nowrap'}}><span style={{display:'inline-block',width:9,height:9,border:'1px dashed '+MUTED,marginRight:4}}/>pas encore dans Google Agenda</span>}
+    </div>}
+  </div>;
+}
+
+/* l'agenda : Google Agenda dès qu'il est connecté ; sinon l'agenda de
+   l'application, tel qu'avant, avec de quoi connecter Google */
+function Agenda(props){
+  const [,rendre]=useState(0);
+  const r=agReglages();
+  if(r.compte||agConnecte()||agExpire())return <AgendaGoogle {...props} onEtat={()=>rendre(n=>n+1)}/>;
+  return <div>
+    <div className="card" style={{borderLeft:'3px solid '+NAVY,marginBottom:14}}>
+      <div className="sm b">Utiliser Google Agenda</div>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Connectez votre Google Agenda pour n’avoir qu’un seul agenda : les rendez-vous
+        créés ici y sont enregistrés, et ceux de votre téléphone apparaissent ici. Vous pourrez ensuite reprendre les rendez-vous
+        ci-dessous, sans doublon.</div>
+      {agendaRetour&&!agendaRetour.ok&&<div className="xs" style={{color:TERRA,marginTop:6}}>Google a refusé la connexion : {DRIVE_MOTIFS[agendaRetour.code]||agendaRetour.code}</div>}
+      <button className="btn acc s" style={{marginTop:8}} onClick={()=>agConnexion(true)}>Connecter mon Google Agenda</button>
+    </div>
+    <AgendaLocal {...props}/>
   </div>;
 }
 
@@ -13998,7 +14651,13 @@ function TableauBord({data,save,open,allerA,allerVers}){
      ne compte pas dans « rien ne réclame d'action », un rendez-vous n'est pas
      un problème. */
   const limiteRdv=new Date(Date.now()+7*86400000).toISOString().slice(0,10);
-  const rdvProches=(data.rendezvous||[]).filter(x=>x.date&&x.date>=t&&x.date<=limiteRdv)
+  /* avec Google Agenda connecté : ses événements (copie de la dernière
+     synchronisation, agendas affichés) et les anciens rendez-vous pas
+     encore transférés ; sinon l'agenda de l'application */
+  const evGoogle=agProchains(t,limiteRdv);
+  const rdvProches=[...(evGoogle||[]).map(x=>({...x,id:x.cle,heure:x.journee?'':x.heure})),
+    ...(data.rendezvous||[]).filter(x=>x&&(!evGoogle||!x.google))]
+    .filter(x=>x.date&&(x.dateFin||x.date)>=t&&x.date<=limiteRdv)
     .sort((a,b)=>((a.date||'')+' '+(a.heure||'99:99')).localeCompare((b.date||'')+' '+(b.heure||'99:99')));
   /* les rappels posés sur les notes des dossiers : échus ou dans les sept
      jours, non cochés. Un prospect devenu chantier a passé ses notes au
@@ -17782,6 +18441,7 @@ function Donnees({data,save,session}){
       </div>
       {msg&&<div className="xs" style={{marginTop:8,color:TERRA}}>{msg}</div>}
     </div>
+    <ReglagesAgendaGoogle/>
     <div className="card versions-sauvegardees">
       <div className="sp"><span className="sm b">Versions sauvegardées</span>
         <button className="btn gh s" onClick={versionMaintenant}>Enregistrer une version maintenant</button></div>
