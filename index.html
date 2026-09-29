@@ -250,7 +250,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · MAP : fiche papier du rendez-vous en PDF, vierge ou préremplie, prête à être relue';
+const VERSION='2026-09-29 · MAP : relecture de la fiche papier (photo ou scan), écran de vérification, suivi des décisions et points à chiffrer';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -12386,6 +12386,533 @@ function ficheMapMiseEnPage(ch,data,o){
   });
   return {pages,disposition:{v:1,numero,mode:pre?'preremplie':'vierge',date:o.date||today(),nbPages:pages.length,cases,zones}};
 }
+/* ---------- relire la photo d'une fiche MAP remplie ----------
+   Tout se fait sur l'appareil, sans service extérieur. L'image est prise en
+   niveaux de gris ({w,h,g} : 0 noir, 255 blanc). On y cherche les quatre
+   repères des angles ; ils donnent la correspondance entre la feuille (en
+   millimètres) et la photo, même prise de biais. Le code de page dit quelle
+   page de quelle fiche c'est, et dans quel sens la photo a été prise. Chaque
+   case est ensuite mesurée : la part d'encre en son centre, comparée au fond
+   du papier tout autour — une photo mal éclairée n'est pas plus sombre au
+   centre d'une case vide qu'autour d'elle. L'écriture, elle, n'est pas lue :
+   chaque cadre est découpé et montré à côté du champ, pour être recopié. */
+const FICHE_CENTRES_REPERES=[[11,11],[199,11],[199,286],[11,286]];
+/* une image réduite (moyenne par blocs) : assez pour trouver les repères */
+function ficheReduire(img,max){
+  const f=Math.max(1,Math.ceil(Math.max(img.w,img.h)/max));
+  if(f===1)return {img,f:1};
+  const w=Math.floor(img.w/f),h=Math.floor(img.h/f),g=new Uint8Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    let s=0;
+    for(let j=0;j<f;j++){const o=(y*f+j)*img.w+x*f;for(let i=0;i<f;i++)s+=img.g[o+i]}
+    g[y*w+x]=s/(f*f);
+  }
+  return {img:{w,h,g},f};
+}
+/* les zones nettement plus sombres que leur voisinage (moyenne locale sur
+   une fenêtre bien plus grande qu'un repère) */
+function ficheMasqueSombre(img){
+  const {w,h,g}=img, W=w+1, I=new Float64Array(W*(h+1));
+  for(let y=0;y<h;y++){let s=0;for(let x=0;x<w;x++){s+=g[y*w+x];I[(y+1)*W+x+1]=I[y*W+x+1]+s}}
+  const r=Math.max(8,Math.round(Math.min(w,h)/12)), M=new Uint8Array(w*h);
+  for(let y=0;y<h;y++){
+    const y0=Math.max(0,y-r),y1=Math.min(h,y+r+1);
+    for(let x=0;x<w;x++){
+      const x0=Math.max(0,x-r),x1=Math.min(w,x+r+1);
+      const moy=(I[y1*W+x1]-I[y0*W+x1]-I[y1*W+x0]+I[y0*W+x0])/((x1-x0)*(y1-y0));
+      const v=g[y*w+x];
+      M[y*w+x]=v<moy*0.72&&v<170?1:0;
+    }
+  }
+  return M;
+}
+/* les taches sombres pleines et à peu près carrées : les repères candidats */
+function ficheTaches(img,M){
+  const {w,h}=img, vu=new Uint8Array(w*h), T=[], pile=new Int32Array(w*h);
+  const cote=Math.min(w,h);
+  for(let d=0;d<w*h;d++){
+    if(!M[d]||vu[d])continue;
+    let n=0,sx=0,sy=0,x0=w,x1=0,y0=h,y1=0,sp=0;
+    pile[sp++]=d;vu[d]=1;
+    while(sp){
+      const p=pile[--sp],x=p%w,y=(p-x)/w;
+      n++;sx+=x;sy+=y;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;
+      if(x>0&&M[p-1]&&!vu[p-1]){vu[p-1]=1;pile[sp++]=p-1}
+      if(x<w-1&&M[p+1]&&!vu[p+1]){vu[p+1]=1;pile[sp++]=p+1}
+      if(y>0&&M[p-w]&&!vu[p-w]){vu[p-w]=1;pile[sp++]=p-w}
+      if(y<h-1&&M[p+w]&&!vu[p+w]){vu[p+w]=1;pile[sp++]=p+w}
+    }
+    const bw=x1-x0+1,bh=y1-y0+1;
+    if(bw/bh<0.55||bh/bw<0.55)continue;
+    if(n/(bw*bh)<0.55)continue;
+    const s=Math.sqrt(n);
+    if(s<cote*0.008||s>cote*0.09)continue;
+    T.push({x:sx/n,y:sy/n,n});
+  }
+  return T.sort((a,b)=>b.n-a.n);
+}
+/* l'homographie qui envoie quatre points sur quatre autres (système 8 × 8) */
+function ficheHomographie(src,dst){
+  const A=[],B=[];
+  for(let i=0;i<4;i++){
+    const [X,Y]=src[i],[x,y]=dst[i];
+    A.push([X,Y,1,0,0,0,-x*X,-x*Y]);B.push(x);
+    A.push([0,0,0,X,Y,1,-y*X,-y*Y]);B.push(y);
+  }
+  for(let c=0;c<8;c++){
+    let p=c;for(let r=c+1;r<8;r++)if(Math.abs(A[r][c])>Math.abs(A[p][c]))p=r;
+    if(Math.abs(A[p][c])<1e-12)return null;
+    [A[c],A[p]]=[A[p],A[c]];[B[c],B[p]]=[B[p],B[c]];
+    for(let r=0;r<8;r++){if(r===c)continue;const k=A[r][c]/A[c][c];
+      for(let j=c;j<8;j++)A[r][j]-=k*A[c][j];B[r]-=k*B[c]}
+  }
+  const h=B.map((b,i)=>b/A[i][i]);
+  return [h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7],1];
+}
+const fichePoint=(H,X,Y)=>{const d=H[6]*X+H[7]*Y+H[8];return [(H[0]*X+H[1]*Y+H[2])/d,(H[3]*X+H[4]*Y+H[5])/d]};
+const ficheGris=(img,x,y)=>{const i=Math.round(x),j=Math.round(y);
+  return i<0||j<0||i>=img.w||j>=img.h?255:img.g[j*img.w+i]};
+/* la part d'encre d'un rectangle de la feuille (en mm), comparée au fond du
+   papier relevé sur un anneau autour de lui */
+function ficheEncre(img,H,x,y,w,h,marge){
+  marge=marge===undefined?0.7:marge;
+  const pas=Math.max(0.12,Math.min(w,h)/14);
+  const fond=[];
+  for(let yy=y-1.4;yy<=y+h+1.4;yy+=0.35)for(let xx=x-1.4;xx<=x+w+1.4;xx+=0.35){
+    if(xx>x-0.5&&xx<x+w+0.5&&yy>y-0.5&&yy<y+h+0.5)continue;
+    const [px,py]=fichePoint(H,xx,yy);fond.push(ficheGris(img,px,py));
+  }
+  fond.sort((a,b)=>a-b);
+  const papier=fond.length?fond[Math.floor(fond.length*0.75)]:255;
+  let n=0,e=0;
+  for(let yy=y+marge;yy<=y+h-marge;yy+=pas)for(let xx=x+marge;xx<=x+w-marge;xx+=pas){
+    const [px,py]=fichePoint(H,xx,yy);n++;
+    if(ficheGris(img,px,py)<papier*0.62)e++;
+  }
+  return n?e/n:0;
+}
+/* les seize cellules du code de page */
+const ficheCodeMesure=(img,H)=>Array.from({length:16},(_,i)=>
+  ficheEncre(img,H,FICHE_CODE_X+i*FICHE_CODE_PAS,FICHE_CODE_Y,FICHE_CODE_C,FICHE_CODE_C,0.9)>0.5?1:0);
+/* repères, sens et code : {page, numero, H} ou {erreur} */
+function ficheLocaliser(img){
+  const {img:r,f}=ficheReduire(img,1100);
+  const T=ficheTaches(r,ficheMasqueSombre(r)).slice(0,9);
+  if(T.length<4)return {erreur:'Les quatre repères noirs des angles ne sont pas tous visibles.'};
+  /* les quatre taches qui forment le plus grand quadrilatère convexe, de
+     tailles voisines */
+  let mieux=null;
+  const n=T.length;
+  for(let a=0;a<n;a++)for(let b=a+1;b<n;b++)for(let c=b+1;c<n;c++)for(let d=c+1;d<n;d++){
+    const Q=[T[a],T[b],T[c],T[d]];
+    const tailles=Q.map(q=>q.n);
+    if(Math.max(...tailles)>2.6*Math.min(...tailles))continue;
+    const cx=Q.reduce((s,q)=>s+q.x,0)/4,cy=Q.reduce((s,q)=>s+q.y,0)/4;
+    const O=Q.slice().sort((p,q)=>Math.atan2(p.y-cy,p.x-cx)-Math.atan2(q.y-cy,q.x-cx));
+    let aire=0,signe=0,convexe=true;
+    for(let i=0;i<4;i++){
+      const p=O[i],q=O[(i+1)%4],s=O[(i+2)%4];
+      aire+=p.x*q.y-q.x*p.y;
+      const z=(q.x-p.x)*(s.y-q.y)-(q.y-p.y)*(s.x-q.x);
+      if(signe===0)signe=Math.sign(z);else if(Math.sign(z)!==signe)convexe=false;
+    }
+    aire=Math.abs(aire)/2;
+    if(convexe&&(!mieux||aire>mieux.aire))mieux={aire,O};
+  }
+  if(!mieux)return {erreur:'Les repères des angles n’ont pas été reconnus : photographiez la page entière, à plat.'};
+  const pts=mieux.O.map(q=>[q.x*f+(f-1)/2,q.y*f+(f-1)/2]);
+  /* l'ordre trouvé tourne dans le même sens que celui de la feuille ; on
+     essaie les quatre points de départ : un seul donne un code lisible */
+  for(let k=0;k<4;k++){
+    const dst=[0,1,2,3].map(i=>pts[(i+k)%4]);
+    const H=ficheHomographie(FICHE_CENTRES_REPERES,dst);
+    if(!H)continue;
+    const code=ficheCodeLire(ficheCodeMesure(img,H));
+    if(code)return {...code,H,rotation:k};
+  }
+  return {erreur:'Le code en bas de page est illisible : la photo est peut-être floue, ou ce n’est pas une fiche MAP.'};
+}
+/* les cases et les cadres d'une page, mesurés : coche, douteux, écrit */
+const FICHE_SEUIL_COCHE=0.12, FICHE_SEUIL_DOUTE=0.05, FICHE_SEUIL_ECRIT=0.006;
+function ficheMesurerPage(img,H,disposition,page){
+  const cases=disposition.cases.filter(c=>c.p===page).map(c=>{
+    const t=ficheEncre(img,H,c.x,c.y,FICHE_CASE,FICHE_CASE,0.65);
+    /* douteux : un peu d'encre sans vraie coche, ou une coche très légère */
+    return {...c,taux:Math.round(t*1000)/1000,coche:t>=FICHE_SEUIL_COCHE,douteux:t>=FICHE_SEUIL_DOUTE&&t<0.18};
+  });
+  const zones=disposition.zones.filter(z=>z.p===page).map(z=>{
+    const t=ficheEncre(img,H,z.x,z.y,z.w,z.h,0.9);
+    return {...z,encre:Math.round(t*1000)/1000,ecrit:t>=FICHE_SEUIL_ECRIT};
+  });
+  return {cases,zones};
+}
+/* un cadre redressé, pour le montrer à côté du champ : {w,h,g} */
+function ficheRedresser(img,H,x,y,w,h,pxmm){
+  pxmm=pxmm||8;
+  const W=Math.max(1,Math.round(w*pxmm)),Hh=Math.max(1,Math.round(h*pxmm)),g=new Uint8Array(W*Hh);
+  for(let j=0;j<Hh;j++)for(let i=0;i<W;i++){
+    const [px,py]=fichePoint(H,x+(i+0.5)/pxmm,y+(j+0.5)/pxmm);
+    g[j*W+i]=ficheGris(img,px,py);
+  }
+  return {w:W,h:Hh,g};
+}
+
+/* ---------- ce que la fiche propose de changer ----------
+   Pour chaque champ : ce qui est saisi, ce que la fiche dit, et s'il faut
+   trancher. Une case vide ne propose rien. Deux cases cochées pour un choix
+   unique, ou une coche douteuse, se tranchent à la main. Ce qui est écrit
+   dans un cadre n'est pas lu : il est à recopier. */
+function ficheAnalyser(fiche,mesures,m,data){
+  const champs={};MAP_FICHE.forEach(s=>s.f.forEach(f=>{champs[f.k]={...f,section:s.s}}));
+  const lues=new Set(mesures.map(x=>x.page));
+  const cases=mesures.flatMap(x=>x.cases), zones=mesures.flatMap(x=>x.zones);
+  const out=[];
+  Object.values(champs).forEach(f=>{
+    const C=cases.filter(c=>c.k===f.k), Z=zones.filter(z=>z.k===f.k);
+    if(!C.length&&!Z.length)return;
+    const coches=C.filter(c=>c.coche), douteux=C.filter(c=>c.douteux);
+    const ecrit=Z.filter(z=>z.ecrit);
+    if(!coches.length&&!douteux.length&&!ecrit.length)return;
+    const opts=Object.fromEntries(ficheOptions(f,m,data).map(o=>[String(o.v),o.l]));
+    const r={k:f.k,l:f.l,t:f.t,section:f.section,actuel:m[f.k],cases:C,zones:ecrit,douteux:douteux.length>0};
+    if(f.t==='m'){
+      r.propose=coches.map(c=>c.v);
+    }else if(coches.length===1){
+      r.propose=coches[0].v;
+    }else if(coches.length>1){
+      r.conflit=true;
+    }
+    r.libelles=C.map(c=>({v:c.v,l:opts[String(c.v)]||String(c.v),coche:c.coche,douteux:c.douteux}));
+    r.aRecopier=ecrit.length>0;
+    const vide=v=>v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length);
+    const pareil=r.propose!==undefined&&memeValeur(Array.isArray(r.propose)?r.propose.slice().sort():r.propose,
+      Array.isArray(m[f.k])?m[f.k].slice().sort():m[f.k]);
+    if(pareil&&!r.aRecopier&&!r.douteux)return;
+    r.actuelVide=vide(m[f.k]);
+    out.push(r);
+  });
+  /* les lignes de suivi écrites ou cochées */
+  const suivi=[];
+  for(let i=0;i<MAP_FICHE_LIGNES_SUIVI;i++){
+    const C=cases.filter(c=>c.k==='suivi'&&c.i===i), Z=zones.filter(z=>z.k==='suivi'&&z.i===i);
+    const coches=C.filter(c=>c.coche);
+    const ecrit=Z.filter(z=>z.ecrit);
+    if(!coches.length&&!ecrit.length)continue;
+    suivi.push({i,type:coches.length===1?coches[0].v:'',conflit:coches.length>1,zones:Z,
+      lotEcrit:ecrit.some(z=>z.r==='lot'),texteEcrit:ecrit.some(z=>z.r==='texte')});
+  }
+  const pagesManquantes=[];for(let p=0;p<fiche.nbPages;p++)if(!lues.has(p))pagesManquantes.push(p+1);
+  return {champs:out,suivi,pagesManquantes};
+}
+
+/* ---------- les images d'une fiche remplie ----------
+   Une photo (JPEG, PNG, HEIC si le navigateur sait l'ouvrir) ou un scan PDF
+   de plusieurs pages : chaque page devient une image en niveaux de gris. */
+const ficheGrisDepuisToile=cv=>{
+  const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data, g=new Uint8Array(cv.width*cv.height);
+  for(let i=0,j=0;i<g.length;i++,j+=4)g[i]=(d[j]*299+d[j+1]*587+d[j+2]*114)/1000;
+  return {w:cv.width,h:cv.height,g};
+};
+async function ficheImagesDepuisFichier(file){
+  const nom=(file&&file.name)||'fichier';
+  if(/pdf/i.test(file.type||'')||/\.pdf$/i.test(nom)){
+    if(typeof pdfjsLib==='undefined')throw new Error('Lecteur PDF non chargé — vérifiez votre connexion.');
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    const doc=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+    const out=[];
+    for(let i=1;i<=Math.min(doc.numPages,16);i++){
+      const page=await doc.getPage(i);
+      const vp=page.getViewport({scale:1800/page.getViewport({scale:1}).width});
+      const cv=document.createElement('canvas');cv.width=Math.round(vp.width);cv.height=Math.round(vp.height);
+      const ctx=cv.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
+      await page.render({canvasContext:ctx,viewport:vp}).promise;
+      out.push({nom:nom+' — page '+i,img:ficheGrisDepuisToile(cv)});
+    }
+    return out;
+  }
+  const d=await ptrDecoderImage(file);
+  if(!d){
+    let o=null;try{o=new Uint8Array(await new Response(file).arrayBuffer())}catch(e){}
+    if(ptrEstHeic(file,o))throw new Error('« '+nom+' » est une photo HEIC que ce navigateur ne sait pas lire : enregistrez-la en JPEG, ou réglez l’iPhone sur « Le plus compatible » (Réglages › Appareil photo › Formats).');
+    throw new Error('« '+nom+' » : image illisible.');
+  }
+  try{
+    const r=Math.min(1,2200/Math.max(d.w,d.h));
+    const cv=document.createElement('canvas');cv.width=Math.max(1,Math.round(d.w*r));cv.height=Math.max(1,Math.round(d.h*r));
+    const ctx=cv.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.drawImage(d.src,0,0,cv.width,cv.height);
+    return [{nom,img:ficheGrisDepuisToile(cv)}];
+  }finally{d.fin()}
+}
+/* un cadre redressé, en image affichable */
+const ficheImageUrl=r=>{
+  try{
+    const cv=document.createElement('canvas');cv.width=r.w;cv.height=r.h;
+    const ctx=cv.getContext('2d'), id=ctx.createImageData(r.w,r.h);
+    for(let i=0;i<r.g.length;i++){id.data[i*4]=id.data[i*4+1]=id.data[i*4+2]=r.g[i];id.data[i*4+3]=255}
+    ctx.putImageData(id,0,0);
+    return cv.toDataURL('image/png');
+  }catch(e){return ''}
+};
+/* la valeur d'un champ, en clair, pour l'écran de vérification */
+const ficheEnClair=(f,v,m,data)=>{
+  if(v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length))return '—';
+  return ficheValeurActuelle({...f},{...m,[f.k]:v},data)||String(v);
+};
+
+/* ---------- appliquer une vérification ----------
+   « choix » dit, champ par champ, ce qui a été décidé à l'écran :
+   {k:{action:'prendre'|'garder', valeur}} ; « suivi » les lignes retenues.
+   Renvoie le nouvel état de la MAP et l'entrée d'historique qui permet
+   d'annuler l'import. */
+function ficheAppliquer(m,choix,suivi,info){
+  const avant={},apres={};
+  Object.entries(choix||{}).forEach(([k,c])=>{
+    if(!c||c.action!=='prendre')return;
+    const v=c.valeur;
+    if(v===undefined||(typeof v==='string'&&!v.trim()))return;
+    if(memeValeur(v,m[k]))return;
+    avant[k]=m[k]===undefined?null:m[k];apres[k]=v;
+  });
+  const nouveaux=(suivi||[]).filter(s=>s&&String(s.texte||'').trim()).map(s=>({id:uid(),type:s.type||'attente',
+    lot:String(s.lot||'').trim(),texte:String(s.texte).trim(),statut:'ouvert',creeLe:today(),source:'Fiche n° '+info.numero}));
+  const entree={id:uid(),date:today(),fiche:info.numero,pages:info.pages||[],avant,apres,suivi:nouveaux.map(s=>s.id),photos:info.photos||[]};
+  return {map:{...m,...apres,suivi:[...(m.suivi||[]),...nouveaux],importsFiche:[...(m.importsFiche||[]),entree]},entree};
+}
+/* annuler un import : seules les valeurs encore telles que l'import les a
+   laissées reviennent en arrière — ce qui a été retouché depuis est gardé */
+function ficheAnnulerImport(m,id){
+  const e=(m.importsFiche||[]).find(x=>x.id===id);
+  if(!e)return {map:m,gardes:[]};
+  const out={...m},gardes=[];
+  Object.entries(e.apres).forEach(([k,v])=>{
+    /* undefined plutôt que delete : l'enregistrement fusionne avec la MAP en place */
+    if(memeValeur(m[k],v))out[k]=e.avant[k]===null?undefined:e.avant[k];
+    else gardes.push(k);
+  });
+  /* les points de suivi ajoutés partent, sauf ceux déjà soldés depuis */
+  const ids=new Set(e.suivi||[]);
+  out.suivi=(m.suivi||[]).filter(s=>{
+    if(!ids.has(s.id))return true;
+    if(s.statut==='fait'){gardes.push('suivi');return true}
+    return false;
+  });
+  out.importsFiche=(m.importsFiche||[]).map(x=>x.id===id?{...x,annuleLe:today()}:x);
+  return {map:out,gardes};
+}
+
+function ImportFicheMap({data,ch,m,set}){
+  const [lecture,setLecture]=useState(null);
+  const [choix,setChoix]=useState({});
+  const [suivi,setSuivi]=useState([]);
+  const [fait,setFait]=useState(null);
+  const F=m.fiches||[];
+  const champsFiche={};MAP_FICHE.forEach(s=>s.f.forEach(f=>{champsFiche[f.k]=f}));
+
+  const lire=async files=>{
+    setFait(null);setLecture({etat:'travail',msg:'Lecture…',pages:[],erreurs:[]});
+    const pages=[],erreurs=[];
+    for(const file of files){
+      let images=[];
+      try{images=await ficheImagesDepuisFichier(file)}catch(e){erreurs.push(String(e.message||e));continue}
+      for(const {nom,img} of images){
+        setLecture({etat:'travail',msg:'Lecture de '+nom+'…',pages,erreurs});
+        await new Promise(r=>setTimeout(r,0));
+        const L=ficheLocaliser(img);
+        if(L.erreur){erreurs.push(nom+' : '+L.erreur);continue}
+        const fiche=F.slice().reverse().find(f=>(+f.numero%64)===L.numero);
+        if(!fiche){erreurs.push(nom+' : page d’une fiche n° '+L.numero+' qui n’a pas été sortie pour ce chantier.');continue}
+        const mes=ficheMesurerPage(img,L.H,fiche,L.page);
+        mes.zones=mes.zones.map(z=>z.ecrit?{...z,image:ficheImageUrl(ficheRedresser(img,L.H,z.x,z.y,z.w,z.h,7))}:z);
+        pages.push({nom,numero:fiche.numero,fiche,page:L.page,...mes});
+      }
+    }
+    /* une seule fiche à la fois : celle dont on a le plus de pages */
+    const parFiche={};pages.forEach(p=>{parFiche[p.numero]=(parFiche[p.numero]||0)+1});
+    const numero=+Object.keys(parFiche).sort((a,b)=>parFiche[b]-parFiche[a])[0];
+    const retenues=[],vues={};
+    pages.filter(p=>p.numero===numero).forEach(p=>{if(vues[p.page]){erreurs.push(p.nom+' : page '+(p.page+1)+' déjà lue, ignorée.');return}vues[p.page]=1;retenues.push(p)});
+    pages.filter(p=>p.numero!==numero).forEach(p=>erreurs.push(p.nom+' : page de la fiche n° '+p.numero+', importez-la séparément.'));
+    if(!retenues.length){setLecture({etat:'erreur',erreurs});return}
+    const fiche=retenues[0].fiche;
+    const A=ficheAnalyser(fiche,retenues,m,data);
+    /* par défaut : un champ vide prend ce que dit la fiche ; un champ déjà
+       saisi garde sa valeur tant qu'on n'a pas choisi de la remplacer */
+    const c={};
+    A.champs.forEach(r=>{
+      if(r.conflit)c[r.k]={action:'garder'};
+      else if(r.propose!==undefined)c[r.k]={action:r.actuelVide&&!r.douteux?'prendre':'garder',valeur:r.propose};
+      else c[r.k]={action:'garder',valeur:''};
+    });
+    setChoix(c);
+    setSuivi(A.suivi.map(s=>({...s,lot:'',texte:''})));
+    setLecture({etat:'pret',A,fiche,pages:retenues,erreurs,files});
+  };
+
+  const annuler=id=>{
+    const {map,gardes}=ficheAnnulerImport(m,id);
+    set(map);
+    setFait({annule:true,gardes});
+  };
+
+  const derniers=(m.importsFiche||[]).filter(x=>!x.annuleLe);
+  const dernier=derniers[derniers.length-1];
+  const choisir=(k,p)=>setChoix({...choix,[k]:{...(choix[k]||{}),...p}});
+
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="b sm" style={{color:NAVY}}>Relire une fiche remplie</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Photos (une par page, à plat, les quatre repères visibles) ou scan PDF. Les cases sont lues sur cet appareil ;
+      l’écriture est montrée à côté du champ, à recopier. Rien n’est enregistré avant votre vérification.
+    </div>
+    {!F.length&&<div className="xs" style={{marginTop:8,color:AMBER}}>Sortez d’abord une fiche (ci-dessus) : c’est elle que l’application saura relire.</div>}
+    {F.length>0&&(!lecture||lecture.etat!=='pret')&&<label className="btn acc s" style={{marginTop:8,display:'inline-block'}}>
+      {lecture&&lecture.etat==='travail'?'Lecture…':'Importer les photos ou le scan'}
+      <input type="file" accept="image/*,application/pdf,.pdf" multiple style={{display:'none'}} disabled={lecture&&lecture.etat==='travail'}
+        onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)lire(fs)}}/></label>}
+    {lecture&&lecture.etat==='travail'&&<div className="xs mut" style={{marginTop:6}}>{lecture.msg}</div>}
+    {lecture&&lecture.erreurs&&lecture.erreurs.length>0&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
+      {lecture.erreurs.map((x,i)=><div key={i}>{x}</div>)}</div>}
+    {fait&&!fait.annule&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+      Import enregistré : {fait.n} champ{fait.n>1?'s':''} mis à jour, {fait.s} point{fait.s>1?'s':''} de suivi ajouté{fait.s>1?'s':''}.
+      {fait.manquantes&&fait.manquantes.length>0&&<span style={{color:AMBER}}> Pages non importées : {fait.manquantes.join(', ')} — leurs champs n’ont pas changé.</span>}
+    </div>}
+    {fait&&fait.annule&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>Import annulé.
+      {fait.gardes.length>0&&<span> Gardés, car retouchés depuis : {fait.gardes.map(k=>(champsFiche[k]||{}).l||k).join(', ')}.</span>}</div>}
+    {dernier&&!lecture&&<div className="xs mut" style={{marginTop:6}}>Dernier import : fiche n° {dernier.fiche}, le {fd(dernier.date)} —
+      {' '}<button className="xs" style={{color:TERRA,background:'none',border:'none',padding:0}}
+        onClick={()=>{if(confirm('Annuler cet import ? Les champs qu’il a changés reprennent leur valeur d’avant, sauf ceux retouchés depuis.'))annuler(dernier.id)}}>annuler cet import</button></div>}
+
+    {lecture&&lecture.etat==='pret'&&(()=>{
+      const {A,fiche,pages}=lecture;
+      const aTrancher=A.champs.filter(r=>r.conflit||r.douteux||(!r.actuelVide&&(choix[r.k]||{}).action!=='prendre')).length;
+      return <div style={{marginTop:10}}>
+        <div className="xs" style={{lineHeight:1.5}}>Fiche n° {fiche.numero} ({fiche.mode==='preremplie'?'préremplie':'vierge'}, du {fd(fiche.date)}) —
+          page{pages.length>1?'s':''} {pages.map(p=>p.page+1).sort((a,b)=>a-b).join(', ')} lue{pages.length>1?'s':''} sur {fiche.nbPages}.
+          {A.pagesManquantes.length>0&&<span style={{color:AMBER}}> Pages non fournies : {A.pagesManquantes.join(', ')} (leurs champs ne changeront pas).</span>}</div>
+        {!A.champs.length&&!A.suivi.length&&<div className="xs mut" style={{marginTop:8}}>Aucune case cochée ni aucun cadre écrit sur ces pages : rien à changer.</div>}
+        {A.champs.length>0&&<div className="xs" style={{marginTop:6,color:aTrancher?AMBER:MUTED}}>
+          {A.champs.length} champ{A.champs.length>1?'s':''} lu{A.champs.length>1?'s':''}{aTrancher?', dont '+aTrancher+' à trancher':''}. Un champ déjà rempli garde sa valeur tant que vous ne choisissez pas « Prendre la fiche ».</div>}
+        {A.champs.map(r=>{
+          const f=champsFiche[r.k], c=choix[r.k]||{};
+          const bord=r.conflit||r.douteux?TERRA:!r.actuelVide&&c.action!=='prendre'?AMBER:GREEN;
+          return <div key={r.k} className="card" style={{padding:10,marginTop:8,borderLeft:'3px solid '+bord}}>
+            <div className="xs mut">{r.section}</div>
+            <div className="sm b" style={{color:NAVY}}>{r.l}</div>
+            <div className="xs" style={{marginTop:4}}>Actuel : <b>{ficheEnClair(f,r.actuel,m,data)}</b></div>
+            {r.libelles&&r.libelles.length>0&&<div className="xs" style={{marginTop:4,lineHeight:1.6}}>Sur la fiche :{' '}
+              {r.libelles.map((o,i)=><span key={i} style={{marginRight:10,color:o.coche?INK:MUTED,fontWeight:o.coche?700:400}}>
+                {o.coche?'☑':o.douteux?'◩':'☐'} {o.l}</span>)}</div>}
+            {(r.conflit||r.douteux)&&<div className="xs" style={{color:TERRA,marginTop:4}}>
+              {r.conflit?'Plusieurs cases cochées pour un choix unique : choisissez.':'Une coche est peu marquée : vérifiez.'}</div>}
+            {(r.conflit||r.douteux)&&r.t!=='m'&&<select className="in" style={{marginTop:6}} value={c.action==='prendre'?String(c.valeur):''}
+              onChange={e=>{const o=r.libelles.find(x=>String(x.v)===e.target.value);
+                choisir(r.k,o?{action:'prendre',valeur:o.v}:{action:'garder'})}}>
+              <option value="">Ne rien changer</option>
+              {r.libelles.map((o,i)=><option key={i} value={String(o.v)}>{o.l}</option>)}</select>}
+            {r.aRecopier&&r.zones.map((z,i)=><div key={i} style={{marginTop:6}}>
+              {z.image&&<img src={z.image} alt="" style={{width:'100%',maxWidth:560,border:'1px solid '+RULE,display:'block'}}/>}
+              {z.r==='autre'
+                ?<div className="xs mut" style={{marginTop:4}}>Modèle écrit à la main : recopiez-le, il deviendra un point « en attente » du suivi.</div>
+                :<input className="in" style={{marginTop:4}} placeholder="Recopiez ce qui est écrit" value={c.valeur||''}
+                  onChange={e=>choisir(r.k,{valeur:e.target.value,action:e.target.value.trim()&&r.actuelVide?'prendre':c.action||'garder'})}/>}
+              {z.r==='autre'&&<input className="in" style={{marginTop:4}} placeholder="Modèle écrit" value={c.autre||''}
+                onChange={e=>choisir(r.k,{autre:e.target.value})}/>}
+            </div>)}
+            {!(r.conflit||(r.douteux&&r.t!=='m'))&&(r.propose!==undefined||(r.aRecopier&&r.zones.some(z=>z.r!=='autre')))&&
+              <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
+                <button className={'btn s '+(c.action!=='prendre'?'':'gh')} onClick={()=>choisir(r.k,{action:'garder'})}>
+                  {r.actuelVide?'Laisser vide':'Garder l’actuel'}</button>
+                <button className={'btn s '+(c.action==='prendre'?'acc':'gh')} onClick={()=>choisir(r.k,{action:'prendre'})}
+                  disabled={c.valeur===undefined||c.valeur===''}>
+                  Prendre la fiche{c.valeur!==undefined&&c.valeur!==''?' : '+ficheEnClair(f,c.valeur,m,data):''}</button>
+              </div>}
+          </div>;
+        })}
+        {suivi.length>0&&<div style={{marginTop:12}}>
+          <div className="xs b" style={{color:NAVY}}>SUIVI — {suivi.length} ligne{suivi.length>1?'s':''} remplie{suivi.length>1?'s':''} sur la fiche</div>
+          {suivi.map((s,i)=><div key={s.i} className="card" style={{padding:10,marginTop:6}}>
+            <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+              {MAP_SUIVI_TYPES.map(t=><button key={t.id} className={'btn s '+(s.type===t.id?'':'gh')} style={{fontSize:11,padding:'5px 9px'}}
+                onClick={()=>setSuivi(suivi.map((x,j)=>j===i?{...x,type:t.id}:x))}>{t.l}</button>)}
+            </div>
+            {s.conflit&&<div className="xs" style={{color:TERRA,marginTop:4}}>Plusieurs natures cochées : choisissez.</div>}
+            {s.zones.filter(z=>z.ecrit&&z.image).map((z,j)=><img key={j} src={z.image} alt="" style={{width:'100%',maxWidth:560,marginTop:6,border:'1px solid '+RULE,display:'block'}}/>)}
+            <div className="g2" style={{marginTop:6}}>
+              <input className="in" placeholder="Lot" value={s.lot} onChange={e=>setSuivi(suivi.map((x,j)=>j===i?{...x,lot:e.target.value}:x))}/>
+              <input className="in" placeholder="Recopiez le point" value={s.texte} onChange={e=>setSuivi(suivi.map((x,j)=>j===i?{...x,texte:e.target.value}:x))}/>
+            </div>
+          </div>)}
+          <div className="xs mut" style={{marginTop:4}}>Seules les lignes recopiées sont ajoutées au suivi.</div>
+        </div>}
+        <div className="row" style={{gap:8,marginTop:12,flexWrap:'wrap'}}>
+          <button className="btn acc" onClick={()=>{
+            /* un modèle écrit à la main devient un point « en attente » */
+            const autres=A.champs.filter(r=>(choix[r.k]||{}).autre&&choix[r.k].autre.trim()).map(r=>({type:'attente',
+              lot:(champsFiche[r.k]||{}).o||'',texte:r.l+' — modèle demandé : '+choix[r.k].autre.trim()}));
+            enregistrer([...suivi,...autres])}}>Enregistrer</button>
+          <button className="btn gh" onClick={()=>{setLecture(null);setChoix({});setSuivi([])}}>Abandonner</button>
+        </div>
+      </div>;
+    })()}
+  </div>;
+  /* les photos de la fiche vont dans Drive › MAP, comme pièce du dossier ;
+     puis les choix faits à l'écran, et eux seuls, sont appliqués */
+  async function enregistrer(lignes){
+    const {A,fiche,pages,files}=lecture;
+    const photos=[];
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,'MAP');
+      for(const f of (files||[]))try{photos.push((await uploadToDrive(f,folderId)).webViewLink||'')}catch(e){}
+    }catch(e){/* sans Drive, l'import se fait quand même */}
+    const {map,entree}=ficheAppliquer(m,choix,lignes.filter(x=>String(x.texte||'').trim()),{numero:fiche.numero,pages:pages.map(p=>p.page+1),photos});
+    set(map);
+    setFait({n:Object.keys(entree.apres).length,s:entree.suivi.length,id:entree.id,manquantes:A.pagesManquantes});
+    setLecture(null);
+  }
+}
+
+/* ---------- le suivi de la MAP ----------
+   Ce qui a été décidé au rendez-vous, ce qui reste à chiffrer, ce qui attend
+   une réponse : une liste courte, par lot, qu'on solde au fil de l'eau. */
+function SuiviMap({m,set}){
+  const S=m.suivi||[];
+  const [f,setF]=useState(null);
+  const neuf=()=>({id:uid(),type:'decision',lot:'',texte:'',statut:'ouvert',creeLe:today(),source:''});
+  const ok=()=>{if(!f.texte.trim())return;
+    set({suivi:S.some(x=>x.id===f.id)?S.map(x=>x.id===f.id?{...f,texte:f.texte.trim()}:x):[...S,{...f,texte:f.texte.trim()}]});setF(null)};
+  const tog=(id,e)=>{e.stopPropagation();set({suivi:S.map(x=>x.id===id?{...x,statut:x.statut==='fait'?'ouvert':'fait',faitLe:x.statut==='fait'?'':today()}:x)})};
+  const couleur={decision:NAVY,chiffrer:AMBER,attente:TERRA};
+  const ouverts=S.filter(x=>x.statut!=='fait');
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+AMBER}}>
+    <div className="sp">
+      <span className="b sm" style={{color:NAVY}}>Suivi de la MAP</span>
+      <button className="btn acc s" onClick={()=>setF(neuf())}>+ Point</button>
+    </div>
+    <div className="xs mut" style={{marginTop:3}}>{ouverts.length} point{ouverts.length>1?'s':''} ouvert{ouverts.length>1?'s':''} — décisions, modifications à chiffrer, points en attente.</div>
+    {f&&<div className="card" style={{marginTop:8,padding:10}}>
+      <div className="row" style={{gap:6,flexWrap:'wrap',marginBottom:6}}>
+        {MAP_SUIVI_TYPES.map(t=><button key={t.id} className={'btn s '+(f.type===t.id?'':'gh')} style={{fontSize:11,padding:'5px 9px'}} onClick={()=>setF({...f,type:t.id})}>{t.l}</button>)}
+      </div>
+      <Fld label="LOT"><input className="in" value={f.lot} onChange={e=>setF({...f,lot:e.target.value})}/></Fld>
+      <Fld label="POINT"><textarea className="in" rows="2" value={f.texte} onChange={e=>setF({...f,texte:e.target.value})}/></Fld>
+      <Acts onSave={ok} onCancel={()=>setF(null)} onDel={S.some(x=>x.id===f.id)?()=>{set({suivi:S.filter(x=>x.id!==f.id)});setF(null)}:null}/>
+    </div>}
+    {S.slice().sort((a,b)=>(a.statut==='fait')-(b.statut==='fait')).map(x=>{
+      const t=MAP_SUIVI_TYPES.find(y=>y.id===x.type)||MAP_SUIVI_TYPES[0];
+      return <div key={x.id} className="row" style={{gap:8,alignItems:'flex-start',padding:'8px 0',borderTop:'1px solid '+RULE,cursor:'pointer'}} onClick={()=>setF({...x})}>
+        <button className="chk" onClick={e=>tog(x.id,e)} style={{background:x.statut==='fait'?GREEN:'#fff',borderColor:x.statut==='fait'?GREEN:RULE,flex:'0 0 auto'}}>{x.statut==='fait'?'✓':''}</button>
+        <div style={{flex:1,minWidth:0}} className="xs">
+          <span className="b" style={{color:couleur[t.id]}}>{t.l}</span>{x.lot?<span className="mut"> · {x.lot}</span>:null}
+          <div style={{color:x.statut==='fait'?MUTED:INK,textDecoration:x.statut==='fait'?'line-through':'none',marginTop:2}}>{x.texte}</div>
+          {x.source&&<div className="mut">{x.source}</div>}
+        </div>
+      </div>;
+    })}
+  </div>;
+}
+
 const ficheMapNom=(ch,f)=>'Fiche MAP n°'+f.numero+' — '+(ch.nom||'chantier')+' — '+(f.mode==='preremplie'?'préremplie':'vierge')+'.pdf';
 
 /* la fiche dans l'onglet MAP : on la sort vierge ou préremplie ; sa
@@ -12743,6 +13270,8 @@ function MAP({data,ch,up}){
       {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
     </div>
     <FicheMapPapier data={data} ch={ch} m={m} set={set}/>
+    <ImportFicheMap data={data} ch={ch} m={m} set={set}/>
+    <SuiviMap m={m} set={set}/>
     <Fld label="MAP SIGNÉE (PDF)">
       <ImportFichier ch={ch} dossier="MAP" lien={m.lienSignee} onLien={v=>set({lienSignee:v})} label="Importer la MAP signée"/>
     </Fld>
