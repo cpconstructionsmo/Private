@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · Receveurs : catalogue de référence par variante, références sourcées, codes Ébat Pro vérifiés ou non, import fournisseur';
+const VERSION='2026-09-29 · Plan électrique : pièces, échelle, base de prestations, implantation proposée, écarts et suppléments, indice';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -11052,11 +11052,333 @@ const horsApplication=el=>{
   return el;
 };
 
-function PlanElectrique({ch,up,onFermer}){
+/* ---------- plan électrique : pièces, base de prestations, écarts ----------
+   Le dessin ne change pas (symboles, couleurs, légende, cartouche). Autour
+   de lui : les pièces tracées sur le fond, l'échelle étalonnée sur une cote
+   connue, la base de prestations du dossier, une proposition d'implantation,
+   le comparatif prévu / implanté et les suppléments.
+   - La base vient du marché signé ou du programme technique quand on la
+     saisit d'après eux ; à défaut, un modèle CP sert de proposition, jamais
+     contractuelle d'office.
+   - Aucune règle normative n'est inscrite par l'application : une exigence
+     réglementaire se saisit avec sa source et sa date.
+   - Sans échelle étalonnée, rien n'est placé « précisément » : les
+     équipements proposés vont dans une liste « à placer ».
+   - Un équipement verrouillé ou posé à la main n'est jamais retiré par une
+     génération ; celle-ci présente ses changements avant de les appliquer.
+   - Postes (emplacements) et mécanismes (une prise double en compte deux)
+     sont comptés séparément ; le prix suit l'unité du tarif. */
+const ELEC_PIECES_TYPES=['Séjour','Cuisine','Chambre','Salle de bains','Salle d’eau','WC','Entrée','Dégagement','Cellier / buanderie','Garage','Bureau','Extérieur'];
+/* le modèle CP : une proposition de départ, pièce par pièce, modifiable */
+const ELEC_MODELE_CP={
+  'Séjour':[['pc',5],['rj45',1],['tv',1],['pointc',2],['vv',2],['th',1]],
+  'Cuisine':[['pc',6],['pc20',1],['pc32',1],['lv',1],['pointc',1],['sa',1]],
+  'Chambre':[['pc',3],['rj45',1],['pointc',1],['sa',1]],
+  'Salle de bains':[['pc',1],['pointc',1],['applique',1],['sa',1],['secheserv',1]],
+  'Salle d’eau':[['pc',1],['pointc',1],['applique',1],['sa',1],['secheserv',1]],
+  'WC':[['pointc',1],['sa',1]],
+  'Entrée':[['pc',1],['pointc',1],['vv',2],['tab',1]],
+  'Dégagement':[['pc',1],['pointc',1],['vv',2],['fumee',1]],
+  'Cellier / buanderie':[['pc',2],['ll',1],['sl',1],['pointc',1],['sa',1]],
+  'Garage':[['pc',1],['pointc',1],['sa',1]],
+  'Bureau':[['pc',4],['rj45',1],['pointc',1],['sa',1]],
+  'Extérieur':[['appext',1]],
+};
+const ELEC_STATUTS=[{id:'prevu',l:'Prévu'},{id:'a_confirmer',l:'À confirmer'},{id:'client',l:'Demande client'},{id:'valide',l:'Validé'}];
+const ELEC_NATURES=[{id:'prevu',l:'Prestation prévue'},{id:'reglementaire',l:'Exigence réglementaire'},{id:'client',l:'Préférence client'}];
+const elecUnite=type=>{const d=elecSymbole(type);return d&&d.g==='Prises'?'mecanisme':'poste'};
+const elecMecanismes=s=>Math.max(1,+(s&&s.mecanismes)||1);
+/* la pièce d'un équipement : celle qu'on lui a donnée, sinon celle dont le
+   rectangle le contient */
+const elecPieceDe=(s,pieces)=>{
+  if(s.piece&&(pieces||[]).some(p=>p.id===s.piece))return s.piece;
+  if(s.x==null||s.y==null)return '';
+  const p=(pieces||[]).find(p=>s.x>=Math.min(p.x0,p.x1)&&s.x<=Math.max(p.x0,p.x1)&&s.y>=Math.min(p.y0,p.y1)&&s.y<=Math.max(p.y0,p.y1));
+  return p?p.id:'';
+};
+/* l'échelle : valable seulement pour le fond sur lequel elle a été prise */
+const elecEchelle=(plan)=>{
+  const c=plan&&plan.calib;
+  if(!c||!(+c.metres>0))return {ok:false,raison:'non étalonné'};
+  if(c.fond!==plan.fond)return {ok:false,raison:'le fond a changé depuis l’étalonnage'};
+  const H=1000*(plan.ratio||0.707);
+  const d=Math.hypot((c.x2-c.x1)*1000,(c.y2-c.y1)*H);
+  if(!(d>0))return {ok:false,raison:'étalonnage invalide'};
+  return {ok:true,mParUnite:c.metres/d,le:c.le};
+};
+/* une base tirée du modèle CP, pour les pièces tracées */
+const elecBaseModele=pieces=>(pieces||[]).flatMap(p=>(ELEC_MODELE_CP[p.type]||[]).map(([type,qte])=>
+  ({id:'b_'+p.id+'_'+type,piece:p.id,type,qte,unite:elecUnite(type),nature:'prevu'})));
+/* le comparatif, pièce par pièce et type par type */
+function elecComparatif(plan,base){
+  const pieces=(plan&&plan.pieces)||[], S=((plan&&plan.symboles)||[]).filter(s=>!s.aPlacer);
+  const lignes={};
+  const cle=(p,t,n)=>p+'|'+t+'|'+n;
+  ((base&&base.lignes)||[]).forEach(b=>{const k=cle(b.piece||'',b.type,b.nature||'prevu');
+    lignes[k]=lignes[k]||{piece:b.piece||'',type:b.type,nature:b.nature||'prevu',unite:b.unite||elecUnite(b.type),prevu:0,implante:0};
+    lignes[k].prevu+=+b.qte||0});
+  S.forEach(s=>{
+    const p=elecPieceDe(s,pieces);
+    const cible=Object.values(lignes).find(l=>l.piece===p&&l.type===s.type&&l.nature==='prevu')
+      ||Object.values(lignes).find(l=>l.piece===p&&l.type===s.type);
+    const l=cible||(lignes[cle(p,s.type,'prevu')]={piece:p,type:s.type,nature:'prevu',unite:elecUnite(s.type),prevu:0,implante:0});
+    l.implante+=l.unite==='mecanisme'?elecMecanismes(s):1;
+  });
+  const nom=id=>(pieces.find(p=>p.id===id)||{}).nom||'Hors pièce';
+  return Object.values(lignes).map(l=>({...l,pieceNom:nom(l.piece),libelle:(elecSymbole(l.type)||{}).l||l.type,ecart:l.implante-l.prevu}))
+    .sort((a,b)=>a.pieceNom.localeCompare(b.pieceNom,'fr')||a.libelle.localeCompare(b.libelle,'fr'));
+}
+/* le prix unitaire TTC d'un type : tarif du bordereau lié (lu à jour) ou
+   saisi avec sa source ; inconnu s'il n'y en a pas */
+function elecPrixTTC(t,data){
+  if(!t)return null;
+  let ht=null;
+  if(t.bordereauId&&t.code){const b=((data&&data.bordereaux)||[]).find(x=>x.id===t.bordereauId);
+    const a=b&&(b.articles||[]).find(x=>x.code===t.code);if(a&&typeof a.pu==='number')ht=a.pu}
+  if(ht===null&&t.puHT!==''&&t.puHT!=null&&isFinite(+t.puHT))ht=+t.puHT;
+  if(ht===null)return null;
+  const tva=t.tva===''||t.tva==null?20:+t.tva;
+  return Math.round(ht*(1+tva/100)*100)/100;
+}
+/* les suppléments : l'écart net par type (une prise déplacée d'une pièce à
+   l'autre ne coûte rien), au prix du tarif ; une suppression ne vaut
+   moins-value que si le marché la prévoit ; une exigence réglementaire
+   manquante est un écart à résoudre, pas une option */
+function elecSupplements(comp,tarifs,data){
+  const parType={};
+  comp.filter(l=>l.nature!=='reglementaire').forEach(l=>{const t=parType[l.type]=parType[l.type]||{type:l.type,libelle:l.libelle,unite:l.unite,prevu:0,implante:0};
+    t.prevu+=l.prevu;t.implante+=l.implante});
+  const lignes=Object.values(parType).map(t=>{
+    const ecart=t.implante-t.prevu, tar=(tarifs||{})[t.type]||null, pu=elecPrixTTC(tar,data);
+    let incidence=null,etat='';
+    if(ecart===0){incidence=0;etat='conforme à la base'}
+    else if(ecart>0){if(pu===null)etat='à chiffrer';else{incidence=Math.round(ecart*pu*100)/100;etat='supplément'}}
+    else{if(!(tar&&tar.moinsValue)){incidence=0;etat='moins-value non prévue au marché'}
+      else if(pu===null)etat='moins-value à chiffrer';else{incidence=Math.round(ecart*pu*100)/100;etat='moins-value'}}
+    return {...t,ecart,pu,incidence,etat,source:tar?(tar.bordereauId?'Bordereau':'Saisie')+(tar.source?' — '+tar.source:''):''};
+  }).sort((a,b)=>a.libelle.localeCompare(b.libelle,'fr'));
+  const connues=lignes.filter(l=>l.incidence!==null);
+  const reglementaires=comp.filter(l=>l.nature==='reglementaire'&&l.implante<l.prevu);
+  return {lignes,totalTTC:Math.round(connues.reduce((s,l)=>s+l.incidence,0)*100)/100,
+    aChiffrer:lignes.filter(l=>l.incidence===null),reglementaires};
+}
+/* proposer l'implantation de la base : ce qui manque est ajouté, ce qui est
+   en trop n'est retiré que s'il a été généré et n'est pas verrouillé */
+function elecGenerer(plan,base){
+  const pieces=(plan&&plan.pieces)||[], S=(plan&&plan.symboles)||[];
+  const ech=elecEchelle(plan);
+  const ajouts=[],retraits=[];
+  const comp=elecComparatif({...plan,symboles:S.filter(s=>!s.aPlacer)},base);
+  const aPlacerDeja=S.filter(s=>s.aPlacer);
+  comp.filter(l=>l.nature!=='reglementaire'||true).forEach(l=>{
+    const p=pieces.find(x=>x.id===l.piece);
+    const enAttente=aPlacerDeja.filter(s=>s.piece===l.piece&&s.type===l.type).length;
+    let manque=l.prevu-l.implante-enAttente*(l.unite==='mecanisme'?1:1);
+    if(manque>0&&p){
+      for(let i=0;i<manque;i++){
+        const s={id:uid(),type:l.type,h:(elecSymbole(l.type)||{}).h,note:'',piece:p.id,statut:'a_confirmer',source:'genere',
+          ...(p.type==='Cuisine'?{note:'Selon plan du cuisiniste'}:{})};
+        if(ech.ok){
+          /* le long des murs, à l'intérieur de la pièce, régulièrement répartis */
+          const x0=Math.min(p.x0,p.x1),x1=Math.max(p.x0,p.x1),y0=Math.min(p.y0,p.y1),y1=Math.max(p.y0,p.y1);
+          const ix=(x1-x0)*0.08,iy=(y1-y0)*0.08, n=manque, k=i+l.implante+enAttente;
+          const per=2*((x1-x0-2*ix)+(y1-y0-2*iy)), d=((k+0.5)/(Math.max(n,1)+l.implante+enAttente))*per;
+          const w=x1-x0-2*ix,h=y1-y0-2*iy;
+          let x,y;
+          if(d<w){x=x0+ix+d;y=y0+iy}else if(d<w+h){x=x1-ix;y=y0+iy+(d-w)}
+          else if(d<2*w+h){x=x1-ix-(d-w-h);y=y1-iy}else{x=x0+ix;y=y1-iy-(d-2*w-h)}
+          /* les points de centre : sur l'axe de la pièce, répartis, jamais superposés */
+          if(l.type==='pointc'){const tot=l.prevu;x=x0+(x1-x0)*(k+1)/(tot+1);y=(y0+y1)/2}
+          ajouts.push({...s,x,y});
+        }else ajouts.push({...s,x:null,y:null,aPlacer:true});
+      }
+    }
+    if(l.ecart>0){
+      const trop=S.filter(s=>!s.aPlacer&&s.type===l.type&&elecPieceDe(s,pieces)===l.piece&&s.source==='genere'&&!s.verrou);
+      trop.slice(0,l.ecart).forEach(s=>retraits.push(s.id));
+    }
+  });
+  return {ajouts,retraits,echelle:ech};
+}
+/* l'indice du plan : une lettre de plus dès que le dessin a changé depuis
+   la dernière sortie ; une confirmation client ne vaut que pour son indice */
+const elecEmpreinte=plan=>ptrEmpreinte(JSON.stringify([(plan.symboles||[]).map(s=>[s.id,s.type,s.x,s.y,s.h,s.rot||0,s.mecanismes||1]),
+  (plan.cables||[]).map(c=>[c.de,c.vers]),plan.fond]));
+const elecIndiceSuivant=i=>!i?'A':String.fromCharCode(Math.min(90,i.charCodeAt(0)+1));
+function elecIndicePourSortie(plan){
+  const e=elecEmpreinte(plan);
+  if(plan.indice&&plan.exportEmpreinte===e)return {indice:plan.indice,change:false,empreinte:e};
+  return {indice:elecIndiceSuivant(plan.indice),change:true,empreinte:e};
+}
+const elecConfirmationValable=pe=>!!(pe&&pe.etudeConfirmeeLe)&&(!pe.confirmeIndice||!pe.plan||pe.confirmeIndice===pe.plan.indice);
+
+/* l'assistant, au-dessus du plan : une étape à la fois */
+function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
+  const d=ch.docs||{}, pe=d.plan_elec||{};
+  const base=pe.base||{source:'',lignes:[],validee:false};
+  const majBase=b=>up({docs:{...d,plan_elec:{...pe,plan,base:{...base,...b}}}});
+  const tarifs=pe.tarifs||{};
+  const majTarifs=t=>up({docs:{...d,plan_elec:{...pe,plan,tarifs:t}}});
+  const [etape,setEtape]=useState('');
+  const [propo,setPropo]=useState(null);
+  const pieces=plan.pieces||[];
+  const ech=elecEchelle(plan);
+  const comp=elecComparatif(plan,base);
+  const sup=elecSupplements(comp,tarifs,data);
+  const aPlacer=(plan.symboles||[]).filter(s=>s.aPlacer);
+  const bordElec=(data.bordereaux||[]).filter(b=>/elec/i.test(deaccent((b.nom||'')+' '+(b.corps||''))));
+  const E=[['preparer','Préparer le plan'],['generer','Générer la base'],['verifier','Vérifier les prestations'],['supplements','Voir les suppléments'],['exporter','Exporter']];
+  const nomPiece=id=>(pieces.find(p=>p.id===id)||{}).nom||'Hors pièce';
+  return <div className="card" style={{padding:10,marginBottom:10,borderLeft:'3px solid '+ELEC_BLEU}}>
+    <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+      {E.map(([id,l])=><button key={id} type="button" className={'btn s '+(etape===id?'':'gh')} onClick={()=>setEtape(etape===id?'':id)}>{l}</button>)}
+    </div>
+    <div className="row xs" style={{gap:6,flexWrap:'wrap',marginTop:6}}>
+      <span className="pill" style={{background:ech.ok?'#E3F0E8':'#FBF1DC',color:ech.ok?GREEN:AMBER}}>{ech.ok?'Échelle vérifiée':'Non à l’échelle : '+ech.raison}</span>
+      <span className="pill" style={{background:'#EEF1F4',color:NAVY}}>{pieces.length} pièce{pieces.length>1?'s':''}</span>
+      <span className="pill" style={{background:'#EEF1F4',color:NAVY}}>Base : {base.source==='modele_cp'?'modèle CP (proposition)':base.source==='marche'?'marché signé':base.source==='ptr'?'programme technique':'non définie'}{base.validee?' · validée':''}</span>
+      {aPlacer.length>0&&<span className="pill" style={{background:'#FBF1DC',color:AMBER}}>{aPlacer.length} à placer</span>}
+      {plan.indice&&<span className="pill" style={{background:'#F3F1EC',color:MUTED}}>Indice {plan.indice}</span>}
+    </div>
+
+    {etape==='preparer'&&<div style={{marginTop:10}}>
+      <div className="g2">
+        <Fld label="ÉTAGE"><input className="in" value={plan.etage||''} placeholder="RDC, R+1…" onChange={e=>maj({etage:e.target.value})}/></Fld>
+        <Fld label="ÉTALONNAGE">
+          <button type="button" className={'btn s '+(outil==='@calib'?'':'gh')} onClick={()=>{changerOutil(outil==='@calib'?'':'@calib');setTrace(null)}}>
+            {outil==='@calib'?'Cliquez les deux extrémités d’une cote connue':'Étalonner sur une cote connue'}</button>
+          {trace&&trace.calib&&trace.p2&&<div className="row" style={{gap:6,marginTop:6,alignItems:'center'}}>
+            <input className="in" style={{maxWidth:120}} placeholder="Longueur (m)" value={trace.metres||''} onChange={e=>setTrace({...trace,metres:e.target.value})}/>
+            <button type="button" className="btn acc s" disabled={!(mapMontant(trace.metres)>0)}
+              onClick={()=>{maj({calib:{x1:trace.p1.x,y1:trace.p1.y,x2:trace.p2.x,y2:trace.p2.y,metres:mapMontant(trace.metres),fond:plan.fond,le:today()}});setTrace(null);changerOutil('')}}>Enregistrer l’échelle</button></div>}
+          {ech.ok&&<div className="xs mut" style={{marginTop:4}}>Étalonné le {fd(ech.le)} sur {plan.calib.metres} m.</div>}
+          {plan.calib&&!ech.ok&&<div className="xs" style={{color:AMBER,marginTop:4}}>Échelle à refaire : {ech.raison}. Les équipements n’ont pas été déplacés : vérifiez leurs positions.</div>}
+        </Fld>
+      </div>
+      <Fld label="PIÈCES">
+        <div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center'}}>
+          <select className="in" style={{maxWidth:200}} value={(trace&&trace.type)||'Séjour'} onChange={e=>setTrace({...(trace||{}),type:e.target.value})}>
+            {ELEC_PIECES_TYPES.map(t=><option key={t}>{t}</option>)}</select>
+          <button type="button" className={'btn s '+(outil==='@piece'?'':'gh')} onClick={()=>{changerOutil(outil==='@piece'?'':'@piece');setTrace({type:(trace&&trace.type)||'Séjour'})}}>
+            {outil==='@piece'?'Cliquez deux angles opposés de la pièce':'Tracer une pièce'}</button>
+        </div>
+        {pieces.map(p=><div key={p.id} className="row" style={{gap:6,marginTop:6,alignItems:'center'}}>
+          <input className="in" style={{flex:'1 1 140px'}} value={p.nom} onChange={e=>maj({pieces:pieces.map(x=>x.id===p.id?{...x,nom:e.target.value}:x)})}/>
+          <select className="in" style={{flex:'0 1 170px'}} value={p.type} onChange={e=>maj({pieces:pieces.map(x=>x.id===p.id?{...x,type:e.target.value}:x)})}>
+            {ELEC_PIECES_TYPES.map(t=><option key={t}>{t}</option>)}</select>
+          <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>maj({pieces:pieces.filter(x=>x.id!==p.id)})}>✕</button>
+        </div>)}
+        <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Un tracé simple suffit : un rectangle par pièce, sur le fond. Pour un PDF ou une image, rien n’est reconnu automatiquement.</div>
+      </Fld>
+    </div>}
+
+    {etape==='generer'&&<div style={{marginTop:10}}>
+      <Fld label="ORIGINE DE LA BASE">
+        <select className="in" value={base.source||''} onChange={e=>majBase({source:e.target.value,validee:false})}>
+          <option value="">—</option><option value="marche">D’après le marché signé</option><option value="ptr">D’après le programme technique validé</option>
+          <option value="modele_cp">Modèle CP (proposition, non contractuelle)</option></select></Fld>
+      {base.source==='modele_cp'&&<button type="button" className="btn gh s" disabled={!pieces.length}
+        onClick={()=>{const L=elecBaseModele(pieces);const garde=(base.lignes||[]).filter(l=>l.nature!=='prevu');majBase({lignes:[...garde,...L]})}}>
+        Remplir la base avec le modèle CP ({pieces.length} pièce{pieces.length>1?'s':''})</button>}
+      {(base.source==='marche'||base.source==='ptr')&&<div className="xs mut" style={{lineHeight:1.5}}>Saisissez les quantités telles qu’écrites au {base.source==='marche'?'marché':'programme'} : l’application ne les devine pas.</div>}
+      <div style={{maxHeight:260,overflowY:'auto',marginTop:8}}>
+        {(base.lignes||[]).map(l=><div key={l.id} className="row xs" style={{gap:6,alignItems:'center',borderBottom:'1px solid '+RULE,padding:'4px 0'}}>
+          <span style={{flex:'1 1 120px'}}>{nomPiece(l.piece)}</span>
+          <span style={{flex:'1 1 120px'}}>{(elecSymbole(l.type)||{}).l||l.type}</span>
+          <input className="in" style={{width:60}} value={l.qte} onChange={e=>majBase({lignes:base.lignes.map(x=>x.id===l.id?{...x,qte:e.target.value===''?'':+e.target.value}:x)})}/>
+          <span className="mut">{l.unite==='mecanisme'?'mécan.':'postes'}</span>
+          <select className="in" style={{width:150}} value={l.nature||'prevu'} onChange={e=>majBase({lignes:base.lignes.map(x=>x.id===l.id?{...x,nature:e.target.value}:x)})}>
+            {ELEC_NATURES.map(n=><option key={n.id} value={n.id}>{n.l}</option>)}</select>
+          {l.nature==='reglementaire'&&<input className="in" style={{flex:'1 1 150px'}} placeholder="Source et date du texte" value={l.sourceNorme||''}
+            onChange={e=>majBase({lignes:base.lignes.map(x=>x.id===l.id?{...x,sourceNorme:e.target.value}:x)})}/>}
+          <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>majBase({lignes:base.lignes.filter(x=>x.id!==l.id)})}>✕</button>
+        </div>)}
+      </div>
+      <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
+        <select className="in" style={{maxWidth:170}} id="elec-ajout-piece" defaultValue="">{[<option key="" value="">Hors pièce</option>,...pieces.map(p=><option key={p.id} value={p.id}>{p.nom}</option>)]}</select>
+        <select className="in" style={{maxWidth:170}} id="elec-ajout-type" defaultValue="pc">{ELEC_SYMBOLES.map(s=><option key={s.id} value={s.id}>{s.l}</option>)}</select>
+        <button type="button" className="btn gh s" onClick={()=>{const pi=document.getElementById('elec-ajout-piece').value,ty=document.getElementById('elec-ajout-type').value;
+          majBase({lignes:[...(base.lignes||[]),{id:'b_'+uid(),piece:pi,type:ty,qte:1,unite:elecUnite(ty),nature:'prevu'}]})}}>+ Ligne</button>
+        <label className="xs row" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!base.validee} onChange={e=>majBase({validee:e.target.checked,valideeLe:e.target.checked?today():''})}/>Base validée</label>
+      </div>
+      <div className="row" style={{gap:6,marginTop:10}}>
+        <button type="button" className="btn acc s" disabled={!(base.lignes||[]).length} onClick={()=>setPropo(elecGenerer(plan,base))}>Préparer la proposition d’implantation</button>
+      </div>
+      {propo&&<div className="card" style={{marginTop:8,padding:10,borderLeft:'3px solid '+AMBER}}>
+        <div className="xs" style={{lineHeight:1.5}}>
+          {propo.ajouts.length} équipement{propo.ajouts.length>1?'s':''} à ajouter{!propo.echelle.ok&&propo.ajouts.length?' — dans la liste « à placer » (plan non étalonné : pas de position inventée)':' — le long des murs, statut « à confirmer »'}.
+          {propo.retraits.length>0&&<span> {propo.retraits.length} équipement{propo.retraits.length>1?'s':''} généré{propo.retraits.length>1?'s':''} en trop à retirer (jamais un équipement verrouillé ou posé à la main).</span>}
+          {!propo.ajouts.length&&!propo.retraits.length&&' Rien à changer : l’implantation couvre la base.'}
+        </div>
+        <div className="row" style={{gap:6,marginTop:6}}>
+          <button type="button" className="btn acc s" disabled={!propo.ajouts.length&&!propo.retraits.length}
+            onClick={()=>{const R=new Set(propo.retraits);maj({symboles:[...(plan.symboles||[]).filter(s=>!R.has(s.id)),...propo.ajouts],
+              cables:(plan.cables||[]).filter(c=>!R.has(c.de)&&!R.has(c.vers))});setPropo(null)}}>Appliquer</button>
+          <button type="button" className="btn gh s" onClick={()=>setPropo(null)}>Annuler</button>
+        </div>
+      </div>}
+    </div>}
+
+    {aPlacer.length>0&&<div style={{marginTop:10}}>
+      <div className="xs b" style={{color:AMBER}}>À PLACER — choisissez-en un, puis cliquez sur le plan</div>
+      <div className="row" style={{gap:6,flexWrap:'wrap',marginTop:4}}>
+        {aPlacer.map(s=><button key={s.id} type="button" className={'btn s '+(outil==='@placer:'+s.id?'':'gh')} onClick={()=>changerOutil('@placer:'+s.id)}>
+          {(elecSymbole(s.type)||{}).l} — {nomPiece(s.piece)}</button>)}
+      </div>
+    </div>}
+
+    {etape==='verifier'&&<div style={{marginTop:10,overflowX:'auto'}}>
+      {!comp.length&&<div className="xs mut">Aucune base ni aucun équipement : rien à comparer.</div>}
+      {comp.length>0&&<table className="xs" style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead><tr style={{textAlign:'left',color:MUTED}}><th>Pièce</th><th>Équipement</th><th>Nature</th><th style={{textAlign:'right'}}>Prévu</th><th style={{textAlign:'right'}}>Implanté</th><th style={{textAlign:'right'}}>Écart</th></tr></thead>
+        <tbody>{comp.map((l,i)=><tr key={i} style={{borderTop:'1px solid '+RULE,color:l.ecart<0&&l.nature==='reglementaire'?TERRA:INK}}>
+          <td>{l.pieceNom}</td><td>{l.libelle} <span className="mut">({l.unite==='mecanisme'?'mécanismes':'postes'})</span></td>
+          <td>{(ELEC_NATURES.find(n=>n.id===l.nature)||{}).l}</td>
+          <td style={{textAlign:'right'}}>{l.prevu}</td><td style={{textAlign:'right'}}>{l.implante}</td>
+          <td style={{textAlign:'right',fontWeight:700,color:l.ecart>0?AMBER:l.ecart<0?TERRA:GREEN}}>{l.ecart>0?'+':''}{l.ecart}</td></tr>)}</tbody>
+      </table>}
+      {sup.reglementaires.length>0&&<div className="xs" style={{color:TERRA,marginTop:6}}>Exigence réglementaire non couverte : {sup.reglementaires.map(l=>l.pieceNom+' — '+l.libelle).join(', ')}. C’est un écart à résoudre, pas une option.</div>}
+    </div>}
+
+    {etape==='supplements'&&<div style={{marginTop:10}}>
+      <div className="xs mut" style={{lineHeight:1.5,marginBottom:6}}>Écart net par type (une prise déplacée ne coûte rien) au prix du tarif : bordereau électricité lié, ou prix saisi avec sa source. Sans prix : « à chiffrer ».</div>
+      {sup.lignes.map(l=>{const t=tarifs[l.type]||{};const setT=p=>majTarifs({...tarifs,[l.type]:{...t,...p}});
+        return <div key={l.type} className="card" style={{padding:8,marginBottom:6}}>
+          <div className="sp xs"><b style={{color:NAVY}}>{l.libelle}</b>
+            <span style={{color:l.etat==='supplément'?AMBER:l.etat.startsWith('moins-value')?GREEN:l.etat==='à chiffrer'?TERRA:MUTED}}>
+              {l.ecart>0?'+':''}{l.ecart} {l.unite==='mecanisme'?'mécan.':'postes'} · {l.etat}{l.incidence?' · '+(l.incidence>0?'+':'')+eurDoc(l.incidence)+' TTC':''}</span></div>
+          <div className="row" style={{gap:6,marginTop:6,flexWrap:'wrap'}}>
+            {bordElec.length>0&&<select className="in" style={{flex:'1 1 220px'}} value={t.bordereauId&&t.code?t.bordereauId+'|'+t.code:''}
+              onChange={e=>{const [b,c]=e.target.value.split('|');setT({bordereauId:b||'',code:c||''})}}>
+              <option value="">Article du bordereau…</option>
+              {bordElec.map(b=><optgroup key={b.id} label={b.nom||'Bordereau'}>{(b.articles||[]).map(a=><option key={a.code} value={b.id+'|'+a.code}>{a.code} — {a.libelle} ({eurDoc(a.pu)} HT/{a.unite||'u'})</option>)}</optgroup>)}
+            </select>}
+            <input className="in" style={{width:110}} placeholder="PU HT" value={t.puHT??''} onChange={e=>setT({puHT:e.target.value})}/>
+            <input className="in" style={{width:70}} placeholder="TVA %" value={t.tva??''} onChange={e=>setT({tva:e.target.value})}/>
+            <input className="in" style={{flex:'1 1 140px'}} placeholder="Source du prix" value={t.source||''} onChange={e=>setT({source:e.target.value})}/>
+            <label className="xs row" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!t.moinsValue} onChange={e=>setT({moinsValue:e.target.checked})}/>Moins-value prévue au marché</label>
+          </div>
+        </div>})}
+      <div className="xs b" style={{marginTop:6}}>Incidence connue : {sup.totalTTC>0?'+':''}{eurDoc(sup.totalTTC)} TTC{sup.aChiffrer.length?' · '+sup.aChiffrer.length+' type'+(sup.aChiffrer.length>1?'s':'')+' à chiffrer (inconnu, pas zéro)':''}</div>
+    </div>}
+
+    {etape==='exporter'&&<div style={{marginTop:10}} className="xs">
+      <Fld label="STATUT DU PLAN"><select className="in" value={plan.statut||'Proposition'} onChange={e=>maj({statut:e.target.value})}>
+        {['Proposition','Pour étude client','Validé'].map(x=><option key={x}>{x}</option>)}</select></Fld>
+      <div className="mut" style={{lineHeight:1.5}}>L’indice change à la sortie dès que le dessin a changé. {ech.ok?'Le PDF porte « Échelle vérifiée ».':'Le PDF portera « Non à l’échelle ».'} Une confirmation client
+        porte sur l’indice envoyé : un plan révisé est à renvoyer.</div>
+    </div>}
+  </div>;
+}
+
+function PlanElectrique({ch,up,onFermer,data}){
   const d=ch.docs||{};
   const plan=(d.plan_elec&&d.plan_elec.plan)||{fond:'',ratio:0.707,symboles:[],cables:[]};
   const S=plan.symboles||[];
-  const C=cablesValides(plan.cables,S);
+  /* les équipements « à placer » (générés sans échelle) n'ont pas encore de
+     position : ils ne se dessinent nulle part tant qu'on ne les a pas posés */
+  const Sp=S.filter(s=>!s.aPlacer&&s.x!=null&&s.y!=null);
+  const C=cablesValides(plan.cables,Sp);
   const [fondUrl,setFondUrl]=useState(null);
   const [outil,setOutil]=useState('');
   const [sel,setSel]=useState(null);
@@ -11078,8 +11400,14 @@ function PlanElectrique({ch,up,onFermer}){
     return()=>{a=false};
   },[plan.fond]);
 
-  const maj=p=>{const c=d.plan_elec||{};
-    up({docs:{...d,plan_elec:{...c,plan:{...plan,...p},fait:true,date:c.fait?c.date:today()}}})};
+  /* chaque changement du plan garde l'état d'avant : Annuler / Rétablir */
+  const hist=useRef({passe:[],futur:[]});
+  const ecrire=nouveau=>{const c=d.plan_elec||{};
+    up({docs:{...d,plan_elec:{...c,plan:nouveau,fait:true,date:c.fait?c.date:today()}}})};
+  const maj=p=>{hist.current.passe=[...hist.current.passe.slice(-59),plan];hist.current.futur=[];ecrire({...plan,...p})};
+  const annuler=()=>{const h=hist.current;if(!h.passe.length)return;h.futur=[plan,...h.futur];ecrire(h.passe[h.passe.length-1]);h.passe=h.passe.slice(0,-1)};
+  const retablir=()=>{const h=hist.current;if(!h.futur.length)return;h.passe=[...h.passe,plan];ecrire(h.futur[0]);h.futur=h.futur.slice(1)};
+  const [trace,setTrace]=useState(null);
 
   const importer=async file=>{
     setBusy('Lecture du plan…');
@@ -11118,6 +11446,25 @@ function PlanElectrique({ch,up,onFermer}){
     /* (le drapeau est remis à zéro par le pointerdown du fond, si bien qu'un
        déplacement resté sans clic n'avale pas le clic suivant) */
     if(gestSymbole.current){gestSymbole.current=false;return}
+    if(outil&&outil[0]==='@'){
+      const q=pos(e); if(!q)return;
+      if(outil==='@calib'){
+        if(!trace||!trace.calib||trace.p2)setTrace({calib:true,p1:q});else setTrace({...trace,p2:q});
+        return;
+      }
+      if(outil==='@piece'){
+        const ty=(trace&&trace.type)||'Séjour';
+        if(!trace||!trace.c1){setTrace({type:ty,c1:q});return}
+        const n=(plan.pieces||[]).filter(x=>x.type===ty).length+1;
+        maj({pieces:[...(plan.pieces||[]),{id:'pc_'+uid(),nom:ty+(n>1?' '+n:''),type:ty,x0:trace.c1.x,y0:trace.c1.y,x1:q.x,y1:q.y}]});
+        setTrace({type:ty});return;
+      }
+      if(outil.indexOf('@placer:')===0){
+        const id=outil.slice(8);
+        maj({symboles:S.map(s=>s.id===id?{...s,x:q.x,y:q.y,aPlacer:false}:s)});
+        setOutil('');return;
+      }
+    }
     if(!outil||outil==='cable'){setSel(null);setSelC(null);return}
     const p=pos(e); if(!p)return;
     const s=elecSymbole(outil);
@@ -11145,7 +11492,7 @@ function PlanElectrique({ch,up,onFermer}){
     }
     if(!outil){setSel(id);setSelC(null)}
   };
-  const changerOutil=t=>{setOutil(t);setSel(null);setSelC(null);setDepart(null)};
+  const changerOutil=t=>{setOutil(t);setSel(null);setSelC(null);setDepart(null);if(t!=='@calib'&&t!=='@piece')setTrace(null)};
 
   /* la touche Suppr retire l'élément sélectionné, comme le bouton « Supprimer »
      du panneau — plus rapide quand on enchaîne les retouches. On l'ignore si
@@ -11156,14 +11503,16 @@ function PlanElectrique({ch,up,onFermer}){
     const surChamp=e=>{const c=e.target&&e.target.tagName;
       return c==='INPUT'||c==='TEXTAREA'||c==='SELECT'||(e.target&&e.target.isContentEditable)};
     const onKey=e=>{
-      if(e.key!=='Delete'&&e.key!=='Backspace')return;
       if(surChamp(e))return;
-      if(sel){e.preventDefault();supprimer(sel)}
+      if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')){e.preventDefault();if(e.shiftKey)retablir();else annuler();return}
+      if((e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y')){e.preventDefault();retablir();return}
+      if(e.key!=='Delete'&&e.key!=='Backspace')return;
+      if(sel){e.preventDefault();const s=S.find(x=>x.id===sel);if(s&&s.verrou&&!confirm('Cet équipement est verrouillé. Le supprimer quand même ?'))return;supprimer(sel)}
       else if(selC){e.preventDefault();supprimerCable(selC)}
     };
     window.addEventListener('keydown',onKey);
     return()=>window.removeEventListener('keydown',onKey);
-  },[sel,selC,S,C]);
+  },[sel,selC,S,C,plan]);
 
   /* ---------- l'export en PDF ----------
      La planche est rendue par React dans l'arbre de l'écran, puis reprise par
@@ -11245,7 +11594,10 @@ function PlanElectrique({ch,up,onFermer}){
         fr.readAsDataURL(blob);
       });
       setBusyPdf('Composition de la planche…');
-      setAExporter({fond:fondData});
+      /* l'indice change dès que le dessin a changé depuis la dernière sortie */
+      const ix=elecIndicePourSortie(plan);
+      if(ix.change)maj({indice:ix.indice,exportEmpreinte:ix.empreinte,exportLe:today()});
+      setAExporter({fond:fondData,indice:ix.indice});
     }catch(e){
       noterPanne('lecture du plan de fond',e);
       setBusyPdf('');
@@ -11306,7 +11658,7 @@ function PlanElectrique({ch,up,onFermer}){
                             {jpeg:await octets(page2),w:page2.w,h:page2.h}],
           'Plan électrique — '+ch.nom);
         etape='remise du fichier';
-        proposer(pdf,'Plan-electrique-'+(ch.nom||'chantier').replace(/[^\wÀ-ÿ]+/g,'-')+'-'+today()+'.pdf');
+        proposer(pdf,'Plan-electrique-'+(ch.nom||'chantier').replace(/[^\wÀ-ÿ]+/g,'-')+'-indice-'+(aExporter.indice||'A')+'-'+today()+'.pdf');
       }catch(e){
         if(vivant)noterPanne(etape,e);
       }
@@ -11334,7 +11686,10 @@ function PlanElectrique({ch,up,onFermer}){
   const choisiC=C.find(c=>c.id===selC);
   const parId={}; S.forEach(s=>{parId[s.id]=s});
   const pt=s=>({x:s.x*1000,y:s.y*H});
-  const legende=elecLegende(S);
+  const legende=elecLegende(Sp);
+  /* ce que porte chaque planche sortie : indice, statut et échelle */
+  const echOk=elecEchelle(plan).ok;
+  const mentions=ix=>' — INDICE '+(ix||plan.indice||'A')+' — '+(plan.statut||'Proposition').toUpperCase()+' — '+(echOk?'ÉCHELLE VÉRIFIÉE':'NON À L’ÉCHELLE')+(plan.etage?' — '+plan.etage.toUpperCase():'');
   const legSurPlan=!!legende.length&&plan.legende===true;
   const posLeg=legSurPlan?cartouchePosition(plan,legende,H):null;
 
@@ -11357,7 +11712,10 @@ function PlanElectrique({ch,up,onFermer}){
     </div>}
 
     {!!plan.fond&&<React.Fragment>
+      <AssistantElec ch={ch} up={up} data={data||{}} plan={plan} maj={maj} outil={outil} changerOutil={changerOutil} trace={trace} setTrace={setTrace}/>
       <div className="row" style={{gap:6,marginBottom:8,flexWrap:'wrap',alignItems:'center'}}>
+        <button className="btn gh s" disabled={!hist.current.passe.length} onClick={annuler} title="Annuler (Ctrl+Z)">↶ Annuler</button>
+        <button className="btn gh s" disabled={!hist.current.futur.length} onClick={retablir} title="Rétablir (Ctrl+Y)">↷ Rétablir</button>
         <button className={'btn s '+(outil?'gh':'')} onClick={()=>changerOutil('')}>Sélection</button>
         <button className={'btn s '+(outil==='cable'?'':'gh')} onClick={()=>changerOutil(outil==='cable'?'':'cable')}>Câbler</button>
         <button className={'btn s '+(hauteurs?'':'gh')} onClick={()=>setHauteurs(h=>!h)}>Hauteurs</button>
@@ -11372,7 +11730,10 @@ function PlanElectrique({ch,up,onFermer}){
         {outil==='cable'
           ?(depart?'Cliquez maintenant le symbole commandé pour terminer le câble.'
                   :'Cliquez la commande (interrupteur, va-et-vient…), puis ce qu’elle pilote.')
-          :outil?'Cliquez sur le plan pour poser « '+elecSymbole(outil).l+' ».'
+          :outil==='@piece'?'Cliquez deux angles opposés de la pièce.'
+          :outil==='@calib'?'Cliquez les deux extrémités d’une cote connue, puis indiquez sa longueur.'
+          :outil&&outil.indexOf('@placer:')===0?'Cliquez sur le plan à l’endroit où poser cet équipement.'
+          :outil&&elecSymbole(outil)?'Cliquez sur le plan pour poser « '+elecSymbole(outil).l+' ».'
                 :'Cliquez un symbole pour le déplacer ou le régler, un câble pour le modifier.'}
       </div>
 
@@ -11421,7 +11782,16 @@ function PlanElectrique({ch,up,onFermer}){
                 <path d={chemin} fill="none" stroke={selC===c.id?TERRA:couleurCable(c)}
                   strokeWidth={selC===c.id?ep+1:ep} strokeLinecap="round" strokeDasharray={traitCable(c,ep)}/>
               </g>})}
-            {S.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
+            {/* à l'écran seulement : les pièces tracées et la cote d'étalonnage */}
+            {(plan.pieces||[]).map(p=><g key={p.id} pointerEvents="none">
+              <rect x={Math.min(p.x0,p.x1)*1000} y={Math.min(p.y0,p.y1)*H} width={Math.abs(p.x1-p.x0)*1000} height={Math.abs(p.y1-p.y0)*H}
+                fill={ELEC_BLEU} fillOpacity="0.04" stroke={ELEC_BLEU} strokeOpacity="0.55" strokeWidth="1" strokeDasharray="6 4"/>
+              <text x={Math.min(p.x0,p.x1)*1000+5} y={Math.min(p.y0,p.y1)*H+13} fontSize="11" fill={ELEC_BLEU} fillOpacity="0.8">{p.nom}</text></g>)}
+            {plan.calib&&plan.calib.fond===plan.fond&&<line x1={plan.calib.x1*1000} y1={plan.calib.y1*H} x2={plan.calib.x2*1000} y2={plan.calib.y2*H}
+              stroke={GREEN} strokeWidth="1.5" strokeDasharray="4 3" pointerEvents="none"/>}
+            {trace&&(trace.p1||trace.c1)&&<circle cx={(trace.p1||trace.c1).x*1000} cy={(trace.p1||trace.c1).y*H} r="5" fill={AMBER} pointerEvents="none"/>}
+            {trace&&trace.p1&&trace.p2&&<line x1={trace.p1.x*1000} y1={trace.p1.y*H} x2={trace.p2.x*1000} y2={trace.p2.y*H} stroke={AMBER} strokeWidth="2" pointerEvents="none"/>}
+            {Sp.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
               const px=s.x*1000, py=s.y*H;
               /* touchAction 'none' sur le symbole seul : sans cela, au doigt,
                  le navigateur fait défiler le plan au lieu de le déplacer —
@@ -11429,10 +11799,12 @@ function PlanElectrique({ch,up,onFermer}){
               return <g key={s.id} style={{cursor:outil==='cable'?'pointer':'move',touchAction:'none'}}
                 onClick={e=>{e.stopPropagation();cliquerSymbole(s.id)}}
                 onPointerDown={e=>{if(outil)return;e.stopPropagation();
-                  drag.current=s.id;gestSymbole.current=true;setSel(s.id);setSelC(null);
+                  /* un équipement verrouillé se sélectionne, mais ne se déplace pas */
+                  drag.current=s.verrou?null:s.id;gestSymbole.current=true;setSel(s.id);setSelC(null);
                   if(svgRef.current&&svgRef.current.setPointerCapture)svgRef.current.setPointerCapture(e.pointerId)}}>
                 {(sel===s.id||depart===s.id)&&<circle cx={px} cy={py} r={15*ech} fill="none"
                   stroke={depart===s.id?ELEC_BLEU:TERRA} strokeWidth="1.8" strokeDasharray="3 2"/>}
+                {s.statut==='a_confirmer'&&<circle cx={px} cy={py} r={13*ech} fill="none" stroke={AMBER} strokeWidth="1.2" strokeDasharray="2 2"/>}
                 {/* une cible de saisie confortable, même quand le symbole est petit */}
                 <circle cx={px} cy={py} r={Math.max(11,14*ech)} fill="transparent"/>
                 <g transform={poseSymbole(px,py,s.rot,ech)}><ElecGlyph t={s.type} eleve={priseHaute(s)}/></g>
@@ -11456,8 +11828,23 @@ function PlanElectrique({ch,up,onFermer}){
 
       {choisi&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+TERRA}}>
         <div className="sp" style={{marginBottom:8}}>
-          <span className="b sm" style={{color:NAVY}}>{elecSymbole(choisi.type).l}</span>
-          <button className="btn dg s" onClick={()=>supprimer(choisi.id)}>Supprimer</button>
+          <span className="b sm" style={{color:NAVY}}>{elecSymbole(choisi.type).l}{choisi.verrou?' 🔒':''}</span>
+          <span className="row" style={{gap:6}}>
+            <button className="btn gh s" onClick={()=>{const n={...choisi,id:uid(),x:Math.min(1,choisi.x+0.02),y:Math.min(1,choisi.y+0.02),verrou:false,source:'manuel'};
+              maj({symboles:[...S,n]});setSel(n.id)}}>Dupliquer</button>
+            <button className="btn dg s" onClick={()=>{if(choisi.verrou&&!confirm('Cet équipement est verrouillé. Le supprimer quand même ?'))return;supprimer(choisi.id)}}>Supprimer</button>
+          </span>
+        </div>
+        <div className="g2">
+          <Fld label="PIÈCE"><select className="in" value={choisi.piece||elecPieceDe(choisi,plan.pieces)||''} onChange={e=>majSymbole(choisi.id,{piece:e.target.value})}>
+            <option value="">Hors pièce</option>{(plan.pieces||[]).map(p=><option key={p.id} value={p.id}>{p.nom}</option>)}</select></Fld>
+          <Fld label="STATUT"><select className="in" value={choisi.statut||'prevu'} onChange={e=>majSymbole(choisi.id,{statut:e.target.value})}>
+            {ELEC_STATUTS.map(x=><option key={x.id} value={x.id}>{x.l}</option>)}</select></Fld>
+        </div>
+        <div className="row" style={{gap:12,flexWrap:'wrap',marginBottom:10,alignItems:'center'}}>
+          {elecUnite(choisi.type)==='mecanisme'&&<span className="row xs" style={{gap:6,alignItems:'center'}}>Mécanismes
+            {[1,2,3].map(n=><button key={n} className={'btn s '+(elecMecanismes(choisi)===n?'':'gh')} onClick={()=>majSymbole(choisi.id,{mecanismes:n})}>{n===1?'Simple':n===2?'Double':'Triple'}</button>)}</span>}
+          <label className="xs row" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!choisi.verrou} onChange={e=>majSymbole(choisi.id,{verrou:e.target.checked})}/>Verrouillé (conservé par toute nouvelle génération)</label>
         </div>
         <div className="g2">
           <Fld label="HAUTEUR DE POSE (CM)">
@@ -11605,10 +11992,10 @@ function PlanElectrique({ch,up,onFermer}){
           Le fond n'est pas donné à la première : il est peint à part sur la toile. */}
       {aExporter&&<div ref={exportRef} aria-hidden="true"
         style={{position:'fixed',left:-10000,top:0,width:1000,pointerEvents:'none'}}>
-        <PlanExport ratio={plan.ratio} symboles={S} cables={C} plan={plan}
-          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()} hauteurs={hauteurs} echelle={ech} trait={ep}/>
+        <PlanExport ratio={plan.ratio} symboles={Sp} cables={C} plan={plan}
+          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+mentions(aExporter.indice)} hauteurs={hauteurs} echelle={ech} trait={ep}/>
         <LegendeExport leg={legende} cables={C} trait={ep}
-          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())}/>
+          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())+mentions(aExporter.indice)}/>
       </div>}
 
       {/* le filet de sécurité : les mêmes deux pages, mises en page pour la
@@ -11624,7 +12011,7 @@ function PlanElectrique({ch,up,onFermer}){
             style={{position:'absolute',left:0,top:0,width:'100%',height:'100%'}}>
             {C.map(c=><path key={c.id} d={cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure)}
               fill="none" stroke={couleurCable(c)} strokeWidth={ep} strokeDasharray={traitCable(c,ep)}/>)}
-            {S.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
+            {Sp.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
               return <g key={s.id}>
                 <g transform={poseSymbole(s.x*1000,s.y*H,s.rot,ech)}><ElecGlyph t={s.type} eleve={priseHaute(s)}/></g>
                 {!!etiquetteHauteur(s,hauteurs)&&
@@ -11637,7 +12024,7 @@ function PlanElectrique({ch,up,onFermer}){
         </div>
         {!!legende.length&&<div className="feuille" style={{width:'100%'}}>
           <LegendeExport leg={legende} cables={C} trait={ep}
-            titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())}/>
+            titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())+mentions()}/>
         </div>}
       </div>)}
     </React.Fragment>}
@@ -11678,7 +12065,7 @@ function EnvoyerEtudeElec({ch,d,up,data}){
       }
       await gmailEnvoyer(token,{destinataire:mail.destinataire,sujet:mail.sujet,corps:mail.corps,pieces,
         expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
-      up({docs:{...d,plan_elec:{...c,etudeLe:today(),etudeConfirmeeLe:''}}});
+      up({docs:{...d,plan_elec:{...c,etudeLe:today(),etudeConfirmeeLe:'',etudeIndice:(c.plan&&c.plan.indice)||'',confirmeIndice:''}}});
       setMail(p=>({...p,etat:'ok'}));
     }catch(e){
       const err=String((e&&(e.error||e.message))||e);
@@ -11688,7 +12075,7 @@ function EnvoyerEtudeElec({ch,d,up,data}){
         "Envoi impossible — "+err}));
     }
   };
-  const confirmer=()=>up({docs:{...d,plan_elec:{...c,etudeConfirmeeLe:today()}}});
+  const confirmer=()=>up({docs:{...d,plan_elec:{...c,etudeConfirmeeLe:today(),confirmeIndice:(c.plan&&c.plan.indice)||''}}});
   if(!fichiers.length)return <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
     Importez d’abord le plan électrique ci-dessus pour pouvoir le transmettre au client.</div>;
   if(!ch.emailClient)return <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
@@ -11703,9 +12090,16 @@ function EnvoyerEtudeElec({ch,d,up,data}){
         <button style={{color:NAVY,background:'none',border:'none',padding:0}} className="xs" onClick={ouvrirMail}>Retransmettre</button>
       </div>
     </div>}
-    {!mail&&c.etudeConfirmeeLe&&<div className="xs" style={{color:GREEN,lineHeight:1.5}}>
-      ✓ Confirmé par le client le {fd(c.etudeConfirmeeLe)}.
+    {!mail&&c.etudeConfirmeeLe&&elecConfirmationValable(c)&&<div className="xs" style={{color:GREEN,lineHeight:1.5}}>
+      ✓ Confirmé par le client le {fd(c.etudeConfirmeeLe)}{c.confirmeIndice?' (indice '+c.confirmeIndice+')':''}.
       <button style={{color:MUTED,background:'none',border:'none',padding:0,marginLeft:10}} onClick={ouvrirMail}>Retransmettre</button>
+    </div>}
+    {/* une confirmation porte sur l'indice que le client a vu : le plan a changé depuis */}
+    {!mail&&c.etudeConfirmeeLe&&!elecConfirmationValable(c)&&<div className="xs" style={{color:TERRA,lineHeight:1.5}}>
+      Le client a confirmé l’indice {c.confirmeIndice} le {fd(c.etudeConfirmeeLe)} ; le plan est maintenant à l’indice {(c.plan||{}).indice} : à retransmettre pour étude.
+      <div className="row" style={{gap:14,marginTop:4}}>
+        <button style={{color:NAVY,background:'none',border:'none',padding:0}} className="xs" onClick={ouvrirMail}>Retransmettre</button>
+      </div>
     </div>}
     {mail&&mail.etat==='apercu'&&<div className="card" style={{padding:10,marginTop:6}}>
       {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
@@ -11810,7 +12204,7 @@ function Docs({data,ch,up,save}){
     up({docs:{...d,[docId]:{...c,signatures:(c.signatures||[]).filter(s=>s.id!==sid)}}});
   };
   const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
-  if(planElec)return <PlanElectrique ch={ch} up={up} onFermer={()=>setPlanElec(false)}/>;
+  if(planElec)return <PlanElectrique ch={ch} up={up} data={data} onFermer={()=>setPlanElec(false)}/>;
   return <div>
     <DriveStatus/>
     <div className="sp xs" style={{marginTop:0,marginBottom:10}}>
@@ -17223,7 +17617,8 @@ function TableauBord({data,save,open,allerA,allerVers}){
     /* le plan électrique transmis pour étude, sans confirmation du client :
        un seul plan par chantier, pas une liste à parcourir */
     const pe=(c.docs&&c.docs.plan_elec)||{};
-    const etude=(pe.etudeLe&&!pe.etudeConfirmeeLe)?{le:pe.etudeLe,j:joursDepuis(pe.etudeLe)}:null;
+    /* une confirmation ne vaut que pour l'indice confirmé : un plan révisé depuis est de nouveau en attente */
+    const etude=(pe.etudeLe&&!elecConfirmationValable(pe))?{le:pe.etudeLe,j:joursDepuis(pe.etudeLe)}:null;
     if(manque.length||relances.length||accords.length||etude)
       dossiers.push({ch:c,manque,relances,accords,etude});
   });
