@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · MAP en rubriques repliables : résumés, renseigné et validé, alertes, recherche, points à traiter';
+const VERSION='2026-09-29 · MAP : terrasses et aménagements extérieurs, ouvrages uniques et budget partagé';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5078,6 +5078,12 @@ function mapLignes(ch,data){
     ['Appuis de fenêtre — modèle',nomProduit(m.appuisFenetreProduit)],
     ['Appuis de fenêtre & seuils',m.appuisFenetre],
     ['Coloris des appuis de fenêtre',m.appuisCouleur],['Coloris des seuils',m.seuilsCouleur],
+    ['Terrasse béton à prévoir',m.terrasseBeton],
+    ...mapOuvrages(m).filter(o=>o.famille==='terrasse').map(o=>['Terrasse '+(o.repere||''),
+      [o.solution==='Autre solution à préciser'?o.solutionAutre||o.solution:o.solution,o.localisation,o.surface?o.surface+' m²':'',
+       o.niveauRelatif?'niveau : '+o.niveauRelatif:'',o.revetementFinal?'revêtement : '+o.revetementFinal:'',
+       o.pente?'pente : '+o.pente+' (à confirmer)':'',o.exutoire?'eaux : '+o.exutoire+' (à confirmer)':'',
+       o.realisation].filter(Boolean).join(' · ')]),
   ]);
   add('4. Charpente, couverture & zinguerie',[
     ['Charpente',m.charpenteType],['Charpente — photo / modèle',nomProduit(m.charpenteProduit)],
@@ -5136,6 +5142,19 @@ function mapLignes(ch,data){
     out.push(['9. Récapitulatif des modifications apportées au plan du permis initial',
       [...modifs,...(m.incidenceUrbanisme?[['Incidence sur l’autorisation d’urbanisme',
         m.incidenceUrbanisme+(m.incidenceObjet?' — '+m.incidenceObjet:'')]]:[])]]);
+  /* terrasses et aménagements extérieurs : chaque ouvrage une fois, avec son
+     statut et son financement */
+  const statutDe=o=>((MAP_EXT_STATUTS.find(s=>s.id===o.statut)||{}).l||'')
+    +(o.statut==='inclus'||o.statut==='option'?' — '+(o.financement==='marche'?'compris dans le marché'
+      :mapMontant(o.montantTTC)!==null&&o.financement!=='a_chiffrer'?eurDoc(mapMontant(o.montantTTC))+' TTC':'à chiffrer'):'');
+  const O=mapOuvrages(m);
+  if(O.length||m.extNotes){
+    const b=mapBudgetOuvrages(m);
+    out.push(['10. Aménagements extérieurs',[
+      ...O.map(o=>[mapOuvrageResume(o),statutDe(o)]),
+      ...(O.length?[['Budget des ouvrages',mapBudgetTexte(b)||'—']]:[]),
+      ...(m.extNotes?[['Observations',m.extNotes]]:[])]]);
+  }
   if(m.droitImage)out.push(['11. Autorisation de diffusion d’images du chantier',[['Le maître d’ouvrage',m.droitImage]]]);
   return out;
 }
@@ -5168,7 +5187,7 @@ function mapDocumentXml(ch,data,px){
   const L=mapLignes(ch,data);
   const sections=L.map(([t,champs])=>[titre(t),...champs.map(([l,v])=>ligne(l,v))].join('')).join('');
   const s10=[
-    titre('10. Validation d’exécution'),
+    titre('12. Validation d’exécution'),
     par('Le maître d’ouvrage approuve les dispositions techniques arrêtées au présent compte-rendu. Cette approbation vaut accord pour la mise à jour des pièces écrites (CCTP / DPGF de chaque lot) et pour l’établissement des ordres de service correspondants par le maître d’œuvre, chaque entreprise demeurant seule responsable de l’exécution de son marché de travaux.',{sz:16,c:DOC_GRIS,jc:'both',ap:60}),
     par('Les modifications récapitulées ci-dessus sont reportées sur les plans d’exécution indiqués. Toute modification ultérieure fera l’objet d’un avenant au marché de travaux du lot concerné.',{sz:16,c:DOC_GRIS,jc:'both',ap:0}),
   ].join('');
@@ -12023,7 +12042,8 @@ const MAP_FICHE=[
     MF('piedroitPlancher','Piédroit au-dessus du plancher','c',['Non','Oui']),MF('piedroitRangs','Piédroit — nombre de rangs','t'),
     MF('appuisFenetreProduit','Appuis de fenêtre — modèle','p','Gros œuvre'),
     MF('appuisFenetre','Appuis de fenêtre & seuils de porte','m',MAP_APPUIS_FENETRE),
-    MF('appuisCouleur','Coloris des appuis de fenêtre','t'),MF('seuilsCouleur','Coloris des seuils','t')]},
+    MF('appuisCouleur','Coloris des appuis de fenêtre','t'),MF('seuilsCouleur','Coloris des seuils','t'),
+    MF('terrasseBeton','Une terrasse béton est-elle à prévoir ?','c',['Oui','Non','À décider'])]},
   {s:'4. Charpente, couverture & zinguerie',f:[
     MF('charpenteType','Charpente & dessous de toit','c',['Fermettes industrielles bois résineux','Charpente traditionnelle','Charpente sur dalle béton','Charpente combles perdus','Charpente combles aménageables']),
     MF('sousFaces','Caisson — sous-face','c',['PVC','Alu']),
@@ -12094,6 +12114,7 @@ const MAP_FICHE=[
     MF('modifElecPlomberieChauffage','Électricité — plomberie — sanitaires — chauffage','z'),MF('modifAutres','Autres modifications','z'),
     MF('incidenceUrbanisme','Incidence sur l’autorisation d’urbanisme','c',['Aucune — modifications sans effet sur l’aspect extérieur ni sur la surface autorisée','Permis de construire modificatif à déposer par le MOA']),
     MF('incidenceObjet','Objet du permis modificatif','t')]},
+  {s:'10. Aménagements extérieurs',f:[MF('extNotes','Aménagements extérieurs — observations','z')]},
   {s:'11. Autorisation de diffusion d’images du chantier',f:[
     MF('droitImage','Le maître d’ouvrage','c',MAP_DROIT_IMAGE)]},
   {s:'Fin du rendez-vous',f:[MF('lieuSignature','Lieu de la mise au point','t'),MF('notes','Observations générales','z')]},
@@ -13067,6 +13088,9 @@ const MAP_LOT_MOTS={
   elec:['electricite','electricien','electrique'],
   sanit:['plomberie','sanitaire'],
   sols:['carrelage','chape','sol','faience','revetement'],
+  /* les ouvrages extérieurs : un lot VRD, terrassement ou aménagements —
+     pas le gros œuvre, qui ne reçoit que terrasses, marches et seuils */
+  ext:['vrd','terrassement','amenagement','exterieur','paysag','espaces verts','cloture','portail','assainissement','reseaux'],
 };
 const MAP_LOT_SECTION={'2.':['vrd'],'3.':['go'],'4.':['charp'],'5.':['menext'],'6.':['platre'],'7.':['chauff'],'8.':['sols']};
 const MAP_LOT_CHAMP={
@@ -13108,6 +13132,17 @@ function mapSuiviDuLot(m,lot){
     return pl===l||l.indexOf(pl)>=0||pl.indexOf(l)>=0||mapGroupesLot(p.lot).some(g=>G.indexOf(g)>=0);
   });
 }
+/* les ouvrages d'un lot : celui qui leur est attribué, ou le corps d'état
+   de leur famille ; un ouvrage réservé au MOA ou non retenu n'y figure pas */
+function mapOuvragesDuLot(m,lot){
+  const l=deaccent(lot||'').toLowerCase().trim(), G=mapGroupesLot(lot);
+  return mapOuvrages(m).filter(o=>{
+    if(o.statut==='moa'||o.statut==='non_retenu')return false;
+    const ol=deaccent(o.lot||'').toLowerCase().trim();
+    if(ol)return ol===l||l.indexOf(ol)>=0||ol.indexOf(l)>=0;
+    return (MAP_EXT_LOTS[o.famille]||[]).some(g=>G.indexOf(g)>=0);
+  });
+}
 const mapSuiviNature=p=>(MAP_SUIVI_TYPES.find(t=>t.id===p.type)||{l:'Point'}).l;
 const mapSuiviEtat=p=>p.statut==='fait'?'Soldé'+(p.faitLe?' le '+fdDoc(p.faitLe):''):'Ouvert';
 /* le tableau du suivi, pour le compte-rendu comme pour les fiches par lot */
@@ -13128,6 +13163,7 @@ function ficheLotDocumentXml(ch,data,lot,entreprise,px){
   const m=ch.map||{};
   const champs=mapChampsDuLot(lot).map(f=>[f,ficheValeurActuelle(f,m,data)]).filter(([,v])=>String(v||'').trim());
   const suivi=mapSuiviDuLot(m,lot);
+  const ouvrages=mapOuvragesDuLot(m,lot);
   const bords=tcB({c:DOC_BRUN,sz:4,t:4,bs:4}), sans=tcB({h:false,g:false,b:false,d:false});
   const titre=t=>par(t,{b:true,sz:18,c:DOC_TERRA,sp:14,caps:true,av:200,ap:80,filet:DOC_TERRA});
   const entete=tbl([4000,6200],[tr([
@@ -13154,6 +13190,9 @@ function ficheLotDocumentXml(ch,data,lot,entreprise,px){
   const corps=[entete,vide(160),infos,
     par('Extrait de la mise au point technique : seuls les choix et les points qui concernent ce lot y figurent.',{sz:15,i:true,c:DOC_GRIS,av:120,ap:0}),
     titre('Choix arrêtés'),choix||par('Aucun choix enregistré pour ce lot.',{sz:16,i:true,c:DOC_GRIS}),
+    ...(ouvrages.length?[titre('Terrasses et aménagements extérieurs'),
+      tbl([6200,4000],ouvrages.map(o=>tr([tc(6200,par(mapOuvrageResume(o),{sz:16,ap:0}),{bords,mg:80,v:'top'}),
+        tc(4000,par((MAP_EXT_STATUTS.find(s=>s.id===o.statut)||{}).l||'',{sz:15,ap:0}),{bords,fond:DOC_SABLE,mg:80,v:'top'})])),{})]:[]),
     ...(suivi.length?[titre('Décisions, modifications à chiffrer et points en attente'),mapSuiviXml(suivi,false)]:[]),
     vide(200),
     par('Merci de reporter ces choix sur vos plans d’exécution et votre devis, et de signaler au maître d’œuvre tout point à préciser.',{sz:15,i:true,c:DOC_GRIS,jc:'both',ap:0}),
@@ -13174,7 +13213,7 @@ async function genererFichesLots(ch,data){
   for(const lot of crLotsChantier(ch,data)){
     const ms=(data.marches||[]).filter(x=>x.chantierId===ch.id&&String(x.lot||'').trim()===lot);
     const entreprise=[...new Set(ms.map(x=>art(x.artisanId)).filter(Boolean))].join(', ');
-    const aDire=mapChampsDuLot(lot).some(f=>String(ficheValeurActuelle(f,m,data)||'').trim())||mapSuiviDuLot(m,lot).length;
+    const aDire=mapChampsDuLot(lot).some(f=>String(ficheValeurActuelle(f,m,data)||'').trim())||mapSuiviDuLot(m,lot).length||mapOuvragesDuLot(m,lot).length;
     if(!mapGroupesLot(lot).length&&!mapSuiviDuLot(m,lot).length){ignores.push(lot);continue}
     if(!aDire)continue;
     const octets=await fabriquerDocx(ficheLotDocumentXml(ch,data,lot,entreprise,logo),'Fiche lot — '+lot+' — '+(ch.nom||''),logo);
@@ -13223,6 +13262,251 @@ function SortiesMap({data,ch,m,set}){
   </div>;
 }
 
+/* ---------- ouvrages extérieurs et terrasses ----------
+   Un ouvrage (une terrasse, une allée, une clôture…) est une fiche unique,
+   à identifiant stable, dans ch.map.ouvrages. La terrasse décrite dans la
+   maçonnerie est la même fiche que celle des aménagements extérieurs, du
+   budget et des documents : elle ne peut pas être comptée deux fois.
+   Pour chaque ouvrage, on sépare ce qu'il est (inclus au projet, option,
+   réservé au maître d'ouvrage, non retenu, à décider) de la façon dont il
+   est financé (compris dans un marché signé, supplément chiffré, ou à
+   chiffrer). Ce qui n'est pas chiffré reste inconnu : jamais zéro. */
+const MAP_EXT_GROUPES=[
+  {id:'acces',l:'Accès et circulations',familles:[
+    {id:'acces',l:'Accès définitif',u:'m²',rev:true},{id:'allee',l:'Allée',u:'m²',rev:true},
+    {id:'stationnement',l:'Stationnement',u:'m²',rev:true},{id:'cheminement',l:'Cheminement',u:'m²',rev:true},
+    {id:'marches',l:'Marches, emmarchement',u:'u'},{id:'seuil_ext',l:'Seuil extérieur',u:'u'},{id:'bordure',l:'Bordures',u:'ml'}]},
+  {id:'terrasses',l:'Terrasses',familles:[{id:'terrasse',l:'Terrasse',u:'m²'}]},
+  {id:'entree',l:'Clôtures et entrée',familles:[
+    {id:'cloture',l:'Clôture',u:'ml'},{id:'portail',l:'Portail',u:'u'},{id:'portillon',l:'Portillon',u:'u'},
+    {id:'motorisation',l:'Motorisation du portail',u:'u'},{id:'interphone',l:'Interphone / visiophone',u:'u'},{id:'boite_lettres',l:'Boîte aux lettres',u:'u'}]},
+  {id:'vegetal',l:'Terre et végétal',familles:[
+    {id:'nivellement',l:'Nivellement',u:'m²'},{id:'terre_vegetale',l:'Terre végétale',u:'m³'},
+    {id:'engazonnement',l:'Engazonnement',u:'m²'},{id:'plantations',l:'Plantations',u:'u'}]},
+  {id:'eaux',l:'Eaux pluviales',familles:[
+    {id:'ep_evacuation',l:'Évacuation des eaux pluviales',u:'ens.'},{id:'caniveau',l:'Caniveau',u:'ml'},{id:'regard',l:'Regard',u:'u'}]},
+  {id:'equipements',l:'Équipements extérieurs',familles:[
+    {id:'eclairage_ext',l:'Éclairage extérieur',u:'u'},{id:'prise_ext',l:'Prise étanche',u:'u'},{id:'robinet_ext',l:'Robinet extérieur',u:'u'},
+    {id:'reseaux_futurs',l:'Réseaux et réservations pour équipements futurs',u:'ens.'},{id:'irve',l:'Prééquipement recharge de véhicule',u:'u'}]},
+];
+const MAP_EXT_FAMILLES=MAP_EXT_GROUPES.flatMap(g=>g.familles.map(f=>({...f,groupe:g.id})));
+const mapExtFamille=id=>MAP_EXT_FAMILLES.find(f=>f.id===id)||{id,l:'Ouvrage',u:'u'};
+const MAP_EXT_REVETEMENTS=['Gravier','Enrobé','Béton','Pavés','Dalles','Autre'];
+const MAP_EXT_STATUTS=[{id:'inclus',l:'Inclus au projet',c:GREEN},{id:'option',l:'Option',c:NAVY},{id:'moa',l:'Réservé au maître d’ouvrage',c:MUTED},
+  {id:'non_retenu',l:'Non retenu',c:MUTED},{id:'a_decider',l:'À décider',c:AMBER}];
+const MAP_EXT_FINANCEMENTS=[{id:'marche',l:'Compris dans le marché signé'},{id:'supplement',l:'Supplément chiffré'},{id:'a_chiffrer',l:'À chiffrer'}];
+const MAP_TERRASSE_SOLUTIONS=['Dallage béton sur terre-plein','Plancher béton porté sur vide sanitaire','Autre solution à préciser'];
+/* le corps d'état d'une famille, pour les fiches par lot */
+const MAP_EXT_LOTS={terrasse:['go'],marches:['go','ext'],seuil_ext:['go'],bordure:['ext'],acces:['ext'],allee:['ext'],stationnement:['ext'],
+  cheminement:['ext'],nivellement:['ext'],terre_vegetale:['ext'],engazonnement:['ext'],plantations:['ext'],ep_evacuation:['ext'],
+  caniveau:['ext'],regard:['ext'],cloture:['ext'],portail:['ext'],portillon:['ext'],motorisation:['elec','ext'],interphone:['elec'],
+  boite_lettres:['ext'],eclairage_ext:['elec'],prise_ext:['elec'],robinet_ext:['sanit'],reseaux_futurs:['ext','elec'],irve:['elec']};
+const mapOuvrageNeuf=famille=>({id:'ouv_'+uid(),famille,libelle:'',localisation:'',longueur:'',largeur:'',surface:'',quantite:'',
+  materiau:'',finition:'',niveauFini:'',lot:'',statut:'a_decider',financement:'a_chiffrer',montantTTC:'',repereMasse:'',notes:'',creeLe:today(),
+  ...(famille==='terrasse'?{repere:'',solution:'',solutionAutre:'',niveauRelatif:'',revetementFinal:'',reservation:'',pente:'',exutoire:'',
+    marchesAcces:'',gardeCorps:'',reseauxAttentes:'',finitionBeton:'',realisation:'',
+    etudes:{fondations:'',epaisseur:'',armatures:'',portees:'',liaisons:''}}:{})});
+/* les ouvrages, une fois chacun (un identifiant répété n'est compté qu'une fois) */
+const mapOuvrages=m=>{const vus={};return ((m&&m.ouvrages)||[]).filter(o=>o&&o.id&&!vus[o.id]&&(vus[o.id]=1))};
+const mapMontant=v=>{if(v===''||v===null||v===undefined)return null;const n=+String(v).replace(/\s/g,'').replace(',','.');return isFinite(n)?n:null};
+/* le budget des ouvrages : chaque ouvrage compté une seule fois, là où son
+   statut et son financement le placent */
+function mapBudgetOuvrages(m){
+  const b={supplementsTTC:0,optionsTTC:0,aDeciderTTC:0,aChiffrer:[],comprisMarche:[],moa:[],aDecider:[],nonRetenus:[],supplements:[],options:[]};
+  mapOuvrages(m).forEach(o=>{
+    const mt=mapMontant(o.montantTTC);
+    if(o.statut==='inclus'){
+      if(o.financement==='marche')b.comprisMarche.push(o);
+      else if(o.financement==='supplement'&&mt!==null){b.supplementsTTC+=mt;b.supplements.push(o)}
+      else b.aChiffrer.push(o);
+    }else if(o.statut==='option'){
+      if(mt!==null&&o.financement!=='a_chiffrer'){b.optionsTTC+=mt;b.options.push(o)}else b.aChiffrer.push(o);
+    }else if(o.statut==='moa')b.moa.push(o);
+    else if(o.statut==='non_retenu')b.nonRetenus.push(o);
+    else{b.aDecider.push(o);if(mt!==null)b.aDeciderTTC+=mt}
+  });
+  const r=v=>Math.round(v*100)/100;
+  b.supplementsTTC=r(b.supplementsTTC);b.optionsTTC=r(b.optionsTTC);b.aDeciderTTC=r(b.aDeciderTTC);
+  return b;
+}
+const mapBudgetTexte=b=>[b.supplementsTTC?'suppléments +'+eurDoc(b.supplementsTTC)+' TTC':'',
+  b.optionsTTC?'options '+eurDoc(b.optionsTTC)+' TTC':'',
+  b.aChiffrer.length?b.aChiffrer.length+' à chiffrer':'',
+  b.comprisMarche.length?b.comprisMarche.length+' compris dans les marchés':''].filter(Boolean).join(' · ');
+/* ce qui reste à vérifier sur un ouvrage : des questions, jamais un
+   verdict de conformité */
+function mapAlertesOuvrage(o){
+  const A=[], f=o.famille;
+  if(f==='terrasse'){
+    if(!o.solution)A.push('Mode de réalisation à choisir (dallage sur terre-plein, plancher porté…).');
+    if(o.solution==='Autre solution à préciser'&&!o.solutionAutre)A.push('Solution « autre » à préciser.');
+    if(!o.niveauRelatif)A.push('Niveau par rapport au sol intérieur et aux seuils à préciser.');
+    if(!o.pente||!o.exutoire)A.push('Pente et destination des eaux à confirmer.');
+    const e=o.etudes||{};
+    if(o.solution&&!(e.fondations&&e.epaisseur&&e.armatures))A.push('Fondations, épaisseur et armatures : à renseigner ou valider selon les études.');
+  }
+  if((f==='seuil_ext'||f==='marches')&&!o.niveauFini)A.push('Hauteur par rapport au seuil intérieur à vérifier.');
+  if((f==='cloture'||f==='portail'||f==='portillon')&&!o.autorisationVerifiee)A.push('À vérifier au regard de l’autorisation d’urbanisme du dossier.');
+  if((f==='ep_evacuation'||f==='caniveau'||f==='regard')&&!o.exutoire)A.push('Exutoire des eaux pluviales à confirmer.');
+  if((o.statut==='inclus'||o.statut==='option')&&(o.financement==='a_chiffrer'||(o.financement==='supplement'&&mapMontant(o.montantTTC)===null)))A.push('À chiffrer.');
+  return A;
+}
+/* la ligne qui résume un ouvrage */
+const mapOuvrageResume=o=>{
+  const fam=mapExtFamille(o.famille);
+  const dims=o.longueur&&o.largeur?o.longueur+' × '+o.largeur+' m':'';
+  const qte=o.surface?o.surface+' m²':o.quantite?o.quantite+' '+fam.u:'';
+  return [(o.repere?o.repere+' — ':'')+(o.libelle||fam.l),o.localisation,dims,qte,o.materiau||o.revetementFinal,o.solution].filter(Boolean).join(' · ');
+};
+/* l'état des rubriques qui portent des ouvrages : la 3 (terrasses) et la 10 */
+function mapEtatOuvrages(rid,m){
+  const O=mapOuvrages(m).filter(o=>rid==='3'?o.famille==='terrasse':true);
+  const alertes=[];
+  if(rid==='3'){
+    if(m.terrasseBeton==='Oui'&&!O.length)alertes.push({k:'terrasseBeton',msg:'Terrasse béton prévue : décrire la ou les terrasses.'});
+    if(m.terrasseBeton==='Non'&&O.some(o=>o.statut!=='non_retenu'))alertes.push({k:'terrasseBeton',msg:'Terrasse béton « Non », mais une terrasse est retenue plus bas : à mettre en cohérence.'});
+  }
+  /* les points à vérifier d'une terrasse sont dans le gros-œuvre, pas répétés dans les extérieurs */
+  O.filter(o=>rid==='3'||o.famille!=='terrasse').forEach(o=>mapAlertesOuvrage(o).forEach(a=>alertes.push({k:'ouvrage:'+o.id,msg:mapOuvrageResume(o)+' — '+a})));
+  const b=mapBudgetOuvrages({ouvrages:O});
+  return {n:O.length,alertes,budget:b,budgetTexte:mapBudgetTexte(b),resume:O.map(o=>mapOuvrageResume(o)+' ('+((MAP_EXT_STATUTS.find(s=>s.id===o.statut)||{}).l||'')+')')};
+}
+
+/* un ouvrage, à l'écran : fermé, sa ligne de résumé ; ouvert, ses champs */
+function OuvrageMap({o,maj,suppr,lots,terrasseDetail,ouvertInit}){
+  const [ouvert,setOuvert]=useState(!!ouvertInit);
+  const fam=mapExtFamille(o.famille), st=MAP_EXT_STATUTS.find(s=>s.id===o.statut)||MAP_EXT_STATUTS[4];
+  const A=mapAlertesOuvrage(o);
+  const set=p=>maj({...o,...p,maj:today()});
+  const T=(k,label,ph,type)=><Fld label={label}><input className="in" type={type||'text'} value={o[k]||''} placeholder={ph} onChange={e=>set({[k]:e.target.value})}/></Fld>;
+  const S=(k,label,opts)=><Fld label={label}><select className="in" value={o[k]||''} onChange={e=>set({[k]:e.target.value})}>
+    <option value="">—</option>{opts.map(x=><option key={x} value={x}>{x}</option>)}</select></Fld>;
+  const suggSurface=o.longueur&&o.largeur&&!o.surface?Math.round((+String(o.longueur).replace(',','.'))*(+String(o.largeur).replace(',','.'))*100)/100:null;
+  return <div className="card" data-ouvrage={o.id} style={{padding:10,marginBottom:6,borderLeft:'3px solid '+(A.length?AMBER:st.c)}}>
+    <button type="button" aria-expanded={ouvert} onClick={()=>setOuvert(!ouvert)}
+      style={{display:'block',width:'100%',textAlign:'left',background:'none',border:'none',padding:0,cursor:'pointer',font:'inherit',color:'inherit'}}>
+      <div className="sp" style={{gap:8}}><span className="sm b" style={{color:NAVY}}>{mapOuvrageResume(o)||fam.l}</span><span className="xs mut">{ouvert?'▾':'▸'}</span></div>
+      <div className="row xs" style={{gap:6,flexWrap:'wrap',marginTop:4}}>
+        <span className="pill" style={{background:'#EEF1F4',color:st.c}}>{st.l}</span>
+        {o.statut!=='moa'&&o.statut!=='non_retenu'&&<span className="pill" style={{background:'#F3F1EC',color:MUTED}}>
+          {o.financement==='marche'?'Compris dans le marché':mapMontant(o.montantTTC)!==null&&o.financement!=='a_chiffrer'?eurDoc(mapMontant(o.montantTTC))+' TTC':'À chiffrer'}</span>}
+        {o.lot&&<span className="pill" style={{background:'#F3F1EC',color:MUTED}}>{o.lot}</span>}
+        {A.length>0&&<span className="pill" style={{background:'#FBF1DC',color:AMBER}}>{A.length} point{A.length>1?'s':''} à vérifier</span>}
+      </div>
+    </button>
+    {ouvert&&<div style={{marginTop:10}}>
+      {A.length>0&&<div className="xs" style={{background:'#FBF1DC',color:'#7A5A0C',borderLeft:'3px solid '+AMBER,padding:8,marginBottom:10,lineHeight:1.5}}>
+        {A.map((a,i)=><div key={i}>{a}</div>)}</div>}
+      <Fld label="STATUT"><div className="row" style={{gap:6,flexWrap:'wrap'}}>
+        {MAP_EXT_STATUTS.map(s=><button key={s.id} type="button" className={'btn s '+(o.statut===s.id?'':'gh')} style={{fontSize:11,padding:'5px 9px'}} onClick={()=>set({statut:s.id})}>{s.l}</button>)}
+      </div></Fld>
+      {(o.statut==='inclus'||o.statut==='option'||o.statut==='a_decider')&&<div className="g2">
+        <Fld label="FINANCEMENT"><select className="in" value={o.financement||'a_chiffrer'} onChange={e=>set({financement:e.target.value})}>
+          {MAP_EXT_FINANCEMENTS.filter(f=>o.statut==='inclus'||f.id!=='marche').map(f=><option key={f.id} value={f.id}>{f.l}</option>)}</select></Fld>
+        {o.financement!=='marche'&&o.financement!=='a_chiffrer'&&T('montantTTC','MONTANT TTC (€)','Laisser vide si inconnu','text')}
+      </div>}
+      {o.financement==='marche'&&o.statut==='inclus'&&<div className="xs mut" style={{marginTop:-6,marginBottom:10}}>Déjà payé par le marché du lot : aucun montant ne s’ajoute au budget.</div>}
+      <div className="g2">
+        {T('libelle','DÉSIGNATION',fam.l)}
+        {T('localisation','LOCALISATION','Côté jardin, devant le garage…')}
+      </div>
+      <div className="g2">
+        {T('longueur','LONGUEUR (m)')}{T('largeur','LARGEUR (m)')}
+      </div>
+      <div className="g2">
+        <div>{T('surface','SURFACE (m²)',suggSurface?String(suggSurface).replace('.',','):'')}
+          {suggSurface!==null&&<button type="button" className="xs" style={{color:TERRA,background:'none',border:'none',padding:0,marginTop:-8,marginBottom:8}}
+            onClick={()=>set({surface:String(suggSurface).replace('.',',')})}>Reprendre longueur × largeur : {String(suggSurface).replace('.',',')} m²</button>}</div>
+        {T('quantite','QUANTITÉ ('+fam.u+')')}
+      </div>
+      <div className="g2">
+        {fam.rev?S('materiau','REVÊTEMENT',MAP_EXT_REVETEMENTS):T('materiau','MATÉRIAU')}
+        {T('finition','FINITION')}
+      </div>
+      <div className="g2">
+        {T('niveauFini','NIVEAU FINI','Par rapport au seuil / NGF')}
+        <Fld label="LOT / ENTREPRISE"><input className="in" list="map-lots" value={o.lot||''} onChange={e=>set({lot:e.target.value})}/></Fld>
+      </div>
+      {(o.famille==='ep_evacuation'||o.famille==='caniveau'||o.famille==='regard')&&T('exutoire','EXUTOIRE','Puisard, réseau communal… à confirmer')}
+      {(o.famille==='cloture'||o.famille==='portail'||o.famille==='portillon')&&<label className="xs row" style={{gap:8,alignItems:'center',cursor:'pointer',marginBottom:10}}>
+        <input type="checkbox" checked={!!o.autorisationVerifiee} onChange={e=>set({autorisationVerifiee:e.target.checked})}/>
+        <span>Vérifié au regard de l’autorisation d’urbanisme du dossier</span></label>}
+      {T('repereMasse','REPÈRE SUR LE PLAN DE MASSE','T1, A2…')}
+      {terrasseDetail}
+      <Fld label="OBSERVATIONS"><textarea className="in" rows="2" value={o.notes||''} onChange={e=>set({notes:e.target.value})}/></Fld>
+      <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}}
+        onClick={()=>{if(confirm('Retirer cet ouvrage ? Il disparaît aussi du budget et des documents.'))suppr(o.id)}}>Retirer l’ouvrage</button>
+    </div>}
+  </div>;
+}
+/* le détail technique d'une terrasse, dans la rubrique du gros œuvre : ce
+   que la MAP doit arrêter, sans rien dimensionner à partir de la surface */
+function TerrasseDetail({o,set}){
+  const T=(k,label,ph)=><Fld label={label}><input className="in" value={o[k]||''} placeholder={ph} onChange={e=>set({[k]:e.target.value})}/></Fld>;
+  const e=o.etudes||{};
+  const E=(k,label)=><Fld label={label}><input className="in" value={e[k]||''} placeholder="Selon étude" onChange={ev=>set({etudes:{...e,[k]:ev.target.value}})}/></Fld>;
+  return <div style={{borderTop:'1px solid '+RULE,paddingTop:10,marginBottom:6}}>
+    <div className="xs b" style={{color:NAVY,marginBottom:8}}>RÉALISATION DE LA TERRASSE</div>
+    <div className="g2">{T('repere','REPÈRE','T1')}
+      <Fld label="SOLUTION"><select className="in" value={o.solution||''} onChange={ev=>set({solution:ev.target.value})}>
+        <option value="">—</option>{MAP_TERRASSE_SOLUTIONS.map(x=><option key={x} value={x}>{x}</option>)}</select></Fld></div>
+    {o.solution==='Autre solution à préciser'&&T('solutionAutre','SOLUTION — PRÉCISION')}
+    <div className="g2">{T('niveauRelatif','NIVEAU / SOL INTÉRIEUR ET SEUILS','−2 cm sous seuil…')}{T('revetementFinal','REVÊTEMENT FINAL')}</div>
+    <div className="g2">{T('reservation','RÉSERVATION POUR LE REVÊTEMENT','Épaisseur réservée…')}{T('finitionBeton','FINITION DU BÉTON','Talochée, balayée…')}</div>
+    <div className="g2">{T('pente','PENTE (À CONFIRMER)','1,5 % vers le jardin…')}{T('exutoire','DESTINATION DES EAUX (À CONFIRMER)')}</div>
+    <div className="g2">{T('marchesAcces','MARCHES ET ACCÈS')}{T('gardeCorps','GARDE-CORPS ÉVENTUEL')}</div>
+    {T('reseauxAttentes','RÉSEAUX, ATTENTES ET TRAVERSÉES','Prise étanche, éclairage, fourreau…')}
+    <Fld label="RÉALISATION"><select className="in" value={o.realisation||''} onChange={ev=>set({realisation:ev.target.value})}>
+      <option value="">—</option><option>Pendant le chantier</option><option>Différée</option></select></Fld>
+    <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Fondations, épaisseur, armatures, portées et liaisons : à renseigner ou à valider selon les études — l’application ne les calcule pas.</div>
+    <div className="g2">{E('fondations','FONDATIONS')}{E('epaisseur','ÉPAISSEUR')}</div>
+    <div className="g2">{E('armatures','ARMATURES')}{E('portees','PORTÉES')}</div>
+    {E('liaisons','LIAISONS AVEC LE BÂTI')}
+  </div>;
+}
+/* la liste des ouvrages d'une rubrique : les terrasses (rubrique 3) ou tous
+   les aménagements extérieurs (rubrique 10), avec leur budget */
+function OuvragesMap({data,ch,m,set,filtre,titreAjout}){
+  const O=mapOuvrages(m);
+  const L=O.filter(o=>!filtre||filtre(o));
+  const [nouveau,setNouveau]=useState(null);
+  const [famille,setFamille]=useState(filtre?'terrasse':'');
+  const maj=o=>set({ouvrages:O.map(x=>x.id===o.id?o:x)});
+  const suppr=id=>set({ouvrages:O.filter(x=>x.id!==id)});
+  const ajouter=f=>{const o=mapOuvrageNeuf(f);set({ouvrages:[...O,o]});setNouveau(o.id)};
+  const lots=crLotsChantier(ch,data);
+  const b=mapBudgetOuvrages({ouvrages:L});
+  const detail=o=>o.famille==='terrasse'?<TerrasseDetail o={o} set={p=>maj({...o,...p,maj:today()})}/>:null;
+  const groupes=filtre?[{id:'x',l:'',familles:[{id:'terrasse'}]}]:MAP_EXT_GROUPES;
+  return <div>
+    <datalist id="map-lots">{lots.map(l=><option key={l} value={l}/>)}</datalist>
+    {L.length>0&&<div className="xs" style={{background:'#F5F1EA',padding:8,marginBottom:10,lineHeight:1.6,borderLeft:'3px solid '+TERRA}}>
+      <b>Budget {filtre?'des terrasses':'des aménagements extérieurs'}</b> — chaque ouvrage compté une fois.<br/>
+      Suppléments chiffrés : <b>{eurDoc(b.supplementsTTC)} TTC</b> · Options : <b>{eurDoc(b.optionsTTC)} TTC</b>
+      {b.aChiffrer.length>0&&<span style={{color:AMBER}}> · {b.aChiffrer.length} à chiffrer (montant inconnu)</span>}
+      {b.comprisMarche.length>0&&<span> · {b.comprisMarche.length} compris dans les marchés</span>}
+      {b.moa.length>0&&<span> · {b.moa.length} réservé{b.moa.length>1?'s':''} au MOA</span>}
+      {b.aDecider.length>0&&<span> · {b.aDecider.length} à décider</span>}
+    </div>}
+    {groupes.map(g=>{
+      const G=L.filter(o=>g.familles.some(f=>f.id===o.famille));
+      if(!G.length)return null;
+      return <div key={g.id} style={{marginBottom:8}}>
+        {g.l&&<div className="xs b" style={{color:NAVY,letterSpacing:'.03em',marginBottom:4}}>{g.l.toUpperCase()}</div>}
+        {G.map(o=><OuvrageMap key={o.id} o={o} maj={maj} suppr={suppr} lots={lots} ouvertInit={o.id===nouveau}
+          terrasseDetail={filtre?detail(o):(o.famille==='terrasse'?<div className="xs mut" style={{marginBottom:8}}>Détail de réalisation : rubrique 3, Gros-œuvre.</div>:null)}/>)}
+      </div>;
+    })}
+    <div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center'}}>
+      {!filtre&&<select className="in" style={{maxWidth:280}} value={famille} onChange={e=>setFamille(e.target.value)} aria-label="Ouvrage à ajouter">
+        <option value="">Choisir un ouvrage…</option>
+        {MAP_EXT_GROUPES.map(g=><optgroup key={g.id} label={g.l}>{g.familles.map(f=><option key={f.id} value={f.id}>{f.l}</option>)}</optgroup>)}
+      </select>}
+      <button type="button" className="btn acc s" disabled={!famille} onClick={()=>{ajouter(famille);if(!filtre)setFamille('')}}>{titreAjout||'+ Ajouter'}</button>
+    </div>
+  </div>;
+}
+
 /* ---------- les rubriques de la MAP, repliables ----------
    La MAP compte une centaine de champs : ouverte d'un bloc, elle se parcourt
    mal. Chaque rubrique devient un panneau qu'on ouvre ou referme sur son
@@ -13257,6 +13541,7 @@ const MAP_SI={
   faienceSurface:m=>!!m.faienceLocalisation,faienceHauteur:m=>!!m.faienceLocalisation,faienceLot:m=>!!m.faienceLocalisation,
   modifTerrain:()=>false,modifGrosOeuvre:()=>false,modifCharpente:()=>false,modifMenuiseriesExt:()=>false,
   modifCloisons:()=>false,modifElecPlomberieChauffage:()=>false,modifAutres:()=>false,
+  extNotes:()=>false,
 };
 /* ce qui mérite d'être signalé sans attendre : une réponse qui en appelle
    une autre, restée vide. Le message dit quoi faire, pas qu'un texte de loi
@@ -13280,7 +13565,8 @@ const mapVide=v=>v===undefined||v===null||v===''||v===false||(Array.isArray(v)&&
 const mapChampRubrique={};MAP_RUBRIQUES.forEach(r=>r.champs.forEach(f=>{mapChampRubrique[f.k]=r.id}));
 /* l'empreinte des réponses d'une rubrique : une validation ne vaut que pour
    les réponses qu'elle a vues */
-const mapEmpreinteRubrique=(r,m)=>ptrEmpreinte(JSON.stringify(r.champs.map(f=>[f.k,m[f.k]===undefined?null:m[f.k]])));
+const mapEmpreinteRubrique=(r,m)=>ptrEmpreinte(JSON.stringify([r.champs.map(f=>[f.k,m[f.k]===undefined?null:m[f.k]]),
+  r.id==='3'||r.id==='10'?mapOuvrages(m).filter(o=>r.id==='10'||o.famille==='terrasse').map(o=>{const{maj,...x}=o;return x}):null]));
 /* les points de suivi d'une rubrique : ceux qui la désignent, ou dont le lot
    relève d'elle */
 const mapSuiviRubrique=(r,m)=>((m&&m.suivi)||[]).filter(p=>{
@@ -13297,9 +13583,14 @@ function mapEtatRubrique(r,m,data){
   const alertes=MAP_ALERTES.filter(a=>mapChampRubrique[a.k]===r.id&&a.si(m,data)).map(a=>({k:a.k,msg:a.msg}));
   const v=(m.validations||{})[r.id]||null;
   const suivi=mapSuiviRubrique(r,m);
-  return {id:r.id,renseignes:remplis.length,total:utiles.length,
+  /* terrasses (3) et aménagements extérieurs (10) : leurs ouvrages comptent
+     comme des réponses, avec leurs points à vérifier et leur budget */
+  const ouv=r.id==='3'||r.id==='10'?mapEtatOuvrages(r.id,m):null;
+  return {id:r.id,renseignes:remplis.length+(r.id==='10'&&ouv?ouv.n:0),total:utiles.length+(r.id==='10'&&ouv?ouv.n:0),
     manquants:utiles.filter(f=>mapVide(m[f.k])).map(f=>({k:f.k,l:f.l})),
-    resume,alertes,valide:v,modifieDepuis:!!v&&v.empreinte!==mapEmpreinteRubrique(r,m),
+    resume:[...resume,...(ouv?ouv.resume:[])],alertes:[...alertes,...(ouv?ouv.alertes:[])],
+    valide:v,modifieDepuis:!!v&&v.empreinte!==mapEmpreinteRubrique(r,m),
+    budgetTexte:ouv?ouv.budgetTexte:'',
     pointsOuverts:suivi.filter(p=>p.statut!=='fait').length,decisions:suivi.filter(p=>p.type==='decision').length};
 }
 /* chercher un champ par son libellé (accents et majuscules ignorés) */
@@ -13349,6 +13640,7 @@ function PanneauMap({r,etat,ouvert,onBascule,resumeFerme,children,onValider}){
         {!e.valide&&e.renseignes>0&&<span className="pill" style={{background:'#F3F1EC',color:MUTED}}>Non validée</span>}
         {e.pointsOuverts>0&&<span className="pill" style={{background:'#FBF1DC',color:AMBER}}>{e.pointsOuverts} point{e.pointsOuverts>1?'s':''} ouvert{e.pointsOuverts>1?'s':''}</span>}
         {e.alertes.length>0&&<span className="pill" style={{background:'#F6E2DC',color:TERRA}}>{e.alertes.length} alerte{e.alertes.length>1?'s':''}</span>}
+        {e.budgetTexte&&<span className="pill" style={{background:'#F5F1EA',color:'#6B4A2F'}} title="Incidence budgétaire connue des ouvrages">{e.budgetTexte}</span>}
       </div>
       {!ouvert&&<div className="xs mut" style={{marginTop:5,lineHeight:1.45,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
         {resumeFerme||(e.resume.length?e.resume.join(' · '):'Rien de saisi pour l’instant.')}</div>}
@@ -13419,7 +13711,8 @@ function MAP({data,ch,up}){
   useEffect(()=>{
     if(!cible)return;
     const t=setTimeout(()=>{try{
-      const champ=cible.k&&document.querySelector('[data-champ="'+cible.k+'"]');
+      const champ=cible.k&&(/^ouvrage:/.test(cible.k)?document.querySelector('[data-ouvrage="'+cible.k.slice(8)+'"]')
+        :document.querySelector('[data-champ="'+cible.k+'"]'));
       const el=champ||document.querySelector('[data-rubrique="'+cible.id+'"]');
       if(!el)return;
       el.scrollIntoView({block:'center',behavior:'smooth'});
@@ -13557,6 +13850,9 @@ function MAP({data,ch,up}){
         <MapTxt m={m} set={set} k="appuisCouleur" label="COLORIS DES APPUIS DE FENÊTRE"/>
         <MapTxt m={m} set={set} k="seuilsCouleur" label="COLORIS DES SEUILS"/>
       </div>
+      <MapChoix m={m} set={set} k="terrasseBeton" label="UNE TERRASSE BÉTON EST-ELLE À PRÉVOIR ?" opts={['Oui','Non','À décider']}/>
+      {(m.terrasseBeton==='Oui'||m.terrasseBeton==='À décider'||mapOuvrages(m).some(o=>o.famille==='terrasse'))&&
+        <OuvragesMap data={data} ch={ch} m={m} set={set} filtre={o=>o.famille==='terrasse'} titreAjout="+ Terrasse"/>}
     </React.Fragment>)}
 
     {section('4. CHARPENTE, COUVERTURE & ZINGUERIE',<React.Fragment>
@@ -13724,6 +14020,15 @@ function MAP({data,ch,up}){
         <MapTxt m={m} set={set} k="incidenceObjet" label="OBJET DU PERMIS MODIFICATIF"/>}
     </React.Fragment>)}
 
+    {section('10. AMÉNAGEMENTS EXTÉRIEURS',<React.Fragment>
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
+        L’aménagement définitif, distinct de l’accès de chantier (rubrique 2). Une terrasse saisie dans le gros-œuvre apparaît ici,
+        sans être comptée deux fois.
+      </div>
+      <OuvragesMap data={data} ch={ch} m={m} set={set} titreAjout="+ Ajouter"/>
+      <MapZone m={m} set={set} k="extNotes" label="OBSERVATIONS SUR LES EXTÉRIEURS"/>
+    </React.Fragment>)}
+
     {section('11. AUTORISATION DE DIFFUSION D’IMAGES DU CHANTIER',<React.Fragment>
       <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
         Dans le cadre de sa communication, CP Constructions souhaite pouvoir diffuser des photos et vidéos
@@ -13743,7 +14048,7 @@ function MAP({data,ch,up}){
     <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+TERRA}}>
       <div className="b sm" style={{color:TERRA}}>Compte-rendu de MAP (Word et PDF)</div>
       <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
-        Reprend les 11 sections telles que remplies ci-dessus et le suivi, prêt à imprimer et faire signer sur place.
+        Reprend les sections telles que remplies ci-dessus, les ouvrages extérieurs et le suivi, prêt à imprimer et faire signer sur place.
         {m.sortieLe?<span> Dernière sortie le {fd(m.sortieLe)}.</span>:null}
       </div>
       <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>

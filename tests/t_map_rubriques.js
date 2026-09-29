@@ -6,7 +6,7 @@ const M=charger(['MAP_RUBRIQUES','mapEtatRubrique','mapEmpreinteRubrique','mapRe
 const {chk,fin}=verif();
 const R=id=>M.MAP_RUBRIQUES.find(r=>r.id===id);
 
-chk(M.MAP_RUBRIQUES.map(r=>r.id).join()==='1,2,3,4,5,6,7,8,9,11','les rubriques de la MAP, par numéro');
+chk(M.MAP_RUBRIQUES.map(r=>r.id).join()==='1,2,3,4,5,6,7,8,9,10,11','les rubriques de la MAP, par numéro');
 const vide=M.mapEtatRubrique(R('3'),{},M.EMPTY);
 chk(vide.renseignes===0&&vide.total>0&&!vide.alertes.length&&!vide.valide,'rubrique vide : rien de renseigné, rien de validé, pas d’alerte');
 chk(!vide.manquants.some(x=>x.k==='vsRangs'||x.k==='fondationsAutre'),'un champ qui ne s’applique pas ne manque pas');

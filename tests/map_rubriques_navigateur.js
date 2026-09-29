@@ -82,6 +82,22 @@ const FAUX_SUPA=`window.supabase={createClient:()=>{const q={select:()=>q,eq:()=
   const apres=await p.$$eval('.map-rubrique',E=>E.map(e=>e.getAttribute('data-rubrique')+':'+!e.querySelector('.map-corps').hidden).join());
   chk(avant===apres,'rechargement : mêmes panneaux ouverts');
 
+  /* terrasse : saisie dans le gros-œuvre, retrouvée dans les extérieurs, une seule fois */
+  if(!(await ouvert('3')))await p.click('[data-rubrique="3"] .map-entete');
+  await p.selectOption('[data-champ="terrasseBeton"] select','Oui');
+  await p.click('[data-rubrique="3"] button:has-text("+ Terrasse")');
+  const carte=p.locator('[data-rubrique="3"] [data-ouvrage]').first();
+  await carte.locator('input[placeholder="T1"]').fill('T1');
+  await carte.locator('button:has-text("Option")').click();
+  await carte.locator('select').first().selectOption('supplement');
+  await carte.locator('input[placeholder="Laisser vide si inconnu"]').fill('2500');
+  await p.click('[data-rubrique="10"] .map-entete');
+  const n10=await p.locator('[data-rubrique="10"] [data-ouvrage]').count();
+  chk(n10===1,'la terrasse apparaît dans les aménagements extérieurs (une fois)');
+  const t10=await p.textContent('[data-rubrique="10"]');
+  chk(/Options : 2\s500,00\s€ TTC/.test(t10.replace(/[\u202f\u00a0]/g,' '))||/2.500,00/.test(t10),'budget des extérieurs : l’option de 2 500 € une fois');
+  await p.click('[data-rubrique="10"] .map-entete');
+  chk(/options 2.500,00 € TTC/.test((await p.textContent('[data-rubrique="10"] .map-entete')).replace(/[\u202f\u00a0]/g,' ')),'repliée : l’incidence budgétaire dans l’en-tête');
   chk(!(await p.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)),'téléphone : pas de débordement horizontal');
   await p.emulateMedia({media:'print'});
   chk(await p.$$eval('.map-corps',E=>E.every(e=>getComputedStyle(e).display!=='none')),'impression : toutes les rubriques dépliées');
