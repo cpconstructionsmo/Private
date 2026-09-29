@@ -250,7 +250,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · Comptes rendus de chantier : réunions numérotées, points reportés tant qu’ils ne sont pas soldés, Word avec photos';
+const VERSION='2026-09-29 · MAP : fiche papier du rendez-vous en PDF, vierge ou préremplie, prête à être relue';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -11980,6 +11980,454 @@ const MapMulti=({m,set,k,label,opts})=>{
   </div></Fld>;
 };
 
+/* ---------- la MAP sur papier ----------
+   Au rendez-vous, on remplit souvent la MAP au stylo, avec le client, plutôt
+   qu'à l'écran. La fiche papier reprend les champs de l'onglet MAP, dans le
+   même ordre, avec des cases à cocher et des espaces pour écrire ; elle sort
+   vierge, ou préremplie de ce qui est déjà saisi (« Actuel : … »).
+   Elle est dessinée pour être relue ensuite depuis une photo ou un scan :
+   quatre repères noirs aux angles, un code de page en bas, et la position de
+   chaque case et de chaque zone d'écriture enregistrée avec la fiche. Une
+   case laissée vide ne change rien à ce qui est saisi.
+   MAP_FICHE décrit les champs : k (clé dans ch.map), l (libellé), t (type :
+   t texte, z zone de texte, d date, c un choix, m plusieurs choix, b oui/non,
+   p produit du catalogue, f finition du produit), o (choix, lot du produit
+   ou clé du produit dont la finition dépend). */
+const MF=(k,l,t,o)=>({k,l,t,o});
+const MAP_FICHE=[
+  {s:'1. Identification du projet et des intervenants',f:[
+    MF('numeroPC','N° de permis de construire','t'),MF('referencesCadastrales','Références cadastrales','t'),
+    MF('date','Date de la MAP','d'),MF('version','Version','t'),MF('participants','Participants','t')]},
+  {s:'2. Terrain, viabilisation et VRD',f:[
+    MF('bornageFait','Bornage du terrain','c',['Oui, réalisé','Non, à réaliser']),MF('bornageDetail','Détail du bornage','t'),
+    MF('accesChantier','Accès chantier','c',['Réalisé','À réaliser']),MF('accesAttribution','Accès — attribution','c',MAP_ATTRIBUTION),
+    MF('travauxPrepa','Travaux préparatoires','m',MAP_TRAVAUX_PREPA),MF('travauxPrepaAutre','Autre travail préparatoire','t'),
+    MF('travauxPrepaAttribution','Travaux préparatoires — attribution','c',MAP_ATTRIBUTION),
+    MF('eauPotable','Eau potable','c',['Branchement réalisé','Non — demande à effectuer']),MF('eauPotableDemandePar','Demande à effectuer par','t'),
+    MF('elecCoffret','Coffret électricité (Enedis)','c',['Posé','Non posé']),MF('elecDistanceGtl','Distance coffret → GTL','c',['< 30 m','> 30 m']),
+    MF('elecPosePar','Coffret posé par','t'),MF('elecCout','Coût raccordement','t'),
+    MF('gaz','Gaz','c',['Gaz de ville','Cuve enterrée','Sans objet']),MF('telecom','Télécom / fibre','t'),
+    MF('eauxUsees','Eaux usées','c',['Tout-à-l’égout','Assainissement autonome / micro-station']),MF('eauxUseesLot','Eaux usées — lot','t'),
+    MF('eauxPluviales','Eaux pluviales','m',MAP_EAUX_PLUVIALES),MF('eauxPluvialesLot','Eaux pluviales — lot','t')]},
+  {s:'3. Gros-œuvre & substructure',f:[
+    MF('fondations','Fondations','c',['Semelles filantes conformément à l’étude de sol','Autre']),MF('fondationsAutre','Fondations — précision','t'),
+    MF('soubassement','Soubassement & plancher bas','c',['Vide sanitaire','Dalle sur terre-plein','Sous-sol']),
+    MF('vsRangs','Nombre de rangs (vide sanitaire)','t'),
+    MF('vsTrappe','Trappe d’accès fonte 60×60','b'),MF('courAnglaise','Cour anglaise','b'),
+    MF('hourdis','Hourdis','c',['Isolant PSE avec rupteurs de ponts thermiques','Béton non isolant']),
+    MF('plancherHaut','Plancher haut','c',['Hourdis béton','Plancher bois','Néant — plain-pied']),
+    MF('piedroitPlancher','Piédroit au-dessus du plancher','c',['Non','Oui']),MF('piedroitRangs','Piédroit — nombre de rangs','t'),
+    MF('appuisFenetreProduit','Appuis de fenêtre — modèle','p','Gros œuvre'),
+    MF('appuisFenetre','Appuis de fenêtre & seuils de porte','m',MAP_APPUIS_FENETRE),
+    MF('appuisCouleur','Coloris des appuis de fenêtre','t'),MF('seuilsCouleur','Coloris des seuils','t')]},
+  {s:'4. Charpente, couverture & zinguerie',f:[
+    MF('charpenteType','Charpente & dessous de toit','c',['Fermettes industrielles bois résineux','Charpente traditionnelle','Charpente sur dalle béton','Charpente combles perdus','Charpente combles aménageables']),
+    MF('sousFaces','Caisson — sous-face','c',['PVC','Alu']),
+    MF('charpenteProduit','Charpente — modèle','p','Charpente'),
+    MF('charpenteGarageAmenageable','Charpente aménageable au-dessus du garage','b'),
+    MF('sousFacesColoris','Coloris sous-faces','t'),MF('ecranSousToiture','Écran de sous-toiture HPV','b'),
+    MF('sousFacesProduit','Caisson sous-face — produit','p','Sous-face'),
+    MF('gouttieres','Gouttières — modèle','c',['PVC','Alu','Zinc']),
+    MF('gouttieresColoris','Coloris gouttières','c',['Gris anthracite','Cuivre','Sable']),
+    MF('descenteGouttieresColoris','Coloris descentes','c',['Gris anthracite','Cuivre','Sable']),
+    MF('gouttieresProduit','Gouttière — produit','p','Gouttière'),
+    MF('fenetreToitModele','Fenêtre(s) de toit — modèle','t'),MF('fenetreToitVitrage','Fenêtre de toit — vitrage','t'),
+    MF('fenetreToitRaccords','Raccords encastrés','b'),MF('fenetreToitVolet','Volet roulant électrique SML','b'),
+    MF('conduitFumee','Conduit de fumée','c',['Conduit isolé type Poujoulat','Souche carrée','Souche « Luminance »','Souche inox + chapeau pare-pluie','Sans objet']),
+    MF('couvertureProduit','Couverture — modèle','p','Couverture'),MF('couvertureColoris','Couverture — coloris exact','t')]},
+  {s:'5. Menuiseries extérieures, façades & garage',f:[
+    MF('porteEntreeProduit','Porte d’entrée — modèle','p','Menuiseries ext.'),
+    MF('porteEntreeOption','Porte d’entrée — option','c',MAP_PORTE_ENTREE_OPTION),MF('porteEntreeOptionDim','Option — dimension','c',MAP_PORTE_ENTREE_DIM),
+    MF('porteEntreeMateriau','Porte d’entrée — matériau','c',['Alu','Acier','PVC']),MF('porteEntreeVitrage','Porte d’entrée — vitrage','t'),
+    MF('porteEntreeRalInt','Porte d’entrée — RAL intérieur','t'),MF('porteEntreeRalExt','Porte d’entrée — RAL extérieur','t'),
+    MF('menuiseriesMateriau','Menuiseries — matériau','m',MAP_MENUISERIES_MAT),
+    MF('menuiseriesCouleur','Menuiseries — couleur','c',['Monochrome','Bicolore']),MF('menuiseriesRal','Menuiseries — RAL','t'),
+    MF('ouvrantsFrancaiseMat','Ouvrants à la française — matériau','m',MAP_OUVRANT_MAT),
+    MF('ouvrantsFrancaiseOB','Option OB (oscillo-battant)','b'),
+    MF('ouvrantsCoulissantMat','Ouvrants coulissants — matériau','m',MAP_OUVRANT_MAT),
+    MF('vitrageOptions','Options de vitrage','m',MAP_VITRAGE_OPT),MF('verreSable','Verre sablé — localisation','t'),
+    MF('voletsCoffres','Coffres volets roulants','c',['Coffres linteaux (à la maçonnerie)','Coffres intégrés à la menuiserie','Lames alu isolantes']),
+    MF('voletsCommande','Volets — commande','c',['Manuel(s)','Électrique(s) individuels']),MF('voletsNb','Volets — nombre','t'),
+    MF('voletsCentralisation','Centralisation','b'),MF('voletsDomotique','Domotique','b'),
+    MF('voletsDomotiqueMarque','Marque domotique','t'),
+    MF('porteGarageType','Porte de garage','c',['Sectionnelle','Basculante']),MF('porteGarageMotorisation','Porte de garage — motorisation','c',['Oui','Non']),
+    MF('porteGarageFinition','Finition / coloris porte de garage','t'),
+    MF('seuilGarage','Seuil de porte de garage','c',['Seuil béton coulé en place','Néant — pas de garage']),
+    MF('enduitFinition','Enduit de façade — finition','c',['Finition grattée','Finition écrasée']),MF('enduitCouleur','Couleur enduit','t'),
+    MF('enduitRefNuancier','Enduit — réf. nuancier','t')]},
+  {s:'6. Plâtrerie, isolation & menuiseries intérieures',f:[
+    MF('doublage','Doublage périphérique','t'),MF('cloisons','Cloisons de distribution','t'),
+    MF('isolationCombles','Isolation des combles','c',['Soufflage combles perdus','Déroulée sous rampants']),
+    MF('isolationComblesEpaisseur','Isolation — épaisseur (mm)','t'),MF('isolationComblesR','Isolation — R (m².K/W)','t'),
+    MF('porteInterieureProduit','Portes intérieures — modèle','p','Menuiseries int.'),
+    MF('porteInterieureFinition','Portes intérieures — finition / couleur','f','porteInterieureProduit'),
+    MF('porteInterieureLargeur','Portes intérieures — largeur (normes PMR)','c',['63','73','83']),
+    MF('porteInterieurePoignees','Poignées','t'),
+    MF('escalierType','Escalier & garde-corps','m',MAP_ESCALIER)]},
+  {s:'7. Équipements thermiques & sanitaires',f:[
+    MF('chauffageType','Chauffage & ECS','c',['PAC air/eau','PAC air/air','Chaudière hybride gaz + PAC','Poêle à granulés']),
+    MF('chauffageProduit','Chauffage — marque / modèle','p','Chauffage / VMC'),
+    MF('emetteursRdc','Émetteurs RDC','m',MAP_EMETTEURS),MF('emetteursEtage','Émetteurs étage','m',MAP_EMETTEURS),
+    MF('ecsMode','Production d’eau chaude','c',['ECS par la PAC (ballon intégré)','Chauffe-eau thermodynamique','Poêle à granulés']),
+    MF('vmcType','Ventilation','c',['Hygroréglable type A','Hygroréglable type B']),MF('vmcMarque','VMC — marque / modèle','t'),
+    MF('electriciteGamme','Appareillage électrique — gamme','t'),
+    MF('electriciteOptions','Options électriques','m',MAP_ELEC_OPTIONS),
+    MF('baignoireProduit','Baignoire','p','Plomberie / sanitaire'),MF('receveurProduit','Receveur de douche','p','Plomberie / sanitaire'),
+    MF('receveurDimensions','Receveur — dimensions','t'),MF('receveurColoris','Receveur — coloris','t'),
+    MF('douche','Douche','m',MAP_DOUCHE),
+    MF('wcType','WC','c',['Pack WC suspendu','Pack WC standard']),MF('laveMains','Lave-mains','b'),
+    MF('meubleVasqueProduit','Meuble vasque','p','Plomberie / sanitaire'),MF('meubleVasqueLargeur','Meuble vasque — largeur','t')]},
+  {s:'8. Chapes et revêtements de sols',f:[
+    MF('chapeType','Chape','c',['Chape fluide anhydrite (lot carrelage)','Chape fluide ciment (lot carrelage)','Dalle brute — réservés MOA']),
+    MF('carrelageProduit','Carrelage — modèle','p','Carrelage'),
+    MF('carrelageEntreprise','Pièces traitées par l’entreprise','t'),MF('carrelageReservees','Pièces réservées au maître d’ouvrage','t'),
+    MF('faienceLocalisation','Faïence — localisation','t'),MF('faienceSurface','Faïence — surface (m²)','t'),
+    MF('faienceHauteur','Faïence — hauteur de pose','t'),MF('faienceLot','Faïence — lot','c',['Lot carrelage','Réservé MOA'])]},
+  {s:'9. Récapitulatif des modifications au plan du permis initial',f:[
+    MF('modifTerrain','Terrain — travaux de préparation — VRD','z'),MF('modifGrosOeuvre','Gros-œuvre','z'),
+    MF('modifCharpente','Charpente — couverture — zinguerie','z'),MF('modifMenuiseriesExt','Menuiseries extérieures — façades','z'),
+    MF('modifCloisons','Cloisons de distribution — menuiseries intérieures','z'),
+    MF('modifElecPlomberieChauffage','Électricité — plomberie — sanitaires — chauffage','z'),MF('modifAutres','Autres modifications','z'),
+    MF('incidenceUrbanisme','Incidence sur l’autorisation d’urbanisme','c',['Aucune — modifications sans effet sur l’aspect extérieur ni sur la surface autorisée','Permis de construire modificatif à déposer par le MOA']),
+    MF('incidenceObjet','Objet du permis modificatif','t')]},
+  {s:'11. Autorisation de diffusion d’images du chantier',f:[
+    MF('droitImage','Le maître d’ouvrage','c',MAP_DROIT_IMAGE)]},
+  {s:'Fin du rendez-vous',f:[MF('lieuSignature','Lieu de la mise au point','t'),MF('notes','Observations générales','z')]},
+];
+/* les trois natures d'un point de suivi, sur la fiche comme dans l'application */
+const MAP_SUIVI_TYPES=[{id:'decision',l:'Décision'},{id:'chiffrer',l:'À chiffrer'},{id:'attente',l:'En attente'}];
+const MAP_FICHE_LIGNES_SUIVI=10;
+
+/* ---------- texte en PDF : Helvetica, codage WinAnsi ----------
+   Les polices de base du PDF n'ont pas besoin d'être embarquées ; leurs
+   largeurs (ici celles de Liberation Sans, aux mêmes métriques) servent à
+   couper les lignes. Un caractère hors WinAnsi est remplacé par un proche. */
+const PDF_LARG_R=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,0,556,0,222,556,333,1000,556,556,333,1000,667,333,1000,0,611,0,0,222,222,333,333,350,556,1000,333,1000,500,333,944,0,500,667,278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,552,400,549,333,333,333,576,537,333,333,333,365,556,834,834,834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,549,611,556,556,556,556,500,556,500];
+const PDF_LARG_B=[278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,0,556,0,278,556,500,1000,556,556,333,1000,667,333,1000,0,611,0,0,278,278,500,500,350,556,1000,333,1000,556,333,944,0,500,667,278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,552,400,549,333,333,333,576,556,333,333,333,365,556,834,834,834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,549,611,611,611,611,611,556,611,556];
+const PDF_W1252={0x20AC:0x80,0x201A:0x82,0x0192:0x83,0x201E:0x84,0x2026:0x85,0x2020:0x86,0x2021:0x87,0x02C6:0x88,0x2030:0x89,0x0160:0x8A,
+  0x2039:0x8B,0x0152:0x8C,0x017D:0x8E,0x2018:0x91,0x2019:0x92,0x201C:0x93,0x201D:0x94,0x2022:0x95,0x2013:0x96,0x2014:0x97,0x02DC:0x98,
+  0x2122:0x99,0x0161:0x9A,0x203A:0x9B,0x0153:0x9C,0x017E:0x9E,0x0178:0x9F};
+const PDF_PROCHES={'→':'->','←':'<-','≥':'>=','≤':'<=','≈':'~',' ':' ',' ':' ','‑':'-','−':'-','✓':'x'};
+/* le texte en octets WinAnsi */
+const pdfOctetsTexte=s=>{
+  const out=[];
+  for(const ch of String(s||'').split('').map(c=>PDF_PROCHES[c]||c).join('')){
+    const u=ch.codePointAt(0);
+    if(u>=0x20&&u<0x7F)out.push(u);
+    else if(u>=0xA0&&u<=0xFF)out.push(u);
+    else if(PDF_W1252[u])out.push(PDF_W1252[u]);
+    else out.push(0x3F);
+  }
+  return out;
+};
+/* largeur d'un texte, en millimètres, à la taille donnée (en points) */
+const pdfLargeur=(s,taille,gras)=>{
+  const W=gras?PDF_LARG_B:PDF_LARG_R;
+  return pdfOctetsTexte(s).reduce((t,c)=>t+(W[c-32]||556),0)*taille/1000*25.4/72;
+};
+/* coupe un texte en lignes d'au plus « larg » millimètres */
+const pdfCouper=(s,taille,gras,larg)=>{
+  const L=[];
+  String(s||'').split('\n').forEach(par=>{
+    let ligne='';
+    par.split(/\s+/).filter(Boolean).forEach(mot=>{
+      const essai=ligne?ligne+' '+mot:mot;
+      if(!ligne||pdfLargeur(essai,taille,gras)<=larg)ligne=essai;
+      else{L.push(ligne);ligne=mot}
+    });
+    L.push(ligne);
+  });
+  return L;
+};
+
+/* ---------- PDF vectoriel : rectangles, traits et texte ----------
+   Chaque page est une liste d'éléments en millimètres, origine en haut à
+   gauche : {t:'rect',x,y,w,h,plein,trait,ep,gris}, {t:'trait',x1,y1,x2,y2,ep,gris},
+   {t:'texte',x,y,s,taille,gras,italique,gris}. */
+function pdfVectoriel(pages,titre){
+  const enc=s=>{const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i)&0xff;return u};
+  const pt=v=>Math.round(v*72/25.4*100)/100;
+  const H=297;
+  const bouts=[];let n=0;
+  const pousser=u=>{bouts.push(u);n+=u.length};
+  const offsets=[];
+  const obj=(i,corps,flux)=>{
+    offsets[i]=n;
+    pousser(enc(i+' 0 obj\n'+corps+'\n'));
+    if(flux){pousser(enc('stream\n'));pousser(flux);pousser(enc('\nendstream\n'))}
+    pousser(enc('endobj\n'));
+  };
+  const chaineTexte=s=>'('+pdfOctetsTexte(s).map(c=>c===0x28||c===0x29||c===0x5C?'\\'+String.fromCharCode(c):String.fromCharCode(c)).join('')+')';
+  const flux=els=>{
+    const o=[];
+    els.forEach(e=>{
+      const g=e.gris===undefined?0:e.gris;
+      if(e.t==='rect'){
+        o.push((e.ep||0.3)+' w');
+        if(e.plein)o.push(g+' g');
+        if(e.trait!==false)o.push((e.traitGris===undefined?g:e.traitGris)+' G');
+        o.push(pt(e.x)+' '+pt(H-e.y-e.h)+' '+pt(e.w)+' '+pt(e.h)+' re '+(e.plein?(e.trait===false?'f':'B'):'S'));
+      }else if(e.t==='trait'){
+        o.push((e.ep||0.3)+' w '+g+' G '+pt(e.x1)+' '+pt(H-e.y1)+' m '+pt(e.x2)+' '+pt(H-e.y2)+' l S');
+      }else if(e.t==='texte'){
+        const f=e.gras?'/F2':e.italique?'/F3':'/F1';
+        o.push('BT '+g+' g '+f+' '+e.taille+' Tf '+pt(e.x)+' '+pt(H-e.y)+' Td '+chaineTexte(e.s)+' Tj ET');
+      }
+    });
+    return enc(o.join('\n'));
+  };
+  /* 1 catalogue, 2 pages, 3 infos, 4-6 polices, puis deux objets par page */
+  const numPage=k=>7+k*2, numFlux=k=>8+k*2, dernier=6+pages.length*2;
+  pousser(enc('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'));
+  obj(1,'<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2,'<< /Type /Pages /Kids ['+pages.map((p,k)=>numPage(k)+' 0 R').join(' ')+'] /Count '+pages.length+' >>');
+  obj(3,'<< /Title '+chaineTexte(titre||'')+' /Producer (CP Constructions) >>');
+  obj(4,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  obj(5,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  obj(6,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>');
+  pages.forEach((els,k)=>{
+    const f=flux(els);
+    obj(numPage(k),'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89]'
+      +' /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R >> >> /Contents '+numFlux(k)+' 0 R >>');
+    obj(numFlux(k),'<< /Length '+f.length+' >>',f);
+  });
+  const debutXref=n;
+  let xref='xref\n0 '+(dernier+1)+'\n0000000000 65535 f \n';
+  for(let i=1;i<=dernier;i++)xref+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';
+  pousser(enc(xref));
+  pousser(enc('trailer\n<< /Size '+(dernier+1)+' /Root 1 0 R /Info 3 0 R >>\nstartxref\n'+debutXref+'\n%%EOF\n'));
+  const out=new Uint8Array(n);let p=0;
+  bouts.forEach(b=>{out.set(b,p);p+=b.length});
+  return out;
+}
+
+/* ---------- mise en page de la fiche ----------
+   Tout est en millimètres sur un A4 portrait. Les repères d'angle et le code
+   de page ne bougent jamais ; les champs s'enchaînent sur une colonne, deux
+   par ligne quand ils sont courts. La disposition renvoyée (cases et zones,
+   page par page) est enregistrée avec la fiche : c'est elle qui servira à
+   relire la photo, même si la MAP ou le catalogue changent entre-temps. */
+const FICHE_REPERE=7, FICHE_REPERES=[[7.5,7.5],[195.5,7.5],[7.5,282.5],[195.5,282.5]];
+const FICHE_X0=16, FICHE_X1=194, FICHE_Y0=24, FICHE_Y1=276;
+const FICHE_CASE=3.6;
+/* le code de page, 16 cellules sous le bas de la page : 1, la page (5 bits),
+   le numéro de fiche (6 bits), un contrôle (2 bits), puis 0 et 1 — un code
+   qui ne se lit pas à l'envers, pour reconnaître une photo retournée */
+const FICHE_CODE_X=65.5, FICHE_CODE_Y=284, FICHE_CODE_C=4, FICHE_CODE_PAS=5;
+const ficheCodeBits=(page,numero)=>{
+  const b=[1];
+  for(let i=4;i>=0;i--)b.push((page>>i)&1);
+  for(let i=5;i>=0;i--)b.push(((numero%64)>>i)&1);
+  const c=(page+numero)%4;b.push((c>>1)&1,c&1);
+  b.push(0,1);
+  return b;
+};
+const ficheCodeLire=bits=>{
+  if(!bits||bits.length!==16||bits[0]!==1||bits[14]!==0||bits[15]!==1)return null;
+  let page=0,numero=0;
+  for(let i=1;i<=5;i++)page=page*2+bits[i];
+  for(let i=6;i<=11;i++)numero=numero*2+bits[i];
+  if(((page+numero)%4)!==bits[12]*2+bits[13])return null;
+  return {page,numero};
+};
+/* la valeur actuelle d'un champ, en clair, pour la fiche préremplie */
+function ficheValeurActuelle(f,m,data){
+  const v=m[f.k];
+  const produit=id=>{const p=((data&&data.produits)||[]).find(x=>x.id===id);return p?[p.nom,p.marque].filter(Boolean).join(' — '):''};
+  if(f.t==='b')return v===true?'Oui':v===false?'Non':'';
+  if(f.t==='m')return Array.isArray(v)?v.join(', '):'';
+  if(f.t==='p')return v?produit(v):'';
+  if(f.t==='d')return v?fd(v):'';
+  return v==null?'':String(v);
+}
+/* les options imprimées d'un champ : les choix de la MAP, les produits du
+   lot dans le catalogue, ou les finitions du produit retenu */
+function ficheOptions(f,m,data){
+  const norm=s=>(s||'').trim().toLowerCase();
+  if(f.t==='c'||f.t==='m')return f.o.map(o=>({v:o,l:o}));
+  if(f.t==='b')return [{v:true,l:'Oui'},{v:false,l:'Non'}];
+  if(f.t==='p')return ((data&&data.produits)||[]).filter(x=>norm(x.lot)===norm(f.o))
+    .map(x=>({v:x.id,l:[x.nom,x.marque].filter(Boolean).join(' — ')}));
+  if(f.t==='f'){const p=((data&&data.produits)||[]).find(x=>x.id===m[f.o]);return ((p&&p.finitions)||[]).map(x=>({v:x,l:x}))}
+  return [];
+}
+function ficheMapMiseEnPage(ch,data,o){
+  o=o||{};
+  const m=(ch&&ch.map)||{}, pre=o.mode==='preremplie', numero=o.numero||1;
+  const pages=[], cases=[], zones=[];
+  let els=null, y=0, pageIdx=-1;
+  const larg=FICHE_X1-FICHE_X0, demi=(larg-6)/2;
+  const nouvellePage=()=>{
+    els=[];pages.push(els);pageIdx++;y=FICHE_Y0;
+    FICHE_REPERES.forEach(([x,yy])=>els.push({t:'rect',x,y:yy,w:FICHE_REPERE,h:FICHE_REPERE,plein:true,trait:false}));
+    els.push({t:'texte',x:FICHE_X0,y:13,s:'MISE AU POINT TECHNIQUE — FICHE DE RENDEZ-VOUS',taille:9,gras:true});
+    els.push({t:'texte',x:FICHE_X0,y:18,s:(ch.nom||'')+(ch.client?' — '+ch.client:''),taille:8,gris:0.3});
+    const droite='Fiche n° '+numero+' · '+(pre?'préremplie':'vierge')+(o.date?' · '+fd(o.date):'');
+    els.push({t:'texte',x:FICHE_X1-pdfLargeur(droite,7.5,false),y:13,s:droite,taille:7.5,gris:0.3});
+    els.push({t:'trait',x1:FICHE_X0,y1:20.5,x2:FICHE_X1,y2:20.5,ep:0.6,gris:0.45});
+  };
+  const place=h=>{if(y+h>FICHE_Y1)nouvellePage()};
+  const texte=(x,yy,s,taille,st)=>els.push({t:'texte',x,y:yy,s,taille,...(st||{})});
+  const caseA=(x,yy,champ,v,ligne)=>{
+    els.push({t:'rect',x,y:yy,w:FICHE_CASE,h:FICHE_CASE,ep:0.6});
+    cases.push({p:pageIdx,x:Math.round(x*10)/10,y:Math.round(yy*10)/10,k:champ,v,...(ligne!==undefined?{i:ligne}:{})});
+  };
+  const zone=(x,yy,w,h,champ,role,ligne)=>{
+    els.push({t:'rect',x,y:yy,w,h,ep:0.4,gris:0.55});
+    zones.push({p:pageIdx,x:Math.round(x*10)/10,y:Math.round(yy*10)/10,w:Math.round(w*10)/10,h:Math.round(h*10)/10,k:champ,
+      ...(role?{r:role}:{}),...(ligne!==undefined?{i:ligne}:{})});
+  };
+  /* les cases d'options, en ligne, passant à la ligne quand il le faut :
+     renvoie la hauteur occupée, sans rien dessiner si « dessiner » est faux */
+  const options=(opts,x0,w,y0,champ,dessiner)=>{
+    let x=x0,yy=y0,h=5.2;
+    opts.forEach(op=>{
+      const lignes=pdfCouper(op.l,8,false,w-FICHE_CASE-2);
+      const lw=Math.max(...lignes.map(l=>pdfLargeur(l,8,false)))+FICHE_CASE+5;
+      if(x>x0&&x+lw>x0+w){x=x0;yy+=h;h=5.2}
+      if(dessiner){
+        caseA(x,yy,champ,op.v);
+        lignes.forEach((l,i)=>texte(x+FICHE_CASE+1.5,yy+3+i*3.3,l,8));
+      }
+      h=Math.max(h,1.9+lignes.length*3.3);
+      x+=lw;
+    });
+    return yy+h-y0;
+  };
+  /* un champ : son libellé, sa valeur actuelle (fiche préremplie), puis ses
+     cases ou son espace d'écriture ; renvoie sa hauteur */
+  const champ=(f,x,w,y0,dessiner)=>{
+    let h=0;
+    const lib=pdfCouper(f.l.toUpperCase()+(f.t==='m'?' (plusieurs choix possibles)':''),6.8,true,w);
+    if(dessiner)lib.forEach((l,i)=>texte(x,y0+2.6+i*3,l,6.8,{gras:true,gris:0.25}));
+    h+=lib.length*3+0.8;
+    const act=pre?ficheValeurActuelle(f,m,data):'';
+    if(act){
+      const la=pdfCouper('Actuel : '+act,7,false,w);
+      if(dessiner)la.forEach((l,i)=>texte(x,y0+h+2.4+i*3,l,7,{italique:true,gris:0.35}));
+      h+=la.length*3+0.6;
+    }
+    const opts=ficheOptions(f,m,data);
+    if(opts.length){h+=options(opts,x,w,y0+h,f.k,dessiner)+0.4}
+    if(f.t==='t'||f.t==='d'||f.t==='p'||f.t==='f'){
+      const zl=f.t==='d'?Math.min(w,45):w;
+      if(dessiner){
+        if(f.t==='p'||f.t==='f')texte(x,y0+h+2.6,opts.length?'Autre :':'Modèle :',7,{gris:0.35});
+        const dx=(f.t==='p'||f.t==='f')?13:0;
+        zone(x+dx,y0+h,zl-dx,7,f.k,(f.t==='p'||f.t==='f')?'autre':undefined);
+      }
+      h+=7.8;
+    }
+    if(f.t==='z'){if(dessiner)zone(x,y0+h,w,16,f.k);h+=16.8}
+    return h+2.2;
+  };
+  /* deux champs côte à côte quand chacun tient en demi-largeur sans trop
+     de lignes : textes courts, oui/non, choix de deux ou trois mots */
+  const court=f=>{
+    if(f.t==='z'||f.t==='m'||f.t==='p'||f.t==='f')return false;
+    if(f.t==='t'||f.t==='d'||f.t==='b')return true;
+    return champ(f,0,demi,0,false)<=16;
+  };
+  nouvellePage();
+  /* l'identification du dossier, reprise de la fiche chantier */
+  texte(FICHE_X0,y+3,'Maître d’ouvrage : '+(ch.client||'—'),8.5,{gras:true});
+  texte(FICHE_X0,y+7.2,'Adresse du terrain : '+(ch.adresse||'—'),8);
+  texte(FICHE_X0,y+11.2,'Une case laissée vide ne change rien à ce qui est déjà saisi. Écrire en capitales dans les cadres.',7,{italique:true,gris:0.35});
+  y+=15;
+  MAP_FICHE.forEach(sec=>{
+    const titre=()=>{
+      els.push({t:'rect',x:FICHE_X0,y,w:larg,h:5.5,plein:true,gris:0.9,trait:false});
+      texte(FICHE_X0+1.5,y+3.9,sec.s.toUpperCase(),8,{gras:true,gris:0.15});
+      y+=7.5;
+    };
+    place(22);titre();
+    const F=sec.f;
+    for(let i=0;i<F.length;i++){
+      const f=F[i], g=F[i+1];
+      if(court(f)&&g&&court(g)){
+        const h=Math.max(champ(f,0,demi,0,false),champ(g,0,demi,0,false));
+        if(y+h>FICHE_Y1){nouvellePage();titre()}
+        champ(f,FICHE_X0,demi,y,true);champ(g,FICHE_X0+demi+6,demi,y,true);
+        y+=h;i++;
+      }else{
+        const h=champ(f,0,larg,0,false);
+        if(y+h>FICHE_Y1){nouvellePage();titre()}
+        champ(f,FICHE_X0,larg,y,true);
+        y+=h;
+      }
+    }
+  });
+  /* le suivi : ce qui a été décidé, ce qui reste à chiffrer, ce qui attend
+     une réponse — une ligne par point, sa nature cochée, son lot et son texte */
+  const hl=10;
+  place(18+hl*3);
+  els.push({t:'rect',x:FICHE_X0,y,w:larg,h:5.5,plein:true,gris:0.9,trait:false});
+  texte(FICHE_X0+1.5,y+3.9,'DÉCISIONS, MODIFICATIONS À CHIFFRER, POINTS EN ATTENTE',8,{gras:true,gris:0.15});
+  y+=7.5;
+  const xLot=FICHE_X0+62, xTxt=FICHE_X0+100;
+  const enTete=()=>{texte(FICHE_X0,y+2.6,'NATURE',6.8,{gras:true,gris:0.25});texte(xLot,y+2.6,'LOT',6.8,{gras:true,gris:0.25});
+    texte(xTxt,y+2.6,'POINT',6.8,{gras:true,gris:0.25});y+=4};
+  enTete();
+  for(let i=0;i<MAP_FICHE_LIGNES_SUIVI;i++){
+    if(y+hl>FICHE_Y1){nouvellePage();enTete()}
+    let x=FICHE_X0;
+    MAP_SUIVI_TYPES.forEach(t=>{caseA(x,y+1.6,'suivi',t.id,i);texte(x+FICHE_CASE+1.2,y+4.6,t.l,7);x+=pdfLargeur(t.l,7,false)+FICHE_CASE+4.2});
+    zone(xLot,y,xTxt-xLot-3,hl-2,'suivi','lot',i);
+    zone(xTxt,y,FICHE_X1-xTxt,hl-2,'suivi','texte',i);
+    y+=hl;
+  }
+  /* pied de chaque page : code de page et numérotation lisible */
+  pages.forEach((P,k)=>{
+    ficheCodeBits(k,numero).forEach((b,i)=>P.push({t:'rect',x:FICHE_CODE_X+i*FICHE_CODE_PAS,y:FICHE_CODE_Y,w:FICHE_CODE_C,h:FICHE_CODE_C,
+      plein:!!b,ep:0.3,gris:0,traitGris:b?0:0.7}));
+    const lib='Page '+(k+1)+' / '+pages.length;
+    P.push({t:'texte',x:FICHE_X1-pdfLargeur(lib,7.5,false),y:287,s:lib,taille:7.5,gris:0.3});
+    P.push({t:'texte',x:FICHE_X0+2,y:287,s:'CP CONSTRUCTIONS',taille:7,gras:true,gris:0.35});
+  });
+  return {pages,disposition:{v:1,numero,mode:pre?'preremplie':'vierge',date:o.date||today(),nbPages:pages.length,cases,zones}};
+}
+const ficheMapNom=(ch,f)=>'Fiche MAP n°'+f.numero+' — '+(ch.nom||'chantier')+' — '+(f.mode==='preremplie'?'préremplie':'vierge')+'.pdf';
+
+/* la fiche dans l'onglet MAP : on la sort vierge ou préremplie ; sa
+   disposition est gardée pour relire plus tard la photo de la fiche remplie */
+function FicheMapPapier({data,ch,m,set}){
+  const [etat,setEtat]=useState(null);
+  const F=m.fiches||[];
+  const sortir=async mode=>{
+    setEtat({etat:'travail'});
+    const numero=F.reduce((x,f)=>Math.max(x,+f.numero||0),0)+1;
+    const {pages,disposition}=ficheMapMiseEnPage(ch,data,{mode,numero,date:today()});
+    const octets=pdfVectoriel(pages,'Fiche MAP n° '+numero+' — '+(ch.nom||''));
+    const fiche={id:uid(),...disposition};
+    const nom=ficheMapNom(ch,fiche);
+    telechargerOctets(octets,nom,PTR_MIME.pdf);
+    let lien='';
+    try{
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,'MAP');
+      lien=(await uploadToDrive(new File([octets],nom,{type:PTR_MIME.pdf}),folderId)).webViewLink||'';
+    }catch(e){/* la fiche est téléchargée ; le Drive n'est qu'une copie */}
+    set({fiches:[...F,{...fiche,lien}]});
+    setEtat({etat:'ok',nom,lien});
+  };
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="b sm" style={{color:NAVY}}>Fiche papier du rendez-vous (PDF)</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Les champs de la MAP avec des cases à cocher et des cadres pour écrire. Préremplie, elle rappelle ce qui est déjà
+      saisi ; une case laissée vide ne change rien. Gardez les quatre repères noirs des angles visibles : ils servent
+      à relire la photo de la fiche remplie.
+    </div>
+    <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+      <button className="btn gh s" disabled={etat&&etat.etat==='travail'} onClick={()=>sortir('vierge')}>Fiche vierge</button>
+      <button className="btn acc s" disabled={etat&&etat.etat==='travail'} onClick={()=>sortir('preremplie')}>Fiche préremplie</button>
+    </div>
+    {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+      {etat.nom} téléchargée{etat.lien?<span> et déposée dans Drive › MAP — <a href={etat.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>ouvrir</a></span>:' (Drive non connecté : pas de copie)'}.</div>}
+    {F.length>0&&<div className="xs mut" style={{marginTop:6}}>
+      {F.length} fiche{F.length>1?'s':''} sortie{F.length>1?'s':''} — la dernière : n° {F[F.length-1].numero}, {F[F.length-1].mode==='preremplie'?'préremplie':'vierge'}, le {fd(F[F.length-1].date)}.</div>}
+  </div>;
+}
+
 function MAP({data,ch,up}){
   const m=ch.map||{};
   const set=p=>up({map:{...m,...p}});
@@ -12294,6 +12742,7 @@ function MAP({data,ch,up}){
         Déposé dans Drive › {ch.nom} › MAP — {sortie.nom}</div>}
       {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
     </div>
+    <FicheMapPapier data={data} ch={ch} m={m} set={set}/>
     <Fld label="MAP SIGNÉE (PDF)">
       <ImportFichier ch={ch} dossier="MAP" lien={m.lienSignee} onLien={v=>set({lienSignee:v})} label="Importer la MAP signée"/>
     </Fld>
