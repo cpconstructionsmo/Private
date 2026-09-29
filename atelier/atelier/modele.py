@@ -105,6 +105,8 @@ class Ouverture(BaseModel):
     allege: Valeur
     exterieure: bool
     origine: str = ""                # bloc DXF, interruption de mur…
+    polygone: list[Point] = []       # l'ouverture dans l'épaisseur du mur (pour la dessiner)
+    menuiserie: str = ""             # vitree, pleine, garage ; vide : vitrée (porte de garage : garage)
 
 
 class Piece(BaseModel):
@@ -119,6 +121,13 @@ class Piece(BaseModel):
     motif_exclusion: str = ""
 
 
+class Couvert(BaseModel):
+    """Porche, auvent, préau, abri : couvert mais hors des murs."""
+    nom: str
+    polygone: list[Point]
+    compte_emprise: Valeur           # soutenu par des poteaux : compte dans l'emprise au sol
+
+
 class Niveau(BaseModel):
     nom: str = "Rez-de-chaussée"
     altitude_sol_fini: Valeur = Field(default_factory=lambda: impossible("altitude du RDC fini (plan de masse, relevé)", "m"))
@@ -130,6 +139,28 @@ class Niveau(BaseModel):
     murs: list[Mur] = []
     ouvertures: list[Ouverture] = []
     pieces: list[Piece] = []
+    couverts: list[Couvert] = []
+
+
+def _hyp(v, unite, consequence, calcul="valeur courante, à confirmer"):
+    return Field(default_factory=lambda: hypothese(v, unite, consequence=consequence, calcul=calcul))
+
+
+class Volumetrie(BaseModel):
+    """Ce que les façades, coupes et la toiture demandent en plus du plan.
+    Hauteurs par rapport au sol fini du RDC (±0,00). Tant qu'une valeur n'est
+    pas saisie, elle reste une hypothèse courante, signalée sur les pièces."""
+    hauteur_egout: Valeur = _hyp(2.80, "m", "toutes les hauteurs de façade et de faîtage en dépendent")
+    hauteur_arase: Valeur = _hyp(2.70, "m", "hauteur des murs sous toiture sur les coupes")
+    pente_toiture: Valeur = _hyp(35.0, "°", "hauteurs de faîtage et règles du PLU sur les pentes")
+    debord_toiture: Valeur = _hyp(0.30, "m", "emprise des débords, hauteurs de faîtage")
+    type_toiture: str = "croupes"
+    couverture: str = ""
+    vide_sanitaire: Valeur = _hyp(0.60, "m", "coupes seulement (hauteur du vide sanitaire sous la dalle)")
+    terrain_fini: Valeur = _hyp(-0.15, "m", "niveau du terrain aux abords sur les façades et coupes")
+    # direction du nord, en degrés depuis l'axe x du plan (90 = vers le haut du plan)
+    nord: Valeur = _hyp(90.0, "°", "noms des façades (nord, sud…) et flèche du nord",
+                        calcul="nord supposé vers le haut du plan")
 
 
 class Batiment(BaseModel):
@@ -137,6 +168,7 @@ class Batiment(BaseModel):
     type_niveaux: str = "plain-pied"     # plain-pied, etage, combles-amenages
     niveaux: list[Niveau] = []
     charpente: Valeur = Field(default_factory=lambda: impossible("type de charpente (fermettes, traditionnelle…)"))
+    volumetrie: Volumetrie = Field(default_factory=Volumetrie)
 
 
 # ---------------------------------------------------------------- projet
@@ -182,11 +214,18 @@ class Document(BaseModel):
     depose_le: str = Field(default_factory=maintenant)
 
 
+class Modificatif(BaseModel):
+    """Une ligne du tableau « Dates / Modifications » de la page de garde."""
+    date: str
+    objet: str
+
+
 class Projet(BaseModel):
     schema_version: int = SCHEMA_VERSION
     id: str
     nom: str
     maitre_ouvrage: str = ""
+    adresse_maitre_ouvrage: str = ""     # adresse actuelle du maître d'ouvrage (page de garde)
     adresse: str = ""
     parcelles: list[str] = []
     numero_dossier: str = ""
@@ -198,6 +237,11 @@ class Projet(BaseModel):
     points_arret: dict[str, PointArret] = Field(default_factory=lambda: {k: PointArret() for k in POINTS_ARRET})
     documents: list[Document] = []
     terrain: dict = {}
+    surface_terrain: Valeur = Field(default_factory=lambda: impossible("surface du terrain (plan de division, acte)", "m²"))
+    zone_sismique: Valeur = Field(default_factory=lambda: impossible("zone sismique (Géorisques)"))
+    chauffage: str = ""
+    divers: str = ""
+    modifications: list[Modificatif] = []
     batiment: Batiment = Field(default_factory=Batiment)
     # le plan source du RDC tel qu'il a été lu (pour l'affichage côte à côte)
     source_rdc: dict = {}

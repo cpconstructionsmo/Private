@@ -24,7 +24,8 @@ from pydantic import BaseModel
 
 from . import __version__
 from .geometrie import usage_de
-from .modele import Decision, Document, POINTS_ARRET, Projet
+from .modele import Decision, Document, Modificatif, POINTS_ARRET, Projet, confirme, maintenant
+from . import reglages as R
 from .projet import (charger, creer_projet, deposer_document, enregistrer, exporter_json, invalider,
                      lister, racine_par_defaut, valider_point_arret)
 from .rdc import bilan_surfaces, importer_rdc
@@ -63,6 +64,40 @@ class Niveaux(BaseModel):
     motif: str = ""
 
 
+class Saisie(BaseModel):
+    """Valeurs saisies par l'utilisateur : elles deviennent confirmées, avec
+    pour source la saisie (qui, quand)."""
+    valeurs: dict[str, float | str | None] = {}
+    par: str = ""
+
+
+class Infos(BaseModel):
+    maitre_ouvrage: str | None = None
+    adresse_maitre_ouvrage: str | None = None
+    adresse: str | None = None
+    parcelles: list[str] | None = None
+    numero_dossier: str | None = None
+    surface_terrain: float | None = None
+    zone_sismique: str | None = None
+    chauffage: str | None = None
+    divers: str | None = None
+    modifications: list[dict] | None = None
+    par: str = ""
+
+
+class Baie(BaseModel):
+    largeur: float | None = None
+    hauteur: float | None = None
+    allege: float | None = None
+    menuiserie: str | None = None
+    par: str = ""
+
+
+class Generation(BaseModel):
+    pieces: list[str] = []
+    par: str = ""
+
+
 class NouvelleDecision(BaseModel):
     sujet: str
     choix: str
@@ -85,9 +120,20 @@ def creer_app(racine: Path | None = None) -> FastAPI:
         return d
 
     def etat(d: Path, p: Projet) -> dict:
+        toit = {}
+        if p.batiment.niveaux:
+            from .pieces_graphiques import Geo
+            g = Geo(p)
+            T = g.toiture
+            toit = {"faitages": T.faitages if T else [], "erreur": g.erreur_toit,
+                    "pans": len(T.pans) if T else 0}
+        generees = sorted((str(f.relative_to(d)) for f in (d / "04_pieces").rglob("*.pdf")), reverse=True)
         return jsonable_encoder({"dossier": d.name, "chemin": str(d), "projet": p, "surfaces": bilan_surfaces(p),
                                  "points_arret_libelles": POINTS_ARRET, "usages": USAGES_POSSIBLES,
-                                 "types_niveaux": TYPES_NIVEAUX})
+                                 "types_niveaux": TYPES_NIVEAUX, "toiture": toit, "pieces_generees": generees})
+
+    def source_saisie(par: str) -> dict:
+        return dict(document=f"saisi par {par or 'l’utilisateur'}", date=maintenant()[:10])
 
     @app.get("/api/etat")
     def api_etat():
@@ -114,7 +160,7 @@ def creer_app(racine: Path | None = None) -> FastAPI:
         return etat(d, charger(d))
 
     @app.post("/api/projets/{nom}/rdc")
-    async def api_rdc(nom: str, fichier: UploadFile = File(...), echelle: str = Form("")):
+    async def api_rdc(nom: str, fichier: UploadFile = File(...), echelle: str = Form(""), page: str = Form("")):
         d = dossier_de(nom)
         p = charger(d)
         ext = Path(fichier.filename or "").suffix.lower()
@@ -124,8 +170,10 @@ def creer_app(racine: Path | None = None) -> FastAPI:
             ech = float(echelle.replace(",", ".").replace("1/", "")) if echelle.strip() else None
         except ValueError:
             raise HTTPException(400, "Échelle illisible : indiquez par exemple 100 pour 1/100.")
-        if ext == ".pdf" and not ech:
-            raise HTTPException(400, "Indiquez l'échelle du plan PDF (par exemple 100 pour 1/100).")
+        try:
+            num_page = int(page) - 1 if page.strip() else None     # l'utilisateur compte à partir de 1
+        except ValueError:
+            raise HTTPException(400, "Numéro de page illisible.")
         # le fichier reçu est conservé tel quel dans 00_entrees (jamais écrasé) ;
         # s'il ne peut pas être lu, cette copie est retirée
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,7 +181,7 @@ def creer_app(racine: Path | None = None) -> FastAPI:
             t.write_bytes(await fichier.read())
             depot = deposer_document(d, t)
         try:
-            p, notes = importer_rdc(p, str(depot), echelle=ech)
+            p, notes = importer_rdc(p, str(depot), echelle=ech, page=num_page)
         except Exception as e:
             depot.unlink(missing_ok=True)
             raise HTTPException(400, f"Le plan n'a pas pu être lu : {e}")
@@ -228,6 +276,173 @@ def creer_app(racine: Path | None = None) -> FastAPI:
         p.journal.append(Decision(sujet=x.sujet.strip(), choix=x.choix.strip(), motif=x.motif, par=x.par))
         p = enregistrer(d, p, f"Journal : {x.sujet.strip()}")
         return etat(d, p)
+
+    # ---- réglages du cabinet (propres à ce Mac)
+    @app.get("/api/reglages")
+    def api_reglages():
+        r = R.lire(racine)
+        return {**r.model_dump(), "logo_re2020_present": bool(r.chemin_logo_re2020())}
+
+    @app.post("/api/reglages")
+    def api_reglages_ecrire(x: dict):
+        r = R.lire(racine)
+        champs = {k: v for k, v in x.items() if k in R.Reglages.model_fields and k not in ("logo", "logo_re2020")}
+        r = R.ecrire(racine, r.model_copy(update=champs))
+        return {**r.model_dump(), "logo_re2020_present": bool(r.chemin_logo_re2020())}
+
+    @app.post("/api/reglages/logo_re2020")
+    async def api_logo_re2020(fichier: UploadFile = File(...)):
+        ext = Path(fichier.filename or "").suffix.lower()
+        if ext not in (".png", ".jpg", ".jpeg"):
+            raise HTTPException(400, "Logo : image PNG ou JPEG.")
+        cible = racine / "logos" / f"re2020{ext}"
+        cible.parent.mkdir(exist_ok=True)
+        cible.write_bytes(await fichier.read())
+        r = R.ecrire(racine, R.lire(racine).model_copy(update={"logo_re2020": str(cible)}))
+        return {**r.model_dump(), "logo_re2020_present": True}
+
+    # ---- volumétrie : hauteurs, toiture, orientation
+    CHAMPS_VOLUMETRIE = {"hauteur_egout": "m", "hauteur_arase": "m", "pente_toiture": "°", "debord_toiture": "m",
+                         "vide_sanitaire": "m", "terrain_fini": "m", "nord": "°"}
+
+    @app.post("/api/projets/{nom}/volumetrie")
+    def api_volumetrie(nom: str, x: Saisie):
+        d = dossier_de(nom)
+        p = charger(d)
+        v = p.batiment.volumetrie
+        changes = []
+        for cle, val in x.valeurs.items():
+            if cle in CHAMPS_VOLUMETRIE:
+                if val is None or val == "":
+                    continue
+                try:
+                    f = float(str(val).replace(",", "."))
+                except ValueError:
+                    raise HTTPException(400, f"Valeur illisible pour {cle}.")
+                setattr(v, cle, confirme(f, CHAMPS_VOLUMETRIE[cle], **source_saisie(x.par)))
+                changes.append(f"{cle} = {f}")
+            elif cle == "couverture":
+                v.couverture = str(val or "").strip()
+                changes.append(f"couverture = {v.couverture}")
+            elif cle in ("altitude_rdc", "hauteur_sous_plafond") and p.batiment.niveaux and val not in (None, ""):
+                try:
+                    f = float(str(val).replace(",", "."))
+                except ValueError:
+                    raise HTTPException(400, f"Valeur illisible pour {cle}.")
+                n = p.batiment.niveaux[0]
+                if cle == "altitude_rdc":
+                    n.altitude_sol_fini = confirme(f, "m", **source_saisie(x.par))
+                else:
+                    n.hauteur_sous_plafond = confirme(f, "m", **source_saisie(x.par))
+                changes.append(f"{cle} = {f}")
+            else:
+                raise HTTPException(400, f"Champ inconnu : {cle}.")
+        if not changes:
+            return etat(d, p)
+        p.journal.append(Decision(sujet="Volumétrie et toiture", choix=" ; ".join(changes), par=x.par))
+        invalider(p, "3_regles", "volumétrie modifiée")
+        p = enregistrer(d, p, "Volumétrie : " + " ; ".join(changes))
+        return etat(d, p)
+
+    # ---- cartouche et page de garde
+    @app.post("/api/projets/{nom}/infos")
+    def api_infos(nom: str, x: Infos):
+        d = dossier_de(nom)
+        p = charger(d)
+        changes = []
+        for cle in ("maitre_ouvrage", "adresse_maitre_ouvrage", "adresse", "numero_dossier", "chauffage", "divers"):
+            val = getattr(x, cle)
+            if val is not None and val.strip() != getattr(p, cle):
+                setattr(p, cle, val.strip())
+                changes.append(cle)
+        if x.parcelles is not None:
+            p.parcelles = [y.strip() for y in x.parcelles if y.strip()]
+            changes.append("parcelles")
+        if x.surface_terrain:
+            p.surface_terrain = confirme(x.surface_terrain, "m²", **source_saisie(x.par))
+            changes.append("surface du terrain")
+        if x.zone_sismique:
+            p.zone_sismique = confirme(x.zone_sismique.strip(), **source_saisie(x.par))
+            changes.append("zone sismique")
+        if x.modifications is not None:
+            p.modifications = [Modificatif(date=str(m.get("date", "")).strip(), objet=str(m.get("objet", "")).strip())
+                               for m in x.modifications if str(m.get("date", "")).strip() or str(m.get("objet", "")).strip()]
+            changes.append("modifications")
+        if not changes:
+            return etat(d, p)
+        p.journal.append(Decision(sujet="Cartouche et page de garde", choix=", ".join(changes), par=x.par))
+        p = enregistrer(d, p, "Cartouche : " + ", ".join(changes))
+        return etat(d, p)
+
+    # ---- baies : dimensions et menuiserie
+    @app.post("/api/projets/{nom}/ouvertures/{oid}")
+    def api_baie(nom: str, oid: str, x: Baie):
+        d = dossier_de(nom)
+        p = charger(d)
+        if not p.batiment.niveaux:
+            raise HTTPException(400, "Aucun RDC importé.")
+        o = next((o for o in p.batiment.niveaux[0].ouvertures if o.id == oid), None)
+        if not o:
+            raise HTTPException(404, "Baie introuvable.")
+        changes = []
+        for cle in ("largeur", "hauteur", "allege"):
+            val = getattr(x, cle)
+            if val is not None:
+                setattr(o, cle, confirme(round(val, 3), "m", **source_saisie(x.par)))
+                changes.append(f"{cle} {val}")
+        if x.menuiserie is not None:
+            if x.menuiserie not in ("", "vitree", "pleine", "garage"):
+                raise HTTPException(400, "Menuiserie : vitree, pleine ou garage.")
+            o.menuiserie = x.menuiserie
+            if x.menuiserie == "garage":
+                o.type = "porte de garage"
+            changes.append(f"menuiserie {x.menuiserie or 'vitrée'}")
+        if not changes:
+            return etat(d, p)
+        detail = f"baie {oid} : " + ", ".join(changes)
+        p.journal.append(Decision(sujet="Correction du RDC interprété", choix=detail, par=x.par))
+        invalider(p, "1_rdc", "baie modifiée")
+        p = enregistrer(d, p, detail)
+        return etat(d, p)
+
+    # ---- pièces graphiques
+    @app.post("/api/projets/{nom}/pieces-graphiques")
+    def api_generer(nom: str, x: Generation):
+        from datetime import datetime
+        from .pieces_graphiques import ORDRE, generer
+        d = dossier_de(nom)
+        p = charger(d)
+        quoi = [q for q in x.pieces if q in ORDRE] or None
+        try:
+            doc = generer(p, R.lire(racine), quoi)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        dossier = d / "04_pieces" / p.indice
+        dossier.mkdir(parents=True, exist_ok=True)
+        nomf = f"{datetime.now():%Y-%m-%d_%Hh%M}_{'jeu-complet' if not quoi else '-'.join(quoi)}.pdf"
+        cible = dossier / nomf
+        n = 2
+        while cible.exists():                  # jamais d'écrasement
+            cible = dossier / f"{Path(nomf).stem}_{n}.pdf"
+            n += 1
+        try:
+            doc.subset_fonts()          # seuls les caractères utilisés : un PDF plus léger à déposer
+        except Exception:
+            pass
+        doc.save(cible, garbage=4, deflate=True, deflate_fonts=True)   # police et logo une seule fois
+        p.journal.append(Decision(sujet="Pièces graphiques", choix=f"{cible.name} ({len(doc)} planche(s))", par=x.par))
+        p = enregistrer(d, p, f"Pièces graphiques générées : {cible.name}")
+        return {**etat(d, p), "fichier": str(cible.relative_to(d))}
+
+    @app.get("/api/projets/{nom}/fichiers/{chemin:path}")
+    def api_fichier(nom: str, chemin: str):
+        d = dossier_de(nom)
+        f = (d / chemin).resolve()
+        # seuls les fichiers du projet, jamais au-delà
+        if not str(f).startswith(str(d.resolve()) + "/") or not f.is_file():
+            raise HTTPException(404, "Fichier introuvable.")
+        return FileResponse(f, media_type="application/pdf" if f.suffix == ".pdf" else None, filename=f.name,
+                            content_disposition_type="inline")
 
     @app.get("/api/projets/{nom}/export.json")
     def api_export(nom: str):

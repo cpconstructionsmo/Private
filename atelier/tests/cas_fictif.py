@@ -20,6 +20,8 @@ import pymupdf
 from shapely.geometry import box
 from shapely.ops import unary_union
 
+# porche de 1,70 × 1,40 = 2,38 m² sur le plan en aplats (compte dans l'emprise au sol)
+PORCHE = 2.38
 ATTENDU = {"interieur": 95.76, "surface_plancher": 71.34, "surface_habitable": 68.98, "emprise_sol": 108.00,
            "pieces": {"Séjour - cuisine": 37.00, "Garage": 24.42, "Chambre 1": 13.26, "Salle d'eau": 8.58, "Chambre 2": 10.14}}
 
@@ -106,4 +108,55 @@ def ecrire_pdf(chemin: str, echelle=100):
     for nom, surf, x, y in PIECES:
         page.insert_text(P((x - 1.0, y)), nom, fontsize=7)
         page.insert_text(P((x - 1.0, y - 0.35)), surf, fontsize=6)
+    doc.save(chemin)
+
+
+def ecrire_pdf_aplats(chemin: str, echelle=75):
+    """Le même RDC dessiné comme la plupart des plans de permis : page 1 de
+    garde (sans dessin), page 2 le plan, murs en aplats gris (maçonnerie) et
+    gris foncé (cloisons), vitrages en blanc, un tableau en aplats posé à côté
+    (piège : il ne doit pas être pris pour des murs), échelle écrite."""
+    doc = pymupdf.open()
+    garde = doc.new_page(width=1190.55, height=841.89)
+    garde.insert_text((80, 80), "PLAN DE PERMIS DE CONSTRUIRE — maison fictive", fontsize=16)
+    page = doc.new_page(width=1190.55, height=841.89)
+    k = 1000 / 25.4 * 72 / echelle
+    ox, oy = 250, 720
+    P = lambda p: (ox + p[0] * k, oy - p[1] * k)
+    facades = box(0, 0, 12, 9).difference(box(0.3, 0.3, 11.7, 8.7))
+    cloisons = unary_union([box(7.7, 0.3, 7.8, 8.7), box(0.3, 3.6, 7.7, 3.7), box(7.8, 5.2, 11.7, 5.3), box(7.8, 2.9, 11.7, 3.0)])
+    for (x0, y0, x1, y1), _ in OUVERTURES:
+        facades = facades.difference(box(x0, y0, x1, y1))
+        cloisons = cloisons.difference(box(x0, y0, x1, y1))
+
+    def aplat(g, couleur):
+        sh = page.new_shape()
+        for p in (g.geoms if hasattr(g, "geoms") else [g]):
+            for anneau in [p.exterior, *p.interiors]:
+                sh.draw_polyline([P(c) for c in anneau.coords])
+        sh.finish(fill=couleur, color=None, even_odd=True, closePath=True)
+        sh.commit()
+
+    aplat(facades, (0.85, 0.85, 0.85))
+    aplat(cloisons, (0.64, 0.64, 0.64))
+    for (x0, y0, x1, y1), _ in OUVERTURES[1:7]:          # vitrages des baies extérieures
+        aplat(box(x0, y0, x1, y1), (1, 1, 1))
+    # tableau des surfaces en aplats, à gauche du plan
+    for i in range(3):
+        page.draw_rect(pymupdf.Rect(40, 120 + i * 30, 200, 130 + i * 30), fill=(0.93, 0.93, 0.93), color=None)
+    for nom, surf, x, y in PIECES:
+        page.insert_text(P((x - 1.0, y)), nom, fontsize=7)
+        page.insert_text(P((x - 1.0, y - 0.35)), "SH : " + surf, fontsize=6)
+    page.insert_text(P((5.6, -0.8)), "12,00", fontsize=7)
+    # tailles des baies écrites le long des cotes, comme sur un plan de permis
+    for texte, x, y in (("1,80 x 2,15", 5.9, 9.8), ("1,00 x 1,25", 12.8, 6.9), ("all. 0,90", 12.8, 6.6),
+                        ("0,60 x 0,75", 12.8, 4.1), ("all. 1,40", 12.8, 3.8)):
+        page.insert_text(P((x - 0.5, y)), texte, fontsize=6)
+    # un porche couvert devant l'entrée (contour en tirets), sur poteau
+    sh = page.new_shape()
+    sh.draw_polyline([P((2.6, 9.0)), P((2.6, 10.4)), P((4.3, 10.4)), P((4.3, 9.0))])
+    sh.finish(color=(0, 0, 0), width=0.4, dashes="[3 2] 0")
+    sh.commit()
+    page.insert_text(P((2.7, 9.7)), "Porche couvert", fontsize=5)
+    page.insert_text((80, 800), f"Echelle 1/{echelle}", fontsize=9)
     doc.save(chemin)

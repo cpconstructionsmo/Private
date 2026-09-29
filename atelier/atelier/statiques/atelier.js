@@ -35,7 +35,9 @@ const post = (chemin, corps) => api(chemin, { method: 'POST', headers: { 'Conten
 
 function route() {
   const m = location.hash.match(/^#\/projet\/([\w-]+)/);
-  if (m) ouvrirProjet(m[1]); else accueil();
+  if (m) ouvrirProjet(m[1]);
+  else if (location.hash === '#/reglages') reglages();
+  else accueil();
 }
 window.addEventListener('hashchange', route);
 
@@ -57,6 +59,7 @@ async function accueil() {
                <td>${p.points_arret['1_rdc'] ? '<span class="valide">oui</span>' : 'non'}</td></tr>`).join('')}</table>`
           : '<p class="discret">Aucun projet pour le moment.</p>'}
         <p class="petit discret">Dossier des projets : ${esc(etat.racine)}</p>
+        <p><a href="#/reglages">Réglages du cabinet</a> <span class="petit discret">(société, dessinateur, logos du cartouche)</span></p>
       </div>
       <div class="carte">
         <h2>Nouveau projet</h2>
@@ -119,7 +122,13 @@ function dessiner() {
       <div class="carte">${blocPieces(p, n)}</div>
     </div>
     <div class="carte">${blocSurfaces(s)}</div>
-    <div class="carte">${blocMursOuvertures(n)}</div>` : ''}
+    <div class="carte">${blocMursOuvertures(n)}</div>
+    <div class="deux">
+      <div class="carte">${blocVolumetrie(p)}</div>
+      <div class="carte">${blocCartouche(p)}</div>
+    </div>
+    <div class="carte">${blocBaies(n)}</div>
+    <div class="carte">${blocPiecesGraphiques(p)}</div>` : ''}
     <div class="deux">
       <div class="carte">${blocPoints(p)}</div>
       <div class="carte">${blocJournal(p)}</div>
@@ -153,7 +162,10 @@ function blocImport(p) {
   return `<h2>Plan du rez-de-chaussée</h2>
     <form id="import">
       <label><span>Fichier DXF ou PDF vectoriel (un DWG s'exporte en DXF)</span><input type="file" name="fichier" accept=".dxf,.pdf,.dwg" required></label>
-      <label><span>Échelle du PDF (ex. 100 pour 1/100) — inutile pour un DXF</span><input name="echelle" inputmode="decimal" placeholder="100"></label>
+      <div class="ligne">
+        <label><span>Échelle du PDF (lue sur la page si elle y est écrite)</span><input name="echelle" inputmode="decimal" placeholder="auto" size="8"></label>
+        <label><span>Page du plan (PDF de plusieurs pages)</span><input name="page" inputmode="numeric" placeholder="auto" size="6"></label>
+      </div>
       <button>${deja ? 'Remplacer le plan' : 'Importer le plan'}</button>
       ${deja ? '<p class="petit hypothese">Un nouvel import annule la validation du RDC et des étapes suivantes.</p>' : ''}
     </form>`;
@@ -191,7 +203,8 @@ function svgInterpretation(p) {
   }).join('');
   const ferm = (S.fermetures || []).map(([a, b]) => `<line x1="${a[0]}" y1="${-a[1]}" x2="${b[0]}" y2="${-b[1]}" stroke="#d33" stroke-width="0.03" stroke-dasharray="0.08 0.06"/>`).join('');
   const ouv = n.ouvertures.map(o => `<circle cx="${o.position[0]}" cy="${-o.position[1]}" r="0.13" fill="${o.exterieure ? '#1d4e89' : '#6aa0d8'}"><title>${esc(o.id)} · ${esc(o.type)} · ${nb(o.largeur.valeur)} m (${esc(o.origine)})</title></circle>`).join('');
-  return `<svg class="plan" viewBox="${cadre(n.contour_exterieur)}" preserveAspectRatio="xMidYMid meet">${pieces}${murs}${ferm}${ouv}</svg>`;
+  const couv = (n.couverts || []).map(c => `<path d="${chemin(c.polygone)}" fill="none" stroke="var(--texte)" stroke-width="0.04" stroke-dasharray="0.15 0.1"><title>${esc(c.nom)}</title></path>`).join('');
+  return `<svg class="plan" viewBox="${cadre(n.contour_exterieur.concat(...(n.couverts || []).map(c => c.polygone)))}" preserveAspectRatio="xMidYMid meet">${pieces}${murs}${couv}${ferm}${ouv}</svg>`;
 }
 
 function legende() {
@@ -289,6 +302,146 @@ function blocJournal(p) {
       <td>${esc(d.choix)}${d.motif ? `<div class="petit discret">${esc(d.motif)}</div>` : ''}</td></tr>`).join('')}</table>`;
 }
 
+// ---------- volumétrie, cartouche, baies, pièces graphiques
+
+function champValeur(nom, lib, v, unite, aide = '') {
+  // une valeur du modèle : son statut (✅ saisie, ⚠️ supposée), modifiable
+  const st = v && v.statut ? v.statut : 'impossible';
+  const val = v && v.valeur != null ? String(v.valeur).replace('.', ',') : '';
+  // seule une valeur modifiée, ou supposée et expressément confirmée, est envoyée :
+  // une hypothèse ne devient jamais « confirmée » sans action de l'utilisateur (R4)
+  return `<label><span>${lib} <b class="${st}">${SYMB[st]}</b>${aide ? ` <i class="discret">${esc(aide)}</i>` : ''}</span>
+    <input name="${nom}" value="${esc(val)}" data-init="${esc(val)}" size="7" inputmode="decimal"> ${esc(unite)}
+    ${st === 'hypothese' ? `<span class="petit"><input type="checkbox" data-confirmer="${nom}"> je confirme</span>` : ''}</label>`;
+}
+
+function valeursModifiees(form) {
+  const out = {};
+  form.querySelectorAll('input[data-init]').forEach(i => {
+    const conf = form.querySelector(`input[data-confirmer="${i.name}"]`);
+    if (i.value.trim() !== i.dataset.init || (conf && conf.checked)) if (i.value.trim() !== '') out[i.name] = i.value.trim();
+  });
+  return out;
+}
+
+function blocVolumetrie(p) {
+  const v = p.batiment.volumetrie, n = p.batiment.niveaux[0];
+  const T = E.toiture || {};
+  return `<h2>Volumétrie et toiture</h2>
+    <form id="volumetrie">
+      <div class="ligne">
+        ${champValeur('hauteur_egout', 'Égout', v.hauteur_egout, 'm')}
+        ${champValeur('hauteur_arase', 'Arase des murs', v.hauteur_arase, 'm')}
+        ${champValeur('hauteur_sous_plafond', 'Sous plafond', n.hauteur_sous_plafond, 'm')}
+      </div>
+      <div class="ligne">
+        ${champValeur('pente_toiture', 'Pente', v.pente_toiture, '°')}
+        ${champValeur('debord_toiture', 'Débord', v.debord_toiture, 'm')}
+        ${champValeur('vide_sanitaire', 'Vide sanitaire', v.vide_sanitaire, 'm')}
+      </div>
+      <div class="ligne">
+        ${champValeur('altitude_rdc', 'RDC fini (NGF)', n.altitude_sol_fini, 'm')}
+        ${champValeur('terrain_fini', 'Terrain fini', v.terrain_fini, 'm', 'par rapport au RDC')}
+        ${champValeur('nord', 'Nord', v.nord, '°', '90 = haut du plan, 270 = bas')}
+      </div>
+      <label><span>Couverture (matériau, teinte)</span><input name="couverture" value="${esc(v.couverture)}" size="40" placeholder="Ardoise artificielle 40 × 24, teinte ardoise"></label>
+      <button>Enregistrer</button>
+    </form>
+    <p class="petit">${T.erreur ? `<span class="hypothese">${esc(T.erreur)}</span>`
+      : `Toiture à croupes calculée : ${T.pans || 0} pans ; faîtages ${(T.faitages || []).map(f => '+' + nb(f)).join(' ; ')}.`}</p>
+    <p class="petit discret">⚠️ = valeur courante supposée, rappelée en rouge sur les pièces tant qu'elle n'est pas saisie. Hauteurs par rapport au sol fini du RDC (±0,00).</p>`;
+}
+
+function blocCartouche(p) {
+  const mods = (p.modifications || []).concat([{ date: '', objet: '' }]);
+  return `<h2>Cartouche et page de garde</h2>
+    <form id="cartouche">
+      <label><span>Maître d'ouvrage (« Construction de »)</span><input name="maitre_ouvrage" value="${esc(p.maitre_ouvrage)}" size="40"></label>
+      <label><span>Adresse actuelle du maître d'ouvrage</span><input name="adresse_maitre_ouvrage" value="${esc(p.adresse_maitre_ouvrage)}" size="40"></label>
+      <label><span>Adresse du terrain</span><input name="adresse" value="${esc(p.adresse)}" size="40"></label>
+      <div class="ligne">
+        <label><span>Parcelles</span><input name="parcelles" value="${esc(p.parcelles.join(', '))}" size="18"></label>
+        ${champValeur('surface_terrain', 'Surface du terrain', p.surface_terrain, 'm²')}
+        <label><span>Zone sismique ${p.zone_sismique.valeur ? '✅' : '❓'}</span><input name="zone_sismique" value="${esc(p.zone_sismique.valeur || '')}" size="6"></label>
+      </div>
+      <div class="ligne">
+        <label><span>Chauffage</span><input name="chauffage" value="${esc(p.chauffage)}" size="24"></label>
+        <label><span>Divers</span><input name="divers" value="${esc(p.divers)}" size="16"></label>
+      </div>
+      <div class="petit discret">Dates et modifications (page de garde)</div>
+      ${mods.map((m, i) => `<div class="ligne mod"><input name="mdate" value="${esc(m.date)}" size="10" placeholder="jj/mm/aaaa">
+        <input name="mobjet" value="${esc(m.objet)}" size="34" placeholder="objet de la modification"></div>`).join('')}
+      <button>Enregistrer</button>
+    </form>`;
+}
+
+function blocBaies(n) {
+  const ext = n.ouvertures.filter(o => o.exterieure);
+  const v = x => `<span class="${x.statut}">${SYMB[x.statut]}</span>`;
+  return `<h2>Baies extérieures (${ext.length})</h2>
+    <p class="petit discret">Largeur × hauteur et allège lues sur le plan quand elles y sont écrites (✅), sinon à saisir : une baie sans hauteur n'est pas dessinée en façade.</p>
+    <table><tr><th>Baie</th><th>Type</th><th>Largeur</th><th>Hauteur</th><th>Allège</th><th>Menuiserie</th><th></th></tr>
+    ${ext.map(o => `<tr data-baie="${esc(o.id)}">
+      <td>${esc(o.id)}</td><td>${esc(o.type)}</td>
+      ${[['b-l', o.largeur], ['b-h', o.hauteur], ['b-a', o.allege]].map(([c, x]) => { const val = x.valeur != null ? nb(x.valeur) : '';
+        return `<td>${v(x)} <input class="${c}" value="${val}" data-init="${val}" size="5"></td>`; }).join('')}
+      <td><select class="b-m">${[['', 'vitrée'], ['pleine', 'pleine'], ['garage', 'porte de garage']].map(([k, l]) =>
+        `<option value="${k}" ${(o.menuiserie || (o.type === 'porte de garage' ? 'garage' : '')) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
+      <td><button class="second b-ok">Enregistrer</button></td></tr>`).join('')}</table>`;
+}
+
+const PIECES_GRAPHIQUES = [['page_de_garde', 'Page de garde (tableau des surfaces, résumé)'], ['coupes', 'PCMI 3 – Coupes'],
+  ['facades', 'PCMI 5 – Façades'], ['plan_toiture', 'PCMI 5 – Plan de toiture'], ['plan_rdc', 'Plan du rez-de-chaussée']];
+
+function blocPiecesGraphiques(p) {
+  const url = f => `/api/projets/${encodeURIComponent(E.dossier)}/fichiers/${f.split('/').map(encodeURIComponent).join('/')}`;
+  return `<h2>Pièces graphiques du permis</h2>
+    <form id="generer">
+      <div class="ligne">${PIECES_GRAPHIQUES.map(([k, l]) => `<label><input type="checkbox" name="piece" value="${k}" checked> ${esc(l)}</label>`).join('')}</div>
+      <button>Générer le PDF</button>
+    </form>
+    <p class="petit discret">Chaque génération est un nouveau fichier dans 04_pieces/${esc(p.indice)}/ (rien n'est écrasé). Les hypothèses encore supposées sont rappelées en rouge sur les planches.
+      Plan de masse, notice et planches photographiques : prochaine étape de l'atelier.</p>
+    ${(E.pieces_generees || []).length ? `<div class="petit"><b>Déjà générées :</b><ul>${E.pieces_generees.slice(0, 8).map(f =>
+      `<li><a href="${url(f)}" target="_blank">${esc(f)}</a></li>`).join('')}</ul></div>` : ''}`;
+}
+
+// ---------- réglages du cabinet
+
+async function reglages() {
+  $('#fil').innerHTML = '<a href="#">Projets</a> › Réglages du cabinet';
+  const r = await api('/reglages');
+  const champ = (k, lib, taille = 40) => `<label><span>${lib}</span><input name="${k}" value="${esc(r[k] || '')}" size="${taille}"></label>`;
+  $('#app').innerHTML = `<h1>Réglages du cabinet</h1>
+    <div class="deux"><div class="carte">
+      <form id="reglages">
+        ${champ('societe', 'Société')}
+        ${champ('adresse_societe', 'Adresse de la société')}
+        <div class="ligne">${champ('telephone', 'Téléphone', 16)}${champ('email', 'E-mail', 24)}</div>
+        <div class="ligne">${champ('siren', 'SIREN', 14)}${champ('tva', 'N° de TVA', 18)}</div>
+        ${champ('dessinateur', 'Dessiné par (cartouche)')}
+        <label><span>Mention de propriété (page de garde)</span><textarea name="mention_propriete" rows="3" cols="50">${esc(r.mention_propriete)}</textarea></label>
+        <button>Enregistrer</button>
+      </form></div>
+      <div class="carte"><h2>Logos du cartouche</h2>
+        <p class="petit">Logo de la société : ${r.logo ? esc(r.logo) : 'logo CP Constructions fourni avec l\'atelier'}.</p>
+        <form id="logo"><label><span>Logo RE2020 (PNG ou JPEG) — ${r.logo_re2020_present ? '✅ présent' : 'aucun : la case reste vide'}</span>
+          <input type="file" name="fichier" accept=".png,.jpg,.jpeg"></label><button class="second">Envoyer</button></form>
+        <p class="petit discret">Ces réglages restent sur ce Mac, dans le dossier des projets. Ils ne vont jamais dans le dépôt.</p></div>
+    </div>`;
+  $('#reglages').onsubmit = async ev => {
+    ev.preventDefault();
+    const f = new FormData(ev.target), corps = {};
+    for (const [k, v] of f.entries()) corps[k] = v;
+    try { await post('/reglages', corps); message('Réglages enregistrés.'); } catch (e) { message(e.message, true); }
+  };
+  $('#logo').onsubmit = async ev => {
+    ev.preventDefault();
+    try { await api('/reglages/logo_re2020', { method: 'POST', body: new FormData(ev.target) }); reglages(); message('Logo enregistré.'); }
+    catch (e) { message(e.message, true); }
+  };
+}
+
 // ---------- actions
 
 async function agir(promesse, ok) {
@@ -321,6 +474,49 @@ function brancher() {
     const nEcarts = E.projet.ecarts_rdc.length;
     if (nEcarts && !confirm(`${nEcarts} écart(s) restent affichés. Les avez-vous vérifiés sur le plan source ?`)) return;
     agir(post(`${base}/points/${v.dataset.cle}`, { par: par(), remarque: $('#pa-remarque').value }), 'Point d’arrêt validé.');
+  };
+  const fv = $('#volumetrie');
+  if (fv) fv.onsubmit = ev => {
+    ev.preventDefault();
+    const valeurs = valeursModifiees(ev.target);
+    const coul = ev.target.querySelector('input[name=couverture]');
+    if (coul.value.trim() !== E.projet.batiment.volumetrie.couverture) valeurs.couverture = coul.value.trim();
+    if (!Object.keys(valeurs).length) { message('Rien à enregistrer : aucune valeur modifiée ni confirmée.'); return; }
+    agir(post(base + '/volumetrie', { valeurs, par: par() }), 'Volumétrie enregistrée : les pièces en tiendront compte.');
+  };
+  const fc = $('#cartouche');
+  if (fc) fc.onsubmit = ev => {
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    const dates = f.getAll('mdate'), objets = f.getAll('mobjet');
+    const mod = valeursModifiees(ev.target);
+    const st = mod.surface_terrain != null ? String(mod.surface_terrain).replace(',', '.') : '';
+    agir(post(base + '/infos', {
+      maitre_ouvrage: f.get('maitre_ouvrage'), adresse_maitre_ouvrage: f.get('adresse_maitre_ouvrage'), adresse: f.get('adresse'),
+      parcelles: String(f.get('parcelles') || '').split(','), surface_terrain: st ? Number(st) : null,
+      zone_sismique: f.get('zone_sismique') || null, chauffage: f.get('chauffage'), divers: f.get('divers'),
+      modifications: dates.map((d, i) => ({ date: d, objet: objets[i] })), par: par() }), 'Cartouche enregistré.');
+  };
+  document.querySelectorAll('tr[data-baie]').forEach(tr => {
+    tr.querySelector('.b-ok').onclick = () => {
+      // seules les valeurs modifiées sont envoyées : une largeur supposée ne devient pas « lue » par mégarde
+      const lire = c => { const i = tr.querySelector(c), v = i.value.trim();
+        return v === '' || v === i.dataset.init ? null : Number(v.replace(',', '.')); };
+      agir(post(`${base}/ouvertures/${tr.dataset.baie}`, { largeur: lire('.b-l'), hauteur: lire('.b-h'), allege: lire('.b-a'),
+        menuiserie: tr.querySelector('.b-m').value, par: par() }), 'Baie enregistrée.');
+    };
+  });
+  const fg = $('#generer');
+  if (fg) fg.onsubmit = async ev => {
+    ev.preventDefault();
+    const pieces = new FormData(ev.target).getAll('piece');
+    const b = ev.target.querySelector('button'); b.disabled = true; b.textContent = 'Génération…';
+    try {
+      const r = await post(base + '/pieces-graphiques', { pieces: pieces.length === PIECES_GRAPHIQUES.length ? [] : pieces, par: par() });
+      E = r; dessiner();
+      window.open(`/api/projets/${encodeURIComponent(E.dossier)}/fichiers/${r.fichier.split('/').map(encodeURIComponent).join('/')}`, '_blank');
+      message('PDF généré.');
+    } catch (e) { message(e.message, true); b.disabled = false; b.textContent = 'Générer le PDF'; }
   };
   $('#journal').onsubmit = ev => {
     ev.preventDefault();

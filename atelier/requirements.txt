@@ -1,5 +1,6 @@
 ezdxf>=1.4
 pymupdf>=1.24
+pymupdf-fonts>=1.0.5
 shapely>=2.0
 pydantic>=2.7
 fastapi>=0.110
