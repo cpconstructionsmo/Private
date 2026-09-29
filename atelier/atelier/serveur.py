@@ -26,6 +26,8 @@ from . import __version__
 from .geometrie import usage_de
 from .modele import Decision, Document, Modificatif, POINTS_ARRET, Projet, confirme, maintenant
 from . import reglages as R
+from .terrain import REGLES
+from .notice import PARAGRAPHES
 from .projet import (charger, creer_projet, deposer_document, enregistrer, exporter_json, invalider,
                      lister, racine_par_defaut, valider_point_arret)
 from .rdc import bilan_surfaces, importer_rdc
@@ -93,8 +95,44 @@ class Baie(BaseModel):
     par: str = ""
 
 
+class ImplantationSaisie(BaseModel):
+    parallele_a: int | None = None      # côté du terrain auquel la façade principale est parallèle
+    inverser: bool = False              # maison retournée (demi-tour)
+    angle: float | None = None          # sinon : angle donné (degrés)
+    cote_a: int | None = None
+    dist_a: float | None = None
+    cote_b: int | None = None
+    dist_b: float | None = None
+    alignement: list[int] | None = None
+    par: str = ""
+
+
+class Regles(BaseModel):
+    regles: list[dict] = []
+    par: str = ""
+
+
+class NoticeSaisie(BaseModel):
+    paragraphes: dict[str, str] = {}
+    commune: str | None = None
+    zone_plu: str | None = None
+    par: str = ""
+
+
+class ImageSaisie(BaseModel):
+    legende: str | None = None
+    piece: str | None = None
+    x: float | None = None
+    y: float | None = None
+    direction: float | None = None
+    numero: int | None = None
+    sans_point: bool = False
+    supprimer: bool = False
+    par: str = ""
+
+
 class Generation(BaseModel):
-    pieces: list[str] = []
+    pieces: list[str] = []   # vide : le jeu complet
     par: str = ""
 
 
@@ -128,9 +166,18 @@ def creer_app(racine: Path | None = None) -> FastAPI:
             toit = {"faitages": T.faitages if T else [], "erreur": g.erreur_toit,
                     "pans": len(T.pans) if T else 0}
         generees = sorted((str(f.relative_to(d)) for f in (d / "04_pieces").rglob("*.pdf")), reverse=True)
+        terrain = {}
+        if p.terrain.limites:
+            from .terrain import controles, maison_sur_terrain, reculs
+            m = maison_sur_terrain(p)
+            terrain = {"maison": list(m.exterior.coords) if m is not None and m.geom_type == "Polygon" else [],
+                       "reculs": [{k: v for k, v in r.items()} for r in reculs(p)],
+                       "controles": controles(p, None, (g.toiture if p.batiment.niveaux else None)) if p.batiment.niveaux else []}
         return jsonable_encoder({"dossier": d.name, "chemin": str(d), "projet": p, "surfaces": bilan_surfaces(p),
                                  "points_arret_libelles": POINTS_ARRET, "usages": USAGES_POSSIBLES,
-                                 "types_niveaux": TYPES_NIVEAUX, "toiture": toit, "pieces_generees": generees})
+                                 "types_niveaux": TYPES_NIVEAUX, "toiture": toit, "pieces_generees": generees,
+                                 "terrain": terrain, "regles_possibles": {k: v[0] for k, v in REGLES.items()},
+                                 "paragraphes_notice": PARAGRAPHES})
 
     def source_saisie(par: str) -> dict:
         return dict(document=f"saisi par {par or 'l’utilisateur'}", date=maintenant()[:10])
@@ -405,6 +452,192 @@ def creer_app(racine: Path | None = None) -> FastAPI:
         p = enregistrer(d, p, detail)
         return etat(d, p)
 
+    # ---- terrain et implantation
+    @app.post("/api/projets/{nom}/terrain")
+    async def api_terrain(nom: str, fichier: UploadFile = File(...), echelle: str = Form(""), page: str = Form("")):
+        from shapely.geometry import Polygon
+        from .modele import Implantation
+        from .terrain import lire_terrain_dxf, lire_terrain_pdf, superposer
+        d = dossier_de(nom)
+        p = charger(d)
+        ext = Path(fichier.filename or "").suffix.lower()
+        if ext not in (".pdf", ".dxf"):
+            raise HTTPException(400, "Terrain : plan en PDF vectoriel ou en DXF (plan de division, cadastre, plan de masse).")
+        try:
+            ech = float(echelle.replace(",", ".").replace("1/", "")) if echelle.strip() else None
+            num = int(page) - 1 if page.strip() else None
+        except ValueError:
+            raise HTTPException(400, "Échelle ou page illisible.")
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp) / Path(fichier.filename).name
+            t.write_bytes(await fichier.read())
+            depot = deposer_document(d, t)
+        try:
+            terrain, extras, notes = (lire_terrain_pdf(str(depot), num, ech) if ext == ".pdf" else lire_terrain_dxf(str(depot)))
+        except Exception as e:
+            depot.unlink(missing_ok=True)
+            raise HTTPException(400, f"Le terrain n'a pas pu être lu : {e}")
+        # la maison, si le plan porte déjà son emprise : implantation lue, pas supposée
+        if p.batiment.niveaux:
+            n = p.batiment.niveaux[0]
+            sup = superposer(Polygon(n.contour_exterieur).buffer(0), extras["emprises"])
+            if sup:
+                ang, dx, dy, ecart = sup
+                terrain.implantation = Implantation(angle=ang, dx=dx, dy=dy, statut=confirme(
+                    True, document=depot.name, calcul=f"emprise dessinée sur le plan, superposée à {ecart * 1000:.0f} mm près"))
+                notes.append(f"✅ Implantation lue : la maison dessinée sur ce plan correspond au RDC (écart {ecart * 1000:.0f} mm).")
+            else:
+                notes.append("Implantation à saisir : la maison n'est pas dessinée sur ce plan (ou n'y correspond pas).")
+        p.terrain = terrain
+        if p.surface_terrain.statut.value != "confirme" and terrain.surface.valeur:
+            p.surface_terrain = terrain.surface
+        p.documents.append(Document(fichier=f"00_entrees/{depot.name}", type="terrain", source="déposé dans l'atelier"))
+        p.journal.append(Decision(sujet="Terrain", choix=depot.name, motif=" ; ".join(notes), par=""))
+        invalider(p, "2_implantation", "nouveau terrain")
+        p = enregistrer(d, p, f"Terrain ({depot.name})")
+        return {**etat(d, p), "notes": notes}
+
+    @app.post("/api/projets/{nom}/implantation")
+    def api_implantation(nom: str, x: ImplantationSaisie):
+        import math
+        from shapely.geometry import Polygon
+        from .modele import Implantation
+        from .terrain import implanter_par_distances
+        d = dossier_de(nom)
+        p = charger(d)
+        t = p.terrain
+        if len(t.limites) < 4 or not p.batiment.niveaux:
+            raise HTTPException(400, "Importez d'abord le RDC et le terrain.")
+        n_cotes = len(t.limites) - 1
+        changes = []
+        if x.alignement is not None:
+            t.alignement = sorted({i for i in x.alignement if 0 <= i < n_cotes})
+            changes.append("côtés sur voie : " + ", ".join(str(i + 1) for i in t.alignement))
+        if x.cote_a is not None:
+            if None in (x.dist_a, x.cote_b, x.dist_b) or not (0 <= x.cote_a < n_cotes and 0 <= x.cote_b < n_cotes):
+                raise HTTPException(400, "Indiquez deux côtés du terrain et la distance de la maison à chacun.")
+            maison = Polygon(p.batiment.niveaux[0].contour_exterieur).buffer(0)
+            if x.parallele_a is not None:
+                a, b = t.limites[x.parallele_a], t.limites[x.parallele_a + 1]
+                c = list(maison.exterior.coords)
+                m1, m2 = max(zip(c, c[1:]), key=lambda s_: math.dist(*s_))
+                angle = (math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+                         - math.degrees(math.atan2(m2[1] - m1[1], m2[0] - m1[0])) + (180 if x.inverser else 0))
+            else:
+                angle = x.angle or 0.0
+            try:
+                dx, dy = implanter_par_distances(maison, Polygon(t.limites), angle, x.cote_a, x.dist_a, x.cote_b, x.dist_b)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            t.implantation = Implantation(angle=angle, dx=dx, dy=dy, statut=confirme(
+                True, **source_saisie(x.par), calcul=f"à {x.dist_a} m du côté {x.cote_a + 1} et {x.dist_b} m du côté {x.cote_b + 1}"))
+            changes.append(f"maison à {x.dist_a} m du côté {x.cote_a + 1} et à {x.dist_b} m du côté {x.cote_b + 1}")
+        if not changes:
+            return etat(d, p)
+        p.journal.append(Decision(sujet="Implantation", choix=" ; ".join(changes), par=x.par))
+        invalider(p, "2_implantation", "implantation modifiée")
+        p = enregistrer(d, p, "Implantation : " + " ; ".join(changes))
+        return etat(d, p)
+
+    @app.post("/api/projets/{nom}/regles")
+    def api_regles(nom: str, x: Regles):
+        from .modele import Regle
+        d = dossier_de(nom)
+        p = charger(d)
+        regles = []
+        for r in x.regles:
+            if r.get("cle") not in REGLES or r.get("valeur") in (None, ""):
+                continue
+            try:
+                v = float(str(r["valeur"]).replace(",", "."))
+            except ValueError:
+                raise HTTPException(400, f"Valeur illisible pour {r['cle']}.")
+            regles.append(Regle(cle=r["cle"], valeur=v, article=str(r.get("article", "")).strip()))
+        p.regles = regles
+        p.journal.append(Decision(sujet="Règles du PLU", choix="; ".join(f"{REGLES[r.cle][0]} {r.valeur} ({r.article or 'article à préciser'})"
+                                                                     for r in regles) or "aucune", par=x.par))
+        invalider(p, "3_regles", "règles modifiées")
+        p = enregistrer(d, p, "Règles du PLU saisies")
+        return etat(d, p)
+
+    # ---- notice (PCMI 4)
+    @app.post("/api/projets/{nom}/notice")
+    def api_notice(nom: str, x: NoticeSaisie):
+        d = dossier_de(nom)
+        p = charger(d)
+        changes = []
+        for cle, texte in x.paragraphes.items():
+            if cle in PARAGRAPHES and (texte or "").strip() != p.notice.get(cle, ""):
+                p.notice[cle] = (texte or "").strip()
+                changes.append(cle)
+        for cle in ("commune", "zone_plu"):
+            val = getattr(x, cle)
+            if val is not None and val.strip() != getattr(p, cle):
+                setattr(p, cle, val.strip())
+                changes.append(cle)
+        if not changes:
+            return etat(d, p)
+        p.journal.append(Decision(sujet="Notice", choix=", ".join(changes), par=x.par))
+        p = enregistrer(d, p, "Notice : " + ", ".join(changes))
+        return etat(d, p)
+
+    # ---- images : plan de situation, insertion, photographies
+    PIECES_IMAGES = ("PCMI1", "PCMI6", "PCMI7", "PCMI8")
+
+    @app.post("/api/projets/{nom}/images")
+    async def api_image(nom: str, fichier: UploadFile = File(...), piece: str = Form("PCMI7"), legende: str = Form("")):
+        from .modele import Image
+        d = dossier_de(nom)
+        p = charger(d)
+        ext = Path(fichier.filename or "").suffix.lower()
+        if ext not in (".jpg", ".jpeg", ".png"):
+            raise HTTPException(400, "Image JPEG ou PNG (une photo HEIC d'iPhone s'exporte en JPEG).")
+        if piece not in PIECES_IMAGES:
+            raise HTTPException(400, "Pièce inconnue.")
+        dossier_images = d / "00_entrees" / "images"
+        dossier_images.mkdir(parents=True, exist_ok=True)
+        nomf = re.sub(r"[^\w.-]+", "_", Path(fichier.filename).name)
+        cible = dossier_images / nomf
+        n = 2
+        while cible.exists():                  # jamais d'écrasement
+            cible = dossier_images / f"{Path(nomf).stem}_{n}{ext}"
+            n += 1
+        cible.write_bytes(await fichier.read())
+        num = max([int(i.id[1:]) for i in p.images if i.id[1:].isdigit()] + [0]) + 1
+        p.images.append(Image(id=f"I{num}", fichier=str(cible.relative_to(d)), piece=piece, legende=legende.strip()))
+        p.journal.append(Decision(sujet="Image", choix=f"{cible.name} → {piece}", par=""))
+        p = enregistrer(d, p, f"Image {cible.name}")
+        return etat(d, p)
+
+    @app.post("/api/projets/{nom}/images/{iid}")
+    def api_image_modifier(nom: str, iid: str, x: ImageSaisie):
+        d = dossier_de(nom)
+        p = charger(d)
+        im = next((i for i in p.images if i.id == iid), None)
+        if not im:
+            raise HTTPException(404, "Image introuvable.")
+        if x.supprimer:
+            p.images = [i for i in p.images if i.id != iid]      # le fichier reste dans 00_entrees
+            detail = f"image {iid} retirée des planches"
+        else:
+            if x.piece is not None:
+                if x.piece not in PIECES_IMAGES:
+                    raise HTTPException(400, "Pièce inconnue.")
+                im.piece = x.piece
+            if x.legende is not None:
+                im.legende = x.legende.strip()
+            if x.numero is not None:
+                im.numero = x.numero if x.numero > 0 else None
+            if x.sans_point:
+                im.point, im.direction = None, None
+            elif x.x is not None and x.y is not None:
+                im.point = (x.x, x.y)
+                im.direction = x.direction
+            detail = f"image {iid} modifiée"
+        p.journal.append(Decision(sujet="Image", choix=detail, par=x.par))
+        p = enregistrer(d, p, detail)
+        return etat(d, p)
+
     # ---- pièces graphiques
     @app.post("/api/projets/{nom}/pieces-graphiques")
     def api_generer(nom: str, x: Generation):
@@ -414,7 +647,7 @@ def creer_app(racine: Path | None = None) -> FastAPI:
         p = charger(d)
         quoi = [q for q in x.pieces if q in ORDRE] or None
         try:
-            doc = generer(p, R.lire(racine), quoi)
+            doc = generer(p, R.lire(racine), quoi, d)
         except ValueError as e:
             raise HTTPException(400, str(e))
         dossier = d / "04_pieces" / p.indice

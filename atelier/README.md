@@ -10,10 +10,11 @@ défaut, la maison est de plain-pied.
 > vectoriel, murs en traits ou en aplats) ; interprétation (murs, pièces,
 > baies avec leurs dimensions écrites, porche ou auvent) ; écarts avec le
 > plan source ; surfaces réglementaires ; seuil de 150 m² ; point d'arrêt
-> n° 1 ; toiture à croupes calculée ; **pièces graphiques du permis en PDF** :
-> page de garde, coupes (PCMI 3), façades et plan de toiture (PCMI 5), plan
-> du rez-de-chaussée. À venir : plan de masse (PCMI 2), notice (PCMI 4),
-> planches photographiques (PCMI 6, 7, 8), règles du PLU.
+> n° 1 ; toiture à croupes calculée ; terrain et implantation ; contrôle des
+> règles du PLU saisies ; **le dossier de permis en PDF** : page de garde,
+> plan de situation (PCMI 1), plan de masse (PCMI 2), coupes (PCMI 3),
+> notice (PCMI 4), façades et toiture (PCMI 5), insertion (PCMI 6),
+> photographies (PCMI 7 et 8), plan du rez-de-chaussée.
 
 ## Installer (une fois)
 
@@ -56,7 +57,25 @@ l'arrêter.
    modifications) et les **baies** dont la hauteur n'est pas écrite sur le
    plan. Une valeur non saisie reste une hypothèse (⚠️) : cochez « je
    confirme » pour valider une valeur courante telle quelle.
-7. **Générer le PDF** des pièces : chaque génération est un nouveau fichier
+7. **Terrain** : importer le plan du terrain (plan de division, extrait
+   cadastral exporté, ancien plan de masse ; PDF vectoriel ou DXF). La
+   limite est le contour dont les côtés correspondent aux cotes écrites ;
+   l'alignement, les altitudes TN et le nom de la voie sont lus. Si la
+   maison y est déjà dessinée, l'implantation est lue ; sinon, la placer
+   parallèle à un côté, à une distance donnée de deux côtés. Les reculs
+   sont **mesurés**.
+8. **Règles du PLU** : saisir la valeur et l'article (recul sur voie, recul
+   sur limites, emprise, hauteurs) : l'atelier contrôle le projet (✅, ⛔,
+   « au minimum exact »). Les hauteurs sont mesurées depuis le terrain
+   naturel le plus bas au pied de la maison quand les altitudes sont connues.
+9. **Notice** : l'atelier écrit ce qui se mesure ; vous rédigez le reste
+   (matériaux, réseaux, clôtures, plantations, accès).
+10. **Images** : déposer l'extrait cadastral et la vue aérienne (PCMI 1), le
+    photomontage d'insertion réalisé par ailleurs (PCMI 6), les
+    photographies (PCMI 7, 8), avec leur légende et leur numéro ; placer
+    chaque prise de vue en cliquant sur le plan du terrain (point, puis
+    direction). L'atelier ne modifie aucune image.
+11. **Générer le PDF** des pièces : chaque génération est un nouveau fichier
    dans `04_pieces/<indice>/`. Tout ce qui reste supposé est rappelé en
    rouge sur les planches, sous « À CONFIRMER AVANT DÉPÔT ».
 
@@ -69,6 +88,10 @@ l'arrêter.
 | PCMI 5 – Façades | les quatre façades (nommées selon le nord) : murs, baies, toiture ; niveaux (±0,00 NGF, égout, faîtages) ; dimensions des baies |
 | PCMI 5 – Plan de toiture | pans, faîtages et leur hauteur, arêtiers, noues, sens et pente, débord, cotes de l'égout |
 | Plan du RDC | murs, baies, pièces et surfaces, porche en tirets, trois chaînes de cotes par façade, tableau des surfaces, repères des coupes, nord, échelle |
+| PCMI 1 – Situation | les images déposées (extrait cadastral, vue aérienne), légendées |
+| PCMI 2 – Plan de masse | limite et longueur des côtés, alignement et voie, maison et toiture, reculs mesurés, altitudes TN, niveau du RDC, tableau des surfaces et des règles contrôlées |
+| PCMI 4 – Notice | état initial, projet (implantation, volume, hauteurs, emprise, surface de plancher), adaptation au terrain (remblai, déblai), matériaux, clôtures, plantations, accès ; « [à compléter] » en rouge pour ce qui manque |
+| PCMI 6, 7, 8 | insertion et photographies, numérotées, avec le repérage des prises de vue sur le terrain |
 
 La **toiture à croupes** (même pente sur tous les pans) est calculée à
 partir du contour de la maison et de ses couverts (porche, auvent) : elle
@@ -143,6 +166,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 - `atelier/planches.py` : planche A3, cartouche, cotes, niveaux, échelle, nord.
 - `atelier/pieces_graphiques.py` : les pièces tirées du modèle.
 - `atelier/reglages.py` : réglages du cabinet (locaux).
+- `atelier/terrain.py` : terrain, implantation, reculs, contrôle des règles.
+- `atelier/notice.py` : notice PCMI 4.
+- `atelier/planches_images.py` : planches d'images (PCMI 1, 6, 7, 8).
 - `atelier/projet.py` : dossier du projet, versions, points d'arrêt.
 - `atelier/serveur.py` et `atelier/statiques/` : l'interface locale.
 - `tests/cas_fictif.py` : maison fictive de 12 × 9 m, surfaces calculées à

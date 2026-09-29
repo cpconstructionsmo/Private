@@ -128,6 +128,11 @@ function dessiner() {
       <div class="carte">${blocCartouche(p)}</div>
     </div>
     <div class="carte">${blocBaies(n)}</div>
+    <div class="carte">${blocTerrain(p)}</div>
+    <div class="deux">
+      <div class="carte">${blocNotice(p)}</div>
+      <div class="carte">${blocImages(p)}</div>
+    </div>
     <div class="carte">${blocPiecesGraphiques(p)}</div>` : ''}
     <div class="deux">
       <div class="carte">${blocPoints(p)}</div>
@@ -390,8 +395,9 @@ function blocBaies(n) {
       <td><button class="second b-ok">Enregistrer</button></td></tr>`).join('')}</table>`;
 }
 
-const PIECES_GRAPHIQUES = [['page_de_garde', 'Page de garde (tableau des surfaces, résumé)'], ['coupes', 'PCMI 3 – Coupes'],
-  ['facades', 'PCMI 5 – Façades'], ['plan_toiture', 'PCMI 5 – Plan de toiture'], ['plan_rdc', 'Plan du rez-de-chaussée']];
+const PIECES_GRAPHIQUES = [['page_de_garde', 'Page de garde'], ['situation', 'PCMI 1 – Situation'], ['plan_masse', 'PCMI 2 – Plan de masse'],
+  ['coupes', 'PCMI 3 – Coupes'], ['notice', 'PCMI 4 – Notice'], ['facades', 'PCMI 5 – Façades'], ['plan_toiture', 'PCMI 5 – Toiture'],
+  ['insertion', 'PCMI 6 – Insertion'], ['photos', 'PCMI 7 et 8 – Photographies'], ['plan_rdc', 'Plan du RDC']];
 
 function blocPiecesGraphiques(p) {
   const url = f => `/api/projets/${encodeURIComponent(E.dossier)}/fichiers/${f.split('/').map(encodeURIComponent).join('/')}`;
@@ -401,9 +407,134 @@ function blocPiecesGraphiques(p) {
       <button>Générer le PDF</button>
     </form>
     <p class="petit discret">Chaque génération est un nouveau fichier dans 04_pieces/${esc(p.indice)}/ (rien n'est écrasé). Les hypothèses encore supposées sont rappelées en rouge sur les planches.
-      Plan de masse, notice et planches photographiques : prochaine étape de l'atelier.</p>
+      Le plan de masse demande le terrain et l'implantation ; les planches PCMI 1, 6, 7 et 8 ne sont produites que si des images leur sont attribuées.</p>
     ${(E.pieces_generees || []).length ? `<div class="petit"><b>Déjà générées :</b><ul>${E.pieces_generees.slice(0, 8).map(f =>
       `<li><a href="${url(f)}" target="_blank">${esc(f)}</a></li>`).join('')}</ul></div>` : ''}`;
+}
+
+// ---------- terrain, implantation, règles
+
+function blocTerrain(p) {
+  const t = p.terrain, T = E.terrain || {};
+  const imp = t.implantation;
+  const n = Math.max(0, t.limites.length - 1);
+  const options = Array.from({ length: n }, (_, i) => `<option value="${i}">côté ${i + 1} (${nb(t.cotes[i] ? t.cotes[i].mesuree : 0)} m)</option>`).join('');
+  const regles = E.regles_possibles || {};
+  const val = cle => { const r = (p.regles || []).find(x => x.cle === cle); return r || {}; };
+  const ctrl = cle => (T.controles || []).find(c => c.cle === cle);
+  return `<h2>Terrain et implantation</h2>
+    <div class="deux">
+      <div>
+        <form id="terrain">
+          <label><span>Plan du terrain : PDF vectoriel ou DXF (plan de division, cadastre, ancien plan de masse)</span>
+            <input type="file" name="fichier" accept=".pdf,.dxf" required></label>
+          <div class="ligne"><label><span>Échelle</span><input name="echelle" placeholder="auto" size="6"></label>
+            <label><span>Page</span><input name="page" placeholder="auto" size="4"></label>
+            <button>${n ? 'Remplacer le terrain' : 'Importer le terrain'}</button></div>
+        </form>
+        ${n ? `<p class="petit">${esc(t.source)} — ${nb(t.surface.valeur)} m² ; ${t.cotes.filter(c => c.ecrite != null).length}/${n} côtés confirmés par une cote écrite ;
+          ${t.tn.length} altitude(s) TN${t.nom_voie ? ' ; voie : ' + esc(t.nom_voie) : ''}.</p>
+        <p class="petit">Implantation : ${imp ? `<b class="${imp.statut.statut}">${SYMB[imp.statut.statut]}</b> ${esc((imp.statut.source || {}).calcul || '')}` : '<span class="impossible">❓ à saisir</span>'}</p>
+        <form id="implantation">
+          <div class="petit discret">Côtés sur voie (alignement)</div>
+          <div class="ligne">${Array.from({ length: n }, (_, i) => `<label><input type="checkbox" name="alignement" value="${i}" ${t.alignement.includes(i) ? 'checked' : ''}> ${i + 1}</label>`).join('')}</div>
+          <div class="petit discret">Placer la maison (façade principale parallèle à un côté, distances mesurées au plus près)</div>
+          <div class="ligne"><label><span>Parallèle au côté</span><select name="parallele_a"><option value="">—</option>${options}</select></label>
+            <label><input type="checkbox" name="inverser"> retournée</label></div>
+          <div class="ligne"><label><span>Distance au côté</span><select name="cote_a">${options}</select></label><label><span>m</span><input name="dist_a" size="5"></label></div>
+          <div class="ligne"><label><span>Distance au côté</span><select name="cote_b">${options}</select></label><label><span>m</span><input name="dist_b" size="5"></label></div>
+          <button class="second">Enregistrer l'implantation</button>
+        </form>` : ''}
+      </div>
+      <div>${n ? svgTerrain(p) : '<p class="discret">Aucun terrain importé.</p>'}</div>
+    </div>
+    ${n ? `<h2 style="margin-top:14px">Règles du PLU à contrôler</h2>
+    <p class="petit discret">Saisissez la valeur et l'article (lus dans le règlement du PLU) : l'atelier mesure le projet et contrôle.</p>
+    <form id="regles"><table><tr><th>Règle</th><th>Valeur</th><th>Article</th><th>Mesuré sur le projet</th></tr>
+      ${Object.entries(regles).map(([cle, lib]) => { const r = val(cle), c = ctrl(cle);
+        const u = cle === 'emprise_max' ? '%' : 'm', sens = cle.startsWith('recul') ? 'min.' : 'max.';
+        return `<tr data-regle="${cle}"><td>${esc(lib)} <span class="discret">(${sens})</span></td>
+          <td><input class="r-v" value="${r.valeur != null ? nb(r.valeur, u === '%' ? 0 : 2) : ''}" size="6"> ${u}</td>
+          <td><input class="r-a" value="${esc(r.article || '')}" size="18" placeholder="ex. UG 4.2 du PLUi"></td>
+          <td>${!c ? '<span class="discret">—</span>' : c.mesure == null ? `<span class="impossible">❓ ${esc(c.manque)}</span>`
+            : `<span class="${c.conforme ? 'confirme' : 'bloquant'}">${c.conforme ? '✅' : '⛔'} ${nb(c.mesure, u === '%' ? 1 : 2)} ${u}</span>
+               ${c.juste ? '<span class="hypothese petit">au minimum exact</span>' : ''}<div class="petit discret">${esc(c.reference)}</div>`}</td></tr>`; }).join('')}
+    </table><button class="second">Enregistrer les règles</button></form>` : ''}`;
+}
+
+function svgTerrain(p) {
+  const t = p.terrain, T = E.terrain || {};
+  const pts = t.limites.concat(T.maison || []);
+  let s = `<svg id="terrain-svg" class="plan" viewBox="${cadre(pts)}" preserveAspectRatio="xMidYMid meet">`;
+  s += `<path d="${chemin(t.limites.slice(0, -1))}" fill="#e3ebcc" stroke="var(--texte)" stroke-width="0.25"/>`;
+  t.limites.slice(0, -1).forEach((a, i) => {
+    const b = t.limites[i + 1], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const al = t.alignement.includes(i);
+    if (al) s += `<line x1="${a[0]}" y1="${-a[1]}" x2="${b[0]}" y2="${-b[1]}" stroke="#b3261e" stroke-width="0.45" stroke-dasharray="1 0.5"/>`;
+    s += `<text x="${m[0]}" y="${-m[1]}" style="font-size:1.4px" fill="${al ? '#b3261e' : 'currentColor'}" font-weight="bold">${i + 1}</text>`;
+  });
+  if ((T.maison || []).length) s += `<path d="${chemin(T.maison)}" fill="#9aa0a8" stroke="var(--texte)" stroke-width="0.1"/>`;
+  (T.reculs || []).forEach(r => {
+    s += `<circle cx="${r.point[0]}" cy="${-r.point[1]}" r="0.25" fill="#b3261e"/>`;
+  });
+  (t.tn || []).forEach(q => { s += `<circle cx="${q.x}" cy="${-q.y}" r="0.15" fill="#555"><title>TN ${nb(q.z)}</title></circle>`; });
+  (p.images || []).filter(im => im.point).forEach(im => {
+    const [x, y] = im.point;
+    if (im.direction != null) { const a = im.direction * Math.PI / 180;
+      s += `<line x1="${x}" y1="${-y}" x2="${x + 3 * Math.cos(a)}" y2="${-(y + 3 * Math.sin(a))}" stroke="#b3261e" stroke-width="0.2"/>`; }
+    s += `<circle cx="${x}" cy="${-y}" r="0.5" fill="#fff" stroke="#b3261e" stroke-width="0.15"><title>${esc(im.id)} ${esc(im.legende)}</title></circle>`;
+  });
+  s += '</svg>';
+  const rc = (T.reculs || []).map(r => `côté ${r.cote + 1}${r.alignement ? ' (voie)' : ''} : ${nb(r.distance)} m`).join(' ; ');
+  return s + (rc ? `<p class="petit">Reculs mesurés : ${rc}</p>` : '');
+}
+
+// ---------- notice et images
+
+function blocNotice(p) {
+  const par_ = E.paragraphes_notice || {};
+  return `<h2>Notice (PCMI 4)</h2>
+    <p class="petit discret">Ce qui se mesure (surfaces, reculs, hauteurs, altitudes) est écrit par l'atelier. Rédigez ici le reste ; un paragraphe vide apparaît en rouge « à compléter ».</p>
+    <form id="notice">
+      <div class="ligne"><label><span>Commune</span><input name="commune" value="${esc(p.commune)}" size="18"></label>
+        <label><span>Zone du document d'urbanisme</span><input name="zone_plu" value="${esc(p.zone_plu)}" size="30" placeholder="secteur UGc du PLUi de …"></label></div>
+      ${Object.entries(par_).map(([k, lib]) => `<label><span>${esc(lib)}</span><textarea name="${k}" rows="2" style="width:100%">${esc((p.notice || {})[k] || '')}</textarea></label>`).join('')}
+      <button>Enregistrer la notice</button>
+    </form>`;
+}
+
+const PIECES_IMAGES = [['PCMI1', 'PCMI 1 – situation'], ['PCMI6', 'PCMI 6 – insertion'], ['PCMI7', 'PCMI 7 – environnement proche'], ['PCMI8', 'PCMI 8 – environnement lointain']];
+
+function blocImages(p) {
+  const url = f => `/api/projets/${encodeURIComponent(E.dossier)}/fichiers/${f.split('/').map(encodeURIComponent).join('/')}`;
+  const sel = v => PIECES_IMAGES.map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${l}</option>`).join('');
+  return `<h2>Plan de situation, insertion et photographies</h2>
+    <p class="petit discret">Extrait cadastral, vue aérienne, photographies, photomontage d'insertion (réalisé par ailleurs) : l'atelier les met en page, sans les modifier.</p>
+    <form id="image" class="ligne">
+      <label><span>Image (JPEG ou PNG)</span><input type="file" name="fichier" accept=".jpg,.jpeg,.png" required></label>
+      <label><span>Pièce</span><select name="piece">${sel('PCMI7')}</select></label>
+      <label><span>Légende</span><input name="legende" size="24"></label>
+      <button class="second">Ajouter</button>
+    </form>
+    ${(p.images || []).map(im => `<div class="ligne img" data-image="${esc(im.id)}" style="margin-top:8px">
+      <img src="${url(im.fichier)}" alt="" style="width:90px;height:64px;object-fit:cover;border:1px solid var(--bord)">
+      <label><span>${esc(im.id)}</span><select class="i-p">${sel(im.piece)}</select></label>
+      <label><span>N°</span><input class="i-n" value="${im.numero || ''}" size="2"></label>
+      <label><span>Légende</span><input class="i-l" value="${esc(im.legende)}" size="22"></label>
+      <label><span>Prise de vue (x ; y ; °)</span><span><input class="i-x" value="${im.point ? nb(im.point[0]) : ''}" size="5">
+        <input class="i-y" value="${im.point ? nb(im.point[1]) : ''}" size="5"> <input class="i-d" value="${im.direction != null ? nb(im.direction, 0) : ''}" size="3"></span></label>
+      ${p.terrain.limites.length ? '<button class="second i-placer" type="button">Placer sur le plan</button>' : ''}
+      <button class="second i-ok" type="button">Enregistrer</button>
+      <button class="second i-sup" type="button">Retirer</button>
+    </div>`).join('')}`;
+}
+
+// clic sur le plan du terrain : 1er clic = point de prise de vue, 2e clic = direction du regard
+let placement = null;
+function svgVersTerrain(svg, ev) {
+  const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+  const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return [q.x, -q.y];
 }
 
 // ---------- réglages du cabinet
@@ -506,6 +637,75 @@ function brancher() {
         menuiserie: tr.querySelector('.b-m').value, par: par() }), 'Baie enregistrée.');
     };
   });
+  const ft = $('#terrain');
+  if (ft) ft.onsubmit = ev => {
+    ev.preventDefault();
+    const b = ev.target.querySelector('button'); b.disabled = true; b.textContent = 'Lecture du terrain…';
+    agir(api(base + '/terrain', { method: 'POST', body: new FormData(ev.target) }), 'Terrain importé.').finally(() => { b.disabled = false; });
+  };
+  const fi = $('#implantation');
+  if (fi) fi.onsubmit = ev => {
+    ev.preventDefault();
+    const f = new FormData(ev.target), num = k => { const v = String(f.get(k) || '').trim().replace(',', '.'); return v === '' ? null : Number(v); };
+    const corps = { alignement: f.getAll('alignement').map(Number), par: par() };
+    if (num('dist_a') != null && num('dist_b') != null) Object.assign(corps, {
+      parallele_a: f.get('parallele_a') === '' ? null : Number(f.get('parallele_a')), inverser: !!f.get('inverser'),
+      cote_a: Number(f.get('cote_a')), dist_a: num('dist_a'), cote_b: Number(f.get('cote_b')), dist_b: num('dist_b') });
+    agir(post(base + '/implantation', corps), 'Implantation enregistrée.');
+  };
+  const fr = $('#regles');
+  if (fr) fr.onsubmit = ev => {
+    ev.preventDefault();
+    const regles = [...ev.target.querySelectorAll('tr[data-regle]')].map(tr => ({ cle: tr.dataset.regle,
+      valeur: tr.querySelector('.r-v').value.trim(), article: tr.querySelector('.r-a').value.trim() })).filter(r => r.valeur !== '');
+    agir(post(base + '/regles', { regles, par: par() }), 'Règles enregistrées et contrôlées.');
+  };
+  const fn = $('#notice');
+  if (fn) fn.onsubmit = ev => {
+    ev.preventDefault();
+    const f = new FormData(ev.target), paragraphes = {};
+    Object.keys(E.paragraphes_notice || {}).forEach(k => { paragraphes[k] = f.get(k) || ''; });
+    agir(post(base + '/notice', { paragraphes, commune: f.get('commune'), zone_plu: f.get('zone_plu'), par: par() }), 'Notice enregistrée.');
+  };
+  const fim = $('#image');
+  if (fim) fim.onsubmit = ev => {
+    ev.preventDefault();
+    agir(api(base + '/images', { method: 'POST', body: new FormData(ev.target) }), 'Image ajoutée.');
+  };
+  document.querySelectorAll('div[data-image]').forEach(div => {
+    const id = div.dataset.image, url = `${base}/images/${id}`;
+    const num = c => { const v = div.querySelector(c).value.trim().replace(',', '.'); return v === '' ? null : Number(v); };
+    div.querySelector('.i-ok').onclick = () => {
+      const corps = { piece: div.querySelector('.i-p').value, legende: div.querySelector('.i-l').value,
+        numero: num('.i-n') || 0, par: par() };
+      if (num('.i-x') != null && num('.i-y') != null) Object.assign(corps, { x: num('.i-x'), y: num('.i-y'), direction: num('.i-d') });
+      else corps.sans_point = true;
+      agir(post(url, corps), 'Image enregistrée.');
+    };
+    div.querySelector('.i-sup').onclick = () => {
+      if (confirm('Retirer cette image des planches ? Le fichier reste dans le dossier du projet.')) agir(post(url, { supprimer: true, par: par() }), 'Image retirée.');
+    };
+    const b = div.querySelector('.i-placer');
+    if (b) b.onclick = () => {
+      placement = { div, etape: 0 };
+      message('Cliquez sur le plan du terrain : d\'abord le point de prise de vue, puis la direction du regard.');
+      document.querySelector('#terrain-svg')?.scrollIntoView({ block: 'center' });
+    };
+  });
+  const svgT = $('#terrain-svg');
+  if (svgT) svgT.onclick = ev => {
+    if (!placement) return;
+    const [x, y] = svgVersTerrain(svgT, ev), d = placement.div;
+    if (placement.etape === 0) {
+      d.querySelector('.i-x').value = nb(x); d.querySelector('.i-y').value = nb(y);
+      placement.etape = 1; placement.p = [x, y]; message('Maintenant la direction du regard.');
+    } else {
+      const a = Math.atan2(y - placement.p[1], x - placement.p[0]) * 180 / Math.PI;
+      d.querySelector('.i-d').value = nb((a + 360) % 360, 0);
+      placement = null; message('Point et direction notés : enregistrez l\'image.');
+      d.scrollIntoView({ block: 'center' });
+    }
+  };
   const fg = $('#generer');
   if (fg) fg.onsubmit = async ev => {
     ev.preventDefault();

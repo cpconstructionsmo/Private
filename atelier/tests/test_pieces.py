@@ -36,19 +36,21 @@ def test_jeu_complet(projet):
     d, p = projet
     doc = generer(p, Reglages(dessinateur="Prénom NOM"))
     t = textes(doc)
-    assert len(doc) == 5
-    assert "PLAN DE PERMIS DE CONSTRUIRE" in t[0] and "TABLEAU DES SURFACES" in t[0] and "RÉSUMÉ DU PROJET" in t[0]
-    assert "68,98" in t[0]                                   # surface habitable du cas fictif
-    assert "COUPE A–A" in t[1] and "COUPE B–B" in t[1] and "Vide sanitaire" in t[1]
-    assert "FAÇADE" in t[2] and "1,80 × 2,15" in t[2]
-    assert "PLAN DE TOITURE" in t[3] and "Faîtage +" in t[3]
-    assert "PLAN DU REZ-DE-CHAUSSÉE" in t[4] and "12,00" in t[4] and "Séjour - cuisine" in t[4]
+    assert len(doc) == 6          # sans terrain ni images : pas de plan de masse ni de planches photos
+    garde, coupes, notice, facades, toiture, rdc = t
+    assert "PLAN DE PERMIS DE CONSTRUIRE" in garde and "TABLEAU DES SURFACES" in garde and "RÉSUMÉ DU PROJET" in garde
+    assert "68,98" in garde                                  # surface habitable du cas fictif
+    assert "COUPE A–A" in coupes and "COUPE B–B" in coupes and "Vide sanitaire" in coupes
+    assert "Notice décrivant le terrain" in notice and "PCMI 4" in notice and "[à compléter" in notice
+    assert "FAÇADE" in facades and "1,80 × 2,15" in facades
+    assert "PLAN DE TOITURE" in toiture and "Faîtage +" in toiture
+    assert "PLAN DU REZ-DE-CHAUSSÉE" in rdc and "12,00" in rdc and "Séjour - cuisine" in rdc
     # cartouche : sur chaque planche sauf la page de garde
     for x in t[1:]:
         assert "Construction de" in x and "M. et Mme EXEMPLE" in x and "Prénom NOM" in x and "Format : A3" in x
     # tant que les valeurs sont supposées, elles sont rappelées en rouge
-    assert all("À CONFIRMER AVANT DÉPÔT" in x for x in t[1:])
-    assert "pente de toiture" in t[3]
+    assert all("À CONFIRMER AVANT DÉPÔT" in x for x in (coupes, facades, toiture, rdc))
+    assert "pente de toiture" in toiture
 
 
 def test_hypotheses_levees(projet):

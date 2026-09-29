@@ -79,9 +79,10 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
 
 ## Atelier de conception (`atelier/`, Python)
 
-- Application **locale, sur le Mac** (FastAPI sur 127.0.0.1) qui prépare
-  le dossier PCMI à partir du plan du RDC (DXF ou PDF vectoriel). Mode
-  d'emploi et règles R1–R10 : `atelier/README.md`.
+- Application **locale, sur le Mac** (FastAPI sur 127.0.0.1) qui produit
+  le dossier PCMI (page de garde, PCMI 1 à 8, plan du RDC) à partir du plan
+  du RDC et du plan du terrain (DXF ou PDF vectoriel). Mode d'emploi et
+  règles R1–R10 : `atelier/README.md`.
 - **Plain-pied par défaut** : un étage (module B) ne s'étudie que sur
   demande.
 - Les projets (plans, données clients) restent dans
