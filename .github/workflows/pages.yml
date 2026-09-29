@@ -22,6 +22,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Le code de l'application est converti une fois ici, au lieu de l'être
+      # dans le navigateur à chaque ouverture (voir outils/compiler_publication.js).
+      # Si la conversion échoue, index.html reste tel quel : la page est
+      # publiée comme avant.
+      - name: Convertir le code de l'application
+        run: |
+          npm install --prefix "$RUNNER_TEMP/babel" --no-audit --no-fund @babel/standalone@7.29.9 \
+            && BABEL_STANDALONE="$RUNNER_TEMP/babel/node_modules/@babel/standalone" node outils/compiler_publication.js \
+            || echo "::warning::Conversion impossible : la page est publiée sans conversion, comme avant."
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
