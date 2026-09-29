@@ -250,7 +250,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · MAP : compte-rendu Word et PDF avec le suivi, fiches par lot pour les entreprises';
+const VERSION='2026-09-29 · Fiche MAP papier : nouvelle présentation (logo, couleurs CP, mode d’emploi, signatures)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -12142,10 +12142,13 @@ const pdfCouper=(s,taille,gras,larg)=>{
   return L;
 };
 
-/* ---------- PDF vectoriel : rectangles, traits et texte ----------
+/* ---------- PDF vectoriel : rectangles, traits, texte et images ----------
    Chaque page est une liste d'éléments en millimètres, origine en haut à
-   gauche : {t:'rect',x,y,w,h,plein,trait,ep,gris}, {t:'trait',x1,y1,x2,y2,ep,gris},
-   {t:'texte',x,y,s,taille,gras,italique,gris}. */
+   gauche : {t:'rect',x,y,w,h,r,plein,trait,ep}, {t:'trait',x1,y1,x2,y2,ep},
+   {t:'texte',x,y,s,taille,gras,italique}, {t:'image',x,y,w,h,im:{jpeg,w,h}}.
+   Couleur : « c » (remplissage et texte) et « cs » (trait), en [r,v,b] de 0
+   à 1 ; à défaut, « gris » et « traitGris » (0 noir, 1 blanc). « r » arrondit
+   les angles d'un rectangle. Les images sont des JPEG posés tels quels. */
 function pdfVectoriel(pages,titre){
   const enc=s=>{const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i)&0xff;return u};
   const pt=v=>Math.round(v*72/25.4*100)/100;
@@ -12160,26 +12163,41 @@ function pdfVectoriel(pages,titre){
     pousser(enc('endobj\n'));
   };
   const chaineTexte=s=>'('+pdfOctetsTexte(s).map(c=>c===0x28||c===0x29||c===0x5C?'\\'+String.fromCharCode(c):String.fromCharCode(c)).join('')+')';
+  const coul=(c,g,op)=>c?c.map(v=>Math.round(v*1000)/1000).join(' ')+(op==='f'?' rg':' RG'):g+(op==='f'?' g':' G');
+  /* un rectangle aux angles arrondis : quatre quarts de cercle en Bézier */
+  const arrondi=(x,y,w,h,r)=>{
+    const k=0.5523*r, X=pt(x),Y=pt(H-y-h),W=pt(w),Hh=pt(h),R=pt(r),K=pt(k);
+    return [X+R,Y,'m',X+W-R,Y,'l',X+W-R+K,Y,X+W,Y+R-K,X+W,Y+R,'c',X+W,Y+Hh-R,'l',X+W,Y+Hh-R+K,X+W-R+K,Y+Hh,X+W-R,Y+Hh,'c',
+      X+R,Y+Hh,'l',X+R-K,Y+Hh,X,Y+Hh-R+K,X,Y+Hh-R,'c',X,Y+R,'l',X,Y+R-K,X+R-K,Y,X+R,Y,'c','h']
+      .map(v=>typeof v==='number'?Math.round(v*100)/100:v).join(' ');
+  };
+  /* les images, une fois chacune, quel que soit le nombre de pages qui les portent */
+  const images=[];
+  pages.forEach(els=>els.forEach(e=>{if(e.t==='image'&&e.im&&e.im.jpeg&&images.indexOf(e.im)<0)images.push(e.im)}));
   const flux=els=>{
     const o=[];
     els.forEach(e=>{
       const g=e.gris===undefined?0:e.gris;
       if(e.t==='rect'){
         o.push((e.ep||0.3)+' w');
-        if(e.plein)o.push(g+' g');
-        if(e.trait!==false)o.push((e.traitGris===undefined?g:e.traitGris)+' G');
-        o.push(pt(e.x)+' '+pt(H-e.y-e.h)+' '+pt(e.w)+' '+pt(e.h)+' re '+(e.plein?(e.trait===false?'f':'B'):'S'));
+        if(e.plein)o.push(coul(e.c,g,'f'));
+        if(e.trait!==false)o.push(coul(e.cs,e.traitGris===undefined?g:e.traitGris,'S'));
+        const chemin=e.r?arrondi(e.x,e.y,e.w,e.h,e.r):pt(e.x)+' '+pt(H-e.y-e.h)+' '+pt(e.w)+' '+pt(e.h)+' re';
+        o.push(chemin+' '+(e.plein?(e.trait===false?'f':'B'):'S'));
       }else if(e.t==='trait'){
-        o.push((e.ep||0.3)+' w '+g+' G '+pt(e.x1)+' '+pt(H-e.y1)+' m '+pt(e.x2)+' '+pt(H-e.y2)+' l S');
+        o.push((e.ep||0.3)+' w '+coul(e.cs||e.c,g,'S')+' '+pt(e.x1)+' '+pt(H-e.y1)+' m '+pt(e.x2)+' '+pt(H-e.y2)+' l S');
       }else if(e.t==='texte'){
         const f=e.gras?'/F2':e.italique?'/F3':'/F1';
-        o.push('BT '+g+' g '+f+' '+e.taille+' Tf '+pt(e.x)+' '+pt(H-e.y)+' Td '+chaineTexte(e.s)+' Tj ET');
+        o.push('BT '+coul(e.c,g,'f')+' '+f+' '+e.taille+' Tf '+pt(e.x)+' '+pt(H-e.y)+' Td '+chaineTexte(e.s)+' Tj ET');
+      }else if(e.t==='image'&&images.indexOf(e.im)>=0){
+        o.push('q '+pt(e.w)+' 0 0 '+pt(e.h)+' '+pt(e.x)+' '+pt(H-e.y-e.h)+' cm /Im'+images.indexOf(e.im)+' Do Q');
       }
     });
     return enc(o.join('\n'));
   };
-  /* 1 catalogue, 2 pages, 3 infos, 4-6 polices, puis deux objets par page */
-  const numPage=k=>7+k*2, numFlux=k=>8+k*2, dernier=6+pages.length*2;
+  /* 1 catalogue, 2 pages, 3 infos, 4-6 polices, les images, puis deux objets par page */
+  const numImage=k=>7+k, base=7+images.length;
+  const numPage=k=>base+k*2, numFlux=k=>base+1+k*2, dernier=base-1+pages.length*2;
   pousser(enc('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'));
   obj(1,'<< /Type /Catalog /Pages 2 0 R >>');
   obj(2,'<< /Type /Pages /Kids ['+pages.map((p,k)=>numPage(k)+' 0 R').join(' ')+'] /Count '+pages.length+' >>');
@@ -12187,10 +12205,13 @@ function pdfVectoriel(pages,titre){
   obj(4,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
   obj(5,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
   obj(6,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>');
+  images.forEach((im,k)=>obj(numImage(k),'<< /Type /XObject /Subtype /Image /Width '+im.w+' /Height '+im.h
+    +' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+im.jpeg.length+' >>',im.jpeg));
+  const xobj=images.length?' /XObject << '+images.map((im,k)=>'/Im'+k+' '+numImage(k)+' 0 R').join(' ')+' >>':'';
   pages.forEach((els,k)=>{
     const f=flux(els);
     obj(numPage(k),'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89]'
-      +' /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R >> >> /Contents '+numFlux(k)+' 0 R >>');
+      +' /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R >>'+xobj+' >> /Contents '+numFlux(k)+' 0 R >>');
     obj(numFlux(k),'<< /Length '+f.length+' >>',f);
   });
   const debutXref=n;
@@ -12253,29 +12274,56 @@ function ficheOptions(f,m,data){
   if(f.t==='f'){const p=((data&&data.produits)||[]).find(x=>x.id===m[f.o]);return ((p&&p.finitions)||[]).map(x=>({v:x,l:x}))}
   return [];
 }
+/* les couleurs de la fiche, celles des documents CP Constructions ; les
+   cases, les repères et le code restent noirs, pour être relus */
+const FICHE_COUL={terra:[0.773,0.337,0.227],brun:[0.42,0.29,0.184],sable:[0.961,0.945,0.918],
+  encre:[0.149,0.149,0.149],gris:[0.46,0.46,0.46],filet:[0.8,0.73,0.66],guide:[0.91,0.89,0.86],blanc:[1,1,1]};
+/* le logo en JPEG (le PDF l'embarque tel quel) : {jpeg,w,h}, ou null */
+async function ficheLogo(){
+  try{
+    const r=await fetch('assets/logo_fiche.jpg');
+    if(!r.ok)return null;
+    const jpeg=new Uint8Array(await r.arrayBuffer()), d=ptrDimensionsBrutes(jpeg);
+    return d&&d.ext==='jpeg'?{jpeg,w:d.w,h:d.h}:null;
+  }catch(e){return null}
+}
 function ficheMapMiseEnPage(ch,data,o){
   o=o||{};
-  const m=(ch&&ch.map)||{}, pre=o.mode==='preremplie', numero=o.numero||1;
+  const m=(ch&&ch.map)||{}, pre=o.mode==='preremplie', numero=o.numero||1, C=FICHE_COUL;
   const pages=[], cases=[], zones=[];
   let els=null, y=0, pageIdx=-1;
   const larg=FICHE_X1-FICHE_X0, demi=(larg-6)/2;
+  const texte=(x,yy,s,taille,st)=>els.push({t:'texte',x,y:yy,s,taille,...(st||{})});
+  const aDroite=(x1,yy,s,taille,st)=>texte(x1-pdfLargeur(s,taille,!!(st&&st.gras)),yy,s,taille,st);
+  /* texte coupé à une largeur, avec « … » s'il déborde */
+  const tenir=(s,taille,gras,w)=>{s=String(s||'');if(pdfLargeur(s,taille,gras)<=w)return s;
+    while(s.length>1&&pdfLargeur(s+'…',taille,gras)>w)s=s.slice(0,-1);return s.trim()+'…'};
   const nouvellePage=()=>{
     els=[];pages.push(els);pageIdx++;y=FICHE_Y0;
     FICHE_REPERES.forEach(([x,yy])=>els.push({t:'rect',x,y:yy,w:FICHE_REPERE,h:FICHE_REPERE,plein:true,trait:false}));
-    els.push({t:'texte',x:FICHE_X0,y:13,s:'MISE AU POINT TECHNIQUE — FICHE DE RENDEZ-VOUS',taille:9,gras:true});
-    els.push({t:'texte',x:FICHE_X0,y:18,s:(ch.nom||'')+(ch.client?' — '+ch.client:''),taille:8,gris:0.3});
-    const droite='Fiche n° '+numero+' · '+(pre?'préremplie':'vierge')+(o.date?' · '+fd(o.date):'');
-    els.push({t:'texte',x:FICHE_X1-pdfLargeur(droite,7.5,false),y:13,s:droite,taille:7.5,gris:0.3});
-    els.push({t:'trait',x1:FICHE_X0,y1:20.5,x2:FICHE_X1,y2:20.5,ep:0.6,gris:0.45});
+    /* en-tête : logo, titre, dossier ; à droite, le numéro de la fiche */
+    let xt=FICHE_X0+2;
+    if(o.logo){const h=11,w=h*o.logo.w/o.logo.h;els.push({t:'image',x:FICHE_X0+2,y:6.5,w,h,im:o.logo});xt=FICHE_X0+2+w+4}
+    texte(xt,12.2,'MISE AU POINT TECHNIQUE',11.5,{gras:true,c:C.terra});
+    const etiquette='FICHE N° '+numero, le=pdfLargeur(etiquette,7.5,true)+6;
+    els.push({t:'rect',x:192-le,y:7.6,w:le,h:5.4,r:1.3,plein:true,trait:false,c:C.terra});
+    texte(192-le+3,11.4,etiquette,7.5,{gras:true,c:C.blanc});
+    const sous=(pre?'Préremplie':'Vierge')+(o.date?' · '+fd(o.date):'');
+    aDroite(192,17.2,sous,7,{c:C.gris});
+    texte(xt,17.2,tenir('Fiche de rendez-vous — '+(ch.nom||''),8,false,192-pdfLargeur(sous,7,false)-6-xt),8,{c:C.brun});
+    els.push({t:'trait',x1:FICHE_X0,y1:20.6,x2:FICHE_X1,y2:20.6,ep:0.8,cs:C.terra});
   };
   const place=h=>{if(y+h>FICHE_Y1)nouvellePage()};
-  const texte=(x,yy,s,taille,st)=>els.push({t:'texte',x,y:yy,s,taille,...(st||{})});
   const caseA=(x,yy,champ,v,ligne)=>{
     els.push({t:'rect',x,y:yy,w:FICHE_CASE,h:FICHE_CASE,ep:0.6});
     cases.push({p:pageIdx,x:Math.round(x*10)/10,y:Math.round(yy*10)/10,k:champ,v,...(ligne!==undefined?{i:ligne}:{})});
   };
+  /* un cadre d'écriture : fond blanc, filet chaud, angles adoucis ; les
+     lignes d'écriture d'une grande zone sont assez pâles pour ne jamais
+     passer pour de l'encre à la relecture */
   const zone=(x,yy,w,h,champ,role,ligne)=>{
-    els.push({t:'rect',x,y:yy,w,h,ep:0.4,gris:0.55});
+    els.push({t:'rect',x,y:yy,w,h,r:1,ep:0.5,plein:true,c:C.blanc,cs:C.filet});
+    if(h>=12)for(let g=yy+5.5;g<yy+h-2;g+=5.5)els.push({t:'trait',x1:x+2.5,y1:g,x2:x+w-2.5,y2:g,ep:0.25,cs:C.guide});
     zones.push({p:pageIdx,x:Math.round(x*10)/10,y:Math.round(yy*10)/10,w:Math.round(w*10)/10,h:Math.round(h*10)/10,k:champ,
       ...(role?{r:role}:{}),...(ligne!==undefined?{i:ligne}:{})});
   };
@@ -12289,7 +12337,7 @@ function ficheMapMiseEnPage(ch,data,o){
       if(x>x0&&x+lw>x0+w){x=x0;yy+=h;h=5.2}
       if(dessiner){
         caseA(x,yy,champ,op.v);
-        lignes.forEach((l,i)=>texte(x+FICHE_CASE+1.5,yy+3+i*3.3,l,8));
+        lignes.forEach((l,i)=>texte(x+FICHE_CASE+1.5,yy+3+i*3.3,l,8,{c:C.encre}));
       }
       h=Math.max(h,1.9+lignes.length*3.3);
       x+=lw;
@@ -12301,12 +12349,15 @@ function ficheMapMiseEnPage(ch,data,o){
   const champ=(f,x,w,y0,dessiner)=>{
     let h=0;
     const lib=pdfCouper(f.l.toUpperCase()+(f.t==='m'?' (plusieurs choix possibles)':''),6.8,true,w);
-    if(dessiner)lib.forEach((l,i)=>texte(x,y0+2.6+i*3,l,6.8,{gras:true,gris:0.25}));
+    if(dessiner)lib.forEach((l,i)=>texte(x,y0+2.6+i*3,l,6.8,{gras:true,c:C.brun}));
     h+=lib.length*3+0.8;
     const act=pre?ficheValeurActuelle(f,m,data):'';
     if(act){
-      const la=pdfCouper('Actuel : '+act,7,false,w);
-      if(dessiner)la.forEach((l,i)=>texte(x,y0+h+2.4+i*3,l,7,{italique:true,gris:0.35}));
+      const la=pdfCouper('Actuel : '+act,7,false,w-3);
+      if(dessiner)la.forEach((l,i)=>{
+        els.push({t:'rect',x,y:y0+h+i*3+0.1,w:pdfLargeur(l,7,false)+3,h:3.1,r:1,plein:true,trait:false,c:C.sable});
+        texte(x+1.5,y0+h+2.4+i*3,l,7,{italique:true,c:C.brun});
+      });
       h+=la.length*3+0.6;
     }
     const opts=ficheOptions(f,m,data);
@@ -12314,7 +12365,7 @@ function ficheMapMiseEnPage(ch,data,o){
     if(f.t==='t'||f.t==='d'||f.t==='p'||f.t==='f'){
       const zl=f.t==='d'?Math.min(w,45):w;
       if(dessiner){
-        if(f.t==='p'||f.t==='f')texte(x,y0+h+2.6,opts.length?'Autre :':'Modèle :',7,{gris:0.35});
+        if(f.t==='p'||f.t==='f')texte(x,y0+h+4.4,opts.length?'Autre :':'Modèle :',7,{c:C.gris});
         const dx=(f.t==='p'||f.t==='f')?13:0;
         zone(x+dx,y0+h,zl-dx,7,f.k,(f.t==='p'||f.t==='f')?'autre':undefined);
       }
@@ -12330,19 +12381,43 @@ function ficheMapMiseEnPage(ch,data,o){
     if(f.t==='t'||f.t==='d'||f.t==='b')return true;
     return champ(f,0,demi,0,false)<=16;
   };
+  /* un bandeau de section : le numéro dans une pastille, le titre en blanc */
+  const bandeau=titre=>{
+    const mt=String(titre).match(/^(\d+)\.\s*(.*)$/), num=mt?mt[1]:'', lib=(mt?mt[2]:titre).toUpperCase();
+    els.push({t:'rect',x:FICHE_X0,y,w:larg,h:6.5,r:1.3,plein:true,trait:false,c:C.terra});
+    let xt=FICHE_X0+3;
+    if(num){els.push({t:'rect',x:FICHE_X0,y,w:9,h:6.5,r:1.3,plein:true,trait:false,c:C.brun});
+      texte(FICHE_X0+4.5-pdfLargeur(num,8.5,true)/2,y+4.6,num,8.5,{gras:true,c:C.blanc});xt=FICHE_X0+12}
+    texte(xt,y+4.5,tenir(lib,8.3,true,FICHE_X1-xt-2),8.3,{gras:true,c:C.blanc});
+    y+=9;
+  };
   nouvellePage();
-  /* l'identification du dossier, reprise de la fiche chantier */
-  texte(FICHE_X0,y+3,'Maître d’ouvrage : '+(ch.client||'—'),8.5,{gras:true});
-  texte(FICHE_X0,y+7.2,'Adresse du terrain : '+(ch.adresse||'—'),8);
-  texte(FICHE_X0,y+11.2,'Une case laissée vide ne change rien à ce qui est déjà saisi. Écrire en capitales dans les cadres.',7,{italique:true,gris:0.35});
-  y+=15;
+  /* première page : le dossier et le mode d'emploi, dans un encart */
+  const hEncart=31;
+  els.push({t:'rect',x:FICHE_X0,y,w:larg,h:hEncart,r:2,plein:true,c:C.sable,cs:C.filet,ep:0.4});
+  const xg=FICHE_X0+4, xd=FICHE_X0+larg*0.52;
+  texte(xg,y+5,'MAÎTRE D’OUVRAGE',6.5,{gras:true,c:C.brun});
+  pdfCouper(ch.client||'—',9.5,true,xd-xg-6).slice(0,2).forEach((l,i)=>texte(xg,y+9.4+i*4,l,9.5,{gras:true,c:C.encre}));
+  texte(xg,y+18.5,'ADRESSE DU TERRAIN',6.5,{gras:true,c:C.brun});
+  pdfCouper(ch.adresse||'—',8.2,false,xd-xg-6).slice(0,2).forEach((l,i)=>texte(xg,y+22.6+i*3.6,l,8.2,{c:C.encre}));
+  els.push({t:'trait',x1:xd-3,y1:y+4,x2:xd-3,y2:y+hEncart-4,ep:0.4,cs:C.filet});
+  texte(xd,y+5,'MODE D’EMPLOI',6.5,{gras:true,c:C.terra});
+  /* une case d'exemple, cochée : elle n'est pas dans la disposition, rien ne la relit */
+  const ex=xd, ey=y+7.3;
+  els.push({t:'rect',x:ex,y:ey,w:FICHE_CASE,h:FICHE_CASE,ep:0.6});
+  els.push({t:'trait',x1:ex+0.7,y1:ey+1.9,x2:ex+1.6,y2:ey+3,ep:0.9});
+  els.push({t:'trait',x1:ex+1.6,y1:ey+3,x2:ex+3.1,y2:ey+0.6,ep:0.9});
+  [['Cochez franchement la case choisie.',true],['Écrivez en capitales, à l’intérieur des cadres.'],
+   ['Une case laissée vide ne change rien à ce qui est déjà saisi.'],
+   ['Photographiez chaque page à plat, les quatre repères noirs visibles.']].forEach(([s,avecCase],i)=>{
+    const xx=avecCase?xd+FICHE_CASE+2:xd+1;
+    if(!avecCase)els.push({t:'rect',x:xd+0.6,y:y+10.4+i*5.1-2.1,w:1.4,h:1.4,r:0.7,plein:true,trait:false,c:C.terra});
+    texte(avecCase?xx:xd+3.5,y+10.4+i*5.1,s,7.3,{c:C.encre});
+  });
+  y+=hEncart+5;
   MAP_FICHE.forEach(sec=>{
-    const titre=()=>{
-      els.push({t:'rect',x:FICHE_X0,y,w:larg,h:5.5,plein:true,gris:0.9,trait:false});
-      texte(FICHE_X0+1.5,y+3.9,sec.s.toUpperCase(),8,{gras:true,gris:0.15});
-      y+=7.5;
-    };
-    place(22);titre();
+    const titre=()=>bandeau(sec.s);
+    place(24);titre();
     const F=sec.f;
     for(let i=0;i<F.length;i++){
       const f=F[i], g=F[i+1];
@@ -12358,33 +12433,47 @@ function ficheMapMiseEnPage(ch,data,o){
         y+=h;
       }
     }
+    y+=1.5;
   });
   /* le suivi : ce qui a été décidé, ce qui reste à chiffrer, ce qui attend
      une réponse — une ligne par point, sa nature cochée, son lot et son texte */
   const hl=10;
-  place(18+hl*3);
-  els.push({t:'rect',x:FICHE_X0,y,w:larg,h:5.5,plein:true,gris:0.9,trait:false});
-  texte(FICHE_X0+1.5,y+3.9,'DÉCISIONS, MODIFICATIONS À CHIFFRER, POINTS EN ATTENTE',8,{gras:true,gris:0.15});
-  y+=7.5;
+  place(20+hl*3);
+  bandeau('Décisions, modifications à chiffrer, points en attente');
   const xLot=FICHE_X0+62, xTxt=FICHE_X0+100;
-  const enTete=()=>{texte(FICHE_X0,y+2.6,'NATURE',6.8,{gras:true,gris:0.25});texte(xLot,y+2.6,'LOT',6.8,{gras:true,gris:0.25});
-    texte(xTxt,y+2.6,'POINT',6.8,{gras:true,gris:0.25});y+=4};
+  const enTete=()=>{
+    els.push({t:'rect',x:FICHE_X0,y,w:larg,h:5,r:1,plein:true,trait:false,c:C.brun});
+    texte(FICHE_X0+2,y+3.5,'NATURE',6.6,{gras:true,c:C.blanc});texte(xLot+1,y+3.5,'LOT',6.6,{gras:true,c:C.blanc});
+    texte(xTxt+1,y+3.5,'POINT',6.6,{gras:true,c:C.blanc});y+=6};
   enTete();
   for(let i=0;i<MAP_FICHE_LIGNES_SUIVI;i++){
     if(y+hl>FICHE_Y1){nouvellePage();enTete()}
-    let x=FICHE_X0;
-    MAP_SUIVI_TYPES.forEach(t=>{caseA(x,y+1.6,'suivi',t.id,i);texte(x+FICHE_CASE+1.2,y+4.6,t.l,7);x+=pdfLargeur(t.l,7,false)+FICHE_CASE+4.2});
+    if(i%2===0)els.push({t:'rect',x:FICHE_X0,y:y-0.9,w:larg,h:hl,r:1,plein:true,trait:false,c:C.sable});
+    let x=FICHE_X0+2;
+    MAP_SUIVI_TYPES.forEach(t=>{caseA(x,y+1.6,'suivi',t.id,i);texte(x+FICHE_CASE+1.2,y+4.6,t.l,7,{c:C.encre});x+=pdfLargeur(t.l,7,false)+FICHE_CASE+4.2});
     zone(xLot,y,xTxt-xLot-3,hl-2,'suivi','lot',i);
-    zone(xTxt,y,FICHE_X1-xTxt,hl-2,'suivi','texte',i);
+    zone(xTxt,y,FICHE_X1-xTxt-1,hl-2,'suivi','texte',i);
     y+=hl;
   }
-  /* pied de chaque page : code de page et numérotation lisible */
+  /* les signatures, pour qu'une fiche remplie au rendez-vous vaille trace */
+  y+=3;place(38);
+  bandeau('Signatures');
+  texte(FICHE_X0+2,y+3,'Fait à ……………………………………………, le ……… / ……… / …………',8,{c:C.encre});
+  y+=6;
+  [['LE MAÎTRE D’OUVRAGE','« Lu et approuvé »'],['LE MAÎTRE D’ŒUVRE','CP Constructions — Claude Portier']].forEach(([a,b],k)=>{
+    const x=FICHE_X0+k*(demi+6);
+    els.push({t:'rect',x,y,w:demi,h:22,r:2,ep:0.5,cs:C.filet});
+    texte(x+3,y+5,a,7,{gras:true,c:C.brun});texte(x+3,y+9,b,7,{italique:true,c:C.gris});
+  });
+  y+=24;
+  /* pied de chaque page : code de page, maison et numérotation lisible */
   pages.forEach((P,k)=>{
+    P.push({t:'trait',x1:FICHE_X0,y1:280.6,x2:FICHE_X1,y2:280.6,ep:0.4,cs:C.filet});
     ficheCodeBits(k,numero).forEach((b,i)=>P.push({t:'rect',x:FICHE_CODE_X+i*FICHE_CODE_PAS,y:FICHE_CODE_Y,w:FICHE_CODE_C,h:FICHE_CODE_C,
       plein:!!b,ep:0.3,gris:0,traitGris:b?0:0.7}));
     const lib='Page '+(k+1)+' / '+pages.length;
-    P.push({t:'texte',x:FICHE_X1-pdfLargeur(lib,7.5,false),y:287,s:lib,taille:7.5,gris:0.3});
-    P.push({t:'texte',x:FICHE_X0+2,y:287,s:'CP CONSTRUCTIONS',taille:7,gras:true,gris:0.35});
+    P.push({t:'texte',x:192-pdfLargeur(lib,7.5,false),y:287.6,s:lib,taille:7.5,c:C.gris});
+    P.push({t:'texte',x:FICHE_X0+2,y:287.6,s:'CP CONSTRUCTIONS',taille:7,gras:true,c:C.brun});
   });
   return {pages,disposition:{v:1,numero,mode:pre?'preremplie':'vierge',date:o.date||today(),nbPages:pages.length,cases,zones}};
 }
@@ -12925,7 +13014,7 @@ function FicheMapPapier({data,ch,m,set}){
   const sortir=async mode=>{
     setEtat({etat:'travail'});
     const numero=F.reduce((x,f)=>Math.max(x,+f.numero||0),0)+1;
-    const {pages,disposition}=ficheMapMiseEnPage(ch,data,{mode,numero,date:today()});
+    const {pages,disposition}=ficheMapMiseEnPage(ch,data,{mode,numero,date:today(),logo:await ficheLogo()});
     const octets=pdfVectoriel(pages,'Fiche MAP n° '+numero+' — '+(ch.nom||''));
     const fiche={id:uid(),...disposition};
     const nom=ficheMapNom(ch,fiche);

@@ -9,12 +9,13 @@ const {charger,verif,SORTIE}=require('./harness');
 const M=charger(['ficheAppliquer','ficheAnnulerImport','ficheMapMiseEnPage','pdfVectoriel','ficheLocaliser','ficheMesurerPage','ficheAnalyser','ficheRedresser',
   'ficheHomographie','fichePoint','FICHE_CASE','EMPTY']);
 const {chk,fin}=verif();
+const LOGO={jpeg:new Uint8Array(require('fs').readFileSync(require('path').join(__dirname,'..','assets','logo_fiche.jpg'))),w:600,h:395};
 
 const data={...M.EMPTY,produits:[{id:'pr1',nom:'Porte Renomatic',marque:'Hörmann',lot:'Menuiseries ext.'},{id:'pr2',nom:'Porte Thermo',marque:'Hörmann',lot:'Menuiseries ext.'}],
   chantiers:[{id:'c1',nom:'Maison Exemple',client:'M. Exemple',adresse:'1 rue du Test',
     map:{soubassement:'Dalle sur terre-plein',gaz:'Sans objet',travauxPrepa:['Débroussaillage'],vsTrappe:true}}]};
 const ch=data.chantiers[0];
-const {pages,disposition:D}=M.ficheMapMiseEnPage(ch,data,{mode:'preremplie',numero:5,date:'2026-09-29'});
+const {pages,disposition:D}=M.ficheMapMiseEnPage(ch,data,{mode:'preremplie',numero:5,date:'2026-09-29',logo:LOGO});
 const PXMM=150/25.4;
 
 /* --- la page, en niveaux de gris, à 150 points par pouce --- */
@@ -106,6 +107,11 @@ essais.forEach(([rotation,bruit])=>{
   if(rotation===1)mesures.push({page:0,...m});
 });
 chk(M.ficheLocaliser({w:800,h:1000,g:new Uint8Array(800*1000).fill(230)}).erreur,'une photo sans fiche : erreur expliquée');
+/* une page vierge avec de grands cadres (lignes d'écriture pâles) : rien de lu */
+const kZ=D.zones.find(z=>z.k==='modifTerrain').p;
+const phZ=photo(pageImage(kZ),0,14), LZ=M.ficheLocaliser(phZ);
+const mZ=LZ.H?M.ficheMesurerPage(phZ,LZ.H,D,kZ):{cases:[{coche:true}],zones:[]};
+chk(LZ.page===kZ&&!mZ.cases.some(c=>c.coche)&&!mZ.zones.some(z=>z.ecrit),'page vierge aux grands cadres : aucune coche, aucun cadre écrit');
 
 /* --- l'analyse --- */
 const A=M.ficheAnalyser(D,mesures,ch.map,data);

@@ -8,10 +8,11 @@ const {execFileSync}=require('child_process');
 const {charger}=require('./harness');
 const R=path.resolve(__dirname,'..'), NM=__dirname+'/node_modules', SORTIE=require('os').tmpdir()+'/cp-tests';
 const M=charger(['ficheMapMiseEnPage','pdfVectoriel','FICHE_CASE','EMPTY']);
+const LOGO={jpeg:new Uint8Array(require('fs').readFileSync(require('path').join(__dirname,'..','assets','logo_fiche.jpg'))),w:600,h:395};
 let ko=0;const chk=(c,m)=>{console.log((c?'OK  ':'KO  ')+m);if(!c)ko++};
 
 const CH={id:'c1',nom:'Maison Leroux',statut:'chantier',client:'M. Leroux',map:{gaz:'Sans objet'}};
-const {pages,disposition}=M.ficheMapMiseEnPage(CH,{...M.EMPTY,chantiers:[CH]},{mode:'preremplie',numero:5,date:'2026-09-29'});
+const {pages,disposition}=M.ficheMapMiseEnPage(CH,{...M.EMPTY,chantiers:[CH]},{mode:'preremplie',numero:5,date:'2026-09-29',logo:LOGO});
 CH.map.fiches=[{id:'f5',...disposition,lien:''}];
 const DATA={chantiers:[CH],artisans:[],marches:[],prospects:[]};
 
