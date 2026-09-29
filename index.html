@@ -250,7 +250,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · Ouverture plus rapide : code converti une fois à la publication (Babel retiré de la page publiée)';
+const VERSION='2026-09-29 · Comptes rendus de chantier : réunions numérotées, points reportés tant qu’ils ne sont pas soldés, Word avec photos';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5559,7 +5559,7 @@ async function driveProspectFolder(token,prospectId,prospectNom){
 /* Arborescence type d'un chantier, dans l'ordre des onglets de l'application.
    Google Drive classe les dossiers par ordre alphabétique : cet ordre-ci est
    celui de création, pas celui d'affichage. */
-const DOSSIERS_CHANTIER=['Marchés','Marché travaux signé','Avenants','Factures','Honoraires','Rétrocessions','Matériaux','Visite technique','MAP','Contrôles','Photos','Pièces','Signatures'];
+const DOSSIERS_CHANTIER=['Marchés','Marché travaux signé','Avenants','Factures','Honoraires','Rétrocessions','Matériaux','Visite technique','MAP','Contrôles','Comptes rendus','Photos','Pièces','Signatures'];
 
 /* Pièces écrites : un dossier de maîtrise d'œuvre ne circule pas qu'en PDF —
    notices et marchés arrivent souvent en Word, les relevés en photo. iOS filtre
@@ -6643,7 +6643,7 @@ class Secours extends React.Component{
    se retrouver, accents et majuscules ignorés. */
 const rechercheNorme=t=>deaccent(String(t||'')).toLowerCase();
 const RECHERCHE_GROUPES=[['chantier','Chantiers'],['prospect','Prospects'],['artisan','Artisans'],['fournisseur','Fournisseurs'],
-  ['marche','Marchés'],['commande','Commandes'],['tache','Tâches'],['note','Notes'],['rdv','Rendez-vous']];
+  ['marche','Marchés'],['commande','Commandes'],['tache','Tâches'],['cr','Comptes rendus'],['note','Notes'],['rdv','Rendez-vous']];
 function rechercheIndex(data){
   const L=[];
   const ajoute=(type,id,titre,sous,champs,aller)=>L.push({type,cle:type+':'+id,titre:titre||'(sans nom)',sous:sous||'',
@@ -6654,6 +6654,8 @@ function rechercheIndex(data){
       [c.adresseClient,c.telClient,c.emailClient],{type:'chantier',id:c.id});
     (c.taches||[]).forEach(x=>{if(x&&x.texte)ajoute('tache',c.id+'-'+x.id,x.texte,c.nom+(x.fait?' · faite':x.echeance?' · échéance '+fd(x.echeance):''),[],
       {type:'chantier',id:c.id,onglet:'taches'})});
+    (c.comptesRendus||[]).forEach(r=>{if(r)ajoute('cr',c.id+'-'+r.id,'Compte rendu n° '+r.numero+' — '+fd(r.date),c.nom,
+      (r.points||[]).map(p=>p&&p.texte).concat((r.presents||[]).map(p=>p&&p.nom)),{type:'chantier',id:c.id,onglet:'cr'})});
     (c.notesDossier||[]).forEach(n=>{if(n&&n.texte)ajoute('note',c.id+'-'+n.id,n.texte.length>90?n.texte.slice(0,90)+'…':n.texte,
       c.nom+(n.creeLe?' · '+fd(n.creeLe.slice(0,10)):''),[n.texte],{type:'chantier',id:c.id})});
   });
@@ -8021,7 +8023,7 @@ function Fiche({data,ch,save,back,reprise,ongletInitial}){
     </div>}
     <NotesDossier notes={ch.notesDossier} onChange={L=>up({notesDossier:L})}/>
     <div className="tabs">
-      {[['marches','MARCHÉS'],['factu','FACTURATION'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['taches','TÂCHES'],['planning','PLANNING'],['docs','PIÈCES'],['ptr','PROG. TECHNIQUE']].map(([id,l])=>
+      {[['marches','MARCHÉS'],['factu','FACTURATION'],['hono','HONORAIRES'],['visite','VISITE TECH.'],['map','MAP'],['ctrl','CONTRÔLE'],['cr','COMPTES RENDUS'],['photos','PHOTOS'],['cmd','MATÉRIAUX'],['taches','TÂCHES'],['planning','PLANNING'],['docs','PIÈCES'],['ptr','PROG. TECHNIQUE']].map(([id,l])=>
         <button key={id} className={'tab'+(tab===id?' on':'')} onClick={()=>setTab(id)}>{l}</button>)}
     </div>
     {tab==='marches'&&<Marches data={data} ch={ch} save={save} eng={eng} fac={fac}
@@ -8031,6 +8033,7 @@ function Fiche({data,ch,save,back,reprise,ongletInitial}){
     {tab==='visite'&&<VisiteTechnique ch={ch} up={up}/>}
     {tab==='map'&&<MAP data={data} ch={ch} up={up}/>}
     {tab==='ctrl'&&<Controles data={data} ch={ch} save={save}/>}
+    {tab==='cr'&&<ComptesRendus data={data} ch={ch} save={save}/>}
     {tab==='photos'&&<Photos data={data} ch={ch} save={save}
       reprendreEnvoi={!!reprise&&reprise.action==='photos'}/>}
     {tab==='cmd'&&<Commandes data={data} ch={ch} save={save} ouvrir={ouvrirCmd} onOuvert={()=>setOuvrirCmd(null)}/>}
@@ -12883,6 +12886,429 @@ function Controles({data,ch,save}){
         })}
       </div>;
     })}
+    {zoom&&<Plein p={zoom} close={()=>setZoom(null)}/>}
+  </div>;
+}
+
+/* ---------------- COMPTES RENDUS DE CHANTIER ----------------
+   Une réunion de chantier, un compte rendu numéroté : qui était là, ce qu'on
+   a constaté ou décidé, ce qui reste à faire, par qui et pour quand. Ce qui
+   n'est pas soldé repart tout seul dans le compte rendu suivant, avec le
+   numéro de celui où il est apparu : c'est tout l'intérêt de le tenir ici
+   plutôt que de le retaper dans Word à chaque réunion. Le Word se produit
+   d'un geste et va dans le Drive du chantier (dossier « Comptes rendus »). */
+const CR_TYPES=[{id:'observation',l:'Observation',c:MUTED},{id:'decision',l:'Décision',c:NAVY},
+  {id:'action',l:'À faire',c:AMBER},{id:'reserve',l:'Réserve',c:TERRA}];
+const CR_PRESENCES=[{id:'P',l:'Présent'},{id:'E',l:'Excusé'},{id:'A',l:'Absent'}];
+const CR_GENERAL='Généralités';
+/* seules les actions et les réserves se suivent d'une réunion à l'autre : une
+   observation ou une décision est dite une fois et reste dans son compte rendu */
+const crASuivre=p=>!!p&&(p.type==='action'||p.type==='reserve');
+const crOuvert=p=>crASuivre(p)&&!p.fait;
+const crTries=ch=>((ch&&ch.comptesRendus)||[]).slice().sort((a,b)=>(+a.numero||0)-(+b.numero||0));
+/* les lots du chantier, dans l'ordre de l'onglet MARCHÉS : c'est aussi
+   l'ordre des rubriques du compte rendu */
+const crLotsChantier=(ch,data)=>{
+  const L=[];
+  ((data&&data.marches)||[]).filter(m=>m.chantierId===ch.id).forEach(m=>{
+    const l=String(m.lot||'').trim(); if(l&&L.indexOf(l)<0)L.push(l)});
+  return L;
+};
+/* les points regroupés par lot : les généralités d'abord, puis les lots dans
+   l'ordre des marchés, puis les autres (lots du contrôle, saisies libres) */
+const crGroupes=(points,ordre)=>{
+  const g=new Map();
+  (points||[]).forEach(p=>{const l=String(p.lot||'').trim()||CR_GENERAL;
+    if(!g.has(l))g.set(l,[]);g.get(l).push(p)});
+  const rang=l=>l===CR_GENERAL?-1:ordre.indexOf(l)>=0?ordre.indexOf(l):ordre.length;
+  return [...g.entries()].sort((a,b)=>rang(a[0])-rang(b[0])||(rang(a[0])===ordre.length?a[0].localeCompare(b[0],'fr'):0));
+};
+/* pour un premier compte rendu : le client, le maître d'œuvre, puis chaque
+   entreprise titulaire d'un lot (une seule ligne si elle en a plusieurs) */
+function crIntervenants(ch,data){
+  const L=[];
+  if(ch.client)L.push({id:uid(),nom:ch.client,qualite:'Maître d’ouvrage',presence:''});
+  L.push({id:uid(),nom:'Claude Portier — '+CP.nom,qualite:'Maître d’œuvre',presence:''});
+  const vus={};
+  ((data&&data.marches)||[]).filter(m=>m.chantierId===ch.id&&m.artisanId).forEach(m=>{
+    const a=((data&&data.artisans)||[]).find(x=>x.id===m.artisanId); if(!a)return;
+    if(vus[a.id]){if(m.lot)vus[a.id].qualite+=', '+m.lot;return}
+    const r={id:uid(),nom:a.nom||'',qualite:'Lot '+(m.lot||''),presence:'',artisanId:a.id};
+    vus[a.id]=r;L.push(r);
+  });
+  return L;
+}
+/* un nouveau compte rendu, à la suite du précédent : mêmes personnes (leur
+   présence reste à cocher), date prévue de la réunion, et tout ce qui n'a
+   pas été soldé. Le compte rendu précédent n'est pas touché. */
+function crNouveau(ch,data){
+  const T=crTries(ch), prec=T[T.length-1];
+  const numero=T.reduce((m,c)=>Math.max(m,+c.numero||0),0)+1;
+  const presents=prec&&(prec.presents||[]).length
+    ?prec.presents.map(p=>({...p,id:uid(),presence:''}))
+    :crIntervenants(ch,data);
+  const points=prec?(prec.points||[]).filter(crOuvert).map(p=>({...p,id:uid(),
+    suivi:p.suivi||p.id,depuis:p.depuis||prec.numero,photos:[]})):[];
+  const pr=(prec&&prec.prochaine)||{};
+  return {id:uid(),numero,date:pr.date||today(),heure:pr.heure||'',meteo:'',avancement:'',
+    presents,points,prochaine:{date:'',heure:''},creeLe:today()};
+}
+/* les non-conformités de l'onglet CONTRÔLE, en réserves : celles déjà
+   reprises dans ce compte rendu (même origine) ne sont pas redoublées */
+function crNonConformites(ch,cr){
+  const c=ch.controles||{}, deja={};
+  ((cr&&cr.points)||[]).forEach(p=>{if(p.origine)deja[p.origine]=1});
+  const L=[];
+  CONTROLES.forEach(g=>g.pts.forEach(([k,label])=>{
+    const r=c[g.id+'.'+k], origine='ctrl:'+g.id+'.'+k;
+    if(r&&r.statut==='non_conforme'&&!deja[origine])
+      L.push({id:uid(),type:'reserve',lot:g.l,texte:label+(r.note?' — '+r.note:''),resp:'',echeance:'',
+        fait:false,photos:(r.photos||[]).slice(),origine});
+  }));
+  return L;
+}
+const crEtat=(p,cr)=>{
+  if(!crASuivre(p))return '';
+  if(p.fait)return 'Soldé'+(p.faitLe?' le '+fdDoc(p.faitLe):'');
+  return p.echeance&&cr&&cr.date&&p.echeance<cr.date?'En retard':'À faire';
+};
+const crNomFichier=(ch,cr)=>'CR n°'+String(cr.numero).padStart(2,'0')+' — '+(ch.nom||'chantier')+' — '+(cr.date||today())+'.docx';
+
+function crDocumentXml(ch,cr,px,ordre,photos){
+  photos=photos||[];
+  const bords=tcB({c:DOC_BRUN,sz:4,t:4,bs:4}), sans=tcB({h:false,g:false,b:false,d:false});
+  const titre=t=>par(t,{b:true,sz:20,c:DOC_TERRA,sp:16,caps:true,av:240,ap:100,filet:DOC_TERRA});
+  const lignes=(t,o)=>String(t||'').split(/\n+/).filter(x=>x.trim()).map(x=>par(x,{sz:16,ap:30,...o})).join('')||par('',{ap:0});
+  /* une cellule reçoit du XML déjà composé ; txt() en fait à partir d'un texte */
+  const cell=(l,xml,o)=>tc(l,xml,{bords,mg:80,v:'top',...(o||{})});
+  const txt=t=>par(t,{sz:16,ap:0});
+  const tete=(l,t)=>tc(l,par(t,{b:true,sz:14,c:'FFFFFF',caps:true,sp:10,ap:0}),{fond:DOC_BRUN,bords,mg:80});
+  const entete=tbl([4000,6200],[tr([
+    tc(4000,par([logoXml(px)],{ap:0}),{bords:sans,v:'top',mg:0}),
+    tc(6200,[
+      par('COMPTE RENDU DE CHANTIER',{b:true,sz:30,c:DOC_TERRA,sp:20,jc:'right',ap:40}),
+      par('N° '+cr.numero+' — réunion du '+fdDoc(cr.date)+(cr.heure?' à '+cr.heure:''),
+        {b:true,sz:20,c:DOC_BRUN,jc:'right',ap:40,filet:DOC_TERRA}),
+      par(ch.nom||'',{sz:18,c:DOC_GRIS,jc:'right',ap:0}),
+    ].join(''),{bords:sans,v:'top',mg:0}),
+  ])],{});
+  const pr=cr.prochaine||{};
+  const info=(l,v)=>tr([tc(2800,par(l,{b:true,sz:15,c:DOC_BRUN,ap:0}),{bords,fond:DOC_SABLE,mg:80,v:'top'}),cell(7400,txt(v||'—'))]);
+  const infos=tbl([2800,7400],[
+    info('Maître d’ouvrage',ch.client),
+    info('Adresse du chantier',ch.adresse),
+    info('Maître d’œuvre',CP.nom+' — Claude Portier'),
+    ...(cr.meteo?[info('Météo',cr.meteo)]:[]),
+    info('Prochaine réunion',pr.date?fdDoc(pr.date)+(pr.heure?' à '+pr.heure:''):'à fixer'),
+  ],{});
+  const P=cr.presents||[];
+  const presence=id=>(CR_PRESENCES.find(x=>x.id===id)||{}).l||'—';
+  const presents=P.length?tbl([4300,4100,1800],[
+    tr([tete(4300,'Nom'),tete(4100,'Qualité'),tete(1800,'Présence')]),
+    ...P.map(p=>tr([cell(4300,txt(p.nom||'')),cell(4100,txt(p.qualite||'')),cell(1800,txt(presence(p.presence)))])),
+  ],{}):par('Aucune personne indiquée.',{sz:16,i:true,c:DOC_GRIS});
+  /* un point : sa nature en tête, son texte, puis d'où il vient et ses photos */
+  const numPhoto={};photos.forEach(ph=>{numPhoto[ph.pid]=ph.num});
+  const L=[700,5300,1800,1200,1200];
+  let n=0;
+  const lignePoint=p=>{
+    n++;
+    const t=CR_TYPES.find(x=>x.id===p.type)||CR_TYPES[0];
+    const refs=(p.photos||[]).map(id=>numPhoto[id]).filter(Boolean);
+    const lg=String(p.texte||'').split(/\n+/).filter(x=>x.trim());
+    const objet=[
+      par([run(t.l.toUpperCase()+' — ',{b:true,sz:14,c:t.id==='reserve'?DOC_TERRA:DOC_BRUN,sp:10}),run(lg[0]||'',{sz:16})],{ap:20}),
+      ...lg.slice(1).map(x=>par(x,{sz:16,ap:20})),
+      ...(p.depuis?[par('Point reporté du compte rendu n° '+p.depuis,{sz:14,i:true,c:DOC_GRIS,ap:0})]:[]),
+      ...(refs.length?[par((refs.length>1?'Photos ':'Photo ')+refs.join(', '),{sz:14,i:true,c:DOC_GRIS,ap:0})]:[]),
+    ].join('');
+    const etat=crEtat(p,cr);
+    return tr([cell(L[0],txt(String(n))),cell(L[1],objet),cell(L[2],txt(p.resp||'—')),
+      cell(L[3],txt(p.echeance?fdDoc(p.echeance):'—')),
+      cell(L[4],par(etat||'—',{sz:15,ap:0,b:etat==='En retard',c:etat==='En retard'?DOC_TERRA:DOC_ENCRE}))]);
+  };
+  const groupes=crGroupes(cr.points,ordre||[]);
+  const points=groupes.length?tbl(L,[
+    tr([tete(L[0],'N°'),tete(L[1],'Objet'),tete(L[2],'Responsable'),tete(L[3],'Échéance'),tete(L[4],'État')]),
+    ...groupes.flatMap(([lot,pts])=>[
+      tr([tc(10200,par(lot,{b:true,sz:16,c:DOC_BRUN,caps:true,sp:10,ap:0}),{fusion:5,fond:DOC_SABLE,bords,mg:80})]),
+      ...pts.map(lignePoint)]),
+  ],{}):par('Aucun point consigné.',{sz:16,i:true,c:DOC_GRIS});
+  /* les photos, deux par ligne, dans l'ordre des points, chacune avec sa
+     légende : son numéro, le lot et le début du texte du point. Elles
+     commencent une page : leur titre ne reste pas seul en bas de la
+     précédente. */
+  let docPr=600;
+  const vignette=ph=>{
+    const maxL=Math.floor(5100*635*0.94), maxH=2400000;
+    let l=maxL, h=Math.round(l*ph.h/Math.max(ph.w,1));
+    if(h>maxH){l=Math.round(l*maxH/h);h=maxH}
+    docPr++;
+    const court=String(ph.point.texte||'').replace(/\s+/g,' ').trim();
+    return [par([photoXml(ph.id,docPr,ph.nom,l,h)],{jc:'center',ap:40}),
+      par('Photo '+ph.num+' — '+((ph.point.lot||'').trim()||CR_GENERAL)+(court?' : '+(court.length>110?court.slice(0,110)+'…':court):''),
+        {sz:14,i:true,c:DOC_GRIS,jc:'center',ap:0})].join('');
+  };
+  const rangs=[];for(let i=0;i<photos.length;i+=2)rangs.push(photos.slice(i,i+2));
+  const planche=photos.length?[sautPage,titre('Photos'),tbl([5100,5100],rangs.map(r=>tr([
+    tc(5100,vignette(r[0]),{bords:sans,v:'top',mg:60}),
+    tc(5100,r[1]?vignette(r[1]):par('',{ap:0}),{bords:sans,v:'top',mg:60})])),{})].join(''):'';
+  const corps=[entete,vide(160),infos,
+    titre('Présents et convoqués'),presents,
+    ...(String(cr.avancement||'').trim()?[titre('Avancement des travaux'),lignes(cr.avancement,{jc:'both'})]:[]),
+    titre('Observations, décisions et actions'),points,
+    vide(160),
+    par('Les observations sur le présent compte rendu sont à adresser au maître d’œuvre dans les huit jours suivant sa diffusion ; passé ce délai, il est réputé accepté.',
+      {sz:15,i:true,c:DOC_GRIS,jc:'both',ap:60}),
+    par('Rédigé par Claude Portier, '+CP.nom+'.',{sz:15,c:DOC_GRIS,ap:0}),
+    planche,
+  ].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+/* les photos des points, lues dans le stockage partagé : une photo qu'on ne
+   peut pas lire est laissée de côté, le compte rendu sort quand même */
+async function crPhotosDocx(cr,lire){
+  lire=lire||(async pid=>{const r=await fetch(await Photo.get(pid));if(!r.ok)throw new Error('photo');return new Uint8Array(await r.arrayBuffer())});
+  const out=[];
+  for(const p of (cr.points||[]))for(const pid of (p.photos||[])){
+    if(out.some(x=>x.pid===pid))continue;
+    try{
+      const data=await lire(pid);
+      const dim=ptrDimensionsBrutes(data); if(!dim)continue;
+      const num=out.length+1;
+      out.push({pid,num,id:'rId'+(300+num),nom:'cr_photo_'+num+'.'+dim.ext,data,w:dim.w,h:dim.h,point:p});
+    }catch(e){/* photo absente du stockage : le compte rendu sort sans elle */}
+  }
+  return out;
+}
+async function genererCrDocx(ch,cr,ordre,lire){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, le compte rendu reste lisible */}
+  const photos=await crPhotosDocx(cr,lire);
+  return fabriquerDocx(crDocumentXml(ch,cr,logo,ordre,photos),
+    'Compte rendu de chantier n° '+cr.numero+' — '+(ch.nom||''),logo,null,null,
+    photos.map(ph=>({id:ph.id,nom:ph.nom,data:ph.data})));
+}
+
+function ComptesRendus({data,ch,save}){
+  const T=crTries(ch);
+  const [ouvert,setOuvert]=useState(null);
+  const [busy,setBusy]=useState(null);
+  const [zoom,setZoom]=useState(null);
+  const [sortie,setSortie]=useState(null);
+  const ordre=crLotsChantier(ch,data);
+  const L0=ch.comptesRendus||[];
+  const upCh=(L,photos)=>save({...data,...(photos?{photos}:{}),
+    chantiers:data.chantiers.map(x=>x.id===ch.id?{...x,comptesRendus:L}:x)});
+  const setCr=(id,patch)=>upCh(L0.map(c=>c.id===id?{...c,...patch}:c));
+  const cr=L0.find(c=>c.id===ouvert)||null;
+
+  const creer=()=>{const n=crNouveau(ch,data);upCh([...L0,n]);setOuvert(n.id);setSortie(null)};
+  const supprimer=c=>{
+    if(!confirm('Supprimer le compte rendu n° '+c.numero+' ? Les points déjà reportés dans les comptes rendus suivants y restent.'))return;
+    upCh(L0.filter(x=>x.id!==c.id));setOuvert(null);
+  };
+
+  if(!cr){
+    const dernier=T[T.length-1];
+    const ouverts=dernier?(dernier.points||[]).filter(crOuvert):[];
+    return <div>
+      <div className="sp" style={{marginBottom:12}}>
+        <span className="xs mut">{T.length?T.length+' compte'+(T.length>1?'s':'')+' rendu'+(T.length>1?'s':''):'Aucun compte rendu'}</span>
+        <button className="btn acc s" onClick={creer}>+ Compte rendu</button>
+      </div>
+      {!T.length&&<Empty>« + Compte rendu » prépare la première réunion : les intervenants viennent des marchés du chantier.</Empty>}
+      {ouverts.length>0&&<div className="card" style={{borderLeft:'3px solid '+AMBER,padding:10}}>
+        <div className="xs b" style={{color:NAVY,marginBottom:6}}>POINTS À SUIVRE (CR n° {dernier.numero})</div>
+        {ouverts.map(p=>{const t=CR_TYPES.find(x=>x.id===p.type);const retard=p.echeance&&p.echeance<today();
+          return <div key={p.id} className="xs" style={{marginBottom:4,lineHeight:1.4}}>
+            <span className="b" style={{color:t.c}}>{t.l}</span> — {p.texte||'(sans texte)'}
+            <span className="mut">{p.resp?' · '+p.resp:''}</span>
+            {p.echeance&&<span style={{color:retard?TERRA:MUTED}}>{' · '+(retard?'en retard, ':'')+'échéance '+fd(p.echeance)}</span>}
+          </div>})}
+        <div className="xs mut" style={{marginTop:6}}>Ils seront repris dans le prochain compte rendu.</div>
+      </div>}
+      {T.slice().reverse().map(c=>{
+        const nOuv=(c.points||[]).filter(crOuvert).length;
+        return <button key={c.id} className="card sp" style={{padding:10,width:'100%',textAlign:'left'}} onClick={()=>{setOuvert(c.id);setSortie(null)}}>
+          <span><span className="b sm" style={{color:NAVY}}>CR n° {c.numero}</span>
+            <span className="xs mut"> — {fd(c.date)}{c.heure?' à '+c.heure:''}</span><br/>
+            <span className="xs mut">{(c.points||[]).length} point{(c.points||[]).length>1?'s':''}{nOuv?' · '+nOuv+' à suivre':''}{c.diffuse&&c.diffuse.le?' · produit le '+fd(c.diffuse.le):''}</span></span>
+          <span className="xs mut">▸</span>
+        </button>;
+      })}
+    </div>;
+  }
+
+  const P=cr.presents||[], PT=cr.points||[];
+  const setPresents=L=>setCr(cr.id,{presents:L});
+  const setPoints=L=>setCr(cr.id,{points:L});
+  const setPt=(id,patch)=>setPoints(PT.map(p=>p.id===id?{...p,...patch}:p));
+  const ajouterPoint=lot=>setPoints([...PT,{id:uid(),type:'observation',lot:lot||'',texte:'',resp:'',echeance:'',fait:false,photos:[]}]);
+  const nc=crNonConformites(ch,cr);
+  const lotsProposes=[CR_GENERAL,...ordre];
+  PT.forEach(p=>{const l=String(p.lot||'').trim();if(l&&lotsProposes.indexOf(l)<0)lotsProposes.push(l)});
+  const noms=P.map(p=>p.nom).filter(Boolean);
+
+  /* une photo prise en réunion : dans l'onglet PHOTOS comme les autres, et
+     dans le Drive du chantier (dossier « Comptes rendus ») */
+  const addPhotos=async(p,files)=>{
+    setBusy(p.id);
+    const nouveaux=[];
+    for(const file of files){
+      try{
+        const d=await compress(file);
+        const pid=uid();
+        await Photo.put(pid,d);
+        let lien='';
+        try{
+          const token=await getDriveToken();
+          const folderId=await driveSousDossier(token,ch.id,ch.nom,'Comptes rendus');
+          lien=(await uploadToDrive(file,folderId)).webViewLink;
+        }catch(x){/* miniature conservée même sans Drive */}
+        nouveaux.push({id:pid,chantierId:ch.id,date:today(),legende:'CR n° '+cr.numero+' — '+((p.lot||'').trim()||CR_GENERAL)+(p.texte?' : '+p.texte.slice(0,80):''),lot:p.lot||'',lien});
+      }catch(x){/* photo ignorée */}
+    }
+    if(nouveaux.length){
+      const pts=PT.map(x=>x.id===p.id?{...x,photos:[...(x.photos||[]),...nouveaux.map(n=>n.id)]}:x);
+      upCh(L0.map(c=>c.id===cr.id?{...c,points:pts}:c),[...data.photos,...nouveaux]);
+    }
+    setBusy(null);
+  };
+
+  const produire=async()=>{
+    setSortie({etat:'travail'});
+    let buf=null;
+    const nom=crNomFichier(ch,cr);
+    try{
+      buf=await genererCrDocx(ch,cr,ordre);
+      const token=await getDriveToken();
+      const folderId=await driveSousDossier(token,ch.id,ch.nom,'Comptes rendus');
+      const {webViewLink}=await uploadToDrive(new File([buf],nom,{type:PTR_MIME.docx}),folderId);
+      setCr(cr.id,{diffuse:{le:today(),lien:webViewLink||''}});
+      setSortie({etat:'ok',lien:webViewLink,nom});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setSortie({etat:'erreur',buf,nom,msg:!buf?'Composition impossible — '+c
+        :c==='auth_required'?"Le compte rendu est prêt, mais Google Drive n'est pas connecté : téléchargez-le, ou reconnectez Drive puis relancez."
+        :'Le compte rendu est prêt, mais le dépôt sur Drive a échoué ('+c+') : téléchargez-le.'});
+    }
+  };
+
+  const typeBtn=(p,t)=><button key={t.id} className="btn s" onClick={()=>setPt(p.id,{type:t.id})}
+    style={{background:p.type===t.id?t.c:'transparent',borderColor:p.type===t.id?t.c:RULE,color:p.type===t.id?'#fff':MUTED,fontSize:11,padding:'5px 9px'}}>{t.l}</button>;
+
+  return <div>
+    <div className="sp" style={{marginBottom:12}}>
+      <button className="xs" style={{color:TERRA,background:'none',border:'none',padding:0}} onClick={()=>{setOuvert(null);setSortie(null)}}>← Tous les comptes rendus</button>
+      <BoutonDossierDrive ch={ch} sous="Comptes rendus"/>
+    </div>
+    <div className="card">
+      <div className="sp" style={{marginBottom:10}}>
+        <span className="h2">COMPTE RENDU N° {cr.numero}</span>
+        <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>supprimer(cr)}>Supprimer</button>
+      </div>
+      <div className="g2">
+        <Fld label="DATE DE LA RÉUNION"><input className="in" type="date" value={cr.date||''} onChange={e=>setCr(cr.id,{date:e.target.value})}/></Fld>
+        <Fld label="HEURE"><input className="in" type="time" value={cr.heure||''} onChange={e=>setCr(cr.id,{heure:e.target.value})}/></Fld>
+      </div>
+      <Fld label="MÉTÉO (FACULTATIF)"><input className="in" value={cr.meteo||''} placeholder="Beau temps, sol sec…" onChange={e=>setCr(cr.id,{meteo:e.target.value})}/></Fld>
+      <Fld label="AVANCEMENT DES TRAVAUX"><textarea className="in" rows="3" value={cr.avancement||''} placeholder="Où en est le chantier, lot par lot…" onChange={e=>setCr(cr.id,{avancement:e.target.value})}/></Fld>
+    </div>
+
+    <div className="card">
+      <div className="sp" style={{marginBottom:10}}>
+        <span className="h2">PRÉSENTS ET CONVOQUÉS</span>
+        <button className="btn gh s" onClick={()=>setPresents([...P,{id:uid(),nom:'',qualite:'',presence:''}])}>+ Personne</button>
+      </div>
+      {!P.length&&<p className="xs mut" style={{margin:0}}>Personne n’est indiqué.</p>}
+      {P.map(p=><div key={p.id} style={{borderTop:'1px solid '+RULE,padding:'8px 0'}}>
+        <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+          <input className="in" style={{flex:'1 1 150px'}} placeholder="Nom" value={p.nom||''} onChange={e=>setPresents(P.map(x=>x.id===p.id?{...x,nom:e.target.value}:x))}/>
+          <input className="in" style={{flex:'1 1 150px'}} placeholder="Qualité (lot, client…)" value={p.qualite||''} onChange={e=>setPresents(P.map(x=>x.id===p.id?{...x,qualite:e.target.value}:x))}/>
+        </div>
+        <div className="row" style={{gap:6,marginTop:6,alignItems:'center'}}>
+          {CR_PRESENCES.map(s=><button key={s.id} className={'btn s '+(p.presence===s.id?'':'gh')} style={{fontSize:11,padding:'5px 9px'}}
+            onClick={()=>setPresents(P.map(x=>x.id===p.id?{...x,presence:x.presence===s.id?'':s.id}:x))}>{s.l}</button>)}
+          <span style={{flex:1}}/>
+          <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>setPresents(P.filter(x=>x.id!==p.id))}>✕</button>
+        </div>
+      </div>)}
+    </div>
+
+    <div className="card">
+      <div className="sp" style={{marginBottom:10,flexWrap:'wrap',gap:6}}>
+        <span className="h2">POINTS</span>
+        <span className="row" style={{gap:6,flexWrap:'wrap'}}>
+          {nc.length>0&&<button className="btn gh s" onClick={()=>setPoints([...PT,...nc])}>+ Non-conformités du contrôle ({nc.length})</button>}
+          <button className="btn acc s" onClick={()=>ajouterPoint('')}>+ Point</button>
+        </span>
+      </div>
+      {!PT.length&&<p className="xs mut" style={{margin:0,lineHeight:1.5}}>Aucun point. Une observation, une décision, une chose à faire (avec son responsable et son échéance) ou une réserve : les deux dernières sont reprises au compte rendu suivant tant qu’elles ne sont pas soldées.</p>}
+      {crGroupes(PT,ordre).map(([lot,pts])=><div key={lot} style={{marginTop:10}}>
+        <div className="xs b" style={{color:NAVY,letterSpacing:'.03em',marginBottom:4}}>{lot.toUpperCase()}</div>
+        {pts.map(p=>{
+          const t=CR_TYPES.find(x=>x.id===p.type)||CR_TYPES[0];
+          return <div key={p.id} className="card" style={{borderLeft:'3px solid '+(crASuivre(p)&&p.fait?GREEN:t.c),padding:10,marginBottom:6}}>
+            <div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center'}}>
+              {CR_TYPES.map(x=>typeBtn(p,x))}
+              <span style={{flex:1}}/>
+              <button className="xs" title="Retirer ce point" style={{color:MUTED,background:'none',border:'none',padding:0}}
+                onClick={()=>{if(!p.texte||confirm('Retirer ce point du compte rendu ?'))setPoints(PT.filter(x=>x.id!==p.id))}}>✕</button>
+            </div>
+            {p.depuis&&<div className="xs" style={{color:AMBER,marginTop:6}}>Reporté du compte rendu n° {p.depuis}</div>}
+            <textarea className="in" rows="2" style={{marginTop:8}} placeholder="Ce qui a été constaté, décidé ou demandé…" value={p.texte||''}
+              onChange={e=>setPt(p.id,{texte:e.target.value})}/>
+            <div className="g2" style={{marginTop:6}}>
+              <Fld label="LOT"><select className="in" value={String(p.lot||'').trim()||CR_GENERAL}
+                onChange={e=>{let v=e.target.value;if(v==='__autre'){v=(prompt('Nom du lot')||'').trim();if(!v)return}
+                  setPt(p.id,{lot:v===CR_GENERAL?'':v})}}>
+                {lotsProposes.map(l=><option key={l} value={l}>{l}</option>)}
+                <option value="__autre">Autre…</option></select></Fld>
+              {crASuivre(p)&&<Fld label="RESPONSABLE"><input className="in" list={'cr-noms-'+cr.id} value={p.resp||''} onChange={e=>setPt(p.id,{resp:e.target.value})}/></Fld>}
+            </div>
+            {crASuivre(p)&&<div className="g2">
+              <Fld label="ÉCHÉANCE"><input className="in" type="date" value={p.echeance||''} onChange={e=>setPt(p.id,{echeance:e.target.value})}/></Fld>
+              <Fld label="SUIVI"><label className="xs row" style={{gap:8,alignItems:'center',cursor:'pointer',minHeight:34}}>
+                <input type="checkbox" checked={!!p.fait} onChange={e=>setPt(p.id,{fait:e.target.checked,faitLe:e.target.checked?(cr.date||today()):''})}/>
+                <span>{p.fait?'Soldé'+(p.faitLe?' le '+fd(p.faitLe):''):'Soldé'}</span></label></Fld>
+            </div>}
+            <div className="row" style={{gap:6,marginTop:4,flexWrap:'wrap',alignItems:'center'}}>
+              {(p.photos||[]).map(pid=><ThumbCtrl key={pid} id={pid} onZoom={()=>setZoom({id:pid,date:cr.date,legende:p.texte})}
+                onDel={()=>setPt(p.id,{photos:(p.photos||[]).filter(x=>x!==pid)})}/>)}
+              <label className="btn gh s" style={{whiteSpace:'nowrap'}}>{busy===p.id?'Envoi…':'+ Photo'}
+                <input type="file" accept="image/*" multiple style={{display:'none'}} disabled={busy===p.id}
+                  onChange={e=>{const files=[...e.target.files];e.target.value='';if(files.length)addPhotos(p,files)}}/></label>
+            </div>
+          </div>;
+        })}
+        <button className="xs" style={{color:TERRA,background:'none',border:'none',padding:0}} onClick={()=>ajouterPoint(lot===CR_GENERAL?'':lot)}>+ Point dans « {lot} »</button>
+      </div>)}
+      <datalist id={'cr-noms-'+cr.id}>{noms.map(x=><option key={x} value={x}/>)}</datalist>
+      <p className="xs mut" style={{margin:'10px 0 0',lineHeight:1.5}}>Retirer une photo d’un point ne la supprime pas : elle reste dans l’onglet PHOTOS.</p>
+    </div>
+
+    <div className="card">
+      <div className="h2" style={{marginBottom:10}}>PROCHAINE RÉUNION</div>
+      <div className="g2">
+        <Fld label="DATE"><input className="in" type="date" value={(cr.prochaine&&cr.prochaine.date)||''} onChange={e=>setCr(cr.id,{prochaine:{...(cr.prochaine||{}),date:e.target.value}})}/></Fld>
+        <Fld label="HEURE"><input className="in" type="time" value={(cr.prochaine&&cr.prochaine.heure)||''} onChange={e=>setCr(cr.id,{prochaine:{...(cr.prochaine||{}),heure:e.target.value}})}/></Fld>
+      </div>
+    </div>
+
+    <div className="card">
+      <button className="btn acc" style={{width:'100%'}} disabled={sortie&&sortie.etat==='travail'} onClick={produire}>
+        {sortie&&sortie.etat==='travail'?'Composition…':'Produire le compte rendu (Word)'}</button>
+      {sortie&&sortie.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN}}>Déposé dans Drive › {ch.nom} › Comptes rendus — <a href={sortie.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>ouvrir</a></div>}
+      {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}
+        {sortie.buf&&<div><button className="btn gh s" style={{marginTop:6}} onClick={()=>telechargerOctets(sortie.buf,sortie.nom,PTR_MIME.docx)}>Télécharger le Word</button></div>}</div>}
+      {!sortie&&cr.diffuse&&cr.diffuse.le&&<div className="xs mut" style={{marginTop:8}}>Produit le {fd(cr.diffuse.le)}{cr.diffuse.lien&&<span> — <a href={cr.diffuse.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>ouvrir</a></span>}. Une nouvelle production dépose une nouvelle version.</div>}
+    </div>
+    <DriveStatus/>
     {zoom&&<Plein p={zoom} close={()=>setZoom(null)}/>}
   </div>;
 }
