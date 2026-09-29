@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · Plan électrique : pièces, échelle, base de prestations, implantation proposée, écarts et suppléments, indice';
+const VERSION='2026-09-29 · Salle de bains : plan coté, élévations, calepinage, 3D, contrôles, quantités et PDF, depuis la MAP';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -12563,7 +12563,8 @@ const pdfCouper=(s,taille,gras,larg)=>{
 /* ---------- PDF vectoriel : rectangles, traits, texte et images ----------
    Chaque page est une liste d'éléments en millimètres, origine en haut à
    gauche : {t:'rect',x,y,w,h,r,plein,trait,ep}, {t:'trait',x1,y1,x2,y2,ep},
-   {t:'texte',x,y,s,taille,gras,italique}, {t:'image',x,y,w,h,im:{jpeg,w,h}}.
+   {t:'texte',x,y,s,taille,gras,italique}, {t:'image',x,y,w,h,im:{jpeg,w,h}},
+   {t:'poly',pts:[[x,y]…],ferme,plein} (polygone ou ligne brisée).
    Couleur : « c » (remplissage et texte) et « cs » (trait), en [r,v,b] de 0
    à 1 ; à défaut, « gris » et « traitGris » (0 noir, 1 blanc). « r » arrondit
    les angles d'un rectangle. Les images sont des JPEG posés tels quels. */
@@ -12607,6 +12608,11 @@ function pdfVectoriel(pages,titre){
       }else if(e.t==='texte'){
         const f=e.gras?'/F2':e.italique?'/F3':'/F1';
         o.push('BT '+coul(e.c,g,'f')+' '+f+' '+e.taille+' Tf '+pt(e.x)+' '+pt(H-e.y)+' Td '+chaineTexte(e.s)+' Tj ET');
+      }else if(e.t==='poly'&&e.pts&&e.pts.length>1){
+        o.push((e.ep||0.3)+' w');
+        if(e.plein)o.push(coul(e.c,g,'f'));
+        if(e.trait!==false)o.push(coul(e.cs,e.traitGris===undefined?g:e.traitGris,'S'));
+        o.push(e.pts.map((p,j)=>pt(p[0])+' '+pt(H-p[1])+(j?' l':' m')).join(' ')+(e.ferme?' h':'')+' '+(e.plein?(e.trait===false?'f':'B'):'S'));
       }else if(e.t==='image'&&images.indexOf(e.im)>=0){
         o.push('q '+pt(e.w)+' 0 0 '+pt(e.h)+' '+pt(e.x)+' '+pt(H-e.y-e.h)+' cm /Im'+images.indexOf(e.im)+' Do Q');
       }
@@ -14096,9 +14102,732 @@ function OutilsMap({m,data,ouverts,setOuverts,allerA}){
   </div>;
 }
 
+/* ---------- salle de bains : un modèle, toutes les vues ----------
+   Une pièce rectangulaire (largeur L sur x, profondeur P sur y, hauteur H,
+   en centimètres), ses ouvertures, ses équipements et ses zones de faïence.
+   Le plan coté, les élévations, le calepinage, la vue 3D, les surfaces et
+   les quantités sont tous calculés à partir de ce seul modèle : une cote
+   changée se retrouve partout.
+   Les murs sont nommés A (y = 0, en haut du plan), B (x = L, à droite),
+   C (y = P, en bas) et D (x = 0, à gauche). Une élévation se lit depuis
+   l'intérieur de la pièce : « u » est la distance depuis l'angle de gauche
+   du mur vu de face, « z » la hauteur depuis le sol fini.
+   Aucune dimension de produit n'est inventée : un équipement lié à une
+   variante du catalogue en prend les dimensions ; sinon ses dimensions sont
+   « à confirmer ». Une belle image ne valide ni la plomberie, ni
+   l'étanchéité, ni l'électricité. */
+const SDB_MURS=['A','B','C','D'];
+const sdbLongueurMur=(s,m)=>m==='A'||m==='C'?+s.L||0:+s.P||0;
+/* un point (u, profondeur depuis le mur) d'un mur, en coordonnées du plan */
+const sdbPointMur=(s,m,u,d)=>{const L=+s.L||0,P=+s.P||0;d=d||0;
+  return m==='A'?{x:u,y:d}:m==='B'?{x:L-d,y:u}:m==='C'?{x:L-u,y:P-d}:{x:d,y:P-u}};
+/* les types d'équipements : dimensions de départ (à confirmer), posé au
+   sol ou fixé au mur, hauteur de pose de départ */
+const SDB_TYPES=[
+  {id:'receveur',l:'Receveur de douche',L:120,P:80,H:3,z:0,pose:'sol',lot:'Plomberie / sanitaire',variante:'receveur'},
+  {id:'baignoire',l:'Baignoire',L:170,P:75,H:55,z:0,pose:'sol',lot:'Plomberie / sanitaire'},
+  {id:'paroi',l:'Paroi de douche',L:80,P:2,H:200,z:0,pose:'sol'},
+  {id:'porte_douche',l:'Porte de douche',L:80,P:2,H:200,z:0,pose:'sol'},
+  {id:'colonne',l:'Colonne / robinetterie de douche',L:25,P:12,H:110,z:100,pose:'mur'},
+  {id:'vasque',l:'Meuble vasque',L:80,P:46,H:55,z:30,pose:'mur',lot:'Plomberie / sanitaire'},
+  {id:'miroir',l:'Miroir',L:80,P:3,H:70,z:110,pose:'mur'},
+  {id:'wc',l:'WC',L:36,P:54,H:40,z:0,pose:'mur'},
+  {id:'rangement',l:'Rangement',L:40,P:35,H:180,z:0,pose:'mur'},
+  {id:'seche_serviettes',l:'Sèche-serviettes',L:50,P:10,H:120,z:40,pose:'mur'},
+  {id:'niche',l:'Niche',L:30,P:10,H:30,z:120,pose:'dansMur'},
+  {id:'coffrage',l:'Coffrage / tablette',L:60,P:20,H:110,z:0,pose:'mur'},
+  {id:'arrivee_eau',l:'Arrivée d’eau',L:6,P:6,H:6,z:100,pose:'mur',reseau:true},
+  {id:'evacuation',l:'Évacuation',L:10,P:10,H:1,z:0,pose:'mur',reseau:true},
+  {id:'prise',l:'Prise',L:8,P:3,H:8,z:110,pose:'mur',reseau:true},
+  {id:'eclairage',l:'Éclairage',L:12,P:12,H:5,z:0,pose:'plafond',reseau:true},
+  {id:'vmc',l:'Bouche de ventilation',L:15,P:5,H:15,z:220,pose:'mur',reseau:true},
+];
+const sdbType=id=>SDB_TYPES.find(t=>t.id===id)||SDB_TYPES[0];
+/* les distances de contrôle : réglables, et leur origine dite. Ce sont des
+   repères d'usage de CP Constructions, pas des exigences normatives. */
+const SDB_DISTANCES_DEFAUT={devantWc:{v:60,origine:'Repère CP par défaut, réglable'},devantVasque:{v:60,origine:'Repère CP par défaut, réglable'},
+  entreeDouche:{v:60,origine:'Repère CP par défaut, réglable'},passage:{v:60,origine:'Repère CP par défaut, réglable'}};
+const sdbNeuve=nom=>({id:'sdb_'+uid(),nom:nom||'Salle de bains',groupe:'',L:250,P:200,H:250,ouvertures:[],equipements:[],
+  faience:{carreau:{produitId:'',libelle:'',L:30,H:60,ep:8,orientation:'portrait',joint:2,couleurJoint:'',departU:'centre',departZ:'sol'},
+    zones:[],chute:10,m2ParBoite:'',bandes:[]},distances:{},creeLe:today()});
+/* l'emprise d'un équipement au sol (plan) et ses hauteurs : une boîte */
+function sdbBoite(s,e){
+  const t=sdbType(e.type), Lg=+e.L||0, Pr=+e.P||0, H=+e.H||0, z=e.z===''||e.z==null?t.z:+e.z;
+  if(t.pose==='plafond'){return {x0:+e.x||0,y0:+e.y||0,x1:(+e.x||0)+Lg,y1:(+e.y||0)+Pr,z0:(+s.H||250)-H,z1:+s.H||250}}
+  if(t.pose==='sol'&&!e.mur){
+    const rot=(+e.rot||0)%180!==0, w=rot?Pr:Lg, d=rot?Lg:Pr;
+    return {x0:+e.x||0,y0:+e.y||0,x1:(+e.x||0)+w,y1:(+e.y||0)+d,z0:z,z1:z+H};
+  }
+  const m=e.mur||'A', u=+e.u||0, prof=t.pose==='dansMur'?0:Pr;
+  const a=sdbPointMur(s,m,u,0), b=sdbPointMur(s,m,u+Lg,prof);
+  return {x0:Math.min(a.x,b.x),y0:Math.min(a.y,b.y),x1:Math.max(a.x,b.x),y1:Math.max(a.y,b.y),z0:z,z1:z+H};
+}
+const sdbChevauche=(a,b)=>a.x0<b.x1-0.01&&b.x0<a.x1-0.01&&a.y0<b.y1-0.01&&b.y0<a.y1-0.01&&a.z0<b.z1-0.01&&b.z0<a.z1-0.01;
+/* des paires qui se touchent par nature : une paroi sur son receveur, une
+   évacuation dans son receveur, un miroir au-dessus de sa vasque… */
+const SDB_COMPATIBLES=[['receveur','paroi'],['receveur','porte_douche'],['receveur','evacuation'],['baignoire','evacuation'],
+  ['receveur','colonne'],['baignoire','colonne'],['vasque','miroir'],['vasque','arrivee_eau'],['vasque','evacuation'],['wc','arrivee_eau'],['wc','evacuation'],
+  ['receveur','arrivee_eau'],['baignoire','arrivee_eau'],['paroi','porte_douche'],['coffrage','arrivee_eau'],['coffrage','evacuation']];
+const sdbCompatibles=(a,b)=>SDB_COMPATIBLES.some(([x,y])=>(a===x&&b===y)||(a===y&&b===x));
+/* un rectangle devant un équipement mural : l'espace à laisser libre */
+function sdbDevant(s,e,prof){
+  const bx=sdbBoite(s,e), t=sdbType(e.type);
+  if(t.pose==='sol'&&!e.mur){
+    /* un receveur posé librement : le côté qui regarde le centre de la pièce */
+    const cx=(+s.L||0)/2, cy=(+s.P||0)/2, dx=cx-(bx.x0+bx.x1)/2, dy=cy-(bx.y0+bx.y1)/2;
+    if(Math.abs(dx)>Math.abs(dy))return dx>0?{x0:bx.x1,x1:bx.x1+prof,y0:bx.y0,y1:bx.y1}:{x0:bx.x0-prof,x1:bx.x0,y0:bx.y0,y1:bx.y1};
+    return dy>0?{x0:bx.x0,x1:bx.x1,y0:bx.y1,y1:bx.y1+prof}:{x0:bx.x0,x1:bx.x1,y0:bx.y0-prof,y1:bx.y0};
+  }
+  const m=e.mur||'A', u=+e.u||0, Lg=+e.L||0, d0=t.pose==='dansMur'?0:+e.P||0;
+  const a=sdbPointMur(s,m,u,d0), b=sdbPointMur(s,m,u+Lg,d0+prof);
+  return {x0:Math.min(a.x,b.x),y0:Math.min(a.y,b.y),x1:Math.max(a.x,b.x),y1:Math.max(a.y,b.y)};
+}
+/* les contrôles : collisions, débattement des portes, espaces devant les
+   équipements, sortie de la pièce, dimensions à confirmer. Des signaux à
+   vérifier, jamais une validation de faisabilité. */
+function sdbControles(s,data){
+  const A=[], E=s.equipements||[], L=+s.L||0, P=+s.P||0;
+  const dist=k=>{const d=(s.distances||{})[k];return d&&isFinite(+d.v)?+d.v:SDB_DISTANCES_DEFAUT[k].v};
+  const nom=e=>e.libelle||sdbType(e.type).l;
+  const B=E.map(e=>({e,b:sdbBoite(s,e)}));
+  B.forEach(({e,b})=>{
+    if(b.x0<-0.01||b.y0<-0.01||b.x1>L+0.01||b.y1>P+0.01)A.push({niveau:'erreur',id:e.id,msg:nom(e)+' dépasse de la pièce.'});
+    if(b.z1>(+s.H||250)+0.01)A.push({niveau:'erreur',id:e.id,msg:nom(e)+' dépasse la hauteur sous plafond.'});
+    if(e.dimsSource!=='variante'&&!sdbType(e.type).reseau&&!e.dimsConfirmees)A.push({niveau:'info',id:e.id,msg:nom(e)+' : dimensions à confirmer (aucune variante du catalogue liée).'});
+  });
+  for(let i=0;i<B.length;i++)for(let j=i+1;j<B.length;j++){
+    const a=B[i],b=B[j];
+    if(sdbChevauche(a.b,b.b)&&!sdbCompatibles(a.e.type,b.e.type))A.push({niveau:'erreur',id:a.e.id,msg:nom(a.e)+' et '+nom(b.e)+' se chevauchent.'});
+  }
+  /* devant la cuvette, la vasque et l'entrée de douche : rien au sol */
+  const auSol=B.filter(({e,b})=>b.z0<100&&!sdbType(e.type).reseau&&e.type!=='miroir'&&e.type!=='niche');
+  [['wc','devantWc','devant le WC'],['vasque','devantVasque','devant la vasque'],['receveur','entreeDouche','à l’entrée de la douche'],['baignoire','entreeDouche','le long de la baignoire']].forEach(([ty,k,lib])=>
+    B.filter(x=>x.e.type===ty).forEach(({e})=>{
+      const z=sdbDevant(s,e,dist(k));
+      if(z.x0<-0.01||z.y0<-0.01||z.x1>L+0.01||z.y1>P+0.01)A.push({niveau:'alerte',id:e.id,msg:'Moins de '+dist(k)+' cm libres '+lib+' (mur ou limite de la pièce).'});
+      auSol.filter(x=>x.e.id!==e.id&&!sdbCompatibles(e.type,x.e.type)).forEach(x=>{
+        if(z.x0<x.b.x1-0.01&&x.b.x0<z.x1-0.01&&z.y0<x.b.y1-0.01&&x.b.y0<z.y1-0.01)
+          A.push({niveau:'alerte',id:e.id,msg:nom(x.e)+' empiète sur les '+dist(k)+' cm à laisser libres '+lib+'.'});
+      });
+    }));
+  /* le débattement d'une porte ouvrant vers l'intérieur : un quart de
+     cercle de la largeur du vantail, à ne pas encombrer au sol */
+  (s.ouvertures||[]).filter(o=>o.type==='porte'&&o.ouvre!=='exterieur'&&o.ouvre!=='coulissante').forEach(o=>{
+    const r=+o.largeur||0, charn=o.charniere==='droite'?(+o.u||0)+r:(+o.u||0);
+    const c=sdbPointMur(s,o.mur,charn,0);
+    auSol.forEach(({e,b})=>{
+      let touche=false;
+      for(let a=0;a<=90&&!touche;a+=10)for(let k=1;k<=4&&!touche;k++){
+        const rr=r*k/4, rad=a*Math.PI/180;
+        const sens=o.charniere==='droite'?-1:1, uu=charn+sens*rr*Math.cos(rad), dd=rr*Math.sin(rad);
+        const p=sdbPointMur(s,o.mur,uu,dd);
+        if(p.x>b.x0+0.5&&p.x<b.x1-0.5&&p.y>b.y0+0.5&&p.y<b.y1-0.5)touche=true;
+      }
+      if(touche)A.push({niveau:'alerte',id:e.id,msg:nom(e)+' gêne l’ouverture de la porte (mur '+o.mur+').'});
+    });
+  });
+  /* une variante liée : ses dimensions sont celles du produit */
+  E.filter(e=>e.varianteId).forEach(e=>{
+    const v=produitVariante(data,e.produitId,e.varianteId);
+    if(!v)A.push({niveau:'alerte',id:e.id,msg:nom(e)+' : la variante liée n’existe plus dans le catalogue.'});
+    else if((+e.L!==+v.longueur||+e.P!==+v.largeur)&&(+e.L!==+v.largeur||+e.P!==+v.longueur))A.push({niveau:'erreur',id:e.id,msg:nom(e)+' : dimensions différentes de la variante liée ('+varianteDims(v)+').'});
+  });
+  return A;
+}
+
+/* ---------- faïence : surfaces, retours, quantités ----------
+   Les zones d'un même mur sont réunies (un chevauchement ne compte qu'une
+   fois) ; les ouvertures sont déduites ; les retours (niches, tableaux de
+   fenêtre) sont ajoutés explicitement, chacun nommé. */
+/* l'aire de l'union de rectangles, par découpage en bandes */
+function sdbAireUnion(R){
+  R=(R||[]).filter(r=>r.u1>r.u0&&r.z1>r.z0);
+  if(!R.length)return 0;
+  const xs=[...new Set(R.flatMap(r=>[r.u0,r.u1]))].sort((a,b)=>a-b);
+  let a=0;
+  for(let i=0;i<xs.length-1;i++){
+    const x0=xs[i],x1=xs[i+1];
+    const iv=R.filter(r=>r.u0<=x0&&r.u1>=x1).map(r=>[r.z0,r.z1]).sort((p,q)=>p[0]-q[0]);
+    let l=0,c=null;
+    iv.forEach(([z0,z1])=>{if(!c||z0>c[1]){if(c)l+=c[1]-c[0];c=[z0,z1]}else c[1]=Math.max(c[1],z1)});
+    if(c)l+=c[1]-c[0];
+    a+=l*(x1-x0);
+  }
+  return a;
+}
+/* l'aire commune entre l'union des zones et un rectangle */
+const sdbAireDans=(R,r)=>sdbAireUnion((R||[]).map(z=>({u0:Math.max(z.u0,r.u0),u1:Math.min(z.u1,r.u1),z0:Math.max(z.z0,r.z0),z1:Math.min(z.z1,r.z1)})));
+/* les ouvertures d'un mur, en (u, z) */
+const sdbOuverturesMur=(s,m)=>(s.ouvertures||[]).filter(o=>o.mur===m).map(o=>({o,u0:+o.u||0,u1:(+o.u||0)+(+o.largeur||0),
+  z0:o.type==='porte'?0:+o.allege||0,z1:(o.type==='porte'?0:+o.allege||0)+(+o.hauteur||0)}));
+function sdbSurfacesMur(s,m){
+  const Z=((s.faience||{}).zones||[]).filter(z=>z.mur===m).map(z=>({u0:+z.u0||0,u1:+z.u1||0,z0:+z.z0||0,z1:+z.z1||0}));
+  const brute=sdbAireUnion(Z)/1e4;
+  const deductions=[],retours=[];
+  sdbOuverturesMur(s,m).forEach(r=>{
+    const a=sdbAireDans(Z,r)/1e4;
+    if(a>0){deductions.push({nom:(r.o.type==='porte'?'Porte':'Fenêtre')+' '+(r.o.largeur||'')+' × '+(r.o.hauteur||''),m2:a});
+      const p=+r.o.retours||0;
+      if(p>0){const h=r.z1-r.z0,l=r.u1-r.u0;retours.push({nom:'Retours du tableau ('+p+' cm)',m2:(2*h+l)*p/1e4})}}
+  });
+  (s.equipements||[]).filter(e=>e.type==='niche'&&(e.mur||'A')===m&&e.carrelee!==false).forEach(e=>{
+    const r={u0:+e.u||0,u1:(+e.u||0)+(+e.L||0),z0:+e.z||0,z1:(+e.z||0)+(+e.H||0)};
+    if(sdbAireDans(Z,r)>0){const p=+e.P||0;retours.push({nom:'Niche '+e.L+' × '+e.H+' : retours ('+p+' cm)',m2:2*((+e.L||0)+(+e.H||0))*p/1e4})}
+  });
+  const d=deductions.reduce((x,y)=>x+y.m2,0), r=retours.reduce((x,y)=>x+y.m2,0);
+  /* les profils de finition : les bords de zone qui ne butent ni contre un
+     angle, ni contre le sol, ni contre le plafond */
+  const len=sdbLongueurMur(s,m), H=+s.H||250;
+  let profils=0;
+  Z.forEach(z=>{
+    if(z.z1<H-0.5)profils+=(z.u1-z.u0);
+    if(z.u0>0.5)profils+=(z.z1-z.z0);
+    if(z.u1<len-0.5)profils+=(z.z1-z.z0);
+  });
+  const arrondi=v=>Math.round(v*100)/100;
+  return {mur:m,brute:arrondi(brute),deductions:deductions.map(x=>({...x,m2:arrondi(x.m2)})),retours:retours.map(x=>({...x,m2:arrondi(x.m2)})),
+    nette:arrondi(brute-d+r),profilsMl:arrondi(profils/100)};
+}
+/* les quantités : la pose est facturée sur la surface nette ; la
+   fourniture ajoute la chute et s'arrondit au conditionnement réel */
+function sdbQuantites(s){
+  const murs=SDB_MURS.map(m=>sdbSurfacesMur(s,m)).filter(x=>x.brute>0);
+  const f=s.faience||{};
+  const nette=Math.round(murs.reduce((a,x)=>a+x.nette,0)*100)/100;
+  const chute=+f.chute||0, commande=Math.round(nette*(1+chute/100)*100)/100;
+  const m2b=+String(f.m2ParBoite||'').replace(',','.');
+  const boites=m2b>0?Math.ceil(commande/m2b-1e-9):null;
+  return {murs,poseM2:nette,chutePct:chute,commandeM2:commande,m2ParBoite:m2b>0?m2b:null,boites,
+    fournitureM2:boites!==null?Math.round(boites*m2b*100)/100:null,
+    reserveM2:boites!==null?Math.round((boites*m2b-nette)*100)/100:null,
+    profilsMl:Math.round(murs.reduce((a,x)=>a+x.profilsMl,0)*100)/100};
+}
+/* le calepinage d'une zone : où tombent les joints, combien de carreaux
+   entiers et coupés, et les coupes trop étroites (moins d'un tiers) */
+function sdbCalepinage(s,zone){
+  const c=(s.faience||{}).carreau||{};
+  const portrait=c.orientation!=='paysage';
+  const w=(portrait?Math.min(+c.L,+c.H):Math.max(+c.L,+c.H))||30, h=(portrait?Math.max(+c.L,+c.H):Math.min(+c.L,+c.H))||60;
+  const j=(+c.joint||0)/10, pu=w+j, pz=h+j;
+  const u0=+zone.u0,u1=+zone.u1,z0=+zone.z0,z1=+zone.z1;
+  /* départ : le premier joint, au centre, à gauche ou à droite de la zone */
+  const off=c.departU==='gauche'?u0:c.departU==='droite'?u1-Math.ceil((u1-u0)/pu)*pu:(u0+u1)/2-pu/2;
+  const offZ=c.departZ==='haut'?z1-Math.ceil((z1-z0)/pz)*pz:z0;
+  const colonnes=[],rangs=[];
+  for(let x=off-Math.ceil((off-u0)/pu)*pu;x<u1;x+=pu)colonnes.push([Math.max(x,u0),Math.min(x+w,u1)]);
+  for(let z=offZ-Math.ceil((offZ-z0)/pz)*pz;z<z1;z+=pz)rangs.push([Math.max(z,z0),Math.min(z+h,z1)]);
+  const C=colonnes.filter(([a,b])=>b-a>0.05), Rg=rangs.filter(([a,b])=>b-a>0.05);
+  const entiere=(a,b,t)=>Math.abs((b-a)-t)<0.05;
+  const nc=C.filter(([a,b])=>entiere(a,b,w)).length, nr=Rg.filter(([a,b])=>entiere(a,b,h)).length;
+  const petites=[...C.filter(([a,b])=>!entiere(a,b,w)&&(b-a)<w/3).map(([a,b])=>'coupe verticale de '+(Math.round((b-a)*10)/10)+' cm'),
+    ...Rg.filter(([a,b])=>!entiere(a,b,h)&&(b-a)<h/3).map(([a,b])=>'coupe horizontale de '+(Math.round((b-a)*10)/10)+' cm')];
+  return {w,h,joint:j,colonnes:C,rangs:Rg,entiers:nc*nr,total:C.length*Rg.length,coupes:C.length*Rg.length-nc*nr,petites};
+}
+/* ce que l'on compare entre variantes : les équipements chiffrés */
+function sdbBudget(s){
+  const E=s.equipements||[];
+  const connus=E.filter(e=>e.montantTTC!==''&&e.montantTTC!=null&&isFinite(+String(e.montantTTC).replace(',','.')));
+  return {totalTTC:Math.round(connus.reduce((a,e)=>a+(+String(e.montantTTC).replace(',','.')),0)*100)/100,
+    aChiffrer:E.filter(e=>!sdbType(e.type).reseau&&!connus.includes(e)).length};
+}
+/* l'empreinte du modèle : un document produit sur une autre empreinte est
+   à actualiser */
+const sdbEmpreinte=s=>ptrEmpreinte(JSON.stringify([s.L,s.P,s.H,s.ouvertures,(s.equipements||[]).map(e=>[e.id,e.type,e.L,e.P,e.H,e.z,e.x,e.y,e.u,e.mur,e.rot,e.produitId,e.varianteId]),s.faience]));
+const sdbDocumentsAActualiser=s=>(s.documents||[]).filter(d=>d.empreinte!==sdbEmpreinte(s));
+/* lier un équipement à une variante du catalogue : ses dimensions en viennent */
+function sdbLierVariante(e,data,produitId,varianteId){
+  const v=produitVariante(data,produitId,varianteId);
+  if(!v)return {...e,produitId,varianteId:'',dimsSource:e.dimsSource==='variante'?'saisie':e.dimsSource};
+  return {...e,produitId,varianteId,L:+v.longueur,P:+v.largeur,H:v.hauteur?Math.round(+v.hauteur/10*10)/10:e.H,dimsSource:'variante'};
+}
+
+/* ---------- les vues : des primitives communes à l'écran et au PDF ----------
+   Chaque vue rend une liste d'éléments en millimètres (rect, trait, poly,
+   texte), la même que pdfVectoriel sait écrire : l'écran (en SVG) et le
+   document montrent exactement le même dessin. */
+const SDB_C={mur:[0.3,0.3,0.32],sol:[0.95,0.94,0.92],murInt:[0.985,0.98,0.97],trait:[0.2,0.2,0.22],cote:[0.35,0.35,0.4],
+  fenetre:[0.78,0.88,0.95],porte:[0.86,0.8,0.72],joint:[0.55,0.55,0.58],texte:[0.15,0.15,0.18],alerte:[0.77,0.34,0.23],
+  equip:{receveur:[0.97,0.97,0.96],baignoire:[0.97,0.97,0.98],paroi:[0.8,0.9,0.95],porte_douche:[0.8,0.9,0.95],colonne:[0.7,0.72,0.75],
+    vasque:[0.78,0.66,0.52],miroir:[0.82,0.9,0.96],wc:[0.98,0.98,0.98],rangement:[0.8,0.7,0.58],seche_serviettes:[0.85,0.85,0.87],
+    niche:[0.6,0.6,0.62],coffrage:[0.9,0.89,0.87],arrivee_eau:[0.2,0.45,0.8],evacuation:[0.35,0.35,0.35],prise:[0.77,0.23,0.2],
+    eclairage:[0.95,0.8,0.3],vmc:[0.6,0.7,0.6]}};
+/* la teinte d'un carreau, à partir de son coloris écrit : un repère visuel,
+   à confirmer sur échantillon */
+const sdbTeinte=t=>{const s=deaccent(String(t||'')).toLowerCase();
+  return /noir|anthracite/.test(s)?[0.3,0.3,0.32]:/gris/.test(s)?[0.72,0.72,0.73]:/beige|sable|creme|ivoire/.test(s)?[0.9,0.85,0.76]:
+    /bleu/.test(s)?[0.7,0.8,0.9]:/vert|salvia/.test(s)?[0.74,0.82,0.74]:/bois|chene/.test(s)?[0.78,0.65,0.5]:/terre|brique|terracotta/.test(s)?[0.8,0.55,0.45]:[0.93,0.93,0.92]};
+const sdbFmt=v=>String(Math.round(+v*10)/10).replace('.',',');
+/* une cote : ligne, petits traits et valeur au milieu */
+const sdbCote=(E,x1,y1,x2,y2,val,decal)=>{
+  const hor=Math.abs(y2-y1)<Math.abs(x2-x1);
+  E.push({t:'trait',x1,y1,x2,y2,ep:0.35,cs:SDB_C.cote});
+  const tk=1.2;
+  if(hor){E.push({t:'trait',x1,y1:y1-tk,x2:x1,y2:y1+tk,ep:0.35,cs:SDB_C.cote},{t:'trait',x1:x2,y1:y2-tk,x2,y2:y2+tk,ep:0.35,cs:SDB_C.cote});
+    const s=sdbFmt(val);E.push({t:'texte',x:(x1+x2)/2-pdfLargeur(s,6,false)/2,y:y1-(decal||1.2),s,taille:6,c:SDB_C.cote})}
+  else{E.push({t:'trait',x1:x1-tk,y1,x2:x1+tk,y2:y1,ep:0.35,cs:SDB_C.cote},{t:'trait',x1:x2-tk,y1:y2,x2:x2+tk,y2,ep:0.35,cs:SDB_C.cote});
+    const s=sdbFmt(val);E.push({t:'texte',x:x1-pdfLargeur(s,6,false)-(decal||1.2),y:(y1+y2)/2+2,s,taille:6,c:SDB_C.cote})}
+};
+/* le plan coté, dans un cadre (x, y, w, h en mm) */
+function sdbPlan(s,box){
+  const E=[],L=+s.L||1,P=+s.P||1,ep=10,marge=14;
+  const k=Math.min((box.w-2*marge)/(L+2*ep),(box.h-2*marge)/(P+2*ep));
+  const X=v=>box.x+marge+(ep+v)*k,Y=v=>box.y+marge+(ep+v)*k;
+  E.push({t:'rect',x:X(-ep),y:Y(-ep),w:(L+2*ep)*k,h:(P+2*ep)*k,plein:true,trait:false,c:SDB_C.mur});
+  E.push({t:'rect',x:X(0),y:Y(0),w:L*k,h:P*k,plein:true,trait:false,c:SDB_C.sol});
+  /* les ouvertures : une brèche dans le mur, l'arc de la porte, le vitrage */
+  (s.ouvertures||[]).forEach(o=>{
+    const a=sdbPointMur(s,o.mur,+o.u||0,-ep),b=sdbPointMur(s,o.mur,(+o.u||0)+(+o.largeur||0),0);
+    E.push({t:'rect',x:X(Math.min(a.x,b.x)),y:Y(Math.min(a.y,b.y)),w:Math.abs(b.x-a.x)*k||0.1,h:Math.abs(b.y-a.y)*k||0.1,plein:true,trait:false,
+      c:o.type==='porte'?SDB_C.sol:SDB_C.fenetre});
+    if(o.type==='porte'&&o.ouvre!=='coulissante'){
+      const r=+o.largeur||0,ch=o.charniere==='droite'?(+o.u||0)+r:(+o.u||0),sens=o.charniere==='droite'?-1:1,dehors=o.ouvre==='exterieur'?-1:1;
+      const pts=[];for(let g=0;g<=90;g+=10){const rad=g*Math.PI/180;const p=sdbPointMur(s,o.mur,ch+sens*r*Math.cos(rad),dehors*r*Math.sin(rad));pts.push([X(p.x),Y(p.y)])}
+      const c0=sdbPointMur(s,o.mur,ch,0);
+      E.push({t:'poly',pts,ferme:false,ep:0.3,cs:SDB_C.cote});
+      E.push({t:'trait',x1:X(c0.x),y1:Y(c0.y),x2:pts[pts.length-1][0],y2:pts[pts.length-1][1],ep:0.5,cs:SDB_C.trait});
+    }
+  });
+  /* les équipements, avec leur nom */
+  (s.equipements||[]).forEach(e=>{
+    const t=sdbType(e.type), b=sdbBoite(s,e);
+    if(t.pose==='plafond'){E.push({t:'poly',pts:[[X(b.x0),Y(b.y0)],[X(b.x1),Y(b.y1)]],ferme:false,ep:0.3,cs:SDB_C.equip.eclairage},
+      {t:'poly',pts:[[X(b.x1),Y(b.y0)],[X(b.x0),Y(b.y1)]],ferme:false,ep:0.3,cs:SDB_C.equip.eclairage});return}
+    E.push({t:'rect',x:X(b.x0),y:Y(b.y0),w:Math.max(0.3,(b.x1-b.x0)*k),h:Math.max(0.3,(b.y1-b.y0)*k),plein:true,c:SDB_C.equip[e.type]||[0.9,0.9,0.9],cs:SDB_C.trait,ep:0.35,
+      ...(e.type==='niche'?{}:{})});
+    if(!t.reseau&&(b.x1-b.x0)*k>12){const lib=e.libelle||t.l;
+      E.push({t:'texte',x:X(b.x0)+1,y:Y(b.y0)+Math.min(4,(b.y1-b.y0)*k-0.5),s:lib.length>22?lib.slice(0,21)+'…':lib,taille:5.5,c:SDB_C.texte})}
+  });
+  /* les murs, nommés, et les cotes d'ensemble */
+  const nomMur=(m,x,y)=>E.push({t:'texte',x,y,s:m,taille:8,gras:true,c:SDB_C.alerte});
+  nomMur('A',X(L/2)-1.5,Y(-ep)-2);nomMur('B',X(L+ep)+1.5,Y(P/2)+1.5);nomMur('C',X(L/2)-1.5,Y(P+ep)+5);nomMur('D',X(-ep)-5,Y(P/2)+1.5);
+  sdbCote(E,X(0),Y(-ep)-6,X(L),Y(-ep)-6,L);
+  sdbCote(E,X(-ep)-8,Y(0),X(-ep)-8,Y(P),P);
+  return {els:E,k};
+}
+/* l'élévation d'un mur, vue de l'intérieur, avec le calepinage */
+function sdbElevation(s,m,box){
+  const E=[],len=sdbLongueurMur(s,m)||1,H=+s.H||250,marge=12;
+  const k=Math.min((box.w-2*marge)/len,(box.h-2*marge)/H);
+  const U=u=>box.x+marge+u*k, Z=z=>box.y+marge+(H-z)*k;
+  E.push({t:'rect',x:U(0),y:Z(H),w:len*k,h:H*k,plein:true,c:SDB_C.murInt,cs:SDB_C.trait,ep:0.6});
+  const f=s.faience||{}, teinte=sdbTeinte((f.carreau||{}).couleur||(f.carreau||{}).libelle);
+  const zones=(f.zones||[]).filter(z=>z.mur===m);
+  zones.forEach(z=>{
+    E.push({t:'rect',x:U(+z.u0),y:Z(+z.z1),w:(+z.u1-+z.u0)*k,h:(+z.z1-+z.z0)*k,plein:true,trait:false,c:teinte});
+    const cp=sdbCalepinage(s,z);
+    cp.colonnes.forEach(([a])=>{if(a>+z.u0+0.05)E.push({t:'trait',x1:U(a),y1:Z(+z.z0),x2:U(a),y2:Z(+z.z1),ep:0.15,cs:SDB_C.joint})});
+    cp.rangs.forEach(([a])=>{if(a>+z.z0+0.05)E.push({t:'trait',x1:U(+z.u0),y1:Z(a),x2:U(+z.u1),y2:Z(a),ep:0.15,cs:SDB_C.joint})});
+    E.push({t:'rect',x:U(+z.u0),y:Z(+z.z1),w:(+z.u1-+z.u0)*k,h:(+z.z1-+z.z0)*k,ep:0.4,cs:SDB_C.cote});
+  });
+  (f.bandes||[]).filter(b=>b.mur===m).forEach(b=>E.push({t:'rect',x:U(+b.u0||0),y:Z((+b.z||0)+(+b.hauteur||0)),w:((+b.u1||len)-(+b.u0||0))*k,h:(+b.hauteur||0)*k,plein:true,trait:false,c:sdbTeinte(b.couleur)}));
+  /* les ouvertures percent la faïence */
+  sdbOuverturesMur(s,m).forEach(r=>{
+    E.push({t:'rect',x:U(r.u0),y:Z(r.z1),w:(r.u1-r.u0)*k,h:(r.z1-r.z0)*k,plein:true,c:r.o.type==='porte'?SDB_C.porte:SDB_C.fenetre,cs:SDB_C.trait,ep:0.5});
+    E.push({t:'texte',x:U(r.u0)+1,y:Z(r.z1)+4,s:(r.o.type==='porte'?'Porte ':'Fenêtre ')+r.o.largeur+' × '+r.o.hauteur,taille:5.5,c:SDB_C.texte});
+  });
+  /* les équipements contre ce mur, projetés sur l'élévation */
+  const proj=b=>m==='A'?(b.y0<=1?[b.x0,b.x1]:null):m==='B'?(b.x1>=(+s.L||0)-1?[b.y0,b.y1]:null)
+    :m==='C'?(b.y1>=(+s.P||0)-1?[(+s.L||0)-b.x1,(+s.L||0)-b.x0]:null):(b.x0<=1?[(+s.P||0)-b.y1,(+s.P||0)-b.y0]:null);
+  (s.equipements||[]).forEach(e=>{
+    const t=sdbType(e.type);if(t.pose==='plafond')return;
+    const b=sdbBoite(s,e), u=(t.pose==='mur'||t.pose==='dansMur')&&(e.mur||'A')===m?[+e.u||0,(+e.u||0)+(+e.L||0)]:proj(b);
+    if(!u)return;
+    E.push({t:'rect',x:U(u[0]),y:Z(b.z1),w:Math.max(0.3,(u[1]-u[0])*k),h:Math.max(0.3,(b.z1-b.z0)*k),plein:e.type!=='paroi'&&e.type!=='porte_douche',
+      c:SDB_C.equip[e.type]||[0.9,0.9,0.9],cs:SDB_C.trait,ep:0.35});
+    if(e.type==='niche')E.push({t:'rect',x:U(u[0])+0.8,y:Z(b.z1)+0.8,w:Math.max(0.2,(u[1]-u[0])*k-1.6),h:Math.max(0.2,(b.z1-b.z0)*k-1.6),ep:0.25,cs:SDB_C.cote});
+    if(!t.reseau&&(u[1]-u[0])*k>10){const lib=e.libelle||t.l;E.push({t:'texte',x:U(u[0])+0.8,y:Z(b.z1)+3.5,s:lib.length>18?lib.slice(0,17)+'…':lib,taille:5,c:SDB_C.texte})}
+  });
+  /* les cotes : longueur du mur, hauteur, hauts de zone */
+  sdbCote(E,U(0),Z(0)+6,U(len),Z(0)+6,len,-3.2);
+  sdbCote(E,U(0)-5,Z(H),U(0)-5,Z(0),H);
+  [...new Set(zones.map(z=>+z.z1))].forEach(z=>E.push({t:'texte',x:U(len)+1.5,y:Z(z)+1.5,s:'z '+sdbFmt(z),taille:5.5,c:SDB_C.cote}));
+  E.push({t:'texte',x:U(0),y:box.y+5,s:'Mur '+m+' — vu de l’intérieur',taille:7,gras:true,c:SDB_C.texte});
+  return {els:E,k};
+}
+/* la vue 3D : une projection axonométrique, calculée ici — mêmes cotes que
+   le plan et les élévations. Les objets sont des volumes simplifiés aux
+   dimensions saisies : pas le modèle du fabricant. */
+function sdb3d(s,box,cam){
+  const L=+s.L||1,P=+s.P||1,H=+s.H||250;
+  const az=((cam&&cam.az)!=null?cam.az:35)*Math.PI/180, el=((cam&&cam.el)!=null?cam.el:28)*Math.PI/180;
+  const ca=Math.cos(az),sa=Math.sin(az),ce=Math.cos(el),se=Math.sin(el);
+  /* la pièce centrée sur l'origine, tournée autour de l'axe vertical */
+  const pr=(x,y,z)=>{const xc=x-L/2,yc=y-P/2;const xr=xc*ca-yc*sa,yr=xc*sa+yc*ca;return {X:xr,Y:yr*se-z*ce,D:yr*ce+z*se}};
+  const faces=[];
+  const face=(pts,c,cs,prof)=>{const q=pts.map(p=>pr(p[0],p[1],p[2]));faces.push({q,c,cs,D:prof!=null?prof:q.reduce((a,p)=>a+p.D,0)/q.length})};
+  face([[0,0,0],[L,0,0],[L,P,0],[0,P,0]],SDB_C.sol,SDB_C.cote,-1e9);
+  /* les murs dont on voit la face intérieure */
+  const vers=(nx,ny)=>{const yr=nx*sa+ny*ca;return yr*ce>1e-6};
+  const murs={A:{n:[0,1],p:[[0,0],[L,0]]},B:{n:[-1,0],p:[[L,0],[L,P]]},C:{n:[0,-1],p:[[L,P],[0,P]]},D:{n:[1,0],p:[[0,P],[0,0]]}};
+  const teinte=sdbTeinte(((s.faience||{}).carreau||{}).couleur||((s.faience||{}).carreau||{}).libelle);
+  Object.entries(murs).forEach(([m,w])=>{
+    if(!vers(w.n[0],w.n[1]))return;
+    const [a,b]=w.p;
+    face([[a[0],a[1],0],[b[0],b[1],0],[b[0],b[1],H],[a[0],a[1],H]],SDB_C.murInt,SDB_C.cote,-1e8);
+    const pt=(u,z)=>{const q=sdbPointMur(s,m,u,0.2);return [q.x,q.y,z]};
+    ((s.faience||{}).zones||[]).filter(z=>z.mur===m).forEach(z=>{
+      face([pt(+z.u0,+z.z0),pt(+z.u1,+z.z0),pt(+z.u1,+z.z1),pt(+z.u0,+z.z1)],teinte,SDB_C.joint,-1e7);
+      const cp=sdbCalepinage(s,z);
+      cp.colonnes.forEach(([c0])=>{if(c0>+z.u0+0.05)faces.push({ligne:[pr(...pt(c0,+z.z0)),pr(...pt(c0,+z.z1))],D:-1e7+1})});
+      cp.rangs.forEach(([r0])=>{if(r0>+z.z0+0.05)faces.push({ligne:[pr(...pt(+z.u0,r0)),pr(...pt(+z.u1,r0))],D:-1e7+1})});
+    });
+    sdbOuverturesMur(s,m).forEach(r=>face([pt(r.u0,r.z0),pt(r.u1,r.z0),pt(r.u1,r.z1),pt(r.u0,r.z1)].map(p=>{const q=sdbPointMur(s,m,0,0.4);return p}),
+      r.o.type==='porte'?SDB_C.porte:SDB_C.fenetre,SDB_C.trait,-1e7+2));
+  });
+  /* les équipements : des boîtes, faces visibles seulement, de la plus
+     lointaine à la plus proche */
+  (s.equipements||[]).forEach(e=>{
+    const b=sdbBoite(s,e), c=SDB_C.equip[e.type]||[0.9,0.9,0.9];
+    const {x0,y0,z0,x1,y1,z1}=b;
+    const F=[[[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1],[0,0,1]],[[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1],[0,1,0]],
+      [[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1],[0,-1,0]],[[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1],[1,0,0]],
+      [[x0,y0,z0],[x0,y1,z0],[x0,y1,z1],[x0,y0,z1],[-1,0,0]]];
+    const cen=pr((x0+x1)/2,(y0+y1)/2,(z0+z1)/2).D;
+    F.forEach(f=>{const [nx,ny,nz]=f[4];const yr=nx*sa+ny*ca;const vis=nz?true:yr*ce>1e-6;
+      if(!vis)return;
+      const ombre=nz?1:yr>0?0.93:0.86;
+      face(f.slice(0,4),c.map(v=>v*ombre),SDB_C.trait,cen+(nz?0.01:0))});
+  });
+  faces.sort((a,b)=>a.D-b.D);
+  /* mise à l'échelle dans le cadre */
+  const pts=faces.flatMap(f=>f.q||f.ligne);
+  const minX=Math.min(...pts.map(p=>p.X)),maxX=Math.max(...pts.map(p=>p.X)),minY=Math.min(...pts.map(p=>p.Y)),maxY=Math.max(...pts.map(p=>p.Y));
+  const k=Math.min((box.w-8)/(maxX-minX||1),(box.h-12)/(maxY-minY||1));
+  const T=p=>[box.x+4+(p.X-minX)*k,box.y+4+(p.Y-minY)*k];
+  const E=[];
+  faces.forEach(f=>{
+    if(f.ligne){const [a,b]=f.ligne.map(T);E.push({t:'trait',x1:a[0],y1:a[1],x2:b[0],y2:b[1],ep:0.12,cs:SDB_C.joint});return}
+    E.push({t:'poly',pts:f.q.map(T),ferme:true,plein:true,c:f.c,cs:f.cs,ep:0.25});
+  });
+  E.push({t:'texte',x:box.x+2,y:box.y+box.h-1.5,s:'Volumes simplifiés aux dimensions saisies — pas le modèle du fabricant ; teintes à confirmer sur échantillon.',taille:5,c:SDB_C.cote});
+  return {els:E,k};
+}
+/* le rendu des primitives en SVG, pour l'écran */
+const sdbRgb=c=>c?'rgb('+c.map(v=>Math.round(v*255)).join(',')+')':'none';
+function PrimitivesSvg({els,w,h,style}){
+  return <svg viewBox={'0 0 '+w+' '+h} style={{width:'100%',height:'auto',display:'block',background:'#fff',...(style||{})}}>
+    {els.map((e,i)=>{
+      const st=e.trait===false?'none':sdbRgb(e.cs||(e.plein?null:[0,0,0]))||'none';
+      if(e.t==='rect')return <rect key={i} x={e.x} y={e.y} width={Math.max(0,e.w)} height={Math.max(0,e.h)} rx={e.r||0}
+        fill={e.plein?sdbRgb(e.c):'none'} stroke={e.trait===false?'none':sdbRgb(e.cs||[0,0,0])} strokeWidth={(e.ep||0.3)*0.3528}/>;
+      if(e.t==='trait')return <line key={i} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={sdbRgb(e.cs||e.c||[0,0,0])} strokeWidth={(e.ep||0.3)*0.3528}/>;
+      if(e.t==='poly'){const d=e.pts.map((p,j)=>(j?'L':'M')+p[0].toFixed(2)+' '+p[1].toFixed(2)).join(' ')+(e.ferme?' Z':'');
+        return <path key={i} d={d} fill={e.plein?sdbRgb(e.c):'none'} stroke={sdbRgb(e.cs||[0,0,0])} strokeWidth={(e.ep||0.3)*0.3528}/>}
+      if(e.t==='texte')return <text key={i} x={e.x} y={e.y} fontSize={e.taille*0.3528} fontWeight={e.gras?700:400} fontStyle={e.italique?'italic':'normal'}
+        fill={sdbRgb(e.c||[0,0,0])} fontFamily="Helvetica, Arial, sans-serif">{e.s}</text>;
+      return null;
+    })}
+  </svg>;
+}
+
+/* le document de la salle de bains : plan coté, élévations et calepinage,
+   vue 3D, quantités et références — tirés du même modèle que l'écran */
+function sdbPagesPdf(ch,s,data,logo){
+  const pages=[], C=FICHE_COUL;
+  const entete=(E,titre)=>{
+    if(logo){const h=10,w=h*logo.w/logo.h;E.push({t:'image',x:12,y:8,w,h,im:logo})}
+    E.push({t:'texte',x:logo?40:12,y:14,s:titre,taille:11,gras:true,c:C.terra});
+    E.push({t:'texte',x:logo?40:12,y:19,s:(ch.nom||'')+' — '+s.nom+' — '+fd(today())+' — réf. '+sdbEmpreinte(s),taille:7.5,c:C.brun});
+    E.push({t:'trait',x1:12,y1:22,x2:198,y2:22,ep:0.7,cs:C.terra});
+  };
+  const pied=(E,k,n)=>E.push({t:'texte',x:12,y:289,s:'CP CONSTRUCTIONS — dimensions et implantations issues du modèle ; une image ne valide ni la plomberie, ni l’étanchéité, ni l’électricité. Page '+k+' / '+n,taille:6,c:C.gris});
+  /* 1 : le plan coté et les équipements */
+  const p1=[];entete(p1,'SALLE DE BAINS — PLAN COTÉ');
+  p1.push(...sdbPlan(s,{x:12,y:26,w:186,h:150}).els);
+  let y=184;
+  p1.push({t:'texte',x:12,y,s:'ÉQUIPEMENTS',taille:8,gras:true,c:C.brun});y+=5;
+  (s.equipements||[]).filter(e=>!sdbType(e.type).reseau).forEach(e=>{
+    const v=e.varianteId?produitVariante(data,e.produitId,e.varianteId):null;
+    const p=((data&&data.produits)||[]).find(x=>x.id===e.produitId);
+    const lig=(e.libelle||sdbType(e.type).l)+' — '+sdbFmt(e.L)+' × '+sdbFmt(e.P)+' × '+sdbFmt(e.H)+' cm'
+      +(p?' — '+[p.nom,p.marque].filter(Boolean).join(' '):'')+(v?' ('+varianteRefs(v)+')':'')+(e.dimsSource!=='variante'&&!e.dimsConfirmees?' — dimensions à confirmer':'');
+    pdfCouper(lig,7,false,186).forEach(l=>{if(y<280){p1.push({t:'texte',x:12,y,s:l,taille:7,c:C.encre});y+=3.6}});
+  });
+  pages.push(p1);
+  /* 2 : les élévations, deux par page */
+  const murs=SDB_MURS;
+  for(let i=0;i<murs.length;i+=2){
+    const E=[];entete(E,'SALLE DE BAINS — ÉLÉVATIONS ET CALEPINAGE');
+    E.push(...sdbElevation(s,murs[i],{x:12,y:26,w:186,h:125}).els);
+    if(murs[i+1])E.push(...sdbElevation(s,murs[i+1],{x:12,y:155,w:186,h:125}).els);
+    pages.push(E);
+  }
+  /* 3 : la 3D et les quantités */
+  const p3=[];entete(p3,'SALLE DE BAINS — VUE 3D ET QUANTITÉS');
+  p3.push(...sdb3d(s,{x:12,y:26,w:186,h:120},s.camera).els);
+  const q=sdbQuantites(s), f=s.faience||{}, c=f.carreau||{};
+  y=156;
+  const L=(t,g)=>{pdfCouper(t,7.5,!!g,186).forEach(l=>{p3.push({t:'texte',x:12,y,s:l,taille:7.5,gras:!!g,c:g?C.brun:C.encre});y+=3.9})};
+  L('FAÏENCE',true);
+  L('Carreau : '+(c.libelle||'à préciser')+' — '+sdbFmt(c.L)+' × '+sdbFmt(c.H)+' cm, ép. '+sdbFmt(c.ep)+' mm, pose '+(c.orientation==='paysage'?'horizontale':'verticale')+
+    ', joint '+sdbFmt(c.joint)+' mm'+(c.couleurJoint?' ('+c.couleurJoint+')':'')+', départ '+(c.departU||'centre')+' / '+(c.departZ==='haut'?'en haut':'au sol'));
+  q.murs.forEach(m=>{
+    L('Mur '+m.mur+' : zone '+sdbFmt(m.brute)+' m²'+m.deductions.map(d=>' − '+d.nom+' '+sdbFmt(d.m2)+' m²').join('')+m.retours.map(r=>' + '+r.nom+' '+sdbFmt(r.m2)+' m²').join('')+' = '+sdbFmt(m.nette)+' m² net ; profils '+sdbFmt(m.profilsMl)+' ml');
+  });
+  L('Surface de pose (facturée) : '+sdbFmt(q.poseM2)+' m² — chute '+sdbFmt(q.chutePct)+' % — à commander : '+sdbFmt(q.commandeM2)+' m²'
+    +(q.boites!==null?' soit '+q.boites+' boîte'+(q.boites>1?'s':'')+' de '+sdbFmt(q.m2ParBoite)+' m² = '+sdbFmt(q.fournitureM2)+' m² fournis (réserve '+sdbFmt(q.reserveM2)+' m², non facturée en pose)':' — conditionnement à renseigner'));
+  L('Profils de finition : '+sdbFmt(q.profilsMl)+' ml. Teintes à confirmer sur échantillon.');
+  const ctr=sdbControles(s,data).filter(a=>a.niveau!=='info');
+  if(ctr.length){y+=2;L('POINTS À VÉRIFIER',true);ctr.forEach(a=>L('• '+a.msg))}
+  pages.push(p3);
+  pages.forEach((E,k)=>pied(E,k+1,pages.length));
+  return pages;
+}
+
+/* l'outil, ouvert depuis la MAP */
+function SalleDeBains({data,ch,up,onFermer}){
+  const S=ch.salles||[];
+  const [id,setId]=useState(S.length?S[0].id:'');
+  const [vue,setVue]=useState('plan');
+  const [onglet,setOnglet]=useState('piece');
+  const [etat,setEtat]=useState(null);
+  const s=S.find(x=>x.id===id)||null;
+  const upS=L=>up({salles:L});
+  const setS=p=>upS(S.map(x=>x.id===s.id?{...x,...p,maj:today()}:x));
+  const creer=()=>{const n=sdbNeuve(S.length?'Salle de bains '+(S.length+1):'Salle de bains');upS([...S,n]);setId(n.id)};
+  const variante=()=>{const g=s.groupe||s.id, n=S.filter(x=>(x.groupe||x.id)===g).length;
+    const c=JSON.parse(JSON.stringify(s));const v={...c,id:'sdb_'+uid(),groupe:g,nom:(s.nom.replace(/ — variante [A-Z]$/,''))+' — variante '+String.fromCharCode(65+n),documents:[]};
+    upS([...S.map(x=>x.id===s.id&&!x.groupe?{...x,groupe:g}:x),v]);setId(v.id)};
+  const cam=(s&&s.camera)||{az:35,el:28};
+  if(!s)return <div>
+    <div className="sp" style={{marginBottom:10}}><span className="h2" style={{fontSize:13}}>SALLE DE BAINS — {ch.nom}</span><button className="btn gh s" onClick={onFermer}>Fermer</button></div>
+    <Empty>Aucune salle de bains décrite. « + Salle de bains » ouvre la première : dimensions, ouvertures, équipements, faïence.</Empty>
+    <div style={{textAlign:'center'}}><button className="btn acc s" onClick={creer}>+ Salle de bains</button></div>
+  </div>;
+  const E=s.equipements||[], O=s.ouvertures||[], f=s.faience||{}, c=f.carreau||{};
+  const setE=L=>setS({equipements:L}), setO=L=>setS({ouvertures:L}), setF=p=>setS({faience:{...f,...p}}), setC=p=>setF({carreau:{...c,...p}});
+  const N=(v,cb,ph)=><input className="in" value={v??''} placeholder={ph} onChange={e=>cb(e.target.value===''?'':(isFinite(+e.target.value.replace(',','.'))?+e.target.value.replace(',','.'):e.target.value))}/>;
+  const ctr=sdbControles(s,data);
+  const q=sdbQuantites(s);
+  const aActualiser=sdbDocumentsAActualiser(s);
+  const groupe=S.filter(x=>(x.groupe||x.id)===(s.groupe||s.id));
+  const produitsLot=lot=>((data&&data.produits)||[]).filter(p=>deaccent(p.lot||'').toLowerCase()===deaccent(lot||'').toLowerCase());
+  const exporter=async()=>{
+    setEtat({etat:'travail'});
+    try{
+      const pages=sdbPagesPdf(ch,s,data,await ficheLogo());
+      const octets=pdfVectoriel(pages,'Salle de bains — '+s.nom+' — '+(ch.nom||''));
+      const nom='Salle de bains — '+s.nom+' — '+(ch.nom||'chantier')+' — '+today()+'.pdf';
+      telechargerOctets(octets,nom,PTR_MIME.pdf);
+      let lien='';
+      try{const token=await getDriveToken();const dos=await driveSousDossier(token,ch.id,ch.nom,'MAP');
+        lien=(await uploadToDrive(new File([octets],nom,{type:PTR_MIME.pdf}),dos)).webViewLink||''}catch(e){}
+      setS({documents:[...(s.documents||[]),{le:today(),nom,lien,empreinte:sdbEmpreinte(s)}]});
+      setEtat({etat:'ok',nom,lien});
+    }catch(e){setEtat({etat:'erreur',msg:String((e&&e.message)||e)})}
+  };
+  const vues=[['plan','Plan coté'],...SDB_MURS.map(m=>['mur'+m,'Élévation '+m]),['3d','3D'],...(groupe.length>1?[['comparer','Comparer']]:[])];
+  const VW=180,VH=vue==='plan'?140:vue==='3d'?120:130;
+  return <div>
+    <div className="sp" style={{marginBottom:10,flexWrap:'wrap',gap:6}}>
+      <span className="h2" style={{fontSize:13}}>SALLE DE BAINS — {ch.nom}</span>
+      <button className="btn gh s" onClick={onFermer}>Fermer</button>
+    </div>
+    <div className="row" style={{gap:6,flexWrap:'wrap',marginBottom:10,alignItems:'center'}}>
+      <select className="in" style={{maxWidth:280}} value={s.id} onChange={e=>setId(e.target.value)}>{S.map(x=><option key={x.id} value={x.id}>{x.nom}</option>)}</select>
+      <button className="btn gh s" onClick={creer}>+ Salle de bains</button>
+      <button className="btn gh s" onClick={variante}>Dupliquer en variante</button>
+      <button className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>{if(confirm('Supprimer « '+s.nom+' » ?')){const L=S.filter(x=>x.id!==s.id);upS(L);setId(L.length?L[0].id:'')}}}>Supprimer</button>
+    </div>
+    {aActualiser.length>0&&<div className="xs" style={{background:'#FBF1DC',color:'#7A5A0C',borderLeft:'3px solid '+AMBER,padding:8,marginBottom:10}}>
+      Le modèle a changé depuis {aActualiser.length>1?'les documents':'le document'} du {aActualiser.map(d=>fd(d.le)).join(', ')} : à actualiser (« Exporter »).</div>}
+
+    <div className="card" style={{padding:8}}>
+      <div className="row" style={{gap:6,flexWrap:'wrap',marginBottom:6}}>
+        {vues.map(([k,l])=><button key={k} className={'btn s '+(vue===k?'':'gh')} onClick={()=>setVue(k)}>{l}</button>)}
+      </div>
+      {vue==='plan'&&<PrimitivesSvg els={sdbPlan(s,{x:0,y:0,w:VW,h:VH}).els} w={VW} h={VH}/>}
+      {vue.indexOf('mur')===0&&<PrimitivesSvg els={sdbElevation(s,vue.slice(3),{x:0,y:0,w:VW,h:VH}).els} w={VW} h={VH}/>}
+      {vue==='3d'&&<div>
+        <PrimitivesSvg els={sdb3d(s,{x:0,y:0,w:VW,h:VH},cam).els} w={VW} h={VH}/>
+        <div className="row xs" style={{gap:8,alignItems:'center',flexWrap:'wrap',marginTop:4}}>
+          Rotation <input type="range" min="0" max="345" step="15" value={cam.az} onChange={e=>setS({camera:{...cam,az:+e.target.value}})}/>
+          Hauteur de vue <input type="range" min="10" max="70" step="5" value={cam.el} onChange={e=>setS({camera:{...cam,el:+e.target.value}})}/>
+        </div></div>}
+      {vue==='comparer'&&<div>
+        <div className="xs mut" style={{marginBottom:4}}>Même caméra pour toutes les variantes ; budget des équipements chiffrés.</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:8}}>
+          {groupe.map(g=>{const b=sdbBudget(g),b0=sdbBudget(groupe[0]);return <div key={g.id} className="card" style={{padding:6,margin:0}}>
+            <div className="xs b" style={{color:NAVY}}>{g.nom}</div>
+            <PrimitivesSvg els={sdb3d(g,{x:0,y:0,w:120,h:90},cam).els} w={120} h={90}/>
+            <div className="xs" style={{lineHeight:1.5}}>{(g.equipements||[]).filter(e=>!sdbType(e.type).reseau).map(e=>{const v=e.varianteId?produitVariante(data,e.produitId,e.varianteId):null;
+              return <div key={e.id} className="mut">{e.libelle||sdbType(e.type).l}{v?' — '+varianteLibelle(v):''}</div>})}
+              <b>{eurDoc(b.totalTTC)} TTC</b>{b.aChiffrer?' · '+b.aChiffrer+' à chiffrer':''}
+              {g.id!==groupe[0].id&&<span> · écart {b.totalTTC-b0.totalTTC>=0?'+':''}{eurDoc(b.totalTTC-b0.totalTTC)}{b.aChiffrer||b0.aChiffrer?' (partiel)':''}</span>}</div>
+          </div>})}
+        </div></div>}
+    </div>
+
+    <div className="row" style={{gap:6,flexWrap:'wrap',margin:'10px 0'}}>
+      {[['piece','Pièce et ouvertures'],['equip','Équipements'],['faience','Faïence'],['controles','Contrôles ('+ctr.filter(a=>a.niveau!=='info').length+')'],['quantites','Quantités'],['export','Exporter']].map(([k,l])=>
+        <button key={k} className={'btn s '+(onglet===k?'':'gh')} onClick={()=>setOnglet(k)}>{l}</button>)}
+    </div>
+
+    {onglet==='piece'&&<div className="card">
+      <Fld label="NOM"><input className="in" value={s.nom} onChange={e=>setS({nom:e.target.value})}/></Fld>
+      <div className="g2"><Fld label="LARGEUR — MURS A ET C (CM)">{N(s.L,v=>setS({L:v}))}</Fld><Fld label="PROFONDEUR — MURS B ET D (CM)">{N(s.P,v=>setS({P:v}))}</Fld></div>
+      <Fld label="HAUTEUR SOUS PLAFOND (CM)">{N(s.H,v=>setS({H:v}))}</Fld>
+      <div className="xs b" style={{color:NAVY,margin:'6px 0'}}>OUVERTURES</div>
+      {O.map(o=><div key={o.id} className="card" style={{padding:8,marginBottom:6}}>
+        <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+          <select className="in" style={{width:110}} value={o.type} onChange={e=>setO(O.map(x=>x.id===o.id?{...x,type:e.target.value}:x))}><option value="porte">Porte</option><option value="fenetre">Fenêtre</option></select>
+          <select className="in" style={{width:90}} value={o.mur} onChange={e=>setO(O.map(x=>x.id===o.id?{...x,mur:e.target.value}:x))}>{SDB_MURS.map(m=><option key={m} value={m}>Mur {m}</option>)}</select>
+          <button className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>setO(O.filter(x=>x.id!==o.id))}>✕</button>
+        </div>
+        <div className="g2" style={{marginTop:6}}>
+          <Fld label="DEPUIS L’ANGLE GAUCHE (CM)">{N(o.u,v=>setO(O.map(x=>x.id===o.id?{...x,u:v}:x)))}</Fld>
+          <Fld label="LARGEUR (CM)">{N(o.largeur,v=>setO(O.map(x=>x.id===o.id?{...x,largeur:v}:x)))}</Fld>
+        </div>
+        <div className="g2">
+          <Fld label="HAUTEUR (CM)">{N(o.hauteur,v=>setO(O.map(x=>x.id===o.id?{...x,hauteur:v}:x)))}</Fld>
+          {o.type==='fenetre'?<Fld label="ALLÈGE (CM)">{N(o.allege,v=>setO(O.map(x=>x.id===o.id?{...x,allege:v}:x)))}</Fld>
+            :<Fld label="OUVERTURE"><select className="in" value={(o.ouvre||'interieur')+'|'+(o.charniere||'gauche')} onChange={e=>{const [ov,chg]=e.target.value.split('|');setO(O.map(x=>x.id===o.id?{...x,ouvre:ov,charniere:chg}:x))}}>
+              <option value="interieur|gauche">Vers l’intérieur, charnière à gauche</option><option value="interieur|droite">Vers l’intérieur, charnière à droite</option>
+              <option value="exterieur|gauche">Vers l’extérieur</option><option value="coulissante|gauche">Coulissante</option></select></Fld>}
+        </div>
+        <Fld label="RETOURS CARRELÉS (PROFONDEUR DU TABLEAU, CM)">{N(o.retours,v=>setO(O.map(x=>x.id===o.id?{...x,retours:v}:x)),'0 si non carrelés')}</Fld>
+      </div>)}
+      <div className="row" style={{gap:6}}>
+        <button className="btn gh s" onClick={()=>setO([...O,{id:'ov_'+uid(),type:'porte',mur:'C',u:20,largeur:73,hauteur:204,ouvre:'interieur',charniere:'gauche',retours:0}])}>+ Porte</button>
+        <button className="btn gh s" onClick={()=>setO([...O,{id:'ov_'+uid(),type:'fenetre',mur:'A',u:60,largeur:60,hauteur:75,allege:130,retours:0}])}>+ Fenêtre</button>
+      </div>
+      <div className="xs mut" style={{marginTop:6}}>Positions, largeurs et hauteurs sont à relever sur les plans : rien n’est ajouté pour embellir.</div>
+    </div>}
+
+    {onglet==='equip'&&<div className="card">
+      {E.map(e=>{const t=sdbType(e.type);const setX=p=>setE(E.map(x=>x.id===e.id?{...x,...p}:x));
+        const P=t.lot?produitsLot(t.lot):[];const prod=P.find(p=>p.id===e.produitId);
+        return <div key={e.id} className="card" data-equip={e.id} style={{padding:8,marginBottom:6,borderLeft:'3px solid '+(ctr.some(a=>a.id===e.id&&a.niveau==='erreur')?TERRA:ctr.some(a=>a.id===e.id&&a.niveau==='alerte')?AMBER:RULE)}}>
+          <div className="sp"><b className="sm" style={{color:NAVY}}>{e.libelle||t.l}</b>
+            <button className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>setE(E.filter(x=>x.id!==e.id))}>✕</button></div>
+          {t.lot&&<div className="g2" style={{marginTop:6}}>
+            <Fld label="PRODUIT DU CATALOGUE"><select className="in" value={e.produitId||''} onChange={ev=>setX({produitId:ev.target.value,varianteId:'',dimsSource:e.dimsSource==='variante'?'saisie':e.dimsSource})}>
+              <option value="">—</option>{P.map(p=><option key={p.id} value={p.id}>{[p.nom,p.marque].filter(Boolean).join(' — ')}</option>)}</select></Fld>
+            {prod&&(prod.variantes||[]).length>0&&<Fld label="VARIANTE (SES DIMENSIONS S’APPLIQUENT)"><select className="in" value={e.varianteId||''}
+              onChange={ev=>setE(E.map(x=>x.id===e.id?sdbLierVariante(x,data,e.produitId,ev.target.value):x))}>
+              <option value="">—</option>{prod.variantes.map(v=><option key={v.id} value={v.id}>{varianteLibelle(v)}</option>)}</select></Fld>}
+          </div>}
+          <div className="g2">
+            <Fld label={'LARGEUR × PROFONDEUR × HAUTEUR (CM)'+(e.dimsSource==='variante'?' — DE LA VARIANTE':'')}>
+              <div className="row" style={{gap:4}}>{N(e.L,v=>setX({L:v,dimsSource:'saisie'}))}{N(e.P,v=>setX({P:v,dimsSource:'saisie'}))}{N(e.H,v=>setX({H:v,dimsSource:'saisie'}))}</div></Fld>
+            <Fld label="HAUTEUR DE POSE (CM)">{N(e.z,v=>setX({z:v}))}</Fld>
+          </div>
+          {t.pose==='sol'?<div className="g2">
+            <Fld label="POSITION X / Y DEPUIS L’ANGLE A-D (CM)"><div className="row" style={{gap:4}}>{N(e.x,v=>setX({x:v}))}{N(e.y,v=>setX({y:v}))}</div></Fld>
+            <Fld label="ROTATION"><select className="in" value={e.rot||0} onChange={ev=>setX({rot:+ev.target.value})}><option value={0}>0°</option><option value={90}>90°</option></select></Fld>
+          </div>:t.pose==='plafond'?<Fld label="POSITION X / Y (CM)"><div className="row" style={{gap:4}}>{N(e.x,v=>setX({x:v}))}{N(e.y,v=>setX({y:v}))}</div></Fld>
+          :<div className="g2">
+            <Fld label="MUR"><select className="in" value={e.mur||'A'} onChange={ev=>setX({mur:ev.target.value})}>{SDB_MURS.map(m=><option key={m} value={m}>Mur {m}</option>)}</select></Fld>
+            <Fld label="DEPUIS L’ANGLE GAUCHE DU MUR (CM)">{N(e.u,v=>setX({u:v}))}</Fld>
+          </div>}
+          <div className="g2">
+            <Fld label="LIBELLÉ">{<input className="in" value={e.libelle||''} placeholder={t.l} onChange={ev=>setX({libelle:ev.target.value})}/>}</Fld>
+            <Fld label="PRIX TTC VALIDÉ (€)">{N(e.montantTTC,v=>setX({montantTTC:v}),'vide = à chiffrer')}</Fld>
+          </div>
+          {e.dimsSource!=='variante'&&!t.reseau&&<label className="xs row" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!e.dimsConfirmees} onChange={ev=>setX({dimsConfirmees:ev.target.checked})}/>Dimensions confirmées (fiche ou relevé)</label>}
+        </div>})}
+      <div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center'}}>
+        <select className="in" style={{maxWidth:260}} id="sdb-ajout" defaultValue="receveur">{SDB_TYPES.map(t=><option key={t.id} value={t.id}>{t.l}</option>)}</select>
+        <button className="btn acc s" onClick={()=>{const ty=document.getElementById('sdb-ajout').value,t=sdbType(ty);
+          setE([...E,{id:'eq_'+uid(),type:ty,L:t.L,P:t.P,H:t.H,z:t.z,x:10,y:10,u:10,mur:'A',rot:0,dimsSource:'defaut',libelle:''}])}}>+ Équipement</button>
+      </div>
+      <div className="xs mut" style={{marginTop:6}}>Dimensions de départ indicatives, marquées « à confirmer » tant qu’aucune variante n’est liée ou qu’elles ne sont pas confirmées.</div>
+    </div>}
+
+    {onglet==='faience'&&<div className="card">
+      <div className="g2">
+        <Fld label="CARREAU (PRODUIT DU CATALOGUE)"><select className="in" value={c.produitId||''} onChange={e=>{const p=((data&&data.produits)||[]).find(x=>x.id===e.target.value);
+          setC({produitId:e.target.value,libelle:p?[p.nom,p.marque,p.reference].filter(Boolean).join(' — '):c.libelle})}}>
+          <option value="">— saisie libre —</option>{produitsLot('Carrelage').map(p=><option key={p.id} value={p.id}>{[p.nom,p.marque].filter(Boolean).join(' — ')}</option>)}</select></Fld>
+        <Fld label="DÉSIGNATION / RÉFÉRENCE"><input className="in" value={c.libelle||''} onChange={e=>setC({libelle:e.target.value})}/></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="FORMAT (CM) ET ÉPAISSEUR (MM)"><div className="row" style={{gap:4}}>{N(c.L,v=>setC({L:v}))}{N(c.H,v=>setC({H:v}))}{N(c.ep,v=>setC({ep:v}))}</div></Fld>
+        <Fld label="POSE"><select className="in" value={c.orientation||'portrait'} onChange={e=>setC({orientation:e.target.value})}><option value="portrait">Verticale</option><option value="paysage">Horizontale</option></select></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="JOINT (MM) ET COULEUR"><div className="row" style={{gap:4}}>{N(c.joint,v=>setC({joint:v}))}<input className="in" value={c.couleurJoint||''} placeholder="Gris clair…" onChange={e=>setC({couleurJoint:e.target.value})}/></div></Fld>
+        <Fld label="TEINTE (REPÈRE VISUEL)"><input className="in" value={c.couleur||''} placeholder="Blanc, beige, gris…" onChange={e=>setC({couleur:e.target.value})}/></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="DÉPART HORIZONTAL"><select className="in" value={c.departU||'centre'} onChange={e=>setC({departU:e.target.value})}><option value="centre">Centré</option><option value="gauche">Depuis la gauche</option><option value="droite">Depuis la droite</option></select></Fld>
+        <Fld label="DÉPART VERTICAL"><select className="in" value={c.departZ||'sol'} onChange={e=>setC({departZ:e.target.value})}><option value="sol">Depuis le sol</option><option value="haut">Depuis le haut (coupe en bas)</option></select></Fld>
+      </div>
+      <div className="g2">
+        <Fld label="TAUX DE CHUTE (%)">{N(f.chute,v=>setF({chute:v}))}</Fld>
+        <Fld label="CONDITIONNEMENT (M² PAR BOÎTE)">{N(f.m2ParBoite,v=>setF({m2ParBoite:v}),'selon la fiche')}</Fld>
+      </div>
+      <div className="xs b" style={{color:NAVY,margin:'6px 0'}}>ZONES REVÊTUES</div>
+      {(f.zones||[]).map(z=><div key={z.id} className="row" style={{gap:4,flexWrap:'wrap',alignItems:'center',marginBottom:4}}>
+        <select className="in" style={{width:90}} value={z.mur} onChange={e=>setF({zones:f.zones.map(x=>x.id===z.id?{...x,mur:e.target.value}:x)})}>{SDB_MURS.map(m=><option key={m} value={m}>Mur {m}</option>)}</select>
+        <span className="xs mut">de</span><span style={{width:70}}>{N(z.u0,v=>setF({zones:f.zones.map(x=>x.id===z.id?{...x,u0:v}:x)}))}</span>
+        <span className="xs mut">à</span><span style={{width:70}}>{N(z.u1,v=>setF({zones:f.zones.map(x=>x.id===z.id?{...x,u1:v}:x)}))}</span>
+        <span className="xs mut">cm, hauteur</span><span style={{width:70}}>{N(z.z0,v=>setF({zones:f.zones.map(x=>x.id===z.id?{...x,z0:v}:x)}))}</span>
+        <span className="xs mut">à</span><span style={{width:70}}>{N(z.z1,v=>setF({zones:f.zones.map(x=>x.id===z.id?{...x,z1:v}:x)}))}</span>
+        <button className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>setF({zones:f.zones.filter(x=>x.id!==z.id)})}>✕</button>
+      </div>)}
+      <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+        <button className="btn gh s" onClick={()=>setF({zones:[...(f.zones||[]),{id:'z_'+uid(),mur:'A',u0:0,u1:sdbLongueurMur(s,'A'),z0:0,z1:+s.H||250}]})}>+ Zone</button>
+        <button className="btn gh s" onClick={()=>setF({zones:[...(f.zones||[]),...SDB_MURS.map(m=>({id:'z_'+uid(),mur:m,u0:0,u1:sdbLongueurMur(s,m),z0:0,z1:+s.H||250}))]})}>Toute hauteur, 4 murs</button>
+      </div>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Deux zones qui se chevauchent ne sont comptées qu’une fois. Les ouvertures sont déduites ; les retours de niche et de tableau sont ajoutés, chacun nommé.</div>
+    </div>}
+
+    {onglet==='controles'&&<div className="card">
+      {!ctr.length&&<div className="xs mut">Aucun point à signaler sur ce modèle.</div>}
+      {ctr.map((a,i)=><div key={i} className="xs" style={{padding:'4px 0',borderBottom:'1px solid '+RULE,color:a.niveau==='erreur'?TERRA:a.niveau==='alerte'?'#7A5A0C':MUTED}}>
+        {a.niveau==='erreur'?'⛔ ':a.niveau==='alerte'?'⚠️ ':'ℹ️ '}{a.msg}</div>)}
+      <div className="xs b" style={{color:NAVY,margin:'10px 0 4px'}}>DISTANCES DE CONTRÔLE</div>
+      {Object.entries(SDB_DISTANCES_DEFAUT).map(([k,d])=>{const cur=(s.distances||{})[k]||d;return <div key={k} className="row xs" style={{gap:6,alignItems:'center',marginBottom:4,flexWrap:'wrap'}}>
+        <span style={{width:190}}>{{devantWc:'Devant le WC',devantVasque:'Devant la vasque',entreeDouche:'Entrée de douche / bain',passage:'Passage'}[k]}</span>
+        <span style={{width:70}}>{N(cur.v,v=>setS({distances:{...(s.distances||{}),[k]:{v,origine:'Réglé pour ce dossier'}}}))}</span><span className="mut">cm — {cur.origine}</span></div>})}
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Des repères d’usage réglables, pas des exigences normatives. Une belle image ne valide ni la plomberie, ni l’étanchéité, ni l’électricité.</div>
+    </div>}
+
+    {onglet==='quantites'&&<div className="card xs" style={{lineHeight:1.6}}>
+      {!q.murs.length&&<div className="mut">Aucune zone de faïence.</div>}
+      {q.murs.map(m=><div key={m.mur} style={{borderBottom:'1px solid '+RULE,padding:'4px 0'}}>
+        <b>Mur {m.mur}</b> : zone {sdbFmt(m.brute)} m²
+        {m.deductions.map((d,i)=><span key={i}> − {d.nom} {sdbFmt(d.m2)} m²</span>)}
+        {m.retours.map((r,i)=><span key={'r'+i}> + {r.nom} {sdbFmt(r.m2)} m²</span>)} = <b>{sdbFmt(m.nette)} m²</b> · profils {sdbFmt(m.profilsMl)} ml
+        {((s.faience||{}).zones||[]).filter(z=>z.mur===m.mur).map(z=>{const cp=sdbCalepinage(s,z);return <div key={z.id} className="mut">
+          Calepinage : {cp.total} carreaux dont {cp.coupes} coupés{cp.petites.length?' — petites coupes : '+cp.petites.join(', '):''}</div>})}
+      </div>)}
+      {q.murs.length>0&&<div style={{marginTop:6}}>
+        Pose (facturée) : <b>{sdbFmt(q.poseM2)} m²</b> · à commander avec {sdbFmt(q.chutePct)} % de chute : <b>{sdbFmt(q.commandeM2)} m²</b>
+        {q.boites!==null?<span> → <b>{q.boites} boîte{q.boites>1?'s':''}</b> de {sdbFmt(q.m2ParBoite)} m² = {sdbFmt(q.fournitureM2)} m² fournis (réserve {sdbFmt(q.reserveM2)} m², non facturée en pose)</span>
+          :<span style={{color:AMBER}}> → conditionnement à renseigner pour arrondir à la boîte</span>}
+        <br/>Profils de finition : {sdbFmt(q.profilsMl)} ml.</div>}
+    </div>}
+
+    {onglet==='export'&&<div className="card">
+      <div className="xs mut" style={{lineHeight:1.5,marginBottom:8}}>Un PDF : plan coté, élévations et calepinage des quatre murs, vue 3D, quantités et références, points à vérifier. Il est téléchargé et déposé dans Drive › MAP ; un changement du modèle le signale ensuite « à actualiser ».</div>
+      <button className="btn acc s" disabled={etat&&etat.etat==='travail'} onClick={exporter}>{etat&&etat.etat==='travail'?'Composition…':'Exporter le PDF'}</button>
+      {etat&&etat.etat==='ok'&&<div className="xs" style={{color:GREEN,marginTop:6}}>{etat.nom} téléchargé{etat.lien?<span> et déposé — <a href={etat.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>ouvrir</a></span>:''}.</div>}
+      {etat&&etat.etat==='erreur'&&<div className="xs" style={{color:TERRA,marginTop:6}}>{etat.msg}</div>}
+      {(s.documents||[]).length>0&&<div className="xs mut" style={{marginTop:6}}>{s.documents.map((d,i)=><div key={i}>{d.nom}{d.empreinte!==sdbEmpreinte(s)?' — à actualiser':' — à jour'}</div>)}</div>}
+    </div>}
+  </div>;
+}
+/* le lien depuis la MAP : ce qui est décrit, et l'accès à l'outil */
+function LienSalleDeBains({ch,data,ouvrir}){
+  const S=ch.salles||[];
+  const q=S.length?sdbQuantites(S[0]):null;
+  const n=S.reduce((a,s)=>a+sdbControles(s,data).filter(x=>x.niveau!=='info').length,0);
+  const act=S.reduce((a,s)=>a+sdbDocumentsAActualiser(s).length,0);
+  return <div className="card" style={{padding:8,marginBottom:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="sp" style={{gap:8,flexWrap:'wrap'}}>
+      <span className="xs"><b style={{color:NAVY}}>Salle de bains : plan, élévations, 3D, calepinage</b><br/>
+        <span className="mut">{S.length?S.length+' pièce'+(S.length>1?'s':'')+' décrite'+(S.length>1?'s':'')+(q&&q.poseM2?' · faïence '+sdbFmt(q.poseM2)+' m²':'')+(n?' · '+n+' point'+(n>1?'s':'')+' à vérifier':'')+(act?' · document à actualiser':''):'Aucune pièce décrite'}</span></span>
+      <button type="button" className="btn gh s" onClick={ouvrir}>Ouvrir l’outil</button>
+    </div>
+  </div>;
+}
+
 function MAP({data,ch,up}){
   const m=ch.map||{};
   const set=p=>up({map:{...m,...p}});
+  const [sdbOuvert,setSdbOuvert]=useState(false);
   /* les panneaux ouverts : ceux de la dernière visite sur cet appareil ;
      à la première, ceux qui portent une alerte */
   const [ouverts,setOuvertsBrut]=useState(()=>mapLireOuverts(ch.id)
@@ -14162,6 +14891,8 @@ function MAP({data,ch,up}){
     }
   };
 
+  /* l'outil salle de bains s'ouvre à la place de la MAP, comme le plan électrique dans les pièces */
+  if(sdbOuvert)return <SalleDeBains data={data} ch={ch} up={up} onFermer={()=>setSdbOuvert(false)}/>;
   return <div>
     <div className="sp" style={{marginBottom:12}}>
       <span className="xs mut">Compte-rendu de mise au point technique</span>
@@ -14385,6 +15116,7 @@ function MAP({data,ch,up}){
         <MapTxt m={m} set={set} k="receveurDimensions" label="DIMENSIONS RECEVEUR" ph="90×120…"/>
         <MapTxt m={m} set={set} k="receveurColoris" label="COLORIS RECEVEUR"/>
       </div>
+      <LienSalleDeBains ch={ch} data={data} ouvrir={()=>setSdbOuvert(true)}/>
       <MapMulti m={m} set={set} k="douche" label="DOUCHE" opts={MAP_DOUCHE}/>
       <MapChoix m={m} set={set} k="wcType" label="WC" opts={['Pack WC suspendu','Pack WC standard']}/>
       <MapBool m={m} set={set} k="laveMains" label="Lave-mains"/>
@@ -14399,6 +15131,7 @@ function MAP({data,ch,up}){
       <MapTxt m={m} set={set} k="carrelageReservees" label="PIÈCES RÉSERVÉES AU MAÎTRE D’OUVRAGE"/>
       <div className="g2">
         <MapTxt m={m} set={set} k="faienceLocalisation" label="FAÏENCE — LOCALISATION"/>
+        <div style={{gridColumn:'1 / -1'}}><LienSalleDeBains ch={ch} data={data} ouvrir={()=>setSdbOuvert(true)}/></div>
         <MapTxt m={m} set={set} k="faienceSurface" label="SURFACE (m²)"/>
       </div>
       <div className="g2">
