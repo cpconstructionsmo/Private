@@ -61,6 +61,7 @@ class PlanBrut:
     cotes: list[Cote] = field(default_factory=list)
     origine: str = ""
     tirets: list[Seg] = field(default_factory=list)   # traits en tirets (débords, porches, projections)
+    baies_dessinees: list = field(default_factory=list)  # contours des baies sur leur propre calque (Cedreo…)
 
 
 # ------------------------------------------------------------ vocabulaire
@@ -89,6 +90,17 @@ def nettoyer_nom(texte: str) -> str:
     t = re.sub(r"\b(S\.?\s?H|S\.?\s?A|SHAB|SDP)\b\.?\s*:?", "", t, flags=re.I)
     t = re.sub(r"(?<![\w])\d+[.,]\d+(?![\w])", "", t)      # cotes voisines (0,80) ; « Chambre 1 » garde son numéro
     return re.sub(r"\s{2,}", " ", t).strip(" :-–,;")
+
+
+RE_PAS_NOM = re.compile(r"^(vr(\s*mot)?|pl|sh|sa|up|n|nord|[a-z]\d?)$", re.I)
+
+
+def est_nom_libre(texte: str) -> bool:
+    """Un texte qui peut être le nom d'une pièce : des lettres, pas une cote,
+    une surface, ni une abréviation de plan (« VR MOT », « PL »)."""
+    t = nettoyer_nom(texte)
+    return bool(t) and len(t) >= 2 and bool(re.search(r"[a-zA-Zéèàù]{2}", t)) and not RE_PAS_NOM.match(t) \
+        and not RE_BAIE.search(texte)
 
 
 def usage_de(nom: str):
@@ -337,7 +349,10 @@ def reconstituer(plan: PlanBrut, mur_max=0.60) -> Resultat:
                 n_ = nettoyer_nom(t.texte)
                 if n_ and n_ not in noms:
                     noms.append(n_)
-        nom = " / ".join(noms[:2]) if noms else f"Pièce {i + 1}"
+        # un nom sans usage reconnu (« Pièce 1 », nom par défaut de Cedreo, « Atelier »…) reste un nom
+        autres = [nettoyer_nom(t.texte) for t in dedans if not noms and est_nom_libre(t.texte)]
+        autres = [a for a in autres if a]
+        nom = " / ".join(noms[:2]) if noms else (autres[0] if autres else f"Pièce {i + 1}")
         usage, humide, exclue = usage_de(nom)
         lue = None
         for t in dedans:
@@ -357,9 +372,12 @@ def reconstituer(plan: PlanBrut, mur_max=0.60) -> Resultat:
                            "ecart": round(calc - lue.valeur, 2),
                            "explication": "à vérifier : arrondi, mesure au nu des plinthes, placard déduit ou non, "
                                           "ou plan source non à jour"})
-        if not noms:
+        if not noms and not autres:
             ecarts.append({"genre": "piece-sans-nom", "piece": nom, "calculee": calc,
                            "explication": "surface fermée sans nom de pièce lisible : à nommer ou à écarter"})
+        elif not noms:
+            ecarts.append({"genre": "usage-inconnu", "piece": nom, "calculee": calc,
+                           "explication": "usage de la pièce non reconnu : à préciser (séjour, chambre, cuisine…)"})
 
     # les ouvertures : blocs lus, puis interruptions refermées sans bloc
     ouvertures = []
@@ -370,6 +388,10 @@ def reconstituer(plan: PlanBrut, mur_max=0.60) -> Resultat:
                                     largeur=confirme(round(b.largeur, 3), "m", document=plan.origine, calcul=f"bloc « {b.nom} »"),
                                     hauteur=impossible("hauteur de l'ouverture (bloc, façade ou tableau des menuiseries)", "m"),
                                     allege=impossible("hauteur d'allège", "m"), exterieure=ext, origine=f"bloc {b.nom}"))
+    # baies dessinées sur leur propre calque (Cedreo…) : leur partie dans l'épaisseur du mur
+    if plan.baies_dessinees:
+        ouvertures += baies_depuis_contours(plan.baies_dessinees, tous_murs, contour, plan.origine, len(ouvertures))
+        details = []          # les murs sont continus : pas d'interruption à refermer
     deja = [SPoint(o.position) for o in ouvertures]
     for (pa, pb), L in details:
         m = ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
@@ -477,13 +499,14 @@ def _jusqu_au_mur(cadre: Polygon, contour: Polygon, sens) -> Polygon | None:
     return None
 
 
-RE_BAIE = re.compile(r"(\d+(?:[.,]\d+)?)\s*[×x/]\s*(\d+[.,]\d+)")
+RE_BAIE = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*[×x/]\s*(\d+(?:[.,]\d+)?)\s*$")
+RE_NOMBRE = re.compile(r"^\s*(\d+[.,]\d{2})\s*$")
 RE_ALLEGE = re.compile(r"all(?:[èe]ge)?\.?\s*:?\s*(\d+[.,]\d+)", re.I)
 
 
 def _m(v: str) -> float:
     x = float(v.replace(",", "."))
-    return x / 100 if x >= 10 else x        # « 90/1.35 » : largeur en centimètres
+    return x / 100 if x >= 10 else x        # « 90/1.35 », « 60/95 » : en centimètres
 
 
 def lire_dimensions_baies(ouvertures, textes, contour: Polygon, origine: str, pieces=(), portee=15.0):
@@ -496,8 +519,16 @@ def lire_dimensions_baies(ouvertures, textes, contour: Polygon, origine: str, pi
     for t in textes:
         m = RE_BAIE.search(t.texte)
         if m:
-            dims.append((t, _m(m.group(1)), _m(m.group(2))))
+            L, H = _m(m.group(1)), _m(m.group(2))
+            if 0.3 <= L <= 7 and 0.3 <= H <= 3.5:          # pas une date ni une échelle
+                dims.append((t, L, H))
     alleges = [(t, float(m.group(1).replace(",", "."))) for t in textes for m in [RE_ALLEGE.search(t.texte)] if m]
+    # allège écrite seule, au même endroit que la taille de la baie (Cedreo : « 100/1.05 » puis « 1.10 »)
+    for t, _, _ in dims:
+        for u in textes:
+            m = RE_NOMBRE.match(u.texte)
+            if m and u is not t and math.dist((u.x, u.y), (t.x, t.y)) < 0.15 and 0.1 <= float(m.group(1).replace(",", ".")) <= 2.5:
+                alleges.append((u, float(m.group(1).replace(",", "."))))
     anneau = contour.exterior
     pris = set()
     for o in ouvertures:
@@ -550,6 +581,46 @@ def lire_dimensions_baies(ouvertures, textes, contour: Polygon, origine: str, pi
             o.type = "porte de garage"
         elif o.type in ("inconnu", "porte", "fenetre", "porte de garage"):
             o.type = "porte-fenetre" if L >= 1.2 else "porte"
+
+
+def baies_depuis_contours(contours, murs, contour: Polygon, origine: str, deja: int) -> list:
+    """Chaque baie dessinée (souvent un rectangle dans le mur et un autre pour
+    le débattement) : on réunit les contours qui se touchent, on garde la
+    partie comprise dans le mur ; sa longueur est la largeur de la baie."""
+    groupes = []
+    for c in contours:
+        g = Polygon(c).buffer(0)
+        if g.is_empty:
+            continue
+        for grp in groupes:
+            if grp["g"].buffer(0.01).intersects(g):
+                grp["g"] = grp["g"].union(g)
+                break
+        else:
+            groupes.append({"g": g})
+    out = []
+    for grp in groupes:
+        dans = grp["g"].intersection(murs)
+        morceaux = [x for x in getattr(dans, "geoms", [dans]) if x.geom_type == "Polygon" and x.area > 0.004]
+        if not morceaux:
+            continue
+        g = max(morceaux, key=lambda x: x.area)
+        r = g.minimum_rotated_rectangle
+        c = list(r.exterior.coords)
+        cotes_ = sorted(math.dist(c[i], c[i + 1]) for i in range(4))
+        L = cotes_[-1]
+        if L < 0.4:
+            continue
+        m = g.representative_point()
+        ext = contour.exterior.distance(g) < 0.02
+        out.append(Ouverture(id=f"O{deja + len(out) + 1}", type="porte" if not ext else "inconnu",
+                             position=(round(m.x, 3), round(m.y, 3)),
+                             largeur=hypothese(round(L, 3), "m", consequence="largeur prise sur le contour de la baie dessinée",
+                                               calcul="baie dessinée sur son calque"),
+                             hauteur=impossible("hauteur de l'ouverture", "m"), allege=impossible("hauteur d'allège", "m"),
+                             exterieure=ext, origine="baie dessinée",
+                             polygone=[(round(x, 4), round(y, 4)) for x, y in g.exterior.coords]))
+    return out
 
 
 def type_de_bloc(nom: str) -> str:

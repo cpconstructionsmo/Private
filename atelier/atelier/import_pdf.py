@@ -159,7 +159,7 @@ def _murs_en_aplats(dessins, k: float, H: float):
                 retenues.append(c)
                 murs = murs.union(classes[c])
                 ajout = True
-    return murs.buffer(0.002).buffer(-0.002), retenues
+    return murs.buffer(0.002, join_style=2).buffer(-0.002, join_style=2), retenues
 
 
 def _segments_du_contour(g) -> list:
