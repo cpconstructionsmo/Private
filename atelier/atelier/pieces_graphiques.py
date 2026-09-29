@@ -1252,26 +1252,209 @@ def page_de_garde(doc, projet, reglages) -> Planche:
     return pl
 
 
+# ------------------------------------------------------------ plan de masse
+
+VERT_PLEINE_TERRE = (0.89, 0.92, 0.80)
+
+
+def plan_masse(doc, projet, reglages) -> Planche:
+    from .terrain import controles, maison_sur_terrain, placer, reculs
+    t = projet.terrain
+    geo = Geo(projet)
+    lim = Polygon(t.limites).buffer(0)
+    vers_terrain = lambda g: placer(projet, affinity.rotate(g, -geo.rot, origin=(0, 0)))
+    minx, miny, maxx, maxy = lim.bounds
+    tmp = pymupdf.open()
+    z = Planche(tmp, projet, reglages, "", "", "", "").zone
+    e = echelle_pour(maxx - minx, maxy - miny, z.width - 120, z.height - 120, [100, 200, 250, 500, 1000])
+    ngf = geo.n.altitude_sol_fini.valeur
+    pl = Planche(doc, projet, reglages, "PLAN DE MASSE", "des constructions à édifier", "PCMI 2", f"1/{e}",
+                 "PLAN DE MASSE",
+                 "Cotes en mètres – altitudes NGF – reculs mesurés perpendiculairement aux limites, au plus près de la construction")
+    z = pl.zone
+    vue = Vue(e, ((z.x0 + z.x1) / 2, (z.y0 + z.y1) / 2), ((minx + maxx) / 2, (miny + maxy) / 2))
+    P = lambda x, y: vue(x, y)
+    # le terrain
+    pl.surface(lim, vue, remplir=VERT_PLEINE_TERRE, couleur=None)
+    c = list(lim.exterior.coords)
+    ccw = lim.exterior.is_ccw
+    for i, (a, b) in enumerate(zip(c, c[1:])):
+        pl.ligne(P(*a), P(*b), 1.6)
+        L = math.dist(a, b)
+        ang = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+        n = ((b[1] - a[1]) / L, -(b[0] - a[0]) / L) if ccw else (-(b[1] - a[1]) / L, (b[0] - a[0]) / L)  # vers l'extérieur
+        m = ((a[0] + b[0]) / 2 + n[0] * 1.2, (a[1] + b[1]) / 2 + n[1] * 1.2)
+        lisible = ang if -90 < ang <= 90 else ang - 180
+        cote_ = next((x for x in t.cotes if x.get("cote") == i), {})
+        conf = cote_.get("ecrite") is not None
+        pm = P(*m)
+        pl.texte(pm.x, pm.y + 3, nombre(L), 8, gras=True, ancre="c", rot=lisible, couleur=ROUGE if not conf else NOIR)
+        if i in t.alignement:
+            m2 = ((a[0] + b[0]) / 2 + n[0] * 3.2, (a[1] + b[1]) / 2 + n[1] * 3.2)
+            p2 = P(*m2)
+            pl.ligne(P(a[0] + n[0] * 0.5, a[1] + n[1] * 0.5), P(b[0] + n[0] * 0.5, b[1] + n[1] * 0.5), 0.8, GRIS,
+                     tirets="[6 2] 0")
+            pl.texte(p2.x, p2.y + 3, "— " + (t.nom_voie or "Voie publique") + " — alignement", 7.5, ancre="c",
+                     rot=lisible, couleur=GRIS)
+    # la maison : toiture, emprise des murs, couverts
+    T = geo.toiture
+    if T:
+        for pan in T.pans:
+            pl.surface(vers_terrain(pan.polygone), vue, remplir=_teinte_pan(pan.normale), couleur=GRIS, ep=0.3)
+        for l in T.lignes:
+            g = vers_terrain(l.ligne)
+            pl.ligne(P(*g.coords[0]), P(*g.coords[-1]), 0.9 if l.genre == "faitage" else 0.4,
+                     tirets="[2 1] 0" if l.genre == "noue" else None)
+    pl.surface(vers_terrain(geo.contour), vue, remplir=None, couleur=NOIR, ep=0.7, tirets="[3 1.5] 0")
+    for cv, g in geo.couverts:
+        pl.surface(vers_terrain(g), vue, remplir=None, couleur=NOIR, ep=0.4, tirets="[2 1.5] 0")
+    maison = maison_sur_terrain(projet)
+    centre = maison.representative_point()
+    pc = P(centre.x, centre.y)
+    etiquette = "Niveau RDC fini ±0,00" + (f" = {nombre(ngf)}" if ngf is not None else "")
+    w = pl.largeur_texte(etiquette, 6.5, True) + 8
+    pl.page.draw_rect(pymupdf.Rect(pc.x - w / 2, pc.y - 8, pc.x + w / 2, pc.y + 4), color=NOIR, fill=BLANC, width=0.4)
+    pl.texte(pc.x, pc.y, etiquette, 6.5, gras=True, ancre="c")
+    # reculs mesurés
+    for r in reculs(projet):
+        a, b = c[r["cote"]], c[r["cote"] + 1]
+        seg = LineString([a, b])
+        q = Point(r["point"])
+        pied = seg.interpolate(seg.project(q))
+        if q.distance(pied) < 0.05:
+            continue
+        pl.ligne(P(q.x, q.y), P(pied.x, pied.y), 0.5, ROUGE)
+        for p_ in (q, pied):
+            pp = P(p_.x, p_.y)
+            pl.page.draw_circle(pp, 1.2, color=ROUGE, fill=ROUGE)
+        mx, my = (q.x + pied.x) / 2, (q.y + pied.y) / 2
+        ang = math.degrees(math.atan2(pied.y - q.y, pied.x - q.x))
+        lisible = ang if -90 < ang <= 90 else ang - 180
+        pm = P(mx, my)
+        pl.texte(pm.x, pm.y - 2, nombre(r["distance"]), 7, gras=True, ancre="c", rot=lisible, couleur=ROUGE)
+    # altitudes du terrain naturel
+    for p_ in t.tn:
+        pp = P(p_.x, p_.y)
+        pl.ligne((pp.x - 2, pp.y - 2), (pp.x + 2, pp.y + 2), 0.5)
+        pl.ligne((pp.x - 2, pp.y + 2), (pp.x + 2, pp.y - 2), 0.5)
+        pl.texte(pp.x + 3, pp.y - 2, f"TN {nombre(p_.z)}", 5.5, couleur=GRIS)
+    # faîtages
+    if T:
+        vus = set()
+        for l in T.lignes:
+            if l.genre == "faitage" and round(l.z0, 2) not in vus:
+                vus.add(round(l.z0, 2))
+                g = vers_terrain(l.ligne)
+                m = g.interpolate(0.5, normalized=True)
+                pm = P(m.x, m.y)
+                pl.texte(pm.x, pm.y - 3, f"Faîtage {signe(l.z0)}", 5.5, ancre="c")
+    # emplacements libres : tableau, légende, nord, échelle
+    occupe = Polygon([(P(x, y).x, P(x, y).y) for x, y in lim.exterior.coords]).buffer(40)
+    place = Placement(z, occupe)
+    surf = calculer(geo.n, projet.points_arret["1_rdc"].valide)
+    ctrl = controles(projet, surf, T)
+    lignes = [("Terrain", f"{nombre(lim.area)} m²", None)]
+    emp = surf["emprise_sol"]["valeur"].valeur
+    lignes.append(("Emprise au sol", f"{nombre(emp)} m² ({round(emp / lim.area * 100)} %)", None))
+    lignes.append(("Surface de plancher", f"{nombre(surf['surface_plancher']['valeur'].valeur)} m²", None))
+    lignes.append(("Espaces non bâtis", f"{nombre(lim.area - emp)} m²", None))
+    if T:
+        lignes.append(("Hauteurs égout / faîtage", f"{nombre(T.hauteur_egout)} / {nombre(T.faitage_max)} m", None))
+    for x in ctrl:
+        comp = "≥" if x["sens"] == "min" else "≤"
+        val = "—" if x["mesure"] is None else (f"{nombre(x['mesure'], 1 if x['unite'] == '%' else 2)} {x['unite']}")
+        lignes.append((x["libelle"], f"{val} ({comp} {nombre(x['regle'], 0 if x['unite'] == '%' else 2)} {x['unite']}"
+                                      f"{', ' + x['article'] if x['article'] else ''})", x["conforme"]))
+    hauteur = 22 + 10 * len(lignes)
+    r = place.poser(250, hauteur, ("hd", "hg", "bd", "bg"))
+    if r:
+        pl.texte(r.x0, r.y0 + 8, "SURFACES ET RÈGLES", 7.5, gras=True)
+        for i, (a, b, ok) in enumerate(lignes):
+            y = r.y0 + 20 + i * 10
+            pl.texte(r.x0, y, a, 6.5)
+            coul = NOIR if ok is None else ((0.12, 0.48, 0.23) if ok else ROUGE)
+            pl.texte(r.x1, y, b + ("" if ok is None else ("  conforme" if ok else "  NON CONFORME")), 6.5,
+                     ancre="d", couleur=coul, gras=ok is False)
+            pl.ligne((r.x0, y + 2.5), (r.x1, y + 2.5), 0.2, GRIS_CLAIR)
+    r = place.poser(170, 70, ("bd", "bg", "hd", "hg"))
+    if r:
+        pl.texte(r.x0, r.y0 + 8, "LÉGENDE", 7, gras=True)
+        items = (("Limite de propriété", 1.6, NOIR, None), ("Alignement (voie publique)", 0.8, GRIS, "[6 2] 0"),
+                 ("Nu extérieur des murs (emprise)", 0.7, NOIR, "[3 1.5] 0"), ("Recul mesuré", 0.5, ROUGE, None))
+        for i, (lib, ep, coul, tir) in enumerate(items):
+            yy = r.y0 + 18 + i * 10
+            pl.ligne((r.x0, yy - 2), (r.x0 + 18, yy - 2), ep, coul, tirets=tir)
+            pl.texte(r.x0 + 24, yy, lib, 6.5)
+        yy = r.y0 + 18 + len(items) * 10
+        pl.texte(r.x0 + 2, yy, "×", 7)
+        pl.texte(r.x0 + 24, yy, "Altitude du terrain naturel (NGF)", 6.5)
+    r = place.poser(150, 34, ("bd", "bg", "hd", "hg"))
+    if r:
+        pl.barre_echelle(r.x0, r.y0 + 12, e, 10 if e <= 200 else 20)
+    nord_terrain = (geo.vol.nord.valeur or 90.0) + t.implantation.angle
+    r = place.poser(50, 50, ("hd", "hg", "bd", "bg"))
+    if r:
+        pl.fleche_nord(r.x0 + 25, r.y0 + 25, nord_terrain, hypothese=geo.nord_suppose)
+    avert = []
+    if t.implantation.statut.statut != Statut.CONFIRME:
+        avert.append("implantation saisie ou supposée : à vérifier sur le plan du géomètre")
+    faux = [str(x["cote"] + 1) for x in t.cotes if x.get("ecrite") is None]
+    if faux:
+        avert.append(f"côté(s) du terrain non confirmé(s) par une cote écrite : {', '.join(faux)}")
+    if not t.tn:
+        avert.append("altitudes du terrain naturel (TN) non relevées")
+    if not t.alignement:
+        avert.append("côté sur voie (alignement) non indiqué")
+    avert.append("accès, stationnement, plantations, réseaux et clôtures : non modélisés, à reporter")
+    avert += geo.hypotheses("nord")
+    r = place.poser(300, 14 + 8 * len(avert), ("bg", "bd", "hg", "hd"))
+    pl.avertissement(avert, *((r.x0, r.y0 + 8) if r else (None, None)))
+    return pl
+
+
 # ------------------------------------------------------------ le jeu complet
+
+def _notice(doc, projet, reglages):
+    from .notice import notice
+    return notice(doc, projet, reglages)
+
 
 PIECES = {
     "page_de_garde": ("Page de garde", page_de_garde),
+    "plan_masse": ("PCMI 2 – Plan de masse", plan_masse),
+    "notice": ("PCMI 4 – Notice", _notice),
     "coupes": ("PCMI 3 – Coupes sur terrain", coupes),
     "facades": ("PCMI 5 – Façades", facades),
     "plan_toiture": ("PCMI 5 – Plan de toiture", plan_toiture),
     "plan_rdc": ("Plan du rez-de-chaussée", plan_rdc),
 }
-ORDRE = ["page_de_garde", "coupes", "facades", "plan_toiture", "plan_rdc"]
+# les planches d'images : seulement si des images ont été déposées pour elles
+IMAGES = {"situation": ("PCMI1",), "insertion": ("PCMI6",), "photos": ("PCMI7", "PCMI8")}
+PIECES.update({"situation": ("PCMI 1 – Plan de situation", None), "insertion": ("PCMI 6 – Insertion", None),
+               "photos": ("PCMI 7 et 8 – Photographies", None)})
+ORDRE = ["page_de_garde", "situation", "plan_masse", "coupes", "notice", "facades", "plan_toiture", "insertion",
+         "photos", "plan_rdc"]
 
 
-def generer(projet, reglages, quoi: list[str] | None = None) -> pymupdf.Document:
-    """Les pièces demandées (toutes par défaut), dans l'ordre du dossier."""
+def generer(projet, reglages, quoi: list[str] | None = None, dossier=None) -> pymupdf.Document:
+    """Les pièces demandées (toutes par défaut), dans l'ordre du dossier.
+    `dossier` : le dossier du projet, pour les images déposées (PCMI 1, 6, 7, 8)."""
+    from pathlib import Path
+    from .planches_images import planches_images
     if not projet.batiment.niveaux:
         raise ValueError("Importez d'abord le plan du rez-de-chaussée.")
     doc = pymupdf.open()
     for cle in ORDRE:
         if quoi and cle not in quoi:
             continue
+        if cle in IMAGES:
+            if dossier is not None:
+                planches_images(doc, projet, reglages, Path(dossier), IMAGES[cle])
+            continue
+        if cle == "plan_masse" and (len(projet.terrain.limites) < 4 or projet.terrain.implantation is None):
+            if quoi:
+                raise ValueError("Plan de masse : importez d'abord le terrain et implantez la maison.")
+            continue                    # jeu complet sans terrain : le plan de masse viendra ensuite
         PIECES[cle][1](doc, projet, reglages)
     doc.set_metadata({"title": f"Permis de construire – {projet.nom}", "author": reglages.societe,
                       "creator": "Atelier de conception CP Constructions"})

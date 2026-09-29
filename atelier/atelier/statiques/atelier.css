@@ -61,3 +61,4 @@ details summary { cursor: pointer; }
   .p-usage { max-width: 120px; }
   .qui input { width: 130px; }
 }
+span.bloquant { color: var(--bloq); font-weight: 600; }

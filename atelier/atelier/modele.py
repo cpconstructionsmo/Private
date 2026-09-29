@@ -214,6 +214,54 @@ class Document(BaseModel):
     depose_le: str = Field(default_factory=maintenant)
 
 
+class PointTN(BaseModel):
+    """Altitude du terrain naturel en un point (repère du terrain, m ; z en NGF)."""
+    x: float
+    y: float
+    z: float
+    source: str = ""
+
+
+class Implantation(BaseModel):
+    """Passage du repère du RDC au repère du terrain : rotation (degrés,
+    autour de l'origine) puis translation."""
+    angle: float = 0.0
+    dx: float = 0.0
+    dy: float = 0.0
+    statut: Valeur = Field(default_factory=lambda: impossible("implantation de la maison sur le terrain"))
+
+
+class Terrain(BaseModel):
+    limites: list[Point] = []          # limite de propriété (polygone fermé), repère du terrain
+    source: str = ""
+    cotes: list[dict] = []             # par côté : longueur mesurée, longueur écrite sur le plan (si retrouvée)
+    alignement: list[int] = []         # côtés sur voie
+    tn: list[PointTN] = []
+    surface: Valeur = Field(default_factory=lambda: impossible("surface du terrain", "m²"))
+    implantation: Optional[Implantation] = None
+    nom_voie: str = ""
+
+
+class Regle(BaseModel):
+    """Une règle du PLU saisie avec son article (R3) : l'atelier la contrôle."""
+    cle: str                           # recul_alignement, recul_limites, emprise_max, hauteur_egout_max…
+    valeur: float
+    article: str = ""                  # ex. « UG 4.2 du PLUi »
+    note: str = ""
+
+
+class Image(BaseModel):
+    """Une image fournie pour une planche : extrait cadastral, vue aérienne,
+    photographie, insertion (photomontage réalisé par ailleurs)."""
+    id: str
+    fichier: str                       # chemin relatif dans 00_entrees/
+    piece: str                         # PCMI1, PCMI6, PCMI7, PCMI8
+    legende: str = ""
+    point: Optional[Point] = None      # prise de vue, repère du terrain
+    direction: Optional[float] = None  # degrés, sens trigonométrique
+    numero: Optional[int] = None       # numéro de la prise de vue (sinon : numérotation automatique)
+
+
 class Modificatif(BaseModel):
     """Une ligne du tableau « Dates / Modifications » de la page de garde."""
     date: str
@@ -236,12 +284,17 @@ class Projet(BaseModel):
     journal: list[Decision] = []
     points_arret: dict[str, PointArret] = Field(default_factory=lambda: {k: PointArret() for k in POINTS_ARRET})
     documents: list[Document] = []
-    terrain: dict = {}
+    terrain: Terrain = Field(default_factory=Terrain)
+    regles: list[Regle] = []
     surface_terrain: Valeur = Field(default_factory=lambda: impossible("surface du terrain (plan de division, acte)", "m²"))
     zone_sismique: Valeur = Field(default_factory=lambda: impossible("zone sismique (Géorisques)"))
     chauffage: str = ""
     divers: str = ""
     modifications: list[Modificatif] = []
+    zone_plu: str = ""                 # ex. « secteur UGc du PLUi de la Communauté urbaine d'Alençon »
+    commune: str = ""
+    notice: dict[str, str] = {}        # paragraphes de la notice saisis par l'utilisateur
+    images: list[Image] = []
     batiment: Batiment = Field(default_factory=Batiment)
     # le plan source du RDC tel qu'il a été lu (pour l'affichage côte à côte)
     source_rdc: dict = {}

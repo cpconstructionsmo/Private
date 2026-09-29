@@ -160,3 +160,37 @@ def ecrire_pdf_aplats(chemin: str, echelle=75):
     page.insert_text(P((2.7, 9.7)), "Porche couvert", fontsize=5)
     page.insert_text((80, 800), f"Echelle 1/{echelle}", fontsize=9)
     doc.save(chemin)
+
+
+# un terrain fictif : trapèze sur rue, cotes écrites, altitudes TN, et la maison
+# de 12 × 9 m dessinée, tournée de 10°, son angle sud-ouest en (8 ; 6)
+TERRAIN = [(0, 0), (30, 0), (28, 26), (2, 24)]
+MAISON_ANGLE, MAISON_POS = 10.0, (8.0, 6.0)
+
+
+def ecrire_terrain_pdf(chemin: str, echelle=200, avec_maison=True):
+    from shapely import affinity
+    import math as _m
+    doc = pymupdf.open()
+    page = doc.new_page(width=1190.55, height=841.89)
+    k = 1000 / 25.4 * 72 / echelle
+    ox, oy = 300, 650
+    P = lambda p: pymupdf.Point(ox + p[0] * k, oy - p[1] * k)
+    sh = page.new_shape()
+    sh.draw_polyline([P(p) for p in TERRAIN + [TERRAIN[0]]])
+    sh.finish(color=(0, 0, 0), width=1.6, closePath=True)
+    sh.commit()
+    for a, b in zip(TERRAIN, TERRAIN[1:] + TERRAIN[:1]):
+        L = _m.dist(a, b)
+        page.insert_text(P(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)), f"{L:.2f}".replace(".", ","), fontsize=7)
+    for (x, y), z in (((1, 1), "49,80"), ((29, 1), "49,95"), ((27, 25), "50,40"), ((3, 23), "50,20")):
+        page.insert_text(P((x, y)), f"TN {z}", fontsize=6)
+    page.insert_text(P((12, -3)), "Rue d'Essai", fontsize=8)
+    page.insert_text((80, 800), f"PLAN DE MASSE  Echelle 1/{echelle}", fontsize=9)
+    if avec_maison:
+        m = affinity.translate(affinity.rotate(box(0, 0, 12, 9), MAISON_ANGLE, origin=(0, 0)), *MAISON_POS)
+        sh = page.new_shape()
+        sh.draw_polyline([P(c) for c in m.exterior.coords])
+        sh.finish(color=(0, 0, 0), width=0.7, dashes="[3 1.5] 0", closePath=True)
+        sh.commit()
+    doc.save(chemin)

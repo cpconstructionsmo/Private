@@ -116,6 +116,13 @@ class Planche:
         police = ("frb" if gras else "fr") if POLICE else ("hebo" if gras else "helv")
         if rot == 90:
             self.page.insert_text((x, y + dec), t, fontsize=taille, fontname=police, color=couleur, rotate=90)
+        elif rot:
+            # angle quelconque (texte le long d'une limite oblique), en degrés, sens trigonométrique
+            a = math.radians(rot)
+            debut = (x - dec * math.cos(a), y + dec * math.sin(a))
+            m = pymupdf.Matrix(1, 0, 0, 1, 0, 0).prerotate(-rot)
+            self.page.insert_text(debut, t, fontsize=taille, fontname=police, color=couleur,
+                                  morph=(pymupdf.Point(*debut), m))
         else:
             self.page.insert_text((x - dec, y), t, fontsize=taille, fontname=police, color=couleur)
 
