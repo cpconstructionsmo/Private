@@ -250,7 +250,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · MAP : relecture de la fiche papier (photo ou scan), écran de vérification, suivi des décisions et points à chiffrer';
+const VERSION='2026-09-29 · MAP : compte-rendu Word et PDF avec le suivi, fiches par lot pour les entreprises';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5189,7 +5189,9 @@ function mapDocumentXml(ch,data,px){
         {bords:tcB({c:DOC_BRUN,sz:4,t:4,bs:4}),v:'top',mg:140}),
     ])],{}),
   ].join('');
-  const corps=[garde,s1,sections,s10,sign].join('');
+  /* le suivi du rendez-vous : décisions, modifications à chiffrer, points en attente */
+  const suivi=(m.suivi||[]).length?[titre('Décisions, modifications à chiffrer et points en attente'),mapSuiviXml(m.suivi,true)].join(''):'';
+  const corps=[garde,s1,sections,suivi,s10,sign].join('');
   return DOC_ENTETE_XML+'<w:body>'+corps
     +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
     +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
@@ -12955,6 +12957,181 @@ function FicheMapPapier({data,ch,m,set}){
   </div>;
 }
 
+/* ---------- la MAP découpée par lot ----------
+   Chaque entreprise n'a besoin que de ce qui concerne son lot : les choix
+   arrêtés à la MAP et les points de suivi qui la regardent. Les lots des
+   marchés sont écrits librement (« Gros œuvre », « Maçonnerie – GO »,
+   « Plomberie sanitaire »…) : on les reconnaît à des mots-clés, sans accents
+   ni majuscules. Un champ peut concerner plusieurs lots (le coffret
+   électrique : électricité et VRD). */
+const MAP_LOT_MOTS={
+  vrd:['vrd','terrassement','assainissement','reseaux','gros','maconnerie'],
+  go:['gros','maconnerie'],
+  charp:['charpente','couverture','zinguerie','toiture','couvreur'],
+  menext:['menuiserie','fermeture','volet','porte'],
+  facade:['enduit','facade','ravalement','gros','maconnerie'],
+  platre:['platrerie','platre','plaquiste','isolation','cloison','doublage'],
+  menint:['menuiserie','escalier','agencement'],
+  chauff:['chauffage','plomberie','cvc','ventilation','vmc','thermique','pac','climatisation'],
+  elec:['electricite','electricien','electrique'],
+  sanit:['plomberie','sanitaire'],
+  sols:['carrelage','chape','sol','faience','revetement'],
+};
+const MAP_LOT_SECTION={'2.':['vrd'],'3.':['go'],'4.':['charp'],'5.':['menext'],'6.':['platre'],'7.':['chauff'],'8.':['sols']};
+const MAP_LOT_CHAMP={
+  eauPotable:['vrd','sanit'],eauPotableDemandePar:['vrd','sanit'],
+  elecCoffret:['vrd','elec'],elecDistanceGtl:['vrd','elec'],elecPosePar:['vrd','elec'],elecCout:['vrd','elec'],
+  gaz:['vrd','chauff'],telecom:['vrd','elec'],eauxUsees:['vrd','sanit'],eauxUseesLot:['vrd','sanit'],
+  eauxPluviales:['vrd','charp'],eauxPluvialesLot:['vrd','charp'],
+  appuisFenetreProduit:['go','menext'],appuisFenetre:['go','menext'],appuisCouleur:['go','menext'],seuilsCouleur:['go','menext'],
+  fenetreToitModele:['charp','menext'],fenetreToitVitrage:['charp','menext'],fenetreToitRaccords:['charp','menext'],fenetreToitVolet:['charp','menext'],
+  conduitFumee:['charp','chauff'],charpenteGarageAmenageable:['charp','platre'],
+  seuilGarage:['go','menext'],enduitFinition:['facade'],enduitCouleur:['facade'],enduitRefNuancier:['facade'],
+  isolationCombles:['platre','charp'],isolationComblesEpaisseur:['platre','charp'],isolationComblesR:['platre','charp'],
+  porteInterieureProduit:['menint'],porteInterieureFinition:['menint'],porteInterieureLargeur:['menint','platre'],
+  porteInterieurePoignees:['menint'],escalierType:['menint'],
+  vmcType:['chauff','elec'],vmcMarque:['chauff','elec'],electriciteGamme:['elec'],electriciteOptions:['elec'],
+  baignoireProduit:['sanit'],receveurProduit:['sanit'],receveurDimensions:['sanit','sols'],receveurColoris:['sanit'],
+  douche:['sanit'],wcType:['sanit'],laveMains:['sanit'],meubleVasqueProduit:['sanit'],meubleVasqueLargeur:['sanit'],
+  modifTerrain:['vrd'],modifGrosOeuvre:['go'],modifCharpente:['charp'],modifMenuiseriesExt:['menext','facade'],
+  modifCloisons:['platre','menint'],modifElecPlomberieChauffage:['elec','sanit','chauff'],modifAutres:['*'],
+  notes:['*'],
+};
+const mapGroupesLot=lot=>{const l=deaccent(lot||'').toLowerCase();
+  return Object.keys(MAP_LOT_MOTS).filter(g=>MAP_LOT_MOTS[g].some(w=>l.indexOf(w)>=0))};
+/* les champs de la MAP qui concernent un lot (aucun si le lot n'est pas reconnu) */
+function mapChampsDuLot(lot){
+  const G=mapGroupesLot(lot);
+  if(!G.length)return [];
+  return MAP_FICHE.flatMap(s=>s.f.filter(f=>{
+    const g=MAP_LOT_CHAMP[f.k]||MAP_LOT_SECTION[s.s.slice(0,2)]||[];
+    return g.indexOf('*')>=0||g.some(x=>G.indexOf(x)>=0);
+  }).map(f=>({...f,section:s.s})));
+}
+/* les points de suivi d'un lot : même lot écrit, ou même corps d'état reconnu */
+function mapSuiviDuLot(m,lot){
+  const l=deaccent(lot||'').toLowerCase().trim(), G=mapGroupesLot(lot);
+  return ((m&&m.suivi)||[]).filter(p=>{
+    const pl=deaccent(p.lot||'').toLowerCase().trim();
+    if(!pl)return false;
+    return pl===l||l.indexOf(pl)>=0||pl.indexOf(l)>=0||mapGroupesLot(p.lot).some(g=>G.indexOf(g)>=0);
+  });
+}
+const mapSuiviNature=p=>(MAP_SUIVI_TYPES.find(t=>t.id===p.type)||{l:'Point'}).l;
+const mapSuiviEtat=p=>p.statut==='fait'?'Soldé'+(p.faitLe?' le '+fdDoc(p.faitLe):''):'Ouvert';
+/* le tableau du suivi, pour le compte-rendu comme pour les fiches par lot */
+function mapSuiviXml(points,avecLot){
+  const bords=tcB({c:DOC_BRUN,sz:4,t:4,bs:4});
+  const L=avecLot?[1600,2000,5200,1400]:[1800,6900,1500];
+  const tete=(l,t)=>tc(l,par(t,{b:true,sz:14,c:'FFFFFF',caps:true,sp:10,ap:0}),{fond:DOC_BRUN,bords,mg:80});
+  const cell=(l,t,o)=>tc(l,par(t||'—',{sz:16,ap:0,...(o||{})}),{bords,mg:80,v:'top'});
+  const tri=points.slice().sort((a,b)=>(a.statut==='fait')-(b.statut==='fait'));
+  return tbl(L,[
+    tr(avecLot?[tete(L[0],'Nature'),tete(L[1],'Lot'),tete(L[2],'Point'),tete(L[3],'État')]:[tete(L[0],'Nature'),tete(L[1],'Point'),tete(L[2],'État')]),
+    ...tri.map(p=>tr(avecLot
+      ?[cell(L[0],mapSuiviNature(p),{b:true,c:DOC_BRUN}),cell(L[1],p.lot),cell(L[2],p.texte),cell(L[3],mapSuiviEtat(p))]
+      :[cell(L[0],mapSuiviNature(p),{b:true,c:DOC_BRUN}),cell(L[1],p.texte),cell(L[2],mapSuiviEtat(p))])),
+  ],{});
+}
+function ficheLotDocumentXml(ch,data,lot,entreprise,px){
+  const m=ch.map||{};
+  const champs=mapChampsDuLot(lot).map(f=>[f,ficheValeurActuelle(f,m,data)]).filter(([,v])=>String(v||'').trim());
+  const suivi=mapSuiviDuLot(m,lot);
+  const bords=tcB({c:DOC_BRUN,sz:4,t:4,bs:4}), sans=tcB({h:false,g:false,b:false,d:false});
+  const titre=t=>par(t,{b:true,sz:18,c:DOC_TERRA,sp:14,caps:true,av:200,ap:80,filet:DOC_TERRA});
+  const entete=tbl([4000,6200],[tr([
+    tc(4000,par([logoXml(px)],{ap:0}),{bords:sans,v:'top',mg:0}),
+    tc(6200,[
+      par('FICHE LOT',{b:true,sz:30,c:DOC_TERRA,sp:20,jc:'right',ap:40}),
+      par(lot,{b:true,sz:22,c:DOC_BRUN,jc:'right',ap:40,filet:DOC_TERRA}),
+      par(ch.nom||'',{sz:18,c:DOC_GRIS,jc:'right',ap:0}),
+    ].join(''),{bords:sans,v:'top',mg:0}),
+  ])],{});
+  const info=(l,v)=>tr([tc(2800,par(l,{b:true,sz:15,c:DOC_BRUN,ap:0}),{bords,fond:DOC_SABLE,mg:80,v:'top'}),
+    tc(7400,par(v||'—',{sz:16,ap:0}),{bords,mg:80,v:'top'})]);
+  const infos=tbl([2800,7400],[
+    info('Maître d’ouvrage',ch.client),info('Adresse du chantier',ch.adresse),
+    info('Entreprise',entreprise),info('Maître d’œuvre',CP.nom+' — Claude Portier'),
+    info('Mise au point technique',m.date?'du '+fdDoc(m.date)+(m.version?' — '+m.version:''):(m.version||'—')),
+  ],{});
+  /* les choix, section par section, dans l'ordre de la MAP */
+  const sections=[];
+  champs.forEach(([f,v])=>{let s=sections.find(x=>x.s===f.section);if(!s){s={s:f.section,L:[]};sections.push(s)}s.L.push([f.l,v])});
+  const choix=sections.map(s=>[par(s.s.replace(/^\d+\.\s*/,''),{b:true,sz:16,c:DOC_BRUN,av:120,ap:40}),
+    tbl([3800,6400],s.L.map(([l,v])=>tr([tc(3800,par(l,{sz:15,c:DOC_BRUN,ap:0}),{bords,fond:DOC_SABLE,mg:80,v:'top'}),
+      tc(6400,String(v).split(/\n+/).map(x=>par(x,{sz:16,ap:0})).join(''),{bords,mg:80,v:'top'})])),{})].join('')).join('');
+  const corps=[entete,vide(160),infos,
+    par('Extrait de la mise au point technique : seuls les choix et les points qui concernent ce lot y figurent.',{sz:15,i:true,c:DOC_GRIS,av:120,ap:0}),
+    titre('Choix arrêtés'),choix||par('Aucun choix enregistré pour ce lot.',{sz:16,i:true,c:DOC_GRIS}),
+    ...(suivi.length?[titre('Décisions, modifications à chiffrer et points en attente'),mapSuiviXml(suivi,false)]:[]),
+    vide(200),
+    par('Merci de reporter ces choix sur vos plans d’exécution et votre devis, et de signaler au maître d’œuvre tout point à préciser.',{sz:15,i:true,c:DOC_GRIS,jc:'both',ap:0}),
+  ].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+/* une fiche par lot des marchés du chantier, quand il y a quelque chose à
+   lui dire ; un lot que les mots-clés ne reconnaissent pas est signalé */
+async function genererFichesLots(ch,data){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, les fiches restent lisibles */}
+  const m=ch.map||{}, fiches=[], ignores=[];
+  const art=id=>((data.artisans||[]).find(a=>a.id===id)||{}).nom||'';
+  for(const lot of crLotsChantier(ch,data)){
+    const ms=(data.marches||[]).filter(x=>x.chantierId===ch.id&&String(x.lot||'').trim()===lot);
+    const entreprise=[...new Set(ms.map(x=>art(x.artisanId)).filter(Boolean))].join(', ');
+    const aDire=mapChampsDuLot(lot).some(f=>String(ficheValeurActuelle(f,m,data)||'').trim())||mapSuiviDuLot(m,lot).length;
+    if(!mapGroupesLot(lot).length&&!mapSuiviDuLot(m,lot).length){ignores.push(lot);continue}
+    if(!aDire)continue;
+    const octets=await fabriquerDocx(ficheLotDocumentXml(ch,data,lot,entreprise,logo),'Fiche lot — '+lot+' — '+(ch.nom||''),logo);
+    fiches.push({lot,entreprise,nom:'Fiche lot — '+lot.replace(/[\\/:*?"<>|]/g,'-')+' — '+(ch.nom||'chantier')+'.docx',octets});
+  }
+  return {fiches,ignores};
+}
+
+/* le compte-rendu et les fiches par lot, depuis l'onglet MAP */
+function SortiesMap({data,ch,m,set}){
+  const [etat,setEtat]=useState(null);
+  const lots=async()=>{
+    setEtat({etat:'travail'});
+    try{
+      const {fiches,ignores}=await genererFichesLots(ch,data);
+      if(!fiches.length){setEtat({etat:'erreur',msg:'Aucune fiche à produire : '+(crLotsChantier(ch,data).length
+        ?'aucun choix ni point de suivi ne concerne les lots des marchés.':'le chantier n’a pas encore de marchés (onglet MARCHÉS).')
+        +(ignores.length?' Lots non reconnus : '+ignores.join(', ')+'.':'')});return}
+      const zip=zipEcrire(fiches.map(f=>({nom:f.nom,data:f.octets})));
+      telechargerOctets(zip,'Fiches par lot — '+(ch.nom||'chantier')+'.zip','application/zip');
+      const liens=[];
+      try{
+        const token=await getDriveToken();
+        const folderId=await driveSousDossier(token,ch.id,ch.nom,'MAP');
+        for(const f of fiches)liens.push({lot:f.lot,lien:(await uploadToDrive(new File([f.octets],f.nom,{type:PTR_MIME.docx}),folderId)).webViewLink||''});
+      }catch(e){/* le ZIP est téléchargé ; le Drive n'est qu'une copie */}
+      set({fichesLotsLe:today()});
+      setEtat({etat:'ok',fiches,liens,ignores});
+    }catch(e){setEtat({etat:'erreur',msg:'Production impossible — '+String((e&&e.message)||e)})}
+  };
+  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+TERRA}}>
+    <div className="b sm" style={{color:TERRA}}>Fiches par lot (Word)</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Une fiche par lot des marchés : les choix de la MAP et les points de suivi qui le concernent, à remettre à l’entreprise.
+      {m.fichesLotsLe?<span> Dernière sortie le {fd(m.fichesLotsLe)}.</span>:null}
+    </div>
+    <button className="btn acc s" style={{marginTop:8}} disabled={etat&&etat.etat==='travail'} onClick={lots}>
+      {etat&&etat.etat==='travail'?'Composition…':'Sortir les fiches par lot'}</button>
+    {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.6}}>
+      {etat.fiches.length} fiche{etat.fiches.length>1?'s':''} (ZIP téléchargé{etat.liens.length?', et déposées dans Drive › MAP':''}) :
+      {etat.fiches.map(f=>{const l=etat.liens.find(x=>x.lot===f.lot);
+        return <div key={f.lot}>{f.lot}{f.entreprise?' — '+f.entreprise:''}{l&&l.lien?<span> — <a href={l.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>ouvrir</a></span>:null}</div>})}
+      {etat.ignores.length>0&&<div style={{color:AMBER}}>Lots non reconnus (aucune fiche) : {etat.ignores.join(', ')}.</div>}
+    </div>}
+    {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
+  </div>;
+}
+
 function MAP({data,ch,up}){
   const m=ch.map||{};
   const set=p=>up({map:{...m,...p}});
@@ -12973,8 +13150,14 @@ function MAP({data,ch,up}){
       const folderId=await driveSousDossier(token,ch.id,ch.nom,'MAP');
       const {webViewLink}=await uploadToDrive(new File([buf],nom,
         {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),folderId);
+      /* le même compte-rendu en PDF, figé, pour l'envoyer tel quel */
+      let lienPdf='';
+      try{
+        const pdf=await driveDocxEnPdf(token,buf,nom.replace(/\.docx$/,''));
+        lienPdf=(await uploadToDrive(new File([pdf],nom.replace(/\.docx$/,'.pdf'),{type:PTR_MIME.pdf}),folderId)).webViewLink||'';
+      }catch(x){/* le Word est déposé ; le PDF se refera à la prochaine sortie */}
       set({sortieLe:today()});
-      setSortie({etat:'ok',lien:webViewLink,nom});
+      setSortie({etat:'ok',lien:webViewLink,lienPdf,nom});
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
       setSortie({etat:'erreur',msg:c==='auth_required'
@@ -13254,21 +13437,24 @@ function MAP({data,ch,up}){
     <Fld label="OBSERVATIONS GÉNÉRALES"><textarea className="in" rows="3" value={m.notes||''} onChange={e=>set({notes:e.target.value})}/></Fld>
 
     <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+TERRA}}>
-      <div className="b sm" style={{color:TERRA}}>Compte-rendu de MAP (Word)</div>
+      <div className="b sm" style={{color:TERRA}}>Compte-rendu de MAP (Word et PDF)</div>
       <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
-        Reprend les 11 sections telles que remplies ci-dessus, prêt à imprimer et faire signer sur place.
+        Reprend les 11 sections telles que remplies ci-dessus et le suivi, prêt à imprimer et faire signer sur place.
         {m.sortieLe?<span> Dernière sortie le {fd(m.sortieLe)}.</span>:null}
       </div>
       <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
         <button className="btn acc s" disabled={sortie&&sortie.etat==='travail'} onClick={produire}>
-          {sortie&&sortie.etat==='travail'?'Composition…':'Sortir la MAP (Word)'}</button>
+          {sortie&&sortie.etat==='travail'?'Composition…':'Sortir la MAP (Word + PDF)'}</button>
         {sortie&&sortie.etat==='ok'&&<a href={sortie.lien} target="_blank" rel="noreferrer" className="btn gh s"
           style={{textDecoration:'none'}}>Ouvrir</a>}
+        {sortie&&sortie.etat==='ok'&&sortie.lienPdf&&<a href={sortie.lienPdf} target="_blank" rel="noreferrer" className="btn gh s"
+          style={{textDecoration:'none'}}>PDF</a>}
       </div>
       {sortie&&sortie.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
         Déposé dans Drive › {ch.nom} › MAP — {sortie.nom}</div>}
       {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
     </div>
+    <SortiesMap data={data} ch={ch} m={m} set={set}/>
     <FicheMapPapier data={data} ch={ch} m={m} set={set}/>
     <ImportFicheMap data={data} ch={ch} m={m} set={set}/>
     <SuiviMap m={m} set={set}/>
