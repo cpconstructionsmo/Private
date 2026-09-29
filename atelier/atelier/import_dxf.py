@@ -17,7 +17,12 @@ from ezdxf import bbox
 
 from .geometrie import BlocOuverture, Cote, PlanBrut, Texte
 
-CALQUES_EXCLUS = r"cot|dim|text|txt|hach|hatch|mob|ameub|furn|sanit|equip|axe|grille|cadre|cartouche|vp\b|defpoint"
+CALQUES_EXCLUS = (r"cot|dim|text|txt|hach|hatch|mob|ameub|furn|sanit|equip|axe|grille|cadre|cartouche|vp\b|defpoint"
+                  r"|symbol|stair|escal|annotation|quotation|beam|post|poutre|poteau|roof|toit|deck|elevation|arrow|fl[eè]che")
+# calques dont les contours fermés dessinent les murs en aplats (Cedreo, Archicad…)
+CALQUES_MURS = r"^(walls?|murs?|cloisons?|partitions?|ma[cç]onnerie)$|\bwall|\bmur"
+# calques des baies dessinées (Cedreo : WALL_OPENINGS)
+CALQUES_BAIES = r"opening|ouverture|menuis|baie|window|fen[eê]tre|door|porte"
 RE_BLOC_OUVERTURE = r"porte|door|fen|window|chassis|baie|coulissant|garage|sectionn|\bpf\b|pf\d|oscillo"
 UNITES = {1: 0.0254, 2: 0.3048, 4: 0.001, 5: 0.01, 6: 1.0, 14: 0.1}
 
@@ -37,14 +42,53 @@ def lire_dxf(chemin: str, calques_exclus: str = CALQUES_EXCLUS) -> tuple[PlanBru
                      "À confirmer sur une cote connue : si c'est faux, toutes les surfaces sont fausses.")
     exclus = re.compile(calques_exclus, re.I)
     segments = []
+    # 1. murs dessinés en aplats : leurs contours fermés, réunis en une masse
+    #    (un logiciel comme Cedreo découpe chaque mur en morceaux, parfois en
+    #    double : on ne garde que le contour de leur réunion)
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    re_murs, re_baies = re.compile(CALQUES_MURS, re.I), re.compile(CALQUES_BAIES, re.I)
+
+    def contour_ferme(e):
+        if e.dxftype() == "LWPOLYLINE" and e.closed:
+            pts = [(p[0] * k, p[1] * k) for p in e.get_points("xy")]
+        elif e.dxftype() == "POLYLINE" and e.is_closed:
+            pts = [(v.dxf.location.x * k, v.dxf.location.y * k) for v in e.vertices]
+        else:
+            return None
+        if len(pts) < 3:
+            return None
+        g = Polygon(pts).buffer(0)
+        return g if g.area > 1e-6 else None
+
+    aplats, baies_dessinees = [], []
+    for e in msp:
+        calque = e.dxf.get("layer", "0")
+        if re_baies.search(calque):
+            g = contour_ferme(e)
+            if g is not None:
+                baies_dessinees.append(g)
+        elif re_murs.search(calque):
+            g = contour_ferme(e)
+            if g is not None:
+                aplats.append(g)
+    masse_murs = None
+    if len(aplats) >= 4:
+        masse_murs = unary_union(aplats).buffer(0.002, join_style=2).buffer(-0.002, join_style=2)
+        for poly in (masse_murs.geoms if hasattr(masse_murs, "geoms") else [masse_murs]):
+            for anneau in [poly.exterior, *poly.interiors]:
+                c = list(anneau.simplify(0.002).coords)
+                segments += [(a, b) for a, b in zip(c, c[1:]) if math.dist(a, b) > 0.004]
+        notes.append(f"Murs lus en aplats sur le calque des murs ({len(aplats)} morceaux réunis) ; "
+                     "mobilier, escaliers et symboles ignorés.")
 
     def ajoute(p, q):
         segments.append(((p[0] * k, p[1] * k), (q[0] * k, q[1] * k)))
 
-    for e in msp:
+    for e in (msp if masse_murs is None else []):
         calque = e.dxf.get("layer", "0")
         t = e.dxftype()
-        if t in ("LINE", "LWPOLYLINE", "POLYLINE") and exclus.search(calque):
+        if t in ("LINE", "LWPOLYLINE", "POLYLINE") and (exclus.search(calque) or re_baies.search(calque)):
             continue
         if t == "LINE":
             ajoute(e.dxf.start, e.dxf.end)
@@ -65,8 +109,8 @@ def lire_dxf(chemin: str, calques_exclus: str = CALQUES_EXCLUS) -> tuple[PlanBru
             txt, p = e.plain_text(), e.dxf.insert
         # le point d'insertion est un coin : on vise le milieu approximatif
         textes.append(Texte(texte=" ".join(txt.split()), x=p.x * k, y=p.y * k))
-    # regrouper en une ligne les textes superposés d'une même pièce (nom + surface)
-    textes = _regrouper(textes)
+    # les textes restent séparés : nom et surface d'une pièce sont reconnus chacun dans
+    # la pièce, et une allège écrite sous une baie (« 1.10 ») ne doit pas se coller à sa taille
 
     blocs = []
     for e in msp.query("INSERT"):
@@ -92,7 +136,8 @@ def lire_dxf(chemin: str, calques_exclus: str = CALQUES_EXCLUS) -> tuple[PlanBru
         texte = "" if texte in ("<>", " ") else texte
         cotes.append(Cote(mesure=mesure, texte=texte, p1=(p1.x * k, p1.y * k), p2=(p2.x * k, p2.y * k),
                           horizontale=horiz, ligne=(ligne_pt.y if horiz else ligne_pt.x) * k))
-    return PlanBrut(segments=segments, textes=textes, blocs=blocs, cotes=cotes, origine=chemin.split("/")[-1]), notes
+    return PlanBrut(segments=segments, textes=textes, blocs=blocs, cotes=cotes, origine=chemin.split("/")[-1],
+                    baies_dessinees=[list(g.exterior.coords) for g in baies_dessinees]), notes
 
 
 def _regrouper(textes: list[Texte], d=0.6) -> list[Texte]:

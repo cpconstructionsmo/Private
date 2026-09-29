@@ -221,7 +221,7 @@ function legende() {
 
 // ---------- listes
 
-const LIB_ECARTS = { surface: 'Surface écrite ≠ surface calculée', 'piece-sans-nom': 'Surface fermée sans nom',
+const LIB_ECARTS = { surface: 'Surface écrite ≠ surface calculée', 'piece-sans-nom': 'Surface fermée sans nom', 'usage-inconnu': 'Usage de la pièce à préciser',
   'cote-forcee': 'Cote forcée', 'chaine-de-cotes': 'Chaîne de cotes incohérente' };
 
 function blocEcarts(p) {

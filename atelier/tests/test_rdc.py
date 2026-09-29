@@ -149,3 +149,28 @@ def test_separation_porte_d_angle():
     assert r is not None
     ligne, parts = r
     assert len(parts) == 2 and abs(ligne.length - 0.9) < 0.01
+
+
+def test_dxf_facon_cedreo(tmp_path, projet):
+    """Murs en aplats sur leur calque, baies dessinées, mobilier ignoré, noms
+    par défaut gardés, tailles en notation Cedreo."""
+    dossier, p = projet
+    f = tmp_path / "cedreo.dxf"
+    C.ecrire_dxf_cedreo(str(f))
+    p, notes = importer_rdc(p, str(f))
+    assert any("aplats" in n for n in notes)
+    n = p.batiment.niveaux[0]
+    noms = {x.nom: x for x in n.pieces}
+    attendu = dict(C.ATTENDU["pieces"])
+    attendu["Pièce 1"] = attendu.pop("Chambre 2")
+    assert set(noms) == set(attendu), list(noms)                  # ni table ni escalier pris pour des murs
+    for nom, s in attendu.items():
+        assert abs(noms[nom].surface_calculee - s) < 0.02, (nom, noms[nom].surface_calculee)
+    assert any(e["genre"] == "usage-inconnu" and e["piece"] == "Pièce 1" for e in p.ecarts_rdc)
+    ext = [o for o in n.ouvertures if o.exterieure]
+    assert len(ext) == 7 and len(n.ouvertures) == len(C.OUVERTURES)
+    lues = {(o.largeur.valeur, o.hauteur.valeur, o.allege.valeur) for o in ext if o.hauteur.statut == Statut.CONFIRME}
+    assert {(1.8, 2.15, 0.0), (1.0, 1.25, 0.9), (0.6, 0.75, 1.4)} <= lues, lues
+    b = bilan_surfaces(p)
+    assert abs(b["surface_plancher"]["valeur"].valeur - C.ATTENDU["surface_plancher"]) < 0.05
+    assert abs(b["emprise_sol"]["valeur"].valeur - C.ATTENDU["emprise_sol"]) < 0.02

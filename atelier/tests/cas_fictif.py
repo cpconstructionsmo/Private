@@ -194,3 +194,45 @@ def ecrire_terrain_pdf(chemin: str, echelle=200, avec_maison=True):
         sh.finish(color=(0, 0, 0), width=0.7, dashes="[3 1.5] 0", closePath=True)
         sh.commit()
     doc.save(chemin)
+
+
+def ecrire_dxf_cedreo(chemin: str):
+    """Le même RDC exporté comme le fait Cedreo : en centimètres ; murs en
+    morceaux fermés (certains en double), continus au droit des baies ;
+    baies sur leur propre calque (un rectangle dans le mur, un autre pour le
+    débattement) ; mobilier et escalier sur SYMBOLS ; noms de pièces sans
+    surface (dont un nom par défaut, « Pièce 1 ») ; tailles des baies en
+    notation Cedreo (« 180/2.15 », « 100/1.25 » et l'allège « 0.90 » à part)."""
+    doc = ezdxf.new("R2018")
+    doc.header["$INSUNITS"] = 5   # centimètres
+    for c in ("WALLS", "WALL_OPENINGS", "SYMBOLS", "ROOMS", "QUOTATIONS"):
+        doc.layers.add(c)
+    msp = doc.modelspace()
+    cm = lambda p: (p[0] * 100, p[1] * 100)
+
+    def rect(g, calque):
+        msp.add_lwpolyline([cm(p) for p in list(g.exterior.coords)[:-1]], close=True, dxfattribs={"layer": calque})
+
+    morceaux = [box(0, 0, 12, 0.3), box(0, 8.7, 12, 9), box(0, 0.3, 0.3, 8.7), box(11.7, 0.3, 12, 8.7),
+                box(7.7, 0.3, 7.8, 8.7), box(0.3, 3.6, 7.7, 3.7), box(7.8, 5.2, 11.7, 5.3), box(7.8, 2.9, 11.7, 3.0)]
+    for i, g in enumerate(morceaux):
+        rect(g, "WALLS")
+        if i % 2 == 0:
+            rect(g, "WALLS")          # Cedreo exporte certains morceaux en double
+    for (x0, y0, x1, y1), _ in OUVERTURES:
+        rect(box(x0, y0, x1, y1), "WALL_OPENINGS")
+        # le débattement, côté intérieur
+        if y1 - y0 < x1 - x0:
+            rect(box(x0, y1, x1, y1 + 0.6) if y0 < 1 else box(x0, y0 - 0.6, x1, y0), "WALL_OPENINGS")
+        else:
+            rect(box(x1, y0, x1 + 0.6, y1) if x0 < 1 else box(x0 - 0.6, y0, x0, y1), "WALL_OPENINGS")
+    rect(box(2, 5, 4, 6), "SYMBOLS")                  # table
+    for k in range(8):                                # marches d'escalier
+        msp.add_line(cm((5 + k * 0.25, 4)), cm((5 + k * 0.25, 5)), dxfattribs={"layer": "SYMBOLS"})
+    for nom, _, x, y in PIECES:
+        msp.add_text("Pièce 1" if nom == "Chambre 2" else nom, height=20,
+                     dxfattribs={"layer": "ROOMS"}).set_placement(cm((x, y)))
+    for texte, x, y in (("180/2.15", 5.9, 9.6), ("100/1.25", 12.6, 6.9), ("0.90", 12.6, 6.9),
+                        ("60/75", 12.6, 4.1), ("1.40", 12.6, 4.1)):
+        msp.add_text(texte, height=15, dxfattribs={"layer": "QUOTATIONS"}).set_placement(cm((x, y)))
+    doc.saveas(chemin)
