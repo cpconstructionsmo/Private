@@ -13,7 +13,7 @@ const html=fs.readFileSync(path.join(RACINE,'index.html'),'utf8');
 const src=html.slice(html.indexOf('function MAP({data,ch,up}){'),html.indexOf('/* ---------------- VISITE TECHNIQUE'));
 const cles=new Set([...src.matchAll(/\bk="(\w+)"/g)].map(x=>x[1]).concat([...src.matchAll(/set\(\{(\w+):/g)].map(x=>x[1])));
 /* ce qui n'est pas une saisie du rendez-vous : fichiers déposés, date de sortie */
-['lienPlan','lienSignee','sortieLe','fiches','validations'].forEach(k=>cles.delete(k));
+['lienPlan','lienSignee','sortieLe','fiches','validations','receveurVariante'].forEach(k=>cles.delete(k));
 const schema=new Set(M.MAP_FICHE.flatMap(s=>s.f.map(f=>f.k)));
 const manquants=[...cles].filter(k=>!schema.has(k)), enTrop=[...schema].filter(k=>!cles.has(k));
 chk(!manquants.length,'chaque champ de l’onglet MAP est sur la fiche'+(manquants.length?' — manquent : '+manquants.join(', '):''));

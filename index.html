@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · MAP : terrasses et aménagements extérieurs, ouvrages uniques et budget partagé';
+const VERSION='2026-09-29 · Receveurs : catalogue de référence par variante, références sourcées, codes Ébat Pro vérifiés ou non, import fournisseur';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5123,7 +5123,8 @@ function mapLignes(ch,data){
     ['Émetteurs RDC',m.emetteursRdc],['Émetteurs étage',m.emetteursEtage],
     ['Production d’eau chaude',m.ecsMode],['VMC',m.vmcType],['Marque / modèle VMC',m.vmcMarque],
     ['Appareillage électrique — gamme',m.electriciteGamme],['Options électriques',m.electriciteOptions],
-    ['Baignoire',nomProduit(m.baignoireProduit)],['Receveur',nomProduit(m.receveurProduit)],
+    ['Baignoire',nomProduit(m.baignoireProduit)],['Receveur',[nomProduit(m.receveurProduit),(()=>{const vv=produitVariante(data,m.receveurProduit,m.receveurVariante);
+      return vv?varianteLibelle(vv)+' ('+varianteRefs(vv)+')':''})()].filter(Boolean).join(' — ')],
     ['Dimensions receveur',m.receveurDimensions],['Coloris receveur',m.receveurColoris],
     ['Douche',m.douche],['WC',m.wcType],['Lave-mains',m.laveMains?'Oui':''],
     ['Meuble vasque',nomProduit(m.meubleVasqueProduit)],['Largeur meuble vasque',m.meubleVasqueLargeur],
@@ -12282,7 +12283,12 @@ function ficheValeurActuelle(f,m,data){
   const produit=id=>{const p=((data&&data.produits)||[]).find(x=>x.id===id);return p?[p.nom,p.marque].filter(Boolean).join(' — '):''};
   if(f.t==='b')return v===true?'Oui':v===false?'Non':'';
   if(f.t==='m')return Array.isArray(v)?v.join(', '):'';
-  if(f.t==='p')return v?produit(v):'';
+  if(f.t==='p'){
+    /* un produit à variantes : la variante retenue suit son nom */
+    const va=v&&m[f.k.replace(/Produit$/,'Variante')];
+    const vv=va&&produitVariante(data,v,va);
+    return v?produit(v)+(vv?' — '+varianteLibelle(vv):''):'';
+  }
   if(f.t==='d')return v?fd(v):'';
   return v==null?'':String(v);
 }
@@ -13979,7 +13985,8 @@ function MAP({data,ch,up}){
       <MapTxt m={m} set={set} k="electriciteGamme" label="APPAREILLAGE ÉLECTRIQUE — GAMME" ph="Schneider…"/>
       <MapMulti m={m} set={set} k="electriciteOptions" label="OPTIONS ÉLECTRIQUES" opts={MAP_ELEC_OPTIONS}/>
       <ChoixProduit data={data} k="baignoireProduit" lot="Plomberie / sanitaire" value={m.baignoireProduit} onChange={v=>set({baignoireProduit:v})} label="BAIGNOIRE"/>
-      <ChoixProduit data={data} k="receveurProduit" lot="Plomberie / sanitaire" value={m.receveurProduit} onChange={v=>set({receveurProduit:v})} label="RECEVEUR DE DOUCHE"/>
+      <ChoixProduit data={data} k="receveurProduit" lot="Plomberie / sanitaire" value={m.receveurProduit} onChange={v=>set({receveurProduit:v,receveurVariante:''})} label="RECEVEUR DE DOUCHE"/>
+      <ChoixVariante data={data} m={m} set={set} k="receveurVariante" kProduit="receveurProduit"/>
       <div className="g2">
         <MapTxt m={m} set={set} k="receveurDimensions" label="DIMENSIONS RECEVEUR" ph="90×120…"/>
         <MapTxt m={m} set={set} k="receveurColoris" label="COLORIS RECEVEUR"/>
@@ -15517,6 +15524,379 @@ async function driveProduitsFolder(token){
   driveProduitsId=await driveFindOrCreateSubfolder(token,rootId,'Fiches produits');
   return driveProduitsId;
 }
+/* ---------- catalogue de référence : receveurs de douche ----------
+   Des gammes de receveurs à ajouter au catalogue des produits, variante par
+   variante (dimensions, coloris, finition). Pour chaque variante, on garde
+   séparément la référence du fabricant, les références publiques relevées
+   (avec leur source et leur date) et le code article Ébat Pro — qui n'est
+   « vérifié » que s'il vient de votre compte (import d'un export ou d'un
+   devis, ou saisie cochée comme vérifiée). Rien n'est inventé : un champ que
+   la documentation ne donne pas reste vide ou « à vérifier ».
+   Acquabella Compact : relevé dans la fiche du dépôt
+   (assets/ptr/docs/Acquabella_Compact_Granite_Epur.pdf, catalogue
+   distributeur non daté, « disponible uniquement jusqu'à épuisement des
+   stocks »). Chaque ligne : longueur, largeur (cm), hauteur (mm), cote C du
+   schéma (mm), coloris, référence fabricant, référence publique (format
+   Aubade), page du fichier, et 1 si le lien entre les deux références est
+   établi (même écart de numérotation que toute sa série — au moins un groupe complet de six coloris), 0 s'il ne tient
+   qu'à l'ordre des lignes des deux tableaux. */
+const CATALOGUE_ACQUABELLA_COMPACT={
+  granite:[
+    [100, 80, 27, 250, "blanc", "53021465", "A11726070", 3, 1],[100, 80, 27, 250, "beige", "53021464", "A11726069", 3, 1],[100, 80, 27, 250, "marfil", "53021490", "A11726095", 3, 1],
+    [100, 80, 27, 250, "gris", "53021466", "A11726071", 3, 1],[100, 80, 27, 250, "noir", "53021468", "A11726073", 3, 1],[100, 80, 27, 250, "lava", "53021467", "A11726072", 3, 1],
+    [120, 80, 27, 250, "blanc", "53018931", "A10437761", 3, 1],[120, 80, 27, 250, "beige", "53018925", "A10437755", 3, 1],[120, 80, 27, 250, "marfil", "53021484", "A11726089", 3, 1],
+    [120, 80, 27, 250, "gris", "53018938", "A10437768", 3, 1],[120, 80, 27, 250, "noir", "53018949", "A10437779", 3, 1],[120, 80, 27, 250, "lava", "53018944", "A10437774", 3, 1],
+    [140, 80, 28, 550, "blanc", "53021470", "A11726075", 3, 1],[140, 80, 28, 550, "beige", "53021469", "A11726074", 3, 1],[140, 80, 28, 550, "marfil", "53021491", "A11726096", 3, 1],
+    [140, 80, 28, 550, "gris", "53021471", "A11726076", 3, 1],[140, 80, 28, 550, "noir", "53021473", "A11726078", 3, 1],[140, 80, 28, 550, "lava", "53021472", "A11726077", 3, 1],
+    [160, 80, 28, 550, "blanc", "53021475", "A11726080", 3, 1],[160, 80, 28, 550, "beige", "53021474", "A11726079", 3, 1],[160, 80, 28, 550, "marfil", "53021492", "A11726097", 3, 1],
+    [160, 80, 28, 550, "gris", "53021476", "A11726081", 3, 1],[160, 80, 28, 550, "noir", "53021478", "A11726083", 3, 1],[160, 80, 28, 550, "lava", "53021477", "A11726082", 3, 1],
+    [180, 80, 29, 550, "blanc", "53028892", "A14975282", 3, 1],[180, 80, 29, 550, "beige", "53028891", "A14975281", 3, 1],[180, 80, 29, 550, "marfil", "53028896", "A14975286", 3, 1],
+    [180, 80, 29, 550, "gris", "53028893", "A14975283", 3, 1],[180, 80, 29, 550, "noir", "53028895", "A14975285", 3, 1],[180, 80, 29, 550, "lava", "53028894", "A14975284", 3, 1],
+    [90, 90, 25, 450, "blanc", "53018935", "A10437765", 5, 1],[90, 90, 25, 450, "beige", "53018929", "A10437759", 5, 1],[90, 90, 25, 450, "marfil", "53021488", "A11726093", 5, 1],
+    [90, 90, 25, 450, "gris", "53018937", "A10437767", 5, 1],[90, 90, 25, 450, "noir", "53018953", "A10437783", 5, 1],[90, 90, 25, 450, "lava", "53018943", "A10437773", 5, 1],
+    [120, 90, 27, 250, "blanc", "53018932", "A10437762", 5, 1],[120, 90, 27, 250, "beige", "53018926", "A10437756", 5, 1],[120, 90, 27, 250, "marfil", "53021485", "A11726090", 5, 1],
+    [120, 90, 27, 250, "gris", "53018939", "A10437769", 5, 1],[120, 90, 27, 250, "noir", "53018950", "A10437780", 5, 1],[120, 90, 27, 250, "lava", "53018945", "A10437775", 5, 1],
+    [140, 90, 28, 550, "blanc", "53018933", "A10437763", 5, 1],[140, 90, 28, 550, "beige", "53018927", "A10437757", 5, 1],[140, 90, 28, 550, "marfil", "53021486", "A11726091", 5, 1],
+    [140, 90, 28, 550, "gris", "53018940", "A10437770", 5, 1],[140, 90, 28, 550, "noir", "53018951", "A10437781", 5, 1],[140, 90, 28, 550, "lava", "53018946", "A10437776", 5, 1],
+    [160, 90, 29, 550, "blanc", "53018936", "A10437766", 5, 1],[160, 90, 29, 550, "beige", "53018930", "A10437760", 5, 1],[160, 90, 29, 550, "marfil", "53021489", "A11726094", 5, 1],
+    [160, 90, 29, 550, "gris", "53018942", "A10437772", 5, 1],[160, 90, 29, 550, "noir", "53018954", "A10437784", 5, 1],[160, 90, 29, 550, "lava", "53018947", "A10437777", 5, 1],
+    [180, 90, 29, 550, "blanc", "53018934", "A10437764", 5, 1],[180, 90, 29, 550, "beige", "53018928", "A10437758", 5, 1],[180, 90, 29, 550, "marfil", "53021487", "A11726092", 5, 1],
+    [180, 90, 29, 550, "gris", "53018941", "A10437771", 5, 1],[180, 90, 29, 550, "noir", "53018952", "A10437782", 5, 1],[180, 90, 29, 550, "lava", "53018948", "A10437778", 5, 1],
+    [200, 90, 29, 550, "blanc", "53043566", "A16873907", 5, 1],[200, 90, 29, 550, "beige", "53043565", "A16873906", 5, 1],[200, 90, 29, 550, "marfil", "53043570", "A16873911", 5, 1],
+    [200, 90, 29, 550, "gris", "53043567", "A16873908", 5, 1],[200, 90, 29, 550, "noir", "53043569", "A16873910", 5, 1],[200, 90, 29, 550, "lava", "53043568", "A16873909", 5, 1],
+    [100, 100, 25, 500, "blanc", "53043578", "A16873919", 7, 1],[100, 100, 25, 500, "beige", "53043577", "A16873918", 7, 1],[100, 100, 25, 500, "marfil", "53043582", "A16873923", 7, 1],
+    [100, 100, 25, 500, "gris", "53043579", "A16873920", 7, 1],[100, 100, 25, 500, "noir", "53043581", "A16873922", 7, 1],[100, 100, 25, 500, "lava", "53043580", "A16873921", 7, 1],
+    [120, 100, 27, 250, "blanc", "53027616", "A13668657", 7, 1],[120, 100, 27, 250, "beige", "53027617", "A13668658", 7, 1],[120, 100, 27, 250, "marfil", "53027621", "A13668662", 7, 1],
+    [120, 100, 27, 250, "gris", "53027618", "A13668659", 7, 1],[120, 100, 27, 250, "noir", "53027620", "A13668661", 7, 1],[120, 100, 27, 250, "lava", "53027619", "A13668660", 7, 1],
+    [140, 100, 27, 550, "blanc", "53027622", "A13668663", 7, 1],[140, 100, 27, 550, "beige", "53027623", "A13668664", 7, 1],[140, 100, 27, 550, "marfil", "53027627", "A13668668", 7, 1],
+    [140, 100, 27, 550, "gris", "53027624", "A13668665", 7, 1],[140, 100, 27, 550, "noir", "53027626", "A13668667", 7, 1],[140, 100, 27, 550, "lava", "53027625", "A13668666", 7, 1],
+    [160, 100, 27, 550, "blanc", "53027628", "A13668669", 7, 1],[160, 100, 27, 550, "beige", "53027629", "A13668670", 7, 1],[160, 100, 27, 550, "marfil", "53027633", "A13668674", 7, 1],
+    [160, 100, 27, 550, "gris", "53027630", "A13668671", 7, 1],[160, 100, 27, 550, "noir", "53027632", "A13668673", 7, 1],[160, 100, 27, 550, "lava", "53027631", "A13668672", 7, 1],
+    [180, 100, 28, 550, "blanc", "53043607", "A16873949", 7, 0],[180, 100, 28, 550, "beige", "53043608", "A16873948", 7, 0],[180, 100, 28, 550, "marfil", "53043609", "A16873953", 7, 0],
+    [180, 100, 28, 550, "gris", "53043610", "A16873950", 7, 0],[180, 100, 28, 550, "noir", "53043611", "A16873952", 7, 1],[180, 100, 28, 550, "lava", "53043612", "A16873951", 7, 0],
+    [200, 100, 29, 550, "blanc", "53043619", "A16873961", 7, 0],[200, 100, 29, 550, "beige", "53043620", "A16873960", 7, 0],[200, 100, 29, 550, "marfil", "53043621", "A16873965", 7, 0],
+    [200, 100, 29, 550, "gris", "53043622", "A16873962", 7, 0],[200, 100, 29, 550, "noir", "53043623", "A16873964", 7, 1],[200, 100, 29, 550, "lava", "53043624", "A16873963", 7, 0],
+  ],
+  epur:[
+    [100, 80, 27, 250, "blanc", "53023269", "A12604065", 9, 1],[100, 80, 27, 250, "beige", "53023268", "A12604064", 9, 1],[100, 80, 27, 250, "marfil", "53023294", "A12604090", 9, 1],
+    [100, 80, 27, 250, "gris", "53023270", "A12604066", 9, 1],[100, 80, 27, 250, "noir", "53023272", "A12604068", 9, 1],[100, 80, 27, 250, "lava", "53023271", "A12604067", 9, 1],
+    [120, 80, 27, 250, "blanc", "53023234", "A12604040", 9, 1],[120, 80, 27, 250, "beige", "53023228", "A12604034", 9, 1],[120, 80, 27, 250, "marfil", "53023288", "A12604084", 9, 1],
+    [120, 80, 27, 250, "gris", "53023241", "A12604047", 9, 1],[120, 80, 27, 250, "noir", "53023252", "A12604058", 9, 1],[120, 80, 27, 250, "lava", "53023247", "A12604053", 9, 1],
+    [140, 80, 28, 550, "blanc", "53023274", "A12604070", 9, 1],[140, 80, 28, 550, "beige", "53023273", "A12604069", 9, 1],[140, 80, 28, 550, "marfil", "53023295", "A12604091", 9, 1],
+    [140, 80, 28, 550, "gris", "53023275", "A12604071", 9, 1],[140, 80, 28, 550, "noir", "53023277", "A12604073", 9, 1],[140, 80, 28, 550, "lava", "53023276", "A12604072", 9, 1],
+    [160, 80, 28, 550, "blanc", "53023279", "A12604075", 9, 1],[160, 80, 28, 550, "beige", "53023278", "A12604074", 9, 1],[160, 80, 28, 550, "marfil", "53023296", "A12604092", 9, 1],
+    [160, 80, 28, 550, "gris", "53023280", "A12604076", 9, 1],[160, 80, 28, 550, "noir", "53023282", "A12604078", 9, 1],[160, 80, 28, 550, "lava", "53023281", "A12604077", 9, 1],
+    [180, 80, 29, 550, "blanc", "53028898", "A14975288", 9, 1],[180, 80, 29, 550, "beige", "53028897", "A14975287", 9, 1],[180, 80, 29, 550, "marfil", "53028902", "A14975292", 9, 1],
+    [180, 80, 29, 550, "gris", "53028899", "A14975289", 9, 1],[180, 80, 29, 550, "noir", "53028901", "A14975291", 9, 1],[180, 80, 29, 550, "lava", "53028900", "A14975290", 9, 1],
+    [90, 90, 25, 450, "blanc", "53023238", "A12604044", 11, 1],[90, 90, 25, 450, "beige", "53023232", "A12604038", 11, 1],[90, 90, 25, 450, "marfil", "53023292", "A12604088", 11, 1],
+    [90, 90, 25, 450, "gris", "53023240", "A12604046", 11, 1],[90, 90, 25, 450, "noir", "53023256", "A12604062", 11, 1],[90, 90, 25, 450, "lava", "53023246", "A12604052", 11, 1],
+    [120, 90, 27, 250, "blanc", "53023235", "A12604041", 11, 1],[120, 90, 27, 250, "beige", "53023229", "A12604035", 11, 1],[120, 90, 27, 250, "marfil", "53023289", "A12604085", 11, 1],
+    [120, 90, 27, 250, "gris", "53023242", "A12604048", 11, 1],[120, 90, 27, 250, "noir", "53023253", "A12604059", 11, 1],[120, 90, 27, 250, "lava", "53023248", "A12604054", 11, 1],
+    [140, 90, 28, 550, "blanc", "53023236", "A12604042", 11, 1],[140, 90, 28, 550, "beige", "53023230", "A12604036", 11, 1],[140, 90, 28, 550, "marfil", "53023290", "A12604086", 11, 1],
+    [140, 90, 28, 550, "gris", "53023243", "A12604049", 11, 1],[140, 90, 28, 550, "noir", "53023254", "A12604060", 11, 1],[140, 90, 28, 550, "lava", "53023249", "A12604055", 11, 1],
+    [160, 90, 29, 550, "blanc", "53023239", "A12604045", 11, 1],[160, 90, 29, 550, "beige", "53023233", "A12604039", 11, 1],[160, 90, 29, 550, "marfil", "53023293", "A12604089", 11, 1],
+    [160, 90, 29, 550, "gris", "53023245", "A12604051", 11, 1],[160, 90, 29, 550, "noir", "53023257", "A12604063", 11, 1],[160, 90, 29, 550, "lava", "53023250", "A12604056", 11, 1],
+    [180, 90, 29, 550, "blanc", "53023237", "A12604043", 11, 1],[180, 90, 29, 550, "beige", "53023231", "A12604037", 11, 1],[180, 90, 29, 550, "marfil", "53023291", "A12604087", 11, 1],
+    [180, 90, 29, 550, "gris", "53023244", "A12604050", 11, 1],[180, 90, 29, 550, "noir", "53023255", "A12604061", 11, 1],[180, 90, 29, 550, "lava", "53023251", "A12604057", 11, 1],
+    [200, 90, 29, 550, "blanc", "53043572", "A16873913", 11, 1],[200, 90, 29, 550, "beige", "53043571", "A16873912", 11, 1],[200, 90, 29, 550, "marfil", "53043576", "A16873917", 11, 1],
+    [200, 90, 29, 550, "gris", "53043573", "A16873914", 11, 1],[200, 90, 29, 550, "noir", "53043575", "A16873916", 11, 1],[200, 90, 29, 550, "lava", "53043574", "A16873915", 11, 1],
+    [100, 100, 25, 500, "blanc", "53043584", "A16873925", 13, 1],[100, 100, 25, 500, "beige", "53043583", "A16873924", 13, 1],[100, 100, 25, 500, "marfil", "53043588", "A16873929", 13, 1],
+    [100, 100, 25, 500, "gris", "53043585", "A16873926", 13, 1],[100, 100, 25, 500, "noir", "53043587", "A16873928", 13, 1],[100, 100, 25, 500, "lava", "53043586", "A16873927", 13, 1],
+    [120, 100, 27, 250, "blanc", "53043589", "A16873930", 13, 1],[120, 100, 27, 250, "beige", "53043590", "A16873931", 13, 1],[120, 100, 27, 250, "marfil", "53043594", "A16873935", 13, 1],
+    [120, 100, 27, 250, "gris", "53043591", "A16873932", 13, 1],[120, 100, 27, 250, "noir", "53043593", "A16873934", 13, 1],[120, 100, 27, 250, "lava", "53043592", "A16873933", 13, 1],
+    [140, 100, 27, 550, "blanc", "53043595", "A16873936", 13, 1],[140, 100, 27, 550, "beige", "53043596", "A16873937", 13, 1],[140, 100, 27, 550, "marfil", "53043600", "A16873941", 13, 1],
+    [140, 100, 27, 550, "gris", "53043597", "A16873938", 13, 1],[140, 100, 27, 550, "noir", "53043599", "A16873940", 13, 1],[140, 100, 27, 550, "lava", "53043598", "A16873939", 13, 1],
+    [160, 100, 27, 550, "blanc", "53043601", "A16873942", 13, 1],[160, 100, 27, 550, "beige", "53043602", "A16873943", 13, 1],[160, 100, 27, 550, "marfil", "53043606", "A16873947", 13, 1],
+    [160, 100, 27, 550, "gris", "53043603", "A16873944", 13, 1],[160, 100, 27, 550, "noir", "53043605", "A16873946", 13, 1],[160, 100, 27, 550, "lava", "53043604", "A16873945", 13, 1],
+    [180, 100, 28, 550, "blanc", "53043614", "A16873955", 13, 1],[180, 100, 28, 550, "beige", "53043613", "A16873954", 13, 1],[180, 100, 28, 550, "marfil", "53043618", "A16873959", 13, 1],
+    [180, 100, 28, 550, "gris", "53043615", "A16873956", 13, 1],[180, 100, 28, 550, "noir", "53043617", "A16873958", 13, 1],[180, 100, 28, 550, "lava", "53043616", "A16873957", 13, 1],
+    [200, 100, 29, 550, "blanc", "53043626", "A16873967", 13, 1],[200, 100, 29, 550, "beige", "53043625", "A16873966", 13, 1],[200, 100, 29, 550, "marfil", "53043630", "A16873971", 13, 1],
+    [200, 100, 29, 550, "gris", "53043627", "A16873968", 13, 1],[200, 100, 29, 550, "noir", "53043629", "A16873970", 13, 1],[200, 100, 29, 550, "lava", "53043628", "A16873969", 13, 1],
+  ],
+};
+const RECEVEURS_FICHE_ACQ='assets/ptr/docs/Acquabella_Compact_Granite_Epur.pdf';
+const RECEVEURS_ACQ_CARAC={
+  materiau:'Akron, mélange de résine de polyuréthane et minéraux',surface:'Antidérapante PN24',
+  norme:'EN 14527, classe 1 (usage domestique)',
+  pose:'Sur supports d’élévation réglables, selon le schéma de pose du fabricant',
+  recoupable:'Non documenté dans la fiche du dépôt : à vérifier avant de promettre une découpe',
+  bonde:'Bonde à sortie horizontale et grille résine assortie, livrées (débit indiqué : 18 à 22 l/min, essai fabricant sur 120 × 90)',
+  accessoiresInclus:'Bonde à sortie horizontale, grille résine assortie',
+  accessoiresNecessaires:'Supports d’élévation et adhésif polyuréthane selon la notice : à confirmer',
+};
+const RECEVEURS_A_COMPLETER={materiau:'',surface:'',norme:'',pose:'',recoupable:'À vérifier sur la fiche fabricant',bonde:'',
+  accessoiresInclus:'',accessoiresNecessaires:'À vérifier sur la fiche fabricant'};
+/* les références publiques relevées sur les pages espace-aubade.fr le
+   29/09/2026, par vous — pas vérifiées depuis l'application (site
+   inaccessible depuis l'environnement de développement) */
+const RECEVEURS_RELEVES_WEB={
+  'acq-granite-120x80-blanc':{ref:'A20670919',source:'https://www.espace-aubade.fr/salle-de-bain/douche-receveur/receveur-compact.html'},
+};
+const CATALOGUE_RECEVEURS=[
+  ...['granite','epur'].map(fin=>({cle:'acquabella_compact_'+fin,nom:'Receveur Acquabella Compact — finition '+(fin==='granite'?'Granite':'Epur'),
+    marque:'Acquabella',gamme:'Compact '+(fin==='granite'?'Granite':'Epur'),caracteristiques:RECEVEURS_ACQ_CARAC,
+    fiche:{lien:RECEVEURS_FICHE_ACQ,nom:'Fiche Acquabella Compact Granite et Epur.pdf'},
+    source:'Fiche du dépôt ('+RECEVEURS_FICHE_ACQ+'), catalogue distributeur non daté, stock limité',
+    variantes:CATALOGUE_ACQUABELLA_COMPACT[fin].map(([L,l,h,c,col,fab,pub,page,etabli])=>{
+      const cle='acq-'+fin+'-'+L+'x'+l+'-'+col;
+      const web=RECEVEURS_RELEVES_WEB[cle];
+      return {cle,finition:fin==='granite'?'Granite':'Epur',longueur:L,largeur:l,hauteur:h,coteC:c,coloris:col,
+        refFabricant:{ref:fab,lien:etabli?'etabli':'ordre',source:'Fiche du dépôt, page '+page},
+        refsPubliques:[{ref:pub,source:'Fiche du dépôt, page '+(page+1),date:'',statut:'document'},
+          ...(web?[{ref:web.ref,source:web.source,date:'2026-09-29',statut:'releve'}]:[])]};
+    })})),
+  {cle:'jacob_delafon_flight',nom:'Receveur Jacob Delafon Flight',marque:'Jacob Delafon',gamme:'Flight',caracteristiques:RECEVEURS_A_COMPLETER,
+    source:'Relevé sur la page publique espace-aubade.fr le 29/09/2026 — à vérifier',
+    variantes:[{cle:'jd-flight-120x80-blanc',finition:'',longueur:120,largeur:80,hauteur:40,coloris:'blanc antidérapant',
+      refFabricant:{ref:'',lien:'',source:''},
+      refsPubliques:[{ref:'A03000542',source:'https://www.espace-aubade.fr/salle-de-bain/douche-receveur/flight-extra-plat.html',date:'2026-09-29',statut:'releve'}]}]},
+  {cle:'bette_ultra_space',nom:'Receveur Bette BetteUltra Space',marque:'Bette',gamme:'BetteUltra Space',caracteristiques:RECEVEURS_A_COMPLETER,
+    source:'Relevé sur la page publique espace-aubade.fr le 29/09/2026 — à vérifier',
+    variantes:[{cle:'bette-ultraspace-120x80-salvia',finition:'',longueur:120,largeur:80,hauteur:'',coloris:'Salvia',
+      refFabricant:{ref:'',lien:'',source:''},
+      refsPubliques:[{ref:'A20762477',source:'https://www.espace-aubade.fr/salle-de-bain/douche-receveur/betteultra-space.html',date:'2026-09-29',statut:'releve'}]}]},
+];
+const RECEVEURS_LOT='Plomberie / sanitaire';
+/* une variante du catalogue, prête pour la fiche produit : identifiant
+   stable tiré de sa clé, code Ébat Pro vide et non vérifié, aucun prix */
+const receveurVariante=v=>({id:'var_'+v.cle.replace(/[^a-z0-9]+/gi,'_'),cle:v.cle,finition:v.finition||'',longueur:v.longueur,largeur:v.largeur,
+  hauteur:v.hauteur,coteC:v.coteC||'',coloris:v.coloris,refFabricant:{...v.refFabricant},refsPubliques:v.refsPubliques.map(r=>({...r})),
+  codeEbat:'',ebat:{statut:'non_verifie',le:'',source:''},prix:{},note:''});
+/* ajouter une gamme au catalogue des produits, ou la compléter : les
+   variantes déjà présentes (retouchées ou non) ne sont jamais écrasées */
+function receveursVersProduits(produits,cle){
+  const g=CATALOGUE_RECEVEURS.find(x=>x.cle===cle);
+  if(!g)return {produits,ajoutees:0};
+  const id='prod_'+g.cle;
+  const P=produits||[];
+  const exist=P.find(x=>x.id===id);
+  if(!exist){
+    const V=g.variantes.map(receveurVariante);
+    const p={id,nom:g.nom,lot:RECEVEURS_LOT,marque:g.marque,gamme:g.gamme,reference:'',coloris:'',
+      finitions:[...new Set(V.map(v=>v.coloris))],description:'',fiches:g.fiche?[{...g.fiche}]:[],
+      caracteristiques:{...g.caracteristiques},origine:{catalogue:g.cle,source:g.source,le:today()},variantes:V,maj:today()};
+    return {produits:[...P,p],ajoutees:V.length};
+  }
+  const deja=new Set((exist.variantes||[]).map(v=>v.cle||v.id));
+  const nouvelles=g.variantes.filter(v=>!deja.has(v.cle)).map(receveurVariante);
+  if(!nouvelles.length)return {produits:P,ajoutees:0};
+  return {produits:P.map(x=>x.id===id?{...x,variantes:[...(x.variantes||[]),...nouvelles],maj:today()}:x),ajoutees:nouvelles.length};
+}
+const varianteDims=v=>v?v.longueur+' × '+v.largeur+' cm'+(v.hauteur?' · h '+v.hauteur+' mm':''):'';
+const varianteLibelle=v=>v?[varianteDims(v),v.coloris,v.finition].filter(Boolean).join(' · '):'';
+const varianteRefs=v=>v?[v.refFabricant&&v.refFabricant.ref?'réf. fabricant '+v.refFabricant.ref:'',
+  ...(v.refsPubliques||[]).map(r=>'réf. '+r.ref),v.codeEbat?'Ébat Pro '+v.codeEbat+(v.ebat&&v.ebat.statut==='verifie'?'':' (non vérifié)'):''].filter(Boolean).join(' · '):'';
+const produitVariante=(data,produitId,varId)=>{const p=((data&&data.produits)||[]).find(x=>x.id===produitId);
+  return p&&(p.variantes||[]).find(v=>v.id===varId)||null};
+/* les dimensions écrites à la main (« 90×120 », « 120 x 90 cm ») */
+const dimsLues=s=>{const t=String(s||'').replace(',','.').match(/(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i);
+  if(!t)return null;let a=+t[1],b=+t[2];if(a>400||b>400){a/=10;b/=10}return [Math.max(a,b),Math.min(a,b)]};
+/* ce qu'il faut vérifier sur la variante retenue */
+function varianteAlertes(v,p,m){
+  const A=[];
+  if(!v)return A;
+  if(!v.codeEbat)A.push('Code article Ébat Pro non renseigné.');
+  else if(!v.ebat||v.ebat.statut!=='verifie')A.push('Code Ébat Pro '+v.codeEbat+' non vérifié dans votre compte.');
+  const pubs=[...new Set((v.refsPubliques||[]).map(r=>r.ref))];
+  if(pubs.length>1)A.push('Références publiques différentes relevées : '+pubs.join(' / ')+' — à confirmer.');
+  if((v.refsPubliques||[]).some(r=>r.statut==='releve'))A.push('Référence relevée sur le site public, non vérifiée par l’application.');
+  if(v.refFabricant&&v.refFabricant.ref&&v.refFabricant.lien==='ordre')A.push('Référence fabricant associée par l’ordre des lignes de la fiche : à confirmer.');
+  if(!(v.refFabricant&&v.refFabricant.ref))A.push('Référence fabricant à renseigner.');
+  const c=(p&&p.caracteristiques)||{};
+  if(/vérifier|confirmer/i.test(c.accessoiresNecessaires||''))A.push('Accessoires nécessaires : '+c.accessoiresNecessaires);
+  const d=m&&dimsLues(m.receveurDimensions);
+  if(d&&(d[0]!==Math.max(v.longueur,v.largeur)||d[1]!==Math.min(v.longueur,v.largeur)))
+    A.push('Dimensions saisies dans la MAP ('+m.receveurDimensions+') différentes de la variante ('+varianteDims(v)+').');
+  return A;
+}
+
+/* ---------- import d'un export fournisseur (CSV) ----------
+   Pas d'API supposée : un export de votre compte, un devis ou un catalogue
+   autorisé, enregistré en CSV. On lit les colonnes par leur titre, on
+   rapproche chaque ligne d'une variante par une référence qu'elles
+   partagent, et rien n'est appliqué sans votre accord. Le type des prix du
+   fichier est dit explicitement : prix d'achat professionnel, prix public,
+   ou ignorés — jamais confondus. */
+function importCsvLignes(texte){
+  const lignes=String(texte||'').replace(/^﻿/,'').split(/\r?\n/).filter(l=>l.trim());
+  if(!lignes.length)return {colonnes:[],lignes:[]};
+  const sep=[';','\t',','].map(s=>[s,(lignes[0].match(new RegExp(s==='\t'?'\t':'\\'+s,'g'))||[]).length]).sort((a,b)=>b[1]-a[1])[0][0];
+  const couper=l=>{const out=[];let cur='',q=false;
+    for(let i=0;i<l.length;i++){const c=l[i];
+      if(c==='"'){if(q&&l[i+1]==='"'){cur+='"';i++}else q=!q}
+      else if(c===sep&&!q){out.push(cur);cur=''}else cur+=c}
+    out.push(cur);return out.map(x=>x.trim())};
+  const tete=couper(lignes[0]).map(x=>deaccent(x).toLowerCase());
+  const col=re=>tete.findIndex(t=>re.test(t));
+  const iCode=col(/^(code( article)?|article|code ebat|code fournisseur|ref(erence)? (article|fournisseur))$/);
+  const iRef=col(/ref(erence)?( fabricant)?$|^ref/);
+  const iDes=col(/designation|libelle|description/);
+  const iPrix=col(/prix|tarif|p\.?u\.?|montant/);
+  return {colonnes:tete,iCode,iRef,iDes,iPrix,lignes:lignes.slice(1).map(couper).map(c=>({
+    code:iCode>=0?c[iCode]||'':'',ref:iRef>=0&&iRef!==iCode?c[iRef]||'':'',designation:iDes>=0?c[iDes]||'':'',
+    prix:iPrix>=0?mapMontant(String(c[iPrix]||'').replace(/[€\s]/g,'')):null,brut:c.join(' ')}))};
+}
+function importRapprocher(produit,lu){
+  const V=(produit&&produit.variantes)||[];
+  const cles=v=>[v.refFabricant&&v.refFabricant.ref,...(v.refsPubliques||[]).map(r=>r.ref),v.codeEbat].filter(Boolean);
+  const trouvees=[],inconnues=[];
+  (lu.lignes||[]).forEach(l=>{
+    const txt=' '+[l.code,l.ref,l.designation,l.brut].join(' ')+' ';
+    const v=V.find(x=>cles(x).some(k=>new RegExp('[^A-Za-z0-9]'+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'[^A-Za-z0-9]').test(txt)));
+    if(v)trouvees.push({varId:v.id,libelle:varianteLibelle(v),ligne:l});else inconnues.push(l);
+  });
+  return {trouvees,inconnues};
+}
+/* appliquer un rapprochement accepté : le code est « vérifié » par l'import,
+   avec le nom du fichier et la date ; le prix va dans la case de son type */
+function importAppliquer(produit,trouvees,typePrix,source){
+  const par={};trouvees.forEach(t=>{par[t.varId]=t.ligne});
+  return {...produit,maj:today(),variantes:(produit.variantes||[]).map(v=>{
+    const l=par[v.id];if(!l)return v;
+    const out={...v};
+    if(l.code){out.codeEbat=l.code;out.ebat={statut:'verifie',le:today(),source}}
+    if(l.prix!==null&&l.prix!==undefined&&(typePrix==='achatPro'||typePrix==='public'))
+      out.prix={...(v.prix||{}),[typePrix]:{montant:l.prix,source,date:today()}};
+    return out;
+  })};
+}
+
+/* le choix de la variante dans la MAP, sous le produit retenu */
+function ChoixVariante({data,m,set,k,kProduit}){
+  const p=((data&&data.produits)||[]).find(x=>x.id===m[kProduit]);
+  const V=(p&&p.variantes)||[];
+  const [dim,setDim]=useState('');
+  if(!V.length)return null;
+  const v=V.find(x=>x.id===m[k])||null;
+  const dims=[...new Set(V.map(varianteDims))];
+  const L=V.filter(x=>!dim||varianteDims(x)===dim);
+  const A=varianteAlertes(v,p,m);
+  const c=(p&&p.caracteristiques)||{};
+  return <div data-champ={k} style={{marginBottom:14}}>
+    <Fld label="VARIANTE (DIMENSIONS, COLORIS)">
+      <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+        {dims.length>1&&<select className="in" style={{flex:'0 1 190px'}} value={dim} onChange={e=>setDim(e.target.value)} aria-label="Filtrer par dimensions">
+          <option value="">Toutes dimensions</option>{dims.map(d=><option key={d} value={d}>{d}</option>)}</select>}
+        <select className="in" style={{flex:'1 1 220px'}} value={m[k]||''} onChange={e=>set({[k]:e.target.value})}>
+          <option value="">—</option>
+          {L.map(x=><option key={x.id} value={x.id}>{varianteLibelle(x)}</option>)}
+          {v&&!L.some(x=>x.id===v.id)&&<option value={v.id}>{varianteLibelle(v)}</option>}
+        </select>
+      </div>
+    </Fld>
+    {v&&<div className="xs" style={{marginTop:-6,lineHeight:1.55}}>
+      <div className="mut">{varianteRefs(v)}</div>
+      {[c.materiau,c.bonde&&'Livré avec : '+(c.accessoiresInclus||c.bonde),c.recoupable&&'Recoupe : '+c.recoupable].filter(Boolean).map((x,i)=><div key={i} className="mut">{x}</div>)}
+      {A.length>0&&<div style={{background:'#FBF1DC',color:'#7A5A0C',borderLeft:'3px solid '+AMBER,padding:6,marginTop:4}}>{A.map((a,i)=><div key={i}>{a}</div>)}</div>}
+      {(m.receveurDimensions!==v.longueur+'×'+v.largeur||m.receveurColoris!==v.coloris)&&
+        <button type="button" className="xs" style={{color:TERRA,background:'none',border:'none',padding:0,marginTop:4}}
+          onClick={()=>set({receveurDimensions:v.longueur+'×'+v.largeur,receveurColoris:v.coloris})}>
+          Reprendre dimensions et coloris de la variante dans la MAP</button>}
+    </div>}
+  </div>;
+}
+
+/* les variantes d'un produit, dans sa fiche */
+function VariantesProduit({f,setF}){
+  const V=f.variantes||[];
+  const [q,setQ]=useState('');
+  const [ed,setEd]=useState(null);
+  const [imp,setImp]=useState(null);
+  const dq=deaccent(q).toLowerCase().trim();
+  const L=V.filter(v=>!dq||deaccent(varianteLibelle(v)+' '+varianteRefs(v)).toLowerCase().indexOf(dq)>=0);
+  const majV=v=>setF({...f,variantes:V.map(x=>x.id===v.id?v:x)});
+  const neuve=()=>({id:'var_'+uid(),cle:'',finition:'',longueur:'',largeur:'',hauteur:'',coloris:'',refFabricant:{ref:'',lien:'saisie',source:'Saisie manuelle'},
+    refsPubliques:[],codeEbat:'',ebat:{statut:'non_verifie',le:'',source:''},prix:{},note:'',neuve:true});
+  const lireFichier=async file=>{
+    const lu=importCsvLignes(await file.text());
+    setImp({nom:file.name,lu,r:importRapprocher(f,lu),typePrix:'ignorer'});
+  };
+  const E=ed;
+  const T=(k,label,sub)=><Fld label={label}><input className="in" value={(sub?(E[sub]||{})[k]:E[k])??''}
+    onChange={e=>setEd(sub?{...E,[sub]:{...(E[sub]||{}),[k]:e.target.value}}:{...E,[k]:e.target.value})}/></Fld>;
+  return <Fld label={'VARIANTES ('+V.length+')'}>
+    {V.length>6&&<input className="in" placeholder="Filtrer : 120 × 80, blanc, A1043…" value={q} onChange={e=>setQ(e.target.value)} style={{marginBottom:6}}/>}
+    <div style={{maxHeight:260,overflowY:'auto',border:V.length?'1px solid '+RULE:'none'}}>
+      {L.slice(0,200).map(v=><button type="button" key={v.id} onClick={()=>setEd({...v})} className="xs"
+        style={{display:'block',width:'100%',textAlign:'left',background:'none',border:'none',borderBottom:'1px solid '+RULE,padding:'6px 8px',cursor:'pointer'}}>
+        <b style={{color:NAVY}}>{varianteLibelle(v)}</b><span className="mut"> — {varianteRefs(v)||'sans référence'}</span>
+        {v.codeEbat&&v.ebat&&v.ebat.statut==='verifie'&&<span style={{color:GREEN}}> ✓ Ébat Pro vérifié</span>}
+      </button>)}
+    </div>
+    <div className="row" style={{gap:6,marginTop:6,flexWrap:'wrap'}}>
+      <button type="button" className="btn gh s" onClick={()=>setEd(neuve())}>+ Variante</button>
+      <label className="btn gh s">Importer un export fournisseur (CSV)
+        <input type="file" accept=".csv,text/csv,text/plain" style={{display:'none'}} onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)lireFichier(x)}}/></label>
+    </div>
+    {E&&<div className="card" style={{marginTop:8,padding:10,borderLeft:'3px solid '+NAVY}}>
+      <div className="g2">{T('longueur','LONGUEUR (CM)')}{T('largeur','LARGEUR (CM)')}</div>
+      <div className="g2">{T('hauteur','HAUTEUR (MM)')}{T('coloris','COLORIS')}</div>
+      <div className="g2">{T('finition','FINITION')}{T('ref','RÉFÉRENCE FABRICANT','refFabricant')}</div>
+      {(E.refsPubliques||[]).map((r,i)=><div key={i} className="xs mut" style={{marginBottom:4}}>
+        Référence publique <b>{r.ref}</b> — {r.statut==='document'?'relevée dans la documentation':'relevée sur le site public, non vérifiée'} ({r.source}{r.date?', '+fd(r.date):''})</div>)}
+      <div className="g2">
+        {T('codeEbat','CODE ARTICLE ÉBAT PRO')}
+        <Fld label="VÉRIFICATION"><label className="xs row" style={{gap:8,alignItems:'center',cursor:'pointer',minHeight:34}}>
+          <input type="checkbox" checked={!!(E.ebat&&E.ebat.statut==='verifie')} disabled={!E.codeEbat}
+            onChange={e=>setEd({...E,ebat:e.target.checked?{statut:'verifie',le:today(),source:'Vérifié dans le compte Ébat Pro (saisie)'}:{statut:'non_verifie',le:'',source:''}})}/>
+          <span>{E.ebat&&E.ebat.statut==='verifie'?'Vérifié le '+fd(E.ebat.le)+' — '+E.ebat.source:'Je l’ai vérifié dans mon compte Ébat Pro'}</span></label></Fld>
+      </div>
+      <div className="xs mut" style={{margin:'2px 0 8px'}}>Prix : chacun avec sa source. Le prix de vente au client ne se saisit pas ici : il vient de la base interne validée.</div>
+      {['achatPro','public'].map(t=><div key={t} className="g2">
+        <Fld label={t==='achatPro'?'PRIX D’ACHAT PRO HT (€)':'PRIX PUBLIC TTC (€)'}><input className="in" value={((E.prix||{})[t]||{}).montant??''}
+          onChange={e=>setEd({...E,prix:{...(E.prix||{}),[t]:{...((E.prix||{})[t]||{}),montant:mapMontant(e.target.value),date:today()}}})}/></Fld>
+        <Fld label="SOURCE DE CE PRIX"><input className="in" value={((E.prix||{})[t]||{}).source||''} placeholder="Devis, tarif, date…"
+          onChange={e=>setEd({...E,prix:{...(E.prix||{}),[t]:{...((E.prix||{})[t]||{}),source:e.target.value}}})}/></Fld>
+      </div>)}
+      {T('note','NOTE')}
+      <Acts onSave={()=>{const {neuve:n,...v}=E;
+          const v2={...v,longueur:mapMontant(v.longueur)??v.longueur,largeur:mapMontant(v.largeur)??v.largeur};
+          setF({...f,variantes:n?[...V,v2]:V.map(x=>x.id===v2.id?v2:x)});setEd(null)}}
+        onCancel={()=>setEd(null)}
+        onDel={E.neuve?null:()=>{if(confirm('Retirer cette variante ?')){setF({...f,variantes:V.filter(x=>x.id!==E.id)});setEd(null)}}}/>
+    </div>}
+    {imp&&<div className="card" style={{marginTop:8,padding:10,borderLeft:'3px solid '+AMBER}}>
+      <div className="xs b">Import de « {imp.nom} » : {imp.lu.lignes.length} ligne{imp.lu.lignes.length>1?'s':''}</div>
+      {imp.lu.iCode<0&&<div className="xs" style={{color:TERRA}}>Aucune colonne « code article » reconnue : les codes ne peuvent pas être repris.</div>}
+      <div className="xs" style={{marginTop:4}}>{imp.r.trouvees.length} ligne{imp.r.trouvees.length>1?'s':''} rapprochée{imp.r.trouvees.length>1?'s':''} d’une variante par une référence commune ; {imp.r.inconnues.length} sans correspondance (ignorée{imp.r.inconnues.length>1?'s':''}).</div>
+      <div style={{maxHeight:180,overflowY:'auto',marginTop:6}}>
+        {imp.r.trouvees.map((t,i)=><div key={i} className="xs" style={{borderBottom:'1px solid '+RULE,padding:'4px 0'}}>
+          {t.libelle} ← code <b>{t.ligne.code||'—'}</b>{t.ligne.prix!==null?' · prix '+t.ligne.prix:''}</div>)}
+      </div>
+      {imp.lu.iPrix>=0&&<Fld label="LES PRIX DE CE FICHIER SONT">
+        <select className="in" value={imp.typePrix} onChange={e=>setImp({...imp,typePrix:e.target.value})}>
+          <option value="ignorer">À ignorer</option><option value="achatPro">Des prix d’achat professionnels</option><option value="public">Des prix publics</option></select></Fld>}
+      <div className="row" style={{gap:6,marginTop:6}}>
+        <button type="button" className="btn acc s" disabled={!imp.r.trouvees.length}
+          onClick={()=>{setF(importAppliquer(f,imp.r.trouvees,imp.typePrix,'Import '+imp.nom+' ('+fd(today())+')'));setImp(null)}}>Appliquer aux {imp.r.trouvees.length} variantes</button>
+        <button type="button" className="btn gh s" onClick={()=>setImp(null)}>Annuler</button>
+      </div>
+    </div>}
+  </Fld>;
+}
+/* le catalogue de référence, depuis la liste des produits */
+function CatalogueReceveurs({data,save}){
+  const [ouvert,setOuvert]=useState(false);
+  const [msg,setMsg]=useState('');
+  const P=data.produits||[];
+  return <div style={{marginBottom:12}}>
+    <button type="button" className="btn gh s" onClick={()=>setOuvert(!ouvert)}>Catalogue de référence : receveurs {ouvert?'▾':'▸'}</button>
+    {ouvert&&<div className="card" style={{marginTop:6,padding:10}}>
+      <div className="xs mut" style={{lineHeight:1.5,marginBottom:6}}>Gammes prêtes à ajouter à vos fiches produits, variante par variante. Les références viennent de la
+        documentation indiquée ; les codes Ébat Pro restent à vérifier dans votre compte (import d’un export ou saisie).</div>
+      {CATALOGUE_RECEVEURS.map(g=>{const ex=P.find(x=>x.id==='prod_'+g.cle);
+        const manque=g.variantes.length-(ex?(ex.variantes||[]).filter(v=>g.variantes.some(w=>w.cle===v.cle)).length:0);
+        return <div key={g.cle} className="sp xs" style={{gap:8,padding:'6px 0',borderTop:'1px solid '+RULE}}>
+          <span><b style={{color:NAVY}}>{g.nom}</b> — {g.variantes.length} variante{g.variantes.length>1?'s':''}<br/><span className="mut">{g.source}</span></span>
+          <button type="button" className="btn s acc" disabled={!!ex&&!manque}
+            onClick={()=>{const r=receveursVersProduits(P,g.cle);save({...data,produits:r.produits});setMsg(r.ajoutees+' variante'+(r.ajoutees>1?'s':'')+' ajoutée'+(r.ajoutees>1?'s':'')+' — '+g.nom)}}>
+            {!ex?'Ajouter':manque?'Compléter ('+manque+')':'Déjà ajoutée'}</button>
+        </div>})}
+      {msg&&<div className="xs" style={{color:GREEN,marginTop:6}}>{msg}</div>}
+    </div>}
+  </div>;
+}
+
 function Produits({data,save}){
   const [f,setF]=useState(null);
   const [q,setQ]=useState('');
@@ -15547,6 +15927,7 @@ function Produits({data,save}){
       du projet dans la fiche prospect : ils passent au dossier de présentation, et les fiches
       s'impriment d'ici.
     </p>}
+    {!f&&<CatalogueReceveurs data={data} save={save}/>}
     {f&&<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
       <Fld label="DÉSIGNATION"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})}
         placeholder="Tuile terre cuite Beauvoise plate"/></Fld>
@@ -15566,6 +15947,12 @@ function Produits({data,save}){
           Chaque finition ajoutée ici devient un choix possible dans le menu déroulant « Finitions /
           couleur » de la MAP, une fois ce produit sélectionné.</div>
       </Fld>
+      {f.caracteristiques&&<Fld label="CARACTÉRISTIQUES DOCUMENTÉES"><div className="xs" style={{lineHeight:1.55}}>
+        {[['Matériau','materiau'],['Surface','surface'],['Norme','norme'],['Pose','pose'],['Recoupe','recoupable'],['Bonde','bonde'],
+          ['Accessoires inclus','accessoiresInclus'],['Accessoires nécessaires','accessoiresNecessaires']].filter(([,k])=>f.caracteristiques[k]).map(([l,k])=>
+          <div key={k}><span className="mut">{l} :</span> {f.caracteristiques[k]}</div>)}
+        {f.origine&&<div className="mut" style={{marginTop:2}}>Source : {f.origine.source}</div>}</div></Fld>}
+      <VariantesProduit f={f} setF={setF}/>
       <Fld label="DESCRIPTION"><textarea className="in" rows="3" value={f.description||''} onChange={e=>setF({...f,description:e.target.value})}
         placeholder="Ce qu’on en dit au client : performance, aspect, garantie…"/></Fld>
       <Fld label="FICHE TECHNIQUE OU PHOTO">
@@ -15596,6 +15983,9 @@ function Produits({data,save}){
           {x.coloris&&<div className="xs mut" style={{marginTop:2}}>{x.coloris}</div>}
           {!!(x.finitions||[]).length&&<div className="xs mut" style={{marginTop:2}}>
             {x.finitions.length} finition{x.finitions.length>1?'s':''} enregistrée{x.finitions.length>1?'s':''}</div>}
+          {!!(x.variantes||[]).length&&<div className="xs mut" style={{marginTop:2}}>
+            {x.variantes.length} variante{x.variantes.length>1?'s':''}{(()=>{const n=x.variantes.filter(v=>v.codeEbat&&v.ebat&&v.ebat.statut==='verifie').length;
+              return ' · '+n+' code'+(n>1?'s':'')+' Ébat Pro vérifié'+(n>1?'s':'')})()}</div>}
         </button>
         {(x.fiches||[]).length
           ?<a href={x.fiches[0].lien} target="_blank" rel="noreferrer" className="btn gh s"
