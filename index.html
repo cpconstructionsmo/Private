@@ -221,6 +221,8 @@
      planche du plan — posée sous <body>, hors de l'application — mais un format
      portrait. La règle @page ne se laisse pas conditionner par un sélecteur :
      c'est la feuille elle-même qui l'injecte à l'impression. */
+  /* MAP : à l'impression, les rubriques repliées à l'écran se déplient */
+  @media print{.map-corps[hidden]{display:block!important}.map-outils{display:none!important}}
   .feuille-doc{display:none}
   @media print{
     body>.feuille-doc{display:block!important;width:100%;
@@ -250,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · Fiche MAP papier : nouvelle présentation (logo, couleurs CP, mode d’emploi, signatures)';
+const VERSION='2026-09-29 · MAP en rubriques repliables : résumés, renseigné et validé, alertes, recherche, points à traiter';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -11881,11 +11883,11 @@ const MAP_DROIT_IMAGE=[
 
 /* le produit s'y pioche par lot — la fiche technique et le coloris suivent
    automatiquement plutôt que d'être retapés à chaque MAP */
-function ChoixProduit({data,lot,value,onChange,label}){
+function ChoixProduit({data,lot,value,onChange,label,k}){
   const norm=s=>(s||'').trim().toLowerCase();
   const options=(data.produits||[]).filter(x=>norm(x.lot)===norm(lot));
   const choisi=options.find(x=>x.id===value);
-  return <Fld label={label}>
+  return <div data-champ={k}><Fld label={label}>
     <select className="in" value={value||''} onChange={e=>onChange(e.target.value)}>
       <option value="">—</option>
       {options.map(x=><option key={x.id} value={x.id}>{[x.nom,x.marque].filter(Boolean).join(' — ')}</option>)}
@@ -11896,7 +11898,7 @@ function ChoixProduit({data,lot,value,onChange,label}){
       {[choisi.gamme,choisi.reference,choisi.coloris].filter(Boolean).join(' · ')}
       {(choisi.fiches||[]).length?<span> · <a href={choisi.fiches[0].lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Fiche / photo</a></span>:null}
     </div>}
-  </Fld>;
+  </Fld></div>;
 }
 
 /* une liste de finitions/couleurs libres, alimentée depuis la fiche produit
@@ -11928,10 +11930,10 @@ function Finitions({liste,onChange}){
 
 /* le choix d'une finition/couleur, limité à celles enregistrées sur le
    produit sélectionné dans la MAP */
-function ChoixFinition({data,produitId,value,onChange,label}){
+function ChoixFinition({data,produitId,value,onChange,label,k}){
   const p=(data.produits||[]).find(x=>x.id===produitId);
   const opts=(p&&p.finitions)||[];
-  return <Fld label={label}>
+  return <div data-champ={k}><Fld label={label}>
     <select className="in" value={value||''} onChange={e=>onChange(e.target.value)} disabled={!produitId}>
       <option value="">—</option>
       {opts.map(v=><option key={v} value={v}>{v}</option>)}
@@ -11940,7 +11942,7 @@ function ChoixFinition({data,produitId,value,onChange,label}){
       Aucune finition enregistrée pour ce produit — ajoutez-en depuis sa fiche, onglet PRODUITS.</div>}
     {!produitId&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
       Choisissez d'abord le produit.</div>}
-  </Fld>;
+  </Fld></div>;
 }
 
 /* les champs de la MAP, définis une fois pour de bon : les redéfinir à
@@ -11951,35 +11953,35 @@ function ChoixFinition({data,produitId,value,onChange,label}){
 /* porte d'entrée : partie fixe associée et sa dimension */
 const MAP_PORTE_ENTREE_OPTION=['Fixe en dormant','Semi-fixe','Imposte'];
 const MAP_PORTE_ENTREE_DIM=['300 mm','400 mm','500 mm'];
-const MapChoix=({m,set,k,label,opts})=><Fld label={label}>
+const MapChoix=({m,set,k,label,opts})=><div data-champ={k}><Fld label={label}>
   <select className="in" value={m[k]||''} onChange={e=>set({[k]:e.target.value})}>
     <option value="">—</option>{opts.map(o=><option key={o} value={o}>{o}</option>)}
-  </select></Fld>;
-const MapTxt=({m,set,k,label,ph,type})=><Fld label={label}>
-  <input className="in" type={type||'text'} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
-const MapZone=({m,set,k,label,ph,rows})=><Fld label={label}>
-  <textarea className="in" rows={rows||2} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld>;
+  </select></Fld></div>;
+const MapTxt=({m,set,k,label,ph,type})=><div data-champ={k}><Fld label={label}>
+  <input className="in" type={type||'text'} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld></div>;
+const MapZone=({m,set,k,label,ph,rows})=><div data-champ={k}><Fld label={label}>
+  <textarea className="in" rows={rows||2} value={m[k]||''} onChange={e=>set({[k]:e.target.value})} placeholder={ph}/></Fld></div>;
 /* cases à cocher : plusieurs choix possibles, enregistrés en liste */
 const MapCases=({m,set,k,opts})=>{
   const vals=m[k]||[];
   const tog=o=>set({[k]:vals.indexOf(o)>=0?vals.filter(x=>x!==o):[...vals,o]});
-  return <div className="row" style={{gap:14,flexWrap:'wrap',marginBottom:8}}>
+  return <div data-champ={k} className="row" style={{gap:14,flexWrap:'wrap',marginBottom:8}}>
     {opts.map(o=><label key={o} className="xs row" style={{gap:6,alignItems:'center',cursor:'pointer'}}>
       <input type="checkbox" checked={vals.indexOf(o)>=0} onChange={()=>tog(o)}/><span>{o}</span></label>)}
   </div>;
 };
 const mapOuvrantsSaisis=m=>(m.ouvrantsFrancaiseMat||[]).length>0||(m.ouvrantsCoulissantMat||[]).length>0||!!m.ouvrantsFrancaiseOB;
 const mapOuvrantsFrancaise=m=>[(m.ouvrantsFrancaiseMat||[]).join(', '),m.ouvrantsFrancaiseOB?'option OB':''].filter(Boolean).join(' — ');
-const MapBool=({m,set,k,label})=><label className="xs row" style={{gap:8,alignItems:'center',cursor:'pointer',marginBottom:10}}>
+const MapBool=({m,set,k,label})=><label data-champ={k} className="xs row" style={{gap:8,alignItems:'center',cursor:'pointer',marginBottom:10}}>
   <input type="checkbox" checked={!!m[k]} onChange={e=>set({[k]:e.target.checked})}/><span>{label}</span></label>;
 const MapMulti=({m,set,k,label,opts})=>{
   const vals=m[k]||[];
   const tog=o=>set({[k]:vals.indexOf(o)>=0?vals.filter(x=>x!==o):[...vals,o]});
-  return <Fld label={label}><div className="row" style={{gap:6,flexWrap:'wrap'}}>
+  return <div data-champ={k}><Fld label={label}><div className="row" style={{gap:6,flexWrap:'wrap'}}>
     {opts.map(o=>{const on=vals.indexOf(o)>=0;
       return <button key={o} className={'btn s '+(on?'':'gh')} onClick={()=>tog(o)}
         style={{fontSize:11,padding:'5px 9px'}}>{on?'✓ ':''}{o}</button>;})}
-  </div></Fld>;
+  </div></Fld></div>;
 };
 
 /* ---------- la MAP sur papier ----------
@@ -13221,13 +13223,225 @@ function SortiesMap({data,ch,m,set}){
   </div>;
 }
 
+/* ---------- les rubriques de la MAP, repliables ----------
+   La MAP compte une centaine de champs : ouverte d'un bloc, elle se parcourt
+   mal. Chaque rubrique devient un panneau qu'on ouvre ou referme sur son
+   en-tête ; fermé, il résume l'essentiel : les principaux choix, ce qui est
+   renseigné et ce qui est validé (deux choses distinctes), les points de
+   suivi ouverts et les alertes. Replier ne retire rien de la page : le
+   contenu est masqué, pas détruit, et chaque saisie est enregistrée à la
+   frappe — rien ne peut se perdre en refermant un panneau.
+   Les rubriques et leurs champs sont ceux de MAP_FICHE (vérifié contre
+   l'onglet par t_map_fiche.js) ; leur identifiant est leur numéro. */
+const MAP_RUBRIQUES=MAP_FICHE.map(s=>{const mt=s.s.match(/^(\d+)\.\s*(.*)$/);
+  return mt?{id:mt[1],titre:mt[2],champs:s.f}:null}).filter(Boolean);
+/* un champ qui ne s'applique qu'à certaines réponses : tant qu'il ne
+   s'applique pas, il ne manque pas */
+const MAP_SI={
+  fondationsAutre:m=>m.fondations==='Autre',
+  vsRangs:m=>m.soubassement==='Vide sanitaire',vsTrappe:m=>m.soubassement==='Vide sanitaire',
+  piedroitRangs:m=>m.piedroitPlancher==='Oui',
+  eauPotableDemandePar:m=>m.eauPotable==='Non — demande à effectuer',
+  travauxPrepaAutre:()=>false,travauxPrepaAttribution:m=>(m.travauxPrepa||[]).length>0||!!m.travauxPrepaAutre,
+  bornageDetail:()=>false,
+  porteEntreeOptionDim:m=>!!m.porteEntreeOption,
+  menuiseriesRal:m=>!!m.menuiseriesCouleur,
+  voletsDomotiqueMarque:m=>!!m.voletsDomotique,
+  porteGarageMotorisation:m=>!!m.porteGarageType,porteGarageFinition:m=>!!m.porteGarageType,
+  porteInterieureFinition:m=>!!m.porteInterieureProduit,
+  incidenceObjet:m=>m.incidenceUrbanisme==='Permis de construire modificatif à déposer par le MOA',
+  emetteursEtage:m=>m.plancherHaut&&m.plancherHaut!=='Néant — plain-pied',
+  escalierType:m=>m.plancherHaut&&m.plancherHaut!=='Néant — plain-pied',
+  receveurDimensions:m=>!!m.receveurProduit,receveurColoris:m=>!!m.receveurProduit,
+  meubleVasqueLargeur:m=>!!m.meubleVasqueProduit,
+  faienceSurface:m=>!!m.faienceLocalisation,faienceHauteur:m=>!!m.faienceLocalisation,faienceLot:m=>!!m.faienceLocalisation,
+  modifTerrain:()=>false,modifGrosOeuvre:()=>false,modifCharpente:()=>false,modifMenuiseriesExt:()=>false,
+  modifCloisons:()=>false,modifElecPlomberieChauffage:()=>false,modifAutres:()=>false,
+};
+/* ce qui mérite d'être signalé sans attendre : une réponse qui en appelle
+   une autre, restée vide. Le message dit quoi faire, pas qu'un texte de loi
+   est respecté. */
+const MAP_ALERTES=[
+  {k:'fondationsAutre',si:m=>m.fondations==='Autre'&&!m.fondationsAutre,msg:'Fondations « Autre » : préciser la solution.'},
+  {k:'vsRangs',si:m=>m.soubassement==='Vide sanitaire'&&!m.vsRangs,msg:'Vide sanitaire : nombre de rangs à indiquer.'},
+  {k:'piedroitRangs',si:m=>m.piedroitPlancher==='Oui'&&!m.piedroitRangs,msg:'Piédroit prévu : nombre de rangs à indiquer.'},
+  {k:'eauPotableDemandePar',si:m=>m.eauPotable==='Non — demande à effectuer'&&!m.eauPotableDemandePar,msg:'Eau potable : qui fait la demande de branchement ?'},
+  {k:'elecPosePar',si:m=>m.elecCoffret==='Non posé'&&!m.elecPosePar,msg:'Coffret électrique non posé : qui le pose ?'},
+  {k:'porteEntreeOptionDim',si:m=>!!m.porteEntreeOption&&!m.porteEntreeOptionDim,msg:'Porte d’entrée : dimension de la partie fixe à préciser.'},
+  {k:'voletsDomotiqueMarque',si:m=>!!m.voletsDomotique&&!m.voletsDomotiqueMarque,msg:'Domotique retenue : marque à préciser.'},
+  {k:'enduitRefNuancier',si:m=>!!m.enduitCouleur&&!m.enduitRefNuancier,msg:'Couleur d’enduit choisie : référence du nuancier à vérifier au regard du PC et du PLU.'},
+  {k:'porteInterieureFinition',si:(m,data)=>{const p=((data&&data.produits)||[]).find(x=>x.id===m.porteInterieureProduit);
+    return !!(p&&(p.finitions||[]).length)&&!m.porteInterieureFinition},msg:'Portes intérieures : finition à choisir.'},
+  {k:'ecsMode',si:m=>!!m.chauffageType&&!m.ecsMode,msg:'Chauffage choisi : production d’eau chaude à préciser.'},
+  {k:'faienceSurface',si:m=>!!m.faienceLocalisation&&!m.faienceSurface,msg:'Faïence localisée : surface à indiquer.'},
+  {k:'incidenceObjet',si:m=>m.incidenceUrbanisme==='Permis de construire modificatif à déposer par le MOA'&&!m.incidenceObjet,msg:'Permis modificatif à déposer : en préciser l’objet.'},
+];
+const mapVide=v=>v===undefined||v===null||v===''||v===false||(Array.isArray(v)&&!v.length);
+const mapChampRubrique={};MAP_RUBRIQUES.forEach(r=>r.champs.forEach(f=>{mapChampRubrique[f.k]=r.id}));
+/* l'empreinte des réponses d'une rubrique : une validation ne vaut que pour
+   les réponses qu'elle a vues */
+const mapEmpreinteRubrique=(r,m)=>ptrEmpreinte(JSON.stringify(r.champs.map(f=>[f.k,m[f.k]===undefined?null:m[f.k]])));
+/* les points de suivi d'une rubrique : ceux qui la désignent, ou dont le lot
+   relève d'elle */
+const mapSuiviRubrique=(r,m)=>((m&&m.suivi)||[]).filter(p=>{
+  if(p.rubrique)return p.rubrique===r.id;
+  const G=MAP_LOT_SECTION[r.id+'.']||[];
+  return !!p.lot&&mapGroupesLot(p.lot).some(g=>G.indexOf(g)>=0);
+});
+function mapEtatRubrique(r,m,data){
+  m=m||{};
+  const utiles=r.champs.filter(f=>f.t!=='b'&&(!MAP_SI[f.k]||MAP_SI[f.k](m)));
+  const remplis=utiles.filter(f=>!mapVide(m[f.k]));
+  const resume=r.champs.filter(f=>!mapVide(m[f.k])&&f.t!=='z').map(f=>{
+    const v=ficheValeurActuelle(f,m,data);return f.t==='b'?f.l:v}).filter(Boolean);
+  const alertes=MAP_ALERTES.filter(a=>mapChampRubrique[a.k]===r.id&&a.si(m,data)).map(a=>({k:a.k,msg:a.msg}));
+  const v=(m.validations||{})[r.id]||null;
+  const suivi=mapSuiviRubrique(r,m);
+  return {id:r.id,renseignes:remplis.length,total:utiles.length,
+    manquants:utiles.filter(f=>mapVide(m[f.k])).map(f=>({k:f.k,l:f.l})),
+    resume,alertes,valide:v,modifieDepuis:!!v&&v.empreinte!==mapEmpreinteRubrique(r,m),
+    pointsOuverts:suivi.filter(p=>p.statut!=='fait').length,decisions:suivi.filter(p=>p.type==='decision').length};
+}
+/* chercher un champ par son libellé (accents et majuscules ignorés) */
+function mapRechercheChamps(q){
+  const mots=deaccent(String(q||'')).toLowerCase().split(/\s+/).filter(Boolean);
+  if(!mots.length)return [];
+  const out=[];
+  MAP_RUBRIQUES.forEach(r=>r.champs.forEach(f=>{
+    const t=deaccent(f.l+' '+r.titre).toLowerCase();
+    if(mots.every(w=>t.indexOf(w)>=0))out.push({k:f.k,l:f.l,rubrique:r.id,titreRubrique:r.titre});
+  }));
+  return out.slice(0,12);
+}
+/* ce qui reste à traiter, rubrique par rubrique */
+function mapPointsATraiter(m,data){
+  const out=[];
+  MAP_RUBRIQUES.forEach(r=>{
+    const e=mapEtatRubrique(r,m,data);
+    e.alertes.forEach(a=>out.push({rubrique:r.id,k:a.k,msg:a.msg,nature:'alerte'}));
+    if(e.modifieDepuis)out.push({rubrique:r.id,msg:'Rubrique modifiée depuis sa validation du '+fd(e.valide.le)+'.',nature:'validation'});
+    if(e.pointsOuverts)out.push({rubrique:r.id,msg:e.pointsOuverts+' point'+(e.pointsOuverts>1?'s':'')+' de suivi ouvert'+(e.pointsOuverts>1?'s':'')+'.',nature:'suivi'});
+  });
+  return out;
+}
+/* les panneaux ouverts, gardés sur cet appareil pour cet utilisateur et ce chantier */
+const mapCleOuverts=chId=>'cpMap:ouverts:'+(typeof UTILISATEUR!=='undefined'&&UTILISATEUR||'-')+':'+chId;
+const mapLireOuverts=chId=>{try{const v=JSON.parse(localStorage.getItem(mapCleOuverts(chId))||'null');return v&&typeof v==='object'?v:null}catch(e){return null}};
+const mapEcrireOuverts=(chId,v)=>{try{localStorage.setItem(mapCleOuverts(chId),JSON.stringify(v))}catch(e){}};
+
+/* un panneau : l'en-tête est un vrai bouton (clavier, lecteur d'écran) ;
+   fermé, il montre son résumé ; le contenu masqué reste en place */
+function PanneauMap({r,etat,ouvert,onBascule,resumeFerme,children,onValider}){
+  const e=etat;
+  const couleur=e.alertes.length?TERRA:e.modifieDepuis?AMBER:e.valide?GREEN:e.renseignes?NAVY:RULE;
+  const idCorps='map-rub-'+r.id;
+  return <div className="card map-rubrique" data-rubrique={r.id} style={{padding:0,marginBottom:6,borderLeft:'3px solid '+couleur,overflow:'hidden'}}>
+    <button type="button" className="map-entete" aria-expanded={ouvert} aria-controls={idCorps} onClick={onBascule}
+      style={{display:'block',width:'100%',textAlign:'left',background:'none',border:'none',padding:'10px 10px 8px',cursor:'pointer',font:'inherit',color:'inherit'}}>
+      <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
+        <span className="xs b" style={{color:NAVY,letterSpacing:'.03em',flex:1}}>{r.id}. {r.titre.toUpperCase()}</span>
+        <span className="xs" style={{whiteSpace:'nowrap',color:MUTED}}>{ouvert?'▾':'▸'}</span>
+      </div>
+      <div className="row xs" style={{gap:6,flexWrap:'wrap',marginTop:5}}>
+        <span className="pill" style={{background:'#EEF1F4',color:NAVY}} title="Champs renseignés sur ceux qui s’appliquent">{e.renseignes}/{e.total} renseignés</span>
+        {e.valide&&!e.modifieDepuis&&<span className="pill" style={{background:'#E3F0E8',color:GREEN}}>Validée le {fd(e.valide.le)}</span>}
+        {e.modifieDepuis&&<span className="pill" style={{background:'#FBF1DC',color:AMBER}}>Modifiée depuis validation</span>}
+        {!e.valide&&e.renseignes>0&&<span className="pill" style={{background:'#F3F1EC',color:MUTED}}>Non validée</span>}
+        {e.pointsOuverts>0&&<span className="pill" style={{background:'#FBF1DC',color:AMBER}}>{e.pointsOuverts} point{e.pointsOuverts>1?'s':''} ouvert{e.pointsOuverts>1?'s':''}</span>}
+        {e.alertes.length>0&&<span className="pill" style={{background:'#F6E2DC',color:TERRA}}>{e.alertes.length} alerte{e.alertes.length>1?'s':''}</span>}
+      </div>
+      {!ouvert&&<div className="xs mut" style={{marginTop:5,lineHeight:1.45,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
+        {resumeFerme||(e.resume.length?e.resume.join(' · '):'Rien de saisi pour l’instant.')}</div>}
+      {!ouvert&&e.alertes.length>0&&<div className="xs" style={{marginTop:3,color:TERRA,lineHeight:1.45}}>{e.alertes[0].msg}</div>}
+    </button>
+    <div id={idCorps} className="map-corps" hidden={!ouvert} style={{padding:'0 10px 10px'}}>
+      {e.alertes.length>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:10,lineHeight:1.5}}>
+        {e.alertes.map(a=><div key={a.k}>{a.msg}</div>)}</div>}
+      {children}
+      <div className="row xs" style={{gap:8,marginTop:6,flexWrap:'wrap',alignItems:'center',borderTop:'1px solid '+RULE,paddingTop:8}}>
+        {e.valide&&!e.modifieDepuis
+          ?<span style={{color:GREEN}}>Rubrique validée le {fd(e.valide.le)}{e.valide.par?' par '+e.valide.par:''}.</span>
+          :<span className="mut">{e.modifieDepuis?'Modifiée depuis la validation du '+fd(e.valide.le)+' : à revalider.':'Renseignée n’est pas validée : validez quand les choix sont arrêtés.'}</span>}
+        <span style={{flex:1}}/>
+        {(!e.valide||e.modifieDepuis)&&<button type="button" className="btn s gh" disabled={!e.renseignes} onClick={()=>onValider(true)}>Valider la rubrique</button>}
+        {e.valide&&<button type="button" className="xs" style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>onValider(false)}>Retirer la validation</button>}
+      </div>
+    </div>
+  </div>;
+}
+/* la barre au-dessus des rubriques : tout ouvrir, tout replier, ce qui reste
+   à traiter, et la recherche d'un champ */
+function OutilsMap({m,data,ouverts,setOuverts,allerA}){
+  const [q,setQ]=useState('');
+  const [points,setPoints]=useState(false);
+  const R=mapRechercheChamps(q);
+  const P=mapPointsATraiter(m,data);
+  const titre=id=>(MAP_RUBRIQUES.find(r=>r.id===id)||{}).titre||'';
+  return <div className="map-outils" style={{marginBottom:10}}>
+    <div className="row" style={{gap:6,flexWrap:'wrap'}}>
+      <button type="button" className="btn gh s" onClick={()=>setOuverts(Object.fromEntries(MAP_RUBRIQUES.map(r=>[r.id,true])))}>Tout ouvrir</button>
+      <button type="button" className="btn gh s" onClick={()=>setOuverts({})}>Tout replier</button>
+      <button type="button" className={'btn s '+(points?'':'gh')} onClick={()=>setPoints(!points)}
+        style={P.length?{borderColor:TERRA,color:points?'#fff':TERRA,background:points?TERRA:'transparent'}:undefined}>Points à traiter ({P.length})</button>
+    </div>
+    <div style={{position:'relative',marginTop:8}}>
+      <input className="in" type="search" placeholder="Chercher un champ de la MAP (enduit, VMC, receveur…)" value={q}
+        onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&R[0]){allerA(R[0].rubrique,R[0].k);setQ('')}if(e.key==='Escape')setQ('')}}
+        aria-label="Chercher un champ de la MAP"/>
+      {q.trim()&&<div className="card" style={{position:'absolute',left:0,right:0,top:'100%',zIndex:20,padding:4,marginTop:2,maxHeight:320,overflowY:'auto',boxShadow:'0 6px 18px rgba(0,0,0,.12)'}}>
+        {!R.length&&<div className="xs mut" style={{padding:8}}>Aucun champ ne correspond.</div>}
+        {R.map(x=><button key={x.k} type="button" className="xs" onClick={()=>{allerA(x.rubrique,x.k);setQ('')}}
+          style={{display:'block',width:'100%',textAlign:'left',background:'none',border:'none',padding:'7px 8px',cursor:'pointer',borderBottom:'1px solid '+RULE}}>
+          <b style={{color:NAVY}}>{x.l}</b><span className="mut"> — {x.rubrique}. {x.titreRubrique}</span></button>)}
+      </div>}
+    </div>
+    {points&&<div className="card" style={{marginTop:8,padding:10,borderLeft:'3px solid '+TERRA}}>
+      {!P.length&&<div className="xs mut">Rien à traiter : aucune alerte, aucun point de suivi ouvert, aucune rubrique modifiée depuis sa validation.</div>}
+      {P.map((p,i)=><button key={i} type="button" className="xs" onClick={()=>allerA(p.rubrique,p.k)}
+        style={{display:'block',width:'100%',textAlign:'left',background:'none',border:'none',padding:'6px 0',cursor:'pointer',borderBottom:i<P.length-1?'1px solid '+RULE:'none',lineHeight:1.45}}>
+        <span className="b" style={{color:p.nature==='alerte'?TERRA:AMBER}}>{p.rubrique}. {titre(p.rubrique)}</span> — {p.msg}</button>)}
+    </div>}
+  </div>;
+}
+
 function MAP({data,ch,up}){
   const m=ch.map||{};
   const set=p=>up({map:{...m,...p}});
-  const section=(titre,children)=><div className="card" style={{padding:10,marginBottom:6,borderLeft:'3px solid '+RULE}}>
-    <div className="xs b" style={{color:NAVY,marginBottom:6,letterSpacing:'.03em'}}>{titre}</div>
-    {children}
-  </div>;
+  /* les panneaux ouverts : ceux de la dernière visite sur cet appareil ;
+     à la première, ceux qui portent une alerte */
+  const [ouverts,setOuvertsBrut]=useState(()=>mapLireOuverts(ch.id)
+    ||Object.fromEntries(MAP_RUBRIQUES.filter(r=>mapEtatRubrique(r,m,data).alertes.length).map(r=>[r.id,true])));
+  const setOuverts=v=>{setOuvertsBrut(v);mapEcrireOuverts(ch.id,v)};
+  const [cible,setCible]=useState(null);
+  /* aller à une rubrique (et à un champ) : on l'ouvre, puis on y amène la
+     page et le curseur, une fois le panneau affiché */
+  const allerA=(id,k)=>{setOuverts({...ouverts,[id]:true});setCible({id,k,n:Date.now()})};
+  useEffect(()=>{
+    if(!cible)return;
+    const t=setTimeout(()=>{try{
+      const champ=cible.k&&document.querySelector('[data-champ="'+cible.k+'"]');
+      const el=champ||document.querySelector('[data-rubrique="'+cible.id+'"]');
+      if(!el)return;
+      el.scrollIntoView({block:'center',behavior:'smooth'});
+      const saisie=champ&&champ.querySelector('input,select,textarea');
+      if(saisie)saisie.focus({preventScroll:true});
+    }catch(e){}},60);
+    return()=>clearTimeout(t);
+  },[cible]);
+  const section=(titre,children)=>{
+    const id=(String(titre).match(/^(\d+)\./)||[])[1];
+    const r=MAP_RUBRIQUES.find(x=>x.id===id);
+    if(!r)return <div className="card" style={{padding:10,marginBottom:6,borderLeft:'3px solid '+RULE}}>
+      <div className="xs b" style={{color:NAVY,marginBottom:6,letterSpacing:'.03em'}}>{titre}</div>{children}</div>;
+    const etat=mapEtatRubrique(r,m,data);
+    /* l'identification, fermée : le projet, le client, la date, et ce qui manque */
+    const resumeFerme=id==='1'?[ch.nom,ch.client,m.date?'MAP du '+fd(m.date):'MAP non datée',
+      etat.manquants.length?'À compléter : '+etat.manquants.map(x=>x.l.toLowerCase()).join(', '):''].filter(Boolean).join(' · '):null;
+    return <PanneauMap key={id} r={r} etat={etat} ouvert={!!ouverts[id]} resumeFerme={resumeFerme}
+      onBascule={()=>setOuverts({...ouverts,[id]:!ouverts[id]})}
+      onValider={ok=>set({validations:{...(m.validations||{}),[id]:ok?{le:today(),empreinte:mapEmpreinteRubrique(r,m),par:UTILISATEUR||''}:undefined}})}>
+      {children}</PanneauMap>;
+  };
 
   const [sortie,setSortie]=useState(null);
   const produire=async()=>{
@@ -13260,6 +13474,7 @@ function MAP({data,ch,up}){
       <span className="xs mut">Compte-rendu de mise au point technique</span>
       <BoutonDossierDrive ch={ch} sous="MAP"/>
     </div>
+    <OutilsMap m={m} data={data} ouverts={ouverts} setOuverts={setOuverts} allerA={allerA}/>
 
     {section('1. IDENTIFICATION DU PROJET ET DES INTERVENANTS',<React.Fragment>
       <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
@@ -13271,7 +13486,7 @@ function MAP({data,ch,up}){
         <MapTxt m={m} set={set} k="referencesCadastrales" label="RÉFÉRENCES CADASTRALES"/>
       </div>
       <div className="g2">
-        <Fld label="DATE DE LA MAP"><input className="in" type="date" value={m.date||''} onChange={e=>set({date:e.target.value})}/></Fld>
+        <div data-champ="date"><Fld label="DATE DE LA MAP"><input className="in" type="date" value={m.date||''} onChange={e=>set({date:e.target.value})}/></Fld></div>
         <MapTxt m={m} set={set} k="version" label="VERSION" ph="V1"/>
       </div>
       <MapTxt m={m} set={set} k="participants" label="PARTICIPANTS" ph="Client, MOE, entreprises présentes"/>
@@ -13336,7 +13551,7 @@ function MAP({data,ch,up}){
         <MapChoix m={m} set={set} k="piedroitPlancher" label="PIÉDROIT AU-DESSUS DU PLANCHER" opts={['Non','Oui']}/>
         <MapTxt m={m} set={set} k="piedroitRangs" label="NOMBRE DE RANGS"/>
       </div>
-      <ChoixProduit data={data} lot="Gros œuvre" value={m.appuisFenetreProduit} onChange={v=>set({appuisFenetreProduit:v})} label="APPUIS DE FENÊTRE — MODÈLE"/>
+      <ChoixProduit data={data} k="appuisFenetreProduit" lot="Gros œuvre" value={m.appuisFenetreProduit} onChange={v=>set({appuisFenetreProduit:v})} label="APPUIS DE FENÊTRE — MODÈLE"/>
       <MapMulti m={m} set={set} k="appuisFenetre" label="APPUIS DE FENÊTRE & SEUILS DE PORTE" opts={MAP_APPUIS_FENETRE}/>
       <div className="g2">
         <MapTxt m={m} set={set} k="appuisCouleur" label="COLORIS DES APPUIS DE FENÊTRE"/>
@@ -13349,19 +13564,19 @@ function MAP({data,ch,up}){
         <MapChoix m={m} set={set} k="charpenteType" label="CHARPENTE & DESSOUS DE TOIT" opts={['Fermettes industrielles bois résineux','Charpente traditionnelle','Charpente sur dalle béton','Charpente combles perdus','Charpente combles aménageables']}/>
         <MapChoix m={m} set={set} k="sousFaces" label="CAISSON — SOUS-FACE" opts={['PVC','Alu']}/>
       </div>
-      <ChoixProduit data={data} lot="Charpente" value={m.charpenteProduit} onChange={v=>set({charpenteProduit:v})} label="CHARPENTE — PHOTO / MODÈLE"/>
+      <ChoixProduit data={data} k="charpenteProduit" lot="Charpente" value={m.charpenteProduit} onChange={v=>set({charpenteProduit:v})} label="CHARPENTE — PHOTO / MODÈLE"/>
       <MapBool m={m} set={set} k="charpenteGarageAmenageable" label="Charpente aménageable au-dessus du garage"/>
       <div className="g2">
         <MapTxt m={m} set={set} k="sousFacesColoris" label="COLORIS SOUS-FACES"/>
         <MapBool m={m} set={set} k="ecranSousToiture" label="Écran de sous-toiture HPV"/>
       </div>
-      <ChoixProduit data={data} lot="Sous-face" value={m.sousFacesProduit} onChange={v=>set({sousFacesProduit:v})} label="CAISSON SOUS-FACE — FICHE PRODUIT"/>
+      <ChoixProduit data={data} k="sousFacesProduit" lot="Sous-face" value={m.sousFacesProduit} onChange={v=>set({sousFacesProduit:v})} label="CAISSON SOUS-FACE — FICHE PRODUIT"/>
       <MapChoix m={m} set={set} k="gouttieres" label="GOUTTIÈRES — MODÈLE" opts={['PVC','Alu','Zinc']}/>
       <div className="g2">
         <MapChoix m={m} set={set} k="gouttieresColoris" label="COLORIS GOUTTIÈRES" opts={['Gris anthracite','Cuivre','Sable']}/>
         <MapChoix m={m} set={set} k="descenteGouttieresColoris" label="COLORIS DESCENTE DE GOUTTIÈRES" opts={['Gris anthracite','Cuivre','Sable']}/>
       </div>
-      <ChoixProduit data={data} lot="Gouttière" value={m.gouttieresProduit} onChange={v=>set({gouttieresProduit:v})} label="GOUTTIÈRE — FICHE PRODUIT"/>
+      <ChoixProduit data={data} k="gouttieresProduit" lot="Gouttière" value={m.gouttieresProduit} onChange={v=>set({gouttieresProduit:v})} label="GOUTTIÈRE — FICHE PRODUIT"/>
       <div className="g2">
         <MapTxt m={m} set={set} k="fenetreToitModele" label="FENÊTRE(S) DE TOIT — MODÈLE" ph="type VELUX"/>
         <MapTxt m={m} set={set} k="fenetreToitVitrage" label="VITRAGE"/>
@@ -13371,12 +13586,12 @@ function MAP({data,ch,up}){
         <MapBool m={m} set={set} k="fenetreToitVolet" label="Volet roulant électrique SML"/>
       </div>
       <MapChoix m={m} set={set} k="conduitFumee" label="CONDUIT DE FUMÉE" opts={['Conduit isolé type Poujoulat','Souche carrée','Souche « Luminance »','Souche inox + chapeau pare-pluie','Sans objet']}/>
-      <ChoixProduit data={data} lot="Couverture" value={m.couvertureProduit} onChange={v=>set({couvertureProduit:v})} label="COUVERTURE — MODÈLE"/>
+      <ChoixProduit data={data} k="couvertureProduit" lot="Couverture" value={m.couvertureProduit} onChange={v=>set({couvertureProduit:v})} label="COUVERTURE — MODÈLE"/>
       <MapTxt m={m} set={set} k="couvertureColoris" label="COLORIS EXACT"/>
     </React.Fragment>)}
 
     {section('5. MENUISERIES EXTÉRIEURES, FAÇADES & GARAGE',<React.Fragment>
-      <ChoixProduit data={data} lot="Menuiseries ext." value={m.porteEntreeProduit} onChange={v=>set({porteEntreeProduit:v})} label="PORTE D’ENTRÉE — MODÈLE"/>
+      <ChoixProduit data={data} k="porteEntreeProduit" lot="Menuiseries ext." value={m.porteEntreeProduit} onChange={v=>set({porteEntreeProduit:v})} label="PORTE D’ENTRÉE — MODÈLE"/>
       <div className="g2">
         <MapChoix m={m} set={set} k="porteEntreeOption" label="OPTION" opts={MAP_PORTE_ENTREE_OPTION}/>
         <MapChoix m={m} set={set} k="porteEntreeOptionDim" label="DIMENSION" opts={MAP_PORTE_ENTREE_DIM}/>
@@ -13443,8 +13658,8 @@ function MAP({data,ch,up}){
       </div>
       <MapTxt m={m} set={set} k="isolationComblesR" label="R (m².K/W)"/>
       <div className="g2">
-        <ChoixProduit data={data} lot="Menuiseries int." value={m.porteInterieureProduit} onChange={v=>set({porteInterieureProduit:v,porteInterieureFinition:''})} label="PORTES INTÉRIEURES — MODÈLE"/>
-        <ChoixFinition data={data} produitId={m.porteInterieureProduit} value={m.porteInterieureFinition} onChange={v=>set({porteInterieureFinition:v})} label="FINITIONS / COULEUR"/>
+        <ChoixProduit data={data} k="porteInterieureProduit" lot="Menuiseries int." value={m.porteInterieureProduit} onChange={v=>set({porteInterieureProduit:v,porteInterieureFinition:''})} label="PORTES INTÉRIEURES — MODÈLE"/>
+        <ChoixFinition data={data} k="porteInterieureFinition" produitId={m.porteInterieureProduit} value={m.porteInterieureFinition} onChange={v=>set({porteInterieureFinition:v})} label="FINITIONS / COULEUR"/>
       </div>
       <div className="g2">
         <MapChoix m={m} set={set} k="porteInterieureLargeur" label="LARGEUR (NORMES PMR)" opts={['63','73','83']}/>
@@ -13456,7 +13671,7 @@ function MAP({data,ch,up}){
     {section('7. ÉQUIPEMENTS THERMIQUES & SANITAIRES',<React.Fragment>
       <div className="g2">
         <MapChoix m={m} set={set} k="chauffageType" label="CHAUFFAGE & ECS" opts={['PAC air/eau','PAC air/air','Chaudière hybride gaz + PAC','Poêle à granulés']}/>
-        <ChoixProduit data={data} lot="Chauffage / VMC" value={m.chauffageProduit} onChange={v=>set({chauffageProduit:v})} label="MARQUE / MODÈLE"/>
+        <ChoixProduit data={data} k="chauffageProduit" lot="Chauffage / VMC" value={m.chauffageProduit} onChange={v=>set({chauffageProduit:v})} label="MARQUE / MODÈLE"/>
       </div>
       <MapMulti m={m} set={set} k="emetteursRdc" label="ÉMETTEURS RDC" opts={MAP_EMETTEURS}/>
       <MapMulti m={m} set={set} k="emetteursEtage" label="ÉMETTEURS ÉTAGE" opts={MAP_EMETTEURS}/>
@@ -13467,8 +13682,8 @@ function MAP({data,ch,up}){
       </div>
       <MapTxt m={m} set={set} k="electriciteGamme" label="APPAREILLAGE ÉLECTRIQUE — GAMME" ph="Schneider…"/>
       <MapMulti m={m} set={set} k="electriciteOptions" label="OPTIONS ÉLECTRIQUES" opts={MAP_ELEC_OPTIONS}/>
-      <ChoixProduit data={data} lot="Plomberie / sanitaire" value={m.baignoireProduit} onChange={v=>set({baignoireProduit:v})} label="BAIGNOIRE"/>
-      <ChoixProduit data={data} lot="Plomberie / sanitaire" value={m.receveurProduit} onChange={v=>set({receveurProduit:v})} label="RECEVEUR DE DOUCHE"/>
+      <ChoixProduit data={data} k="baignoireProduit" lot="Plomberie / sanitaire" value={m.baignoireProduit} onChange={v=>set({baignoireProduit:v})} label="BAIGNOIRE"/>
+      <ChoixProduit data={data} k="receveurProduit" lot="Plomberie / sanitaire" value={m.receveurProduit} onChange={v=>set({receveurProduit:v})} label="RECEVEUR DE DOUCHE"/>
       <div className="g2">
         <MapTxt m={m} set={set} k="receveurDimensions" label="DIMENSIONS RECEVEUR" ph="90×120…"/>
         <MapTxt m={m} set={set} k="receveurColoris" label="COLORIS RECEVEUR"/>
@@ -13476,13 +13691,13 @@ function MAP({data,ch,up}){
       <MapMulti m={m} set={set} k="douche" label="DOUCHE" opts={MAP_DOUCHE}/>
       <MapChoix m={m} set={set} k="wcType" label="WC" opts={['Pack WC suspendu','Pack WC standard']}/>
       <MapBool m={m} set={set} k="laveMains" label="Lave-mains"/>
-      <ChoixProduit data={data} lot="Plomberie / sanitaire" value={m.meubleVasqueProduit} onChange={v=>set({meubleVasqueProduit:v})} label="MEUBLE VASQUE"/>
+      <ChoixProduit data={data} k="meubleVasqueProduit" lot="Plomberie / sanitaire" value={m.meubleVasqueProduit} onChange={v=>set({meubleVasqueProduit:v})} label="MEUBLE VASQUE"/>
       <MapTxt m={m} set={set} k="meubleVasqueLargeur" label="LARGEUR MEUBLE VASQUE"/>
     </React.Fragment>)}
 
     {section('8. CHAPES ET REVÊTEMENTS DE SOLS',<React.Fragment>
       <MapChoix m={m} set={set} k="chapeType" label="CHAPE" opts={['Chape fluide anhydrite (lot carrelage)','Chape fluide ciment (lot carrelage)','Dalle brute — réservés MOA']}/>
-      <ChoixProduit data={data} lot="Carrelage" value={m.carrelageProduit} onChange={v=>set({carrelageProduit:v})} label="CARRELAGE — MODÈLE"/>
+      <ChoixProduit data={data} k="carrelageProduit" lot="Carrelage" value={m.carrelageProduit} onChange={v=>set({carrelageProduit:v})} label="CARRELAGE — MODÈLE"/>
       <MapTxt m={m} set={set} k="carrelageEntreprise" label="PIÈCES TRAITÉES PAR L’ENTREPRISE"/>
       <MapTxt m={m} set={set} k="carrelageReservees" label="PIÈCES RÉSERVÉES AU MAÎTRE D’OUVRAGE"/>
       <div className="g2">
