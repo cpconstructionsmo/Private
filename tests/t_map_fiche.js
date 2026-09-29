@@ -6,6 +6,7 @@ const {charger,verif,texteInst,norm,RACINE,SORTIE}=require('./harness');
 const M=charger(['MAP_FICHE','ficheMapMiseEnPage','ficheCodeBits','ficheCodeLire','pdfVectoriel','pdfCouper','pdfLargeur',
   'FicheMapPapier','FICHE_X0','FICHE_X1','FICHE_Y0','FICHE_Y1','FICHE_CASE','EMPTY']);
 const {chk,fin}=verif();
+const LOGO={jpeg:new Uint8Array(require('fs').readFileSync(require('path').join(__dirname,'..','assets','logo_fiche.jpg'))),w:600,h:395};
 
 /* --- l'onglet MAP et la fiche ont les mêmes champs --- */
 const html=fs.readFileSync(path.join(RACINE,'index.html'),'utf8');
@@ -34,8 +35,8 @@ const data={...M.EMPTY,
     map:{soubassement:'Vide sanitaire',travauxPrepa:['Débroussaillage','Démolition'],vsTrappe:true,porteEntreeProduit:'pr1',
       porteInterieureProduit:'pr3',enduitCouleur:'Ton pierre (à confirmer)',notes:'Prévoir un rendez-vous chez le carreleur'}}]};
 const ch=data.chantiers[0];
-const V=M.ficheMapMiseEnPage(ch,data,{mode:'vierge',numero:1,date:'2026-09-29'});
-const P=M.ficheMapMiseEnPage(ch,data,{mode:'preremplie',numero:2,date:'2026-09-29'});
+const V=M.ficheMapMiseEnPage(ch,data,{mode:'vierge',numero:1,date:'2026-09-29',logo:LOGO});
+const P=M.ficheMapMiseEnPage(ch,data,{mode:'preremplie',numero:2,date:'2026-09-29',logo:LOGO});
 const D=V.disposition;
 chk(V.pages.length>=4&&V.pages.length<=12&&D.nbPages===V.pages.length,'fiche vierge : '+V.pages.length+' pages');
 const dans=(r,w,h)=>r.x>=M.FICHE_X0-0.01&&r.x+w<=M.FICHE_X1+0.01&&r.y>=M.FICHE_Y0-0.01&&r.y+h<=M.FICHE_Y1+0.01;
@@ -58,8 +59,10 @@ chk(!/Actuel :/.test(tv),'fiche vierge : aucune valeur actuelle');
 chk(/Actuel : Vide sanitaire/.test(tp)&&/Actuel : Débroussaillage, Démolition/.test(tp)&&/Actuel : Oui/.test(tp)&&/Actuel : Porte Renomatic — Hörmann/.test(tp),
   'fiche préremplie : les valeurs actuelles en clair (choix, plusieurs choix, oui/non, produit)');
 chk(P.disposition.cases.filter(c=>c.k==='porteInterieureFinition').map(c=>c.v).join()==='Chêne gris,Blanc','finitions : celles du produit retenu');
-chk(/Maison Exemple/.test(tv)&&/M\. et Mme Exemple/.test(tv)&&/1 rue du Test/.test(tv)&&/Fiche n° 1 · vierge/.test(tv),'en-tête : dossier, client, adresse, numéro de fiche');
+chk(/Maison Exemple/.test(tv)&&/M\. et Mme Exemple/.test(tv)&&/1 rue du Test/.test(tv)&&/FICHE N° 1/.test(tv)&&/Vierge · 29\/09\/2026/.test(tv),'en-tête : dossier, client, adresse, numéro de fiche');
 chk(V.pages.every(pg=>pg.filter(e=>e.t==='rect'&&e.plein&&e.w===7&&e.h===7).length===4),'quatre repères sur chaque page');
+chk(V.pages.every(pg=>pg.some(e=>e.t==='image'&&e.im===LOGO)),'le logo sur chaque page');
+chk(/Signatures|SIGNATURES/.test(tv)&&/MODE D’EMPLOI/.test(tv),'mode d’emploi en première page, signatures à la fin');
 
 /* --- texte : coupe et largeur --- */
 chk(M.pdfCouper('Semelles filantes conformément à l’étude de sol',8,false,30).length>1,'un long texte passe à la ligne');
