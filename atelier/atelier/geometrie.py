@@ -20,7 +20,7 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from shapely.geometry import LineString, Point as SPoint, Polygon
+from shapely.geometry import LineString, Point as SPoint, Polygon, box
 from shapely.ops import polygonize, unary_union
 
 from .modele import Mur, Niveau, Ouverture, Piece, confirme, hypothese, impossible
@@ -60,6 +60,7 @@ class PlanBrut:
     blocs: list[BlocOuverture] = field(default_factory=list)
     cotes: list[Cote] = field(default_factory=list)
     origine: str = ""
+    tirets: list[Seg] = field(default_factory=list)   # traits en tirets (débords, porches, projections)
 
 
 # ------------------------------------------------------------ vocabulaire
@@ -68,17 +69,26 @@ USAGES = [  # (motif, usage, humide, exclue de la surface habitable)
     (r"garage", "garage", False, True),
     (r"cellier|buanderie|lingerie", "rangement", True, False),
     (r"chaufferie|local\s*tech|technique", "technique", False, True),
-    (r"\bs\.?\s*d\.?\s*[be]\b|salle\s*d.?(eau|bain)|douche", "eau", True, False),
+    (r"\bs\.?\s*d\.?\s*[be]\b|salle\s*d[e'’]?\s*(eau|bains?)|douche", "eau", True, False),
     (r"\bw\.?\s*c\b|toilette", "eau", True, False),
     (r"cuisine|kitchen", "sejour", True, False),
     (r"s[ée]jour|salon|salle\s*[àa]\s*manger|pi[eè]ce\s*de\s*vie|living", "sejour", False, False),
     (r"chambre|\bch\.?\s*\d|suite", "chambre", False, False),
     (r"bureau", "chambre", False, False),
-    (r"d[ée]gagement|couloir|circulation|hall|entr[ée]e|palier", "circulation", False, False),
+    (r"d[ée]gagement|\bdgt\b|couloir|circulation|hall|entr[ée]e|palier", "circulation", False, False),
     (r"dressing|placard|rangement", "rangement", False, False),
     (r"terrasse|auvent|porche|pergola", "exterieur", False, True),
 ]
 RE_SURFACE = re.compile(r"(\d{1,3}(?:[.,]\d{1,2})?)\s*m\s*[²2]", re.I)
+
+
+def nettoyer_nom(texte: str) -> str:
+    """Le nom d'une pièce sans sa surface (« SH : 12,91 m² »), ni les cotes
+    ou abréviations voisines que le plan a pu coller au même texte."""
+    t = RE_SURFACE.sub("", texte)
+    t = re.sub(r"\b(S\.?\s?H|S\.?\s?A|SHAB|SDP)\b\.?\s*:?", "", t, flags=re.I)
+    t = re.sub(r"(?<![\w])\d+[.,]\d+(?![\w])", "", t)      # cotes voisines (0,80) ; « Chambre 1 » garde son numéro
+    return re.sub(r"\s{2,}", " ", t).strip(" :-–,;")
 
 
 def usage_de(nom: str):
@@ -106,7 +116,7 @@ def largeur_min(poly: Polygon) -> tuple[float, float]:
     return min(a, b), max(a, b)
 
 
-def fermer_interruptions(segments: list[Seg], mini=0.45, maxi=3.60, tol=0.015) -> tuple[list[Seg], list[tuple[Seg, float]]]:
+def fermer_interruptions(segments: list[Seg], mini=0.45, maxi=5.20, tol=0.015) -> tuple[list[Seg], list[tuple[Seg, float]]]:
     """Referme les interruptions de murs : deux extrémités de traits colinéaires
     (même droite), face à face, séparées de mini à maxi mètres, sans trait
     entre elles. Rend les fermetures et leur longueur (largeur de l'ouverture)."""
@@ -174,6 +184,34 @@ class Resultat:
     fermetures: list[Seg]
 
 
+def separer(f: Polygon, noms: list, mini=0.55, maxi=1.60):
+    """Cherche la ligne horizontale ou verticale la plus courte, partant d'un
+    sommet de la surface, qui la coupe en deux parts portant chacune au moins
+    un des noms. Rend (ligne, [part1, part2]) ou None."""
+    bord = f.exterior
+    candidats = []
+    for x, y in list(bord.coords)[:-1]:
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            rayon = LineString([(x + dx * 0.005, y + dy * 0.005), (x + dx * maxi, y + dy * maxi)])
+            inter = rayon.intersection(bord)
+            if inter.is_empty:
+                continue
+            geoms = list(inter.geoms) if hasattr(inter, "geoms") else [inter]
+            d = min(SPoint(x, y).distance(g) for g in geoms)
+            if not (mini <= d <= maxi):
+                continue
+            ligne = LineString([(x, y), (x + dx * d, y + dy * d)])
+            if not f.buffer(1e-4).contains(ligne):
+                continue
+            candidats.append((d, ligne))
+    for d, ligne in sorted(candidats, key=lambda c: c[0]):
+        reste = f.difference(ligne.buffer(1e-5, cap_style=2))
+        morceaux = [g for g in getattr(reste, "geoms", [reste]) if g.area > 0.3]
+        if len(morceaux) == 2 and all(any(m.contains(p) for p in noms) for m in morceaux):
+            return ligne, morceaux
+    return None
+
+
 def finesse(poly: Polygon) -> float:
     """Épaisseur moyenne d'une face : 2 × surface / périmètre. Pour une bande
     (un mur, une cloison, même ramifiés), c'est à peu près son épaisseur ;
@@ -238,6 +276,31 @@ def reconstituer(plan: PlanBrut, mur_max=0.60) -> Resultat:
         else:
             faces_murs.append(f)
 
+    # une surface qui porte deux noms de pièce cache une porte non refermée
+    # (porte d'angle, entre deux cloisons qui ne se font pas face) : on la
+    # sépare par la plus courte ligne horizontale ou verticale, de la largeur
+    # d'une porte, qui laisse un nom de chaque côté
+    separations = []
+    for _ in range(6):
+        for i, f in enumerate(faces_pieces):
+            pts = []
+            for t in plan.textes:
+                if usage_de(t.texte)[0] != "autre" and f.contains(SPoint(t.x, t.y)):
+                    n_ = nettoyer_nom(t.texte)
+                    if n_ and n_ not in [x[0] for x in pts]:
+                        pts.append((n_, SPoint(t.x, t.y)))
+            if len(pts) < 2:
+                continue
+            coupe = separer(f, [p for _, p in pts])
+            if coupe is None:
+                continue
+            ligne, morceaux = coupe
+            faces_pieces[i:i + 1] = morceaux
+            separations.append(ligne)
+            break
+        else:
+            break
+
     # murs de façade (bande le long du contour) et murs intérieurs (le reste)
     bande, epaisseurs = bande_de_facade(contour, faces_pieces, mur_max)
     tous_murs = contour.difference(unary_union(faces_pieces))
@@ -268,8 +331,13 @@ def reconstituer(plan: PlanBrut, mur_max=0.60) -> Resultat:
     pieces, ecarts = [], []
     for i, f in enumerate(faces_pieces):
         dedans = [t for t in plan.textes if f.contains(SPoint(t.x, t.y))]
-        noms = [t.texte for t in dedans if usage_de(t.texte)[0] != "autre"]
-        nom = re.sub(RE_SURFACE, "", noms[0]).strip(" :-–") if noms else f"Pièce {i + 1}"
+        noms = []
+        for t in dedans:
+            if usage_de(t.texte)[0] != "autre":
+                n_ = nettoyer_nom(t.texte)
+                if n_ and n_ not in noms:
+                    noms.append(n_)
+        nom = " / ".join(noms[:2]) if noms else f"Pièce {i + 1}"
         usage, humide, exclue = usage_de(nom)
         lue = None
         for t in dedans:
@@ -316,10 +384,172 @@ def reconstituer(plan: PlanBrut, mur_max=0.60) -> Resultat:
                                     hauteur=impossible("hauteur de l'ouverture", "m"), allege=impossible("hauteur d'allège", "m"),
                                     exterieure=ext, origine="interruption de mur"))
 
+    # chaque ouverture occupe l'épaisseur du mur entre ses deux fermetures (nu
+    # intérieur, nu extérieur) : ce quadrilatère sert à la dessiner
+    from shapely.geometry import MultiPoint
+    for o in ouvertures:
+        po = SPoint(o.position)
+        proches = sorted((((pa, pb), L) for (pa, pb), L in details
+                          if SPoint((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2).distance(po) < mur_max + 0.15),
+                         key=lambda f: SPoint((f[0][0][0] + f[0][1][0]) / 2, (f[0][0][1] + f[0][1][1]) / 2).distance(po))
+        if len(proches) >= 2:
+            (a1, b1), L1 = proches[0]
+            autre = next((((a2, b2), L2) for (a2, b2), L2 in proches[1:] if abs(L2 - L1) < 0.03
+                          and abs(abs(_dir((a1, b1))[0] * _dir((a2, b2))[0] + _dir((a1, b1))[1] * _dir((a2, b2))[1]) - 1) < 0.01), None)
+            if autre:
+                (a2, b2), _ = autre
+                g = MultiPoint([a1, b1, a2, b2]).convex_hull
+                if g.geom_type == "Polygon":
+                    o.polygone = [(round(x, 4), round(y, 4)) for x, y in g.exterior.coords]
+                    continue
+        if proches:
+            (a1, b1), _ = proches[0]
+            g = LineString([a1, b1]).buffer(0.02, cap_style=2)
+            if o.exterieure:
+                # une seule fermeture trouvée : l'ouverture traverse le mur de façade
+                ep = min((m.epaisseur for m in murs if m.exterieur), default=0.3)
+                ux, uy = _dir((a1, b1))
+                mx, my = (a1[0] + b1[0]) / 2, (a1[1] + b1[1]) / 2
+                n = (-uy, ux) if contour.contains(SPoint(mx - uy * 0.05, my + ux * 0.05)) else (uy, -ux)
+                # la fermeture peut être sur l'une ou l'autre face : on couvre les deux côtés
+                a0, b0 = (a1[0] - n[0] * ep, a1[1] - n[1] * ep), (b1[0] - n[0] * ep, b1[1] - n[1] * ep)
+                a3, b3 = (a1[0] + n[0] * ep, a1[1] + n[1] * ep), (b1[0] + n[0] * ep, b1[1] + n[1] * ep)
+                g = MultiPoint([a0, b0, a3, b3]).convex_hull.intersection(contour)
+                g = g if g.geom_type == "Polygon" else LineString([a1, b1]).buffer(0.02, cap_style=2)
+            o.polygone = [(round(x, 4), round(y, 4)) for x, y in g.exterior.coords]
+
+    lire_dimensions_baies(ouvertures, plan.textes, contour, plan.origine, pieces)
+    couverts = trouver_couverts(plan, contour)
     ecarts += controler_cotes(plan.cotes, contour)
     niveau = Niveau(contour_exterieur=[(round(x, 4), round(y, 4)) for x, y in contour.exterior.coords],
-                    murs=murs, ouvertures=ouvertures, pieces=pieces)
+                    murs=murs, ouvertures=ouvertures, pieces=pieces, couverts=couverts)
+    fermetures = fermetures + [tuple(map(tuple, l.coords)) for l in separations]
     return Resultat(niveau=niveau, ecarts=ecarts, faces_murs=faces_murs, faces_pieces=faces_pieces, fermetures=fermetures)
+
+
+RE_COUVERT = re.compile(r"porche|auvent|pr[ée]au|abri|carport|terrasse\s+couverte|marquise", re.I)
+
+
+def trouver_couverts(plan: PlanBrut, contour: Polygon) -> list:
+    """Porche, auvent, préau, abri de voiture : un nom écrit hors des murs,
+    dans un contour en tirets accolé à la maison. Couvert et soutenu par des
+    poteaux, il compte dans l'emprise au sol (art. R.420-1 : seuls les
+    débords non soutenus en sont exclus) et la toiture le couvre."""
+    from .modele import Couvert
+    out = []
+    dehors = [LineString(s) for s in plan.tirets
+              if not contour.buffer(-0.01).contains(LineString(s).interpolate(0.5, normalized=True))]
+    for t in plan.textes:
+        pt = SPoint(t.x, t.y)
+        if not RE_COUVERT.search(t.texte) or contour.contains(pt):
+            continue
+        proches = [l for l in dehors if l.distance(pt) < 3.0]
+        if not proches:
+            continue
+        cadre = box(*unary_union(proches).bounds)
+        # la boîte des tirets, prolongée jusqu'au mur de la maison
+        for sens in ((0, 0), (0, 1), (0, -1), (1, 0), (-1, 0)):
+            g = _jusqu_au_mur(cadre, contour, sens)
+            if g is not None and g.buffer(0.01).contains(pt) and g.area > 0.3:
+                voisins = " ".join(x.texte for x in plan.textes if SPoint(x.x, x.y).distance(pt) < 3)
+                poteau = bool(re.search(r"poteau", voisins, re.I))
+                out.append(Couvert(nom=nettoyer_nom(t.texte) or "Couvert",
+                                   polygone=[(round(x, 4), round(y, 4)) for x, y in g.exterior.coords],
+                                   compte_emprise=hypothese(True, consequence=(
+                                       "s'il n'est soutenu ni par des poteaux ni par un encorbellement, il sort "
+                                       "de l'emprise au sol"), calcul="couvert accolé à la maison, soutien " +
+                                       ("par poteau écrit sur le plan" if poteau else "par poteau supposé"))))
+                break
+    return out
+
+
+def _jusqu_au_mur(cadre: Polygon, contour: Polygon, sens) -> Polygon | None:
+    """La boîte `cadre` prolongée dans le sens `sens` jusqu'au mur ; rend la
+    partie hors des murs si elle touche la maison, sinon None."""
+    x0, y0, x1, y1 = cadre.bounds
+    dx, dy = sens
+    for i in range(1 if sens == (0, 0) else 150):
+        pas = i * 0.02
+        g = box(min(x0, x0 + dx * pas), min(y0, y0 + dy * pas), max(x1, x1 + dx * pas), max(y1, y1 + dy * pas))
+        if g.distance(contour) < 1e-3:
+            g = g.difference(contour)
+            return g if g.geom_type == "Polygon" else None
+    return None
+
+
+RE_BAIE = re.compile(r"(\d+(?:[.,]\d+)?)\s*[×x/]\s*(\d+[.,]\d+)")
+RE_ALLEGE = re.compile(r"all(?:[èe]ge)?\.?\s*:?\s*(\d+[.,]\d+)", re.I)
+
+
+def _m(v: str) -> float:
+    x = float(v.replace(",", "."))
+    return x / 100 if x >= 10 else x        # « 90/1.35 » : largeur en centimètres
+
+
+def lire_dimensions_baies(ouvertures, textes, contour: Polygon, origine: str, pieces=(), portee=15.0):
+    """Les plans de permis écrivent, le long des cotes extérieures, la taille
+    de chaque baie (« 0,90 × 1,35 », « 90/1.35 ») et son allège
+    (« all. 0,80 »). Chaque baie extérieure reçoit le texte aligné sur son
+    milieu, du même côté de la façade, dont la largeur correspond : largeur,
+    hauteur et allège deviennent alors lues sur le plan (confirmées)."""
+    dims = []
+    for t in textes:
+        m = RE_BAIE.search(t.texte)
+        if m:
+            dims.append((t, _m(m.group(1)), _m(m.group(2))))
+    alleges = [(t, float(m.group(1).replace(",", "."))) for t in textes for m in [RE_ALLEGE.search(t.texte)] if m]
+    anneau = contour.exterior
+    pris = set()
+    for o in ouvertures:
+        if not o.exterieure:
+            continue
+        po = SPoint(o.position)
+        d = anneau.project(po)
+        a, b = anneau.interpolate(max(d - 0.05, 0)), anneau.interpolate(d + 0.05)
+        horiz = abs(b.x - a.x) >= abs(b.y - a.y)
+        meilleur = None
+        for j, (t, L, H) in enumerate(dims):
+            if j in pris:
+                continue
+            decal = abs(t.x - po.x) if horiz else abs(t.y - po.y)
+            loin = abs(t.y - po.y) if horiz else abs(t.x - po.x)
+            if decal > 0.6 or loin > portee or contour.contains(SPoint(t.x, t.y)):
+                continue
+            ecart_l = abs(L - (o.largeur.valeur or 0))
+            if ecart_l > 0.15:
+                continue
+            # la cote se lit en regardant la façade depuis l'extérieur : entre
+            # la baie et son texte, rien de la maison
+            pied = (po.x, t.y) if horiz else (t.x, po.y)
+            vx, vy = pied[0] - po.x, pied[1] - po.y
+            nv = math.hypot(vx, vy) or 1
+            rayon = LineString([(po.x + vx / nv * 0.5, po.y + vy / nv * 0.5), pied])
+            if rayon.length > 0 and rayon.intersects(contour.buffer(-0.01)):
+                continue
+            score = decal + ecart_l * 2 + loin * 0.01
+            if meilleur is None or score < meilleur[0]:
+                meilleur = (score, j, t, L, H)
+        if not meilleur:
+            continue
+        _, j, t, L, H = meilleur
+        pris.add(j)
+        src = dict(document=origine, calcul=f"lu sur le plan : « {t.texte} »")
+        o.largeur = confirme(round(L, 3), "m", **src)
+        o.hauteur = confirme(round(H, 3), "m", **src)
+        al = min(alleges, key=lambda x: math.dist((x[0].x, x[0].y), (t.x, t.y)), default=None)
+        if al and math.dist((al[0].x, al[0].y), (t.x, t.y)) < 0.5:
+            o.allege = confirme(al[1], "m", document=origine, calcul=f"lu sur le plan : « {al[0].texte} »")
+        elif H >= 2.0:
+            o.allege = hypothese(0.0, "m", consequence="baie toute hauteur supposée posée au sol",
+                                 calcul="hauteur ≥ 2,00 m sans allège écrite")
+        derriere = min(pieces, key=lambda p: Polygon(p.polygone).distance(po), default=None)
+        garage = derriere is not None and derriere.usage == "garage" and Polygon(derriere.polygone).distance(po) < 0.6
+        if H < 2.0:
+            o.type = "fenetre"
+        elif garage and L >= 2.0:
+            o.type = "porte de garage"
+        elif o.type in ("inconnu", "porte", "fenetre", "porte de garage"):
+            o.type = "porte-fenetre" if L >= 1.2 else "porte"
 
 
 def type_de_bloc(nom: str) -> str:

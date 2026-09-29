@@ -92,6 +92,7 @@ def test_formats_refuses(tmp_path, projet):
     dossier, p = projet
     with pytest.raises(ValueError, match="DXF"):
         importer_rdc(p, str(tmp_path / "plan.dwg"))
+    C.ecrire_pdf(str(tmp_path / "plan.pdf"))          # aucune échelle écrite sur la page
     with pytest.raises(ValueError, match="échelle"):
         importer_rdc(p, str(tmp_path / "plan.pdf"))
 
@@ -105,3 +106,46 @@ def test_projet_arborescence_et_versions(tmp_path):
     assert p.version == 2 and len(list((dossier / "01_modele" / "versions").glob("*.json"))) == 2
     assert p.batiment.type_niveaux == "plain-pied"
     assert any(d.genre == "defaut-prudent" and d.choix == "Plain-pied" for d in p.journal)
+
+
+def test_pdf_murs_en_aplats(tmp_path, projet):
+    """Murs dessinés en aplats, plan en page 2, échelle lue sur la page et
+    contrôlée sur la cote 12,00 ; le tableau en aplats n'est pas pris pour des murs."""
+    from atelier.import_pdf import lire_pdf, pages_du_pdf
+    dossier, p = projet
+    f = tmp_path / "jeu.pdf"
+    C.ecrire_pdf_aplats(str(f))
+    assert [x["echelle"] for x in pages_du_pdf(str(f))] == [None, 75]
+    brut, notes = lire_pdf(str(f), page=1)
+    assert any("1/75" in n for n in notes) and any("✅ Échelle contrôlée" in n for n in notes), notes
+    assert any("aplats" in n for n in notes)
+    p, notes = importer_rdc(p, str(f))          # page du plan choisie seule, échelle lue
+    n = p.batiment.niveaux[0]
+    noms = {x.nom: x for x in n.pieces}
+    for nom, s in C.ATTENDU["pieces"].items():
+        assert nom in noms, f"pièce manquante : {nom} (lues : {list(noms)})"
+        assert abs(noms[nom].surface_calculee - s) < 0.02, (nom, noms[nom].surface_calculee)
+    b = bilan_surfaces(p)
+    assert abs(b["surface_plancher"]["valeur"].valeur - C.ATTENDU["surface_plancher"]) < 0.05
+    # le porche couvert, sur poteau supposé, s'ajoute à l'emprise au sol
+    assert [c.nom for c in n.couverts] == ["Porche couvert"]
+    assert abs(b["emprise_sol"]["valeur"].valeur - (C.ATTENDU["emprise_sol"] + C.PORCHE)) < 0.03
+    assert n.couverts[0].compte_emprise.statut == Statut.HYPOTHESE
+    assert any("page 2" in x for x in notes), notes
+    # tailles des baies lues le long des cotes
+    lues = {(o.largeur.valeur, o.hauteur.valeur, o.allege.valeur) for o in n.ouvertures
+            if o.exterieure and o.hauteur.statut == Statut.CONFIRME}
+    assert {(1.8, 2.15, 0.0), (1.0, 1.25, 0.9), (0.6, 0.75, 1.4)} <= lues, lues
+
+
+def test_separation_porte_d_angle():
+    """Deux noms dans une même surface : la porte d'angle est refermée par la
+    plus courte ligne qui laisse un nom de chaque côté."""
+    from shapely.geometry import Point, box
+    from atelier.geometrie import separer
+    # un couloir de 1 m au-dessus d'une chambre, ouverts l'un sur l'autre sur 0,9 m
+    f = box(0, 0, 3, 3).union(box(0, 3, 6, 4)).difference(box(0.9, 2.95, 3.0, 3.05))
+    r = separer(f, [Point(1.5, 1.5), Point(4.5, 3.5)])
+    assert r is not None
+    ligne, parts = r
+    assert len(parts) == 2 and abs(ligne.length - 0.9) < 0.01

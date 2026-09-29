@@ -61,9 +61,12 @@ def calculer(niveau: Niveau, rdc_valide: bool) -> dict:
         notes_sdp.append("⚠️ Seule la surface intérieure du garage est déduite ; la cloison entre maison et garage "
                          "reste comptée. À confirmer selon la lecture du service instructeur.")
 
-    # emprise au sol : projection verticale du volume
-    emp = contour.area
-    notes_emp = ["Contour extérieur des murs, garage compris.",
+    # emprise au sol : projection verticale du volume, couverts sur poteaux compris
+    couverts = [c for c in niveau.couverts if c.compte_emprise.valeur]
+    emp = unary_union([contour] + [_poly(c.polygone) for c in couverts]).area
+    ded_emp = [{"libelle": f"+ {c.nom} (couvert soutenu : compte dans l'emprise)", "surface": round(_poly(c.polygone).area, 2)}
+               for c in couverts]
+    notes_emp = ["Contour extérieur des murs, garage compris" + (", et les couverts soutenus par des poteaux." if couverts else "."),
                  "⚠️ Débords de toiture non comptés (sauf s'ils sont soutenus par des poteaux) ; auvents, "
                  "terrasses couvertes et débords sur poteaux restent à ajouter quand la toiture sera modélisée (jalon J4).",
                  "Si le lexique du PLU définit autrement l'emprise au sol, sa définition prévaut (jalon J3)."]
@@ -79,7 +82,7 @@ def calculer(niveau: Niveau, rdc_valide: bool) -> dict:
     tax = interieur.area
     return {
         "surface_plancher": {**v(sdp, f"calcul atelier — {ref('surface_plancher')}", ded_sdp, notes_sdp), "reference": ref("surface_plancher")},
-        "emprise_sol": {**v(emp, f"calcul atelier — {ref('emprise_sol')}", [], notes_emp), "reference": ref("emprise_sol")},
+        "emprise_sol": {**v(emp, f"calcul atelier — {ref('emprise_sol')}", ded_emp, notes_emp), "reference": ref("emprise_sol")},
         "surface_habitable": {**v(hab, f"calcul atelier — {ref('surface_habitable')}", ded_hab, notes_hab), "reference": ref("surface_habitable")},
         "surface_taxable": {**v(tax, "calcul atelier — pour information", [], ["Garage compris ; à titre indicatif."]),
                             "reference": "pour information"},

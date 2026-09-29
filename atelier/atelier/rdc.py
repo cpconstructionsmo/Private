@@ -7,20 +7,32 @@ from pathlib import Path
 
 from .geometrie import reconstituer
 from .import_dxf import lire_dxf
-from .import_pdf import lire_pdf
+from .import_pdf import lire_pdf, pages_du_pdf
 from .modele import Decision, Projet
 from .projet import invalider
 from .surfaces import calculer, seuil_architecte
 
 
-def importer_rdc(projet: Projet, chemin: str, echelle: float | None = None) -> tuple[Projet, list[str]]:
+def page_du_plan(chemin: str) -> int:
+    """La page qui porte le plan du RDC : parmi les pages dessinées, celle qui
+    écrit le plus de surfaces de pièces (« SH : 12,91 m² »), puis qui parle
+    du plan du rez-de-chaussée, puis qui porte une échelle."""
+    pages = [p for p in pages_du_pdf(chemin) if p["traits"] > 0]
+    if not pages:
+        return 0
+    return max(pages, key=lambda p: (p["surfaces"], p["plan_rdc"], bool(p["echelle"]), p["traits"]))["page"]
+
+
+def importer_rdc(projet: Projet, chemin: str, echelle: float | None = None,
+                 page: int | None = None) -> tuple[Projet, list[str]]:
     ext = Path(chemin).suffix.lower()
     if ext == ".dxf":
         brut, notes = lire_dxf(chemin)
     elif ext == ".pdf":
-        if not echelle:
-            raise ValueError("Indiquez l'échelle du plan PDF (par exemple 100 pour 1/100).")
-        brut, notes = lire_pdf(chemin, echelle)
+        if page is None:
+            page = page_du_plan(chemin)
+        brut, notes = lire_pdf(chemin, echelle, page=page)
+        notes.insert(0, f"Plan lu en page {page + 1} du PDF.")
     elif ext == ".dwg":
         raise ValueError("Un DWG ne se lit pas directement : exportez-le en DXF depuis AutoCAD ou Archicad "
                          "(Fichier › Enregistrer sous › DXF), ou en PDF vectoriel.")

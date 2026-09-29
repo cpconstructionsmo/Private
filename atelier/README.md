@@ -6,11 +6,14 @@ de construire d'une maison individuelle (PCMI) : analyse réglementaire,
 pièces graphiques, notices. Un étage n'est étudié que si on le demande : par
 défaut, la maison est de plain-pied.
 
-> **État actuel : jalons J0 et J1.** Création des projets, import du plan
-> du RDC (DXF ou PDF vectoriel), interprétation (murs, pièces, ouvertures),
-> écarts avec le plan source, surfaces réglementaires, seuil de 150 m²,
-> point d'arrêt n° 1, journal des décisions. Les jalons suivants
-> (implantation, règles du PLU, pièces PCMI…) viendront ensuite.
+> **État actuel.** Création des projets ; import du plan du RDC (DXF ou PDF
+> vectoriel, murs en traits ou en aplats) ; interprétation (murs, pièces,
+> baies avec leurs dimensions écrites, porche ou auvent) ; écarts avec le
+> plan source ; surfaces réglementaires ; seuil de 150 m² ; point d'arrêt
+> n° 1 ; toiture à croupes calculée ; **pièces graphiques du permis en PDF** :
+> page de garde, coupes (PCMI 3), façades et plan de toiture (PCMI 5), plan
+> du rez-de-chaussée. À venir : plan de masse (PCMI 2), notice (PCMI 4),
+> planches photographiques (PCMI 6, 7, 8), règles du PLU.
 
 ## Installer (une fois)
 
@@ -47,6 +50,31 @@ l'arrêter.
 5. Valider le **point d'arrêt n° 1**. Les surfaces passent alors de
    « hypothèse » à « confirmée ». Toute correction ou tout nouvel import
    annule cette validation.
+6. Compléter la **volumétrie** (égout, arase, pente, débord, vide sanitaire,
+   niveau NGF du RDC, terrain fini, nord, couverture), le **cartouche**
+   (maître d'ouvrage, surface du terrain, zone sismique, chauffage,
+   modifications) et les **baies** dont la hauteur n'est pas écrite sur le
+   plan. Une valeur non saisie reste une hypothèse (⚠️) : cochez « je
+   confirme » pour valider une valeur courante telle quelle.
+7. **Générer le PDF** des pièces : chaque génération est un nouveau fichier
+   dans `04_pieces/<indice>/`. Tout ce qui reste supposé est rappelé en
+   rouge sur les planches, sous « À CONFIRMER AVANT DÉPÔT ».
+
+## Les pièces produites
+
+| Pièce | Contenu |
+|---|---|
+| Page de garde | société, maître d'ouvrage, couverture, chauffage, dates et modifications, lieu, parcelles ; tableau des surfaces ; résumé (emprise, surface de plancher, surface des baies) |
+| PCMI 3 – Coupes | coupes A-A et B-B placées dans les pièces : vide sanitaire, dalle, murs et cloisons coupés, isolant, comble, toiture coupée et toiture au-delà, niveaux, repérage |
+| PCMI 5 – Façades | les quatre façades (nommées selon le nord) : murs, baies, toiture ; niveaux (±0,00 NGF, égout, faîtages) ; dimensions des baies |
+| PCMI 5 – Plan de toiture | pans, faîtages et leur hauteur, arêtiers, noues, sens et pente, débord, cotes de l'égout |
+| Plan du RDC | murs, baies, pièces et surfaces, porche en tirets, trois chaînes de cotes par façade, tableau des surfaces, repères des coupes, nord, échelle |
+
+La **toiture à croupes** (même pente sur tous les pans) est calculée à
+partir du contour de la maison et de ses couverts (porche, auvent) : elle
+demande un plan orthogonal (murs à angle droit). Les **réglages du
+cabinet** (société, dessinateur, logo RE2020) se font une fois, depuis
+l'accueil ; ils restent sur ce Mac.
 
 ## Où sont les données
 
@@ -111,6 +139,10 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 - `atelier/geometrie.py` : reconstitution (fermeture des ouvertures,
   polygonisation, murs de façade par mesure vers l'intérieur, contrôle des cotes).
 - `atelier/surfaces.py` : surfaces et seuil de 150 m².
+- `atelier/toiture.py` : toiture à croupes (distance « en carré » aux égouts).
+- `atelier/planches.py` : planche A3, cartouche, cotes, niveaux, échelle, nord.
+- `atelier/pieces_graphiques.py` : les pièces tirées du modèle.
+- `atelier/reglages.py` : réglages du cabinet (locaux).
 - `atelier/projet.py` : dossier du projet, versions, points d'arrêt.
 - `atelier/serveur.py` et `atelier/statiques/` : l'interface locale.
 - `tests/cas_fictif.py` : maison fictive de 12 × 9 m, surfaces calculées à
