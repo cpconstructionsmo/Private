@@ -12,6 +12,12 @@ qu'on ait à les redire.
   de compilation). Photos et fiches produits dans `assets/`.
 - **Données** : Supabase, table `app_data`, ligne `main`, en jsonb, lue et
   écrite par `save(data)`. Les documents vont sur Google Drive.
+- **Choix du client en ligne** : `client.html` (page du client, lien
+  personnel `#t=<jeton>`) et la fonction `supabase/functions/configurateur`
+  (tables séparées `config_espaces` / `config_paniers`, jamais `app_data`).
+  Le calcul du panier est dans `calcul.js`, copié à l'identique dans
+  `index.html` (`configCalculer`) : `t_configurateur.js` le vérifie.
+  Installation : `supabase/functions/configurateur/README.md`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié).
 

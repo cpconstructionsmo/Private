@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · MAP : fiche des points ouverts, ouvrages et dimensions relus sans doublon, synthèse et changements avant sortie';
+const VERSION='2026-09-30 · Choix du client en ligne : lien personnel, panier recalculé par le serveur, prix versionnés, reprise vérifiée dans la MAP';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -15220,6 +15220,361 @@ function SyntheseMap({ch,data,allerA}){
   </div>;
 }
 
+/* ---------- les choix du client en ligne ----------
+   Le client reçoit un lien personnel vers une page (client.html) qui ne voit
+   que le catalogue publié pour son dossier, par la fonction « configurateur »
+   (supabase/functions/configurateur) : jamais app_data. On prépare ici ce
+   catalogue — les points encore ouverts de la MAP qui regardent le client,
+   les variantes d'un produit retenu, les ouvrages en option ou à décider —
+   avec pour chaque réponse sa nature (incluse, plus-value, moins-value, à
+   chiffrer, sans incidence) et son prix de vente TTC au client, saisi ou
+   tiré d'un bordereau du dossier (prix HT du marché, TVA ajoutée). Chaque
+   publication porte un numéro de version des prix ; le serveur recalcule
+   chaque panier sur cette version. Au relevé, les choix sont vérifiés à
+   l'écran puis repris dans la MAP et le suivi ; aucun marché n'est touché.
+   Tant que le service n'est pas installé, on le dit : rien n'est simulé. */
+const CONFIG_NATURES=[{id:'inclus',l:'Inclus'},{id:'plus',l:'Plus-value'},{id:'moins',l:'Moins-value'},{id:'chiffrer',l:'À chiffrer'},{id:'sans',l:'Sans incidence'}];
+/* copie exacte de supabase/functions/configurateur/calcul.js (voir t_configurateur.js) */
+function configCalculer(publie, lignes) {
+  const erreurs = [];
+  const parOption = {};
+  ((publie && publie.questions) || []).forEach((q) =>
+    (q.options || []).forEach((o) => { parOption[o.id] = { q, o }; }));
+  const vues = {};
+  const parQuestion = {};
+  const out = [];
+  (Array.isArray(lignes) ? lignes : []).slice(0, 200).forEach((l) => {
+    const id = String((l && l.optionId) || '');
+    const x = parOption[id];
+    if (!x) { erreurs.push('option_inconnue:' + id.slice(0, 40)); return; }
+    if (vues[id]) { erreurs.push('option_en_double:' + id); return; }
+    vues[id] = 1;
+    const max = Math.max(1, Math.min(99, Math.floor(+x.o.max || 1)));
+    const qte = Math.floor(+((l && l.quantite) === undefined ? 1 : l.quantite));
+    if (!(qte >= 1 && qte <= max)) { erreurs.push('quantite:' + id); return; }
+    parQuestion[x.q.id] = (parQuestion[x.q.id] || 0) + 1;
+    if (x.q.type !== 'multiple' && parQuestion[x.q.id] > 1) { erreurs.push('choix_unique:' + x.q.id); return; }
+    const prix = x.o.prixTTC === null || x.o.prixTTC === undefined || x.o.prixTTC === '' ? null : +x.o.prixTTC;
+    let nature = x.o.nature;
+    // attention : null >= 0 est vrai en JavaScript — un prix doit être un nombre
+    if ((nature === 'plus' || nature === 'moins') && !(typeof prix === 'number' && isFinite(prix) && prix >= 0)) nature = 'chiffrer';
+    if (['inclus', 'sans', 'plus', 'moins', 'chiffrer'].indexOf(nature) < 0) nature = 'chiffrer';
+    const montant = nature === 'inclus' || nature === 'sans' ? 0
+      : nature === 'plus' ? Math.round(prix * qte * 100) / 100
+      : nature === 'moins' ? -Math.round(prix * qte * 100) / 100
+      : null;
+    out.push({ optionId: id, questionId: x.q.id, question: x.q.titre || '', libelle: x.o.libelle || '',
+      nature, quantite: qte, prixTTC: nature === 'chiffrer' ? null : (nature === 'inclus' || nature === 'sans' ? 0 : prix), montantTTC: montant });
+  });
+  const somme = (f) => Math.round(out.filter(f).reduce((s, l) => s + l.montantTTC, 0) * 100) / 100;
+  const plusTTC = somme((l) => l.nature === 'plus');
+  const moinsTTC = somme((l) => l.nature === 'moins');
+  const netTTC = Math.round((plusTTC + moinsTTC) * 100) / 100;
+  const budget = publie && publie.budgetTTC !== null && publie.budgetTTC !== undefined && publie.budgetTTC !== '' ? +publie.budgetTTC : null;
+  return {
+    prixVersion: (publie && publie.prixVersion) || 1,
+    lignes: out, erreurs, plusTTC, moinsTTC, netTTC,
+    aChiffrer: out.filter((l) => l.nature === 'chiffrer').length,
+    resteBudgetTTC: budget === null || !isFinite(budget) ? null : Math.round((budget - netTTC) * 100) / 100,
+  };
+}
+/* les rubriques où le client choisit : façades et menuiseries, intérieur, sanitaires, sols */
+const CONFIG_RUBRIQUES_CLIENT=['5','6','7','8'];
+const configIdOption=(cle,v)=>'op_'+ptrEmpreinte(cle+'|'+String(v));
+function configProposer(ch,data){
+  const m=(ch&&ch.map)||{}, Q=[];
+  const valide=rid=>{const r=MAP_RUBRIQUES.find(x=>x.id===rid), v=(m.validations||{})[rid];return !!(r&&v&&v.empreinte===mapEmpreinteRubrique(r,m))};
+  MAP_FICHE.forEach(s=>{
+    const rid=(s.s.match(/^(\d+)\./)||[])[1];
+    if(CONFIG_RUBRIQUES_CLIENT.indexOf(rid)<0||valide(rid))return;
+    s.f.forEach(f=>{
+      if(MAP_SI[f.k]&&!MAP_SI[f.k](m))return;
+      /* un produit retenu dont la variante reste à choisir */
+      if(f.t==='p'&&m[f.k]){
+        const kv=f.k.replace(/Produit$/,'Variante'), p=((data&&data.produits)||[]).find(x=>x.id===m[f.k]);
+        const V=((p&&p.variantes)||[]).filter(v=>v&&v.id);
+        if(!V.length||m[kv])return;
+        Q.push({id:'q_'+kv,titre:f.l.replace(/ — modèle$/,'')+' — '+[p.nom,p.marque].filter(Boolean).join(' '),rubrique:rid,champ:kv,type:'unique',actif:false,
+          options:V.slice(0,30).map(v=>({id:configIdOption(kv,v.id),libelle:varianteLibelle(v),detail:'',nature:'inclus',prixTTC:'',max:1,defaut:false,valeur:v.id}))});
+        return;
+      }
+      if(f.t!=='c'&&f.t!=='m'&&f.t!=='p')return;
+      if(!mapVide(m[f.k]))return;
+      const opts=ficheOptions(f,m,data);
+      if(opts.length<2)return;
+      Q.push({id:'q_'+f.k,titre:f.l,rubrique:rid,champ:f.k,type:f.t==='m'?'multiple':'unique',actif:false,
+        options:opts.map(o=>({id:configIdOption(f.k,o.v),libelle:o.l,detail:'',nature:'inclus',prixTTC:'',max:1,defaut:false,valeur:o.v}))});
+    });
+  });
+  /* un ouvrage en option ou à décider : le retenir, ou non */
+  mapOuvrages(m).filter(o=>o.statut==='option'||o.statut==='a_decider'||!o.statut).forEach(o=>{
+    const mt=mapMontant(o.montantTTC);
+    Q.push({id:'q_ouv_'+o.id,titre:mapOuvrageResume(o),rubrique:o.famille==='terrasse'?'3':'10',champ:'ouvrage:'+o.id,type:'unique',actif:false,
+      options:[{id:configIdOption(o.id,'oui'),libelle:'Je le retiens',detail:'',nature:mt!==null&&o.financement!=='marche'?'plus':o.financement==='marche'?'inclus':'chiffrer',
+          prixTTC:mt!==null&&o.financement!=='marche'?mt:'',max:1,defaut:false,valeur:'inclus'},
+        {id:configIdOption(o.id,'non'),libelle:'Je ne le retiens pas',detail:'',nature:'sans',prixTTC:'',max:1,defaut:false,valeur:'non_retenu'}]});
+  });
+  return Q;
+}
+/* les propositions rejoignent le catalogue sans rien écraser de ce qui a été retouché */
+const configFusionner=(questions,proposees)=>{
+  const ids=new Set((questions||[]).map(q=>q.id));
+  return [...(questions||[]),...proposees.filter(q=>!ids.has(q.id))];
+};
+/* ce que le client voit : ni le champ de la MAP, ni la valeur, ni la source du prix */
+function configPublie(ch,cfg){
+  return {v:1,titre:'Vos choix — '+((ch&&ch.nom)||''),message:String(cfg.message||'').slice(0,2000),
+    budgetTTC:mapMontant(cfg.budgetTTC),publieLe:new Date().toISOString(),
+    questions:(cfg.questions||[]).filter(q=>q.actif&&(q.options||[]).length).map(q=>({id:q.id,titre:q.titre,detail:q.detail||'',type:q.type==='multiple'?'multiple':'unique',
+      options:q.options.map(o=>({id:o.id,libelle:o.libelle,detail:o.detail||'',nature:o.nature,
+        prixTTC:o.nature==='plus'||o.nature==='moins'?mapMontant(o.prixTTC):null,max:Math.max(1,Math.floor(+o.max||1)),defaut:!!o.defaut,
+        ...(o.photo?{photo:o.photo}:{})}))}))};
+}
+/* le jeton du lien : 32 octets aléatoires ; seule son empreinte va en base */
+const configJeton=()=>{const b=crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')};
+const configEmpreinte=async t=>{
+  if(!(window.crypto&&crypto.subtle))throw new Error('Ce navigateur ne permet pas de créer le lien (page non sécurisée).');
+  const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));
+  return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join('');
+};
+const configLien=jeton=>location.origin+location.pathname.replace(/[^/]*$/,'')+'client.html#t='+jeton;
+/* une erreur de Supabase, en clair : service absent ou refus */
+const configErreur=e=>{
+  const s=String((e&&(e.message||e.details||e.hint))||e||'');
+  if((e&&(e.code==='42P01'||e.code==='PGRST205'))||/config_(espaces|paniers)/.test(s)&&/(exist|find|relation|schema)/i.test(s))
+    return 'Espace client non installé : les tables config_espaces et config_paniers n’existent pas encore (voir supabase/functions/configurateur/README.md). Rien n’a été publié.';
+  return 'Échec — '+(s||'erreur inconnue')+'. Rien n’a été modifié.';
+};
+async function configPublier(ch,cfg){
+  const publie=configPublie(ch,cfg);
+  if(!publie.questions.length)throw new Error('Aucune question cochée « proposer au client ».');
+  const E=cfg.espace;
+  if(!E||!E.id){
+    const jeton=configJeton(), hash=await configEmpreinte(jeton);
+    const {data:d,error}=await sb.from('config_espaces').insert({chantier_id:ch.id,jeton_hash:hash,publie,prix_version:1}).select('id').single();
+    if(error||!d)throw error||new Error('réponse vide');
+    return {espace:{id:d.id,jeton,publieLe:today(),prixVersion:1,statut:'ouvert'},publie:{...publie,prixVersion:1}};
+  }
+  const v=(+E.prixVersion||1)+1;
+  const {data:d,error}=await sb.from('config_espaces').update({publie,prix_version:v,statut:'ouvert',maj_le:new Date().toISOString()}).eq('id',E.id).select('id');
+  if(error)throw error;
+  if(!d||!d.length)throw new Error('espace introuvable ou non autorisé');
+  return {espace:{...E,publieLe:today(),prixVersion:v,statut:'ouvert'},publie:{...publie,prixVersion:v}};
+}
+/* le dernier panier du client, tel que la fonction l'a enregistré */
+async function configReleverPanier(E){
+  const {data:d,error}=await sb.from('config_paniers').select('version,prix_version,lignes,calcul,statut,cree_le')
+    .eq('espace_id',E.id).order('version',{ascending:false}).limit(1);
+  if(error)throw error;
+  return (d&&d[0])||null;
+}
+/* ce que le panier propose de changer : champs de la MAP (une rubrique
+   validée n'est jamais prise d'office), ouvrages, et points de suivi pour
+   ce qui coûte ou reste à chiffrer ; avec le contrôle du total */
+function configAnalyserPanier(cfg,panier,m){
+  const opt={};(cfg.questions||[]).forEach(q=>(q.options||[]).forEach(o=>{opt[o.id]={q,o}}));
+  const pub=(cfg.publications||[]).find(p=>p.prixVersion===panier.prix_version);
+  const recalc=pub?configCalculer(pub.publie,panier.lignes):null;
+  const calc=panier.calcul||{};
+  const controle=!recalc?'inconnu':recalc.erreurs.length||Math.abs(recalc.netTTC-(+calc.netTTC||0))>0.005||recalc.aChiffrer!==calc.aChiffrer?'ecart':'ok';
+  const L=(calc.lignes||[]).map(l=>({...l,...(opt[l.optionId]||{})}));
+  const champs=[],ouvrages=[],suivi=[];
+  const parQ={};L.filter(l=>l.q).forEach(l=>{(parQ[l.q.id]=parQ[l.q.id]||[]).push(l)});
+  Object.values(parQ).forEach(ls=>{
+    const q=ls[0].q;
+    if(/^ouvrage:/.test(q.champ||'')){
+      const id=q.champ.slice(8), o=mapOuvrages(m).find(x=>x.id===id), l=ls[0];
+      if(o&&l.o.valeur&&l.o.valeur!==o.statut)ouvrages.push({id,l:mapOuvrageResume(o),actuel:o.statut||'a_decider',propose:l.o.valeur,montantTTC:l.montantTTC,nature:l.nature});
+    }else if(q.champ){
+      const f=(MAP_FICHE.flatMap(s=>s.f).find(x=>x.k===q.champ))||{k:q.champ,l:q.titre,t:'c'};
+      const propose=q.type==='multiple'?ls.map(l=>l.o.valeur):ls[0].o.valeur;
+      const actuel=m[q.champ];
+      if(!memeValeur(propose,actuel)){
+        const rid=q.rubrique, rub=MAP_RUBRIQUES.find(x=>x.id===rid), val=rub&&(m.validations||{})[rid];
+        champs.push({k:q.champ,l:f.l||q.titre,question:q.titre,actuel,propose,libelle:ls.map(l=>l.o.libelle).join(', '),
+          actuelVide:mapVide(actuel),valideLe:val&&val.empreinte===mapEmpreinteRubrique(rub,m)?val.le:''});
+      }
+    }
+    ls.filter(l=>l.nature==='plus'||l.nature==='moins'||l.nature==='chiffrer').forEach(l=>suivi.push({
+      type:l.nature==='chiffrer'?'chiffrer':'decision',lot:'',rubrique:q.rubrique||'',
+      texte:'Choix client : '+q.titre+' — '+l.o.libelle+(l.quantite>1?' × '+l.quantite:'')
+        +(l.montantTTC!==null&&l.montantTTC!==undefined?' ('+(l.montantTTC>0?'+':'−')+eurDoc(Math.abs(l.montantTTC))+' TTC, prix v'+panier.prix_version+')':' (à chiffrer)')}));
+  });
+  const inconnues=(calc.lignes||[]).filter(l=>!opt[l.optionId]).map(l=>l.libelle||l.optionId);
+  return {controle,recalc,champs,ouvrages,suivi,inconnues};
+}
+/* reprendre un panier vérifié : seules les lignes retenues à l'écran */
+function configAppliquer(m,A,retenus,info){
+  const apres={},avant={};
+  A.champs.filter(c=>retenus[c.k]).forEach(c=>{avant[c.k]=m[c.k]===undefined?null:m[c.k];apres[c.k]=c.propose});
+  const O=A.ouvrages.filter(o=>retenus['ouvrage:'+o.id]);
+  const deja=new Set((m.suivi||[]).map(ficheCleSuivi));
+  const nouveaux=A.suivi.map(s=>({id:uid(),...s,statut:'ouvert',creeLe:today(),source:'Choix client en ligne, panier v'+info.version}))
+    .filter(s=>{const c=ficheCleSuivi(s);if(deja.has(c))return false;deja.add(c);return true});
+  const map={...m,...apres,suivi:[...(m.suivi||[]),...nouveaux]};
+  if(O.length)map.ouvrages=(m.ouvrages||[]).map(o=>{const x=O.find(y=>y.id===o.id);if(!x)return o;
+    return {...o,statut:x.propose,...(x.nature==='plus'&&x.montantTTC!==null?{financement:'supplement',montantTTC:String(x.montantTTC)}:{}),maj:today()}});
+  return {map,releve:{le:today(),version:info.version,prixVersion:info.prixVersion,netTTC:info.netTTC,avant,apres,
+    ouvrages:O.map(o=>({id:o.id,avant:o.actuel,apres:o.propose})),suivi:nouveaux.map(s=>s.id)}};
+}
+
+function ChoixClientEnLigne({data,ch,up}){
+  const cfg=ch.configurateur||{};
+  const m=ch.map||{};
+  const setCfg=p=>up({configurateur:{...cfg,...p}});
+  const [edition,setEdition]=useState(false);
+  const [brouillon,setBrouillon]=useState(null);
+  const [etat,setEtat]=useState(null);
+  const [releve,setReleve]=useState(null);
+  const [retenus,setRetenus]=useState({});
+  const [bord,setBord]=useState(null);
+  const E=cfg.espace;
+  const ouvrir=()=>{setBrouillon({tva:20,...cfg,questions:configFusionner(cfg.questions,configProposer(ch,data))});setEdition(true);setEtat(null)};
+  const B=brouillon||{};
+  const setB=p=>setBrouillon({...B,...p});
+  const setQ=(id,p)=>setB({questions:B.questions.map(q=>q.id===id?{...q,...p}:q)});
+  const setO=(qid,oid,p)=>setB({questions:B.questions.map(q=>q.id!==qid?q:{...q,options:q.options.map(o=>o.id===oid?{...o,...p}:o)})});
+  /* les bordereaux des entreprises du dossier d'abord : ce sont leurs prix */
+  const artisansDossier=new Set(((data&&data.marches)||[]).filter(x=>x.chantierId===ch.id).map(x=>x.artisanId).filter(Boolean));
+  const bordereaux=((data&&data.bordereaux)||[]).slice().sort((a,b)=>(bordArtisans(b).some(i=>artisansDossier.has(i))?1:0)-(bordArtisans(a).some(i=>artisansDossier.has(i))?1:0));
+  const enregistrer=()=>{setCfg({questions:B.questions,budgetTTC:B.budgetTTC||'',message:B.message||'',tva:B.tva});setEtat({ok:'Catalogue enregistré (non publié).'})};
+  const publier=async()=>{
+    setEtat({travail:true});
+    const c={...cfg,questions:B.questions,budgetTTC:B.budgetTTC||'',message:B.message||'',tva:B.tva};
+    try{
+      const {espace,publie}=await configPublier(ch,c);
+      up({configurateur:{...c,espace,publications:[...(cfg.publications||[]).slice(-9),{prixVersion:espace.prixVersion,le:today(),publie}]}});
+      setEtat({ok:'Publié : version '+espace.prixVersion+' des prix. Le client voit la nouvelle version en rechargeant son lien.'});
+      setEdition(false);
+    }catch(e){setEtat({erreur:e&&!e.code&&/Aucune question|navigateur/.test(e.message||'')?e.message:configErreur(e)})}
+  };
+  const changerStatut=async p=>{
+    setEtat({travail:true});
+    try{
+      const {data:d,error}=await sb.from('config_espaces').update({...p,maj_le:new Date().toISOString()}).eq('id',E.id).select('id');
+      if(error)throw error;if(!d||!d.length)throw new Error('espace introuvable ou non autorisé');
+      setCfg({espace:{...E,...(p.statut?{statut:p.statut}:{}),...(p.rouvert_le?{rouvertLe:today()}:{})}});
+      setEtat({ok:p.statut==='clos'?'Espace fermé : le client ne peut plus rien modifier.':'Espace rouvert : le client peut modifier et renvoyer ses choix.'});
+    }catch(e){setEtat({erreur:configErreur(e)})}
+  };
+  const relever=async()=>{
+    setEtat({travail:true});setReleve(null);
+    try{
+      const p=await configReleverPanier(E);
+      if(!p){setEtat({ok:'Le client n’a encore rien enregistré.'});return}
+      const A=configAnalyserPanier(cfg,p,m);
+      setRetenus(Object.fromEntries([...A.champs.map(c=>[c.k,c.actuelVide&&!c.valideLe]),...A.ouvrages.map(o=>['ouvrage:'+o.id,o.actuel==='a_decider'])]));
+      setReleve({p,A});setEtat(null);
+    }catch(e){setEtat({erreur:configErreur(e)})}
+  };
+  const reprendre=()=>{
+    const {p,A}=releve;
+    const {map,releve:r}=configAppliquer(m,A,retenus,{version:p.version,prixVersion:p.prix_version,netTTC:(p.calcul||{}).netTTC});
+    up({map,configurateur:{...cfg,releves:[...(cfg.releves||[]),r]}});
+    setReleve(null);
+    setEtat({ok:'Repris : '+Object.keys(r.apres).length+' champ(s), '+r.ouvrages.length+' ouvrage(s), '+r.suivi.length+' point(s) de suivi. Aucun marché n’a été modifié.'});
+  };
+  const signeEur=n=>(n>0?'+':n<0?'−':'')+eurDoc(Math.abs(n||0));
+  const valeurEnClair=(k,v)=>{const f=MAP_FICHE.flatMap(s=>s.f).find(x=>x.k===k);
+    if(!f){const p=((data&&data.produits)||[]).flatMap(x=>(x.variantes||[])).find(x=>x.id===v);return p?varianteLibelle(p):String(v===undefined||v===null?'—':v)}
+    return ficheEnClair(f,v,m,data)};
+  const nActifs=(cfg.questions||[]).filter(q=>q.actif).length;
+  return <div className="card config-client" style={{marginTop:12,padding:10,borderLeft:'3px solid '+GREEN}}>
+    <div className="b sm" style={{color:GREEN}}>Choix du client en ligne</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Un lien personnel où le client compose ses choix (inclus, plus-values, moins-values, à chiffrer) face à son budget.
+      Il ne voit que ce qui est publié ici ; les prix sont recalculés par le serveur ; ses choix reviennent ici pour être vérifiés. Aucun marché n’est modifié.
+    </div>
+    {E&&E.id?<div className="xs" style={{marginTop:8,lineHeight:1.6}}>
+      <div>Publié le {fd(E.publieLe)} — version {E.prixVersion} des prix — espace <b style={{color:E.statut==='clos'?MUTED:GREEN}}>{E.statut==='clos'?'fermé':'ouvert'}</b></div>
+      <div className="row" style={{gap:6,marginTop:4}}>
+        <input className="in" readOnly value={configLien(E.jeton)} aria-label="Lien du client" onFocus={e=>e.target.select()} style={{flex:1,minWidth:0}}/>
+        <button type="button" className="btn gh s" onClick={()=>{try{navigator.clipboard.writeText(configLien(E.jeton));setEtat({ok:'Lien copié.'})}catch(e){}}}>Copier</button>
+      </div>
+      <div className="xs mut" style={{marginTop:2}}>À transmettre au client seulement : qui a ce lien voit le catalogue de ce dossier.</div>
+    </div>:<div className="xs mut" style={{marginTop:8}}>{nActifs?nActifs+' question(s) prête(s), pas encore publiée(s).':'Aucun espace publié pour ce dossier.'}</div>}
+    <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
+      {!edition&&<button type="button" className="btn gh s" onClick={ouvrir}>Préparer le catalogue</button>}
+      {E&&E.id&&<button type="button" className="btn acc s" disabled={etat&&etat.travail} onClick={relever}>Relever les choix</button>}
+      {E&&E.id&&E.statut!=='clos'&&<button type="button" className="btn gh s" disabled={etat&&etat.travail} onClick={()=>changerStatut({rouvert_le:new Date().toISOString()})}>Rouvrir au client</button>}
+      {E&&E.id&&<button type="button" className="btn gh s" disabled={etat&&etat.travail} onClick={()=>changerStatut({statut:E.statut==='clos'?'ouvert':'clos'})}>{E.statut==='clos'?'Rouvrir l’espace':'Fermer l’espace'}</button>}
+    </div>
+    {etat&&etat.travail&&<div className="xs mut" style={{marginTop:6}}>Échange avec le service…</div>}
+    {etat&&etat.ok&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>{etat.ok}</div>}
+    {etat&&etat.erreur&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>{etat.erreur}</div>}
+
+    {edition&&<div style={{marginTop:10}}>
+      <div className="g2">
+        <Fld label="BUDGET DU CLIENT POUR SES OPTIONS (€ TTC, FACULTATIF)"><input className="in" inputMode="decimal" value={B.budgetTTC||''} onChange={e=>setB({budgetTTC:e.target.value})}/></Fld>
+        <Fld label="TVA AJOUTÉE AUX PRIX HT D’UN BORDEREAU (%)"><input className="in" inputMode="decimal" value={B.tva} onChange={e=>setB({tva:e.target.value})}/></Fld>
+      </div>
+      <Fld label="MESSAGE AU CLIENT"><textarea className="in" rows="2" value={B.message||''} onChange={e=>setB({message:e.target.value})}/></Fld>
+      <div className="xs mut" style={{margin:'4px 0 6px',lineHeight:1.5}}>Prix = prix de vente TTC au client (jamais un prix public ni un prix d’achat). Un prix vide sur une plus-value la laisse « à chiffrer ».</div>
+      {B.questions.length===0&&<div className="xs mut">Aucun point ouvert à proposer : ajoutez une question.</div>}
+      {B.questions.map(q=><div key={q.id} className="card" data-config-question={q.id} style={{padding:8,marginTop:6,borderLeft:'3px solid '+(q.actif?GREEN:RULE)}}>
+        <label className="xs row" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!q.actif} onChange={e=>setQ(q.id,{actif:e.target.checked})}/>
+          <b style={{color:NAVY}}>Proposer au client</b>{q.rubrique?<span className="mut"> · rubrique {q.rubrique}</span>:null}</label>
+        <input className="in" style={{marginTop:4}} value={q.titre} aria-label="Question" onChange={e=>setQ(q.id,{titre:e.target.value})}/>
+        {q.actif&&<div>
+          {q.options.map(o=><div key={o.id} className="row" data-config-option={o.id} style={{gap:4,marginTop:4,flexWrap:'wrap',alignItems:'center'}}>
+            <input className="in" style={{flex:'2 1 140px',minWidth:0}} value={o.libelle} aria-label="Réponse" onChange={e=>setO(q.id,o.id,{libelle:e.target.value})}/>
+            <select className="in" style={{flex:'1 1 110px',minWidth:0}} value={o.nature} aria-label="Nature" onChange={e=>setO(q.id,o.id,{nature:e.target.value})}>
+              {CONFIG_NATURES.map(n=><option key={n.id} value={n.id}>{n.l}</option>)}</select>
+            {(o.nature==='plus'||o.nature==='moins')&&<input className="in" style={{flex:'1 1 90px',minWidth:0}} inputMode="decimal" placeholder="€ TTC" aria-label="Prix TTC"
+              value={o.prixTTC===null||o.prixTTC===undefined?'':o.prixTTC} onChange={e=>setO(q.id,o.id,{prixTTC:e.target.value,source:{type:'saisi',le:today()}})}/>}
+            {(o.nature==='plus'||o.nature==='moins')&&bordereaux.length>0&&<button type="button" className="xs" style={{color:TERRA,background:'none',border:'none',padding:0}}
+              onClick={()=>setBord(bord&&bord.o===o.id?null:{q:q.id,o:o.id,f:''})}>bordereau</button>}
+            <label className="xs row" style={{gap:3,alignItems:'center'}}><input type="checkbox" checked={!!o.defaut} onChange={e=>setO(q.id,o.id,{defaut:e.target.checked})}/>par défaut</label>
+            {o.source&&o.source.type==='bordereau'&&<div className="xs mut" style={{flexBasis:'100%'}}>{o.source.bordereau} — {o.source.code} : {eurDoc(o.source.puHT)} HT × {1+o.source.tva/100} (le {fd(o.source.le)})</div>}
+            {bord&&bord.o===o.id&&<div className="card" style={{flexBasis:'100%',padding:6}}>
+              <input className="in" placeholder="Chercher un article" value={bord.f} onChange={e=>setBord({...bord,f:e.target.value})}/>
+              <div style={{maxHeight:180,overflowY:'auto'}}>{bordereaux.flatMap(b=>(b.articles||[]).filter(a=>a&&+a.pu>0&&(!bord.f||deaccent(a.libelle+' '+a.code+' '+b.nom).toLowerCase().indexOf(deaccent(bord.f).toLowerCase())>=0))
+                .slice(0,40).map(a=><button key={b.id+a.id} type="button" className="xs" style={{display:'block',width:'100%',textAlign:'left',background:'none',border:'none',borderTop:'1px solid '+RULE,padding:'5px 0',cursor:'pointer'}}
+                  onClick={()=>{const t=+String(B.tva).replace(',','.')||0;
+                    setO(q.id,o.id,{prixTTC:Math.round(+a.pu*(1+t/100)*100)/100,source:{type:'bordereau',bordereauId:b.id,bordereau:b.nom,code:a.code||'',puHT:+a.pu,tva:t,le:today()}});setBord(null)}}>
+                  <b>{a.code}</b> {a.libelle} — {eurDoc(+a.pu)} HT/{a.unite||'u'} <span className="mut">({b.nom})</span></button>))}</div>
+            </div>}
+          </div>)}
+          {!q.champ&&<button type="button" className="xs" style={{color:TERRA,background:'none',border:'none',padding:0,marginTop:4}}
+            onClick={()=>setQ(q.id,{options:[...q.options,{id:'op_'+uid(),libelle:'',nature:'inclus',prixTTC:'',max:1,defaut:false}]})}>+ réponse</button>}
+        </div>}
+      </div>)}
+      <button type="button" className="xs" style={{color:TERRA,background:'none',border:'none',padding:0,marginTop:8}}
+        onClick={()=>setB({questions:[...B.questions,{id:'q_'+uid(),titre:'Nouvelle question',rubrique:'',champ:'',type:'unique',actif:true,options:[{id:'op_'+uid(),libelle:'',nature:'inclus',prixTTC:'',max:1,defaut:true}]}]})}>+ question libre</button>
+      <div className="row" style={{gap:8,marginTop:10,flexWrap:'wrap'}}>
+        <button type="button" className="btn acc s" disabled={etat&&etat.travail} onClick={publier}>{E&&E.id?'Publier une nouvelle version':'Publier et créer le lien'}</button>
+        <button type="button" className="btn gh s" onClick={enregistrer}>Enregistrer sans publier</button>
+        <button type="button" className="btn gh s" onClick={()=>{setEdition(false);setBrouillon(null)}}>Fermer</button>
+      </div>
+    </div>}
+
+    {releve&&(()=>{const {p,A}=releve, c=p.calcul||{};
+      return <div className="config-releve" style={{marginTop:10}}>
+        <div className="xs" style={{lineHeight:1.6}}>Panier v{p.version} ({p.statut==='envoye'?'envoyé':'brouillon, pas encore envoyé'}) du {fd(String(p.cree_le).slice(0,10))}, prix v{p.prix_version} :
+          {' '}<b>{signeEur(c.netTTC)} TTC</b>{c.aChiffrer?' · '+c.aChiffrer+' à chiffrer':''}{c.resteBudgetTTC!==null&&c.resteBudgetTTC!==undefined?' · reste sur le budget '+eurDoc(c.resteBudgetTTC):''}</div>
+        <div className="xs" style={{color:A.controle==='ok'?GREEN:A.controle==='ecart'?TERRA:AMBER,marginTop:2}}>
+          {A.controle==='ok'?'Total vérifié : identique au calcul sur la version publiée.':A.controle==='ecart'?'Écart entre le total enregistré et le calcul sur la version publiée : ne reprenez pas sans vérifier.':'Version de prix inconnue ici : total non vérifié.'}</div>
+        {p.statut!=='envoye'&&<div className="xs" style={{color:AMBER,marginTop:2}}>Le client n’a pas encore envoyé ses choix : ils peuvent encore changer.</div>}
+        {A.inconnues.length>0&&<div className="xs" style={{color:TERRA,marginTop:2}}>Réponses absentes du catalogue actuel : {A.inconnues.join(', ')}.</div>}
+        {A.champs.map(x=><label key={x.k} className="card xs" style={{display:'block',padding:8,marginTop:6,borderLeft:'3px solid '+(x.valideLe?AMBER:GREEN)}}>
+          <div className="row" style={{gap:6,alignItems:'flex-start'}}><input type="checkbox" checked={!!retenus[x.k]} onChange={e=>setRetenus({...retenus,[x.k]:e.target.checked})}/>
+          <span><b style={{color:NAVY}}>{x.question}</b> : {x.libelle}<br/><span className="mut">Actuel : {valeurEnClair(x.k,x.actuel)}</span>
+            {x.valideLe&&<span style={{color:AMBER}}><br/>Rubrique validée le {fd(x.valideLe)} : à cocher seulement si vous acceptez de la rouvrir.</span>}</span></div></label>)}
+        {A.ouvrages.map(x=><label key={x.id} className="card xs" style={{display:'block',padding:8,marginTop:6,borderLeft:'3px solid '+GREEN}}>
+          <div className="row" style={{gap:6,alignItems:'flex-start'}}><input type="checkbox" checked={!!retenus['ouvrage:'+x.id]} onChange={e=>setRetenus({...retenus,['ouvrage:'+x.id]:e.target.checked})}/>
+          <span><b style={{color:NAVY}}>{x.l}</b> : {(MAP_EXT_STATUTS.find(s=>s.id===x.propose)||{}).l}{x.montantTTC?' ('+signeEur(x.montantTTC)+' TTC)':''}
+            <br/><span className="mut">Actuel : {(MAP_EXT_STATUTS.find(s=>s.id===x.actuel)||{}).l||'À décider'}</span></span></div></label>)}
+        {A.suivi.length>0&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Au suivi : {A.suivi.map((s,i)=><div key={i}>• {s.texte}</div>)}</div>}
+        <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+          <button type="button" className="btn acc s" onClick={reprendre}>Reprendre dans la MAP</button>
+          <button type="button" className="btn gh s" onClick={()=>setReleve(null)}>Fermer</button>
+        </div>
+      </div>})()}
+    {(cfg.releves||[]).length>0&&!releve&&<div className="xs mut" style={{marginTop:6}}>Dernière reprise : panier v{cfg.releves[cfg.releves.length-1].version}, le {fd(cfg.releves[cfg.releves.length-1].le)}.</div>}
+  </div>;
+}
+
 function MAP({data,ch,up}){
   const m=ch.map||{};
   const set=p=>up({map:{...m,...p}});
@@ -15599,6 +15954,7 @@ function MAP({data,ch,up}){
     <FicheMapPapier data={data} ch={ch} m={m} set={set}/>
     <ImportFicheMap data={data} ch={ch} m={m} set={set} up={up}/>
     <SuiviMap m={m} set={set}/>
+    <ChoixClientEnLigne data={data} ch={ch} up={up}/>
     <Fld label="MAP SIGNÉE (PDF)">
       <ImportFichier ch={ch} dossier="MAP" lien={m.lienSignee} onLien={v=>set({lienSignee:v})} label="Importer la MAP signée"/>
     </Fld>
