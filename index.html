@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-30 · Plan électrique : portes, commandes côté poignée et liaisons automatiques, accrochage aux murs, bibliothèque CP, modifications client, historique';
+const VERSION='2026-09-30 · Plan électrique : pièces lues sur le plan, contradictions entre documents, règles réglementaires versionnées, validation client en ligne';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -10917,7 +10917,15 @@ async function planEnImage(file,largeur){
   /* le PDF est transparent : sans fond blanc, le plan sort sur du noir en JPEG */
   ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
   await page.render({canvasContext:ctx,viewport:vp}).promise;
-  return {url:cv.toDataURL('image/jpeg',0.92),ratio:cv.height/cv.width};
+  /* les textes du PDF (un plan vectoriel en porte ; un scan, non) : les
+     noms de pièces et leurs surfaces, à leur place sur le plan */
+  let etiquettes=[];
+  try{
+    const tc=await page.getTextContent();
+    etiquettes=elecEtiquettesPlan(tc.items.map(it=>{const m=pdfjsLib.Util.transform(vp.transform,it.transform);
+      return {s:it.str,x:m[4]/cv.width,y:m[5]/cv.height}}));
+  }catch(e){/* sans textes lisibles, les pièces se tracent à la main */}
+  return {url:cv.toDataURL('image/jpeg',0.92),ratio:cv.height/cv.width,etiquettes};
 }
 
 /* le câble : un arc entre deux symboles, bombé perpendiculairement à leur axe.
@@ -11481,6 +11489,182 @@ function elecGenerer(plan,base,opts){
   return {ajouts,retraits,cables,echelle:ech};
 }
 
+/* ---------- ce que dit le plan lui-même : les noms de pièces ----------
+   Un PDF d'architecte « vectoriel » porte ses textes : on y retrouve les
+   noms de pièces et leurs surfaces, avec leur position. Ils sont proposés
+   — « détecté sur le plan, à valider » — pour tracer la pièce d'un clic.
+   Un plan scanné ou une image n'ont pas de texte : rien n'est deviné. */
+function elecEtiquettesPlan(items){
+  const T=(items||[]).map(i=>({s:String(i.s||'').trim(),x:+i.x,y:+i.y})).filter(i=>i.s&&isFinite(i.x)&&isFinite(i.y));
+  const surf=T.map(i=>({...i,m:i.s.match(/(\d+(?:[.,]\d+)?)\s*m\s*[²2]/i)})).filter(i=>i.m);
+  const out=[];
+  T.forEach(i=>{
+    const t=deaccent(i.s).toLowerCase();
+    if(t.length>40||/\d+(?:[.,]\d+)?\s*m\s*[²2]/.test(t)&&!/[a-z]{4,}/.test(t.replace(/m2|m²/g,'')))return;
+    const r=ELEC_DQE_PIECES.find(([re])=>re.test(t));
+    if(!r)return;
+    /* la surface écrite juste à côté (sous le nom, le plus souvent) */
+    const s=surf.map(x=>({x,d:Math.hypot(x.x-i.x,x.y-i.y)})).filter(o=>o.d<0.06).sort((a,b)=>a.d-b.d)[0];
+    if(out.some(o=>o.nom===i.s&&Math.hypot(o.x-i.x,o.y-i.y)<0.02))return;
+    out.push({id:'et_'+out.length,nom:i.s.replace(/\s+/g,' '),type:r[1],x:i.x,y:i.y,...(s?{surface:+s.x.m[1].replace(',','.')}:{})});
+  });
+  return out;
+}
+
+/* ---------- les règles réglementaires : une base versionnée ----------
+   Aucune règle n'est inscrite par l'application : chaque règle se saisit
+   avec sa norme, sa version, sa date d'application, le type de logement,
+   sa source et la date de sa dernière vérification — et peut être mise à
+   jour sans reconstruire l'application. Leur contrôle s'affiche à part des
+   écarts avec le DQE : un plan peut être conforme au DQE et appeler une
+   vérification réglementaire. */
+function elecControleReglementaire(plan,regles){
+  const pieces=(plan&&plan.pieces)||[], S=((plan&&plan.symboles)||[]).filter(s=>!s.aPlacer&&s.x!=null);
+  const out=[];
+  (regles||[]).filter(r=>r&&r.active!==false&&r.type&&+r.min>0).forEach(r=>{
+    pieces.filter(p=>!r.pieceType||p.type===r.pieceType).forEach(p=>{
+      const n=S.filter(s=>s.type===r.type&&elecPieceDe(s,pieces)===p.id).reduce((t,s)=>t+(elecUnite(s.type)==='mecanisme'?elecMecanismes(s):1),0);
+      if(n<+r.min)out.push({regle:r,pieceNom:p.nom,compte:n,min:+r.min,
+        msg:(r.regle||(elecSymbole(r.type)||{}).l+' : au moins '+r.min)+' — '+n+' au plan. Point à vérifier'
+          +' ('+[r.norme,r.version,r.source].filter(Boolean).join(', ')+(r.verifieeLe?', vérifiée le '+fd(r.verifieeLe):', vérification à dater')+').'});
+    });
+  });
+  /* salle d'eau : les volumes ne se lisent pas sur un plan à plat */
+  pieces.filter(p=>p.type==='Salle de bains'||p.type==='Salle d’eau').forEach(p=>{
+    const n=S.filter(s=>elecPieceDe(s,pieces)===p.id&&/^(pc|pch|applique|secheserv|pcext)$/.test(s.type)).length;
+    if(n)out.push({pieceNom:p.nom,msg:'⚠️ Contrôle technique requis : '+n+' équipement(s) dans une pièce d’eau (volumes de sécurité à vérifier sur place).'});
+  });
+  return out;
+}
+
+/* ---------- deux documents qui ne disent pas la même chose ----------
+   Le DQE et un autre document (devis, descriptif) sont comparés pièce par
+   pièce et type par type. Chaque contradiction s'affiche, et c'est vous qui
+   choisissez : la décision est gardée dans l'historique du dossier. */
+const elecClePiece=nom=>deaccent(String(nom||'')).toLowerCase().replace(/\s*:\s*$/,'').replace(/\s+/g,' ').trim()||'logement';
+function elecComparerDqe(a,b){
+  const somme=d=>{const o={};(d.lignes||[]).filter(l=>l.type&&!l.nonDessine).forEach(l=>{
+    const p=(d.pieces||[]).find(x=>x.cle===l.pieceCle);const k=elecClePiece(p&&p.nom)+'|'+l.type;
+    o[k]=o[k]||{piece:p?p.nom:'Logement',type:l.type,q:0};o[k].q+=l.qte});return o};
+  const A=somme(a),B=somme(b);
+  return [...new Set([...Object.keys(A),...Object.keys(B)])].filter(k=>(A[k]?A[k].q:0)!==(B[k]?B[k].q:0)).map(k=>{const x=A[k]||B[k];
+    return {cle:k,piece:x.piece,type:x.type,libelle:(elecSymbole(x.type)||{}).l||x.type,a:A[k]?A[k].q:0,b:B[k]?B[k].q:0}});
+}
+/* retenir la quantité de l'autre document : les lignes de base de cette
+   pièce du DQE et de ce type prennent la nouvelle quantité (répartie) */
+function elecRetenirQuantite(base,diff,quantite){
+  const dq=base.dqe||{lignes:[],pieces:[]};
+  const cles=new Set(dq.lignes.filter(l=>{const p=dq.pieces.find(x=>x.cle===l.pieceCle);return elecClePiece(p&&p.nom)+'|'+l.type===diff.cle}).map(l=>l.id));
+  const L=(base.lignes||[]).filter(l=>l.nature==='prevu'&&cles.has(l.dqeId));
+  if(!L.length)return {...base,lignes:[...(base.lignes||[]),{id:'b_dec_'+uid(),piece:'',type:diff.type,qte:quantite,unite:elecUnite(diff.type),nature:'prevu',origine:'decision'}]};
+  const n=L.length,q0=Math.floor(quantite/n),r=quantite-q0*n,ids=L.map(l=>l.id);
+  return {...base,lignes:(base.lignes||[]).map(l=>{const i=ids.indexOf(l.id);return i<0?l:{...l,qte:q0+(i<r?1:0),origine:'decision'}})};
+}
+
+/* ---------- la validation du plan par le client, en ligne ----------
+   Le plan publié (indice, fond, symboles, liaisons, légende) sur un espace
+   séparé : le client le voit sur plan.html avec son lien personnel, le
+   commente, valide l'indice ; il ne le modifie pas. Ses remarques
+   reviennent ici. Tant que le service n'est pas installé, on le dit. */
+const ELEC_ABREGES={pc:'PC',pch:'PCH',ll:'LL',lv:'LV',sl:'SL',ss:'SS',pc20:'20',pc32:'32',rj45:'RJ',tv:'TV',sa:'SA',savoy:'SAV',vv:'VV',vr:'VR',th:'TH',
+  son:'SON',pointc:'PL',applique:'AP',appext:'APE',tab:'TAB',ch:'CH',sech:'SE',split:'CE',splitue:'UE',fumee:'DF',lesan:'LES',legen:'LEG',secheserv:'SSV',antenne:'ANT'};
+const elecAbrege=type=>{const d=elecSymbole(type)||{};return d.ab||ELEC_ABREGES[type]||String(d.l||type).replace(/[^A-Za-z0-9]/g,'').slice(0,3)};
+function elecPublication(ch,plan,indice){
+  const pieces=plan.pieces||[], S=(plan.symboles||[]).filter(s=>!s.aPlacer&&s.x!=null&&s.y!=null);
+  const nom=s=>(pieces.find(p=>p.id===elecPieceDe(s,pieces))||{}).nom||'';
+  return {titre:'Plan électrique — '+((ch&&ch.nom)||''),indice:indice||plan.indice||'A',ratio:plan.ratio||0.707,fond:plan.fond,publieLe:new Date().toISOString(),
+    symboles:S.map(s=>{const d=elecSymbole(s.type)||{};
+      return {id:s.id,x:Math.round(s.x*1e4)/1e4,y:Math.round(s.y*1e4)/1e4,l:d.l||s.type,ab:elecAbrege(s.type),c:d.c||'',h:s.h===undefined?null:s.h,piece:nom(s)}}),
+    cables:cablesValides(plan.cables,S).map(c=>({de:c.de,vers:c.vers,courbure:c.courbure===undefined?0.18:c.courbure,couleur:c.couleur||''})),
+    legende:elecLegende(S).map(x=>({l:x.l,h:x.h,c:x.c,n:x.n}))};
+}
+const elecValidationErreur=e=>{
+  const s=String((e&&(e.message||e.details||e.hint))||e||'');
+  if((e&&(e.code==='42P01'||e.code==='PGRST205'))||/plan_(publications|remarques|validations)/.test(s)&&/(exist|find|relation|schema)/i.test(s))
+    return 'Validation en ligne non installée : les tables plan_publications, plan_remarques et plan_validations n’existent pas encore (voir supabase/functions/plan-validation/README.md). Rien n’a été publié.';
+  return 'Échec — '+(s||'erreur inconnue')+'. Rien n’a été modifié.';
+};
+function ElecValidationEnLigne({ch,d,up,plan,maj}){
+  const pe=d.plan_elec||{}, V=pe.validationEnLigne||null;
+  const [etat,setEtat]=useState(null);
+  const [releve,setReleve]=useState(null);
+  const [reponses,setReponses]=useState({});
+  const lien=V&&V.jeton?location.origin+location.pathname.replace(/[^/]*$/,'')+'plan.html#t='+V.jeton:'';
+  const ecrireV=p=>up({docs:{...d,plan_elec:{...pe,plan,validationEnLigne:{...(V||{}),...p}}}});
+  const publier=async()=>{
+    if(!plan.fond){setEtat({erreur:'Importez d’abord le plan de fond.'});return}
+    setEtat({travail:true});
+    try{
+      /* l'indice : une lettre de plus si le dessin a changé depuis la dernière sortie */
+      const ix=elecIndicePourSortie(plan);
+      const publication=elecPublication(ch,plan,ix.indice);
+      if(V&&V.id){
+        const {data:r,error}=await sb.from('plan_publications').update({publication,statut:'ouvert',maj_le:new Date().toISOString()}).eq('id',V.id).select('id');
+        if(error)throw error;if(!r||!r.length)throw new Error('publication introuvable ou non autorisée');
+        up({docs:{...d,plan_elec:{...pe,plan:ix.change?{...plan,indice:ix.indice,exportEmpreinte:ix.empreinte,exportLe:today()}:plan,
+          validationEnLigne:{...V,publieLe:today(),indice:ix.indice}}}});
+      }else{
+        const jeton=configJeton(), hash=await configEmpreinte(jeton);
+        const {data:r,error}=await sb.from('plan_publications').insert({chantier_id:ch.id,jeton_hash:hash,publication}).select('id').single();
+        if(error||!r)throw error||new Error('réponse vide');
+        up({docs:{...d,plan_elec:{...pe,plan:ix.change?{...plan,indice:ix.indice,exportEmpreinte:ix.empreinte,exportLe:today()}:plan,
+          validationEnLigne:{id:r.id,jeton,publieLe:today(),indice:ix.indice}}}});
+      }
+      setEtat({ok:'Plan publié, indice '+ix.indice+'. Le client voit cette version en rechargeant son lien.'});
+    }catch(e){setEtat({erreur:e&&!e.code&&/navigateur/.test(e.message||'')?e.message:elecValidationErreur(e)})}
+  };
+  const relever=async()=>{
+    setEtat({travail:true});
+    try{
+      const {data:R,error}=await sb.from('plan_remarques').select('id,indice,symbole_id,x,y,texte,auteur,cree_le,traitee_le,reponse').eq('publication_id',V.id).order('cree_le',{ascending:true});
+      if(error)throw error;
+      const {data:W,error:e2}=await sb.from('plan_validations').select('indice,nom,cree_le').eq('publication_id',V.id).order('cree_le',{ascending:true});
+      if(e2)throw e2;
+      setReleve({remarques:R||[],validations:W||[]});setEtat(null);
+    }catch(e){setEtat({erreur:elecValidationErreur(e)})}
+  };
+  const traiter=async r=>{
+    setEtat({travail:true});
+    try{const {data:x,error}=await sb.from('plan_remarques').update({traitee_le:new Date().toISOString(),reponse:(reponses[r.id]||'').trim()||null}).eq('id',r.id).select('id');
+      if(error)throw error;if(!x||!x.length)throw new Error('remarque introuvable');await relever();}
+    catch(e){setEtat({erreur:elecValidationErreur(e)})}
+  };
+  const parId={};(plan.symboles||[]).forEach(s=>{parId[s.id]=s});
+  const valideIndice=releve&&releve.validations.filter(v=>v.indice===plan.indice).slice(-1)[0];
+  return <div className="card elec-validation" style={{marginTop:10,padding:10,borderLeft:'3px solid '+GREEN}}>
+    <div className="b sm" style={{color:GREEN}}>Validation client en ligne</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>Le client voit le plan publié, zoome, clique un équipement, laisse une remarque et valide l’indice. Il ne modifie pas le plan : ses remarques reviennent ici.</div>
+    {V&&V.id?<div className="xs" style={{marginTop:6,lineHeight:1.6}}>
+      <div>Publié le {fd(V.publieLe)} — indice {V.indice}{plan.indice&&plan.indice!==V.indice?<span style={{color:AMBER}}> · le plan est à l’indice {plan.indice} : republiez</span>:null}</div>
+      <div className="row" style={{gap:6,marginTop:4}}>
+        <input className="in" readOnly value={lien} aria-label="Lien de validation" onFocus={e=>e.target.select()} style={{flex:1,minWidth:0}}/>
+        <button type="button" className="btn gh s" onClick={()=>{try{navigator.clipboard.writeText(lien);setEtat({ok:'Lien copié.'})}catch(e){}}}>Copier</button>
+      </div></div>:null}
+    <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
+      <button type="button" className="btn acc s" disabled={etat&&etat.travail} onClick={publier}>{V&&V.id?'Publier la version actuelle':'Envoyer pour validation'}</button>
+      {V&&V.id&&<button type="button" className="btn gh s" disabled={etat&&etat.travail} onClick={relever}>Relever les remarques</button>}
+    </div>
+    {etat&&etat.travail&&<div className="xs mut" style={{marginTop:6}}>Échange avec le service…</div>}
+    {etat&&etat.ok&&<div className="xs" style={{marginTop:6,color:GREEN}}>{etat.ok}</div>}
+    {etat&&etat.erreur&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>{etat.erreur}</div>}
+    {releve&&<div style={{marginTop:8}}>
+      {releve.validations.map((v,i)=><div key={i} className="xs" style={{color:GREEN}}>✓ Indice {v.indice} validé par {v.nom} le {fd(String(v.cree_le).slice(0,10))}</div>)}
+      {valideIndice&&!(pe.etudeConfirmeeLe&&pe.confirmeIndice===plan.indice)&&<button type="button" className="btn gh s" style={{marginTop:4}}
+        onClick={()=>up({docs:{...d,plan_elec:{...pe,plan,etudeConfirmeeLe:String(valideIndice.cree_le).slice(0,10),confirmeIndice:valideIndice.indice,confirmePar:valideIndice.nom}}})}>
+        Reporter la validation de l’indice {plan.indice} dans le dossier</button>}
+      {!releve.remarques.length&&<div className="xs mut">Aucune remarque.</div>}
+      {releve.remarques.map(r=><div key={r.id} className="xs" style={{borderTop:'1px solid '+RULE,padding:'5px 0',lineHeight:1.5}}>
+        <b>{r.symbole_id&&parId[r.symbole_id]?(elecSymbole(parId[r.symbole_id].type)||{}).l:r.x!=null?'Point du plan':'Général'}</b> · indice {r.indice||'—'} · {fd(String(r.cree_le).slice(0,10))}{r.auteur?' · '+r.auteur:''}
+        <div>{r.texte}</div>
+        {r.traitee_le?<div style={{color:GREEN}}>Prise en compte{r.reponse?' — '+r.reponse:''}</div>
+          :<div className="row" style={{gap:6,marginTop:4}}>
+            <input className="in" style={{flex:1}} placeholder="Réponse au client (facultatif)" value={reponses[r.id]||''} onChange={e=>setReponses({...reponses,[r.id]:e.target.value})}/>
+            <button type="button" className="btn gh s" onClick={()=>traiter(r)}>Marquer prise en compte</button></div>}
+      </div>)}
+    </div>}
+  </div>;
+}
+
 /* l'indice du plan : une lettre de plus dès que le dessin a changé depuis
    la dernière sortie ; une confirmation client ne vaut que pour son indice */
 const elecEmpreinte=plan=>ptrEmpreinte(JSON.stringify([(plan.symboles||[]).map(s=>[s.id,s.type,s.x,s.y,s.h,s.rot||0,s.mecanismes||1]),
@@ -11840,6 +12024,26 @@ function ElecDQE({ch,data,plan,base,majBase}){
   };
   const dq=base.dqe;
   const nr=L?L.lignes.filter(l=>!l.reconnu):[];
+  /* comparer avec un autre document (devis, descriptif) : chaque
+     contradiction s'affiche, et le choix est noté */
+  const [autre,setAutre]=useState(null);
+  const lireAutre=async file=>{
+    setEtat('Lecture de '+file.name+'…');
+    try{const n=(file.name||'').toLowerCase();let d2;
+      if(/\.xlsx?$/.test(n))d2=elecDqeDepuisFeuilles(await lireXlsx(file),file.name);
+      else if(/\.docx$/.test(n)){const r=await lireDocumentLignes(file);if(!r.txt)throw new Error(r.motif);d2=elecDqeDepuisTexte(r.txt,file.name)}
+      else{const r=await lireDocument(file);if(!r.txt)throw new Error(r.motif);d2=elecDqeDepuisTexte(r.txt,file.name)}
+      if(!d2.lignes.length){setEtat('Aucun article lisible dans « '+file.name+' ».');return}
+      setAutre({nom:file.name,diffs:elecComparerDqe(dq,d2)});setEtat('');
+    }catch(e){setEtat('Lecture impossible — '+String((e&&e.message)||e))}
+  };
+  const decider=(x,retenu)=>{
+    const dec={le:today(),par:(typeof UTILISATEUR!=='undefined'&&UTILISATEUR)||'',choix:retenu==='b'?'« '+autre.nom+' » retenu':'DQE retenu',
+      source:retenu==='b'?autre.nom:(dq.source&&dq.source.nom)||'',detail:x.piece+' · '+x.libelle+' : DQE '+x.a+', « '+autre.nom+' » '+x.b};
+    const b2=retenu==='b'?elecRetenirQuantite(base,x,x.b):base;
+    majBase({lignes:b2.lignes,decisions:[...(base.decisions||[]),dec]});
+    setAutre({...autre,diffs:autre.diffs.filter(y=>y.cle!==x.cle)});
+  };
   return <div className="card" style={{padding:10,marginTop:8,borderLeft:'3px solid '+ELEC_BLEU}}>
     <div className="xs b" style={{color:NAVY}}>DQE ÉLECTRIQUE</div>
     {dq&&!L&&<div className="xs" style={{marginTop:4,lineHeight:1.5}}>Lu le {fd(dq.le)} — {dq.source&&dq.source.nom} : {dq.lignes.length} lignes, {dq.pieces.length} pièces.
@@ -11855,6 +12059,18 @@ function ElecDQE({ch,data,plan,base,majBase}){
         <input type="file" accept=".xlsx,.xls,.docx,.pdf,application/pdf" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)lireFichier(f)}}/></label>
     </div>
     {!marches.length&&<div className="xs mut" style={{marginTop:4}}>Aucun marché « Électricité » chiffré dans ce dossier : importez le DQE de l’électricien.</div>}
+    {dq&&!L&&<label className="btn gh s" style={{marginTop:6,display:'inline-block'}}>Comparer avec un autre document (devis, descriptif)
+      <input type="file" accept=".xlsx,.xls,.docx,.pdf,application/pdf" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)lireAutre(f)}}/></label>}
+    {autre&&<div className="elec-contradictions" style={{marginTop:8}}>
+      {!autre.diffs.length&&<div className="xs" style={{color:GREEN}}>Aucune contradiction entre le DQE et « {autre.nom} » (ou toutes tranchées).</div>}
+      {autre.diffs.length>0&&<div className="xs" style={{background:'#FBF1DC',borderLeft:'3px solid '+AMBER,padding:8,lineHeight:1.5}}>
+        <b style={{color:AMBER}}>⚠️ CONTRADICTION ENTRE DOCUMENTS</b> — quelle information retenir ?
+        {autre.diffs.map(x=><div key={x.cle} className="row" style={{gap:6,alignItems:'center',flexWrap:'wrap',padding:'4px 0',borderTop:'1px solid '+RULE}}>
+          <span style={{flex:'1 1 200px'}}>{x.piece} · {x.libelle} : DQE {x.a}, « {autre.nom} » {x.b}</span>
+          <button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}} onClick={()=>decider(x,'a')}>Retenir le DQE ({x.a})</button>
+          <button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}} onClick={()=>decider(x,'b')}>Retenir l’autre document ({x.b})</button></div>)}
+      </div>}
+    </div>}
     {etat&&<div className="xs" style={{marginTop:6,color:/impossible|Aucun/.test(etat)?TERRA:GREEN,lineHeight:1.5}}>{etat}</div>}
     {L&&<div style={{marginTop:8}}>
       <div className="xs" style={{lineHeight:1.5}}><b>{L.source.nom}</b> : {L.lignes.length} lignes, {L.pieces.length} pièces
@@ -11916,8 +12132,9 @@ function ElecQuantitatif({plan,base,onControler}){
 }
 
 /* le contrôle complet : rapport, lignes, anomalies, plus-value potentielle, sorties */
-function ElecControle({ch,plan,base}){
+function ElecControle({ch,plan,base,regles}){
   const ctl=elecControle(plan,base);
+  const reg=elecControleReglementaire(plan,regles);
   const R=ctl.rapport;
   const [etat,setEtat]=useState('');
   const source=(base.dqe&&base.dqe.source&&base.dqe.source.nom)||(base.source==='modele_cp'?'Modèle CP (proposition)':'Base saisie');
@@ -11943,6 +12160,12 @@ function ElecControle({ch,plan,base}){
         <span style={{color:INK}}>{a.msg}</span></div>)}
     </div>}
     {!ctl.anomalies.length&&ctl.lignes.length>0&&<div className="xs" style={{color:GREEN,marginTop:8}}>✅ Le plan et le DQE correspondent.</div>}
+    <div className="elec-reglementaire" style={{marginTop:10,borderTop:'2px solid '+RULE,paddingTop:8}}>
+      <div className="xs b" style={{color:NAVY}}>CONTRÔLE RÉGLEMENTAIRE — distinct de l’écart avec le DQE</div>
+      {!(regles||[]).length&&<div className="xs mut" style={{lineHeight:1.5}}>Aucune règle saisie : la base de règles (norme, version, date d’application, source) se tient dans Bibliothèque CP. Aucune règle n’est inscrite par l’application.</div>}
+      {reg.map((r,i)=><div key={i} className="xs" style={{color:AMBER,padding:'3px 0',lineHeight:1.45}}>{r.pieceNom} — {r.msg}</div>)}
+      {(regles||[]).length>0&&!reg.filter(r=>r.regle).length&&<div className="xs" style={{color:GREEN}}>Aucun point à vérifier au regard des règles saisies.</div>}
+    </div>
     {ctl.plusValues.length>0&&<div className="xs" style={{marginTop:8,background:'#F5F1EA',padding:8,borderRadius:8,lineHeight:1.5}}>
       <b>Plus-value potentielle au prix du DQE</b> (information pour un éventuel avenant — rien n’est facturé sans validation) :
       {ctl.plusValues.map((p,i)=><div key={i}>+{p.quantite} {p.libelle} · {p.pieceNom} ({p.article}) : {eurDoc(p.montantHT)} HT</div>)}
@@ -11956,7 +12179,7 @@ function ElecControle({ch,plan,base}){
 }
 
 /* l'assistant, au-dessus du plan : une étape à la fois */
-function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,saveBiblio}){
+function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,saveBiblio,saveRegles}){
   const d=ch.docs||{}, pe=d.plan_elec||{};
   const base=pe.base||{source:'',lignes:[],validee:false};
   const majBase=b=>up({docs:{...d,plan_elec:{...pe,plan,base:{...base,...b}}}});
@@ -12006,7 +12229,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
           <select className="in" style={{maxWidth:200}} value={(trace&&trace.type)||'Séjour'} onChange={e=>setTrace({...(trace||{}),type:e.target.value})}>
             {ELEC_PIECES_TYPES.map(t=><option key={t}>{t}</option>)}</select>
           <button type="button" className={'btn s '+(outil==='@piece'?'':'gh')} onClick={()=>{changerOutil(outil==='@piece'?'':'@piece');setTrace({type:(trace&&trace.type)||'Séjour'})}}>
-            {outil==='@piece'?'Cliquez deux angles opposés de la pièce':'Tracer une pièce'}</button>
+            {outil==='@piece'?'Cliquez deux angles opposés de la pièce'+(trace&&trace.nom?' « '+trace.nom+' »':''):'Tracer une pièce'}</button>
         </div>
         {pieces.map(p=><div key={p.id} className="row" style={{gap:6,marginTop:6,alignItems:'center'}}>
           <input className="in" style={{flex:'1 1 140px'}} value={p.nom} onChange={e=>maj({pieces:pieces.map(x=>x.id===p.id?{...x,nom:e.target.value}:x)})}/>
@@ -12023,6 +12246,15 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
             <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}}
               onClick={()=>maj({pieces:pieces.map(x=>x.id!==p.id?x:{...x,portes:x.portes.filter(y=>y.id!==d.id)})})}>✕</button></div>)}
         </div>)}
+        {(plan.etiquettes||[]).length>0&&<div style={{marginTop:8}}>
+          <div className="xs b" style={{color:NAVY}}>PIÈCES LUES SUR LE PLAN — détectées, à valider</div>
+          {plan.etiquettes.map(et=>{const fait=pieces.some(p=>p.nom===et.nom);
+            return <div key={et.id} className="row xs" style={{gap:6,alignItems:'center',padding:'2px 0'}}>
+              <span style={{flex:1}}>{et.nom}{et.surface?' · '+String(et.surface).replace('.',',')+' m²':''} <span className="mut">({et.type})</span></span>
+              {fait?<span style={{color:GREEN}}>tracée</span>:<button type="button" className={'btn s '+(outil==='@piece'&&trace&&trace.nom===et.nom?'':'gh')} style={{fontSize:11,padding:'3px 8px'}}
+                onClick={()=>{changerOutil('@piece');setTrace({type:et.type,nom:et.nom,surface:et.surface})}}>Tracer</button>}</div>})}
+        </div>}
+        {plan.etiquettesSource&&!(plan.etiquettes||[]).length&&<div className="xs mut" style={{marginTop:6}}>Aucun nom de pièce lisible sur ce plan (scan ou image) : tracez les pièces à la main.</div>}
         <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Un tracé simple suffit : un rectangle par pièce, sur le fond, et ses portes d’un clic sur le mur (avec le côté de la poignée : les interrupteurs s’y placent, jamais derrière la porte ouverte). Sur un PDF scanné ou une image, les pièces ne sont pas reconnues automatiquement : rien n’est deviné.</div>
       </Fld>
     </div>}
@@ -12091,7 +12323,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
       </div>
     </div>}
 
-    {etape==='verifier'&&<ElecControle ch={ch} plan={plan} base={base}/>}
+    {etape==='verifier'&&<ElecControle ch={ch} plan={plan} base={base} regles={data.elecRegles}/>}
 
     {etape==='supplements'&&<div style={{marginTop:10}}>
       <div className="xs mut" style={{lineHeight:1.5,marginBottom:6}}>Écart net par type (une prise déplacée ne coûte rien) au prix du tarif : bordereau électricité lié, ou prix saisi avec sa source. Sans prix : « à chiffrer ».</div>
@@ -12133,6 +12365,32 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
       {saveBiblio&&<button type="button" className="btn gh s" style={{marginTop:4}} disabled={!(base.lignes||[]).length}
         onClick={()=>{const nom=prompt('Nom du modèle (Maison premium CP, Rénovation…)');if(!nom)return;
           saveBiblio({...biblio,modeles:[...(biblio.modeles||[]),elecModeleDepuisBase(base,pieces,nom)]})}}>Enregistrer la base de ce dossier comme modèle</button>}
+      <div className="xs b" style={{color:NAVY,marginTop:10}}>RÈGLES RÉGLEMENTAIRES — base versionnée</div>
+      <div className="xs mut" style={{lineHeight:1.5}}>Chaque règle porte sa norme, sa version, sa date d’application, le type de logement, sa source et la date de sa dernière vérification. Contrôle affiché à part des écarts avec le DQE.</div>
+      {(data.elecRegles||[]).map(r=>{const setR=p=>saveRegles((data.elecRegles||[]).map(x=>x.id===r.id?{...x,...p}:x));
+        return <div key={r.id} className="card" style={{padding:8,marginTop:6}}>
+          <div className="row" style={{gap:4,flexWrap:'wrap'}}>
+            <input className="in" style={{flex:'1 1 110px'}} placeholder="Norme (NF C 15-100…)" value={r.norme||''} onChange={e=>setR({norme:e.target.value})} disabled={!saveRegles}/>
+            <input className="in" style={{flex:'0 1 90px'}} placeholder="Version" value={r.version||''} onChange={e=>setR({version:e.target.value})} disabled={!saveRegles}/>
+            <input className="in" style={{flex:'0 1 140px'}} type="date" title="Date d’application" value={r.dateApplication||''} onChange={e=>setR({dateApplication:e.target.value})} disabled={!saveRegles}/>
+            <input className="in" style={{flex:'1 1 120px'}} placeholder="Type de logement" value={r.typeLogement||''} onChange={e=>setR({typeLogement:e.target.value})} disabled={!saveRegles}/>
+          </div>
+          <div className="row" style={{gap:4,flexWrap:'wrap',marginTop:4,alignItems:'center'}}>
+            <select className="in" style={{flex:'0 1 150px'}} value={r.pieceType||''} aria-label="Pièce" onChange={e=>setR({pieceType:e.target.value})} disabled={!saveRegles}>
+              <option value="">Toute pièce</option>{ELEC_PIECES_TYPES.map(x=><option key={x}>{x}</option>)}</select>
+            <select className="in" style={{flex:'0 1 170px'}} value={r.type||''} aria-label="Équipement" onChange={e=>setR({type:e.target.value})} disabled={!saveRegles}>
+              <option value="">Équipement…</option>{ELEC_SYMBOLES.map(x=><option key={x.id} value={x.id}>{x.l}</option>)}</select>
+            <span className="xs">au moins</span><input className="in" style={{width:60}} inputMode="numeric" value={r.min||''} onChange={e=>setR({min:e.target.value})} disabled={!saveRegles}/>
+          </div>
+          <input className="in" style={{marginTop:4}} placeholder="Règle (texte)" value={r.regle||''} onChange={e=>setR({regle:e.target.value})} disabled={!saveRegles}/>
+          <div className="row" style={{gap:4,flexWrap:'wrap',marginTop:4,alignItems:'center'}}>
+            <input className="in" style={{flex:'1 1 160px'}} placeholder="Source (article, lien)" value={r.source||''} onChange={e=>setR({source:e.target.value})} disabled={!saveRegles}/>
+            <span className="xs">vérifiée le</span><input className="in" style={{flex:'0 1 140px'}} type="date" value={r.verifieeLe||''} onChange={e=>setR({verifieeLe:e.target.value})} disabled={!saveRegles}/>
+            <label className="xs row" style={{gap:4,alignItems:'center'}}><input type="checkbox" checked={r.active!==false} onChange={e=>setR({active:e.target.checked})} disabled={!saveRegles}/>active</label>
+            {saveRegles&&<button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>{if(confirm('Supprimer cette règle ?'))saveRegles((data.elecRegles||[]).filter(x=>x.id!==r.id))}}>✕</button>}
+          </div></div>})}
+      {saveRegles&&<button type="button" className="btn gh s" style={{marginTop:6}}
+        onClick={()=>saveRegles([...(data.elecRegles||[]),{id:'rg_'+uid(),norme:'',version:'',dateApplication:'',typeLogement:'',pieceType:'',type:'',min:'',regle:'',source:'',verifieeLe:'',active:true,creee:today()}])}>+ Règle</button>}
       <div className="xs b" style={{color:NAVY,marginTop:10}}>PRESTATIONS AJOUTÉES</div>
       {!(biblio.prestations||[]).length&&<div className="xs mut">Aucune : depuis la fiche d’un équipement, « Ajouter à la bibliothèque CP ».</div>}
       {(biblio.prestations||[]).map(x=><div key={x.id} className="row xs" style={{gap:6,alignItems:'center',padding:'3px 0'}}>
@@ -12196,6 +12454,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
   const [modeClient,setModeClient]=useState(false);
   const biblio=(data&&data.elecBiblio)||{};
   const saveBiblio=save?b=>save({...data,elecBiblio:b}):null;
+  const saveRegles=save?r=>save({...data,elecRegles:r}):null;
   const moi=(typeof UTILISATEUR!=='undefined'&&UTILISATEUR)||'';
   const baseElec=(d.plan_elec&&d.plan_elec.base)||{lignes:[]};
   const svgRef=useRef(null);
@@ -12230,7 +12489,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
   const importer=async file=>{
     setBusy('Lecture du plan…');
     try{
-      const{url,ratio}=await planEnImage(file);
+      const{url,ratio,etiquettes}=await planEnImage(file);
       setBusy('Enregistrement…');
       /* toujours une clé neuve, jamais un écrasement : le stockage n'autorise
          que l'ajout, pas la mise à jour d'un objet déjà là — réécrire la même
@@ -12241,7 +12500,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
       const id=uid();
       await Photo.put(id,url);
       setFondUrl(url);
-      maj({fond:id,ratio});
+      maj({fond:id,ratio,etiquettes:etiquettes||[],etiquettesSource:/^image\//.test(file.type)?'image':'pdf'});
       if(ancien&&ancien!==id)Photo.del(ancien).catch(()=>{});
     }catch(e){alert("Ce plan n'a pas pu être lu — détail technique : "+((e&&(e.error||e.message))||String(e)))}
     setBusy('');
@@ -12274,7 +12533,8 @@ function PlanElectrique({ch,up,onFermer,data,save}){
         const ty=(trace&&trace.type)||'Séjour';
         if(!trace||!trace.c1){setTrace({type:ty,c1:q});return}
         const n=(plan.pieces||[]).filter(x=>x.type===ty).length+1;
-        maj({pieces:[...(plan.pieces||[]),{id:'pc_'+uid(),nom:ty+(n>1?' '+n:''),type:ty,x0:trace.c1.x,y0:trace.c1.y,x1:q.x,y1:q.y}]});
+        maj({pieces:[...(plan.pieces||[]),{id:'pc_'+uid(),nom:trace.nom||ty+(n>1?' '+n:''),type:ty,x0:trace.c1.x,y0:trace.c1.y,x1:q.x,y1:q.y,
+          ...(trace.surface?{surface:trace.surface}:{}),...(trace.nom?{origine:'plan'}:{})}]});
         setTrace({type:ty});return;
       }
       if(outil.indexOf('@porte:')===0){
@@ -12543,7 +12803,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
     </div>}
 
     {!!plan.fond&&<React.Fragment>
-      <AssistantElec ch={ch} up={up} data={data||{}} plan={plan} maj={maj} outil={outil} changerOutil={changerOutil} trace={trace} setTrace={setTrace} saveBiblio={saveBiblio}/>
+      <AssistantElec ch={ch} up={up} data={data||{}} plan={plan} maj={maj} outil={outil} changerOutil={changerOutil} trace={trace} setTrace={setTrace} saveBiblio={saveBiblio} saveRegles={saveRegles}/>
       <div className="row" style={{gap:6,marginBottom:8,flexWrap:'wrap',alignItems:'center'}}>
         <button className="btn gh s" disabled={!hist.current.passe.length} onClick={annuler} title="Annuler (Ctrl+Z)">↶ Annuler</button>
         <button className="btn gh s" disabled={!hist.current.futur.length} onClick={retablir} title="Rétablir (Ctrl+Y)">↷ Rétablir</button>
@@ -12682,7 +12942,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
       </div>
       {controle&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+ELEC_BLEU}}>
         <div className="sp"><span/><button type="button" className="btn gh s" onClick={()=>setControle(false)}>Fermer le contrôle</button></div>
-        <ElecControle ch={ch} plan={plan} base={baseElec}/></div>}
+        <ElecControle ch={ch} plan={plan} base={baseElec} regles={(data||{}).elecRegles}/></div>}
 
       {choisi&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+TERRA}}>
         <div className="sp" style={{marginBottom:8}}>
@@ -12783,6 +13043,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
         </div>
       </div>}
 
+      <ElecValidationEnLigne ch={ch} d={d} up={up} plan={plan} maj={maj}/>
       <ElecHistorique pe={d.plan_elec||{}} majModifs={L=>up({docs:{...d,plan_elec:{...(d.plan_elec||{}),modifications:L}}})}/>
       <div style={{marginTop:14}}>
         <div className="sp" style={{marginBottom:6}}>
