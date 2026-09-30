@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Vos choix — CP Constructions</title>
+<style>
+  :root{--navy:#2C4A5E;--terra:#C5563A;--ink:#1A2B36;--rule:#D4CFC5;--muted:#6E7B84;--green:#3F7A5A;--amber:#B07D12;--fond:#F5F2EC;--carte:#fff;--sable:#F5F1EA}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fond);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{background:#fff;border-bottom:3px solid var(--terra);padding:12px 16px;display:flex;gap:12px;align-items:center}
+  header img{height:34px;width:auto}
+  header .t{font-weight:700;color:var(--terra);letter-spacing:.04em;font-size:13px}
+  header .s{color:var(--muted);font-size:13px}
+  main{max-width:760px;margin:0 auto;padding:16px 16px 190px}
+  .carte{background:var(--carte);border:1px solid var(--rule);border-radius:10px;padding:14px;margin-bottom:12px}
+  h1{font-size:20px;margin:4px 0 6px;color:var(--navy)}
+  h2{font-size:15px;margin:0 0 4px;color:var(--navy)}
+  .mut{color:var(--muted);font-size:13px}
+  .opt{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--rule);border-radius:8px;margin-top:8px;cursor:pointer;background:#fff}
+  .opt.sel{border-color:var(--terra);background:var(--sable)}
+  .opt input[type=radio],.opt input[type=checkbox]{margin-top:3px;width:18px;height:18px;flex:0 0 auto;accent-color:var(--terra)}
+  .opt .corps{flex:1;min-width:0}
+  .opt img{max-width:100%;border-radius:6px;margin-top:6px;display:block}
+  .badge{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap}
+  .b-inclus{background:#E3F0E8;color:var(--green)}.b-plus{background:#F6E2DC;color:var(--terra)}
+  .b-moins{background:#E3ECF2;color:var(--navy)}.b-chiffrer{background:#FBF1DC;color:var(--amber)}
+  .qte{width:64px;padding:6px;border:1px solid var(--rule);border-radius:6px;font:inherit;margin-left:6px}
+  footer{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--rule);box-shadow:0 -4px 14px rgba(0,0,0,.06)}
+  footer .in{max-width:760px;margin:0 auto;padding:10px 16px 14px}
+  .ligne{display:flex;justify-content:space-between;gap:8px;font-size:14px}
+  .total{font-weight:700;font-size:16px;color:var(--navy)}
+  .btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  button{font:inherit;border-radius:8px;padding:10px 14px;border:1px solid var(--navy);background:#fff;color:var(--navy);cursor:pointer}
+  button.acc{background:var(--terra);border-color:var(--terra);color:#fff;font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+  .msg{font-size:13px;margin-top:6px}
+  .ok{color:var(--green)}.err{color:var(--terra)}.att{color:var(--amber)}
+</style>
+</head>
+<body>
+<header><img src="assets/logo_fiche.jpg" alt="CP Constructions"><div><div class="t">VOS CHOIX</div><div class="s" id="dossier">Chargement…</div></div></header>
+<main id="main"><div class="carte mut">Chargement de votre espace…</div></main>
+<footer id="pied" hidden><div class="in">
+  <div class="ligne"><span>Plus-values</span><span id="plus">—</span></div>
+  <div class="ligne"><span>Moins-values</span><span id="moins">—</span></div>
+  <div class="ligne total"><span>Incidence de vos choix</span><span id="net">—</span></div>
+  <div class="ligne mut" id="chiffrerL" hidden><span>À chiffrer par CP Constructions</span><span id="chiffrer"></span></div>
+  <div class="ligne" id="budgetL" hidden><span>Reste sur votre budget</span><span id="reste"></span></div>
+  <div class="btns"><button id="brouillon">Enregistrer</button><button id="envoyer" class="acc">Envoyer mes choix</button></div>
+  <div class="msg" id="etat" role="status" aria-live="polite"></div>
+</div></footer>
+<script type="module">
+/* L'espace du client : il ne voit que ce que CP Constructions a publié pour
+   son dossier, par l'intermédiaire de la fonction « configurateur » ; le
+   total affiché ici est une aide, celui qui fait foi est recalculé par le
+   serveur à l'enregistrement (même règle : calcul.js). Le jeton du lien est
+   dans la partie « # » de l'adresse, qui n'est jamais envoyée aux serveurs
+   web ni aux journaux. Tout le texte publié est inséré comme du texte. */
+import {configCalculer} from './supabase/functions/configurateur/calcul.js';
+const SUPABASE_URL='https://gxfrughmwkvdepvkhufv.supabase.co';
+const SUPABASE_KEY='sb_publishable_JCBSnZhTaKlpSIZeXAeMkw_2OvI6YIr';
+const jeton=(new URLSearchParams(location.hash.slice(1))).get('t')||'';
+const $=id=>document.getElementById(id);
+const el=(tag,attrs,...enfants)=>{const e=document.createElement(tag);Object.entries(attrs||{}).forEach(([k,v])=>{
+  if(k==='class')e.className=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else if(v!==false&&v!==undefined&&v!==null)e.setAttribute(k,v===true?'':v)});
+  enfants.flat().forEach(c=>{if(c!==null&&c!==undefined&&c!==false)e.append(c instanceof Node?c:document.createTextNode(String(c)))});return e};
+const eur=n=>n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' € TTC';
+const signe=n=>(n>0?'+ ':n<0?'− ':'')+eur(Math.abs(n));
+/* une photo publiée : une adresse https, ou une image du site lui-même */
+const photoSure=u=>typeof u==='string'&&(/^https:\/\//.test(u)||/^assets\/[\w\/.-]+$/.test(u))?u:'';
+
+async function appeler(corps){
+  const r=await fetch(SUPABASE_URL+'/functions/v1/configurateur',{method:'POST',
+    headers:{'Content-Type':'application/json',apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY},body:JSON.stringify({t:jeton,...corps})});
+  let j=null;try{j=await r.json()}catch(e){}
+  if(!r.ok)throw Object.assign(new Error((j&&j.erreur)||('http_'+r.status)),{details:j&&j.details});
+  return j;
+}
+const MSG={lien_invalide:'Ce lien n’est pas (ou plus) valide. Demandez un nouveau lien à CP Constructions.',
+  clos:'L’espace est fermé : vos choix ont été pris en compte par CP Constructions.',
+  deja_envoye:'Vos choix ont déjà été envoyés. Pour les modifier, demandez à CP Constructions de rouvrir l’espace.',
+  panier_invalide:'Un choix n’est plus proposé (le catalogue a peut-être été mis à jour) : rechargez la page.',
+  conflit:'Vos choix ont été enregistrés depuis un autre écran : rechargez la page.',
+  non_configure:'L’espace n’est pas encore en service. Réessayez plus tard.'};
+const message=e=>MSG[e&&e.message]||'Le service ne répond pas pour le moment. Vos choix ne sont pas enregistrés ; réessayez dans quelques minutes.';
+
+let publie=null, choix={}, verrouille=false, occupe=false;
+const lignes=()=>Object.entries(choix).filter(([,q])=>q>0).map(([optionId,quantite])=>({optionId,quantite}));
+function totaux(){
+  const c=configCalculer(publie,lignes());
+  $('plus').textContent=c.plusTTC?signe(c.plusTTC):'—';
+  $('moins').textContent=c.moinsTTC?signe(c.moinsTTC):'—';
+  $('net').textContent=signe(c.netTTC);
+  $('chiffrerL').hidden=!c.aChiffrer;$('chiffrer').textContent=c.aChiffrer+' choix';
+  $('budgetL').hidden=c.resteBudgetTTC===null;
+  if(c.resteBudgetTTC!==null){$('reste').textContent=eur(c.resteBudgetTTC);$('reste').className=c.resteBudgetTTC<0?'err':'ok'}
+  $('brouillon').disabled=$('envoyer').disabled=verrouille||occupe;
+  return c;
+}
+function badge(o){
+  const p=o.prixTTC===null||o.prixTTC===undefined||o.prixTTC===''?null:+o.prixTTC;
+  const n=(o.nature==='plus'||o.nature==='moins')&&p===null?'chiffrer':o.nature;
+  return n==='inclus'?el('span',{class:'badge b-inclus'},'Inclus'):n==='sans'?el('span',{class:'badge b-inclus'},'Sans incidence'):n==='plus'?el('span',{class:'badge b-plus'},'+ '+eur(p)+(o.max>1?' / u':''))
+    :n==='moins'?el('span',{class:'badge b-moins'},'− '+eur(p)):el('span',{class:'badge b-chiffrer'},'À chiffrer');
+}
+function rendre(){
+  const M=$('main');M.replaceChildren();
+  M.append(el('div',{class:'carte'},el('h1',{},publie.titre||'Vos choix'),
+    publie.message?el('div',{},publie.message):null,
+    el('div',{class:'mut',style:'margin-top:6px'},'Prix TTC, version '+publie.prixVersion+(publie.publieLe?' du '+new Date(publie.publieLe).toLocaleDateString('fr-FR'):'')+
+      '. Les montants « à chiffrer » vous seront précisés par CP Constructions. Rien n’est commandé avant la validation de la mise au point.'),
+    publie.budgetTTC?el('div',{style:'margin-top:6px'},'Budget prévu pour vos options : ',el('b',{},eur(+publie.budgetTTC))):null,
+    verrouille?el('div',{class:'msg att'},MSG.deja_envoye):null));
+  (publie.questions||[]).forEach(q=>{
+    const unique=q.type!=='multiple';
+    const carte=el('section',{class:'carte','data-question':q.id},el('h2',{},q.titre),q.detail?el('div',{class:'mut'},q.detail):null,
+      unique?el('div',{class:'mut'},'Un seul choix'):el('div',{class:'mut'},'Plusieurs choix possibles'));
+    (q.options||[]).forEach(o=>{
+      const sel=(choix[o.id]||0)>0, max=Math.max(1,Math.min(99,Math.floor(+o.max||1)));
+      const entree=el('input',{type:unique?'radio':'checkbox',name:q.id,checked:sel,disabled:verrouille,'aria-label':o.libelle});
+      const basculer=()=>{
+        if(verrouille)return;
+        if(unique){(q.options||[]).forEach(x=>{delete choix[x.id]});choix[o.id]=1}
+        else if(choix[o.id])delete choix[o.id];else choix[o.id]=1;
+        rendre();
+      };
+      entree.addEventListener('change',basculer);
+      const corps=el('div',{class:'corps'},el('div',{},el('b',{},o.libelle),' ',badge(o)),o.detail?el('div',{class:'mut'},o.detail):null,
+        photoSure(o.photo)?el('img',{src:photoSure(o.photo),alt:'',loading:'lazy'}):null);
+      if(max>1&&sel)corps.append(el('label',{class:'mut'},'Quantité',el('input',{class:'qte',type:'number',min:1,max,value:choix[o.id],disabled:verrouille,
+        /* la quantité ne redessine pas la page (le champ garde le curseur) : seuls les totaux suivent */
+        onclick:e=>e.stopPropagation(),oninput:e=>{const v=Math.max(1,Math.min(max,Math.floor(+e.target.value||1)));choix[o.id]=v;totaux()},
+        onchange:e=>{e.target.value=choix[o.id]}})));
+      const ligne=el('label',{class:'opt'+(sel?' sel':'')},entree,corps);
+      carte.append(ligne);
+    });
+    M.append(carte);
+  });
+  $('pied').hidden=false;
+  totaux();
+}
+async function enregistrer(envoyer){
+  if(envoyer&&!confirm('Envoyer vos choix à CP Constructions ? Vous ne pourrez plus les modifier sans leur accord.'))return;
+  occupe=true;totaux();$('etat').className='msg';$('etat').textContent='Enregistrement…';
+  try{
+    const r=await appeler({action:'enregistrer',lignes:lignes(),envoyer});
+    verrouille=r.statut==='envoye';
+    $('etat').className='msg ok';
+    $('etat').textContent=(verrouille?'Vos choix sont envoyés à CP Constructions':'Vos choix sont enregistrés')+
+      ' (version '+r.version+') — incidence confirmée : '+signe(r.calcul.netTTC)+(r.calcul.aChiffrer?', '+r.calcul.aChiffrer+' à chiffrer':'')+'.';
+    if(verrouille)rendre();
+  }catch(e){$('etat').className='msg err';$('etat').textContent=message(e)}
+  finally{occupe=false;totaux()}
+}
+$('brouillon').addEventListener('click',()=>enregistrer(false));
+$('envoyer').addEventListener('click',()=>enregistrer(true));
+(async()=>{
+  if(!jeton){$('main').replaceChildren(el('div',{class:'carte err'},MSG.lien_invalide));$('dossier').textContent='';return}
+  try{
+    const r=await appeler({action:'lire'});
+    publie=r.publie;verrouille=!!r.verrouille||r.statut!=='ouvert';
+    $('dossier').textContent=publie.titre||'';
+    if(r.panier)(r.panier.lignes||[]).forEach(l=>{choix[l.optionId]=l.quantite||1});
+    else (publie.questions||[]).forEach(q=>(q.options||[]).forEach(o=>{if(o.defaut)choix[o.id]=1}));
+    /* un choix retiré du catalogue depuis le dernier enregistrement ne reste pas dans le panier */
+    const connues=new Set((publie.questions||[]).flatMap(q=>(q.options||[]).map(o=>o.id)));
+    Object.keys(choix).forEach(id=>{if(!connues.has(id))delete choix[id]});
+    rendre();
+    if(r.statut!=='ouvert'){$('etat').className='msg att';$('etat').textContent=MSG.clos}
+  }catch(e){$('main').replaceChildren(el('div',{class:'carte err'},message(e)));$('dossier').textContent=''}
+})();
+</script>
+</body>
+</html>
