@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-29 · Salle de bains : plan coté, élévations, calepinage, 3D, contrôles, quantités et PDF, depuis la MAP';
+const VERSION='2026-09-29 · MAP : fiche des points ouverts, ouvrages et dimensions relus sans doublon, synthèse et changements avant sortie';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5128,6 +5128,18 @@ function mapLignes(ch,data){
     ['Dimensions receveur',m.receveurDimensions],['Coloris receveur',m.receveurColoris],
     ['Douche',m.douche],['WC',m.wcType],['Lave-mains',m.laveMains?'Oui':''],
     ['Meuble vasque',nomProduit(m.meubleVasqueProduit)],['Largeur meuble vasque',m.meubleVasqueLargeur],
+    /* les salles de bains décrites dans l'outil : ce qui y est posé, et ce qui reste à confirmer */
+    ...(ch.salles||[]).map(s=>{
+      const E=(s.equipements||[]).filter(e=>!sdbType(e.type).reseau), q=sdbQuantites(s);
+      const aConf=E.filter(e=>e.dimsSource!=='variante'&&!e.dimsConfirmees).length;
+      return ['Salle de bains — '+(s.nom||''),[s.L&&s.P?s.L+' × '+s.P+' cm'+(s.H?', h. '+s.H+' cm':''):'',
+        E.map(e=>e.libelle||sdbType(e.type).l).join(', '),q&&q.poseM2?'faïence '+sdbFmt(q.poseM2)+' m² (surface nette posée)':'',
+        aConf?aConf+' dimension'+(aConf>1?'s':'')+' à confirmer':''].filter(Boolean).join(' · ')];
+    }),
+    ['Plan électrique',(()=>{const pe=(ch.docs||{}).plan_elec;if(!pe||!pe.plan)return '';
+      const ind=pe.plan.indice?'indice '+pe.plan.indice:'';
+      return [ind,pe.etudeConfirmeeLe?(elecConfirmationValable(pe)?'confirmé par le client le '+fd(pe.etudeConfirmeeLe):'confirmé à l’indice '+pe.confirmeIndice+', à retransmettre')
+        :pe.etudeLe?'transmis le '+fd(pe.etudeLe)+', en attente de confirmation':''].filter(Boolean).join(' — ')})()],
   ]);
   add('8. Chapes et revêtements de sols',[
     ['Chape',m.chapeType],['Carrelage — modèle',nomProduit(m.carrelageProduit)],
@@ -5213,7 +5225,13 @@ function mapDocumentXml(ch,data,px){
   ].join('');
   /* le suivi du rendez-vous : décisions, modifications à chiffrer, points en attente */
   const suivi=(m.suivi||[]).length?[titre('Décisions, modifications à chiffrer et points en attente'),mapSuiviXml(m.suivi,true)].join(''):'';
-  const corps=[garde,s1,sections,suivi,s10,sign].join('');
+  /* ce qui a changé depuis le compte-rendu précédent, budget des ouvrages compris */
+  const C=mapChangementsDepuis(m,data), ecart=C?mapEcartBudgetTexte(C.budget):'';
+  const changements=C&&C.n?[titre('Modifications depuis le compte-rendu du '+fdDoc(C.le)),
+    ...C.champs.map(x=>ligne(x.l,x.avant+' → '+x.apres)),
+    ...C.ouvrages.map(x=>ligne(x.l,x.nature==='ajout'?'ajouté — '+x.apres:x.avant+' → '+x.apres)),
+    ...(ecart?[ligne('Incidence sur le budget des ouvrages',ecart)]:[])].join(''):'';
+  const corps=[garde,s1,sections,changements,suivi,s10,sign].join('');
   return DOC_ENTETE_XML+'<w:body>'+corps
     +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
     +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
@@ -12718,7 +12736,8 @@ async function ficheLogo(){
 }
 function ficheMapMiseEnPage(ch,data,o){
   o=o||{};
-  const m=(ch&&ch.map)||{}, pre=o.mode==='preremplie', numero=o.numero||1, C=FICHE_COUL;
+  /* « ouverts » : préremplie, mais limitée à ce qui reste à trancher */
+  const m=(ch&&ch.map)||{}, ouv=o.mode==='ouverts', pre=o.mode==='preremplie'||ouv, numero=o.numero||1, C=FICHE_COUL;
   const pages=[], cases=[], zones=[];
   let els=null, y=0, pageIdx=-1;
   const larg=FICHE_X1-FICHE_X0, demi=(larg-6)/2;
@@ -12737,35 +12756,37 @@ function ficheMapMiseEnPage(ch,data,o){
     const etiquette='FICHE N° '+numero, le=pdfLargeur(etiquette,7.5,true)+6;
     els.push({t:'rect',x:192-le,y:7.6,w:le,h:5.4,r:1.3,plein:true,trait:false,c:C.terra});
     texte(192-le+3,11.4,etiquette,7.5,{gras:true,c:C.blanc});
-    const sous=(pre?'Préremplie':'Vierge')+(o.date?' · '+fd(o.date):'');
+    const sous=(ouv?'Points ouverts':pre?'Préremplie':'Vierge')+(o.date?' · '+fd(o.date):'');
     aDroite(192,17.2,sous,7,{c:C.gris});
     texte(xt,17.2,tenir('Fiche de rendez-vous — '+(ch.nom||''),8,false,192-pdfLargeur(sous,7,false)-6-xt),8,{c:C.brun});
     els.push({t:'trait',x1:FICHE_X0,y1:20.6,x2:FICHE_X1,y2:20.6,ep:0.8,cs:C.terra});
   };
   const place=h=>{if(y+h>FICHE_Y1)nouvellePage()};
-  const caseA=(x,yy,champ,v,ligne)=>{
+  /* « cle » désigne une fiche (ouvrage, équipement, point de suivi) par son
+     identifiant ; « lib » garde son nom tel qu'imprimé, pour la relecture */
+  const caseA=(x,yy,champ,v,ligne,cle,lib)=>{
     els.push({t:'rect',x,y:yy,w:FICHE_CASE,h:FICHE_CASE,ep:0.6});
-    cases.push({p:pageIdx,x:Math.round(x*10)/10,y:Math.round(yy*10)/10,k:champ,v,...(ligne!==undefined?{i:ligne}:{})});
+    cases.push({p:pageIdx,x:Math.round(x*10)/10,y:Math.round(yy*10)/10,k:champ,v,...(ligne!==undefined?{i:ligne}:{}),...(cle?{o:cle,l:lib||''}:{})});
   };
   /* un cadre d'écriture : fond blanc, filet chaud, angles adoucis ; les
      lignes d'écriture d'une grande zone sont assez pâles pour ne jamais
      passer pour de l'encre à la relecture */
-  const zone=(x,yy,w,h,champ,role,ligne)=>{
+  const zone=(x,yy,w,h,champ,role,ligne,cle,lib)=>{
     els.push({t:'rect',x,y:yy,w,h,r:1,ep:0.5,plein:true,c:C.blanc,cs:C.filet});
     if(h>=12)for(let g=yy+5.5;g<yy+h-2;g+=5.5)els.push({t:'trait',x1:x+2.5,y1:g,x2:x+w-2.5,y2:g,ep:0.25,cs:C.guide});
     zones.push({p:pageIdx,x:Math.round(x*10)/10,y:Math.round(yy*10)/10,w:Math.round(w*10)/10,h:Math.round(h*10)/10,k:champ,
-      ...(role?{r:role}:{}),...(ligne!==undefined?{i:ligne}:{})});
+      ...(role?{r:role}:{}),...(ligne!==undefined?{i:ligne}:{}),...(cle?{o:cle,l:lib||''}:{})});
   };
   /* les cases d'options, en ligne, passant à la ligne quand il le faut :
      renvoie la hauteur occupée, sans rien dessiner si « dessiner » est faux */
-  const options=(opts,x0,w,y0,champ,dessiner)=>{
+  const options=(opts,x0,w,y0,champ,dessiner,cle,lib)=>{
     let x=x0,yy=y0,h=5.2;
     opts.forEach(op=>{
       const lignes=pdfCouper(op.l,8,false,w-FICHE_CASE-2);
       const lw=Math.max(...lignes.map(l=>pdfLargeur(l,8,false)))+FICHE_CASE+5;
       if(x>x0&&x+lw>x0+w){x=x0;yy+=h;h=5.2}
       if(dessiner){
-        caseA(x,yy,champ,op.v);
+        caseA(x,yy,champ,op.v,undefined,cle,lib);
         lignes.forEach((l,i)=>texte(x+FICHE_CASE+1.5,yy+3+i*3.3,l,8,{c:C.encre}));
       }
       h=Math.max(h,1.9+lignes.length*3.3);
@@ -12844,10 +12865,70 @@ function ficheMapMiseEnPage(ch,data,o){
     texte(avecCase?xx:xd+3.5,y+10.4+i*5.1,s,7.3,{c:C.encre});
   });
   y+=hEncart+5;
+  /* points ouverts : un champ qui s'applique et reste vide, ou qui porte
+     une alerte ; rien d'une rubrique validée (et non retouchée depuis) */
+  const champOuvert=f=>{
+    const rid=mapChampRubrique[f.k], r=rid&&MAP_RUBRIQUES.find(x=>x.id===rid), v=r&&(m.validations||{})[rid];
+    if(v&&v.empreinte===mapEmpreinteRubrique(r,m))return false;
+    if(MAP_ALERTES.some(a=>a.k===f.k&&a.si(m,data)))return true;
+    if(f.t==='b'||(f.t==='z'&&f.k!=='notes'))return false;
+    if(MAP_SI[f.k]&&!MAP_SI[f.k](m))return false;
+    return mapVide(m[f.k]);
+  };
+  /* un en-tête de bloc, en petites capitales */
+  const sousTitre=(s,x,w,y0,dessiner)=>{
+    const L=pdfCouper(s.toUpperCase(),6.8,true,w);
+    if(dessiner)L.forEach((l,i)=>texte(x,y0+2.6+i*3,l,6.8,{gras:true,c:C.terra}));
+    return L.length*3+1.6;
+  };
+  const pastille=(s,x,w,y0,dessiner)=>{
+    const la=pdfCouper(s,7,false,w-3);
+    if(dessiner)la.forEach((l,i)=>{
+      els.push({t:'rect',x,y:y0+i*3+0.1,w:pdfLargeur(l,7,false)+3,h:3.1,r:1,plein:true,trait:false,c:C.sable});
+      texte(x+1.5,y0+2.4+i*3,l,7,{italique:true,c:C.brun});
+    });
+    return la.length*3+0.6;
+  };
+  /* les ouvrages extérieurs (fiche préremplie) : leurs statuts à cocher et
+     un cadre pour préciser, relus par l'identifiant de l'ouvrage */
+  const statutOuvrage=x=>((MAP_EXT_STATUTS.find(s=>s.id===x.statut)||{}).l||'À décider')
+    +(x.statut==='inclus'||x.statut==='option'?' · '+(x.financement==='marche'?'compris dans le marché'
+      :mapMontant(x.montantTTC)!==null&&x.financement!=='a_chiffrer'?eurDoc(mapMontant(x.montantTTC))+' TTC':'à chiffrer'):'');
+  const ouvragesFiche=pre?mapOuvrages(m).filter(x=>!ouv||!x.statut||x.statut==='a_decider'||mapAlertesOuvrage(x).length):[];
+  const blocOuvrage=(ob,x,w,y0,dessiner)=>{
+    const nom=mapOuvrageResume(ob);
+    const lib=pdfCouper(nom,7.2,true,w).slice(0,2);
+    if(dessiner)lib.forEach((l,i)=>texte(x,y0+2.8+i*3.2,l,7.2,{gras:true,c:C.brun}));
+    let h=lib.length*3.2+0.8;
+    h+=pastille('Actuel : '+statutOuvrage(ob),x,w,y0+h,dessiner);
+    h+=options(MAP_EXT_STATUTS.map(s=>({v:s.id,l:s.l})),x,w,y0+h,'ouvrage',dessiner,ob.id,nom)+0.4;
+    if(dessiner){texte(x,y0+h+4.4,'Précision :',7,{c:C.gris});zone(x+15,y0+h,w-15,7,'ouvrage','precision',undefined,ob.id,nom)}
+    return h+7.8+2.2;
+  };
+  /* les équipements de salle de bains aux dimensions encore à confirmer :
+     une case « confirmées », ou les bonnes dimensions écrites à côté */
+  const sdbFiche=pre?((ch&&ch.salles)||[]).flatMap(s=>(s.equipements||[])
+    .filter(e=>e.dimsSource!=='variante'&&!sdbType(e.type).reseau&&!e.dimsConfirmees)
+    .map(e=>({e,cle:s.id+'/'+e.id,l:(s.nom||'Salle de bains')+' — '+(e.libelle||sdbType(e.type).l)}))):[];
+  const blocSdb=(it,x,w,y0,dessiner)=>{
+    const lib=pdfCouper(it.l+' : '+[it.e.L,it.e.P,it.e.H].map(v=>v===undefined||v===''?'?':v).join(' × ')+' cm',7.2,false,w*0.5).slice(0,2);
+    if(dessiner){
+      lib.forEach((l,i)=>texte(x,y0+3.4+i*3.2,l,7.2,{c:C.encre}));
+      const xc=x+w*0.53;
+      caseA(xc,y0+0.8,'sdbDims',true,undefined,it.cle,it.l);texte(xc+FICHE_CASE+1.5,y0+3.8,'Confirmées',7.2,{c:C.encre});
+      const xz=xc+FICHE_CASE+18;texte(xz,y0+3.8,'ou :',7,{c:C.gris});
+      zone(xz+6,y0,x+w-xz-6,6.5,'sdbDims','dims',undefined,it.cle,it.l);
+    }
+    return Math.max(lib.length*3.2+1.5,7)+1.6;
+  };
+  const blocsSection=s=>s.startsWith('7.')?{titre:'Salles de bains — dimensions à confirmer (largeur × profondeur × hauteur, en cm)',items:sdbFiche,bloc:blocSdb}
+    :s.startsWith('10.')?{titre:'Ouvrages extérieurs et terrasses',items:ouvragesFiche,bloc:blocOuvrage}:null;
   MAP_FICHE.forEach(sec=>{
     const titre=()=>bandeau(sec.s);
+    const F=ouv?sec.f.filter(champOuvert):sec.f;
+    const extra=blocsSection(sec.s);
+    if(!F.length&&!(extra&&extra.items.length))return;
     place(24);titre();
-    const F=sec.f;
     for(let i=0;i<F.length;i++){
       const f=F[i], g=F[i+1];
       if(court(f)&&g&&court(g)){
@@ -12862,6 +12943,17 @@ function ficheMapMiseEnPage(ch,data,o){
         y+=h;
       }
     }
+    if(extra&&extra.items.length){
+      const ht=sousTitre(extra.titre,FICHE_X0,larg,0,false);
+      if(y+ht+extra.bloc(extra.items[0],FICHE_X0,larg,0,false)>FICHE_Y1){nouvellePage();titre()}
+      y+=sousTitre(extra.titre,FICHE_X0,larg,y,true);
+      extra.items.forEach(it=>{
+        const h=extra.bloc(it,FICHE_X0,larg,0,false);
+        if(y+h>FICHE_Y1){nouvellePage();titre()}
+        extra.bloc(it,FICHE_X0,larg,y,true);
+        y+=h;
+      });
+    }
     y+=1.5;
   });
   /* le suivi : ce qui a été décidé, ce qui reste à chiffrer, ce qui attend
@@ -12874,6 +12966,24 @@ function ficheMapMiseEnPage(ch,data,o){
     els.push({t:'rect',x:FICHE_X0,y,w:larg,h:5,r:1,plein:true,trait:false,c:C.brun});
     texte(FICHE_X0+2,y+3.5,'NATURE',6.6,{gras:true,c:C.blanc});texte(xLot+1,y+3.5,'LOT',6.6,{gras:true,c:C.blanc});
     texte(xTxt+1,y+3.5,'POINT',6.6,{gras:true,c:C.blanc});y+=6};
+  /* préremplie : les points encore ouverts, à solder d'une coche — ils ne
+     sont pas recopiés, donc jamais ajoutés deux fois */
+  const ouvertsSuivi=pre?(m.suivi||[]).filter(p=>p&&p.id&&p.statut!=='fait'):[];
+  if(ouvertsSuivi.length){
+    y+=sousTitre('Points ouverts — cochez « Soldé » quand c’est réglé',FICHE_X0,larg,y,true);
+    ouvertsSuivi.forEach(p=>{
+      const t=(MAP_SUIVI_TYPES.find(x=>x.id===p.type)||MAP_SUIVI_TYPES[2]).l;
+      const L=pdfCouper(t+(p.lot?' · '+p.lot:'')+' — '+p.texte,7.2,false,larg-24).slice(0,2);
+      const h=L.length*3.2+2.4;
+      if(y+h>FICHE_Y1){nouvellePage();bandeau('Décisions, modifications à chiffrer, points en attente')}
+      caseA(FICHE_X0+2,y+0.6,'suiviFait',true,undefined,p.id,p.texte);
+      texte(FICHE_X0+2+FICHE_CASE+1.2,y+3.5,'Soldé',7,{c:C.encre});
+      L.forEach((l,i)=>texte(FICHE_X0+22,y+3.5+i*3.2,l,7.2,{c:C.encre}));
+      y+=h;
+    });
+    y+=1.5;
+    y+=sousTitre('Nouveaux points',FICHE_X0,larg,y,true);
+  }
   enTete();
   for(let i=0;i<MAP_FICHE_LIGNES_SUIVI;i++){
     if(y+hl>FICHE_Y1){nouvellePage();enTete()}
@@ -12904,7 +13014,7 @@ function ficheMapMiseEnPage(ch,data,o){
     P.push({t:'texte',x:192-pdfLargeur(lib,7.5,false),y:287.6,s:lib,taille:7.5,c:C.gris});
     P.push({t:'texte',x:FICHE_X0+2,y:287.6,s:'CP CONSTRUCTIONS',taille:7,gras:true,c:C.brun});
   });
-  return {pages,disposition:{v:1,numero,mode:pre?'preremplie':'vierge',date:o.date||today(),nbPages:pages.length,cases,zones}};
+  return {pages,disposition:{v:1,numero,mode:ouv?'ouverts':pre?'preremplie':'vierge',date:o.date||today(),nbPages:pages.length,cases,zones}};
 }
 /* ---------- relire la photo d'une fiche MAP remplie ----------
    Tout se fait sur l'appareil, sans service extérieur. L'image est prise en
@@ -13082,7 +13192,7 @@ function ficheRedresser(img,H,x,y,w,h,pxmm){
    trancher. Une case vide ne propose rien. Deux cases cochées pour un choix
    unique, ou une coche douteuse, se tranchent à la main. Ce qui est écrit
    dans un cadre n'est pas lu : il est à recopier. */
-function ficheAnalyser(fiche,mesures,m,data){
+function ficheAnalyser(fiche,mesures,m,data,salles){
   const champs={};MAP_FICHE.forEach(s=>s.f.forEach(f=>{champs[f.k]={...f,section:s.s}}));
   const lues=new Set(mesures.map(x=>x.page));
   const cases=mesures.flatMap(x=>x.cases), zones=mesures.flatMap(x=>x.zones);
@@ -13104,6 +13214,9 @@ function ficheAnalyser(fiche,mesures,m,data){
     }
     r.libelles=C.map(c=>({v:c.v,l:opts[String(c.v)]||String(c.v),coche:c.coche,douteux:c.douteux}));
     r.aRecopier=ecrit.length>0;
+    /* une rubrique validée (et non retouchée depuis) ne change pas d'office */
+    const rid=mapChampRubrique[f.k], rub=rid&&MAP_RUBRIQUES.find(x=>x.id===rid), val=rub&&(m.validations||{})[rid];
+    if(val&&val.empreinte===mapEmpreinteRubrique(rub,m))r.valideLe=val.le;
     const vide=v=>v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length);
     const pareil=r.propose!==undefined&&memeValeur(Array.isArray(r.propose)?r.propose.slice().sort():r.propose,
       Array.isArray(m[f.k])?m[f.k].slice().sort():m[f.k]);
@@ -13121,8 +13234,43 @@ function ficheAnalyser(fiche,mesures,m,data){
     suivi.push({i,type:coches.length===1?coches[0].v:'',conflit:coches.length>1,zones:Z,
       lotEcrit:ecrit.some(z=>z.r==='lot'),texteEcrit:ecrit.some(z=>z.r==='texte')});
   }
+  /* ouvrages, dimensions et points à solder : chacun retrouvé par son
+     identifiant, jamais par sa place dans une liste qui a pu changer */
+  const cles=k=>{const ids=[];[...cases,...zones].forEach(x=>{if(x.k===k&&x.o&&ids.indexOf(x.o)<0)ids.push(x.o)});return ids};
+  const O=mapOuvrages(m), statutL=id=>(MAP_EXT_STATUTS.find(s=>s.id===id)||{}).l||id;
+  const ouvrages=[];
+  cles('ouvrage').forEach(id=>{
+    const o=O.find(x=>x.id===id);
+    const C=cases.filter(c=>c.k==='ouvrage'&&c.o===id), Z=zones.filter(z=>z.k==='ouvrage'&&z.o===id&&z.ecrit);
+    const coches=C.filter(c=>c.coche), douteux=C.some(c=>c.douteux);
+    if(!coches.length&&!douteux&&!Z.length)return;
+    const r={id,existe:!!o,l:o?mapOuvrageResume(o):((C[0]||Z[0]||{}).l||'Ouvrage'),actuel:o?o.statut||'':'',zones:Z,douteux,aRecopier:Z.length>0,
+      libelles:C.map(c=>({v:c.v,l:statutL(c.v),coche:c.coche,douteux:c.douteux}))};
+    if(coches.length===1)r.propose=coches[0].v;else if(coches.length>1)r.conflit=true;
+    if(r.propose===r.actuel&&!r.aRecopier&&!douteux)return;
+    ouvrages.push(r);
+  });
+  const sdb=[];
+  cles('sdbDims').forEach(cle=>{
+    const [sid,eid]=cle.split('/');
+    const s=(salles||[]).find(x=>x.id===sid), e=s&&(s.equipements||[]).find(x=>x.id===eid);
+    const C=cases.filter(c=>c.k==='sdbDims'&&c.o===cle), Z=zones.filter(z=>z.k==='sdbDims'&&z.o===cle&&z.ecrit);
+    const coche=C.some(c=>c.coche), douteux=C.some(c=>c.douteux);
+    if(!coche&&!douteux&&!Z.length)return;
+    if(e&&e.dimsConfirmees&&!Z.length)return;
+    sdb.push({cle,existe:!!e,l:(C[0]||Z[0]||{}).l||'Équipement',actuel:e?[e.L,e.P,e.H].join(' × ')+' cm':'',confirme:coche,douteux,zones:Z,aRecopier:Z.length>0});
+  });
+  const soldes=[];
+  cles('suiviFait').forEach(id=>{
+    const p=(m.suivi||[]).find(x=>x.id===id);
+    const C=cases.filter(c=>c.k==='suiviFait'&&c.o===id);
+    const coche=C.some(c=>c.coche), douteux=C.some(c=>c.douteux);
+    if(!coche&&!douteux)return;
+    if(p&&p.statut==='fait')return;
+    soldes.push({id,existe:!!p,l:p?p.texte:((C[0]||{}).l||'Point de suivi'),coche,douteux});
+  });
   const pagesManquantes=[];for(let p=0;p<fiche.nbPages;p++)if(!lues.has(p))pagesManquantes.push(p+1);
-  return {champs:out,suivi,pagesManquantes};
+  return {champs:out,suivi,ouvrages,sdb,soldes,pagesManquantes};
 }
 
 /* ---------- les images d'une fiche remplie ----------
@@ -13185,7 +13333,13 @@ const ficheEnClair=(f,v,m,data)=>{
    {k:{action:'prendre'|'garder', valeur}} ; « suivi » les lignes retenues.
    Renvoie le nouvel état de la MAP et l'entrée d'historique qui permet
    d'annuler l'import. */
-function ficheAppliquer(m,choix,suivi,info){
+/* la clé d'un point de suivi : même nature, même lot, même texte (sans
+   accents, majuscules ni espaces en trop) — un point déjà présent n'est
+   pas ajouté une seconde fois quand on relit la même fiche */
+const ficheCleSuivi=s=>[s.type||'attente',deaccent(String(s.lot||'')).toLowerCase().trim(),
+  deaccent(String(s.texte||'')).toLowerCase().replace(/\s+/g,' ').trim()].join('|');
+function ficheAppliquer(m,choix,suivi,info,extra){
+  const X=extra||{};
   const avant={},apres={};
   Object.entries(choix||{}).forEach(([k,c])=>{
     if(!c||c.action!=='prendre')return;
@@ -13194,14 +13348,49 @@ function ficheAppliquer(m,choix,suivi,info){
     if(memeValeur(v,m[k]))return;
     avant[k]=m[k]===undefined?null:m[k];apres[k]=v;
   });
+  const deja=new Set((m.suivi||[]).map(ficheCleSuivi));
+  let doublons=0;
   const nouveaux=(suivi||[]).filter(s=>s&&String(s.texte||'').trim()).map(s=>({id:uid(),type:s.type||'attente',
-    lot:String(s.lot||'').trim(),texte:String(s.texte).trim(),statut:'ouvert',creeLe:today(),source:'Fiche n° '+info.numero}));
-  const entree={id:uid(),date:today(),fiche:info.numero,pages:info.pages||[],avant,apres,suivi:nouveaux.map(s=>s.id),photos:info.photos||[]};
-  return {map:{...m,...apres,suivi:[...(m.suivi||[]),...nouveaux],importsFiche:[...(m.importsFiche||[]),entree]},entree};
+    lot:String(s.lot||'').trim(),texte:String(s.texte).trim(),...(s.rubrique?{rubrique:s.rubrique}:{}),statut:'ouvert',creeLe:today(),source:'Fiche n° '+info.numero}))
+    .filter(s=>{const c=ficheCleSuivi(s);if(deja.has(c)){doublons++;return false}deja.add(c);return true});
+  /* le statut d'un ouvrage, retrouvé par son identifiant */
+  const ouv={avant:{},apres:{}};
+  Object.entries(X.ouvrages||{}).forEach(([id,st])=>{
+    const o=mapOuvrages(m).find(x=>x.id===id);
+    if(!o||!st||(o.statut||'')===st)return;
+    ouv.avant[id]=o.statut||'';ouv.apres[id]=st;
+  });
+  /* les points soldés d'une coche */
+  const soldes=(X.soldes||[]).filter(id=>(m.suivi||[]).some(p=>p.id===id&&p.statut!=='fait'));
+  /* les dimensions d'un équipement de salle de bains, confirmées ou corrigées */
+  const sdb={avant:{},apres:{}};
+  Object.entries(X.sdb||{}).forEach(([cle,d])=>{
+    if(!d)return;
+    const [sid,eid]=cle.split('/');
+    const s=(X.salles||[]).find(x=>x.id===sid), e=s&&(s.equipements||[]).find(x=>x.id===eid);
+    if(!e)return;
+    const nv={};
+    ['L','P','H'].forEach(k=>{const v=+String(d[k]===undefined?'':d[k]).replace(',','.');if(v>0&&v!==+e[k])nv[k]=v});
+    if(!d.confirme&&!Object.keys(nv).length)return;
+    if(Object.keys(nv).length)nv.dimsSource='saisie';
+    nv.dimsConfirmees=true;
+    if(Object.keys(nv).every(k=>memeValeur(e[k],nv[k])))return;
+    sdb.avant[cle]=Object.fromEntries(Object.keys(nv).map(k=>[k,e[k]===undefined?null:e[k]]));sdb.apres[cle]=nv;
+  });
+  const entree={id:uid(),date:today(),fiche:info.numero,pages:info.pages||[],avant,apres,suivi:nouveaux.map(s=>s.id),photos:info.photos||[],
+    ...(Object.keys(ouv.apres).length?{ouvrages:ouv}:{}),...(soldes.length?{soldes}:{}),...(Object.keys(sdb.apres).length?{sdb}:{}),
+    ...(doublons?{doublons}:{})};
+  const map={...m,...apres,
+    suivi:[...(m.suivi||[]).map(p=>soldes.indexOf(p.id)>=0?{...p,statut:'fait',faitLe:today()}:p),...nouveaux],
+    importsFiche:[...(m.importsFiche||[]),entree]};
+  if(entree.ouvrages)map.ouvrages=(m.ouvrages||[]).map(o=>o&&ouv.apres[o.id]!==undefined?{...o,statut:ouv.apres[o.id],maj:today()}:o);
+  const salles=entree.sdb?(X.salles||[]).map(s=>({...s,equipements:(s.equipements||[]).map(e=>{
+    const n=sdb.apres[s.id+'/'+e.id];return n?{...e,...n}:e})})):undefined;
+  return {map,entree,salles};
 }
 /* annuler un import : seules les valeurs encore telles que l'import les a
    laissées reviennent en arrière — ce qui a été retouché depuis est gardé */
-function ficheAnnulerImport(m,id){
+function ficheAnnulerImport(m,id,salles){
   const e=(m.importsFiche||[]).find(x=>x.id===id);
   if(!e)return {map:m,gardes:[]};
   const out={...m},gardes=[];
@@ -13217,14 +13406,39 @@ function ficheAnnulerImport(m,id){
     if(s.statut==='fait'){gardes.push('suivi');return true}
     return false;
   });
+  /* les points soldés par l'import se rouvrent, sauf retouchés depuis */
+  const soldes=new Set(e.soldes||[]);
+  if(soldes.size)out.suivi=out.suivi.map(s=>soldes.has(s.id)&&s.statut==='fait'&&s.faitLe===e.date?{...s,statut:'ouvert',faitLe:''}:s);
+  /* un ouvrage reprend son statut s'il a encore celui que l'import lui a donné */
+  const eo=e.ouvrages;
+  if(eo)out.ouvrages=(m.ouvrages||[]).map(o=>{
+    if(!o||eo.apres[o.id]===undefined)return o;
+    if((o.statut||'')===eo.apres[o.id])return {...o,statut:eo.avant[o.id]};
+    gardes.push('ouvrage');return o;
+  });
+  /* les dimensions d'un équipement, si personne ne les a retouchées */
+  let sallesOut;
+  if(e.sdb&&salles)sallesOut=salles.map(s=>({...s,equipements:(s.equipements||[]).map(q=>{
+    const cle=s.id+'/'+q.id, ap=e.sdb.apres[cle];
+    if(!ap)return q;
+    if(!Object.keys(ap).every(k=>memeValeur(q[k],ap[k]))){gardes.push('sdb');return q}
+    const r={...q};Object.entries(e.sdb.avant[cle]||{}).forEach(([k,v])=>{r[k]=v===null?undefined:v});return r;
+  })}));
   out.importsFiche=(m.importsFiche||[]).map(x=>x.id===id?{...x,annuleLe:today()}:x);
-  return {map:out,gardes};
+  return {map:out,gardes,salles:sallesOut};
 }
 
-function ImportFicheMap({data,ch,m,set}){
+function ImportFicheMap({data,ch,m,set,up}){
   const [lecture,setLecture]=useState(null);
   const [choix,setChoix]=useState({});
   const [suivi,setSuivi]=useState([]);
+  /* ouvrages (statut, précision), dimensions de salle de bains, points soldés */
+  const [choixOuv,setChoixOuv]=useState({});
+  const [precisions,setPrecisions]=useState({});
+  const [choixSdb,setChoixSdb]=useState({});
+  const [soldes,setSoldes]=useState({});
+  /* la MAP et les salles de bains ensemble, quand l'import touche aux deux */
+  const enregistrerTout=(map,salles)=>{if(salles&&up)up({map:{...m,...map},salles});else set(map)};
   const [fait,setFait]=useState(null);
   const F=m.fiches||[];
   const champsFiche={};MAP_FICHE.forEach(s=>s.f.forEach(f=>{champsFiche[f.k]=f}));
@@ -13255,23 +13469,30 @@ function ImportFicheMap({data,ch,m,set}){
     pages.filter(p=>p.numero!==numero).forEach(p=>erreurs.push(p.nom+' : page de la fiche n° '+p.numero+', importez-la séparément.'));
     if(!retenues.length){setLecture({etat:'erreur',erreurs});return}
     const fiche=retenues[0].fiche;
-    const A=ficheAnalyser(fiche,retenues,m,data);
+    const A=ficheAnalyser(fiche,retenues,m,data,ch.salles||[]);
     /* par défaut : un champ vide prend ce que dit la fiche ; un champ déjà
        saisi garde sa valeur tant qu'on n'a pas choisi de la remplacer */
     const c={};
     A.champs.forEach(r=>{
       if(r.conflit)c[r.k]={action:'garder'};
-      else if(r.propose!==undefined)c[r.k]={action:r.actuelVide&&!r.douteux?'prendre':'garder',valeur:r.propose};
+      else if(r.propose!==undefined)c[r.k]={action:r.actuelVide&&!r.douteux&&!r.valideLe?'prendre':'garder',valeur:r.propose};
       else c[r.k]={action:'garder',valeur:''};
     });
     setChoix(c);
     setSuivi(A.suivi.map(s=>({...s,lot:'',texte:''})));
+    /* un ouvrage « à décider » prend le statut coché ; un statut déjà
+       arrêté ne change que si on le choisit */
+    setChoixOuv(Object.fromEntries(A.ouvrages.filter(r=>r.existe&&r.propose&&!r.conflit&&!r.douteux&&(!r.actuel||r.actuel==='a_decider'))
+      .map(r=>[r.id,r.propose])));
+    setPrecisions({});
+    setChoixSdb(Object.fromEntries(A.sdb.filter(r=>r.existe).map(r=>[r.cle,{confirme:r.confirme&&!r.douteux}])));
+    setSoldes(Object.fromEntries(A.soldes.filter(r=>r.existe).map(r=>[r.id,r.coche&&!r.douteux])));
     setLecture({etat:'pret',A,fiche,pages:retenues,erreurs,files});
   };
 
   const annuler=id=>{
-    const {map,gardes}=ficheAnnulerImport(m,id);
-    set(map);
+    const {map,gardes,salles}=ficheAnnulerImport(m,id,ch.salles||[]);
+    enregistrerTout(map,salles);
     setFait({annule:true,gardes});
   };
 
@@ -13294,11 +13515,14 @@ function ImportFicheMap({data,ch,m,set}){
     {lecture&&lecture.erreurs&&lecture.erreurs.length>0&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>
       {lecture.erreurs.map((x,i)=><div key={i}>{x}</div>)}</div>}
     {fait&&!fait.annule&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
-      Import enregistré : {fait.n} champ{fait.n>1?'s':''} mis à jour, {fait.s} point{fait.s>1?'s':''} de suivi ajouté{fait.s>1?'s':''}.
+      Import enregistré : {fait.n} champ{fait.n>1?'s':''} mis à jour, {fait.s} point{fait.s>1?'s':''} de suivi ajouté{fait.s>1?'s':''}
+      {fait.o?', '+fait.o+' ouvrage'+(fait.o>1?'s':''):''}{fait.d?', '+fait.d+' équipement'+(fait.d>1?'s':'')+' de salle de bains':''}{fait.f?', '+fait.f+' point'+(fait.f>1?'s':'')+' soldé'+(fait.f>1?'s':''):''}.
+      {fait.doublons>0&&<span> {fait.doublons} point{fait.doublons>1?'s':''} déjà présent{fait.doublons>1?'s':''} au suivi, non ajouté{fait.doublons>1?'s':''} de nouveau.</span>}
       {fait.manquantes&&fait.manquantes.length>0&&<span style={{color:AMBER}}> Pages non importées : {fait.manquantes.join(', ')} — leurs champs n’ont pas changé.</span>}
     </div>}
     {fait&&fait.annule&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>Import annulé.
-      {fait.gardes.length>0&&<span> Gardés, car retouchés depuis : {fait.gardes.map(k=>(champsFiche[k]||{}).l||k).join(', ')}.</span>}</div>}
+      {fait.gardes.length>0&&<span> Gardés, car retouchés depuis : {[...new Set(fait.gardes)].map(k=>(champsFiche[k]||{}).l
+        ||{suivi:'point de suivi soldé',ouvrage:'statut d’un ouvrage',sdb:'dimensions d’un équipement'}[k]||k).join(', ')}.</span>}</div>}
     {dernier&&!lecture&&<div className="xs mut" style={{marginTop:6}}>Dernier import : fiche n° {dernier.fiche}, le {fd(dernier.date)} —
       {' '}<button className="xs" style={{color:TERRA,background:'none',border:'none',padding:0}}
         onClick={()=>{if(confirm('Annuler cet import ? Les champs qu’il a changés reprennent leur valeur d’avant, sauf ceux retouchés depuis.'))annuler(dernier.id)}}>annuler cet import</button></div>}
@@ -13307,10 +13531,13 @@ function ImportFicheMap({data,ch,m,set}){
       const {A,fiche,pages}=lecture;
       const aTrancher=A.champs.filter(r=>r.conflit||r.douteux||(!r.actuelVide&&(choix[r.k]||{}).action!=='prendre')).length;
       return <div style={{marginTop:10}}>
-        <div className="xs" style={{lineHeight:1.5}}>Fiche n° {fiche.numero} ({fiche.mode==='preremplie'?'préremplie':'vierge'}, du {fd(fiche.date)}) —
+        <div className="xs" style={{lineHeight:1.5}}>Fiche n° {fiche.numero} ({ficheModeLib(fiche.mode)}, du {fd(fiche.date)}) —
           page{pages.length>1?'s':''} {pages.map(p=>p.page+1).sort((a,b)=>a-b).join(', ')} lue{pages.length>1?'s':''} sur {fiche.nbPages}.
           {A.pagesManquantes.length>0&&<span style={{color:AMBER}}> Pages non fournies : {A.pagesManquantes.join(', ')} (leurs champs ne changeront pas).</span>}</div>
-        {!A.champs.length&&!A.suivi.length&&<div className="xs mut" style={{marginTop:8}}>Aucune case cochée ni aucun cadre écrit sur ces pages : rien à changer.</div>}
+        {(m.importsFiche||[]).some(x=>x.fiche===fiche.numero&&!x.annuleLe)&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+          Cette fiche a déjà été importée le {fd((m.importsFiche||[]).filter(x=>x.fiche===fiche.numero&&!x.annuleLe).slice(-1)[0].date)} :
+          ce qui est déjà à jour n’apparaît pas, et un point de suivi déjà présent ne sera pas ajouté une seconde fois.</div>}
+        {!A.champs.length&&!A.suivi.length&&!A.ouvrages.length&&!A.sdb.length&&!A.soldes.length&&<div className="xs mut" style={{marginTop:8}}>Aucune case cochée ni aucun cadre écrit sur ces pages : rien à changer.</div>}
         {A.champs.length>0&&<div className="xs" style={{marginTop:6,color:aTrancher?AMBER:MUTED}}>
           {A.champs.length} champ{A.champs.length>1?'s':''} lu{A.champs.length>1?'s':''}{aTrancher?', dont '+aTrancher+' à trancher':''}. Un champ déjà rempli garde sa valeur tant que vous ne choisissez pas « Prendre la fiche ».</div>}
         {A.champs.map(r=>{
@@ -13319,6 +13546,7 @@ function ImportFicheMap({data,ch,m,set}){
           return <div key={r.k} className="card" style={{padding:10,marginTop:8,borderLeft:'3px solid '+bord}}>
             <div className="xs mut">{r.section}</div>
             <div className="sm b" style={{color:NAVY}}>{r.l}</div>
+            {r.valideLe&&<div className="xs" style={{marginTop:3,color:GREEN}}>Rubrique validée le {fd(r.valideLe)} : la fiche ne la change que si vous le choisissez (elle sera alors à revalider).</div>}
             <div className="xs" style={{marginTop:4}}>Actuel : <b>{ficheEnClair(f,r.actuel,m,data)}</b></div>
             {r.libelles&&r.libelles.length>0&&<div className="xs" style={{marginTop:4,lineHeight:1.6}}>Sur la fiche :{' '}
               {r.libelles.map((o,i)=><span key={i} style={{marginRight:10,color:o.coche?INK:MUTED,fontWeight:o.coche?700:400}}>
@@ -13349,6 +13577,46 @@ function ImportFicheMap({data,ch,m,set}){
               </div>}
           </div>;
         })}
+        {A.ouvrages.length>0&&<div style={{marginTop:12}}>
+          <div className="xs b" style={{color:NAVY}}>OUVRAGES EXTÉRIEURS ET TERRASSES — {A.ouvrages.length} lu{A.ouvrages.length>1?'s':''}</div>
+          {A.ouvrages.map(r=><div key={r.id} className="card" data-ouvrage-lu={r.id} style={{padding:10,marginTop:6,borderLeft:'3px solid '+(r.conflit||r.douteux?TERRA:GREEN)}}>
+            <div className="sm b" style={{color:NAVY}}>{r.l}</div>
+            {!r.existe&&<div className="xs" style={{color:TERRA,marginTop:3}}>Ouvrage supprimé depuis la sortie de la fiche : rien ne sera changé.</div>}
+            {r.existe&&<div className="xs" style={{marginTop:4}}>Actuel : <b>{(MAP_EXT_STATUTS.find(s=>s.id===r.actuel)||{}).l||'À décider'}</b></div>}
+            {r.libelles.length>0&&<div className="xs" style={{marginTop:4,lineHeight:1.6}}>Sur la fiche :{' '}
+              {r.libelles.map((o,i)=><span key={i} style={{marginRight:10,color:o.coche?INK:MUTED,fontWeight:o.coche?700:400}}>{o.coche?'☑':o.douteux?'◩':'☐'} {o.l}</span>)}</div>}
+            {(r.conflit||r.douteux)&&<div className="xs" style={{color:TERRA,marginTop:4}}>{r.conflit?'Plusieurs statuts cochés : choisissez.':'Une coche est peu marquée : vérifiez.'}</div>}
+            {r.existe&&<select className="in" style={{marginTop:6}} value={choixOuv[r.id]||''} aria-label="Statut retenu"
+              onChange={e=>setChoixOuv({...choixOuv,[r.id]:e.target.value})}>
+              <option value="">Ne rien changer</option>{MAP_EXT_STATUTS.map(s=><option key={s.id} value={s.id}>{s.l}</option>)}</select>}
+            {r.zones.map((z,i)=><div key={i} style={{marginTop:6}}>
+              {z.image&&<img src={z.image} alt="" style={{width:'100%',maxWidth:560,border:'1px solid '+RULE,display:'block'}}/>}
+              <input className="in" style={{marginTop:4}} placeholder="Recopiez la précision (elle ira au suivi, en attente)" value={precisions[r.id]||''}
+                onChange={e=>setPrecisions({...precisions,[r.id]:e.target.value})}/></div>)}
+          </div>)}
+        </div>}
+        {A.sdb.length>0&&<div style={{marginTop:12}}>
+          <div className="xs b" style={{color:NAVY}}>SALLES DE BAINS — DIMENSIONS</div>
+          {A.sdb.map(r=>{const c=choixSdb[r.cle]||{};const setC=p=>setChoixSdb({...choixSdb,[r.cle]:{...c,...p}});
+            return <div key={r.cle} className="card" style={{padding:10,marginTop:6,borderLeft:'3px solid '+(r.douteux?TERRA:GREEN)}}>
+            <div className="sm b" style={{color:NAVY}}>{r.l}</div>
+            {!r.existe&&<div className="xs" style={{color:TERRA,marginTop:3}}>Équipement supprimé depuis la sortie de la fiche : rien ne sera changé.</div>}
+            {r.existe&&<div className="xs" style={{marginTop:4}}>Actuel : <b>{r.actuel}</b>{r.confirme?' — « Confirmées » cochée sur la fiche':''}</div>}
+            {r.douteux&&<div className="xs" style={{color:TERRA,marginTop:4}}>Une coche est peu marquée : vérifiez.</div>}
+            {r.zones.map((z,i)=>z.image?<img key={i} src={z.image} alt="" style={{width:'100%',maxWidth:560,marginTop:6,border:'1px solid '+RULE,display:'block'}}/>:null)}
+            {r.existe&&<div style={{marginTop:6}}>
+              {r.aRecopier&&<div className="row" style={{gap:4}}>{[['L','Largeur'],['P','Profondeur'],['H','Hauteur']].map(([k,l])=>
+                <input key={k} className="in" inputMode="decimal" placeholder={l+' (cm)'} value={c[k]||''} onChange={e=>setC({[k]:e.target.value})}/>)}</div>}
+              <label className="xs row" style={{gap:6,alignItems:'center',marginTop:6}}><input type="checkbox" checked={!!c.confirme}
+                onChange={e=>setC({confirme:e.target.checked})}/>Dimensions confirmées</label></div>}
+          </div>})}
+        </div>}
+        {A.soldes.length>0&&<div style={{marginTop:12}}>
+          <div className="xs b" style={{color:NAVY}}>POINTS DE SUIVI COCHÉS « SOLDÉ »</div>
+          {A.soldes.map(r=><label key={r.id} className="xs row" style={{gap:6,alignItems:'flex-start',marginTop:6,lineHeight:1.45}}>
+            <input type="checkbox" disabled={!r.existe} checked={!!soldes[r.id]} onChange={e=>setSoldes({...soldes,[r.id]:e.target.checked})}/>
+            <span>{r.l}{!r.existe?' — point supprimé depuis':''}{r.douteux?<span style={{color:TERRA}}> — coche peu marquée, vérifiez</span>:null}</span></label>)}
+        </div>}
         {suivi.length>0&&<div style={{marginTop:12}}>
           <div className="xs b" style={{color:NAVY}}>SUIVI — {suivi.length} ligne{suivi.length>1?'s':''} remplie{suivi.length>1?'s':''} sur la fiche</div>
           {suivi.map((s,i)=><div key={s.i} className="card" style={{padding:10,marginTop:6}}>
@@ -13370,8 +13638,11 @@ function ImportFicheMap({data,ch,m,set}){
             /* un modèle écrit à la main devient un point « en attente » */
             const autres=A.champs.filter(r=>(choix[r.k]||{}).autre&&choix[r.k].autre.trim()).map(r=>({type:'attente',
               lot:(champsFiche[r.k]||{}).o||'',texte:r.l+' — modèle demandé : '+choix[r.k].autre.trim()}));
-            enregistrer([...suivi,...autres])}}>Enregistrer</button>
-          <button className="btn gh" onClick={()=>{setLecture(null);setChoix({});setSuivi([])}}>Abandonner</button>
+            /* la précision écrite pour un ouvrage devient un point « en attente » de la rubrique 10 */
+            const prec=A.ouvrages.filter(r=>(precisions[r.id]||'').trim()).map(r=>{const o=mapOuvrages(m).find(x=>x.id===r.id)||{};
+              return {type:'attente',lot:o.lot||'',rubrique:'10',texte:r.l+' — '+precisions[r.id].trim()}});
+            enregistrer([...suivi,...autres,...prec])}}>Enregistrer</button>
+          <button className="btn gh" onClick={()=>{setLecture(null);setChoix({});setSuivi([]);setChoixOuv({});setPrecisions({});setChoixSdb({});setSoldes({})}}>Abandonner</button>
         </div>
       </div>;
     })()}
@@ -13386,9 +13657,11 @@ function ImportFicheMap({data,ch,m,set}){
       const folderId=await driveSousDossier(token,ch.id,ch.nom,'MAP');
       for(const f of (files||[]))try{photos.push((await uploadToDrive(f,folderId)).webViewLink||'')}catch(e){}
     }catch(e){/* sans Drive, l'import se fait quand même */}
-    const {map,entree}=ficheAppliquer(m,choix,lignes.filter(x=>String(x.texte||'').trim()),{numero:fiche.numero,pages:pages.map(p=>p.page+1),photos});
-    set(map);
-    setFait({n:Object.keys(entree.apres).length,s:entree.suivi.length,id:entree.id,manquantes:A.pagesManquantes});
+    const {map,entree,salles}=ficheAppliquer(m,choix,lignes.filter(x=>String(x.texte||'').trim()),{numero:fiche.numero,pages:pages.map(p=>p.page+1),photos},
+      {ouvrages:choixOuv,sdb:choixSdb,salles:ch.salles||[],soldes:Object.keys(soldes).filter(id=>soldes[id])});
+    enregistrerTout(map,salles);
+    setFait({n:Object.keys(entree.apres).length,s:entree.suivi.length,id:entree.id,manquantes:A.pagesManquantes,
+      o:Object.keys((entree.ouvrages||{}).apres||{}).length,d:Object.keys((entree.sdb||{}).apres||{}).length,f:(entree.soldes||[]).length,doublons:entree.doublons||0});
     setLecture(null);
   }
 }
@@ -13433,7 +13706,8 @@ function SuiviMap({m,set}){
   </div>;
 }
 
-const ficheMapNom=(ch,f)=>'Fiche MAP n°'+f.numero+' — '+(ch.nom||'chantier')+' — '+(f.mode==='preremplie'?'préremplie':'vierge')+'.pdf';
+const ficheModeLib=mode=>mode==='ouverts'?'points ouverts':mode==='preremplie'?'préremplie':'vierge';
+const ficheMapNom=(ch,f)=>'Fiche MAP n°'+f.numero+' — '+(ch.nom||'chantier')+' — '+ficheModeLib(f.mode)+'.pdf';
 
 /* la fiche dans l'onglet MAP : on la sort vierge ou préremplie ; sa
    disposition est gardée pour relire plus tard la photo de la fiche remplie */
@@ -13467,11 +13741,13 @@ function FicheMapPapier({data,ch,m,set}){
     <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
       <button className="btn gh s" disabled={etat&&etat.etat==='travail'} onClick={()=>sortir('vierge')}>Fiche vierge</button>
       <button className="btn acc s" disabled={etat&&etat.etat==='travail'} onClick={()=>sortir('preremplie')}>Fiche préremplie</button>
+      <button className="btn gh s" disabled={etat&&etat.etat==='travail'} onClick={()=>sortir('ouverts')}
+        title="Seulement ce qui reste à trancher : champs vides ou en alerte, ouvrages à décider, dimensions à confirmer, points ouverts">Points ouverts seulement</button>
     </div>
     {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
       {etat.nom} téléchargée{etat.lien?<span> et déposée dans Drive › MAP — <a href={etat.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>ouvrir</a></span>:' (Drive non connecté : pas de copie)'}.</div>}
     {F.length>0&&<div className="xs mut" style={{marginTop:6}}>
-      {F.length} fiche{F.length>1?'s':''} sortie{F.length>1?'s':''} — la dernière : n° {F[F.length-1].numero}, {F[F.length-1].mode==='preremplie'?'préremplie':'vierge'}, le {fd(F[F.length-1].date)}.</div>}
+      {F.length} fiche{F.length>1?'s':''} sortie{F.length>1?'s':''} — la dernière : n° {F[F.length-1].numero}, {ficheModeLib(F[F.length-1].mode)}, le {fd(F[F.length-1].date)}.</div>}
   </div>;
 }
 
@@ -14824,6 +15100,126 @@ function LienSalleDeBains({ch,data,ouvrir}){
   </div>;
 }
 
+/* ---------- avant de sortir la MAP : la synthèse ----------
+   Ce qui est validé, ce qui reste ouvert, le budget des ouvrages, les
+   documents à actualiser, et ce qui a changé depuis le dernier compte-rendu
+   sorti. À chaque sortie du compte-rendu, un instantané des réponses est
+   gardé avec la MAP : c'est lui qui sert de point de comparaison la fois
+   suivante. Rien n'est recalculé sur un document déjà signé. */
+const mapPluriel=(n,s,p)=>n+' '+(n>1?(p||s+'s'):s);
+function mapInstantane(m,data){
+  const valeurs={};
+  MAP_FICHE.forEach(s=>s.f.forEach(f=>{if(!mapVide(m[f.k]))valeurs[f.k]=m[f.k]}));
+  /* la variante d'un produit retenu fait partie du choix */
+  Object.keys(m).filter(k=>/Variante$/.test(k)&&!mapVide(m[k])).forEach(k=>{valeurs[k]=m[k]});
+  const b=mapBudgetOuvrages(m);
+  return {le:today(),valeurs,
+    ouvrages:mapOuvrages(m).map(o=>({id:o.id,resume:mapOuvrageResume(o),statut:o.statut||'',financement:o.financement||'',
+      montantTTC:o.montantTTC===undefined||o.montantTTC===null?'':String(o.montantTTC)})),
+    budget:{supplementsTTC:b.supplementsTTC,optionsTTC:b.optionsTTC,aChiffrer:b.aChiffrer.length}};
+}
+/* ce qui a changé depuis l'instantané de la dernière sortie : champs,
+   ouvrages (ajoutés, modifiés, retirés) et écart de budget ; null tant
+   qu'aucune MAP n'a été sortie avec un instantané */
+function mapChangementsDepuis(m,data){
+  const A=m&&m.derniereSortie;
+  if(!A||!A.valeurs)return null;
+  const V=A.valeurs, champs=[];
+  const brut=(M,k)=>mapVide(M[k])?null:M[k];
+  MAP_FICHE.forEach(s=>s.f.forEach(f=>{
+    const kv=f.t==='p'?f.k.replace(/Produit$/,'Variante'):null;
+    if(memeValeur(brut(V,f.k),brut(m,f.k))&&(!kv||memeValeur(brut(V,kv),brut(m,kv))))return;
+    champs.push({section:s.s,k:f.k,l:f.l,avant:ficheValeurActuelle(f,V,data)||'—',apres:ficheValeurActuelle(f,m,data)||'—'});
+  }));
+  const statut=id=>(MAP_EXT_STATUTS.find(s=>s.id===id)||{}).l||'—';
+  const etat=o=>statut(o.statut)+(o.statut==='inclus'||o.statut==='option'?' · '+(o.financement==='marche'?'compris dans le marché'
+    :mapMontant(o.montantTTC)!==null&&o.financement!=='a_chiffrer'?eurDoc(mapMontant(o.montantTTC))+' TTC':'à chiffrer'):'');
+  const avant={};(A.ouvrages||[]).forEach(o=>{if(o&&o.id)avant[o.id]=o});
+  const ouvrages=[];
+  mapOuvrages(m).forEach(o=>{
+    const a=avant[o.id];
+    const mt=o.montantTTC===undefined||o.montantTTC===null?'':String(o.montantTTC);
+    if(!a)ouvrages.push({id:o.id,l:mapOuvrageResume(o),avant:'—',apres:etat(o),nature:'ajout'});
+    else if(a.statut!==(o.statut||'')||a.financement!==(o.financement||'')||String(a.montantTTC)!==mt)
+      ouvrages.push({id:o.id,l:mapOuvrageResume(o),avant:etat(a),apres:etat(o),nature:'modif'});
+    delete avant[o.id];
+  });
+  Object.values(avant).forEach(a=>ouvrages.push({id:a.id,l:a.resume||'Ouvrage',avant:etat(a),apres:'retiré',nature:'retrait'}));
+  const b=mapBudgetOuvrages(m), ba=A.budget||{}, r=v=>Math.round(v*100)/100;
+  const budget={supplementsTTC:r(b.supplementsTTC-(+ba.supplementsTTC||0)),optionsTTC:r(b.optionsTTC-(+ba.optionsTTC||0)),
+    aChiffrer:b.aChiffrer.length-(+ba.aChiffrer||0)};
+  return {le:A.le,champs,ouvrages,budget,n:champs.length+ouvrages.length};
+}
+/* l'écart de budget en clair : seulement ce qui a bougé */
+const mapEcartBudgetTexte=e=>[
+  e.supplementsTTC?'suppléments '+(e.supplementsTTC>0?'+':'−')+eurDoc(Math.abs(e.supplementsTTC))+' TTC':'',
+  e.optionsTTC?'options '+(e.optionsTTC>0?'+':'−')+eurDoc(Math.abs(e.optionsTTC))+' TTC':'',
+  e.aChiffrer?(e.aChiffrer>0?'+':'−')+mapPluriel(Math.abs(e.aChiffrer),'ouvrage')+' à chiffrer':''].filter(Boolean).join(' · ');
+function mapSynthese(ch,data){
+  const m=(ch&&ch.map)||{};
+  const E=MAP_RUBRIQUES.map(r=>mapEtatRubrique(r,m,data));
+  const ouverts=(m.suivi||[]).filter(p=>p.statut!=='fait');
+  const salles=((ch&&ch.salles)||[]).map(s=>{
+    const C=sdbControles(s,data);
+    return {id:s.id,nom:s.nom||'Salle de bains',erreurs:C.filter(x=>x.niveau==='erreur').length,alertes:C.filter(x=>x.niveau==='alerte').length,
+      aConfirmer:C.filter(x=>x.niveau==='info').length,aActualiser:sdbDocumentsAActualiser(s).length};
+  });
+  const documents=[];
+  salles.filter(s=>s.aActualiser).forEach(s=>documents.push({l:'Salle de bains « '+s.nom+' »',msg:'PDF produit sur une version antérieure du modèle : à actualiser.'}));
+  const pe=((ch&&ch.docs)||{}).plan_elec;
+  if(pe&&pe.etudeConfirmeeLe&&!elecConfirmationValable(pe))
+    documents.push({l:'Plan électrique',msg:'Confirmé à l’indice '+pe.confirmeIndice+' ; le plan est maintenant à l’indice '+((pe.plan||{}).indice||'?')+' : à retransmettre.'});
+  else if(pe&&pe.etudeLe&&!pe.etudeConfirmeeLe)
+    documents.push({l:'Plan électrique',msg:'Transmis pour étude le '+fd(pe.etudeLe)+', pas encore confirmé par le client.'});
+  const changements=mapChangementsDepuis(m,data);
+  if(changements&&changements.n)
+    documents.push({l:'Compte-rendu de MAP du '+fd(changements.le),msg:mapPluriel(changements.n,'changement')+' depuis : à ressortir avant signature.'});
+  return {
+    rubriques:{total:E.length,validees:E.filter(e=>e.valide&&!e.modifieDepuis).length,modifiees:E.filter(e=>e.modifieDepuis).map(e=>e.id),
+      aValider:E.filter(e=>!e.valide&&e.renseignes>0).map(e=>e.id)},
+    alertes:E.reduce((a,e)=>a+e.alertes.length,0),
+    suivi:{decision:ouverts.filter(p=>p.type==='decision').length,chiffrer:ouverts.filter(p=>p.type==='chiffrer').length,
+      attente:ouverts.filter(p=>p.type==='attente').length},
+    budget:mapBudgetOuvrages(m),salles,documents,changements};
+}
+function SyntheseMap({ch,data,allerA}){
+  const [detail,setDetail]=useState(false);
+  const S=mapSynthese(ch,data), R=S.rubriques, C=S.changements, b=S.budget;
+  const ecart=C?mapEcartBudgetTexte(C.budget):'';
+  const rub=k=>mapChampRubrique[k];
+  return <div className="card map-synthese" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="b sm" style={{color:NAVY}}>Synthèse avant de sortir la MAP</div>
+    <div className="xs" style={{marginTop:6,lineHeight:1.7}}>
+      <div>Rubriques validées : <b>{R.validees}/{R.total}</b>
+        {R.modifiees.length>0&&<span style={{color:AMBER}}> · modifiée{R.modifiees.length>1?'s':''} depuis validation : {R.modifiees.join(', ')}</span>}
+        {R.aValider.length>0&&<span className="mut"> · renseignée{R.aValider.length>1?'s':''}, non validée{R.aValider.length>1?'s':''} : {R.aValider.join(', ')}</span>}</div>
+      <div style={{color:S.alertes?TERRA:MUTED}}>{S.alertes?mapPluriel(S.alertes,'alerte')+' à lever':'Aucune alerte'}</div>
+      <div>Suivi ouvert : {mapPluriel(S.suivi.decision,'décision')} · {S.suivi.chiffrer} à chiffrer · {S.suivi.attente} en attente</div>
+      <div>Ouvrages extérieurs : {mapBudgetTexte(b)||(mapOuvrages((ch.map||{})).length?'aucun montant connu':'aucun ouvrage décrit')}
+        {b.aDecider.length>0&&<span style={{color:AMBER}}> · {b.aDecider.length} à décider</span>}</div>
+      {S.salles.map(s=><div key={s.id} style={{color:s.erreurs?TERRA:INK}}>Salle de bains « {s.nom} » : {mapPluriel(s.erreurs,'erreur')},
+        {' '}{mapPluriel(s.alertes,'point')} à vérifier, {mapPluriel(s.aConfirmer,'dimension')} à confirmer</div>)}
+    </div>
+    {S.documents.length>0&&<div className="xs" style={{marginTop:8,background:'#FBF1DC',borderLeft:'3px solid '+AMBER,padding:8,lineHeight:1.55}}>
+      <b style={{color:AMBER}}>À actualiser</b>
+      {S.documents.map((d,i)=><div key={i}><b>{d.l}</b> — {d.msg}</div>)}</div>}
+    {C?<div className="xs" style={{marginTop:8,lineHeight:1.55}}>
+      <span className="b" style={{color:NAVY}}>Depuis la MAP du {fd(C.le)} : </span>
+      {C.n?mapPluriel(C.n,'changement'):'aucun changement'}{ecart?<span> · budget : {ecart}</span>:null}
+      {C.n>0&&<button type="button" className="xs" style={{color:TERRA,background:'none',border:'none',padding:0,marginLeft:8}} onClick={()=>setDetail(!detail)}>
+        {detail?'masquer':'voir le détail'}</button>}
+      {detail&&<div style={{marginTop:6}}>
+        {C.champs.map(x=><button key={x.k} type="button" className="xs" onClick={()=>allerA&&rub(x.k)&&allerA(rub(x.k),x.k)}
+          style={{display:'block',width:'100%',textAlign:'left',background:'none',border:'none',borderTop:'1px solid '+RULE,padding:'5px 0',cursor:'pointer',lineHeight:1.45}}>
+          <b style={{color:NAVY}}>{x.l}</b> : <span className="mut" style={{textDecoration:'line-through'}}>{x.avant}</span> → {x.apres}</button>)}
+        {C.ouvrages.map(x=><div key={x.id} style={{borderTop:'1px solid '+RULE,padding:'5px 0'}}>
+          <b style={{color:NAVY}}>{x.l}</b> : {x.nature==='ajout'?'ajouté — '+x.apres:<span><span className="mut" style={{textDecoration:'line-through'}}>{x.avant}</span> → {x.apres}</span>}</div>)}
+      </div>}
+    </div>
+    :<div className="xs mut" style={{marginTop:8}}>La comparaison commencera à la prochaine sortie du compte-rendu : l’état des choix sera alors gardé comme référence.</div>}
+  </div>;
+}
+
 function MAP({data,ch,up}){
   const m=ch.map||{};
   const set=p=>up({map:{...m,...p}});
@@ -14881,7 +15277,8 @@ function MAP({data,ch,up}){
         const pdf=await driveDocxEnPdf(token,buf,nom.replace(/\.docx$/,''));
         lienPdf=(await uploadToDrive(new File([pdf],nom.replace(/\.docx$/,'.pdf'),{type:PTR_MIME.pdf}),folderId)).webViewLink||'';
       }catch(x){/* le Word est déposé ; le PDF se refera à la prochaine sortie */}
-      set({sortieLe:today()});
+      /* l'état des choix à cette sortie : la référence des changements suivants */
+      set({sortieLe:today(),derniereSortie:mapInstantane(m,data)});
       setSortie({etat:'ok',lien:webViewLink,lienPdf,nom});
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
@@ -15179,6 +15576,7 @@ function MAP({data,ch,up}){
     </Fld>
     <Fld label="OBSERVATIONS GÉNÉRALES"><textarea className="in" rows="3" value={m.notes||''} onChange={e=>set({notes:e.target.value})}/></Fld>
 
+    <SyntheseMap ch={ch} data={data} allerA={allerA}/>
     <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+TERRA}}>
       <div className="b sm" style={{color:TERRA}}>Compte-rendu de MAP (Word et PDF)</div>
       <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
@@ -15199,7 +15597,7 @@ function MAP({data,ch,up}){
     </div>
     <SortiesMap data={data} ch={ch} m={m} set={set}/>
     <FicheMapPapier data={data} ch={ch} m={m} set={set}/>
-    <ImportFicheMap data={data} ch={ch} m={m} set={set}/>
+    <ImportFicheMap data={data} ch={ch} m={m} set={set} up={up}/>
     <SuiviMap m={m} set={set}/>
     <Fld label="MAP SIGNÉE (PDF)">
       <ImportFichier ch={ch} dossier="MAP" lien={m.lienSignee} onLien={v=>set({lienSignee:v})} label="Importer la MAP signée"/>
