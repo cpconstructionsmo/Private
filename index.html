@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-30 · Choix du client en ligne : lien personnel, panier recalculé par le serveur, prix versionnés, reprise vérifiée dans la MAP';
+const VERSION='2026-09-30 · Facture visée : montant TTC pour le client, sans nom de chantier, signature professionnelle avec logo';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2411,6 +2411,38 @@ const PTR_SYNTHESE={
    part d'une personne — il se signe du nom de son expéditeur, en objet
    d'affichage comme en formule de politesse. */
 const SIGNATAIRE_MAIL='Claude Portier';
+/* la signature professionnelle, en fin de mail : celle des courriers de
+   Claude Portier (agence d'Alençon), avec le logo en petit. Le logo voyage
+   dans le message lui-même (image « inline ») : une image hébergée ailleurs
+   est bloquée par défaut par la plupart des messageries (« images externes
+   non téléchargées »). */
+const SIGNATURE_PRO={nom:'Claude PORTIER',tel:'06 79 62 21 55',societe:'Société CP Constructions',
+  adresse:'5 rue du Bas de Montsort - 61000 Alençon',agence:'Agence d’Alençon',logo:'assets/logo_signature.jpg',cid:'logo-cp@cpconstructions.fr'};
+const signatureTexte=()=>{const S=SIGNATURE_PRO;return [S.nom,S.tel,S.societe,'',S.adresse,S.agence].join('\n')};
+const htmlEchappe=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+/* src : l'image jointe au mail (cid:…) ; à l'écran, le fichier du site */
+const signatureHtml=(avecLogo,src)=>{
+  const S=SIGNATURE_PRO, e=htmlEchappe;
+  return '<div style="font-family:Arial,Helvetica,sans-serif;color:#5B4636;margin-top:18px">'
+    +'<div style="font-size:18px;font-weight:bold;font-style:italic;color:#2B2B2B">'+e(S.nom)+'</div>'
+    +'<div style="font-size:13px;font-weight:bold;font-style:italic;margin-top:8px">'+e(S.tel)+'<br>'+e(S.societe)+'</div>'
+    +'<div style="font-size:13px;font-weight:bold;margin-top:10px">'+e(S.adresse)+'<br>'+e(S.agence)+'</div>'
+    +(avecLogo?'<div style="margin-top:10px"><img src="'+e(src||'cid:'+S.cid)+'" alt="CP Constructions" width="150" height="99" style="display:block;width:150px;height:99px;border:0"></div>':'')
+    +'</div>';
+};
+/* le corps d'un mail en HTML : paragraphes et retours à la ligne gardés */
+const mailCorpsHtml=corps=>'<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1A1A1A;line-height:1.45">'
+  +String(corps||'').split(/\n{2,}/).map(p=>'<p style="margin:0 0 12px">'+htmlEchappe(p).replace(/\n/g,'<br>')+'</p>').join('')+'</div>';
+/* le message complet, signé : en texte (repli) et en HTML, logo joint si on l'a */
+const mailSigne=(corps,logo)=>({corps:String(corps||'').replace(/\s+$/,'')+'\n\n'+signatureTexte(),
+  html:mailCorpsHtml(corps)+signatureHtml(!!logo),images:logo?[logo]:[]});
+async function signatureLogo(){
+  try{
+    const r=await fetch(SIGNATURE_PRO.logo);
+    if(!r.ok)return null;
+    return {cid:SIGNATURE_PRO.cid,type:'image/jpeg',nom:'logo-cp-constructions.jpg',data:new Uint8Array(await r.arrayBuffer())};
+  }catch(e){return null}
+}
 
 /* ---------- l'en-tête : logo à gauche, identité du marché à droite ---------- */
 function enteteMarche(d,px){
@@ -5846,7 +5878,7 @@ const nomPiece=nom=>{
 
 /* un multipart/mixed écrit à la main : sujet, corps et pièces jointes en
    base64 — ce qu'un client de messagerie fabriquerait, sans en dépendre */
-function mimeMessage({destinataire,cc,bcc,sujet,corps,pieces,expediteur,expediteurNom}){
+function mimeMessage({destinataire,cc,bcc,sujet,corps,pieces,expediteur,expediteurNom,html,images}){
   const lim='====cp'+Date.now()+'====';
   const motB64=s=>'=?UTF-8?B?'+u8aBase64(new TextEncoder().encode(s))+'?=';
   const decoupe=b64=>{const L=[];for(let i=0;i<b64.length;i+=76)L.push(b64.slice(i,i+76));return L};
@@ -5870,12 +5902,26 @@ function mimeMessage({destinataire,cc,bcc,sujet,corps,pieces,expediteur,expedite
     'MIME-Version: 1.0',
     'Content-Type: multipart/mixed; boundary="'+lim+'"',
   ].filter(Boolean);
-  const corpsLignes=[
-    '--'+lim,
+  const texteLignes=[
     'Content-Type: text/plain; charset="UTF-8"',
     'Content-Transfer-Encoding: base64',
     '',
     ...decoupe(u8aBase64(new TextEncoder().encode(corps))),
+  ];
+  /* avec une version HTML (signature et logo), le texte reste en repli :
+     related( alternative( texte, html ), images jointes au corps ) */
+  const rel='====rel'+Date.now()+'====', alt='====alt'+Date.now()+'====';
+  const corpsLignes=!html?['--'+lim,...texteLignes]:[
+    '--'+lim,'Content-Type: multipart/related; boundary="'+rel+'"','',
+    '--'+rel,'Content-Type: multipart/alternative; boundary="'+alt+'"','',
+    '--'+alt,...texteLignes,
+    '--'+alt,'Content-Type: text/html; charset="UTF-8"','Content-Transfer-Encoding: base64','',
+    ...decoupe(u8aBase64(new TextEncoder().encode('<!doctype html><html><body>'+html+'</body></html>'))),
+    '--'+alt+'--',
+    ...(images||[]).flatMap(im=>['--'+rel,'Content-Type: '+im.type+'; name="'+nomPiece(im.nom).ascii+'"',
+      'Content-Transfer-Encoding: base64','Content-ID: <'+im.cid+'>',
+      'Content-Disposition: inline; filename="'+nomPiece(im.nom).ascii+'"','',...decoupe(u8aBase64(im.data))]),
+    '--'+rel+'--',
   ];
   const piecesLignes=[];
   for(const p of (pieces||[])){
@@ -7251,7 +7297,9 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa}){
               </div>
               <div className="row" style={{gap:8,marginTop:6}}>
                 <button className="btn acc s" onClick={()=>{
-                  onCorriger(f.id,{montant:+edit.montant||0,date:edit.date,numero:edit.numero});
+                  /* un HT corrigé rend caduc le TTC lu sur la facture : il sera recalculé */
+                  onCorriger(f.id,{montant:+edit.montant||0,date:edit.date,numero:edit.numero,
+                    ...((+edit.montant||0)!==(+f.montant||0)?{montantTTC:undefined}:{})});
                   setEdit(null);
                 }}>Enregistrer</button>
                 <button className="btn gh s" onClick={()=>setEdit(null)}>Annuler</button>
@@ -7270,7 +7318,7 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa}){
               <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
                 onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label>}
           {f.lien&&visa&&visa.artisan&&<div style={{marginTop:8}}>
-            <ViserFacture f={f} ch={visa.ch} art={visa.artisan} lot={visa.lot} data={visa.data}/>
+            <ViserFacture f={f} ch={visa.ch} art={visa.artisan} lot={visa.lot} data={visa.data} marche={visa.marche}/>
           </div>}
         </div>}
       </div>;
@@ -7288,22 +7336,31 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa}){
    client que la facture est payable, met l'entreprise en copie et transmet
    son RIB pour le règlement. Rien ne peut partir avant que ce RIB soit
    déposé sur la fiche de l'entreprise — c'est lui que le mail doit transmettre. */
-function ViserFacture({f,ch,art,data,lot}){
+/* le montant TTC d'une facture, celui que le client règle : lu sur la
+   facture s'il l'a été (et cohérent avec le HT), sinon HT × TVA du marché */
+const factureTTC=(f,marche,ch)=>{
+  const ht=+f.montant||0, lu=+f.montantTTC;
+  if(lu&&ht&&lu>=ht-0.01&&lu<=ht*1.25)return Math.round(lu*100)/100;
+  const tva=marche?marcheTva(marche,ch):tvaRate(ch);
+  return Math.round(ht*(1+tva/100)*100)/100;
+};
+function ViserFacture({f,ch,art,data,lot,marche}){
   const [mail,setMail]=useState(null);
   const expediteur=((data&&data.expediteurMail)||'').trim();
+  /* le mail va au client : le montant qu'il règle (TTC), sans rappeler le
+     nom du chantier — c'est le sien */
   const ouvrirMail=()=>{
-    setMail({etat:'apercu',compte:'',
+    setMail({etat:'apercu',compte:'',signature:true,
       destinataire:ch.emailClient,
-      sujet:'Facture visée'+(f.numero?' n° '+f.numero:'')+' — '+(art.nom||lot||'')+' — '+(ch.nom||''),
+      sujet:'Facture visée'+(f.numero?' n° '+f.numero:'')+' — '+(art.nom||lot||''),
       corps:'Bonjour,\n\nNous avons contrôlé la facture'+(f.numero?' n° '+f.numero:'')+' de '+(art.nom||'l’entreprise')
-        +', d’un montant de '+eur(f.montant)+' HT'+(lot?' pour le lot '+lot:'')
-        +' du chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.'
+        +', d’un montant de '+eurDoc(factureTTC(f,marche,ch))+' TTC'+(lot?' pour le lot '+lot:'')+'.'
         +'\n\nNous y apposons notre visa : cette facture est donc payable dès à présent.'
         +(art.lienRib
           ?'\n\nVous trouverez ci-joint la facture visée ainsi que le relevé d’identité bancaire de l’entreprise pour son règlement.'
           :'\n\nVous trouverez ci-joint la facture visée, à régler sur le relevé d’identité bancaire de l’entreprise déjà en votre possession.')
         +(art.lienAttestation?'\n\nVous trouverez également son attestation d’assurance décennale en cours de validité.':'')
-        +'\n\nCordialement,\n'+SIGNATAIRE_MAIL,
+        +'\n\nCordialement,',
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
   };
@@ -7321,8 +7378,11 @@ function ViserFacture({f,ch,art,data,lot}){
       const idAtt=driveIdDepuisLien(art.lienAttestation);
       if(idAtt)pieces.push({nom:'Attestation décennale — '+(art.nom||'entreprise')+'.pdf',
         type:'application/pdf',data:await driveFichierBytes(token,idAtt)});
+      /* signé : la signature professionnelle et son logo ; sinon le nom seul */
+      const signe=mail.signature?mailSigne(mail.corps,await signatureLogo())
+        :{corps:String(mail.corps).replace(/\s+$/,'')+'\n'+SIGNATAIRE_MAIL};
       await gmailEnvoyer(token,{destinataire:mail.destinataire,cc:art.email||null,
-        bcc:expediteur||null,sujet:mail.sujet,corps:mail.corps,pieces,
+        bcc:expediteur||null,sujet:mail.sujet,...signe,pieces,
         expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
       setMail(p=>({...p,etat:'ok'}));
     }catch(e){
@@ -7354,6 +7414,13 @@ function ViserFacture({f,ch,art,data,lot}){
       {expediteur&&<Fld label="EN COPIE CACHÉE"><div className="xs">{expediteur}</div></Fld>}
       <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
       <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
+      <label className="xs row" style={{gap:6,alignItems:'center',marginBottom:6}}>
+        <input type="checkbox" checked={!!mail.signature} onChange={e=>setMail({...mail,signature:e.target.checked})}/>
+        Ajouter ma signature professionnelle (avec le logo)</label>
+      {mail.signature
+        ?<div className="signature-apercu" style={{border:'1px solid '+RULE,borderRadius:8,padding:'8px 10px',marginBottom:8,background:'#fff'}}
+          dangerouslySetInnerHTML={{__html:signatureHtml(true,SIGNATURE_PRO.logo)}}/>
+        :<div className="xs mut" style={{marginBottom:8}}>Signé simplement : {SIGNATAIRE_MAIL}.</div>}
       <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Pièces jointes : la facture
         {art.lienRib?' et le RIB de '+(art.nom||'l’entreprise'):' — sans le RIB de '+(art.nom||'l’entreprise')+', non déposé'}
         {art.lienAttestation?', ainsi que son attestation d’assurance décennale':''}.</div>
@@ -9089,7 +9156,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                   <ColFactures liste={m.factures} engage={+m.montantHT||0} ouv={ouv} setOuv={setOuv}
                     cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}
                     onCorriger={(fid,patch)=>corrigerFactureMarche(m.id,fid,patch)}
-                    visa={{ch,artisan:art,lot:m.lot,data}}/>
+                    visa={{ch,artisan:art,lot:m.lot,data,marche:m}}/>
                 </td>
               </tr>
               {f&&f.id===m.id&&<Volet cols={3}>{formulaireLot}</Volet>}
@@ -9614,7 +9681,7 @@ function LireFactures({data,ch,save,close}){
         :(a.montantTTC!==null&&a.tva!==null?a.montantTTC/(1+a.tva/100):null);
       out.push({id:uid(),file,nomFichier:file.name,scan:false,retenu:ht!==null,
         marcheId:trouveMarche(txt),montant:ht===null?'':Math.round(ht*100)/100,
-        date:a.date||'',numero:a.numero||'',tva:a.tva,alertes:a.alertes.slice()});
+        date:a.date||'',numero:a.numero||'',tva:a.tva,montantTTC:a.montantTTC,htLu:ht===null?null:Math.round(ht*100)/100,alertes:a.alertes.slice()});
     }
     setRows(r=>[...r,...out]);
     setBusy('');
@@ -9644,7 +9711,9 @@ function LireFactures({data,ch,save,close}){
       const t=cible(r.marcheId);
       if(!t)continue;
       const fid=uid();
-      const ligne={id:fid,montant:+r.montant||0,date:r.date||today(),lien:'',numero:r.numero||''};
+      /* le TTC lu sur la facture est gardé : c'est lui que le client règle */
+      const ligne={id:fid,montant:+r.montant||0,date:r.date||today(),lien:'',numero:r.numero||'',
+        ...(r.montantTTC!==null&&r.montantTTC!==undefined&&(+r.montant||0)===r.htLu?{montantTTC:Math.round(r.montantTTC*100)/100}:{})};
       if(t.type==='honoraires'){honoFactures.push({...ligne,libelle:'',tva:r.tva===null||r.tva===undefined?'':r.tva})}
       else{
         const dest=t.type==='marche'?marches.find(x=>x.id===t.id):commandes.find(x=>x.id===t.id);
