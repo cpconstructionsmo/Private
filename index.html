@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-30 · Plan électrique : le DQE comme jauge — lecture du marché ou du fichier, quantitatif en temps réel, contrôle bidirectionnel, rapport et exports';
+const VERSION='2026-09-30 · Plan électrique : portes, commandes côté poignée et liaisons automatiques, accrochage aux murs, bibliothèque CP, modifications client, historique';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -11276,50 +11276,211 @@ function elecSupplements(comp,tarifs,data){
   return {lignes,totalTTC:Math.round(connues.reduce((s,l)=>s+l.incidence,0)*100)/100,
     aChiffrer:lignes.filter(l=>l.incidence===null),reglementaires};
 }
-/* proposer l'implantation de la base : ce qui manque est ajouté, ce qui est
-   en trop n'est retiré que s'il a été généré et n'est pas verrouillé */
-function elecGenerer(plan,base){
+/* ---------- implantation : murs, portes, commandes, liaisons ----------
+   Le plan importé reste la seule géométrie : on ne redessine rien. Les
+   pièces tracées donnent les murs ; les portes se marquent d'un clic sur le
+   mur, avec le côté de la poignée si on le connaît.
+   - Un équipement mural se pose contre un mur (léger retrait intérieur),
+     orienté vers la pièce ; déplacé près d'un mur, il s'y accroche.
+   - Les commandes se placent à l'entrée, côté poignée : jamais derrière la
+     porte ouverte. Poignée inconnue : un côté est proposé, à confirmer.
+   - Les prises se répartissent le long des murs, en laissant libres les
+     débattements de porte. Le mobilier, les fenêtres et la cuisine ne sont
+     pas reconnus sur le plan : chaque position générée reste « proposée —
+     à valider ».
+   - Chaque commande est reliée au point lumineux qu'elle pilote : un trait
+     fin qui dit la relation, pas le chemin du câble. */
+const ELEC_MURAUX=new Set(['pc','pch','ll','lv','sl','ss','pc20','pc32','rj45','tv','sa','savoy','vv','vr','th','son','applique','appext','pcext',
+  'hotte','da','bp','secheserv','interphone','coffcom','tab','ch','lesan','legen']);
+const ELEC_COMMANDES=new Set(['sa','savoy','vv','da','bp']);
+const ELEC_ECLAIRAGES=new Set(['pointc','applique','appext','spot']);
+const elecRect=p=>({x0:Math.min(p.x0,p.x1),x1:Math.max(p.x0,p.x1),y0:Math.min(p.y0,p.y1),y1:Math.max(p.y0,p.y1)});
+/* le mur le plus proche d'un point : côté, point sur le mur, orientation
+   vers l'intérieur (en unités de largeur du plan : y se multiplie par le ratio) */
+function elecMurProche(p,x,y,ratio){
+  const r=elecRect(p), H=ratio||0.707;
+  const d=[['haut',Math.abs(y-r.y0)*H,{x,y:r.y0},180],['bas',Math.abs(r.y1-y)*H,{x,y:r.y1},0],
+    ['gauche',Math.abs(x-r.x0),{x:r.x0,y},90],['droite',Math.abs(r.x1-x),{x:r.x1,y},270]].sort((a,b)=>a[1]-b[1]);
+  const [cote,dist,pt,rot]=d[0];
+  return {cote,dist,x:Math.min(r.x1,Math.max(r.x0,pt.x)),y:Math.min(r.y1,Math.max(r.y0,pt.y)),rot};
+}
+const ELEC_ACCROCHE=0.03, ELEC_RETRAIT=0.009;
+/* poser contre le mur, avec le retrait et l'orientation */
+const elecContreMur=(m,ratio)=>{const H=ratio||0.707,r=ELEC_RETRAIT;
+  return {x:m.cote==='gauche'?m.x+r:m.cote==='droite'?m.x-r:m.x,y:m.cote==='haut'?m.y+r/H:m.cote==='bas'?m.y-r/H:m.y,rot:m.rot,mur:m.cote}};
+/* un équipement mural lâché près d'un mur de sa pièce s'y accroche */
+function elecAccrocher(s,pieces,ratio){
+  if(!s||!ELEC_MURAUX.has(s.type)||s.x==null)return s;
+  const pid=elecPieceDe({...s,piece:''},pieces), p=(pieces||[]).find(x=>x.id===pid);
+  if(!p)return s;
+  const m=elecMurProche(p,s.x,s.y,ratio);
+  if(m.dist>ELEC_ACCROCHE)return s;
+  return {...s,...elecContreMur(m,ratio)};
+}
+/* la direction « vers la poignée » le long d'un mur, vue de l'intérieur de
+   la pièce, face à la porte */
+const ELEC_GAUCHE={haut:[-1,0],bas:[1,0],gauche:[0,1],droite:[0,-1]};
+const ELEC_DEMI_PORTE=0.045;
+function elecPresPorte(porte,decalage,ratio,cote){
+  const g=ELEC_GAUCHE[porte.cote]||[1,0];
+  const sens=porte.poignee==='droite'?-1:1;            /* poignée à gauche : on part vers la gauche */
+  const k=(ELEC_DEMI_PORTE+0.018+(decalage||0))*sens;
+  const H=ratio||0.707;
+  const x=porte.x+g[0]*k, y=porte.y+g[1]*k/H;
+  return elecContreMur({cote:porte.cote,x,y,rot:{haut:180,bas:0,gauche:90,droite:270}[porte.cote]},ratio);
+}
+/* n positions le long des murs d'une pièce, hors débattement des portes */
+function elecPositionsMurales(p,n,ratio){
+  if(!(n>0))return [];
+  const r=elecRect(p), H=ratio||0.707, w=r.x1-r.x0, h=(r.y1-r.y0)*H;
+  const murs=[['haut',w],['droite',h],['bas',w],['gauche',h]];
+  const total=2*(w+h);
+  const surMur=(cote,t)=>cote==='haut'?{x:r.x0+t,y:r.y0}:cote==='bas'?{x:r.x1-t,y:r.y1}:cote==='droite'?{x:r.x1,y:r.y0+t/H}:{x:r.x0,y:r.y1-t/H};
+  const portes=(p.portes||[]);
+  const libre=pt=>!portes.some(d=>Math.hypot(pt.x-d.x,(pt.y-d.y)*H)<ELEC_DEMI_PORTE*1.6);
+  const out=[];
+  /* on essaie des positions régulières ; celles qui tombent devant une porte glissent un peu */
+  for(let i=0;i<n;i++){
+    let s=(i+0.5)/n*total, essai=0, pt=null, cote='haut';
+    while(essai<12){
+      let reste=((s%total)+total)%total;
+      for(const [c,l] of murs){if(reste<=l){cote=c;pt=surMur(c,Math.min(l-0.01,Math.max(0.01,reste)));break}reste-=l}
+      if(pt&&libre(pt))break;
+      s+=total/(n*6+12);essai++;
+    }
+    out.push(elecContreMur({cote,x:pt.x,y:pt.y,rot:{haut:180,bas:0,gauche:90,droite:270}[cote]},ratio));
+  }
+  return out;
+}
+/* la hauteur de pose d'un type : celle de la bibliothèque CP si elle est
+   réglée, sinon celle de référence (ou « à définir ») */
+const elecHauteurDefaut=(type,biblio)=>{const h=biblio&&biblio.hauteurs&&biblio.hauteurs[type];
+  return h!==undefined&&h!==null&&h!==''?+h:((elecSymbole(type)||{}).h??null)};
+
+/* ---------- la bibliothèque CP : hauteurs, modèles, prestations ----------
+   Une bibliothèque permanente, partagée par tous les dossiers : les
+   hauteurs de pose de la maison, les modèles de prestation (« Maison
+   standard CP », « Rénovation »…), et les prestations qu'on ajoute au fil
+   des dossiers (« Prise extérieure terrasse »). */
+const ELEC_MODELE_STANDARD={id:'standard',nom:'Maison standard CP',lignes:ELEC_MODELE_CP,integre:true};
+const elecModeles=biblio=>[ELEC_MODELE_STANDARD,...((biblio&&biblio.modeles)||[])];
+/* un modèle tiré d'une base : les quantités par type de pièce (la première pièce de chaque type) */
+function elecModeleDepuisBase(base,pieces,nom){
+  const lignes={},vus={};
+  (pieces||[]).forEach(p=>{if(vus[p.type])return;vus[p.type]=1;
+    const L=((base&&base.lignes)||[]).filter(l=>l.piece===p.id&&l.nature==='prevu');
+    if(L.length)lignes[p.type]=L.map(l=>[l.type,+l.qte||0])});
+  return {id:'mod_'+uid(),nom:nom||'Modèle',lignes,cree:today()};
+}
+const elecBaseModeleDe=(pieces,modele)=>(pieces||[]).flatMap(p=>(((modele&&modele.lignes)||{})[p.type]||[]).map(([type,qte])=>
+  ({id:'b_'+p.id+'_'+type,piece:p.id,type,qte,unite:elecUnite(type),nature:'prevu',origine:'cp'})));
+
+/* ---------- catégories, modifications client, journal ----------
+   L'origine d'un équipement reste distincte en base : prévu au DQE, détecté
+   sur le plan, imposé ou à vérifier par une règle, proposé par CP,
+   demandé par le client, hors marché. */
+const ELEC_CATEGORIES=[{id:'dqe',l:'Prévu au DQE'},{id:'plan',l:'Détecté sur le plan'},{id:'regle',l:'Imposé / à vérifier par règle technique'},
+  {id:'cp',l:'Proposé par CP Constructions'},{id:'client',l:'Demandé par le client'},{id:'hors',l:'Hors marché'}];
+/* ce qui a changé entre deux états du plan, pour le journal */
+function elecJournalDiff(avant,apres,par){
+  const A={},B={};((avant&&avant.symboles)||[]).forEach(s=>{A[s.id]=s});((apres&&apres.symboles)||[]).forEach(s=>{B[s.id]=s});
+  const lib=s=>(elecSymbole(s.type)||{}).l||s.type, out=[], le=new Date().toISOString();
+  Object.values(B).forEach(s=>{const a=A[s.id];
+    if(!a)out.push({le,par,action:'ajout',id:s.id,detail:lib(s)});
+    else if(a.type!==s.type)out.push({le,par,action:'type',id:s.id,detail:lib(a)+' → '+lib(s)});
+    else if(a.x!==s.x||a.y!==s.y)out.push({le,par,action:'deplacement',id:s.id,detail:lib(s)});});
+  Object.values(A).forEach(s=>{if(!B[s.id])out.push({le,par,action:'suppression',id:s.id,detail:lib(s)})});
+  /* une génération ajoute d'un coup : une seule ligne, qui dit combien et quoi */
+  const aj=out.filter(x=>x.action==='ajout');
+  if(aj.length>3){const n={};aj.forEach(x=>{n[x.detail]=(n[x.detail]||0)+1});
+    return [...out.filter(x=>x.action!=='ajout'),{le,par,action:'ajout',id:'',detail:aj.length+' équipements — '+Object.entries(n).map(([k,v])=>v+' '+k).join(', ')}]}
+  return out;
+}
+/* ajouter au journal : un déplacement qui continue le précédent (même
+   équipement, moins de deux minutes) le remplace au lieu de s'empiler */
+function elecJournalAjouter(journal,entrees){
+  const J=[...(journal||[])];
+  (entrees||[]).forEach(e=>{const d=J[J.length-1];
+    if(e.action==='deplacement'&&d&&d.action==='deplacement'&&d.id===e.id&&(new Date(e.le)-new Date(d.le))<120000)J[J.length-1]=e;else J.push(e)});
+  return J.slice(-500);
+}
+const ELEC_ACTIONS={ajout:'Ajout',suppression:'Suppression',deplacement:'Déplacement',type:'Changement de type'};
+
+/* proposer l'implantation de la base : ce qui manque est ajouté (éclairages
+   au plafond, commandes à l'entrée, équipements muraux le long des murs,
+   liaisons commande → éclairage) ; ce qui est en trop n'est retiré que s'il
+   a été généré et n'est pas verrouillé. Sans échelle, rien n'est positionné. */
+function elecGenerer(plan,base,opts){
+  const o=opts||{}, ratio=(plan&&plan.ratio)||0.707;
   const pieces=(plan&&plan.pieces)||[], S=(plan&&plan.symboles)||[];
   const ech=elecEchelle(plan);
-  const ajouts=[],retraits=[];
+  const ajouts=[],retraits=[],cables=[];
   const comp=elecComparatif({...plan,symboles:S.filter(s=>!s.aPlacer)},base);
   const aPlacerDeja=S.filter(s=>s.aPlacer);
-  comp.filter(l=>l.nature!=='reglementaire'||true).forEach(l=>{
+  const categorie=l=>l.nature==='reglementaire'?'regle':l.nature==='client'?'client':l.article?'dqe':'cp';
+  const neuf=(l,p,extra)=>({id:uid(),type:l.type,h:elecHauteurDefaut(l.type,o.biblio),note:'',piece:p?p.id:'',statut:'a_confirmer',source:'genere',
+    categorie:categorie(l),...(l.article?{article:l.article}:{}),
+    ...(p&&p.type==='Cuisine'&&!ELEC_COMMANDES.has(l.type)&&!ELEC_ECLAIRAGES.has(l.type)?{note:'Selon plan du cuisiniste'}:{}),...extra});
+  const manques=[];
+  comp.forEach(l=>{
     const p=pieces.find(x=>x.id===l.piece);
     const enAttente=aPlacerDeja.filter(s=>s.piece===l.piece&&s.type===l.type).length;
-    let manque=l.prevu-l.implante-enAttente*(l.unite==='mecanisme'?1:1);
-    if(manque>0&&p){
-      for(let i=0;i<manque;i++){
-        const s={id:uid(),type:l.type,h:(elecSymbole(l.type)||{}).h,note:'',piece:p.id,statut:'a_confirmer',source:'genere',
-          ...(l.article?{article:l.article}:{}),...(p.type==='Cuisine'?{note:'Selon plan du cuisiniste'}:{})};
-        if(ech.ok){
-          /* le long des murs, à l'intérieur de la pièce, régulièrement répartis */
-          const x0=Math.min(p.x0,p.x1),x1=Math.max(p.x0,p.x1),y0=Math.min(p.y0,p.y1),y1=Math.max(p.y0,p.y1);
-          const ix=(x1-x0)*0.08,iy=(y1-y0)*0.08, n=manque, k=i+l.implante+enAttente;
-          const per=2*((x1-x0-2*ix)+(y1-y0-2*iy)), d=((k+0.5)/(Math.max(n,1)+l.implante+enAttente))*per;
-          const w=x1-x0-2*ix,h=y1-y0-2*iy;
-          let x,y;
-          if(d<w){x=x0+ix+d;y=y0+iy}else if(d<w+h){x=x1-ix;y=y0+iy+(d-w)}
-          else if(d<2*w+h){x=x1-ix-(d-w-h);y=y1-iy}else{x=x0+ix;y=y1-iy-(d-2*w-h)}
-          /* les points de centre : sur l'axe de la pièce, répartis, jamais superposés */
-          if(l.type==='pointc'){const tot=l.prevu;x=x0+(x1-x0)*(k+1)/(tot+1);y=(y0+y1)/2}
-          ajouts.push({...s,x,y});
-        }else ajouts.push({...s,x:null,y:null,aPlacer:true});
-      }
-    }
-    /* une prestation du logement entier : pas de pièce, donc pas de position
-       proposée — elle attend dans la liste « à placer » */
-    if(manque>0&&!p&&l.piece===''){
-      for(let i=0;i<manque;i++)ajouts.push({id:uid(),type:l.type,h:(elecSymbole(l.type)||{}).h,note:'',piece:'',statut:'a_confirmer',source:'genere',
-        ...(l.article?{article:l.article}:{}),x:null,y:null,aPlacer:true});
-    }
+    const manque=l.prevu-l.implante-enAttente;
+    if(manque>0)manques.push({l,p,manque});
     if(l.ecart>0){
       const trop=S.filter(s=>!s.aPlacer&&s.type===l.type&&elecPieceDe(s,pieces)===l.piece&&s.source==='genere'&&!s.verrou);
       trop.slice(0,l.ecart).forEach(s=>retraits.push(s.id));
     }
   });
-  return {ajouts,retraits,echelle:ech};
+  pieces.forEach(p=>{
+    const M=manques.filter(m=>m.p&&m.p.id===p.id);
+    if(!M.length)return;
+    if(!ech.ok){M.forEach(m=>{for(let i=0;i<m.manque;i++)ajouts.push(neuf(m.l,p,{x:null,y:null,aPlacer:true}))});return}
+    const r=elecRect(p), horiz=(r.x1-r.x0)>=(r.y1-r.y0)*ratio;
+    /* les éclairages de plafond : sur l'axe long de la pièce, répartis, jamais superposés */
+    M.filter(m=>m.l.type==='pointc'||m.l.type==='spot').forEach(m=>{const tot=m.l.prevu;
+      for(let i=0;i<m.manque;i++){const k=m.l.implante+i;
+        ajouts.push(neuf(m.l,p,{x:horiz?r.x0+(r.x1-r.x0)*(k+1)/(tot+1):(r.x0+r.x1)/2,y:horiz?(r.y0+r.y1)/2:r.y0+(r.y1-r.y0)*(k+1)/(tot+1)}))}});
+    /* les commandes : à l'entrée, côté poignée */
+    const portes=p.portes||[];let rang=0;
+    M.filter(m=>ELEC_COMMANDES.has(m.l.type)).forEach(m=>{for(let i=0;i<m.manque;i++){
+      let pos,note;
+      if(portes.length){const d=portes[rang%portes.length];pos=elecPresPorte(d,Math.floor(rang/portes.length)*0.03,ratio);
+        note=d.poignee?'':'Côté de la poignée à confirmer'}
+      else{pos=elecPositionsMurales(p,1,ratio)[0];note='Porte non marquée : position à confirmer'}
+      rang++;
+      ajouts.push(neuf(m.l,p,{...pos,...(note?{note}:{})}));
+    }});
+    /* les équipements muraux : répartis ensemble le long des murs, en
+       laissant les places déjà occupées */
+    const murales=M.filter(m=>ELEC_MURAUX.has(m.l.type)&&!ELEC_COMMANDES.has(m.l.type));
+    const nb=murales.reduce((s,m)=>s+m.manque,0);
+    if(nb){
+      const occupees=S.filter(s=>!s.aPlacer&&s.x!=null&&ELEC_MURAUX.has(s.type)&&!ELEC_COMMANDES.has(s.type)&&elecPieceDe(s,pieces)===p.id);
+      let slots=elecPositionsMurales(p,nb+occupees.length,ratio);
+      occupees.forEach(s=>{let i=-1,dm=1e9;slots.forEach((q,j)=>{const dd=Math.hypot(q.x-s.x,(q.y-s.y)*ratio);if(dd<dm){dm=dd;i=j}});if(i>=0)slots.splice(i,1)});
+      let k=0;murales.forEach(m=>{for(let i=0;i<m.manque;i++)ajouts.push(neuf(m.l,p,{...slots[k++]}))});
+    }
+    /* le reste (détecteur, bouche…) : au plafond, près du centre */
+    M.filter(m=>!ELEC_MURAUX.has(m.l.type)&&m.l.type!=='pointc'&&m.l.type!=='spot').forEach((m,j)=>{for(let i=0;i<m.manque;i++)
+      ajouts.push(neuf(m.l,p,{x:(r.x0+r.x1)/2+(i+1+j)*0.018,y:r.y0+(r.y1-r.y0)*0.3}))});
+  });
+  /* une prestation du logement entier : pas de pièce, donc pas de position
+     proposée — elle attend dans la liste « à placer » */
+  manques.filter(m=>!m.p&&m.l.piece==='').forEach(m=>{for(let i=0;i<m.manque;i++)ajouts.push(neuf(m.l,null,{x:null,y:null,aPlacer:true}))});
+  /* les liaisons : chaque commande ajoutée pilote un éclairage de sa pièce
+     (deux va-et-vient par point lumineux) */
+  pieces.forEach(p=>{
+    const cmds=ajouts.filter(s=>s.piece===p.id&&ELEC_COMMANDES.has(s.type)&&!s.aPlacer);
+    if(!cmds.length)return;
+    const lum=[...S.filter(s=>!s.aPlacer&&s.x!=null&&ELEC_ECLAIRAGES.has(s.type)&&elecPieceDe(s,pieces)===p.id),
+      ...ajouts.filter(s=>s.piece===p.id&&ELEC_ECLAIRAGES.has(s.type)&&!s.aPlacer)];
+    if(!lum.length)return;
+    cmds.forEach((c,i)=>cables.push({id:uid(),de:c.id,vers:lum[Math.floor(i*lum.length/cmds.length)].id,courbure:0.18,auto:true}));
+  });
+  return {ajouts,retraits,cables,echelle:ech};
 }
+
 /* l'indice du plan : une lettre de plus dès que le dessin a changé depuis
    la dernière sortie ; une confirmation client ne vaut que pour son indice */
 const elecEmpreinte=plan=>ptrEmpreinte(JSON.stringify([(plan.symboles||[]).map(s=>[s.id,s.type,s.x,s.y,s.h,s.rot||0,s.mecanismes||1]),
@@ -11795,7 +11956,7 @@ function ElecControle({ch,plan,base}){
 }
 
 /* l'assistant, au-dessus du plan : une étape à la fois */
-function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
+function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,saveBiblio}){
   const d=ch.docs||{}, pe=d.plan_elec||{};
   const base=pe.base||{source:'',lignes:[],validee:false};
   const majBase=b=>up({docs:{...d,plan_elec:{...pe,plan,base:{...base,...b}}}});
@@ -11809,7 +11970,10 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
   const sup=elecSupplements(comp,tarifs,data);
   const aPlacer=(plan.symboles||[]).filter(s=>s.aPlacer);
   const bordElec=(data.bordereaux||[]).filter(b=>/elec/i.test(deaccent((b.nom||'')+' '+(b.corps||''))));
-  const E=[['preparer','Préparer le plan'],['generer','Générer la base'],['verifier','Contrôler le plan'],['supplements','Voir les suppléments'],['exporter','Exporter']];
+  const E=[['preparer','Préparer le plan'],['generer','Générer la base'],['verifier','Contrôler le plan'],['supplements','Voir les suppléments'],['biblio','Bibliothèque CP'],['exporter','Exporter']];
+  const biblio=data.elecBiblio||{};
+  const [modeleId,setModeleId]=useState('standard');
+  const modeles=elecModeles(biblio);
   const nomPiece=id=>id===''||id===undefined?'Logement (général)':(pieces.find(p=>p.id===id)||{}).nom||'Hors pièce';
   return <div className="card" style={{padding:10,marginBottom:10,borderLeft:'3px solid '+ELEC_BLEU}}>
     <div className="row" style={{gap:6,flexWrap:'wrap'}}>
@@ -11848,9 +12012,18 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
           <input className="in" style={{flex:'1 1 140px'}} value={p.nom} onChange={e=>maj({pieces:pieces.map(x=>x.id===p.id?{...x,nom:e.target.value}:x)})}/>
           <select className="in" style={{flex:'0 1 170px'}} value={p.type} onChange={e=>maj({pieces:pieces.map(x=>x.id===p.id?{...x,type:e.target.value}:x)})}>
             {ELEC_PIECES_TYPES.map(t=><option key={t}>{t}</option>)}</select>
+          <button type="button" className={'btn s '+(outil==='@porte:'+p.id?'':'gh')} style={{fontSize:11,padding:'4px 8px'}}
+            onClick={()=>changerOutil(outil==='@porte:'+p.id?'':'@porte:'+p.id)}>{outil==='@porte:'+p.id?'Cliquez la porte sur un mur':'+ Porte'}</button>
           <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>maj({pieces:pieces.filter(x=>x.id!==p.id)})}>✕</button>
+          {(p.portes||[]).map((d,k)=><div key={d.id} className="row xs" style={{gap:6,alignItems:'center',flexBasis:'100%',paddingLeft:12}}>
+            <span className="mut">Porte {k+1} (mur {d.cote}) — poignée, vue de l’intérieur :</span>
+            <select className="in" style={{maxWidth:130}} value={d.poignee||''} aria-label="Côté de la poignée"
+              onChange={e=>maj({pieces:pieces.map(x=>x.id!==p.id?x:{...x,portes:x.portes.map(y=>y.id===d.id?{...y,poignee:e.target.value}:y)})})}>
+              <option value="">à confirmer</option><option value="gauche">à gauche</option><option value="droite">à droite</option></select>
+            <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}}
+              onClick={()=>maj({pieces:pieces.map(x=>x.id!==p.id?x:{...x,portes:x.portes.filter(y=>y.id!==d.id)})})}>✕</button></div>)}
         </div>)}
-        <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Un tracé simple suffit : un rectangle par pièce, sur le fond. Pour un PDF ou une image, rien n’est reconnu automatiquement.</div>
+        <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Un tracé simple suffit : un rectangle par pièce, sur le fond, et ses portes d’un clic sur le mur (avec le côté de la poignée : les interrupteurs s’y placent, jamais derrière la porte ouverte). Sur un PDF scanné ou une image, les pièces ne sont pas reconnues automatiquement : rien n’est deviné.</div>
       </Fld>
     </div>}
 
@@ -11861,9 +12034,13 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
           <option value="modele_cp">Modèle CP (proposition, non contractuelle)</option></select></Fld>
       {base.source==='dqe'&&<ElecDQE ch={ch} data={data} plan={plan} base={base} majBase={majBase}/>}
       {(base.decisions||[]).length>0&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Décisions : {base.decisions.map((x,i)=><div key={i}>{fd(x.le)}{x.par?' ('+x.par+')':''} — {x.choix} {x.source?'« '+x.source+' »':''} : {x.detail}</div>)}</div>}
-      {base.source==='modele_cp'&&<button type="button" className="btn gh s" disabled={!pieces.length}
-        onClick={()=>{const L=elecBaseModele(pieces);const garde=(base.lignes||[]).filter(l=>l.nature!=='prevu');majBase({lignes:[...garde,...L]})}}>
-        Remplir la base avec le modèle CP ({pieces.length} pièce{pieces.length>1?'s':''})</button>}
+      {base.source==='modele_cp'&&<div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center'}}>
+        <select className="in" style={{maxWidth:220}} value={modeleId} aria-label="Modèle" onChange={e=>setModeleId(e.target.value)}>
+          {modeles.map(m=><option key={m.id} value={m.id}>{m.nom}</option>)}</select>
+        <button type="button" className="btn gh s" disabled={!pieces.length}
+          onClick={()=>{const mo=modeles.find(m=>m.id===modeleId)||ELEC_MODELE_STANDARD;
+            const L=mo.integre?elecBaseModele(pieces):elecBaseModeleDe(pieces,mo);const garde=(base.lignes||[]).filter(l=>l.nature!=='prevu');majBase({lignes:[...garde,...L],modele:mo.nom})}}>
+          Remplir la base avec le modèle CP ({pieces.length} pièce{pieces.length>1?'s':''})</button></div>}
       {(base.source==='marche'||base.source==='ptr')&&<div className="xs mut" style={{lineHeight:1.5}}>Saisissez les quantités telles qu’écrites au {base.source==='marche'?'marché':'programme'} : l’application ne les devine pas.</div>}
       <div style={{maxHeight:260,overflowY:'auto',marginTop:8}}>
         {(base.lignes||[]).map(l=><div key={l.id} className="row xs" style={{gap:6,alignItems:'center',borderBottom:'1px solid '+RULE,padding:'4px 0'}}>
@@ -11887,18 +12064,20 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
         <label className="xs row" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!base.validee} onChange={e=>majBase({validee:e.target.checked,valideeLe:e.target.checked?today():''})}/>Base validée</label>
       </div>
       <div className="row" style={{gap:6,marginTop:10}}>
-        <button type="button" className="btn acc s" disabled={!(base.lignes||[]).length} onClick={()=>setPropo(elecGenerer(plan,base))}>Préparer la proposition d’implantation</button>
+        <button type="button" className="btn acc s" disabled={!(base.lignes||[]).length} onClick={()=>setPropo(elecGenerer(plan,base,{biblio}))}>Préparer la proposition d’implantation</button>
       </div>
       {propo&&<div className="card" style={{marginTop:8,padding:10,borderLeft:'3px solid '+AMBER}}>
         <div className="xs" style={{lineHeight:1.5}}>
           {propo.ajouts.length} équipement{propo.ajouts.length>1?'s':''} à ajouter{!propo.echelle.ok&&propo.ajouts.length?' — dans la liste « à placer » (plan non étalonné : pas de position inventée)':' — le long des murs, statut « à confirmer »'}.
+          {(propo.cables||[]).length>0&&<span> {propo.cables.length} liaison{propo.cables.length>1?'s':''} commande → éclairage.</span>}
+          {propo.ajouts.length>0&&propo.echelle.ok&&<span> Positions proposées automatiquement : à valider (le mobilier et les fenêtres ne sont pas lus sur le plan).</span>}
           {propo.retraits.length>0&&<span> {propo.retraits.length} équipement{propo.retraits.length>1?'s':''} généré{propo.retraits.length>1?'s':''} en trop à retirer (jamais un équipement verrouillé ou posé à la main).</span>}
           {!propo.ajouts.length&&!propo.retraits.length&&' Rien à changer : l’implantation couvre la base.'}
         </div>
         <div className="row" style={{gap:6,marginTop:6}}>
           <button type="button" className="btn acc s" disabled={!propo.ajouts.length&&!propo.retraits.length}
             onClick={()=>{const R=new Set(propo.retraits);maj({symboles:[...(plan.symboles||[]).filter(s=>!R.has(s.id)),...propo.ajouts],
-              cables:(plan.cables||[]).filter(c=>!R.has(c.de)&&!R.has(c.vers))});setPropo(null)}}>Appliquer</button>
+              cables:[...(plan.cables||[]).filter(c=>!R.has(c.de)&&!R.has(c.vers)),...(propo.cables||[])]});setPropo(null)}}>Appliquer</button>
           <button type="button" className="btn gh s" onClick={()=>setPropo(null)}>Annuler</button>
         </div>
       </div>}
@@ -11936,6 +12115,32 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
       <div className="xs b" style={{marginTop:6}}>Incidence connue : {sup.totalTTC>0?'+':''}{eurDoc(sup.totalTTC)} TTC{sup.aChiffrer.length?' · '+sup.aChiffrer.length+' type'+(sup.aChiffrer.length>1?'s':'')+' à chiffrer (inconnu, pas zéro)':''}</div>
     </div>}
 
+    {etape==='biblio'&&<div style={{marginTop:10}}>
+      <div className="xs mut" style={{lineHeight:1.5,marginBottom:6}}>La bibliothèque PRESTATION ÉLECTRIQUE CP CONSTRUCTIONS : commune à tous les dossiers. Les hauteurs servent aux équipements posés ensuite (ceux déjà posés ne changent pas).</div>
+      {!saveBiblio&&<div className="xs" style={{color:AMBER}}>Bibliothèque en lecture seule depuis cet écran.</div>}
+      <div className="xs b" style={{color:NAVY}}>HAUTEURS DE POSE (CM)</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(210px,1fr))',gap:4,marginTop:4}}>
+        {ELEC_SYMBOLES.map(s=><label key={s.id} className="row xs" style={{gap:6,alignItems:'center'}}>
+          <span style={{flex:1}}>{s.l}</span>
+          <input className="in" style={{width:70}} inputMode="numeric" placeholder={s.h===null?'à définir':String(s.h)} value={(biblio.hauteurs||{})[s.id]??''} disabled={!saveBiblio}
+            onChange={e=>saveBiblio({...biblio,hauteurs:{...(biblio.hauteurs||{}),[s.id]:e.target.value===''?'':+e.target.value}})}/></label>)}
+      </div>
+      <div className="xs b" style={{color:NAVY,marginTop:10}}>MODÈLES DE PRESTATION</div>
+      {modeles.map(m=><div key={m.id} className="row xs" style={{gap:6,alignItems:'center',padding:'3px 0'}}>
+        <span style={{flex:1}}>{m.nom}{m.integre?' (livré)':m.cree?' — enregistré le '+fd(m.cree):''} · {Object.keys(m.lignes||{}).length} types de pièce</span>
+        {!m.integre&&saveBiblio&&<button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}}
+          onClick={()=>{if(confirm('Retirer le modèle « '+m.nom+' » de la bibliothèque ?'))saveBiblio({...biblio,modeles:(biblio.modeles||[]).filter(x=>x.id!==m.id)})}}>✕</button>}</div>)}
+      {saveBiblio&&<button type="button" className="btn gh s" style={{marginTop:4}} disabled={!(base.lignes||[]).length}
+        onClick={()=>{const nom=prompt('Nom du modèle (Maison premium CP, Rénovation…)');if(!nom)return;
+          saveBiblio({...biblio,modeles:[...(biblio.modeles||[]),elecModeleDepuisBase(base,pieces,nom)]})}}>Enregistrer la base de ce dossier comme modèle</button>}
+      <div className="xs b" style={{color:NAVY,marginTop:10}}>PRESTATIONS AJOUTÉES</div>
+      {!(biblio.prestations||[]).length&&<div className="xs mut">Aucune : depuis la fiche d’un équipement, « Ajouter à la bibliothèque CP ».</div>}
+      {(biblio.prestations||[]).map(x=><div key={x.id} className="row xs" style={{gap:6,alignItems:'center',padding:'3px 0'}}>
+        <span style={{flex:1}}>{x.libelle} <span className="mut">({(elecSymbole(x.type)||{}).l} · H : {elecHautTxt(x.h)})</span></span>
+        {saveBiblio&&<button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}}
+          onClick={()=>saveBiblio({...biblio,prestations:(biblio.prestations||[]).filter(y=>y.id!==x.id)})}>✕</button>}</div>)}
+    </div>}
+
     {etape==='exporter'&&<div style={{marginTop:10}} className="xs">
       <Fld label="STATUT DU PLAN"><select className="in" value={plan.statut||'Proposition'} onChange={e=>maj({statut:e.target.value})}>
         {['Proposition','Pour étude client','Validé'].map(x=><option key={x}>{x}</option>)}</select></Fld>
@@ -11945,7 +12150,29 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
   </div>;
 }
 
-function PlanElectrique({ch,up,onFermer,data}){
+/* sous le plan : les modifications client numérotées et l'historique */
+function ElecHistorique({pe,majModifs}){
+  const [ouvert,setOuvert]=useState(false);
+  const M=pe.modifications||[], J=pe.journal||[];
+  if(!M.length&&!J.length)return null;
+  const STATUTS=[['demandee','Demandée'],['acceptee','Acceptée'],['refusee','Refusée'],['avenant','Avenant à établir']];
+  return <div className="card elec-historique" style={{marginTop:10,padding:10,borderLeft:'3px solid '+AMBER}}>
+    {M.length>0&&<div>
+      <div className="xs b" style={{color:NAVY}}>MODIFICATIONS CLIENT — hors DQE initial</div>
+      {M.map(x=><div key={x.n} className="row xs" style={{gap:6,alignItems:'center',padding:'3px 0',borderBottom:'1px solid '+RULE,flexWrap:'wrap'}}>
+        <b>Modification n°{x.n}</b><span style={{flex:'1 1 180px'}}>{x.action} {x.libelle}{x.piece?' — '+x.piece:''} · {fd(x.le)}{x.par?' · '+x.par:''}</span>
+        <select className="in" style={{maxWidth:170}} value={x.statut||'demandee'} aria-label="Statut de la modification"
+          onChange={e=>majModifs(M.map(y=>y.n===x.n?{...y,statut:e.target.value}:y))}>{STATUTS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>)}
+    </div>}
+    {J.length>0&&<div style={{marginTop:M.length?8:0}}>
+      <button type="button" className="xs b" style={{color:NAVY,background:'none',border:'none',padding:0}} onClick={()=>setOuvert(!ouvert)}>
+        {ouvert?'▾':'▸'} HISTORIQUE ({J.length})</button>
+      {ouvert&&<div style={{maxHeight:200,overflowY:'auto',marginTop:4}}>{J.slice().reverse().map((x,i)=><div key={i} className="xs mut" style={{padding:'2px 0'}}>
+        {new Date(x.le).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'})}{x.par?' · '+x.par:''} — {ELEC_ACTIONS[x.action]||x.action} : {x.detail}</div>)}</div>}
+    </div>}
+  </div>;
+}
+function PlanElectrique({ch,up,onFermer,data,save}){
   const d=ch.docs||{};
   const plan=(d.plan_elec&&d.plan_elec.plan)||{fond:'',ratio:0.707,symboles:[],cables:[]};
   const S=plan.symboles||[];
@@ -11964,6 +12191,12 @@ function PlanElectrique({ch,up,onFermer,data}){
   const [busyPdf,setBusyPdf]=useState('');  /* export du plan fini */
   const [groupe,setGroupe]=useState(ELEC_GROUPES[0]);
   const [controle,setControle]=useState(false);
+  /* mode « modification client » : chaque ajout ou retrait devient une
+     modification numérotée, hors DQE initial */
+  const [modeClient,setModeClient]=useState(false);
+  const biblio=(data&&data.elecBiblio)||{};
+  const saveBiblio=save?b=>save({...data,elecBiblio:b}):null;
+  const moi=(typeof UTILISATEUR!=='undefined'&&UTILISATEUR)||'';
   const baseElec=(d.plan_elec&&d.plan_elec.base)||{lignes:[]};
   const svgRef=useRef(null);
   const drag=useRef(null);
@@ -11978,9 +12211,18 @@ function PlanElectrique({ch,up,onFermer,data}){
 
   /* chaque changement du plan garde l'état d'avant : Annuler / Rétablir */
   const hist=useRef({passe:[],futur:[]});
-  const ecrire=nouveau=>{const c=d.plan_elec||{};
-    up({docs:{...d,plan_elec:{...c,plan:nouveau,fait:true,date:c.fait?c.date:today()}}})};
-  const maj=p=>{hist.current.passe=[...hist.current.passe.slice(-59),plan];hist.current.futur=[];ecrire({...plan,...p})};
+  /* chaque écriture tient le journal : ajout, retrait, déplacement,
+     changement de type, avec la date et l'auteur */
+  const ecrire=(nouveau,modifs)=>{const c=d.plan_elec||{};
+    up({docs:{...d,plan_elec:{...c,plan:nouveau,fait:true,date:c.fait?c.date:today(),
+      journal:elecJournalAjouter(c.journal,elecJournalDiff(plan,nouveau,moi)),
+      ...(modifs&&modifs.length?{modifications:[...(c.modifications||[]),...modifs]}:{})}}})};
+  const maj=(p,modifs)=>{hist.current.passe=[...hist.current.passe.slice(-59),plan];hist.current.futur=[];ecrire({...plan,...p},modifs)};
+  /* une modification client numérotée */
+  const modifClient=(action,s)=>{const c=d.plan_elec||{};const n=((c.modifications||[]).reduce((m,x)=>Math.max(m,+x.n||0),0))+1;
+    const pid=s.piece||elecPieceDe(s,plan.pieces||[]);
+    return [{n,le:today(),par:moi,action,type:s.type,libelle:(elecSymbole(s.type)||{}).l||s.type,piece:((plan.pieces||[]).find(x=>x.id===pid)||{}).nom||'',
+      statut:'demandee',horsDqe:true,symbole:s.id}]};
   const annuler=()=>{const h=hist.current;if(!h.passe.length)return;h.futur=[plan,...h.futur];ecrire(h.passe[h.passe.length-1]);h.passe=h.passe.slice(0,-1)};
   const retablir=()=>{const h=hist.current;if(!h.futur.length)return;h.passe=[...h.passe,plan];ecrire(h.futur[0]);h.futur=h.futur.slice(1)};
   const [trace,setTrace]=useState(null);
@@ -12035,22 +12277,35 @@ function PlanElectrique({ch,up,onFermer,data}){
         maj({pieces:[...(plan.pieces||[]),{id:'pc_'+uid(),nom:ty+(n>1?' '+n:''),type:ty,x0:trace.c1.x,y0:trace.c1.y,x1:q.x,y1:q.y}]});
         setTrace({type:ty});return;
       }
+      if(outil.indexOf('@porte:')===0){
+        const pid=outil.slice(7), p=(plan.pieces||[]).find(x=>x.id===pid);
+        if(!p)return;
+        const m=elecMurProche(p,q.x,q.y,plan.ratio);
+        maj({pieces:plan.pieces.map(x=>x.id!==pid?x:{...x,portes:[...(x.portes||[]),{id:'pt_'+uid(),x:m.x,y:m.y,cote:m.cote,poignee:''}]})});
+        setOutil('');return;
+      }
       if(outil.indexOf('@placer:')===0){
         const id=outil.slice(8);
-        maj({symboles:S.map(s=>s.id===id?{...s,x:q.x,y:q.y,aPlacer:false}:s)});
+        maj({symboles:S.map(s=>s.id===id?elecAccrocher({...s,x:q.x,y:q.y,aPlacer:false},plan.pieces,plan.ratio):s)});
         setOutil('');return;
       }
     }
     if(!outil||outil==='cable'){setSel(null);setSelC(null);return}
     const p=pos(e); if(!p)return;
-    const s=elecSymbole(outil);
-    maj({symboles:[...S,{id:uid(),type:outil,x:p.x,y:p.y,h:s.h,note:''}]});
+    /* une prestation de la bibliothèque CP, ou un symbole */
+    const preset=outil.indexOf('@presta:')===0?(biblio.prestations||[]).find(x=>x.id===outil.slice(8)):null;
+    const type=preset?preset.type:outil;
+    if(!elecSymbole(type))return;
+    const n=elecAccrocher({id:uid(),type,x:p.x,y:p.y,h:preset&&preset.h!==''&&preset.h!=null?preset.h:elecHauteurDefaut(type,biblio),note:preset?preset.libelle:'',
+      source:'manuel',...(modeClient?{categorie:'client'}:{})},plan.pieces,plan.ratio);
+    maj({symboles:[...S,n]},modeClient?modifClient('Ajout',n):null);
   };
   const majSymbole=(id,p)=>maj({symboles:S.map(s=>s.id===id?{...s,...p}:s)});
   /* retirer un symbole emporte les câbles qui y aboutissaient : un câble
      accroché dans le vide n'aurait plus de sens */
   const supprimer=id=>{
-    maj({symboles:S.filter(s=>s.id!==id),cables:C.filter(c=>c.de!==id&&c.vers!==id)});
+    const s=S.find(x=>x.id===id);
+    maj({symboles:S.filter(s=>s.id!==id),cables:C.filter(c=>c.de!==id&&c.vers!==id)},modeClient&&s?modifClient('Suppression',s):null);
     setSel(null);
   };
   const majCable=(id,p)=>maj({cables:C.map(c=>c.id===id?{...c,...p}:c)});
@@ -12288,7 +12543,7 @@ function PlanElectrique({ch,up,onFermer,data}){
     </div>}
 
     {!!plan.fond&&<React.Fragment>
-      <AssistantElec ch={ch} up={up} data={data||{}} plan={plan} maj={maj} outil={outil} changerOutil={changerOutil} trace={trace} setTrace={setTrace}/>
+      <AssistantElec ch={ch} up={up} data={data||{}} plan={plan} maj={maj} outil={outil} changerOutil={changerOutil} trace={trace} setTrace={setTrace} saveBiblio={saveBiblio}/>
       <div className="row" style={{gap:6,marginBottom:8,flexWrap:'wrap',alignItems:'center'}}>
         <button className="btn gh s" disabled={!hist.current.passe.length} onClick={annuler} title="Annuler (Ctrl+Z)">↶ Annuler</button>
         <button className="btn gh s" disabled={!hist.current.futur.length} onClick={retablir} title="Rétablir (Ctrl+Y)">↷ Rétablir</button>
@@ -12297,6 +12552,9 @@ function PlanElectrique({ch,up,onFermer,data}){
         <button className={'btn s '+(hauteurs?'':'gh')} onClick={()=>setHauteurs(h=>!h)}>Hauteurs</button>
         <button className={'btn s '+(legSurPlan?'':'gh')}
           onClick={()=>maj({legende:!legSurPlan})}>Légende sur le plan</button>
+        <button className={'btn s '+(modeClient?'':'gh')} style={modeClient?{background:AMBER,borderColor:AMBER}:undefined}
+          title="Chaque ajout ou retrait devient une modification client numérotée, hors DQE initial" onClick={()=>setModeClient(v=>!v)}>
+          {modeClient?'Mode modification client : actif':'Modification client'}</button>
         <span style={{flex:1}}/>
         <button className="btn gh s" onClick={()=>setZoom(z=>Math.max(1,+(z-.5).toFixed(1)))} aria-label="Dézoomer">−</button>
         <span className="xs mut" style={{minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
@@ -12309,12 +12567,15 @@ function PlanElectrique({ch,up,onFermer,data}){
           :outil==='@piece'?'Cliquez deux angles opposés de la pièce.'
           :outil==='@calib'?'Cliquez les deux extrémités d’une cote connue, puis indiquez sa longueur.'
           :outil&&outil.indexOf('@placer:')===0?'Cliquez sur le plan à l’endroit où poser cet équipement.'
-          :outil&&elecSymbole(outil)?'Cliquez sur le plan pour poser « '+elecSymbole(outil).l+' ».'
+          :outil&&outil.indexOf('@porte:')===0?'Cliquez sur le mur, à l’endroit de la porte.'
+          :outil&&outil.indexOf('@presta:')===0?'Cliquez sur le plan : la prestation se pose, contre le mur le plus proche.'
+          :outil&&elecSymbole(outil)?'Cliquez sur le plan pour poser « '+elecSymbole(outil).l+' »'+(ELEC_MURAUX.has(outil)?' : près d’un mur, il s’y accroche.':'.')
                 :'Cliquez un symbole pour le déplacer ou le régler, un câble pour le modifier.'}
       </div>
 
       <div className="row" style={{gap:6,marginBottom:6,flexWrap:'wrap'}}>
         {ELEC_GROUPES.map(g=><button key={g} className={'btn s '+(groupe===g?'':'gh')} onClick={()=>setGroupe(g)}>{g}</button>)}
+        {(biblio.prestations||[]).length>0&&<button className={'btn s '+(groupe==='@biblio'?'':'gh')} onClick={()=>setGroupe('@biblio')}>Bibliothèque CP</button>}
       </div>
       <div className="row" style={{gap:6,marginBottom:10,alignItems:'center',flexWrap:'wrap'}}>
         <span className="xs mut">Taille des symboles</span>
@@ -12327,8 +12588,14 @@ function PlanElectrique({ch,up,onFermer,data}){
         <button className="btn gh s" onClick={()=>maj({trait:Math.min(5,+(ep+0.2).toFixed(1))})} aria-label="Épaissir les câbles">+</button>
       </div>
       <div className="row" style={{gap:6,marginBottom:10,flexWrap:'wrap'}}>
+        {groupe==='@biblio'&&(biblio.prestations||[]).map(x=>{const s=elecSymbole(x.type)||{};const id='@presta:'+x.id;
+          return <button key={x.id} onClick={()=>changerOutil(id)} title={x.libelle+' — H : '+elecHautTxt(x.h)}
+            style={{display:'flex',alignItems:'center',gap:6,padding:'4px 8px',borderRadius:6,cursor:'pointer',
+              border:'1px solid '+(outil===id?s.c:RULE),background:outil===id?s.c+'14':'#fff'}}>
+            <svg width="22" height="22" viewBox="-12 -12 24 24" style={{flex:'0 0 auto'}}><ElecGlyph t={x.type}/></svg>
+            <span className="xs" style={{color:outil===id?s.c:INK,whiteSpace:'nowrap'}}>{x.libelle}</span></button>})}
         {ELEC_SYMBOLES.filter(s=>s.g===groupe).map(s=>
-          <button key={s.id} onClick={()=>changerOutil(s.id)} title={s.l+' — H : '+s.h}
+          <button key={s.id} onClick={()=>changerOutil(s.id)} title={s.l+' — H : '+elecHautTxt(elecHauteurDefaut(s.id,biblio))}
             style={{display:'flex',alignItems:'center',gap:6,padding:'4px 8px',borderRadius:6,cursor:'pointer',
               border:'1px solid '+(outil===s.id?s.c:RULE),background:outil===s.id?s.c+'14':'#fff'}}>
             <svg width="22" height="22" viewBox="-12 -12 24 24" style={{flex:'0 0 auto'}}><ElecGlyph t={s.id}/></svg>
@@ -12350,7 +12617,11 @@ function PlanElectrique({ch,up,onFermer,data}){
               if(drag.current==='@legende'){const o=decalLeg.current||{x:0,y:0};
                 maj({legX:p.x-o.x,legY:p.y-o.y});return}
               majSymbole(drag.current,p)}}
-            onPointerUp={e=>{drag.current=null;
+            onPointerUp={e=>{
+              /* lâché près d'un mur de sa pièce : il s'y accroche */
+              if(drag.current&&drag.current!=='@legende'){const s0=S.find(x=>x.id===drag.current);
+                if(s0){const a=elecAccrocher(s0,plan.pieces,plan.ratio);if(a!==s0&&(a.x!==s0.x||a.y!==s0.y||a.rot!==s0.rot))majSymbole(s0.id,{x:a.x,y:a.y,rot:a.rot,mur:a.mur})}}
+              drag.current=null;
               if(svgRef.current&&svgRef.current.releasePointerCapture&&e&&e.pointerId!==undefined)
                 try{svgRef.current.releasePointerCapture(e.pointerId)}catch(x){}}}>
             {/* les câbles passent sous les symboles, pour ne pas les masquer */}
@@ -12364,7 +12635,11 @@ function PlanElectrique({ch,up,onFermer,data}){
             {(plan.pieces||[]).map(p=><g key={p.id} pointerEvents="none">
               <rect x={Math.min(p.x0,p.x1)*1000} y={Math.min(p.y0,p.y1)*H} width={Math.abs(p.x1-p.x0)*1000} height={Math.abs(p.y1-p.y0)*H}
                 fill={ELEC_BLEU} fillOpacity="0.04" stroke={ELEC_BLEU} strokeOpacity="0.55" strokeWidth="1" strokeDasharray="6 4"/>
-              <text x={Math.min(p.x0,p.x1)*1000+5} y={Math.min(p.y0,p.y1)*H+13} fontSize="11" fill={ELEC_BLEU} fillOpacity="0.8">{p.nom}</text></g>)}
+              <text x={Math.min(p.x0,p.x1)*1000+5} y={Math.min(p.y0,p.y1)*H+13} fontSize="11" fill={ELEC_BLEU} fillOpacity="0.8">{p.nom}</text>
+              {(p.portes||[]).map(dp=>{const hz=dp.cote==='haut'||dp.cote==='bas',L=ELEC_DEMI_PORTE*1000;
+                return <g key={dp.id}><line x1={dp.x*1000-(hz?L:0)} y1={dp.y*H-(hz?0:L)} x2={dp.x*1000+(hz?L:0)} y2={dp.y*H+(hz?0:L)}
+                  stroke={AMBER} strokeWidth="4" strokeOpacity="0.8"/>
+                  <text x={dp.x*1000+4} y={dp.y*H-4} fontSize="9" fill={AMBER}>porte{dp.poignee?' · poignée '+dp.poignee:''}</text></g>})}</g>)}
             {plan.calib&&plan.calib.fond===plan.fond&&<line x1={plan.calib.x1*1000} y1={plan.calib.y1*H} x2={plan.calib.x2*1000} y2={plan.calib.y2*H}
               stroke={GREEN} strokeWidth="1.5" strokeDasharray="4 3" pointerEvents="none"/>}
             {trace&&(trace.p1||trace.c1)&&<circle cx={(trace.p1||trace.c1).x*1000} cy={(trace.p1||trace.c1).y*H} r="5" fill={AMBER} pointerEvents="none"/>}
@@ -12431,6 +12706,15 @@ function PlanElectrique({ch,up,onFermer,data}){
           <Fld label="STATUT"><select className="in" value={choisi.statut||'prevu'} onChange={e=>majSymbole(choisi.id,{statut:e.target.value})}>
             {ELEC_STATUTS.map(x=><option key={x.id} value={x.id}>{x.l}</option>)}</select></Fld>
         </div>
+        <div className="g2">
+          <Fld label="ORIGINE"><select className="in" value={choisi.categorie||''} onChange={e=>majSymbole(choisi.id,{categorie:e.target.value})}>
+            <option value="">— non précisée —</option>{ELEC_CATEGORIES.map(x=><option key={x.id} value={x.id}>{x.l}</option>)}</select></Fld>
+          <Fld label="TYPE"><select className="in" value={choisi.type} onChange={e=>majSymbole(choisi.id,{type:e.target.value})}>
+            {ELEC_SYMBOLES.map(x=><option key={x.id} value={x.id}>{x.l}</option>)}</select></Fld>
+        </div>
+        {saveBiblio&&<button type="button" className="xs" style={{color:TERRA,background:'none',border:'none',padding:0,marginBottom:8}}
+          onClick={()=>{const lib=prompt('Nom de la prestation (ex. Prise extérieure terrasse)',choisi.note||(elecSymbole(choisi.type)||{}).l);if(!lib)return;
+            saveBiblio({...biblio,prestations:[...(biblio.prestations||[]),{id:'pr_'+uid(),libelle:lib,type:choisi.type,h:choisi.h,cree:today()}]})}}>Ajouter à la bibliothèque CP</button>}
         <div className="row" style={{gap:12,flexWrap:'wrap',marginBottom:10,alignItems:'center'}}>
           {elecUnite(choisi.type)==='mecanisme'&&<span className="row xs" style={{gap:6,alignItems:'center'}}>Mécanismes
             {[1,2,3].map(n=><button key={n} className={'btn s '+(elecMecanismes(choisi)===n?'':'gh')} onClick={()=>majSymbole(choisi.id,{mecanismes:n})}>{n===1?'Simple':n===2?'Double':'Triple'}</button>)}</span>}
@@ -12499,6 +12783,7 @@ function PlanElectrique({ch,up,onFermer,data}){
         </div>
       </div>}
 
+      <ElecHistorique pe={d.plan_elec||{}} majModifs={L=>up({docs:{...d,plan_elec:{...(d.plan_elec||{}),modifications:L}}})}/>
       <div style={{marginTop:14}}>
         <div className="sp" style={{marginBottom:6}}>
           <span className="h2" style={{fontSize:13}}>LÉGENDE</span>
@@ -12794,7 +13079,7 @@ function Docs({data,ch,up,save}){
     up({docs:{...d,[docId]:{...c,signatures:(c.signatures||[]).filter(s=>s.id!==sid)}}});
   };
   const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
-  if(planElec)return <PlanElectrique ch={ch} up={up} data={data} onFermer={()=>setPlanElec(false)}/>;
+  if(planElec)return <PlanElectrique ch={ch} up={up} data={data} save={save} onFermer={()=>setPlanElec(false)}/>;
   return <div>
     <DriveStatus/>
     <div className="sp xs" style={{marginTop:0,marginBottom:10}}>
