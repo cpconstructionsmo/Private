@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-30 · Plan électrique : pièces lues sur le plan, contradictions entre documents, règles réglementaires versionnées, validation client en ligne';
+const VERSION='2026-09-30 · Plan électrique : génération automatique en un clic (tout le DQE posé, commandes côté poignée, liaisons), proposition à valider, versions, verrouillage, calques';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -10820,11 +10820,13 @@ function Planning({data,ch,up}){
    prise posée en hauteur (1m10) : un petit « H » s'ajoute alors dans le
    coin du symbole, pour la distinguer d'une prise à 30 cm sans avoir à lire
    une étiquette de cote à côté. */
-function ElecGlyph({t,c,eleve}){
+function ElecGlyph({t,c,eleve,rot}){
   const s=elecSymbole(t); if(!s)return null;
   const coul=c||s.c, r=9;
   const rond=<circle cx="0" cy="0" r={r} fill="#fff" stroke={coul} strokeWidth="1.6"/>;
-  const mot=v=><text x="0" y="3.2" textAnchor="middle" fontSize={v.length>2?6:8} fontWeight="700" fill={coul}>{v}</text>;
+  /* le symbole suit son mur, mais ses lettres restent lisibles (jamais à l'envers) */
+  const droit=v=>rot?<g transform={'rotate('+(-rot)+')'}>{v}</g>:v;
+  const mot=v=>droit(<text x="0" y="3.2" textAnchor="middle" fontSize={v.length>2?6:8} fontWeight="700" fill={coul}>{v}</text>);
   const rondMot=v=><g>{rond}{mot(v)}</g>;
   /* l'interrupteur : le point de commande et sa manette, comme au plan */
   const manette=(n)=><g>
@@ -10852,7 +10854,7 @@ function ElecGlyph({t,c,eleve}){
       {t==='appext'?<line x1="0" y1="-3" x2="0" y2="-7.5" stroke={coul} strokeWidth="1.4"/>:null}</g>;
     /* les circuits spécialisés : la pastille chiffrée du plan d'implantation */
     case 'pc20': case 'pc32': return <g>{rond}
-      <text x="0" y="3.4" textAnchor="middle" fontSize="8.5" fontWeight="700" fill={coul}>{t==='pc20'?'20':'32'}</text></g>;
+      {droit(<text x="0" y="3.4" textAnchor="middle" fontSize="8.5" fontWeight="700" fill={coul}>{t==='pc20'?'20':'32'}</text>)}</g>;
     /* le sèche-serviettes : le corps de chauffe et ses barres */
     case 'secheserv': return <g>
       <rect x="-7" y="-9" width="14" height="18" rx="2" fill="#fff" stroke={coul} strokeWidth="1.6"/>
@@ -11068,7 +11070,7 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,pla
     {(symboles||[]).map(s=>{const p=pt(s);
       return <g key={s.id}>
         {/* le symbole tourne et se met à l'échelle… */}
-        <g transform={poseSymbole(p.x,p.y,s.rot,ech)}><ElecGlyph t={s.type} eleve={priseHaute(s)}/></g>
+        <g transform={poseSymbole(p.x,p.y,s.rot,ech)}><ElecGlyph t={s.type} rot={s.rot} eleve={priseHaute(s)}/></g>
         {/* …mais pas sa hauteur, qui doit rester lisible à l'endroit */}
         {!!etiquetteHauteur(s,hauteurs)&&
           <text x={p.x+11*ech} y={p.y-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
@@ -11200,7 +11202,7 @@ const ELEC_MODELE_CP={
   'Extérieur':[['appext',1]],
 };
 const ELEC_STATUTS=[{id:'prevu',l:'Prévu'},{id:'a_confirmer',l:'À confirmer'},{id:'client',l:'Demande client'},{id:'valide',l:'Validé'}];
-const ELEC_NATURES=[{id:'prevu',l:'Prestation prévue'},{id:'reglementaire',l:'Exigence réglementaire'},{id:'client',l:'Préférence client'},{id:'deduit',l:'Déduit du DQE (commande, bouche)'}];
+const ELEC_NATURES=[{id:'prevu',l:'Prestation prévue'},{id:'reglementaire',l:'Exigence réglementaire'},{id:'client',l:'Préférence client'},{id:'deduit',l:'Déduit du DQE (commande, bouche)'},{id:'option',l:'Proposition CP (hors DQE)'}];
 const elecUnite=type=>{const d=elecSymbole(type);return d&&d.g==='Prises'?'mecanisme':'poste'};
 const elecMecanismes=s=>Math.max(1,+(s&&s.mecanismes)||1);
 /* la pièce d'un équipement : celle qu'on lui a donnée, sinon celle dont le
@@ -11239,9 +11241,12 @@ function elecComparatif(plan,base){
     const p=elecPieceDe(s,pieces);
     const L=Object.values(lignes);
     /* une prestation du logement entier (volets, PAC, VMC…) prend ce qui
-       n'a pas de ligne dans sa pièce */
-    const cible=L.find(l=>l.piece===p&&l.type===s.type&&l.nature==='prevu')||L.find(l=>l.piece===p&&l.type===s.type)
-      ||L.find(l=>l.piece===''&&l.type===s.type&&l.nature==='prevu')||L.find(l=>l.piece===''&&l.type===s.type);
+       n'a pas de ligne dans sa pièce, et ce qui dépasse la ligne de la pièce
+       tant qu'elle-même n'est pas pleine */
+    const u=elecUnite(s.type)==='mecanisme'?elecMecanismes(s):1;
+    const spec=L.find(l=>l.piece===p&&l.type===s.type&&l.nature==='prevu')||L.find(l=>l.piece===p&&l.type===s.type);
+    const gen=p===''?null:L.find(l=>l.piece===''&&l.type===s.type&&l.nature==='prevu')||L.find(l=>l.piece===''&&l.type===s.type);
+    const cible=spec&&(spec.implante+u<=spec.prevu||!gen||gen.implante+u>gen.prevu)?spec:(gen||spec);
     const l=cible||(lignes[cle(p,s.type,'prevu')]={piece:p,type:s.type,nature:'prevu',unite:elecUnite(s.type),prevu:0,implante:0});
     l.implante+=l.unite==='mecanisme'?elecMecanismes(s):1;
   });
@@ -11269,7 +11274,8 @@ function elecPrixTTC(t,data){
 function elecSupplements(comp,tarifs,data){
   const parType={};
   comp.filter(l=>l.nature!=='reglementaire'&&l.nature!=='deduit').forEach(l=>{const t=parType[l.type]=parType[l.type]||{type:l.type,libelle:l.libelle,unite:l.unite,prevu:0,implante:0};
-    t.prevu+=l.prevu;t.implante+=l.implante});
+    /* une proposition CP retenue en option n'est pas au marché : elle compte en supplément */
+    if(l.nature!=='option')t.prevu+=l.prevu;t.implante+=l.implante});
   const lignes=Object.values(parType).map(t=>{
     const ecart=t.implante-t.prevu, tar=(tarifs||{})[t.type]||null, pu=elecPrixTTC(tar,data);
     let incidence=null,etat='';
@@ -11665,6 +11671,485 @@ function ElecValidationEnLigne({ch,d,up,plan,maj}){
   </div>;
 }
 
+/* ---------- le générateur automatique du plan électrique ----------
+   Le DQE dit QUOI et COMBIEN ; le plan (pièces, portes, fenêtres) dit OÙ.
+   En un clic, chaque prestation du programme devient un symbole posé :
+   - les prestations du logement entier sont d'abord attribuées à une pièce
+     logique (tableau au garage ou au cellier, PAC au cellier, thermostat
+     au séjour, volets aux fenêtres marquées, bouches VMC dans les pièces
+     humides, entrées d'air dans les pièces sèches…) ;
+   - puis, pièce par pièce : les éclairages au plafond, les commandes aux
+     portes côté poignée (le va-et-vient à l'autre accès ou à l'autre
+     extrémité), les équipements muraux répartis sur plusieurs murs, hors
+     portes et fenêtres, sans se chevaucher ; un linéaire en cuisine, une
+     tête de lit en chambre, un coin TV au séjour ;
+   - les liaisons commande → éclairage.
+   Tout reste une PROPOSITION : chaque position porte une confiance, les
+   moins sûres sont signalées (« position du lit inconnue », « salle d'eau à
+   contrôler »…) plutôt qu'inventées comme certaines. Un équipement posé ou
+   retouché à la main, ou verrouillé, n'est jamais déplacé ni retiré. */
+const ELEC_ROT={haut:180,bas:0,gauche:90,droite:270};
+const ELEC_ESPACE=0.022;
+const ELEC_SEUIL_CONFIANCE=0.7;
+/* ce qui se pose dehors par nature (sans être « hors pièce » pour autant) */
+const ELEC_EXTERIEURS=new Set(['appext','pcext','portail','interphone']);
+const ELEC_TYPES_SECS=['Séjour','Chambre','Bureau'];
+const ELEC_TYPES_HUMIDES=['Cuisine','Salle de bains','Salle d’eau','WC','Cellier / buanderie'];
+/* où va une prestation du logement entier : les types de pièce, dans l'ordre
+   de préférence ; « chacune » : une par pièce de ces types, à tour de rôle */
+const ELEC_ATTRIBUTION={
+  tab:{pieces:['Garage','Cellier / buanderie','Entrée','Dégagement'],note:'Emplacement du tableau proposé — à valider',confiance:0.55},
+  coffcom:{pieces:['@tab','Garage','Cellier / buanderie','Entrée'],note:'Coffret de communication près du tableau — à valider',confiance:0.55},
+  legen:{pieces:['@tab']},lesan:{pieces:['Salle de bains','Salle d’eau']},
+  pac:{pieces:['Cellier / buanderie','Garage'],note:'Alimentation PAC : position à vérifier selon l’unité',confiance:0.55},
+  th:{pieces:['Séjour','Entrée','Dégagement'],confiance:0.75},
+  vr:{fenetres:true,pieces:['Séjour','Chambre','Cuisine','Bureau','Salle de bains','Salle d’eau'],chacune:true,note:'Menuiserie non marquée : commande VR à placer près de la fenêtre',confiance:0.5},
+  tv:{pieces:['Séjour','Chambre','Bureau'],chacune:true,confiance:0.75},
+  rj45:{pieces:['Séjour','Bureau','Chambre'],chacune:true,confiance:0.75},
+  vmc:{pieces:['Cellier / buanderie','Garage','Dégagement'],note:'Groupe VMC : emplacement à confirmer (combles, cellier…)',confiance:0.5},
+  bouche:{pieces:ELEC_TYPES_HUMIDES,chacune:true,confiance:0.8},
+  entair:{pieces:ELEC_TYPES_SECS,chacune:true,note:'Entrée d’air : sur la menuiserie la plus proche',confiance:0.6},
+  fumee:{pieces:['Dégagement','Entrée','Séjour'],confiance:0.8},
+  pgarage:{pieces:['Garage'],confiance:0.6},portail:{pieces:['Entrée','Garage'],confiance:0.5},interphone:{pieces:['Entrée'],confiance:0.6},
+  son:{pieces:['Entrée'],confiance:0.6},irve:{pieces:['Garage'],confiance:0.5},
+  secheserv:{pieces:['Salle de bains','Salle d’eau'],confiance:0.6},hotte:{pieces:['Cuisine'],confiance:0.6},
+  ll:{pieces:['Cellier / buanderie','Garage','Salle de bains'],confiance:0.6},sl:{pieces:['Cellier / buanderie','Garage'],confiance:0.6},
+  lv:{pieces:['Cuisine'],confiance:0.6},pc20:{pieces:['Cuisine'],confiance:0.6},pc32:{pieces:['Cuisine'],confiance:0.6},
+  appext:{exterieur:true,confiance:0.6},pcext:{exterieur:true,pieces:['Séjour','Garage','Entrée'],confiance:0.55},
+};
+const elecRectIso=(p,H)=>{const r=elecRect(p);return {...r,w:r.x1-r.x0,h:(r.y1-r.y0)*H}};
+/* les places possibles le long des murs d'une pièce, hors portes et fenêtres */
+function elecCandidats(p,ratio){
+  const H=ratio||0.707,r=elecRectIso(p,H);
+  const pas=Math.max(0.006,Math.min(r.w,r.h)/14), bord=Math.min(0.012,Math.min(r.w,r.h)/6);
+  const ouv=[...(p.portes||[]).map(d=>({...d,porte:true,demi:ELEC_DEMI_PORTE*1.25})),...(p.fenetres||[]).map(f=>({...f,demi:(+f.demi||0.035)+0.006}))];
+  const out=[];
+  [['haut',r.w],['droite',r.h],['bas',r.w],['gauche',r.h]].forEach(([cote,L])=>{
+    for(let t=bord;t<=L-bord+1e-9;t+=pas){
+      const pt=cote==='haut'?{x:r.x0+t,y:r.y0}:cote==='bas'?{x:r.x1-t,y:r.y1}:cote==='droite'?{x:r.x1,y:r.y0+t/H}:{x:r.x0,y:r.y1-t/H};
+      /* une fenêtre ne gêne que son mur ; le débattement d'une porte gêne
+         aussi le mur voisin, près de l'angle */
+      if(ouv.some(o=>(o.porte||o.cote===cote)&&Math.hypot(pt.x-o.x,(pt.y-o.y)*H)<o.demi))continue;
+      out.push({...elecContreMur({cote,x:pt.x,y:pt.y,rot:ELEC_ROT[cote]},H),t,L});
+    }
+  });
+  return out;
+}
+const elecDist=(a,b,H)=>Math.hypot(a.x-b.x,(a.y-b.y)*H);
+/* le mur « principal » d'une pièce : le plus long mur libre qui ne porte pas
+   de porte (linéaire de cuisine, tête de lit, coin TV) */
+function elecMurPrincipal(p,cands,exclure){
+  const par={};cands.forEach(c=>{par[c.mur]=(par[c.mur]||0)+1});
+  const portes=new Set((p.portes||[]).map(d=>d.cote));
+  const ordre=Object.keys(par).filter(m=>!(exclure||[]).includes(m)).sort((a,b)=>(portes.has(a)-portes.has(b))||par[b]-par[a]);
+  return ordre[0]||null;
+}
+const ELEC_OPPOSE={haut:'bas',bas:'haut',gauche:'droite',droite:'gauche'};
+/* choisir une place : « pres » d'un point, ou « repartir » (la plus éloignée
+   de ce qui est déjà posé), sur un mur préféré si possible, jamais à moins
+   de l'espacement minimal d'un autre symbole */
+function elecChoisir(cands,occ,H,o){
+  /* dans une petite pièce chargée, on se serre un peu avant de superposer */
+  let libres=cands.filter(c=>!occ.some(q=>elecDist(q,c,H)<ELEC_ESPACE));
+  if(!libres.length)libres=cands.filter(c=>!occ.some(q=>elecDist(q,c,H)<ELEC_ESPACE*0.7));
+  const pool=libres.length?libres:cands;
+  let best=null,bs=-1e9;
+  pool.forEach(c=>{
+    const dmin=occ.length?Math.min(...occ.map(q=>elecDist(q,c,H))):1;
+    let s=o&&o.pres?-elecDist(c,o.pres,H)*10:Math.min(dmin,0.25);
+    if(o&&o.mur&&c.mur===o.mur)s+=o.pres?0.05:0.3;
+    if(s>bs){bs=s;best=c}
+  });
+  return best?{x:best.x,y:best.y,rot:best.rot,mur:best.mur,collision:!libres.length}:null;
+}
+/* une place à l'extérieur, contre la façade la plus proche d'une pièce de
+   référence (au droit de sa porte si elle est sur la façade) */
+function elecPlaceExterieure(ref,pieces,H,occ){
+  const R=(pieces||[]).map(p=>elecRect(p));
+  const r=elecRect(ref), e=0.014;
+  /* une façade : un mur de la pièce derrière lequel il n'y a aucune autre
+     pièce ; on la cherche point par point (une pièce peut n'avoir qu'un bout
+     de mur sur l'extérieur) */
+  const dedans=pt=>R.some(q=>pt.x>=q.x0-1e-6&&pt.x<=q.x1+1e-6&&pt.y>=q.y0-1e-6&&pt.y<=q.y1+1e-6);
+  const w=r.x1-r.x0, h=(r.y1-r.y0)*H, cands=[];
+  [['haut',w],['bas',w],['gauche',h],['droite',h]].forEach(([cote,L])=>{
+    const n=Math.max(4,Math.round(L/0.008));
+    for(let i=1;i<n;i++){const t=i/n;
+      const pt=cote==='haut'?{x:r.x0+t*w,y:r.y0-e/H}:cote==='bas'?{x:r.x0+t*w,y:r.y1+e/H}:cote==='gauche'?{x:r.x0-e,y:r.y0+t*(r.y1-r.y0)}:{x:r.x1+e,y:r.y0+t*(r.y1-r.y0)};
+      if(pt.x<0||pt.x>1||pt.y<0||pt.y>1||dedans(pt))continue;
+      cands.push({...pt,cote});
+    }});
+  const libre=c=>!(occ||[]).some(q=>elecDist(q,c,H)<ELEC_ESPACE);
+  if(cands.length){
+    /* au droit d'une porte donnant dehors (côté poignée), sinon au milieu de la façade */
+    const portes=(ref.portes||[]).filter(d=>cands.some(c=>c.cote===d.cote));
+    const cible=c=>{const d=portes.find(x=>x.cote===c.cote);
+      return d?{x:d.x+(c.cote==='haut'||c.cote==='bas'?ELEC_DEMI_PORTE+0.02:0),y:d.y+(c.cote==='gauche'||c.cote==='droite'?(ELEC_DEMI_PORTE+0.02)/H:0)}:{x:(r.x0+r.x1)/2,y:(r.y0+r.y1)/2}};
+    const pool=cands.filter(libre).length?cands.filter(libre):cands;
+    const score=c=>elecDist(c,cible(c),H)-(portes.some(d=>d.cote===c.cote)?1:0);
+    const best=pool.slice().sort((a,b)=>score(a)-score(b))[0];
+    return {x:best.x,y:best.y,rot:ELEC_ROT[ELEC_OPPOSE[best.cote]],mur:best.cote,exterieur:true};
+  }
+  /* aucune façade sur la pièce : contre le bord du bâtiment le plus proche */
+  const bb={x0:Math.min(...R.map(q=>q.x0)),x1:Math.max(...R.map(q=>q.x1)),y0:Math.min(...R.map(q=>q.y0)),y1:Math.max(...R.map(q=>q.y1))};
+  const cote=[['haut',Math.abs(r.y0-bb.y0)*H],['bas',Math.abs(bb.y1-r.y1)*H],['gauche',Math.abs(r.x0-bb.x0)],['droite',Math.abs(bb.x1-r.x1)]].sort((a,b)=>a[1]-b[1])[0][0];
+  const x=cote==='gauche'?bb.x0-e:cote==='droite'?bb.x1+e:(r.x0+r.x1)/2;
+  const y=cote==='haut'?bb.y0-e/H:cote==='bas'?bb.y1+e/H:(r.y0+r.y1)/2;
+  return {x:Math.min(1,Math.max(0,x)),y:Math.min(1,Math.max(0,y)),rot:ELEC_ROT[ELEC_OPPOSE[cote]],mur:cote,exterieur:true,loin:true};
+}
+/* une place au plafond (ou au sol) : près d'un point, à l'intérieur de la
+   pièce, sans chevaucher */
+function elecPlaceInterieure(r,occ,H,pref){
+  const mx=Math.min(0.012,(r.x1-r.x0)/4), my=Math.min(0.012/H,(r.y1-r.y0)/4);
+  const pts=[];
+  for(let i=0;i<=8;i++)for(let j=0;j<=8;j++)pts.push({x:r.x0+mx+(r.x1-r.x0-2*mx)*i/8,y:r.y0+my+(r.y1-r.y0-2*my)*j/8});
+  const libres=pts.filter(c=>!occ.some(q=>elecDist(q,c,H)<ELEC_ESPACE));
+  const pool=libres.length?libres:pts;
+  const best=pool.sort((a,b)=>elecDist(a,pref,H)-elecDist(b,pref,H))[0];
+  return {x:best.x,y:best.y,rot:0,collision:!libres.length};
+}
+
+/* 1. le besoin, pièce par pièce : le programme, les prestations du logement
+   attribuées, moins ce qui est déjà posé */
+function elecBesoins(plan,base){
+  const pieces=(plan&&plan.pieces)||[];
+  const B={};                                     /* B[pieceId|'@ext:'+pieceId][type] = [{ligne,qte}] */
+  const aj=(pid,type,l,q,extra)=>{B[pid]=B[pid]||{};(B[pid][type]=B[pid][type]||[]).push({ligne:l,qte:q,...extra})};
+  const nonAttribues=[];
+  const deTypes=ts=>pieces.filter(p=>ts.includes(p.type));
+  let tabPiece=null;
+  const lignes=((base&&base.lignes)||[]).filter(l=>['prevu','deduit','client','reglementaire','option'].includes(l.nature||'prevu')&&+l.qte>0);
+  /* le tableau d'abord : d'autres s'y rangent */
+  const ordre=[...lignes.filter(l=>l.type==='tab'),...lignes.filter(l=>l.type!=='tab')];
+  ordre.forEach(l=>{
+    const q=+l.qte;
+    if(l.piece&&pieces.some(p=>p.id===l.piece)){aj(l.piece,l.type,l,q);return}
+    const R=ELEC_ATTRIBUTION[l.type]||{};
+    /* une applique extérieure : dehors, près de la pièce que dit son libellé */
+    if(R.exterieur||l.type==='savoy'&&/exterieur|acces|service|garage/i.test(deaccent(l.libelleDQE||''))){
+      const t=deaccent(l.libelleDQE||'').toLowerCase();
+      const ref=deTypes([/garage/.test(t)?'Garage':/service|cellier/.test(t)?'Cellier / buanderie':'Entrée'])[0]||deTypes(R.pieces||['Entrée','Séjour'])[0]||pieces[0];
+      if(!ref){nonAttribues.push(l);return}
+      if(l.type==='savoy'){aj(ref.id,l.type,l,q,{pourExterieur:true});return}
+      aj('@ext:'+ref.id,l.type,l,q);return;
+    }
+    let cibles=[];
+    if(R.fenetres){
+      const F=pieces.flatMap(p=>(p.fenetres||[]).filter(f=>f.vr!==false).map(f=>({p,f})));
+      for(let i=0;i<q&&i<F.length;i++)aj(F[i].p.id,l.type,l,1,{fenetre:F[i].f.id});
+      if(q<=F.length)return;
+      cibles=deTypes(R.pieces);const reste=q-F.length;
+      if(!cibles.length){nonAttribues.push({...l,qte:reste});return}
+      for(let i=0;i<reste;i++)aj(cibles[i%cibles.length].id,l.type,l,1,{sansFenetre:true});
+      return;
+    }
+    const pr=(R.pieces||[]).map(t=>t==='@tab'?tabPiece:t);
+    cibles=pr.flatMap(t=>t&&typeof t==='object'?[t]:deTypes([t])).filter((x,i,a)=>x&&a.indexOf(x)===i);
+    if(!cibles.length){
+      /* aucune pièce du bon type : la première pièce, signalé */
+      if(!pieces.length){nonAttribues.push(l);return}
+      cibles=[pieces[0]];aj(cibles[0].id,l.type,l,q,{horsType:true});return;
+    }
+    if(R.chacune)for(let i=0;i<q;i++)aj(cibles[i%cibles.length].id,l.type,l,1);
+    else aj(cibles[0].id,l.type,l,q);
+    if(l.type==='tab')tabPiece=cibles[0];
+  });
+  return {besoins:B,nonAttribues};
+}
+
+/* 2. placer, pièce par pièce */
+function elecGenererPlan(plan,base,opts){
+  const o=opts||{}, H=(plan&&plan.ratio)||0.707, biblio=o.biblio||{};
+  const pieces=(plan&&plan.pieces)||[];
+  const mode=o.mode||'manquants';
+  const S0=(plan&&plan.symboles)||[];
+  /* ce qu'on retire avant de recalculer : seulement le généré, jamais le
+     verrouillé ni ce qui a été retouché ou posé à la main */
+  const retirable=s=>s.source==='genere'&&!s.verrou&&!s.userModified&&!s.retouche;
+  const retraits=mode==='tout'?S0.filter(retirable).map(s=>s.id)
+    :mode==='piece'?S0.filter(s=>retirable(s)&&(s.piece===o.pieceId||elecPieceDe(s,pieces)===o.pieceId)).map(s=>s.id):[];
+  const R=new Set(retraits);
+  const S=S0.filter(s=>!R.has(s.id));
+  const {besoins,nonAttribues}=elecBesoins(plan,base);
+  const ajouts=[],cables=[],avert=[];
+  const ech=elecEchelle(plan);
+  const haut=t=>elecHauteurDefaut(t,biblio);
+  const hPlanTravail=biblio.hauteurs&&biblio.hauteurs['@plan_travail']!==undefined&&biblio.hauteurs['@plan_travail']!==''?+biblio.hauteurs['@plan_travail']:110;
+  const poser=(p,need,type,pos,conf,note,extra)=>{
+    const l=need.ligne||{};
+    const c=Math.max(0,Math.min(1,(conf||0.8)*(ech.ok?1:0.9)));
+    const s={id:uid(),type,x:pos.x,y:pos.y,rot:pos.rot||0,mur:pos.mur||'',h:haut(type),piece:p?p.id:'',statut:'a_confirmer',source:'genere',
+      categorie:l.nature==='client'?'client':l.nature==='reglementaire'?'regle':l.article?'dqe':'cp',...(l.article?{article:l.article}:{}),
+      confiance:Math.round(c*100)/100,...(note?{note}:{}),...(pos.collision?{collision:true}:{}),...(extra||{})};
+    ajouts.push(s);
+    if(c<(o.seuil||ELEC_SEUIL_CONFIANCE)||pos.collision)avert.push({id:s.id,pieceNom:p?p.nom:'Extérieur',type,msg:(note||'Position proposée à vérifier')+(pos.collision?' (place libre introuvable : superposition possible)':''),confiance:s.confiance});
+    return s;
+  };
+  const unites=L=>L.reduce((t,s)=>t+(elecUnite(s.type)==='mecanisme'?elecMecanismes(s):1),0);
+  /* ce qui est déjà dehors : un équipement posé par le générateur sait pour
+     quelle pièce il l'a été (exterieurDe) ; ceux posés à la main hors de
+     toute pièce couvrent les besoins extérieurs dans l'ordre */
+  const extPose={};
+  Object.keys(besoins).filter(k=>k.indexOf('@ext:')===0).forEach(k=>{extPose[k]={};
+    Object.keys(besoins[k]).forEach(t=>{extPose[k][t]=unites(S.filter(s=>!s.aPlacer&&s.type===t&&s.exterieurDe===k.slice(5)))})});
+  const libresDehors={};
+  S.filter(s=>!s.aPlacer&&s.x!=null&&!s.exterieurDe&&!s.piece&&elecPieceDe(s,pieces)==='').forEach(s=>{libresDehors[s.type]=(libresDehors[s.type]||0)+(elecUnite(s.type)==='mecanisme'?elecMecanismes(s):1)});
+  Object.keys(extPose).forEach(k=>Object.keys(extPose[k]).forEach(t=>{
+    const besoin=(besoins[k][t]||[]).reduce((a,x)=>a+x.qte,0), pris=Math.min(libresDehors[t]||0,Math.max(0,besoin-extPose[k][t]));
+    extPose[k][t]+=pris;libresDehors[t]=(libresDehors[t]||0)-pris}));
+  /* déjà posé : ce qui existe, plus ce que cette génération vient de poser */
+  const dejaPose=(pid,type)=>pid.indexOf('@ext:')===0
+    ?((extPose[pid]||{})[type]||0)+unites(ajouts.filter(s=>s.type===type&&s.exterieurDe===pid.slice(5)))
+    :unites([...S,...ajouts].filter(s=>!s.aPlacer&&s.type===type&&(s.piece===pid||!s.piece&&!s.exterieurDe&&elecPieceDe(s,pieces)===pid)));
+  const manque=(pid,type)=>{const L=(besoins[pid]||{})[type]||[];const tot=L.reduce((t,x)=>t+x.qte,0);return Math.max(0,tot-dejaPose(pid,type))};
+  /* les besoins restants, dépliés un par un (en gardant la ligne d'origine) */
+  const deplier=(pid,type)=>{const L=(besoins[pid]||{})[type]||[];let m=manque(pid,type);const out=[];
+    for(const x of L){for(let i=0;i<x.qte&&m>0;i++,m--)out.push(x)}return out};
+  const piecesTraitees=mode==='piece'?pieces.filter(p=>p.id===o.pieceId):pieces;
+  const occTous=S.filter(s=>!s.aPlacer&&s.x!=null).map(s=>({x:s.x,y:s.y}));
+  piecesTraitees.forEach(p=>{
+    const types=Object.keys(besoins[p.id]||{});
+    if(!types.length)return;
+    const r=elecRect(p), cands=elecCandidats(p,H);
+    /* tout ce qui est posé, y compris de l'autre côté d'une cloison */
+    const occ=occTous;
+    const note0=p.type==='Salle de bains'||p.type==='Salle d’eau'?'⚠ Implantation salle d’eau à contrôler (volumes de sécurité)':'';
+    const posee=(s)=>{occ.push({x:s.x,y:s.y});return s};
+    /* a. éclairages de plafond : sur l'axe long, répartis, à l'intérieur de la pièce */
+    const lum=[];
+    ['pointc','spot'].forEach(t=>{const N=deplier(p.id,t);const d0=dejaPose(p.id,t),tot=N.length+d0;const horiz=(r.x1-r.x0)>=(r.y1-r.y0)*H;
+      N.forEach((need,i)=>{const k=d0+i;
+        const pref={x:horiz?r.x0+(r.x1-r.x0)*(k+1)/(tot+1):(r.x0+r.x1)/2,y:horiz?(r.y0+r.y1)/2:r.y0+(r.y1-r.y0)*(k+1)/(tot+1)};
+        lum.push(posee(poser(p,need,t,elecPlaceInterieure(r,occ,H,pref),0.9,note0)))})});
+    /* b. appliques intérieures : mur opposé à la porte (miroir, tête de lit…) */
+    const murPorte=(p.portes||[])[0]&&(p.portes||[])[0].cote;
+    deplier(p.id,'applique').forEach(need=>{const pos=elecChoisir(cands,occ,H,{mur:murPorte?ELEC_OPPOSE[murPorte]:null});
+      if(pos)lum.push(posee(poser(p,need,'applique',pos,0.6,note0||'Applique : position à vérifier (miroir, tête de lit…)')))});
+    /* c. commandes : à la porte, côté poignée ; la deuxième à l'autre accès
+       ou à l'autre extrémité ; une commande d'applique extérieure à la porte */
+    const portes=p.portes||[];
+    const cmds=[];
+    ['sa','savoy','vv','da','bp'].forEach(t=>{deplier(p.id,t).forEach((need,i)=>{
+      let pos=null,conf=0.85,note='';
+      const rangVv=cmds.filter(c=>c.type===t).length;
+      if(portes.length){
+        const d=portes[(t==='vv'?rangVv:cmds.length)%portes.length];
+        const essai=[elecPresPorte(d,0,H),elecPresPorte({...d,poignee:d.poignee==='droite'?'gauche':'droite'},0,H)];
+        pos=essai.find(q=>q.x>=r.x0-1e-6&&q.x<=r.x1+1e-6&&q.y>=r.y0-1e-6&&q.y<=r.y1+1e-6&&!occ.some(z=>elecDist(z,q,H)<ELEC_ESPACE*0.8));
+        if(pos===essai[1])note='Côté poignée occupé : commande de l’autre côté — à vérifier';
+        if(!d.poignee){conf=0.7;note=note||'Côté de la poignée à confirmer'}
+        /* un va-et-vient de plus que de portes : à l'autre extrémité de la pièce */
+        if(t==='vv'&&rangVv>=portes.length){const loin=cands.slice().sort((a,b)=>elecDist(b,d,H)-elecDist(a,d,H))[0];
+          pos=loin?elecChoisir(cands,occ,H,{pres:loin}):null;conf=p.type==='Chambre'?0.5:0.65;
+          note=p.type==='Chambre'?'Commande complémentaire : position du lit inconnue — à vérifier':'Deuxième commande à l’autre extrémité — à vérifier'}
+        if(!pos){pos=elecChoisir(cands,occ,H,{pres:d});conf=0.5;note='⚠ Position commande à vérifier'}
+      }else{pos=elecChoisir(cands,occ,H,{});conf=0.45;note='Porte non marquée : position de la commande à vérifier'}
+      if(pos){const s=posee(poser(p,need,t,pos,conf,note));s.h=haut(t);cmds.push(s);if(need.pourExterieur)s.pourExterieur=true}
+    })});
+    /* d. équipements muraux : par famille */
+    const murPrincipal=elecMurPrincipal(p,cands,[]);
+    const murEnFace=murPorte?ELEC_OPPOSE[murPorte]:murPrincipal;
+    const ceintures=(liste,o2)=>liste.forEach(([t,conf,note,h])=>deplier(p.id,t).forEach(need=>{
+      const pos=elecChoisir(cands,occ,H,o2||{});if(pos){const s=posee(poser(p,need,t,pos,conf,note));if(h!==undefined)s.h=h}}));
+    /* volets roulants : près de leur fenêtre, avant les prises */
+    deplier(p.id,'vr').forEach(need=>{
+      const f=need.fenetre&&(p.fenetres||[]).find(x=>x.id===need.fenetre);
+      const pos=f?elecChoisir(cands,occ,H,{pres:{x:f.x,y:f.y}}):elecChoisir(cands,occ,H,{mur:murEnFace});
+      if(pos)posee(poser(p,need,'vr',pos,f?0.85:0.5,f?'':'Menuiserie non marquée : commande VR à placer près de la fenêtre'))});
+    if(p.type==='Cuisine'){
+      /* le linéaire : plaque, four, lave-vaisselle, hotte, puis les prises du plan de travail */
+      /* les équipements se suivent le long du mur, du côté de la porte vers
+         le fond ; quand le mur est plein, ils tournent l'angle du fond */
+      const note='Selon le plan du cuisiniste — position à vérifier';
+      const lin=cands.filter(c=>c.mur===murPrincipal);
+      const portesCui=p.portes||[];
+      let dernier=lin.slice().sort((a,b)=>Math.min(...portesCui.map(d=>elecDist(a,d,H)),9)-Math.min(...portesCui.map(d=>elecDist(b,d,H)),9))[0]||null;
+      const surLineaire=(need,t,conf,note2,h)=>{
+        let pos=elecChoisir(lin.length?lin:cands,occ,H,dernier?{pres:dernier}:{});
+        if(!pos||pos.collision)pos=elecChoisir(cands,occ,H,dernier?{pres:dernier}:{});
+        if(!pos)return;
+        const s=posee(poser(p,need,t,pos,conf,note2));if(h!==undefined)s.h=h;dernier=pos;
+      };
+      ['pc32','hotte','pc20','lv'].forEach(t=>deplier(p.id,t).forEach(need=>surLineaire(need,t,0.55,note)));
+      deplier(p.id,'pc').forEach((need,i)=>{
+        if(i<4)surLineaire(need,'pc',0.6,'Prise plan de travail — '+note,hPlanTravail);
+        else{const pos=elecChoisir(cands,occ,H,{});if(pos)posee(poser(p,need,'pc',pos,0.8,''))}});
+    }else if(p.type==='Chambre'){
+      /* tête de lit : un mur plein (ni porte, ni fenêtre), le plus long ;
+         à défaut, le mur en face de la porte ; deux prises de chevet */
+      const pleins=['haut','bas','gauche','droite'].filter(c=>!(p.portes||[]).some(d=>d.cote===c)&&!(p.fenetres||[]).some(f=>f.cote===c));
+      const longueur=c=>c==='haut'||c==='bas'?r.x1-r.x0:(r.y1-r.y0)*H;
+      const murLit=pleins.sort((a,b)=>longueur(b)-longueur(a)||(b===murEnFace)-(a===murEnFace))[0]||murEnFace;
+      const pcs=deplier(p.id,'pc'), m=cands.filter(c=>c.mur===murLit);
+      const mil=m[Math.floor(m.length/2)];
+      pcs.forEach((need,i)=>{let pos;
+        if(i<2&&mil){const cible=m.slice().sort((a,b)=>Math.abs(a.t-(mil.t+(i?1:-1)*0.07))-Math.abs(b.t-(mil.t+(i?1:-1)*0.07)))[0];pos=elecChoisir(cands,occ,H,{pres:cible,mur:murLit})}
+        else pos=elecChoisir(cands,occ,H,{});
+        if(pos)posee(poser(p,need,'pc',pos,i<2?0.6:0.8,i<2?'Prise de chevet : position du lit inconnue — à vérifier':''))});
+    }else if(p.type==='Séjour'){
+      /* coin TV : TV, RJ45 et une prise ensemble, sur le mur principal */
+      const m=cands.filter(c=>c.mur===murPrincipal);const coin=m[Math.floor(m.length/2)];
+      ['tv','rj45'].forEach(t=>deplier(p.id,t).forEach((need,i)=>{const pos=elecChoisir(cands,occ,H,coin&&i===0?{pres:coin}:{});if(pos)posee(poser(p,need,t,pos,0.75,''))}));
+    }else if(p.type==='Cellier / buanderie'||p.type==='Garage'){
+      ceintures([['ll',0.6,'Près de l’emplacement du lave-linge — à vérifier'],['sl',0.6,'Près de l’emplacement du sèche-linge — à vérifier'],
+        ['lv',0.6,''],['pc20',0.6,''],['pc32',0.6,'']],{mur:murPrincipal});
+    }
+    /* le reste des équipements muraux : répartis sur les murs */
+    const deja=new Set(['pointc','spot','applique','sa','savoy','vv','da','bp','vr']);
+    Object.keys(besoins[p.id]||{}).filter(t=>!deja.has(t)).forEach(t=>deplier(p.id,t).forEach(need=>{
+      const R2=ELEC_ATTRIBUTION[t]||{};
+      if(!ELEC_MURAUX.has(t)){
+        /* au plafond ou au sol (détecteur, VMC, bouche) : près du centre, sans chevaucher */
+        const pos=elecPlaceInterieure(r,occ,H,{x:(r.x0+r.x1)/2,y:r.y0+(r.y1-r.y0)*0.72});
+        posee(poser(p,need,t,pos,R2.confiance||0.75,R2.note||note0||''));return;
+      }
+      const pos=elecChoisir(cands,occ,H,{});
+      if(pos)posee(poser(p,need,t,pos,Math.min(need.horsType?0.4:1,R2.confiance||0.85),need.horsType?'DQE : équipement sans pièce du bon type — à vérifier':(R2.note||note0||'')));
+    }));
+    /* e. les liaisons : chaque commande nouvelle pilote un éclairage de sa pièce
+       (deux va-et-vient par point) ; une commande d'applique extérieure,
+       l'applique posée dehors */
+    const tousLum=[...S.filter(s=>!s.aPlacer&&s.x!=null&&ELEC_ECLAIRAGES.has(s.type)&&elecPieceDe(s,pieces)===p.id),...lum];
+    const interieures=cmds.filter(c=>!c.pourExterieur);
+    if(tousLum.length)interieures.forEach((c,i)=>cables.push({id:uid(),de:c.id,vers:tousLum[Math.floor(i*tousLum.length/Math.max(1,interieures.length))].id,courbure:0.18,auto:true,categorie:'eclairage'}));
+  });
+  /* f. à l'extérieur, contre la façade */
+  Object.keys(besoins).filter(k=>k.indexOf('@ext:')===0).forEach(k=>{
+    const ref=pieces.find(p=>p.id===k.slice(5));if(!ref)return;
+    if(mode==='piece'&&ref.id!==o.pieceId)return;
+    Object.keys(besoins[k]).forEach(t=>deplier(k,t).forEach(need=>{
+      const pos=elecPlaceExterieure(ref,pieces,H,occTous);
+      const s=poser(null,need,t,pos,pos.loin?0.4:0.6,(t==='appext'?'Applique extérieure':'Équipement extérieur')+' ('+ref.nom+') : position à vérifier',{exterieurDe:ref.id});
+      occTous.push({x:s.x,y:s.y});
+      const cmd=ajouts.find(c=>c.pourExterieur&&!cables.some(x=>x.de===c.id)&&c.piece===ref.id);
+      if(cmd&&ELEC_ECLAIRAGES.has(t))cables.push({id:uid(),de:cmd.id,vers:s.id,courbure:0.18,auto:true,categorie:'eclairage'});
+    }));
+  });
+  /* g. ce qui n'a trouvé aucune pièce : « à placer », dit comme tel */
+  nonAttribues.forEach(l=>{for(let i=0;i<(+l.qte||0);i++){ajouts.push({id:uid(),type:l.type,h:haut(l.type),piece:'',statut:'a_confirmer',source:'genere',
+    categorie:l.article?'dqe':'cp',...(l.article?{article:l.article}:{}),x:null,y:null,aPlacer:true});
+    avert.push({pieceNom:'—',type:l.type,msg:'Aucune pièce ne convient : équipement à placer à la main',confiance:0})}});
+  ajouts.forEach(s=>{delete s.pourExterieur});
+  return {ajouts,retraits,cables,avertissements:avert,echelle:ech};
+}
+/* le résumé d'une génération : les étapes, les familles, les points à vérifier */
+const ELEC_FAMILLES=[['Prises',t=>['pc','pch','pcext','hotte'].includes(t)],['Circuits spécialisés',t=>['ll','lv','sl','ss','pc20','pc32'].includes(t)],
+  ['Éclairages',t=>ELEC_ECLAIRAGES.has(t)],['Commandes',t=>ELEC_COMMANDES.has(t)],['Réseau / RJ45 / TV',t=>['rj45','tv','coffcom','antenne'].includes(t)],
+  ['Volets roulants',t=>t==='vr'],['Chauffage / technique',t=>['th','pac','secheserv','tab','ch','sech','split','splitue','legen','lesan'].includes(t)],
+  ['VMC',t=>['vmc','bouche','entair'].includes(t)],['Autres',()=>true]];
+function elecResumeGeneration(plan,base,g){
+  const pieces=(plan&&plan.pieces)||[];
+  const fam={};g.ajouts.forEach(s=>{const f=ELEC_FAMILLES.find(([,test])=>test(s.type))[0];fam[f]=(fam[f]||0)+1});
+  const apres={...plan,symboles:[...((plan&&plan.symboles)||[]).filter(s=>!g.retraits.includes(s.id)),...g.ajouts]};
+  const ctl=elecControle(apres,base);
+  const nPortes=pieces.reduce((t,p)=>t+(p.portes||[]).length,0), nFen=pieces.reduce((t,p)=>t+(p.fenetres||[]).length,0);
+  return {familles:ELEC_FAMILLES.map(([f])=>[f,fam[f]||0]).filter(([,n])=>n),poses:g.ajouts.filter(s=>!s.aPlacer).length,aPlacer:g.ajouts.filter(s=>s.aPlacer).length,
+    liaisons:g.cables.length,rapport:ctl.rapport,avertissements:g.avertissements,
+    etapes:[['Analyse du plan',g.echelle.ok?'échelle vérifiée':'échelle non vérifiée : distances approximatives'],[pieces.length+' pièce'+(pieces.length>1?'s':''),'analysée'+(pieces.length>1?'s':'')],
+      [nPortes+' porte'+(nPortes>1?'s':'')+(nFen?', '+nFen+' fenêtre'+(nFen>1?'s':''):''),nPortes?'prises en compte':'aucune porte marquée : commandes à vérifier'],
+      ['Programme électrique',ctl.rapport.dqe+' équipement'+(ctl.rapport.dqe>1?'s':'')+' prévus'],
+      ...ELEC_FAMILLES.map(([f])=>[f,fam[f]||0]).filter(([,n])=>n).map(([f,n])=>[f,n+' posé'+(n>1?'s':'')]),
+      ['Liaisons',g.cables.length+' commande'+(g.cables.length>1?'s':'')+' → éclairage'],
+      ['Contrôle',ctl.rapport.conformes+' / '+ctl.rapport.dqe+' conformes']]};
+}
+
+/* ce que la proposition CP (le modèle de la bibliothèque) prévoit de plus que
+   le DQE, pièce par pièce : affiché, jamais ajouté sans votre choix */
+function elecPropositionsCP(plan,base,modele){
+  const pieces=(plan&&plan.pieces)||[], lignes=(modele&&modele.lignes)||ELEC_MODELE_CP;
+  const out=[];
+  pieces.forEach(p=>{(lignes[p.type]||[]).forEach(([type,q])=>{
+    const dqe=((base&&base.lignes)||[]).filter(l=>l.piece===p.id&&l.type===type&&['prevu','option'].includes(l.nature||'prevu')).reduce((t,l)=>t+(+l.qte||0),0);
+    if(+q>dqe)out.push({piece:p.id,pieceNom:p.nom,type,libelle:(elecSymbole(type)||{}).l||type,dqe,cp:+q,ecart:+q-dqe});
+  })});
+  return out;
+}
+
+/* appliquer une génération : une seule écriture, donc un seul « Annuler » */
+function elecAppliquerGeneration(plan,g){
+  const R=new Set(g.retraits||[]);
+  return {...plan,symboles:[...((plan&&plan.symboles)||[]).filter(s=>!R.has(s.id)),...(g.ajouts||[])],
+    cables:[...((plan&&plan.cables)||[]).filter(c=>!R.has(c.de)&&!R.has(c.vers)),...(g.cables||[])]};
+}
+/* valider la proposition : les positions générées (toutes, ou celles d'une
+   génération) passent de « à confirmer » à « validé » ; rien d'autre ne change */
+function elecValiderProposition(plan,ids){
+  const I=ids?new Set(ids):null;
+  return {...plan,symboles:((plan&&plan.symboles)||[]).map(s=>s.statut==='a_confirmer'&&s.source==='genere'&&!s.aPlacer&&(!I||I.has(s.id))?{...s,statut:'valide'}:s)};
+}
+/* les versions du plan (V1, V2…) : ce qui est dessiné, pour pouvoir y
+   revenir. Les 10 dernières sont gardées (le dossier reste léger). */
+const ELEC_VERSIONS_MAX=10;
+function elecVersionAjouter(versions,plan,libelle,par){
+  const V=versions||[];const n=V.reduce((m,v)=>Math.max(m,+v.n||0),0)+1;
+  return [...V,{n,le:new Date().toISOString(),par:par||'',libelle:libelle||'',indice:(plan&&plan.indice)||'',
+    symboles:(plan&&plan.symboles)||[],cables:(plan&&plan.cables)||[]}].slice(-ELEC_VERSIONS_MAX);
+}
+/* le contrôle d'ensemble du plan (validateElectricalPlan) : quantités,
+   pièces, familles, et les points à vérifier — hors pièce, superpositions,
+   commandes ou éclairages sans liaison, pièce sans éclairage ou sans
+   commande, hauteur à définir, positions de faible confiance */
+function elecValiderPlan(plan,base,opts){
+  const o=opts||{}, pieces=(plan&&plan.pieces)||[], H=(plan&&plan.ratio)||0.707, seuil=o.seuil||ELEC_SEUIL_CONFIANCE;
+  const S=((plan&&plan.symboles)||[]).filter(s=>!s.aPlacer&&s.x!=null&&s.y!=null);
+  const C=cablesValides(plan&&plan.cables,S);
+  const ctl=elecControle(plan,base), R=ctl.rapport;
+  const lie=new Set();C.forEach(c=>{lie.add(c.de);lie.add(c.vers)});
+  const nom=s=>(elecSymbole(s.type)||{}).l||s.type;
+  const pieceDe=s=>elecPieceDe(s,pieces);
+  const nomPiece=id=>(pieces.find(p=>p.id===id)||{}).nom||'Extérieur';
+  const points=[];
+  S.filter(s=>!s.exterieurDe&&!ELEC_EXTERIEURS.has(s.type)&&pieces.length&&pieceDe(s)==='').forEach(s=>points.push({id:s.id,msg:nom(s)+' hors de toute pièce'}));
+  for(let i=0;i<S.length;i++)for(let j=i+1;j<S.length;j++)if(elecDist(S[i],S[j],H)<ELEC_ESPACE*0.5)
+    points.push({id:S[j].id,msg:nom(S[i])+' et '+nom(S[j])+' superposés ('+nomPiece(pieceDe(S[i]))+')'});
+  S.filter(s=>ELEC_COMMANDES.has(s.type)&&!lie.has(s.id)).forEach(s=>points.push({id:s.id,msg:nom(s)+' sans liaison ('+nomPiece(pieceDe(s))+')'}));
+  S.filter(s=>ELEC_ECLAIRAGES.has(s.type)&&!lie.has(s.id)).forEach(s=>points.push({id:s.id,msg:nom(s)+' sans commande ('+nomPiece(pieceDe(s))+')'}));
+  pieces.forEach(p=>{const L=S.filter(s=>pieceDe(s)===p.id);if(!L.length)return;
+    const lum=L.some(s=>ELEC_ECLAIRAGES.has(s.type)), cmd=L.some(s=>ELEC_COMMANDES.has(s.type));
+    if(!lum)points.push({piece:p.id,msg:p.nom+' : aucun point lumineux'});
+    else if(!cmd)points.push({piece:p.id,msg:p.nom+' : éclairage sans commande dans la pièce'})});
+  S.filter(s=>ELEC_MURAUX.has(s.type)&&(s.h===null||s.h===undefined||s.h==='')).forEach(s=>points.push({id:s.id,msg:nom(s)+' : hauteur à définir'}));
+  const faibles=S.filter(s=>s.statut==='a_confirmer'&&typeof s.confiance==='number'&&s.confiance<seuil);
+  faibles.forEach(s=>points.push({id:s.id,faible:true,msg:nom(s)+' ('+nomPiece(pieceDe(s))+') : '+(s.note||'position proposée à vérifier')}));
+  if(R.manquants)points.unshift({msg:R.manquants+' équipement'+(R.manquants>1?'s':'')+' du DQE absent'+(R.manquants>1?'s':'')+' du plan'});
+  const n=f=>S.filter(s=>f(s.type)).length;
+  const piecesTraitees=pieces.filter(p=>S.some(s=>pieceDe(s)===p.id)).length;
+  const faits=[[S.length+' équipement'+(S.length>1?'s':''),S.length>0],[piecesTraitees+' / '+pieces.length+' pièces traitées',!!pieces.length&&piecesTraitees===pieces.length],
+    ['éclairages implantés',n(t=>ELEC_ECLAIRAGES.has(t))>0],['prises implantées',n(t=>['pc','pch','pc20','pc32','ll','lv','sl'].includes(t))>0],
+    ['commandes implantées',n(t=>ELEC_COMMANDES.has(t))>0],['RJ45 implantés',n(t=>t==='rj45')>0||!((base&&base.lignes)||[]).some(l=>l.type==='rj45')],
+    ['équipements techniques implantés',n(t=>['tab','coffcom','pac','vmc','th'].includes(t))>0]];
+  return {faits,points,rapport:R,faibles:faibles.length};
+}
+/* la comparaison DQE / PLAN par type d'équipement, toutes pièces confondues */
+function elecParType(plan,base){
+  const ctl=elecControle(plan,base), T={};
+  ctl.lignes.forEach(l=>{const t=T[l.type]=T[l.type]||{type:l.type,libelle:(elecSymbole(l.type)||{}).l||l.libelle,prevu:0,implante:0,option:0};
+    if(l.nature==='option')t.option+=l.prevu;else t.prevu+=l.prevu;t.implante+=l.implante});
+  return Object.values(T).map(t=>{const e=t.implante-t.prevu-t.option;
+    return {...t,ecart:e,niveau:e<0?'erreur':e>0?'option':t.option?'option':'ok',
+      msg:e<0?(-e)+' manquant'+(-e>1?'s':''):e>0?'+'+e+' hors DQE':t.option?'dont '+t.option+' en option':''}})
+    .sort((a,b)=>({erreur:0,option:1,ok:2}[a.niveau]-{erreur:0,option:1,ok:2}[b.niveau])||a.libelle.localeCompare(b.libelle,'fr'));
+}
+/* le surplus d'un type : les équipements à retirer en premier (générés,
+   puis les plus récents), jamais un équipement verrouillé */
+function elecSurplusARetirer(plan,type,n,pieceId){
+  const pieces=(plan&&plan.pieces)||[];
+  const L=((plan&&plan.symboles)||[]).filter(s=>s.type===type&&!s.verrou&&!s.aPlacer&&(!pieceId||elecPieceDe(s,pieces)===pieceId));
+  return L.map((s,i)=>({s,i})).sort((a,b)=>((b.s.source==='genere')-(a.s.source==='genere'))||b.i-a.i).slice(0,Math.max(0,n)).map(x=>x.s.id);
+}
+/* les calques de liaisons : chacun s'affiche ou se masque, sa couleur et son
+   trait se règlent pour le dossier (rien n'est figé : la signification des
+   couleurs est la vôtre) */
+const ELEC_LIAISONS=[{id:'eclairage',l:'Commandes éclairage',c:ELEC_BLEU,pointille:false},{id:'reseau',l:'Réseaux',c:ELEC_VERT,pointille:true},
+  {id:'chauffage',l:'Chauffage',c:ELEC_ROUGE,pointille:true},{id:'volets',l:'Volets roulants',c:AMBER,pointille:true},{id:'autre',l:'Autres liaisons',c:ELEC_BLEU,pointille:false}];
+const elecCalque=(plan,cat)=>{const d=ELEC_LIAISONS.find(x=>x.id===cat)||ELEC_LIAISONS[ELEC_LIAISONS.length-1];
+  const r=((plan&&plan.liaisons)||{})[d.id]||{};
+  return {...d,visible:r.visible!==false,c:r.couleur||d.c,pointille:r.pointille===undefined?d.pointille:!!r.pointille}};
+const elecCategorieCable=c=>(c&&ELEC_LIAISONS.some(x=>x.id===c.categorie))?c.categorie:'autre';
+/* la couleur et le trait d'une liaison : ceux qu'on lui a donnés, sinon ceux de son calque */
+const elecStyleCable=(plan,c)=>{const k=elecCalque(plan,elecCategorieCable(c));
+  return {couleur:(c&&c.couleur)||k.c,pointille:c&&c.pointille!==undefined?!!c.pointille:k.pointille,visible:k.visible}};
+
 /* l'indice du plan : une lettre de plus dès que le dessin a changé depuis
    la dernière sortie ; une confirmation client ne vaut que pour son indice */
 const elecEmpreinte=plan=>ptrEmpreinte(JSON.stringify([(plan.symboles||[]).map(s=>[s.id,s.type,s.x,s.y,s.h,s.rot||0,s.mecanismes||1]),
@@ -11889,8 +12374,13 @@ function elecControle(plan,base){
   const lignes=comp.filter(l=>l.nature!=='reglementaire').map(l=>{
     let niveau='ok',msg='';
     const ded=l.nature==='deduit';
-    if(l.implante<l.prevu){niveau=ded?'controle':'erreur';msg=(l.prevu-l.implante)+' manquant'+(l.prevu-l.implante>1?'s':'')+(ded?' (déduit du DQE, à contrôler)':' — prévu au DQE, absent du plan')}
-    else if(l.implante>l.prevu){niveau='controle';msg=l.prevu?(l.implante-l.prevu)+' en plus — potentiellement hors marché':'hors DQE — potentiellement hors marché'}
+    const opt=l.nature==='option';
+    /* une ligne ramenée à zéro, sans rien au plan : non applicable (gris) */
+    if(!(+l.prevu)&&!l.implante){niveau='na';msg='Non applicable'}
+    else if(l.implante<l.prevu){niveau=ded||opt?'controle':'erreur';msg=(l.prevu-l.implante)+' manquant'+(l.prevu-l.implante>1?'s':'')+(opt?' (proposition CP, hors DQE)':ded?' (déduit du DQE, à contrôler)':' — prévu au DQE, absent du plan')}
+    else if(opt){niveau='option';msg='Proposition CP retenue en option — hors DQE'}
+    /* en plus du DQE : un supplément ou une option (bleu), jamais silencieux */
+    else if(l.implante>l.prevu){niveau='option';msg=l.prevu?(l.implante-l.prevu)+' en plus — potentiellement hors marché':'hors DQE — potentiellement hors marché'}
     return {...l,niveau,msg};
   });
   const reglementaires=comp.filter(l=>l.nature==='reglementaire').map(l=>({...l,niveau:l.implante<l.prevu?'reglementaire':'ok',
@@ -11910,15 +12400,15 @@ function elecControle(plan,base){
      DQE (HT) : une information, jamais une facturation */
   const plusValues=lignes.filter(l=>l.implante>l.prevu&&l.nature==='prevu'&&typeof l.pu==='number').map(l=>({
     pieceNom:l.pieceNom,libelle:l.libelle,article:l.article,quantite:l.implante-l.prevu,pu:l.pu,montantHT:Math.round((l.implante-l.prevu)*l.pu*100)/100}));
-  const anomalies=[...lignes.filter(l=>l.niveau!=='ok'),...reglementaires.filter(l=>l.niveau!=='ok')]
-    .sort((a,b)=>({erreur:0,controle:1,reglementaire:2}[a.niveau]-{erreur:0,controle:1,reglementaire:2}[b.niveau])||a.pieceNom.localeCompare(b.pieceNom,'fr'));
+  const anomalies=[...lignes.filter(l=>l.niveau!=='ok'&&l.niveau!=='na'),...reglementaires.filter(l=>l.niveau!=='ok')]
+    .sort((a,b)=>({erreur:0,controle:1,option:2,reglementaire:3}[a.niveau]-{erreur:0,controle:1,option:2,reglementaire:3}[b.niveau])||a.pieceNom.localeCompare(b.pieceNom,'fr'));
   return {lignes,reglementaires,rapport,anomalies,plusValues,
     plusValueHT:Math.round(plusValues.reduce((s,p)=>s+p.montantHT,0)*100)/100};
 }
 /* la désignation d'une ligne de contrôle : celle du DQE ; une commande ou
    une bouche déduite dit de quelle ligne elle vient */
 const elecDesignation=l=>l.nature==='deduit'?l.libelle+' — déduit de « '+(l.libelleDQE||'?')+' »':(l.libelleDQE||l.libelle);
-const ELEC_NIVEAUX={ok:{ic:'✅',c:GREEN,l:'Conforme'},controle:{ic:'🟠',c:AMBER,l:'À contrôler'},erreur:{ic:'🔴',c:TERRA,l:'Erreur'},reglementaire:{ic:'⚠️',c:AMBER,l:'Contrôle réglementaire'}};
+const ELEC_NIVEAUX={ok:{ic:'✅',c:GREEN,l:'Conforme'},controle:{ic:'🟠',c:AMBER,l:'À contrôler'},erreur:{ic:'🔴',c:TERRA,l:'Erreur'},option:{ic:'🔵',c:ELEC_BLEU,l:'Supplément / option'},reglementaire:{ic:'⚠️',c:AMBER,l:'Contrôle réglementaire'},na:{ic:'⚪',c:MUTED,l:'Non applicable'}};
 
 /* ---------- les sorties du contrôle ----------
    Le tableau pour l'électricien (Excel) et le rapport de contrôle (PDF) :
@@ -12115,18 +12605,26 @@ function ElecDQE({ch,data,plan,base,majBase}){
 /* le quantitatif en temps réel, à côté du plan : placé / prévu au DQE */
 function ElecQuantitatif({plan,base,onControler}){
   const ctl=elecControle(plan,base);
+  /* orange : posé, mais par une proposition automatique peu sûre, à contrôler */
+  const pieces=(plan&&plan.pieces)||[];
+  const faibles=((plan&&plan.symboles)||[]).filter(s=>!s.aPlacer&&s.x!=null&&s.statut==='a_confirmer'&&typeof s.confiance==='number'&&s.confiance<ELEC_SEUIL_CONFIANCE);
+  const cles=new Set(ctl.lignes.map(l=>l.piece+'|'+l.type));
+  const aVerif=l=>faibles.filter(s=>s.type===l.type&&(l.piece?elecPieceDe(s,pieces)===l.piece:!cles.has(elecPieceDe(s,pieces)+'|'+s.type))).length;
+  const niv=l=>l.niveau==='ok'&&aVerif(l)>0?'controle':l.niveau;
+  const nVerif=ctl.lignes.filter(l=>niv(l)==='controle').reduce((t,l)=>t+(l.niveau==='ok'?aVerif(l):Math.max(0,l.prevu-l.implante)),0);
   const parPiece={};ctl.lignes.forEach(l=>{(parPiece[l.pieceNom]=parPiece[l.pieceNom]||[]).push(l)});
   const R=ctl.rapport;
   return <div className="elec-quantitatif" style={{border:'1px solid '+RULE,borderRadius:8,background:'#fff',padding:8,maxHeight:'62vh',overflowY:'auto'}}>
     <div className="sp"><span className="xs b" style={{color:NAVY,letterSpacing:'.04em'}}>QUANTITATIF</span>
       <button type="button" className="btn acc s" style={{fontSize:11,padding:'4px 9px'}} onClick={onControler}>Contrôler le plan</button></div>
-    <div className="xs mut" style={{margin:'4px 0 6px'}}>Placé / prévu au DQE · {R.conformes}/{R.dqe} conformes{R.manquants?' · '+R.manquants+' manquant'+(R.manquants>1?'s':''):''}{R.horsDqe?' · '+R.horsDqe+' hors DQE':''}</div>
-    {!((base&&base.lignes)||[]).length&&<div className="xs mut">Aucune base : lisez le DQE (Générer la base).</div>}
+    <div className="xs" style={{margin:'4px 0 6px'}}><b style={{color:R.dqe&&R.conformes===R.dqe?GREEN:R.manquants?TERRA:NAVY}}>{R.conformes} / {R.dqe} conformes</b>
+      <span className="mut">{R.manquants?' · '+R.manquants+' manquant'+(R.manquants>1?'s':''):''}{nVerif?' · '+nVerif+' à vérifier':''}{R.horsDqe?' · '+R.horsDqe+' hors DQE':''}</span></div>
+    {!((base&&base.lignes)||[]).length&&<div className="xs mut">Aucune base : « ✨ Générer automatiquement » lit le DQE du marché, ou importez-le (Programme électrique).</div>}
     {Object.entries(parPiece).map(([p,L])=><div key={p} style={{marginBottom:6}}>
       <div className="xs b" style={{color:INK,borderBottom:'1px solid '+RULE,padding:'3px 0'}}>{p}</div>
-      {L.map((l,i)=><div key={i} className="sp xs" title={l.msg||''} style={{padding:'2px 0',color:ELEC_NIVEAUX[l.niveau].c}}>
-        <span style={{color:INK}}>{l.libelle}{l.nature==='deduit'?' (déduit)':''}</span>
-        <span style={{whiteSpace:'nowrap',fontWeight:700}}>{l.implante} / {l.prevu} {ELEC_NIVEAUX[l.niveau].ic}</span></div>)}
+      {L.map((l,i)=><div key={i} className="sp xs" title={(l.msg||'')+(l.niveau==='ok'&&aVerif(l)?aVerif(l)+' position(s) proposée(s) à vérifier':'')} style={{padding:'2px 0',color:ELEC_NIVEAUX[niv(l)].c}}>
+        <span style={{color:INK}}>{l.libelle}{l.nature==='deduit'?' (déduit)':l.nature==='option'?' (option)':''}</span>
+        <span style={{whiteSpace:'nowrap',fontWeight:700}}>{l.implante} / {l.prevu} {ELEC_NIVEAUX[niv(l)].ic}</span></div>)}
     </div>)}
   </div>;
 }
@@ -12134,6 +12632,7 @@ function ElecQuantitatif({plan,base,onControler}){
 /* le contrôle complet : rapport, lignes, anomalies, plus-value potentielle, sorties */
 function ElecControle({ch,plan,base,regles}){
   const ctl=elecControle(plan,base);
+  const parType=elecParType(plan,base), verif=elecValiderPlan(plan,base);
   const reg=elecControleReglementaire(plan,regles);
   const R=ctl.rapport;
   const [etat,setEtat]=useState('');
@@ -12160,6 +12659,20 @@ function ElecControle({ch,plan,base,regles}){
         <span style={{color:INK}}>{a.msg}</span></div>)}
     </div>}
     {!ctl.anomalies.length&&ctl.lignes.length>0&&<div className="xs" style={{color:GREEN,marginTop:8}}>✅ Le plan et le DQE correspondent.</div>}
+    {parType.length>0&&<div className="elec-partype" style={{marginTop:10,borderTop:'2px solid '+RULE,paddingTop:8}}>
+      <div className="xs b" style={{color:NAVY}}>DQE / PLAN — par équipement</div>
+      <div style={{display:'grid',gridTemplateColumns:'minmax(120px,1fr) auto auto auto',gap:'2px 10px',marginTop:4}} className="xs">
+        <span className="mut">Équipement</span><span className="mut">DQE</span><span className="mut">Plan</span><span/>
+        {parType.map(t=><React.Fragment key={t.type}>
+          <span>{t.libelle}</span><span style={{textAlign:'right'}}>{t.prevu}{t.option?' +'+t.option+' opt.':''}</span><span style={{textAlign:'right',fontWeight:700}}>{t.implante}</span>
+          <span style={{color:ELEC_NIVEAUX[t.niveau].c}}>{ELEC_NIVEAUX[t.niveau].ic} {t.msg}</span></React.Fragment>)}
+      </div></div>}
+    <div className="elec-verification" style={{marginTop:10,borderTop:'2px solid '+RULE,paddingTop:8}}>
+      <div className="xs b" style={{color:NAVY}}>PLAN ÉLECTRIQUE — vérification d’ensemble</div>
+      {verif.faits.map(([t,ok],i)=><div key={i} className="xs" style={{color:ok?GREEN:AMBER}}>{ok?'✓':'⚠'} {t}</div>)}
+      {verif.points.length>0&&<div className="xs" style={{color:AMBER,marginTop:4}}>⚠ {verif.points.length} point{verif.points.length>1?'s':''} à vérifier
+        <div style={{maxHeight:160,overflowY:'auto',color:INK}}>{verif.points.map((x,i)=><div key={i} style={{padding:'1px 0'}}>· {x.msg}</div>)}</div></div>}
+    </div>
     <div className="elec-reglementaire" style={{marginTop:10,borderTop:'2px solid '+RULE,paddingTop:8}}>
       <div className="xs b" style={{color:NAVY}}>CONTRÔLE RÉGLEMENTAIRE — distinct de l’écart avec le DQE</div>
       {!(regles||[]).length&&<div className="xs mut" style={{lineHeight:1.5}}>Aucune règle saisie : la base de règles (norme, version, date d’application, source) se tient dans Bibliothèque CP. Aucune règle n’est inscrite par l’application.</div>}
@@ -12178,26 +12691,178 @@ function ElecControle({ch,plan,base,regles}){
   </div>;
 }
 
+/* ---------- « ✨ Générer automatiquement le plan électrique » ----------
+   Un clic : le DQE est lu s'il ne l'a pas été (marché « Électricité » du
+   dossier), chaque équipement est réellement posé sur le plan, les
+   liaisons sont tracées, le quantitatif se remplit. Le tout est UNE
+   écriture : « Annuler » la défait d'un coup. Le résultat reste une
+   proposition, à valider. */
+function ElecGenerateur({ch,data,plan,base,maj,biblio,selectionner,ouvrirEtape}){
+  const d=ch.docs||{}, pe=d.plan_elec||{};
+  const pieces=plan.pieces||[];
+  const S=plan.symboles||[];
+  const moi=(typeof UTILISATEUR!=='undefined'&&UTILISATEUR)||'';
+  const genere=S.some(s=>s.source==='genere');
+  const [mode,setMode]=useState('');
+  const [pieceId,setPieceId]=useState('');
+  const [run,setRun]=useState(null);       /* la dernière génération : résumé, état d'avant */
+  const [vues,setVues]=useState(0);        /* étapes affichées (progression) */
+  const [voirPoints,setVoirPoints]=useState(false);
+  const [voirPropo,setVoirPropo]=useState(false);
+  const [msg,setMsg]=useState('');
+  const modeEff=mode||(genere?'manquants':'tout');
+  const marches=elecMarchesElec(ch,data);
+  const prevus=((base&&base.lignes)||[]).filter(l=>(l.nature||'prevu')==='prevu'&&+l.qte>0);
+  useEffect(()=>{if(!run||vues>=run.etapes.length)return;const t=setTimeout(()=>setVues(v=>v+1),110);return ()=>clearTimeout(t)},[run,vues]);
+  /* la base : celle du dossier ; vide, le DQE du marché électricité est lu */
+  const baseDuDQE=()=>{
+    if(prevus.length)return {b:base,lu:''};
+    if(!marches.length||!pieces.length)return {b:base,lu:''};
+    const m=marches[0], dq=elecDqeDepuisMarche(m,data), aff=elecAffecterPieces(dq,pieces);
+    const garde=((base&&base.lignes)||[]).filter(l=>l.nature==='reglementaire'||l.nature==='client');
+    return {b:{...(base||{}),source:'dqe',dqe:{...dq,affect:aff},lignes:[...garde,...elecBaseDepuisDQE(dq,aff)],validee:false},
+      lu:'DQE lu : marché '+(m.numero?'n° '+m.numero+' — ':'')+(m.lot||'Électricité')+' ('+dq.lignes.length+' lignes)'};
+  };
+  const lancer=(modeX,pieceX,baseForcee)=>{
+    setMsg('');
+    if(plan.verrouille){setMsg('Plan verrouillé : déverrouillez-le pour générer.');return}
+    if(!pieces.length){setMsg('Aucune pièce tracée : le générateur a besoin des pièces (2 clics par pièce) et de leurs portes. Ouvrez « Préparer le plan ».');ouvrirEtape&&ouvrirEtape('preparer');return}
+    const {b,lu}=baseForcee?{b:baseForcee,lu:'Modèle Maison standard CP (proposition, non contractuelle)'}:baseDuDQE();
+    if(!((b&&b.lignes)||[]).some(l=>+l.qte>0)){setMsg('Aucun programme : lisez le DQE (fichier Excel, Word ou PDF) dans « Programme électrique (DQE) », ou partez du modèle CP.');return}
+    const m=modeX||modeEff;
+    if(m==='piece'&&!(pieceX||pieceId)){setMsg('Choisissez la pièce à régénérer.');return}
+    const g=elecGenererPlan(plan,b,{biblio,mode:m,pieceId:pieceX||pieceId});
+    const apres=elecAppliquerGeneration(plan,g);
+    const R=elecResumeGeneration(plan,b,g);
+    const V=elecValiderPlan(apres,b);
+    const etapes=[['Analyse du plan',R.etapes[0][1]],R.etapes[1],R.etapes[2],
+      ['Lecture du DQE',lu||(b.source==='dqe'?'DQE du dossier ('+((b.dqe&&b.dqe.source&&b.dqe.source.nom)||'lu')+')':b.source==='modele_cp'?'modèle CP (proposition)':'programme saisi')],
+      ...R.etapes.slice(3)];
+    maj({symboles:apres.symboles,cables:apres.cables},null,b!==base?{base:b}:null);
+    setRun({g,R,V,etapes,ids:g.ajouts.map(s=>s.id),avant:{plan,base},mode:m,baseChangee:b!==base});
+    setVues(0);setVoirPoints(false);
+  };
+  const annulerGeneration=()=>{if(!run)return;
+    maj({...run.avant.plan},null,run.baseChangee?{base:run.avant.base}:null);setRun(null);setMsg('Génération annulée : le plan est revenu à son état d’avant.')};
+  const valider=()=>{
+    const v=elecValiderProposition(plan,run&&run.ids);
+    maj({symboles:v.symboles},null,{versions:elecVersionAjouter(pe.versions,v,'Proposition automatique validée',moi)});
+    const n=((pe.versions||[]).reduce((m,x)=>Math.max(m,+x.n||0),0))+1;
+    setRun(null);setMsg('Proposition validée — version V'+n+' enregistrée. Vous pouvez verrouiller le plan.');
+  };
+  /* la proposition CP (modèle de la bibliothèque) au-delà du DQE : affichée
+     ligne à ligne, jamais ajoutée sans votre choix */
+  const ecartees=new Set((base&&base.propositionsEcartees)||[]);
+  const propo=base&&base.source==='dqe'?elecPropositionsCP(plan,base).filter(x=>!ecartees.has(x.piece+'|'+x.type)):[];
+  const retenirOption=x=>{
+    const l={id:'b_'+uid(),piece:x.piece,type:x.type,qte:x.ecart,unite:elecUnite(x.type),nature:'option',origine:'Proposition CP'};
+    const b2={...base,lignes:[...(base.lignes||[]),l],decisions:[...(base.decisions||[]),{le:today(),par:moi,choix:'Proposition CP retenue en option',source:'Bibliothèque CP',
+      detail:x.pieceNom+' · '+x.libelle+' : DQE '+x.dqe+', proposition CP '+x.cp}]};
+    const g=elecGenererPlan(plan,b2,{biblio,mode:'manquants'});
+    const apres=elecAppliquerGeneration(plan,g);
+    maj({symboles:apres.symboles,cables:apres.cables},null,{base:b2});
+    setMsg('+'+x.ecart+' '+x.libelle+' ('+x.pieceNom+') en option, hors DQE : posé'+(x.ecart>1?'s':'')+' sur le plan, en bleu au contrôle.');
+  };
+  const garderDQE=x=>maj({},null,{base:{...base,propositionsEcartees:[...ecartees,x.piece+'|'+x.type],
+    decisions:[...(base.decisions||[]),{le:today(),par:moi,choix:'DQE conservé',source:'',detail:x.pieceNom+' · '+x.libelle+' : DQE '+x.dqe+' (proposition CP '+x.cp+' écartée)'}]}});
+  const fini=run&&vues>=run.etapes.length;
+  const R=run&&run.V&&run.V.rapport;
+  return <div className="elec-generateur" style={{marginTop:8}}>
+    <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
+      <button type="button" className="btn acc" style={{fontWeight:700}} disabled={!!plan.verrouille} onClick={()=>lancer()}>✨ Générer automatiquement le plan électrique</button>
+      <select className="in" style={{maxWidth:260}} value={modeEff} aria-label="Mode de génération" onChange={e=>setMode(e.target.value)}>
+        <option value="tout">Générer le plan complet{genere?' (recalculer tout)':''}</option>
+        <option value="manquants">Compléter les éléments manquants</option>
+        <option value="piece">Régénérer une pièce</option></select>
+      {modeEff==='piece'&&<select className="in" style={{maxWidth:180}} value={pieceId} aria-label="Pièce à régénérer" onChange={e=>setPieceId(e.target.value)}>
+        <option value="">Pièce…</option>{pieces.map(p=><option key={p.id} value={p.id}>{p.nom}</option>)}</select>}
+    </div>
+    <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+      {modeEff==='tout'?(genere?'Recalcule les équipements générés ; ceux que vous avez déplacés, retouchés, posés à la main ou verrouillés ne bougent pas.':'Pose tout le programme (DQE) sur les pièces tracées : éclairages, commandes côté poignée, prises, réseau, volets, technique, liaisons.')
+        :modeEff==='manquants'?'Ajoute seulement ce qui manque au regard du programme : rien n’est déplacé ni doublé.'
+        :'Ne recalcule que la pièce choisie (vos retouches y restent).'}
+      {!prevus.length&&marches.length>0&&' Le DQE du marché « '+marches[0].lot+' » sera lu d’abord.'}</div>
+    {!prevus.length&&!marches.length&&pieces.length>0&&<div className="xs" style={{marginTop:4,color:AMBER,lineHeight:1.5}}>
+      Aucun DQE dans ce dossier. Importez-le dans « Programme électrique (DQE) », ou
+      <button type="button" className="btn gh s" style={{marginLeft:6,fontSize:11,padding:'3px 8px'}} onClick={()=>lancer('tout',null,{...(base||{}),source:'modele_cp',modele:'Maison standard CP',lignes:[...((base&&base.lignes)||[]).filter(l=>l.nature!=='prevu'),...elecBaseModele(pieces)],validee:false})}>
+        partir du modèle « Maison standard CP » (proposition)</button></div>}
+    {msg&&<div className="xs" style={{marginTop:6,color:/verrouillé|Aucun|Aucune/.test(msg)?AMBER:GREEN,lineHeight:1.5}}>{msg}</div>}
+
+    {run&&<div className="card elec-generation" style={{marginTop:8,padding:10,borderLeft:'3px solid '+AMBER}}>
+      <div style={{fontFamily:'ui-monospace,Menlo,monospace',fontSize:12,lineHeight:1.6}}>
+        {run.etapes.slice(0,vues).map(([e,v],i)=><div key={i} className="row" style={{gap:6}}>
+          <span style={{flex:'1 1 auto',overflow:'hidden',whiteSpace:'nowrap'}}>{e} <span className="mut">{'.'.repeat(40)}</span></span>
+          <span style={{flex:'0 0 auto',maxWidth:'55%',textAlign:'right'}}>{v} <span style={{color:GREEN}}>✓</span></span></div>)}
+      </div>
+      {fini&&<div style={{marginTop:8}}>
+        <div className="b sm" style={{color:NAVY}}>✨ PLAN ÉLECTRIQUE GÉNÉRÉ — PROPOSITION AUTOMATIQUE CP</div>
+        <div className="xs" style={{marginTop:4,lineHeight:1.6}}>
+          {run.R.poses} équipement{run.R.poses>1?'s':''} posé{run.R.poses>1?'s':''}{run.g.retraits.length?' ('+run.g.retraits.length+' recalculé'+(run.g.retraits.length>1?'s':'')+')':''} · {run.R.liaisons} liaison{run.R.liaisons>1?'s':''}
+          {run.R.aPlacer?<span style={{color:AMBER}}> · {run.R.aPlacer} à placer à la main</span>:null}
+          <div>{run.R.familles.map(([f,n])=><span key={f} className="pill" style={{background:'#EEF1F4',color:NAVY,marginRight:4,display:'inline-block',marginTop:3}}>{f} : {n}</span>)}</div>
+          <div style={{marginTop:4,fontWeight:700,color:R.manquants?TERRA:GREEN}}>{R.manquants?'⚠ '+R.conformes+' / '+R.dqe+' — '+R.manquants+' manquant'+(R.manquants>1?'s':''):'✓ DQE respecté : '+R.conformes+' / '+R.dqe+' conformes'}
+            {R.horsDqe?<span style={{color:ELEC_BLEU}}> · {R.horsDqe} hors DQE</span>:null}</div>
+          <div style={{marginTop:4}}>{run.V.faits.map(([t,ok],i)=><div key={i} style={{color:ok?GREEN:AMBER}}>{ok?'✓':'⚠'} {t}</div>)}</div>
+          {run.V.points.length>0&&<div style={{marginTop:4}}>
+            <button type="button" className="xs b" style={{color:AMBER,background:'none',border:'none',padding:0,cursor:'pointer'}} onClick={()=>setVoirPoints(v=>!v)}>
+              ⚠ {run.V.points.length} point{run.V.points.length>1?'s':''} à vérifier — {voirPoints?'masquer':'voir les '+run.V.points.length+' points'}</button>
+            {voirPoints&&<div style={{maxHeight:180,overflowY:'auto',marginTop:4}}>{run.V.points.map((x,i)=><div key={i} className="row" style={{gap:6,alignItems:'center',padding:'2px 0',borderTop:'1px solid '+RULE}}>
+              <span style={{flex:1}}>{x.msg}</span>
+              {x.id&&S.some(s=>s.id===x.id)&&<button type="button" className="btn gh s" style={{fontSize:11,padding:'2px 7px'}} onClick={()=>selectionner&&selectionner(x.id)}>Voir</button>}</div>)}</div>}
+          </div>}
+          <div className="mut" style={{marginTop:4}}>Les positions restent des propositions (cercle orange) : le mobilier n’est pas lu sur le plan. Rien n’est inventé comme certain : ce qui est incertain est signalé.</div>
+        </div>
+        <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
+          <button type="button" className="btn acc s" onClick={valider}>Valider la proposition</button>
+          <button type="button" className="btn gh s" onClick={()=>{setRun(null);setMsg('Déplacez, supprimez, dupliquez : un équipement retouché n’est jamais écrasé par une régénération.')}}>Modifier</button>
+          <button type="button" className="btn gh s" onClick={()=>lancer(run.mode==='piece'?'piece':'tout')}>Régénérer</button>
+          <button type="button" className="btn gh s" onClick={annulerGeneration}>Annuler la génération</button>
+        </div>
+      </div>}
+    </div>}
+
+    {propo.length>0&&<div className="xs elec-propositions" style={{marginTop:8,background:'#EEF4FA',borderLeft:'3px solid '+ELEC_BLEU,padding:8,lineHeight:1.5}}>
+      <button type="button" className="xs b" style={{color:ELEC_BLEU,background:'none',border:'none',padding:0,cursor:'pointer'}} onClick={()=>setVoirPropo(v=>!v)}>
+        {voirPropo?'▾':'▸'} {propo.length} proposition{propo.length>1?'s':''} CP au-delà du DQE — le DQE reste la référence, à vous de choisir</button>
+      {voirPropo&&propo.map(x=><div key={x.piece+x.type} className="row" style={{gap:6,alignItems:'center',flexWrap:'wrap',padding:'4px 0',borderTop:'1px solid '+RULE}}>
+        <span style={{flex:'1 1 220px'}}><b>{x.pieceNom}</b> · {x.libelle} — <span style={{color:AMBER}}>⚠ DQE : {x.dqe}</span> / Proposition CP : {x.cp}</span>
+        <button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}} disabled={!!plan.verrouille} onClick={()=>retenirOption(x)}>Ajouter +{x.ecart} en option</button>
+        <button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}} onClick={()=>garderDQE(x)}>Garder le DQE ({x.dqe})</button></div>)}
+    </div>}
+
+    {(pe.versions||[]).length>0&&<details className="xs" style={{marginTop:8}}>
+      <summary style={{cursor:'pointer',color:NAVY}}>Versions du plan ({pe.versions.length})</summary>
+      {pe.versions.slice().reverse().map(v=><div key={v.n} className="row" style={{gap:6,alignItems:'center',padding:'3px 0',borderTop:'1px solid '+RULE}}>
+        <span style={{flex:1}}><b>V{v.n}</b> · {new Date(v.le).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'})}{v.par?' · '+v.par:''} — {v.libelle} ({(v.symboles||[]).length} équipements)</span>
+        <button type="button" className="btn gh s" style={{fontSize:11,padding:'2px 7px'}} disabled={!!plan.verrouille}
+          onClick={()=>{if(confirm('Revenir à la version V'+v.n+' ? Le plan actuel reste récupérable par « Annuler ».'))maj({symboles:v.symboles||[],cables:v.cables||[]})}}>Restaurer</button></div>)}
+    </details>}
+  </div>;
+}
+
 /* l'assistant, au-dessus du plan : une étape à la fois */
-function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,saveBiblio,saveRegles}){
+function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,saveBiblio,saveRegles,selectionner}){
   const d=ch.docs||{}, pe=d.plan_elec||{};
   const base=pe.base||{source:'',lignes:[],validee:false};
   const majBase=b=>up({docs:{...d,plan_elec:{...pe,plan,base:{...base,...b}}}});
   const tarifs=pe.tarifs||{};
   const majTarifs=t=>up({docs:{...d,plan_elec:{...pe,plan,tarifs:t}}});
   const [etape,setEtape]=useState('');
-  const [propo,setPropo]=useState(null);
   const pieces=plan.pieces||[];
   const ech=elecEchelle(plan);
   const comp=elecComparatif(plan,base);
   const sup=elecSupplements(comp,tarifs,data);
   const aPlacer=(plan.symboles||[]).filter(s=>s.aPlacer);
   const bordElec=(data.bordereaux||[]).filter(b=>/elec/i.test(deaccent((b.nom||'')+' '+(b.corps||''))));
-  const E=[['preparer','Préparer le plan'],['generer','Générer la base'],['verifier','Contrôler le plan'],['supplements','Voir les suppléments'],['biblio','Bibliothèque CP'],['exporter','Exporter']];
+  const E=[['preparer','Préparer le plan'],['generer','Programme électrique (DQE)'],['verifier','Contrôler le plan'],['supplements','Voir les suppléments'],['biblio','Bibliothèque CP'],['exporter','Exporter']];
   const biblio=data.elecBiblio||{};
   const [modeleId,setModeleId]=useState('standard');
   const modeles=elecModeles(biblio);
   const nomPiece=id=>id===''||id===undefined?'Logement (général)':(pieces.find(p=>p.id===id)||{}).nom||'Hors pièce';
+  /* « Régénérer » sur une pièce : seule cette pièce est recalculée */
+  const regenererPiece=pid=>{if(plan.verrouille)return;
+    const g=elecGenererPlan(plan,base,{biblio,mode:'piece',pieceId:pid});const a=elecAppliquerGeneration(plan,g);
+    maj({symboles:a.symboles,cables:a.cables})};
   return <div className="card" style={{padding:10,marginBottom:10,borderLeft:'3px solid '+ELEC_BLEU}}>
     <div className="row" style={{gap:6,flexWrap:'wrap'}}>
       {E.map(([id,l])=><button key={id} type="button" className={'btn s '+(etape===id?'':'gh')} onClick={()=>setEtape(etape===id?'':id)}>{l}</button>)}
@@ -12208,7 +12873,9 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
       <span className="pill" style={{background:'#EEF1F4',color:NAVY}}>Base : {base.source==='dqe'?'DQE'+(base.dqe&&base.dqe.source?' — '+base.dqe.source.nom:''):base.source==='modele_cp'?'modèle CP (proposition)':base.source==='marche'?'marché signé':base.source==='ptr'?'programme technique':'non définie'}{base.validee?' · validée':''}</span>
       {aPlacer.length>0&&<span className="pill" style={{background:'#FBF1DC',color:AMBER}}>{aPlacer.length} à placer</span>}
       {plan.indice&&<span className="pill" style={{background:'#F3F1EC',color:MUTED}}>Indice {plan.indice}</span>}
+      {plan.verrouille&&<span className="pill" style={{background:'#EEF1F4',color:NAVY}}>🔒 Plan verrouillé</span>}
     </div>
+    <ElecGenerateur ch={ch} data={data} plan={plan} base={base} maj={maj} biblio={biblio} selectionner={selectionner} ouvrirEtape={setEtape}/>
 
     {etape==='preparer'&&<div style={{marginTop:10}}>
       <div className="g2">
@@ -12231,12 +12898,16 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
           <button type="button" className={'btn s '+(outil==='@piece'?'':'gh')} onClick={()=>{changerOutil(outil==='@piece'?'':'@piece');setTrace({type:(trace&&trace.type)||'Séjour'})}}>
             {outil==='@piece'?'Cliquez deux angles opposés de la pièce'+(trace&&trace.nom?' « '+trace.nom+' »':''):'Tracer une pièce'}</button>
         </div>
-        {pieces.map(p=><div key={p.id} className="row" style={{gap:6,marginTop:6,alignItems:'center'}}>
+        {pieces.map(p=><div key={p.id} className="row" style={{gap:6,marginTop:6,alignItems:'center',flexWrap:'wrap',borderTop:'1px solid '+RULE,paddingTop:6}}>
           <input className="in" style={{flex:'1 1 140px'}} value={p.nom} onChange={e=>maj({pieces:pieces.map(x=>x.id===p.id?{...x,nom:e.target.value}:x)})}/>
           <select className="in" style={{flex:'0 1 170px'}} value={p.type} onChange={e=>maj({pieces:pieces.map(x=>x.id===p.id?{...x,type:e.target.value}:x)})}>
             {ELEC_PIECES_TYPES.map(t=><option key={t}>{t}</option>)}</select>
           <button type="button" className={'btn s '+(outil==='@porte:'+p.id?'':'gh')} style={{fontSize:11,padding:'4px 8px'}}
             onClick={()=>changerOutil(outil==='@porte:'+p.id?'':'@porte:'+p.id)}>{outil==='@porte:'+p.id?'Cliquez la porte sur un mur':'+ Porte'}</button>
+          <button type="button" className={'btn s '+(outil==='@fenetre:'+p.id?'':'gh')} style={{fontSize:11,padding:'4px 8px'}}
+            onClick={()=>changerOutil(outil==='@fenetre:'+p.id?'':'@fenetre:'+p.id)}>{outil==='@fenetre:'+p.id?'Cliquez la fenêtre sur un mur':'+ Fenêtre'}</button>
+          <button type="button" className="btn gh s" style={{fontSize:11,padding:'4px 8px'}} disabled={!!plan.verrouille||!(base.lignes||[]).length}
+            title="Ne recalcule que cette pièce : vos retouches y restent" onClick={()=>regenererPiece(p.id)}>↻ Régénérer</button>
           <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>maj({pieces:pieces.filter(x=>x.id!==p.id)})}>✕</button>
           {(p.portes||[]).map((d,k)=><div key={d.id} className="row xs" style={{gap:6,alignItems:'center',flexBasis:'100%',paddingLeft:12}}>
             <span className="mut">Porte {k+1} (mur {d.cote}) — poignée, vue de l’intérieur :</span>
@@ -12245,6 +12916,12 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
               <option value="">à confirmer</option><option value="gauche">à gauche</option><option value="droite">à droite</option></select>
             <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}}
               onClick={()=>maj({pieces:pieces.map(x=>x.id!==p.id?x:{...x,portes:x.portes.filter(y=>y.id!==d.id)})})}>✕</button></div>)}
+          {(p.fenetres||[]).map((f,k)=><div key={f.id} className="row xs" style={{gap:6,alignItems:'center',flexBasis:'100%',paddingLeft:12}}>
+            <span className="mut">Fenêtre {k+1} (mur {f.cote})</span>
+            <label className="row" style={{gap:4,alignItems:'center'}}><input type="checkbox" checked={f.vr!==false}
+              onChange={e=>maj({pieces:pieces.map(x=>x.id!==p.id?x:{...x,fenetres:x.fenetres.map(y=>y.id===f.id?{...y,vr:e.target.checked}:y)})})}/>volet roulant</label>
+            <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}}
+              onClick={()=>maj({pieces:pieces.map(x=>x.id!==p.id?x:{...x,fenetres:x.fenetres.filter(y=>y.id!==f.id)})})}>✕</button></div>)}
         </div>)}
         {(plan.etiquettes||[]).length>0&&<div style={{marginTop:8}}>
           <div className="xs b" style={{color:NAVY}}>PIÈCES LUES SUR LE PLAN — détectées, à valider</div>
@@ -12255,7 +12932,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
                 onClick={()=>{changerOutil('@piece');setTrace({type:et.type,nom:et.nom,surface:et.surface})}}>Tracer</button>}</div>})}
         </div>}
         {plan.etiquettesSource&&!(plan.etiquettes||[]).length&&<div className="xs mut" style={{marginTop:6}}>Aucun nom de pièce lisible sur ce plan (scan ou image) : tracez les pièces à la main.</div>}
-        <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Un tracé simple suffit : un rectangle par pièce, sur le fond, et ses portes d’un clic sur le mur (avec le côté de la poignée : les interrupteurs s’y placent, jamais derrière la porte ouverte). Sur un PDF scanné ou une image, les pièces ne sont pas reconnues automatiquement : rien n’est deviné.</div>
+        <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Un tracé simple suffit : un rectangle par pièce, sur le fond, et ses portes d’un clic sur le mur (avec le côté de la poignée : les interrupteurs s’y placent, jamais derrière la porte ouverte). Les fenêtres marquées reçoivent les commandes de volet roulant ; aucune prise n’est posée devant. Sur un PDF scanné ou une image, les pièces ne sont pas reconnues automatiquement : rien n’est deviné.</div>
       </Fld>
     </div>}
 
@@ -12295,24 +12972,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
           majBase({lignes:[...(base.lignes||[]),{id:'b_'+uid(),piece:pi,type:ty,qte:1,unite:elecUnite(ty),nature:'prevu'}]})}}>+ Ligne</button>
         <label className="xs row" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!base.validee} onChange={e=>majBase({validee:e.target.checked,valideeLe:e.target.checked?today():''})}/>Base validée</label>
       </div>
-      <div className="row" style={{gap:6,marginTop:10}}>
-        <button type="button" className="btn acc s" disabled={!(base.lignes||[]).length} onClick={()=>setPropo(elecGenerer(plan,base,{biblio}))}>Préparer la proposition d’implantation</button>
-      </div>
-      {propo&&<div className="card" style={{marginTop:8,padding:10,borderLeft:'3px solid '+AMBER}}>
-        <div className="xs" style={{lineHeight:1.5}}>
-          {propo.ajouts.length} équipement{propo.ajouts.length>1?'s':''} à ajouter{!propo.echelle.ok&&propo.ajouts.length?' — dans la liste « à placer » (plan non étalonné : pas de position inventée)':' — le long des murs, statut « à confirmer »'}.
-          {(propo.cables||[]).length>0&&<span> {propo.cables.length} liaison{propo.cables.length>1?'s':''} commande → éclairage.</span>}
-          {propo.ajouts.length>0&&propo.echelle.ok&&<span> Positions proposées automatiquement : à valider (le mobilier et les fenêtres ne sont pas lus sur le plan).</span>}
-          {propo.retraits.length>0&&<span> {propo.retraits.length} équipement{propo.retraits.length>1?'s':''} généré{propo.retraits.length>1?'s':''} en trop à retirer (jamais un équipement verrouillé ou posé à la main).</span>}
-          {!propo.ajouts.length&&!propo.retraits.length&&' Rien à changer : l’implantation couvre la base.'}
-        </div>
-        <div className="row" style={{gap:6,marginTop:6}}>
-          <button type="button" className="btn acc s" disabled={!propo.ajouts.length&&!propo.retraits.length}
-            onClick={()=>{const R=new Set(propo.retraits);maj({symboles:[...(plan.symboles||[]).filter(s=>!R.has(s.id)),...propo.ajouts],
-              cables:[...(plan.cables||[]).filter(c=>!R.has(c.de)&&!R.has(c.vers)),...(propo.cables||[])]});setPropo(null)}}>Appliquer</button>
-          <button type="button" className="btn gh s" onClick={()=>setPropo(null)}>Annuler</button>
-        </div>
-      </div>}
+      <div className="xs mut" style={{marginTop:10,lineHeight:1.5}}>Le programme est posé sur le plan par « ✨ Générer automatiquement le plan électrique », en haut.</div>
     </div>}
 
     {aPlacer.length>0&&<div style={{marginTop:10}}>
@@ -12343,6 +13003,22 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
             <input className="in" style={{flex:'1 1 140px'}} placeholder="Source du prix" value={t.source||''} onChange={e=>setT({source:e.target.value})}/>
             <label className="xs row" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!t.moinsValue} onChange={e=>setT({moinsValue:e.target.checked})}/>Moins-value prévue au marché</label>
           </div>
+          {l.ecart>0&&<div className="row" style={{gap:6,marginTop:6,flexWrap:'wrap',alignItems:'center'}}>
+            {t.accepteLe?<span className="xs" style={{color:GREEN}}>Supplément accepté le {fd(t.accepteLe)}</span>
+              :<button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}} onClick={()=>setT({accepteLe:today()})}>Accepter</button>}
+            <button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}} disabled={!!plan.verrouille}
+              title="Retire d'abord les équipements générés, jamais un équipement verrouillé"
+              onClick={()=>{const R=new Set(elecSurplusARetirer(plan,l.type,l.ecart));if(!R.size)return;
+                maj({symboles:(plan.symboles||[]).filter(s=>!R.has(s.id)),cables:(plan.cables||[]).filter(c=>!R.has(c.de)&&!R.has(c.vers))})}}>Supprimer le surplus ({l.ecart})</button>
+            <button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}}
+              onClick={()=>majBase({lignes:[...(base.lignes||[]),{id:'b_'+uid(),piece:'',type:l.type,qte:l.ecart,unite:elecUnite(l.type),nature:'option',origine:'Supplément passé en option'}]})}>Passer en option</button>
+            {(()=>{const m=ch.map||{}, texte='Plan électrique : +'+l.ecart+' '+l.libelle+' au-delà du DQE (supplément à chiffrer)';
+              const it={type:'chiffrer',lot:'Électricité',rubrique:'',texte};
+              const deja=(m.suivi||[]).some(x=>ficheCleSuivi(x)===ficheCleSuivi(it));
+              return deja?<span className="xs" style={{color:GREEN}}>Au suivi de la MAP (à chiffrer)</span>
+                :<button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}}
+                  onClick={()=>up({map:{...m,suivi:[...(m.suivi||[]),{id:uid(),...it,statut:'ouvert',creeLe:today(),source:'Plan électrique'}]}})}>Ajouter au devis de supplément</button>})()}
+          </div>}
         </div>})}
       <div className="xs b" style={{marginTop:6}}>Incidence connue : {sup.totalTTC>0?'+':''}{eurDoc(sup.totalTTC)} TTC{sup.aChiffrer.length?' · '+sup.aChiffrer.length+' type'+(sup.aChiffrer.length>1?'s':'')+' à chiffrer (inconnu, pas zéro)':''}</div>
     </div>}
@@ -12352,6 +13028,10 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
       {!saveBiblio&&<div className="xs" style={{color:AMBER}}>Bibliothèque en lecture seule depuis cet écran.</div>}
       <div className="xs b" style={{color:NAVY}}>HAUTEURS DE POSE (CM)</div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(210px,1fr))',gap:4,marginTop:4}}>
+        <label className="row xs" style={{gap:6,alignItems:'center'}}>
+          <span style={{flex:1}}>Prises du plan de travail (cuisine)</span>
+          <input className="in" style={{width:70}} inputMode="numeric" placeholder="110" value={(biblio.hauteurs||{})['@plan_travail']??''} disabled={!saveBiblio}
+            onChange={e=>saveBiblio({...biblio,hauteurs:{...(biblio.hauteurs||{}),'@plan_travail':e.target.value===''?'':+e.target.value}})}/></label>
         {ELEC_SYMBOLES.map(s=><label key={s.id} className="row xs" style={{gap:6,alignItems:'center'}}>
           <span style={{flex:1}}>{s.l}</span>
           <input className="in" style={{width:70}} inputMode="numeric" placeholder={s.h===null?'à définir':String(s.h)} value={(biblio.hauteurs||{})[s.id]??''} disabled={!saveBiblio}
@@ -12438,6 +13118,9 @@ function PlanElectrique({ch,up,onFermer,data,save}){
      position : ils ne se dessinent nulle part tant qu'on ne les a pas posés */
   const Sp=S.filter(s=>!s.aPlacer&&s.x!=null&&s.y!=null);
   const C=cablesValides(plan.cables,Sp);
+  /* à la sortie (PDF, impression) : les liaisons des calques affichés, dans
+     leur couleur et leur trait */
+  const Cx=C.map(c=>{const st=elecStyleCable(plan,c);return st.visible?{...c,couleur:st.couleur,pointille:st.pointille}:null}).filter(Boolean);
   const [fondUrl,setFondUrl]=useState(null);
   const [outil,setOutil]=useState('');
   const [sel,setSel]=useState(null);
@@ -12452,6 +13135,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
   /* mode « modification client » : chaque ajout ou retrait devient une
      modification numérotée, hors DQE initial */
   const [modeClient,setModeClient]=useState(false);
+  const [calques,setCalques]=useState(false);
   const biblio=(data&&data.elecBiblio)||{};
   const saveBiblio=save?b=>save({...data,elecBiblio:b}):null;
   const saveRegles=save?r=>save({...data,elecRegles:r}):null;
@@ -12472,18 +13156,24 @@ function PlanElectrique({ch,up,onFermer,data,save}){
   const hist=useRef({passe:[],futur:[]});
   /* chaque écriture tient le journal : ajout, retrait, déplacement,
      changement de type, avec la date et l'auteur */
-  const ecrire=(nouveau,modifs)=>{const c=d.plan_elec||{};
-    up({docs:{...d,plan_elec:{...c,plan:nouveau,fait:true,date:c.fait?c.date:today(),
+  const ecrire=(nouveau,modifs,extra)=>{const c=d.plan_elec||{};
+    up({docs:{...d,plan_elec:{...c,...(extra||{}),plan:nouveau,fait:true,date:c.fait?c.date:today(),
       journal:elecJournalAjouter(c.journal,elecJournalDiff(plan,nouveau,moi)),
       ...(modifs&&modifs.length?{modifications:[...(c.modifications||[]),...modifs]}:{})}}})};
-  const maj=(p,modifs)=>{hist.current.passe=[...hist.current.passe.slice(-59),plan];hist.current.futur=[];ecrire({...plan,...p},modifs)};
+  /* « extra » : d'autres champs du dossier écrits dans le même geste (la base
+     lue du DQE par une génération) ; l'historique les garde aussi, si bien
+     qu'un seul « Annuler » défait tout le geste */
+  const cliche=keys=>{if(!keys)return null;const c=d.plan_elec||{},o={};keys.forEach(k=>{o[k]=c[k]});return o};
+  const maj=(p,modifs,extra)=>{hist.current.passe=[...hist.current.passe.slice(-59),{plan,pe:cliche(extra&&Object.keys(extra))}];hist.current.futur=[];ecrire({...plan,...p},modifs,extra)};
   /* une modification client numérotée */
   const modifClient=(action,s)=>{const c=d.plan_elec||{};const n=((c.modifications||[]).reduce((m,x)=>Math.max(m,+x.n||0),0))+1;
     const pid=s.piece||elecPieceDe(s,plan.pieces||[]);
     return [{n,le:today(),par:moi,action,type:s.type,libelle:(elecSymbole(s.type)||{}).l||s.type,piece:((plan.pieces||[]).find(x=>x.id===pid)||{}).nom||'',
       statut:'demandee',horsDqe:true,symbole:s.id}]};
-  const annuler=()=>{const h=hist.current;if(!h.passe.length)return;h.futur=[plan,...h.futur];ecrire(h.passe[h.passe.length-1]);h.passe=h.passe.slice(0,-1)};
-  const retablir=()=>{const h=hist.current;if(!h.futur.length)return;h.passe=[...h.passe,plan];ecrire(h.futur[0]);h.futur=h.futur.slice(1)};
+  const annuler=()=>{const h=hist.current;if(!h.passe.length)return;const e=h.passe[h.passe.length-1];
+    h.futur=[{plan,pe:cliche(e.pe&&Object.keys(e.pe))},...h.futur];ecrire(e.plan,null,e.pe);h.passe=h.passe.slice(0,-1)};
+  const retablir=()=>{const h=hist.current;if(!h.futur.length)return;const e=h.futur[0];
+    h.passe=[...h.passe,{plan,pe:cliche(e.pe&&Object.keys(e.pe))}];ecrire(e.plan,null,e.pe);h.futur=h.futur.slice(1)};
   const [trace,setTrace]=useState(null);
 
   const importer=async file=>{
@@ -12523,6 +13213,9 @@ function PlanElectrique({ch,up,onFermer,data,save}){
     /* (le drapeau est remis à zéro par le pointerdown du fond, si bien qu'un
        déplacement resté sans clic n'avale pas le clic suivant) */
     if(gestSymbole.current){gestSymbole.current=false;return}
+    /* plan verrouillé : on prépare encore le plan (pièces, portes, échelle),
+       mais aucun équipement ne se pose */
+    if(plan.verrouille&&outil&&!/^@(calib|piece|porte:|fenetre:)/.test(outil)){setSel(null);setSelC(null);return}
     if(outil&&outil[0]==='@'){
       const q=pos(e); if(!q)return;
       if(outil==='@calib'){
@@ -12544,6 +13237,13 @@ function PlanElectrique({ch,up,onFermer,data,save}){
         maj({pieces:plan.pieces.map(x=>x.id!==pid?x:{...x,portes:[...(x.portes||[]),{id:'pt_'+uid(),x:m.x,y:m.y,cote:m.cote,poignee:''}]})});
         setOutil('');return;
       }
+      if(outil.indexOf('@fenetre:')===0){
+        const pid=outil.slice(9), p=(plan.pieces||[]).find(x=>x.id===pid);
+        if(!p)return;
+        const m=elecMurProche(p,q.x,q.y,plan.ratio);
+        maj({pieces:plan.pieces.map(x=>x.id!==pid?x:{...x,fenetres:[...(x.fenetres||[]),{id:'fn_'+uid(),x:m.x,y:m.y,cote:m.cote,vr:true}]})});
+        setOutil('');return;
+      }
       if(outil.indexOf('@placer:')===0){
         const id=outil.slice(8);
         maj({symboles:S.map(s=>s.id===id?elecAccrocher({...s,x:q.x,y:q.y,aPlacer:false},plan.pieces,plan.ratio):s)});
@@ -12560,10 +13260,15 @@ function PlanElectrique({ch,up,onFermer,data,save}){
       source:'manuel',...(modeClient?{categorie:'client'}:{})},plan.pieces,plan.ratio);
     maj({symboles:[...S,n]},modeClient?modifClient('Ajout',n):null);
   };
-  const majSymbole=(id,p)=>maj({symboles:S.map(s=>s.id===id?{...s,...p}:s)});
+  /* un équipement généré qu'on déplace, tourne, change ou règle est marqué
+     « retouché » : une régénération ne le touchera plus */
+  const majSymbole=(id,p)=>maj({symboles:S.map(s=>{if(s.id!==id)return s;
+    const retouche=s.source==='genere'&&['x','y','type','h','rot'].some(k=>k in p&&p[k]!==s[k]);
+    return {...s,...p,...(retouche?{userModified:true}:{})}})});
   /* retirer un symbole emporte les câbles qui y aboutissaient : un câble
      accroché dans le vide n'aurait plus de sens */
   const supprimer=id=>{
+    if(plan.verrouille)return;
     const s=S.find(x=>x.id===id);
     maj({symboles:S.filter(s=>s.id!==id),cables:C.filter(c=>c.de!==id&&c.vers!==id)},modeClient&&s?modifClient('Suppression',s):null);
     setSel(null);
@@ -12803,7 +13508,8 @@ function PlanElectrique({ch,up,onFermer,data,save}){
     </div>}
 
     {!!plan.fond&&<React.Fragment>
-      <AssistantElec ch={ch} up={up} data={data||{}} plan={plan} maj={maj} outil={outil} changerOutil={changerOutil} trace={trace} setTrace={setTrace} saveBiblio={saveBiblio} saveRegles={saveRegles}/>
+      <AssistantElec ch={ch} up={up} data={data||{}} plan={plan} maj={maj} outil={outil} changerOutil={changerOutil} trace={trace} setTrace={setTrace} saveBiblio={saveBiblio} saveRegles={saveRegles}
+        selectionner={id=>{setOutil('');setSel(id);setSelC(null)}}/>
       <div className="row" style={{gap:6,marginBottom:8,flexWrap:'wrap',alignItems:'center'}}>
         <button className="btn gh s" disabled={!hist.current.passe.length} onClick={annuler} title="Annuler (Ctrl+Z)">↶ Annuler</button>
         <button className="btn gh s" disabled={!hist.current.futur.length} onClick={retablir} title="Rétablir (Ctrl+Y)">↷ Rétablir</button>
@@ -12812,6 +13518,10 @@ function PlanElectrique({ch,up,onFermer,data,save}){
         <button className={'btn s '+(hauteurs?'':'gh')} onClick={()=>setHauteurs(h=>!h)}>Hauteurs</button>
         <button className={'btn s '+(legSurPlan?'':'gh')}
           onClick={()=>maj({legende:!legSurPlan})}>Légende sur le plan</button>
+        <button className={'btn s '+(plan.verrouille?'':'gh')} style={plan.verrouille?{background:NAVY,borderColor:NAVY}:undefined}
+          title={plan.verrouille?'Le plan est verrouillé : aucun équipement ne se déplace, ne se pose ni ne se retire':'Empêche les déplacements accidentels'}
+          onClick={()=>{maj({verrouille:!plan.verrouille});setSel(null);setSelC(null)}}>{plan.verrouille?'🔓 Déverrouiller':'🔒 Verrouiller le plan'}</button>
+        <button className={'btn s '+(calques?'':'gh')} onClick={()=>setCalques(v=>!v)}>Calques</button>
         <button className={'btn s '+(modeClient?'':'gh')} style={modeClient?{background:AMBER,borderColor:AMBER}:undefined}
           title="Chaque ajout ou retrait devient une modification client numérotée, hors DQE initial" onClick={()=>setModeClient(v=>!v)}>
           {modeClient?'Mode modification client : actif':'Modification client'}</button>
@@ -12820,17 +13530,34 @@ function PlanElectrique({ch,up,onFermer,data,save}){
         <span className="xs mut" style={{minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
         <button className="btn gh s" onClick={()=>setZoom(z=>Math.min(6,+(z+.5).toFixed(1)))} aria-label="Zoomer">+</button>
       </div>
+      {calques&&<div className="card elec-calques" style={{padding:8,marginBottom:8}}>
+        <div className="xs b" style={{color:NAVY}}>CALQUES — le plan d’architecte reste un fond : rien ne le modifie</div>
+        <div className="row xs" style={{gap:10,flexWrap:'wrap',marginTop:4}}>
+          <label className="row" style={{gap:4,alignItems:'center'}}><input type="checkbox" checked={plan.voirEquipements!==false} onChange={e=>maj({voirEquipements:e.target.checked})}/>Équipements</label>
+          <label className="row" style={{gap:4,alignItems:'center'}}><input type="checkbox" checked={plan.voirPieces!==false} onChange={e=>maj({voirPieces:e.target.checked})}/>Pièces, portes et fenêtres (repères)</label>
+        </div>
+        <div className="xs mut" style={{marginTop:6}}>Liaisons — affichage, couleur et trait (la signification des couleurs est la vôtre) :</div>
+        {ELEC_LIAISONS.map(k0=>{const k=elecCalque(plan,k0.id);const setK=p=>maj({liaisons:{...(plan.liaisons||{}),[k0.id]:{...((plan.liaisons||{})[k0.id]||{}),...p}}});
+          return <div key={k0.id} className="row xs" style={{gap:8,alignItems:'center',flexWrap:'wrap',padding:'2px 0'}}>
+            <label className="row" style={{gap:4,alignItems:'center',flex:'1 1 170px'}}><input type="checkbox" checked={k.visible} onChange={e=>setK({visible:e.target.checked})}/>
+              <span style={{width:18,height:3,borderRadius:2,background:k.c,display:'inline-block'}}/>{k.l} ({C.filter(c=>elecCategorieCable(c)===k0.id).length})</label>
+            <select className="in" style={{maxWidth:110}} value={k.c} aria-label={'Couleur — '+k.l} onChange={e=>setK({couleur:e.target.value})}>
+              {ELEC_CABLE_COULEURS.map(([v,l])=><option key={l} value={v||ELEC_BLEU}>{l}</option>)}</select>
+            <label className="row" style={{gap:4,alignItems:'center'}}><input type="checkbox" checked={k.pointille} onChange={e=>setK({pointille:e.target.checked})}/>pointillé</label></div>})}
+      </div>}
       <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
-        {outil==='cable'
+        {plan.verrouille?'🔒 Plan verrouillé : les équipements ne se déplacent plus. « Déverrouiller » pour les retoucher.'
+          :outil==='cable'
           ?(depart?'Cliquez maintenant le symbole commandé pour terminer le câble.'
                   :'Cliquez la commande (interrupteur, va-et-vient…), puis ce qu’elle pilote.')
           :outil==='@piece'?'Cliquez deux angles opposés de la pièce.'
           :outil==='@calib'?'Cliquez les deux extrémités d’une cote connue, puis indiquez sa longueur.'
           :outil&&outil.indexOf('@placer:')===0?'Cliquez sur le plan à l’endroit où poser cet équipement.'
           :outil&&outil.indexOf('@porte:')===0?'Cliquez sur le mur, à l’endroit de la porte.'
+          :outil&&outil.indexOf('@fenetre:')===0?'Cliquez sur le mur, à l’endroit de la fenêtre.'
           :outil&&outil.indexOf('@presta:')===0?'Cliquez sur le plan : la prestation se pose, contre le mur le plus proche.'
           :outil&&elecSymbole(outil)?'Cliquez sur le plan pour poser « '+elecSymbole(outil).l+' »'+(ELEC_MURAUX.has(outil)?' : près d’un mur, il s’y accroche.':'.')
-                :'Cliquez un symbole pour le déplacer ou le régler, un câble pour le modifier.'}
+                :'Cliquez un symbole pour le déplacer ou le régler, un câble pour le modifier. En le lâchant près d’un mur, il s’y accroche (Alt : sans accrochage).'}
       </div>
 
       <div className="row" style={{gap:6,marginBottom:6,flexWrap:'wrap'}}>
@@ -12878,33 +13605,40 @@ function PlanElectrique({ch,up,onFermer,data,save}){
                 maj({legX:p.x-o.x,legY:p.y-o.y});return}
               majSymbole(drag.current,p)}}
             onPointerUp={e=>{
-              /* lâché près d'un mur de sa pièce : il s'y accroche */
-              if(drag.current&&drag.current!=='@legende'){const s0=S.find(x=>x.id===drag.current);
+              /* lâché près d'un mur de sa pièce : il s'y accroche (sauf avec Alt) */
+              if(drag.current&&drag.current!=='@legende'&&!(e&&e.altKey)){const s0=S.find(x=>x.id===drag.current);
                 if(s0){const a=elecAccrocher(s0,plan.pieces,plan.ratio);if(a!==s0&&(a.x!==s0.x||a.y!==s0.y||a.rot!==s0.rot))majSymbole(s0.id,{x:a.x,y:a.y,rot:a.rot,mur:a.mur})}}
               drag.current=null;
               if(svgRef.current&&svgRef.current.releasePointerCapture&&e&&e.pointerId!==undefined)
                 try{svgRef.current.releasePointerCapture(e.pointerId)}catch(x){}}}>
             {/* les câbles passent sous les symboles, pour ne pas les masquer */}
-            {C.map(c=>{const chemin=cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure);
-              return <g key={c.id} onClick={e=>{e.stopPropagation();if(!outil){setSelC(c.id);setSel(null)}}}>
+            {C.map(c=>{const st=elecStyleCable(plan,c);if(!st.visible||plan.voirEquipements===false)return null;
+              const chemin=cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure);
+              /* avec un outil en main, un clic sur une liaison pose l'équipement
+                 (le clic passe au plan) ; sinon il sélectionne la liaison */
+              return <g key={c.id} onClick={e=>{if(outil)return;e.stopPropagation();setSelC(c.id);setSel(null)}}>
                 <path d={chemin} fill="none" stroke="transparent" strokeWidth="14" style={{cursor:outil?'inherit':'pointer'}}/>
-                <path d={chemin} fill="none" stroke={selC===c.id?TERRA:couleurCable(c)}
-                  strokeWidth={selC===c.id?ep+1:ep} strokeLinecap="round" strokeDasharray={traitCable(c,ep)}/>
+                <path d={chemin} fill="none" stroke={selC===c.id?TERRA:st.couleur}
+                  strokeWidth={selC===c.id?ep+1:ep} strokeLinecap="round" strokeDasharray={traitCable({pointille:st.pointille},ep)}/>
               </g>})}
             {/* à l'écran seulement : les pièces tracées et la cote d'étalonnage */}
-            {(plan.pieces||[]).map(p=><g key={p.id} pointerEvents="none">
+            {plan.voirPieces!==false&&(plan.pieces||[]).map(p=><g key={p.id} pointerEvents="none">
               <rect x={Math.min(p.x0,p.x1)*1000} y={Math.min(p.y0,p.y1)*H} width={Math.abs(p.x1-p.x0)*1000} height={Math.abs(p.y1-p.y0)*H}
                 fill={ELEC_BLEU} fillOpacity="0.04" stroke={ELEC_BLEU} strokeOpacity="0.55" strokeWidth="1" strokeDasharray="6 4"/>
               <text x={Math.min(p.x0,p.x1)*1000+5} y={Math.min(p.y0,p.y1)*H+13} fontSize="11" fill={ELEC_BLEU} fillOpacity="0.8">{p.nom}</text>
               {(p.portes||[]).map(dp=>{const hz=dp.cote==='haut'||dp.cote==='bas',L=ELEC_DEMI_PORTE*1000;
                 return <g key={dp.id}><line x1={dp.x*1000-(hz?L:0)} y1={dp.y*H-(hz?0:L)} x2={dp.x*1000+(hz?L:0)} y2={dp.y*H+(hz?0:L)}
                   stroke={AMBER} strokeWidth="4" strokeOpacity="0.8"/>
-                  <text x={dp.x*1000+4} y={dp.y*H-4} fontSize="9" fill={AMBER}>porte{dp.poignee?' · poignée '+dp.poignee:''}</text></g>})}</g>)}
+                  <text x={dp.x*1000+4} y={dp.y*H-4} fontSize="9" fill={AMBER}>porte{dp.poignee?' · poignée '+dp.poignee:''}</text></g>})}
+              {(p.fenetres||[]).map(f=>{const hz=f.cote==='haut'||f.cote==='bas',L=(+f.demi||0.035)*1000;
+                return <g key={f.id}><line x1={f.x*1000-(hz?L:0)} y1={f.y*H-(hz?0:L)} x2={f.x*1000+(hz?L:0)} y2={f.y*H+(hz?0:L)}
+                  stroke={ELEC_BLEU} strokeWidth="4" strokeOpacity="0.7"/>
+                  <text x={f.x*1000+4} y={f.y*H+11} fontSize="9" fill={ELEC_BLEU}>fenêtre{f.vr!==false?' · VR':''}</text></g>})}</g>)}
             {plan.calib&&plan.calib.fond===plan.fond&&<line x1={plan.calib.x1*1000} y1={plan.calib.y1*H} x2={plan.calib.x2*1000} y2={plan.calib.y2*H}
               stroke={GREEN} strokeWidth="1.5" strokeDasharray="4 3" pointerEvents="none"/>}
             {trace&&(trace.p1||trace.c1)&&<circle cx={(trace.p1||trace.c1).x*1000} cy={(trace.p1||trace.c1).y*H} r="5" fill={AMBER} pointerEvents="none"/>}
             {trace&&trace.p1&&trace.p2&&<line x1={trace.p1.x*1000} y1={trace.p1.y*H} x2={trace.p2.x*1000} y2={trace.p2.y*H} stroke={AMBER} strokeWidth="2" pointerEvents="none"/>}
-            {Sp.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
+            {plan.voirEquipements!==false&&Sp.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
               const px=s.x*1000, py=s.y*H;
               /* touchAction 'none' sur le symbole seul : sans cela, au doigt,
                  le navigateur fait défiler le plan au lieu de le déplacer —
@@ -12913,14 +13647,17 @@ function PlanElectrique({ch,up,onFermer,data,save}){
                 onClick={e=>{e.stopPropagation();cliquerSymbole(s.id)}}
                 onPointerDown={e=>{if(outil)return;e.stopPropagation();
                   /* un équipement verrouillé se sélectionne, mais ne se déplace pas */
-                  drag.current=s.verrou?null:s.id;gestSymbole.current=true;setSel(s.id);setSelC(null);
+                  drag.current=s.verrou||plan.verrouille?null:s.id;gestSymbole.current=true;setSel(s.id);setSelC(null);
                   if(svgRef.current&&svgRef.current.setPointerCapture)svgRef.current.setPointerCapture(e.pointerId)}}>
                 {(sel===s.id||depart===s.id)&&<circle cx={px} cy={py} r={15*ech} fill="none"
                   stroke={depart===s.id?ELEC_BLEU:TERRA} strokeWidth="1.8" strokeDasharray="3 2"/>}
-                {s.statut==='a_confirmer'&&<circle cx={px} cy={py} r={13*ech} fill="none" stroke={AMBER} strokeWidth="1.2" strokeDasharray="2 2"/>}
+                {/* une proposition automatique se distingue jusqu'à sa validation ;
+                    plus marquée quand sa position est peu sûre */}
+                {s.statut==='a_confirmer'&&<circle cx={px} cy={py} r={13*ech} fill={typeof s.confiance==='number'&&s.confiance<ELEC_SEUIL_CONFIANCE?AMBER:'none'} fillOpacity="0.12"
+                  stroke={AMBER} strokeWidth={typeof s.confiance==='number'&&s.confiance<ELEC_SEUIL_CONFIANCE?1.8:1.2} strokeDasharray="2 2"/>}
                 {/* une cible de saisie confortable, même quand le symbole est petit */}
                 <circle cx={px} cy={py} r={Math.max(11,14*ech)} fill="transparent"/>
-                <g transform={poseSymbole(px,py,s.rot,ech)}><ElecGlyph t={s.type} eleve={priseHaute(s)}/></g>
+                <g transform={poseSymbole(px,py,s.rot,ech)}><ElecGlyph t={s.type} rot={s.rot} eleve={priseHaute(s)}/></g>
                 {!!etiquetteHauteur(s,hauteurs)&&
                   <text x={px+11*ech} y={py-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
                     {etiquetteHauteur(s,hauteurs)}</text>}
@@ -13019,6 +13756,10 @@ function PlanElectrique({ch,up,onFermer,data,save}){
             {elecSymbole((parId[choisiC.vers]||{}).type)?elecSymbole(parId[choisiC.vers].type).l:'?'}</span>
           <button className="btn dg s" onClick={()=>supprimerCable(choisiC.id)}>Supprimer</button>
         </div>
+        <Fld label="CALQUE">
+          <select className="in" value={elecCategorieCable(choisiC)} aria-label="Calque de la liaison" onChange={e=>majCable(choisiC.id,{categorie:e.target.value})}>
+            {ELEC_LIAISONS.map(k=><option key={k.id} value={k.id}>{k.l}</option>)}</select>
+        </Fld>
         <Fld label="COURBURE">
           <input className="in" type="range" min="-60" max="60" step="2"
             value={Math.round((choisiC.courbure===undefined?0.18:choisiC.courbure)*100)}
@@ -13128,9 +13869,9 @@ function PlanElectrique({ch,up,onFermer,data,save}){
           Le fond n'est pas donné à la première : il est peint à part sur la toile. */}
       {aExporter&&<div ref={exportRef} aria-hidden="true"
         style={{position:'fixed',left:-10000,top:0,width:1000,pointerEvents:'none'}}>
-        <PlanExport ratio={plan.ratio} symboles={Sp} cables={C} plan={plan}
+        <PlanExport ratio={plan.ratio} symboles={Sp} cables={Cx} plan={plan}
           titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+mentions(aExporter.indice)} hauteurs={hauteurs} echelle={ech} trait={ep}/>
-        <LegendeExport leg={legende} cables={C} trait={ep}
+        <LegendeExport leg={legende} cables={Cx} trait={ep}
           titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())+mentions(aExporter.indice)}/>
       </div>}
 
@@ -13145,11 +13886,11 @@ function PlanElectrique({ch,up,onFermer,data,save}){
           {!!fondUrl&&<img src={fondUrl} alt="" style={{width:'100%',display:'block'}}/>}
           <svg viewBox={'0 0 1000 '+H} preserveAspectRatio="none"
             style={{position:'absolute',left:0,top:0,width:'100%',height:'100%'}}>
-            {C.map(c=><path key={c.id} d={cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure)}
+            {Cx.map(c=><path key={c.id} d={cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure)}
               fill="none" stroke={couleurCable(c)} strokeWidth={ep} strokeDasharray={traitCable(c,ep)}/>)}
             {Sp.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
               return <g key={s.id}>
-                <g transform={poseSymbole(s.x*1000,s.y*H,s.rot,ech)}><ElecGlyph t={s.type} eleve={priseHaute(s)}/></g>
+                <g transform={poseSymbole(s.x*1000,s.y*H,s.rot,ech)}><ElecGlyph t={s.type} rot={s.rot} eleve={priseHaute(s)}/></g>
                 {!!etiquetteHauteur(s,hauteurs)&&
                   <text x={s.x*1000+11*ech} y={s.y*H-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
                     {etiquetteHauteur(s,hauteurs)}</text>}
@@ -13159,7 +13900,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
           </div>
         </div>
         {!!legende.length&&<div className="feuille" style={{width:'100%'}}>
-          <LegendeExport leg={legende} cables={C} trait={ep}
+          <LegendeExport leg={legende} cables={Cx} trait={ep}
             titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())+mentions()}/>
         </div>}
       </div>)}

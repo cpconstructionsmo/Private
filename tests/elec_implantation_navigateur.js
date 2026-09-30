@@ -50,13 +50,13 @@ const FAUX_SUPA=`window.supabase={createClient:()=>{const q={select:()=>q,eq:()=
   chk(/Porte 1 \(mur bas\)/.test(await p.textContent('main')),'porte marquée sur le mur du bas');
   await p.selectOption('select[aria-label="Côté de la poignée"]','gauche');
   /* base et proposition */
-  await p.click('button:has-text("Générer la base")');
+  await p.click('button:has-text("Programme électrique (DQE)")');
   await p.selectOption('select:has(option[value="modele_cp"])','modele_cp');
   await p.click('button:has-text("Remplir la base avec le modèle CP")');
-  await p.click('button:has-text("Préparer la proposition d’implantation")');
+  await p.click('button:has-text("✨ Générer automatiquement le plan électrique")');
+  await p.waitForSelector('text=PLAN ÉLECTRIQUE GÉNÉRÉ',{timeout:15000});
   const tp=await p.textContent('main');
-  chk(/liaisons? commande → éclairage/.test(tp)&&/à valider/.test(tp),'proposition : liaisons commande → éclairage, positions à valider');
-  await p.click('button:has-text("Appliquer")');await p.waitForTimeout(300);
+  chk(/\d+ commandes? → éclairage/.test(tp)&&/Valider la proposition/.test(tp),'génération : liaisons commande → éclairage, proposition à valider');
   const chemins=await p.locator('.elec-zone svg path[stroke-linecap="round"]').count();
   chk(chemins>=2,'les liaisons sont tracées ('+chemins+')');
   const P=await poses();

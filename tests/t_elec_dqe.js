@@ -75,9 +75,9 @@ const lig=(pieceNom,libre)=>ctl.lignes.find(l=>l.pieceNom===pieceNom&&new RegExp
 chk(lig('Cuisine','PC 2P\\+T 16A').niveau==='erreur'&&lig('Cuisine','PC 2P\\+T 16A').implante===6&&lig('Cuisine','PC 2P\\+T 16A').prevu===7,'🔴 cuisine : 6 prises sur 7 prévues au DQE');
 chk(lig('Cuisine','20A').niveau==='ok'&&lig('Cuisine','32A').niveau==='ok','✅ cuisine : 3 prises 20 A et 32 A conformes');
 const rj=lig('Séjour','RJ');
-chk(rj.niveau==='controle'&&/hors marché/.test(rj.msg)&&rj.article==='D_23SEJ_7PTT','🟠 séjour : 3 RJ45 pour 2 — 1 potentiellement hors marché, article conservé');
+chk(rj.niveau==='option'&&/hors marché/.test(rj.msg)&&rj.article==='D_23SEJ_7PTT','🔵 séjour : 3 RJ45 pour 2 — 1 potentiellement hors marché, article conservé');
 chk(lig('Logement (général)','^VR$').niveau==='ok','✅ 6 volets posés dans les pièces, comptés sur la ligne du logement');
-chk(ctl.lignes.some(l=>l.type==='irve'&&l.prevu===0&&l.niveau==='controle'),'🟠 plan → DQE : une borne dessinée mais absente du DQE est signalée');
+chk(ctl.lignes.some(l=>l.type==='irve'&&l.prevu===0&&l.niveau==='option'),'🔵 plan → DQE : une borne dessinée mais absente du DQE est signalée');
 chk(ctl.plusValues.length===1&&ctl.plusValues[0].montantHT===73.5&&ctl.plusValueHT===73.5,'plus-value potentielle : 1 RJ45 au prix du DQE, 73,50 € HT (jamais facturée)');
 const R=ctl.rapport;
 chk(R.manquants>0&&R.horsDqe===2&&R.conformes+R.manquants===R.dqe,'rapport : conformes + manquants = prévus au DQE ; 2 hors DQE');
