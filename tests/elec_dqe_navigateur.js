@@ -48,7 +48,7 @@ const FAUX_SUPA=`window.supabase={createClient:()=>{const q={select:()=>q,eq:()=
   const clic=async(x,y)=>{await svg.scrollIntoViewIfNeeded();const b2=await svg.boundingBox();await p.mouse.click(b2.x+b2.width*x,b2.y+b2.height*y)};
   const Q=()=>p.textContent('.elec-quantitatif');
   chk(/QUANTITATIF/.test(await Q())&&/Aucune base/.test(await Q()),'le quantitatif est à côté du plan ; sans base, il le dit');
-  await p.click('button:has-text("Générer la base")');
+  await p.click('button:has-text("Programme électrique (DQE)")');
   await p.selectOption('select:has(option[value="dqe"])','dqe');
   await p.click('button:has-text("Lire le DQE du marché n° 3")');
   await p.waitForSelector('text=PIÈCES DU DQE → PIÈCES DU PLAN');
@@ -61,16 +61,15 @@ const FAUX_SUPA=`window.supabase={createClient:()=>{const q={select:()=>q,eq:()=
   const q1=norm(await Q());
   chk(/Cuisine.*PC 2P\+T 16A1 \/ 7 🔴/.test(q1),'quantitatif en temps réel : cuisine, 1 prise sur 7 🔴');
   chk(/Logement \(général\).*VR0 \/ 3 🔴/.test(q1),'les 3 volets du DQE comptés au logement : 0 / 3 🔴');
-  await p.click('button:has-text("Préparer la proposition d’implantation")');
-  await p.click('button:has-text("Appliquer")');
-  await p.waitForTimeout(300);
+  await p.click('button:has-text("✨ Générer automatiquement le plan électrique")');
+  await p.waitForSelector('text=PLAN ÉLECTRIQUE GÉNÉRÉ',{timeout:15000});
   const q2=norm(await Q());
-  chk(/PC 2P\+T 16A7 \/ 7 ✅/.test(q2)&&/PC 20A four2 \/ 2 ✅/.test(q2),'après la proposition : cuisine 7 / 7 ✅, 20 A 2 / 2 ✅');
-  chk(/VR0 \/ 3 🔴/.test(q2)&&/À PLACER/.test(await p.textContent('main')),'les volets n’ont pas de position inventée : « à placer »');
+  chk(/PC 2P\+T 16A7 \/ 7/.test(q2)&&/PC 20A four2 \/ 2/.test(q2)&&/(\d+) \/ \1 conformes/.test(q2),'après la génération : cuisine 7 / 7, 20 A 2 / 2, tout conforme');
+  chk(/VR3 \/ 3 🟠/.test(q2)&&/à vérifier/.test(q2),'les volets sans fenêtre marquée : posés, en orange « à vérifier » (position non inventée comme sûre)');
   await p.click('.elec-quantitatif button:has-text("Contrôler le plan")');
   await p.waitForSelector('text=CONTRÔLE PLAN ÉLECTRIQUE');
   const tc=norm(await p.textContent('.elec-controle'));
-  chk(/Prévus au DQE\s*\d+/.test(tc)&&/Manquants\s*3/.test(tc)&&/VR/.test(tc),'contrôle : rapport, 3 volets manquants signalés');
+  chk(/Prévus au DQE\s*\d+/.test(tc)&&/Manquants\s*0/.test(tc)&&/DQE \/ PLAN — par équipement/.test(tc)&&/vérification d’ensemble/.test(tc),'contrôle : rapport sans manquant, DQE / PLAN par équipement, vérification d’ensemble');
   const [dl]=await Promise.all([p.waitForEvent('download',{timeout:20000}),p.click('button:has-text("DQE contrôlé (Excel)")')]);
   chk(!!dl,'DQE contrôlé exporté en Excel');
   /* la fiche d'un équipement posé : son article du DQE */

@@ -97,7 +97,7 @@ const fonction=c=>{
   const norm=s=>s.replace(/\s+/g,' ');
 
   /* le DQE, puis le descriptif qui le contredit */
-  await p.click('button:has-text("Générer la base")');
+  await p.click('button:has-text("Programme électrique (DQE)")');
   await p.selectOption('select:has(option[value="dqe"])','dqe');
   await p.click('button:has-text("Lire le DQE du marché n° 3")');
   await p.click('button:has-text("Créer le programme depuis ce DQE")');

@@ -1,6 +1,6 @@
 /* Vérification dans Chromium : le plan électrique garde son dessin, et
    gagne l'assistant — tracer une pièce, étalonner, remplir la base avec le
-   modèle CP, proposer l'implantation, vérifier les écarts ; Annuler rétablit
+   modèle CP, générer le plan en un clic, vérifier les écarts ; Annuler rétablit
    l'état d'avant ; un équipement verrouillé ne bouge pas. */
 require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
 const {chromium}=require('playwright-core');const fs=require('fs');const path=require('path');
@@ -50,16 +50,14 @@ const FAUX_SUPA=`window.supabase={createClient:()=>{const q={select:()=>q,eq:()=
   await p.click('button:has-text("Enregistrer l’échelle")');
   chk(/Échelle vérifiée/.test(await p.textContent('main')),'étalonné : « Échelle vérifiée »');
 
-  /* base et proposition */
-  await p.click('button:has-text("Générer la base")');
+  /* le programme (modèle CP), puis la génération en un clic */
+  await p.click('button:has-text("Programme électrique (DQE)")');
   await p.selectOption('select:has(option[value="modele_cp"])','modele_cp');
   await p.click('button:has-text("Remplir la base avec le modèle CP")');
-  await p.click('button:has-text("Préparer la proposition d’implantation")');
+  await p.click('button:has-text("✨ Générer automatiquement le plan électrique")');
+  await p.waitForSelector('text=PLAN ÉLECTRIQUE GÉNÉRÉ',{timeout:15000});
   const txt=await p.textContent('main');
-  chk(/à ajouter — le long des murs, statut « à confirmer »/.test(txt),'proposition : placée le long des murs, à confirmer');
-  const avant=await p.locator('g[style*="cursor"] >> nth=0').count();
-  await p.click('button:has-text("Appliquer")');
-  await p.waitForTimeout(300);
+  chk(/PROPOSITION AUTOMATIQUE CP/.test(txt)&&/Valider la proposition/.test(txt),'génération : proposition automatique CP, à valider');
   const nb=await p.textContent('text=/\\d+ symboles? posés?/');
   chk(/1[0-9] symboles posés/.test(nb),'appliqué : '+nb);
   /* l'étape de contrôle (renommée « Contrôler le plan ») : le rapport prévu / implanté */
@@ -67,7 +65,7 @@ const FAUX_SUPA=`window.supabase={createClient:()=>{const q={select:()=>q,eq:()=
   chk(/CONTRÔLE PLAN ÉLECTRIQUE/.test(await p.textContent('.elec-controle'))&&/PC 2P\+T/.test(await p.textContent('.elec-quantitatif')),'contrôle prévu / implanté affiché');
 
   /* annuler */
-  await p.click('button:has-text("Annuler")');await p.waitForTimeout(300);
+  await p.click('button[title="Annuler (Ctrl+Z)"]');await p.waitForTimeout(300);
   chk(/1 symbole posé/.test(await p.textContent('main')),'Annuler : l’implantation proposée est retirée d’un coup');
   await p.click('button:has-text("Rétablir")');await p.waitForTimeout(300);
   chk(/1[0-9] symboles posés/.test(await p.textContent('main')),'Rétablir : elle revient');

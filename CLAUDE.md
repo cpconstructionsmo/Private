@@ -26,6 +26,9 @@ qu'on ait à les redire.
   fichier) est la jauge du plan — `elecLireDQE`, `elecControle`. Aucune
   règle réglementaire n'est inscrite dans le code : elles se saisissent
   (norme, version, source, date de vérification) dans la bibliothèque CP.
+  « ✨ Générer automatiquement » (`elecGenererPlan`) pose tout le programme
+  sur les pièces tracées ; il ne retire jamais un équipement posé à la main,
+  retouché (`userModified`) ou verrouillé. Tests : `t_elec_generateur.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié).
 
