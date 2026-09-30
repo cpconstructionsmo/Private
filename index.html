@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-30 · Facture visée : montant TTC pour le client, sans nom de chantier, signature professionnelle avec logo';
+const VERSION='2026-09-30 · Plan électrique : le DQE comme jauge — lecture du marché ou du fichier, quantitatif en temps réel, contrôle bidirectionnel, rapport et exports';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -372,6 +372,8 @@ const PHASE={etude:'Étude',pc:'Permis',consultation:'Consultation',travaux:'Tra
    l'usage : rouge pour la puissance, bleu pour l'éclairage et la commande
    centralisée, vert pour les courants faibles. */
 const ELEC_ROUGE='#C0392B',ELEC_BLEU='#1F6FA9',ELEC_VERT='#27823F';
+/* la ventilation n'est pas le réseau électrique : une couleur à part */
+const ELEC_VIOLET='#7B4FA0';
 const ELEC_SYMBOLES=[
   {id:'pc',      l:'PC 2P+T 16A',   h:30,  g:'Prises',      c:ELEC_ROUGE},
   {id:'pch',     l:'PC H.',         h:110, g:'Prises',      c:ELEC_ROUGE},
@@ -402,7 +404,25 @@ const ELEC_SYMBOLES=[
   {id:'legen',   l:'LE Gen',        h:100, g:'Équipements', c:ELEC_VERT},
   {id:'secheserv',l:'Sèche-serviettes',h:110,g:'Équipements',c:ELEC_ROUGE},
   {id:'antenne', l:'Antenne râteau',h:250, g:'Équipements', c:ELEC_VERT},
+  /* ce que lit le DQE et qui manquait : sans hauteur de pose de référence,
+     la hauteur reste « à définir » (réglable dans la bibliothèque CP) */
+  {id:'pcext',   l:'Prise extérieure',h:null,g:'Prises',     c:ELEC_ROUGE,ab:'EX'},
+  {id:'hotte',   l:'Prise hotte',   h:null, g:'Prises',      c:ELEC_ROUGE,ab:'H'},
+  {id:'da',      l:'Double allumage',h:110, g:'Commandes',   c:ELEC_ROUGE,ab:'DA'},
+  {id:'bp',      l:'Bouton poussoir',h:110, g:'Commandes',   c:ELEC_ROUGE,ab:'BP'},
+  {id:'spot',    l:'Spot',          h:250,  g:'Éclairage',   c:ELEC_BLEU,ab:'SP'},
+  {id:'coffcom', l:'Coffret communication',h:null,g:'Équipements',c:ELEC_VERT,ab:'COM'},
+  {id:'pac',     l:'Alim. PAC',     h:null, g:'Équipements', c:ELEC_ROUGE,ab:'PAC'},
+  {id:'pgarage', l:'Alim. porte de garage',h:null,g:'Équipements',c:ELEC_ROUGE,ab:'PG'},
+  {id:'portail', l:'Alim. portail', h:null, g:'Équipements', c:ELEC_ROUGE,ab:'PO'},
+  {id:'interphone',l:'Interphone',  h:null, g:'Équipements', c:ELEC_BLEU,ab:'IP'},
+  {id:'irve',    l:'Borne véhicule électrique',h:null,g:'Équipements',c:ELEC_ROUGE,ab:'VE'},
+  {id:'vmc',     l:'Groupe VMC',    h:null, g:'VMC',         c:ELEC_VIOLET,ab:'VMC'},
+  {id:'bouche',  l:'Bouche d’extraction',h:null,g:'VMC',     c:ELEC_VIOLET,ab:'BE'},
+  {id:'entair',  l:'Entrée d’air',  h:null, g:'VMC',         c:ELEC_VIOLET,ab:'EA'},
 ];
+/* une hauteur de pose, en clair : « à définir » quand elle n'est pas fixée */
+const elecHautTxt=h=>h===null||h===undefined||h===''?'à définir':h;
 const ELEC_GROUPES=[...new Set(ELEC_SYMBOLES.map(s=>s.g))];
 const elecSymbole=t=>ELEC_SYMBOLES.find(s=>s.id===t)||null;
 /* une prise posée en hauteur (1m10, contre les 30 cm habituels) se repère
@@ -10861,7 +10881,7 @@ function ElecGlyph({t,c,eleve}){
     case 'splitue': return <g>{rondMot('UE')}</g>;
     case 'split': return <g>{rondMot('CE')}</g>;
     case 'sech': return <g>{rondMot('SE')}</g>;
-    default: return rondMot(s.l.replace(/[^A-Za-z0-9&]/g,'').slice(0,3));
+    default: return rondMot(s.ab||s.l.replace(/[^A-Za-z0-9&]/g,'').slice(0,3));
   }
   };
   return <g>{dessin()}
@@ -10963,7 +10983,7 @@ function ElecCartouche({leg,x,y,deplacable,onPointerDown}){
       <g transform="translate(20,10) scale(0.62)"><ElecGlyph t={s.id}/></g>
       <text x="38" y="14" fontSize="9.5" fill={INK}>{s.l}</text>
       <text x={ELEC_CARTOUCHE_L-10} y="14" fontSize="9.5" textAnchor="end" fill={MUTED}>
-        {'H : '+s.h+' · ×'+s.n}</text>
+        {'H : '+elecHautTxt(s.h)+' · ×'+s.n}</text>
     </g>)}
   </g>;
 }
@@ -11085,7 +11105,7 @@ function LegendeExport({leg,titre,cables,trait}){
       return <g key={s.id} transform={'translate('+(40+c*larg)+','+(y0+r*hLigne)+')'}>
         <g transform="translate(20,12)"><ElecGlyph t={s.id}/></g>
         <text x="46" y="17" fontSize="13" fill={INK}>{s.l}</text>
-        <text x={larg-70} y="17" fontSize="12" textAnchor="end" fill={MUTED}>{'H : '+s.h+' cm'}</text>
+        <text x={larg-70} y="17" fontSize="12" textAnchor="end" fill={MUTED}>{s.h===null||s.h===undefined||s.h===''?'H : à définir':'H : '+s.h+' cm'}</text>
         <text x={larg-20} y="17" fontSize="12" textAnchor="end" fontWeight="700" fill={INK}>{'×'+s.n}</text>
         <line x1="8" y1={hLigne-8} x2={larg-20} y2={hLigne-8} stroke={RULE} strokeWidth="0.6"/>
       </g>})}
@@ -11172,7 +11192,7 @@ const ELEC_MODELE_CP={
   'Extérieur':[['appext',1]],
 };
 const ELEC_STATUTS=[{id:'prevu',l:'Prévu'},{id:'a_confirmer',l:'À confirmer'},{id:'client',l:'Demande client'},{id:'valide',l:'Validé'}];
-const ELEC_NATURES=[{id:'prevu',l:'Prestation prévue'},{id:'reglementaire',l:'Exigence réglementaire'},{id:'client',l:'Préférence client'}];
+const ELEC_NATURES=[{id:'prevu',l:'Prestation prévue'},{id:'reglementaire',l:'Exigence réglementaire'},{id:'client',l:'Préférence client'},{id:'deduit',l:'Déduit du DQE (commande, bouche)'}];
 const elecUnite=type=>{const d=elecSymbole(type);return d&&d.g==='Prises'?'mecanisme':'poste'};
 const elecMecanismes=s=>Math.max(1,+(s&&s.mecanismes)||1);
 /* la pièce d'un équipement : celle qu'on lui a donnée, sinon celle dont le
@@ -11202,17 +11222,24 @@ function elecComparatif(plan,base){
   const lignes={};
   const cle=(p,t,n)=>p+'|'+t+'|'+n;
   ((base&&base.lignes)||[]).forEach(b=>{const k=cle(b.piece||'',b.type,b.nature||'prevu');
-    lignes[k]=lignes[k]||{piece:b.piece||'',type:b.type,nature:b.nature||'prevu',unite:b.unite||elecUnite(b.type),prevu:0,implante:0};
-    lignes[k].prevu+=+b.qte||0});
+    lignes[k]=lignes[k]||{piece:b.piece||'',type:b.type,nature:b.nature||'prevu',unite:b.unite||elecUnite(b.type),prevu:0,implante:0,
+      article:'',libelleDQE:'',pu:null,sourceNorme:b.sourceNorme||''};
+    lignes[k].prevu+=+b.qte||0;
+    /* l'article du DQE suit la ligne : c'est lui qui relie plan, marché et prix */
+    if(b.article&&!lignes[k].article){lignes[k].article=b.article;lignes[k].libelleDQE=b.libelleDQE||'';lignes[k].pu=typeof b.pu==='number'?b.pu:null}});
   S.forEach(s=>{
     const p=elecPieceDe(s,pieces);
-    const cible=Object.values(lignes).find(l=>l.piece===p&&l.type===s.type&&l.nature==='prevu')
-      ||Object.values(lignes).find(l=>l.piece===p&&l.type===s.type);
+    const L=Object.values(lignes);
+    /* une prestation du logement entier (volets, PAC, VMC…) prend ce qui
+       n'a pas de ligne dans sa pièce */
+    const cible=L.find(l=>l.piece===p&&l.type===s.type&&l.nature==='prevu')||L.find(l=>l.piece===p&&l.type===s.type)
+      ||L.find(l=>l.piece===''&&l.type===s.type&&l.nature==='prevu')||L.find(l=>l.piece===''&&l.type===s.type);
     const l=cible||(lignes[cle(p,s.type,'prevu')]={piece:p,type:s.type,nature:'prevu',unite:elecUnite(s.type),prevu:0,implante:0});
     l.implante+=l.unite==='mecanisme'?elecMecanismes(s):1;
   });
-  const nom=id=>(pieces.find(p=>p.id===id)||{}).nom||'Hors pièce';
-  return Object.values(lignes).map(l=>({...l,pieceNom:nom(l.piece),libelle:(elecSymbole(l.type)||{}).l||l.type,ecart:l.implante-l.prevu}))
+  /* sans pièce : une prestation du logement entier si le DQE en prévoit, sinon « hors pièce » */
+  const nom=(id,prevu)=>id===''?(prevu>0?'Logement (général)':'Hors pièce'):(pieces.find(p=>p.id===id)||{}).nom||'Hors pièce';
+  return Object.values(lignes).map(l=>({...l,pieceNom:nom(l.piece,l.prevu),libelle:(elecSymbole(l.type)||{}).l||l.type,ecart:l.implante-l.prevu}))
     .sort((a,b)=>a.pieceNom.localeCompare(b.pieceNom,'fr')||a.libelle.localeCompare(b.libelle,'fr'));
 }
 /* le prix unitaire TTC d'un type : tarif du bordereau lié (lu à jour) ou
@@ -11233,7 +11260,7 @@ function elecPrixTTC(t,data){
    manquante est un écart à résoudre, pas une option */
 function elecSupplements(comp,tarifs,data){
   const parType={};
-  comp.filter(l=>l.nature!=='reglementaire').forEach(l=>{const t=parType[l.type]=parType[l.type]||{type:l.type,libelle:l.libelle,unite:l.unite,prevu:0,implante:0};
+  comp.filter(l=>l.nature!=='reglementaire'&&l.nature!=='deduit').forEach(l=>{const t=parType[l.type]=parType[l.type]||{type:l.type,libelle:l.libelle,unite:l.unite,prevu:0,implante:0};
     t.prevu+=l.prevu;t.implante+=l.implante});
   const lignes=Object.values(parType).map(t=>{
     const ecart=t.implante-t.prevu, tar=(tarifs||{})[t.type]||null, pu=elecPrixTTC(tar,data);
@@ -11264,7 +11291,7 @@ function elecGenerer(plan,base){
     if(manque>0&&p){
       for(let i=0;i<manque;i++){
         const s={id:uid(),type:l.type,h:(elecSymbole(l.type)||{}).h,note:'',piece:p.id,statut:'a_confirmer',source:'genere',
-          ...(p.type==='Cuisine'?{note:'Selon plan du cuisiniste'}:{})};
+          ...(l.article?{article:l.article}:{}),...(p.type==='Cuisine'?{note:'Selon plan du cuisiniste'}:{})};
         if(ech.ok){
           /* le long des murs, à l'intérieur de la pièce, régulièrement répartis */
           const x0=Math.min(p.x0,p.x1),x1=Math.max(p.x0,p.x1),y0=Math.min(p.y0,p.y1),y1=Math.max(p.y0,p.y1);
@@ -11279,6 +11306,12 @@ function elecGenerer(plan,base){
           ajouts.push({...s,x,y});
         }else ajouts.push({...s,x:null,y:null,aPlacer:true});
       }
+    }
+    /* une prestation du logement entier : pas de pièce, donc pas de position
+       proposée — elle attend dans la liste « à placer » */
+    if(manque>0&&!p&&l.piece===''){
+      for(let i=0;i<manque;i++)ajouts.push({id:uid(),type:l.type,h:(elecSymbole(l.type)||{}).h,note:'',piece:'',statut:'a_confirmer',source:'genere',
+        ...(l.article?{article:l.article}:{}),x:null,y:null,aPlacer:true});
     }
     if(l.ecart>0){
       const trop=S.filter(s=>!s.aPlacer&&s.type===l.type&&elecPieceDe(s,pieces)===l.piece&&s.source==='genere'&&!s.verrou);
@@ -11299,6 +11332,468 @@ function elecIndicePourSortie(plan){
 }
 const elecConfirmationValable=pe=>!!(pe&&pe.etudeConfirmeeLe)&&(!pe.confirmeIndice||!pe.plan||pe.confirmeIndice===pe.plan.indice);
 
+/* ---------- le DQE électrique, jauge du plan ----------
+   Le devis quantitatif de l'électricien (le quantitatif du marché
+   « Électricité » du dossier, ou un fichier Excel, Word ou PDF texte) est
+   lu ligne à ligne : ses intertitres donnent les pièces (« CUISINE : »,
+   « CHAMBRES 1, 2 ET 3 : »), ses articles les équipements, avec leur code
+   article, leur quantité et leur prix unitaire, qui ne se perdent plus.
+   - Une ligne reconnue devient un type de symbole ; une ligne qu'on ne sait
+     pas rattacher reste « à affecter » : rien n'est deviné.
+   - Une pièce que l'intitulé ne permet pas d'identifier reste « pièce non
+     identifiée — validation nécessaire ».
+   - Ce qui n'est pas dans une pièce (« AUTRES », volets roulants, PAC,
+     VMC…) est une prestation du logement entier.
+   - Ce qui ne se dessine pas (mise à la terre, consuel, filerie…) est
+     compté comme prestation, jamais posé sur le plan.
+   Le plan se contrôle ensuite dans les deux sens : ce qui est vendu doit
+   être dessiné, ce qui est dessiné doit être vendu. */
+
+/* l'intitulé d'une pièce : son type, et le nombre de pièces qu'il couvre
+   (« CHAMBRES 1, 2 ET 3 » en couvre trois) */
+const ELEC_DQE_PIECES=[
+  [/sejour|salon|espace jour|piece de vie|salle a manger/,'Séjour'],[/cuisine/,'Cuisine'],[/entree|hall/,'Entrée'],
+  [/degagement|couloir|circulation|palier/,'Dégagement'],[/salle d.?eau/,'Salle d’eau'],[/salle de bains?|\bsdb\b/,'Salle de bains'],
+  [/\bwc\b|toilettes/,'WC'],[/chambres?|\bch\s*\d/,'Chambre'],[/cellier|buanderie|arriere.cuisine|lingerie/,'Cellier / buanderie'],
+  [/garage/,'Garage'],[/bureau/,'Bureau'],[/exterieur|terrasse|facade|jardin/,'Extérieur']];
+function elecTitreDQE(lib){
+  const t=deaccent(String(lib||'')).toLowerCase().replace(/\s*:\s*$/,'').trim();
+  if(!t)return {vide:true};
+  /* un titre de lot (« 151 ÉLECTRICITÉ », « 153 VENTILATION… ») ferme la pièce en cours */
+  if(/^\d{2,4}\b/.test(t)||/^(lot\b|electricite|ventilation|chauffage|courants? faibles?|vmc\b)/.test(t))return {lot:lib};
+  if(/^(autres?|divers|general(es)?|generalites|logement|equipements? generaux)\b/.test(t))return {general:true};
+  const r=ELEC_DQE_PIECES.find(([re])=>re.test(t));
+  /* le nombre de pièces : « chambres 1, 2 et 3 », « chambres 1 à 3 » */
+  let nombre=1;
+  const plage=t.match(/(\d+)\s*(?:a|à|-)\s*(\d+)/);
+  const nums=(t.match(/\d+/g)||[]).map(Number);
+  if(plage&&+plage[2]>+plage[1])nombre=+plage[2]-+plage[1]+1;
+  else if(nums.length>1)nombre=nums.length;
+  return {nom:String(lib).replace(/\s*:\s*$/,'').trim(),type:r?r[1]:null,nombre};
+}
+/* le type de symbole d'un article, d'après son libellé (et sa pièce) ;
+   « commande » : l'allumage que le libellé précise pour un point lumineux */
+const ELEC_DQE_NON_DESSINES=/liaison equipotentielle|mise a la terre|consuel|filerie|eco.?participation|demande de|raccordement|essais|mise en service|dossier|attestation/;
+function elecTypeDQE(lib,pieceType){
+  const t=deaccent(String(lib||'')).toLowerCase();
+  const commande=/v\s*(et|&)\s*v|va.et.vient/.test(t)?'vv':/double allumage/.test(t)?'da':/poussoir|telerupteur/.test(t)?'bp'
+    :/sa a temoin|sa voyant|a voyant|temoin/.test(t)?'savoy':/\(sa\)|\bsa\b|simple allumage/.test(t)?'sa':null;
+  if(ELEC_DQE_NON_DESSINES.test(t))return {nonDessine:true};
+  if(/tableau (de |et )?(distribution|electrique)|tableau.*type|\bgtl\b/.test(t))return {type:'tab',general:true};
+  if(/tableau (de )?communication|coffret (de )?communication|grade\s*[123].*coffret/.test(t))return {type:'coffcom',general:true};
+  if(/pompe a chaleur|\bpac\b/.test(t))return {type:'pac',general:true};
+  if(/thermostat/.test(t))return {type:'th',general:true};
+  if(/volets? roulants?|\bvr\b/.test(t))return {type:'vr',general:true};
+  if(/entree d.?air/.test(t))return {type:'entair',general:true};
+  if(/bouche/.test(t))return {type:'bouche',general:true};
+  if(/v\.?m\.?c|ventilation/.test(t))return {type:'vmc',general:true,bouches:(t.match(/(\d+)\s*sanitaires?/)||[])[1]?+(t.match(/(\d+)\s*sanitaires?/)[1])+(/cuisine/.test(t)?1:0):null};
+  if(/porte de garage/.test(t))return {type:'pgarage'};
+  if(/portail/.test(t))return {type:'portail'};
+  if(/interphone|visiophone/.test(t))return {type:'interphone'};
+  if(/sonnette|carillon/.test(t))return {type:'son'};
+  if(/borne|recharge|irve|vehicule electrique/.test(t))return {type:'irve'};
+  if(/detecteur.*fumee|daaf/.test(t))return {type:'fumee'};
+  if(/seche.serviettes?/.test(t))return {type:'secheserv'};
+  if(/hotte/.test(t))return {type:'hotte'};
+  if(/lave.linge/.test(t))return {type:'ll'};
+  if(/lave.vaisselle/.test(t))return {type:'lv'};
+  if(/seche.linge/.test(t))return {type:'sl'};
+  if(/communication|rj\s*45|cat\s*6|grade\s*\d/.test(t))return {type:'rj45'};
+  if(/prise.*tv|\btv\b|television|antenne/.test(t))return {type:'tv'};
+  if(/32\s*a/.test(t))return {type:'pc32'};
+  if(/(16\s*\/\s*)?20\s*a/.test(t)&&!/10\s*\/\s*16/.test(t))return {type:'pc20'};
+  if(/applique/.test(t))return {type:pieceType==='Extérieur'||/exterieur|acces|porte de service|facade/.test(t)?'appext':'applique',commande};
+  if(/point lumineux|\bdcl\b|plafonnier|point centre|point de centre/.test(t))return {type:'pointc',commande};
+  if(/spot/.test(t))return {type:'spot',commande};
+  if(/prise.*exterieure|prise etanche/.test(t)||(pieceType==='Extérieur'&&/prise/.test(t)))return {type:'pcext'};
+  if(/prise|\bpc\b|2p\s*\+\s*t|10\s*\/\s*16/.test(t))return {type:'pc'};
+  return {};
+}
+/* lire des lignes de quantitatif : [{type:'titre'|'article'|'note', code,
+   libelle, qt, unite, pu}] → pièces du DQE et lignes rattachées */
+function elecLireDQE(lignes,source){
+  const pieces=[],out=[];
+  let piece=null,section='';
+  (lignes||[]).forEach((l,i)=>{
+    const ty=ligneType(l);
+    if(ty==='titre'){
+      const r=elecTitreDQE(l.libelle);
+      if(r.vide)return;
+      if(r.lot){section=r.lot;piece=null;return}
+      if(r.general){piece=null;return}
+      piece={cle:'dp_'+pieces.length,nom:r.nom,type:r.type,nombre:r.nombre};
+      pieces.push(piece);return;
+    }
+    if(ty!=='article')return;
+    const qte=+String(l.qt===undefined?'':l.qt).replace(',','.')||0;
+    if(!(qte>0))return;
+    const m=elecTypeDQE(l.libelle,piece&&piece.type);
+    out.push({id:'dq_'+(l.id||i),article:String(l.code||'').trim(),libelle:String(l.libelle||'').trim(),qte,unite:l.unite||'U',
+      pu:l.pu===''||l.pu===undefined||l.pu===null||!isFinite(+l.pu)?null:+l.pu,section,
+      pieceCle:piece&&!m.general?piece.cle:'',type:m.type||null,commande:m.commande||null,bouches:m.bouches||null,
+      nonDessine:!!m.nonDessine,reconnu:!!(m.type||m.nonDessine)});
+  });
+  return {source:source||{},le:today(),pieces,lignes:out};
+}
+/* depuis le marché électricité du dossier : les données exactes de l'application */
+const elecMarchesElec=(ch,data)=>((data&&data.marches)||[]).filter(m=>m.chantierId===ch.id&&/elec/i.test(deaccent(String(m.lot||'')))
+  &&m.quantitatif&&(m.quantitatif.lignes||[]).some(l=>estArticle(l)&&+l.qt>0));
+function elecDqeDepuisMarche(m,data){
+  const art=((data&&data.artisans)||[]).find(a=>a.id===m.artisanId);
+  return elecLireDQE(m.quantitatif.lignes,{type:'marche',marcheId:m.id,nom:'Marché '+(m.numero?'n° '+m.numero+' ':'')+'— '+(m.lot||'Électricité')+(art?' — '+art.nom:'')});
+}
+/* depuis un classeur : une ligne d'en-têtes ARTICLE / LIBELLÉ…, des lignes
+   d'articles, et entre elles des intitulés de pièce sur une seule cellule */
+function elecDqeDepuisFeuilles(feuilles,nom){
+  const L=[];
+  (feuilles||[]).forEach(f=>{
+    let col=null;
+    (f.lignes||[]).forEach(r=>{
+      const cells=(r||[]).map(nettoieCell);
+      const iA=cells.findIndex((c,x)=>/^article$/i.test(c)&&/libell/i.test(cells[x+1]||''));
+      if(iA>=0){col={a:iA,l:iA+1,q:cells.findIndex(c=>/^(qt|qte|quantite)/i.test(deaccent(c))),u:cells.findIndex(c=>/^u(nite)?$/i.test(c)),
+        p:cells.findIndex(c=>/^p\.?u/i.test(c))};return}
+      const pleines=cells.filter(Boolean);
+      if(col&&estCodeArticle(cells[col.a])&&cells[col.l]){
+        L.push({type:'article',code:cells[col.a],libelle:cells[col.l],qt:col.q>=0?prixCell(cells[col.q]):'',unite:col.u>=0?cells[col.u]:'U',pu:col.p>=0?prixCell(cells[col.p]):null});return}
+      if(pleines.length===1&&!/^(total|sous.total|tva)/i.test(deaccent(pleines[0])))L.push({type:'titre',libelle:pleines[0]});
+    });
+  });
+  return elecLireDQE(L,{type:'fichier',nom});
+}
+/* depuis un texte (Word, ou PDF à texte) : cellules ligne à ligne comme dans
+   un tableau Word, ou texte à plat d'un PDF ; les intitulés de pièce sont
+   ce qui précède un en-tête ARTICLE / LIBELLÉ */
+function elecDqeDepuisTexte(txt,nom){
+  const plat=String(txt||'').replace(/[  ]/g,' ').replace(/\s+/g,' ');
+  const L=[];
+  const code='([A-Za-z][\\w\\-\\.\\*\\/]*_[\\w\\-\\.\\*\\/]*)';
+  const nb='(\\d+(?:[.,]\\d+)?)';
+  const re=new RegExp(code+'\\s+(.+?)\\s+'+nb+'\\s+(U|ML|M2|M²|M3|M³|ENS|FT|F|KG|H|J|T)\\s+([\\d ]+[.,]\\d{2})(?:\\s+[\\d ]+[.,]\\d{2})?','g');
+  let m,dernier=0;
+  const titres=seg=>{
+    /* ce qui se trouve entre deux articles : « CUISINE : ARTICLE LIBELLÉ QT U PU PT » */
+    const s=seg.replace(/ARTICLE\s+LIBELL[ÉE]\s+QT\s+U\s+PU\s+PT/gi,'|').split('|').map(x=>x.trim()).filter(Boolean);
+    s.forEach(x=>{
+      /* une pièce s'écrit en capitales et se termine par « : » ; un titre de
+         lot commence par son numéro (« 151 ÉLECTRICITÉ ») ; le reste (en-tête
+         du document, totaux) n'est pas un intitulé */
+      const piece=x.match(/([A-ZÉÈÊÀÂÎÔÛÇ][A-ZÉÈÊÀÂÎÔÛÇ0-9 ,'’\-]{1,50}?)\s*:\s*$/);
+      if(piece){L.push({type:'titre',libelle:piece[1].trim()});return}
+      const lot=x.match(/(\d{2,4}\s+[A-ZÉÈÊÀÂÎÔÛÇ][A-ZÉÈÊÀÂÎÔÛÇ ’'\-]+)$/);
+      if(lot)L.push({type:'titre',libelle:lot[1].trim()});
+    });
+  };
+  while((m=re.exec(plat))){
+    titres(plat.slice(dernier,m.index));
+    L.push({type:'article',code:m[1],libelle:m[2].trim(),qt:+m[3].replace(',','.'),unite:m[4],pu:+m[5].replace(/ /g,'').replace(',','.')});
+    dernier=re.lastIndex;
+  }
+  return elecLireDQE(L,{type:'fichier',nom});
+}
+/* rattacher les pièces du DQE aux pièces tracées : même type, dans l'ordre ;
+   « Chambres 1, 2 et 3 » en prend trois ; ce qui ne trouve rien reste à affecter */
+function elecAffecterPieces(dqe,piecesPlan){
+  const pris=new Set(), out={};
+  (dqe.pieces||[]).forEach(p=>{
+    if(!p.type){out[p.cle]=[];return}
+    const cand=(piecesPlan||[]).filter(x=>x.type===p.type&&!pris.has(x.id));
+    const choix=cand.slice(0,p.nombre||1);
+    choix.forEach(x=>pris.add(x.id));
+    out[p.cle]=choix.map(x=>x.id);
+  });
+  return out;
+}
+/* le programme tiré du DQE : une ligne de base par pièce du plan et par
+   type, avec l'article et son prix. Une ligne qui couvre plusieurs pièces
+   est répartie (proposition, à valider) ; les commandes et les bouches que
+   le libellé implique sont « déduites du DQE », à contrôler, sans prix. */
+function elecBaseDepuisDQE(dqe,affect){
+  const L=[];
+  const pieceDe=l=>{
+    if(!l.pieceCle)return [''];
+    const ids=(affect&&affect[l.pieceCle])||[];
+    return ids.length?ids:[''];
+  };
+  (dqe.lignes||[]).filter(l=>l.type&&!l.nonDessine).forEach(l=>{
+    const ids=pieceDe(l);
+    const base=Math.floor(l.qte/ids.length), reste=l.qte-base*ids.length;
+    ids.forEach((pid,k)=>{
+      const q=base+(k<reste?1:0);
+      if(!(q>0))return;
+      const commun={piece:pid,article:l.article,libelleDQE:l.libelle,pu:l.pu,dqeId:l.id,origine:'dqe',
+        ...(ids.length>1?{repartition:'Répartition proposée ('+l.qte+' pour '+ids.length+' pièces) — à valider'}:{}),
+        ...(pid===''&&l.pieceCle?{nonAffecte:true}:{})};
+      L.push({id:'b_'+l.id+'_'+k,type:l.type,qte:q,unite:elecUnite(l.type),nature:'prevu',...commun});
+      if(l.commande)L.push({id:'b_'+l.id+'_'+k+'_cmd',type:l.commande,qte:q*(l.commande==='vv'?2:1),unite:'poste',nature:'deduit',...commun,pu:null});
+    });
+    if(l.type==='vmc'&&l.bouches)L.push({id:'b_'+l.id+'_bouches',piece:'',type:'bouche',qte:l.bouches,unite:'poste',nature:'deduit',
+      article:l.article,libelleDQE:l.libelle,pu:null,dqeId:l.id,origine:'dqe'});
+  });
+  return L;
+}
+
+/* ---------- le contrôle, dans les deux sens ----------
+   ✅ conforme · 🟠 à contrôler (en plus : potentiellement hors marché ;
+   commande ou bouche déduite manquante ; position proposée non validée) ·
+   🔴 erreur (prestation vendue absente du plan). Une exigence réglementaire
+   saisie se contrôle à part : ce n'est pas une différence avec le DQE. */
+function elecControle(plan,base){
+  const comp=elecComparatif(plan,base);
+  const S=((plan&&plan.symboles)||[]).filter(s=>!s.aPlacer);
+  const lignes=comp.filter(l=>l.nature!=='reglementaire').map(l=>{
+    let niveau='ok',msg='';
+    const ded=l.nature==='deduit';
+    if(l.implante<l.prevu){niveau=ded?'controle':'erreur';msg=(l.prevu-l.implante)+' manquant'+(l.prevu-l.implante>1?'s':'')+(ded?' (déduit du DQE, à contrôler)':' — prévu au DQE, absent du plan')}
+    else if(l.implante>l.prevu){niveau='controle';msg=l.prevu?(l.implante-l.prevu)+' en plus — potentiellement hors marché':'hors DQE — potentiellement hors marché'}
+    return {...l,niveau,msg};
+  });
+  const reglementaires=comp.filter(l=>l.nature==='reglementaire').map(l=>({...l,niveau:l.implante<l.prevu?'reglementaire':'ok',
+    msg:l.implante<l.prevu?'Contrôle réglementaire : point à vérifier'+(l.sourceNorme?' ('+l.sourceNorme+')':''):''}));
+  const vendus=lignes.filter(l=>l.nature==='prevu');
+  const somme=(L,f)=>L.reduce((s,l)=>s+f(l),0);
+  const rapport={
+    dqe:somme(vendus,l=>l.prevu),implantes:somme(lignes,l=>l.implante),
+    conformes:somme(vendus,l=>Math.min(l.prevu,l.implante)),
+    manquants:somme(vendus,l=>Math.max(0,l.prevu-l.implante)),
+    horsDqe:somme(lignes,l=>Math.max(0,l.implante-l.prevu)),
+    aValider:S.filter(s=>s.statut==='a_confirmer').length,
+    aPlacer:((plan&&plan.symboles)||[]).filter(s=>s.aPlacer).length,
+    nonAffectees:((base&&base.lignes)||[]).filter(l=>l.nonAffecte).length,
+  };
+  /* la plus-value potentielle d'un équipement en plus, au prix unitaire du
+     DQE (HT) : une information, jamais une facturation */
+  const plusValues=lignes.filter(l=>l.implante>l.prevu&&l.nature==='prevu'&&typeof l.pu==='number').map(l=>({
+    pieceNom:l.pieceNom,libelle:l.libelle,article:l.article,quantite:l.implante-l.prevu,pu:l.pu,montantHT:Math.round((l.implante-l.prevu)*l.pu*100)/100}));
+  const anomalies=[...lignes.filter(l=>l.niveau!=='ok'),...reglementaires.filter(l=>l.niveau!=='ok')]
+    .sort((a,b)=>({erreur:0,controle:1,reglementaire:2}[a.niveau]-{erreur:0,controle:1,reglementaire:2}[b.niveau])||a.pieceNom.localeCompare(b.pieceNom,'fr'));
+  return {lignes,reglementaires,rapport,anomalies,plusValues,
+    plusValueHT:Math.round(plusValues.reduce((s,p)=>s+p.montantHT,0)*100)/100};
+}
+/* la désignation d'une ligne de contrôle : celle du DQE ; une commande ou
+   une bouche déduite dit de quelle ligne elle vient */
+const elecDesignation=l=>l.nature==='deduit'?l.libelle+' — déduit de « '+(l.libelleDQE||'?')+' »':(l.libelleDQE||l.libelle);
+const ELEC_NIVEAUX={ok:{ic:'✅',c:GREEN,l:'Conforme'},controle:{ic:'🟠',c:AMBER,l:'À contrôler'},erreur:{ic:'🔴',c:TERRA,l:'Erreur'},reglementaire:{ic:'⚠️',c:AMBER,l:'Contrôle réglementaire'}};
+
+/* ---------- les sorties du contrôle ----------
+   Le tableau pour l'électricien (Excel) et le rapport de contrôle (PDF) :
+   pièce, article, désignation, quantité au plan, DQE initial, écart. */
+function elecDqeXlsx(ctl,titre){
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const cellule=(v,r,c)=>{const ref=String.fromCharCode(65+c)+r;
+    return typeof v==='number'?'<c r="'+ref+'"><v>'+v+'</v></c>':'<c r="'+ref+'" t="inlineStr"><is><t xml:space="preserve">'+esc(v)+'</t></is></c>'};
+  const rangs=[[titre||'Contrôle plan électrique'],[],['Pièce','Article','Désignation','Qté plan','DQE initial','Écart','État'],
+    ...ctl.lignes.map(l=>[l.pieceNom,l.article||'',elecDesignation(l),l.implante,l.prevu,l.ecart,(ELEC_NIVEAUX[l.niveau]||{}).l+(l.msg?' — '+l.msg:'')])];
+  const feuille='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols><col min="1" max="1" width="22" customWidth="1"/><col min="2" max="2" width="18" customWidth="1"/><col min="3" max="3" width="42" customWidth="1"/><col min="4" max="6" width="11" customWidth="1"/><col min="7" max="7" width="48" customWidth="1"/></cols><sheetData>'
+    +rangs.map((r,i)=>'<row r="'+(i+1)+'">'+r.map((v,c)=>cellule(v,i+1,c)).join('')+'</row>').join('')+'</sheetData></worksheet>';
+  const f=(nom,txt)=>({nom,data:new TextEncoder().encode(txt)});
+  return zipEcrire([
+    f('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'),
+    f('_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'),
+    f('xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Contrôle" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+    f('xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'),
+    f('xl/worksheets/sheet1.xml',feuille)]);
+}
+function elecRapportPages(ctl,ch,info,logo){
+  const C=FICHE_COUL, pages=[];let els,y;
+  const texte=(x,yy,s,taille,st)=>els.push({t:'texte',x,y:yy,s:String(s),taille,...(st||{})});
+  const tenir=(s,taille,gras,w)=>{s=String(s||'');if(pdfLargeur(s,taille,gras)<=w)return s;
+    while(s.length>1&&pdfLargeur(s+'…',taille,gras)>w)s=s.slice(0,-1);return s.trim()+'…'};
+  const page=()=>{els=[];pages.push(els);y=16;
+    if(logo){const h=10,w=h*logo.w/logo.h;els.push({t:'image',x:14,y:9,w,h,im:logo})}
+    texte(logo?34:14,15.5,'CONTRÔLE PLAN ÉLECTRIQUE',12,{gras:true,c:C.terra});
+    texte(logo?34:14,20.5,tenir([ch.nom,info.source,'Indice '+(info.indice||'—'),fd(today())].filter(Boolean).join(' · '),8,false,160),8,{c:C.brun});
+    els.push({t:'trait',x1:14,y1:24,x2:196,y2:24,ep:0.7,cs:C.terra});y=31};
+  page();
+  const R=ctl.rapport;
+  [['Équipements prévus au DQE',R.dqe],['Équipements implantés',R.implantes],['Conformes',R.conformes],['Manquants',R.manquants],['Hors DQE',R.horsDqe]]
+    .forEach(([l,v],i)=>{const x=14+i*36.6;els.push({t:'rect',x,y,w:34.6,h:15,r:1.5,plein:true,trait:false,c:C.sable});
+      texte(x+2.5,y+5.5,l,6.3,{c:C.gris});texte(x+2.5,y+12.2,String(v),11,{gras:true,c:i===3&&v?C.terra:i===4&&v?[0.69,0.49,0.07]:C.encre})});
+  y+=21;
+  if(ctl.plusValueHT)texte(14,y,'Plus-value potentielle au prix du DQE : '+eurDoc(ctl.plusValueHT)+' HT — information, jamais facturée sans avenant validé.',7.5,{italique:true,c:C.brun}),y+=6;
+  const cols=[[14,'PIÈCE',30],[46,'ARTICLE',30],[78,'DÉSIGNATION',64],[144,'PLAN',12],[158,'DQE',12],[172,'ÉCART',12],[185,'',10]];
+  const entete=()=>{els.push({t:'rect',x:14,y,w:182,h:6,r:1,plein:true,trait:false,c:C.brun});
+    cols.forEach(([x,l])=>texte(x+1,y+4.2,l,6.5,{gras:true,c:C.blanc}));y+=7.5};
+  entete();
+  ctl.lignes.forEach((l,i)=>{
+    if(y>282){page();entete()}
+    if(i%2===0)els.push({t:'rect',x:14,y:y-0.6,w:182,h:5.6,plein:true,trait:false,c:C.sable});
+    const coul=l.niveau==='erreur'?C.terra:l.niveau==='controle'?[0.69,0.49,0.07]:C.encre;
+    texte(15,y+3.6,tenir(l.pieceNom,7,false,30),7,{c:C.encre});
+    texte(47,y+3.6,tenir(l.article||'—',7,false,30),7,{c:C.gris});
+    texte(79,y+3.6,tenir(elecDesignation(l),7,false,63),7,{c:C.encre});
+    texte(145,y+3.6,String(l.implante),7,{c:C.encre});texte(159,y+3.6,String(l.prevu),7,{c:C.encre});
+    texte(173,y+3.6,(l.ecart>0?'+':'')+l.ecart,7,{gras:true,c:coul});
+    texte(186,y+3.6,l.niveau==='ok'?'OK':l.niveau==='erreur'?'ERR.':'À CTRL',6,{gras:true,c:coul});
+    y+=5.6;
+  });
+  if(ctl.anomalies.length){
+    y+=5;if(y>270)page();
+    texte(14,y,'ANOMALIES',9,{gras:true,c:C.terra});y+=5;
+    ctl.anomalies.forEach(a=>{if(y>285)page();
+      texte(14,y,tenir((a.niveau==='erreur'?'Erreur — ':a.niveau==='reglementaire'?'Réglementaire — ':'À contrôler — ')+a.pieceNom+' · '+a.libelle+' : '+a.msg,7.2,false,182),7.2,{c:a.niveau==='erreur'?C.terra:C.encre});y+=4.6});
+  }
+  return pages;
+}
+
+/* la lecture du DQE, dans l'assistant : la source, ce qui a été lu, les
+   pièces à rattacher, les lignes à affecter ; puis le programme */
+function ElecDQE({ch,data,plan,base,majBase}){
+  const [lu,setLu]=useState(null);
+  const [etat,setEtat]=useState('');
+  const pieces=plan.pieces||[];
+  const marches=elecMarchesElec(ch,data);
+  const ouvrirLecture=d=>{setLu({dqe:d,affect:elecAffecterPieces(d,pieces)});setEtat('')};
+  const lireFichier=async file=>{
+    setEtat('Lecture de '+file.name+'…');
+    try{
+      const n=(file.name||'').toLowerCase();
+      let d;
+      if(/\.xlsx?$/.test(n))d=elecDqeDepuisFeuilles(await lireXlsx(file),file.name);
+      else if(/\.docx$/.test(n)){const r=await lireDocumentLignes(file);if(!r.txt)throw new Error(r.motif);
+        d=elecDqeDepuisTexte(r.txt,file.name)}
+      else{const r=await lireDocument(file);if(!r.txt)throw new Error(r.motif);d=elecDqeDepuisTexte(r.txt,file.name)}
+      if(!d.lignes.length){setEtat('Aucun article (code, libellé, quantité, unité, prix) trouvé dans « '+file.name+' ». Un PDF scanné ne se lit pas : reprenez le marché de l’application, ou le fichier Word ou Excel.');return}
+      ouvrirLecture(d);
+    }catch(e){setEtat('Lecture impossible — '+String((e&&e.message)||e))}
+  };
+  const L=lu&&lu.dqe;
+  const setL=p=>setLu({...lu,...p});
+  const setLigne=(id,p)=>setL({dqe:{...L,lignes:L.lignes.map(l=>l.id===id?{...l,...p}:l)}});
+  const setPieceDqe=(cle,p)=>setL({dqe:{...L,pieces:L.pieces.map(x=>x.cle===cle?{...x,...p}:x)}});
+  /* ce que le DQE changerait dans une base déjà saisie d'après une autre
+     source : affiché, jamais tranché en silence */
+  const conflits=L&&base.source&&base.source!=='dqe'&&(base.lignes||[]).some(l=>l.nature==='prevu')?(()=>{
+    const nv=elecBaseDepuisDQE(L,lu.affect), cle=l=>(l.piece||'')+'|'+l.type, a={},b={};
+    (base.lignes||[]).filter(l=>l.nature==='prevu').forEach(l=>{a[cle(l)]=(a[cle(l)]||0)+(+l.qte||0)});
+    nv.filter(l=>l.nature==='prevu').forEach(l=>{b[cle(l)]=(b[cle(l)]||0)+l.qte});
+    return [...new Set([...Object.keys(a),...Object.keys(b)])].filter(k=>(a[k]||0)!==(b[k]||0)).map(k=>{const [p,ty]=k.split('|');
+      return {piece:p===''?'Logement':(pieces.find(x=>x.id===p)||{}).nom||'?',libelle:(elecSymbole(ty)||{}).l||ty,actuel:a[k]||0,dqe:b[k]||0}});
+  })():[];
+  const creer=()=>{
+    const garde=(base.lignes||[]).filter(l=>l.nature==='reglementaire'||l.nature==='client');
+    const decisions=[...(base.decisions||[]),...(conflits.length?[{le:today(),par:(typeof UTILISATEUR!=='undefined'&&UTILISATEUR)||'',
+      choix:'DQE retenu',source:L.source.nom||'',detail:conflits.map(c=>c.piece+' · '+c.libelle+' : '+c.actuel+' → '+c.dqe).join(' ; ')}]:[])];
+    majBase({source:'dqe',dqe:{...L,affect:lu.affect},lignes:[...garde,...elecBaseDepuisDQE(L,lu.affect)],validee:false,decisions});
+    setLu(null);setEtat('Programme créé depuis le DQE ('+L.lignes.length+' lignes).');
+  };
+  const dq=base.dqe;
+  const nr=L?L.lignes.filter(l=>!l.reconnu):[];
+  return <div className="card" style={{padding:10,marginTop:8,borderLeft:'3px solid '+ELEC_BLEU}}>
+    <div className="xs b" style={{color:NAVY}}>DQE ÉLECTRIQUE</div>
+    {dq&&!L&&<div className="xs" style={{marginTop:4,lineHeight:1.5}}>Lu le {fd(dq.le)} — {dq.source&&dq.source.nom} : {dq.lignes.length} lignes, {dq.pieces.length} pièces.
+      {dq.source&&dq.source.type==='marche'&&(()=>{const m=((data&&data.marches)||[]).find(x=>x.id===dq.source.marcheId);
+        if(!m)return <span style={{color:AMBER}}> Le marché n’existe plus.</span>;
+        const re=elecDqeDepuisMarche(m,data);
+        const pareil=JSON.stringify(re.lignes.map(l=>[l.article,l.qte,l.libelle]))===JSON.stringify(dq.lignes.map(l=>[l.article,l.qte,l.libelle]));
+        return pareil?null:<span style={{color:AMBER}}> Le marché a changé depuis la lecture : relisez-le.</span>})()}</div>}
+    <div className="row" style={{gap:6,flexWrap:'wrap',marginTop:6}}>
+      {marches.map(m=><button key={m.id} type="button" className="btn acc s" onClick={()=>ouvrirLecture(elecDqeDepuisMarche(m,data))}>
+        Lire le DQE du marché {m.numero?'n° '+m.numero:''} — {m.lot}</button>)}
+      <label className="btn gh s">Importer un DQE (Excel, Word, PDF)
+        <input type="file" accept=".xlsx,.xls,.docx,.pdf,application/pdf" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)lireFichier(f)}}/></label>
+    </div>
+    {!marches.length&&<div className="xs mut" style={{marginTop:4}}>Aucun marché « Électricité » chiffré dans ce dossier : importez le DQE de l’électricien.</div>}
+    {etat&&<div className="xs" style={{marginTop:6,color:/impossible|Aucun/.test(etat)?TERRA:GREEN,lineHeight:1.5}}>{etat}</div>}
+    {L&&<div style={{marginTop:8}}>
+      <div className="xs" style={{lineHeight:1.5}}><b>{L.source.nom}</b> : {L.lignes.length} lignes, {L.pieces.length} pièces
+        {nr.length?<span style={{color:AMBER}}> · {nr.length} ligne{nr.length>1?'s':''} à affecter</span>:null}.</div>
+      <div className="xs b" style={{color:NAVY,marginTop:8}}>PIÈCES DU DQE → PIÈCES DU PLAN</div>
+      {!pieces.length&&<div className="xs" style={{color:AMBER}}>Tracez d’abord les pièces sur le plan (étape « Préparer le plan ») : le DQE s’y rattache.</div>}
+      {L.pieces.map(p=><div key={p.cle} className="row xs" style={{gap:6,alignItems:'center',flexWrap:'wrap',padding:'4px 0',borderBottom:'1px solid '+RULE}}>
+        <b style={{flex:'1 1 140px'}}>{p.nom}{p.nombre>1?' ('+p.nombre+' pièces)':''}</b>
+        {!p.type&&<span style={{color:AMBER,flexBasis:'100%'}}>Pièce non identifiée — validation utilisateur nécessaire</span>}
+        <select className="in" style={{flex:'0 1 150px'}} value={p.type||''} aria-label="Type de pièce" onChange={e=>setPieceDqe(p.cle,{type:e.target.value||null})}>
+          <option value="">—</option>{ELEC_PIECES_TYPES.map(x=><option key={x}>{x}</option>)}</select>
+        <span className="row" style={{gap:4,flexWrap:'wrap'}}>{pieces.map(x=>{const on=(lu.affect[p.cle]||[]).indexOf(x.id)>=0;
+          return <button key={x.id} type="button" className={'btn s '+(on?'':'gh')} style={{fontSize:11,padding:'3px 8px'}}
+            onClick={()=>setL({affect:{...lu.affect,[p.cle]:on?lu.affect[p.cle].filter(i=>i!==x.id):[...(lu.affect[p.cle]||[]),x.id]}})}>{x.nom}</button>})}</span>
+      </div>)}
+      <div className="xs b" style={{color:NAVY,marginTop:8}}>LIGNES</div>
+      <div style={{maxHeight:240,overflowY:'auto'}}>
+        {L.lignes.map(l=><div key={l.id} className="row xs" data-dqe-ligne={l.article} style={{gap:6,alignItems:'center',padding:'3px 0',borderBottom:'1px solid '+RULE,flexWrap:'wrap'}}>
+          <span className="mut" style={{flex:'0 0 110px',overflow:'hidden',textOverflow:'ellipsis'}}>{l.article||'—'}</span>
+          <span style={{flex:'1 1 160px'}}>{l.libelle}</span>
+          <span style={{flex:'0 0 34px',textAlign:'right'}}>{l.qte}</span>
+          <span className="mut" style={{flex:'0 0 90px'}}>{l.pieceCle?(L.pieces.find(p=>p.cle===l.pieceCle)||{}).nom:'Logement'}</span>
+          <select className="in" style={{flex:'0 1 170px',borderColor:l.reconnu?RULE:AMBER}} value={l.nonDessine?'@non':l.type||''} aria-label="Symbole"
+            onChange={e=>setLigne(l.id,e.target.value==='@non'?{nonDessine:true,type:null,reconnu:true}:{nonDessine:false,type:e.target.value||null,reconnu:!!e.target.value})}>
+            <option value="">À affecter…</option><option value="@non">Non dessiné (prestation seule)</option>
+            {ELEC_SYMBOLES.map(s=><option key={s.id} value={s.id}>{s.l}</option>)}</select>
+        </div>)}
+      </div>
+      {conflits.length>0&&<div className="xs" style={{marginTop:8,background:'#FBF1DC',borderLeft:'3px solid '+AMBER,padding:8,lineHeight:1.5}}>
+        <b style={{color:AMBER}}>⚠️ CONTRADICTION ENTRE DOCUMENTS</b> — la base actuelle ({base.source==='modele_cp'?'modèle CP':base.source==='ptr'?'programme technique':'saisie d’après le marché'}) et le DQE diffèrent :
+        {conflits.slice(0,12).map((c,i)=><div key={i}>{c.piece} · {c.libelle} : base {c.actuel}, DQE {c.dqe}</div>)}
+        {conflits.length>12&&<div>… et {conflits.length-12} autre(s).</div>}
+        <div style={{marginTop:4}}>Créer le programme retient le DQE ; ce choix est noté dans l’historique du dossier.</div></div>}
+      <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
+        <button type="button" className="btn acc s" disabled={!pieces.length} onClick={creer}>{conflits.length?'Retenir le DQE et créer le programme':'Créer le programme depuis ce DQE'}</button>
+        <button type="button" className="btn gh s" onClick={()=>setLu(null)}>Fermer</button>
+      </div>
+    </div>}
+  </div>;
+}
+
+/* le quantitatif en temps réel, à côté du plan : placé / prévu au DQE */
+function ElecQuantitatif({plan,base,onControler}){
+  const ctl=elecControle(plan,base);
+  const parPiece={};ctl.lignes.forEach(l=>{(parPiece[l.pieceNom]=parPiece[l.pieceNom]||[]).push(l)});
+  const R=ctl.rapport;
+  return <div className="elec-quantitatif" style={{border:'1px solid '+RULE,borderRadius:8,background:'#fff',padding:8,maxHeight:'62vh',overflowY:'auto'}}>
+    <div className="sp"><span className="xs b" style={{color:NAVY,letterSpacing:'.04em'}}>QUANTITATIF</span>
+      <button type="button" className="btn acc s" style={{fontSize:11,padding:'4px 9px'}} onClick={onControler}>Contrôler le plan</button></div>
+    <div className="xs mut" style={{margin:'4px 0 6px'}}>Placé / prévu au DQE · {R.conformes}/{R.dqe} conformes{R.manquants?' · '+R.manquants+' manquant'+(R.manquants>1?'s':''):''}{R.horsDqe?' · '+R.horsDqe+' hors DQE':''}</div>
+    {!((base&&base.lignes)||[]).length&&<div className="xs mut">Aucune base : lisez le DQE (Générer la base).</div>}
+    {Object.entries(parPiece).map(([p,L])=><div key={p} style={{marginBottom:6}}>
+      <div className="xs b" style={{color:INK,borderBottom:'1px solid '+RULE,padding:'3px 0'}}>{p}</div>
+      {L.map((l,i)=><div key={i} className="sp xs" title={l.msg||''} style={{padding:'2px 0',color:ELEC_NIVEAUX[l.niveau].c}}>
+        <span style={{color:INK}}>{l.libelle}{l.nature==='deduit'?' (déduit)':''}</span>
+        <span style={{whiteSpace:'nowrap',fontWeight:700}}>{l.implante} / {l.prevu} {ELEC_NIVEAUX[l.niveau].ic}</span></div>)}
+    </div>)}
+  </div>;
+}
+
+/* le contrôle complet : rapport, lignes, anomalies, plus-value potentielle, sorties */
+function ElecControle({ch,plan,base}){
+  const ctl=elecControle(plan,base);
+  const R=ctl.rapport;
+  const [etat,setEtat]=useState('');
+  const source=(base.dqe&&base.dqe.source&&base.dqe.source.nom)||(base.source==='modele_cp'?'Modèle CP (proposition)':'Base saisie');
+  const nomFichier=ext=>'Contrôle plan électrique — '+(ch.nom||'chantier')+' — indice '+(plan.indice||'—')+'.'+ext;
+  const pdf=async()=>{setEtat('Composition…');
+    try{const o=pdfVectoriel(elecRapportPages(ctl,ch,{source,indice:plan.indice},await ficheLogo()),'Contrôle plan électrique — '+(ch.nom||''));
+      telechargerOctets(o,nomFichier('pdf'),PTR_MIME.pdf);setEtat('PDF téléchargé.')}catch(e){setEtat('Échec — '+String((e&&e.message)||e))}};
+  const xlsx=()=>{try{telechargerOctets(elecDqeXlsx(ctl,'Contrôle plan électrique — '+(ch.nom||'')+' — '+source),nomFichier('xlsx'),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');setEtat('Tableau Excel téléchargé.')}catch(e){setEtat('Échec — '+String((e&&e.message)||e))}};
+  return <div className="elec-controle" style={{marginTop:10}}>
+    <div className="xs b" style={{color:NAVY}}>CONTRÔLE PLAN ÉLECTRIQUE — {source}</div>
+    <div className="row" style={{gap:6,flexWrap:'wrap',marginTop:6}}>
+      {[['Prévus au DQE',R.dqe,NAVY],['Implantés',R.implantes,NAVY],['Conformes',R.conformes,GREEN],['Manquants',R.manquants,R.manquants?TERRA:MUTED],['Hors DQE',R.horsDqe,R.horsDqe?AMBER:MUTED]]
+        .map(([l,v,c])=><div key={l} style={{background:'#F5F1EA',borderRadius:8,padding:'6px 10px',minWidth:90}}>
+          <div className="xs mut">{l}</div><div style={{fontWeight:700,fontSize:18,color:c}}>{v}</div></div>)}
+    </div>
+    {(R.aValider||R.aPlacer||R.nonAffectees)>0&&<div className="xs" style={{color:AMBER,marginTop:6,lineHeight:1.5}}>
+      {R.aPlacer?R.aPlacer+' équipement(s) à placer. ':''}{R.aValider?R.aValider+' position(s) proposée(s) automatiquement, à valider. ':''}
+      {R.nonAffectees?R.nonAffectees+' ligne(s) du DQE sans pièce du plan (comptées au logement).':''}</div>}
+    {ctl.anomalies.length>0&&<div style={{marginTop:8}}>
+      {ctl.anomalies.map((a,i)=><div key={i} className="xs" style={{padding:'4px 0',borderTop:'1px solid '+RULE,color:ELEC_NIVEAUX[a.niveau].c,lineHeight:1.45}}>
+        {ELEC_NIVEAUX[a.niveau].ic} <b>{a.pieceNom}</b> · {a.libelle}{a.article?' ('+a.article+')':''} — DQE : {a.prevu}, plan : {a.implante}, écart : {a.ecart>0?'+':''}{a.ecart}<br/>
+        <span style={{color:INK}}>{a.msg}</span></div>)}
+    </div>}
+    {!ctl.anomalies.length&&ctl.lignes.length>0&&<div className="xs" style={{color:GREEN,marginTop:8}}>✅ Le plan et le DQE correspondent.</div>}
+    {ctl.plusValues.length>0&&<div className="xs" style={{marginTop:8,background:'#F5F1EA',padding:8,borderRadius:8,lineHeight:1.5}}>
+      <b>Plus-value potentielle au prix du DQE</b> (information pour un éventuel avenant — rien n’est facturé sans validation) :
+      {ctl.plusValues.map((p,i)=><div key={i}>+{p.quantite} {p.libelle} · {p.pieceNom} ({p.article}) : {eurDoc(p.montantHT)} HT</div>)}
+      <div className="b">Total : {eurDoc(ctl.plusValueHT)} HT</div></div>}
+    <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
+      <button type="button" className="btn gh s" onClick={pdf}>Rapport de contrôle (PDF)</button>
+      <button type="button" className="btn gh s" onClick={xlsx}>DQE contrôlé (Excel)</button>
+    </div>
+    {etat&&<div className="xs mut" style={{marginTop:4}}>{etat}</div>}
+  </div>;
+}
+
 /* l'assistant, au-dessus du plan : une étape à la fois */
 function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
   const d=ch.docs||{}, pe=d.plan_elec||{};
@@ -11314,8 +11809,8 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
   const sup=elecSupplements(comp,tarifs,data);
   const aPlacer=(plan.symboles||[]).filter(s=>s.aPlacer);
   const bordElec=(data.bordereaux||[]).filter(b=>/elec/i.test(deaccent((b.nom||'')+' '+(b.corps||''))));
-  const E=[['preparer','Préparer le plan'],['generer','Générer la base'],['verifier','Vérifier les prestations'],['supplements','Voir les suppléments'],['exporter','Exporter']];
-  const nomPiece=id=>(pieces.find(p=>p.id===id)||{}).nom||'Hors pièce';
+  const E=[['preparer','Préparer le plan'],['generer','Générer la base'],['verifier','Contrôler le plan'],['supplements','Voir les suppléments'],['exporter','Exporter']];
+  const nomPiece=id=>id===''||id===undefined?'Logement (général)':(pieces.find(p=>p.id===id)||{}).nom||'Hors pièce';
   return <div className="card" style={{padding:10,marginBottom:10,borderLeft:'3px solid '+ELEC_BLEU}}>
     <div className="row" style={{gap:6,flexWrap:'wrap'}}>
       {E.map(([id,l])=><button key={id} type="button" className={'btn s '+(etape===id?'':'gh')} onClick={()=>setEtape(etape===id?'':id)}>{l}</button>)}
@@ -11323,7 +11818,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
     <div className="row xs" style={{gap:6,flexWrap:'wrap',marginTop:6}}>
       <span className="pill" style={{background:ech.ok?'#E3F0E8':'#FBF1DC',color:ech.ok?GREEN:AMBER}}>{ech.ok?'Échelle vérifiée':'Non à l’échelle : '+ech.raison}</span>
       <span className="pill" style={{background:'#EEF1F4',color:NAVY}}>{pieces.length} pièce{pieces.length>1?'s':''}</span>
-      <span className="pill" style={{background:'#EEF1F4',color:NAVY}}>Base : {base.source==='modele_cp'?'modèle CP (proposition)':base.source==='marche'?'marché signé':base.source==='ptr'?'programme technique':'non définie'}{base.validee?' · validée':''}</span>
+      <span className="pill" style={{background:'#EEF1F4',color:NAVY}}>Base : {base.source==='dqe'?'DQE'+(base.dqe&&base.dqe.source?' — '+base.dqe.source.nom:''):base.source==='modele_cp'?'modèle CP (proposition)':base.source==='marche'?'marché signé':base.source==='ptr'?'programme technique':'non définie'}{base.validee?' · validée':''}</span>
       {aPlacer.length>0&&<span className="pill" style={{background:'#FBF1DC',color:AMBER}}>{aPlacer.length} à placer</span>}
       {plan.indice&&<span className="pill" style={{background:'#F3F1EC',color:MUTED}}>Indice {plan.indice}</span>}
     </div>
@@ -11362,8 +11857,10 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
     {etape==='generer'&&<div style={{marginTop:10}}>
       <Fld label="ORIGINE DE LA BASE">
         <select className="in" value={base.source||''} onChange={e=>majBase({source:e.target.value,validee:false})}>
-          <option value="">—</option><option value="marche">D’après le marché signé</option><option value="ptr">D’après le programme technique validé</option>
+          <option value="">—</option><option value="dqe">D’après le DQE (marché électricité ou fichier) — recommandé</option><option value="marche">D’après le marché signé (saisie)</option><option value="ptr">D’après le programme technique validé</option>
           <option value="modele_cp">Modèle CP (proposition, non contractuelle)</option></select></Fld>
+      {base.source==='dqe'&&<ElecDQE ch={ch} data={data} plan={plan} base={base} majBase={majBase}/>}
+      {(base.decisions||[]).length>0&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Décisions : {base.decisions.map((x,i)=><div key={i}>{fd(x.le)}{x.par?' ('+x.par+')':''} — {x.choix} {x.source?'« '+x.source+' »':''} : {x.detail}</div>)}</div>}
       {base.source==='modele_cp'&&<button type="button" className="btn gh s" disabled={!pieces.length}
         onClick={()=>{const L=elecBaseModele(pieces);const garde=(base.lignes||[]).filter(l=>l.nature!=='prevu');majBase({lignes:[...garde,...L]})}}>
         Remplir la base avec le modèle CP ({pieces.length} pièce{pieces.length>1?'s':''})</button>}
@@ -11371,7 +11868,8 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
       <div style={{maxHeight:260,overflowY:'auto',marginTop:8}}>
         {(base.lignes||[]).map(l=><div key={l.id} className="row xs" style={{gap:6,alignItems:'center',borderBottom:'1px solid '+RULE,padding:'4px 0'}}>
           <span style={{flex:'1 1 120px'}}>{nomPiece(l.piece)}</span>
-          <span style={{flex:'1 1 120px'}}>{(elecSymbole(l.type)||{}).l||l.type}</span>
+          <span style={{flex:'1 1 120px'}}>{(elecSymbole(l.type)||{}).l||l.type}{l.article?<span className="mut"> · {l.article}</span>:null}
+            {l.repartition?<span style={{color:AMBER,display:'block'}}>{l.repartition}</span>:null}</span>
           <input className="in" style={{width:60}} value={l.qte} onChange={e=>majBase({lignes:base.lignes.map(x=>x.id===l.id?{...x,qte:e.target.value===''?'':+e.target.value}:x)})}/>
           <span className="mut">{l.unite==='mecanisme'?'mécan.':'postes'}</span>
           <select className="in" style={{width:150}} value={l.nature||'prevu'} onChange={e=>majBase({lignes:base.lignes.map(x=>x.id===l.id?{...x,nature:e.target.value}:x)})}>
@@ -11414,18 +11912,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace}){
       </div>
     </div>}
 
-    {etape==='verifier'&&<div style={{marginTop:10,overflowX:'auto'}}>
-      {!comp.length&&<div className="xs mut">Aucune base ni aucun équipement : rien à comparer.</div>}
-      {comp.length>0&&<table className="xs" style={{width:'100%',borderCollapse:'collapse'}}>
-        <thead><tr style={{textAlign:'left',color:MUTED}}><th>Pièce</th><th>Équipement</th><th>Nature</th><th style={{textAlign:'right'}}>Prévu</th><th style={{textAlign:'right'}}>Implanté</th><th style={{textAlign:'right'}}>Écart</th></tr></thead>
-        <tbody>{comp.map((l,i)=><tr key={i} style={{borderTop:'1px solid '+RULE,color:l.ecart<0&&l.nature==='reglementaire'?TERRA:INK}}>
-          <td>{l.pieceNom}</td><td>{l.libelle} <span className="mut">({l.unite==='mecanisme'?'mécanismes':'postes'})</span></td>
-          <td>{(ELEC_NATURES.find(n=>n.id===l.nature)||{}).l}</td>
-          <td style={{textAlign:'right'}}>{l.prevu}</td><td style={{textAlign:'right'}}>{l.implante}</td>
-          <td style={{textAlign:'right',fontWeight:700,color:l.ecart>0?AMBER:l.ecart<0?TERRA:GREEN}}>{l.ecart>0?'+':''}{l.ecart}</td></tr>)}</tbody>
-      </table>}
-      {sup.reglementaires.length>0&&<div className="xs" style={{color:TERRA,marginTop:6}}>Exigence réglementaire non couverte : {sup.reglementaires.map(l=>l.pieceNom+' — '+l.libelle).join(', ')}. C’est un écart à résoudre, pas une option.</div>}
-    </div>}
+    {etape==='verifier'&&<ElecControle ch={ch} plan={plan} base={base}/>}
 
     {etape==='supplements'&&<div style={{marginTop:10}}>
       <div className="xs mut" style={{lineHeight:1.5,marginBottom:6}}>Écart net par type (une prise déplacée ne coûte rien) au prix du tarif : bordereau électricité lié, ou prix saisi avec sa source. Sans prix : « à chiffrer ».</div>
@@ -11476,6 +11963,8 @@ function PlanElectrique({ch,up,onFermer,data}){
   const [busy,setBusy]=useState('');      /* import du plan de fond */
   const [busyPdf,setBusyPdf]=useState('');  /* export du plan fini */
   const [groupe,setGroupe]=useState(ELEC_GROUPES[0]);
+  const [controle,setControle]=useState(false);
+  const baseElec=(d.plan_elec&&d.plan_elec.base)||{lignes:[]};
   const svgRef=useRef(null);
   const drag=useRef(null);
   const gestSymbole=useRef(false);   /* le geste en cours a-t-il commencé sur un symbole ? */
@@ -11847,7 +12336,9 @@ function PlanElectrique({ch,up,onFermer,data}){
           </button>)}
       </div>
 
-      <div style={{border:'1px solid '+RULE,borderRadius:8,overflow:'auto',background:'#fff',maxHeight:'62vh'}}>
+      {/* le plan au centre, le quantitatif à droite (dessous sur un téléphone) */}
+      <div className="elec-zone" style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-start'}}>
+      <div style={{flex:'3 1 520px',minWidth:0,border:'1px solid '+RULE,borderRadius:8,overflow:'auto',background:'#fff',maxHeight:'62vh'}}>
         <div style={{width:(zoom*100)+'%',minWidth:'100%',position:'relative'}}>
           {fondUrl?<img src={fondUrl} alt="" style={{width:'100%',display:'block'}}/>
             :<div className="xs mut" style={{padding:40,textAlign:'center'}}>Chargement du plan…</div>}
@@ -11912,10 +12403,22 @@ function PlanElectrique({ch,up,onFermer,data}){
           </svg>
         </div>
       </div>
+      <div style={{flex:'1 1 240px',minWidth:0}}><ElecQuantitatif plan={plan} base={baseElec} onControler={()=>setControle(true)}/></div>
+      </div>
+      {controle&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+ELEC_BLEU}}>
+        <div className="sp"><span/><button type="button" className="btn gh s" onClick={()=>setControle(false)}>Fermer le contrôle</button></div>
+        <ElecControle ch={ch} plan={plan} base={baseElec}/></div>}
 
       {choisi&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+TERRA}}>
         <div className="sp" style={{marginBottom:8}}>
-          <span className="b sm" style={{color:NAVY}}>{elecSymbole(choisi.type).l}{choisi.verrou?' 🔒':''}</span>
+          <span className="b sm" style={{color:NAVY}}>{elecSymbole(choisi.type).l}{choisi.verrou?' 🔒':''}
+            {(()=>{/* sa ligne du DQE : article, prévu, placé */
+              const p=elecPieceDe(choisi,plan.pieces);
+              const L=elecControle(plan,baseElec).lignes;
+              const l=L.find(x=>x.piece===p&&x.type===choisi.type&&x.nature==='prevu')||L.find(x=>x.piece===''&&x.type===choisi.type&&x.nature==='prevu');
+              return <span className="xs" style={{display:'block',fontWeight:400,color:l?ELEC_NIVEAUX[l.niveau].c:AMBER}}>
+                {l?(l.article?'Article '+l.article+' · ':'')+'DQE : '+l.prevu+', plan : '+l.implante+(l.implante>l.prevu?' — au-delà du DQE, potentiellement hors marché':''):'Hors DQE — potentiellement hors marché'}
+                {choisi.statut==='a_confirmer'?' · position proposée automatiquement, à valider':''}</span>})()}</span>
           <span className="row" style={{gap:6}}>
             <button className="btn gh s" onClick={()=>{const n={...choisi,id:uid(),x:Math.min(1,choisi.x+0.02),y:Math.min(1,choisi.y+0.02),verrou:false,source:'manuel'};
               maj({symboles:[...S,n]});setSel(n.id)}}>Dupliquer</button>
@@ -12014,7 +12517,7 @@ function PlanElectrique({ch,up,onFermer,data}){
           {legende.map(s=><div key={s.id} className="row" style={{gap:6,alignItems:'center'}}>
             <svg width="20" height="20" viewBox="-12 -12 24 24" style={{flex:'0 0 auto'}}><ElecGlyph t={s.id}/></svg>
             <span className="xs" style={{flex:1,minWidth:0}}>{s.l}</span>
-            <span className="xs mut" style={{whiteSpace:'nowrap'}}>H : {s.h} · ×{s.n}</span>
+            <span className="xs mut" style={{whiteSpace:'nowrap'}}>H : {elecHautTxt(s.h)} · ×{s.n}</span>
           </div>)}
         </div>}
       </div>

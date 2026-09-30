@@ -62,8 +62,9 @@ const FAUX_SUPA=`window.supabase={createClient:()=>{const q={select:()=>q,eq:()=
   await p.waitForTimeout(300);
   const nb=await p.textContent('text=/\\d+ symboles? posés?/');
   chk(/1[0-9] symboles posés/.test(nb),'appliqué : '+nb);
-  await p.click('button:has-text("Vérifier les prestations")');
-  chk(/Prise|PC 2P\+T/.test(await p.textContent('table')),'comparatif prévu / implanté affiché');
+  /* l'étape de contrôle (renommée « Contrôler le plan ») : le rapport prévu / implanté */
+  await p.locator('button:has-text("Contrôler le plan")').first().click();
+  chk(/CONTRÔLE PLAN ÉLECTRIQUE/.test(await p.textContent('.elec-controle'))&&/PC 2P\+T/.test(await p.textContent('.elec-quantitatif')),'contrôle prévu / implanté affiché');
 
   /* annuler */
   await p.click('button:has-text("Annuler")');await p.waitForTimeout(300);
