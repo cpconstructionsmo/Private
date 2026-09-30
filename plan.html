@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Plan électrique — CP Constructions</title>
+<style>
+  :root{--navy:#2C4A5E;--terra:#C5563A;--ink:#1A2B36;--rule:#D4CFC5;--muted:#6E7B84;--green:#3F7A5A;--amber:#B07D12;--fond:#F5F2EC;--sable:#F5F1EA}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--fond);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{background:#fff;border-bottom:3px solid var(--terra);padding:12px 16px;display:flex;gap:12px;align-items:center}
+  header img{height:34px;width:auto}
+  .t{font-weight:700;color:var(--terra);letter-spacing:.04em;font-size:13px}.s{color:var(--muted);font-size:13px}
+  main{max-width:1100px;margin:0 auto;padding:16px}
+  .carte{background:#fff;border:1px solid var(--rule);border-radius:10px;padding:14px;margin-bottom:12px}
+  h1{font-size:19px;margin:2px 0 6px;color:var(--navy)}h2{font-size:14px;margin:0 0 6px;color:var(--navy)}
+  .mut{color:var(--muted);font-size:13px}
+  .zone{overflow:auto;border:1px solid var(--rule);border-radius:8px;background:#fff;max-height:70vh}
+  .plan{position:relative}.plan img{width:100%;display:block}.plan svg{position:absolute;left:0;top:0;width:100%;height:100%}
+  .outils{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  button{font:inherit;border-radius:8px;padding:8px 12px;border:1px solid var(--navy);background:#fff;color:var(--navy);cursor:pointer}
+  button.acc{background:var(--terra);border-color:var(--terra);color:#fff;font-weight:600}button:disabled{opacity:.5;cursor:default}
+  textarea,input{font:inherit;width:100%;padding:8px;border:1px solid var(--rule);border-radius:8px}
+  .rq{border-top:1px solid var(--rule);padding:6px 0;font-size:14px}.ok{color:var(--green)}.err{color:var(--terra)}.att{color:var(--amber)}
+  .leg{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px;font-size:13px}
+  .pastille{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+</style>
+</head>
+<body>
+<header><img src="assets/logo_fiche.jpg" alt="CP Constructions"><div><div class="t">PLAN ÉLECTRIQUE — POUR VALIDATION</div><div class="s" id="dossier">Chargement…</div></div></header>
+<main id="main"><div class="carte mut">Chargement du plan…</div></main>
+<script>
+/* Le plan électrique publié pour le client : il le voit, zoome, clique un
+   équipement, laisse une remarque et valide l'indice publié. Il ne peut pas
+   modifier le plan — toute modification passe par CP Constructions et
+   donne un nouvel indice. Tout le texte publié est inséré comme du texte ;
+   le jeton reste dans la partie « # » de l'adresse. */
+const SUPABASE_URL='https://gxfrughmwkvdepvkhufv.supabase.co';
+const SUPABASE_KEY='sb_publishable_JCBSnZhTaKlpSIZeXAeMkw_2OvI6YIr';
+const jeton=(new URLSearchParams(location.hash.slice(1))).get('t')||'';
+const $=id=>document.getElementById(id);
+const NS='http://www.w3.org/2000/svg';
+const el=(tag,attrs,...enfants)=>{const e=document.createElement(tag);Object.entries(attrs||{}).forEach(([k,v])=>{
+  if(k==='class')e.className=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else if(v!==false&&v!=null)e.setAttribute(k,v===true?'':v)});
+  enfants.flat().forEach(c=>{if(c!=null&&c!==false)e.append(c instanceof Node?c:document.createTextNode(String(c)))});return e};
+const sv=(tag,attrs)=>{const e=document.createElementNS(NS,tag);Object.entries(attrs||{}).forEach(([k,v])=>e.setAttribute(k,v));return e};
+async function appeler(corps){
+  const r=await fetch(SUPABASE_URL+'/functions/v1/plan-validation',{method:'POST',
+    headers:{'Content-Type':'application/json',apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY},body:JSON.stringify({t:jeton,...corps})});
+  let j=null;try{j=await r.json()}catch(e){}
+  if(!r.ok)throw new Error((j&&j.erreur)||('http_'+r.status));
+  return j;
+}
+const MSG={lien_invalide:'Ce lien n’est pas (ou plus) valide. Demandez un nouveau lien à CP Constructions.',
+  clos:'La validation est close : CP Constructions a pris en compte vos retours.',non_configure:'Le service n’est pas encore en service. Réessayez plus tard.'};
+const message=e=>MSG[e&&e.message]||'Le service ne répond pas pour le moment : rien n’a été enregistré. Réessayez dans quelques minutes.';
+
+let D=null, zoom=1, choix=null;
+function dessiner(){
+  const P=D.publication, H=1000*(P.ratio||0.707), clos=D.statut!=='ouvert';
+  const M=$('main');M.replaceChildren();
+  const derniere=(D.validations||[]).filter(v=>v.indice===P.indice).slice(-1)[0];
+  M.append(el('div',{class:'carte'},el('h1',{},P.titre||'Plan électrique'),
+    el('div',{class:'mut'},'Indice '+(P.indice||'—')+(P.publieLe?' · publié le '+new Date(P.publieLe).toLocaleDateString('fr-FR'):'')+
+      ' · Cliquez un équipement pour le détail, ou un endroit du plan pour y laisser une remarque. Vous ne modifiez pas le plan : CP Constructions reprend vos remarques.'),
+    derniere?el('div',{class:'ok',style:'margin-top:6px'},'✓ Indice '+P.indice+' validé par '+derniere.nom+' le '+new Date(derniere.cree_le).toLocaleDateString('fr-FR')+'.'):null,
+    clos?el('div',{class:'att',style:'margin-top:6px'},MSG.clos):null));
+  const zone=el('div',{class:'zone'});
+  const plan=el('div',{class:'plan',style:'width:'+(zoom*100)+'%;min-width:100%'});
+  plan.append(D.fond?el('img',{src:D.fond,alt:'Plan'}):el('div',{class:'mut',style:'padding:40px;text-align:center'},'Fond du plan indisponible.'));
+  const svg=sv('svg',{viewBox:'0 0 1000 '+H,preserveAspectRatio:'none'});
+  const parId={};(P.symboles||[]).forEach(s=>{parId[s.id]=s});
+  (P.cables||[]).forEach(c=>{const a=parId[c.de],b=parId[c.vers];if(!a||!b)return;
+    const ax=a.x*1000,ay=a.y*H,bx=b.x*1000,by=b.y*H,k=c.courbure==null?0.18:c.courbure,cx=(ax+bx)/2-(by-ay)*k,cy=(ay+by)/2+(bx-ax)*k;
+    svg.append(sv('path',{d:'M'+ax+','+ay+' Q'+cx+','+cy+' '+bx+','+by,fill:'none',stroke:c.couleur||'#1F6FA9','stroke-width':'1.4','stroke-linecap':'round'}))});
+  (D.remarques||[]).filter(r=>r.x!=null&&r.y!=null).forEach(r=>svg.append(sv('circle',{cx:r.x*1000,cy:r.y*H,r:7,fill:'#B07D12','fill-opacity':'0.8'})));
+  svg.addEventListener('click',e=>{if(clos)return;const b=svg.getBoundingClientRect();
+    choix={x:(e.clientX-b.left)/b.width,y:(e.clientY-b.top)/b.height};dessiner()});
+  (P.symboles||[]).forEach(s=>{const g=sv('g',{transform:'translate('+s.x*1000+','+s.y*H+')',style:'cursor:pointer','data-symbole':s.id});
+    const sel=choix&&choix.symbole===s.id;
+    g.append(sv('circle',{r:sel?13:10,fill:'#fff',stroke:s.c||'#C0392B','stroke-width':sel?3:1.8}));
+    const t=sv('text',{y:3.4,'text-anchor':'middle','font-size':(s.ab||'').length>2?6:8,'font-weight':700,fill:s.c||'#C0392B'});t.textContent=s.ab||'';g.append(t);
+    g.addEventListener('click',e=>{e.stopPropagation();choix={symbole:s.id};dessiner()});svg.append(g)});
+  if(choix&&choix.x!=null)svg.append(sv('circle',{cx:choix.x*1000,cy:choix.y*H,r:9,fill:'none',stroke:'#C5563A','stroke-width':3}));
+  plan.append(svg);zone.append(plan);
+  M.append(el('div',{class:'carte'},el('div',{class:'outils'},
+    el('button',{onclick:()=>{zoom=Math.max(1,zoom-0.5);dessiner()},'aria-label':'Dézoomer'},'−'),el('span',{class:'mut'},Math.round(zoom*100)+' %'),
+    el('button',{onclick:()=>{zoom=Math.min(5,zoom+0.5);dessiner()},'aria-label':'Zoomer'},'+')),zone));
+  /* la fiche de ce qui a été cliqué, et la remarque */
+  if(choix){
+    const s=choix.symbole&&parId[choix.symbole];
+    const zoneTexte=el('textarea',{rows:3,placeholder:'Votre remarque (déplacer, ajouter, supprimer…)',maxlength:1000,disabled:clos});
+    const etat=el('div',{class:'mut'});
+    M.append(el('div',{class:'carte'},
+      s?el('div',{},el('h2',{},s.l),el('div',{class:'mut'},[s.piece?'Pièce : '+s.piece:'',s.h!=null&&s.h!==''?'Hauteur : '+s.h+' cm':'Hauteur : à définir'].filter(Boolean).join(' · ')))
+       :el('h2',{},'Remarque à cet endroit du plan'),
+      zoneTexte,
+      el('div',{class:'outils',style:'margin-top:6px'},
+        el('button',{class:'acc',disabled:clos,onclick:async()=>{const v=zoneTexte.value.trim();if(!v)return;etat.textContent='Envoi…';
+          try{await appeler({action:'remarquer',texte:v,auteur:$('nom')?$('nom').value:'',symboleId:s?s.id:'',x:s?null:choix.x,y:s?null:choix.y});
+            choix=null;await charger();}catch(e){etat.className='err';etat.textContent=message(e)}}},'Envoyer la remarque'),
+        el('button',{onclick:()=>{choix=null;dessiner()}},'Fermer')),etat));
+  }
+  /* la légende : les symboles réellement utilisés */
+  const vus={};(P.legende||[]).forEach(x=>{vus[x.l]=x});
+  M.append(el('div',{class:'carte'},el('h2',{},'Légende'),el('div',{class:'leg'},Object.values(vus).map(x=>
+    el('div',{},el('span',{class:'pastille',style:'background:'+(x.c||'#999')}),x.l+' — H : '+(x.h==null||x.h===''?'à définir':x.h+' cm')+' · ×'+x.n)))));
+  /* les remarques et la validation */
+  M.append(el('div',{class:'carte'},el('h2',{},'Vos remarques'),
+    (D.remarques||[]).length?(D.remarques||[]).map(r=>el('div',{class:'rq'},
+      el('div',{},(r.symbole_id&&parId[r.symbole_id]?parId[r.symbole_id].l+(parId[r.symbole_id].piece?' ('+parId[r.symbole_id].piece+')':'')+' — ':'')+r.texte),
+      el('div',{class:'mut'},new Date(r.cree_le).toLocaleDateString('fr-FR')+(r.auteur?' · '+r.auteur:'')+' · indice '+(r.indice||'—')+(r.traitee_le?' · prise en compte':' · en attente')),
+      r.reponse?el('div',{class:'ok'},'CP Constructions : '+r.reponse):null))
+    :el('div',{class:'mut'},'Aucune remarque pour l’instant.')));
+  const nom=el('input',{id:'nom',placeholder:'Votre nom et prénom',maxlength:80,disabled:clos});
+  const etatV=el('div',{class:'mut'});
+  M.append(el('div',{class:'carte'},el('h2',{},'Valider le plan (indice '+(P.indice||'—')+')'),
+    el('div',{class:'mut'},'Votre validation porte sur cet indice. Une modification ultérieure donnera un nouvel indice, à valider de nouveau.'),
+    nom,el('div',{class:'outils',style:'margin-top:6px'},el('button',{class:'acc',disabled:clos,onclick:async()=>{
+      if(!nom.value.trim()){etatV.className='err';etatV.textContent='Indiquez votre nom.';return}
+      if(!confirm('Valider le plan électrique, indice '+(P.indice||'—')+' ?'))return;
+      etatV.textContent='Envoi…';try{await appeler({action:'valider',nom:nom.value});await charger()}catch(e){etatV.className='err';etatV.textContent=message(e)}}},'Je valide ce plan')),etatV));
+}
+async function charger(){
+  try{D=await appeler({action:'lire'});$('dossier').textContent=(D.publication&&D.publication.titre)||'';dessiner()}
+  catch(e){$('main').replaceChildren(el('div',{class:'carte err'},message(e)));$('dossier').textContent=''}
+}
+if(!jeton){$('main').replaceChildren(el('div',{class:'carte err'},MSG.lien_invalide));$('dossier').textContent=''}else charger();
+</script>
+</body>
+</html>

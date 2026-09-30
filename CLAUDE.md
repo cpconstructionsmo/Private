@@ -18,6 +18,14 @@ qu'on ait à les redire.
   Le calcul du panier est dans `calcul.js`, copié à l'identique dans
   `index.html` (`configCalculer`) : `t_configurateur.js` le vérifie.
   Installation : `supabase/functions/configurateur/README.md`.
+- **Validation du plan électrique en ligne** : `plan.html` (lien
+  `#t=<jeton>` : voir, commenter, valider l'indice ; jamais modifier) et la
+  fonction `supabase/functions/plan-validation` (tables `plan_publications`,
+  `plan_remarques`, `plan_validations`). Installation : son `README.md`.
+- **Plan électrique** : le DQE (quantitatif du marché « Électricité », ou un
+  fichier) est la jauge du plan — `elecLireDQE`, `elecControle`. Aucune
+  règle réglementaire n'est inscrite dans le code : elles se saisissent
+  (norme, version, source, date de vérification) dans la bibliothèque CP.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié).
 
