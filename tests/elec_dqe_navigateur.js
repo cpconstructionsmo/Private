@@ -74,9 +74,13 @@ const FAUX_SUPA=`window.supabase={createClient:()=>{const q={select:()=>q,eq:()=
   const [dl]=await Promise.all([p.waitForEvent('download',{timeout:20000}),p.click('button:has-text("DQE contrôlé (Excel)")')]);
   chk(!!dl,'DQE contrôlé exporté en Excel');
   /* la fiche d'un équipement posé : son article du DQE */
-  await p.locator('.elec-zone svg g[style*="move"]').first().click({force:true});
+  /* centré d'abord : la barre d'onglets fixe ne doit pas recouvrir le symbole */
+  const g0=p.locator('.elec-zone svg g[style*="move"]').first();
+  await g0.evaluate(e=>e.scrollIntoView({block:'center'}));
+  await g0.click({force:true});
   await p.waitForTimeout(200);
-  chk(/Article D_17CUI_5P16 · DQE : 7, plan : 7/.test(await p.textContent('main')),'fiche de l’équipement : article D_17CUI_5P16, DQE 7, plan 7');
+  const tf=await p.textContent('main');
+  chk(/Article D_17CUI_5P16 · DQE : 7, plan : 7/.test(tf),'fiche de l’équipement : article D_17CUI_5P16, DQE 7, plan 7');
   await p.screenshot({path:SORTIE+'/elec_dqe.png',fullPage:false});
   chk(!erreurs.length,'aucune erreur JavaScript'+(erreurs.length?' — '+erreurs.join(' | '):''));
   await b.close();
