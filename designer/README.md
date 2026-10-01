@@ -19,8 +19,27 @@ testées sur un instantané figé (`tests/fixtures/projet_v1.json`),
 opérations inversibles, commandes validées (murs, ouvertures, pièces,
 niveaux, suppression en cascade), historique annuler / rétablir et
 transactions (une action composée = un seul « annuler »), ChangeSets
-datés et signés. Étape suivante : murs (jonctions), pièces détectées,
-ouvertures et métré des baies.
+datés et signés.
+
+**Étape 3 faite — murs, pièces, ouvertures** (`src/building/`) : contours
+des murs dérivés avec jonctions en onglet (L, T, Y, croix, justification
+axe / face), maçonnerie (union), pièces = vides fermés rattachés à leur nom
+par leur point intérieur (alertes : à nommer, non fermée, doublon),
+ouvertures placées dans leur mur et découpées pour le dessin, métré des
+baies (dimensions, surface, pièces de part et d'autre, extérieure ou non),
+plan d'un niveau en cache.
+
+**Étape 4 faite — enregistrement** (`src/persistence/`) : dépôt Supabase
+(tables `designer_*`, fonction `designer_enregistrer`, jamais `app_data`)
+et dépôt en mémoire avec la même règle de concurrence ; chargement =
+dernier instantané + ChangeSets rejoués ; synchronisation dans l'ordre,
+hors ligne sans perte, reprise après fermeture de la page (copie locale
+IndexedDB), conflit entre deux personnes arrêté sans rien écraser,
+instantané tous les 50 changements et à chaque jalon (APS V1, PC…) ;
+connexion partagée avec le suivi de chantiers (même session). Étape
+suivante : l'interface (canvas, outils, accrochage, cotes, niveaux, fond
+calé, inspecteur). Avant de s'en servir : exécuter une fois
+`supabase/designer/schema.sql`.
 
 ## Travailler
 

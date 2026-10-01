@@ -22,10 +22,20 @@
   `package-lock.json`), utilisé seulement dans `src/geometry/booleen.ts`.
   Le résultat est relu dans l'arbre de Clipper : contour trigonométrique,
   trous horaires, île dans un trou = polygone à part.
-- **Pièces** : faces du graphe planaire bâti sur les faces intérieures des
-  murs ; une pièce est retrouvée après modification par son point
-  intérieur (`seed`), ce qui conserve son nom et son usage. Une pièce non
-  fermée est signalée, jamais devinée.
+- **Murs** : le contour d'un mur se calcule sommet par sommet ; les murs
+  qui s'y rejoignent (L, Y, croix) ou qui aboutissent sur le corps d'un
+  autre (T) sont triés par angle, et la face gauche de l'un coupe la face
+  droite du suivant : onglet exact, murs disjoints (somme des murs =
+  maçonnerie). Angle trop aigu : coupe d'équerre.
+- **Pièces** (précisé à l'étape 3) : ce sont les **vides fermés** de
+  l'union des contours de murs (ses trous), calculés en entiers. Les
+  ouvertures ne coupent pas les murs pour ce calcul : une porte ne réunit
+  pas deux pièces. Un vide est rattaché à la pièce nommée dont le point
+  intérieur (`seed`) y tombe, ce qui conserve son nom et son usage après
+  modification. Vide sans pièce : « à nommer » ; pièce dont le point n'est
+  dans aucun vide : « non fermée » ; deux pièces dans un vide : signalé.
+  Rien n'est deviné. (Les faces du graphe planaire restent disponibles pour
+  lire un tracé importé.)
 - **Rendu Canvas 2D** avec index spatial (R-tree) pour la sélection et
   l'accrochage : plusieurs milliers d'objets restent fluides, ce qu'un SVG
   par objet ne permet pas.
