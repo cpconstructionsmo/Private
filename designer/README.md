@@ -27,8 +27,19 @@ axe / face), maçonnerie (union), pièces = vides fermés rattachés à leur nom
 par leur point intérieur (alertes : à nommer, non fermée, doublon),
 ouvertures placées dans leur mur et découpées pour le dessin, métré des
 baies (dimensions, surface, pièces de part et d'autre, extérieure ou non),
-plan d'un niveau en cache. Étape suivante : enregistrement (Supabase,
-copie locale).
+plan d'un niveau en cache.
+
+**Étape 4 faite — enregistrement** (`src/persistence/`) : dépôt Supabase
+(tables `designer_*`, fonction `designer_enregistrer`, jamais `app_data`)
+et dépôt en mémoire avec la même règle de concurrence ; chargement =
+dernier instantané + ChangeSets rejoués ; synchronisation dans l'ordre,
+hors ligne sans perte, reprise après fermeture de la page (copie locale
+IndexedDB), conflit entre deux personnes arrêté sans rien écraser,
+instantané tous les 50 changements et à chaque jalon (APS V1, PC…) ;
+connexion partagée avec le suivi de chantiers (même session). Étape
+suivante : l'interface (canvas, outils, accrochage, cotes, niveaux, fond
+calé, inspecteur). Avant de s'en servir : exécuter une fois
+`supabase/designer/schema.sql`.
 
 ## Travailler
 
