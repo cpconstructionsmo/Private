@@ -13,10 +13,12 @@
    Une modification ÉPINGLE des sommets (ceux que l'utilisateur déplace, ou
    qu'une cote tient fixes) ; le solveur cherche le plus petit ajustement des
    autres sommets qui rend toutes les équations vraies (Gauss-Newton, pas de
-   norme minimale pondérée). Le poids d'un sommet croît avec sa distance, en
-   nombre de murs, à ce qu'on modifie : on ajuste d'abord les murs voisins,
-   le reste du plan ne bouge qu'en dernier recours (tirer un mur parallèle à
-   un autre déplace son autre bout, pas tout le plan). S'il n'y arrive pas
+   norme minimale pondérée), PAR PALIERS : d'abord les sommets les plus
+   proches, en nombre de murs, de ce qu'on modifie (une cloison en T suit
+   son mur), puis les voisins, et ainsi de suite ; le reste du plan ne bouge
+   qu'en dernier recours (tirer un mur parallèle à un autre déplace son
+   autre bout, pas tout le plan ; pousser un mur ne déplace pas les angles
+   qui ne le touchent pas). S'il n'y arrive pas
    à la tolérance de coïncidence près,
    la modification est REFUSÉE avec la raison : une contrainte n'est jamais
    violée en silence, et rien n'est deviné (règle 2 : calcul déterministe).
@@ -236,69 +238,86 @@ export function resoudre(f: Floor, epingles: readonly Epingle[]): Resolution {
   }
   const E = [...actives].map(i => eqs[i]!);
   const libres = [...vus];
-  const col = new Map(libres.map((k, i) => [k, i]));
 
-  /* poids : 10^(distance en murs depuis ce qu'on modifie) — les sommets
-     épinglés, ou ceux d'une équation fausse au départ (contrainte nouvelle) */
-  const voisins = new Map<number, Set<number>>();
-  const lier = (i: number, j: number) => { (voisins.get(i) ?? voisins.set(i, new Set()).get(i)!).add(j); (voisins.get(j) ?? voisins.set(j, new Set()).get(j)!).add(i) };
-  for (const e of R.ext.values()) lier(e.a, e.b);
-  for (const q of eqs) if (q.libelle === 'jonction en T') { const [a, b, k] = q.noeuds as [number, number, number]; lier(k, a); lier(k, b) }
+  /* coût d'un sommet : sa distance, en murs, à ce qu'on modifie (sommets
+     épinglés, ou ceux d'une équation fausse au départ). Un sommet en T coûte
+     autant que le mur qui le porte : c'est lui qui suit ce mur, avant les
+     angles voisins. */
+  const arcs = new Map<number, { j: number; c: 0 | 1 }[]>();
+  const arc = (i: number, j: number, c: 0 | 1) => (arcs.get(i) ?? arcs.set(i, []).get(i)!).push({ j, c });
+  for (const e of R.ext.values()) { arc(e.a, e.b, 1); arc(e.b, e.a, 1) }
+  for (const q of eqs) if (q.libelle === 'jonction en T') { const [a, b, k] = q.noeuds as [number, number, number]; arc(a, k, 0); arc(b, k, 0); arc(k, a, 1); arc(k, b, 1) }
   const dist = new Array<number>(n).fill(Infinity);
   const file: number[] = [];
   for (let k = 0; k < n; k++) if (fixe[k]) { dist[k] = 0; file.push(k) }
-  for (const q of eqs) if (Math.abs(q.f(X)) > PRECISION) for (const k of q.noeuds) if (dist[k] !== 0) { dist[k] = 0; file.push(k) }
-  for (let i = 0; i < file.length; i++) {
-    const k = file[i]!;
-    for (const j of voisins.get(k) ?? []) if (dist[j] === Infinity) { dist[j] = dist[k]! + 1; file.push(j) }
+  /* une équation fausse AVANT le déplacement (contrainte ou cote qu'on vient de poser) */
+  for (const q of eqs) if (Math.abs(q.f(X0)) > PRECISION) for (const k of q.noeuds) if (dist[k] !== 0) { dist[k] = 0; file.push(k) }
+  while (file.length) {                                   // parcours 0-1 : les arcs de coût 0 d'abord
+    const k = file.shift()!;
+    for (const { j, c } of arcs.get(k) ?? []) if (dist[k]! + c < dist[j]!) { dist[j] = dist[k]! + c; if (c) file.push(j); else file.unshift(j) }
   }
-  const poids = libres.map(k => 10 ** Math.min(dist[k]!, 6));
 
   const residus = (Y: Point[]) => E.map(q => q.f(Y));
   const pire = (r: number[]) => r.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-  let r = residus(X);
-  for (let it = 0; it < ITERATIONS && pire(r) > PRECISION && libres.length; it++) {
-    /* jacobienne (différences centrées, sur les seuls sommets de chaque équation) */
-    const h = 1e-4;
-    const J: Map<number, number>[] = E.map(q => {
-      const ligne = new Map<number, number>();
-      for (const k of new Set(q.noeuds)) {
-        const c = col.get(k);
-        if (c === undefined) continue;
-        for (const [ax, j] of [['x', 2 * c], ['y', 2 * c + 1]] as const) {
-          const v0 = X[k]![ax];
-          X[k]![ax] = v0 + h; const fp = q.f(X);
-          X[k]![ax] = v0 - h; const fm = q.f(X);
-          X[k]![ax] = v0;
-          const g = (fp - fm) / (2 * h);
-          if (g) ligne.set(j, g);
+
+  /* Gauss-Newton, seuls les sommets « actifs » bougeant : pas de norme
+     minimale pondérée (poids 10^coût), Δ = −W⁻¹Jᵀ (J W⁻¹ Jᵀ + λI)⁻¹ r */
+  function descendre(actifs: number[]): { Y: Point[]; r: number[] } {
+    const Y = X.map(p => ({ ...p }));
+    const col = new Map(actifs.map((k, i) => [k, i]));
+    const poids = actifs.map(k => 10 ** Math.min(dist[k]!, 6));
+    let r = residus(Y);
+    for (let it = 0; it < ITERATIONS && pire(r) > PRECISION && actifs.length; it++) {
+      /* jacobienne (différences centrées, sur les seuls sommets de chaque équation) */
+      const h = 1e-4;
+      const J: Map<number, number>[] = E.map(q => {
+        const ligne = new Map<number, number>();
+        for (const k of new Set(q.noeuds)) {
+          const c = col.get(k);
+          if (c === undefined) continue;
+          for (const [ax, j] of [['x', 2 * c], ['y', 2 * c + 1]] as const) {
+            const v0 = Y[k]![ax];
+            Y[k]![ax] = v0 + h; const fp = q.f(Y);
+            Y[k]![ax] = v0 - h; const fm = q.f(Y);
+            Y[k]![ax] = v0;
+            const g = (fp - fm) / (2 * h);
+            if (g) ligne.set(j, g);
+          }
         }
+        return ligne;
+      });
+      const m = E.length;
+      const A = Array.from({ length: m }, () => new Array<number>(m).fill(0));
+      for (let i = 0; i < m; i++) for (let j = i; j < m; j++) {
+        let s = 0;
+        for (const [c, v] of J[i]!) { const w = J[j]!.get(c); if (w) s += v * w / poids[c >> 1]! }
+        A[i]![j] = s; A[j]![i] = s;
       }
-      return ligne;
-    });
-    /* pas de norme minimale : Δ = −Jᵀ (J Jᵀ + λI)⁻¹ r */
-    const m = E.length;
-    const A = Array.from({ length: m }, () => new Array<number>(m).fill(0));
-    for (let i = 0; i < m; i++) for (let j = i; j < m; j++) {
-      let s = 0;
-      for (const [c, v] of J[i]!) { const w = J[j]!.get(c); if (w) s += v * w / poids[c >> 1]! }
-      A[i]![j] = s; A[j]![i] = s;
+      const lambda = 1e-12 * (1 + A.reduce((t, l, i) => t + l[i]!, 0) / Math.max(1, m));
+      for (let i = 0; i < m; i++) A[i]![i]! += lambda;
+      const y = systeme(A, r);
+      const delta = new Array<number>(2 * actifs.length).fill(0);
+      J.forEach((ligne, i) => { for (const [c, v] of ligne) delta[c]! -= v * y[i]! / poids[c >> 1]! });
+      /* recherche linéaire : on n'accepte un pas que s'il améliore */
+      let pas = 1, mieux = false;
+      const avant = pire(r);
+      for (let essai = 0; essai < 12; essai++, pas /= 2) {
+        const Z = Y.map(p => ({ ...p }));
+        actifs.forEach((k, i) => { Z[k] = { x: Y[k]!.x + pas * delta[2 * i]!, y: Y[k]!.y + pas * delta[2 * i + 1]! } });
+        const r2 = residus(Z);
+        if (r2.every(Number.isFinite) && pire(r2) < avant) { actifs.forEach(k => { Y[k] = Z[k]! }); r = r2; mieux = true; break }
+      }
+      if (!mieux) break;
     }
-    const lambda = 1e-12 * (1 + A.reduce((t, l, i) => t + l[i]!, 0) / Math.max(1, m));
-    for (let i = 0; i < m; i++) A[i]![i]! += lambda;
-    const y = systeme(A, r);
-    const delta = new Array<number>(2 * libres.length).fill(0);
-    J.forEach((ligne, i) => { for (const [c, v] of ligne) delta[c]! -= v * y[i]! / poids[c >> 1]! });
-    /* recherche linéaire : on n'accepte un pas que s'il améliore */
-    let pas = 1, mieux = false;
-    const avant = pire(r);
-    for (let essai = 0; essai < 12; essai++, pas /= 2) {
-      const Y = X.map(p => ({ ...p }));
-      libres.forEach((k, i) => { Y[k] = { x: X[k]!.x + pas * delta[2 * i]!, y: X[k]!.y + pas * delta[2 * i + 1]! } });
-      const r2 = residus(Y);
-      if (r2.every(Number.isFinite) && pire(r2) < avant) { libres.forEach(k => { X[k] = Y[k]! }); r = r2; mieux = true; break }
-    }
-    if (!mieux) break;
+    return { Y, r };
+  }
+
+  /* par paliers : d'abord les sommets les plus proches de la modification ;
+     on n'élargit que si ce palier ne suffit pas */
+  const paliers = [...new Set(libres.map(k => dist[k]!))].sort((a, b) => a - b);
+  for (const L of paliers) {
+    const { Y, r } = descendre(libres.filter(k => dist[k]! <= L));
+    if (pire(r) <= 10 * PRECISION || L === paliers[paliers.length - 1]) { for (const k of libres) X[k] = Y[k]!; break }
   }
 
   /* arrondi, puis vérification sur TOUTES les équations du niveau */

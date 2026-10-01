@@ -76,3 +76,37 @@ export function retablir(h: Historique): Historique {
 
 export const peutAnnuler = (h: Historique): boolean => h.passe.length > 0;
 export const peutRetablir = (h: Historique): boolean => h.futur.length > 0;
+
+/* ---------- annuler / rétablir dans un projet enregistré ----------
+
+   Sur le serveur, la révision ne recule jamais : annuler y est une
+   modification comme une autre (« Annuler : … »). Ces deux fonctions font
+   le même retour en arrière que annuler / retablir, mais la révision du
+   projet AVANCE, et elles rendent le ChangeSet à envoyer. Le plan obtenu
+   est identique à celui d'avant, objets compris ; seul le numéro de
+   révision du projet diffère. */
+
+const estRevision = (op: Operation): boolean =>
+  op.type === 'projet.modifier' && Object.keys(op.apres).length === 1 && 'revision' in op.apres;
+
+function emettre(h: Historique, titre: string, ops: Operation[], a: Acteur, passe: ChangeSet[], futur: ChangeSet[]): Execution {
+  const revision = h.projet.revision + 1;
+  const tout = [...ops, { type: 'projet.modifier' as const, avant: { revision: h.projet.revision }, apres: { revision } }];
+  const changeSet: ChangeSet = {
+    id: a.id(), titre, demandePar: a.demandePar ?? 'user', par: a.par, creeLe: a.maintenant(),
+    revisionAvant: h.projet.revision, revisionApres: revision, operations: tout,
+  };
+  return { ok: true, changeSet, historique: { projet: appliquerTout(h.projet, tout), passe, futur } };
+}
+
+export function annulerEnregistre(h: Historique, a: Acteur): Execution {
+  const cs = h.passe[h.passe.length - 1];
+  if (!cs) return { ok: false, erreurs: ['rien à annuler'] };
+  return emettre(h, 'Annuler : ' + cs.titre, inverser(cs.operations.filter(op => !estRevision(op))), a, h.passe.slice(0, -1), [cs, ...h.futur]);
+}
+
+export function retablirEnregistre(h: Historique, a: Acteur): Execution {
+  const cs = h.futur[0];
+  if (!cs) return { ok: false, erreurs: ['rien à rétablir'] };
+  return emettre(h, 'Rétablir : ' + cs.titre, cs.operations.filter(op => !estRevision(op)), a, [...h.passe, cs], h.futur.slice(1));
+}
