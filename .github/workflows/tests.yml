@@ -52,6 +52,10 @@ jobs:
           npx playwright-core install --with-deps chromium
           CHROME=$(find "$HOME/.cache/ms-playwright" -path '*chrome-linux*' -name chrome -type f | head -1)
           sudo mkdir -p /opt/pw-browsers && sudo ln -sf "$CHROME" /opt/pw-browsers/chromium
+      # la lecture d'une fiche MAP scannée rend la vraie page PDF avec pdftoppm
+      # (poppler), comme dans les sessions de travail
+      - name: Installer poppler
+        run: sudo apt-get update -q && sudo apt-get install -y -q poppler-utils
       - run: npm run test:navigateur
 
   atelier:
