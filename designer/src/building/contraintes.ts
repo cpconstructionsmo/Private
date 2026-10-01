@@ -257,16 +257,30 @@ export function resoudre(f: Floor, epingles: readonly Epingle[]): Resolution {
     for (const { j, c } of arcs.get(k) ?? []) if (dist[k]! + c < dist[j]!) { dist[j] = dist[k]! + c; if (c) file.push(j); else file.unshift(j) }
   }
 
-  const residus = (Y: Point[]) => E.map(q => q.f(Y));
+  /* préférence (pas une contrainte) : un sommet en T qui suit son mur glisse
+     le long de SA cloison, qui garde sa direction — tant que c'est possible */
+  const libresT = new Set(libres);
+  const directions: Equation[] = [];
+  for (const q of E) {
+    if (q.libelle !== 'jonction en T') continue;
+    const k = q.noeuds[2]!;
+    if (!libresT.has(k)) continue;
+    for (const e of R.ext.values()) {
+      if (e.a !== k && e.b !== k) continue;
+      const j = e.a === k ? e.b : e.a, u = normaliser(soustraire(X0[k]!, X0[j]!));
+      directions.push({ f: Y => vectoriel(u, soustraire(Y[k]!, Y[j]!)), noeuds: [j, k], libelle: 'direction de la cloison' });
+    }
+  }
+  const residus = (Y: Point[], L: Equation[] = E) => L.map(q => q.f(Y));
   const pire = (r: number[]) => r.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
 
   /* Gauss-Newton, seuls les sommets « actifs » bougeant : pas de norme
      minimale pondérée (poids 10^coût), Δ = −W⁻¹Jᵀ (J W⁻¹ Jᵀ + λI)⁻¹ r */
-  function descendre(actifs: number[]): { Y: Point[]; r: number[] } {
+  function descendre(actifs: number[], E: Equation[]): { Y: Point[]; r: number[] } {
     const Y = X.map(p => ({ ...p }));
     const col = new Map(actifs.map((k, i) => [k, i]));
     const poids = actifs.map(k => 10 ** Math.min(dist[k]!, 6));
-    let r = residus(Y);
+    let r = residus(Y, E);
     for (let it = 0; it < ITERATIONS && pire(r) > PRECISION && actifs.length; it++) {
       /* jacobienne (différences centrées, sur les seuls sommets de chaque équation) */
       const h = 1e-4;
@@ -304,7 +318,7 @@ export function resoudre(f: Floor, epingles: readonly Epingle[]): Resolution {
       for (let essai = 0; essai < 12; essai++, pas /= 2) {
         const Z = Y.map(p => ({ ...p }));
         actifs.forEach((k, i) => { Z[k] = { x: Y[k]!.x + pas * delta[2 * i]!, y: Y[k]!.y + pas * delta[2 * i + 1]! } });
-        const r2 = residus(Z);
+        const r2 = residus(Z, E);
         if (r2.every(Number.isFinite) && pire(r2) < avant) { actifs.forEach(k => { Y[k] = Z[k]! }); r = r2; mieux = true; break }
       }
       if (!mieux) break;
@@ -315,9 +329,14 @@ export function resoudre(f: Floor, epingles: readonly Epingle[]): Resolution {
   /* par paliers : d'abord les sommets les plus proches de la modification ;
      on n'élargit que si ce palier ne suffit pas */
   const paliers = [...new Set(libres.map(k => dist[k]!))].sort((a, b) => a - b);
-  for (const L of paliers) {
-    const { Y, r } = descendre(libres.filter(k => dist[k]! <= L));
-    if (pire(r) <= 10 * PRECISION || L === paliers[paliers.length - 1]) { for (const k of libres) X[k] = Y[k]!; break }
+  paliers: for (const L of paliers) {
+    const actifs = libres.filter(k => dist[k]! <= L);
+    const preferences = directions.filter(q => actifs.includes(q.noeuds[1]!));
+    for (const essai of preferences.length ? [[...E, ...preferences], E] : [E]) {
+      const { Y, r } = descendre(actifs, essai);
+      if (pire(r) <= 10 * PRECISION) { for (const k of libres) X[k] = Y[k]!; break paliers }
+      if (L === paliers[paliers.length - 1] && essai === E) { for (const k of libres) X[k] = Y[k]!; break paliers }
+    }
   }
 
   /* arrondi, puis vérification sur TOUTES les équations du niveau */

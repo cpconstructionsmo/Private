@@ -116,7 +116,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   etat.textContent = 'Ouverture…';
   const { connexion, utilisateur } = await import('../persistence/connexion');
   const { DepotSupabase } = await import('../persistence/depot-supabase');
-  const ouv = await ouvrirSession(params, { utilisateur, depot: () => new DepotSupabase(connexion()), signaler });
+  const { FondsSupabase } = await import('../persistence/fonds-supabase');
+  const ouv = await ouvrirSession(params, { utilisateur, depot: () => new DepotSupabase(connexion()), fonds: () => new FondsSupabase(connexion()), signaler });
   const enr: Enregistreur = ouv.enregistreur;
   signaler(enr.mode === 'local' ? 'local' : 'a_jour', enr.raison);
 
@@ -184,7 +185,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   function chargerFond(cle: string, page?: number) {
     if (images.has(cle) || enChargement.has(cle)) return;
     enChargement.add(cle);
-    imageDuFond(cle, page).then(i => { if (i) { images.set(cle, i); dessinerBientot() } else toast('Le fichier d’un fond n’est pas sur cet appareil : réimportez-le pour le voir.', true) })
+    imageDuFond(cle, page, undefined, enr.fonds).then(i => { if (i) { images.set(cle, i); dessinerBientot() } else toast('Le fichier d’un fond n’est ni sur cet appareil ni sur le serveur : réimportez-le pour le voir.', true) })
       .catch(e => toast('Fond illisible : ' + String((e as Error)?.message ?? e), true));
   }
   new ResizeObserver(() => dessinerBientot()).observe(main);
@@ -490,12 +491,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           if (!r) return;
           page = Math.min(pages, Math.max(1, Math.round(ent(r['p']!)) || 1));
         }
-        const cle = await importerFichier(f);
+        const { cle, partage, erreur } = await importerFichier(f, undefined, enr.fonds);
         const avant = new Set(Object.keys(niveau().objects));
         if (faire('Importer un fond', [{ type: 'ajouterFond', niveau: niveauId, fichier: cle, nom: f.name, page }])) {
           selection = Object.keys(niveau().objects).find(k => !avant.has(k)) ?? null;
           panneaux();
-          toast('Fond importé : calez-le par deux points de distance connue (bouton « Caler »), puis verrouillez-le.');
+          toast(partage === 'serveur' ? 'Fond importé et partagé : calez-le par deux points de distance connue (bouton « Caler »), puis verrouillez-le.'
+            : 'Fond importé, gardé sur cet appareil seulement' + (erreur ? ' (partage impossible : ' + erreur + ' — l’espace « designer-fonds » est créé par supabase/designer/schema.sql)' : '') + '. Calez-le par deux points, puis verrouillez-le.', !!erreur);
         }
       } catch (e) { toast('Import impossible : ' + String((e as Error)?.message ?? e), true) }
     };

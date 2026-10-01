@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       # Le code de l'application est converti une fois ici, au lieu de l'être
       # dans le navigateur à chaque ouverture (voir outils/compiler_publication.js).
       # Si la conversion échoue, index.html reste tel quel : la page est

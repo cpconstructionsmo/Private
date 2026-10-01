@@ -3,3 +3,4 @@ export * from './depot';
 export * from './depot-supabase';
 export * from './synchro';
 export * from './copie-idb';
+export * from './fonds-supabase';
