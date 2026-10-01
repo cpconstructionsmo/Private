@@ -1,0 +1,17 @@
+{
+  "name": "cp-designer",
+  "private": true,
+  "description": "CP Constructions Designer — module de conception, séparé du CRM (voir README.md et docs/designer/).",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.3"
+  }
+}
