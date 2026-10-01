@@ -17,7 +17,11 @@
   comme vérité (règle 1 : pas de divergence silencieuse entre vues).
 - **Opérations booléennes** (union, différence, découpe) en entiers
   (1 unité = 0,01 mm) par une bibliothèque éprouvée (Clipper2), plutôt
-  qu'une implémentation maison en flottants.
+  qu'une implémentation maison en flottants. Portage retenu : `clipper2-ts`
+  (licence Boost, sans dépendance, maintenu ; version figée dans
+  `package-lock.json`), utilisé seulement dans `src/geometry/booleen.ts`.
+  Le résultat est relu dans l'arbre de Clipper : contour trigonométrique,
+  trous horaires, île dans un trou = polygone à part.
 - **Pièces** : faces du graphe planaire bâti sur les faces intérieures des
   murs ; une pièce est retrouvée après modification par son point
   intérieur (`seed`), ce qui conserve son nom et son usage. Une pièce non
