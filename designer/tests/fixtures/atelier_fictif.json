@@ -1,0 +1,2832 @@
+{
+  "schema_version": 1,
+  "id": "fictif",
+  "nom": "Essai fictif",
+  "maitre_ouvrage": "",
+  "adresse_maitre_ouvrage": "",
+  "adresse": "",
+  "parcelles": [],
+  "numero_dossier": "",
+  "indice": "A",
+  "version": 0,
+  "cree_le": "2026-10-01T20:07:35",
+  "historique": [],
+  "journal": [
+    {
+      "le": "2026-10-01T20:07:35",
+      "par": "",
+      "sujet": "Import du RDC",
+      "choix": "fictif.dxf",
+      "motif": "5 pièces, 2 murs, 11 ouvertures ; 3 écart(s)",
+      "genre": "decision"
+    }
+  ],
+  "points_arret": {
+    "1_rdc": {
+      "valide": false,
+      "le": "",
+      "par": "",
+      "remarque": ""
+    },
+    "2_implantation": {
+      "valide": false,
+      "le": "",
+      "par": "",
+      "remarque": ""
+    },
+    "3_regles": {
+      "valide": false,
+      "le": "",
+      "par": "",
+      "remarque": ""
+    },
+    "4_risques": {
+      "valide": false,
+      "le": "",
+      "par": "",
+      "remarque": ""
+    },
+    "5_relecture": {
+      "valide": false,
+      "le": "",
+      "par": "",
+      "remarque": ""
+    }
+  },
+  "documents": [],
+  "terrain": {
+    "limites": [],
+    "source": "",
+    "cotes": [],
+    "alignement": [],
+    "tn": [],
+    "surface": {
+      "valeur": null,
+      "unite": "m²",
+      "statut": "impossible",
+      "source": null,
+      "consequence": "",
+      "manque": "surface du terrain"
+    },
+    "implantation": null,
+    "nom_voie": ""
+  },
+  "regles": [],
+  "surface_terrain": {
+    "valeur": null,
+    "unite": "m²",
+    "statut": "impossible",
+    "source": null,
+    "consequence": "",
+    "manque": "surface du terrain (plan de division, acte)"
+  },
+  "zone_sismique": {
+    "valeur": null,
+    "unite": "",
+    "statut": "impossible",
+    "source": null,
+    "consequence": "",
+    "manque": "zone sismique (Géorisques)"
+  },
+  "chauffage": "",
+  "divers": "",
+  "modifications": [],
+  "zone_plu": "",
+  "commune": "",
+  "notice": {},
+  "images": [],
+  "batiment": {
+    "type_niveaux": "plain-pied",
+    "niveaux": [
+      {
+        "nom": "Rez-de-chaussée",
+        "altitude_sol_fini": {
+          "valeur": null,
+          "unite": "m",
+          "statut": "impossible",
+          "source": null,
+          "consequence": "",
+          "manque": "altitude du RDC fini (plan de masse, relevé)"
+        },
+        "hauteur_sous_plafond": {
+          "valeur": 2.5,
+          "unite": "m",
+          "statut": "hypothese",
+          "source": {
+            "document": "",
+            "page": "",
+            "article": "",
+            "indice": "",
+            "date": "",
+            "url": "",
+            "consulte_le": "",
+            "calcul": "valeur courante, non lue sur le plan"
+          },
+          "consequence": "si une partie est sous 1,80 m, elle sort de la surface de plancher et de la surface habitable",
+          "manque": ""
+        },
+        "epaisseur_plancher": {
+          "valeur": null,
+          "unite": "m",
+          "statut": "impossible",
+          "source": null,
+          "consequence": "",
+          "manque": "système de plancher (dalle, poutrelles-hourdis, bois)"
+        },
+        "contour_exterieur": [
+          [
+            0.0,
+            5.5
+          ],
+          [
+            0.0,
+            6.7
+          ],
+          [
+            0.0,
+            9.0
+          ],
+          [
+            3.0,
+            9.0
+          ],
+          [
+            3.9,
+            9.0
+          ],
+          [
+            5.0,
+            9.0
+          ],
+          [
+            6.8,
+            9.0
+          ],
+          [
+            12.0,
+            9.0
+          ],
+          [
+            12.0,
+            7.4
+          ],
+          [
+            12.0,
+            6.4
+          ],
+          [
+            12.0,
+            4.4
+          ],
+          [
+            12.0,
+            3.8
+          ],
+          [
+            12.0,
+            2.0
+          ],
+          [
+            12.0,
+            1.0
+          ],
+          [
+            12.0,
+            0.0
+          ],
+          [
+            4.4,
+            0.0
+          ],
+          [
+            2.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            5.5
+          ]
+        ],
+        "murs": [
+          {
+            "id": "M1",
+            "polygone": [
+              [
+                0.0,
+                8.7
+              ],
+              [
+                0.0,
+                9.0
+              ],
+              [
+                0.3,
+                9.0
+              ],
+              [
+                3.0,
+                9.0
+              ],
+              [
+                3.9,
+                9.0
+              ],
+              [
+                5.0,
+                9.0
+              ],
+              [
+                6.8,
+                9.0
+              ],
+              [
+                11.7,
+                9.0
+              ],
+              [
+                12.0,
+                9.0
+              ],
+              [
+                12.0,
+                8.7
+              ],
+              [
+                12.0,
+                7.4
+              ],
+              [
+                12.0,
+                6.4
+              ],
+              [
+                12.0,
+                4.4
+              ],
+              [
+                12.0,
+                3.8
+              ],
+              [
+                12.0,
+                2.0
+              ],
+              [
+                12.0,
+                1.0
+              ],
+              [
+                12.0,
+                0.3
+              ],
+              [
+                12.0,
+                0.0
+              ],
+              [
+                11.7,
+                0.0
+              ],
+              [
+                4.4,
+                0.0
+              ],
+              [
+                2.0,
+                0.0
+              ],
+              [
+                0.3,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.3
+              ],
+              [
+                0.0,
+                5.5
+              ],
+              [
+                0.0,
+                6.7
+              ],
+              [
+                0.0,
+                8.7
+              ]
+            ],
+            "trous": [
+              [
+                [
+                  11.7,
+                  0.3
+                ],
+                [
+                  11.7,
+                  1.0
+                ],
+                [
+                  11.7,
+                  2.0
+                ],
+                [
+                  11.7,
+                  2.9
+                ],
+                [
+                  11.7,
+                  3.0
+                ],
+                [
+                  11.7,
+                  3.8
+                ],
+                [
+                  11.7,
+                  4.4
+                ],
+                [
+                  11.7,
+                  5.2
+                ],
+                [
+                  11.7,
+                  5.3
+                ],
+                [
+                  11.7,
+                  6.4
+                ],
+                [
+                  11.7,
+                  7.4
+                ],
+                [
+                  11.7,
+                  8.7
+                ],
+                [
+                  7.8,
+                  8.7
+                ],
+                [
+                  7.7,
+                  8.7
+                ],
+                [
+                  6.8,
+                  8.7
+                ],
+                [
+                  5.0,
+                  8.7
+                ],
+                [
+                  3.9,
+                  8.7
+                ],
+                [
+                  3.0,
+                  8.7
+                ],
+                [
+                  0.3,
+                  8.7
+                ],
+                [
+                  0.3,
+                  6.7
+                ],
+                [
+                  0.3,
+                  5.5
+                ],
+                [
+                  0.3,
+                  3.7
+                ],
+                [
+                  0.3,
+                  3.6
+                ],
+                [
+                  0.3,
+                  0.3
+                ],
+                [
+                  2.0,
+                  0.3
+                ],
+                [
+                  4.4,
+                  0.3
+                ],
+                [
+                  7.7,
+                  0.3
+                ],
+                [
+                  7.8,
+                  0.3
+                ],
+                [
+                  11.7,
+                  0.3
+                ]
+              ]
+            ],
+            "epaisseur": 0.3,
+            "exterieur": true,
+            "porteur": {
+              "valeur": true,
+              "unite": "",
+              "statut": "hypothese",
+              "source": {
+                "document": "",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "mur de façade supposé porteur"
+              },
+              "consequence": "s'il n'est pas porteur, rien ne change pour le permis",
+              "manque": ""
+            }
+          },
+          {
+            "id": "M2",
+            "polygone": [
+              [
+                7.8,
+                2.9
+              ],
+              [
+                7.8,
+                0.301
+              ],
+              [
+                7.7,
+                0.301
+              ],
+              [
+                7.7,
+                3.6
+              ],
+              [
+                1.9,
+                3.6
+              ],
+              [
+                1.0,
+                3.6
+              ],
+              [
+                0.301,
+                3.6
+              ],
+              [
+                0.301,
+                3.7
+              ],
+              [
+                1.0,
+                3.7
+              ],
+              [
+                1.9,
+                3.7
+              ],
+              [
+                7.7,
+                3.7
+              ],
+              [
+                7.7,
+                3.9
+              ],
+              [
+                7.7,
+                4.7
+              ],
+              [
+                7.7,
+                6.0
+              ],
+              [
+                7.7,
+                6.9
+              ],
+              [
+                7.7,
+                8.699
+              ],
+              [
+                7.8,
+                8.699
+              ],
+              [
+                7.8,
+                6.9
+              ],
+              [
+                7.8,
+                6.0
+              ],
+              [
+                7.8,
+                5.3
+              ],
+              [
+                11.699,
+                5.3
+              ],
+              [
+                11.699,
+                5.2
+              ],
+              [
+                7.8,
+                5.2
+              ],
+              [
+                7.8,
+                4.7
+              ],
+              [
+                7.8,
+                3.9
+              ],
+              [
+                7.8,
+                3.0
+              ],
+              [
+                8.5,
+                3.0
+              ],
+              [
+                9.3,
+                3.0
+              ],
+              [
+                11.699,
+                3.0
+              ],
+              [
+                11.699,
+                2.9
+              ],
+              [
+                9.3,
+                2.9
+              ],
+              [
+                8.5,
+                2.9
+              ],
+              [
+                7.8,
+                2.9
+              ]
+            ],
+            "trous": [],
+            "epaisseur": 0.1,
+            "exterieur": false,
+            "porteur": {
+              "valeur": false,
+              "unite": "",
+              "statut": "hypothese",
+              "source": {
+                "document": "",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "épaisseur moyenne 0.10 m : cloison supposée"
+              },
+              "consequence": "si cette cloison est porteuse, la supprimer ou la percer demande une étude",
+              "manque": ""
+            }
+          }
+        ],
+        "ouvertures": [
+          {
+            "id": "O1",
+            "type": "porte de garage",
+            "position": [
+              3.2,
+              0.15
+            ],
+            "largeur": {
+              "valeur": 2.4,
+              "unite": "m",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "bloc « PORTE_GARAGE_240 »"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture (bloc, façade ou tableau des menuiseries)"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": true,
+            "origine": "bloc PORTE_GARAGE_240",
+            "polygone": [
+              [
+                2.0,
+                0.0
+              ],
+              [
+                2.0,
+                0.3
+              ],
+              [
+                4.4,
+                0.3
+              ],
+              [
+                4.4,
+                0.0
+              ],
+              [
+                2.0,
+                0.0
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O2",
+            "type": "fenetre",
+            "position": [
+              5.9,
+              8.85
+            ],
+            "largeur": {
+              "valeur": 1.8,
+              "unite": "m",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "bloc « FENETRE_180 »"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture (bloc, façade ou tableau des menuiseries)"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": true,
+            "origine": "bloc FENETRE_180",
+            "polygone": [
+              [
+                5.0,
+                8.7
+              ],
+              [
+                5.0,
+                9.0
+              ],
+              [
+                6.8,
+                9.0
+              ],
+              [
+                6.8,
+                8.7
+              ],
+              [
+                5.0,
+                8.7
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O3",
+            "type": "fenetre",
+            "position": [
+              0.15,
+              6.1
+            ],
+            "largeur": {
+              "valeur": 1.2,
+              "unite": "m",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "bloc « FENETRE_120 »"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture (bloc, façade ou tableau des menuiseries)"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": true,
+            "origine": "bloc FENETRE_120",
+            "polygone": [
+              [
+                0.0,
+                5.5
+              ],
+              [
+                0.0,
+                6.7
+              ],
+              [
+                0.3,
+                6.7
+              ],
+              [
+                0.3,
+                5.5
+              ],
+              [
+                0.0,
+                5.5
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O4",
+            "type": "fenetre",
+            "position": [
+              11.85,
+              6.9
+            ],
+            "largeur": {
+              "valeur": 1.0,
+              "unite": "m",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "bloc « FENETRE_100 »"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture (bloc, façade ou tableau des menuiseries)"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": true,
+            "origine": "bloc FENETRE_100",
+            "polygone": [
+              [
+                11.7,
+                6.4
+              ],
+              [
+                11.7,
+                7.4
+              ],
+              [
+                12.0,
+                7.4
+              ],
+              [
+                12.0,
+                6.4
+              ],
+              [
+                11.7,
+                6.4
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O5",
+            "type": "fenetre",
+            "position": [
+              11.85,
+              4.1
+            ],
+            "largeur": {
+              "valeur": 0.6,
+              "unite": "m",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "bloc « FENETRE_60 »"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture (bloc, façade ou tableau des menuiseries)"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": true,
+            "origine": "bloc FENETRE_60",
+            "polygone": [
+              [
+                11.7,
+                3.8
+              ],
+              [
+                11.7,
+                4.4
+              ],
+              [
+                12.0,
+                4.4
+              ],
+              [
+                12.0,
+                3.8
+              ],
+              [
+                11.7,
+                3.8
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O6",
+            "type": "fenetre",
+            "position": [
+              11.85,
+              1.5
+            ],
+            "largeur": {
+              "valeur": 1.0,
+              "unite": "m",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "bloc « FENETRE_100 »"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture (bloc, façade ou tableau des menuiseries)"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": true,
+            "origine": "bloc FENETRE_100",
+            "polygone": [
+              [
+                11.7,
+                1.0
+              ],
+              [
+                11.7,
+                2.0
+              ],
+              [
+                12.0,
+                2.0
+              ],
+              [
+                12.0,
+                1.0
+              ],
+              [
+                11.7,
+                1.0
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O7",
+            "type": "porte",
+            "position": [
+              7.8,
+              4.3
+            ],
+            "largeur": {
+              "valeur": 0.8,
+              "unite": "m",
+              "statut": "hypothese",
+              "source": {
+                "document": "",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "interruption du trait de mur"
+              },
+              "consequence": "largeur prise entre les nus de l'interruption du mur",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": false,
+            "origine": "interruption de mur",
+            "polygone": [
+              [
+                7.7,
+                3.9
+              ],
+              [
+                7.7,
+                4.7
+              ],
+              [
+                7.8,
+                4.7
+              ],
+              [
+                7.8,
+                3.9
+              ],
+              [
+                7.7,
+                3.9
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O8",
+            "type": "porte",
+            "position": [
+              8.9,
+              3.0
+            ],
+            "largeur": {
+              "valeur": 0.8,
+              "unite": "m",
+              "statut": "hypothese",
+              "source": {
+                "document": "",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "interruption du trait de mur"
+              },
+              "consequence": "largeur prise entre les nus de l'interruption du mur",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": false,
+            "origine": "interruption de mur",
+            "polygone": [
+              [
+                8.5,
+                2.9
+              ],
+              [
+                8.5,
+                3.0
+              ],
+              [
+                9.3,
+                3.0
+              ],
+              [
+                9.3,
+                2.9
+              ],
+              [
+                8.5,
+                2.9
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O9",
+            "type": "porte",
+            "position": [
+              3.45,
+              8.7
+            ],
+            "largeur": {
+              "valeur": 0.9,
+              "unite": "m",
+              "statut": "hypothese",
+              "source": {
+                "document": "",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "interruption du trait de mur"
+              },
+              "consequence": "largeur prise entre les nus de l'interruption du mur",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": true,
+            "origine": "interruption de mur",
+            "polygone": [
+              [
+                3.0,
+                8.7
+              ],
+              [
+                3.0,
+                9.0
+              ],
+              [
+                3.9,
+                9.0
+              ],
+              [
+                3.9,
+                8.7
+              ],
+              [
+                3.0,
+                8.7
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O10",
+            "type": "porte",
+            "position": [
+              1.45,
+              3.7
+            ],
+            "largeur": {
+              "valeur": 0.9,
+              "unite": "m",
+              "statut": "hypothese",
+              "source": {
+                "document": "",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "interruption du trait de mur"
+              },
+              "consequence": "largeur prise entre les nus de l'interruption du mur",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": false,
+            "origine": "interruption de mur",
+            "polygone": [
+              [
+                1.0,
+                3.6
+              ],
+              [
+                1.0,
+                3.7
+              ],
+              [
+                1.9,
+                3.7
+              ],
+              [
+                1.9,
+                3.6
+              ],
+              [
+                1.0,
+                3.6
+              ]
+            ],
+            "menuiserie": ""
+          },
+          {
+            "id": "O11",
+            "type": "porte",
+            "position": [
+              7.7,
+              6.45
+            ],
+            "largeur": {
+              "valeur": 0.9,
+              "unite": "m",
+              "statut": "hypothese",
+              "source": {
+                "document": "",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "interruption du trait de mur"
+              },
+              "consequence": "largeur prise entre les nus de l'interruption du mur",
+              "manque": ""
+            },
+            "hauteur": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur de l'ouverture"
+            },
+            "allege": {
+              "valeur": null,
+              "unite": "m",
+              "statut": "impossible",
+              "source": null,
+              "consequence": "",
+              "manque": "hauteur d'allège"
+            },
+            "exterieure": false,
+            "origine": "interruption de mur",
+            "polygone": [
+              [
+                7.7,
+                6.0
+              ],
+              [
+                7.7,
+                6.9
+              ],
+              [
+                7.8,
+                6.9
+              ],
+              [
+                7.8,
+                6.0
+              ],
+              [
+                7.7,
+                6.0
+              ]
+            ],
+            "menuiserie": ""
+          }
+        ],
+        "pieces": [
+          {
+            "id": "P1",
+            "nom": "Séjour - cuisine",
+            "usage": "sejour",
+            "polygone": [
+              [
+                0.3,
+                3.7
+              ],
+              [
+                0.3,
+                5.5
+              ],
+              [
+                0.3,
+                6.7
+              ],
+              [
+                0.3,
+                8.7
+              ],
+              [
+                3.0,
+                8.7
+              ],
+              [
+                3.9,
+                8.7
+              ],
+              [
+                5.0,
+                8.7
+              ],
+              [
+                6.8,
+                8.7
+              ],
+              [
+                7.7,
+                8.7
+              ],
+              [
+                7.7,
+                6.9
+              ],
+              [
+                7.7,
+                6.0
+              ],
+              [
+                7.7,
+                4.7
+              ],
+              [
+                7.7,
+                3.9
+              ],
+              [
+                7.7,
+                3.7
+              ],
+              [
+                1.9,
+                3.7
+              ],
+              [
+                1.0,
+                3.7
+              ],
+              [
+                0.3,
+                3.7
+              ]
+            ],
+            "surface_calculee": 37.0,
+            "surface_lue": {
+              "valeur": 37.0,
+              "unite": "m²",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "texte lu sur le plan source"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "humide": true,
+            "exclue_habitable": false,
+            "motif_exclusion": ""
+          },
+          {
+            "id": "P2",
+            "nom": "Garage",
+            "usage": "garage",
+            "polygone": [
+              [
+                0.3,
+                3.6
+              ],
+              [
+                1.0,
+                3.6
+              ],
+              [
+                1.9,
+                3.6
+              ],
+              [
+                7.7,
+                3.6
+              ],
+              [
+                7.7,
+                0.3
+              ],
+              [
+                4.4,
+                0.3
+              ],
+              [
+                2.0,
+                0.3
+              ],
+              [
+                0.3,
+                0.3
+              ],
+              [
+                0.3,
+                3.6
+              ]
+            ],
+            "surface_calculee": 24.42,
+            "surface_lue": {
+              "valeur": 24.42,
+              "unite": "m²",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "texte lu sur le plan source"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "humide": false,
+            "exclue_habitable": true,
+            "motif_exclusion": "garage (surface de stationnement)"
+          },
+          {
+            "id": "P3",
+            "nom": "Salle d'eau",
+            "usage": "eau",
+            "polygone": [
+              [
+                7.8,
+                3.0
+              ],
+              [
+                7.8,
+                3.9
+              ],
+              [
+                7.8,
+                4.7
+              ],
+              [
+                7.8,
+                5.2
+              ],
+              [
+                11.7,
+                5.2
+              ],
+              [
+                11.7,
+                4.4
+              ],
+              [
+                11.7,
+                3.8
+              ],
+              [
+                11.7,
+                3.0
+              ],
+              [
+                9.3,
+                3.0
+              ],
+              [
+                8.5,
+                3.0
+              ],
+              [
+                7.8,
+                3.0
+              ]
+            ],
+            "surface_calculee": 8.58,
+            "surface_lue": {
+              "valeur": 8.6,
+              "unite": "m²",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "texte lu sur le plan source"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "humide": true,
+            "exclue_habitable": false,
+            "motif_exclusion": ""
+          },
+          {
+            "id": "P4",
+            "nom": "Chambre 2",
+            "usage": "chambre",
+            "polygone": [
+              [
+                7.8,
+                2.9
+              ],
+              [
+                8.5,
+                2.9
+              ],
+              [
+                9.3,
+                2.9
+              ],
+              [
+                11.7,
+                2.9
+              ],
+              [
+                11.7,
+                2.0
+              ],
+              [
+                11.7,
+                1.0
+              ],
+              [
+                11.7,
+                0.3
+              ],
+              [
+                7.8,
+                0.3
+              ],
+              [
+                7.8,
+                2.9
+              ]
+            ],
+            "surface_calculee": 10.14,
+            "surface_lue": {
+              "valeur": 10.14,
+              "unite": "m²",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "texte lu sur le plan source"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "humide": false,
+            "exclue_habitable": false,
+            "motif_exclusion": ""
+          },
+          {
+            "id": "P5",
+            "nom": "Chambre 1",
+            "usage": "chambre",
+            "polygone": [
+              [
+                11.7,
+                5.3
+              ],
+              [
+                7.8,
+                5.3
+              ],
+              [
+                7.8,
+                6.0
+              ],
+              [
+                7.8,
+                6.9
+              ],
+              [
+                7.8,
+                8.7
+              ],
+              [
+                11.7,
+                8.7
+              ],
+              [
+                11.7,
+                7.4
+              ],
+              [
+                11.7,
+                6.4
+              ],
+              [
+                11.7,
+                5.3
+              ]
+            ],
+            "surface_calculee": 13.26,
+            "surface_lue": {
+              "valeur": 13.26,
+              "unite": "m²",
+              "statut": "confirme",
+              "source": {
+                "document": "fictif.dxf",
+                "page": "",
+                "article": "",
+                "indice": "",
+                "date": "",
+                "url": "",
+                "consulte_le": "",
+                "calcul": "texte lu sur le plan source"
+              },
+              "consequence": "",
+              "manque": ""
+            },
+            "humide": false,
+            "exclue_habitable": false,
+            "motif_exclusion": ""
+          }
+        ],
+        "couverts": []
+      }
+    ],
+    "charpente": {
+      "valeur": null,
+      "unite": "",
+      "statut": "impossible",
+      "source": null,
+      "consequence": "",
+      "manque": "type de charpente (fermettes, traditionnelle…)"
+    },
+    "volumetrie": {
+      "hauteur_egout": {
+        "valeur": 2.8,
+        "unite": "m",
+        "statut": "hypothese",
+        "source": {
+          "document": "",
+          "page": "",
+          "article": "",
+          "indice": "",
+          "date": "",
+          "url": "",
+          "consulte_le": "",
+          "calcul": "valeur courante, à confirmer"
+        },
+        "consequence": "toutes les hauteurs de façade et de faîtage en dépendent",
+        "manque": ""
+      },
+      "hauteur_arase": {
+        "valeur": 2.7,
+        "unite": "m",
+        "statut": "hypothese",
+        "source": {
+          "document": "",
+          "page": "",
+          "article": "",
+          "indice": "",
+          "date": "",
+          "url": "",
+          "consulte_le": "",
+          "calcul": "valeur courante, à confirmer"
+        },
+        "consequence": "hauteur des murs sous toiture sur les coupes",
+        "manque": ""
+      },
+      "pente_toiture": {
+        "valeur": 35.0,
+        "unite": "°",
+        "statut": "hypothese",
+        "source": {
+          "document": "",
+          "page": "",
+          "article": "",
+          "indice": "",
+          "date": "",
+          "url": "",
+          "consulte_le": "",
+          "calcul": "valeur courante, à confirmer"
+        },
+        "consequence": "hauteurs de faîtage et règles du PLU sur les pentes",
+        "manque": ""
+      },
+      "debord_toiture": {
+        "valeur": 0.3,
+        "unite": "m",
+        "statut": "hypothese",
+        "source": {
+          "document": "",
+          "page": "",
+          "article": "",
+          "indice": "",
+          "date": "",
+          "url": "",
+          "consulte_le": "",
+          "calcul": "valeur courante, à confirmer"
+        },
+        "consequence": "emprise des débords, hauteurs de faîtage",
+        "manque": ""
+      },
+      "type_toiture": "croupes",
+      "couverture": "",
+      "vide_sanitaire": {
+        "valeur": 0.6,
+        "unite": "m",
+        "statut": "hypothese",
+        "source": {
+          "document": "",
+          "page": "",
+          "article": "",
+          "indice": "",
+          "date": "",
+          "url": "",
+          "consulte_le": "",
+          "calcul": "valeur courante, à confirmer"
+        },
+        "consequence": "coupes seulement (hauteur du vide sanitaire sous la dalle)",
+        "manque": ""
+      },
+      "terrain_fini": {
+        "valeur": -0.15,
+        "unite": "m",
+        "statut": "hypothese",
+        "source": {
+          "document": "",
+          "page": "",
+          "article": "",
+          "indice": "",
+          "date": "",
+          "url": "",
+          "consulte_le": "",
+          "calcul": "valeur courante, à confirmer"
+        },
+        "consequence": "niveau du terrain aux abords sur les façades et coupes",
+        "manque": ""
+      },
+      "nord": {
+        "valeur": 90.0,
+        "unite": "°",
+        "statut": "hypothese",
+        "source": {
+          "document": "",
+          "page": "",
+          "article": "",
+          "indice": "",
+          "date": "",
+          "url": "",
+          "consulte_le": "",
+          "calcul": "nord supposé vers le haut du plan"
+        },
+        "consequence": "noms des façades (nord, sud…) et flèche du nord",
+        "manque": ""
+      }
+    }
+  },
+  "source_rdc": {
+    "fichier": "fictif.dxf",
+    "segments": [
+      [
+        [
+          0.0,
+          5.5
+        ],
+        [
+          0.3,
+          5.5
+        ]
+      ],
+      [
+        [
+          0.3,
+          5.5
+        ],
+        [
+          0.3,
+          3.7
+        ]
+      ],
+      [
+        [
+          0.3,
+          3.7
+        ],
+        [
+          1.0,
+          3.7
+        ]
+      ],
+      [
+        [
+          1.0,
+          3.7
+        ],
+        [
+          1.0,
+          3.6
+        ]
+      ],
+      [
+        [
+          1.0,
+          3.6
+        ],
+        [
+          0.3,
+          3.6
+        ]
+      ],
+      [
+        [
+          0.3,
+          3.6
+        ],
+        [
+          0.3,
+          0.3
+        ]
+      ],
+      [
+        [
+          0.3,
+          0.3
+        ],
+        [
+          2.0,
+          0.3
+        ]
+      ],
+      [
+        [
+          2.0,
+          0.3
+        ],
+        [
+          2.0,
+          0.0
+        ]
+      ],
+      [
+        [
+          2.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          5.5
+        ]
+      ],
+      [
+        [
+          7.7,
+          3.9
+        ],
+        [
+          7.8,
+          3.9
+        ]
+      ],
+      [
+        [
+          7.8,
+          3.9
+        ],
+        [
+          7.8,
+          3.0
+        ]
+      ],
+      [
+        [
+          7.8,
+          3.0
+        ],
+        [
+          8.5,
+          3.0
+        ]
+      ],
+      [
+        [
+          8.5,
+          3.0
+        ],
+        [
+          8.5,
+          2.9
+        ]
+      ],
+      [
+        [
+          8.5,
+          2.9
+        ],
+        [
+          7.8,
+          2.9
+        ]
+      ],
+      [
+        [
+          7.8,
+          2.9
+        ],
+        [
+          7.8,
+          0.3
+        ]
+      ],
+      [
+        [
+          7.8,
+          0.3
+        ],
+        [
+          11.700000000000001,
+          0.3
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          0.3
+        ],
+        [
+          11.700000000000001,
+          1.0
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          1.0
+        ],
+        [
+          12.0,
+          1.0
+        ]
+      ],
+      [
+        [
+          12.0,
+          1.0
+        ],
+        [
+          12.0,
+          0.0
+        ]
+      ],
+      [
+        [
+          12.0,
+          0.0
+        ],
+        [
+          4.4,
+          0.0
+        ]
+      ],
+      [
+        [
+          4.4,
+          0.0
+        ],
+        [
+          4.4,
+          0.3
+        ]
+      ],
+      [
+        [
+          4.4,
+          0.3
+        ],
+        [
+          7.7,
+          0.3
+        ]
+      ],
+      [
+        [
+          7.7,
+          0.3
+        ],
+        [
+          7.7,
+          3.6
+        ]
+      ],
+      [
+        [
+          7.7,
+          3.6
+        ],
+        [
+          1.9000000000000001,
+          3.6
+        ]
+      ],
+      [
+        [
+          1.9000000000000001,
+          3.6
+        ],
+        [
+          1.9000000000000001,
+          3.7
+        ]
+      ],
+      [
+        [
+          1.9000000000000001,
+          3.7
+        ],
+        [
+          7.7,
+          3.7
+        ]
+      ],
+      [
+        [
+          7.7,
+          3.7
+        ],
+        [
+          7.7,
+          3.9
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          3.0
+        ],
+        [
+          11.700000000000001,
+          3.8000000000000003
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          3.8000000000000003
+        ],
+        [
+          12.0,
+          3.8000000000000003
+        ]
+      ],
+      [
+        [
+          12.0,
+          3.8000000000000003
+        ],
+        [
+          12.0,
+          2.0
+        ]
+      ],
+      [
+        [
+          12.0,
+          2.0
+        ],
+        [
+          11.700000000000001,
+          2.0
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          2.0
+        ],
+        [
+          11.700000000000001,
+          2.9
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          2.9
+        ],
+        [
+          9.3,
+          2.9
+        ]
+      ],
+      [
+        [
+          9.3,
+          2.9
+        ],
+        [
+          9.3,
+          3.0
+        ]
+      ],
+      [
+        [
+          9.3,
+          3.0
+        ],
+        [
+          11.700000000000001,
+          3.0
+        ]
+      ],
+      [
+        [
+          7.8,
+          5.3
+        ],
+        [
+          11.700000000000001,
+          5.3
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          5.3
+        ],
+        [
+          11.700000000000001,
+          6.4
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          6.4
+        ],
+        [
+          12.0,
+          6.4
+        ]
+      ],
+      [
+        [
+          12.0,
+          6.4
+        ],
+        [
+          12.0,
+          4.4
+        ]
+      ],
+      [
+        [
+          12.0,
+          4.4
+        ],
+        [
+          11.700000000000001,
+          4.4
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          4.4
+        ],
+        [
+          11.700000000000001,
+          5.2
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          5.2
+        ],
+        [
+          7.8,
+          5.2
+        ]
+      ],
+      [
+        [
+          7.8,
+          5.2
+        ],
+        [
+          7.8,
+          4.7
+        ]
+      ],
+      [
+        [
+          7.8,
+          4.7
+        ],
+        [
+          7.7,
+          4.7
+        ]
+      ],
+      [
+        [
+          7.7,
+          4.7
+        ],
+        [
+          7.7,
+          6.0
+        ]
+      ],
+      [
+        [
+          7.7,
+          6.0
+        ],
+        [
+          7.8,
+          6.0
+        ]
+      ],
+      [
+        [
+          7.8,
+          6.0
+        ],
+        [
+          7.8,
+          5.3
+        ]
+      ],
+      [
+        [
+          12.0,
+          9.0
+        ],
+        [
+          12.0,
+          7.4
+        ]
+      ],
+      [
+        [
+          12.0,
+          7.4
+        ],
+        [
+          11.700000000000001,
+          7.4
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          7.4
+        ],
+        [
+          11.700000000000001,
+          8.700000000000001
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          8.700000000000001
+        ],
+        [
+          7.8,
+          8.700000000000001
+        ]
+      ],
+      [
+        [
+          7.8,
+          8.700000000000001
+        ],
+        [
+          7.8,
+          6.9
+        ]
+      ],
+      [
+        [
+          7.8,
+          6.9
+        ],
+        [
+          7.7,
+          6.9
+        ]
+      ],
+      [
+        [
+          7.7,
+          6.9
+        ],
+        [
+          7.7,
+          8.700000000000001
+        ]
+      ],
+      [
+        [
+          7.7,
+          8.700000000000001
+        ],
+        [
+          6.8,
+          8.700000000000001
+        ]
+      ],
+      [
+        [
+          6.8,
+          8.700000000000001
+        ],
+        [
+          6.8,
+          9.0
+        ]
+      ],
+      [
+        [
+          6.8,
+          9.0
+        ],
+        [
+          12.0,
+          9.0
+        ]
+      ],
+      [
+        [
+          3.0,
+          9.0
+        ],
+        [
+          3.0,
+          8.700000000000001
+        ]
+      ],
+      [
+        [
+          3.0,
+          8.700000000000001
+        ],
+        [
+          0.3,
+          8.700000000000001
+        ]
+      ],
+      [
+        [
+          0.3,
+          8.700000000000001
+        ],
+        [
+          0.3,
+          6.7
+        ]
+      ],
+      [
+        [
+          0.3,
+          6.7
+        ],
+        [
+          0.0,
+          6.7
+        ]
+      ],
+      [
+        [
+          0.0,
+          6.7
+        ],
+        [
+          0.0,
+          9.0
+        ]
+      ],
+      [
+        [
+          0.0,
+          9.0
+        ],
+        [
+          3.0,
+          9.0
+        ]
+      ],
+      [
+        [
+          3.9,
+          8.700000000000001
+        ],
+        [
+          3.9,
+          9.0
+        ]
+      ],
+      [
+        [
+          3.9,
+          9.0
+        ],
+        [
+          5.0,
+          9.0
+        ]
+      ],
+      [
+        [
+          5.0,
+          9.0
+        ],
+        [
+          5.0,
+          8.700000000000001
+        ]
+      ],
+      [
+        [
+          5.0,
+          8.700000000000001
+        ],
+        [
+          3.9,
+          8.700000000000001
+        ]
+      ]
+    ],
+    "textes": [
+      {
+        "texte": "Séjour - cuisine",
+        "x": 4.0,
+        "y": 6.2
+      },
+      {
+        "texte": "37,00 m²",
+        "x": 4.0,
+        "y": 5.850000000000001
+      },
+      {
+        "texte": "Garage",
+        "x": 4.0,
+        "y": 2.0
+      },
+      {
+        "texte": "24,42 m²",
+        "x": 4.0,
+        "y": 1.6500000000000001
+      },
+      {
+        "texte": "Chambre 1",
+        "x": 9.75,
+        "y": 7.0
+      },
+      {
+        "texte": "13,26 m²",
+        "x": 9.75,
+        "y": 6.65
+      },
+      {
+        "texte": "Salle d'eau",
+        "x": 9.75,
+        "y": 4.1
+      },
+      {
+        "texte": "8,60 m²",
+        "x": 9.75,
+        "y": 3.7499999999999996
+      },
+      {
+        "texte": "Chambre 2",
+        "x": 9.75,
+        "y": 1.6
+      },
+      {
+        "texte": "10,14 m²",
+        "x": 9.75,
+        "y": 1.25
+      }
+    ],
+    "fermetures": [
+      [
+        [
+          11.700000000000001,
+          3.8000000000000003
+        ],
+        [
+          11.700000000000001,
+          4.4
+        ]
+      ],
+      [
+        [
+          12.0,
+          3.8000000000000003
+        ],
+        [
+          12.0,
+          4.4
+        ]
+      ],
+      [
+        [
+          7.8,
+          3.9
+        ],
+        [
+          7.8,
+          4.7
+        ]
+      ],
+      [
+        [
+          7.7,
+          3.9
+        ],
+        [
+          7.7,
+          4.7
+        ]
+      ],
+      [
+        [
+          8.5,
+          3.0
+        ],
+        [
+          9.3,
+          3.0
+        ]
+      ],
+      [
+        [
+          8.5,
+          2.9
+        ],
+        [
+          9.3,
+          2.9
+        ]
+      ],
+      [
+        [
+          3.0,
+          8.700000000000001
+        ],
+        [
+          3.9,
+          8.700000000000001
+        ]
+      ],
+      [
+        [
+          3.0,
+          9.0
+        ],
+        [
+          3.9,
+          9.0
+        ]
+      ],
+      [
+        [
+          1.0,
+          3.7
+        ],
+        [
+          1.9000000000000001,
+          3.7
+        ]
+      ],
+      [
+        [
+          1.0,
+          3.6
+        ],
+        [
+          1.9000000000000001,
+          3.6
+        ]
+      ],
+      [
+        [
+          7.7,
+          6.0
+        ],
+        [
+          7.7,
+          6.9
+        ]
+      ],
+      [
+        [
+          7.8,
+          6.0
+        ],
+        [
+          7.8,
+          6.9
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          1.0
+        ],
+        [
+          11.700000000000001,
+          2.0
+        ]
+      ],
+      [
+        [
+          12.0,
+          1.0
+        ],
+        [
+          12.0,
+          2.0
+        ]
+      ],
+      [
+        [
+          11.700000000000001,
+          6.4
+        ],
+        [
+          11.700000000000001,
+          7.4
+        ]
+      ],
+      [
+        [
+          12.0,
+          6.4
+        ],
+        [
+          12.0,
+          7.4
+        ]
+      ],
+      [
+        [
+          0.3,
+          5.5
+        ],
+        [
+          0.3,
+          6.7
+        ]
+      ],
+      [
+        [
+          0.0,
+          5.5
+        ],
+        [
+          0.0,
+          6.7
+        ]
+      ],
+      [
+        [
+          6.8,
+          8.700000000000001
+        ],
+        [
+          5.0,
+          8.700000000000001
+        ]
+      ],
+      [
+        [
+          6.8,
+          9.0
+        ],
+        [
+          5.0,
+          9.0
+        ]
+      ],
+      [
+        [
+          2.0,
+          0.3
+        ],
+        [
+          4.4,
+          0.3
+        ]
+      ],
+      [
+        [
+          2.0,
+          0.0
+        ],
+        [
+          4.4,
+          0.0
+        ]
+      ]
+    ],
+    "notes": []
+  },
+  "ecarts_rdc": [
+    {
+      "genre": "surface",
+      "piece": "Salle d'eau",
+      "lue": 8.6,
+      "calculee": 8.58,
+      "ecart": -0.02,
+      "explication": "à vérifier : arrondi, mesure au nu des plinthes, placard déduit ou non, ou plan source non à jour"
+    },
+    {
+      "genre": "cote-forcee",
+      "texte": "7,61",
+      "dessinee": 7.6,
+      "explication": "le texte de la cote ne correspond pas à la longueur dessinée"
+    },
+    {
+      "genre": "chaine-de-cotes",
+      "total": 12.0,
+      "somme": 12.01,
+      "explication": "la cote totale n'est pas la somme des cotes partielles"
+    }
+  ]
+}

@@ -42,3 +42,15 @@
 - **Tests numériques** obligatoires : valeurs exactes (rectangle 10 × 8 m →
   80,00 m²), cas dégénérés, et tests de propriétés (invariance par rotation
   et translation, annuler(appliquer(x)) = x).
+
+## Complément (Phase 1 bis) : la maçonnerie est une union « soudée »
+
+Sur un mur oblique, une cloison en T touche la face de son mur en des points
+que la grille des entiers (0,01 mm) peut écarter d'un centième : l'union
+exacte laisserait un jour invisible, et deux pièces communiqueraient. La
+maçonnerie d'un niveau est donc une **fermeture** : chaque mur dilaté de
+`JEU_SOUDURE` (0,05 mm, `src/geometry/tolerance.ts`), union, puis
+rétractation du même jeu, angles en onglet. Les jours de moins de 0,1 mm
+disparaissent ; aucun vrai jour de mur n'est si fin. Les surfaces des tests
+exacts (76,44 m², 7,20 m², propriétés sur 1 000 tours de murs) sont
+inchangées.

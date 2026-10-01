@@ -7,9 +7,9 @@
    trigonométrique, trous dans le sens horaire), reconstruite depuis
    l'arbre de Clipper (un trou appartient à son contour, une île dans un
    trou est un nouveau polygone). */
-import { booleanOpWithPolyTree, ClipType, FillRule, PolyTree64, type Path64, type Paths64, type PolyPath64 } from 'clipper2-ts';
+import { booleanOp, booleanOpWithPolyTree, ClipType, EndType, FillRule, inflatePaths, JoinType, PolyTree64, type Path64, type Paths64, type PolyPath64 } from 'clipper2-ts';
 import type { Point } from '../model/types';
-import { ECHELLE_ENTIERS } from './tolerance';
+import { ECHELLE_ENTIERS, JEU_SOUDURE } from './tolerance';
 import { aireSignee, type Anneau, type Polygone } from './polygon';
 
 const versEntiers = (a: Anneau): Path64 => a.map(p => ({ x: Math.round(p.x * ECHELLE_ENTIERS), y: Math.round(p.y * ECHELLE_ENTIERS) }));
@@ -53,3 +53,19 @@ function unionInterne(polys: readonly Polygone[]): Paths64 {
 export const union = (polys: readonly Polygone[], autres: readonly Polygone[] = []): Polygone[] => operation(ClipType.Union, [...polys, ...autres], []);
 export const difference = (a: readonly Polygone[], b: readonly Polygone[]): Polygone[] => operation(ClipType.Difference, a, b);
 export const intersection = (a: readonly Polygone[], b: readonly Polygone[]): Polygone[] => operation(ClipType.Intersection, a, b);
+
+/** l'union « soudée » : chaque polygone est dilaté du jeu, l'ensemble uni,
+    puis rétracté du même jeu (fermeture). Les jours plus fins que deux fois
+    le jeu disparaissent ; les angles restent vifs (jonctions en onglet), et
+    une surface ne bouge que de l'arrondi à la grille. Sert à la maçonnerie,
+    où des murs qui se touchent doivent faire un seul massif. */
+export function unionSoudee(polys: readonly Polygone[], jeu: number = JEU_SOUDURE): Polygone[] {
+  if (!polys.length) return [];
+  const d = jeu * ECHELLE_ENTIERS;
+  const dilates = inflatePaths(unionInterne(polys), d, JoinType.Miter, EndType.Polygon, 4);
+  const unis = booleanOp(ClipType.Union, dilates, null, FillRule.NonZero);
+  const retractes = inflatePaths(unis, -d, JoinType.Miter, EndType.Polygon, 4);
+  const arbre = new PolyTree64();
+  booleanOpWithPolyTree(ClipType.Union, retractes, null, arbre, FillRule.NonZero);
+  return depuisArbre(arbre);
+}

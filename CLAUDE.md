@@ -50,9 +50,13 @@ qu'on ait à les redire.
   d'être appliquée en silence.
 - La spécification produit (*Master Product Specification V3*) et les
   rapports restent **hors dépôt** (dépôt public).
-- Roadmap unique : Phase 0 faite (socle) ; Phase 1 = 2D Core (géométrie,
-  murs, accrochage, contraintes, pièces, ouvertures, cotes, annulation,
-  sauvegarde). Moteurs et leurs tests d'abord, interface ensuite.
+- Roadmap unique : Phase 0 faite (socle) ; Phase 1 faite = 2D Core
+  (géométrie, murs, accrochage, contraintes, pièces, ouvertures, cotes,
+  annulation, sauvegarde, éditeur) ; Phase 1 bis faite = import du RDC lu
+  par l'atelier (`designer/src/import/atelier.ts`). Moteurs et leurs tests
+  d'abord, interface ensuite. Les essais sur de vrais plans de clients se
+  font hors dépôt ; les tests n'utilisent que le plan fictif de l'atelier
+  (`designer/tests/fixtures/atelier_fictif.json`).
 - Unités réelles (mm) ; tolérances seulement dans
   `src/geometry/tolerance.ts`.
 - Tests : `cd designer && npm install && npm test && npm run typecheck` ; parcours

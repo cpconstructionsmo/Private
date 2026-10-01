@@ -13,7 +13,7 @@
    ce niveau n'a pas changé (même objet). */
 import type { Floor, Mm, Opening, Point, Room } from '../model/types';
 import { aire, perimetre, type Anneau, type Polygone } from '../geometry/polygon';
-import { union, difference } from '../geometry/booleen';
+import { unionSoudee, difference } from '../geometry/booleen';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
 import { contoursMurs, decalagesFaces, mursDroits, type ContourMur, type MurDroit } from './murs';
@@ -73,7 +73,8 @@ export function planDuNiveau(f: Floor): PlanNiveau {
 function calculer(f: Floor): PlanNiveau {
   const M = mursDroits(f);
   const murs = contoursMurs(M);
-  const maconnerie = union(murs.map(m => ({ contour: m.contour })));
+  /* union soudée : des murs qui se touchent (T sur un mur oblique) font un seul massif */
+  const maconnerie = unionSoudee(murs.map(m => ({ contour: m.contour })));
   const alertes: Alerte[] = [];
 
   /* les vides fermés : les trous de la maçonnerie */

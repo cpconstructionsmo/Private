@@ -69,8 +69,19 @@ modification de plus) ; sinon le Designer le dit et travaille **en local**
 (navigateur de l'appareil). Pour l'enregistrement partagé : exécuter une
 fois `supabase/designer/schema.sql` dans Supabase.
 
-Étape suivante : le lien « Ouvrir dans CP Designer » depuis la fiche
-chantier, et un essai sur un vrai RDC (hors dépôt).
+Lien « Ouvrir dans CP Designer (préversion) » sur la fiche chantier
+(rubrique « Plans d'exécution »).
+
+**Phase 1 bis faite — import du RDC lu par l'atelier** (`src/import/`,
+ADR-0004) : le `modele.json` de l'atelier (plan DXF ou PDF déjà lu) devient
+des murs à l'axe (faces parallèles appariées, épaisseur mesurée, angles et
+T raccordés, cloisons en baïonnette comprises), des ouvertures posées sur
+leur mur et des pièces nommées ; statuts repris (✅ → confirmé, ⚠️ / ❓ → à
+vérifier, hauteurs non lues signalées), tracé du plan source en fond
+verrouillé, rapport des surfaces atelier / Designer pièce par pièce, un
+seul « annuler ». Ce qui ne se convertit pas (poteau, baie qui dépasse)
+est signalé, jamais inventé. Essai sur un vrai RDC (hors dépôt) : 6 pièces
+sur 6 à l'identique, au centième de m².
 
 ## Travailler
 
@@ -112,7 +123,10 @@ npm run test:navigateur   # compile, puis parcours dans Chromium (tests/e2e)
 | 10 | Statut et provenance sur chaque objet ; « porteur » jamais confirmé sans document | ✅ | `unit/modele-commandes`, inspecteur |
 | 11 | Non-régression : les suites du CRM passent ; le CRM fonctionne sans le Designer ; rien du Designer dans `app_data` | ✅ | CI `tests.yml`, `tests/t_designer_lien.js` |
 
-Reste pour clore la Phase 1 : un essai humain sur un vrai plan de RDC
-(fichier gardé hors dépôt), et l'enregistrement partagé vérifié sur le
-serveur après exécution de `supabase/designer/schema.sql` (tables, et
-espace privé « designer-fonds » pour les fonds de plan).
+Un vrai RDC (dossier client, gardé hors dépôt) a été importé et contrôlé :
+14 murs, 11 ouvertures, 6 pièces aux surfaces de l'atelier au centième ;
+un poteau et une baie qui dépassait de sa cloison signalés « à reprendre ».
+Reste pour clore la Phase 1 : la prise en main par l'équipe sur ce plan, et
+l'enregistrement partagé vérifié sur le serveur après exécution de
+`supabase/designer/schema.sql` (tables, et espace privé « designer-fonds »
+pour les fonds de plan).
