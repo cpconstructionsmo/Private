@@ -58,7 +58,8 @@ bloque à 45°) ; tirer une extrémité, un mur ou une ouverture ; inspecteur
 (dimensions, type, contraintes, provenance, « porteur » toujours à
 contrôler) ; niveaux (altitude, hauteur, niveau du dessous en fantôme) ;
 fonds PDF ou image importés, calés par deux points et une distance,
-verrouillables (le fichier reste sur l'appareil qui l'a importé) ; surfaces
+verrouillables (fichier rangé sur l'appareil et, en mode serveur, dans
+l'espace privé « designer-fonds » : les collègues le reçoivent) ; surfaces
 et alertes du niveau ; annuler / rétablir (Ctrl+Z, Ctrl+Maj+Z) ; palette de
 toutes les actions (Ctrl+K) ; export JSON.
 
@@ -97,22 +98,21 @@ npm run test:navigateur   # compile, puis parcours dans Chromium (tests/e2e)
 
 ## Ce que la Phase 1 doit prouver (tests automatisés)
 
-1. Rectangle 10 × 8 m → 80,00 m² ; murs de 20 cm à l'axe → pièce de 76,44 m².
-2. Une cloison coupe une pièce en deux, surfaces exactes (± 0,01 m²) ;
-   la déplacer recalcule les deux pièces, nom et usage conservés.
-3. Une ouverture suit son mur et ne peut pas le dépasser ; 2,40 → 3,50 m
-   mis à jour dans le plan et le métré.
-4. Une cote motrice modifiée déplace réellement le mur.
-5. Accrochage (extrémité, milieu, intersection, axe, face, perpendiculaire,
-   grille ; Alt le désactive) en moins de 5 ms pour 2 000 objets.
-6. Contraintes (horizontal, vertical, parallèle, perpendiculaire, longueur et
-   angle fixes) respectées après déplacement.
-7. Plusieurs niveaux (altitude, hauteur) ; fond PDF ou image calé, verrouillé.
-8. Annuler / rétablir sur 100 pas, modèle identique octet pour octet ; une
-   action composée s'annule en une fois.
-9. Enregistrer puis recharger : identique ; écriture concurrente refusée,
-   jamais écrasée ; reprise après plantage ; migration de schéma testée.
-10. Statut et provenance sur chaque objet ; « porteur » jamais confirmé sans
-    document.
-11. Non-régression : toutes les suites du CRM passent, et le CRM fonctionne
-    si le Designer est absent ; aucune donnée du Designer dans `app_data`.
+| # | Critère | État | Où c'est vérifié |
+|---|---|---|---|
+| 1 | Rectangle 10 × 8 m → 80,00 m² ; murs de 20 cm à l'axe → pièce de 76,44 m² | ✅ | `unit/polygon`, `metier/plan` |
+| 2 | Une cloison coupe une pièce en deux (± 0,01 m²) ; la déplacer recalcule les deux pièces, nom et usage conservés | ✅ | `metier/plan` (30,03 + 45,63 → 37,83 + 37,83 m²) |
+| 3 | Une ouverture suit son mur et ne peut pas le dépasser ; 2,40 → 3,50 m mis à jour dans le plan et le métré | ✅ | `metier/plan`, `unit/modele-commandes`, `unit/interface` |
+| 4 | Une cote motrice modifiée déplace réellement le mur | ✅ | `metier/edition` (10 → 12 m, 92,04 m²) |
+| 5 | Accrochage (extrémité, milieu, intersection, axe, face, perpendiculaire, grille ; Alt le coupe) en moins de 5 ms pour 2 000 objets | ✅ | `metier/edition` (≈ 9 µs par recherche) |
+| 6 | Contraintes (horizontal, vertical, parallèle, perpendiculaire, longueur, angle) respectées après déplacement | ✅ | `metier/edition`, `property/contraintes` (300 suites) |
+| 7 | Plusieurs niveaux (altitude, hauteur) ; fond PDF ou image calé, verrouillé | ✅ | `metier/edition`, `e2e/parcours` (Chromium) |
+| 8 | Annuler / rétablir sur 100 pas, octet pour octet ; une action composée s'annule en une fois | ✅ | `unit/modele-commandes`, `property/commandes` |
+| 9 | Enregistrer puis recharger : identique ; écriture concurrente refusée, jamais écrasée ; reprise après plantage ; migration de schéma | ✅ en test — ⚠️ à confirmer sur le serveur réel une fois `schema.sql` exécuté | `unit/persistance`, `unit/interface`, `fixtures/projet_v1.json` |
+| 10 | Statut et provenance sur chaque objet ; « porteur » jamais confirmé sans document | ✅ | `unit/modele-commandes`, inspecteur |
+| 11 | Non-régression : les suites du CRM passent ; le CRM fonctionne sans le Designer ; rien du Designer dans `app_data` | ✅ | CI `tests.yml`, `tests/t_designer_lien.js` |
+
+Reste pour clore la Phase 1 : un essai humain sur un vrai plan de RDC
+(fichier gardé hors dépôt), et l'enregistrement partagé vérifié sur le
+serveur après exécution de `supabase/designer/schema.sql` (tables, et
+espace privé « designer-fonds » pour les fonds de plan).

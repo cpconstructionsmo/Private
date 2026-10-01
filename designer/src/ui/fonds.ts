@@ -4,8 +4,13 @@
 
    Repère de l'image : pour une image, ses pixels ; pour un PDF, les points
    de la page (1/72 de pouce), quelle que soit la finesse du rendu — le
-   calage enregistré reste donc valable si l'on rend plus fin. */
-import { FichiersIndexedDB } from '../persistence/copie-idb';
+   calage enregistré reste donc valable si l'on rend plus fin.
+
+   Quand le projet est enregistré sur le serveur, le fichier y est aussi
+   rangé (espace privé) : un collègue qui ouvre le projet le reçoit et le
+   garde à son tour sur son appareil. */
+import { FichiersIndexedDB, type FichierLocal } from '../persistence/copie-idb';
+import type { StockFonds } from '../persistence/fonds-supabase';
 
 export interface ImageFond { image: CanvasImageSource; largeur: number; hauteur: number }
 
@@ -27,16 +32,29 @@ export async function empreinteFichier(b: Blob): Promise<string> {
 
 export const estPdf = (type: string, nom: string): boolean => type === 'application/pdf' || /\.pdf$/i.test(nom);
 
-/** ranger un fichier ; rend sa clé */
-export async function importerFichier(f: File, stock = new FichiersIndexedDB()): Promise<string> {
+/** ranger un fichier sur l'appareil, et sur le serveur s'il y en a un ;
+    rend sa clé, et si le partage a échoué, pourquoi */
+export async function importerFichier(f: File, stock = new FichiersIndexedDB(), distant?: StockFonds): Promise<{ cle: string; partage: 'serveur' | 'appareil'; erreur?: string }> {
   const cle = await empreinteFichier(f);
-  await stock.ecrire(cle, { nom: f.name, type: f.type, donnees: f });
-  return cle;
+  const fichier: FichierLocal = { nom: f.name, type: f.type, donnees: f };
+  await stock.ecrire(cle, fichier);
+  if (!distant) return { cle, partage: 'appareil' };
+  try { await distant.envoyer(cle, fichier); return { cle, partage: 'serveur' } }
+  catch (e) { return { cle, partage: 'appareil', erreur: String((e as Error)?.message ?? e) } }
 }
 
-/** l'image d'un fond, ou null si le fichier n'est pas sur cet appareil */
-export async function imageDuFond(cle: string, page = 1, stock = new FichiersIndexedDB()): Promise<ImageFond | null> {
-  const f = await stock.lire(cle);
+/** le fichier d'un fond : sur l'appareil, sinon reçu du serveur (et gardé) */
+export async function fichierDuFond(cle: string, stock: FichiersIndexedDB, distant?: StockFonds): Promise<FichierLocal | null> {
+  const local = await stock.lire(cle);
+  if (local || !distant) return local;
+  const recu = await distant.recevoir(cle);
+  if (recu) await stock.ecrire(cle, recu);
+  return recu;
+}
+
+/** l'image d'un fond, ou null si le fichier n'est ni sur cet appareil ni sur le serveur */
+export async function imageDuFond(cle: string, page = 1, stock = new FichiersIndexedDB(), distant?: StockFonds): Promise<ImageFond | null> {
+  const f = await fichierDuFond(cle, stock, distant);
   if (!f) return null;
   if (!estPdf(f.type, f.nom)) {
     const image = await createImageBitmap(f.donnees);

@@ -139,6 +139,9 @@ describe('outils', () => {
     expect(b.murs()[1]!.axis.b).toEqual({ x: 12_000, y: 9_000 });
     expect(b.murs()[2]!.axis.a).toEqual({ x: 12_000, y: 9_000 });
     const haut = b.murs()[4]!.axis.b;
+    /* … en restant droite : son sommet glisse le long de la cloison (x = 5 m) */
+    expect(haut.x).toBeCloseTo(5_000, 3);
+    expect(b.murs()[4]!.axis.a).toEqual({ x: 5_000, y: 0 });
     expect(Math.abs((haut.y - 8_000) - (haut.x / 12_000) * 1_000) * 12_000 / Math.hypot(12_000, 1_000)).toBeLessThan(0.01);
     expect(b.refus).toEqual([]);
     /* un clic sans bouger sélectionne seulement */

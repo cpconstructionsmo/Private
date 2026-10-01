@@ -95,3 +95,16 @@ create policy "designer révisions : app" on public.designer_revisions for all t
 create policy "designer changesets : lecture app" on public.designer_changesets for select to authenticated using (true);
 create policy "designer changesets : ajout app" on public.designer_changesets for insert to authenticated with check (true);
 -- aucune règle pour « anon »
+
+-- Les fonds de plan (PDF, images) importés dans le Designer : un espace de
+-- stockage PRIVÉ, lu et rempli par les utilisateurs connectés. Un fichier
+-- est rangé sous l'empreinte de son contenu (fonds/<empreinte>) : le même
+-- plan importé deux fois n'est stocké qu'une fois, et un fichier rangé ne
+-- se remplace pas (aucune règle de modification ni de suppression).
+insert into storage.buckets (id, name, public)
+  values ('designer-fonds', 'designer-fonds', false)
+  on conflict (id) do nothing;
+drop policy if exists "designer fonds : lecture app" on storage.objects;
+drop policy if exists "designer fonds : ajout app" on storage.objects;
+create policy "designer fonds : lecture app" on storage.objects for select to authenticated using (bucket_id = 'designer-fonds');
+create policy "designer fonds : ajout app" on storage.objects for insert to authenticated with check (bucket_id = 'designer-fonds');

@@ -9,7 +9,7 @@
      appareil (IndexedDB), rien n'est perdu, rien n'est envoyé. */
 import { creerProjet, type Project } from '../model';
 import type { ChangeSet } from '../engine/historique';
-import { CopieIndexedDB, DepotSupabase, Synchro, type CopieLocale, type Depot, type EtatSynchro, type ResumeProjet } from '../persistence';
+import { CopieIndexedDB, Synchro, type CopieLocale, type Depot, type EtatSynchro, type ResumeProjet, type StockFonds } from '../persistence';
 
 export interface Enregistreur {
   mode: 'serveur' | 'local';
@@ -19,6 +19,8 @@ export interface Enregistreur {
   ajouter(cs: ChangeSet, projet: Project): Promise<void>;
   marquerJalon?(nom: string): Promise<void>;
   projets?: ResumeProjet[];
+  /** les fichiers des fonds, partagés sur le serveur (absent en mode local) */
+  fonds?: StockFonds;
 }
 
 export interface Ouverture { projet: Project; enregistreur: Enregistreur }
@@ -26,6 +28,7 @@ export interface Ouverture { projet: Project; enregistreur: Enregistreur }
 export interface Dependances {
   utilisateur: () => Promise<string | null>;
   depot: () => Depot;
+  fonds?: () => StockFonds;
   copie?: CopieLocale;
   signaler: (etat: EtatSynchro, message: string) => void;
 }
@@ -55,7 +58,7 @@ export async function ouvrirSession(params: URLSearchParams, d: Dependances): Pr
       if (reste && reste.enAttente.length && reste.enAttente[0]!.revisionAvant === projet.revision) { projet = reste.projet; void synchro.envoyer() }
       return {
         projet, enregistreur: {
-          mode: 'serveur', raison: 'Enregistré sur le serveur de CP Constructions', par, projets: L,
+          mode: 'serveur', raison: 'Enregistré sur le serveur de CP Constructions', par, projets: L, ...(d.fonds ? { fonds: d.fonds() } : {}),
           ajouter: async (cs, p) => { await synchro.ajouter(cs, p); await synchro.envoyer() },
           marquerJalon: n => synchro.marquerJalon(n),
         },
