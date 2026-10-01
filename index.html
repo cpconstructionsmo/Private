@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-01 · Plan électrique : niveaux RDC / étage et escalier relié, PDF une page par niveau, modèles de disposition CP';
+const VERSION='2026-10-01 · Plans d’exécution : lien « Ouvrir dans CP Designer (préversion) »';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -874,6 +874,10 @@ const CONTROLES=[
 ];
 
 const uid=()=>Math.random().toString(36).slice(2,10);
+/* CP Designer (module de conception, designer/) : une page à part, sur le
+   même site. Le chantier ne lui passe que son identifiant ; rien du
+   Designer n'est rangé dans app_data (tables designer_*). */
+const designerLien=ch=>'designer/?chantier='+encodeURIComponent((ch&&ch.id)||'');
 const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
 /* un prix unitaire se lit au centime, contrairement au montant d'un marché */
 const eurc=n=>(n||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
@@ -14412,6 +14416,8 @@ function Docs({data,ch,up,save}){
                 {x.id==='plan_elec'&&<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}
                   onClick={()=>setPlanElec(true)}>
                   {(r.plan&&r.plan.fond)?'Ouvrir le plan ('+elecNiveaux(r).reduce((t,n)=>t+(n.plan.symboles||[]).length,0)+' symboles'+((r.niveaux||[]).length?', '+(1+r.niveaux.length)+' niveaux':'')+')':'Dessiner le plan'}</button>}
+                {x.id==='plans_exe'&&ch.id&&<a className="xs b" href={designerLien(ch)} target="_blank" rel="noreferrer"
+                  style={{color:NAVY,textDecoration:'none'}} title="Dessiner le plan dans CP Designer (préversion)">Ouvrir dans CP Designer (préversion)</a>}
                 {x.id==='plans_exe'&&!!fichiersDe(r).length&&(r.lienPublic
                   ?<span className="xs" style={{color:GREEN}}>✓ Lisible sans compte Google — le QR du marché y mène</span>
                   :<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}
