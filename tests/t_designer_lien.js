@@ -1,0 +1,14 @@
+/* Le lien vers CP Designer depuis la fiche chantier : il ne passe que
+   l'identifiant du chantier (encodé), vers la page designer/ du même site ;
+   rien du Designer n'entre dans les données du suivi de chantiers. */
+const fs=require('fs');const path=require('path');
+const {charger,verif}=require('./harness');
+const M=charger(['designerLien']);
+const {chk,fin}=verif();
+chk(M.designerLien({id:'abc123',nom:'Maison fictive'})==='designer/?chantier=abc123','lien vers la page du Designer, avec l’identifiant du chantier');
+chk(M.designerLien({id:'a b&c'})==='designer/?chantier=a%20b%26c','identifiant encodé dans l’adresse');
+chk(M.designerLien(null)==='designer/?chantier=','sans chantier : pas d’erreur');
+const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+chk(/Ouvrir dans CP Designer \(préversion\)/.test(html),'le lien figure sur la fiche (Plans d’exécution)');
+chk(!/designer_projects|designer_revisions|designer_changesets/.test(html),'le suivi de chantiers ne lit ni n’écrit les tables du Designer');
+fin();

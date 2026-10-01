@@ -55,7 +55,8 @@ qu'on ait à les redire.
   sauvegarde). Moteurs et leurs tests d'abord, interface ensuite.
 - Unités réelles (mm) ; tolérances seulement dans
   `src/geometry/tolerance.ts`.
-- Tests : `cd designer && npm install && npm test && npm run typecheck`.
+- Tests : `cd designer && npm install && npm test && npm run typecheck` ; parcours
+  dans Chromium : `npm run test:navigateur`.
 
 ## Règles
 

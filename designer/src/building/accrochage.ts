@@ -28,6 +28,8 @@ export interface Accroche {
   objet?: string;
   /** pour l'alignement et la perpendiculaire : la ligne de rappel à dessiner */
   guide?: Segment;
+  /** pour une face ou un axe : le segment sur lequel le point glisse */
+  support?: Segment;
 }
 
 export interface OptionsAccrochage {
@@ -95,7 +97,7 @@ export class Accrochage {
 
     for (const c of this.points.chercher(zone)) proposer({ point: c.point, genre: c.genre, objet: c.objet });
     const segs = this.segments.chercher(zone);
-    for (const c of segs) proposer({ point: projeterSurSegment(curseur, c.seg).point, genre: c.genre, objet: c.objet });
+    for (const c of segs) proposer({ point: projeterSurSegment(curseur, c.seg).point, genre: c.genre, objet: c.objet, support: c.seg });
     if (o.depuis) {
       const D = o.depuis;
       for (const c of segs) {

@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   designer:
-    name: CP Designer (types, tests, compilation)
+    name: CP Designer (types, tests, compilation, Chromium)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,7 +31,13 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
+      # le parcours dans Chromium (tests/e2e) : même emplacement que les sessions de travail
+      - name: Installer Chromium
+        run: |
+          npx playwright-core install --with-deps chromium
+          CHROME=$(find "$HOME/.cache/ms-playwright" -path '*chrome-linux*' -name chrome -type f | head -1)
+          sudo mkdir -p /opt/pw-browsers && sudo ln -sf "$CHROME" /opt/pw-browsers/chromium
+      - run: npm run test:navigateur          # compile, puis dessine une maison dans Chromium
 
   crm:
     name: CRM (tests unitaires et Chromium)

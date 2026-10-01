@@ -7,17 +7,20 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:navigateur": "npm run build && node tests/e2e/parcours.mjs"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.2.5",
     "fast-check": "^4.10.2",
+    "playwright-core": "^1.63.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
     "vitest": "^5.0.3"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
-    "clipper2-ts": "^2.0.1-18"
+    "clipper2-ts": "^2.0.1-18",
+    "pdfjs-dist": "^6.3.289"
   }
 }

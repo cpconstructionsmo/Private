@@ -49,8 +49,27 @@ sommet déplacé entraîne les murs qui s'y raccordent, une cloison en T suit
 son mur, les murs voisins s'ajustent avant le reste du plan, et ce qui ne
 peut pas être respecté est refusé avec la raison ; niveaux (modifier,
 supprimer — jamais le dernier) ; fond PDF ou image calé par deux points ou
-par une distance, verrouillable. Étape suivante : l'interface (canvas,
-outils, inspecteur), puis le lien depuis la fiche chantier.
+par une distance, verrouillable.
+
+**Étape 6 faite — l'éditeur** (`src/ui/`) : page `designer/?chantier=<id>`
+(un projet par chantier). Outils Sélection (V), Mur (M), Cloison (C),
+Ouverture (O), Pièce (P), Cote (D) ; accrochage visible (Alt le coupe, Maj
+bloque à 45°) ; tirer une extrémité, un mur ou une ouverture ; inspecteur
+(dimensions, type, contraintes, provenance, « porteur » toujours à
+contrôler) ; niveaux (altitude, hauteur, niveau du dessous en fantôme) ;
+fonds PDF ou image importés, calés par deux points et une distance,
+verrouillables (le fichier reste sur l'appareil qui l'a importé) ; surfaces
+et alertes du niveau ; annuler / rétablir (Ctrl+Z, Ctrl+Maj+Z) ; palette de
+toutes les actions (Ctrl+K) ; export JSON.
+
+Enregistrement : connecté au suivi de chantiers (même session) et tables
+installées, chaque modification part sur le serveur (annuler y est une
+modification de plus) ; sinon le Designer le dit et travaille **en local**
+(navigateur de l'appareil). Pour l'enregistrement partagé : exécuter une
+fois `supabase/designer/schema.sql` dans Supabase.
+
+Étape suivante : le lien « Ouvrir dans CP Designer » depuis la fiche
+chantier, et un essai sur un vrai RDC (hors dépôt).
 
 ## Travailler
 
@@ -61,6 +80,7 @@ npm test            # tests Vitest (tests/**/*.test.ts)
 npm run typecheck   # TypeScript strict
 npm run dev         # page locale (Vite)
 npm run build       # compilation dans build/ (faite aussi au déploiement)
+npm run test:navigateur   # compile, puis parcours dans Chromium (tests/e2e)
 ```
 
 ## Organisation
@@ -73,7 +93,7 @@ npm run build       # compilation dans build/ (faite aussi au déploiement)
 | `src/engine/` | Commandes, historique, ChangeSets, dépendances — Phase 1 |
 | `src/persistence/` | Supabase (tables dédiées), copie locale, export — Phase 1 |
 | `src/ui/` | Canvas, outils, inspecteur — Phase 1 |
-| `tests/` | `unit/`, `property/`, `metier/`, `e2e/` |
+| `tests/` | `unit/`, `property/`, `metier/` (Vitest), `e2e/` (Chromium) |
 
 ## Ce que la Phase 1 doit prouver (tests automatisés)
 
