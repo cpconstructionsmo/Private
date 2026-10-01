@@ -7,13 +7,19 @@
 
    Provenance (règle 4) : chaque objet créé ou modifié porte la révision du
    projet et une source « utilisateur » datée. Un mur n'est jamais déclaré
-   porteur « confirmé » sans document (règle 5) : par défaut, à contrôler. */
-import type { Mm, Opening, Point, Project, Room, RoomUsage, SourceRef, Wall } from '../model/types';
+   porteur « confirmé » sans document (règle 5) : par défaut, à contrôler.
+
+   Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
+   les murs qui s'y raccordent suivent, les contraintes et les cotes
+   motrices restent vraies, ou la commande est refusée. */
+import type { Constraint, Dimension, Mm, ObjectAnchor, Opening, Point, Project, Room, RoomUsage, SourceRef, Underlay, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
-import { distance } from '../geometry/vecteur';
+import { angleDe, distance, soustraire } from '../geometry/vecteur';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
-import type { Operation } from './operations';
+import { mesurerCote, resoudre, type Epingle } from '../building/contraintes';
+import { calage, calageParDistance, TRANSFORMATION_NEUTRE } from '../building/fond';
+import { appliquerTout, type Operation } from './operations';
 
 export interface Contexte {
   /** qui agit (nom affiché, ou « IA » plus tard) */
@@ -41,7 +47,19 @@ export type Commande =
   | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point }
   | { type: 'supprimer'; id: string }
   | { type: 'ajouterNiveau'; batiment: string; nom: string; altitude: Mm; hauteur: Mm }
-  | { type: 'renommerProjet'; nom: string };
+  | { type: 'renommerProjet'; nom: string }
+  /** déplacer une extrémité de mur : tous les murs qui y aboutissent suivent */
+  | { type: 'deplacerSommet'; niveau: string; de: Point; vers: Point }
+  | { type: 'ajouterContrainte'; niveau: string; genre: Constraint['kind']; murs: string[]; valeur?: number }
+  | { type: 'modifierContrainte'; id: string; valeur: number }
+  | { type: 'creerCote'; niveau: string; refs: [ObjectAnchor, ObjectAnchor]; motrice?: boolean; decalage?: Mm }
+  | { type: 'modifierCote'; id: string; valeur?: Mm; motrice?: boolean; decalage?: Mm }
+  | { type: 'modifierNiveau'; id: string; nom?: string; altitude?: Mm; hauteur?: Mm }
+  | { type: 'supprimerNiveau'; id: string }
+  | { type: 'ajouterFond'; niveau: string; fichier: string; nom?: string; page?: number }
+  /** caler : deux points de l'image et leur place sur le plan, ou leur distance réelle */
+  | { type: 'calerFond'; id: string; image: [Point, Point]; plan?: [Point, Point]; distance?: Mm }
+  | { type: 'modifierFond'; id: string; verrouille?: boolean; opacite?: number };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
@@ -63,6 +81,39 @@ function ouverturesDe(p: Project, murId: string): { o: Opening; niveau: string }
     if (o.type === 'opening' && o.hostWallId === murId) out.push({ o, niveau: f.id });
   return out;
 }
+
+/** appliquer des opérations, puis épingler des sommets et laisser le solveur
+    ajuster les murs du niveau ; refusé si une contrainte, une cote motrice
+    ou une ouverture ne peut plus être respectée */
+function ajuster(p: Project, niveauId: string, avant: Operation[], epingles: Epingle[], c: Contexte, principaux: readonly string[] = []): Resultat {
+  const p1 = appliquerTout(p, avant);
+  const n = trouverNiveau(p1, niveauId);
+  if (!n) return refus('niveau introuvable');
+  const r = resoudre(n.floor, epingles);
+  if (!r.ok) return refus(...r.erreurs);
+  const ops = [...avant];
+  for (const [id, axe] of Object.entries(r.axes)) {
+    const w = n.floor.objects[id] as Wall;
+    const L = distance(axe.a, axe.b);
+    for (const { o } of ouverturesDe(p1, id)) {
+      const e = horsDuMur(o.offset, o.width, L);
+      if (e) return refus('le mur modifié ne porte plus son ouverture : ' + e);
+    }
+    ops.push({ type: 'objet.modifier', niveau: niveauId, id, avant: { axis: w.axis, revision: w.revision, sourceRefs: w.sourceRefs },
+      apres: { axis: axe, revision: c.revision, sourceRefs: [...w.sourceRefs, source(c, principaux.includes(id) ? 'Modification' : 'Ajusté (raccords, contraintes)')] } });
+  }
+  return accepte(ops);
+}
+
+/** les sommets qu'un ancrage de cote tient fixes */
+function sommetsDe(p: Project, x: ObjectAnchor): Point[] {
+  const t = trouverObjet(p, x.objectId);
+  if (!t || t.objet.type !== 'wall' || !('a' in t.objet.axis)) return [];
+  const { a, b } = t.objet.axis;
+  return x.feature === 'start' ? [a] : x.feature === 'end' ? [b] : [a, b];
+}
+
+const GENRES_UN_MUR: readonly Constraint['kind'][] = ['horizontal', 'vertical', 'length', 'angle'];
 
 export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
   switch (cmd.type) {
@@ -92,12 +143,8 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         const a = cmd.a ?? w.axis.a, b = cmd.b ?? w.axis.b;
         if (!ptFini(a) || !ptFini(b)) return refus('coordonnées invalides');
         if (distance(a, b) <= EPS_COINCIDENCE) return refus('un mur doit avoir une longueur');
-        const L = distance(a, b);
-        for (const { o } of ouverturesDe(p, w.id)) {
-          const e = horsDuMur(o.offset, o.width, L);
-          if (e) return refus('le mur raccourci ne porte plus son ouverture : ' + e);
-        }
-        avant['axis'] = w.axis; apres['axis'] = { a: { ...a }, b: { ...b } };
+        /* les deux extrémités sont épinglées ; les murs raccordés suivent */
+        return ajuster(p, t.niveauId, [], [{ de: w.axis.a, vers: a }, { de: w.axis.b, vers: b }], c, [w.id]);
       } else {
         if (cmd.epaisseur !== undefined && !(cmd.epaisseur > 0)) return refus('l’épaisseur doit être positive');
         if (cmd.hauteur !== undefined && !(cmd.hauteur > 0)) return refus('la hauteur doit être positive');
@@ -137,7 +184,7 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       const champs = { position: 'offset', largeur: 'width', hauteur: 'height', allege: 'sill', genre: 'kind', sens: 'swing' } as const;
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
         if (cmd[k] === undefined) continue;
-        avant[champs[k]] = o[champs[k]]; apres[champs[k]] = cmd[k];
+        avant[champs[k]] = o[champs[k]] ?? null; apres[champs[k]] = cmd[k];
       }
       return accepte([{ type: 'objet.modifier', niveau: t.niveauId, id: o.id, avant, apres }]);
     }
@@ -168,9 +215,18 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
     case 'supprimer': {
       const t = trouverObjet(p, cmd.id);
       if (!t) return refus('objet introuvable');
-      /* un mur emporte ses ouvertures : une fenêtre sans mur n'a pas de sens */
-      const ops: Operation[] = t.objet.type === 'wall'
-        ? ouverturesDe(p, t.objet.id).map(({ o, niveau }) => ({ type: 'objet.retirer' as const, niveau, objet: o })) : [];
+      if (t.objet.type === 'underlay' && t.objet.locked) return refus('fond verrouillé : déverrouillez-le avant de le retirer');
+      /* un mur emporte ses ouvertures (une fenêtre sans mur n'a pas de sens),
+         ses contraintes et ses cotes */
+      const ops: Operation[] = [];
+      if (t.objet.type === 'wall') {
+        const id = t.objet.id;
+        ops.push(...ouverturesDe(p, id).map(({ o, niveau }) => ({ type: 'objet.retirer' as const, niveau, objet: o })));
+        const n = trouverNiveau(p, t.niveauId)!;
+        for (const o of Object.values(n.floor.objects))
+          if ((o.type === 'constraint' && o.walls.includes(id)) || (o.type === 'dimension' && o.refs.some(r => r.objectId === id)))
+            ops.push({ type: 'objet.retirer', niveau: t.niveauId, objet: o });
+      }
       ops.push({ type: 'objet.retirer', niveau: t.niveauId, objet: t.objet });
       return accepte(ops);
     }
@@ -187,5 +243,159 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!cmd.nom.trim()) return refus('un projet a un nom');
       return accepte([{ type: 'projet.modifier', avant: { name: p.name }, apres: { name: cmd.nom.trim() } }]);
     }
+    case 'deplacerSommet': {
+      if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      if (!ptFini(cmd.de) || !ptFini(cmd.vers)) return refus('coordonnées invalides');
+      return ajuster(p, cmd.niveau, [], [{ de: cmd.de, vers: cmd.vers }], c, murDroitsAuSommet(p, cmd.niveau, cmd.de));
+    }
+    case 'ajouterContrainte': {
+      const n = trouverNiveau(p, cmd.niveau);
+      if (!n) return refus('niveau introuvable');
+      const un = GENRES_UN_MUR.includes(cmd.genre);
+      if (cmd.murs.length !== (un ? 1 : 2)) return refus(un ? 'cette contrainte porte sur un mur' : 'cette contrainte porte sur deux murs');
+      if (new Set(cmd.murs).size !== cmd.murs.length) return refus('il faut deux murs différents');
+      const W: Wall[] = [];
+      for (const id of cmd.murs) {
+        const o = n.floor.objects[id];
+        if (!o || o.type !== 'wall' || !('a' in o.axis)) return refus('mur droit introuvable sur ce niveau');
+        W.push(o);
+      }
+      const deja = Object.values(n.floor.objects).some(o => o.type === 'constraint' && o.kind === cmd.genre
+        && o.walls.length === cmd.murs.length && cmd.murs.every(id => o.walls.includes(id)));
+      if (deja) return refus('cette contrainte existe déjà');
+      let valeur = cmd.valeur;
+      const axe = W[0]!.axis as { a: Point; b: Point };
+      if (cmd.genre === 'length') valeur ??= distance(axe.a, axe.b);
+      if (cmd.genre === 'angle') valeur ??= angleDe(soustraire(axe.b, axe.a));
+      if ((cmd.genre === 'length' || cmd.genre === 'angle') && !(valeur !== undefined && Number.isFinite(valeur))) return refus('valeur invalide');
+      if (cmd.genre === 'length' && !(valeur! > EPS_COINCIDENCE)) return refus('la longueur doit être positive');
+      const k: Constraint = {
+        id: c.id(), type: 'constraint', floorId: cmd.niveau, status: 'confirmed', sourceRefs: [source(c, 'Saisie')], revision: c.revision,
+        kind: cmd.genre, walls: [...cmd.murs], ...(cmd.genre === 'length' || cmd.genre === 'angle' ? { value: valeur! } : {}),
+      };
+      /* une contrainte qui n'est pas encore vraie ajuste le plan (le plus petit déplacement), ou est refusée */
+      return ajuster(p, cmd.niveau, [{ type: 'objet.ajouter', niveau: cmd.niveau, objet: k }], [], c, cmd.murs);
+    }
+    case 'modifierContrainte': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'constraint') return refus('contrainte introuvable');
+      const k = t.objet;
+      if (k.kind !== 'length' && k.kind !== 'angle') return refus('cette contrainte n’a pas de valeur');
+      if (!Number.isFinite(cmd.valeur) || (k.kind === 'length' && !(cmd.valeur > EPS_COINCIDENCE))) return refus('valeur invalide');
+      const w = trouverObjet(p, k.walls[0]!);
+      if (!w || w.objet.type !== 'wall' || !('a' in w.objet.axis)) return refus('mur introuvable');
+      /* l'origine du mur reste en place, son extrémité bouge */
+      return ajuster(p, t.niveauId, [modifier(t.niveauId, k, { value: k.value }, { value: cmd.valeur }, c)], [{ de: w.objet.axis.a, vers: w.objet.axis.a }], c, k.walls);
+    }
+    case 'creerCote': {
+      const n = trouverNiveau(p, cmd.niveau);
+      if (!n) return refus('niveau introuvable');
+      for (const r of cmd.refs) {
+        const o = n.floor.objects[r.objectId];
+        if (!o || o.type !== 'wall' || !('a' in o.axis)) return refus('une cote s’accroche à des murs droits du même niveau');
+      }
+      const ptRef = (r: ObjectAnchor) => r.feature === 'start' || r.feature === 'end';
+      if (cmd.refs[0].objectId === cmd.refs[1].objectId && !(ptRef(cmd.refs[0]) && ptRef(cmd.refs[1]) && cmd.refs[0].feature !== cmd.refs[1].feature))
+        return refus('sur un même mur, une cote va d’une extrémité à l’autre');
+      const v = mesurerCote(n.floor, { refs: cmd.refs });
+      if (v === null) return refus('cote impossible à mesurer (deux murs non parallèles ?)');
+      if (cmd.motrice && !(v > EPS_COINCIDENCE)) return refus('une cote motrice nulle ne peut rien piloter');
+      const d: Dimension = {
+        id: c.id(), type: 'dimension', floorId: cmd.niveau, status: 'confirmed', sourceRefs: [source(c, 'Saisie')], revision: c.revision,
+        refs: [{ ...cmd.refs[0] }, { ...cmd.refs[1] }], driving: !!cmd.motrice, offset: cmd.decalage ?? 500, ...(cmd.motrice ? { value: v } : {}),
+      };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: d }]);
+    }
+    case 'modifierCote': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'dimension') return refus('cote introuvable');
+      const d = t.objet, n = trouverNiveau(p, t.niveauId)!;
+      const motrice = cmd.motrice ?? d.driving;
+      if (cmd.valeur !== undefined && !motrice) return refus('cote non motrice : rendez-la motrice pour qu’elle déplace les murs');
+      if (cmd.valeur !== undefined && !(Number.isFinite(cmd.valeur) && cmd.valeur > EPS_COINCIDENCE)) return refus('valeur invalide');
+      if (cmd.decalage !== undefined && !Number.isFinite(cmd.decalage)) return refus('décalage invalide');
+      const mesure = mesurerCote(n.floor, d);
+      if (mesure === null) return refus('cote impossible à mesurer');
+      const valeur = !motrice ? undefined : cmd.valeur ?? (d.driving ? d.value : mesure);
+      const avant: Record<string, unknown> = { driving: d.driving, value: d.value, offset: d.offset };
+      const apres: Record<string, unknown> = { driving: motrice, value: valeur, offset: cmd.decalage ?? d.offset };
+      const op = modifier(t.niveauId, d, avant, apres, c);
+      if (valeur === undefined || valeur === d.value && d.driving) return accepte([op]);
+      /* le premier ancrage reste en place : c'est le second qui bouge */
+      const fixes = sommetsDe(p, d.refs[0]);
+      const murs = [...new Set(d.refs.map(r => r.objectId))];
+      return ajuster(p, t.niveauId, [op], fixes.map(s => ({ de: s, vers: s })), c, murs);
+    }
+    case 'modifierNiveau': {
+      const e = trouverNiveau(p, cmd.id);
+      if (!e) return refus('niveau introuvable');
+      const f = e.floor;
+      if (cmd.nom !== undefined && !cmd.nom.trim()) return refus('un niveau a un nom');
+      if (cmd.altitude !== undefined && !Number.isFinite(cmd.altitude)) return refus('altitude invalide');
+      if (cmd.hauteur !== undefined && !(Number.isFinite(cmd.hauteur) && cmd.hauteur > 0)) return refus('la hauteur doit être positive');
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.nom !== undefined) { avant['name'] = f.name; apres['name'] = cmd.nom.trim() }
+      if (cmd.altitude !== undefined) { avant['elevation'] = f.elevation; apres['elevation'] = cmd.altitude }
+      if (cmd.hauteur !== undefined) { avant['height'] = f.height; apres['height'] = cmd.hauteur }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([{ type: 'niveau.modifier', niveau: f.id, avant, apres }]);
+    }
+    case 'supprimerNiveau': {
+      const e = trouverNiveau(p, cmd.id);
+      if (!e) return refus('niveau introuvable');
+      const b = p.buildings[e.batiment]!;
+      if (b.floors.length < 2) return refus('un bâtiment garde au moins un niveau');
+      /* le niveau part avec tout ce qu'il contient : annuler le rend intact */
+      return accepte([{ type: 'niveau.retirer', batiment: b.id, index: e.niveau, niveau: e.floor }]);
+    }
+    case 'ajouterFond': {
+      if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      if (!cmd.fichier.trim()) return refus('fichier manquant');
+      if (cmd.page !== undefined && !(Number.isInteger(cmd.page) && cmd.page >= 1)) return refus('numéro de page invalide');
+      const u: Underlay = {
+        id: c.id(), type: 'underlay', floorId: cmd.niveau, status: 'confirmed', sourceRefs: [source(c, 'Import du fond')], revision: c.revision,
+        fileKey: cmd.fichier, ...(cmd.nom ? { name: cmd.nom } : {}), ...(cmd.page ? { page: cmd.page } : {}),
+        transform: { ...TRANSFORMATION_NEUTRE }, locked: false, opacity: 0.5,
+      };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: u }]);
+    }
+    case 'calerFond': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'underlay') return refus('fond introuvable');
+      const u = t.objet;
+      if (u.locked) return refus('fond verrouillé : déverrouillez-le pour le recaler');
+      if (!cmd.image.every(ptFini)) return refus('points de l’image invalides');
+      const tr = cmd.plan ? (cmd.plan.every(ptFini) ? calage(cmd.image, cmd.plan) : 'points du plan invalides')
+        : cmd.distance !== undefined ? calageParDistance(u.transform, cmd.image, cmd.distance) : 'indiquez la place des deux points sur le plan, ou leur distance réelle';
+      if (typeof tr === 'string') return refus(tr);
+      return accepte([modifier(t.niveauId, u, { transform: u.transform }, { transform: tr }, c, 'Calage')]);
+    }
+    case 'modifierFond': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'underlay') return refus('fond introuvable');
+      const u = t.objet;
+      if (cmd.opacite !== undefined && !(cmd.opacite >= 0 && cmd.opacite <= 1)) return refus('opacité entre 0 et 1');
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.verrouille !== undefined) { avant['locked'] = u.locked; apres['locked'] = cmd.verrouille }
+      if (cmd.opacite !== undefined) { avant['opacity'] = u.opacity; apres['opacity'] = cmd.opacite }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, u, avant, apres, c)]);
+    }
   }
+}
+
+/** une modification d'objet, avec révision et provenance */
+function modifier(niveau: string, o: { id: string; revision: number; sourceRefs: SourceRef[] }, avant: Record<string, unknown>, apres: Record<string, unknown>, c: Contexte, label = 'Modification'): Operation {
+  /* un champ absent s'écrit null : il le reste une fois le ChangeSet passé par le JSON */
+  const nul = (x: Record<string, unknown>) => Object.fromEntries(Object.entries(x).map(([k, v]) => [k, v === undefined ? null : v]));
+  return { type: 'objet.modifier', niveau, id: o.id, avant: { ...nul(avant), revision: o.revision, sourceRefs: o.sourceRefs },
+    apres: { ...nul(apres), revision: c.revision, sourceRefs: [...o.sourceRefs, source(c, label)] } };
+}
+
+/** les murs droits d'un niveau qui aboutissent à un point */
+function murDroitsAuSommet(p: Project, niveau: string, s: Point): string[] {
+  const n = trouverNiveau(p, niveau);
+  if (!n) return [];
+  return Object.values(n.floor.objects).filter(o => o.type === 'wall' && 'a' in o.axis
+    && (distance(o.axis.a, s) <= EPS_COINCIDENCE || distance(o.axis.b, s) <= EPS_COINCIDENCE)).map(o => o.id);
 }

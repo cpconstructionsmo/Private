@@ -35,10 +35,12 @@ export function inverse(op: Operation): Operation {
 /** les opérations inverses, dans l'ordre inverse */
 export const inverser = (ops: readonly Operation[]): Operation[] => [...ops].reverse().map(inverse);
 
-/* une valeur « undefined » efface le champ : l'état d'avant revient exactement */
+/* une valeur « undefined » ou null efface le champ : l'état d'avant revient
+   exactement. null survit au JSON (un ChangeSet relu du journal efface donc
+   bien le champ) ; le modèle, lui, ne contient jamais null. */
 function fusionner<T extends object>(o: T, champs: Champs): T {
   const r: Champs = { ...(o as Champs) };
-  for (const [k, v] of Object.entries(champs)) { if (v === undefined) delete r[k]; else r[k] = v }
+  for (const [k, v] of Object.entries(champs)) { if (v === undefined || v === null) delete r[k]; else r[k] = v }
   return r as T;
 }
 

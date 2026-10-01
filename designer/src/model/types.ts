@@ -109,20 +109,41 @@ export interface Dimension extends BaseObject {
   refs: [ObjectAnchor, ObjectAnchor];
   /** cote motrice : la modifier déplace réellement la géométrie */
   driving: boolean;
+  /** la valeur imposée d'une cote motrice (mm) ; une cote non motrice se mesure */
+  value?: Mm;
   offset: Mm;
 }
 
-/** un fond calé (PDF, image) : référence de dessin, jamais modifié */
+/** une contrainte géométrique sur l'axe d'un ou deux murs droits : elle
+ *  reste vraie après chaque déplacement (le solveur ajuste le reste, ou la
+ *  modification est refusée — jamais violée en silence) */
+export interface Constraint extends BaseObject {
+  type: 'constraint';
+  kind: 'horizontal' | 'vertical' | 'parallel' | 'perpendicular' | 'length' | 'angle';
+  /** un mur (horizontal, vertical, longueur, angle) ou deux (parallèle, perpendiculaire) */
+  walls: string[];
+  /** longueur (mm) ou angle (radians, sens trigonométrique depuis l'axe des x) */
+  value?: number;
+}
+
+/** un fond calé (PDF, image) : référence de dessin, jamais modifié.
+ *  transform : du point de l'image (u vers la droite, v vers le BAS, en
+ *  pixels ou points PDF) au plan (mm, y vers le haut) — voir building/fond.ts */
 export interface Underlay extends BaseObject {
   type: 'underlay';
   fileKey: string;
+  /** le nom du fichier, pour le reconnaître */
+  name?: string;
   page?: number;
   transform: { scale: number; rotation: Radian; tx: Mm; ty: Mm };
   locked: boolean;
   opacity: number;
 }
 
-export type BuildingObject = Wall | Opening | Room | Dimension | Underlay;
+/* Contraintes et valeur des cotes s'ajoutent sans rien changer aux projets
+   déjà enregistrés (un type de plus, un champ facultatif) : le schéma reste
+   à la version 1, l'instantané figé des tests le vérifie. */
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay;
 
 export interface Floor {
   id: string;
