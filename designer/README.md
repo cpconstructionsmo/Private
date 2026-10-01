@@ -4,9 +4,23 @@ Module de conception de CP Constructions, **séparé du suivi de chantiers**
 (`index.html`) : voir les décisions d'architecture dans
 [`docs/designer/`](../docs/designer/README.md).
 
-État : **Phase 0** — socle publié (modèle de données, premières primitives
-géométriques, tests, compilation, intégration continue). L'éditeur 2D
-arrive en Phase 1.
+État : **Phase 1, étape 1 faite — Geometry Engine** (`src/geometry/`) :
+vecteurs, prédicats tolérants, segments (projection, distance,
+intersection : croisement, contact, chevauchement), décalage de polylignes
+(faces d'un mur, onglet et biseau), opérations booléennes en entiers
+(Clipper2), faces d'un graphe planaire (pièces lues dans un tracé, îles,
+murs pendants ignorés), aire, périmètre, centre de gravité. Tests exacts et
+tests de propriétés (1 000 cas par propriété).
+
+**Étape 2 faite — modèle et commandes** (`src/model/`, `src/engine/`) :
+identifiants stables (ULID), création d'un projet, sérialisation canonique
+(clés triées : annuler se vérifie octet pour octet), migrations de schéma
+testées sur un instantané figé (`tests/fixtures/projet_v1.json`),
+opérations inversibles, commandes validées (murs, ouvertures, pièces,
+niveaux, suppression en cascade), historique annuler / rétablir et
+transactions (une action composée = un seul « annuler »), ChangeSets
+datés et signés. Étape suivante : murs (jonctions), pièces détectées,
+ouvertures et métré des baies.
 
 ## Travailler
 

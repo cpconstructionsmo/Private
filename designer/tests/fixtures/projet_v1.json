@@ -1,0 +1,212 @@
+{
+ "buildings": [
+  {
+   "floors": [
+    {
+     "elevation": 0,
+     "height": 2500,
+     "id": "p000004",
+     "name": "RDC",
+     "objects": {
+      "o000001": {
+       "axis": {
+        "a": {
+         "x": 0,
+         "y": 0
+        },
+        "b": {
+         "x": 10000,
+         "y": 0
+        }
+       },
+       "baseOffset": 0,
+       "floorId": "p000004",
+       "height": 2500,
+       "id": "o000001",
+       "justification": "center",
+       "loadBearing": {
+        "missing": "note de calcul ou plan de structure",
+        "status": "to_check",
+        "value": true
+       },
+       "revision": 1,
+       "role": "exterior",
+       "sourceRefs": [
+        {
+         "at": "2026-10-01T08:00:01.000Z",
+         "by": "CP",
+         "kind": "user",
+         "label": "Saisie"
+        }
+       ],
+       "status": "confirmed",
+       "thickness": 200,
+       "type": "wall"
+      },
+      "o000002": {
+       "axis": {
+        "a": {
+         "x": 10000,
+         "y": 0
+        },
+        "b": {
+         "x": 10000,
+         "y": 8000
+        }
+       },
+       "baseOffset": 0,
+       "floorId": "p000004",
+       "height": 2500,
+       "id": "o000002",
+       "justification": "center",
+       "loadBearing": {
+        "missing": "note de calcul ou plan de structure",
+        "status": "to_check",
+        "value": true
+       },
+       "revision": 1,
+       "role": "exterior",
+       "sourceRefs": [
+        {
+         "at": "2026-10-01T08:00:02.000Z",
+         "by": "CP",
+         "kind": "user",
+         "label": "Saisie"
+        }
+       ],
+       "status": "confirmed",
+       "thickness": 200,
+       "type": "wall"
+      },
+      "o000003": {
+       "axis": {
+        "a": {
+         "x": 10000,
+         "y": 8000
+        },
+        "b": {
+         "x": 0,
+         "y": 8000
+        }
+       },
+       "baseOffset": 0,
+       "floorId": "p000004",
+       "height": 2500,
+       "id": "o000003",
+       "justification": "center",
+       "loadBearing": {
+        "missing": "note de calcul ou plan de structure",
+        "status": "to_check",
+        "value": true
+       },
+       "revision": 1,
+       "role": "exterior",
+       "sourceRefs": [
+        {
+         "at": "2026-10-01T08:00:03.000Z",
+         "by": "CP",
+         "kind": "user",
+         "label": "Saisie"
+        }
+       ],
+       "status": "confirmed",
+       "thickness": 200,
+       "type": "wall"
+      },
+      "o000004": {
+       "axis": {
+        "a": {
+         "x": 0,
+         "y": 8000
+        },
+        "b": {
+         "x": 0,
+         "y": 0
+        }
+       },
+       "baseOffset": 0,
+       "floorId": "p000004",
+       "height": 2500,
+       "id": "o000004",
+       "justification": "center",
+       "loadBearing": {
+        "missing": "note de calcul ou plan de structure",
+        "status": "to_check",
+        "value": true
+       },
+       "revision": 1,
+       "role": "exterior",
+       "sourceRefs": [
+        {
+         "at": "2026-10-01T08:00:04.000Z",
+         "by": "CP",
+         "kind": "user",
+         "label": "Saisie"
+        }
+       ],
+       "status": "confirmed",
+       "thickness": 200,
+       "type": "wall"
+      },
+      "o000005": {
+       "floorId": "p000004",
+       "id": "o000005",
+       "name": "Séjour",
+       "revision": 1,
+       "seed": {
+        "x": 5000,
+        "y": 4000
+       },
+       "sourceRefs": [
+        {
+         "at": "2026-10-01T08:00:05.000Z",
+         "by": "CP",
+         "kind": "user",
+         "label": "Saisie"
+        }
+       ],
+       "status": "confirmed",
+       "type": "room",
+       "usage": "living",
+       "wet": false
+      },
+      "o000007": {
+       "floorId": "p000004",
+       "height": 2150,
+       "hostWallId": "o000001",
+       "id": "o000007",
+       "kind": "bay",
+       "offset": 5000,
+       "revision": 2,
+       "sill": 0,
+       "sourceRefs": [
+        {
+         "at": "2026-10-01T08:00:07.000Z",
+         "by": "CP",
+         "kind": "user",
+         "label": "Saisie"
+        }
+       ],
+       "status": "confirmed",
+       "type": "opening",
+       "width": 2400
+      }
+     },
+     "order": 0
+    }
+   ],
+   "id": "p000003",
+   "name": "Maison"
+  }
+ ],
+ "id": "p000001",
+ "name": "Maison fictive (schéma 1)",
+ "phase": "ESQ",
+ "revision": 2,
+ "schemaVersion": 1,
+ "site": {
+  "id": "p000002",
+  "underlays": []
+ },
+ "units": "mm"
+}
