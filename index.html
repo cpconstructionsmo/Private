@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-09-30 · Plan électrique : génération automatique en un clic (tout le DQE posé, commandes côté poignée, liaisons), proposition à valider, versions, verrouillage, calques';
+const VERSION='2026-10-01 · Plan électrique : niveaux RDC / étage et escalier relié, PDF une page par niveau, modèles de disposition CP';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -11050,7 +11050,7 @@ const pdfUnePage=(jpeg,largeurPx,hauteurPx,titre)=>pdfPages([{jpeg,w:largeurPx,h
    ce SVG rendu comme une image, est précisément ce que Safari refuse — le
    dessin revient vide, ou la toile est déclarée souillée et refuse de rendre
    quoi que ce soit. Le fond est donc dessiné d'abord, cette planche par-dessus. */
-function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,plan}){
+function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,plan,page,sousTitre}){
   const ech=typeof echelle==='number'&&echelle>0?echelle:ELEC_ECHELLE_DEFAUT;
   const ep=typeof trait==='number'&&trait>0?trait:ELEC_TRAIT_DEFAUT;
   const L=1000,H=Math.round(L*(ratio||0.707));
@@ -11061,8 +11061,8 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,pla
      il mange le plan, et la légende a désormais sa propre page */
   const surPlan=!!leg.length&&(plan||{}).legende===true;
   const posLeg=surPlan?cartouchePosition(plan,leg,H):null;
-  const hCart=34;
-  return <svg xmlns="http://www.w3.org/2000/svg" width={L} height={H+hCart} viewBox={'0 0 '+L+' '+(H+hCart)}>
+  const hCart=sousTitre?48:34;
+  return <svg className="planche" xmlns="http://www.w3.org/2000/svg" width={L} height={H+hCart} viewBox={'0 0 '+L+' '+(H+hCart)}>
     {!!fond&&<image href={fond} x="0" y="0" width={L} height={H} preserveAspectRatio="none"/>}
     {cablesValides(cables,symboles).map(c=>
       <path key={c.id} d={cheminCable(pt(par[c.de]),pt(par[c.vers]),c.courbure)}
@@ -11081,7 +11081,8 @@ function PlanExport({fond,ratio,symboles,cables,titre,hauteurs,echelle,trait,pla
       <rect x="0" y="0" width={L} height={hCart} fill="#ffffff"/>
       <line x1="0" y1="8" x2={L} y2="8" stroke={RULE} strokeWidth="1"/>
       <text x="6" y="27" fontSize="11" fontWeight="700" fill={NAVY}>{titre}</text>
-      <text x={L-6} y="27" fontSize="9" textAnchor="end" fill={MUTED}>Page 1/2 — le plan</text>
+      {!!sousTitre&&<text x="6" y="41" fontSize="9" fill={INK}>CP CONSTRUCTIONS · {sousTitre}</text>}
+      <text x={L-6} y="27" fontSize="9" textAnchor="end" fill={MUTED}>{page||'Page 1/2 — le plan'}</text>
     </g>
   </svg>;
 }
@@ -11105,7 +11106,7 @@ function LegendeExport({leg,titre,cables,trait}){
       nom:((ELEC_CABLE_COULEURS.find(x=>(x[0]||ELEC_BLEU)===couleurCable(c))||[,'Bleu'])[1])
         +(c.pointille?' · pointillé':' · trait plein')});
   });
-  return <svg xmlns="http://www.w3.org/2000/svg" width={L} height={H} viewBox={'0 0 '+L+' '+H}>
+  return <svg className="planche" xmlns="http://www.w3.org/2000/svg" width={L} height={H} viewBox={'0 0 '+L+' '+H}>
     <rect x="0" y="0" width={L} height={H} fill="#ffffff"/>
     <text x="40" y="56" fontSize="20" fontWeight="700" fill={NAVY}>LÉGENDE</text>
     <text x="40" y="80" fontSize="12" fill={MUTED}>{titre}</text>
@@ -11185,7 +11186,7 @@ const horsApplication=el=>{
      génération ; celle-ci présente ses changements avant de les appliquer.
    - Postes (emplacements) et mécanismes (une prise double en compte deux)
      sont comptés séparément ; le prix suit l'unité du tarif. */
-const ELEC_PIECES_TYPES=['Séjour','Cuisine','Chambre','Salle de bains','Salle d’eau','WC','Entrée','Dégagement','Cellier / buanderie','Garage','Bureau','Extérieur'];
+const ELEC_PIECES_TYPES=['Séjour','Cuisine','Chambre','Salle de bains','Salle d’eau','WC','Entrée','Dégagement','Escalier','Cellier / buanderie','Garage','Bureau','Extérieur'];
 /* le modèle CP : une proposition de départ, pièce par pièce, modifiable */
 const ELEC_MODELE_CP={
   'Séjour':[['pc',5],['rj45',1],['tv',1],['pointc',2],['vv',2],['th',1]],
@@ -11196,6 +11197,7 @@ const ELEC_MODELE_CP={
   'WC':[['pointc',1],['sa',1]],
   'Entrée':[['pc',1],['pointc',1],['vv',2],['tab',1]],
   'Dégagement':[['pc',1],['pointc',1],['vv',2],['fumee',1]],
+  'Escalier':[['pointc',1],['vv',2]],
   'Cellier / buanderie':[['pc',2],['ll',1],['sl',1],['pointc',1],['sa',1]],
   'Garage':[['pc',1],['pointc',1],['sa',1]],
   'Bureau':[['pc',4],['rj45',1],['pointc',1],['sa',1]],
@@ -11575,14 +11577,21 @@ function elecRetenirQuantite(base,diff,quantite){
 const ELEC_ABREGES={pc:'PC',pch:'PCH',ll:'LL',lv:'LV',sl:'SL',ss:'SS',pc20:'20',pc32:'32',rj45:'RJ',tv:'TV',sa:'SA',savoy:'SAV',vv:'VV',vr:'VR',th:'TH',
   son:'SON',pointc:'PL',applique:'AP',appext:'APE',tab:'TAB',ch:'CH',sech:'SE',split:'CE',splitue:'UE',fumee:'DF',lesan:'LES',legen:'LEG',secheserv:'SSV',antenne:'ANT'};
 const elecAbrege=type=>{const d=elecSymbole(type)||{};return d.ab||ELEC_ABREGES[type]||String(d.l||type).replace(/[^A-Za-z0-9]/g,'').slice(0,3)};
-function elecPublication(ch,plan,indice){
-  const pieces=plan.pieces||[], S=(plan.symboles||[]).filter(s=>!s.aPlacer&&s.x!=null&&s.y!=null);
-  const nom=s=>(pieces.find(p=>p.id===elecPieceDe(s,pieces))||{}).nom||'';
-  return {titre:'Plan électrique — '+((ch&&ch.nom)||''),indice:indice||plan.indice||'A',ratio:plan.ratio||0.707,fond:plan.fond,publieLe:new Date().toISOString(),
-    symboles:S.map(s=>{const d=elecSymbole(s.type)||{};
-      return {id:s.id,x:Math.round(s.x*1e4)/1e4,y:Math.round(s.y*1e4)/1e4,l:d.l||s.type,ab:elecAbrege(s.type),c:d.c||'',h:s.h===undefined?null:s.h,piece:nom(s)}}),
-    cables:cablesValides(plan.cables,S).map(c=>({de:c.de,vers:c.vers,courbure:c.courbure===undefined?0.18:c.courbure,couleur:c.couleur||''})),
-    legende:elecLegende(S).map(x=>({l:x.l,h:x.h,c:x.c,n:x.n}))};
+/* ce qui part chez le client : un plan par niveau (fond, symboles,
+   liaisons), la légende de toute la maison ; rien d'interne */
+function elecPublication(ch,plan,indice,autres){
+  const dessin=q=>{const pieces=q.pieces||[], S=(q.symboles||[]).filter(s=>!s.aPlacer&&s.x!=null&&s.y!=null);
+    const nom=s=>(pieces.find(p=>p.id===elecPieceDe(s,pieces))||{}).nom||'';
+    return {S,ratio:q.ratio||0.707,fond:q.fond,
+      symboles:S.map(s=>{const d=elecSymbole(s.type)||{};
+        return {id:s.id,x:Math.round(s.x*1e4)/1e4,y:Math.round(s.y*1e4)/1e4,l:d.l||s.type,ab:elecAbrege(s.type),c:d.c||'',h:s.h===undefined?null:s.h,piece:nom(s)}}),
+      cables:cablesValides(q.cables,S).map(c=>({de:c.de,vers:c.vers,courbure:c.courbure===undefined?0.18:c.courbure,couleur:elecStyleCable(q,c).couleur}))}};
+  const p0=dessin(plan), A=(autres||[]).filter(n=>n.plan&&n.plan.fond).map(n=>({nom:n.nom,...dessin(n.plan)}));
+  const tous=[...p0.S,...A.flatMap(n=>n.S)];
+  return {titre:'Plan électrique — '+((ch&&ch.nom)||''),indice:indice||plan.indice||'A',ratio:p0.ratio,fond:p0.fond,publieLe:new Date().toISOString(),
+    symboles:p0.symboles,cables:p0.cables,
+    ...(A.length?{nom:plan.etage||'RDC',niveaux:A.map(n=>({nom:n.nom,ratio:n.ratio,fond:n.fond,symboles:n.symboles,cables:n.cables}))}:{}),
+    legende:elecLegende(tous).map(x=>({l:x.l,h:x.h,c:x.c,n:x.n}))};
 }
 const elecValidationErreur=e=>{
   const s=String((e&&(e.message||e.details||e.hint))||e||'');
@@ -11602,8 +11611,8 @@ function ElecValidationEnLigne({ch,d,up,plan,maj}){
     setEtat({travail:true});
     try{
       /* l'indice : une lettre de plus si le dessin a changé depuis la dernière sortie */
-      const ix=elecIndicePourSortie(plan);
-      const publication=elecPublication(ch,plan,ix.indice);
+      const ix=elecIndicePourSortie(elecPlanPourIndice(pe));
+      const publication=elecPublication(ch,plan,ix.indice,elecNiveaux(pe).slice(1));
       if(V&&V.id){
         const {data:r,error}=await sb.from('plan_publications').update({publication,statut:'ouvert',maj_le:new Date().toISOString()}).eq('id',V.id).select('id');
         if(error)throw error;if(!r||!r.length)throw new Error('publication introuvable ou non autorisée');
@@ -11854,6 +11863,17 @@ function elecBesoins(plan,base){
     else aj(cibles[0].id,l.type,l,q);
     if(l.type==='tab')tabPiece=cibles[0];
   });
+  /* un escalier relié à celui de l'autre niveau : une commande en bas, une
+     en haut — la moitié des va-et-vient d'un côté passe de l'autre */
+  pieces.filter(p=>p.type==='Escalier'&&p.relie&&p.relie.piece).forEach(p=>{
+    const q=pieces.find(x=>x.id===p.relie.piece);if(!q)return;
+    const tot=id=>(((B[id]||{}).vv)||[]).reduce((t,x)=>t+x.qte,0);
+    const [de,vers]=tot(q.id)===0&&tot(p.id)>=2?[p,q]:tot(p.id)===0&&tot(q.id)>=2?[q,p]:[null,null];
+    if(!de)return;
+    let k=Math.floor(tot(de.id)/2);const L=B[de.id].vv;
+    for(let i=L.length-1;i>=0&&k>0;i--){const m=Math.min(k,L[i].qte);L[i]={...L[i],qte:L[i].qte-m};k-=m;aj(vers.id,'vv',L[i].ligne,m,{escalier:true})}
+    B[de.id].vv=L.filter(x=>x.qte>0);
+  });
   return {besoins:B,nonAttribues};
 }
 
@@ -11870,7 +11890,8 @@ function elecGenererPlan(plan,base,opts){
     :mode==='piece'?S0.filter(s=>retirable(s)&&(s.piece===o.pieceId||elecPieceDe(s,pieces)===o.pieceId)).map(s=>s.id):[];
   const R=new Set(retraits);
   const S=S0.filter(s=>!R.has(s.id));
-  const {besoins,nonAttribues}=elecBesoins(plan,base);
+  /* le programme peut avoir été réparti sur toute la maison (plusieurs niveaux) */
+  const {besoins,nonAttribues}=o.besoinsMaison||elecBesoins(plan,base);
   const ajouts=[],cables=[],avert=[];
   const ech=elecEchelle(plan);
   const haut=t=>elecHauteurDefaut(t,biblio);
@@ -11915,8 +11936,22 @@ function elecGenererPlan(plan,base,opts){
     const occ=occTous;
     const note0=p.type==='Salle de bains'||p.type==='Salle d’eau'?'⚠ Implantation salle d’eau à contrôler (volumes de sécurité)':'';
     const posee=(s)=>{occ.push({x:s.x,y:s.y});return s};
+    const lum=[], cmds=[];
+    /* 0. un modèle de disposition CP pour ce type de pièce : ses équipements
+       d'abord, à leur place relative (porte en bas) ; le reste suit les règles */
+    const D=elecDispositionPour(p,biblio);
+    if(D)(D.items||[]).filter(it=>!it.porte).forEach(it=>{
+      const need=deplier(p.id,it.type)[0];if(!need)return;
+      const cible=elecDecanon(p,it.U,it.V);
+      const mur=it.mur?elecMurDecanon(p,it.mur):'';
+      const pos=ELEC_MURAUX.has(it.type)?elecChoisir(cands,occ,H,{pres:cible,mur}):elecPlaceInterieure(r,occ,H,cible);
+      if(!pos)return;
+      const s=posee(poser(p,need,it.type,pos,0.85,note0||'Modèle « '+D.nom+' »'));
+      if(it.h!==undefined&&it.h!==null&&it.h!=='')s.h=it.h;
+      if(ELEC_ECLAIRAGES.has(it.type))lum.push(s);
+      if(ELEC_COMMANDES.has(it.type))cmds.push(Object.defineProperty(s,'duModele',{value:true,enumerable:false}));
+    });
     /* a. éclairages de plafond : sur l'axe long, répartis, à l'intérieur de la pièce */
-    const lum=[];
     ['pointc','spot'].forEach(t=>{const N=deplier(p.id,t);const d0=dejaPose(p.id,t),tot=N.length+d0;const horiz=(r.x1-r.x0)>=(r.y1-r.y0)*H;
       N.forEach((need,i)=>{const k=d0+i;
         const pref={x:horiz?r.x0+(r.x1-r.x0)*(k+1)/(tot+1):(r.x0+r.x1)/2,y:horiz?(r.y0+r.y1)/2:r.y0+(r.y1-r.y0)*(k+1)/(tot+1)};
@@ -11928,12 +11963,13 @@ function elecGenererPlan(plan,base,opts){
     /* c. commandes : à la porte, côté poignée ; la deuxième à l'autre accès
        ou à l'autre extrémité ; une commande d'applique extérieure à la porte */
     const portes=p.portes||[];
-    const cmds=[];
     ['sa','savoy','vv','da','bp'].forEach(t=>{deplier(p.id,t).forEach((need,i)=>{
       let pos=null,conf=0.85,note='';
-      const rangVv=cmds.filter(c=>c.type===t).length;
+      /* (les commandes venues d'un modèle ne comptent pas : celles des portes d'abord) */
+      const aPorte=cmds.filter(c=>!c.duModele);
+      const rangVv=aPorte.filter(c=>c.type===t).length;
       if(portes.length){
-        const d=portes[(t==='vv'?rangVv:cmds.length)%portes.length];
+        const d=portes[(t==='vv'?rangVv:aPorte.length)%portes.length];
         const essai=[elecPresPorte(d,0,H),elecPresPorte({...d,poignee:d.poignee==='droite'?'gauche':'droite'},0,H)];
         pos=essai.find(q=>q.x>=r.x0-1e-6&&q.x<=r.x1+1e-6&&q.y>=r.y0-1e-6&&q.y<=r.y1+1e-6&&!occ.some(z=>elecDist(z,q,H)<ELEC_ESPACE*0.8));
         if(pos===essai[1])note='Côté poignée occupé : commande de l’autre côté — à vérifier';
@@ -12026,12 +12062,137 @@ function elecGenererPlan(plan,base,opts){
     }));
   });
   /* g. ce qui n'a trouvé aucune pièce : « à placer », dit comme tel */
-  nonAttribues.forEach(l=>{for(let i=0;i<(+l.qte||0);i++){ajouts.push({id:uid(),type:l.type,h:haut(l.type),piece:'',statut:'a_confirmer',source:'genere',
+  const dejaAPlacer={};S.filter(s=>s.aPlacer&&!s.piece).forEach(s=>{dejaAPlacer[s.type]=(dejaAPlacer[s.type]||0)+1});
+  if(!o.sansNonAttribues)nonAttribues.forEach(l=>{for(let i=0;i<(+l.qte||0);i++){if(dejaAPlacer[l.type]>0){dejaAPlacer[l.type]--;continue}ajouts.push({id:uid(),type:l.type,h:haut(l.type),piece:'',statut:'a_confirmer',source:'genere',
     categorie:l.article?'dqe':'cp',...(l.article?{article:l.article}:{}),x:null,y:null,aPlacer:true});
     avert.push({pieceNom:'—',type:l.type,msg:'Aucune pièce ne convient : équipement à placer à la main',confiance:0})}});
   ajouts.forEach(s=>{delete s.pourExterieur});
   return {ajouts,retraits,cables,avertissements:avert,echelle:ech};
 }
+/* ---------- les modèles de disposition CP ----------
+   « Enregistrer comme modèle Chambre CP » : la disposition d'une pièce
+   retouchée devient une référence explicite, rangée dans la bibliothèque,
+   modifiable et supprimable — aucun apprentissage caché. Les positions sont
+   gardées dans un repère propre à la pièce, porte principale en bas : le
+   modèle s'applique ainsi à une chambre tournée autrement. Les commandes
+   posées à la porte n'y figurent pas : elles suivent la poignée de la pièce
+   où l'on applique le modèle. */
+const elecCoteCanon=p=>((p.portes||[])[0]||{}).cote||'bas';
+/* x, y du plan → U, V (0 à 1) dans le repère de la pièce, porte en bas */
+function elecCanon(p,x,y){
+  const r=elecRect(p), u=(x-r.x0)/((r.x1-r.x0)||1), v=(y-r.y0)/((r.y1-r.y0)||1);
+  const c=elecCoteCanon(p);
+  return c==='haut'?{U:1-u,V:1-v}:c==='gauche'?{U:v,V:1-u}:c==='droite'?{U:1-v,V:u}:{U:u,V:v};
+}
+function elecDecanon(p,U,V){
+  const r=elecRect(p), c=elecCoteCanon(p);
+  const [u,v]=c==='haut'?[1-U,1-V]:c==='gauche'?[1-V,U]:c==='droite'?[V,1-U]:[U,V];
+  return {x:r.x0+u*(r.x1-r.x0),y:r.y0+v*(r.y1-r.y0)};
+}
+/* un mur, par le milieu de ce mur passé d'un repère à l'autre */
+const elecCoteDe=(U,V)=>V>=0.99?'bas':V<=0.01?'haut':U<=0.01?'gauche':'droite';
+function elecMurCanon(p,mur){const r=elecRect(p);
+  const m={haut:[(r.x0+r.x1)/2,r.y0],bas:[(r.x0+r.x1)/2,r.y1],gauche:[r.x0,(r.y0+r.y1)/2],droite:[r.x1,(r.y0+r.y1)/2]}[mur];
+  if(!m)return '';const c=elecCanon(p,m[0],m[1]);return elecCoteDe(c.U,c.V)}
+function elecMurDecanon(p,mur){
+  const m={haut:[0.5,0],bas:[0.5,1],gauche:[0,0.5],droite:[1,0.5]}[mur];
+  if(!m)return '';const q=elecDecanon(p,m[0],m[1]),r=elecRect(p);
+  return Math.abs(q.y-r.y1)<1e-9?'bas':Math.abs(q.y-r.y0)<1e-9?'haut':Math.abs(q.x-r.x0)<1e-9?'gauche':'droite'}
+/* la disposition d'une pièce du plan, en modèle */
+function elecDispositionDepuisPiece(plan,pieceId,nom,par){
+  const pieces=(plan&&plan.pieces)||[], p=pieces.find(x=>x.id===pieceId);if(!p)return null;
+  const H=(plan&&plan.ratio)||0.707;
+  const S=((plan&&plan.symboles)||[]).filter(s=>!s.aPlacer&&s.x!=null&&elecPieceDe(s,pieces)===p.id);
+  const pres=s=>(p.portes||[]).some(d=>elecDist(s,d,H)<ELEC_DEMI_PORTE*2.6);
+  return {id:'dsp_'+uid(),nom:nom||p.type+' CP',pieceType:p.type,cree:today(),par:par||'',
+    items:S.map(s=>{const c=elecCanon(p,s.x,s.y);
+      return {type:s.type,U:Math.round(c.U*1000)/1000,V:Math.round(c.V*1000)/1000,mur:s.mur?elecMurCanon(p,s.mur):'',
+        ...(s.h!==undefined&&s.h!==null&&s.h!==''?{h:s.h}:{}),...(ELEC_COMMANDES.has(s.type)&&pres(s)?{porte:true}:{})}})};
+}
+/* le modèle d'une pièce : celui qu'on lui a choisi, sinon celui marqué
+   « par défaut » pour son type ; « aucun » l'écarte */
+function elecDispositionPour(p,biblio){
+  const D=(biblio&&biblio.dispositions)||[];
+  if(p.disposition==='@aucun')return null;
+  return (p.disposition&&D.find(x=>x.id===p.disposition))||D.find(x=>x.pieceType===p.type&&x.defaut)||null;
+}
+
+/* ---------- les niveaux (RDC, étage…) ----------
+   Le niveau principal est le plan historique du dossier (plan_elec.plan) ;
+   les autres niveaux (plan_elec.niveaux) ont chacun leur fond, leur échelle,
+   leurs pièces, leurs équipements et leurs liaisons — jamais les
+   coordonnées d'un niveau mêlées à celles d'un autre. Le programme (DQE) et
+   le contrôle valent pour toute la maison. */
+const ELEC_PLAN_VIDE={fond:'',ratio:0.707,symboles:[],cables:[],pieces:[]};
+function elecNiveaux(pe){
+  const c=pe||{};
+  return [{id:'',plan:c.plan||ELEC_PLAN_VIDE,nom:(c.plan&&c.plan.etage)||'RDC'},
+    ...(c.niveaux||[]).map((n,i)=>({...n,plan:n.plan||ELEC_PLAN_VIDE,nom:(n.plan&&n.plan.etage)||n.nom||'Étage'+(i?' '+(i+1):'')}))];
+}
+/* toute la maison, pour le quantitatif et le contrôle : les pièces de tous
+   les niveaux, chaque équipement rattaché à la pièce de SON niveau */
+function elecPlanMaison(pe){
+  const N=elecNiveaux(pe);
+  if(N.length===1)return (pe&&pe.plan)||ELEC_PLAN_VIDE;
+  const pieces=[],symboles=[],cables=[];
+  N.forEach(n=>{const P=n.plan.pieces||[];
+    P.forEach(p=>pieces.push({...p,niveau:n.id}));
+    (n.plan.symboles||[]).forEach(s=>symboles.push({...s,piece:s.piece||(s.x!=null&&!s.exterieurDe?elecPieceDe(s,P):''),_niv:n.id}));
+    (n.plan.cables||[]).forEach(c=>cables.push(c))});
+  return {...N[0].plan,pieces,symboles,cables,liaisonsNiveaux:(pe&&pe.liaisonsNiveaux)||[]};
+}
+/* les escaliers reliés d'un niveau à l'autre */
+function elecEscaliers(niveaux){
+  const out=[],vu=new Set();
+  (niveaux||[]).forEach(n=>((n.plan&&n.plan.pieces)||[]).filter(p=>p.type==='Escalier'&&p.relie&&p.relie.piece).forEach(p=>{
+    const m=(niveaux||[]).find(x=>((x.plan&&x.plan.pieces)||[]).some(q=>q.id===p.relie.piece));if(!m||m.id===n.id)return;
+    const k=[p.id,p.relie.piece].sort().join('|');if(vu.has(k))return;vu.add(k);
+    out.push({a:{niveau:n.id,piece:p.id},b:{niveau:m.id,piece:p.relie.piece}});
+  }));
+  return out;
+}
+/* les liaisons d'un niveau à l'autre : la commande posée en haut (ou en bas)
+   de l'escalier pilote le point lumineux de l'escalier, sur l'autre niveau.
+   Celles qui existent sont gardées tant que leurs deux bouts existent. */
+function elecLiaisonsEscalier(niveaux,existantes){
+  const ids=new Set((niveaux||[]).flatMap(n=>((n.plan&&n.plan.symboles)||[]).map(s=>s.id)));
+  const L=(existantes||[]).filter(l=>ids.has(l.de&&l.de.id)&&ids.has(l.vers&&l.vers.id));
+  const dans=(cote)=>{const n=(niveaux||[]).find(x=>x.id===cote.niveau);const P=(n&&n.plan.pieces)||[];
+    return ((n&&n.plan.symboles)||[]).filter(s=>!s.aPlacer&&s.x!=null&&elecPieceDe(s,P)===cote.piece)};
+  elecEscaliers(niveaux).forEach(({a,b})=>{
+    [[a,b],[b,a]].forEach(([ici,la])=>{
+      const S1=dans(ici), lum=dans(la).filter(s=>ELEC_ECLAIRAGES.has(s.type));
+      if(S1.some(s=>ELEC_ECLAIRAGES.has(s.type))||!lum.length)return;   /* un éclairage sur place : liaison locale */
+      S1.filter(s=>ELEC_COMMANDES.has(s.type)).forEach(c=>{
+        if(L.some(l=>l.de.id===c.id))return;
+        L.push({id:uid(),de:{niveau:ici.niveau,id:c.id},vers:{niveau:la.niveau,id:lum[0].id},auto:true});
+      });
+    });
+  });
+  return L;
+}
+/* générer toute la maison : le programme du logement entier est réparti sur
+   les pièces de TOUS les niveaux (les volets de l'étage vont à l'étage),
+   puis chaque niveau est posé dans son propre repère. mode « niveau » : le
+   niveau indiqué seulement ; « piece » : le niveau de la pièce. */
+function elecGenererMaison(niveaux,base,opts){
+  const o=opts||{}, N=niveaux||[];
+  const toutes=N.flatMap(n=>((n.plan&&n.plan.pieces)||[]));
+  const B=elecBesoins({pieces:toutes},base);
+  const cible=o.mode==='niveau'?[o.niveau||'']:o.mode==='piece'?[(N.find(n=>((n.plan&&n.plan.pieces)||[]).some(p=>p.id===o.pieceId))||{}).id]:N.map(n=>n.id);
+  const parNiveau={};
+  N.forEach((n,i)=>{if(!cible.includes(n.id))return;
+    parNiveau[n.id]=elecGenererPlan(n.plan,base,{...o,mode:o.mode==='niveau'?'tout':o.mode,besoinsMaison:B,sansNonAttribues:i>0})});
+  const apres=N.map(n=>parNiveau[n.id]?{...n,plan:elecAppliquerGeneration(n.plan,parNiveau[n.id])}:n);
+  return {parNiveau,apres,liaisonsNiveaux:elecLiaisonsEscalier(apres,o.liaisonsNiveaux)};
+}
+/* une génération multi-niveaux, vue comme une seule (résumé, contrôle) */
+function elecGenerationUnique(gm){
+  const G=Object.entries(gm.parNiveau||{});
+  return {ajouts:G.flatMap(([niv,g])=>g.ajouts.map(s=>({...s,_niv:niv}))),retraits:G.flatMap(([,g])=>g.retraits),cables:G.flatMap(([,g])=>g.cables),
+    avertissements:G.flatMap(([,g])=>g.avertissements),echelle:(G[0]&&G[0][1].echelle)||{ok:false}};
+}
+
 /* le résumé d'une génération : les étapes, les familles, les points à vérifier */
 const ELEC_FAMILLES=[['Prises',t=>['pc','pch','pcext','hotte'].includes(t)],['Circuits spécialisés',t=>['ll','lv','sl','ss','pc20','pc32'].includes(t)],
   ['Éclairages',t=>ELEC_ECLAIRAGES.has(t)],['Commandes',t=>ELEC_COMMANDES.has(t)],['Réseau / RJ45 / TV',t=>['rj45','tv','coffcom','antenne'].includes(t)],
@@ -12080,10 +12241,11 @@ function elecValiderProposition(plan,ids){
 /* les versions du plan (V1, V2…) : ce qui est dessiné, pour pouvoir y
    revenir. Les 10 dernières sont gardées (le dossier reste léger). */
 const ELEC_VERSIONS_MAX=10;
-function elecVersionAjouter(versions,plan,libelle,par){
+function elecVersionAjouter(versions,plan,libelle,par,autresNiveaux){
   const V=versions||[];const n=V.reduce((m,v)=>Math.max(m,+v.n||0),0)+1;
   return [...V,{n,le:new Date().toISOString(),par:par||'',libelle:libelle||'',indice:(plan&&plan.indice)||'',
-    symboles:(plan&&plan.symboles)||[],cables:(plan&&plan.cables)||[]}].slice(-ELEC_VERSIONS_MAX);
+    symboles:(plan&&plan.symboles)||[],cables:(plan&&plan.cables)||[],
+    ...(autresNiveaux&&autresNiveaux.length?{niveaux:autresNiveaux.map(x=>({id:x.id,nom:x.nom||'',symboles:x.symboles||[],cables:x.cables||[]}))}:{})}].slice(-ELEC_VERSIONS_MAX);
 }
 /* le contrôle d'ensemble du plan (validateElectricalPlan) : quantités,
    pièces, familles, et les points à vérifier — hors pièce, superpositions,
@@ -12095,12 +12257,14 @@ function elecValiderPlan(plan,base,opts){
   const C=cablesValides(plan&&plan.cables,S);
   const ctl=elecControle(plan,base), R=ctl.rapport;
   const lie=new Set();C.forEach(c=>{lie.add(c.de);lie.add(c.vers)});
+  ((plan&&plan.liaisonsNiveaux)||[]).forEach(l=>{lie.add(l.de&&l.de.id);lie.add(l.vers&&l.vers.id)});
   const nom=s=>(elecSymbole(s.type)||{}).l||s.type;
   const pieceDe=s=>elecPieceDe(s,pieces);
   const nomPiece=id=>(pieces.find(p=>p.id===id)||{}).nom||'Extérieur';
   const points=[];
   S.filter(s=>!s.exterieurDe&&!ELEC_EXTERIEURS.has(s.type)&&pieces.length&&pieceDe(s)==='').forEach(s=>points.push({id:s.id,msg:nom(s)+' hors de toute pièce'}));
-  for(let i=0;i<S.length;i++)for(let j=i+1;j<S.length;j++)if(elecDist(S[i],S[j],H)<ELEC_ESPACE*0.5)
+  /* (deux niveaux ont chacun leur repère : on ne compare que sur un même niveau) */
+  for(let i=0;i<S.length;i++)for(let j=i+1;j<S.length;j++)if(S[i]._niv===S[j]._niv&&elecDist(S[i],S[j],H)<ELEC_ESPACE*0.5)
     points.push({id:S[j].id,msg:nom(S[i])+' et '+nom(S[j])+' superposés ('+nomPiece(pieceDe(S[i]))+')'});
   S.filter(s=>ELEC_COMMANDES.has(s.type)&&!lie.has(s.id)).forEach(s=>points.push({id:s.id,msg:nom(s)+' sans liaison ('+nomPiece(pieceDe(s))+')'}));
   S.filter(s=>ELEC_ECLAIRAGES.has(s.type)&&!lie.has(s.id)).forEach(s=>points.push({id:s.id,msg:nom(s)+' sans commande ('+nomPiece(pieceDe(s))+')'}));
@@ -12154,6 +12318,9 @@ const elecStyleCable=(plan,c)=>{const k=elecCalque(plan,elecCategorieCable(c));
    la dernière sortie ; une confirmation client ne vaut que pour son indice */
 const elecEmpreinte=plan=>ptrEmpreinte(JSON.stringify([(plan.symboles||[]).map(s=>[s.id,s.type,s.x,s.y,s.h,s.rot||0,s.mecanismes||1]),
   (plan.cables||[]).map(c=>[c.de,c.vers]),plan.fond]));
+/* ce qui fait l'indice : tous les niveaux (un seul niveau : le plan, tel quel) */
+const elecPlanPourIndice=pe=>{const N=elecNiveaux(pe);if(N.length===1)return (pe&&pe.plan)||ELEC_PLAN_VIDE;
+  return {...N[0].plan,symboles:N.flatMap(n=>n.plan.symboles||[]),cables:N.flatMap(n=>n.plan.cables||[]),fond:N.map(n=>n.plan.fond||'').join('|')}};
 const elecIndiceSuivant=i=>!i?'A':String.fromCharCode(Math.min(90,i.charCodeAt(0)+1));
 function elecIndicePourSortie(plan){
   const e=elecEmpreinte(plan);
@@ -12183,7 +12350,7 @@ const elecConfirmationValable=pe=>!!(pe&&pe.etudeConfirmeeLe)&&(!pe.confirmeIndi
    (« CHAMBRES 1, 2 ET 3 » en couvre trois) */
 const ELEC_DQE_PIECES=[
   [/sejour|salon|espace jour|piece de vie|salle a manger/,'Séjour'],[/cuisine/,'Cuisine'],[/entree|hall/,'Entrée'],
-  [/degagement|couloir|circulation|palier/,'Dégagement'],[/salle d.?eau/,'Salle d’eau'],[/salle de bains?|\bsdb\b/,'Salle de bains'],
+  [/escalier/,'Escalier'],[/degagement|couloir|circulation|palier/,'Dégagement'],[/salle d.?eau/,'Salle d’eau'],[/salle de bains?|\bsdb\b/,'Salle de bains'],
   [/\bwc\b|toilettes/,'WC'],[/chambres?|\bch\s*\d/,'Chambre'],[/cellier|buanderie|arriere.cuisine|lingerie/,'Cellier / buanderie'],
   [/garage/,'Garage'],[/bureau/,'Bureau'],[/exterieur|terrasse|facade|jardin/,'Extérieur']];
 function elecTitreDQE(lib){
@@ -12697,10 +12864,13 @@ function ElecControle({ch,plan,base,regles}){
    liaisons sont tracées, le quantitatif se remplit. Le tout est UNE
    écriture : « Annuler » la défait d'un coup. Le résultat reste une
    proposition, à valider. */
-function ElecGenerateur({ch,data,plan,base,maj,biblio,selectionner,ouvrirEtape}){
+function ElecGenerateur({ch,data,plan,base,biblio,selectionner,ouvrirEtape,niveaux,nivId,maison,majMulti}){
   const d=ch.docs||{}, pe=d.plan_elec||{};
-  const pieces=plan.pieces||[];
-  const S=plan.symboles||[];
+  const N=niveaux, M=maison;
+  const multi=N.length>1;
+  const pieces=M.pieces||[];               /* toute la maison */
+  const S=M.symboles||[];
+  const nivDe=id=>{const s=S.find(x=>x.id===id);return s?(s._niv||''):''};
   const moi=(typeof UTILISATEUR!=='undefined'&&UTILISATEUR)||'';
   const genere=S.some(s=>s.source==='genere');
   const [mode,setMode]=useState('');
@@ -12731,39 +12901,45 @@ function ElecGenerateur({ch,data,plan,base,maj,biblio,selectionner,ouvrirEtape})
     if(!((b&&b.lignes)||[]).some(l=>+l.qte>0)){setMsg('Aucun programme : lisez le DQE (fichier Excel, Word ou PDF) dans « Programme électrique (DQE) », ou partez du modèle CP.');return}
     const m=modeX||modeEff;
     if(m==='piece'&&!(pieceX||pieceId)){setMsg('Choisissez la pièce à régénérer.');return}
-    const g=elecGenererPlan(plan,b,{biblio,mode:m,pieceId:pieceX||pieceId});
-    const apres=elecAppliquerGeneration(plan,g);
-    const R=elecResumeGeneration(plan,b,g);
-    const V=elecValiderPlan(apres,b);
-    const etapes=[['Analyse du plan',R.etapes[0][1]],R.etapes[1],R.etapes[2],
+    /* tous les niveaux d'un coup (ou celui demandé) : une seule écriture */
+    const gm=elecGenererMaison(N,b,{biblio,mode:m,pieceId:pieceX||pieceId,niveau:nivId,liaisonsNiveaux:pe.liaisonsNiveaux});
+    const g=elecGenerationUnique(gm);
+    const peApres={...pe,plan:gm.apres[0].plan,niveaux:(pe.niveaux||[]).map((n,i)=>({...n,plan:gm.apres[i+1].plan})),liaisonsNiveaux:gm.liaisonsNiveaux};
+    const R=elecResumeGeneration(M,b,g);
+    const V=elecValiderPlan(elecPlanMaison(peApres),b);
+    const etapes=[['Analyse du plan',R.etapes[0][1]],...(multi?[['Niveaux',N.map(n=>n.nom).join(', ')]]:[]),R.etapes[1],R.etapes[2],
       ['Lecture du DQE',lu||(b.source==='dqe'?'DQE du dossier ('+((b.dqe&&b.dqe.source&&b.dqe.source.nom)||'lu')+')':b.source==='modele_cp'?'modèle CP (proposition)':'programme saisi')],
-      ...R.etapes.slice(3)];
-    maj({symboles:apres.symboles,cables:apres.cables},null,b!==base?{base:b}:null);
-    setRun({g,R,V,etapes,ids:g.ajouts.map(s=>s.id),avant:{plan,base},mode:m,baseChangee:b!==base});
+      ...R.etapes.slice(3),...(multi&&gm.liaisonsNiveaux.length?[['Escalier',gm.liaisonsNiveaux.length+' liaison'+(gm.liaisonsNiveaux.length>1?'s':'')+' entre niveaux']]:[])];
+    const o={};N.forEach((n,i)=>{if(gm.parNiveau[n.id])o[n.id]=gm.apres[i].plan});
+    majMulti(o,null,{...(b!==base?{base:b}:{}),...(multi?{liaisonsNiveaux:gm.liaisonsNiveaux}:{})});
+    const avant={};N.forEach(n=>{avant[n.id]=n.plan});
+    setRun({g,R,V,etapes,ids:g.ajouts.map(s=>s.id),avant:{plans:avant,base,liaisons:pe.liaisonsNiveaux},mode:m,baseChangee:b!==base});
     setVues(0);setVoirPoints(false);
   };
   const annulerGeneration=()=>{if(!run)return;
-    maj({...run.avant.plan},null,run.baseChangee?{base:run.avant.base}:null);setRun(null);setMsg('Génération annulée : le plan est revenu à son état d’avant.')};
+    majMulti(run.avant.plans,null,{...(run.baseChangee?{base:run.avant.base}:{}),...(multi?{liaisonsNiveaux:run.avant.liaisons}:{})});
+    setRun(null);setMsg('Génération annulée : le plan est revenu à son état d’avant.')};
   const valider=()=>{
-    const v=elecValiderProposition(plan,run&&run.ids);
-    maj({symboles:v.symboles},null,{versions:elecVersionAjouter(pe.versions,v,'Proposition automatique validée',moi)});
+    const o={};N.forEach(n=>{o[n.id]=elecValiderProposition(n.plan,run&&run.ids)});
+    const autres=N.slice(1).map(n=>({id:n.id,nom:n.nom,symboles:o[n.id].symboles,cables:o[n.id].cables}));
+    majMulti(o,null,{versions:elecVersionAjouter(pe.versions,o[''],'Proposition automatique validée',moi,multi?autres:null)});
     const n=((pe.versions||[]).reduce((m,x)=>Math.max(m,+x.n||0),0))+1;
     setRun(null);setMsg('Proposition validée — version V'+n+' enregistrée. Vous pouvez verrouiller le plan.');
   };
   /* la proposition CP (modèle de la bibliothèque) au-delà du DQE : affichée
      ligne à ligne, jamais ajoutée sans votre choix */
   const ecartees=new Set((base&&base.propositionsEcartees)||[]);
-  const propo=base&&base.source==='dqe'?elecPropositionsCP(plan,base).filter(x=>!ecartees.has(x.piece+'|'+x.type)):[];
+  const propo=base&&base.source==='dqe'?elecPropositionsCP(M,base).filter(x=>!ecartees.has(x.piece+'|'+x.type)):[];
   const retenirOption=x=>{
     const l={id:'b_'+uid(),piece:x.piece,type:x.type,qte:x.ecart,unite:elecUnite(x.type),nature:'option',origine:'Proposition CP'};
     const b2={...base,lignes:[...(base.lignes||[]),l],decisions:[...(base.decisions||[]),{le:today(),par:moi,choix:'Proposition CP retenue en option',source:'Bibliothèque CP',
       detail:x.pieceNom+' · '+x.libelle+' : DQE '+x.dqe+', proposition CP '+x.cp}]};
-    const g=elecGenererPlan(plan,b2,{biblio,mode:'manquants'});
-    const apres=elecAppliquerGeneration(plan,g);
-    maj({symboles:apres.symboles,cables:apres.cables},null,{base:b2});
+    const gm=elecGenererMaison(N,b2,{biblio,mode:'manquants',liaisonsNiveaux:pe.liaisonsNiveaux});
+    const o={};N.forEach((n,i)=>{if(gm.parNiveau[n.id]&&gm.parNiveau[n.id].ajouts.length)o[n.id]=gm.apres[i].plan});
+    majMulti(o,null,{base:b2});
     setMsg('+'+x.ecart+' '+x.libelle+' ('+x.pieceNom+') en option, hors DQE : posé'+(x.ecart>1?'s':'')+' sur le plan, en bleu au contrôle.');
   };
-  const garderDQE=x=>maj({},null,{base:{...base,propositionsEcartees:[...ecartees,x.piece+'|'+x.type],
+  const garderDQE=x=>majMulti({},null,{base:{...base,propositionsEcartees:[...ecartees,x.piece+'|'+x.type],
     decisions:[...(base.decisions||[]),{le:today(),par:moi,choix:'DQE conservé',source:'',detail:x.pieceNom+' · '+x.libelle+' : DQE '+x.dqe+' (proposition CP '+x.cp+' écartée)'}]}});
   const fini=run&&vues>=run.etapes.length;
   const R=run&&run.V&&run.V.rapport;
@@ -12773,12 +12949,14 @@ function ElecGenerateur({ch,data,plan,base,maj,biblio,selectionner,ouvrirEtape})
       <select className="in" style={{maxWidth:260}} value={modeEff} aria-label="Mode de génération" onChange={e=>setMode(e.target.value)}>
         <option value="tout">Générer le plan complet{genere?' (recalculer tout)':''}</option>
         <option value="manquants">Compléter les éléments manquants</option>
+        {multi&&<option value="niveau">Recalculer ce niveau ({(N.find(n=>n.id===nivId)||N[0]).nom})</option>}
         <option value="piece">Régénérer une pièce</option></select>
-      {modeEff==='piece'&&<select className="in" style={{maxWidth:180}} value={pieceId} aria-label="Pièce à régénérer" onChange={e=>setPieceId(e.target.value)}>
-        <option value="">Pièce…</option>{pieces.map(p=><option key={p.id} value={p.id}>{p.nom}</option>)}</select>}
+      {modeEff==='piece'&&<select className="in" style={{maxWidth:200}} value={pieceId} aria-label="Pièce à régénérer" onChange={e=>setPieceId(e.target.value)}>
+        <option value="">Pièce…</option>{N.map(n=>(n.plan.pieces||[]).map(p=><option key={p.id} value={p.id}>{multi?n.nom+' — ':''}{p.nom}</option>))}</select>}
     </div>
     <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
-      {modeEff==='tout'?(genere?'Recalcule les équipements générés ; ceux que vous avez déplacés, retouchés, posés à la main ou verrouillés ne bougent pas.':'Pose tout le programme (DQE) sur les pièces tracées : éclairages, commandes côté poignée, prises, réseau, volets, technique, liaisons.')
+      {modeEff==='tout'?(genere?'Recalcule les équipements générés'+(multi?', sur tous les niveaux':'')+' ; ceux que vous avez déplacés, retouchés, posés à la main ou verrouillés ne bougent pas.':'Pose tout le programme (DQE) sur les pièces tracées'+(multi?' de tous les niveaux':'')+' : éclairages, commandes côté poignée, prises, réseau, volets, technique, liaisons.')
+        :modeEff==='niveau'?'Ne recalcule que ce niveau ; les autres ne bougent pas, le programme reste réparti sur toute la maison.'
         :modeEff==='manquants'?'Ajoute seulement ce qui manque au regard du programme : rien n’est déplacé ni doublé.'
         :'Ne recalcule que la pièce choisie (vos retouches y restent).'}
       {!prevus.length&&marches.length>0&&' Le DQE du marché « '+marches[0].lot+' » sera lu d’abord.'}</div>
@@ -12808,7 +12986,7 @@ function ElecGenerateur({ch,data,plan,base,maj,biblio,selectionner,ouvrirEtape})
               ⚠ {run.V.points.length} point{run.V.points.length>1?'s':''} à vérifier — {voirPoints?'masquer':'voir les '+run.V.points.length+' points'}</button>
             {voirPoints&&<div style={{maxHeight:180,overflowY:'auto',marginTop:4}}>{run.V.points.map((x,i)=><div key={i} className="row" style={{gap:6,alignItems:'center',padding:'2px 0',borderTop:'1px solid '+RULE}}>
               <span style={{flex:1}}>{x.msg}</span>
-              {x.id&&S.some(s=>s.id===x.id)&&<button type="button" className="btn gh s" style={{fontSize:11,padding:'2px 7px'}} onClick={()=>selectionner&&selectionner(x.id)}>Voir</button>}</div>)}</div>}
+              {x.id&&S.some(s=>s.id===x.id)&&<button type="button" className="btn gh s" style={{fontSize:11,padding:'2px 7px'}} onClick={()=>selectionner&&selectionner(x.id,nivDe(x.id))}>Voir{multi?' ('+(N.find(n=>n.id===nivDe(x.id))||{}).nom+')':''}</button>}</div>)}</div>}
           </div>}
           <div className="mut" style={{marginTop:4}}>Les positions restent des propositions (cercle orange) : le mobilier n’est pas lu sur le plan. Rien n’est inventé comme certain : ce qui est incertain est signalé.</div>
         </div>
@@ -12833,24 +13011,32 @@ function ElecGenerateur({ch,data,plan,base,maj,biblio,selectionner,ouvrirEtape})
     {(pe.versions||[]).length>0&&<details className="xs" style={{marginTop:8}}>
       <summary style={{cursor:'pointer',color:NAVY}}>Versions du plan ({pe.versions.length})</summary>
       {pe.versions.slice().reverse().map(v=><div key={v.n} className="row" style={{gap:6,alignItems:'center',padding:'3px 0',borderTop:'1px solid '+RULE}}>
-        <span style={{flex:1}}><b>V{v.n}</b> · {new Date(v.le).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'})}{v.par?' · '+v.par:''} — {v.libelle} ({(v.symboles||[]).length} équipements)</span>
+        <span style={{flex:1}}><b>V{v.n}</b> · {new Date(v.le).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'})}{v.par?' · '+v.par:''} — {v.libelle} ({(v.symboles||[]).length+(v.niveaux||[]).reduce((t,n)=>t+(n.symboles||[]).length,0)} équipements{(v.niveaux||[]).length?', '+(1+v.niveaux.length)+' niveaux':''})</span>
         <button type="button" className="btn gh s" style={{fontSize:11,padding:'2px 7px'}} disabled={!!plan.verrouille}
-          onClick={()=>{if(confirm('Revenir à la version V'+v.n+' ? Le plan actuel reste récupérable par « Annuler ».'))maj({symboles:v.symboles||[],cables:v.cables||[]})}}>Restaurer</button></div>)}
+          onClick={()=>{if(!confirm('Revenir à la version V'+v.n+' ? Le plan actuel reste récupérable par « Annuler ».'))return;
+            const o={'':{...N[0].plan,symboles:v.symboles||[],cables:v.cables||[]}};
+            (v.niveaux||[]).forEach(x=>{const n=N.find(y=>y.id===x.id);if(n)o[n.id]={...n.plan,symboles:x.symboles||[],cables:x.cables||[]}});
+            majMulti(o)}}>Restaurer</button></div>)}
     </details>}
   </div>;
 }
 
 /* l'assistant, au-dessus du plan : une étape à la fois */
-function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,saveBiblio,saveRegles,selectionner}){
+function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,saveBiblio,saveRegles,selectionner,maison,niveaux,nivId,majMulti,changerNiveau}){
   const d=ch.docs||{}, pe=d.plan_elec||{};
   const base=pe.base||{source:'',lignes:[],validee:false};
-  const majBase=b=>up({docs:{...d,plan_elec:{...pe,plan,base:{...base,...b}}}});
+  /* (le plan affiché peut être un étage : on n'écrit ici que la base, jamais
+     le plan principal du dossier) */
+  const majBase=b=>up({docs:{...d,plan_elec:{...pe,base:{...base,...b}}}});
   const tarifs=pe.tarifs||{};
-  const majTarifs=t=>up({docs:{...d,plan_elec:{...pe,plan,tarifs:t}}});
+  const majTarifs=t=>up({docs:{...d,plan_elec:{...pe,tarifs:t}}});
   const [etape,setEtape]=useState('');
-  const pieces=plan.pieces||[];
+  const N=niveaux||[{id:'',plan,nom:plan.etage||'RDC'}];
+  const M=maison||plan;
+  const pieces=plan.pieces||[];             /* les pièces du niveau affiché */
+  const piecesM=M.pieces||[];               /* celles de toute la maison */
   const ech=elecEchelle(plan);
-  const comp=elecComparatif(plan,base);
+  const comp=elecComparatif(M,base);
   const sup=elecSupplements(comp,tarifs,data);
   const aPlacer=(plan.symboles||[]).filter(s=>s.aPlacer);
   const bordElec=(data.bordereaux||[]).filter(b=>/elec/i.test(deaccent((b.nom||'')+' '+(b.corps||''))));
@@ -12858,28 +13044,46 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
   const biblio=data.elecBiblio||{};
   const [modeleId,setModeleId]=useState('standard');
   const modeles=elecModeles(biblio);
-  const nomPiece=id=>id===''||id===undefined?'Logement (général)':(pieces.find(p=>p.id===id)||{}).nom||'Hors pièce';
-  /* « Régénérer » sur une pièce : seule cette pièce est recalculée */
+  const nomPiece=id=>id===''||id===undefined?'Logement (général)':(piecesM.find(p=>p.id===id)||{}).nom||'Hors pièce';
+  /* « Régénérer » sur une pièce : seule cette pièce est recalculée (le
+     programme du logement reste réparti sur toute la maison) */
   const regenererPiece=pid=>{if(plan.verrouille)return;
-    const g=elecGenererPlan(plan,base,{biblio,mode:'piece',pieceId:pid});const a=elecAppliquerGeneration(plan,g);
-    maj({symboles:a.symboles,cables:a.cables})};
+    const gm=elecGenererMaison(N,base,{biblio,mode:'piece',pieceId:pid,liaisonsNiveaux:pe.liaisonsNiveaux});
+    const o={};N.forEach((n,i)=>{if(gm.parNiveau[n.id])o[n.id]=gm.apres[i].plan});
+    majMulti(o,null,N.length>1?{liaisonsNiveaux:gm.liaisonsNiveaux}:null)};
+  /* retirer des équipements, où qu'ils soient (tous niveaux) */
+  const retirerIds=ids=>{const R=new Set(ids);if(!R.size)return;const o={};
+    N.forEach(n=>{const S=n.plan.symboles||[];if(S.some(s=>R.has(s.id)))o[n.id]={...n.plan,symboles:S.filter(s=>!R.has(s.id)),cables:(n.plan.cables||[]).filter(c=>!R.has(c.de)&&!R.has(c.vers))}});
+    majMulti(o)};
+  const escaliersAutres=N.filter(n=>n.id!==nivId).flatMap(n=>(n.plan.pieces||[]).filter(p=>p.type==='Escalier').map(p=>({niveau:n.id,piece:p.id,l:n.nom+' — '+p.nom})));
+  const dispositions=biblio.dispositions||[];
+  const moi=(typeof UTILISATEUR!=='undefined'&&UTILISATEUR)||'';
+  const enregistrerModele=p=>{if(!saveBiblio)return;
+    const nom=prompt('Nom du modèle de disposition',p.type+' CP');if(!nom)return;
+    const D=elecDispositionDepuisPiece(plan,p.id,nom,moi);if(!D||!D.items.length)return;
+    const meme=dispositions.find(x=>x.nom===nom&&x.pieceType===p.type);
+    if(meme&&!confirm('Le modèle « '+nom+' » existe déjà : le remplacer par la disposition de « '+p.nom+' » ?'))return;
+    const autresDuType=dispositions.filter(x=>x.pieceType===p.type&&(!meme||x.id!==meme.id));
+    saveBiblio({...biblio,dispositions:[...dispositions.filter(x=>!meme||x.id!==meme.id),{...D,...(meme?{id:meme.id,defaut:meme.defaut}:{defaut:!autresDuType.some(x=>x.defaut)})}]});
+  };
   return <div className="card" style={{padding:10,marginBottom:10,borderLeft:'3px solid '+ELEC_BLEU}}>
     <div className="row" style={{gap:6,flexWrap:'wrap'}}>
       {E.map(([id,l])=><button key={id} type="button" className={'btn s '+(etape===id?'':'gh')} onClick={()=>setEtape(etape===id?'':id)}>{l}</button>)}
     </div>
     <div className="row xs" style={{gap:6,flexWrap:'wrap',marginTop:6}}>
       <span className="pill" style={{background:ech.ok?'#E3F0E8':'#FBF1DC',color:ech.ok?GREEN:AMBER}}>{ech.ok?'Échelle vérifiée':'Non à l’échelle : '+ech.raison}</span>
-      <span className="pill" style={{background:'#EEF1F4',color:NAVY}}>{pieces.length} pièce{pieces.length>1?'s':''}</span>
+      <span className="pill" style={{background:'#EEF1F4',color:NAVY}}>{pieces.length} pièce{pieces.length>1?'s':''}{N.length>1?' ici · '+piecesM.length+' sur '+N.length+' niveaux':''}</span>
       <span className="pill" style={{background:'#EEF1F4',color:NAVY}}>Base : {base.source==='dqe'?'DQE'+(base.dqe&&base.dqe.source?' — '+base.dqe.source.nom:''):base.source==='modele_cp'?'modèle CP (proposition)':base.source==='marche'?'marché signé':base.source==='ptr'?'programme technique':'non définie'}{base.validee?' · validée':''}</span>
       {aPlacer.length>0&&<span className="pill" style={{background:'#FBF1DC',color:AMBER}}>{aPlacer.length} à placer</span>}
-      {plan.indice&&<span className="pill" style={{background:'#F3F1EC',color:MUTED}}>Indice {plan.indice}</span>}
+      {N[0].plan.indice&&<span className="pill" style={{background:'#F3F1EC',color:MUTED}}>Indice {N[0].plan.indice}</span>}
       {plan.verrouille&&<span className="pill" style={{background:'#EEF1F4',color:NAVY}}>🔒 Plan verrouillé</span>}
     </div>
-    <ElecGenerateur ch={ch} data={data} plan={plan} base={base} maj={maj} biblio={biblio} selectionner={selectionner} ouvrirEtape={setEtape}/>
+    <ElecGenerateur ch={ch} data={data} plan={plan} base={base} biblio={biblio} selectionner={selectionner} ouvrirEtape={setEtape}
+      niveaux={N} nivId={nivId||''} maison={M} majMulti={majMulti}/>
 
     {etape==='preparer'&&<div style={{marginTop:10}}>
       <div className="g2">
-        <Fld label="ÉTAGE"><input className="in" value={plan.etage||''} placeholder="RDC, R+1…" onChange={e=>maj({etage:e.target.value})}/></Fld>
+        <Fld label="NOM DU NIVEAU"><input className="in" value={plan.etage||''} placeholder="RDC, Étage, R+1…" onChange={e=>maj({etage:e.target.value})}/></Fld>
         <Fld label="ÉTALONNAGE">
           <button type="button" className={'btn s '+(outil==='@calib'?'':'gh')} onClick={()=>{changerOutil(outil==='@calib'?'':'@calib');setTrace(null)}}>
             {outil==='@calib'?'Cliquez les deux extrémités d’une cote connue':'Étalonner sur une cote connue'}</button>
@@ -12908,6 +13112,22 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
             onClick={()=>changerOutil(outil==='@fenetre:'+p.id?'':'@fenetre:'+p.id)}>{outil==='@fenetre:'+p.id?'Cliquez la fenêtre sur un mur':'+ Fenêtre'}</button>
           <button type="button" className="btn gh s" style={{fontSize:11,padding:'4px 8px'}} disabled={!!plan.verrouille||!(base.lignes||[]).length}
             title="Ne recalcule que cette pièce : vos retouches y restent" onClick={()=>regenererPiece(p.id)}>↻ Régénérer</button>
+          {p.type==='Escalier'&&<label className="row xs" style={{gap:4,alignItems:'center',flexBasis:'100%',paddingLeft:12}}>
+            <span className="mut">Relié à l’escalier d’un autre niveau :</span>
+            <select className="in" style={{maxWidth:240}} aria-label="Escalier relié" value={p.relie?p.relie.niveau+'|'+p.relie.piece:''}
+              onChange={e=>{const [nv,pc]=e.target.value.split('|');maj({pieces:pieces.map(x=>x.id!==p.id?x:{...x,relie:e.target.value?{niveau:nv,piece:pc}:null})})}}>
+              <option value="">— aucun —</option>{escaliersAutres.map(x=><option key={x.piece} value={x.niveau+'|'+x.piece}>{x.l}</option>)}</select>
+            {!escaliersAutres.length&&<span className="mut">(tracez l’escalier sur l’autre niveau)</span>}</label>}
+          {(dispositions.some(x=>x.pieceType===p.type)||saveBiblio)&&<div className="row xs" style={{gap:6,alignItems:'center',flexBasis:'100%',paddingLeft:12,flexWrap:'wrap'}}>
+            {dispositions.some(x=>x.pieceType===p.type)&&<React.Fragment><span className="mut">Modèle de disposition :</span>
+              <select className="in" style={{maxWidth:200}} aria-label={'Modèle de disposition — '+p.nom} value={p.disposition||''}
+                onChange={e=>maj({pieces:pieces.map(x=>x.id!==p.id?x:{...x,disposition:e.target.value||undefined})})}>
+                <option value="">Par défaut{(()=>{const D=dispositions.find(x=>x.pieceType===p.type&&x.defaut);return D?' (« '+D.nom+' »)':' (règles CP)'})()}</option>
+                <option value="@aucun">Aucun (règles CP)</option>
+                {dispositions.filter(x=>x.pieceType===p.type).map(x=><option key={x.id} value={x.id}>{x.nom}</option>)}</select></React.Fragment>}
+            {saveBiblio&&(plan.symboles||[]).some(s=>!s.aPlacer&&s.x!=null&&elecPieceDe(s,pieces)===p.id)&&
+              <button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}} onClick={()=>enregistrerModele(p)}>Enregistrer comme modèle {p.type} CP</button>}
+          </div>}
           <button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={()=>maj({pieces:pieces.filter(x=>x.id!==p.id)})}>✕</button>
           {(p.portes||[]).map((d,k)=><div key={d.id} className="row xs" style={{gap:6,alignItems:'center',flexBasis:'100%',paddingLeft:12}}>
             <span className="mut">Porte {k+1} (mur {d.cote}) — poignée, vue de l’intérieur :</span>
@@ -12941,15 +13161,15 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
         <select className="in" value={base.source||''} onChange={e=>majBase({source:e.target.value,validee:false})}>
           <option value="">—</option><option value="dqe">D’après le DQE (marché électricité ou fichier) — recommandé</option><option value="marche">D’après le marché signé (saisie)</option><option value="ptr">D’après le programme technique validé</option>
           <option value="modele_cp">Modèle CP (proposition, non contractuelle)</option></select></Fld>
-      {base.source==='dqe'&&<ElecDQE ch={ch} data={data} plan={plan} base={base} majBase={majBase}/>}
+      {base.source==='dqe'&&<ElecDQE ch={ch} data={data} plan={M} base={base} majBase={majBase}/>}
       {(base.decisions||[]).length>0&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Décisions : {base.decisions.map((x,i)=><div key={i}>{fd(x.le)}{x.par?' ('+x.par+')':''} — {x.choix} {x.source?'« '+x.source+' »':''} : {x.detail}</div>)}</div>}
       {base.source==='modele_cp'&&<div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center'}}>
         <select className="in" style={{maxWidth:220}} value={modeleId} aria-label="Modèle" onChange={e=>setModeleId(e.target.value)}>
           {modeles.map(m=><option key={m.id} value={m.id}>{m.nom}</option>)}</select>
-        <button type="button" className="btn gh s" disabled={!pieces.length}
+        <button type="button" className="btn gh s" disabled={!piecesM.length}
           onClick={()=>{const mo=modeles.find(m=>m.id===modeleId)||ELEC_MODELE_STANDARD;
-            const L=mo.integre?elecBaseModele(pieces):elecBaseModeleDe(pieces,mo);const garde=(base.lignes||[]).filter(l=>l.nature!=='prevu');majBase({lignes:[...garde,...L],modele:mo.nom})}}>
-          Remplir la base avec le modèle CP ({pieces.length} pièce{pieces.length>1?'s':''})</button></div>}
+            const L=mo.integre?elecBaseModele(piecesM):elecBaseModeleDe(piecesM,mo);const garde=(base.lignes||[]).filter(l=>l.nature!=='prevu');majBase({lignes:[...garde,...L],modele:mo.nom})}}>
+          Remplir la base avec le modèle CP ({piecesM.length} pièce{piecesM.length>1?'s':''})</button></div>}
       {(base.source==='marche'||base.source==='ptr')&&<div className="xs mut" style={{lineHeight:1.5}}>Saisissez les quantités telles qu’écrites au {base.source==='marche'?'marché':'programme'} : l’application ne les devine pas.</div>}
       <div style={{maxHeight:260,overflowY:'auto',marginTop:8}}>
         {(base.lignes||[]).map(l=><div key={l.id} className="row xs" style={{gap:6,alignItems:'center',borderBottom:'1px solid '+RULE,padding:'4px 0'}}>
@@ -12966,7 +13186,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
         </div>)}
       </div>
       <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
-        <select className="in" style={{maxWidth:170}} id="elec-ajout-piece" defaultValue="">{[<option key="" value="">Hors pièce</option>,...pieces.map(p=><option key={p.id} value={p.id}>{p.nom}</option>)]}</select>
+        <select className="in" style={{maxWidth:170}} id="elec-ajout-piece" defaultValue="">{[<option key="" value="">Hors pièce</option>,...piecesM.map(p=><option key={p.id} value={p.id}>{p.nom}</option>)]}</select>
         <select className="in" style={{maxWidth:170}} id="elec-ajout-type" defaultValue="pc">{ELEC_SYMBOLES.map(s=><option key={s.id} value={s.id}>{s.l}</option>)}</select>
         <button type="button" className="btn gh s" onClick={()=>{const pi=document.getElementById('elec-ajout-piece').value,ty=document.getElementById('elec-ajout-type').value;
           majBase({lignes:[...(base.lignes||[]),{id:'b_'+uid(),piece:pi,type:ty,qte:1,unite:elecUnite(ty),nature:'prevu'}]})}}>+ Ligne</button>
@@ -12983,7 +13203,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
       </div>
     </div>}
 
-    {etape==='verifier'&&<ElecControle ch={ch} plan={plan} base={base} regles={data.elecRegles}/>}
+    {etape==='verifier'&&<ElecControle ch={ch} plan={M} base={base} regles={data.elecRegles}/>}
 
     {etape==='supplements'&&<div style={{marginTop:10}}>
       <div className="xs mut" style={{lineHeight:1.5,marginBottom:6}}>Écart net par type (une prise déplacée ne coûte rien) au prix du tarif : bordereau électricité lié, ou prix saisi avec sa source. Sans prix : « à chiffrer ».</div>
@@ -13008,8 +13228,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
               :<button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}} onClick={()=>setT({accepteLe:today()})}>Accepter</button>}
             <button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}} disabled={!!plan.verrouille}
               title="Retire d'abord les équipements générés, jamais un équipement verrouillé"
-              onClick={()=>{const R=new Set(elecSurplusARetirer(plan,l.type,l.ecart));if(!R.size)return;
-                maj({symboles:(plan.symboles||[]).filter(s=>!R.has(s.id)),cables:(plan.cables||[]).filter(c=>!R.has(c.de)&&!R.has(c.vers))})}}>Supprimer le surplus ({l.ecart})</button>
+              onClick={()=>retirerIds(elecSurplusARetirer(M,l.type,l.ecart))}>Supprimer le surplus ({l.ecart})</button>
             <button type="button" className="btn gh s" style={{fontSize:11,padding:'3px 8px'}}
               onClick={()=>majBase({lignes:[...(base.lignes||[]),{id:'b_'+uid(),piece:'',type:l.type,qte:l.ecart,unite:elecUnite(l.type),nature:'option',origine:'Supplément passé en option'}]})}>Passer en option</button>
             {(()=>{const m=ch.map||{}, texte='Plan électrique : +'+l.ecart+' '+l.libelle+' au-delà du DQE (supplément à chiffrer)';
@@ -13044,7 +13263,19 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
           onClick={()=>{if(confirm('Retirer le modèle « '+m.nom+' » de la bibliothèque ?'))saveBiblio({...biblio,modeles:(biblio.modeles||[]).filter(x=>x.id!==m.id)})}}>✕</button>}</div>)}
       {saveBiblio&&<button type="button" className="btn gh s" style={{marginTop:4}} disabled={!(base.lignes||[]).length}
         onClick={()=>{const nom=prompt('Nom du modèle (Maison premium CP, Rénovation…)');if(!nom)return;
-          saveBiblio({...biblio,modeles:[...(biblio.modeles||[]),elecModeleDepuisBase(base,pieces,nom)]})}}>Enregistrer la base de ce dossier comme modèle</button>}
+          saveBiblio({...biblio,modeles:[...(biblio.modeles||[]),elecModeleDepuisBase(base,piecesM,nom)]})}}>Enregistrer la base de ce dossier comme modèle</button>}
+      <div className="xs b" style={{color:NAVY,marginTop:10}}>MODÈLES DE DISPOSITION — vos pièces de référence</div>
+      <div className="xs mut" style={{lineHeight:1.5}}>Depuis « Préparer le plan », « Enregistrer comme modèle Chambre CP » garde la disposition d’une pièce retouchée. Le générateur la reprend ensuite (porte en bas, quelle que soit l’orientation) ; les commandes de porte suivent toujours la poignée. Rien n’est appris en cachette : chaque modèle est ici, modifiable et supprimable.</div>
+      {!dispositions.length&&<div className="xs mut" style={{marginTop:4}}>Aucun modèle de disposition.</div>}
+      {dispositions.map(x=><div key={x.id} className="row xs elec-disposition" style={{gap:6,alignItems:'center',padding:'3px 0',flexWrap:'wrap'}}>
+        <input className="in" style={{flex:'1 1 160px'}} value={x.nom} aria-label="Nom du modèle de disposition" disabled={!saveBiblio}
+          onChange={e=>saveBiblio({...biblio,dispositions:dispositions.map(y=>y.id===x.id?{...y,nom:e.target.value}:y)})}/>
+        <span className="mut">{x.pieceType} · {(x.items||[]).length} équipements{x.cree?' · '+fd(x.cree):''}{x.par?' · '+x.par:''}</span>
+        <label className="row" style={{gap:4,alignItems:'center'}}><input type="checkbox" checked={!!x.defaut} disabled={!saveBiblio}
+          onChange={e=>saveBiblio({...biblio,dispositions:dispositions.map(y=>y.pieceType!==x.pieceType?y:{...y,defaut:y.id===x.id?e.target.checked:false})})}/>par défaut pour « {x.pieceType} »</label>
+        {saveBiblio&&<button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}}
+          onClick={()=>{if(confirm('Supprimer le modèle de disposition « '+x.nom+' » ?'))saveBiblio({...biblio,dispositions:dispositions.filter(y=>y.id!==x.id)})}}>✕</button>}
+      </div>)}
       <div className="xs b" style={{color:NAVY,marginTop:10}}>RÈGLES RÉGLEMENTAIRES — base versionnée</div>
       <div className="xs mut" style={{lineHeight:1.5}}>Chaque règle porte sa norme, sa version, sa date d’application, le type de logement, sa source et la date de sa dernière vérification. Contrôle affiché à part des écarts avec le DQE.</div>
       {(data.elecRegles||[]).map(r=>{const setR=p=>saveRegles((data.elecRegles||[]).map(x=>x.id===r.id?{...x,...p}:x));
@@ -13080,7 +13311,7 @@ function AssistantElec({ch,up,data,plan,maj,outil,changerOutil,trace,setTrace,sa
     </div>}
 
     {etape==='exporter'&&<div style={{marginTop:10}} className="xs">
-      <Fld label="STATUT DU PLAN"><select className="in" value={plan.statut||'Proposition'} onChange={e=>maj({statut:e.target.value})}>
+      <Fld label="STATUT DU PLAN"><select className="in" value={N[0].plan.statut||'Proposition'} onChange={e=>majMulti({'':{...N[0].plan,statut:e.target.value}})}>
         {['Proposition','Pour étude client','Validé'].map(x=><option key={x}>{x}</option>)}</select></Fld>
       <div className="mut" style={{lineHeight:1.5}}>L’indice change à la sortie dès que le dessin a changé. {ech.ok?'Le PDF porte « Échelle vérifiée ».':'Le PDF portera « Non à l’échelle ».'} Une confirmation client
         porte sur l’indice envoyé : un plan révisé est à renvoyer.</div>
@@ -13112,7 +13343,19 @@ function ElecHistorique({pe,majModifs}){
 }
 function PlanElectrique({ch,up,onFermer,data,save}){
   const d=ch.docs||{};
-  const plan=(d.plan_elec&&d.plan_elec.plan)||{fond:'',ratio:0.707,symboles:[],cables:[]};
+  /* le niveau affiché (RDC, étage…) : chacun a son fond et son repère ; le
+     programme, le quantitatif et le contrôle valent pour toute la maison */
+  const pe0=d.plan_elec||{};
+  const [niv,setNiv]=useState('');
+  const niveaux=elecNiveaux(pe0);
+  const courant=niveaux.find(n=>n.id===niv)||niveaux[0];
+  const nivId=courant.id;
+  const plan=courant.plan;
+  const maison=elecPlanMaison(pe0);
+  const planPrincipal=pe0.plan||ELEC_PLAN_VIDE;
+  /* un équipement relié à un autre niveau (la commande d'escalier) : le nom de l'autre niveau */
+  const autreNiveau=id=>{const l=(pe0.liaisonsNiveaux||[]).find(x=>x.de.id===id||x.vers.id===id);if(!l)return '';
+    const o=l.de.id===id?l.vers:l.de;return (niveaux.find(n=>n.id===o.niveau)||{}).nom||''};
   const S=plan.symboles||[];
   /* les équipements « à placer » (générés sans échelle) n'ont pas encore de
      position : ils ne se dessinent nulle part tant qu'on ne les a pas posés */
@@ -13121,7 +13364,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
   /* à la sortie (PDF, impression) : les liaisons des calques affichés, dans
      leur couleur et leur trait */
   const Cx=C.map(c=>{const st=elecStyleCable(plan,c);return st.visible?{...c,couleur:st.couleur,pointille:st.pointille}:null}).filter(Boolean);
-  const [fondUrl,setFondUrl]=useState(null);
+  const [fondsUrls,setFondsUrls]=useState({});
   const [outil,setOutil]=useState('');
   const [sel,setSel]=useState(null);
   const [selC,setSelC]=useState(null);
@@ -13146,34 +13389,51 @@ function PlanElectrique({ch,up,onFermer,data,save}){
   const gestSymbole=useRef(false);   /* le geste en cours a-t-il commencé sur un symbole ? */
   const decalLeg=useRef(null);       /* où, dans le cartouche, on l'a attrapé */
 
+  /* le fond de chaque niveau (affichage, impression) */
+  const clesFonds=niveaux.map(n=>n.plan.fond||'').join('|');
   useEffect(()=>{let a=true;
-    if(!plan.fond){setFondUrl(null);return}
-    Photo.get(plan.fond).then(v=>{if(a)setFondUrl(v)}).catch(()=>{});
+    niveaux.forEach(n=>{const f=n.plan.fond;if(!f||fondsUrls[f])return;
+      Photo.get(f).then(v=>{if(a)setFondsUrls(o=>({...o,[f]:v}))}).catch(()=>{})});
     return()=>{a=false};
-  },[plan.fond]);
+  },[clesFonds]);
+  const fondUrl=plan.fond?fondsUrls[plan.fond]||null:null;
 
   /* chaque changement du plan garde l'état d'avant : Annuler / Rétablir */
   const hist=useRef({passe:[],futur:[]});
   /* chaque écriture tient le journal : ajout, retrait, déplacement,
      changement de type, avec la date et l'auteur */
-  const ecrire=(nouveau,modifs,extra)=>{const c=d.plan_elec||{};
-    up({docs:{...d,plan_elec:{...c,...(extra||{}),plan:nouveau,fait:true,date:c.fait?c.date:today(),
-      journal:elecJournalAjouter(c.journal,elecJournalDiff(plan,nouveau,moi)),
+  /* écrire un ou plusieurs niveaux d'un coup : plans = {idNiveau: plan} */
+  const planDe=id=>{const n=elecNiveaux(d.plan_elec||{}).find(x=>x.id===id);return n?n.plan:ELEC_PLAN_VIDE};
+  const ecrire=(plans,modifs,extra)=>{const c=d.plan_elec||{}, m={...c,...(extra||{})};
+    const J=Object.keys(plans).flatMap(id=>elecJournalDiff(planDe(id),plans[id],moi));
+    up({docs:{...d,plan_elec:{...m,...(''in plans?{plan:plans['']}:{}),
+      ...(Object.keys(plans).some(k=>k!=='')?{niveaux:(m.niveaux||[]).map(n=>plans[n.id]?{...n,plan:plans[n.id]}:n)}:{}),
+      fait:true,date:c.fait?c.date:today(),journal:elecJournalAjouter(c.journal,J),
       ...(modifs&&modifs.length?{modifications:[...(c.modifications||[]),...modifs]}:{})}}})};
   /* « extra » : d'autres champs du dossier écrits dans le même geste (la base
      lue du DQE par une génération) ; l'historique les garde aussi, si bien
      qu'un seul « Annuler » défait tout le geste */
   const cliche=keys=>{if(!keys)return null;const c=d.plan_elec||{},o={};keys.forEach(k=>{o[k]=c[k]});return o};
-  const maj=(p,modifs,extra)=>{hist.current.passe=[...hist.current.passe.slice(-59),{plan,pe:cliche(extra&&Object.keys(extra))}];hist.current.futur=[];ecrire({...plan,...p},modifs,extra)};
+  const clichePlans=ids=>{const o={};ids.forEach(id=>{o[id]=planDe(id)});return o};
+  const majMulti=(plans,modifs,extra)=>{hist.current.passe=[...hist.current.passe.slice(-59),{plans:clichePlans(Object.keys(plans)),pe:cliche(extra&&Object.keys(extra))}];
+    hist.current.futur=[];ecrire(plans,modifs,extra)};
+  const maj=(p,modifs,extra)=>majMulti({[nivId]:{...plan,...p}},modifs,extra);
   /* une modification client numérotée */
   const modifClient=(action,s)=>{const c=d.plan_elec||{};const n=((c.modifications||[]).reduce((m,x)=>Math.max(m,+x.n||0),0))+1;
     const pid=s.piece||elecPieceDe(s,plan.pieces||[]);
     return [{n,le:today(),par:moi,action,type:s.type,libelle:(elecSymbole(s.type)||{}).l||s.type,piece:((plan.pieces||[]).find(x=>x.id===pid)||{}).nom||'',
       statut:'demandee',horsDqe:true,symbole:s.id}]};
   const annuler=()=>{const h=hist.current;if(!h.passe.length)return;const e=h.passe[h.passe.length-1];
-    h.futur=[{plan,pe:cliche(e.pe&&Object.keys(e.pe))},...h.futur];ecrire(e.plan,null,e.pe);h.passe=h.passe.slice(0,-1)};
+    h.futur=[{plans:clichePlans(Object.keys(e.plans)),pe:cliche(e.pe&&Object.keys(e.pe))},...h.futur];ecrire(e.plans,null,e.pe);h.passe=h.passe.slice(0,-1)};
   const retablir=()=>{const h=hist.current;if(!h.futur.length)return;const e=h.futur[0];
-    h.passe=[...h.passe,{plan,pe:cliche(e.pe&&Object.keys(e.pe))}];ecrire(e.plan,null,e.pe);h.futur=h.futur.slice(1)};
+    h.passe=[...h.passe,{plans:clichePlans(Object.keys(e.plans)),pe:cliche(e.pe&&Object.keys(e.pe))}];ecrire(e.plans,null,e.pe);h.futur=h.futur.slice(1)};
+  /* les niveaux : changer, ajouter, retirer (un retrait se défait par « Annuler ») */
+  const changerNiveau=id=>{setNiv(id);setSel(null);setSelC(null);setOutil('');setTrace(null);setDepart(null)};
+  const ajouterNiveau=()=>{const id='nv_'+uid();
+    majMulti({},null,{niveaux:[...(pe0.niveaux||[]),{id,plan:{...ELEC_PLAN_VIDE,etage:niveaux.length===1?'Étage':'Étage '+niveaux.length}}]});changerNiveau(id)};
+  const retirerNiveau=()=>{if(!nivId)return;
+    if(!confirm('Retirer le niveau « '+courant.nom+' » et ses '+(plan.symboles||[]).length+' équipements ? « Annuler » le fait revenir.'))return;
+    majMulti({},null,{niveaux:(pe0.niveaux||[]).filter(n=>n.id!==nivId),liaisonsNiveaux:(pe0.liaisonsNiveaux||[]).filter(l=>l.de.niveau!==nivId&&l.vers.niveau!==nivId)});changerNiveau('')};
   const [trace,setTrace]=useState(null);
 
   const importer=async file=>{
@@ -13189,7 +13449,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
       const ancien=plan.fond;
       const id=uid();
       await Photo.put(id,url);
-      setFondUrl(url);
+      setFondsUrls(o=>({...o,[id]:url}));
       maj({fond:id,ratio,etiquettes:etiquettes||[],etiquettesSource:/^image\//.test(file.type)?'image':'pdf'});
       if(ancien&&ancien!==id)Photo.del(ancien).catch(()=>{});
     }catch(e){alert("Ce plan n'a pas pu être lu — détail technique : "+((e&&(e.error||e.message))||String(e)))}
@@ -13371,29 +13631,35 @@ function PlanElectrique({ch,up,onFermer,data,save}){
       appareil:(typeof navigator!=='undefined'&&navigator.userAgent)?navigator.userAgent.slice(0,110):'inconnu'});
   };
 
+  /* une planche par niveau qui a son fond, puis la légende de toute la
+     maison ; l'indice vaut pour l'ensemble des niveaux */
+  const aSortir=niveaux.filter(n=>n.plan.fond);
   const exporter=async()=>{
-    if(!plan.fond){alert('Importez d’abord le plan de fond.');return}
+    if(!aSortir.length){alert('Importez d’abord le plan de fond.');return}
     oublierPret(); setPanne(null);
     setBusyPdf('Lecture du plan de fond…');
     try{
-      /* on redemande une adresse fraîche : celle obtenue à l'ouverture de
-         l'écran expire au bout d'une heure, et l'export sortirait un fond vide */
-      const url=await Photo.get(plan.fond);
-      if(!url)throw new Error('le plan de fond est introuvable');
-      const rep=await fetch(url);
-      if(!rep.ok)throw new Error('relecture refusée (code '+rep.status+')');
-      const blob=await rep.blob();
-      const fondData=await new Promise((res,rej)=>{
-        const fr=new FileReader();
-        fr.onload=()=>res(fr.result);
-        fr.onerror=()=>rej(new Error('fichier illisible'));
-        fr.readAsDataURL(blob);
-      });
-      setBusyPdf('Composition de la planche…');
+      const fonds=[];
+      for(const n of aSortir){
+        /* on redemande une adresse fraîche : celle obtenue à l'ouverture de
+           l'écran expire au bout d'une heure, et l'export sortirait un fond vide */
+        const url=await Photo.get(n.plan.fond);
+        if(!url)throw new Error('le plan de fond'+(niveaux.length>1?' du niveau « '+n.nom+' »':'')+' est introuvable');
+        const rep=await fetch(url);
+        if(!rep.ok)throw new Error('relecture refusée (code '+rep.status+')');
+        const blob=await rep.blob();
+        fonds.push({id:n.id,data:await new Promise((res,rej)=>{
+          const fr=new FileReader();
+          fr.onload=()=>res(fr.result);
+          fr.onerror=()=>rej(new Error('fichier illisible'));
+          fr.readAsDataURL(blob);
+        })});
+      }
+      setBusyPdf('Composition des planches…');
       /* l'indice change dès que le dessin a changé depuis la dernière sortie */
-      const ix=elecIndicePourSortie(plan);
-      if(ix.change)maj({indice:ix.indice,exportEmpreinte:ix.empreinte,exportLe:today()});
-      setAExporter({fond:fondData,indice:ix.indice});
+      const ix=elecIndicePourSortie(elecPlanPourIndice(pe0));
+      if(ix.change)majMulti({'':{...planPrincipal,indice:ix.indice,exportEmpreinte:ix.empreinte,exportLe:today()}});
+      setAExporter({fonds,indice:ix.indice});
     }catch(e){
       noterPanne('lecture du plan de fond',e);
       setBusyPdf('');
@@ -13434,25 +13700,29 @@ function PlanElectrique({ch,up,onFermer,data,save}){
     let etape='composition de la planche';
     (async()=>{
       try{
-        const svgs=exportRef.current?exportRef.current.querySelectorAll('svg'):[];
-        if(svgs.length<2)throw new Error('planche introuvable dans la page');
-        etape='lecture du fond';
-        const fondImg=await charger(aExporter.fond,'le plan de fond');
-        etape='conversion de la planche';
-        /* Safari plafonne la surface d'une toile : au-delà elle revient vide.
-           On tente une taille confortable, puis on se rabat. */
-        let plan1=null,derniere=null;
-        for(const large of [2400,1600,1000]){
-          try{plan1=await enJpeg(svgs[0],fondImg,large);break}catch(x){derniere=x}
+        const svgs=exportRef.current?exportRef.current.querySelectorAll('svg.planche'):[];
+        const F=aExporter.fonds||[];
+        if(svgs.length<F.length+1)throw new Error('planche introuvable dans la page');
+        const pages=[];
+        for(let k=0;k<F.length;k++){
+          etape='lecture du fond'+(F.length>1?' ('+(k+1)+'/'+F.length+')':'');
+          const fondImg=await charger(F[k].data,'le plan de fond');
+          etape='conversion de la planche'+(F.length>1?' ('+(k+1)+'/'+F.length+')':'');
+          /* Safari plafonne la surface d'une toile : au-delà elle revient vide.
+             On tente une taille confortable, puis on se rabat. */
+          let pl=null,derniere=null;
+          for(const large of [2400,1600,1000]){
+            try{pl=await enJpeg(svgs[k],fondImg,large);break}catch(x){derniere=x}
+          }
+          if(!pl)throw derniere||new Error('conversion impossible');
+          pages.push(pl);
         }
-        if(!plan1)throw derniere||new Error('conversion impossible');
         etape='conversion de la légende';
-        const page2=await enJpeg(svgs[1],null,1600);
+        pages.push(await enJpeg(svgs[F.length],null,1600));
         etape='assemblage du PDF';
         const octets=async o=>new Uint8Array(await (await (await fetch(o.d)).blob()).arrayBuffer());
-        const pdf=pdfPages([{jpeg:await octets(plan1),w:plan1.w,h:plan1.h},
-                            {jpeg:await octets(page2),w:page2.w,h:page2.h}],
-          'Plan électrique — '+ch.nom);
+        const feuilles=[];for(const pg of pages)feuilles.push({jpeg:await octets(pg),w:pg.w,h:pg.h});
+        const pdf=pdfPages(feuilles,'Plan électrique — '+ch.nom);
         etape='remise du fichier';
         proposer(pdf,'Plan-electrique-'+(ch.nom||'chantier').replace(/[^\wÀ-ÿ]+/g,'-')+'-indice-'+(aExporter.indice||'A')+'-'+today()+'.pdf');
       }catch(e){
@@ -13483,9 +13753,18 @@ function PlanElectrique({ch,up,onFermer,data,save}){
   const parId={}; S.forEach(s=>{parId[s.id]=s});
   const pt=s=>({x:s.x*1000,y:s.y*H});
   const legende=elecLegende(Sp);
+  /* à la sortie : la légende de toute la maison, et chaque niveau avec ses
+     propres équipements et liaisons */
+  const SpDe=n=>(n.plan.symboles||[]).filter(s=>!s.aPlacer&&s.x!=null&&s.y!=null);
+  const CxDe=n=>cablesValides(n.plan.cables,SpDe(n)).map(c=>{const st=elecStyleCable(n.plan,c);return st.visible?{...c,couleur:st.couleur,pointille:st.pointille}:null}).filter(Boolean);
+  const legendeMaison=elecLegende(niveaux.flatMap(SpDe));
+  const CxMaison=niveaux.flatMap(CxDe);
+  const cartouche=[ch.client,ch.adresse,'le '+fd(today())].filter(Boolean).join(' · ');
   /* ce que porte chaque planche sortie : indice, statut et échelle */
   const echOk=elecEchelle(plan).ok;
-  const mentions=ix=>' — INDICE '+(ix||plan.indice||'A')+' — '+(plan.statut||'Proposition').toUpperCase()+' — '+(echOk?'ÉCHELLE VÉRIFIÉE':'NON À L’ÉCHELLE')+(plan.etage?' — '+plan.etage.toUpperCase():'');
+  /* indice et statut : ceux du dossier (niveau principal) ; échelle et nom : ceux du niveau */
+  const mentions=(ix,n)=>{const q=(n&&n.plan)||plan;const nom=n?n.nom:plan.etage;
+    return ' — INDICE '+(ix||planPrincipal.indice||'A')+' — '+(planPrincipal.statut||'Proposition').toUpperCase()+' — '+(elecEchelle(q).ok?'ÉCHELLE VÉRIFIÉE':'NON À L’ÉCHELLE')+(nom&&(niveaux.length>1||q.etage)?' — '+String(nom).toUpperCase():'')};
   const legSurPlan=!!legende.length&&plan.legende===true;
   const posLeg=legSurPlan?cartouchePosition(plan,legende,H):null;
 
@@ -13494,9 +13773,16 @@ function PlanElectrique({ch,up,onFermer,data,save}){
       <span className="h2" style={{fontSize:13}}>PLAN ÉLECTRIQUE — {ch.nom}</span>
       <button className="btn gh s" onClick={onFermer}>Fermer</button>
     </div>
+    <div className="row elec-niveaux" style={{gap:6,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+      <span className="xs mut">Niveau :</span>
+      {niveaux.map(n=><button key={n.id||'rdc'} type="button" className={'btn s '+(n.id===nivId?'':'gh')} onClick={()=>changerNiveau(n.id)}>
+        {n.nom}{(n.plan.symboles||[]).length?' ('+(n.plan.symboles||[]).length+')':''}</button>)}
+      <button type="button" className="btn gh s" title="Un étage, un sous-sol… avec son propre plan de fond" onClick={ajouterNiveau}>+ Niveau</button>
+      {!!nivId&&<button type="button" className="xs" style={{color:MUTED,background:'none',border:'none'}} onClick={retirerNiveau}>Retirer ce niveau</button>}
+    </div>
 
     {!plan.fond&&<div className="card" style={{textAlign:'center',padding:20}}>
-      <div className="sm" style={{marginBottom:6}}>Importez d’abord le plan d’implantation.</div>
+      <div className="sm" style={{marginBottom:6}}>Importez d’abord le plan d’implantation{nivId?' de ce niveau ('+courant.nom+')':''}.</div>
       <div className="xs mut" style={{marginBottom:12,lineHeight:1.5}}>
         Un PDF (la première page est reprise) ou une image. Le plan est enregistré une fois pour
         toutes : vous posez ensuite les symboles par-dessus.</div>
@@ -13509,7 +13795,8 @@ function PlanElectrique({ch,up,onFermer,data,save}){
 
     {!!plan.fond&&<React.Fragment>
       <AssistantElec ch={ch} up={up} data={data||{}} plan={plan} maj={maj} outil={outil} changerOutil={changerOutil} trace={trace} setTrace={setTrace} saveBiblio={saveBiblio} saveRegles={saveRegles}
-        selectionner={id=>{setOutil('');setSel(id);setSelC(null)}}/>
+        maison={maison} niveaux={niveaux} nivId={nivId} majMulti={majMulti} changerNiveau={changerNiveau}
+        selectionner={(id,n)=>{if(n!==undefined&&n!==nivId)changerNiveau(n);setOutil('');setSel(id);setSelC(null)}}/>
       <div className="row" style={{gap:6,marginBottom:8,flexWrap:'wrap',alignItems:'center'}}>
         <button className="btn gh s" disabled={!hist.current.passe.length} onClick={annuler} title="Annuler (Ctrl+Z)">↶ Annuler</button>
         <button className="btn gh s" disabled={!hist.current.futur.length} onClick={retablir} title="Rétablir (Ctrl+Y)">↷ Rétablir</button>
@@ -13520,7 +13807,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
           onClick={()=>maj({legende:!legSurPlan})}>Légende sur le plan</button>
         <button className={'btn s '+(plan.verrouille?'':'gh')} style={plan.verrouille?{background:NAVY,borderColor:NAVY}:undefined}
           title={plan.verrouille?'Le plan est verrouillé : aucun équipement ne se déplace, ne se pose ni ne se retire':'Empêche les déplacements accidentels'}
-          onClick={()=>{maj({verrouille:!plan.verrouille});setSel(null);setSelC(null)}}>{plan.verrouille?'🔓 Déverrouiller':'🔒 Verrouiller le plan'}</button>
+          onClick={()=>{const v=!plan.verrouille,o={};niveaux.forEach(n=>{o[n.id]={...n.plan,verrouille:v}});majMulti(o);setSel(null);setSelC(null)}}>{plan.verrouille?'🔓 Déverrouiller':'🔒 Verrouiller le plan'}</button>
         <button className={'btn s '+(calques?'':'gh')} onClick={()=>setCalques(v=>!v)}>Calques</button>
         <button className={'btn s '+(modeClient?'':'gh')} style={modeClient?{background:AMBER,borderColor:AMBER}:undefined}
           title="Chaque ajout ou retrait devient une modification client numérotée, hors DQE initial" onClick={()=>setModeClient(v=>!v)}>
@@ -13661,6 +13948,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
                 {!!etiquetteHauteur(s,hauteurs)&&
                   <text x={px+11*ech} y={py-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
                     {etiquetteHauteur(s,hauteurs)}</text>}
+                {!!autreNiveau(s.id)&&<text x={px+11*ech} y={py+14*ech} fontSize={8*ech+2} fontWeight="700" fill={ELEC_BLEU}>↕ {autreNiveau(s.id)}</text>}
               </g>})}
             {/* la légende par-dessus tout : c'est elle qu'on lit en dernier,
                 et c'est elle qu'on attrape pour la ranger dans un coin libre */}
@@ -13675,22 +13963,23 @@ function PlanElectrique({ch,up,onFermer,data,save}){
           </svg>
         </div>
       </div>
-      <div style={{flex:'1 1 240px',minWidth:0}}><ElecQuantitatif plan={plan} base={baseElec} onControler={()=>setControle(true)}/></div>
+      <div style={{flex:'1 1 240px',minWidth:0}}><ElecQuantitatif plan={maison} base={baseElec} onControler={()=>setControle(true)}/></div>
       </div>
       {controle&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+ELEC_BLEU}}>
         <div className="sp"><span/><button type="button" className="btn gh s" onClick={()=>setControle(false)}>Fermer le contrôle</button></div>
-        <ElecControle ch={ch} plan={plan} base={baseElec} regles={(data||{}).elecRegles}/></div>}
+        <ElecControle ch={ch} plan={maison} base={baseElec} regles={(data||{}).elecRegles}/></div>}
 
       {choisi&&<div className="card" style={{marginTop:10,borderLeft:'3px solid '+TERRA}}>
         <div className="sp" style={{marginBottom:8}}>
           <span className="b sm" style={{color:NAVY}}>{elecSymbole(choisi.type).l}{choisi.verrou?' 🔒':''}
             {(()=>{/* sa ligne du DQE : article, prévu, placé */
               const p=elecPieceDe(choisi,plan.pieces);
-              const L=elecControle(plan,baseElec).lignes;
+              const L=elecControle(maison,baseElec).lignes;
               const l=L.find(x=>x.piece===p&&x.type===choisi.type&&x.nature==='prevu')||L.find(x=>x.piece===''&&x.type===choisi.type&&x.nature==='prevu');
               return <span className="xs" style={{display:'block',fontWeight:400,color:l?ELEC_NIVEAUX[l.niveau].c:AMBER}}>
                 {l?(l.article?'Article '+l.article+' · ':'')+'DQE : '+l.prevu+', plan : '+l.implante+(l.implante>l.prevu?' — au-delà du DQE, potentiellement hors marché':''):'Hors DQE — potentiellement hors marché'}
-                {choisi.statut==='a_confirmer'?' · position proposée automatiquement, à valider':''}</span>})()}</span>
+                {choisi.statut==='a_confirmer'?' · position proposée automatiquement, à valider':''}
+                {autreNiveau(choisi.id)?<span style={{display:'block',color:ELEC_BLEU}}>↕ Relié à l’escalier — niveau « {autreNiveau(choisi.id)} »</span>:null}</span>})()}</span>
           <span className="row" style={{gap:6}}>
             <button className="btn gh s" onClick={()=>{const n={...choisi,id:uid(),x:Math.min(1,choisi.x+0.02),y:Math.min(1,choisi.y+0.02),verrou:false,source:'manuel'};
               maj({symboles:[...S,n]});setSel(n.id)}}>Dupliquer</button>
@@ -13784,7 +14073,7 @@ function PlanElectrique({ch,up,onFermer,data,save}){
         </div>
       </div>}
 
-      <ElecValidationEnLigne ch={ch} d={d} up={up} plan={plan} maj={maj}/>
+      <ElecValidationEnLigne ch={ch} d={d} up={up} plan={planPrincipal}/>
       <ElecHistorique pe={d.plan_elec||{}} majModifs={L=>up({docs:{...d,plan_elec:{...(d.plan_elec||{}),modifications:L}}})}/>
       <div style={{marginTop:14}}>
         <div className="sp" style={{marginBottom:6}}>
@@ -13869,10 +14158,13 @@ function PlanElectrique({ch,up,onFermer,data,save}){
           Le fond n'est pas donné à la première : il est peint à part sur la toile. */}
       {aExporter&&<div ref={exportRef} aria-hidden="true"
         style={{position:'fixed',left:-10000,top:0,width:1000,pointerEvents:'none'}}>
-        <PlanExport ratio={plan.ratio} symboles={Sp} cables={Cx} plan={plan}
-          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+mentions(aExporter.indice)} hauteurs={hauteurs} echelle={ech} trait={ep}/>
-        <LegendeExport leg={legende} cables={Cx} trait={ep}
-          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())+mentions(aExporter.indice)}/>
+        {(aExporter.fonds||[]).map((f,k)=>{const n=niveaux.find(x=>x.id===f.id)||courant;const tot=(aExporter.fonds||[]).length+1;
+          return <PlanExport key={f.id||'rdc'} ratio={n.plan.ratio} symboles={SpDe(n)} cables={CxDe(n)} plan={n.plan} sousTitre={cartouche}
+            page={'Page '+(k+1)+'/'+tot+' — plan'+(niveaux.length>1?' '+n.nom:'')}
+            titre={'PLAN ÉLECTRIQUE'+(niveaux.length>1?' '+String(n.nom).toUpperCase():'')+' — '+(ch.nom||'').toUpperCase()+mentions(aExporter.indice,n)}
+            hauteurs={hauteurs} echelle={echelleSymboles(n.plan)} trait={epaisseurCables(n.plan)}/>})}
+        <LegendeExport leg={legendeMaison} cables={CxMaison} trait={ep}
+          titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())+mentions(aExporter.indice)+(niveaux.length>1?' — '+niveaux.map(n=>n.nom).join(', ').toUpperCase():'')}/>
       </div>}
 
       {/* le filet de sécurité : les mêmes deux pages, mises en page pour la
@@ -13881,26 +14173,30 @@ function PlanElectrique({ch,up,onFermer,data,save}){
           l'impression peut alors masquer celle-ci entièrement, sans que sa
           hauteur ne fasse sortir des pages blanches. */}
       {impression&&horsApplication(<div className="planche-impression">
-        <div className="feuille">
+        {aSortir.map(n=>{const Hn=1000*(n.plan.ratio||0.707), en=echelleSymboles(n.plan), epn=epaisseurCables(n.plan);
+          const S2=SpDe(n), par={};S2.forEach(x=>{par[x.id]=x});const ptn=x=>({x:x.x*1000,y:x.y*Hn});
+          const legN=n.id===nivId&&legSurPlan;
+          return <div key={n.id||'rdc'} className="feuille">
           <div className="cadre">
-          {!!fondUrl&&<img src={fondUrl} alt="" style={{width:'100%',display:'block'}}/>}
-          <svg viewBox={'0 0 1000 '+H} preserveAspectRatio="none"
+          {!!fondsUrls[n.plan.fond]&&<img src={fondsUrls[n.plan.fond]} alt="" style={{width:'100%',display:'block'}}/>}
+          <svg viewBox={'0 0 1000 '+Hn} preserveAspectRatio="none"
             style={{position:'absolute',left:0,top:0,width:'100%',height:'100%'}}>
-            {Cx.map(c=><path key={c.id} d={cheminCable(pt(parId[c.de]),pt(parId[c.vers]),c.courbure)}
-              fill="none" stroke={couleurCable(c)} strokeWidth={ep} strokeDasharray={traitCable(c,ep)}/>)}
-            {Sp.map(s=>{const d0=elecSymbole(s.type); if(!d0)return null;
-              return <g key={s.id}>
-                <g transform={poseSymbole(s.x*1000,s.y*H,s.rot,ech)}><ElecGlyph t={s.type} rot={s.rot} eleve={priseHaute(s)}/></g>
-                {!!etiquetteHauteur(s,hauteurs)&&
-                  <text x={s.x*1000+11*ech} y={s.y*H-8*ech} fontSize={8*ech+2.5} fontWeight="700" fill={INK}>
-                    {etiquetteHauteur(s,hauteurs)}</text>}
+            {CxDe(n).map(c=><path key={c.id} d={cheminCable(ptn(par[c.de]),ptn(par[c.vers]),c.courbure)}
+              fill="none" stroke={couleurCable(c)} strokeWidth={epn} strokeDasharray={traitCable(c,epn)}/>)}
+            {S2.map(x=>{const d0=elecSymbole(x.type); if(!d0)return null;
+              return <g key={x.id}>
+                <g transform={poseSymbole(x.x*1000,x.y*Hn,x.rot,en)}><ElecGlyph t={x.type} rot={x.rot} eleve={priseHaute(x)}/></g>
+                {!!etiquetteHauteur(x,hauteurs)&&
+                  <text x={x.x*1000+11*en} y={x.y*Hn-8*en} fontSize={8*en+2.5} fontWeight="700" fill={INK}>
+                    {etiquetteHauteur(x,hauteurs)}</text>}
               </g>})}
-            {legSurPlan&&<ElecCartouche leg={legende} x={posLeg.x} y={posLeg.y}/>}
+            {legN&&<ElecCartouche leg={legende} x={posLeg.x} y={posLeg.y}/>}
           </svg>
           </div>
-        </div>
-        {!!legende.length&&<div className="feuille" style={{width:'100%'}}>
-          <LegendeExport leg={legende} cables={Cx} trait={ep}
+          {niveaux.length>1&&<div className="xs b" style={{marginTop:4}}>PLAN ÉLECTRIQUE — {String(n.nom).toUpperCase()} — {(ch.nom||'').toUpperCase()}</div>}
+        </div>})}
+        {!!legendeMaison.length&&<div className="feuille" style={{width:'100%'}}>
+          <LegendeExport leg={legendeMaison} cables={CxMaison} trait={ep}
             titre={'PLAN ÉLECTRIQUE — '+(ch.nom||'').toUpperCase()+' — '+fd(today())+mentions()}/>
         </div>}
       </div>)}
@@ -14115,7 +14411,7 @@ function Docs({data,ch,up,save}){
                 <button className="xs" style={{color:NAVY,background:'none',border:'none',padding:0}} onClick={()=>setSigne(x)}>Faire signer</button>
                 {x.id==='plan_elec'&&<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}
                   onClick={()=>setPlanElec(true)}>
-                  {(r.plan&&r.plan.fond)?'Ouvrir le plan ('+((r.plan.symboles||[]).length)+' symboles)':'Dessiner le plan'}</button>}
+                  {(r.plan&&r.plan.fond)?'Ouvrir le plan ('+elecNiveaux(r).reduce((t,n)=>t+(n.plan.symboles||[]).length,0)+' symboles'+((r.niveaux||[]).length?', '+(1+r.niveaux.length)+' niveaux':'')+')':'Dessiner le plan'}</button>}
                 {x.id==='plans_exe'&&!!fichiersDe(r).length&&(r.lienPublic
                   ?<span className="xs" style={{color:GREEN}}>✓ Lisible sans compte Google — le QR du marché y mène</span>
                   :<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}

@@ -64,7 +64,8 @@ window.supabase={createClient:()=>{
 let PUB=null,JETON='';const remarques=[],validations=[];
 const fonction=c=>{
   if(c.t!==JETON||!PUB)return [404,{erreur:'lien_invalide'}];
-  if(c.action==='lire')return [200,{publication:PUB,fond:'https://app.local/tests/fixtures/paysage.jpg',statut:'ouvert',remarques,validations}];
+  if(c.action==='lire')return [200,{publication:PUB,fond:'https://app.local/tests/fixtures/paysage.jpg',
+    fondsNiveaux:(PUB.niveaux||[]).map(()=>'https://app.local/tests/fixtures/paysage.jpg'),statut:'ouvert',remarques,validations}];
   if(c.action==='remarquer'){remarques.push({id:remarques.length+1,indice:PUB.indice,symbole_id:c.symboleId||null,x:c.x,y:c.y,texte:c.texte,auteur:c.auteur,cree_le:'2026-09-30T12:00:00Z'});return [200,{ok:true}]}
   if(c.action==='valider'){validations.push({indice:PUB.indice,nom:c.nom,cree_le:'2026-09-30T12:05:00Z'});return [200,{ok:true}]}
   return [400,{erreur:'action'}];
@@ -158,6 +159,23 @@ const fonction=c=>{
   chk(validations.length===1&&validations[0].indice===PUB.indice,'validation de l’indice '+PUB.indice+' par le client');
   chk(!(await c.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)),'page client : pas de débordement horizontal');
   await c.screenshot({path:SORTIE+'/plan_client.png',fullPage:true});
+
+  /* une publication à deux niveaux : le client passe de l'un à l'autre */
+  const PUB1=PUB;
+  PUB={...PUB1,nom:'RDC',niveaux:[{nom:'Étage',ratio:PUB1.ratio,symboles:[{id:'e1',x:.5,y:.5,l:'PC 2P+T 16A',ab:'PC',c:'#C0392B',h:30,piece:'Chambre 1'}],cables:[]}]};
+  const c2=await ctx.newPage();c2.on('pageerror',e=>erreurs.push('client 2 : '+String(e)));c2.on('dialog',d=>d.accept());
+  await c2.setViewportSize({width:390,height:844});
+  await c2.goto('about:blank');await c2.goto(lien);await c2.waitForSelector('[data-symbole]');
+  chk(await c2.locator('button:has-text("RDC")').count()===1&&await c2.locator('button:has-text("Étage")').count()===1,'plan à deux niveaux : le client choisit RDC ou Étage');
+  await c2.click('button:has-text("Étage")');
+  chk(await c2.locator('[data-symbole]').count()===1,'Étage : ses propres symboles');
+  await c2.locator('[data-symbole="e1"]').dispatchEvent('click');
+  await c2.fill('textarea','Prise à décaler à l’étage');
+  await c2.click('button:has-text("Envoyer la remarque")');
+  await c2.waitForSelector('text=Prise à décaler à l’étage');
+  chk(remarques[remarques.length-1].symbole_id==='e1'&&/Chambre 1/.test(await c2.textContent('main')),'remarque sur un équipement de l’étage');
+  chk(!(await c2.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)),'page client à deux niveaux : pas de débordement horizontal');
+  await c2.close();PUB=PUB1;
 
   /* le relevé dans l'application */
   await p.evaluate(([R,V])=>{window.__remarques=R;window.__validations=V},[remarques,validations]);

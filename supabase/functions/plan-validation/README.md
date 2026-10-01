@@ -39,6 +39,11 @@ npx supabase functions deploy plan-validation --no-verify-jwt --project-ref gxfr
 Comme pour le configurateur, c'est le jeton du lien qui ouvre l'accès : le
 client n'a pas de compte.
 
+**Plan à plusieurs niveaux (RDC, étage…)** : redéployez la fonction (même
+commande) après la mise à jour du 2026-10-01. Sans cela, le client voit le
+plan du RDC, mais les autres niveaux s'affichent « Fond du plan
+indisponible ». Les tables ne changent pas.
+
 ## Vérifier
 
 1. Sur un dossier fictif, ouvrez le plan électrique.
