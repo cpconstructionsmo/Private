@@ -8,3 +8,4 @@ export * from './polygon';
 export * from './decalage';
 export * from './booleen';
 export * from './graphe-planaire';
+export * from './index-spatial';

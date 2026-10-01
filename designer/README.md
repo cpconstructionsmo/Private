@@ -36,10 +36,21 @@ dernier instantané + ChangeSets rejoués ; synchronisation dans l'ordre,
 hors ligne sans perte, reprise après fermeture de la page (copie locale
 IndexedDB), conflit entre deux personnes arrêté sans rien écraser,
 instantané tous les 50 changements et à chaque jalon (APS V1, PC…) ;
-connexion partagée avec le suivi de chantiers (même session). Étape
-suivante : l'interface (canvas, outils, accrochage, cotes, niveaux, fond
-calé, inspecteur). Avant de s'en servir : exécuter une fois
-`supabase/designer/schema.sql`.
+connexion partagée avec le suivi de chantiers (même session). Avant de
+s'en servir : exécuter une fois `supabase/designer/schema.sql`.
+
+**Étape 5 faite — moteurs d'édition** (`src/geometry/index-spatial.ts`,
+`src/building/accrochage.ts`, `contraintes.ts`, `fond.ts`) : index spatial
+(R-tree) ; accrochage (extrémité, intersection, milieu, perpendiculaire,
+face, axe, alignement, grille ; Alt le coupe) — 2 000 murs : 9 µs en
+moyenne par recherche ; solveur de contraintes (horizontal, vertical,
+parallèle, perpendiculaire, longueur, angle) et de cotes motrices : un
+sommet déplacé entraîne les murs qui s'y raccordent, une cloison en T suit
+son mur, les murs voisins s'ajustent avant le reste du plan, et ce qui ne
+peut pas être respecté est refusé avec la raison ; niveaux (modifier,
+supprimer — jamais le dernier) ; fond PDF ou image calé par deux points ou
+par une distance, verrouillable. Étape suivante : l'interface (canvas,
+outils, inspecteur), puis le lien depuis la fiche chantier.
 
 ## Travailler
 
