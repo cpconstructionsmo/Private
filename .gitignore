@@ -14,3 +14,7 @@ atelier/.venv/
 atelier/**/__pycache__/
 atelier/.pytest_cache/
 atelier/projets/
+
+# CP Designer : dépendances et page compilée (la compilation se fait au déploiement)
+designer/node_modules/
+designer/build/

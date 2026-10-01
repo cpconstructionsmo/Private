@@ -35,7 +35,27 @@ qu'on ait à les redire.
   Modèles de disposition CP : `elecBiblio.dispositions`, repère « porte en
   bas ». Tests : `t_elec_niveaux.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
-  (`.github/workflows/pages.yml`, tout le dépôt est publié).
+  (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
+  CRM, de l'atelier et du Designer tournent à chaque PR
+  (`.github/workflows/tests.yml`).
+
+## CP Designer (`designer/`, TypeScript)
+
+- Module de **conception** (Building Model, Geometry Engine, éditeur 2D…),
+  **séparé du CRM** : on n'ajoute rien de ce module dans `index.html`, et
+  rien de ses données dans `app_data` (tables `designer_*`,
+  `supabase/designer/schema.sql`).
+- Décisions d'architecture : `docs/designer/` (ADR). Toute demande qui
+  contredit un ADR ou les 7 règles de la spécification se signale, au lieu
+  d'être appliquée en silence.
+- La spécification produit (*Master Product Specification V3*) et les
+  rapports restent **hors dépôt** (dépôt public).
+- Roadmap unique : Phase 0 faite (socle) ; Phase 1 = 2D Core (géométrie,
+  murs, accrochage, contraintes, pièces, ouvertures, cotes, annulation,
+  sauvegarde). Moteurs et leurs tests d'abord, interface ensuite.
+- Unités réelles (mm) ; tolérances seulement dans
+  `src/geometry/tolerance.ts`.
+- Tests : `cd designer && npm install && npm test && npm run typecheck`.
 
 ## Règles
 
@@ -52,8 +72,9 @@ qu'on ait à les redire.
   ni document confidentiel reçu en pièce jointe (comptes, actes, etc. : voir
   `.gitignore`). Les photos publiées ne montrent ni étiquette de prix ni
   élément personnel.
-- **À chaque livraison**, mettez à jour `const VERSION='AAAA-MM-JJ · résumé'`
-  en haut du script.
+- **À chaque livraison du CRM**, mettez à jour
+  `const VERSION='AAAA-MM-JJ · résumé'` en haut du script de `index.html`
+  (une livraison qui ne touche que `designer/` ne le change pas).
 - **Plusieurs personnes travaillent sur le dépôt.** Une session = une
   branche. On ne pousse jamais directement sur `main`.
 

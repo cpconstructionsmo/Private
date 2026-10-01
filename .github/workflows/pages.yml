@@ -34,6 +34,18 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/babel" --no-audit --no-fund @babel/standalone@7.29.9 \
             && BABEL_STANDALONE="$RUNNER_TEMP/babel/node_modules/@babel/standalone" node outils/compiler_publication.js \
             || echo "::warning::Conversion impossible : la page est publiée sans conversion, comme avant."
+      # CP Designer (dossier designer/, TypeScript) : compilé ici, puis la page
+      # compilée remplace ses sources dans la publication. Si la compilation
+      # échoue, la préversion affiche « non disponible » et le CRM est publié
+      # normalement (ADR-0001).
+      - name: Compiler CP Designer
+        run: |
+          if (cd designer && npm ci --no-audit --no-fund && npm run build); then
+            (cd designer && rm -rf src tests index.html && cp -r build/. . && rm -rf build)
+          else
+            echo "::warning::CP Designer non compilé : la préversion n'est pas publiée, le CRM l'est."
+          fi
+          rm -rf designer/node_modules
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

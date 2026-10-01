@@ -1,0 +1,73 @@
+name: Tests
+
+# Les tests du suivi de chantiers (CRM), de l'atelier et de CP Designer, à
+# chaque pull request vers main : une régression se voit avant la fusion,
+# plus seulement dans les sessions de travail (ADR-0001, barrière de
+# non-régression du CRM).
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  designer:
+    name: CP Designer (types, tests, compilation)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: designer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  crm:
+    name: CRM (tests unitaires et Chromium)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      # les tests *_navigateur.js lancent Chromium depuis /opt/pw-browsers/chromium
+      # (emplacement des sessions de travail) : on l'installe et on l'y relie
+      - name: Installer Chromium
+        run: |
+          npx playwright-core install --with-deps chromium
+          CHROME=$(find "$HOME/.cache/ms-playwright" -path '*chrome-linux*' -name chrome -type f | head -1)
+          sudo mkdir -p /opt/pw-browsers && sudo ln -sf "$CHROME" /opt/pw-browsers/chromium
+      # la lecture d'une fiche MAP scannée rend la vraie page PDF avec pdftoppm
+      # (poppler), comme dans les sessions de travail
+      - name: Installer poppler
+        run: sudo apt-get update -q && sudo apt-get install -y -q poppler-utils
+      - run: npm run test:navigateur
+
+  atelier:
+    name: Atelier de conception (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: atelier
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q tests
