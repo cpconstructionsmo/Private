@@ -29,6 +29,11 @@ qu'on ait à les redire.
   « ✨ Générer automatiquement » (`elecGenererPlan`) pose tout le programme
   sur les pièces tracées ; il ne retire jamais un équipement posé à la main,
   retouché (`userModified`) ou verrouillé. Tests : `t_elec_generateur.js`.
+  Niveaux : `plan_elec.plan` est le niveau principal (RDC), les autres sont
+  dans `plan_elec.niveaux` (chacun son fond et son repère, jamais mêlés) ;
+  `elecPlanMaison` rassemble la maison pour le quantitatif et le contrôle.
+  Modèles de disposition CP : `elecBiblio.dispositions`, repère « porte en
+  bas ». Tests : `t_elec_niveaux.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié).
 

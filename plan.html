@@ -57,9 +57,15 @@ const MSG={lien_invalide:'Ce lien n’est pas (ou plus) valide. Demandez un nouv
   clos:'La validation est close : CP Constructions a pris en compte vos retours.',non_configure:'Le service n’est pas encore en service. Réessayez plus tard.'};
 const message=e=>MSG[e&&e.message]||'Le service ne répond pas pour le moment : rien n’a été enregistré. Réessayez dans quelques minutes.';
 
-let D=null, zoom=1, choix=null;
+let D=null, zoom=1, choix=null, niv=0;
+/* les niveaux publiés (RDC, étage…) : chacun son fond et ses symboles */
+const niveauxDe=P=>[{nom:P.nom||'RDC',ratio:P.ratio,symboles:P.symboles,cables:P.cables,fond:D.fond},
+  ...(P.niveaux||[]).map((n,i)=>({...n,fond:(D.fondsNiveaux||[])[i]||''}))];
 function dessiner(){
-  const P=D.publication, H=1000*(P.ratio||0.707), clos=D.statut!=='ouvert';
+  const P=D.publication, NV=niveauxDe(P), multi=NV.length>1;
+  if(niv>=NV.length)niv=0;
+  const L=NV[niv], H=1000*(L.ratio||0.707), clos=D.statut!=='ouvert';
+  const etiq=multi?'['+L.nom+'] ':'';
   const M=$('main');M.replaceChildren();
   const derniere=(D.validations||[]).filter(v=>v.indice===P.indice).slice(-1)[0];
   M.append(el('div',{class:'carte'},el('h1',{},P.titre||'Plan électrique'),
@@ -67,18 +73,21 @@ function dessiner(){
       ' · Cliquez un équipement pour le détail, ou un endroit du plan pour y laisser une remarque. Vous ne modifiez pas le plan : CP Constructions reprend vos remarques.'),
     derniere?el('div',{class:'ok',style:'margin-top:6px'},'✓ Indice '+P.indice+' validé par '+derniere.nom+' le '+new Date(derniere.cree_le).toLocaleDateString('fr-FR')+'.'):null,
     clos?el('div',{class:'att',style:'margin-top:6px'},MSG.clos):null));
+  if(multi)M.append(el('div',{class:'outils',style:'margin-bottom:8px'},el('span',{class:'mut'},'Niveau :'),
+    NV.map((n,i)=>el('button',{class:i===niv?'acc':'',onclick:()=>{niv=i;choix=null;dessiner()}},n.nom))));
   const zone=el('div',{class:'zone'});
   const plan=el('div',{class:'plan',style:'width:'+(zoom*100)+'%;min-width:100%'});
-  plan.append(D.fond?el('img',{src:D.fond,alt:'Plan'}):el('div',{class:'mut',style:'padding:40px;text-align:center'},'Fond du plan indisponible.'));
+  plan.append(L.fond?el('img',{src:L.fond,alt:'Plan'+(multi?' — '+L.nom:'')}):el('div',{class:'mut',style:'padding:40px;text-align:center'},'Fond du plan indisponible.'));
   const svg=sv('svg',{viewBox:'0 0 1000 '+H,preserveAspectRatio:'none'});
-  const parId={};(P.symboles||[]).forEach(s=>{parId[s.id]=s});
-  (P.cables||[]).forEach(c=>{const a=parId[c.de],b=parId[c.vers];if(!a||!b)return;
+  const parId={};NV.forEach(n=>(n.symboles||[]).forEach(s=>{parId[s.id]=s}));
+  (L.cables||[]).forEach(c=>{const a=parId[c.de],b=parId[c.vers];if(!a||!b)return;
     const ax=a.x*1000,ay=a.y*H,bx=b.x*1000,by=b.y*H,k=c.courbure==null?0.18:c.courbure,cx=(ax+bx)/2-(by-ay)*k,cy=(ay+by)/2+(bx-ax)*k;
     svg.append(sv('path',{d:'M'+ax+','+ay+' Q'+cx+','+cy+' '+bx+','+by,fill:'none',stroke:c.couleur||'#1F6FA9','stroke-width':'1.4','stroke-linecap':'round'}))});
-  (D.remarques||[]).filter(r=>r.x!=null&&r.y!=null).forEach(r=>svg.append(sv('circle',{cx:r.x*1000,cy:r.y*H,r:7,fill:'#B07D12','fill-opacity':'0.8'})));
+  /* une remarque posée sur un point du plan porte le nom de son niveau */
+  (D.remarques||[]).filter(r=>r.x!=null&&r.y!=null&&(multi?(niv===0?!/^\[/.test(r.texte||'')||(r.texte||'').indexOf(etiq)===0:(r.texte||'').indexOf(etiq)===0):true)).forEach(r=>svg.append(sv('circle',{cx:r.x*1000,cy:r.y*H,r:7,fill:'#B07D12','fill-opacity':'0.8'})));
   svg.addEventListener('click',e=>{if(clos)return;const b=svg.getBoundingClientRect();
     choix={x:(e.clientX-b.left)/b.width,y:(e.clientY-b.top)/b.height};dessiner()});
-  (P.symboles||[]).forEach(s=>{const g=sv('g',{transform:'translate('+s.x*1000+','+s.y*H+')',style:'cursor:pointer','data-symbole':s.id});
+  (L.symboles||[]).forEach(s=>{const g=sv('g',{transform:'translate('+s.x*1000+','+s.y*H+')',style:'cursor:pointer','data-symbole':s.id});
     const sel=choix&&choix.symbole===s.id;
     g.append(sv('circle',{r:sel?13:10,fill:'#fff',stroke:s.c||'#C0392B','stroke-width':sel?3:1.8}));
     const t=sv('text',{y:3.4,'text-anchor':'middle','font-size':(s.ab||'').length>2?6:8,'font-weight':700,fill:s.c||'#C0392B'});t.textContent=s.ab||'';g.append(t);
@@ -99,7 +108,7 @@ function dessiner(){
       zoneTexte,
       el('div',{class:'outils',style:'margin-top:6px'},
         el('button',{class:'acc',disabled:clos,onclick:async()=>{const v=zoneTexte.value.trim();if(!v)return;etat.textContent='Envoi…';
-          try{await appeler({action:'remarquer',texte:v,auteur:$('nom')?$('nom').value:'',symboleId:s?s.id:'',x:s?null:choix.x,y:s?null:choix.y});
+          try{await appeler({action:'remarquer',texte:(s?'':etiq)+v,auteur:$('nom')?$('nom').value:'',symboleId:s?s.id:'',x:s?null:choix.x,y:s?null:choix.y});
             choix=null;await charger();}catch(e){etat.className='err';etat.textContent=message(e)}}},'Envoyer la remarque'),
         el('button',{onclick:()=>{choix=null;dessiner()}},'Fermer')),etat));
   }

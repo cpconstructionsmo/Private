@@ -60,8 +60,20 @@ Deno.serve(async (req: Request) => {
       .eq('publication_id', pub.id).order('cree_le', { ascending: true }).limit(300);
     const { data: validations } = await db.from('plan_validations')
       .select('indice, nom, cree_le').eq('publication_id', pub.id).order('cree_le', { ascending: true });
+    // les autres niveaux (étage…) : chacun son fond, signé de la même façon
+    const niveaux = Array.isArray(P.niveaux) ? (P.niveaux as Record<string, unknown>[]) : [];
+    const fondsNiveaux: string[] = [];
+    for (const n of niveaux) {
+      let u = '';
+      if (typeof n.fond === 'string' && /^[\w-]+$/.test(n.fond)) {
+        const { data } = await db.storage.from('photos').createSignedUrl(n.fond + '.jpg', 3600);
+        u = (data && data.signedUrl) || '';
+      }
+      fondsNiveaux.push(u);
+    }
     const { fond: _cle, ...publie } = P;
-    return reponse({ publication: publie, fond, statut: pub.statut, remarques: remarques || [], validations: validations || [] });
+    if (niveaux.length) publie.niveaux = niveaux.map(({ fond: _f, ...n }) => n);
+    return reponse({ publication: publie, fond, fondsNiveaux, statut: pub.statut, remarques: remarques || [], validations: validations || [] });
   }
 
   if (pub.statut !== 'ouvert') return reponse({ erreur: 'clos' }, 403);
@@ -71,7 +83,9 @@ Deno.serve(async (req: Request) => {
     if (!t) return reponse({ erreur: 'vide' }, 400);
     const { count } = await db.from('plan_remarques').select('id', { count: 'exact', head: true }).eq('publication_id', pub.id);
     if ((count || 0) >= 300) return reponse({ erreur: 'trop_de_remarques' }, 429);
-    const symboles = Array.isArray(P.symboles) ? P.symboles as Array<{ id: string }> : [];
+    // les équipements de tous les niveaux publiés
+    const symboles = [P, ...(Array.isArray(P.niveaux) ? P.niveaux as Record<string, unknown>[] : [])]
+      .flatMap((n) => Array.isArray(n.symboles) ? n.symboles as Array<{ id: string }> : []);
     const sid = texte(corps.symboleId, 40);
     const x = Number(corps.x), y = Number(corps.y);
     const { error: e2 } = await db.from('plan_remarques').insert({
