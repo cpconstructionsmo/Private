@@ -117,6 +117,16 @@ l'accueil ; ils restent sur ce Mac.
   dossier de code est public (dépôt GitHub) : aucun plan, aucune donnée
   client n'y est jamais placé.
 
+## Reprendre le plan dans CP Designer
+
+Le RDC lu par l'atelier (plan DXF ou PDF vectoriel) peut être repris dans
+CP Designer, sans le redessiner : dans le Designer, panneau du niveau,
+**Importer le RDC lu par l'atelier…**, puis choisir
+`01_modele/modele.json` du projet. Murs (axe et épaisseur), ouvertures et
+pièces arrivent avec leur statut (✅ confirmé, ⚠️ à vérifier), le tracé du
+plan source en fond verrouillé, et un rapport qui compare les surfaces de
+l'atelier et du Designer pièce par pièce (ADR-0004, `docs/designer/`).
+
 ## Les règles de l'atelier
 
 - **R1 — Une seule maquette.** Toutes les pièces seront tirées du même

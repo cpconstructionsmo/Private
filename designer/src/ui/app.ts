@@ -17,6 +17,7 @@ import { dessiner, NOMS_ACCROCHE, type Scene } from './dessin';
 import { Outils, OUVERTURES, type Effet, type Geste, type NomOutil } from './outils';
 import { dessinCote } from './cotes';
 import { ouvrirSession, type Enregistreur } from './session';
+import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } from '../import/atelier';
 import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fonds';
 import type { Accroche } from '../building/accrochage';
 
@@ -321,7 +322,12 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
 
   function provenance(o: BuildingObject): HTMLElement {
     const S = o.sourceRefs.slice(-3).reverse();
-    return bloc('<b>Provenance</b><br>' + S.map(s => esc(s.label) + ' — ' + esc(s.by ?? '') + ' — ' + date(s.at)).join('<br>') + (o.sourceRefs.length > 3 ? '<br>…' : ''));
+    const e = bloc('<b>Provenance</b><br>' + S.map(s => esc(s.label) + ' — ' + esc(s.by ?? '') + ' — ' + date(s.at)).join('<br>') + (o.sourceRefs.length > 3 ? '<br>…' : ''));
+    /* un objet importé dit ce qui reste à vérifier, et ce que le plan source écrivait (règle 4) */
+    const m = (o.meta ?? {}) as { aVerifier?: string[]; surfaceLue?: number };
+    if (o.status === 'to_check' || m.aVerifier?.length) e.insertAdjacentHTML('beforeend', '<div class="alerte" style="margin-top:6px">⚠️ À vérifier' + (m.aVerifier?.length ? ' :<br>' + m.aVerifier.map(esc).join('<br>') : '') + '</div>');
+    if (typeof m.surfaceLue === 'number') e.insertAdjacentHTML('beforeend', '<div class="note">Surface écrite sur le plan source : ' + m.surfaceLue.toFixed(2).replace('.', ',') + ' m²</div>');
+    return e;
   }
 
   function inspecteur(f: Floor, o: BuildingObject) {
@@ -434,6 +440,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     }
     A.append(ligne(bouton('Importer un fond…', importerFond)));
 
+    A.append(titre('Plan de l’atelier'), ligne(bouton('Importer le RDC lu par l’atelier…', importerAtelier)),
+      bloc('Le fichier 01_modele/modele.json du projet de l’atelier (plan DXF ou PDF déjà lu). Murs, ouvertures et pièces arrivent sur ce niveau, vide.'));
+
     A.append(titre('Contrôle'));
     if (plan.alertes.length) for (const a of plan.alertes) A.append(bloc('⚠️ ' + esc(a.message), 'alerte'));
     else A.append(bloc(mursDroits(f).length ? '✓ Aucune alerte sur ce niveau' : 'Aucun mur : choisissez l’outil Mur (M) pour commencer.', 'ok'));
@@ -503,6 +512,71 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     };
     i.click();
   }
+  /* Phase 1 bis : le RDC lu par l'atelier (ADR-0004) ; un seul « annuler » le retire */
+  function importerAtelier() {
+    const f = niveau();
+    if (Object.values(f.objects).some(o => o.type === 'wall')) {
+      toast('Le niveau « ' + f.name + ' » a déjà des murs : ajoutez un niveau (+ Niveau) pour y importer le plan.', true);
+      return;
+    }
+    const i = document.createElement('input'); i.type = 'file'; i.accept = 'application/json,.json';
+    i.onchange = async () => {
+      const fichier = i.files?.[0];
+      if (!fichier) return;
+      let modele;
+      try { modele = lireModeleAtelier(JSON.parse(await fichier.text())) }
+      catch (e) { toast('Import impossible : ' + String((e as Error)?.message ?? e), true); return }
+      const { commandes, rapport } = commandesImport(modele, niveauId, () => ulid());
+      if (!faire('Import du RDC (atelier : ' + rapport.fichier + ')', commandes)) return;
+      /* le tracé du plan source, en fond calé et verrouillé : on voit d'un coup d'œil si les murs collent */
+      const traits = traitsSource(modele);
+      if (traits) {
+        try {
+          const { image, calage } = await traceEnImage(traits);
+          const { cle, erreur } = await importerFichier(new File([image], 'trace-' + rapport.fichier + '.png', { type: 'image/png' }), undefined, enr.fonds);
+          faire('Fond : tracé du plan source', [{ type: 'ajouterFond', niveau: niveauId, fichier: cle, nom: 'Tracé source : ' + rapport.fichier, calage, verrouille: true, opacite: 0.45,
+            origine: { label: 'Import atelier : ' + rapport.fichier, document: rapport.fichier, statut: 'derived' } }]);
+          if (erreur) toast('Tracé source gardé sur cet appareil seulement (' + erreur + ')', true);
+        } catch (e) { toast('Tracé source non affiché : ' + String((e as Error)?.message ?? e), true) }
+      }
+      cadrerTout();
+      const zones = planDuNiveau(niveau()).zones.map(z => ({ nom: z.piece?.name ?? null, m2: z.aire / 1e6 }));
+      const E = comparerSurfaces(rapport, zones);
+      const fmt = (v: number | null) => (v === null ? '—' : v.toFixed(2).replace('.', ','));
+      afficherRapport('Plan importé : ' + rapport.fichier,
+        `<p>${rapport.murs} murs, ${rapport.ouvertures} ouvertures, ${rapport.pieces} pièces. Tout est marqué « importé » ; hauteurs et allèges non lues sont à vérifier (inspecteur).</p>
+         <table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th style="text-align:left">Pièce</th><th>Atelier</th><th>Designer</th><th>Écart</th></tr>
+         ${E.map(e => `<tr><td>${esc(e.nom)}</td><td style="text-align:right">${fmt(e.atelier)}</td><td style="text-align:right">${fmt(e.designer)}</td><td style="text-align:right;color:${e.ecart === 0 ? '#3F7A5A' : '#A13A20'}">${e.ecart === null ? 'non fermée' : fmt(e.ecart)}</td></tr>`).join('')}</table>
+         ${rapport.avertissements.length ? '<p><b>À reprendre</b></p><ul>' + rapport.avertissements.map(a => '<li>' + esc(a) + '</li>').join('') + '</ul>' : '<p style="color:#3F7A5A">Rien à reprendre.</p>'}`);
+    };
+    i.click();
+  }
+
+  /** dessiner les traits du plan source dans une image PNG, et son calage exact sur le plan */
+  async function traceEnImage(t: NonNullable<ReturnType<typeof traitsSource>>): Promise<{ image: Blob; calage: { scale: number; rotation: number; tx: number; ty: number } }> {
+    const { xmin, ymin, xmax, ymax } = t.boite;
+    const s = Math.max((xmax - xmin) / 4_000, (ymax - ymin) / 4_000, 5);        // mm par pixel
+    const marge = 10;
+    const c = document.createElement('canvas');
+    c.width = Math.ceil((xmax - xmin) / s) + 2 * marge; c.height = Math.ceil((ymax - ymin) / s) + 2 * marge;
+    const g = c.getContext('2d')!;
+    g.strokeStyle = '#7A4A3A'; g.lineWidth = 1.5; g.beginPath();
+    for (const [a, b] of t.traits) { g.moveTo((a.x - xmin) / s + marge, (ymax - a.y) / s + marge); g.lineTo((b.x - xmin) / s + marge, (ymax - b.y) / s + marge) }
+    g.stroke();
+    const image = await new Promise<Blob>((res, rej) => c.toBlob(b => (b ? res(b) : rej(new Error('image vide'))), 'image/png'));
+    /* pixel (u, v) → plan : x = tx + s·u, y = ty − s·v (voir building/fond.ts) */
+    return { image, calage: { scale: s, rotation: 0, tx: xmin - marge * s, ty: ymax + marge * s } };
+  }
+
+  function afficherRapport(t: string, html: string) {
+    const v = document.createElement('div'); v.className = 'voile';
+    v.innerHTML = `<div class="boite" style="width:min(560px,94vw)"><h2>${esc(t)}</h2>${html}<div class="pied"><button class="prim">OK</button></div></div>`;
+    v.querySelector<HTMLButtonElement>('button')!.onclick = () => v.remove();
+    v.onkeydown = e => { if (e.key === 'Escape' || e.key === 'Enter') v.remove() };
+    racine.querySelector('.cpd')!.appendChild(v);
+    v.querySelector<HTMLButtonElement>('button')!.focus();
+  }
+
   async function nommerPiece(niv: string, point: Point) {
     const r = await dialogue('Nommer la pièce', [{ cle: 'nom', libelle: 'Nom', valeur: '' }, { cle: 'usage', libelle: 'Usage', valeur: 'living', options: USAGES }]);
     if (r && r['nom']!.trim()) faire('Pièce ' + r['nom'], [{ type: 'creerPiece', niveau: niv, point, nom: r['nom']!, usage: r['usage'] as RoomUsage }]);
@@ -547,6 +621,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Annuler', touche: 'Ctrl+Z', faire: annuler }, { libelle: 'Rétablir', touche: 'Ctrl+Maj+Z', faire: retablir },
     { libelle: 'Tout voir', touche: 'F', faire: cadrerTout }, { libelle: 'Grille d’accrochage oui / non', touche: 'G', faire: basculerGrille },
     { libelle: 'Ajouter un niveau', faire: () => void ajouterNiveau() }, { libelle: 'Importer un fond (PDF, image)', faire: importerFond },
+    { libelle: 'Importer le RDC lu par l’atelier (modele.json)', faire: importerAtelier },
     ...(['door', 'window', 'french_window', 'garage_door'] as const).map(k => ({ libelle: 'Poser : ' + OUVERTURES[k].libelle, faire: () => { outils.reglages.genreOuverture = k; choisir('ouverture') } })),
     { libelle: 'Marquer un jalon (APS V1, PC…)', visible: () => !!enr.marquerJalon, faire: async () => { const r = await dialogue('Jalon', [{ cle: 'n', libelle: 'Nom du jalon', valeur: 'APS V1' }]); if (r && enr.marquerJalon) { await enr.marquerJalon(r['n']!); toast('Jalon « ' + r['n'] + ' » : il partira avec le prochain enregistrement') } } },
     { libelle: 'Exporter le projet (JSON)', faire: exporter },

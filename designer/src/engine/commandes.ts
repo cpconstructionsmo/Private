@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Mm, ObjectAnchor, Opening, Point, Project, Room, RoomUsage, SourceRef, Underlay, Wall } from '../model/types';
+import type { Constraint, Dimension, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -37,13 +37,32 @@ const accepte = (operations: Operation[]): Resultat => ({ ok: true, operations }
 
 const source = (c: Contexte, label: string): SourceRef => ({ kind: 'user', label, by: c.par, at: c.maintenant() });
 
+/** provenance et statut d'un objet créé : saisie à la main, ou import (avec son document) */
+function provenance(c: Contexte, o: Origine | undefined): { status: SourceStatus; sourceRefs: SourceRef[]; meta?: Record<string, unknown> } {
+  if (!o) return { status: 'confirmed', sourceRefs: [source(c, 'Saisie')] };
+  const ref: SourceRef = { kind: 'import', label: o.label, by: c.par, at: c.maintenant(), ...(o.document ? { documentId: o.document } : {}) };
+  return { status: o.statut ?? 'to_check', sourceRefs: [ref], ...(o.meta ? { meta: structuredClone(o.meta) } : {}) };
+}
+
+/** « porteur » n'est jamais confirmé sans document (règle 5) */
+function porteurQualifie(q: Qualified<boolean> | undefined, defaut: boolean): Qualified<boolean> {
+  if (!q) return { value: defaut, status: 'to_check', missing: 'note de calcul ou plan de structure' };
+  const document = (q.sourceRefs ?? []).some(r => r.kind === 'document' || r.kind === 'be');
+  if (q.status === 'confirmed' && !document) return { ...structuredClone(q), status: 'to_check', missing: q.missing ?? 'note de calcul ou plan de structure' };
+  return structuredClone(q);
+}
+
+/** d'où vient un objet créé autrement qu'à la main (import d'un plan) :
+ *  sa source, son statut, et ce qui reste à vérifier (meta) — règle 4 */
+export interface Origine { label: string; document?: string; statut?: SourceStatus; meta?: Record<string, unknown> }
+
 export type Commande =
-  | { type: 'creerMur'; niveau: string; a: Point; b: Point; epaisseur: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification'] }
+  | { type: 'creerMur'; niveau: string; a: Point; b: Point; epaisseur: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; id?: string; origine?: Origine; porteur?: Qualified<boolean> }
   | { type: 'deplacerMur'; id: string; a?: Point; b?: Point }
   | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification'] }
-  | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing'] }
+  | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing']; origine?: Origine }
   | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing'] }
-  | { type: 'creerPiece'; niveau: string; point: Point; nom: string; usage: RoomUsage; humide?: boolean }
+  | { type: 'creerPiece'; niveau: string; point: Point; nom: string; usage: RoomUsage; humide?: boolean; origine?: Origine }
   | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point }
   | { type: 'supprimer'; id: string }
   | { type: 'ajouterNiveau'; batiment: string; nom: string; altitude: Mm; hauteur: Mm }
@@ -56,7 +75,8 @@ export type Commande =
   | { type: 'modifierCote'; id: string; valeur?: Mm; motrice?: boolean; decalage?: Mm }
   | { type: 'modifierNiveau'; id: string; nom?: string; altitude?: Mm; hauteur?: Mm }
   | { type: 'supprimerNiveau'; id: string }
-  | { type: 'ajouterFond'; niveau: string; fichier: string; nom?: string; page?: number }
+  /** un fond ; un tracé produit par le logiciel (plan source d'un import) arrive déjà calé, et peut être verrouillé d'emblée */
+  | { type: 'ajouterFond'; niveau: string; fichier: string; nom?: string; page?: number; calage?: Underlay['transform']; verrouille?: boolean; opacite?: number; origine?: Origine }
   /** caler : deux points de l'image et leur place sur le plan, ou leur distance réelle */
   | { type: 'calerFond'; id: string; image: [Point, Point]; plan?: [Point, Point]; distance?: Mm }
   | { type: 'modifierFond'; id: string; verrouille?: boolean; opacite?: number };
@@ -123,11 +143,13 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!ptFini(cmd.a) || !ptFini(cmd.b) || !fini(cmd.epaisseur)) return refus('coordonnées invalides');
       if (distance(cmd.a, cmd.b) <= EPS_COINCIDENCE) return refus('un mur doit avoir une longueur');
       if (!(cmd.epaisseur > 0)) return refus('l’épaisseur doit être positive');
+      /* un identifiant fourni (import : les ouvertures s'y rattachent dans la même transaction) doit être neuf */
+      if (cmd.id !== undefined && (!cmd.id.trim() || trouverObjet(p, cmd.id))) return refus('identifiant de mur déjà pris');
       const mur: Wall = {
-        id: c.id(), type: 'wall', floorId: cmd.niveau, status: 'confirmed', sourceRefs: [source(c, 'Saisie')], revision: c.revision,
+        id: cmd.id ?? c.id(), type: 'wall', floorId: cmd.niveau, ...provenance(c, cmd.origine), revision: c.revision,
         axis: { a: { ...cmd.a }, b: { ...cmd.b } }, thickness: cmd.epaisseur, justification: cmd.justification ?? 'center',
         height: cmd.hauteur ?? n.floor.height, baseOffset: 0, role: cmd.role ?? 'partition',
-        loadBearing: { value: cmd.role === 'exterior', status: 'to_check', missing: 'note de calcul ou plan de structure' },
+        loadBearing: porteurQualifie(cmd.porteur, cmd.role === 'exterior'),
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: mur }]);
     }
@@ -164,7 +186,7 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (e) return refus(e);
       if (!(cmd.hauteur > 0)) return refus('la hauteur doit être positive');
       const o: Opening = {
-        id: c.id(), type: 'opening', floorId: t.niveauId, status: 'confirmed', sourceRefs: [source(c, 'Saisie')], revision: c.revision,
+        id: c.id(), type: 'opening', floorId: t.niveauId, ...provenance(c, cmd.origine), revision: c.revision,
         hostWallId: cmd.mur, offset: cmd.position, width: cmd.largeur, height: cmd.hauteur, sill: cmd.allege ?? 0, kind: cmd.genre,
         ...(cmd.sens ? { swing: cmd.sens } : {}),
       };
@@ -193,7 +215,7 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!ptFini(cmd.point)) return refus('point invalide');
       if (!cmd.nom.trim()) return refus('une pièce a un nom');
       const r: Room = {
-        id: c.id(), type: 'room', floorId: cmd.niveau, status: 'confirmed', sourceRefs: [source(c, 'Saisie')], revision: c.revision,
+        id: c.id(), type: 'room', floorId: cmd.niveau, ...provenance(c, cmd.origine), revision: c.revision,
         seed: { ...cmd.point }, name: cmd.nom.trim(), usage: cmd.usage, wet: cmd.humide ?? ['kitchen', 'bathroom', 'wc'].includes(cmd.usage),
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: r }]);
@@ -352,10 +374,13 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
       if (!cmd.fichier.trim()) return refus('fichier manquant');
       if (cmd.page !== undefined && !(Number.isInteger(cmd.page) && cmd.page >= 1)) return refus('numéro de page invalide');
+      if (cmd.calage && !(Object.values(cmd.calage).every(Number.isFinite) && cmd.calage.scale > 0)) return refus('calage invalide');
+      if (cmd.opacite !== undefined && !(cmd.opacite >= 0 && cmd.opacite <= 1)) return refus('opacité entre 0 et 1');
+      const pr = cmd.origine ? provenance(c, cmd.origine) : { status: 'confirmed' as const, sourceRefs: [source(c, 'Import du fond')] };
       const u: Underlay = {
-        id: c.id(), type: 'underlay', floorId: cmd.niveau, status: 'confirmed', sourceRefs: [source(c, 'Import du fond')], revision: c.revision,
+        id: c.id(), type: 'underlay', floorId: cmd.niveau, ...pr, revision: c.revision,
         fileKey: cmd.fichier, ...(cmd.nom ? { name: cmd.nom } : {}), ...(cmd.page ? { page: cmd.page } : {}),
-        transform: { ...TRANSFORMATION_NEUTRE }, locked: false, opacity: 0.5,
+        transform: { ...(cmd.calage ?? TRANSFORMATION_NEUTRE) }, locked: !!cmd.verrouille, opacity: cmd.opacite ?? 0.5,
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: u }]);
     }

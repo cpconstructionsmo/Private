@@ -70,7 +70,9 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   for (const o of Object.values(s.niveau.objects)) {
     if (o.type !== 'opening') continue;
     const w = murs.get(o.hostWallId);
-    if (w) ouverture(ctx, cam, w, o, o.id === s.selection);
+    /* sens inconnu (plan importé) : la porte s'ouvre côté pièce, jamais vers l'extérieur */
+    const b = plan.baies.find(x => x.id === o.id);
+    if (w) ouverture(ctx, cam, w, o, o.id === s.selection, b ? b.cotes[0] !== 'extérieur' : true);
   }
   /* noms et surfaces */
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -182,7 +184,7 @@ function chemin(ctx: CanvasRenderingContext2D, cam: Camera, p: Polygone): void {
   }
 }
 
-function ouverture(ctx: CanvasRenderingContext2D, cam: Camera, w: MurDroit, o: Opening, sel: boolean): void {
+function ouverture(ctx: CanvasRenderingContext2D, cam: Camera, w: MurDroit, o: Opening, sel: boolean, gaucheInterieur: boolean): void {
   const g = geometrieOuverture(w, o);
   const E = (p: Point) => versEcran(cam, p);
   const u = normaliser(soustraire(w.axis.b, w.axis.a)), n = normaleGauche(u);
@@ -202,7 +204,7 @@ function ouverture(ctx: CanvasRenderingContext2D, cam: Camera, w: MurDroit, o: O
   }
   if (o.kind === 'door' || o.kind === 'french_window') {
     /* battant(s) et débattement, côté et sens d'ouverture */
-    const sw = o.swing ?? { side: 'left', inward: true };
+    const sw = o.swing ?? { side: 'left', inward: gaucheInterieur };
     const cote = sw.inward ? 1 : -1;
     const vantaux = o.kind === 'french_window' ? 2 : 1;
     const lv = o.width / vantaux;

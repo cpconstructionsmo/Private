@@ -5,6 +5,7 @@ import {
   aire, alignes, centroide, decalerPolyligne, decalerSegment, difference, distancePointSegment, EPS_COINCIDENCE,
   facesPlanaires, intersection, intersectionDroites, intersectionSegments, mm2EnM2, orientation, positionDansAnneau,
   projeterSurSegment, rectangle, union, type Segment,
+  unionSoudee,
 } from '../../src/geometry';
 
 const seg = (x1: number, y1: number, x2: number, y2: number): Segment => ({ a: { x: x1, y: y1 }, b: { x: x2, y: y2 } });
@@ -201,5 +202,27 @@ describe('faces d’un graphe planaire (pièces lues dans un tracé)', () => {
     expect(c.x).toBeCloseTo(9_500 / 7, 6);
     expect(c.y).toBeCloseTo(9_500 / 7, 6);
     expect(positionDansAnneau(c, L)).toBe('dehors');
+  });
+});
+
+describe('union soudée (maçonnerie)', () => {
+  const rect = (x: number, y: number, l: number, h: number) => ({ contour: rectangle(x, y, l, h) });
+  it('un jour d’un centième de mm entre deux murs : soudé ; un vrai jour de 1 mm : gardé', () => {
+    expect(unionSoudee([rect(0, 0, 1_000, 200), rect(1_000.01, 0, 1_000, 200)])).toHaveLength(1);
+    expect(unionSoudee([rect(0, 0, 1_000, 200), rect(1_001, 0, 1_000, 200)])).toHaveLength(2);
+  });
+  it('surfaces et angles intacts : deux murs en L, une pièce fermée de 76,44 m²', () => {
+    const L = unionSoudee([rect(0, 0, 3_000, 200), rect(0, 0, 200, 3_000)]);
+    expect(aire(L[0]!)).toBeCloseTo(3_000 * 200 + 200 * 2_800, 3);
+    const boite = unionSoudee([rect(-100, -100, 10_200, 200), rect(-100, 7_900, 10_200, 200), rect(-100, -100, 200, 8_200), rect(9_900, -100, 200, 8_200)]);
+    expect(boite).toHaveLength(1);
+    expect(aire({ contour: [...boite[0]!.trous![0]!] })).toBeCloseTo(76_440_000, 0);
+  });
+  it('mur oblique et cloison en T dont la face touche à un centième près : un seul massif', () => {
+    const a = 0.4, c = Math.cos(a), s = Math.sin(a);
+    const r = (p: { x: number; y: number }) => ({ x: p.x * c - p.y * s, y: p.x * s + p.y * c });
+    const mur = { contour: rectangle(0, 0, 6_000, 200).map(r) };
+    const cloison = { contour: rectangle(3_000, 200.008, 100, 2_000).map(r) };
+    expect(unionSoudee([mur, cloison])).toHaveLength(1);
   });
 });

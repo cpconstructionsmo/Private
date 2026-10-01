@@ -127,8 +127,31 @@ try {
   assert.match(await p.textContent('.palette ul'), /Ajouter un niveau/);
   await p.keyboard.press('Escape');
 
+  /* Phase 1 bis : le RDC lu par l'atelier (plan fictif), sur un chantier neuf */
+  await p.goto(`http://localhost:${port}/index.html?chantier=essai-import`);
+  await p.waitForFunction(() => window.cpDesigner);
+  const [fc3] = await Promise.all([p.waitForEvent('filechooser'), p.click('text=Importer le RDC lu par l’atelier…')]);
+  await fc3.setFiles({ name: 'modele.json', mimeType: 'application/json', buffer: await readFile(new URL('../fixtures/atelier_fictif.json', import.meta.url)) });
+  await p.waitForSelector('.voile h2:has-text("Plan importé")');
+  const rapport = await p.textContent('.voile');
+  assert.match(rapport, /8 murs, 11 ouvertures, 5 pièces/);
+  assert.match(rapport, /Séjour - cuisine\s*37,00\s*37,00\s*0,00/);
+  assert.match(rapport, /Rien à reprendre/);
+  await p.click('.voile button');
+  O = await objets();
+  assert.equal(O.filter(o => o.type === 'wall').length, 8, 'murs importés');
+  const trace = O.find(o => o.type === 'underlay');
+  assert.ok(trace && trace.locked && Math.abs(trace.transform.scale - 5) < 1e-9, 'tracé source posé, calé et verrouillé');
+  await p.waitForTimeout(500);
+  await p.screenshot({ path: process.env.CAPTURE ?? '/dev/null' }).catch(() => {});
+  /* l'import s'annule d'un coup (le fond, puis le plan) */
+  await p.mouse.click(1080, 820);
+  await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
+  O = await objets();
+  assert.equal(O.length, 0, 'deux « annuler » : niveau vide');
+
   assert.deepEqual(erreurs, [], 'aucune erreur JavaScript');
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, import de l’atelier');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();
