@@ -127,6 +127,34 @@ try {
   assert.match(await p.textContent('.palette ul'), /Ajouter un niveau/);
   await p.keyboard.press('Escape');
 
+  /* tracé rapide : un rectangle hors tout tapé au clavier (10x8), un mur
+     tapé (4,5 m), une fenêtre placée par sa distance au mur voisin */
+  await p.goto(`http://localhost:${port}/index.html?chantier=essai-rapide`);
+  await p.waitForFunction(() => window.cpDesigner);
+  await p.keyboard.press('r'); await clic(0, 0);
+  { const e = await ecran(3000, 2000); await p.mouse.move(e.x, e.y) }
+  await p.keyboard.type('10x8'); await p.keyboard.press('Enter');
+  O = await objets();
+  assert.equal(O.filter(o => o.type === 'wall').length, 4, 'rectangle tapé : 4 murs');
+  assert.match(await p.textContent('aside'), /72,96 m²/, 'pièce de 9,60 × 7,60 m à l’intérieur des murs de 20 cm');
+  await p.keyboard.press('m'); await p.keyboard.down('Alt'); await clic(13000, 0);
+  { const e = await ecran(15000, 0); await p.mouse.move(e.x, e.y) }
+  await p.keyboard.up('Alt');
+  await p.keyboard.type('4,5'); await p.keyboard.press('Enter'); await p.keyboard.press('Escape');
+  O = await objets();
+  const tape = O.find(o => o.type === 'wall' && o.axis.a.x === 13000);
+  assert.deepEqual(tape?.axis, { a: { x: 13000, y: 0 }, b: { x: 17500, y: 0 } }, 'mur tapé : 4,50 m vers la droite');
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('o'); await clic(3000, 100);
+  await p.keyboard.press('v'); await clic(3000, 100);
+  await p.fill('aside label:has-text("Distance à gauche") input', '1.5'); await p.keyboard.press('Tab');
+  O = await objets();
+  const porte = O.find(o => o.type === 'opening');
+  assert.equal(porte.offset, 200 + 1500 + 450, 'porte à 1,50 m de l’angle intérieur : ' + porte.offset);
+  await p.keyboard.press('f');
+  await p.waitForTimeout(300);
+  if (process.env.CAPTURE_RAPIDE) await p.screenshot({ path: process.env.CAPTURE_RAPIDE });
+
   /* Phase 1 bis : le RDC lu par l'atelier (plan fictif), sur un chantier neuf */
   await p.goto(`http://localhost:${port}/index.html?chantier=essai-import`);
   await p.waitForFunction(() => window.cpDesigner);
@@ -162,7 +190,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, import de l’atelier, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), import de l’atelier, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

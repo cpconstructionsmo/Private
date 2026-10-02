@@ -17,3 +17,12 @@ export const ECHELLE_ENTIERS = 100;
 export const JEU_SOUDURE = 0.05;
 
 export const egal = (a: number, b: number, eps: number = EPS_COINCIDENCE): boolean => Math.abs(a - b) <= eps;
+
+/** un sommet est SUR une face de mur à moins de ceci (mm) : deux fois le jeu
+ *  de soudure, car les contours sortent de la grille des entiers (0,01 mm) */
+export const EPS_SUR_FACE = 2 * JEU_SOUDURE;
+
+/** cotation : deux repères plus proches que ceci (mm) sont un seul repère.
+ *  Une cote s'affiche au centimètre ; un décroché de quelques millimètres
+ *  n'y ferait qu'un « 0,00 » illisible. */
+export const FUSION_COTES = 5;

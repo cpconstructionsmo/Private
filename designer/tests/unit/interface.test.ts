@@ -6,7 +6,8 @@ import { canonique, creerProjet, generateurSequentiel, type Project, type Wall }
 import { annuler, annulerEnregistre, executer, nouvelHistorique, retablirEnregistre, type Acteur, type Commande, type Historique } from '../../src/engine';
 import { CopieMemoire, DepotMemoire, type Depot } from '../../src/persistence';
 import { cadrer, versEcran, versMonde, zoomer, type Camera } from '../../src/ui/camera';
-import { Outils, type Effet } from '../../src/ui/outils';
+import { Outils, lireLongueur, lireSaisie, type Effet } from '../../src/ui/outils';
+import { planDuNiveau } from '../../src/building';
 import { ouvrirSession } from '../../src/ui/session';
 import { dessinCote, texteCote } from '../../src/ui/cotes';
 
@@ -161,6 +162,69 @@ describe('outils', () => {
     expect(b.outils.outil).toBe('mur');
     expect(b.touche('Escape').fini).toBe(true);
     expect(b.outils.outil).toBe('selection');
+  });
+});
+
+describe('tracé rapide (comme sur un logiciel de plans de maisons)', () => {
+  it('lire ce qu’on tape : mètres, cm, mm, angle, rectangle ; refuser le reste', () => {
+    expect(lireLongueur('4,50')).toBe(4_500); expect(lireLongueur('4.5')).toBe(4_500); expect(lireLongueur('450cm')).toBe(4_500);
+    expect(lireLongueur('4500 mm')).toBe(4_500); expect(lireLongueur(',9')).toBe(900);
+    for (const x of ['', 'abc', '0', '-3', '4,5,6']) expect(lireLongueur(x)).toBeNull();
+    expect(lireSaisie('3,20<90')).toEqual({ genre: 'longueur', longueur: 3_200, angle: 90 });
+    expect(lireSaisie('10x8')).toEqual({ genre: 'rectangle', largeur: 10_000, profondeur: 8_000 });
+    expect(lireSaisie('10,5 × 8')).toEqual({ genre: 'rectangle', largeur: 10_500, profondeur: 8_000 });
+    for (const x of ['3<', '3<a', '3<9<1', 'x8']) expect(lireSaisie(x)).toBeNull();
+  });
+
+  it('Mur : longueur tapée dans la direction visée, puis avec un angle ; le tracé continue', () => {
+    const b = banc();
+    b.outils.choisir('mur');
+    b.clic(0, 0);
+    b.outils.bouger({ point: { x: 3_000, y: 37 }, rayon: 150, alt: true });     // vise à peu près vers la droite
+    b.outils.bouger({ point: { x: 3_000, y: 0 }, rayon: 150, alt: true });
+    const e = b.outils.saisir('4,50');
+    expect(e.commandes?.liste[0]).toMatchObject({ type: 'creerMur', a: { x: 0, y: 0 }, b: { x: 4_500, y: 0 } });
+    if (e.commandes) { const r = executer(b.h, e.commandes.titre, e.commandes.liste, acteur()); expect(r.ok).toBe(true) }
+    const e2 = b.outils.saisir('3<90');
+    expect(e2.commandes?.liste[0]).toMatchObject({ a: { x: 4_500, y: 0 }, b: { x: 4_500, y: 3_000 } });
+    expect(b.outils.traceEnCours).toBe(true);
+    expect(b.outils.saisir('abc').aide).toMatch(/illisible/);
+  });
+
+  it('Rectangle hors tout : 4 murs fermés ; la pièce mesure l’intérieur (10 x 8 m, murs de 20 cm)', () => {
+    const b = banc();
+    b.outils.choisir('rectangle');
+    b.clic(0, 0);
+    b.clic(10_000, 8_000);
+    expect(b.murs()).toHaveLength(4);
+    expect(b.murs().every(w => w.role === 'exterior' && w.justification === 'right')).toBe(true);
+    const z = planDuNiveau(b.h.projet.buildings[0]!.floors[0]!).zones;
+    expect(z).toHaveLength(1);
+    expect(z[0]!.aire).toBeCloseTo(9_600 * 7_600, 0);
+    /* la maçonnerie reste dans le rectangle tracé (hors tout) */
+    const M = planDuNiveau(b.h.projet.buildings[0]!.floors[0]!).maconnerie.flatMap(p => p.contour);
+    expect(Math.min(...M.map(p => p.x))).toBeCloseTo(0, 6); expect(Math.max(...M.map(p => p.y))).toBeCloseTo(8_000, 6);
+  });
+
+  it('Rectangle : cotes tapées, ouvert vers le curseur ; option « intérieur » ; trop petit : refusé', () => {
+    const b = banc();
+    b.outils.choisir('rectangle');
+    b.clic(0, 0);
+    b.outils.bouger({ point: { x: -500, y: 400 }, rayon: 150, alt: true });
+    b.touche('Escape');
+    b.clic(0, 0);
+    b.outils.bouger({ point: { x: -500, y: 400 }, rayon: 150, alt: true });
+    const e = b.outils.saisir('6x4');
+    const pts = e.commandes!.liste.flatMap(c => (c.type === 'creerMur' ? [c.a, c.b] : []));
+    expect(Math.min(...pts.map(p => p.x))).toBe(-6_000); expect(Math.max(...pts.map(p => p.y))).toBe(4_000);
+    const c = banc();
+    c.outils.reglages.rectangle = 'interieur';
+    c.outils.choisir('rectangle'); c.clic(0, 0); c.clic(4_000, 3_000);
+    expect(planDuNiveau(c.h.projet.buildings[0]!.floors[0]!).zones[0]!.aire).toBeCloseTo(4_000 * 3_000, 0);
+    const d = banc();
+    d.outils.choisir('rectangle'); d.clic(0, 0);
+    expect(d.clic(300, 300).aide).toMatch(/trop petit/);
+    expect(d.murs()).toHaveLength(0);
   });
 });
 

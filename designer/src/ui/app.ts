@@ -9,13 +9,13 @@ import type { BuildingObject, Floor, Mm, Opening, Point, Project, RoomUsage, Wal
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, executer, nouvelHistorique, peutAnnuler, peutRetablir, retablirEnregistre, type Acteur, type Commande, type Historique } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
-import { cadrer, glisser, pixelsEnMm, versMonde, zoomer, type Camera } from './camera';
+import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
 import { dessiner, NOMS_ACCROCHE, type Scene } from './dessin';
 import { Outils, OUVERTURES, type Effet, type Geste, type NomOutil } from './outils';
-import { dessinCote } from './cotes';
+import { dessinCote, texteCote } from './cotes';
 import { ouvrirSession, type Enregistreur } from './session';
 import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } from '../import/atelier';
 import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fonds';
@@ -87,6 +87,7 @@ const CSS = `
 .cpd .palette li{padding:7px 10px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between}
 .cpd .palette li.sel{background:#F5F1EA}
 .cpd .palette li kbd{font-size:11px;color:#6E7B84}
+.cpd .saisie{position:absolute;z-index:5;width:150px;border:2px solid #C5563A;border-radius:6px;padding:4px 8px;font:600 14px system-ui;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.15)}
 @media (max-width:820px){.cpd{grid-template-columns:48px 1fr;grid-template-rows:48px 1fr 40vh 28px}.cpd aside{grid-column:1/3;grid-row:3/4;border-left:none;border-top:1px solid #E4DED3}.cpd footer{grid-row:4/5}}
 `;
 
@@ -111,6 +112,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   const $ = <T extends Element>(s: string) => racine.querySelector(s) as T;
   const canvas = $<HTMLCanvasElement>('canvas'), main = $<HTMLElement>('main'), aside = $<HTMLElement>('aside'), nav = $<HTMLElement>('nav');
   const ctx = canvas.getContext('2d')!;
+  canvas.tabIndex = -1;
   const etat = $<HTMLElement>('.etat');
 
   const signaler = (e: string, msg: string) => { etat.className = 'etat ' + e; etat.textContent = msg; etat.title = msg };
@@ -136,6 +138,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   const images = new Map<string, ImageFond>();
   const enChargement = new Set<string>();
   let cam: Camera = { centre: { x: 5_000, y: 4_000 }, echelle: 0.06, largeur: 800, hauteur: 600 };
+  /* la cotation automatique : un choix d'affichage, propre à cet appareil */
+  let cotation = (() => { try { return localStorage.getItem('cpDesigner:cotation') !== 'non' } catch { return true } })();
 
   const outils = new Outils(() => ({ projet: h.projet, niveau: niveauId, selection }));
   const niveau = (p: Project = h.projet): Floor => trouverNiveau(p, niveauId)?.floor ?? p.buildings[0]!.floors[0]!;
@@ -177,10 +181,20 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const L = niveaux(), i = L.findIndex(x => x.id === niveauId);
     for (const o of Object.values(f.objects)) if (o.type === 'underlay') chargerFond(o.fileKey, o.page);
     let etiquette: Scene['etiquette'] = null;
-    const nouveau = apercu.find(c => c.type === 'creerMur');
-    if (nouveau && nouveau.type === 'creerMur' && curseur) etiquette = { point: curseur, texte: m(distance(nouveau.a, nouveau.b)) };
+    const nouveaux = apercu.filter((c): c is Extract<Commande, { type: 'creerMur' }> => c.type === 'creerMur');
+    if (curseur && nouveaux.length === 4 && outils.outil === 'rectangle') {
+      const X = nouveaux.map(c => c.a.x), Y = nouveaux.map(c => c.a.y);
+      etiquette = { point: curseur, texte: texteCote(Math.max(...X) - Math.min(...X)) + ' × ' + texteCote(Math.max(...Y) - Math.min(...Y)) + ' m ' + (outils.reglages.rectangle === 'hors_tout' ? 'hors tout' : 'intérieur') + ' — ou tapez 10x8' };
+    } else if (curseur && nouveaux[0]) {
+      const c = nouveaux[0], deg = Math.round(Math.atan2(c.b.y - c.a.y, c.b.x - c.a.x) * 180 / Math.PI * 10) / 10;
+      etiquette = { point: curseur, texte: m(distance(c.a, c.b)) + ' · ' + String((deg + 360) % 360).replace('.', ',') + '° — ou tapez la longueur' };
+    }
     if (refusApercu && curseur) etiquette = { point: curseur, texte: '⛔ ' + refusApercu };
-    dessiner(ctx, cam, { niveau: f, dessous: i > 0 ? L[i - 1]! : null, selection, accroche, images, sommets: outils.outil === 'selection', etiquette }, dpr);
+    /* la place de l'ouverture choisie, ou de celle qu'on pose */
+    const places = [selection, Object.keys(f.objects).find(k => k.startsWith('apercu-') && f.objects[k]!.type === 'opening')]
+      .flatMap(id => (id ? [placeOuverture(f, id)] : [])).filter(x => x !== null);
+    dessiner(ctx, cam, { niveau: f, dessous: i > 0 ? L[i - 1]! : null, selection, accroche, images, sommets: outils.outil === 'selection', etiquette,
+      ...(cotation ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
   }
   function chargerFond(cle: string, page?: number) {
@@ -251,6 +265,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (e.key === 'Escape') { choixMur = null; effet(outils.touche('Escape')); barreOutils(); return }
     if (e.key === 'Enter') { effet(outils.touche('Enter')); return }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); supprimer(selection); return }
+    /* un chiffre pendant un tracé : la longueur se tape (comme sur les logiciels de plans) */
+    if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'cloison', 'rectangle'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
     const t = TOUCHES[e.key.toLowerCase()];
     if (t) { choisir(t); return }
     if (e.key.toLowerCase() === 'f') { cadrerTout(); return }
@@ -258,10 +274,31 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   });
   window.addEventListener('keyup', e => { if (e.key === ' ') { espace = false; canvas.style.cursor = '' } });
 
+  /** la petite case où l'on tape une longueur (4,50), un angle (4,50<90) ou un rectangle (10x8) */
+  function ouvrirSaisie(premier: string) {
+    main.querySelector('.saisie')?.remove();
+    const i = document.createElement('input');
+    i.className = 'saisie'; i.value = premier; i.autocomplete = 'off';
+    i.placeholder = outils.outil === 'rectangle' ? '10x8' : '4,50 ou 4,50<90';
+    const e = curseur ? versEcran(cam, curseur) : { x: cam.largeur / 2, y: cam.hauteur / 2 };
+    i.style.left = Math.min(cam.largeur - 160, e.x + 16) + 'px'; i.style.top = Math.min(cam.hauteur - 40, e.y + 34) + 'px';
+    /* retirer la case fait perdre le focus : le blur ne doit pas la retirer une seconde fois */
+    const fermer = () => { i.onblur = null; i.remove(); canvas.focus() };
+    i.onkeydown = k => {
+      if (k.key === 'Enter') { k.preventDefault(); const v = i.value; fermer(); const r = outils.saisir(v); effet(r); if (r.aide && !r.commandes) toast(r.aide, true) }
+      else if (k.key === 'Escape') { k.preventDefault(); fermer() }
+      k.stopPropagation();
+    };
+    i.onblur = () => { i.onblur = null; i.remove() };
+    main.appendChild(i);
+    i.focus(); i.setSelectionRange(i.value.length, i.value.length);
+  }
+
   /* ---------- outils ---------- */
   const OUTILS: { nom: NomOutil; icone: string; libelle: string; touche: string }[] = [
     { nom: 'selection', icone: '↖', libelle: 'Sélection', touche: 'V' }, { nom: 'mur', icone: '▬', libelle: 'Mur', touche: 'M' },
-    { nom: 'cloison', icone: '▭', libelle: 'Cloison', touche: 'C' }, { nom: 'ouverture', icone: '◫', libelle: 'Ouverture', touche: 'O' },
+    { nom: 'cloison', icone: '▭', libelle: 'Cloison', touche: 'C' }, { nom: 'rectangle', icone: '⬚', libelle: 'Rectangle de murs', touche: 'R' },
+    { nom: 'ouverture', icone: '◫', libelle: 'Ouverture', touche: 'O' },
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
@@ -271,11 +308,16 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
     $<HTMLElement>('.aide').textContent = choixMur ? choixMur.libelle : outils.aide;
   }
+  function basculerCotation(oui = !cotation) {
+    cotation = oui;
+    try { localStorage.setItem('cpDesigner:cotation', oui ? 'oui' : 'non') } catch { /* navigation privée : le choix vaut pour la séance */ }
+    panneaux(); dessinerBientot();
+  }
   function basculerGrille() { outils.reglages.grille = outils.reglages.grille ? 0 : 100; toast(outils.reglages.grille ? 'Grille d’accrochage : 10 cm' : 'Grille d’accrochage coupée'); panneaux() }
   function cadrerTout() {
     const pts: Point[] = [];
     for (const w of mursDroits(niveau())) pts.push(w.axis.a, w.axis.b);
-    if (pts.length) cam = cadrer(cam, boiteAnneau(pts));
+    if (pts.length) cam = cadrer(cam, boiteAnneau(pts), cotation ? 110 : 60);        // la place des cotes autour
     dessinerBientot();
   }
 
@@ -371,6 +413,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('Hauteur (m)', (op.height / 1000).toFixed(3), v => mod('Hauteur', { hauteur: mm(v) }), 'number'),
           champ('Allège (m)', (op.sill / 1000).toFixed(3), v => mod('Allège', { allege: mm(v) }), 'number'),
           champ('Axe depuis l’origine du mur (m)', (op.offset / 1000).toFixed(3), v => mod('Position', { position: mm(v) }), 'number'));
+        /* placer par les distances aux murs voisins, comme on les lit sur le plan (en rouge) */
+        const pl = placeOuverture(f, op.id);
+        if (pl) A.append(
+          champ('Distance ' + pl.libelles[0] + ' (m)', (pl.avant / 1000).toFixed(3), v => mod('Position', { position: Math.round(positionPour(pl, 'avant', mm(v))) }), 'number'),
+          champ('Distance ' + pl.libelles[1] + ' (m)', (pl.apres / 1000).toFixed(3), v => mod('Position', { position: Math.round(positionPour(pl, 'apres', mm(v))) }), 'number'));
         if (op.kind === 'door' || op.kind === 'french_window') {
           const s = op.swing ?? { side: 'left', inward: true };
           A.append(ligne(bouton('Charnière ⇄', () => mod('Sens', { sens: { ...s, side: s.side === 'left' ? 'right' : 'left' } })), bouton('Tirant / poussant ⇅', () => mod('Sens', { sens: { ...s, inward: !s.inward } }))));
@@ -462,7 +509,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       champ('Épaisseur des cloisons (cm)', outils.reglages.epaisseurCloison / 10, v => { outils.reglages.epaisseurCloison = ent(v) * 10 }, 'number'),
       champ('Ouverture posée', outils.reglages.genreOuverture, v => { outils.reglages.genreOuverture = v as Opening['kind'] }, 'text', Object.fromEntries(Object.entries(OUVERTURES).map(([k, v]) => [k, v.libelle]))),
       champ('Grille d’accrochage', String(outils.reglages.grille), v => { outils.reglages.grille = Number(v) }, 'text', { '0': 'Sans', '10': '1 cm', '50': '5 cm', '100': '10 cm', '500': '50 cm' }),
-      bloc('Alt : sans accrochage · Maj : angles à 45° · Espace + glisser : déplacer la vue · F : tout voir · Ctrl+K : toutes les actions'));
+      champ('Rectangle de murs', outils.reglages.rectangle, v => { outils.reglages.rectangle = v as 'hors_tout' | 'interieur' }, 'text', { hors_tout: 'Cotes hors tout', interieur: 'Cotes intérieures' }),
+      champ('Cotation automatique', cotation ? 1 : 0, v => basculerCotation(!!v), 'checkbox'),
+      bloc('Pendant un tracé, tapez la longueur (4,50 puis Entrée ; 4,50<90 pour un angle ; 10x8 pour un rectangle) · Alt : sans accrochage · Maj : angles à 45° · Espace + glisser : déplacer la vue · F : tout voir · Ctrl+K : toutes les actions'));
     A.append(titre('Enregistrement'), bloc(esc(enr.raison) + (enr.mode === 'serveur' ? '' : '<br>Le travail reste dans ce navigateur, sur cet appareil.')));
   }
 
@@ -620,6 +669,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     ...OUTILS.map(o => ({ libelle: 'Outil : ' + o.libelle, touche: o.touche, faire: () => choisir(o.nom) })),
     { libelle: 'Annuler', touche: 'Ctrl+Z', faire: annuler }, { libelle: 'Rétablir', touche: 'Ctrl+Maj+Z', faire: retablir },
     { libelle: 'Tout voir', touche: 'F', faire: cadrerTout }, { libelle: 'Grille d’accrochage oui / non', touche: 'G', faire: basculerGrille },
+    { libelle: 'Cotation automatique oui / non', faire: () => basculerCotation() },
     { libelle: 'Ajouter un niveau', faire: () => void ajouterNiveau() }, { libelle: 'Importer un fond (PDF, image)', faire: importerFond },
     { libelle: 'Importer le RDC lu par l’atelier (modele.json)', faire: importerAtelier },
     ...(['door', 'window', 'french_window', 'garage_door'] as const).map(k => ({ libelle: 'Poser : ' + OUVERTURES[k].libelle, faire: () => { outils.reglages.genreOuverture = k; choisir('ouverture') } })),

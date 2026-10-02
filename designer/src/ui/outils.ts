@@ -17,7 +17,7 @@ import { distance } from '../geometry/vecteur';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
 import { viser } from './selection';
 
-export type NomOutil = 'selection' | 'mur' | 'cloison' | 'ouverture' | 'piece' | 'cote' | 'caler';
+export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'piece' | 'cote' | 'caler';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -25,9 +25,11 @@ export interface Reglages {
   genreOuverture: Opening['kind'];
   /** pas de la grille d'accrochage (0 : sans) */
   grille: Mm;
+  /** l'outil Rectangle trace les faces extérieures (cotes hors tout) ou intérieures */
+  rectangle: 'hors_tout' | 'interieur';
 }
 
-export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, genreOuverture: 'door', grille: 0 };
+export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, genreOuverture: 'door', grille: 0, rectangle: 'hors_tout' };
 
 /** dimensions par défaut d'une ouverture neuve (largeur, hauteur, allège) — modifiables ensuite */
 export const OUVERTURES: Record<Opening['kind'], { libelle: string; largeur: Mm; hauteur: Mm; allege: Mm }> = {
@@ -75,8 +77,9 @@ type Prise =
 
 const AIDES: Record<NomOutil, string> = {
   selection: 'Cliquer pour choisir ; tirer une extrémité, un mur ou une ouverture pour la déplacer',
-  mur: 'Cliquer le départ puis chaque angle ; Échap pour finir ; Maj : angles à 45° ; Alt : sans accrochage',
-  cloison: 'Cloison : cliquer le départ puis l’arrivée ; Échap pour finir',
+  mur: 'Cliquer le départ puis chaque angle — ou taper la longueur (4,50) puis Entrée ; 4,50<90 : longueur et angle ; Échap pour finir ; Maj : 45°',
+  cloison: 'Cloison : cliquer le départ puis l’arrivée — ou taper la longueur puis Entrée ; Échap pour finir',
+  rectangle: 'Rectangle de murs : cliquer deux angles opposés — ou, après le premier, taper 10x8 puis Entrée',
   ouverture: 'Cliquer sur un mur pour y placer l’ouverture',
   piece: 'Cliquer dans un espace clos pour le nommer',
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
@@ -90,6 +93,34 @@ function bloquer(depuis: Point, p: Point): Point {
   return { x: depuis.x + Math.round(L * Math.cos(a) * 1e6) / 1e6, y: depuis.y + Math.round(L * Math.sin(a) * 1e6) / 1e6 };
 }
 
+/** une longueur tapée : « 4,50 » (m), « 450cm », « 4500mm » ; null si illisible */
+export function lireLongueur(t: string): Mm | null {
+  const m = /^\s*(\d+(?:[.,]\d*)?|[.,]\d+)\s*(mm|cm|m)?\s*$/i.exec(t);
+  if (!m) return null;
+  const v = Number(m[1]!.replace(',', '.')), u = (m[2] ?? 'm').toLowerCase();
+  const mm = Math.round(v * (u === 'mm' ? 1 : u === 'cm' ? 10 : 1_000) * 1e3) / 1e3;
+  return mm > 0 ? mm : null;
+}
+
+/** ce qu'on peut taper pendant un tracé : une longueur, avec un angle (« 4,50<90 »), ou deux (« 10x8 ») */
+export type Saisie = { genre: 'longueur'; longueur: Mm; angle?: number } | { genre: 'rectangle'; largeur: Mm; profondeur: Mm };
+export function lireSaisie(t: string): Saisie | null {
+  const r = /^(.+?)\s*[x×*]\s*(.+)$/i.exec(t.trim());
+  if (r) {
+    const a = lireLongueur(r[1]!), b = lireLongueur(r[2]!);
+    return a && b ? { genre: 'rectangle', largeur: a, profondeur: b } : null;
+  }
+  const [l, an, ...reste] = t.split('<');
+  if (reste.length) return null;
+  const L = lireLongueur(l ?? '');
+  if (!L) return null;
+  if (an === undefined) return { genre: 'longueur', longueur: L };
+  const deg = Number(an.trim().replace(',', '.'));
+  return an.trim() && Number.isFinite(deg) ? { genre: 'longueur', longueur: L, angle: deg } : null;
+}
+
+const arrondi = (v: number) => Math.round(v * 1e6) / 1e6;
+
 export class Outils {
   outil: NomOutil = 'selection';
   reglages: Reglages = { ...REGLAGES_DEFAUT };
@@ -102,6 +133,8 @@ export class Outils {
   private dernier: Commande | null = null;
   private ancres: ObjectAnchor[] = [];
   private clicsFond: Point[] = [];
+  /** le dernier point visé pendant un tracé : il donne la direction d'une longueur tapée */
+  private vise: Point | null = null;
 
   constructor(private readonly contexte: () => Contexte) {}
 
@@ -116,7 +149,10 @@ export class Outils {
   get aide(): string { return AIDES[this.outil] }
   get traceEnCours(): boolean { return this.depart !== null || this.prise !== null || this.ancres.length > 0 || this.clicsFond.length > 0 }
 
-  private annulerGeste(): void { this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = [] }
+  private annulerGeste(): void { this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
+
+  /** le point de départ d'un tracé en cours (mur, cloison, rectangle) */
+  get departTrace(): Point | null { return this.depart }
 
   /** le point accroché (ou le point brut avec Alt) */
   private accrocher(g: Geste, depuis?: Point | null): Accroche {
@@ -185,7 +221,15 @@ export class Outils {
       case 'cloison': {
         const a = this.accrocher(g, this.depart);
         if (!this.depart || distance(a.point, this.depart) <= EPS_COINCIDENCE) return { accroche: a, apercu: [] };
+        this.vise = a.point;
         return { accroche: a, apercu: [this.murDe(this.depart, a.point)] };
+      }
+      case 'rectangle': {
+        const a = this.accrocher(g);
+        if (!this.depart) return { accroche: a, apercu: [] };
+        this.vise = a.point;
+        const r = this.rectangleDe(this.depart, a.point);
+        return { accroche: a, apercu: typeof r === 'string' ? [] : r };
       }
       case 'ouverture': {
         const w = this.murSous(g);
@@ -198,6 +242,18 @@ export class Outils {
       case 'piece':
         return { accroche: null };
     }
+  }
+
+  /** quatre murs fermés, dans le sens trigonométrique (l'intérieur à gauche) ; leur
+      tracé est la face extérieure (hors tout) ou la face intérieure, selon le réglage */
+  private rectangleDe(p: Point, q: Point): Commande[] | string {
+    const x0 = Math.min(p.x, q.x), x1 = Math.max(p.x, q.x), y0 = Math.min(p.y, q.y), y1 = Math.max(p.y, q.y);
+    const e = this.reglages.epaisseurMur, horsTout = this.reglages.rectangle === 'hors_tout';
+    if (x1 - x0 <= EPS_COINCIDENCE || y1 - y0 <= EPS_COINCIDENCE) return 'Tirez un rectangle';
+    if (horsTout && Math.min(x1 - x0, y1 - y0) <= 2 * e) return 'Rectangle trop petit pour l’épaisseur des murs';
+    const P = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+    const niveau = this.contexte().niveau;
+    return P.map((a, i) => ({ type: 'creerMur', niveau, a, b: P[(i + 1) % 4]!, epaisseur: e, role: 'exterior', justification: horsTout ? 'right' : 'left' }) as Commande);
   }
 
   private murDe(a: Point, b: Point): Commande {
@@ -231,15 +287,14 @@ export class Outils {
       }
       case 'mur':
       case 'cloison': {
-        const a = this.accrocher(g, this.depart), p = a.point;
-        if (!this.depart) { this.depart = p; this.premier = p; return { accroche: a } }
-        if (distance(p, this.depart) <= EPS_COINCIDENCE) return {};
-        const cmd = this.murDe(this.depart, p);
-        /* un tour fermé (retour au premier point) termine le tracé ; une
-           cloison s'arrête à chaque trait */
-        const ferme = this.premier !== null && distance(p, this.premier) <= EPS_COINCIDENCE;
-        if (ferme || this.outil === 'cloison') { this.depart = null; this.premier = null } else this.depart = p;
-        return { commandes: { titre: this.outil === 'cloison' ? 'Cloison' : 'Mur', liste: [cmd] }, apercu: [] };
+        const a = this.accrocher(g, this.depart);
+        if (!this.depart) { this.depart = a.point; this.premier = a.point; return { accroche: a } }
+        return this.poserMur(a.point);
+      }
+      case 'rectangle': {
+        const a = this.accrocher(g);
+        if (!this.depart) { this.depart = a.point; return { accroche: a, aide: 'Second angle — ou tapez largeur x profondeur (10x8) puis Entrée' } }
+        return this.poserRectangle(a.point);
       }
       case 'ouverture': {
         const w = this.murSous(g);
@@ -279,6 +334,47 @@ export class Outils {
         return { demande: { genre: 'distanceFond', id: u.id, image }, fini: true };
       }
     }
+  }
+
+  /** finir un trait de mur ou de cloison en p */
+  private poserMur(p: Point): Effet {
+    if (!this.depart || distance(p, this.depart) <= EPS_COINCIDENCE) return {};
+    const cmd = this.murDe(this.depart, p);
+    /* un tour fermé (retour au premier point) termine le tracé ; une
+       cloison s'arrête à chaque trait */
+    const ferme = this.premier !== null && distance(p, this.premier) <= EPS_COINCIDENCE;
+    if (ferme || this.outil === 'cloison') { this.depart = null; this.premier = null } else this.depart = p;
+    this.vise = null;
+    return { commandes: { titre: this.outil === 'cloison' ? 'Cloison' : 'Mur', liste: [cmd] }, apercu: [] };
+  }
+
+  private poserRectangle(q: Point): Effet {
+    if (!this.depart) return {};
+    const r = this.rectangleDe(this.depart, q);
+    if (typeof r === 'string') return { aide: r };
+    this.depart = null; this.vise = null;
+    return { commandes: { titre: 'Rectangle de murs', liste: r }, apercu: [] };
+  }
+
+  /** une longueur tapée au clavier pendant un tracé (voir lireSaisie) : le mur
+      part dans la direction visée (ou selon l'angle tapé, en degrés depuis
+      l'axe des x, sens trigonométrique) ; le rectangle s'ouvre vers le curseur */
+  saisir(texte: string): Effet {
+    const s = lireSaisie(texte), d = this.depart;
+    if (!s) return { aide: 'Saisie illisible : tapez une longueur en mètres (4,50), 4,50<90 pour un angle, ou 10x8 pour un rectangle' };
+    if (!d) return { aide: 'Cliquez d’abord le point de départ' };
+    if (this.outil === 'rectangle') {
+      if (s.genre !== 'rectangle') return { aide: 'Rectangle : tapez largeur x profondeur (10x8)' };
+      const v = this.vise ?? { x: d.x + 1, y: d.y + 1 };
+      const sx = v.x < d.x ? -1 : 1, sy = v.y < d.y ? -1 : 1;
+      return this.poserRectangle({ x: arrondi(d.x + sx * s.largeur), y: arrondi(d.y + sy * s.profondeur) });
+    }
+    if (this.outil !== 'mur' && this.outil !== 'cloison') return {};
+    if (s.genre !== 'longueur') return { aide: 'Mur : tapez une longueur (4,50), ou 4,50<90 pour un angle' };
+    let u: Point;
+    if (s.angle !== undefined) { const r = s.angle * Math.PI / 180; u = { x: Math.cos(r), y: Math.sin(r) } }
+    else { const v = this.vise, L = v ? distance(v, d) : 0; u = v && L > EPS_COINCIDENCE ? { x: (v.x - d.x) / L, y: (v.y - d.y) / L } : { x: 1, y: 0 } }
+    return this.poserMur({ x: arrondi(d.x + u.x * s.longueur), y: arrondi(d.y + u.y * s.longueur) });
   }
 
   relacher(_g: Geste): Effet {
