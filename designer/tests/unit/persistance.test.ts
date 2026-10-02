@@ -2,6 +2,7 @@
    hors ligne, reprise après plantage, conflit entre deux personnes,
    instantanés et jalons, copie locale IndexedDB. */
 import { describe, expect, it } from 'vitest';
+import sql from '../../../supabase/designer/schema.sql?raw';
 import { IDBFactory } from 'fake-indexeddb';
 import { canonique, creerProjet, generateurSequentiel, type Project } from '../../src/model';
 import { executer, nouvelHistorique, type Acteur, type ChangeSet, type Historique } from '../../src/engine';
@@ -147,6 +148,13 @@ describe('dépôt Supabase (client simulé)', () => {
     await new DepotSupabase(client).creer(p, 'CP');
     expect(appels.filter(x => x.op === 'insert').map(x => x.table)).toEqual(['designer_projects', 'designer_revisions']);
     expect(appels.some(x => x.table === 'app_data')).toBe(false);
+  });
+
+  it('le schéma du serveur range les identifiants du modèle (ULID) en texte, pas en uuid', () => {
+    expect(sql).toMatch(/designer_projects \(\s*id\s+text primary key/);
+    expect(sql.match(/project_id\s+text not null references/g)).toHaveLength(2);
+    expect(sql).toMatch(/p_project text,/);
+    expect(creerProjet({ nom: 'x' }).id).toMatch(/^[0-9A-Z]{26}$/);
   });
 
   it('envoyer : la fonction designer_enregistrer, avec la révision d’avant', async () => {

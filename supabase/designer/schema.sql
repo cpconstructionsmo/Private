@@ -7,11 +7,15 @@
 -- écriture porte la révision sur laquelle elle a été faite : si quelqu'un
 -- est passé avant, elle est refusée — rien n'est écrasé en silence.
 --
--- À exécuter une fois dans Supabase › SQL Editor, au début de la Phase 1
--- (rien ne s'en sert avant). Voir docs/designer/ADR-0003-persistance.md.
+-- À exécuter dans Supabase › SQL Editor, au début de la Phase 1 (rien ne
+-- s'en sert avant). Il peut être relancé sans risque : il met à jour une
+-- installation précédente sans rien effacer. Voir docs/designer/ADR-0003-persistance.md.
 
+-- Les identifiants des projets sont ceux du Building Model (ULID : 26
+-- caractères, créés sur l'appareil sans attendre le serveur) : du texte, pas
+-- un uuid — un ULID n'a pas la forme d'un uuid, l'envoi serait refusé.
 create table if not exists public.designer_projects (
-  id              uuid primary key default gen_random_uuid(),
+  id              text primary key,
   crm_chantier_id text,                       -- le chantier du CRM (lien, pas copie)
   nom             text not null,
   schema_version  integer not null,
@@ -24,7 +28,7 @@ create table if not exists public.designer_projects (
 create index if not exists designer_projects_chantier on public.designer_projects (crm_chantier_id);
 
 create table if not exists public.designer_revisions (
-  project_id  uuid not null references public.designer_projects (id) on delete cascade,
+  project_id  text not null references public.designer_projects (id) on delete cascade,
   revision    integer not null,
   modele      jsonb not null,                 -- le Building Model complet à cette révision
   message     text,
@@ -36,7 +40,7 @@ create table if not exists public.designer_revisions (
 
 create table if not exists public.designer_changesets (
   id               uuid primary key default gen_random_uuid(),
-  project_id       uuid not null references public.designer_projects (id) on delete cascade,
+  project_id       text not null references public.designer_projects (id) on delete cascade,
   revision_avant   integer not null,
   revision_apres   integer not null,
   titre            text not null,
@@ -49,10 +53,32 @@ create table if not exists public.designer_changesets (
   unique (project_id, revision_apres)
 );
 
+-- Mise à jour d'une première installation (identifiants en uuid) : les
+-- colonnes passent en texte. Aucun projet n'a pu y être enregistré (chaque
+-- envoi était refusé) ; les lignes éventuelles sont gardées, converties.
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'designer_projects' and column_name = 'id' and data_type = 'uuid') then
+    alter table public.designer_revisions drop constraint if exists designer_revisions_project_id_fkey;
+    alter table public.designer_changesets drop constraint if exists designer_changesets_project_id_fkey;
+    alter table public.designer_projects alter column id drop default;
+    alter table public.designer_projects alter column id type text using id::text;
+    alter table public.designer_revisions alter column project_id type text using project_id::text;
+    alter table public.designer_changesets alter column project_id type text using project_id::text;
+    alter table public.designer_revisions add constraint designer_revisions_project_id_fkey
+      foreign key (project_id) references public.designer_projects (id) on delete cascade;
+    alter table public.designer_changesets add constraint designer_changesets_project_id_fkey
+      foreign key (project_id) references public.designer_projects (id) on delete cascade;
+  end if;
+end;
+$$;
+drop function if exists public.designer_enregistrer(uuid, integer, text, text, jsonb, text, jsonb, text);
+
 -- Enregistrer un ChangeSet : refusé si le projet n'est plus à la révision
 -- sur laquelle il a été préparé (concurrence optimiste).
 create or replace function public.designer_enregistrer(
-  p_project uuid, p_revision_avant integer, p_titre text, p_demande_par text,
+  p_project text, p_revision_avant integer, p_titre text, p_demande_par text,
   p_operations jsonb, p_par text, p_instantane jsonb default null, p_jalon text default null)
 returns integer
 language plpgsql

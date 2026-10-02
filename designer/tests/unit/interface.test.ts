@@ -205,6 +205,13 @@ describe('ouverture de session', () => {
     expect(o.enregistreur.raison).toMatch(/schema\.sql/);
   });
 
+  it('schéma installé avec des uuid (première version) : mode local, il faut relancer schema.sql', async () => {
+    const ancien: Depot = { ...new DepotMemoire(), lister: async () => [], creer: async () => { throw new Error('invalid input syntax for type uuid: "01M3XS2GSBA3ZKR82AHSNY98R5"') } } as unknown as Depot;
+    const o = await ouvrirSession(new URLSearchParams('chantier=c1'), { utilisateur: async () => 'cp@exemple.fr', depot: () => ancien, copie: new CopieMemoire(), signaler });
+    expect(o.enregistreur.mode).toBe('local');
+    expect(o.enregistreur.raison).toMatch(/mettre à jour.*schema\.sql/);
+  });
+
   it('connecté : le projet du chantier est créé une fois, puis rechargé ; chaque modification part au serveur', async () => {
     const d = new DepotMemoire(), copie = new CopieMemoire();
     const deps = { utilisateur: async () => 'cp@exemple.fr', depot: () => d, copie, signaler };
