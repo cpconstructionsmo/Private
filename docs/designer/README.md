@@ -12,6 +12,7 @@ entier sur GitHub Pages. Seules les décisions techniques sont versionnées ici.
 | [0003](ADR-0003-persistance.md) | Tables Supabase dédiées, ChangeSets et révisions, concurrence optimiste | Acceptée — 2026-10-01 |
 | [0004](ADR-0004-atelier.md) | L'atelier Python est gardé, devient importeur, puis converge vers le Designer | Acceptée — 2026-10-01 |
 | [0005](ADR-0005-commandes.md) | Toute modification est une commande qui produit un ChangeSet, dès la Phase 1 | Acceptée — 2026-10-01 |
+| [0006](ADR-0006-vue-3d.md) | Vue 3D : maquette dérivée du plan (moteur pur testé), affichée par three.js chargé à la demande | Acceptée — 2026-10-02 |
 
 Une nouvelle décision, ou une demande qui contredirait l'une d'elles ou les
 7 règles de la spécification, fait l'objet d'un nouvel ADR — jamais d'une
