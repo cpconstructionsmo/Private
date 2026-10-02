@@ -115,7 +115,18 @@ ouvertures, allèges et linteaux, vitrages, portes, planchers, sols, niveaux
 à leur altitude) et s'affiche avec three.js, chargé seulement à la première
 ouverture. On tourne autour, on zoome, « vue maquette » coupe les murs à
 1,20 m pour voir l'intérieur, une image PNG s'enregistre ; chaque
-modification (annuler compris) s'y voit aussitôt. Pas encore de toiture.
+modification (annuler compris) s'y voit aussitôt.
+
+**Toiture** (`src/building/toiture.ts`, panneau du niveau ou de la 3D) : le
+modèle ne garde que les choix (type, pente, débord, couverture) ; pans,
+faîtages et pignons se calculent depuis le contour des murs et le suivent.
+À croupes sur tout plan à angles droits (méthode de l'atelier, mêmes
+surfaces sur les mêmes plans), deux pans à pignons ou un pan sur un plan
+rectangulaire, toit-terrasse avec acrotère. Le toit passe par le haut des
+murs au nu extérieur ; égout, faîtage et surface de couverture sont
+annoncés (indicatifs : la charpente n'est pas étudiée). Un plan qui ne
+convient pas est refusé avec sa raison. En plan : égout en tirets, lignes
+des pans en pointillé.
 
 ## Travailler
 

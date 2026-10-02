@@ -37,5 +37,14 @@ Building Model, en volume, sans double saisie ni donnée en plus.
   sans travail en plus ; une erreur de plan se voit aussi en 3D, ce qui aide
   à la repérer.
 - Hors périmètre pour l'instant, à traiter par de nouveaux moteurs testés
-  avant leur affichage : toiture (l'atelier sait déjà faire les croupes),
-  mobilier, textures, visite à hauteur d'homme, rendu photoréaliste.
+  avant leur affichage : textures, visite à hauteur d'homme, rendu
+  photoréaliste.
+
+## Complément (2026-10-02) : la toiture
+
+- Un objet `roof` par niveau, qui ne garde que des choix (type, pente,
+  débord, couverture) ; la géométrie se calcule (`building/toiture.ts`) et
+  suit les murs. Méthode des croupes reprise de l'atelier, recoupée par les
+  tests sur les mêmes plans fictifs.
+- La maquette gagne une seconde primitive, la **plaque** : un polygone plan
+  quelconque dans l'espace, épaissi (pans de toit, pignons).

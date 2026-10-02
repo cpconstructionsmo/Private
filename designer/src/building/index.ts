@@ -5,3 +5,4 @@ export * from './accrochage';
 export * from './contraintes';
 export * from './fond';
 export * from './cotation';
+export * from './toiture';

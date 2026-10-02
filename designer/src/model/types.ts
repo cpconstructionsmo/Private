@@ -149,10 +149,28 @@ export interface Underlay extends BaseObject {
   opacity: number;
 }
 
-/* Contraintes et valeur des cotes s'ajoutent sans rien changer aux projets
-   déjà enregistrés (un type de plus, un champ facultatif) : le schéma reste
-   à la version 1, l'instantané figé des tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay;
+/** la toiture d'un niveau : seuls les CHOIX sont gardés (type, pente,
+ *  débord, couverture) ; pans, faîtages et pignons se calculent depuis le
+ *  contour des murs (building/toiture.ts), ils suivent donc chaque mur */
+export interface Roof extends BaseObject {
+  type: 'roof';
+  /** à croupes (même pente sur tous les pans), deux pans à pignons, un pan, toit-terrasse */
+  kind: 'hip' | 'gable' | 'shed' | 'flat';
+  /** pente des pans, en degrés (sans objet pour un toit-terrasse) */
+  pitch: number;
+  /** débord au-delà du nu extérieur des murs */
+  overhang: Mm;
+  covering: 'tile' | 'slate' | 'zinc' | 'steel' | 'green' | 'gravel';
+  /** deux pans : faîtage le long du grand côté (par défaut) ou du petit ; un pan : idem pour l'égout bas */
+  ridge?: 'long' | 'short';
+  /** un pan : l'égout bas passe de l'autre côté */
+  flip?: boolean;
+}
+
+/* Contraintes, valeur des cotes, toiture s'ajoutent sans rien changer aux
+   projets déjà enregistrés (un type de plus, un champ facultatif) : le
+   schéma reste à la version 1, l'instantané figé des tests le vérifie. */
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof;
 
 export interface Floor {
   id: string;

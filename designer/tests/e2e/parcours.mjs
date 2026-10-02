@@ -191,6 +191,10 @@ try {
   await p.screenshot({ path: process.env.CAPTURE ?? '/dev/null' }).catch(() => {});
   /* la vue 3D du plan importé : maquette chargée à la demande, mise à jour à
      chaque modification, vue maquette, retour au plan */
+  /* une toiture à croupes sur le plan importé (calculée depuis ses murs) */
+  await p.click('aside button:has-text("Ajouter une toiture")');
+  assert.match(await p.textContent('aside'), /faîtage à \d+,\d\d m/, 'faîtage annoncé');
+  assert.equal((await objets()).filter(o => o.type === 'roof').length, 1);
   await p.keyboard.press('3');
   await p.waitForFunction(() => (window.cpDesigner.vue3d()?.maillages ?? 0) > 0, null, { timeout: 20_000 });
   const s3d = await p.evaluate(() => window.cpDesigner.vue3d());
@@ -206,11 +210,11 @@ try {
   await p.keyboard.press('Escape');
   assert.equal(await p.evaluate(() => window.cpDesigner.vue3d()), null, 'retour au plan');
 
-  /* l'import s'annule d'un coup (le fond, puis le plan) */
+  /* l'import s'annule d'un coup (la toiture, le fond, puis le plan) */
   await p.mouse.click(1080, 820);
-  await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
+  await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
   O = await objets();
-  assert.equal(O.length, 0, 'deux « annuler » : niveau vide');
+  assert.equal(O.length, 0, 'trois « annuler » (la toiture, le fond, le plan) : niveau vide');
 
   assert.equal(await p.locator('#cpd-diagnostic').count(), 0, 'page qui démarre : aucun diagnostic affiché');
   assert.deepEqual(erreurs, [], 'aucune erreur JavaScript');
@@ -224,7 +228,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), import de l’atelier, vue 3D, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), import de l’atelier, toiture, vue 3D, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

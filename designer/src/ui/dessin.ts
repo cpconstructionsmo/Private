@@ -8,6 +8,7 @@ import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
 import type { Accroche } from '../building/accrochage';
 import { dimensionsPiece, type ChaineCotes, type PlaceOuverture } from '../building/cotation';
 import { manoeuvreDe } from '../catalogue/ouvertures';
+import type { Toiture } from '../building/toiture';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
@@ -34,6 +35,8 @@ export interface Scene {
   cotation?: ChaineCotes[];
   /** la place des ouvertures choisies ou en cours de pose, entre leurs murs voisins */
   places?: PlaceOuverture[];
+  /** la toiture du niveau : son égout (débord) en tirets, les lignes de ses pans en pointillé */
+  toitures?: Toiture[];
 }
 
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
@@ -93,6 +96,13 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillText(m2(z.aire), e.x, e.y + 8);
     const d = dimensionsPiece(z.polygone.contour);
     if (d && d.profondeur * cam.echelle > 60) ctx.fillText(texteCote(d.largeur) + ' × ' + texteCote(d.profondeur), e.x, e.y + 22);
+  }
+  /* la toiture au-dessus : égout en tirets, faîtages, arêtiers et noues en pointillé, comme sur un plan de masse */
+  for (const t of s.toitures ?? []) {
+    ctx.strokeStyle = COULEURS.gris; ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    for (const p of t.pans) { chemin(ctx, cam, { contour: p.contour }); ctx.stroke() }
+    ctx.setLineDash([8, 4]); chemin(ctx, cam, { contour: t.egout }); ctx.stroke(); ctx.setLineDash([]);
   }
   /* cotation automatique, puis la place des ouvertures choisies */
   if (s.cotation) for (const c of s.cotation) chaine(ctx, cam, c);

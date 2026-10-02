@@ -3,7 +3,7 @@
    tourne autour. three.js n'est chargé qu'à la première ouverture de la 3D
    (le plan 2D reste léger). Unités : le mètre (la maquette est en mm) ;
    axes : x vers l'est, y vers le haut, z vers le sud (le y du plan, inversé). */
-import type { Maquette, Matiere, Prisme } from '../vue3d/maquette';
+import type { Maquette, Matiere, Plaque, Prisme } from '../vue3d/maquette';
 
 export interface Vue3D {
   mettreAJour(m: Maquette): void;
@@ -20,7 +20,29 @@ export interface Vue3D {
 const COULEURS: Record<Matiere, { couleur: string; opacite?: number; rugosite?: number }> = {
   mur: { couleur: '#EFEBE4' }, cloison: { couleur: '#F7F5F1' }, plancher: { couleur: '#B5AFA4' }, sol: { couleur: '#D8C6A6' },
   vitrage: { couleur: '#8DB7CF', opacite: 0.35, rugosite: 0.1 }, porte: { couleur: '#7A5A3E', rugosite: 0.7 }, garage: { couleur: '#C3C8CC', rugosite: 0.6 },
+  tuile: { couleur: '#A9533D', rugosite: 0.85 }, ardoise: { couleur: '#4A5560', rugosite: 0.6 }, zinc: { couleur: '#8E979E', rugosite: 0.4 },
+  bac_acier: { couleur: '#5B6670', rugosite: 0.5 }, vegetalise: { couleur: '#6F8F55' }, gravillons: { couleur: '#B9B2A3' },
 };
+
+/** la géométrie d'une plaque (pan de toit, pignon) : dessus, dessous et chants, en mètres, axes de la vue */
+function geometriePlaque(THREE: typeof import('three'), p: Plaque) {
+  const V = (q: { x: number; y: number; z: number }) => new THREE.Vector3(q.x / 1000, q.z / 1000, -q.y / 1000);
+  const H = p.dessus.map(V), d = V(p.decalage), B = H.map(v => v.clone().add(d));
+  /* la normale (méthode de Newell), puis la projection qui écrase le moins le polygone, pour le trianguler */
+  const n = new THREE.Vector3();
+  H.forEach((a, i) => { const b = H[(i + 1) % H.length]!; n.x += (a.y - b.y) * (a.z + b.z); n.y += (a.z - b.z) * (a.x + b.x); n.z += (a.x - b.x) * (a.y + b.y) });
+  const ax = Math.abs(n.x) >= Math.abs(n.y) && Math.abs(n.x) >= Math.abs(n.z) ? 'x' : Math.abs(n.y) >= Math.abs(n.z) ? 'y' : 'z';
+  const deux = H.map(v => (ax === 'x' ? new THREE.Vector2(v.y, v.z) : ax === 'y' ? new THREE.Vector2(v.x, v.z) : new THREE.Vector2(v.x, v.y)));
+  const tris = THREE.ShapeUtils.triangulateShape(deux, []);
+  const pos: number[] = [];
+  const tri = (a: InstanceType<typeof THREE.Vector3>, b: InstanceType<typeof THREE.Vector3>, c: InstanceType<typeof THREE.Vector3>) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  for (const [i, j, k] of tris) { tri(H[i!]!, H[j!]!, H[k!]!); tri(B[k!]!, B[j!]!, B[i!]!) }
+  H.forEach((a, i) => { const b = H[(i + 1) % H.length]!, a2 = B[i]!, b2 = B[(i + 1) % H.length]!; tri(a, a2, b2); tri(a, b2, b) });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
 
 export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
   const THREE = await import('three');
@@ -36,8 +58,8 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#E6EDF1');
-  scene.add(new THREE.HemisphereLight('#FFFFFF', '#B9B4A8', 1.2));
-  const soleil = new THREE.DirectionalLight('#FFFFFF', 1.8);
+  scene.add(new THREE.HemisphereLight('#FFFFFF', '#B9B4A8', 0.8));
+  const soleil = new THREE.DirectionalLight('#FFFFFF', 2.4);         // assez fort pour que deux pans se distinguent
   soleil.castShadow = true;
   soleil.shadow.mapSize.set(2048, 2048);
   soleil.shadow.bias = -0.0005;
@@ -81,6 +103,15 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     }
   }
 
+  function plaque(p: Plaque) {
+    const g = geometriePlaque(THREE, p);
+    const m = new THREE.Mesh(g, matieres[p.matiere]);
+    m.castShadow = true; m.receiveShadow = true;
+    if (p.objet) m.userData['objet'] = p.objet;
+    groupe.add(m);
+    groupe.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 20), aretes));
+  }
+
   function vider() {
     for (const o of [...groupe.children]) {
       groupe.remove(o);
@@ -102,6 +133,7 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     mettreAJour(m) {
       vider();
       for (const p of m.prismes) maillage(p);
+      for (const p of m.plaques) plaque(p);
       const premiere = !boite;
       boite = m.boite;
       if (boite) {

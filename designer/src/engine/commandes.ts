@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
+import type { Constraint, Dimension, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Roof, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -79,12 +79,23 @@ export type Commande =
   | { type: 'ajouterFond'; niveau: string; fichier: string; nom?: string; page?: number; calage?: Underlay['transform']; verrouille?: boolean; opacite?: number; origine?: Origine }
   /** caler : deux points de l'image et leur place sur le plan, ou leur distance réelle */
   | { type: 'calerFond'; id: string; image: [Point, Point]; plan?: [Point, Point]; distance?: Mm }
-  | { type: 'modifierFond'; id: string; verrouille?: boolean; opacite?: number };
+  | { type: 'modifierFond'; id: string; verrouille?: boolean; opacite?: number }
+  /** la toiture d'un niveau (une seule) : ses choix ; la géométrie se calcule */
+  | { type: 'creerToiture'; niveau: string; genre: Roof['kind']; pente: number; debord: Mm; couverture: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean }
+  | { type: 'modifierToiture'; id: string; genre?: Roof['kind']; pente?: number; debord?: Mm; couverture?: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
 
 const longueurMur = (w: Wall): Mm => ('a' in w.axis ? distance(w.axis.a, w.axis.b) : Math.abs(w.axis.arc.end - w.axis.arc.start) * w.axis.arc.radius);
+
+/** les choix d'une toiture : pente de 5 à 75° (sans objet pour un toit-terrasse), débord de 0 à 2 m */
+function toitureInvalide(genre: Roof['kind'], pente: number, debord: Mm): string | null {
+  if (!fini(pente, debord)) return 'pente ou débord invalide';
+  if (genre !== 'flat' && !(pente >= 5 && pente <= 75)) return 'pente de 5 à 75°';
+  if (!(debord >= 0 && debord <= 2_000)) return 'débord de 0 à 2 m';
+  return null;
+}
 
 const vantauxValides = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 4;
 
@@ -411,6 +422,34 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.opacite !== undefined) { avant['opacity'] = u.opacity; apres['opacity'] = cmd.opacite }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, u, avant, apres, c)]);
+    }
+    case 'creerToiture': {
+      const n = trouverNiveau(p, cmd.niveau);
+      if (!n) return refus('niveau introuvable');
+      if (Object.values(n.floor.objects).some(o => o.type === 'roof')) return refus('ce niveau a déjà une toiture : modifiez-la');
+      const e = toitureInvalide(cmd.genre, cmd.pente, cmd.debord);
+      if (e) return refus(e);
+      const r: Roof = {
+        id: c.id(), type: 'roof', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision,
+        kind: cmd.genre, pitch: cmd.pente, overhang: cmd.debord, covering: cmd.couverture,
+        ...(cmd.faitage ? { ridge: cmd.faitage } : {}), ...(cmd.inverse ? { flip: true } : {}),
+      };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: r }]);
+    }
+    case 'modifierToiture': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'roof') return refus('toiture introuvable');
+      const r = t.objet;
+      const e = toitureInvalide(cmd.genre ?? r.kind, cmd.pente ?? r.pitch, cmd.debord ?? r.overhang);
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      const champs = { genre: 'kind', pente: 'pitch', debord: 'overhang', couverture: 'covering', faitage: 'ridge', inverse: 'flip' } as const;
+      for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
+        if (cmd[k] === undefined) continue;
+        avant[champs[k]] = r[champs[k]]; apres[champs[k]] = cmd[k];
+      }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, r, avant, apres, c)]);
     }
   }
 }

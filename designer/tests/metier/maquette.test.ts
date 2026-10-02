@@ -80,6 +80,24 @@ describe('maquette 3D', () => {
 
   it('projet vide : maquette vide', () => {
     const p = creerProjet({ nom: 'Vide', id: generateurSequentiel('p') });
-    expect(maquette(p)).toEqual({ prismes: [], boite: null });
+    expect(maquette(p)).toEqual({ prismes: [], plaques: [], boite: null });
+  });
+});
+
+describe('maquette 3D : la toiture', () => {
+  it('croupes : 4 plaques de tuiles sous le faîtage ; deux pans : 2 pans et 2 pignons ; « sans toiture » : rien', () => {
+    let { h, a, n } = maison(false);
+    h = ok(executer(h, 'Toiture', [{ type: 'creerToiture', niveau: n, genre: 'hip', pente: 45, debord: 500, couverture: 'tile' }], a));
+    const M = maquette(h.projet);
+    expect(M.plaques).toHaveLength(4);
+    expect(M.plaques.every(p => p.matiere === 'tuile' && p.decalage.z === -200)).toBe(true);
+    /* murs à l'axe de 20 cm : nu extérieur 10,2 × 8,2 ; faîtage = 2,50 + 4,10 − 0 (débord compté sous le haut des murs) */
+    expect(M.boite!.zmax).toBeCloseTo(2_500 + 4_100, 3);
+    expect(maquette(h.projet, undefined, { toiture: false }).plaques).toHaveLength(0);
+    const r = Object.values(h.projet.buildings[0]!.floors[0]!.objects).find(o => o.type === 'roof')!;
+    h = ok(executer(h, 'Deux pans', [{ type: 'modifierToiture', id: r.id, genre: 'gable' }], a));
+    const G = maquette(h.projet).plaques;
+    expect(G.filter(p => p.matiere === 'tuile')).toHaveLength(2);
+    expect(G.filter(p => p.matiere === 'mur')).toHaveLength(2);
   });
 });
