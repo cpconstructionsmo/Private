@@ -20,6 +20,8 @@ import { ouvrirSession, type Enregistreur } from './session';
 import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } from '../import/atelier';
 import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fonds';
 import type { Accroche } from '../building/accrochage';
+import { maquette } from '../vue3d/maquette';
+import type { Vue3D } from './vue3d';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 
 const USAGES: Record<RoomUsage, string> = {
@@ -95,6 +97,12 @@ const CSS = `
 .cpd .biblio .tuile:hover{border-color:#C5563A}
 .cpd .biblio .tuile.choisi{border-color:#C5563A;background:#FBF3EF;box-shadow:0 0 0 1px #C5563A inset}
 .cpd .biblio .tuile svg{width:72px;height:34px}
+.cpd main .hote3d{position:absolute;inset:0;display:none}
+.cpd main .hote3d canvas{cursor:grab}
+.cpd.en3d main .hote3d{display:block}
+.cpd.en3d main > canvas{visibility:hidden}
+.cpd header button.b3d{font-weight:700}
+.cpd header button.b3d.actif{background:#1A2B36;color:#fff;border-color:#1A2B36}
 .cpd .saisie{position:absolute;z-index:5;width:150px;border:2px solid #C5563A;border-radius:6px;padding:4px 8px;font:600 14px system-ui;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.15)}
 @media (max-width:820px){.cpd{grid-template-columns:48px 1fr;grid-template-rows:48px 1fr 40vh 28px}.cpd aside{grid-column:1/3;grid-row:3/4;border-left:none;border-top:1px solid #E4DED3}.cpd footer{grid-row:4/5}}
 `;
@@ -110,17 +118,17 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       <button class="annuler" title="Annuler (Ctrl+Z)">↶</button><button class="retablir" title="Rétablir (Ctrl+Maj+Z)">↷</button>
       <span class="esp"></span>
       <span class="etat" title="Enregistrement"></span>
+      <button class="b3d" title="Vue 3D (touche 3) — Échap pour revenir au plan">3D</button>
       <button class="cmdk" title="Toutes les actions">⌘K</button>
       <a href="../index.html" style="color:#2C4A5E;font-size:12px">Suivi de chantiers</a>
     </header>
     <nav></nav>
-    <main><canvas></canvas></main>
+    <main><canvas></canvas><div class="hote3d"></div></main>
     <aside></aside>
     <footer><span class="aide"></span><span class="esp" style="flex:1"></span><span class="acc"></span><span class="coord"></span></footer></div>`;
   const $ = <T extends Element>(s: string) => racine.querySelector(s) as T;
   const canvas = $<HTMLCanvasElement>('canvas'), main = $<HTMLElement>('main'), aside = $<HTMLElement>('aside'), nav = $<HTMLElement>('nav');
   const ctx = canvas.getContext('2d')!;
-  canvas.tabIndex = -1;
   const etat = $<HTMLElement>('.etat');
 
   const signaler = (e: string, msg: string) => { etat.className = 'etat ' + e; etat.textContent = msg; etat.title = msg };
@@ -148,6 +156,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   let cam: Camera = { centre: { x: 5_000, y: 4_000 }, echelle: 0.06, largeur: 800, hauteur: 600 };
   /* la cotation automatique : un choix d'affichage, propre à cet appareil */
   let cotation = (() => { try { return localStorage.getItem('cpDesigner:cotation') !== 'non' } catch { return true } })();
+  /* la vue 3D : chargée à la première ouverture */
+  let vue3d: Vue3D | null = null, en3D = false, coupe3D = false, niveaux3D: 'tous' | 'jusqua' = 'tous';
 
   const outils = new Outils(() => ({ projet: h.projet, niveau: niveauId, selection }));
   const niveau = (p: Project = h.projet): Floor => trouverNiveau(p, niveauId)?.floor ?? p.buildings[0]!.floors[0]!;
@@ -167,7 +177,35 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   function apres() {
     if (!trouverNiveau(h.projet, niveauId)) niveauId = niveaux()[0]!.id;
     if (selection && !niveau().objects[selection]) selection = null;
+    if (en3D && vue3d) { vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe() }
     panneaux(); dessinerBientot();
+  }
+
+  /* ---------- vue 3D ---------- */
+  const maquetteAffichee = () => maquette(h.projet, niveaux3D === 'jusqua' ? niveauId : undefined);
+  /* « vue maquette » : murs coupés à 1,20 m au-dessus du sol du niveau affiché, comme une maison de poupée */
+  function appliquerCoupe() { vue3d?.couper(coupe3D ? niveau().elevation + 1_200 : null) }
+  async function basculer3D(oui = !en3D) {
+    if (oui === en3D) return;
+    en3D = oui;
+    racine.querySelector('.cpd')!.classList.toggle('en3d', oui);
+    $<HTMLButtonElement>('.b3d').classList.toggle('actif', oui);
+    if (oui) {
+      choixMur = null; effet(outils.choisir('selection')); selection = null; barreOutils(); panneaux();
+      try {
+        if (!vue3d) { const { creerVue3D } = await import('./vue3d'); vue3d = await creerVue3D($<HTMLElement>('.hote3d')) }
+        vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe();
+      } catch (e) {
+        toast('La vue 3D n’a pas pu s’ouvrir sur ce navigateur (' + String((e as Error)?.message ?? e) + ')', true);
+        en3D = false; racine.querySelector('.cpd')!.classList.remove('en3d'); $<HTMLButtonElement>('.b3d').classList.remove('actif');
+      }
+    }
+    panneaux(); dessinerBientot();
+  }
+  async function imagePNG() {
+    if (!vue3d) return;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(await vue3d.image()); a.download = (h.projet.name || 'projet') + ' - 3D.png'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   /* ---------- dessin ---------- */
@@ -277,7 +315,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }, { passive: false });
   canvas.addEventListener('pointerleave', () => { curseur = null; accroche = null; dessinerBientot() });
 
-  const saisie = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement;
+  /* une case où l'on écrit garde ses touches ; une case à cocher ou un curseur, non (Échap, Ctrl+Z restent des raccourcis) */
+  const saisie = (t: EventTarget | null) => (t instanceof HTMLInputElement && !['checkbox', 'range', 'button'].includes(t.type)) || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement;
   window.addEventListener('keydown', e => {
     if (e.key === ' ' && !saisie(e.target)) { espace = true; canvas.style.cursor = 'grab'; e.preventDefault(); return }
     const cmd = e.ctrlKey || e.metaKey;
@@ -286,11 +325,14 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (cmd && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? retablir() : annuler(); return }
     if (cmd && e.key.toLowerCase() === 'y') { e.preventDefault(); retablir(); return }
     if (cmd) return;
+    if (en3D && e.key === 'Escape') { void basculer3D(false); return }
+    if (en3D && e.key.toLowerCase() === 'f') { vue3d?.cadrer(); return }
     if (e.key === 'Escape') { choixMur = null; effet(outils.touche('Escape')); barreOutils(); return }
     if (e.key === 'Enter') { effet(outils.touche('Enter')); return }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); supprimer(selection); return }
     /* un chiffre pendant un tracé : la longueur se tape (comme sur les logiciels de plans) */
     if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'cloison', 'rectangle'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
+    if (e.key === '3') { void basculer3D(); return }
     const t = TOUCHES[e.key.toLowerCase()];
     if (t) { choisir(t); return }
     if (e.key.toLowerCase() === 'f') { cadrerTout(); return }
@@ -307,7 +349,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const e = curseur ? versEcran(cam, curseur) : { x: cam.largeur / 2, y: cam.hauteur / 2 };
     i.style.left = Math.min(cam.largeur - 160, e.x + 16) + 'px'; i.style.top = Math.min(cam.hauteur - 40, e.y + 34) + 'px';
     /* retirer la case fait perdre le focus : le blur ne doit pas la retirer une seconde fois */
-    const fermer = () => { i.onblur = null; i.remove(); canvas.focus() };
+    const fermer = () => { i.onblur = null; i.remove() };          // le focus revient à la page : les raccourcis marchent
     i.onkeydown = k => {
       if (k.key === 'Enter') { k.preventDefault(); const v = i.value; fermer(); const r = outils.saisir(v); effet(r); if (r.aide && !r.commandes) toast(r.aide, true) }
       else if (k.key === 'Escape') { k.preventDefault(); fermer() }
@@ -326,7 +368,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
-  function choisir(o: NomOutil) { choixMur = null; if (o === 'ouverture') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+  function choisir(o: NomOutil) { if (en3D) void basculer3D(false); choixMur = null; if (o === 'ouverture') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
@@ -351,6 +393,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   $<HTMLButtonElement>('.annuler').onclick = annuler;
   $<HTMLButtonElement>('.retablir').onclick = retablir;
   $<HTMLButtonElement>('.cmdk').onclick = () => palette();
+  $<HTMLButtonElement>('.b3d').onclick = () => void basculer3D();
   const selNiv = $<HTMLSelectElement>('select.niveaux');
   selNiv.onchange = () => { niveauId = selNiv.value; selection = null; apres() };
 
@@ -362,7 +405,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     $<HTMLButtonElement>('.retablir').disabled = !peutRetablir(h);
     const f = niveau(), o = selection ? f.objects[selection] : undefined;
     aside.innerHTML = '';
-    if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else panneauNiveau(f);
+    if (en3D) panneau3D(); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else panneauNiveau(f);
   }
 
   /** un champ de l'inspecteur */
@@ -513,6 +556,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       t.ondragstart = e => { outils.reglages.modeleOuverture = t.dataset['m']!; e.dataTransfer?.setData('text/plain', 'cp-ouverture:' + t.dataset['m']); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy' };
     });
     A.append(b);
+  }
+
+  function panneau3D() {
+    aside.append(titre('Vue 3D'),
+      bloc('Glisser : tourner autour · clic droit (ou Maj + glisser) : déplacer · molette : zoom · F : recadrer · Échap : retour au plan'),
+      champ('Vue maquette (murs coupés à 1,20 m)', coupe3D ? 1 : 0, v => { coupe3D = !!v; appliquerCoupe() }, 'checkbox'),
+      champ('Niveaux montrés', niveaux3D, v => { niveaux3D = v as 'tous' | 'jusqua'; apres() }, 'text', { tous: 'Tous', jusqua: 'Jusqu’au niveau affiché' }),
+      ligne(bouton('Recadrer', () => vue3d?.cadrer()), bouton('Image PNG', () => void imagePNG()), bouton('Retour au plan', () => void basculer3D(false), 'prim')),
+      bloc('La 3D se calcule à partir du plan : chaque modification s’y voit aussitôt. Hauteurs des murs, appuis et hauteurs des ouvertures : ceux de l’inspecteur. Toiture : pas encore dessinée.'));
   }
 
   function panneauNiveau(f: Floor) {
@@ -723,6 +775,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Annuler', touche: 'Ctrl+Z', faire: annuler }, { libelle: 'Rétablir', touche: 'Ctrl+Maj+Z', faire: retablir },
     { libelle: 'Tout voir', touche: 'F', faire: cadrerTout }, { libelle: 'Grille d’accrochage oui / non', touche: 'G', faire: basculerGrille },
     { libelle: 'Cotation automatique oui / non', faire: () => basculerCotation() },
+    { libelle: 'Vue 3D / plan 2D', touche: '3', faire: () => void basculer3D() },
     { libelle: 'Ajouter un niveau', faire: () => void ajouterNiveau() }, { libelle: 'Importer un fond (PDF, image)', faire: importerFond },
     { libelle: 'Importer le RDC lu par l’atelier (modele.json)', faire: importerAtelier },
     ...MODELES_OUVERTURES.map(m => ({ libelle: 'Poser : ' + m.libelle, faire: () => { outils.reglages.modeleOuverture = m.id; choisir('ouverture') } })),
@@ -758,9 +811,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
 
   /* ---------- départ ---------- */
   barreOutils(); panneaux();
-  requestAnimationFrame(() => { cam = { ...cam, largeur: main.clientWidth, hauteur: main.clientHeight }; if (mursDroits(niveau()).length) cadrerTout(); else { cam = cadrer(cam, { xmin: 0, ymin: 0, xmax: 12_000, ymax: 10_000 }); dessinerBientot() } });
-  /* pour les vérifications automatiques (tests dans Chromium) */
-  (window as unknown as Record<string, unknown>)['cpDesigner'] = { projet: () => h.projet, niveau: () => niveauId, camera: () => cam, geometrieOuverture };
+  requestAnimationFrame(() => {
+    cam = { ...cam, largeur: main.clientWidth, hauteur: main.clientHeight };
+    if (mursDroits(niveau()).length) cadrerTout(); else { cam = cadrer(cam, { xmin: 0, ymin: 0, xmax: 12_000, ymax: 10_000 }); dessinerBientot() }
+    /* pour les vérifications automatiques (tests dans Chromium) : publié une fois la vue cadrée,
+       sinon un premier clic calculé avant le cadrage tomberait ailleurs */
+    (window as unknown as Record<string, unknown>)['cpDesigner'] = { projet: () => h.projet, niveau: () => niveauId, camera: () => cam, geometrieOuverture, vue3d: () => (en3D && vue3d ? vue3d.stats() : null) };
+  });
 }
 
 /** une ouverture a-t-elle encore les cotes de son modèle ? (sinon : « sur mesure ») */

@@ -109,6 +109,14 @@ les vantaux et la manœuvre (battant, coulissant, fixe, oscillo-battant,
 sectionnelle, basculante, enroulable). Ces champs sont facultatifs : les
 projets d'avant restent lisibles sans migration.
 
+**Vue 3D** (bouton « 3D » ou touche 3 ; ADR-0006) : la maquette se calcule
+à partir du plan (`src/vue3d/maquette.ts` : murs découpés autour des
+ouvertures, allèges et linteaux, vitrages, portes, planchers, sols, niveaux
+à leur altitude) et s'affiche avec three.js, chargé seulement à la première
+ouverture. On tourne autour, on zoome, « vue maquette » coupe les murs à
+1,20 m pour voir l'intérieur, une image PNG s'enregistre ; chaque
+modification (annuler compris) s'y voit aussitôt. Pas encore de toiture.
+
 ## Travailler
 
 ```

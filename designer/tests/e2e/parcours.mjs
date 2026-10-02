@@ -44,7 +44,8 @@ function pdf() {
   return Buffer.from(s, 'latin1');
 }
 
-const navigateur = await chromium.launch({ executablePath: process.env.CHROMIUM ?? '/opt/pw-browsers/chromium' });
+/* WebGL sans carte graphique (la vue 3D) : le rendu logiciel de Chromium */
+const navigateur = await chromium.launch({ executablePath: process.env.CHROMIUM ?? '/opt/pw-browsers/chromium', args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'] });
 let echec = null;
 try {
   const p = await navigateur.newPage({ viewport: { width: 1400, height: 860 } });
@@ -188,6 +189,23 @@ try {
   assert.ok(trace && trace.locked && Math.abs(trace.transform.scale - 5) < 1e-9, 'tracé source posé, calé et verrouillé');
   await p.waitForTimeout(500);
   await p.screenshot({ path: process.env.CAPTURE ?? '/dev/null' }).catch(() => {});
+  /* la vue 3D du plan importé : maquette chargée à la demande, mise à jour à
+     chaque modification, vue maquette, retour au plan */
+  await p.keyboard.press('3');
+  await p.waitForFunction(() => (window.cpDesigner.vue3d()?.maillages ?? 0) > 0, null, { timeout: 20_000 });
+  const s3d = await p.evaluate(() => window.cpDesigner.vue3d());
+  assert.ok(s3d.maillages > 40 && s3d.triangles > 400, 'maquette 3D construite : ' + JSON.stringify(s3d));
+  await p.waitForTimeout(400);
+  if (process.env.CAPTURE_3D) await p.screenshot({ path: process.env.CAPTURE_3D });
+  await p.check('aside label:has-text("Vue maquette") input');
+  await p.waitForTimeout(300);
+  if (process.env.CAPTURE_3D_COUPE) await p.screenshot({ path: process.env.CAPTURE_3D_COUPE });
+  await p.keyboard.press('Control+z');                               // annuler le fond : la 3D suit sans erreur
+  assert.ok((await p.evaluate(() => window.cpDesigner.vue3d()))?.maillages > 40);
+  await p.keyboard.press('Control+Shift+z');
+  await p.keyboard.press('Escape');
+  assert.equal(await p.evaluate(() => window.cpDesigner.vue3d()), null, 'retour au plan');
+
   /* l'import s'annule d'un coup (le fond, puis le plan) */
   await p.mouse.click(1080, 820);
   await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
@@ -206,7 +224,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), import de l’atelier, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), import de l’atelier, vue 3D, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();
