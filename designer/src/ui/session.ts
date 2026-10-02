@@ -66,7 +66,11 @@ export async function ouvrirSession(params: URLSearchParams, d: Dependances): Pr
     } catch (e) {
       const m = String((e as Error)?.message ?? e);
       const tables = /designer_|relation|does not exist|schema cache/i.test(m);
-      return local(chantier, copie, par, tables
+      /* une installation antérieure du schéma (identifiants en uuid) refuse les ULID */
+      const ancien = /type uuid/i.test(m);
+      return local(chantier, copie, par, ancien
+        ? 'Tables du Designer à mettre à jour sur le serveur (relancer supabase/designer/schema.sql) : projet gardé sur cet appareil seulement.'
+        : tables
         ? 'Tables du Designer pas encore installées sur le serveur (supabase/designer/schema.sql) : projet gardé sur cet appareil seulement.'
         : 'Serveur injoignable (' + m + ') : projet gardé sur cet appareil seulement.');
     }

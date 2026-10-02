@@ -129,4 +129,7 @@ un poteau et une baie qui dépassait de sa cloison signalés « à reprendre ».
 Reste pour clore la Phase 1 : la prise en main par l'équipe sur ce plan, et
 l'enregistrement partagé vérifié sur le serveur après exécution de
 `supabase/designer/schema.sql` (tables, et espace privé « designer-fonds »
-pour les fonds de plan).
+pour les fonds de plan). Le script se relance sans risque : la première
+version rangeait les identifiants des projets en `uuid`, alors que le
+Designer crée des ULID ; relancé, il passe ces colonnes en texte sans rien
+effacer.
