@@ -101,10 +101,10 @@ describe('outils', () => {
     b.clic(4_000, 0); b.clic(4_000, 8_000);
     expect(b.murs()[4]).toMatchObject({ role: 'partition', thickness: 70 });
     expect(b.outils.traceEnCours).toBe(false);                // une cloison s'arrête à chaque trait
-    b.outils.reglages.genreOuverture = 'window';
+    b.outils.reglages.modeleOuverture = 'fen-2v-120x125';
     b.outils.choisir('ouverture');
     b.clic(9_800, 30);                                        // trop près du bout : l'ouverture est ramenée dans le mur
-    expect(b.objets('opening')[0]).toMatchObject({ kind: 'window', width: 1_200, sill: 900, offset: 9_400 });
+    expect(b.objets('opening')[0]).toMatchObject({ kind: 'window', width: 1_200, sill: 900, offset: 9_400, leaves: 2, operation: 'hinged', catalogRef: { id: 'fen-2v-120x125', label: 'Fenêtre 2 vantaux 120 × 125' } });
     b.outils.choisir('piece');
     b.clic(2_000, 4_000);
     expect(b.demandes).toEqual([{ genre: 'nomPiece', niveau: b.niveau, point: { x: 2_000, y: 4_000 } }]);

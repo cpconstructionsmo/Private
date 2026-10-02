@@ -151,6 +151,22 @@ try {
   O = await objets();
   const porte = O.find(o => o.type === 'opening');
   assert.equal(porte.offset, 200 + 1500 + 450, 'porte à 1,50 m de l’angle intérieur : ' + porte.offset);
+  /* bibliothèque d'ouvertures : une fenêtre 2 vantaux glissée sur le mur du haut, puis changée en baie coulissante */
+  await p.keyboard.press('Escape'); await p.keyboard.press('o');
+  assert.match(await p.textContent('aside'), /Bibliothèque d’ouvertures/);
+  if (process.env.CAPTURE_BIBLIO) await p.screenshot({ path: process.env.CAPTURE_BIBLIO });
+  {
+    const cible = await ecran(6000, 7900), r = await p.locator('.cpd canvas').boundingBox();
+    await p.locator('.tuile[data-m="fen-2v-120x125"]').dragTo(p.locator('.cpd canvas'), { targetPosition: { x: cible.x - r.x, y: cible.y - r.y } });
+  }
+  O = await objets();
+  const fen = O.find(o => o.type === 'opening' && o.kind === 'window');
+  assert.ok(fen && fen.width === 1200 && fen.sill === 900 && fen.leaves === 2 && fen.catalogRef?.id === 'fen-2v-120x125', 'fenêtre glissée depuis la bibliothèque : ' + JSON.stringify(fen));
+  await p.keyboard.press('v'); { const e = await ecran(6000, 7900); await p.mouse.click(e.x, e.y) }
+  await p.selectOption('aside label:has-text("Modèle") select', 'baie-2v-240x215');
+  O = await objets();
+  assert.ok(O.some(o => o.type === 'opening' && o.kind === 'bay' && o.width === 2400 && o.operation === 'sliding'), 'modèle changé en baie coulissante');
+  await p.keyboard.press('Escape');
   await p.keyboard.press('f');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_RAPIDE) await p.screenshot({ path: process.env.CAPTURE_RAPIDE });
@@ -190,7 +206,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), import de l’atelier, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), import de l’atelier, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

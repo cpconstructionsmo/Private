@@ -85,6 +85,15 @@ export interface Opening extends BaseObject {
   kind: 'door' | 'window' | 'french_window' | 'garage_door' | 'bay' | 'void';
   /** sens d'ouverture : la poignée sert au plan électrique (commandes) */
   swing?: { side: 'left' | 'right'; inward: boolean };
+  /* Champs facultatifs (bibliothèque d'ouvertures) : un projet qui ne les a
+     pas reste valable tel quel — d'où l'absence de migration. Absents, le
+     dessin prend les valeurs habituelles du genre (voir manoeuvreDe). */
+  /** nombre de vantaux (1 à 4) */
+  leaves?: number;
+  /** la manœuvre : battant, coulissant, fixe, oscillo-battant, sectionnelle, basculante, enroulable */
+  operation?: 'hinged' | 'sliding' | 'fixed' | 'tilt_turn' | 'sectional' | 'up_and_over' | 'roller';
+  /** le modèle de la bibliothèque d'où vient l'ouverture (identifiant et libellé, pour mémoire) */
+  catalogRef?: { id: string; label: string };
 }
 
 export type RoomUsage = 'living' | 'bedroom' | 'kitchen' | 'bathroom' | 'wc' | 'circulation'

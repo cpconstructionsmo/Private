@@ -60,8 +60,8 @@ export type Commande =
   | { type: 'creerMur'; niveau: string; a: Point; b: Point; epaisseur: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; id?: string; origine?: Origine; porteur?: Qualified<boolean> }
   | { type: 'deplacerMur'; id: string; a?: Point; b?: Point }
   | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification'] }
-  | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing']; origine?: Origine }
-  | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing'] }
+  | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing']; origine?: Origine; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
+  | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing']; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
   | { type: 'creerPiece'; niveau: string; point: Point; nom: string; usage: RoomUsage; humide?: boolean; origine?: Origine }
   | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point }
   | { type: 'supprimer'; id: string }
@@ -85,6 +85,8 @@ const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
 
 const longueurMur = (w: Wall): Mm => ('a' in w.axis ? distance(w.axis.a, w.axis.b) : Math.abs(w.axis.arc.end - w.axis.arc.start) * w.axis.arc.radius);
+
+const vantauxValides = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 4;
 
 /** une ouverture tient-elle dans son mur ? (position = milieu de l'ouverture, depuis l'origine du mur) */
 function horsDuMur(position: Mm, largeur: Mm, longueur: Mm): string | null {
@@ -185,10 +187,13 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       const e = horsDuMur(cmd.position, cmd.largeur, longueurMur(t.objet));
       if (e) return refus(e);
       if (!(cmd.hauteur > 0)) return refus('la hauteur doit être positive');
+      if (cmd.vantaux !== undefined && !vantauxValides(cmd.vantaux)) return refus('de 1 à 4 vantaux');
       const o: Opening = {
         id: c.id(), type: 'opening', floorId: t.niveauId, ...provenance(c, cmd.origine), revision: c.revision,
         hostWallId: cmd.mur, offset: cmd.position, width: cmd.largeur, height: cmd.hauteur, sill: cmd.allege ?? 0, kind: cmd.genre,
         ...(cmd.sens ? { swing: cmd.sens } : {}),
+        ...(cmd.vantaux !== undefined ? { leaves: cmd.vantaux } : {}), ...(cmd.manoeuvre ? { operation: cmd.manoeuvre } : {}),
+        ...(cmd.modele ? { catalogRef: { ...cmd.modele } } : {}),
       };
       return accepte([{ type: 'objet.ajouter', niveau: t.niveauId, objet: o }]);
     }
@@ -201,9 +206,10 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       const e = horsDuMur(position, largeur, longueurMur(mur.objet));
       if (e) return refus(e);
       if (cmd.hauteur !== undefined && !(cmd.hauteur > 0)) return refus('la hauteur doit être positive');
+      if (cmd.vantaux !== undefined && !vantauxValides(cmd.vantaux)) return refus('de 1 à 4 vantaux');
       const avant: Record<string, unknown> = { revision: o.revision, sourceRefs: o.sourceRefs };
       const apres: Record<string, unknown> = { revision: c.revision, sourceRefs: [...o.sourceRefs, source(c, 'Modification')] };
-      const champs = { position: 'offset', largeur: 'width', hauteur: 'height', allege: 'sill', genre: 'kind', sens: 'swing' } as const;
+      const champs = { position: 'offset', largeur: 'width', hauteur: 'height', allege: 'sill', genre: 'kind', sens: 'swing', vantaux: 'leaves', manoeuvre: 'operation', modele: 'catalogRef' } as const;
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
         if (cmd[k] === undefined) continue;
         avant[champs[k]] = o[champs[k]] ?? null; apres[champs[k]] = cmd[k];

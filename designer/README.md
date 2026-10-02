@@ -98,6 +98,17 @@ de plans de maisons) :
   ou ouvertures voisins, côté pièce, en rouge ; l'inspecteur les règle
   (« Distance à gauche : 1,50 m »).
 
+**Bibliothèque d'ouvertures** (`src/catalogue/ouvertures.ts`) : outil
+Ouverture (O), le panneau de droite montre les modèles courants par famille
+(fenêtres, portes-fenêtres et baies coulissantes, portes d'entrée, blocs-portes,
+portes de garage, passages), avec leur symbole en plan ; un clic choisit le
+modèle, on le pose d'un clic sur un mur ou en le glissant dessus. Dimensions
+de tableau courantes (ni marque ni prix), à confirmer avec le menuisier.
+Une ouverture garde le nom de son modèle ; l'inspecteur change le modèle,
+les vantaux et la manœuvre (battant, coulissant, fixe, oscillo-battant,
+sectionnelle, basculante, enroulable). Ces champs sont facultatifs : les
+projets d'avant restent lisibles sans migration.
+
 ## Travailler
 
 ```

@@ -4,9 +4,10 @@
    maçonnerie, ouvertures, cotes, contraintes, sélection, accrochage. */
 import type { Floor, Opening, Point, Underlay } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
-import { mursDroits, type MurDroit } from '../building/murs';
+import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
 import type { Accroche } from '../building/accrochage';
 import { dimensionsPiece, type ChaineCotes, type PlaceOuverture } from '../building/cotation';
+import { manoeuvreDe } from '../catalogue/ouvertures';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
@@ -240,36 +241,48 @@ function ouverture(ctx: CanvasRenderingContext2D, cam: Camera, w: MurDroit, o: O
   ctx.beginPath();
   for (const [p, q] of [[r[0]!, r[3]!], [r[1]!, r[2]!]] as const) { const a = E(p), b = E(q); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y) }
   ctx.stroke();
-  if (o.kind === 'window' || o.kind === 'french_window' || o.kind === 'bay') {
-    /* vitrage : deux traits fins dans l'épaisseur */
-    for (const k of [-0.12, 0.12]) {
-      const a = E(ajouter(ajouter(g.centre, multiplier(u, -o.width / 2)), multiplier(n, k * w.thickness)));
-      const b = E(ajouter(ajouter(g.centre, multiplier(u, o.width / 2)), multiplier(n, k * w.thickness)));
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-    }
-  }
-  if (o.kind === 'door' || o.kind === 'french_window') {
-    /* battant(s) et débattement, côté et sens d'ouverture */
-    const sw = o.swing ?? { side: 'left', inward: gaucheInterieur };
-    const cote = sw.inward ? 1 : -1;
-    const vantaux = o.kind === 'french_window' ? 2 : 1;
-    const lv = o.width / vantaux;
-    for (let i = 0; i < vantaux; i++) {
-      const gauche = vantaux === 2 ? i === 0 : sw.side === 'left';
-      const charniere = ajouter(g.centre, multiplier(u, (gauche ? -1 : 1) * o.width / 2));
-      const pivot = ajouter(charniere, multiplier(n, cote * w.thickness / 2));
-      const bout = ajouter(pivot, multiplier(n, cote * lv));
-      const ferme = ajouter(pivot, multiplier(u, (gauche ? 1 : -1) * lv));
-      const P = E(pivot), B = E(bout), F = E(ferme);
-      ctx.beginPath(); ctx.moveTo(P.x, P.y); ctx.lineTo(B.x, B.y); ctx.stroke();
-      const r0 = Math.atan2(B.y - P.y, B.x - P.x), r1 = Math.atan2(F.y - P.y, F.x - P.x);
-      let d = r1 - r0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-      ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(P.x, P.y, Math.hypot(B.x - P.x, B.y - P.y), r0, r1, d < 0); ctx.stroke(); ctx.setLineDash([]);
-    }
-  }
+  const { manoeuvre, vantaux } = manoeuvreDe(o);
+  /* le milieu de l'épaisseur : l'axe n'y est pas quand le mur est tracé par une face (rectangle hors tout) */
+  const F = decalagesFaces(w), c0 = ajouter(g.centre, multiplier(n, (F.gauche + F.droite) / 2));
+  const vitre = o.kind === 'window' || o.kind === 'french_window' || o.kind === 'bay';
+  const trait = (p: Point, q: Point) => { const a = E(p), b = E(q); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke() };
+  /* un point de la baie : t le long du mur (0 au milieu), k à travers (en part de l'épaisseur, depuis l'axe du tableau) */
+  const P = (t: number, k: number) => ajouter(ajouter(c0, multiplier(u, t)), multiplier(n, k * w.thickness));
   if (o.kind === 'garage_door' || o.kind === 'void') {
     const a = E(r[0]!), b = E(r[2]!), c = E(r[1]!), d = E(r[3]!);
     ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.stroke(); ctx.setLineDash([]);
+    return;
+  }
+  if (manoeuvre === 'sliding') {
+    /* coulissant : un panneau par vantail, en quinconce dans l'épaisseur, qui se chevauchent un peu */
+    const lv = o.width / vantaux, recouvre = Math.min(60, lv / 10);
+    for (let i = 0; i < vantaux; i++) {
+      const k = (i % 2 ? 0.1 : -0.1), t0 = -o.width / 2 + i * lv - (i ? recouvre : 0), t1 = -o.width / 2 + (i + 1) * lv + (i < vantaux - 1 ? recouvre : 0);
+      trait(P(t0, k), P(t1, k));
+      if (vitre) trait(P(t0, k + 0.06), P(t1, k + 0.06));
+    }
+    return;
+  }
+  if (vitre) for (const k of [-0.12, 0.12]) trait(P(-o.width / 2, k), P(o.width / 2, k));     // vitrage : deux traits fins
+  if (manoeuvre === 'fixed') return;
+  /* battants : un débattement par vantail, côté et sens d'ouverture ; deux vantaux s'ouvrent depuis les tableaux */
+  const sw = o.swing ?? { side: 'left', inward: gaucheInterieur };
+  const cote = sw.inward ? 1 : -1;
+  const lv = o.width / vantaux;
+  /* une fenêtre bat dans la pièce, sur une petite épaisseur de trait : on la dessine plus discrète */
+  if (o.kind === 'window') { ctx.lineWidth = sel ? 1.4 : 0.8 }
+  for (let i = 0; i < vantaux; i++) {
+    const gauche = vantaux === 1 ? sw.side === 'left' : i % 2 === 0;
+    const t0 = -o.width / 2 + i * lv, t1 = t0 + lv;
+    const charniere = ajouter(c0, multiplier(u, gauche ? t0 : t1));
+    const pivot = ajouter(charniere, multiplier(n, cote * w.thickness / 2));
+    const bout = ajouter(pivot, multiplier(n, cote * lv));
+    const ferme = ajouter(pivot, multiplier(u, (gauche ? 1 : -1) * lv));
+    const Pp = E(pivot), B = E(bout), F = E(ferme);
+    ctx.beginPath(); ctx.moveTo(Pp.x, Pp.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+    const r0 = Math.atan2(B.y - Pp.y, B.x - Pp.x), r1 = Math.atan2(F.y - Pp.y, F.x - Pp.x);
+    let d = r1 - r0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+    ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(Pp.x, Pp.y, Math.hypot(B.x - Pp.x, B.y - Pp.y), r0, r1, d < 0); ctx.stroke(); ctx.setLineDash([]);
   }
 }
 
