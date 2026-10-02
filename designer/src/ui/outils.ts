@@ -16,20 +16,22 @@ import { distancePointSegment, projeterSurDroite } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
 import { viser } from './selection';
+import { MODELES_OUVERTURES, modeleOuverture } from '../catalogue/ouvertures';
 
 export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'piece' | 'cote' | 'caler';
 
 export interface Reglages {
   epaisseurMur: Mm;
   epaisseurCloison: Mm;
-  genreOuverture: Opening['kind'];
+  /** le modèle de la bibliothèque posé par l'outil Ouverture */
+  modeleOuverture: string;
   /** pas de la grille d'accrochage (0 : sans) */
   grille: Mm;
   /** l'outil Rectangle trace les faces extérieures (cotes hors tout) ou intérieures */
   rectangle: 'hors_tout' | 'interieur';
 }
 
-export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, genreOuverture: 'door', grille: 0, rectangle: 'hors_tout' };
+export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout' };
 
 /** dimensions par défaut d'une ouverture neuve (largeur, hauteur, allège) — modifiables ensuite */
 export const OUVERTURES: Record<Opening['kind'], { libelle: string; largeur: Mm; hauteur: Mm; allege: Mm }> = {
@@ -80,7 +82,7 @@ const AIDES: Record<NomOutil, string> = {
   mur: 'Cliquer le départ puis chaque angle — ou taper la longueur (4,50) puis Entrée ; 4,50<90 : longueur et angle ; Échap pour finir ; Maj : 45°',
   cloison: 'Cloison : cliquer le départ puis l’arrivée — ou taper la longueur puis Entrée ; Échap pour finir',
   rectangle: 'Rectangle de murs : cliquer deux angles opposés — ou, après le premier, taper 10x8 puis Entrée',
-  ouverture: 'Cliquer sur un mur pour y placer l’ouverture',
+  ouverture: 'Choisir un modèle dans la bibliothèque (à droite), puis cliquer sur un mur — ou glisser le modèle sur le mur',
   piece: 'Cliquer dans un espace clos pour le nommer',
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
@@ -186,12 +188,16 @@ export class Outils {
     return meilleur?.w ?? null;
   }
 
+  /** le modèle posé (le premier de la bibliothèque si l'identifiant est inconnu) */
+  get modele() { return modeleOuverture(this.reglages.modeleOuverture) ?? MODELES_OUVERTURES[0]! }
+
   private ouvertureSur(w: MurDroit, p: Point): Commande | null {
-    const L = distance(w.axis.a, w.axis.b), d = OUVERTURES[this.reglages.genreOuverture];
+    const L = distance(w.axis.a, w.axis.b), d = this.modele;
     if (d.largeur > L) return null;
     const t = projeterSurDroite(p, w.axis).t * L;
     const position = Math.round(Math.min(L - d.largeur / 2, Math.max(d.largeur / 2, t)));
-    return { type: 'creerOuverture', mur: w.id, position, largeur: d.largeur, hauteur: d.hauteur, allege: d.allege, genre: this.reglages.genreOuverture };
+    return { type: 'creerOuverture', mur: w.id, position, largeur: d.largeur, hauteur: d.hauteur, allege: d.allege, genre: d.genre,
+      vantaux: d.vantaux, manoeuvre: d.manoeuvre, modele: { id: d.id, label: d.libelle } };
   }
 
   bouger(g: Geste): Effet {
@@ -301,7 +307,7 @@ export class Outils {
         if (!w) return { aide: 'Cliquez sur un mur' };
         const cmd = this.ouvertureSur(w, g.point);
         if (!cmd) return { aide: 'Mur trop court pour cette ouverture' };
-        return { commandes: { titre: OUVERTURES[this.reglages.genreOuverture].libelle, liste: [cmd] }, apercu: [] };
+        return { commandes: { titre: this.modele.libelle, liste: [cmd] }, apercu: [] };
       }
       case 'piece': {
         const z = planDuNiveau(f).zones.find(z => positionDansAnneau(g.point, z.polygone.contour) === 'dedans');

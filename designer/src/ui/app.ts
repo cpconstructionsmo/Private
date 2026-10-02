@@ -20,6 +20,7 @@ import { ouvrirSession, type Enregistreur } from './session';
 import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } from '../import/atelier';
 import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fonds';
 import type { Accroche } from '../building/accrochage';
+import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 
 const USAGES: Record<RoomUsage, string> = {
   living: 'Séjour', bedroom: 'Chambre', kitchen: 'Cuisine', bathroom: 'Salle d’eau / de bains', wc: 'WC', circulation: 'Circulation',
@@ -87,6 +88,13 @@ const CSS = `
 .cpd .palette li{padding:7px 10px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between}
 .cpd .palette li.sel{background:#F5F1EA}
 .cpd .palette li kbd{font-size:11px;color:#6E7B84}
+.cpd .biblio details{margin:4px 0}
+.cpd .biblio summary{cursor:pointer;font-weight:600;padding:4px 0}
+.cpd .biblio .tuiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:4px 0 8px}
+.cpd .biblio .tuile{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px;border:1px solid #DDD5C8;border-radius:8px;background:#fff;cursor:grab;font-size:11px;line-height:1.25;text-align:center;user-select:none}
+.cpd .biblio .tuile:hover{border-color:#C5563A}
+.cpd .biblio .tuile.choisi{border-color:#C5563A;background:#FBF3EF;box-shadow:0 0 0 1px #C5563A inset}
+.cpd .biblio .tuile svg{width:72px;height:34px}
 .cpd .saisie{position:absolute;z-index:5;width:150px;border:2px solid #C5563A;border-radius:6px;padding:4px 8px;font:600 14px system-ui;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.15)}
 @media (max-width:820px){.cpd{grid-template-columns:48px 1fr;grid-template-rows:48px 1fr 40vh 28px}.cpd aside{grid-column:1/3;grid-row:3/4;border-left:none;border-top:1px solid #E4DED3}.cpd footer{grid-row:4/5}}
 `;
@@ -244,6 +252,22 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   canvas.addEventListener('pointerup', e => { if (glisse) { glisse = null; return } effet(outils.relacher(geste(e))) });
   canvas.addEventListener('dblclick', () => effet(outils.touche('Enter')));
   canvas.addEventListener('contextmenu', e => e.preventDefault());
+  /* un modèle glissé depuis la bibliothèque : aperçu sur le mur survolé, posé au lâcher */
+  canvas.addEventListener('dragover', e => {
+    if (outils.outil !== 'ouverture') return;
+    e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    curseur = geste(e).point; effet(outils.bouger(geste(e)));
+  });
+  canvas.addEventListener('drop', e => {
+    const d = e.dataTransfer?.getData('text/plain') ?? '';
+    if (outils.outil !== 'ouverture' || !d.startsWith('cp-ouverture:')) return;
+    e.preventDefault();
+    outils.reglages.modeleOuverture = d.slice('cp-ouverture:'.length);
+    const r = outils.appuyer(geste(e));
+    effet(r);
+    if (r.aide && !r.commandes) toast(r.aide, true);
+  });
+  canvas.addEventListener('dragleave', () => { apercu = []; dessinerBientot() });
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
     const r = canvas.getBoundingClientRect(), p = { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -302,7 +326,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
-  function choisir(o: NomOutil) { choixMur = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+  function choisir(o: NomOutil) { choixMur = null; if (o === 'ouverture') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
@@ -338,7 +362,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     $<HTMLButtonElement>('.retablir').disabled = !peutRetablir(h);
     const f = niveau(), o = selection ? f.objects[selection] : undefined;
     aside.innerHTML = '';
-    if (o) inspecteur(f, o); else panneauNiveau(f);
+    if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else panneauNiveau(f);
   }
 
   /** un champ de l'inspecteur */
@@ -407,17 +431,28 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         const op = o as Opening, b = plan.baies.find(x => x.id === op.id);
         const genres = Object.fromEntries(Object.entries(OUVERTURES).map(([k, v]) => [k, v.libelle]));
         const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierOuverture' }>>) => faire(t, [{ type: 'modifierOuverture', id: op.id, ...c }]);
-        A.append(titre(OUVERTURES[op.kind].libelle),
+        const mo = manoeuvreDe(op);
+        const modeles = { '': '— sur mesure —', ...Object.fromEntries(MODELES_OUVERTURES.map(m => [m.id, m.libelle])) };
+        A.append(titre(op.catalogRef?.label ?? OUVERTURES[op.kind].libelle),
+          champ('Modèle', op.catalogRef && modeleOuverture(op.catalogRef.id) && memesCotes(op, modeleOuverture(op.catalogRef.id)!) ? op.catalogRef.id : '', v => {
+            const m = modeleOuverture(v);
+            if (m) mod('Modèle : ' + m.libelle, { genre: m.genre, largeur: m.largeur, hauteur: m.hauteur, allege: m.allege, vantaux: m.vantaux, manoeuvre: m.manoeuvre, modele: { id: m.id, label: m.libelle } });
+          }, 'text', modeles),
           champ('Genre', op.kind, v => mod('Genre', { genre: v as Opening['kind'] }), 'text', genres),
+          champ('Vantaux', mo.vantaux, v => mod('Vantaux', { vantaux: Number(v) }), 'text', { 1: '1', 2: '2', 3: '3', 4: '4' }),
+          champ('Manœuvre', mo.manoeuvre, v => mod('Manœuvre', { manoeuvre: v as NonNullable<Opening['operation']> }), 'text', MANOEUVRES),
           champ('Largeur (m)', (op.width / 1000).toFixed(3), v => mod('Largeur', { largeur: mm(v) }), 'number'),
           champ('Hauteur (m)', (op.height / 1000).toFixed(3), v => mod('Hauteur', { hauteur: mm(v) }), 'number'),
           champ('Allège (m)', (op.sill / 1000).toFixed(3), v => mod('Allège', { allege: mm(v) }), 'number'),
           champ('Axe depuis l’origine du mur (m)', (op.offset / 1000).toFixed(3), v => mod('Position', { position: mm(v) }), 'number'));
         /* placer par les distances aux murs voisins, comme on les lit sur le plan (en rouge) */
         const pl = placeOuverture(f, op.id);
-        if (pl) A.append(
-          champ('Distance ' + pl.libelles[0] + ' (m)', (pl.avant / 1000).toFixed(3), v => mod('Position', { position: Math.round(positionPour(pl, 'avant', mm(v))) }), 'number'),
-          champ('Distance ' + pl.libelles[1] + ' (m)', (pl.apres / 1000).toFixed(3), v => mod('Position', { position: Math.round(positionPour(pl, 'apres', mm(v))) }), 'number'));
+        if (pl) {
+          const D = (['avant', 'apres'] as const).map((c, i) => champ('Distance ' + pl.libelles[i] + ' (m)', ((c === 'avant' ? pl.avant : pl.apres) / 1000).toFixed(3),
+            v => mod('Position', { position: Math.round(positionPour(pl, c, mm(v))) }), 'number'));
+          /* toujours la gauche (ou le bas) en premier, quel que soit le sens du mur */
+          A.append(...(pl.libelles[0] === 'à droite' || pl.libelles[0] === 'en haut' ? D.reverse() : D));
+        }
         if (op.kind === 'door' || op.kind === 'french_window') {
           const s = op.swing ?? { side: 'left', inward: true };
           A.append(ligne(bouton('Charnière ⇄', () => mod('Sens', { sens: { ...s, side: s.side === 'left' ? 'right' : 'left' } })), bouton('Tirant / poussant ⇅', () => mod('Sens', { sens: { ...s, inward: !s.inward } }))));
@@ -459,6 +494,25 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         A.append(titre('Contrainte'), bloc(CONTRAINTES[o.kind] ?? o.kind), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
     }
+  }
+
+  /** la bibliothèque d'ouvertures : un clic choisit le modèle, on peut aussi le glisser sur un mur */
+  function bibliotheque() {
+    const A = aside, choisi = outils.modele.id;
+    A.append(titre('Bibliothèque d’ouvertures'), bloc('Choisissez un modèle, puis cliquez sur un mur — ou glissez-le sur le mur. Dimensions de tableau courantes, à confirmer avec le menuisier ; tout se règle ensuite.'));
+    const b = document.createElement('div'); b.className = 'biblio';
+    for (const [fam, nomFam] of Object.entries(FAMILLES)) {
+      const M = MODELES_OUVERTURES.filter(m => m.famille === fam);
+      const d = document.createElement('details');
+      d.open = M.some(m => m.id === choisi) || fam === 'fenetres';
+      d.innerHTML = `<summary>${esc(nomFam)}</summary><div class="tuiles">${M.map(m => `<div class="tuile${m.id === choisi ? ' choisi' : ''}" draggable="true" data-m="${m.id}" title="${esc(m.libelle)} — ${esc(MANOEUVRES[m.manoeuvre])}">${symbole(m)}<span>${esc(m.libelle)}</span></div>`).join('')}</div>`;
+      b.append(d);
+    }
+    b.querySelectorAll<HTMLElement>('.tuile').forEach(t => {
+      t.onclick = () => { outils.reglages.modeleOuverture = t.dataset['m']!; panneaux(); $<HTMLElement>('.aide').textContent = 'Cliquez sur un mur pour poser : ' + outils.modele.libelle };
+      t.ondragstart = e => { outils.reglages.modeleOuverture = t.dataset['m']!; e.dataTransfer?.setData('text/plain', 'cp-ouverture:' + t.dataset['m']); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy' };
+    });
+    A.append(b);
   }
 
   function panneauNiveau(f: Floor) {
@@ -507,7 +561,6 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     A.append(titre('Réglages'),
       champ('Épaisseur des murs (cm)', outils.reglages.epaisseurMur / 10, v => { outils.reglages.epaisseurMur = ent(v) * 10 }, 'number'),
       champ('Épaisseur des cloisons (cm)', outils.reglages.epaisseurCloison / 10, v => { outils.reglages.epaisseurCloison = ent(v) * 10 }, 'number'),
-      champ('Ouverture posée', outils.reglages.genreOuverture, v => { outils.reglages.genreOuverture = v as Opening['kind'] }, 'text', Object.fromEntries(Object.entries(OUVERTURES).map(([k, v]) => [k, v.libelle]))),
       champ('Grille d’accrochage', String(outils.reglages.grille), v => { outils.reglages.grille = Number(v) }, 'text', { '0': 'Sans', '10': '1 cm', '50': '5 cm', '100': '10 cm', '500': '50 cm' }),
       champ('Rectangle de murs', outils.reglages.rectangle, v => { outils.reglages.rectangle = v as 'hors_tout' | 'interieur' }, 'text', { hors_tout: 'Cotes hors tout', interieur: 'Cotes intérieures' }),
       champ('Cotation automatique', cotation ? 1 : 0, v => basculerCotation(!!v), 'checkbox'),
@@ -672,7 +725,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Cotation automatique oui / non', faire: () => basculerCotation() },
     { libelle: 'Ajouter un niveau', faire: () => void ajouterNiveau() }, { libelle: 'Importer un fond (PDF, image)', faire: importerFond },
     { libelle: 'Importer le RDC lu par l’atelier (modele.json)', faire: importerAtelier },
-    ...(['door', 'window', 'french_window', 'garage_door'] as const).map(k => ({ libelle: 'Poser : ' + OUVERTURES[k].libelle, faire: () => { outils.reglages.genreOuverture = k; choisir('ouverture') } })),
+    ...MODELES_OUVERTURES.map(m => ({ libelle: 'Poser : ' + m.libelle, faire: () => { outils.reglages.modeleOuverture = m.id; choisir('ouverture') } })),
     { libelle: 'Marquer un jalon (APS V1, PC…)', visible: () => !!enr.marquerJalon, faire: async () => { const r = await dialogue('Jalon', [{ cle: 'n', libelle: 'Nom du jalon', valeur: 'APS V1' }]); if (r && enr.marquerJalon) { await enr.marquerJalon(r['n']!); toast('Jalon « ' + r['n'] + ' » : il partira avec le prochain enregistrement') } } },
     { libelle: 'Exporter le projet (JSON)', faire: exporter },
     { libelle: 'Retour au suivi de chantiers', faire: () => { location.href = '../index.html' } },
@@ -708,6 +761,31 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   requestAnimationFrame(() => { cam = { ...cam, largeur: main.clientWidth, hauteur: main.clientHeight }; if (mursDroits(niveau()).length) cadrerTout(); else { cam = cadrer(cam, { xmin: 0, ymin: 0, xmax: 12_000, ymax: 10_000 }); dessinerBientot() } });
   /* pour les vérifications automatiques (tests dans Chromium) */
   (window as unknown as Record<string, unknown>)['cpDesigner'] = { projet: () => h.projet, niveau: () => niveauId, camera: () => cam, geometrieOuverture };
+}
+
+/** une ouverture a-t-elle encore les cotes de son modèle ? (sinon : « sur mesure ») */
+const memesCotes = (o: Opening, m: ModeleOuverture): boolean => o.width === m.largeur && o.height === m.hauteur && o.kind === m.genre;
+
+/** le symbole en plan d'un modèle, pour la bibliothèque (mur en gris, ouverture en trait) */
+function symbole(m: ModeleOuverture): string {
+  const W = 72, x0 = 14, x1 = 58, y = 20, e = 8;            // mur de y−e/2 à y+e/2, baie de x0 à x1
+  const mur = `<rect x="0" y="${y - e / 2}" width="${x0}" height="${e}" fill="#26394A"/><rect x="${x1}" y="${y - e / 2}" width="${W - x1}" height="${e}" fill="#26394A"/>`;
+  const tr = 'stroke="#1A2B36" stroke-width="1.2" fill="none"';
+  let o = '';
+  const n = m.vantaux, l = (x1 - x0) / n;
+  if (m.genre === 'void') o = `<line x1="${x0}" y1="${y - e / 2}" x2="${x1}" y2="${y - e / 2}" ${tr} stroke-dasharray="3 2"/><line x1="${x0}" y1="${y + e / 2}" x2="${x1}" y2="${y + e / 2}" ${tr} stroke-dasharray="3 2"/>`;
+  else if (m.manoeuvre === 'sliding') o = Array.from({ length: n }, (_, i) => `<line x1="${x0 + i * l - (i ? 3 : 0)}" y1="${y + (i % 2 ? 1.5 : -1.5)}" x2="${x0 + (i + 1) * l + (i < n - 1 ? 3 : 0)}" y2="${y + (i % 2 ? 1.5 : -1.5)}" ${tr}/>`).join('') + `<path d="M${x0 + 4} ${y - 7} l6 0 m-2 -2 l2 2 l-2 2" ${tr}/>`;
+  else if (m.manoeuvre === 'fixed') o = `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" ${tr}/>`;
+  else if (m.genre === 'garage_door') o = `<line x1="${x0}" y1="${y - e / 2}" x2="${x1}" y2="${y + e / 2}" ${tr} stroke-dasharray="3 2"/><line x1="${x0}" y1="${y + e / 2}" x2="${x1}" y2="${y - e / 2}" ${tr} stroke-dasharray="3 2"/>`;
+  else {
+    /* battants : un arc par vantail, côté intérieur (vers le bas) */
+    const r = Math.min(l, 14);
+    o = (m.genre === 'window' ? `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" ${tr}/>` : '') + Array.from({ length: n }, (_, i) => {
+      const gauche = n === 1 || i % 2 === 0, px = gauche ? x0 + i * l : x0 + (i + 1) * l, s = gauche ? 1 : -1;
+      return `<line x1="${px}" y1="${y + e / 2}" x2="${px}" y2="${y + e / 2 + r}" ${tr}/><path d="M${px} ${y + e / 2 + r} A${r} ${r} 0 0 ${gauche ? 0 : 1} ${px + s * r} ${y + e / 2}" ${tr} stroke-dasharray="2 2"/>`;
+    }).join('');
+  }
+  return `<svg viewBox="0 0 ${W} 36" aria-hidden="true">${mur}${o}</svg>`;
 }
 
 function distSeg(p: Point, w: MurDroit): number {
