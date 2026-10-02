@@ -17,8 +17,10 @@ import { distance } from '../geometry/vecteur';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
 import { viser } from './selection';
 import { MODELES_OUVERTURES, modeleOuverture } from '../catalogue/ouvertures';
+import { MODELES_MEUBLES, modeleMeuble } from '../catalogue/mobilier';
+import { poserMeuble } from '../building/mobilier';
 
-export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'piece' | 'cote' | 'caler';
+export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'piece' | 'cote' | 'caler';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -29,9 +31,12 @@ export interface Reglages {
   grille: Mm;
   /** l'outil Rectangle trace les faces extérieures (cotes hors tout) ou intérieures */
   rectangle: 'hors_tout' | 'interieur';
+  /** le meuble posé par l'outil Mobilier, et son orientation quand il n'est pas contre un mur */
+  modeleMeuble: string;
+  rotationMeuble: number;
 }
 
-export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout' };
+export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout', modeleMeuble: 'canape-3p', rotationMeuble: 0 };
 
 /** dimensions par défaut d'une ouverture neuve (largeur, hauteur, allège) — modifiables ensuite */
 export const OUVERTURES: Record<Opening['kind'], { libelle: string; largeur: Mm; hauteur: Mm; allege: Mm }> = {
@@ -75,7 +80,8 @@ interface Contexte { projet: Project; niveau: string; selection: string | null }
 type Prise =
   | { genre: 'sommet'; de: Point; depart: Point }
   | { genre: 'mur'; mur: MurDroit; depart: Point }
-  | { genre: 'ouverture'; id: string; mur: MurDroit; decalage: Mm };
+  | { genre: 'ouverture'; id: string; mur: MurDroit; decalage: Mm }
+  | { genre: 'meuble'; id: string; depart: Point; decalage: Point; largeur: Mm; profondeur: Mm; rotation: number };
 
 const AIDES: Record<NomOutil, string> = {
   selection: 'Cliquer pour choisir ; tirer une extrémité, un mur ou une ouverture pour la déplacer',
@@ -83,6 +89,7 @@ const AIDES: Record<NomOutil, string> = {
   cloison: 'Cloison : cliquer le départ puis l’arrivée — ou taper la longueur puis Entrée ; Échap pour finir',
   rectangle: 'Rectangle de murs : cliquer deux angles opposés — ou, après le premier, taper 10x8 puis Entrée',
   ouverture: 'Choisir un modèle dans la bibliothèque (à droite), puis cliquer sur un mur — ou glisser le modèle sur le mur',
+  mobilier: 'Choisir un meuble (à droite), puis cliquer pour le poser : près d’un mur il s’y plaque — T : tourner ; Alt : pose libre',
   piece: 'Cliquer dans un espace clos pour le nommer',
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
@@ -188,6 +195,24 @@ export class Outils {
     return meilleur?.w ?? null;
   }
 
+  /** le meuble posé (le premier de la bibliothèque si l'identifiant est inconnu) */
+  get meuble() { return modeleMeuble(this.reglages.modeleMeuble) ?? MODELES_MEUBLES[0]! }
+
+  /** le meuble à poser en p : plaqué contre un mur proche (sauf Alt) */
+  private meubleEn(g: Geste): Commande {
+    const m = this.meuble;
+    const pose = g.alt ? { position: g.point, rotation: this.reglages.rotationMeuble }
+      : poserMeuble(this.niveau()!, g.point, m.largeur, m.profondeur, this.reglages.rotationMeuble, 300 + g.rayon);
+    return { type: 'creerMeuble', niveau: this.contexte().niveau, modele: { id: m.id, label: m.libelle }, position: { x: Math.round(pose.position.x), y: Math.round(pose.position.y) },
+      rotation: pose.rotation, largeur: m.largeur, profondeur: m.profondeur, hauteur: m.hauteur };
+  }
+
+  /** T : un quart de tour pour le meuble à poser (posé librement) */
+  tourner(): Effet {
+    this.reglages.rotationMeuble = (this.reglages.rotationMeuble + Math.PI / 2) % (2 * Math.PI);
+    return { aide: 'Meuble tourné d’un quart de tour (près d’un mur, il s’oriente seul)' };
+  }
+
   /** le modèle posé (le premier de la bibliothèque si l'identifiant est inconnu) */
   get modele() { return modeleOuverture(this.reglages.modeleOuverture) ?? MODELES_OUVERTURES[0]! }
 
@@ -206,6 +231,15 @@ export class Outils {
       case 'selection': {
         if (!this.prise) return { accroche: null };
         const p = this.prise;
+        if (p.genre === 'meuble') {
+          /* un clic n'est pas un déplacement : sans mouvement franc, le meuble reste où il est */
+          if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
+          const vise = { x: g.point.x - p.decalage.x, y: g.point.y - p.decalage.y };
+          const pose = g.alt ? { position: vise, rotation: p.rotation } : poserMeuble(this.niveau()!, vise, p.largeur, p.profondeur, p.rotation, 300 + g.rayon);
+          this.bouge = true;
+          this.dernier = { type: 'modifierMeuble', id: p.id, position: { x: Math.round(pose.position.x), y: Math.round(pose.position.y) }, rotation: pose.rotation };
+          return { apercu: [this.dernier] };
+        }
         if (p.genre === 'ouverture') {
           const L = distance(p.mur.axis.a, p.mur.axis.b);
           const position = Math.round(projeterSurDroite(g.point, p.mur.axis).t * L - p.decalage);
@@ -242,6 +276,8 @@ export class Outils {
         const cmd = w ? this.ouvertureSur(w, g.point) : null;
         return { accroche: null, apercu: cmd ? [cmd] : [] };
       }
+      case 'mobilier':
+        return { accroche: null, apercu: [this.meubleEn(g)] };
       case 'cote':
       case 'caler':
         return { accroche: this.accrocher(g) };
@@ -282,6 +318,7 @@ export class Outils {
         }
         const o = f.objects[cible.id];
         if (o?.type === 'wall' && 'a' in o.axis) this.prise = { genre: 'mur', mur: o as MurDroit, depart: this.accrocher(g).point };
+        else if (o?.type === 'furniture') this.prise = { genre: 'meuble', id: o.id, depart: g.point, decalage: { x: g.point.x - o.position.x, y: g.point.y - o.position.y }, largeur: o.width, profondeur: o.depth, rotation: o.rotation };
         else if (o?.type === 'opening') {
           const w = f.objects[o.hostWallId];
           if (w?.type === 'wall' && 'a' in w.axis) {
@@ -309,6 +346,8 @@ export class Outils {
         if (!cmd) return { aide: 'Mur trop court pour cette ouverture' };
         return { commandes: { titre: this.modele.libelle, liste: [cmd] }, apercu: [] };
       }
+      case 'mobilier':
+        return { commandes: { titre: this.meuble.libelle, liste: [this.meubleEn(g)] }, apercu: [] };
       case 'piece': {
         const z = planDuNiveau(f).zones.find(z => positionDansAnneau(g.point, z.polygone.contour) === 'dedans');
         if (!z) return { aide: 'Cliquez à l’intérieur d’un espace fermé par des murs' };
@@ -388,7 +427,7 @@ export class Outils {
     const p = this.prise, dernier = this.dernier;
     this.prise = null; this.bouge = false; this.dernier = null;
     if (!dernier) return { apercu: [] };
-    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : 'Déplacer une ouverture';
+    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : 'Déplacer une ouverture';
     return { apercu: [], commandes: { titre, liste: [dernier] } };
   }
 

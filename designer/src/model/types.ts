@@ -149,10 +149,44 @@ export interface Underlay extends BaseObject {
   opacity: number;
 }
 
-/* Contraintes et valeur des cotes s'ajoutent sans rien changer aux projets
-   déjà enregistrés (un type de plus, un champ facultatif) : le schéma reste
-   à la version 1, l'instantané figé des tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay;
+/** la toiture d'un niveau : seuls les CHOIX sont gardés (type, pente,
+ *  débord, couverture) ; pans, faîtages et pignons se calculent depuis le
+ *  contour des murs (building/toiture.ts), ils suivent donc chaque mur */
+export interface Roof extends BaseObject {
+  type: 'roof';
+  /** à croupes (même pente sur tous les pans), deux pans à pignons, un pan, toit-terrasse */
+  kind: 'hip' | 'gable' | 'shed' | 'flat';
+  /** pente des pans, en degrés (sans objet pour un toit-terrasse) */
+  pitch: number;
+  /** débord au-delà du nu extérieur des murs */
+  overhang: Mm;
+  covering: 'tile' | 'slate' | 'zinc' | 'steel' | 'green' | 'gravel';
+  /** deux pans : faîtage le long du grand côté (par défaut) ou du petit ; un pan : idem pour l'égout bas */
+  ridge?: 'long' | 'short';
+  /** un pan : l'égout bas passe de l'autre côté */
+  flip?: boolean;
+}
+
+/** un meuble ou un équipement posé (lit, évier, WC…) : il meuble le plan et
+ *  la 3D, il ne change ni les murs ni les surfaces */
+export interface Furniture extends BaseObject {
+  type: 'furniture';
+  /** le centre, en plan */
+  position: Point;
+  /** l'orientation (sens trigonométrique) : à 0, le dos est vers −y, le devant vers +y */
+  rotation: Radian;
+  width: Mm;
+  depth: Mm;
+  height: Mm;
+  /** le modèle de la bibliothèque (sa forme dit comment le dessiner) */
+  catalogRef: { id: string; label: string };
+}
+
+/* Contraintes, valeur des cotes, toiture, mobilier s'ajoutent sans rien
+   changer aux projets déjà enregistrés (un type de plus, un champ
+   facultatif) : le schéma reste à la version 1, l'instantané figé des
+   tests le vérifie. */
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture;
 
 export interface Floor {
   id: string;

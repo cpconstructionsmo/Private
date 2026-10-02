@@ -115,7 +115,28 @@ ouvertures, allèges et linteaux, vitrages, portes, planchers, sols, niveaux
 à leur altitude) et s'affiche avec three.js, chargé seulement à la première
 ouverture. On tourne autour, on zoome, « vue maquette » coupe les murs à
 1,20 m pour voir l'intérieur, une image PNG s'enregistre ; chaque
-modification (annuler compris) s'y voit aussitôt. Pas encore de toiture.
+modification (annuler compris) s'y voit aussitôt.
+
+**Toiture** (`src/building/toiture.ts`, panneau du niveau ou de la 3D) : le
+modèle ne garde que les choix (type, pente, débord, couverture) ; pans,
+faîtages et pignons se calculent depuis le contour des murs et le suivent.
+À croupes sur tout plan à angles droits (méthode de l'atelier, mêmes
+surfaces sur les mêmes plans), deux pans à pignons ou un pan sur un plan
+rectangulaire, toit-terrasse avec acrotère. Le toit passe par le haut des
+murs au nu extérieur ; égout, faîtage et surface de couverture sont
+annoncés (indicatifs : la charpente n'est pas étudiée). Un plan qui ne
+convient pas est refusé avec sa raison. En plan : égout en tirets, lignes
+des pans en pointillé.
+
+**Mobilier** (outil B ; `src/catalogue/mobilier.ts`, `src/building/mobilier.ts`) :
+une quarantaine de meubles et équipements courants (séjour, chambre,
+cuisine, salle de bains, WC et buanderie, aire de rotation Ø 1,50 m), sans
+marque ni prix. Approché d'un mur, un meuble s'y plaque dos contre la face
+et se tourne vers la pièce ; près d'un angle, il glisse jusqu'au mur
+voisin (Alt : pose libre ; T : quart de tour). On le tire pour le déplacer,
+l'inspecteur règle ses cotes et son orientation, « Dupliquer » en pose un
+autre. Même description pour le plan (symbole) et la 3D (volumes). Le
+mobilier ne change ni les murs ni les surfaces.
 
 ## Travailler
 

@@ -26,3 +26,11 @@ export const EPS_SUR_FACE = 2 * JEU_SOUDURE;
  *  Une cote s'affiche au centimètre ; un décroché de quelques millimètres
  *  n'y ferait qu'un « 0,00 » illisible. */
 export const FUSION_COTES = 5;
+
+/** toiture automatique : un bord de plan à moins de 1° d'un angle droit est
+ *  droit (au-delà, le plan n'est pas orthogonal) — sauf un bord court, où
+ *  quelques millimètres de dessin faussent l'angle (voir la tolérance suivante) */
+export const ANGLE_DROIT_TOITURE = Math.PI / 180;
+/** toiture : bords plus courts que ceci (mm) et coordonnées plus proches que
+ *  ceci sont des défauts de dessin, redressés (repris de l'atelier) */
+export const REDRESSEMENT_TOITURE = 20;

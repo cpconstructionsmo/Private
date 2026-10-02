@@ -168,9 +168,35 @@ try {
   O = await objets();
   assert.ok(O.some(o => o.type === 'opening' && o.kind === 'bay' && o.width === 2400 && o.operation === 'sliding'), 'modèle changé en baie coulissante');
   await p.keyboard.press('Escape');
+  /* mobilier : un lit posé près du mur du bas s'y plaque ; un canapé glissé près du mur du haut s'y retourne */
+  await p.keyboard.press('b');
+  assert.match(await p.textContent('aside'), /Mobilier/);
+  await p.click('aside summary:has-text("Chambre")');
+  await p.click('.tuile[data-m="lit-160"]');
+  await clic(5000, 900);
+  O = await objets();
+  const lit = O.find(o => o.type === 'furniture');
+  assert.deepEqual([lit?.position, lit?.rotation], [{ x: 5000, y: 200 + 1000 }, 0], 'lit plaqué contre le mur du bas : ' + JSON.stringify(lit));
+  await p.click('aside summary:has-text("Séjour")');
+  {
+    const cible = await ecran(5000, 7300), r = await p.locator('.cpd canvas').boundingBox();
+    await p.locator('.tuile[data-m="canape-3p"]').dragTo(p.locator('.cpd canvas'), { targetPosition: { x: cible.x - r.x, y: cible.y - r.y } });
+  }
+  O = await objets();
+  const canape = O.find(o => o.type === 'furniture' && o.catalogRef.id === 'canape-3p');
+  assert.ok(canape && Math.abs(canape.position.y - (7800 - 475)) < 1 && Math.abs(Math.cos(canape.rotation) + 1) < 1e-9, 'canapé glissé, plaqué contre le mur du haut : ' + JSON.stringify(canape));
+  await p.keyboard.press('Escape');
   await p.keyboard.press('f');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_RAPIDE) await p.screenshot({ path: process.env.CAPTURE_RAPIDE });
+  if (process.env.CAPTURE_MEUBLES_3D) {
+    await p.keyboard.press('3');
+    await p.waitForFunction(() => (window.cpDesigner.vue3d()?.maillages ?? 0) > 0, null, { timeout: 20_000 });
+    await p.check('aside label:has-text("Vue maquette") input');
+    await p.waitForTimeout(400);
+    await p.screenshot({ path: process.env.CAPTURE_MEUBLES_3D });
+    await p.keyboard.press('Escape');
+  }
 
   /* Phase 1 bis : le RDC lu par l'atelier (plan fictif), sur un chantier neuf */
   await p.goto(`http://localhost:${port}/index.html?chantier=essai-import`);
@@ -191,6 +217,10 @@ try {
   await p.screenshot({ path: process.env.CAPTURE ?? '/dev/null' }).catch(() => {});
   /* la vue 3D du plan importé : maquette chargée à la demande, mise à jour à
      chaque modification, vue maquette, retour au plan */
+  /* une toiture à croupes sur le plan importé (calculée depuis ses murs) */
+  await p.click('aside button:has-text("Ajouter une toiture")');
+  assert.match(await p.textContent('aside'), /faîtage à \d+,\d\d m/, 'faîtage annoncé');
+  assert.equal((await objets()).filter(o => o.type === 'roof').length, 1);
   await p.keyboard.press('3');
   await p.waitForFunction(() => (window.cpDesigner.vue3d()?.maillages ?? 0) > 0, null, { timeout: 20_000 });
   const s3d = await p.evaluate(() => window.cpDesigner.vue3d());
@@ -206,11 +236,11 @@ try {
   await p.keyboard.press('Escape');
   assert.equal(await p.evaluate(() => window.cpDesigner.vue3d()), null, 'retour au plan');
 
-  /* l'import s'annule d'un coup (le fond, puis le plan) */
+  /* l'import s'annule d'un coup (la toiture, le fond, puis le plan) */
   await p.mouse.click(1080, 820);
-  await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
+  await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
   O = await objets();
-  assert.equal(O.length, 0, 'deux « annuler » : niveau vide');
+  assert.equal(O.length, 0, 'trois « annuler » (la toiture, le fond, le plan) : niveau vide');
 
   assert.equal(await p.locator('#cpd-diagnostic').count(), 0, 'page qui démarre : aucun diagnostic affiché');
   assert.deepEqual(erreurs, [], 'aucune erreur JavaScript');
@@ -224,7 +254,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), import de l’atelier, vue 3D, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), import de l’atelier, toiture, vue 3D, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

@@ -5,11 +5,11 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { BuildingObject, Floor, Mm, Opening, Point, Project, RoomUsage, Wall } from '../model/types';
+import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsage, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, executer, nouvelHistorique, peutAnnuler, peutRetablir, retablirEnregistre, type Acteur, type Commande, type Historique } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -23,6 +23,8 @@ import type { Accroche } from '../building/accrochage';
 import { maquette } from '../vue3d/maquette';
 import type { Vue3D } from './vue3d';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
+import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
+import { traits } from '../building/mobilier';
 
 const USAGES: Record<RoomUsage, string> = {
   living: 'Séjour', bedroom: 'Chambre', kitchen: 'Cuisine', bathroom: 'Salle d’eau / de bains', wc: 'WC', circulation: 'Circulation',
@@ -30,6 +32,8 @@ const USAGES: Record<RoomUsage, string> = {
 };
 const ROLES: Record<Wall['role'], string> = { exterior: 'Mur extérieur', partition: 'Cloison', bearing_interior: 'Refend' };
 const JUSTIFS: Record<Wall['justification'], string> = { center: 'À l’axe', left: 'Par la face gauche', right: 'Par la face droite' };
+const TOITURES: Record<Roof['kind'], string> = { hip: 'À croupes', gable: 'Deux pans (pignons)', shed: 'Un pan', flat: 'Toit-terrasse' };
+const COUVERTURES: Record<Roof['covering'], string> = { tile: 'Tuiles terre cuite', slate: 'Ardoises', zinc: 'Zinc', steel: 'Bac acier', green: 'Végétalisée', gravel: 'Gravillons (terrasse)' };
 const CONTRAINTES: Record<string, string> = { horizontal: 'Horizontal', vertical: 'Vertical', parallel: 'Parallèle', perpendicular: 'Perpendiculaire', length: 'Longueur fixe', angle: 'Angle fixe' };
 
 const m = (mm: number) => (mm / 1000).toFixed(2).replace('.', ',') + ' m';
@@ -157,7 +161,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   /* la cotation automatique : un choix d'affichage, propre à cet appareil */
   let cotation = (() => { try { return localStorage.getItem('cpDesigner:cotation') !== 'non' } catch { return true } })();
   /* la vue 3D : chargée à la première ouverture */
-  let vue3d: Vue3D | null = null, en3D = false, coupe3D = false, niveaux3D: 'tous' | 'jusqua' = 'tous';
+  let vue3d: Vue3D | null = null, en3D = false, coupe3D = false, niveaux3D: 'tous' | 'jusqua' = 'tous', toit3D = true;
 
   const outils = new Outils(() => ({ projet: h.projet, niveau: niveauId, selection }));
   const niveau = (p: Project = h.projet): Floor => trouverNiveau(p, niveauId)?.floor ?? p.buildings[0]!.floors[0]!;
@@ -182,7 +186,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
 
   /* ---------- vue 3D ---------- */
-  const maquetteAffichee = () => maquette(h.projet, niveaux3D === 'jusqua' ? niveauId : undefined);
+  const maquetteAffichee = () => maquette(h.projet, niveaux3D === 'jusqua' ? niveauId : undefined, { toiture: toit3D });
   /* « vue maquette » : murs coupés à 1,20 m au-dessus du sol du niveau affiché, comme une maison de poupée */
   function appliquerCoupe() { vue3d?.couper(coupe3D ? niveau().elevation + 1_200 : null) }
   async function basculer3D(oui = !en3D) {
@@ -239,7 +243,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     /* la place de l'ouverture choisie, ou de celle qu'on pose */
     const places = [selection, Object.keys(f.objects).find(k => k.startsWith('apercu-') && f.objects[k]!.type === 'opening')]
       .flatMap(id => (id ? [placeOuverture(f, id)] : [])).filter(x => x !== null);
+    const toit = toitureDuNiveau(f);
     dessiner(ctx, cam, { niveau: f, dessous: i > 0 ? L[i - 1]! : null, selection, accroche, images, sommets: outils.outil === 'selection', etiquette,
+      ...(toit?.ok ? { toitures: toit.toitures } : {}),
       ...(cotation ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
   }
@@ -292,15 +298,16 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   /* un modèle glissé depuis la bibliothèque : aperçu sur le mur survolé, posé au lâcher */
   canvas.addEventListener('dragover', e => {
-    if (outils.outil !== 'ouverture') return;
+    if (outils.outil !== 'ouverture' && outils.outil !== 'mobilier') return;
     e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     curseur = geste(e).point; effet(outils.bouger(geste(e)));
   });
   canvas.addEventListener('drop', e => {
     const d = e.dataTransfer?.getData('text/plain') ?? '';
-    if (outils.outil !== 'ouverture' || !d.startsWith('cp-ouverture:')) return;
+    if (outils.outil === 'ouverture' && d.startsWith('cp-ouverture:')) outils.reglages.modeleOuverture = d.slice('cp-ouverture:'.length);
+    else if (outils.outil === 'mobilier' && d.startsWith('cp-meuble:')) outils.reglages.modeleMeuble = d.slice('cp-meuble:'.length);
+    else return;
     e.preventDefault();
-    outils.reglages.modeleOuverture = d.slice('cp-ouverture:'.length);
     const r = outils.appuyer(geste(e));
     effet(r);
     if (r.aide && !r.commandes) toast(r.aide, true);
@@ -333,6 +340,12 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     /* un chiffre pendant un tracé : la longueur se tape (comme sur les logiciels de plans) */
     if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'cloison', 'rectangle'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
     if (e.key === '3') { void basculer3D(); return }
+    if (e.key.toLowerCase() === 't') {
+      const o = selection ? niveau().objects[selection] : undefined;
+      if (o?.type === 'furniture') faire('Tourner', [{ type: 'modifierMeuble', id: o.id, rotation: o.rotation + Math.PI / 2 }]);
+      else if (outils.outil === 'mobilier') { effet(outils.tourner()); if (curseur) effet(outils.bouger({ point: curseur, rayon: pixelsEnMm(cam, 10) })) }
+      return;
+    }
     const t = TOUCHES[e.key.toLowerCase()];
     if (t) { choisir(t); return }
     if (e.key.toLowerCase() === 'f') { cadrerTout(); return }
@@ -364,11 +377,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   const OUTILS: { nom: NomOutil; icone: string; libelle: string; touche: string }[] = [
     { nom: 'selection', icone: '↖', libelle: 'Sélection', touche: 'V' }, { nom: 'mur', icone: '▬', libelle: 'Mur', touche: 'M' },
     { nom: 'cloison', icone: '▭', libelle: 'Cloison', touche: 'C' }, { nom: 'rectangle', icone: '⬚', libelle: 'Rectangle de murs', touche: 'R' },
-    { nom: 'ouverture', icone: '◫', libelle: 'Ouverture', touche: 'O' },
+    { nom: 'ouverture', icone: '◫', libelle: 'Ouverture', touche: 'O' }, { nom: 'mobilier', icone: '▣', libelle: 'Mobilier', touche: 'B' },
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
-  function choisir(o: NomOutil) { if (en3D) void basculer3D(false); choixMur = null; if (o === 'ouverture') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+  function choisir(o: NomOutil) { if (en3D) void basculer3D(false); choixMur = null; if (o === 'ouverture' || o === 'mobilier') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
@@ -405,7 +418,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     $<HTMLButtonElement>('.retablir').disabled = !peutRetablir(h);
     const f = niveau(), o = selection ? f.objects[selection] : undefined;
     aside.innerHTML = '';
-    if (en3D) panneau3D(); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else panneauNiveau(f);
+    if (en3D) panneau3D(); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else if (outils.outil === 'mobilier') bibliothequeMobilier(); else panneauNiveau(f);
   }
 
   /** un champ de l'inspecteur */
@@ -533,6 +546,25 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           titre('Objet'), provenance(o), ligne(bouton('Retirer le fond', () => supprimer(o.id), 'dang')));
         break;
       }
+      case 'furniture': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierMeuble' }>>) => faire(t, [{ type: 'modifierMeuble', id: o.id, ...c }]);
+        const deg = Math.round(((o.rotation * 180 / Math.PI) % 360 + 360) % 360 * 10) / 10;
+        A.append(titre(o.catalogRef.label),
+          champ('Largeur (m)', (o.width / 1000).toFixed(3), v => mod('Largeur', { largeur: mm(v) }), 'number'),
+          champ('Profondeur (m)', (o.depth / 1000).toFixed(3), v => mod('Profondeur', { profondeur: mm(v) }), 'number'),
+          champ('Hauteur (m)', (o.height / 1000).toFixed(3), v => mod('Hauteur', { hauteur: mm(v) }), 'number'),
+          champ('Orientation (°)', deg, v => mod('Orientation', { rotation: ent(v) * Math.PI / 180 }), 'number'),
+          ligne(bouton('Tourner de 90° (T)', () => mod('Tourner', { rotation: o.rotation + Math.PI / 2 })),
+            bouton('Dupliquer', () => {
+              const avant = new Set(Object.keys(niveau().objects));
+              if (faire('Dupliquer : ' + o.catalogRef.label, [{ type: 'creerMeuble', niveau: niveauId, modele: o.catalogRef, position: { x: o.position.x + 300, y: o.position.y - 300 }, rotation: o.rotation, largeur: o.width, profondeur: o.depth, hauteur: o.height }])) {
+                selection = Object.keys(niveau().objects).find(k => !avant.has(k)) ?? null; panneaux();
+              }
+            })),
+          bloc('Tirez le meuble pour le déplacer : près d’un mur, il s’y plaque (Alt : librement).'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
       case 'constraint':
         A.append(titre('Contrainte'), bloc(CONTRAINTES[o.kind] ?? o.kind), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
@@ -563,8 +595,55 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       bloc('Glisser : tourner autour · clic droit (ou Maj + glisser) : déplacer · molette : zoom · F : recadrer · Échap : retour au plan'),
       champ('Vue maquette (murs coupés à 1,20 m)', coupe3D ? 1 : 0, v => { coupe3D = !!v; appliquerCoupe() }, 'checkbox'),
       champ('Niveaux montrés', niveaux3D, v => { niveaux3D = v as 'tous' | 'jusqua'; apres() }, 'text', { tous: 'Tous', jusqua: 'Jusqu’au niveau affiché' }),
+      champ('Montrer la toiture', toit3D ? 1 : 0, v => { toit3D = !!v; apres() }, 'checkbox'),
       ligne(bouton('Recadrer', () => vue3d?.cadrer()), bouton('Image PNG', () => void imagePNG()), bouton('Retour au plan', () => void basculer3D(false), 'prim')),
-      bloc('La 3D se calcule à partir du plan : chaque modification s’y voit aussitôt. Hauteurs des murs, appuis et hauteurs des ouvertures : ceux de l’inspecteur. Toiture : pas encore dessinée.'));
+      bloc('La 3D se calcule à partir du plan : chaque modification s’y voit aussitôt. Hauteurs des murs, appuis et hauteurs des ouvertures : ceux de l’inspecteur.'));
+    sectionToiture(niveau());
+  }
+
+  /** la toiture du niveau : ses choix (type, pente, débord, couverture) ; pans, faîtage et pignons se calculent */
+  function sectionToiture(f: Floor) {
+    const A = aside, r = Object.values(f.objects).find((o): o is Roof => o.type === 'roof');
+    A.append(titre('Toiture — ' + f.name));
+    if (!r) {
+      A.append(bloc('Aucune toiture sur ce niveau. Elle se pose sur le haut des murs extérieurs et suit leur contour.'),
+        ligne(bouton('Ajouter une toiture', () => faire('Toiture', [{ type: 'creerToiture', niveau: f.id, genre: 'hip', pente: 35, debord: 500, couverture: 'tile' }]), 'prim')));
+      return;
+    }
+    const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierToiture' }>>) => faire(t, [{ type: 'modifierToiture', id: r.id, ...c }]);
+    A.append(champ('Type', r.kind, v => mod('Type de toiture', { genre: v as Roof['kind'], ...(v === 'flat' ? { couverture: 'gravel' as const } : r.covering === 'gravel' ? { couverture: 'tile' as const } : {}) }), 'text', TOITURES));
+    if (r.kind !== 'flat') A.append(champ('Pente (°)', r.pitch, v => mod('Pente', { pente: ent(v) }), 'number'));
+    A.append(champ('Débord (m)', (r.overhang / 1000).toFixed(2), v => mod('Débord', { debord: mm(v) }), 'number'),
+      champ('Couverture', r.covering, v => mod('Couverture', { couverture: v as Roof['covering'] }), 'text', COUVERTURES));
+    if (r.kind === 'gable' || r.kind === 'shed') A.append(champ(r.kind === 'gable' ? 'Faîtage' : 'Égout bas et haut', r.ridge ?? 'long', v => mod('Sens de la toiture', { faitage: v as 'long' | 'short' }), 'text', { long: 'Le long du grand côté', short: 'Le long du petit côté' }));
+    if (r.kind === 'shed') A.append(champ('Inverser (bas de l’autre côté)', r.flip ? 1 : 0, v => mod('Inverser la pente', { inverse: !!v }), 'checkbox'));
+    const t = toitureDuNiveau(f);
+    if (t && !t.ok) A.append(bloc('⚠️ ' + esc(t.raison), 'alerte'));
+    else if (t?.ok) {
+      const egout = Math.min(...t.toitures.map(x => x.egoutZ)), faitage = Math.max(...t.toitures.map(x => x.faitage)), surf = t.toitures.reduce((s, x) => s + x.surfaceCouverture, 0);
+      A.append(bloc((r.kind === 'flat' ? 'Dalle à ' + m(egout) + ' · acrotère à ' + m(faitage) : 'Égout à ' + m(egout) + ' · faîtage à <b>' + m(faitage) + '</b>') + ' (depuis le ±0,00)<br>Couverture : ' + m2(surf)
+        + '<br><span class="note">Hauteurs indicatives, au nu extérieur du haut des murs : charpente, isolation et épaisseurs réelles ne sont pas étudiées ici (à vérifier avant le PC).</span>'));
+    }
+    A.append(ligne(bouton('Retirer la toiture', () => supprimer(r.id), 'dang')));
+  }
+
+  /** la bibliothèque de mobilier : un clic choisit le meuble ; on le pose d'un clic (ou en le glissant), il se plaque contre le mur proche */
+  function bibliothequeMobilier() {
+    const A = aside, choisi = outils.meuble.id;
+    A.append(titre('Mobilier'), bloc('Choisissez un meuble, puis cliquez pour le poser — ou glissez-le sur le plan. Près d’un mur, il s’y plaque et se tourne vers la pièce ; près d’un angle, il s’y cale. T : tourner · Alt : pose libre. Dimensions courantes, réglables ensuite.'));
+    const b = document.createElement('div'); b.className = 'biblio';
+    for (const [fam, nomFam] of Object.entries(FAMILLES_MEUBLES)) {
+      const M = MODELES_MEUBLES.filter(m => m.famille === fam);
+      const d = document.createElement('details');
+      d.open = M.some(m => m.id === choisi);
+      d.innerHTML = `<summary>${esc(nomFam)}</summary><div class="tuiles">${M.map(m => `<div class="tuile${m.id === choisi ? ' choisi' : ''}" draggable="true" data-m="${m.id}" title="${esc(m.libelle)} — ${texteCote(m.largeur)} × ${texteCote(m.profondeur)} m">${symboleMeuble(m)}<span>${esc(m.libelle)}</span></div>`).join('')}</div>`;
+      b.append(d);
+    }
+    b.querySelectorAll<HTMLElement>('.tuile').forEach(t => {
+      t.onclick = () => { outils.reglages.modeleMeuble = t.dataset['m']!; panneaux(); $<HTMLElement>('.aide').textContent = 'Cliquez pour poser : ' + outils.meuble.libelle + ' (T : tourner)' };
+      t.ondragstart = e => { outils.reglages.modeleMeuble = t.dataset['m']!; e.dataTransfer?.setData('text/plain', 'cp-meuble:' + t.dataset['m']); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy' };
+    });
+    A.append(b);
   }
 
   function panneauNiveau(f: Floor) {
@@ -583,6 +662,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ligne(bouton('+ Niveau', ajouterNiveau), bouton('Supprimer ce niveau', () => {
         if (confirm('Supprimer le niveau « ' + f.name + ' » et tout ce qu’il contient ? (Annuler le rétablit.)')) faire('Supprimer un niveau', [{ type: 'supprimerNiveau', id: f.id }]);
       }, 'dang')));
+
+    sectionToiture(f);
 
     A.append(titre('Fonds (plan PDF, image)'));
     for (const u of Object.values(f.objects)) if (u.type === 'underlay') {
@@ -779,6 +860,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Ajouter un niveau', faire: () => void ajouterNiveau() }, { libelle: 'Importer un fond (PDF, image)', faire: importerFond },
     { libelle: 'Importer le RDC lu par l’atelier (modele.json)', faire: importerAtelier },
     ...MODELES_OUVERTURES.map(m => ({ libelle: 'Poser : ' + m.libelle, faire: () => { outils.reglages.modeleOuverture = m.id; choisir('ouverture') } })),
+    ...MODELES_MEUBLES.map(m => ({ libelle: 'Meubler : ' + m.libelle, faire: () => { outils.reglages.modeleMeuble = m.id; choisir('mobilier') } })),
     { libelle: 'Marquer un jalon (APS V1, PC…)', visible: () => !!enr.marquerJalon, faire: async () => { const r = await dialogue('Jalon', [{ cle: 'n', libelle: 'Nom du jalon', valeur: 'APS V1' }]); if (r && enr.marquerJalon) { await enr.marquerJalon(r['n']!); toast('Jalon « ' + r['n'] + ' » : il partira avec le prochain enregistrement') } } },
     { libelle: 'Exporter le projet (JSON)', faire: exporter },
     { libelle: 'Retour au suivi de chantiers', faire: () => { location.href = '../index.html' } },
@@ -843,6 +925,22 @@ function symbole(m: ModeleOuverture): string {
     }).join('');
   }
   return `<svg viewBox="0 0 ${W} 36" aria-hidden="true">${mur}${o}</svg>`;
+}
+
+/** le symbole en plan d'un meuble, pour la bibliothèque (le même dessin que sur le plan) */
+function symboleMeuble(m: ModeleMeuble): string {
+  const W = 72, H = 40, k = Math.min((W - 8) / m.largeur, (H - 6) / m.profondeur);
+  const X = (x: number) => (W / 2 + x * k).toFixed(1), Y = (y: number) => (H / 2 - y * k).toFixed(1);
+  const tr = 'stroke="#1A2B36" stroke-width="1"';
+  const T = traits(m.forme, m.largeur, m.profondeur).map((t, i) => {
+    /* (un attribut en double ne compte qu'une fois : le remplissage s'écrit une seule fois) */
+    const plein = i === 0 && t.genre !== 'ligne' && !t.tirets ? 'fill="#fff"' : 'fill="none"';
+    const pt = t.tirets ? ' stroke-dasharray="3 2"' : '';
+    if (t.genre === 'rect') return `<rect x="${X(Math.min(t.x0, t.x1))}" y="${Y(Math.max(t.y0, t.y1))}" width="${(Math.abs(t.x1 - t.x0) * k).toFixed(1)}" height="${(Math.abs(t.y1 - t.y0) * k).toFixed(1)}" ${tr}${pt} ${plein}/>`;
+    if (t.genre === 'ellipse') return `<ellipse cx="${X(t.cx)}" cy="${Y(t.cy)}" rx="${(t.rx * k).toFixed(1)}" ry="${(t.ry * k).toFixed(1)}" ${tr}${pt} ${plein}/>`;
+    return `<line x1="${X(t.x0)}" y1="${Y(t.y0)}" x2="${X(t.x1)}" y2="${Y(t.y1)}" ${tr}${pt}/>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" aria-hidden="true">${T.join('')}</svg>`;
 }
 
 function distSeg(p: Point, w: MurDroit): number {
