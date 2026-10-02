@@ -5,15 +5,56 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CP Designer — préversion</title>
 <link rel="icon" href="../assets/logo-icon.png">
+<script>
+/* Si le Designer ne démarre pas, on dit POURQUOI (fichier introuvable,
+   erreur, navigateur), au lieu d'un écran vide. Écrit sans module ni
+   syntaxe récente : il doit tourner même quand le reste ne tourne pas.
+   Après une mise à jour du site, un navigateur peut garder l'ancienne page,
+   qui appelle des fichiers retirés : on recharge alors une fois, sans cache. */
+(function () {
+  var erreurs = [];
+  window.addEventListener('error', function (e) {
+    var t = e.target;
+    if (t && t.tagName === 'SCRIPT') erreurs.push('fichier introuvable : ' + (t.src || '').split('/').pop());
+    else erreurs.push((e.message || 'erreur') + (e.filename ? ' (' + e.filename.split('/').pop() + ', ligne ' + e.lineno + ')' : ''));
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) { erreurs.push(String((e.reason && e.reason.message) || e.reason)) });
+  function demarre() { return !!document.querySelector('.cpd') }
+  function relancer() {
+    var u = location.pathname + location.search.replace(/([?&])_=\d+&?/, '$1').replace(/[?&]$/, '');
+    location.replace(u + (u.indexOf('?') < 0 ? '?' : '&') + '_=' + Date.now());
+  }
+  function diagnostic() {
+    if (demarre()) return;
+    var r = document.getElementById('designer');
+    if (!r || r.getAttribute('data-erreur')) return;          // le Designer a déjà dit ce qui n'allait pas
+    var esc = function (s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] }) };
+    r.innerHTML = '<div style="font:15px/1.5 system-ui,sans-serif;padding:24px;color:#1A2B36;max-width:760px">'
+      + '<h2 style="margin:0 0 8px;font-size:18px">CP Designer n’a pas pu démarrer</h2>'
+      + '<p>Le suivi de chantiers n’est pas touché : <a href="../index.html">retour à l’application</a>.</p>'
+      + '<p><button id="cpd-relancer" style="font:inherit;padding:6px 12px;border-radius:6px;border:1px solid #C5563A;background:#C5563A;color:#fff;cursor:pointer">Recharger sans cache</button></p>'
+      + '<p style="font-size:13px;color:#6E7B84">À transmettre si le problème continue :</p>'
+      + '<pre id="cpd-diagnostic" style="white-space:pre-wrap;font-size:12px;background:#F5F1EA;padding:10px;border-radius:6px">'
+      + esc((erreurs.length ? erreurs.join('\n') : 'aucune erreur signalée : le programme ne s’est pas lancé') + '\nNavigateur : ' + navigator.userAgent + '\nPage : ' + location.href)
+      + '</pre></div>';
+    var b = document.getElementById('cpd-relancer');
+    if (b) b.onclick = relancer;
+  }
+  /* fichier introuvable (ancienne page gardée en cache) : un rechargement sans cache, une seule fois */
+  setTimeout(function () {
+    if (demarre()) return;
+    var deja = /[?&]_=\d+/.test(location.search);
+    if (!deja && erreurs.some(function (x) { return x.indexOf('fichier introuvable') === 0 })) relancer();
+  }, 3000);
+  /* une erreur : on l'affiche ; rien du tout : on laisse le temps à une connexion lente */
+  setTimeout(function () { if (erreurs.length) diagnostic() }, 6000);
+  setTimeout(diagnostic, 20000);
+})();
+</script>
 </head>
 <body>
 <div id="designer">
-  <!-- Visible seulement si la page n'a pas été compilée au déploiement :
-       le CRM, lui, n'en dépend pas et reste en service. -->
-  <p style="font:15px/1.5 system-ui,sans-serif;padding:24px;color:#1A2B36">
-    CP Designer n'est pas disponible pour le moment (préversion non compilée).
-    Le suivi de chantiers reste accessible : <a href="../index.html">retour à l'application</a>.
-  </p>
+  <p style="font:15px/1.5 system-ui,sans-serif;padding:24px;color:#6E7B84">Ouverture de CP Designer…</p>
 </div>
 <script type="module" src="./src/main.ts"></script>
 </body>

@@ -150,8 +150,19 @@ try {
   O = await objets();
   assert.equal(O.length, 0, 'deux « annuler » : niveau vide');
 
+  assert.equal(await p.locator('#cpd-diagnostic').count(), 0, 'page qui démarre : aucun diagnostic affiché');
   assert.deepEqual(erreurs, [], 'aucune erreur JavaScript');
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, import de l’atelier');
+
+  /* le programme introuvable (ancienne page gardée en cache) : un rechargement
+     sans cache, puis la raison affichée — jamais un écran muet */
+  const p2 = await navigateur.newPage();
+  await p2.route('**/assets/index-*.js', r => r.fulfill({ status: 404, body: '' }));
+  await p2.goto(`http://localhost:${port}/index.html?chantier=essai-panne`);
+  await p2.waitForSelector('#cpd-diagnostic', { timeout: 20_000 });
+  assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
+  assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
+  await p2.close();
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, import de l’atelier, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();
