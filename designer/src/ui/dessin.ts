@@ -6,6 +6,7 @@ import type { Floor, Opening, Point, Underlay } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
 import { mursDroits, type MurDroit } from '../building/murs';
 import type { Accroche } from '../building/accrochage';
+import { dimensionsPiece, type ChaineCotes, type PlaceOuverture } from '../building/cotation';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
@@ -28,6 +29,10 @@ export interface Scene {
   sommets: boolean;
   /** un mot près du curseur (longueur du mur en cours, par exemple) */
   etiquette?: { point: Point; texte: string } | null;
+  /** la cotation automatique (chaînes extérieures), si elle est affichée */
+  cotation?: ChaineCotes[];
+  /** la place des ouvertures choisies ou en cours de pose, entre leurs murs voisins */
+  places?: PlaceOuverture[];
 }
 
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
@@ -59,11 +64,12 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* maçonnerie (ouvertures découpées) */
   ctx.fillStyle = COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
   for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.fill('evenodd') }
-  /* axe des murs, très fin, aux forts zooms */
-  if (cam.echelle > 0.08) {
-    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.setLineDash([6, 4]);
-    for (const w of mursDroits(s.niveau)) { const a = E(w.axis.a), b = E(w.axis.b); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke() }
-    ctx.setLineDash([]);
+  /* l'axe (la ligne de tracé) du seul mur choisi : le plan reste net */
+  const choisi = s.selection ? s.niveau.objects[s.selection] : undefined;
+  if (choisi?.type === 'wall' && 'a' in choisi.axis) {
+    const a = E(choisi.axis.a), b = E(choisi.axis.b);
+    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
   }
   /* ouvertures */
   const murs = new Map(mursDroits(s.niveau).map(w => [w.id, w]));
@@ -84,7 +90,12 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillText(z.piece ? z.piece.name : 'À nommer', e.x, e.y - 8);
     ctx.font = '11px system-ui, sans-serif'; ctx.fillStyle = COULEURS.gris;
     ctx.fillText(m2(z.aire), e.x, e.y + 8);
+    const d = dimensionsPiece(z.polygone.contour);
+    if (d && d.profondeur * cam.echelle > 60) ctx.fillText(texteCote(d.largeur) + ' × ' + texteCote(d.profondeur), e.x, e.y + 22);
   }
+  /* cotation automatique, puis la place des ouvertures choisies */
+  if (s.cotation) for (const c of s.cotation) chaine(ctx, cam, c);
+  for (const p of s.places ?? []) place(ctx, cam, p);
   /* cotes */
   for (const o of Object.values(s.niveau.objects)) {
     if (o.type !== 'dimension') continue;
@@ -149,6 +160,41 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillStyle = COULEURS.encre; ctx.fillRect(e.x + 14, e.y + 10, l, 20);
     ctx.fillStyle = '#fff'; ctx.fillText(s.etiquette.texte, e.x + 19, e.y + 20);
   }
+}
+
+/** une ligne de cote d'un point à un autre, ses traits obliques et ses valeurs */
+function ligneCotee(ctx: CanvasRenderingContext2D, cam: Camera, reperes: Point[], coul: string, gras = false): void {
+  const E = reperes.map(p => versEcran(cam, p));
+  if (E.length < 2) return;
+  ctx.strokeStyle = coul; ctx.fillStyle = coul; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(E[0]!.x, E[0]!.y); ctx.lineTo(E[E.length - 1]!.x, E[E.length - 1]!.y);
+  for (const t of E) { ctx.moveTo(t.x - 4, t.y + 4); ctx.lineTo(t.x + 4, t.y - 4) }
+  ctx.stroke();
+  ctx.font = (gras ? '600 ' : '') + '11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  for (let i = 0; i + 1 < E.length; i++) {
+    const a = E[i]!, b = E[i + 1]!, texte = texteCote(distance(reperes[i]!, reperes[i + 1]!));
+    const l = Math.hypot(b.x - a.x, b.y - a.y);
+    if (l < ctx.measureText(texte).width + 6) continue;          // trop serré pour être lu : on ne l'écrit pas
+    let ang = Math.atan2(b.y - a.y, b.x - a.x);
+    if (ang > Math.PI / 2 || ang <= -Math.PI / 2) ang += Math.PI;
+    ctx.save(); ctx.translate((a.x + b.x) / 2, (a.y + b.y) / 2); ctx.rotate(ang); ctx.fillText(texte, 0, -2); ctx.restore();
+  }
+  ctx.textBaseline = 'middle';
+}
+
+function chaine(ctx: CanvasRenderingContext2D, cam: Camera, c: ChaineCotes): void {
+  const h = c.cote === 'bas' || c.cote === 'haut';
+  const P = c.reperes.map(v => (h ? { x: v, y: c.ligne } : { x: c.ligne, y: v }));
+  ligneCotee(ctx, cam, P, COULEURS.bleu, c.genre === 'hors_tout');
+}
+
+function place(ctx: CanvasRenderingContext2D, cam: Camera, p: PlaceOuverture): void {
+  /* à 30 px du mur, côté pièce : les deux distances (en rouge, ce sont elles qu'on règle) et la largeur */
+  const d = multiplier(p.versPiece, 30 / cam.echelle);
+  const [a, b, c, e] = p.points.map(x => ajouter(x, d)) as [Point, Point, Point, Point];
+  if (p.avant > 0.5) ligneCotee(ctx, cam, [a, b], COULEURS.accent, true);
+  ligneCotee(ctx, cam, [b, c], COULEURS.gris);
+  if (p.apres > 0.5) ligneCotee(ctx, cam, [c, e], COULEURS.accent, true);
 }
 
 function grille(ctx: CanvasRenderingContext2D, cam: Camera): void {

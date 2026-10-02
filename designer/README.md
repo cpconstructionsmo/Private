@@ -83,6 +83,21 @@ seul « annuler ». Ce qui ne se convertit pas (poteau, baie qui dépasse)
 est signalé, jamais inventé. Essai sur un vrai RDC (hors dépôt) : 6 pièces
 sur 6 à l'identique, au centième de m².
 
+**Tracé rapide et cotation automatique** (pour se rapprocher des logiciels
+de plans de maisons) :
+- pendant un tracé, la longueur se tape : `4,50` puis Entrée (dans la
+  direction visée), `4,50<90` (avec un angle), `450cm` ;
+- outil **Rectangle de murs** (R) : deux angles, ou `10x8` tapé ; cotes
+  hors tout (les murs poussent vers l'intérieur) ou intérieures ;
+- **cotation automatique** autour du plan (`src/building/cotation.ts`) :
+  chaînes des ouvertures, des décrochés et hors tout, de chaque côté ;
+  dimensions des pièces rectangulaires sous leur surface. Tout est dérivé
+  (ADR-0002) : rien n'est enregistré, la cotation suit chaque modification.
+  Elle se coupe dans les réglages (choix propre à l'appareil) ;
+- une ouverture choisie (ou en cours de pose) montre ses distances aux murs
+  ou ouvertures voisins, côté pièce, en rouge ; l'inspecteur les règle
+  (« Distance à gauche : 1,50 m »).
+
 ## Travailler
 
 ```
