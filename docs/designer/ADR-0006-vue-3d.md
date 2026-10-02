@@ -48,3 +48,10 @@ Building Model, en volume, sans double saisie ni donnée en plus.
   tests sur les mêmes plans fictifs.
 - La maquette gagne une seconde primitive, la **plaque** : un polygone plan
   quelconque dans l'espace, épaissi (pans de toit, pignons).
+
+## Complément (2026-10-02) : le mobilier
+
+- Un objet `furniture` (position, orientation, cotes, modèle de la
+  bibliothèque) : c'est une saisie, il est donc enregistré ; sa forme en
+  plan et ses volumes en 3D se déduisent de son modèle
+  (`building/mobilier.ts`), une seule description pour les deux vues.

@@ -16,13 +16,15 @@
 import type { Floor, Mm, Opening, Point, Project, Roof } from '../model/types';
 import { planDuNiveau } from '../building/plan';
 import { toitureDuNiveau, type Point3 } from '../building/toiture';
+import { blocs, formeDe, versPlan } from '../building/mobilier';
 import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
 import { difference, intersection } from '../geometry/booleen';
 import type { Anneau, Polygone } from '../geometry/polygon';
 import { ajouter, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
 
 export type Matiere = 'mur' | 'cloison' | 'plancher' | 'sol' | 'vitrage' | 'porte' | 'garage'
-  | 'tuile' | 'ardoise' | 'zinc' | 'bac_acier' | 'vegetalise' | 'gravillons';
+  | 'tuile' | 'ardoise' | 'zinc' | 'bac_acier' | 'vegetalise' | 'gravillons'
+  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox';
 
 /** la matière dessinée d'une couverture */
 export const COUVERTURES: Record<Roof['covering'], Matiere> = { tile: 'tuile', slate: 'ardoise', zinc: 'zinc', steel: 'bac_acier', green: 'vegetalise', gravel: 'gravillons' };
@@ -123,6 +125,19 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
   }
 }
 
+/* le mobilier : ses blocs (building/mobilier.ts), tournés et posés sur le sol du niveau */
+function meubles(f: Floor, prismes: Prisme[]): void {
+  for (const o of Object.values(f.objects)) {
+    if (o.type !== 'furniture') continue;
+    for (const b of blocs(formeDe(o), o.width, o.depth, o.height)) {
+      const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, rx = (b.x1 - b.x0) / 2, ry = (b.y1 - b.y0) / 2;
+      const local = b.rond ? Array.from({ length: 24 }, (_, i) => ({ x: cx + rx * Math.cos(i * Math.PI / 12), y: cy + ry * Math.sin(i * Math.PI / 12) }))
+        : [{ x: b.x0, y: b.y0 }, { x: b.x1, y: b.y0 }, { x: b.x1, y: b.y1 }, { x: b.x0, y: b.y1 }];
+      prismes.push({ contour: local.map(q => versPlan(o, q)), z0: f.elevation + b.z0, z1: f.elevation + b.z1, matiere: b.matiere, objet: o.id, niveau: f.id });
+    }
+  }
+}
+
 /** la maquette d'un projet ; « jusqu'à » : ne montrer que les niveaux jusqu'à celui-ci (inclus) ;
     « toiture » : la montrer ou non (par défaut, oui) */
 export function maquette(projet: Project, jusqua?: string, options: { toiture?: boolean } = {}): Maquette {
@@ -131,7 +146,7 @@ export function maquette(projet: Project, jusqua?: string, options: { toiture?: 
     const F = [...b.floors].sort((a, c) => a.elevation - c.elevation);
     const k = jusqua ? F.findIndex(f => f.id === jusqua) : -1;
     for (const f of k >= 0 ? F.slice(0, k + 1) : F) {
-      planchers(f, prismes); murs(f, prismes);
+      planchers(f, prismes); murs(f, prismes); meubles(f, prismes);
       if (options.toiture !== false) toiture(f, prismes, plaques);
     }
   }

@@ -167,10 +167,26 @@ export interface Roof extends BaseObject {
   flip?: boolean;
 }
 
-/* Contraintes, valeur des cotes, toiture s'ajoutent sans rien changer aux
-   projets déjà enregistrés (un type de plus, un champ facultatif) : le
-   schéma reste à la version 1, l'instantané figé des tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof;
+/** un meuble ou un équipement posé (lit, évier, WC…) : il meuble le plan et
+ *  la 3D, il ne change ni les murs ni les surfaces */
+export interface Furniture extends BaseObject {
+  type: 'furniture';
+  /** le centre, en plan */
+  position: Point;
+  /** l'orientation (sens trigonométrique) : à 0, le dos est vers −y, le devant vers +y */
+  rotation: Radian;
+  width: Mm;
+  depth: Mm;
+  height: Mm;
+  /** le modèle de la bibliothèque (sa forme dit comment le dessiner) */
+  catalogRef: { id: string; label: string };
+}
+
+/* Contraintes, valeur des cotes, toiture, mobilier s'ajoutent sans rien
+   changer aux projets déjà enregistrés (un type de plus, un champ
+   facultatif) : le schéma reste à la version 1, l'instantané figé des
+   tests le vérifie. */
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture;
 
 export interface Floor {
   id: string;

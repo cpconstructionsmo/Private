@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Roof, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Roof, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -82,7 +82,10 @@ export type Commande =
   | { type: 'modifierFond'; id: string; verrouille?: boolean; opacite?: number }
   /** la toiture d'un niveau (une seule) : ses choix ; la géométrie se calcule */
   | { type: 'creerToiture'; niveau: string; genre: Roof['kind']; pente: number; debord: Mm; couverture: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean }
-  | { type: 'modifierToiture'; id: string; genre?: Roof['kind']; pente?: number; debord?: Mm; couverture?: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean };
+  | { type: 'modifierToiture'; id: string; genre?: Roof['kind']; pente?: number; debord?: Mm; couverture?: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean }
+  /** un meuble ou un équipement de la bibliothèque, posé sur un niveau */
+  | { type: 'creerMeuble'; niveau: string; modele: Furniture['catalogRef']; position: Point; rotation: number; largeur: Mm; profondeur: Mm; hauteur: Mm }
+  | { type: 'modifierMeuble'; id: string; position?: Point; rotation?: number; largeur?: Mm; profondeur?: Mm; hauteur?: Mm };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
@@ -94,6 +97,14 @@ function toitureInvalide(genre: Roof['kind'], pente: number, debord: Mm): string
   if (!fini(pente, debord)) return 'pente ou débord invalide';
   if (genre !== 'flat' && !(pente >= 5 && pente <= 75)) return 'pente de 5 à 75°';
   if (!(debord >= 0 && debord <= 2_000)) return 'débord de 0 à 2 m';
+  return null;
+}
+
+/** les cotes d'un meuble : largeur et profondeur de 1 cm à 20 m, hauteur de 0 à 5 m */
+function meubleInvalide(l: Mm, p: Mm, h: Mm): string | null {
+  if (!fini(l, p, h)) return 'dimensions invalides';
+  if (!(l >= 10 && l <= 20_000 && p >= 10 && p <= 20_000)) return 'largeur et profondeur de 1 cm à 20 m';
+  if (!(h >= 0 && h <= 5_000)) return 'hauteur de 0 à 5 m';
   return null;
 }
 
@@ -435,6 +446,34 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         ...(cmd.faitage ? { ridge: cmd.faitage } : {}), ...(cmd.inverse ? { flip: true } : {}),
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: r }]);
+    }
+    case 'creerMeuble': {
+      if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      if (!ptFini(cmd.position) || !fini(cmd.rotation)) return refus('position invalide');
+      if (!cmd.modele.id.trim()) return refus('modèle manquant');
+      const e = meubleInvalide(cmd.largeur, cmd.profondeur, cmd.hauteur);
+      if (e) return refus(e);
+      const o: Furniture = {
+        id: c.id(), type: 'furniture', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision,
+        position: { ...cmd.position }, rotation: cmd.rotation, width: cmd.largeur, depth: cmd.profondeur, height: cmd.hauteur, catalogRef: { ...cmd.modele },
+      };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: o }]);
+    }
+    case 'modifierMeuble': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'furniture') return refus('meuble introuvable');
+      const o = t.objet;
+      if ((cmd.position && !ptFini(cmd.position)) || (cmd.rotation !== undefined && !fini(cmd.rotation))) return refus('position invalide');
+      const e = meubleInvalide(cmd.largeur ?? o.width, cmd.profondeur ?? o.depth, cmd.hauteur ?? o.height);
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      const champs = { position: 'position', rotation: 'rotation', largeur: 'width', profondeur: 'depth', hauteur: 'height' } as const;
+      for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
+        if (cmd[k] === undefined) continue;
+        avant[champs[k]] = o[champs[k]]; apres[champs[k]] = cmd[k];
+      }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, o, avant, apres, c)]);
     }
     case 'modifierToiture': {
       const t = trouverObjet(p, cmd.id);

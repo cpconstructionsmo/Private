@@ -228,6 +228,31 @@ describe('tracé rapide (comme sur un logiciel de plans de maisons)', () => {
   });
 });
 
+describe('outil Mobilier', () => {
+  it('un lit posé près d’un mur s’y plaque ; tiré vers l’autre mur, il s’y retourne ; T tourne, Alt pose librement', () => {
+    const b = banc();
+    b.outils.choisir('mur');
+    for (const [x, y] of [[0, 0], [4_000, 0], [4_000, 3_000], [0, 3_000], [0, 0]] as const) b.clic(x, y);
+    b.outils.reglages.modeleMeuble = 'lit-140';
+    b.outils.choisir('mobilier');
+    b.clic(2_000, 700);
+    const lit = () => b.objets('furniture')[0] as Extract<ReturnType<typeof b.objets>[number], { type: 'furniture' }>;
+    expect(lit()).toMatchObject({ position: { x: 2_000, y: 1_050 }, rotation: 0, width: 1_400, depth: 1_900, catalogRef: { id: 'lit-140', label: 'Lit 140 × 190' } });
+    b.outils.choisir('selection');
+    b.tirer([2_000, 1_050], [2_000, 2_000]);
+    expect(lit().position).toEqual({ x: 2_000, y: 2_900 - 950 });
+    expect(Math.cos(lit().rotation)).toBeCloseTo(-1, 9);
+    /* un simple clic sur le meuble ne le déplace pas */
+    const avant = lit().position;
+    b.clic(2_000, 1_950);
+    expect(lit().position).toEqual(avant);
+    b.outils.choisir('mobilier');
+    b.outils.tourner();
+    b.clic(2_000, 1_500, { alt: true });
+    expect(b.objets('furniture')[1]).toMatchObject({ position: { x: 2_000, y: 1_500 }, rotation: Math.PI / 2 });
+  });
+});
+
 describe('annuler / rétablir enregistrés', () => {
   it('la révision avance, le plan revient à l’identique ; le serveur rechargé est d’accord', async () => {
     const a = acteur(), p = creerProjet({ nom: 'P', id: generateurSequentiel('p') });

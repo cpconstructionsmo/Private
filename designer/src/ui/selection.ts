@@ -1,5 +1,5 @@
 /* Viser : qu'y a-t-il sous le curseur ? Dans l'ordre : une extrémité de
-   mur (pour la tirer), une ouverture, une cote, un mur, une pièce. */
+   mur (pour la tirer), une ouverture, une cote, un mur, un meuble, une pièce. */
 import type { Floor, Mm, Point } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
 import { mursDroits } from '../building/murs';
@@ -7,10 +7,11 @@ import { positionDansAnneau } from '../geometry/predicats';
 import { distancePointSegment } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
 import { dessinCote } from './cotes';
+import { dansMeuble } from '../building/mobilier';
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
-  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' };
+  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' };
 
 export function viser(f: Floor, p: Point, rayon: Mm, sommets = true): Cible | null {
   const M = mursDroits(f);
@@ -38,6 +39,10 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true): Cible | nu
   }
   const plan = planDuNiveau(f);
   for (const c of plan.murs) if (positionDansAnneau(p, c.contour) !== 'dehors') return { genre: 'objet', id: c.id, type: 'wall' };
+  /* un meuble (le plus petit d'abord : une chaise sous une table se choisit) */
+  const meubles = Object.values(f.objects).filter(o => o.type === 'furniture' && dansMeuble(o, p)).sort((a, b) =>
+    (a.type === 'furniture' ? a.width * a.depth : 0) - (b.type === 'furniture' ? b.width * b.depth : 0));
+  if (meubles[0]) return { genre: 'objet', id: meubles[0].id, type: 'furniture' };
   for (const w of M) if (distancePointSegment(p, w.axis) <= rayon) return { genre: 'objet', id: w.id, type: 'wall' };
   for (const z of plan.zones) if (z.piece && positionDansAnneau(p, z.polygone.contour) === 'dedans') return { genre: 'objet', id: z.piece.id, type: 'room' };
   return null;

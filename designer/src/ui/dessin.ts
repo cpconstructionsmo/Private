@@ -2,13 +2,14 @@
    lit le plan dérivé (planDuNiveau), les cotes (dessinCote) et la caméra.
    Ordre : grille, fond calé, niveau du dessous en fantôme, pièces,
    maçonnerie, ouvertures, cotes, contraintes, sélection, accrochage. */
-import type { Floor, Opening, Point, Underlay } from '../model/types';
+import type { Floor, Furniture, Opening, Point, Underlay } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
 import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
 import type { Accroche } from '../building/accrochage';
 import { dimensionsPiece, type ChaineCotes, type PlaceOuverture } from '../building/cotation';
 import { manoeuvreDe } from '../catalogue/ouvertures';
 import type { Toiture } from '../building/toiture';
+import { formeDe, traits, versPlan } from '../building/mobilier';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
@@ -65,6 +66,8 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillStyle = z.piece ? COULEURS.piece : COULEURS.aNommer;
     chemin(ctx, cam, z.polygone); ctx.fill();
   }
+  /* mobilier, sous les murs */
+  for (const o of Object.values(s.niveau.objects)) if (o.type === 'furniture') meuble(ctx, cam, o, o.id === s.selection);
   /* maçonnerie (ouvertures découpées) */
   ctx.fillStyle = COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
   for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.fill('evenodd') }
@@ -206,6 +209,22 @@ function place(ctx: CanvasRenderingContext2D, cam: Camera, p: PlaceOuverture): v
   if (p.avant > 0.5) ligneCotee(ctx, cam, [a, b], COULEURS.accent, true);
   ligneCotee(ctx, cam, [b, c], COULEURS.gris);
   if (p.apres > 0.5) ligneCotee(ctx, cam, [c, e], COULEURS.accent, true);
+}
+
+/** un meuble en plan : son symbole (building/mobilier.ts), tourné à sa place ; le premier trait est son contour, rempli */
+function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: boolean): void {
+  const T = traits(formeDe(o), o.width, o.depth);
+  ctx.lineWidth = sel ? 1.6 : 0.9; ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.gris;
+  T.forEach((t, i) => {
+    const P = t.genre === 'rect' ? [{ x: t.x0, y: t.y0 }, { x: t.x1, y: t.y0 }, { x: t.x1, y: t.y1 }, { x: t.x0, y: t.y1 }]
+      : t.genre === 'ellipse' ? Array.from({ length: 32 }, (_, k) => ({ x: t.cx + t.rx * Math.cos(k * Math.PI / 16), y: t.cy + t.ry * Math.sin(k * Math.PI / 16) }))
+        : [{ x: t.x0, y: t.y0 }, { x: t.x1, y: t.y1 }];
+    const E = P.map(p => versEcran(cam, versPlan(o, p)));
+    ctx.beginPath(); E.forEach((e, k) => (k ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y)));
+    if (t.genre !== 'ligne') ctx.closePath();
+    if (i === 0 && t.genre !== 'ligne' && !t.tirets) { ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fill() }
+    ctx.setLineDash(t.tirets ? [5, 4] : []); ctx.stroke(); ctx.setLineDash([]);
+  });
 }
 
 function grille(ctx: CanvasRenderingContext2D, cam: Camera): void {
