@@ -186,6 +186,33 @@ try {
   const canape = O.find(o => o.type === 'furniture' && o.catalogRef.id === 'canape-3p');
   assert.ok(canape && Math.abs(canape.position.y - (7800 - 475)) < 1 && Math.abs(Math.cos(canape.rotation) + 1) < 1e-9, 'canapé glissé, plaqué contre le mur du haut : ' + JSON.stringify(canape));
   await p.keyboard.press('Escape');
+  /* copier-coller : tout le niveau (Ctrl+A), copié, recollé d'un clic à (3 ; 3) m ; un « annuler » le retire */
+  await p.keyboard.press('v');
+  const avantCollage = (await objets()).length;
+  await p.keyboard.press('Control+a');
+  assert.match(await p.textContent('aside'), /objets choisis/);
+  await p.keyboard.press('Control+c');
+  await p.keyboard.press('Control+v');
+  {
+    const e = await ecran(3000, 3000); await p.mouse.move(e.x, e.y); await p.keyboard.down('Alt'); await p.mouse.down(); await p.mouse.up(); await p.keyboard.up('Alt');
+  }
+  O = await objets();
+  assert.equal(O.filter(o => o.type === 'wall').length, 10, 'murs recollés');
+  assert.equal(O.filter(o => o.type === 'furniture').length, 4, 'meubles recollés');
+  assert.ok(O.some(o => o.type === 'wall' && o.axis.a.x === 3000 && o.axis.a.y === 3000), 'le coin du groupe posé au clic');
+  await p.keyboard.press('Control+z');
+  assert.equal((await objets()).length, avantCollage, 'un « annuler » retire tout le collage');
+  await p.keyboard.press('Escape');
+  /* export PDF : une planche A3 vectorielle, téléchargée */
+  await p.click('header button.bpdf');
+  await p.waitForSelector('.voile h2:has-text("Exporter en PDF")');
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
+  const chemin = await dl.path();
+  const fichierPdf = await readFile(chemin);
+  assert.equal(fichierPdf.subarray(0, 8).toString('latin1'), '%PDF-1.4', 'un PDF');
+  assert.ok(fichierPdf.toString('latin1').includes('(CP CONSTRUCTIONS)'), 'cartouche');
+  assert.match(dl.suggestedFilename(), /plans A3 - RDC\.pdf$/);
+  if (process.env.PDF_SORTIE) await dl.saveAs(process.env.PDF_SORTIE);
   await p.keyboard.press('f');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_RAPIDE) await p.screenshot({ path: process.env.CAPTURE_RAPIDE });
@@ -254,7 +281,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), import de l’atelier, toiture, vue 3D, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF, import de l’atelier, toiture, vue 3D, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

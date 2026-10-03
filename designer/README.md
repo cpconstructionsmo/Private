@@ -138,6 +138,22 @@ l'inspecteur règle ses cotes et son orientation, « Dupliquer » en pose un
 autre. Même description pour le plan (symbole) et la 3D (volumes). Le
 mobilier ne change ni les murs ni les surfaces.
 
+**Copier, coller** (`src/engine/presse-papiers.ts`) : plusieurs objets se
+choisissent ensemble (Maj + clic, cadre tiré dans le vide, Ctrl+A) ;
+Ctrl+C copie (un mur emporte ses ouvertures ; cotes et contraintes suivent
+si tous leurs murs viennent), Ctrl+X coupe, Ctrl+D duplique ; Ctrl+V fait
+suivre le groupe au curseur — T quart de tour, X / Y miroir, un clic le
+pose sur un angle de mur (Alt : librement). Le presse-papiers est gardé sur
+l'appareil : on colle d'un niveau ou d'un projet à l'autre. Un collage est
+fait de commandes ordinaires : un seul « annuler ».
+
+**Export PDF** (bouton « PDF » ; `src/export/`) : une planche A3 par niveau,
+à la plus grande échelle normalisée qui tient (1/50, 1/75, 1/100…), cotes,
+débord de toit, mobilier au choix, tableau des surfaces, cartouche CP
+Constructions (projet, plan, échelle, phase, date, indice), échelle
+graphique. Le PDF est écrit sans bibliothèque et en vectoriel : le plan y
+est dessiné par le même code qu'à l'écran, sur une « toile PDF ».
+
 ## Travailler
 
 ```

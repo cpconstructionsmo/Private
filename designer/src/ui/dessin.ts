@@ -36,8 +36,13 @@ export interface Scene {
   cotation?: ChaineCotes[];
   /** la place des ouvertures choisies ou en cours de pose, entre leurs murs voisins */
   places?: PlaceOuverture[];
-  /** la toiture du niveau : son égout (débord) en tirets, les lignes de ses pans en pointillé */
+  /** la toiture du niveau : son égout (débord) en tirets */
   toitures?: Toiture[];
+  /** pour l'impression (export PDF) : fond blanc, sans grille */
+  impression?: boolean;
+  /** plusieurs objets choisis ensemble, et le cadre de sélection en cours */
+  groupe?: ReadonlySet<string>;
+  cadre?: [Point, Point] | null;
 }
 
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
@@ -45,9 +50,9 @@ const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
 export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, dpr = 1): void {
   const E = (p: Point) => versEcran(cam, p);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = COULEURS.fond;
+  ctx.fillStyle = s.impression ? '#FFFFFF' : COULEURS.fond;
   ctx.fillRect(0, 0, cam.largeur, cam.hauteur);
-  grille(ctx, cam);
+  if (!s.impression) grille(ctx, cam);
 
   /* fonds calés du niveau */
   for (const o of Object.values(s.niveau.objects)) if (o.type === 'underlay') fond(ctx, cam, o, s, dpr);
@@ -67,7 +72,8 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     chemin(ctx, cam, z.polygone); ctx.fill();
   }
   /* mobilier, sous les murs */
-  for (const o of Object.values(s.niveau.objects)) if (o.type === 'furniture') meuble(ctx, cam, o, o.id === s.selection);
+  const estChoisi = (id: string) => id === s.selection || !!s.groupe?.has(id);
+  for (const o of Object.values(s.niveau.objects)) if (o.type === 'furniture') meuble(ctx, cam, o, estChoisi(o.id));
   /* maçonnerie (ouvertures découpées) */
   ctx.fillStyle = COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
   for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.fill('evenodd') }
@@ -85,7 +91,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     const w = murs.get(o.hostWallId);
     /* sens inconnu (plan importé) : la porte s'ouvre côté pièce, jamais vers l'extérieur */
     const b = plan.baies.find(x => x.id === o.id);
-    if (w) ouverture(ctx, cam, w, o, o.id === s.selection, b ? b.cotes[0] !== 'extérieur' : true);
+    if (w) ouverture(ctx, cam, w, o, estChoisi(o.id), b ? b.cotes[0] !== 'extérieur' : true);
   }
   /* noms et surfaces */
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -100,11 +106,10 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     const d = dimensionsPiece(z.polygone.contour);
     if (d && d.profondeur * cam.echelle > 60) ctx.fillText(texteCote(d.largeur) + ' × ' + texteCote(d.profondeur), e.x, e.y + 22);
   }
-  /* la toiture au-dessus : égout en tirets, faîtages, arêtiers et noues en pointillé, comme sur un plan de masse */
+  /* la toiture au-dessus : son égout (le débord) en tirets, comme sur un plan d'étage ; ses arêtiers
+     traverseraient les pièces, ils restent pour la 3D et le plan de toiture */
   for (const t of s.toitures ?? []) {
     ctx.strokeStyle = COULEURS.gris; ctx.lineWidth = 1;
-    ctx.setLineDash([2, 3]);
-    for (const p of t.pans) { chemin(ctx, cam, { contour: p.contour }); ctx.stroke() }
     ctx.setLineDash([8, 4]); chemin(ctx, cam, { contour: t.egout }); ctx.stroke(); ctx.setLineDash([]);
   }
   /* cotation automatique, puis la place des ouvertures choisies */
@@ -152,6 +157,19 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   } else if (sel?.type === 'room') {
     const z = plan.zones.find(z => z.piece?.id === sel.id);
     if (z) { chemin(ctx, cam, z.polygone); ctx.stroke() }
+  }
+  /* le groupe choisi : chaque mur et chaque pièce soulignés */
+  if (s.groupe?.size) {
+    ctx.strokeStyle = COULEURS.accent; ctx.lineWidth = 2;
+    for (const c of plan.murs) if (s.groupe.has(c.id)) { chemin(ctx, cam, { contour: c.contour }); ctx.stroke() }
+    for (const z of plan.zones) if (z.piece && s.groupe.has(z.piece.id)) { ctx.setLineDash([6, 4]); chemin(ctx, cam, z.polygone); ctx.stroke(); ctx.setLineDash([]) }
+  }
+  /* le cadre de sélection */
+  if (s.cadre) {
+    const a = E(s.cadre[0]), b = E(s.cadre[1]);
+    ctx.fillStyle = 'rgba(197,86,58,.08)'; ctx.strokeStyle = COULEURS.accent; ctx.lineWidth = 1; ctx.setLineDash([5, 3]);
+    ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.setLineDash([]);
   }
   /* extrémités tirables */
   if (s.sommets) {

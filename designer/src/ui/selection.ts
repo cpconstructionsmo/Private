@@ -7,7 +7,7 @@ import { positionDansAnneau } from '../geometry/predicats';
 import { distancePointSegment } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
 import { dessinCote } from './cotes';
-import { dansMeuble } from '../building/mobilier';
+import { dansMeuble, emprise } from '../building/mobilier';
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
@@ -46,4 +46,21 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true): Cible | nu
   for (const w of M) if (distancePointSegment(p, w.axis) <= rayon) return { genre: 'objet', id: w.id, type: 'wall' };
   for (const z of plan.zones) if (z.piece && positionDansAnneau(p, z.polygone.contour) === 'dedans') return { genre: 'objet', id: z.piece.id, type: 'room' };
   return null;
+}
+
+/** les objets entièrement dans un cadre (deux coins opposés) : murs (deux extrémités),
+    ouvertures (leur milieu), pièces (leur point), meubles (leur encombrement), cotes (leurs deux murs) */
+export function dansCadre(f: Floor, p: Point, q: Point): string[] {
+  const x0 = Math.min(p.x, q.x), x1 = Math.max(p.x, q.x), y0 = Math.min(p.y, q.y), y1 = Math.max(p.y, q.y);
+  const dedans = (a: Point) => a.x >= x0 && a.x <= x1 && a.y >= y0 && a.y <= y1;
+  const murs = new Set(mursDroits(f).filter(w => dedans(w.axis.a) && dedans(w.axis.b)).map(w => w.id));
+  const parId = new Map(mursDroits(f).map(w => [w.id, w]));
+  const out: string[] = [...murs];
+  for (const o of Object.values(f.objects)) {
+    if (o.type === 'opening') { const w = parId.get(o.hostWallId); if (w && dedans(geometrieOuverture(w, o).centre)) out.push(o.id) }
+    else if (o.type === 'room' && dedans(o.seed)) out.push(o.id);
+    else if (o.type === 'furniture' && emprise(o).every(dedans)) out.push(o.id);
+    else if (o.type === 'dimension' && o.refs.every(r => murs.has(r.objectId))) out.push(o.id);
+  }
+  return out;
 }

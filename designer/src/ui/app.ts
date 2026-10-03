@@ -8,7 +8,7 @@
 import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsage, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
-import { annulerEnregistre, executer, nouvelHistorique, peutAnnuler, peutRetablir, retablirEnregistre, type Acteur, type Commande, type Historique } from '../engine';
+import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
 import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
@@ -122,6 +122,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       <button class="annuler" title="Annuler (Ctrl+Z)">↶</button><button class="retablir" title="Rétablir (Ctrl+Maj+Z)">↷</button>
       <span class="esp"></span>
       <span class="etat" title="Enregistrement"></span>
+      <button class="bpdf" title="Exporter les plans en PDF (A3, cotés, cartouche)">PDF</button>
       <button class="b3d" title="Vue 3D (touche 3) — Échap pour revenir au plan">3D</button>
       <button class="cmdk" title="Toutes les actions">⌘K</button>
       <a href="../index.html" style="color:#2C4A5E;font-size:12px">Suivi de chantiers</a>
@@ -149,6 +150,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   const acteurApercu: Acteur = { par: enr.par, maintenant: () => new Date().toISOString(), id: (() => { let n = 0; return () => 'apercu-' + (++n) })() };
   let niveauId = [...ouv.projet.buildings[0]!.floors].sort((a, b) => a.elevation - b.elevation)[0]!.id;
   let selection: string | null = null;
+  /** plusieurs objets choisis ensemble (Maj + clic, cadre) ; vide : la sélection simple vaut */
+  let groupe: string[] = [];
+  let cadre: [Point, Point] | null = null;
+  /** le presse-papiers (gardé aussi sur l'appareil : on colle d'un projet à l'autre) */
+  let pressePapiers: PressePapiers | null = (() => { try { return JSON.parse(localStorage.getItem('cpDesigner:pressePapiers') ?? 'null') } catch { return null } })();
+  /** un collage en cours : le groupe suit le curseur ; T tourne, X et Y retournent, un clic pose */
+  let collage: { pp: PressePapiers; quarts: number; miroirX: boolean; miroirY: boolean } | null = null;
   let apercu: Commande[] = [];
   let accroche: Accroche | null = null;
   let refusApercu = '';
@@ -181,6 +189,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   function apres() {
     if (!trouverNiveau(h.projet, niveauId)) niveauId = niveaux()[0]!.id;
     if (selection && !niveau().objects[selection]) selection = null;
+    groupe = groupe.filter(id => niveau().objects[id]);
+    if (groupe.length < 2) groupe = [];
     if (en3D && vue3d) { vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe() }
     panneaux(); dessinerBientot();
   }
@@ -244,7 +254,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const places = [selection, Object.keys(f.objects).find(k => k.startsWith('apercu-') && f.objects[k]!.type === 'opening')]
       .flatMap(id => (id ? [placeOuverture(f, id)] : [])).filter(x => x !== null);
     const toit = toitureDuNiveau(f);
+    if (collage && curseur) etiquette = { point: curseur, texte: 'Coller : clic pour poser · T tourner · X / Y retourner · Échap' };
     dessiner(ctx, cam, { niveau: f, dessous: i > 0 ? L[i - 1]! : null, selection, accroche, images, sommets: outils.outil === 'selection', etiquette,
+      groupe: new Set(groupe), cadre,
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
       ...(cotation ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
@@ -265,7 +277,14 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   function effet(e: Effet) {
     if (e.accroche !== undefined) accroche = e.accroche;
     if (e.apercu !== undefined) apercu = e.apercu;
-    if (e.selection !== undefined) { selection = e.selection; panneaux() }
+    if (e.selection !== undefined) { selection = e.selection; if (e.groupe === undefined) groupe = []; panneaux() }
+    if (e.cadre !== undefined) cadre = e.cadre;
+    if (e.groupe !== undefined) choisirGroupe(e.groupe);
+    if (e.basculer) {
+      const g = new Set(groupe.length ? groupe : selection ? [selection] : []);
+      if (g.has(e.basculer)) g.delete(e.basculer); else g.add(e.basculer);
+      choisirGroupe([...g]);
+    }
     if (e.aide) $<HTMLElement>('.aide').textContent = e.aide;
     if (e.commandes) faire(e.commandes.titre, e.commandes.liste);
     if (e.demande?.genre === 'nomPiece') nommerPiece(e.demande.niveau, e.demande.point);
@@ -273,12 +292,70 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (e.fini) barreOutils();
     dessinerBientot();
   }
+  function choisirGroupe(ids: string[]) {
+    if (ids.length === 1) { selection = ids[0]!; groupe = [] } else { selection = null; groupe = ids }
+    panneaux(); dessinerBientot();
+  }
+
+  /* ---------- copier, couper, coller ---------- */
+  const choisis = (): string[] => (groupe.length ? groupe : selection ? [selection] : []);
+  function copierChoix(): boolean {
+    const pp = copier(niveau(), choisis());
+    if (!pp) { toast('Rien à copier : choisissez des murs, des ouvertures, des pièces ou des meubles (Maj + clic, ou un cadre)', true); return false }
+    pressePapiers = pp;
+    try { localStorage.setItem('cpDesigner:pressePapiers', JSON.stringify(pp)) } catch { /* trop gros ou navigation privée : il reste en mémoire */ }
+    toast('Copié : ' + resumePressePapiers(pp));
+    return true;
+  }
+  function supprimerChoix() {
+    const ids = choisis();
+    if (!ids.length) return;
+    if (ids.length === 1) { supprimer(ids[0]!); return }
+    if (faire('Supprimer ' + ids.length + ' objets', commandesSupprimer(niveau(), ids))) { selection = null; groupe = []; panneaux() }
+  }
+  function commencerCollage() {
+    if (!pressePapiers) { toast('Le presse-papiers est vide : copiez d’abord (Ctrl+C)', true); return }
+    if (en3D) void basculer3D(false);
+    effet(outils.choisir('selection')); barreOutils();
+    collage = { pp: pressePapiers, quarts: 0, miroirX: false, miroirY: false };
+    $<HTMLElement>('.aide').textContent = 'Coller : le groupe suit le curseur — clic pour le poser · T : quart de tour · X / Y : miroir · Échap : renoncer';
+    if (curseur) apercuCollage(curseur);
+  }
+  /** l'origine du collage : le coin du groupe, accroché (un angle de mur, la grille) sauf Alt */
+  function placementCollage(p: Point, alt = false) {
+    const a = alt ? { point: p } : outils.pointAccroche({ point: p, rayon: pixelsEnMm(cam, 10) });
+    return { origine: { x: Math.round(a.point.x), y: Math.round(a.point.y) }, quarts: collage!.quarts, miroirX: collage!.miroirX, miroirY: collage!.miroirY };
+  }
+  function apercuCollage(p: Point, alt = false) {
+    if (!collage) return;
+    let n = 0;
+    apercu = commandesColler(collage.pp, niveauId, placementCollage(p, alt), () => 'apercu-colle-' + (++n));
+    dessinerBientot();
+  }
+  function poserCollage(p: Point, alt = false) {
+    if (!collage) return;
+    const avant = new Set(Object.keys(niveau().objects));
+    const cmds = commandesColler(collage.pp, niveauId, placementCollage(p, alt), () => ulid()), quoi = resumePressePapiers(collage.pp);
+    collage = null; apercu = [];
+    if (faire('Coller : ' + quoi, cmds))
+      choisirGroupe(Object.keys(niveau().objects).filter(k => !avant.has(k)));
+    barreOutils();
+  }
+  function dupliquerChoix() {
+    if (!copierChoix() || !pressePapiers) return;
+    const avant = new Set(Object.keys(niveau().objects));
+    const pp = pressePapiers;
+    if (faire('Dupliquer', commandesColler(pp, niveauId, { origine: { x: pp.ancre.x + 500, y: pp.ancre.y - 500 } }, () => ulid())))
+      choisirGroupe(Object.keys(niveau().objects).filter(k => !avant.has(k)));
+  }
+
   let glisse: { x: number; y: number } | null = null, espace = false;
   canvas.addEventListener('pointerdown', e => {
     canvas.setPointerCapture(e.pointerId);
     if (e.button === 1 || e.button === 2 || espace) { glisse = { x: e.clientX, y: e.clientY }; e.preventDefault(); return }
     if (e.button !== 0) return;
     const g = geste(e);
+    if (collage) { poserCollage(g.point, g.alt); return }
     if (choixMur) {
       const w = mursDroits(niveau()).find(w => distance(w.axis.a, w.axis.b) > 0 && distSeg(g.point, w) <= w.thickness / 2 + g.rayon);
       if (w) { const c = choixMur; choixMur = null; c.faire(w.id) } else toast('Cliquez sur un mur', true);
@@ -291,6 +368,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const g = geste(e);
     curseur = g.point;
     $<HTMLElement>('.coord').textContent = 'x ' + m(g.point.x) + '   y ' + m(g.point.y);
+    if (collage) { apercuCollage(g.point, g.alt); return }
     effet(outils.bouger(g));
   });
   canvas.addEventListener('pointerup', e => { if (glisse) { glisse = null; return } effet(outils.relacher(geste(e))) });
@@ -331,12 +409,31 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (saisie(e.target) || racine.querySelector('.voile')) return;
     if (cmd && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? retablir() : annuler(); return }
     if (cmd && e.key.toLowerCase() === 'y') { e.preventDefault(); retablir(); return }
+    if (cmd && e.key.toLowerCase() === 'c') { e.preventDefault(); copierChoix(); return }
+    if (cmd && e.key.toLowerCase() === 'x') { e.preventDefault(); if (copierChoix()) supprimerChoix(); return }
+    if (cmd && e.key.toLowerCase() === 'v') { e.preventDefault(); commencerCollage(); return }
+    if (cmd && e.key.toLowerCase() === 'd') { e.preventDefault(); dupliquerChoix(); return }
+    if (cmd && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'constraint').map(o => o.id));
+      return;
+    }
+    /* pendant un collage : tourner, retourner, renoncer */
+    if (collage && !cmd) {
+      const k = e.key.toLowerCase();
+      if (k === 'escape') { collage = null; apercu = []; barreOutils(); dessinerBientot(); return }
+      if (k === 't') collage.quarts = (collage.quarts + 1) % 4;
+      else if (k === 'x') collage.miroirX = !collage.miroirX;
+      else if (k === 'y') collage.miroirY = !collage.miroirY;
+      if (curseur) apercuCollage(curseur);
+      return;
+    }
     if (cmd) return;
     if (en3D && e.key === 'Escape') { void basculer3D(false); return }
     if (en3D && e.key.toLowerCase() === 'f') { vue3d?.cadrer(); return }
     if (e.key === 'Escape') { choixMur = null; effet(outils.touche('Escape')); barreOutils(); return }
     if (e.key === 'Enter') { effet(outils.touche('Enter')); return }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selection) { e.preventDefault(); supprimer(selection); return }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && choisis().length) { e.preventDefault(); supprimerChoix(); return }
     /* un chiffre pendant un tracé : la longueur se tape (comme sur les logiciels de plans) */
     if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'cloison', 'rectangle'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
     if (e.key === '3') { void basculer3D(); return }
@@ -407,6 +504,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   $<HTMLButtonElement>('.retablir').onclick = retablir;
   $<HTMLButtonElement>('.cmdk').onclick = () => palette();
   $<HTMLButtonElement>('.b3d').onclick = () => void basculer3D();
+  $<HTMLButtonElement>('.bpdf').onclick = () => void exporterPdf();
   const selNiv = $<HTMLSelectElement>('select.niveaux');
   selNiv.onchange = () => { niveauId = selNiv.value; selection = null; apres() };
 
@@ -418,7 +516,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     $<HTMLButtonElement>('.retablir').disabled = !peutRetablir(h);
     const f = niveau(), o = selection ? f.objects[selection] : undefined;
     aside.innerHTML = '';
-    if (en3D) panneau3D(); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else if (outils.outil === 'mobilier') bibliothequeMobilier(); else panneauNiveau(f);
+    if (en3D) panneau3D(); else if (groupe.length) panneauGroupe(f); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else if (outils.outil === 'mobilier') bibliothequeMobilier(); else panneauNiveau(f);
   }
 
   /** un champ de l'inspecteur */
@@ -646,6 +744,19 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     A.append(b);
   }
 
+  /** plusieurs objets choisis : ce qu'ils sont, et ce qu'on peut en faire ensemble */
+  function panneauGroupe(f: Floor) {
+    const types: Record<string, string> = { wall: 'mur', opening: 'ouverture', room: 'pièce', furniture: 'meuble', dimension: 'cote' };
+    const n = new Map<string, number>();
+    for (const id of groupe) { const t = f.objects[id]?.type ?? ''; n.set(t, (n.get(t) ?? 0) + 1) }
+    aside.append(titre(groupe.length + ' objets choisis'),
+      bloc([...n].map(([t, k]) => k + ' ' + (types[t] ?? t) + (k > 1 ? 's' : '')).join(', ')),
+      ligne(bouton('Copier (Ctrl+C)', () => copierChoix()), bouton('Dupliquer (Ctrl+D)', dupliquerChoix), bouton('Couper (Ctrl+X)', () => { if (copierChoix()) supprimerChoix() })),
+      ligne(bouton('Coller (Ctrl+V)', commencerCollage)),
+      bloc('Maj + clic : ajouter ou retirer un objet · un cadre tiré dans le vide choisit ce qu’il contient · Ctrl+A : tout le niveau. Au collage : T tourne d’un quart de tour, X et Y retournent en miroir, un clic pose (sur un angle de mur, sauf Alt).'),
+      ligne(bouton('Supprimer les ' + groupe.length + ' objets', supprimerChoix, 'dang')));
+  }
+
   function panneauNiveau(f: Floor) {
     const A = aside, plan = planDuNiveau(f);
     A.append(titre('Niveaux'));
@@ -846,6 +957,29 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     main.appendChild(e);
     clearTimeout(minuterie); minuterie = window.setTimeout(() => e.remove(), erreur ? 6000 : 3000);
   }
+  /** les plans en PDF (A3, à l'échelle, cotés, cartouche) : chargé à la demande */
+  async function exporterPdf() {
+    const r = await dialogue('Exporter en PDF (A3)', [
+      { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (une page chacun)' } },
+      { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
+      { cle: 'cot', libelle: 'Cotation', valeur: 'oui', options: { oui: 'Avec les chaînes de cotes', non: 'Sans' } },
+      { cle: 'mob', libelle: 'Mobilier', valeur: 'oui', options: { oui: 'Avec le mobilier', non: 'Sans' } },
+      { cle: 'ind', libelle: 'Indice', valeur: 'A' }]);
+    if (!r) return;
+    try {
+      const { planchesPdf } = await import('../export/planche');
+      const u = planchesPdf(h.projet, {
+        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui', mobilier: r['mob'] === 'oui',
+        indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
+      });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([u], { type: 'application/pdf' }));
+      a.download = (h.projet.name || 'projet') + ' - plans A3' + (r['niv'] === 'tous' ? '' : ' - ' + niveau().name) + '.pdf';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      toast('PDF enregistré : ' + a.download);
+    } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
+  }
   function exporter() {
     const b = new Blob([canonique(h.projet)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = (h.projet.name || 'projet') + '.cpdesigner.json'; a.click();
@@ -856,12 +990,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Annuler', touche: 'Ctrl+Z', faire: annuler }, { libelle: 'Rétablir', touche: 'Ctrl+Maj+Z', faire: retablir },
     { libelle: 'Tout voir', touche: 'F', faire: cadrerTout }, { libelle: 'Grille d’accrochage oui / non', touche: 'G', faire: basculerGrille },
     { libelle: 'Cotation automatique oui / non', faire: () => basculerCotation() },
+    { libelle: 'Copier la sélection', touche: 'Ctrl+C', faire: () => void copierChoix() }, { libelle: 'Coller', touche: 'Ctrl+V', faire: commencerCollage },
+    { libelle: 'Dupliquer la sélection', touche: 'Ctrl+D', faire: dupliquerChoix }, { libelle: 'Tout choisir sur ce niveau', touche: 'Ctrl+A', faire: () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'constraint').map(o => o.id)) },
     { libelle: 'Vue 3D / plan 2D', touche: '3', faire: () => void basculer3D() },
     { libelle: 'Ajouter un niveau', faire: () => void ajouterNiveau() }, { libelle: 'Importer un fond (PDF, image)', faire: importerFond },
     { libelle: 'Importer le RDC lu par l’atelier (modele.json)', faire: importerAtelier },
     ...MODELES_OUVERTURES.map(m => ({ libelle: 'Poser : ' + m.libelle, faire: () => { outils.reglages.modeleOuverture = m.id; choisir('ouverture') } })),
     ...MODELES_MEUBLES.map(m => ({ libelle: 'Meubler : ' + m.libelle, faire: () => { outils.reglages.modeleMeuble = m.id; choisir('mobilier') } })),
     { libelle: 'Marquer un jalon (APS V1, PC…)', visible: () => !!enr.marquerJalon, faire: async () => { const r = await dialogue('Jalon', [{ cle: 'n', libelle: 'Nom du jalon', valeur: 'APS V1' }]); if (r && enr.marquerJalon) { await enr.marquerJalon(r['n']!); toast('Jalon « ' + r['n'] + ' » : il partira avec le prochain enregistrement') } } },
+    { libelle: 'Exporter les plans en PDF (A3)', faire: () => void exporterPdf() },
     { libelle: 'Exporter le projet (JSON)', faire: exporter },
     { libelle: 'Retour au suivi de chantiers', faire: () => { location.href = '../index.html' } },
   ];
