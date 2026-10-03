@@ -211,6 +211,7 @@ try {
   const fichierPdf = await readFile(chemin);
   assert.equal(fichierPdf.subarray(0, 8).toString('latin1'), '%PDF-1.4', 'un PDF');
   assert.ok(fichierPdf.toString('latin1').includes('(CP CONSTRUCTIONS)'), 'cartouche');
+  assert.ok(fichierPdf.toString('latin1').includes('(Fa\xE7ade sud \\(bas du plan\\))') && fichierPdf.toString('latin1').includes('/Count 2'), 'planche des façades');
   assert.match(dl.suggestedFilename(), /plans A3 - RDC\.pdf$/);
   if (process.env.PDF_SORTIE) await dl.saveAs(process.env.PDF_SORTIE);
   await p.keyboard.press('f');
