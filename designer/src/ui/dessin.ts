@@ -11,6 +11,7 @@ import { manoeuvreDe } from '../catalogue/ouvertures';
 import type { Toiture } from '../building/toiture';
 import { formeDe, traits, versPlan } from '../building/mobilier';
 import type { GeometrieEscalier, Marche } from '../building/escalier';
+import type { LigneDeCoupe } from '../vue3d/coupe';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
@@ -47,6 +48,8 @@ export interface Scene {
   /** plusieurs objets choisis ensemble, et le cadre de sélection en cours */
   groupe?: ReadonlySet<string>;
   cadre?: [Point, Point] | null;
+  /** le trait de la coupe (vue3d/coupe.ts), avec ses flèches de regard */
+  coupe?: LigneDeCoupe | null;
 }
 
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
@@ -121,6 +124,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   }
   /* cotation automatique, puis la place des ouvertures choisies */
   if (s.cotation) for (const c of s.cotation) chaine(ctx, cam, c);
+  if (s.coupe) traitDeCoupe(ctx, cam, s.coupe);
   for (const p of s.places ?? []) place(ctx, cam, p);
   /* cotes */
   for (const o of Object.values(s.niveau.objects)) {
@@ -250,6 +254,27 @@ function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: b
     if (i === 0 && t.genre !== 'ligne' && !t.tirets) { ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fill() }
     ctx.setLineDash(t.tirets ? [5, 4] : []); ctx.stroke(); ctx.setLineDash([]);
   });
+}
+
+/** le trait de coupe : mixte (trait-point), épais aux deux bouts, une flèche vers ce qu'on regarde et la lettre */
+function traitDeCoupe(ctx: CanvasRenderingContext2D, cam: Camera, l: LigneDeCoupe): void {
+  const a = versEcran(cam, l.a), b = versEcran(cam, l.b), r = normaliser({ x: l.regard.x, y: -l.regard.y });       // le regard, à l'écran (y vers le bas)
+  const u = normaliser(soustraire(b, a));
+  ctx.strokeStyle = COULEURS.encre; ctx.fillStyle = COULEURS.encre;
+  ctx.lineWidth = 0.8; ctx.setLineDash([14, 3, 2, 3]);
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '700 15px system-ui, sans-serif';
+  for (const [p, s] of [[a, 1], [b, -1]] as const) {
+    ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + u.x * s * 16, p.y + u.y * s * 16); ctx.stroke();
+    /* la flèche, perpendiculaire au trait, vers ce que montre la coupe */
+    const q = ajouter(p, multiplier(r, 18));
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+    const g = normaleGauche(r);
+    ctx.beginPath(); ctx.moveTo(q.x + r.x * 6, q.y + r.y * 6); ctx.lineTo(q.x + g.x * 4, q.y + g.y * 4); ctx.lineTo(q.x - g.x * 4, q.y - g.y * 4); ctx.closePath(); ctx.fill();
+    ctx.fillText(l.nom, p.x - u.x * s * 12 + r.x * 14, p.y - u.y * s * 12 + r.y * 14);
+  }
 }
 
 /** le plan de coupe d'un plan d'étage (mm au-dessus du sol) : les marches plus hautes se dessinent en tirets */

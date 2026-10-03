@@ -12,6 +12,7 @@ import type { Camera } from '../ui/camera';
 import { DocumentPdf, type PagePdf } from './pdf';
 import { maquette, type Matiere } from '../vue3d/maquette';
 import { facade, FACADES, type CoteFacade, type Facade } from '../vue3d/facades';
+import { coupe, coupeAutomatique, type LigneDeCoupe } from '../vue3d/coupe';
 import { ToilePdf } from './toile-pdf';
 
 export const PT = 72 / 25.4;                       // points par millimètre
@@ -39,6 +40,8 @@ export interface OptionsPlanche {
   echelle?: number;
   /** ajouter une planche des quatre façades */
   facades?: boolean;
+  /** ajouter la coupe A-A (placée d'elle-même) et son trait sur les plans */
+  coupe?: boolean;
 }
 
 /** la boîte de ce qui se dessine sur un niveau (mm) : maçonnerie, meubles, débord de toit */
@@ -60,7 +63,7 @@ export function echelleNormalisee(l: number, h: number, cotation = true): number
 
 const m2 = (v: number) => (v / 1e6).toFixed(2).replace('.', ',') + ' m²';
 
-function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche): void {
+function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche, ligne: LigneDeCoupe | null): void {
   const page = doc.page(A3.l * PT, A3.h * PT);
   /* coordonnées de mise en page (mm, haut-gauche) → page PDF */
   const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
@@ -79,7 +82,7 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche)
     const scene: Scene = {
       niveau, dessous: null, selection: null, accroche: null, images: new Map(), sommets: false, impression: true,
       escaliers: Object.values(niveau.objects).flatMap(x => (x.type === 'stair' ? [{ id: x.id, geo: geometrieEscalier(x, hauteurAFranchir(projet, f)) }] : [])),
-      tremies: tremiesDuNiveau(projet, f),
+      tremies: tremiesDuNiveau(projet, f), coupe: ligne,
       ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech) } : {}), ...(t?.ok ? { toitures: t.toitures } : {}),
     };
     dessiner(toile as unknown as CanvasRenderingContext2D, cam, scene);
@@ -207,13 +210,106 @@ function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
   cartouche(page, projet, 'Façades', ech, o);
 }
 
+/* ---------- la planche de la coupe ---------- */
+
+/** ce que la coupe tranche, plein (poché) ; les remplissages des baies restent clairs */
+const POCHES: Partial<Record<Matiere, string>> = { vitrage: '#9FBFD3', porte: '#B89A7C', garage: '#B7BEC5' };
+const POCHE = '#3B4A55';
+
+function plancheCoupe(doc: DocumentPdf, projet: Project, o: OptionsPlanche, ligne: LigneDeCoupe | null): void {
+  const page = doc.page(A3.l * PT, A3.h * PT);
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  page.cadre(X(10), Y(287), 400 * PT, 277 * PT, { ep: 0.8 });
+  const titre = 'Coupe ' + (ligne?.nom ?? 'A') + '-' + (ligne?.nom ?? 'A');
+  page.texte(titre, X(ZONE.x + 4), Y(ZONE.y + 6), 11, { gras: true, couleur: '#2C4A5E' });
+  const C = ligne ? coupe(maquette(projet), ligne) : null;
+  const H = hauteurs(projet);
+  /* les niveaux : chaque sol fini, puis l'égout (ou le haut des murs) et le faîtage */
+  const sols = projet.buildings.flatMap(b => b.floors).sort((a, b) => a.elevation - b.elevation);
+  const niv: [number, string][] = sols.map(f => [f.elevation, (f.elevation === 0 ? '±0,00' : m(f.elevation)) + ' sol ' + f.name]);
+  if (H.egout !== null) niv.push([H.egout, m(H.egout) + ' égout']); else niv.push([H.hautMurs, m(H.hautMurs) + ' haut des murs']);
+  if (H.faitage !== null) niv.push([H.faitage, m(H.faitage) + ' faîtage']);
+  let ech = o.echelle ?? 100;
+  if (C?.boite) {
+    const B = C.boite, larg = B.umax - B.umin + 4_000, haut = Math.max(B.zmax, 0) - Math.min(B.zmin, 0) + 1_000;
+    /* à gauche, 40 mm pour les cotes de niveau ; à droite, 25 mm pour la chaîne des hauteurs */
+    ech = o.echelle ?? (ECHELLES.find(e => larg / e + 65 <= ZONE.l && haut / e + 24 <= ZONE.h) ?? ECHELLES[ECHELLES.length - 1]!);
+    const xc = ZONE.x + 40 + (ZONE.l - 65) / 2, uc = (B.umin + B.umax) / 2;
+    const zh = Math.max(B.zmax, 0), zb = Math.min(B.zmin, 0), solY = ZONE.y + 12 + (ZONE.h - 12 + (zh - zb) / ech) / 2 - (-zb) / ech;
+    const P = (u: number, z: number): [number, number] => [X(xc + (u - uc) / ech), Y(solY - z / ech)];
+    /* le terrain : une ligne forte, hachurée dessous (le terrain naturel n'est pas relevé : supposé au sol fini) */
+    const g0 = xc + (B.umin - 2_000 - uc) / ech, g1 = xc + (B.umax + 2_000 - uc) / ech;
+    for (let x = g0; x < g1 - 2; x += 3) page.trait(X(x), Y(solY), X(x + 2.2), Y(solY + 2.2), 0.25, '#6E7B84');
+    for (const f of C.vues) page.polygone(f.points.map(q => P(q.u, q.z)), { fond: TEINTES[f.matiere] ?? '#FFFFFF', trait: '#1A2B36', ep: 0.25 });
+    for (const c of C.coupees) page.polygone(c.points.map(q => P(q.u, q.z)), { fond: POCHES[c.matiere] ?? POCHE, trait: '#1A2B36', ep: 0.5 });
+    page.trait(X(g0), Y(solY), X(g1), Y(solY), 1.1);
+    /* les cotes de niveau, à gauche */
+    const bord = xc + (B.umin - uc) / ech - 2, xr = Math.max(ZONE.x + 4, bord - 40);
+    for (const [z, t] of niv) {
+      const y = solY - z / ech;
+      page.trait(X(xr), Y(y), X(bord), Y(y), 0.25, '#6E7B84');
+      page.polygone([[X(xr), Y(y)], [X(xr + 1.6), Y(y - 2.2)], [X(xr - 1.6), Y(y - 2.2)]], { fond: '#1A2B36' });
+      page.texte(t, X(xr + 2.5), Y(y - 1), 6.2);
+    }
+    /* la chaîne des hauteurs, à droite : d'un niveau au suivant */
+    const Z = [...new Set(niv.map(([z]) => Math.round(z)))].sort((a, b) => a - b), xd = xc + (B.umax - uc) / ech + 8;
+    if (Z.length > 1) {
+      page.trait(X(xd), Y(solY - Z[0]! / ech), X(xd), Y(solY - Z[Z.length - 1]! / ech), 0.3);
+      Z.forEach((z, i) => {
+        const y = solY - z / ech;
+        page.trait(X(xd - 1.5), Y(y + 1.5), X(xd + 1.5), Y(y - 1.5), 0.5);
+        page.trait(X(xd - 3), Y(y), X(xd + 1.5), Y(y), 0.25, '#6E7B84');
+        if (i) page.texte((Math.abs(z - Z[i - 1]!) / 1000).toFixed(2).replace('.', ','), X(xd + 2), Y((y + solY - Z[i - 1]! / ech) / 2 - 0.8), 6.5);
+      });
+    }
+  } else page.texte('Rien à couper : aucun mur.', X(ZONE.x + 4), Y(ZONE.y + 16), 9, { couleur: '#6E7B84' });
+
+  /* la colonne de droite : les hauteurs, le plan de repérage, puis le cartouche */
+  page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
+  let y = 20;
+  page.texte('HAUTEURS', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+  for (const [z, t] of [...niv].sort((a, b) => a[0] - b[0])) {
+    const [v, ...k] = t.split(' ');
+    page.texte(k.join(' '), X(COLONNE.x + 5), Y(y), 8); page.texte(z === 0 ? '±0,00' : v!, X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite', gras: true }); y += 5;
+  }
+  y += 6;
+  if (ligne) { y = reperage(page, projet, ligne, y); y += 6 }
+  for (const t of ['Coupe placée d’elle-même : en travers de la maison,', 'par l’escalier s’il y en a un, jamais le long d’un mur.', 'Terrain naturel non relevé : supposé au niveau du sol', 'fini (à reporter depuis le plan topographique).', 'Épaisseurs dessinées indicatives (planchers, couverture) :', 'charpente et isolation ne sont pas étudiées ici.'])
+    { page.texte(t, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
+  cartouche(page, projet, titre, ech, o);
+}
+
+/** le plan de repérage : la maçonnerie du niveau le plus bas, en petit, et le trait de coupe ; rend le y suivant */
+function reperage(page: PagePdf, projet: Project, l: LigneDeCoupe, y0: number): number {
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  page.texte('PLAN DE REPÉRAGE', X(COLONNE.x + 5), Y(y0), 9, { gras: true, couleur: '#2C4A5E' });
+  const f = [...projet.buildings.flatMap(b => b.floors)].sort((a, b) => a.elevation - b.elevation)[0];
+  const M = f ? planDuNiveau(f).maconnerie : [];
+  const Q = [...M.flatMap(p => p.contour), l.a, l.b];
+  const xmin = Math.min(...Q.map(p => p.x)), xmax = Math.max(...Q.map(p => p.x)), ymin = Math.min(...Q.map(p => p.y)), ymax = Math.max(...Q.map(p => p.y));
+  const L = COLONNE.l - 20, Hh = 55, k = Math.min(L / Math.max(1, xmax - xmin), Hh / Math.max(1, ymax - ymin));
+  const ox = COLONNE.x + 10 + (L - (xmax - xmin) * k) / 2, oy = y0 + 6 + (Hh + (ymax - ymin) * k) / 2;        // le haut du plan en haut
+  const P = (p: { x: number; y: number }): [number, number] => [X(ox + (p.x - xmin) * k), Y(oy - (p.y - ymin) * k)];
+  for (const p of M) page.polygone(p.contour.map(P), { fond: '#3B4A55', trait: '#1A2B36', ep: 0.2 });
+  const [ax, ay] = P(l.a), [bx, by] = P(l.b);
+  page.trait(ax, ay, bx, by, 0.6, '#C5563A');
+  for (const [x, y] of [[ax, ay], [bx, by]] as const) {
+    const qx = x + l.regard.x * 4 * PT, qy = y + l.regard.y * 4 * PT;
+    page.trait(x, y, qx, qy, 0.8, '#C5563A');
+    page.texte(l.nom, qx + l.regard.x * 2.5 * PT, qy + l.regard.y * 2.5 * PT - 3, 8, { gras: true, couleur: '#C5563A', aligne: 'centre' });
+  }
+  return y0 + 6 + Hh + 6;
+}
+
 /** les planches A3 des niveaux demandés, en un PDF (une page par niveau) */
 export function planchesPdf(projet: Project, o: OptionsPlanche): Uint8Array<ArrayBuffer> {
   const doc = new DocumentPdf();
   const F = projet.buildings.flatMap(b => b.floors).filter(f => o.niveaux.includes(f.id)).sort((a, b) => a.elevation - b.elevation);
-  for (const f of F) planche(doc, projet, f, o);
+  const ligne = o.coupe ? coupeAutomatique(projet) : null;
+  for (const f of F) planche(doc, projet, f, o, ligne);
   if (o.facades) plancheFacades(doc, projet, o);
-  if (!F.length) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
+  if (o.coupe) plancheCoupe(doc, projet, o, ligne);
+  if (!F.length && !o.facades && !o.coupe) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
   return doc.octets((projet.name || 'Projet') + ' — plans');
 }
 
