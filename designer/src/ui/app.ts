@@ -202,6 +202,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   function appliquerCoupe() { vue3d?.couper(coupe3D ? niveau().elevation + 1_200 : null) }
   async function basculer3D(oui = !en3D) {
     if (oui === en3D) return;
+    if (!oui) vue3d?.visite(false);
     en3D = oui;
     racine.querySelector('.cpd')!.classList.toggle('en3d', oui);
     $<HTMLButtonElement>('.b3d').classList.toggle('actif', oui);
@@ -432,8 +433,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       return;
     }
     if (cmd) return;
+    /* en visite, le clavier sert à marcher (la vue 3D le lit) ; Échap ou V en sortent */
+    if (en3D && vue3d?.enVisite()) { if (e.key === 'Escape' || e.key.toLowerCase() === 'v') visite(false); else if (e.key.toLowerCase() === 'f') vue3d.cadrer(); return }
     if (en3D && e.key === 'Escape') { void basculer3D(false); return }
     if (en3D && e.key.toLowerCase() === 'f') { vue3d?.cadrer(); return }
+    if (en3D && e.key.toLowerCase() === 'v') { visite(true); return }
     if (e.key === 'Escape') { choixMur = null; effet(outils.touche('Escape')); barreOutils(); return }
     if (e.key === 'Enter') { effet(outils.touche('Enter')); return }
     if ((e.key === 'Delete' || e.key === 'Backspace') && choisis().length) { e.preventDefault(); supprimerChoix(); return }
@@ -710,12 +714,27 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     A.append(b);
   }
 
+  /** la visite à hauteur d'homme (vue 3D) : on y entre, on en sort */
+  function visite(oui: boolean) {
+    if (!vue3d) return;
+    vue3d.visite(oui);
+    $<HTMLElement>('.hote3d').focus?.();
+    panneaux();
+  }
   function panneau3D() {
+    if (vue3d?.enVisite()) {
+      aside.append(titre('Visite à hauteur d’homme'),
+        bloc('<b>Z Q S D</b> (ou W A S D) et <b>↑ ↓</b> : marcher · <b>← →</b> : tourner · glisser la souris : regarder · <b>Maj</b> : presser le pas · <b>F</b> : revenir au départ · <b>Échap</b> : quitter la visite'),
+        bloc('Les yeux à 1,60 m du sol. On monte l’escalier en marchant ; murs, cloisons, vitrages et meubles arrêtent, les portes laissent passer (supposées ouvertes).'),
+        ligne(bouton('Revenir au départ', () => vue3d?.cadrer()), bouton('Image PNG', () => void imagePNG()), bouton('Quitter la visite', () => visite(false), 'prim')));
+      return;
+    }
     aside.append(titre('Vue 3D'),
       bloc('Glisser : tourner autour · clic droit (ou Maj + glisser) : déplacer · molette : zoom · F : recadrer · Échap : retour au plan'),
       champ('Vue maquette (murs coupés à 1,20 m)', coupe3D ? 1 : 0, v => { coupe3D = !!v; appliquerCoupe() }, 'checkbox'),
       champ('Niveaux montrés', niveaux3D, v => { niveaux3D = v as 'tous' | 'jusqua'; apres() }, 'text', { tous: 'Tous', jusqua: 'Jusqu’au niveau affiché' }),
       champ('Montrer la toiture', toit3D ? 1 : 0, v => { toit3D = !!v; apres() }, 'checkbox'),
+      ligne(bouton('🚶 Visite à hauteur d’homme (V)', () => visite(true), 'prim bvisite')),
       ligne(bouton('Recadrer', () => vue3d?.cadrer()), bouton('Image PNG', () => void imagePNG()), bouton('Retour au plan', () => void basculer3D(false), 'prim')),
       bloc('La 3D se calcule à partir du plan : chaque modification s’y voit aussitôt. Hauteurs des murs, appuis et hauteurs des ouvertures : ceux de l’inspecteur.'));
     sectionToiture(niveau());
@@ -1077,7 +1096,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (mursDroits(niveau()).length) cadrerTout(); else { cam = cadrer(cam, { xmin: 0, ymin: 0, xmax: 12_000, ymax: 10_000 }); dessinerBientot() }
     /* pour les vérifications automatiques (tests dans Chromium) : publié une fois la vue cadrée,
        sinon un premier clic calculé avant le cadrage tomberait ailleurs */
-    (window as unknown as Record<string, unknown>)['cpDesigner'] = { projet: () => h.projet, niveau: () => niveauId, camera: () => cam, geometrieOuverture, vue3d: () => (en3D && vue3d ? vue3d.stats() : null) };
+    (window as unknown as Record<string, unknown>)['cpDesigner'] = { projet: () => h.projet, niveau: () => niveauId, camera: () => cam, geometrieOuverture, vue3d: () => (en3D && vue3d ? vue3d.stats() : null), marcheur: () => (en3D && vue3d ? vue3d.marcheur() : null) };
   });
 }
 

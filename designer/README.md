@@ -174,6 +174,16 @@ La planche porte le terrain (supposé au sol fini), les cotes de niveau
 (sols, égout, faîtage), la chaîne des hauteurs et un plan de repérage ; le
 trait de coupe, fléché, s'ajoute sur les plans du même PDF.
 
+**Visite à hauteur d'homme** (vue 3D, bouton « Visite » ou touche V ;
+`src/vue3d/visite.ts`) : les yeux à 1,60 m, départ au milieu de la plus
+grande pièce. Z Q S D (W A S D) et flèches pour marcher et tourner, la souris
+glissée pour regarder, Maj pour presser le pas, F pour revenir au départ,
+Échap pour sortir. Le marcheur se pose sur la surface la plus haute qu'il
+atteint d'un pas (il monte et descend l'escalier) ; murs, cloisons, vitrages
+et meubles l'arrêtent, il glisse le long ; les portes, supposées ouvertes,
+le laissent passer. Plafonds blancs au haut des murs du dernier niveau,
+lumière d'ambiance : rien de tout cela n'est enregistré.
+
 **Escaliers** (outil E ; `src/building/escalier.ts`) : droit ou quart
 tournant avec palier ; on pose le départ, T tourne le sens de la montée.
 Le modèle ne garde que départ, sens, largeur et forme (et un giron imposé,

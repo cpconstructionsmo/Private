@@ -272,6 +272,22 @@ try {
   await p.keyboard.press('Control+z');                               // annuler le fond : la 3D suit sans erreur
   assert.ok((await p.evaluate(() => window.cpDesigner.vue3d()))?.maillages > 40);
   await p.keyboard.press('Control+Shift+z');
+  /* la visite à hauteur d'homme : départ dans la plus grande pièce, on marche (Z / W tenue), on tourne (←) */
+  await p.click('aside button.bvisite');
+  await p.waitForFunction(() => window.cpDesigner.marcheur() !== null);
+  const w0 = await p.evaluate(() => window.cpDesigner.marcheur());
+  assert.ok(Math.abs(w0.pied - 5) < 1, 'les pieds sur le sol fini : ' + JSON.stringify(w0));
+  assert.match(await p.textContent('aside'), /Visite à hauteur d’homme/);
+  await p.keyboard.down('KeyW'); await p.waitForTimeout(700); await p.keyboard.up('KeyW');
+  await p.keyboard.down('ArrowLeft'); await p.waitForTimeout(300); await p.keyboard.up('ArrowLeft');
+  const w1 = await p.evaluate(() => window.cpDesigner.marcheur());
+  assert.ok(Math.hypot(w1.x - w0.x, w1.y - w0.y) > 150, 'le marcheur avance : ' + JSON.stringify([w0, w1]));
+  assert.ok(w1.cap > w0.cap + 0.1, 'il tourne à gauche');
+  assert.equal((await objets()).filter(o => o.type === 'roof').length, 1, 'les touches de la visite ne touchent pas au plan');
+  if (process.env.CAPTURE_VISITE) await p.screenshot({ path: process.env.CAPTURE_VISITE });
+  await p.keyboard.press('Escape');
+  assert.equal(await p.evaluate(() => window.cpDesigner.marcheur()), null, 'sortie de la visite');
+  assert.ok((await p.evaluate(() => window.cpDesigner.vue3d()))?.maillages > 40, 'toujours en 3D');
   await p.keyboard.press('Escape');
   assert.equal(await p.evaluate(() => window.cpDesigner.vue3d()), null, 'retour au plan');
 
@@ -293,7 +309,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe), escalier, import de l’atelier, toiture, vue 3D, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe), escalier, import de l’atelier, toiture, vue 3D, visite à hauteur d’homme, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

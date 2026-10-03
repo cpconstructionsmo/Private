@@ -4,6 +4,7 @@
    (le plan 2D reste léger). Unités : le mètre (la maquette est en mm) ;
    axes : x vers l'est, y vers le haut, z vers le sud (le y du plan, inversé). */
 import type { Maquette, Matiere, Plaque, Prisme } from '../vue3d/maquette';
+import { avancer, depart, preparerVisite, regard, solSous, type Marcheur, type Terrain } from '../vue3d/visite';
 
 export interface Vue3D {
   mettreAJour(m: Maquette): void;
@@ -14,8 +15,15 @@ export interface Vue3D {
   /** une image PNG de la vue */
   image(): Promise<Blob>;
   stats(): { maillages: number; triangles: number };
+  /** la visite à hauteur d'homme : glisser pour regarder, Z Q S D (ou W A S D) et flèches pour marcher, Maj pour presser le pas */
+  visite(oui: boolean): void;
+  enVisite(): boolean;
+  marcheur(): Marcheur | null;
   detruire(): void;
 }
+
+/** allures de la visite (m/s) et vitesse de rotation aux flèches (rad/s) */
+const MARCHE = 1.4, COURSE = 3.5, ROTATION = 1.6;
 
 const COULEURS: Record<Matiere, { couleur: string; opacite?: number; rugosite?: number }> = {
   mur: { couleur: '#EFEBE4' }, cloison: { couleur: '#F7F5F1' }, plancher: { couleur: '#B5AFA4' }, sol: { couleur: '#D8C6A6' },
@@ -84,6 +92,32 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
   const groupe = new THREE.Group();
   scene.add(groupe);
   let boite: Maquette['boite'] = null;
+  /* la visite : le terrain (sols, obstacles) déduit de la maquette, le marcheur, les touches tenues */
+  let terrain: Terrain | null = null, marcheur: Marcheur | null = null, enVisite = false, boucle = 0, avant = 0, coupeAvant = 1e6;
+  let orbite: { position: InstanceType<typeof THREE.Vector3>; cible: InstanceType<typeof THREE.Vector3> } | null = null;
+  const tenues = new Set<string>();
+  /* à l'intérieur, le soleil ne passe pas le toit : une lumière d'ambiance, et des plafonds blancs au haut des murs */
+  const ambiance = new THREE.AmbientLight('#FFFFFF', 0);
+  scene.add(ambiance);
+  const plafonds = new THREE.Group(), blanc = new THREE.MeshStandardMaterial({ color: '#FAF8F4', roughness: 1, side: THREE.DoubleSide });
+  scene.add(plafonds);
+  let derniere: Maquette | null = null;
+  /** un plafond par pièce du dernier niveau (sous un étage, le plancher du dessus en tient lieu) */
+  function poserPlafonds() {
+    for (const o of [...plafonds.children]) { plafonds.remove(o); if (o instanceof THREE.Mesh) o.geometry.dispose() }
+    if (!enVisite || !derniere) return;
+    const P = derniere.prismes;
+    for (const s of P) {
+      if (s.matiere !== 'sol') continue;
+      const z = Math.max(...P.filter(m => m.niveau === s.niveau && m.matiere === 'mur').map(m => m.z1));
+      if (!Number.isFinite(z) || P.some(m => m.matiere === 'plancher' && Math.abs(m.z0 - z) < 300)) continue;
+      const forme = new THREE.Shape(s.contour.map(q => new THREE.Vector2(q.x / 1000, q.y / 1000)));
+      for (const t of s.trous ?? []) forme.holes.push(new THREE.Path(t.map(q => new THREE.Vector2(q.x / 1000, q.y / 1000))));
+      const m = new THREE.Mesh(new THREE.ShapeGeometry(forme), blanc);
+      m.rotation.x = -Math.PI / 2; m.position.y = z / 1000 - 0.002;
+      plafonds.add(m);
+    }
+  }
 
   const peindre = () => rendu.render(scene, camera);
   controles.addEventListener('change', peindre);
@@ -114,6 +148,50 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     groupe.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 20), aretes));
   }
 
+  function placerCamera() {
+    if (!marcheur) return;
+    const r = regard(marcheur);
+    camera.position.set(r.oeil.x / 1000, r.oeil.z / 1000, -r.oeil.y / 1000);
+    camera.lookAt(r.vise.x / 1000, r.vise.z / 1000, -r.vise.y / 1000);
+    peindre();
+  }
+  /* chaque image : avancer selon les touches tenues (au clavier physique : Z Q S D d'un AZERTY = W A S D) */
+  function animer(t: number) {
+    if (!enVisite) return;
+    const dt = Math.min(0.1, avant ? (t - avant) / 1000 : 0); avant = t;
+    if (marcheur && terrain && dt > 0) {
+      const k = (c: string) => (tenues.has(c) ? 1 : 0);
+      const devant = k('KeyW') + k('ArrowUp') - k('KeyS') - k('ArrowDown'), cote = k('KeyD') - k('KeyA');
+      const tourne = k('ArrowLeft') - k('ArrowRight');
+      if (tourne) marcheur = { ...marcheur, cap: marcheur.cap + tourne * ROTATION * dt };
+      if (devant || cote) {
+        const v = (tenues.has('ShiftLeft') || tenues.has('ShiftRight') ? COURSE : MARCHE) * 1000 * dt / Math.hypot(devant, cote);
+        const c = Math.cos(marcheur.cap), sn = Math.sin(marcheur.cap);
+        marcheur = avancer(terrain, marcheur, (devant * c + cote * sn) * v, (devant * sn - cote * c) * v);
+      }
+      if (tourne || devant || cote) placerCamera();
+    }
+    boucle = requestAnimationFrame(animer);
+  }
+  const TOUCHES_VISITE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight']);
+  const enfoncee = (e: KeyboardEvent) => {
+    if (!enVisite || !TOUCHES_VISITE.has(e.code) || (e.target as HTMLElement | null)?.closest?.('input, select, textarea')) return;
+    tenues.add(e.code); e.preventDefault();
+  };
+  const relachee = (e: KeyboardEvent) => { tenues.delete(e.code) };
+  const perdue = () => tenues.clear();
+  window.addEventListener('keydown', enfoncee); window.addEventListener('keyup', relachee); window.addEventListener('blur', perdue);
+  /* regarder : glisser la souris (sans capture du pointeur : rien à autoriser) */
+  let glisse: { x: number; y: number } | null = null;
+  rendu.domElement.addEventListener('pointerdown', e => { if (enVisite) { glisse = { x: e.clientX, y: e.clientY }; rendu.domElement.setPointerCapture(e.pointerId) } });
+  rendu.domElement.addEventListener('pointermove', e => {
+    if (!enVisite || !glisse || !marcheur) return;
+    const dx = e.clientX - glisse.x, dy = e.clientY - glisse.y; glisse = { x: e.clientX, y: e.clientY };
+    marcheur = { ...marcheur, cap: marcheur.cap - dx * 0.004, tangage: Math.max(-1.1, Math.min(1.1, marcheur.tangage - dy * 0.004)) };
+    placerCamera();
+  });
+  rendu.domElement.addEventListener('pointerup', () => { glisse = null });
+
   function vider() {
     for (const o of [...groupe.children]) {
       groupe.remove(o);
@@ -138,6 +216,9 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
       for (const p of m.plaques) plaque(p);
       const premiere = !boite;
       boite = m.boite;
+      terrain = preparerVisite(m); derniere = m; poserPlafonds();
+      /* en visite, le marcheur reste où il est ; ses pieds suivent le sol s'il a changé */
+      if (enVisite && marcheur) { marcheur = { ...marcheur, pied: solSous(terrain, marcheur, marcheur.pied) }; placerCamera() }
       if (boite) {
         /* le soleil au sud-ouest, haut : des ombres lisibles sur les façades sud */
         const c = new THREE.Vector3((boite.xmin + boite.xmax) / 2000, 0, -(boite.ymin + boite.ymax) / 2000);
@@ -146,19 +227,44 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
         const s = soleil.shadow.camera;
         s.left = -R * 1.5; s.right = R * 1.5; s.top = R * 1.5; s.bottom = -R * 1.5; s.near = 0.1; s.far = R * 6; s.updateProjectionMatrix();
       }
+      if (enVisite) return;
       if (premiere) vue.cadrer(); else peindre();
     },
     cadrer() {
+      if (enVisite) { if (terrain) marcheur = depart(terrain); placerCamera(); return }
       if (!boite) { camera.position.set(12, 10, 14); controles.target.set(0, 0, 0); controles.update(); peindre(); return }
       const c = new THREE.Vector3((boite.xmin + boite.xmax) / 2000, (boite.zmin + boite.zmax) / 2000, -(boite.ymin + boite.ymax) / 2000);
       const R = Math.max(boite.xmax - boite.xmin, boite.ymax - boite.ymin, boite.zmax - boite.zmin, 3_000) / 1000;
       camera.position.set(c.x - R * 0.9, c.y + R * 0.8, c.z + R * 1.1);
       controles.target.copy(c); controles.update(); peindre();
     },
-    couper(z) { coupe.constant = z === null ? 1e6 : z / 1000; peindre() },
+    couper(z) { const c = z === null ? 1e6 : z / 1000; if (enVisite) coupeAvant = c; else { coupe.constant = c; peindre() } },
+    visite(oui) {
+      if (oui === enVisite) return;
+      enVisite = oui; tenues.clear(); controles.enabled = !oui;
+      if (oui) {
+        /* l'orbite est gardée pour le retour ; la vue maquette (murs coupés) n'a pas de sens à hauteur d'homme */
+        orbite = { position: camera.position.clone(), cible: controles.target.clone() };
+        coupeAvant = coupe.constant; coupe.constant = 1e6;
+        camera.fov = 65; camera.updateProjectionMatrix();
+        ambiance.intensity = 1.1; matieres.porte.visible = false; poserPlafonds();            // portes ouvertes : on les passe
+        if (!marcheur && terrain) marcheur = depart(terrain);
+        placerCamera();
+        avant = 0; boucle = requestAnimationFrame(animer);
+      } else {
+        cancelAnimationFrame(boucle);
+        coupe.constant = coupeAvant;
+        camera.fov = 45; camera.updateProjectionMatrix();
+        ambiance.intensity = 0; matieres.porte.visible = true; poserPlafonds();
+        if (orbite) { camera.position.copy(orbite.position); controles.target.copy(orbite.cible); controles.update() }
+        peindre();
+      }
+    },
+    enVisite: () => enVisite,
+    marcheur: () => (enVisite ? marcheur : null),
     image() { peindre(); return new Promise((res, rej) => rendu.domElement.toBlob(b => (b ? res(b) : rej(new Error('image vide'))), 'image/png')) },
     stats() { let t = 0, n = 0; groupe.traverse(o => { if (o instanceof THREE.Mesh) { n++; t += (o.geometry.index?.count ?? o.geometry.attributes['position']!.count) / 3 } }); return { maillages: n, triangles: Math.round(t) } },
-    detruire() { observateur.disconnect(); controles.dispose(); vider(); rendu.dispose(); rendu.domElement.remove() },
+    detruire() { enVisite = false; cancelAnimationFrame(boucle); window.removeEventListener('keydown', enfoncee); window.removeEventListener('keyup', relachee); window.removeEventListener('blur', perdue); observateur.disconnect(); controles.dispose(); vider(); rendu.dispose(); rendu.domElement.remove() },
   };
   taille();
   return vue;
