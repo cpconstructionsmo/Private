@@ -17,6 +17,7 @@ import type { Floor, Mm, Opening, Point, Project, Roof } from '../model/types';
 import { planDuNiveau } from '../building/plan';
 import { toitureDuNiveau, type Point3 } from '../building/toiture';
 import { blocs, formeDe, versPlan } from '../building/mobilier';
+import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
 import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
 import { difference, intersection } from '../geometry/booleen';
 import type { Anneau, Polygone } from '../geometry/polygon';
@@ -24,7 +25,7 @@ import { ajouter, multiplier, normaleGauche, normaliser, soustraire } from '../g
 
 export type Matiere = 'mur' | 'cloison' | 'plancher' | 'sol' | 'vitrage' | 'porte' | 'garage'
   | 'tuile' | 'ardoise' | 'zinc' | 'bac_acier' | 'vegetalise' | 'gravillons'
-  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox';
+  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier';
 
 /** la matière dessinée d'une couverture */
 export const COUVERTURES: Record<Roof['covering'], Matiere> = { tile: 'tuile', slate: 'ardoise', zinc: 'zinc', steel: 'bac_acier', green: 'vegetalise', gravel: 'gravillons' };
@@ -104,11 +105,25 @@ function murs(f: Floor, prismes: Prisme[]): void {
   }
 }
 
-function planchers(f: Floor, prismes: Prisme[]): void {
+function planchers(projet: Project, f: Floor, prismes: Prisme[]): void {
   const plan = planDuNiveau(f);
-  for (const p of plan.maconnerie) prismes.push({ contour: p.contour, z0: f.elevation - EPAISSEUR_PLANCHER, z1: f.elevation, matiere: 'plancher', niveau: f.id });
+  /* les trémies des escaliers qui arrivent ici sont ouvertes dans le plancher et le sol */
+  const T = tremiesDuNiveau(projet, f).map(t => ({ contour: t.contour }));
+  const ouvrir = (P: Polygone[]) => (T.length ? difference(P, T) : P);
+  for (const p of ouvrir(plan.maconnerie.map(m => ({ contour: m.contour }))))
+    prismes.push({ contour: p.contour, ...(p.trous?.length ? { trous: p.trous } : {}), z0: f.elevation - EPAISSEUR_PLANCHER, z1: f.elevation, matiere: 'plancher', niveau: f.id });
   /* le sol fini des pièces, à peine au-dessus du plancher (lisible, sans scintillement) */
-  for (const z of plan.zones) prismes.push({ contour: z.polygone.contour, z0: f.elevation, z1: f.elevation + 5, matiere: 'sol', ...(z.piece ? { objet: z.piece.id } : {}), niveau: f.id });
+  for (const z of plan.zones) for (const p of ouvrir([{ contour: z.polygone.contour }]))
+    prismes.push({ contour: p.contour, ...(p.trous?.length ? { trous: p.trous } : {}), z0: f.elevation, z1: f.elevation + 5, matiere: 'sol', ...(z.piece ? { objet: z.piece.id } : {}), niveau: f.id });
+}
+
+/* les escaliers : chaque marche, pleine depuis le sol du départ (un escalier maçonné ou un limon caché) */
+function escaliers(projet: Project, f: Floor, prismes: Prisme[]): void {
+  for (const o of Object.values(f.objects)) {
+    if (o.type !== 'stair') continue;
+    for (const m of geometrieEscalier(o, hauteurAFranchir(projet, f)).marches)
+      prismes.push({ contour: m.contour, z0: f.elevation, z1: f.elevation + m.z, matiere: 'escalier', objet: o.id, niveau: f.id });
+  }
 }
 
 function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
@@ -151,7 +166,7 @@ export function maquette(projet: Project, jusqua?: string, options: { toiture?: 
     const F = [...b.floors].sort((a, c) => a.elevation - c.elevation);
     const k = jusqua ? F.findIndex(f => f.id === jusqua) : -1;
     for (const f of k >= 0 ? F.slice(0, k + 1) : F) {
-      planchers(f, prismes); murs(f, prismes); meubles(f, prismes);
+      planchers(projet, f, prismes); murs(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
       if (options.toiture !== false) toiture(f, prismes, plaques);
     }
   }

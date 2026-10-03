@@ -214,6 +214,16 @@ try {
   assert.ok(fichierPdf.toString('latin1').includes('(Fa\xE7ade sud \\(bas du plan\\))') && fichierPdf.toString('latin1').includes('/Count 2'), 'planche des façades');
   assert.match(dl.suggestedFilename(), /plans A3 - RDC\.pdf$/);
   if (process.env.PDF_SORTIE) await dl.saveAs(process.env.PDF_SORTIE);
+  /* escalier : posé d'un clic (droit, 0,90 m), choisi, son calcul affiché ; à l'étage ajouté, sa trémie */
+  await p.keyboard.press('e');
+  assert.match(await p.textContent('aside'), /Hauteur à franchir/);
+  await clic(1500, 1000);
+  O = await objets();
+  const esc = O.find(o => o.type === 'stair');
+  assert.deepEqual([esc?.position, esc?.width, esc?.kind], [{ x: 1500, y: 1000 }, 900, 'straight'], 'escalier posé : ' + JSON.stringify(esc));
+  await clic(1500, 2000);
+  assert.match(await p.textContent('aside'), /Escalier — Droit[\s\S]*15 hauteurs de 18,0 cm/);
+  if (process.env.CAPTURE_ESCALIER) await p.screenshot({ path: process.env.CAPTURE_ESCALIER });
   await p.keyboard.press('f');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_RAPIDE) await p.screenshot({ path: process.env.CAPTURE_RAPIDE });
@@ -282,7 +292,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF, import de l’atelier, toiture, vue 3D, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF, escalier, import de l’atelier, toiture, vue 3D, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

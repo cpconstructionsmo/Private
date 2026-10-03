@@ -182,11 +182,28 @@ export interface Furniture extends BaseObject {
   catalogRef: { id: string; label: string };
 }
 
-/* Contraintes, valeur des cotes, toiture, mobilier s'ajoutent sans rien
+/** un escalier, posé sur le niveau d'où il part : seuls ses CHOIX sont gardés
+ *  (départ, sens, largeur, forme) ; marches, hauteurs et trémie se calculent
+ *  depuis la hauteur à franchir jusqu'au niveau du dessus (building/escalier.ts) */
+export interface Stair extends BaseObject {
+  type: 'stair';
+  /** le milieu du nez de la première marche */
+  position: Point;
+  /** le sens de la montée (sens trigonométrique) : à 0, on monte vers +y */
+  rotation: Radian;
+  /** l'emmarchement (largeur de passage) */
+  width: Mm;
+  /** droit, ou quart tournant avec palier (vers la gauche ou la droite en montant) */
+  kind: 'straight' | 'quarter_left' | 'quarter_right';
+  /** un giron imposé (sinon celui que donne la formule de Blondel) */
+  going?: Mm;
+}
+
+/* Contraintes, valeur des cotes, toiture, mobilier, escaliers s'ajoutent sans rien
    changer aux projets déjà enregistrés (un type de plus, un champ
    facultatif) : le schéma reste à la version 1, l'instantané figé des
    tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture;
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair;
 
 export interface Floor {
   id: string;

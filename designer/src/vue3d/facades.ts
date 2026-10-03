@@ -23,7 +23,7 @@ export interface FaceProjetee { points: { u: Mm; z: Mm }[]; profondeur: Mm; mati
 export interface Facade { cote: CoteFacade; faces: FaceProjetee[]; boite: { umin: Mm; umax: Mm; zmin: Mm; zmax: Mm } | null }
 
 /** ce qu'on voit d'une façade : ni les cloisons, ni le mobilier, ni les sols (derrière les murs) */
-const CACHES: ReadonlySet<Matiere> = new Set(['cloison', 'sol', 'meuble', 'tissu', 'linge', 'plan_travail', 'sanitaire', 'electromenager', 'inox']);
+const CACHES: ReadonlySet<Matiere> = new Set(['cloison', 'sol', 'meuble', 'tissu', 'linge', 'plan_travail', 'sanitaire', 'electromenager', 'inox', 'escalier']);
 
 /** la vue : u (horizontale vue de face), profondeur (croît en s'éloignant), et la direction du regard */
 function vue(c: CoteFacade): { u: (p: Point) => number; prof: (p: Point) => number; regard: Point } {

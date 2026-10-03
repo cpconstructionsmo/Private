@@ -6,7 +6,7 @@
    Repère de la mise en page : millimètres depuis le haut-gauche de la
    feuille (comme on la lit) ; la page PDF est en points depuis le bas. */
 import type { Floor, Project } from '../model/types';
-import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits } from '../building';
+import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building';
 import { dessiner, type Scene } from '../ui/dessin';
 import type { Camera } from '../ui/camera';
 import { DocumentPdf, type PagePdf } from './pdf';
@@ -78,6 +78,8 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche)
     const t = toitureDuNiveau(niveau);
     const scene: Scene = {
       niveau, dessous: null, selection: null, accroche: null, images: new Map(), sommets: false, impression: true,
+      escaliers: Object.values(niveau.objects).flatMap(x => (x.type === 'stair' ? [{ id: x.id, geo: geometrieEscalier(x, hauteurAFranchir(projet, f)) }] : [])),
+      tremies: tremiesDuNiveau(projet, f),
       ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech) } : {}), ...(t?.ok ? { toitures: t.toitures } : {}),
     };
     dessiner(toile as unknown as CanvasRenderingContext2D, cam, scene);

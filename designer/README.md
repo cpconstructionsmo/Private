@@ -163,6 +163,16 @@ toiture, cotes de niveau (±0,00, égout, faîtage) et le tableau des
 hauteurs. Orientation supposée : le haut du plan au nord (à confirmer sur
 le plan de masse). Hauteurs indicatives (charpente non étudiée).
 
+**Escaliers** (outil E ; `src/building/escalier.ts`) : droit ou quart
+tournant avec palier ; on pose le départ, T tourne le sens de la montée.
+Le modèle ne garde que départ, sens, largeur et forme (et un giron imposé,
+au besoin) : marches et trémie se calculent depuis la hauteur à franchir
+jusqu'au sol du niveau du dessus (hauteurs de 19 cm au plus, giron par
+Blondel, alerte hors de 60–65 cm ; trémie au-dessus des marches sans 2 m
+d'échappée). En plan : marches coupées à 1,10 m (au-dessus, en tirets),
+ligne de foulée fléchée ; à l'étage, la trémie barrée et les marches qu'on
+y voit ; en 3D, les marches et la trémie ouverte dans le plancher.
+
 ## Travailler
 
 ```
