@@ -12,8 +12,13 @@
      deux pans peuvent se rencontrer (médianes entre bords parallèles,
      diagonales à 45° par les sommets) ; chaque case, convexe, va au pan du
      bord le plus proche ; les cases d'un pan sont réunies.
-   - Deux pans (pignons) ou un pan : sur un plan rectangulaire ; les murs
-     pignons montent jusqu'au toit.
+   - Deux pans (pignons) : sur un rectangle, le faîtage suit le grand côté
+     (ou le petit) ; sur un plan à angles droits (L, T, U…), chaque bout
+     d'aile — un bord aux deux angles saillants, plus court que la
+     profondeur de l'aile qu'il ferme — devient un pignon, les autres bords
+     portent les pans, et les noues naissent d'elles-mêmes dans les angles
+     rentrants. Les murs pignons montent jusqu'au toit.
+   - Un pan : sur un plan rectangulaire.
    - Toit-terrasse : une dalle et son acrotère.
 
    Le toit passe par le haut des murs au nu extérieur ; le débord descend
@@ -177,8 +182,37 @@ function couper(P: Point[], L: Droite): Point[][] {
 
 function centre(P: Point[]): Point { return { x: P.reduce((s, p) => s + p.x, 0) / P.length, y: P.reduce((s, p) => s + p.y, 0) / P.length } }
 
-/** les pans d'une toiture à croupes sur un contour d'égout orthogonal (repère du toit) */
-function croupes(E: Point[]): { bord: Bord; contour: Anneau }[] {
+/** les bouts d'aile d'un contour orthogonal : un bord dont les deux angles sont saillants et
+    plus court que la profondeur de l'aile derrière lui (le bord d'en face le plus proche) */
+export function boutsDAile(E: Point[]): boolean[] {
+  const B = bords(E), n = E.length;
+  const saillant = (i: number) => {                                  // le sommet i (entre les bords i−1 et i) tourne à gauche
+    const a = E[(i + n - 1) % n]!, b = E[i]!, c = E[(i + 1) % n]!;
+    return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) > 0;
+  };
+  return B.map((e, i) => {
+    if (!saillant(i) || !saillant((i + 1) % n)) return false;
+    const L = e.horiz ? Math.abs(e.b.x - e.a.x) : Math.abs(e.b.y - e.a.y);
+    const lo = e.horiz ? Math.min(e.a.x, e.b.x) : Math.min(e.a.y, e.b.y), hi = e.horiz ? Math.max(e.a.x, e.b.x) : Math.max(e.a.y, e.b.y);
+    let D = Infinity;
+    for (const f of B) {
+      if (f === e || f.horiz !== e.horiz || f.n.x * e.n.x + f.n.y * e.n.y > -0.5) continue;      // parallèle et en face
+      const flo = f.horiz ? Math.min(f.a.x, f.b.x) : Math.min(f.a.y, f.b.y), fhi = f.horiz ? Math.max(f.a.x, f.b.x) : Math.max(f.a.y, f.b.y);
+      if (Math.min(hi, fhi) - Math.max(lo, flo) <= 1e-6) continue;
+      const d = e.horiz ? (f.a.y - e.a.y) * e.n.y : (f.a.x - e.a.x) * e.n.x;                  // vers l'intérieur
+      if (d > 1e-6) D = Math.min(D, d);
+    }
+    return L < D - 1e-6;
+  });
+}
+
+/** la hauteur relative du toit en p : la distance « en carré » à l'égout le plus proche, pignons exclus */
+const distanceEgout = (p: Point, B: Bord[], pignon?: readonly boolean[]): number =>
+  Math.min(...B.filter((_, i) => !pignon?.[i]).map(e => distBord(p, e).d));
+
+/** les pans d'une toiture à même pente sur un contour d'égout orthogonal (repère du toit) ;
+    les bords « pignon » ne portent pas de pan : les pans voisins vont jusqu'à eux */
+function croupes(E: Point[], pignon?: readonly boolean[]): { bord: Bord; contour: Anneau }[] {
   const B = bords(E);
   const xs = [...new Set(E.map(p => p.x))].sort((a, b) => a - b), ys = [...new Set(E.map(p => p.y))].sort((a, b) => a - b);
   /* les cases de la grille des sommets qui sont dans le contour (rectangles) */
@@ -199,7 +233,7 @@ function croupes(E: Point[]): { bord: Bord; contour: Anneau }[] {
   /* chaque case au pan du bord le plus proche */
   const parBord = new Map<number, Polygone[]>();
   for (const c of cases) {
-    const p = centre(c), ds = B.map(e => distBord(p, e)), d = Math.min(...ds.map(x => x.d));
+    const p = centre(c), ds = B.map((e, i) => (pignon?.[i] ? { d: Infinity, plan: Infinity } : distBord(p, e))), d = Math.min(...ds.map(x => x.d));
     let k = ds.findIndex(x => Math.abs(x.d - d) < 1e-6 && Math.abs(Math.abs(x.plan) - d) < 1e-6);
     if (k < 0) k = ds.findIndex(x => x.d === d);
     (parBord.get(k) ?? parBord.set(k, []).get(k)!).push({ contour: c });
@@ -220,10 +254,33 @@ function enPente(contour: Anneau, r: Roof, hautMurs: Mm, epaisseur: Mm): Toiture
   /* pans dans le repère du toit : un contour et un plan z = a x + b y + c */
   let pans: { contour: Anneau; a: number; b: number; c: number }[] = [];
   const pignons: { points: Point3[]; vers: Point }[] = [];
-  if (r.kind === 'hip') {
-    pans = croupes(E).map(({ bord: e, contour: c }) => (e.horiz
-      ? { contour: c, a: 0, b: t * e.n.y, c: hautMurs + t * (-e.n.y * e.a.y - ov) }
-      : { contour: c, a: t * e.n.x, b: 0, c: hautMurs + t * (-e.n.x * e.a.x - ov) }));
+  const plans = (P: { bord: Bord; contour: Anneau }[]) => P.map(({ bord: e, contour: c }) => (e.horiz
+    ? { contour: c, a: 0, b: t * e.n.y, c: hautMurs + t * (-e.n.y * e.a.y - ov) }
+    : { contour: c, a: t * e.n.x, b: 0, c: hautMurs + t * (-e.n.x * e.a.x - ov) }));
+  if (r.kind === 'hip') pans = plans(croupes(E));
+  else if (r.kind === 'gable' && E.length !== 4) {
+    /* deux pans sur un plan en L, T, U… : les bouts d'aile sont des pignons */
+    const pg = boutsDAile(E);
+    if (pg.length !== bords(W).length) return 'deux pans : contour trop irrégulier pour trouver les bouts d’aile ; choisissez une toiture à croupes';
+    if (!pg.some(Boolean)) return 'deux pans : aucun bout d’aile sur ce plan (ailes aussi larges que longues) ; choisissez une toiture à croupes';
+    pans = plans(croupes(E, pg));
+    const BE = bords(E);
+    /* chaque mur pignon : du haut des murs jusqu'au toit, profil suivi aux changements de pan */
+    bords(W).forEach((w, j) => {
+      if (!pg[j]) return;
+      const zToit = (p: Point) => hautMurs + t * (distanceEgout(p, BE, pg) - ov);
+      const ts = new Set([0, 1]);
+      const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
+      for (const pan of pans) pan.contour.forEach((q, i) => {
+        const q2 = pan.contour[(i + 1) % pan.contour.length]!, ex = q2.x - q.x, ey = q2.y - q.y, den = dx * ey - dy * ex;
+        if (Math.abs(den) < 1e-9) return;
+        const u = ((q.x - w.a.x) * ey - (q.y - w.a.y) * ex) / den, v = ((q.x - w.a.x) * dy - (q.y - w.a.y) * dx) / den;
+        if (u > 1e-9 && u < 1 - 1e-9 && v >= -1e-9 && v <= 1 + 1e-9) ts.add(Math.round(u * 1e9) / 1e9);
+      });
+      const haut = [...ts].sort((a, b) => b - a).map(u => { const p = { x: w.a.x + u * dx, y: w.a.y + u * dy }; return { x: p.x, y: p.y, z: zToit(p) } });
+      /* aux angles, le toit passe par le haut des murs : pas de sommet en double */
+      pignons.push({ points: [{ ...w.a, z: hautMurs }, { ...w.b, z: hautMurs }, ...haut.filter(q => q.z > hautMurs + 1e-6)], vers: { x: w.n.x * epaisseur, y: w.n.y * epaisseur } });
+    });
   } else {
     if (E.length !== 4 || W.length !== 4) return (r.kind === 'gable' ? 'deux pans' : 'un pan') + ' : seulement sur un plan rectangulaire pour l’instant ; choisissez une toiture à croupes';
     const x0 = Math.min(...W.map(p => p.x)), x1 = Math.max(...W.map(p => p.x)), y0 = Math.min(...W.map(p => p.y)), y1 = Math.max(...W.map(p => p.y));

@@ -121,8 +121,10 @@ modification (annuler compris) s'y voit aussitôt.
 modèle ne garde que les choix (type, pente, débord, couverture) ; pans,
 faîtages et pignons se calculent depuis le contour des murs et le suivent.
 À croupes sur tout plan à angles droits (méthode de l'atelier, mêmes
-surfaces sur les mêmes plans), deux pans à pignons ou un pan sur un plan
-rectangulaire, toit-terrasse avec acrotère. Le toit passe par le haut des
+surfaces sur les mêmes plans), deux pans à pignons (sur un rectangle ; sur
+un plan en L, T, U, chaque bout d'aile devient un pignon et les noues se
+forment dans les angles rentrants), un pan sur un plan rectangulaire,
+toit-terrasse avec acrotère. Le toit passe par le haut des
 murs au nu extérieur ; égout, faîtage et surface de couverture sont
 annoncés (indicatifs : la charpente n'est pas étudiée). Un plan qui ne
 convient pas est refusé avec sa raison. En plan : égout en tirets, lignes

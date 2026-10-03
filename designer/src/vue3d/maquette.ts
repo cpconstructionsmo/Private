@@ -117,7 +117,12 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
   const m = COUVERTURES[roof.covering];
   for (const t of r.toitures) {
     for (const p of t.pans) plaques.push({ dessus: p.contour.map(q => ({ ...q, z: p.plan.a * q.x + p.plan.b * q.y + p.plan.c })), decalage: { x: 0, y: 0, z: -EPAISSEUR_COUVERTURE }, matiere: m, objet: roof.id, niveau: f.id });
-    for (const g of t.pignons) plaques.push({ dessus: g.points, decalage: { ...g.vers, z: 0 }, matiere: 'mur', objet: roof.id, niveau: f.id });
+    /* un pignon s'arrête sous la couverture (sinon son chant et le dessus du toit se disputent le même plan) */
+    for (const g of t.pignons) {
+      const z0 = Math.min(...g.points.map(q => q.z));
+      const dessus = g.points.map(q => (q.z > z0 + 1 ? { ...q, z: Math.max(z0, q.z - EPAISSEUR_COUVERTURE) } : q));
+      plaques.push({ dessus, decalage: { ...g.vers, z: 0 }, matiere: 'mur', objet: roof.id, niveau: f.id });
+    }
     if (t.terrasse) {
       prismes.push({ contour: t.terrasse.dalle, z0: t.terrasse.z0, z1: t.terrasse.z1, matiere: m, objet: roof.id, niveau: f.id });
       for (const a of t.terrasse.acrotere) prismes.push({ contour: a.contour, ...(a.trous?.length ? { trous: a.trous } : {}), z0: t.terrasse.z1, z1: t.terrasse.zAcrotere, matiere: 'mur', objet: roof.id, niveau: f.id });
