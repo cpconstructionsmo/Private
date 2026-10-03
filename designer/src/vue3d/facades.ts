@@ -25,48 +25,81 @@ export interface Facade { cote: CoteFacade; faces: FaceProjetee[]; boite: { umin
 /** ce qu'on voit d'une façade : ni les cloisons, ni le mobilier, ni les sols (derrière les murs) */
 const CACHES: ReadonlySet<Matiere> = new Set(['cloison', 'sol', 'meuble', 'tissu', 'linge', 'plan_travail', 'sanitaire', 'electromenager', 'inox', 'escalier']);
 
-/** la vue : u (horizontale vue de face), profondeur (croît en s'éloignant), et la direction du regard */
-function vue(c: CoteFacade): { u: (p: Point) => number; prof: (p: Point) => number; regard: Point } {
+/** une vue orthogonale horizontale : u (horizontale vue de face), profondeur (croît en s'éloignant) */
+export interface Vue { u: (p: Point) => number; prof: (p: Point) => number }
+
+/** la vue d'un côté du plan */
+function vue(c: CoteFacade): Vue {
   switch (c) {
-    case 'sud': return { u: p => p.x, prof: p => p.y, regard: { x: 0, y: 1 } };
-    case 'nord': return { u: p => -p.x, prof: p => -p.y, regard: { x: 0, y: -1 } };
-    case 'est': return { u: p => p.y, prof: p => -p.x, regard: { x: -1, y: 0 } };
-    case 'ouest': return { u: p => -p.y, prof: p => p.x, regard: { x: 1, y: 0 } };
+    case 'sud': return { u: p => p.x, prof: p => p.y };
+    case 'nord': return { u: p => -p.x, prof: p => -p.y };
+    case 'est': return { u: p => p.y, prof: p => -p.x };
+    case 'ouest': return { u: p => -p.y, prof: p => p.x };
   }
 }
 
 const aireSigneeUZ = (P: { u: number; z: number }[]) => P.reduce((s, a, i) => { const b = P[(i + 1) % P.length]!; return s + a.u * b.z - b.u * a.z }, 0) / 2;
 
-export function facade(m: Maquette, cote: CoteFacade): Facade {
-  const v = vue(cote), faces: FaceProjetee[] = [];
-  const ajouter = (points: { u: number; z: number }[], profondeur: number, matiere: Matiere) => {
-    if (Math.abs(aireSigneeUZ(points)) > 1) faces.push({ points, profondeur, matiere });          // vue de chant : rien à dessiner
+/** un point vu : u, profondeur, altitude */
+interface PointVu { u: number; p: number; z: number }
+
+/** la partie d'un polygone au-delà du plan de coupe (profondeur ≥ 0), Sutherland–Hodgman */
+function audela(P: PointVu[]): PointVu[] {
+  const R: PointVu[] = [];
+  P.forEach((a, i) => {
+    const b = P[(i + 1) % P.length]!;
+    if (a.p >= 0) R.push(a);
+    if ((a.p >= 0) !== (b.p >= 0)) { const t = a.p / (a.p - b.p); R.push({ u: a.u + t * (b.u - a.u), p: 0, z: a.z + t * (b.z - a.z) }) }
+  });
+  return R;
+}
+
+/** les faces de la maquette vues selon « v », rangées du plus loin au plus près ; avec « coupe »,
+    seulement ce qui est au-delà du plan de profondeur 0 (le reste est derrière l'observateur) */
+export function projeter(m: Maquette, v: Vue, caches: ReadonlySet<Matiere>, coupe = false): Pick<Facade, 'faces' | 'boite'> {
+  const faces: FaceProjetee[] = [];
+  /* rang : un côté de mur par son milieu (l'onglet d'un angle passe ainsi derrière la façade), un pan par son point le plus proche */
+  const ajouter = (points: PointVu[], rang: 'milieu' | 'proche', matiere: Matiere, ecart = 0) => {
+    const P = coupe ? audela(points) : points;
+    if (P.length < 3) return;
+    const prof = P.map(q => q.p), profondeur = (rang === 'milieu' ? (Math.min(...prof) + Math.max(...prof)) / 2 : Math.min(...prof)) + ecart;
+    const Q = P.map(q => ({ u: q.u, z: q.z }));
+    if (Math.abs(aireSigneeUZ(Q)) > 1) faces.push({ points: Q, profondeur, matiere });          // vue de chant : rien à dessiner
   };
+  const vu = (q: Point, z: number): PointVu => ({ u: v.u(q), p: v.prof(q), z });
   for (const p of m.prismes) {
-    if (CACHES.has(p.matiere)) continue;
+    if (caches.has(p.matiere)) continue;
     for (const anneau of [p.contour, ...(p.trous ?? [])]) anneau.forEach((a, i) => {
       const b = anneau[(i + 1) % anneau.length]!;
-      /* un côté vertical : on ne garde que ceux tournés vers l'observateur (ou indécis : le peintre tranchera) */
-      ajouter([{ u: v.u(a), z: p.z0 }, { u: v.u(b), z: p.z0 }, { u: v.u(b), z: p.z1 }, { u: v.u(a), z: p.z1 }], (v.prof(a) + v.prof(b)) / 2, p.matiere);
+      /* un côté vertical : le peintre tranchera entre ceux tournés vers l'observateur et les autres */
+      ajouter([vu(a, p.z0), vu(b, p.z0), vu(b, p.z1), vu(a, p.z1)], 'milieu', p.matiere);
     });
   }
   for (const p of m.plaques) {
-    if (CACHES.has(p.matiere)) continue;
+    if (caches.has(p.matiere)) continue;
     const H = p.dessus, B = H.map(q => ({ x: q.x + p.decalage.x, y: q.y + p.decalage.y, z: q.z + p.decalage.z }));
-    const proche = (P: { x: number; y: number }[]) => Math.min(...P.map(q => v.prof(q)));
-    ajouter(B.map(q => ({ u: v.u(q), z: q.z })), proche(B) + 1, p.matiere);
+    ajouter(B.map(q => vu(q, q.z)), 'proche', p.matiere, 1);
     H.forEach((a, i) => {
       const b = H[(i + 1) % H.length]!, a2 = B[i]!, b2 = B[(i + 1) % H.length]!;
-      ajouter([{ u: v.u(a), z: a.z }, { u: v.u(b), z: b.z }, { u: v.u(b2), z: b2.z }, { u: v.u(a2), z: a2.z }], Math.min(v.prof(a), v.prof(b)), p.matiere);
+      ajouter([vu(a, a.z), vu(b, b.z), vu(b2, b2.z), vu(a2, a2.z)], 'proche', p.matiere);
     });
-    ajouter(H.map(q => ({ u: v.u(q), z: q.z })), proche(H), p.matiere);
+    ajouter(H.map(q => vu(q, q.z)), 'proche', p.matiere);
   }
   /* du plus loin au plus près ; à profondeur égale, la toiture après les murs */
   faces.sort((a, b) => b.profondeur - a.profondeur);
+  return { faces, boite: boiteUZ(faces.flatMap(f => f.points)) };
+}
+
+/** la boîte (u, z) de points vus */
+export function boiteUZ(P: { u: number; z: number }[]): Facade['boite'] {
   let boite: Facade['boite'] = null;
-  for (const f of faces) for (const q of f.points) {
+  for (const q of P) {
     boite = boite ? { umin: Math.min(boite.umin, q.u), umax: Math.max(boite.umax, q.u), zmin: Math.min(boite.zmin, q.z), zmax: Math.max(boite.zmax, q.z) }
       : { umin: q.u, umax: q.u, zmin: q.z, zmax: q.z };
   }
-  return { cote, faces, boite };
+  return boite;
+}
+
+export function facade(m: Maquette, cote: CoteFacade): Facade {
+  return { cote, ...projeter(m, vue(cote), CACHES) };
 }

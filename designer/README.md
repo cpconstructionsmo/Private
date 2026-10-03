@@ -163,6 +163,17 @@ toiture, cotes de niveau (±0,00, égout, faîtage) et le tableau des
 hauteurs. Orientation supposée : le haut du plan au nord (à confirmer sur
 le plan de masse). Hauteurs indicatives (charpente non étudiée).
 
+**Coupe** (`src/vue3d/coupe.ts`, option de l'export PDF) : la coupe A-A
+(PCMI 3), la maquette tranchée par un plan vertical. Le trait se place de
+lui-même : en travers de la plus petite dimension de la maison (la pente du
+toit se lit), par l'escalier s'il y en a un, sinon par le milieu, et jamais
+le long d'un mur. Ce qui est tranché (murs, allèges et linteaux, planchers
+et trémies, marches, couverture) est plein ; ce qui est au-delà se voit en
+élévation (même projection que les façades) ; le mobilier n'y figure pas.
+La planche porte le terrain (supposé au sol fini), les cotes de niveau
+(sols, égout, faîtage), la chaîne des hauteurs et un plan de repérage ; le
+trait de coupe, fléché, s'ajoute sur les plans du même PDF.
+
 **Escaliers** (outil E ; `src/building/escalier.ts`) : droit ou quart
 tournant avec palier ; on pose le départ, T tourne le sens de la montée.
 Le modèle ne garde que départ, sens, largeur et forme (et un giron imposé,

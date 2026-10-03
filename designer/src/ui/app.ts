@@ -1004,12 +1004,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'cot', libelle: 'Cotation', valeur: 'oui', options: { oui: 'Avec les chaînes de cotes', non: 'Sans' } },
       { cle: 'mob', libelle: 'Mobilier', valeur: 'oui', options: { oui: 'Avec le mobilier', non: 'Sans' } },
       { cle: 'fac', libelle: 'Façades', valeur: 'oui', options: { oui: 'Ajouter la planche des quatre façades', non: 'Sans' } },
+      { cle: 'cou', libelle: 'Coupe', valeur: 'oui', options: { oui: 'Ajouter la coupe A-A (et son trait sur les plans)', non: 'Sans' } },
       { cle: 'ind', libelle: 'Indice', valeur: 'A' }]);
     if (!r) return;
     try {
       const { planchesPdf } = await import('../export/planche');
       const u = planchesPdf(h.projet, {
-        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui', mobilier: r['mob'] === 'oui', facades: r['fac'] === 'oui',
+        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui', mobilier: r['mob'] === 'oui', facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui',
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
       });
       const a = document.createElement('a');
