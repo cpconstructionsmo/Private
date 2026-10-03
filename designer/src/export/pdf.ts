@@ -73,6 +73,14 @@ export class PagePdf {
     const [r, g, b] = PagePdf.rvb(couleur);
     return this.op(`${n(r)} ${n(g)} ${n(b)} RG ${n(ep)} w [] 0 d ${n(x0)} ${n(y0)} m ${n(x1)} ${n(y1)} l S`);
   }
+  /** un polygone (points en points PDF), rempli puis tracé */
+  polygone(P: [number, number][], o: { fond?: string; trait?: string; ep?: number } = {}): this {
+    if (P.length < 3) return this;
+    const c = P.map(([x, y], i) => `${n(x)} ${n(y)} ${i ? 'l' : 'm'}`).join(' ') + ' h';
+    const f = o.fond ? PagePdf.rvb(o.fond) : null, t = o.trait ? PagePdf.rvb(o.trait) : null;
+    const op = f && t ? 'B' : f ? 'f' : 'S';
+    return this.op(`${f ? `${n(f[0])} ${n(f[1])} ${n(f[2])} rg ` : ''}${t ? `${n(t[0])} ${n(t[1])} ${n(t[2])} RG ${n(o.ep ?? 0.35)} w [] 0 d 1 j ` : ''}${c} ${op}`);
+  }
   cadre(x: number, y: number, l: number, h: number, o: { ep?: number; couleur?: string; fond?: string } = {}): this {
     const [r, g, b] = PagePdf.rvb(o.couleur ?? '#1A2B36');
     if (o.fond) { const [a, c, d] = PagePdf.rvb(o.fond); this.op(`${n(a)} ${n(c)} ${n(d)} rg ${n(x)} ${n(y)} ${n(l)} ${n(h)} re f`) }

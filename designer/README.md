@@ -156,6 +156,13 @@ Constructions (projet, plan, échelle, phase, date, indice), échelle
 graphique. Le PDF est écrit sans bibliothèque et en vectoriel : le plan y
 est dessiné par le même code qu'à l'écran, sur une « toile PDF ».
 
+**Façades** (`src/vue3d/facades.ts`, option de l'export PDF) : les quatre
+façades déduites de la maquette 3D, en projection de face (faces peintes de
+la plus lointaine à la plus proche), à une même échelle, avec terrain, baies,
+toiture, cotes de niveau (±0,00, égout, faîtage) et le tableau des
+hauteurs. Orientation supposée : le haut du plan au nord (à confirmer sur
+le plan de masse). Hauteurs indicatives (charpente non étudiée).
+
 ## Travailler
 
 ```
