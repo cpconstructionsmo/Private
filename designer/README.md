@@ -190,6 +190,22 @@ et meubles l'arrêtent, il glisse le long ; les portes, supposées ouvertes,
 le laissent passer. Plafonds blancs au haut des murs du dernier niveau,
 lumière d'ambiance : rien de tout cela n'est enregistré.
 
+**Plan de masse** (outil L ; `src/building/terrain.ts`, option de l'export
+PDF) : la parcelle se trace sur le niveau le plus bas, sommet par sommet,
+ou côté par côté en tapant les longueurs du relevé (25,30 ou 25,30<90) ;
+elle se ferme au premier point ou par Entrée. La maison ne bouge pas : on
+place la PARCELLE autour d'elle (à une distance donnée de deux côtés), on la
+tourne pour qu'un côté soit parallèle à la maison (son nord tourne avec
+elle), ou on la tire. Tout se mesure : surface du terrain, emprise au sol
+(maçonnerie de tous les niveaux, débords de toit exclus), reculs de la
+maçonnerie à chaque côté ; une maison qui sort de la limite est signalée.
+L'inspecteur garde la référence cadastrale, la voie et ses côtés, le nord et
+l'altitude NGF du ±0,00. La planche « Plan de masse (PCMI 2) » porte la
+limite cotée, la voie, les reculs, l'emprise et le débord du toit, le nord,
+le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Le terrain
+lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
+revient avec l'import du RDC.
+
 **Escaliers** (outil E ; `src/building/escalier.ts`) : droit ou quart
 tournant avec palier ; on pose le départ, T tourne le sens de la montée.
 Le modèle ne garde que départ, sens, largeur et forme (et un giron imposé,

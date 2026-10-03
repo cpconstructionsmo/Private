@@ -230,13 +230,24 @@ try {
   await clic(-600, 6000); await clic(10600, 6000);                    // à l'écart du message « PDF enregistré », en bas
   O = await objets();
   const tc = O.find(o => o.type === 'section');
-  assert.ok(tc && tc.name === 'A' && tc.look === 'left' && Math.abs(tc.a.y - tc.b.y) < 1, 'trait de coupe tracé : ' + JSON.stringify(tc));
+  assert.ok(tc && tc.name === 'A' && tc.look === 'left' && Math.abs(tc.a.y - tc.b.y) < 1, 'trait de coupe tracé, parcelle tracée et implantée : ' + JSON.stringify(tc));
   await clic(2500, tc.a.y);
   assert.match(await p.textContent('aside'), /Coupe A-A/);
   assert.ok(await p.locator('aside .apercu-coupe svg polygon').count() > 5, 'aperçu de la coupe');
   if (process.env.CAPTURE_COUPE) await p.screenshot({ path: process.env.CAPTURE_COUPE });
   await p.keyboard.press('t');
   assert.equal((await objets()).find(o => o.type === 'section').look, 'right', 'regard inversé');
+  /* parcelle : tracée (L, sommets cliqués dans les coins, loin du message en bas), choisie, implantée à 5 m et 3 m */
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('l');
+  for (const [x, y] of [[-1000, -500], [12000, -500], [12000, 9000], [-1000, 9000], [-1000, -500]]) await clic(x, y);
+  const parc = (await objets()).find(o => o.type === 'plot');
+  assert.ok(parc && parc.contour.length === 4, 'parcelle tracée : ' + JSON.stringify(parc));
+  await clic(-1000, 4000);
+  assert.match(await p.textContent('aside'), /Terrain : [\d ,]+ m²[\s\S]*Emprise au sol/);
+  await p.click('aside button:has-text("Placer")');
+  assert.match(await p.textContent('aside'), /Côté 1 : [\d,]+ m — recul 5,00 m/, 'parcelle placée à 5 m du côté 1');
+  if (process.env.CAPTURE_PARCELLE) await p.screenshot({ path: process.env.CAPTURE_PARCELLE });
   await p.keyboard.press('f');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_RAPIDE) await p.screenshot({ path: process.env.CAPTURE_RAPIDE });

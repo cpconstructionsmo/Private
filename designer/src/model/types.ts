@@ -212,11 +212,30 @@ export interface SectionLine extends BaseObject {
   name: string;
 }
 
-/* Contraintes, valeur des cotes, toiture, mobilier, escaliers, coupes s'ajoutent sans rien
+/** la parcelle (plan de masse, PCMI 2), dessinée dans le repère du plan : la
+ *  maison ne bouge pas, c'est la parcelle qu'on place autour d'elle. Une seule
+ *  par projet, posée sur le niveau le plus bas. Reculs, emprise et surface se
+ *  calculent (building/terrain.ts) : rien n'est recopié. */
+export interface Plot extends BaseObject {
+  type: 'plot';
+  /** la limite de propriété (polygone fermé, sans répéter le premier point) */
+  contour: Point[];
+  /** les côtés sur voie (alignement) : côté i = du sommet i au sommet i+1 */
+  street: number[];
+  streetName?: string;
+  /** la référence cadastrale (« AB 123 ») */
+  reference?: string;
+  /** la direction du nord sur le plan (sens trigonométrique depuis le haut du plan) */
+  north: Radian;
+  /** l'altitude NGF du ±0,00 (sol fini du RDC), en mètres, si elle est connue */
+  groundFloorNgf?: number;
+}
+
+/* Contraintes, valeur des cotes, toiture, mobilier, escaliers, coupes, parcelle s'ajoutent sans rien
    changer aux projets déjà enregistrés (un type de plus, un champ
    facultatif) : le schéma reste à la version 1, l'instantané figé des
    tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine;
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot;
 
 export interface Floor {
   id: string;

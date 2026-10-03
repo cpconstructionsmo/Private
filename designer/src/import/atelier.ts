@@ -38,7 +38,8 @@ export interface MurAtelier { id: string; polygone: PointM[]; trous?: PointM[][]
 export interface OuvertureAtelier { id: string; type: string; position: PointM; largeur: ValeurAtelier; hauteur: ValeurAtelier; allege: ValeurAtelier; exterieure?: boolean; origine?: string }
 export interface PieceAtelier { id: string; nom: string; usage: string; polygone: PointM[]; surface_calculee: number; surface_lue?: ValeurAtelier | null; humide?: boolean; exclue_habitable?: boolean; motif_exclusion?: string }
 export interface NiveauAtelier { nom?: string; murs: MurAtelier[]; ouvertures: OuvertureAtelier[]; pieces: PieceAtelier[] }
-export interface ModeleAtelier { id?: string; nom?: string; schema_version?: number; batiment: { niveaux: NiveauAtelier[] }; source_rdc?: { fichier?: string; segments?: [PointM, PointM][] } }
+export interface TerrainAtelier { limites?: PointM[]; alignement?: number[]; nom_voie?: string; source?: string; implantation?: { angle: number; dx: number; dy: number } | null }
+export interface ModeleAtelier { id?: string; nom?: string; schema_version?: number; batiment: { niveaux: NiveauAtelier[] }; source_rdc?: { fichier?: string; segments?: [PointM, PointM][] }; terrain?: TerrainAtelier; parcelles?: unknown[] }
 
 /** vérifier qu'un JSON est bien un modèle de l'atelier (et pas autre chose) */
 export function lireModeleAtelier(brut: unknown): ModeleAtelier {
@@ -348,6 +349,21 @@ export function commandesImport(modele: ModeleAtelier, niveau: string, id: () =>
     commandes.push({
       type: 'creerPiece', niveau, point: pointInterieur(anneau), nom: p.nom, usage, humide: !!p.humide,
       origine: { label, document: fichier, statut: p.usage === 'autre' ? 'to_check' : 'confirmed', meta },
+    });
+  }
+  /* le terrain lu par l'atelier : sa limite revient dans le repère du RDC (l'implantation de l'atelier
+     va du RDC au terrain : rotation puis translation ; on fait le chemin inverse) */
+  const T = modele.terrain, L = T?.limites ?? [];
+  if (L.length >= 4) {
+    const ferme = L.length > 3 && L[0]![0] === L[L.length - 1]![0] && L[0]![1] === L[L.length - 1]![1];
+    const S = ferme ? L.slice(0, -1) : L, imp = T!.implantation;
+    if (!imp) avertissements.push('Terrain lu par l’atelier, mais la maison n’y est pas implantée : placez la parcelle (inspecteur de la parcelle, « Implanter la maison »)');
+    const a = -((imp?.angle ?? 0) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
+    const contour = S.map(([x, y]) => { const u = x - (imp?.dx ?? 0), v = y - (imp?.dy ?? 0); return { x: arrondi((u * c - v * sn) * MM), y: arrondi((u * sn + v * c) * MM) } });
+    const source = T!.source || 'plan du terrain';
+    commandes.push({
+      type: 'creerParcelle', niveau, contour, voies: (T!.alignement ?? []).filter(i => i >= 0 && i < contour.length), ...(T!.nom_voie ? { nomVoie: T!.nom_voie } : {}),
+      origine: { label: 'Import atelier : ' + source, document: source, statut: imp ? 'derived' : 'to_check', meta: { atelier: { implantation: imp ?? null } } },
     });
   }
   return {
