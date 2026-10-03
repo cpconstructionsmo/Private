@@ -2,3 +2,4 @@
 export * from './operations';
 export * from './commandes';
 export * from './historique';
+export * from './presse-papiers';

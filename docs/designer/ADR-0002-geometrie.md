@@ -54,3 +54,11 @@ rétractation du même jeu, angles en onglet. Les jours de moins de 0,1 mm
 disparaissent ; aucun vrai jour de mur n'est si fin. Les surfaces des tests
 exacts (76,44 m², 7,20 m², propriétés sur 1 000 tours de murs) sont
 inchangées.
+
+## Complément (2026-10-03) : l'impression
+
+Le plan imprimé (export PDF A3) est tracé par le même code que l'écran
+(`ui/dessin.ts`), sur une toile qui reçoit les ordres du Canvas 2D et les
+écrit en PDF vectoriel (`export/toile-pdf.ts`) : un seul dessin à tenir à
+jour, et ce qu'on voit est ce qu'on imprime. Le PDF s'écrit sans
+bibliothèque (polices standard Helvetica, texte en WinAnsi).

@@ -228,6 +228,32 @@ describe('tracé rapide (comme sur un logiciel de plans de maisons)', () => {
   });
 });
 
+describe('sélection de plusieurs objets', () => {
+  it('un cadre tiré dans le vide choisit ce qu’il contient entièrement ; Maj + clic ajoute ou retire', () => {
+    const b = banc();
+    b.outils.choisir('mur');
+    for (const [x, y] of [[0, 0], [4_000, 0], [4_000, 3_000], [0, 3_000], [0, 0]] as const) b.clic(x, y);
+    b.outils.choisir('cloison'); b.clic(6_000, 0); b.clic(6_000, 3_000);
+    b.outils.choisir('selection');
+    /* un cadre autour de la pièce de gauche : ses 4 murs, pas la cloison */
+    const e = b.tirer([-500, -500], [4_500, 3_500]);
+    expect(e.cadre).toEqual([{ x: -500, y: -500 }, { x: 4_500, y: 3_500 }]);
+    const fin = b.outils.relacher({ point: { x: 4_500, y: 3_500 }, rayon: 150 });
+    expect(fin.groupe).toBeUndefined();                                  // déjà relâché par tirer()
+    b.outils.appuyer({ point: { x: -500, y: -500 }, rayon: 150 });
+    b.outils.bouger({ point: { x: 4_500, y: 3_500 }, rayon: 150 });
+    const r = b.outils.relacher({ point: { x: 4_500, y: 3_500 }, rayon: 150 });
+    expect(r.groupe).toHaveLength(4);
+    expect(r.groupe!.every(id => (b.h.projet.buildings[0]!.floors[0]!.objects[id] as Wall).role === 'exterior')).toBe(true);
+    /* Maj + clic sur la cloison : on la bascule dans le groupe */
+    const cloison = b.murs().find(w => w.role === 'partition')!;
+    expect(b.outils.appuyer({ point: { x: 6_000, y: 1_500 }, rayon: 150, maj: true })).toEqual({ basculer: cloison.id });
+    /* un simple clic dans le vide : pas de cadre */
+    b.outils.appuyer({ point: { x: 9_000, y: 9_000 }, rayon: 150 });
+    expect(b.outils.relacher({ point: { x: 9_000, y: 9_000 }, rayon: 150 })).toEqual({ cadre: null });
+  });
+});
+
 describe('outil Mobilier', () => {
   it('un lit posé près d’un mur s’y plaque ; tiré vers l’autre mur, il s’y retourne ; T tourne, Alt pose librement', () => {
     const b = banc();

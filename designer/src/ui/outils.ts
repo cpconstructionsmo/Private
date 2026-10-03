@@ -15,7 +15,7 @@ import { positionDansAnneau } from '../geometry/predicats';
 import { distancePointSegment, projeterSurDroite } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
-import { viser } from './selection';
+import { dansCadre, viser } from './selection';
 import { MODELES_OUVERTURES, modeleOuverture } from '../catalogue/ouvertures';
 import { MODELES_MEUBLES, modeleMeuble } from '../catalogue/mobilier';
 import { poserMeuble } from '../building/mobilier';
@@ -73,6 +73,12 @@ export interface Effet {
   aide?: string;
   /** l'outil a fini son geste (retour à la sélection, par exemple) */
   fini?: boolean;
+  /** Maj + clic : ajouter cet objet au groupe choisi, ou l'en retirer */
+  basculer?: string;
+  /** les objets choisis ensemble (sélection par cadre) */
+  groupe?: string[];
+  /** le cadre de sélection en cours (null : plus de cadre) */
+  cadre?: [Point, Point] | null;
 }
 
 interface Contexte { projet: Project; niveau: string; selection: string | null }
@@ -81,7 +87,8 @@ type Prise =
   | { genre: 'sommet'; de: Point; depart: Point }
   | { genre: 'mur'; mur: MurDroit; depart: Point }
   | { genre: 'ouverture'; id: string; mur: MurDroit; decalage: Mm }
-  | { genre: 'meuble'; id: string; depart: Point; decalage: Point; largeur: Mm; profondeur: Mm; rotation: number };
+  | { genre: 'meuble'; id: string; depart: Point; decalage: Point; largeur: Mm; profondeur: Mm; rotation: number }
+  | { genre: 'cadre'; depart: Point };
 
 const AIDES: Record<NomOutil, string> = {
   selection: 'Cliquer pour choisir ; tirer une extrémité, un mur ou une ouverture pour la déplacer',
@@ -156,6 +163,9 @@ export class Outils {
   }
 
   get aide(): string { return AIDES[this.outil] }
+  /** un point accroché (le collage s'en sert pour poser un groupe sur un angle) */
+  pointAccroche(g: Geste): Accroche { return this.accrocher(g) }
+
   get traceEnCours(): boolean { return this.depart !== null || this.prise !== null || this.ancres.length > 0 || this.clicsFond.length > 0 }
 
   private annulerGeste(): void { this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
@@ -231,6 +241,7 @@ export class Outils {
       case 'selection': {
         if (!this.prise) return { accroche: null };
         const p = this.prise;
+        if (p.genre === 'cadre') return { cadre: [p.depart, g.point] };
         if (p.genre === 'meuble') {
           /* un clic n'est pas un déplacement : sans mouvement franc, le meuble reste où il est */
           if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
@@ -311,7 +322,10 @@ export class Outils {
       case 'selection': {
         const cible = viser(f, g.point, g.rayon);
         this.bouge = false; this.dernier = null;
-        if (!cible) { this.prise = null; return { selection: null } }
+        /* dans le vide : un cadre de sélection commence */
+        if (!cible) { this.prise = { genre: 'cadre', depart: g.point }; return { selection: null, groupe: [] } }
+        /* Maj + clic : composer un groupe */
+        if (g.maj) { this.prise = null; return cible.genre === 'objet' ? { basculer: cible.id } : cible.murs.length === 1 ? { basculer: cible.murs[0]! } : {} }
         if (cible.genre === 'sommet') {
           this.prise = { genre: 'sommet', de: cible.point, depart: cible.point };
           return cible.murs.length === 1 ? { selection: cible.murs[0]! } : {};
@@ -422,9 +436,16 @@ export class Outils {
     return this.poserMur({ x: arrondi(d.x + u.x * s.longueur), y: arrondi(d.y + u.y * s.longueur) });
   }
 
-  relacher(_g: Geste): Effet {
+  relacher(g: Geste): Effet {
     if (this.outil !== 'selection' || !this.prise) return {};
     const p = this.prise, dernier = this.dernier;
+    if (p.genre === 'cadre') {
+      this.prise = null;
+      const f = this.niveau();
+      /* un clic dans le vide n'est pas un cadre */
+      if (!f || distance(p.depart, g.point) < g.rayon / 2) return { cadre: null };
+      return { cadre: null, groupe: dansCadre(f, p.depart, g.point) };
+    }
     this.prise = null; this.bouge = false; this.dernier = null;
     if (!dernier) return { apercu: [] };
     const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : 'Déplacer une ouverture';
