@@ -199,11 +199,24 @@ export interface Stair extends BaseObject {
   going?: Mm;
 }
 
-/* Contraintes, valeur des cotes, toiture, mobilier, escaliers s'ajoutent sans rien
+/** un trait de coupe tracé à la main (A-A, B-B…) : seuls le trait, le sens du
+ *  regard et le nom sont gardés ; la coupe se calcule (vue3d/coupe.ts). Posé
+ *  sur un niveau, il tranche tout le bâtiment et se voit sur tous les plans. */
+export interface SectionLine extends BaseObject {
+  type: 'section';
+  a: Point;
+  b: Point;
+  /** ce que montre la coupe : le côté gauche du trait (de a vers b) ou le droit */
+  look: 'left' | 'right';
+  /** « A », « B »… (la coupe s'appelle « A-A ») */
+  name: string;
+}
+
+/* Contraintes, valeur des cotes, toiture, mobilier, escaliers, coupes s'ajoutent sans rien
    changer aux projets déjà enregistrés (un type de plus, un champ
    facultatif) : le schéma reste à la version 1, l'instantané figé des
    tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair;
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine;
 
 export interface Floor {
   id: string;

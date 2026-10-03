@@ -8,9 +8,11 @@
      (vue3d/facades.ts : même projection, même algorithme du peintre),
      limité à ce qui est devant l'observateur ; le mobilier n'y figure pas.
 
-   Rien n'est stocké : la ligne de coupe se place d'elle-même
-   (coupeAutomatique) et la coupe se recalcule à chaque modification. */
-import type { Mm, Point, Project } from '../model/types';
+   Le trait est celui tracé à la main (objet « section » : A-A, B-B…) ou,
+   s'il n'y en a aucun, placé de lui-même (coupeAutomatique). Le plan de
+   coupe prolonge le trait de part en part du bâtiment. La coupe elle-même
+   n'est jamais stockée : elle se recalcule à chaque modification. */
+import type { Mm, Point, Project, SectionLine } from '../model/types';
 import { planDuNiveau } from '../building/plan';
 import { mursDroits } from '../building/murs';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
@@ -100,6 +102,27 @@ export function coupe(m: Maquette, ligne: LigneDeCoupe): Coupe {
   }
   const { faces } = projeter(m, v, CACHES, true);
   return { ligne, vues: faces, coupees, boite: boiteUZ([...faces.flatMap(f => f.points), ...coupees.flatMap(c => c.points)]) };
+}
+
+/** la ligne d'un trait tracé à la main : regard à gauche (ou à droite) du trait, de a vers b */
+export function ligneDe(s: SectionLine): LigneDeCoupe {
+  const L = Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) || 1, u = { x: (s.b.x - s.a.x) / L, y: (s.b.y - s.a.y) / L };
+  const k = s.look === 'right' ? -1 : 1;
+  return { a: { ...s.a }, b: { ...s.b }, regard: { x: -u.y * k, y: u.x * k }, nom: s.name };
+}
+
+/** les traits tracés à la main dans le projet, par nom (A, B…), avec leur identifiant */
+export function traitsDeCoupe(projet: Project): (LigneDeCoupe & { id: string; niveau: string })[] {
+  return projet.buildings.flatMap(b => b.floors).flatMap(f => Object.values(f.objects).flatMap(o => (o.type === 'section' ? [{ ...ligneDe(o), id: o.id, niveau: f.id }] : [])))
+    .sort((x, y) => x.nom.localeCompare(y.nom, 'fr', { numeric: true }));
+}
+
+/** les coupes à tirer : les traits tracés, sinon la coupe automatique */
+export function lignesDeCoupe(projet: Project): LigneDeCoupe[] {
+  const T = traitsDeCoupe(projet);
+  if (T.length) return T.map(({ a, b, regard, nom }) => ({ a, b, regard, nom }));
+  const l = coupeAutomatique(projet);
+  return l ? [l] : [];
 }
 
 /** marge du trait de coupe au-delà de la maçonnerie, de chaque côté (mm) */

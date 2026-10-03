@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Roof, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -88,7 +88,10 @@ export type Commande =
   | { type: 'modifierMeuble'; id: string; position?: Point; rotation?: number; largeur?: Mm; profondeur?: Mm; hauteur?: Mm }
   /** un escalier, posé sur le niveau d'où il part ; ses marches et sa trémie se calculent */
   | { type: 'creerEscalier'; niveau: string; genre: Stair['kind']; position: Point; rotation: number; largeur: Mm; giron?: Mm }
-  | { type: 'modifierEscalier'; id: string; genre?: Stair['kind']; position?: Point; rotation?: number; largeur?: Mm; giron?: Mm | null };
+  | { type: 'modifierEscalier'; id: string; genre?: Stair['kind']; position?: Point; rotation?: number; largeur?: Mm; giron?: Mm | null }
+  /** un trait de coupe (A-A…) ; sans nom, la première lettre libre du projet */
+  | { type: 'creerCoupe'; niveau: string; a: Point; b: Point; regard?: SectionLine['look']; nom?: string }
+  | { type: 'modifierCoupe'; id: string; a?: Point; b?: Point; regard?: SectionLine['look']; nom?: string };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
@@ -115,6 +118,19 @@ function meubleInvalide(l: Mm, p: Mm, h: Mm): string | null {
 function escalierInvalide(largeur: Mm, giron?: Mm | null): string | null {
   if (!fini(largeur) || !(largeur >= 600 && largeur <= 2_000)) return 'largeur d’escalier de 60 cm à 2 m';
   if (giron !== undefined && giron !== null && !(fini(giron) && giron >= 180 && giron <= 400)) return 'giron de 18 à 40 cm';
+  return null;
+}
+
+/** les noms des traits de coupe du projet (sauf celui-ci) */
+const nomsDeCoupes = (p: Project, sauf?: string): Set<string> =>
+  new Set(p.buildings.flatMap(b => b.floors).flatMap(f => Object.values(f.objects)).flatMap(o => (o.type === 'section' && o.id !== sauf ? [o.name] : [])));
+
+/** un trait de coupe : assez long pour se lire, un nom court et libre */
+function coupeInvalide(p: Project, a: Point, b: Point, nom: string, sauf?: string): string | null {
+  if (!ptFini(a) || !ptFini(b)) return 'position invalide';
+  if (distance(a, b) < 500) return 'trait de coupe trop court (50 cm au moins)';
+  if (!/^[A-Za-z0-9]{1,3}$/.test(nom)) return 'nom de coupe : 1 à 3 lettres ou chiffres';
+  if (nomsDeCoupes(p, sauf).has(nom)) return 'une coupe ' + nom + '-' + nom + ' existe déjà';
   return null;
 }
 
@@ -508,6 +524,34 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
         if (cmd[k] === undefined) continue;
         avant[champs[k]] = o[champs[k]]; apres[champs[k]] = cmd[k];          // giron null : revenir au giron calculé
+      }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, o, avant, apres, c)]);
+    }
+    case 'creerCoupe': {
+      if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const pris = nomsDeCoupes(p);
+      const nom = (cmd.nom ?? [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find(l => !pris.has(l)) ?? 'Z1').trim().toUpperCase();
+      const e = coupeInvalide(p, cmd.a, cmd.b, nom);
+      if (e) return refus(e);
+      const s: SectionLine = {
+        id: c.id(), type: 'section', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision,
+        a: { ...cmd.a }, b: { ...cmd.b }, look: cmd.regard ?? 'left', name: nom,
+      };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: s }]);
+    }
+    case 'modifierCoupe': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'section') return refus('trait de coupe introuvable');
+      const o = t.objet, nom = cmd.nom === undefined ? undefined : cmd.nom.trim().toUpperCase();
+      const e = coupeInvalide(p, cmd.a ?? o.a, cmd.b ?? o.b, nom ?? o.name, o.id);
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      const champs = { a: 'a', b: 'b', regard: 'look', nom: 'name' } as const;
+      const v = { ...cmd, ...(nom !== undefined ? { nom } : {}) };
+      for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
+        if (v[k] === undefined) continue;
+        avant[champs[k]] = o[champs[k]]; apres[champs[k]] = v[k];
       }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, o, avant, apres, c)]);

@@ -48,8 +48,8 @@ export interface Scene {
   /** plusieurs objets choisis ensemble, et le cadre de sélection en cours */
   groupe?: ReadonlySet<string>;
   cadre?: [Point, Point] | null;
-  /** le trait de la coupe (vue3d/coupe.ts), avec ses flèches de regard */
-  coupe?: LigneDeCoupe | null;
+  /** les traits de coupe (vue3d/coupe.ts), avec leurs flèches de regard ; « id » : celui qu'on peut choisir */
+  coupes?: (LigneDeCoupe & { id?: string })[];
 }
 
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
@@ -124,7 +124,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   }
   /* cotation automatique, puis la place des ouvertures choisies */
   if (s.cotation) for (const c of s.cotation) chaine(ctx, cam, c);
-  if (s.coupe) traitDeCoupe(ctx, cam, s.coupe);
+  for (const l of s.coupes ?? []) traitDeCoupe(ctx, cam, l, !!l.id && (l.id === s.selection || !!s.groupe?.has(l.id)));
   for (const p of s.places ?? []) place(ctx, cam, p);
   /* cotes */
   for (const o of Object.values(s.niveau.objects)) {
@@ -257,11 +257,11 @@ function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: b
 }
 
 /** le trait de coupe : mixte (trait-point), épais aux deux bouts, une flèche vers ce qu'on regarde et la lettre */
-function traitDeCoupe(ctx: CanvasRenderingContext2D, cam: Camera, l: LigneDeCoupe): void {
+function traitDeCoupe(ctx: CanvasRenderingContext2D, cam: Camera, l: LigneDeCoupe, sel = false): void {
   const a = versEcran(cam, l.a), b = versEcran(cam, l.b), r = normaliser({ x: l.regard.x, y: -l.regard.y });       // le regard, à l'écran (y vers le bas)
   const u = normaliser(soustraire(b, a));
-  ctx.strokeStyle = COULEURS.encre; ctx.fillStyle = COULEURS.encre;
-  ctx.lineWidth = 0.8; ctx.setLineDash([14, 3, 2, 3]);
+  ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.encre; ctx.fillStyle = ctx.strokeStyle;
+  ctx.lineWidth = sel ? 1.6 : 0.8; ctx.setLineDash([14, 3, 2, 3]);
   ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '700 15px system-ui, sans-serif';
   for (const [p, s] of [[a, 1], [b, -1]] as const) {

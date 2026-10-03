@@ -225,6 +225,18 @@ try {
   await clic(1500, 2000);
   assert.match(await p.textContent('aside'), /Escalier — Droit[\s\S]*15 hauteurs de 18,0 cm/);
   if (process.env.CAPTURE_ESCALIER) await p.screenshot({ path: process.env.CAPTURE_ESCALIER });
+  /* trait de coupe : tracé (K, deux clics), choisi, son aperçu dans l'inspecteur, regard inversé (T) */
+  await p.keyboard.press('k');
+  await clic(-600, 6000); await clic(10600, 6000);                    // à l'écart du message « PDF enregistré », en bas
+  O = await objets();
+  const tc = O.find(o => o.type === 'section');
+  assert.ok(tc && tc.name === 'A' && tc.look === 'left' && Math.abs(tc.a.y - tc.b.y) < 1, 'trait de coupe tracé : ' + JSON.stringify(tc));
+  await clic(2500, tc.a.y);
+  assert.match(await p.textContent('aside'), /Coupe A-A/);
+  assert.ok(await p.locator('aside .apercu-coupe svg polygon').count() > 5, 'aperçu de la coupe');
+  if (process.env.CAPTURE_COUPE) await p.screenshot({ path: process.env.CAPTURE_COUPE });
+  await p.keyboard.press('t');
+  assert.equal((await objets()).find(o => o.type === 'section').look, 'right', 'regard inversé');
   await p.keyboard.press('f');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_RAPIDE) await p.screenshot({ path: process.env.CAPTURE_RAPIDE });
@@ -309,7 +321,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe), escalier, import de l’atelier, toiture, vue 3D, visite à hauteur d’homme, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe), escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, visite à hauteur d’homme, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

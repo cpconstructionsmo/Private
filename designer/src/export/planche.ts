@@ -12,7 +12,7 @@ import type { Camera } from '../ui/camera';
 import { DocumentPdf, type PagePdf } from './pdf';
 import { maquette, type Matiere } from '../vue3d/maquette';
 import { facade, FACADES, type CoteFacade, type Facade } from '../vue3d/facades';
-import { coupe, coupeAutomatique, type LigneDeCoupe } from '../vue3d/coupe';
+import { coupe, lignesDeCoupe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import { ToilePdf } from './toile-pdf';
 
 export const PT = 72 / 25.4;                       // points par millimètre
@@ -40,7 +40,7 @@ export interface OptionsPlanche {
   echelle?: number;
   /** ajouter une planche des quatre façades */
   facades?: boolean;
-  /** ajouter la coupe A-A (placée d'elle-même) et son trait sur les plans */
+  /** ajouter les coupes (les traits tracés, sinon une coupe A-A placée d'elle-même) et leurs traits sur les plans */
   coupe?: boolean;
 }
 
@@ -63,7 +63,7 @@ export function echelleNormalisee(l: number, h: number, cotation = true): number
 
 const m2 = (v: number) => (v / 1e6).toFixed(2).replace('.', ',') + ' m²';
 
-function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche, ligne: LigneDeCoupe | null): void {
+function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche, traits: LigneDeCoupe[]): void {
   const page = doc.page(A3.l * PT, A3.h * PT);
   /* coordonnées de mise en page (mm, haut-gauche) → page PDF */
   const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
@@ -82,7 +82,7 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
     const scene: Scene = {
       niveau, dessous: null, selection: null, accroche: null, images: new Map(), sommets: false, impression: true,
       escaliers: Object.values(niveau.objects).flatMap(x => (x.type === 'stair' ? [{ id: x.id, geo: geometrieEscalier(x, hauteurAFranchir(projet, f)) }] : [])),
-      tremies: tremiesDuNiveau(projet, f), coupe: ligne,
+      tremies: tremiesDuNiveau(projet, f), coupes: traits,
       ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech) } : {}), ...(t?.ok ? { toitures: t.toitures } : {}),
     };
     dessiner(toile as unknown as CanvasRenderingContext2D, cam, scene);
@@ -274,7 +274,9 @@ function plancheCoupe(doc: DocumentPdf, projet: Project, o: OptionsPlanche, lign
   }
   y += 6;
   if (ligne) { y = reperage(page, projet, ligne, y); y += 6 }
-  for (const t of ['Coupe placée d’elle-même : en travers de la maison,', 'par l’escalier s’il y en a un, jamais le long d’un mur.', 'Terrain naturel non relevé : supposé au niveau du sol', 'fini (à reporter depuis le plan topographique).', 'Épaisseurs dessinées indicatives (planchers, couverture) :', 'charpente et isolation ne sont pas étudiées ici.'])
+  const note = traitsDeCoupe(projet).length ? ['Trait de coupe tracé sur le plan ; le plan de coupe', 'le prolonge de part en part du bâtiment.']
+    : ['Coupe placée d’elle-même : en travers de la maison,', 'par l’escalier s’il y en a un, jamais le long d’un mur.'];
+  for (const t of [...note, 'Terrain naturel non relevé : supposé au niveau du sol', 'fini (à reporter depuis le plan topographique).', 'Épaisseurs dessinées indicatives (planchers, couverture) :', 'charpente et isolation ne sont pas étudiées ici.'])
     { page.texte(t, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
   cartouche(page, projet, titre, ech, o);
 }
@@ -305,10 +307,10 @@ function reperage(page: PagePdf, projet: Project, l: LigneDeCoupe, y0: number): 
 export function planchesPdf(projet: Project, o: OptionsPlanche): Uint8Array<ArrayBuffer> {
   const doc = new DocumentPdf();
   const F = projet.buildings.flatMap(b => b.floors).filter(f => o.niveaux.includes(f.id)).sort((a, b) => a.elevation - b.elevation);
-  const ligne = o.coupe ? coupeAutomatique(projet) : null;
-  for (const f of F) planche(doc, projet, f, o, ligne);
+  const lignes = o.coupe ? lignesDeCoupe(projet) : [];
+  for (const f of F) planche(doc, projet, f, o, lignes);
   if (o.facades) plancheFacades(doc, projet, o);
-  if (o.coupe) plancheCoupe(doc, projet, o, ligne);
+  if (o.coupe) { if (lignes.length) for (const l of lignes) plancheCoupe(doc, projet, o, l); else plancheCoupe(doc, projet, o, null) }
   if (!F.length && !o.facades && !o.coupe) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
   return doc.octets((projet.name || 'Projet') + ' — plans');
 }
