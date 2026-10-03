@@ -21,6 +21,7 @@ import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } fr
 import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fonds';
 import type { Accroche } from '../building/accrochage';
 import { maquette } from '../vue3d/maquette';
+import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
@@ -261,6 +262,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       groupe: new Set(groupe), cadre,
       escaliers: Object.values(f.objects).flatMap(o => (o.type === 'stair' ? [{ id: o.id, geo: geometrieEscalier(o, hauteurAFranchir(p, f)) }] : [])),
       tremies: tremiesDuNiveau(p, f),
+      /* les traits de coupe de tout le projet ; on ne choisit que ceux tracés sur ce niveau */
+      coupes: traitsDeCoupe(p).map(({ id, niveau: n, ...l }) => (n === f.id ? { ...l, id } : l)),
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
       ...(cotation ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
@@ -448,6 +451,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       const o = selection ? niveau().objects[selection] : undefined;
       if (o?.type === 'furniture') faire('Tourner', [{ type: 'modifierMeuble', id: o.id, rotation: o.rotation + Math.PI / 2 }]);
       else if (o?.type === 'stair') faire('Tourner l’escalier', [{ type: 'modifierEscalier', id: o.id, rotation: o.rotation + Math.PI / 2 }]);
+      else if (o?.type === 'section') faire('Inverser le regard de la coupe', [{ type: 'modifierCoupe', id: o.id, regard: o.look === 'left' ? 'right' : 'left' }]);
       else if (outils.outil === 'mobilier' || outils.outil === 'escalier') { effet(outils.tourner()); if (curseur) effet(outils.bouger({ point: curseur, rayon: pixelsEnMm(cam, 10) })) }
       return;
     }
@@ -483,11 +487,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'selection', icone: '↖', libelle: 'Sélection', touche: 'V' }, { nom: 'mur', icone: '▬', libelle: 'Mur', touche: 'M' },
     { nom: 'cloison', icone: '▭', libelle: 'Cloison', touche: 'C' }, { nom: 'rectangle', icone: '⬚', libelle: 'Rectangle de murs', touche: 'R' },
     { nom: 'ouverture', icone: '◫', libelle: 'Ouverture', touche: 'O' }, { nom: 'mobilier', icone: '▣', libelle: 'Mobilier', touche: 'B' },
-    { nom: 'escalier', icone: '▤', libelle: 'Escalier', touche: 'E' },
+    { nom: 'escalier', icone: '▤', libelle: 'Escalier', touche: 'E' }, { nom: 'coupe', icone: '✂', libelle: 'Trait de coupe', touche: 'K' },
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
-  function choisir(o: NomOutil) { if (en3D) void basculer3D(false); choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+  function choisir(o: NomOutil) { if (en3D) void basculer3D(false); choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
@@ -686,6 +690,17 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           bloc(resumeEscalier(f, g) + '<br>Emprise : ' + dims(g.emprise) + (g.tremie ? '<br>Trémie à l’étage : ' + dims(g.tremie) + ' (échappée de 2,00 m, plancher de 20 cm pris par défaut)' : '')));
         for (const a of g.alertes) A.append(bloc('⚠️ ' + esc(a), 'alerte'));
         A.append(bloc('Tirez l’escalier pour le déplacer. Repères d’usage (Blondel, échappée) : à confirmer avec le fabricant et selon le projet.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'section': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierCoupe' }>>) => faire(t, [{ type: 'modifierCoupe', id: o.id, ...c }]);
+        A.append(titre('Coupe ' + o.name + '-' + o.name),
+          champ('Nom', o.name, v => mod('Nom de la coupe', { nom: v })),
+          bloc('Trait de ' + m(distance(o.a, o.b)) + ' · regard ' + (o.look === 'left' ? 'à gauche' : 'à droite') + ' du trait (en allant du départ à l’arrivée)'),
+          ligne(bouton('Inverser le regard (T)', () => mod('Inverser le regard de la coupe', { regard: o.look === 'left' ? 'right' : 'left' })), bouton('PDF des coupes', () => void exporterCoupes(), 'prim')));
+        A.append(bloc(apercuCoupe(ligneDe(o)), 'apercu-coupe'),
+          bloc('Les flèches montrent ce que la coupe regarde. Le plan de coupe prolonge le trait de part en part du bâtiment. Tirez le trait pour le déplacer. Le trait se voit sur tous les niveaux et dans le PDF ; il se choisit sur le niveau où il a été tracé.'),
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
@@ -1015,6 +1030,31 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     main.appendChild(e);
     clearTimeout(minuterie); minuterie = window.setTimeout(() => e.remove(), erreur ? 6000 : 3000);
   }
+  /** l'aperçu d'une coupe dans l'inspecteur : un petit dessin SVG (élévation au-delà, parties coupées pleines, terrain) */
+  function apercuCoupe(l: LigneDeCoupe): string {
+    const C = coupe(maquette(h.projet), l), B = C.boite;
+    if (!B) return '<div class="note">Rien à couper ici.</div>';
+    /* la hauteur de l'aperçu suit celle de la coupe (entre 60 et 200 px), sans vide au-dessus */
+    const L = 280, dz = Math.max(1, Math.max(B.zmax, 0) - Math.min(B.zmin, 0)), k = Math.min((L - 20) / Math.max(1, B.umax - B.umin), 180 / dz), H = Math.max(60, Math.round(dz * k + 20));
+    const X = (u: number) => (10 + (u - B.umin) * k).toFixed(1), Y = (z: number) => (H - 10 - (z - Math.min(B.zmin, 0)) * k).toFixed(1);
+    const poly = (P: { u: number; z: number }[], fond: string, ep: number) => `<polygon points="${P.map(q => X(q.u) + ',' + Y(q.z)).join(' ')}" fill="${fond}" stroke="#1A2B36" stroke-width="${ep}"/>`;
+    const vues = C.vues.map(f => poly(f.points, f.matiere === 'vitrage' ? '#D9E6EE' : ['tuile', 'ardoise', 'zinc', 'bac_acier'].includes(f.matiere) ? '#E8D5CC' : '#FFFFFF', 0.3)).join('');
+    const coupees = C.coupees.map(c => poly(c.points, c.matiere === 'vitrage' ? '#9FBFD3' : c.matiere === 'porte' ? '#B89A7C' : '#3B4A55', 0.4)).join('');
+    return `<svg viewBox="0 0 ${L} ${H}" width="100%" role="img" aria-label="Aperçu de la coupe ${esc(l.nom)}-${esc(l.nom)}">${vues}${coupees}<line x1="0" x2="${L}" y1="${Y(0)}" y2="${Y(0)}" stroke="#1A2B36" stroke-width="1.2"/></svg>`;
+  }
+  /** le PDF des seules coupes (sans les plans) */
+  async function exporterCoupes() {
+    try {
+      const { planchesPdf } = await import('../export/planche');
+      const u = planchesPdf(h.projet, { niveaux: [], cotation: true, mobilier: false, coupe: true, indice: 'A', date: new Date().toLocaleDateString('fr-FR') });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([u], { type: 'application/pdf' }));
+      a.download = (h.projet.name || 'projet') + ' - coupes A3.pdf';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      toast('PDF enregistré : ' + a.download);
+    } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
+  }
   /** les plans en PDF (A3, à l'échelle, cotés, cartouche) : chargé à la demande */
   async function exporterPdf() {
     const r = await dialogue('Exporter en PDF (A3)', [
@@ -1023,7 +1063,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'cot', libelle: 'Cotation', valeur: 'oui', options: { oui: 'Avec les chaînes de cotes', non: 'Sans' } },
       { cle: 'mob', libelle: 'Mobilier', valeur: 'oui', options: { oui: 'Avec le mobilier', non: 'Sans' } },
       { cle: 'fac', libelle: 'Façades', valeur: 'oui', options: { oui: 'Ajouter la planche des quatre façades', non: 'Sans' } },
-      { cle: 'cou', libelle: 'Coupe', valeur: 'oui', options: { oui: 'Ajouter la coupe A-A (et son trait sur les plans)', non: 'Sans' } },
+      { cle: 'cou', libelle: 'Coupes', valeur: 'oui', options: { oui: traitsDeCoupe(h.projet).length ? 'Ajouter les coupes ' + traitsDeCoupe(h.projet).map(l => l.nom + '-' + l.nom).join(', ') + ' (et leurs traits sur les plans)' : 'Ajouter une coupe A-A placée d’elle-même (ou tracez-la : outil K)', non: 'Sans' } },
       { cle: 'ind', libelle: 'Indice', valeur: 'A' }]);
     if (!r) return;
     try {

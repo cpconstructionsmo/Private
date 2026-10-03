@@ -163,16 +163,22 @@ toiture, cotes de niveau (±0,00, égout, faîtage) et le tableau des
 hauteurs. Orientation supposée : le haut du plan au nord (à confirmer sur
 le plan de masse). Hauteurs indicatives (charpente non étudiée).
 
-**Coupe** (`src/vue3d/coupe.ts`, option de l'export PDF) : la coupe A-A
-(PCMI 3), la maquette tranchée par un plan vertical. Le trait se place de
-lui-même : en travers de la plus petite dimension de la maison (la pente du
-toit se lit), par l'escalier s'il y en a un, sinon par le milieu, et jamais
-le long d'un mur. Ce qui est tranché (murs, allèges et linteaux, planchers
+**Coupes** (outil K ; `src/vue3d/coupe.ts`, option de l'export PDF) : la
+maquette tranchée par un plan vertical (PCMI 3). On trace le trait de coupe
+de deux clics (Maj : 45°) ; il prend la première lettre libre (A-A, B-B…),
+regarde à gauche du trait (T ou l'inspecteur l'inversent), se tire pour se
+déplacer et montre un aperçu de la coupe dans l'inspecteur. Le plan de coupe
+prolonge le trait de part en part du bâtiment ; le trait se voit sur tous
+les niveaux. Sans trait tracé, une coupe A-A se place d'elle-même : en
+travers de la plus petite dimension de la maison (la pente du toit se lit),
+par l'escalier s'il y en a un, sinon par le milieu, et jamais le long d'un
+mur. Ce qui est tranché (murs, allèges et linteaux, planchers
 et trémies, marches, couverture) est plein ; ce qui est au-delà se voit en
 élévation (même projection que les façades) ; le mobilier n'y figure pas.
 La planche porte le terrain (supposé au sol fini), les cotes de niveau
-(sols, égout, faîtage), la chaîne des hauteurs et un plan de repérage ; le
-trait de coupe, fléché, s'ajoute sur les plans du même PDF.
+(sols, égout, faîtage), la chaîne des hauteurs et un plan de repérage.
+Une planche par coupe ; les traits, fléchés, s'ajoutent sur les plans du
+même PDF.
 
 **Visite à hauteur d'homme** (vue 3D, bouton « Visite » ou touche V ;
 `src/vue3d/visite.ts`) : les yeux à 1,60 m, départ au milieu de la plus
