@@ -10,6 +10,7 @@ import { dimensionsPiece, type ChaineCotes, type PlaceOuverture } from '../build
 import { manoeuvreDe } from '../catalogue/ouvertures';
 import type { Toiture } from '../building/toiture';
 import { formeDe, traits, versPlan } from '../building/mobilier';
+import type { GeometrieEscalier, Marche } from '../building/escalier';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
@@ -38,6 +39,9 @@ export interface Scene {
   places?: PlaceOuverture[];
   /** la toiture du niveau : son égout (débord) en tirets */
   toitures?: Toiture[];
+  /** les escaliers qui partent de ce niveau (géométrie calculée), et les trémies de ceux qui y arrivent */
+  escaliers?: { id: string; geo: GeometrieEscalier }[];
+  tremies?: { contour: Point[]; marches: Marche[] }[];
   /** pour l'impression (export PDF) : fond blanc, sans grille */
   impression?: boolean;
   /** plusieurs objets choisis ensemble, et le cadre de sélection en cours */
@@ -74,6 +78,9 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* mobilier, sous les murs */
   const estChoisi = (id: string) => id === s.selection || !!s.groupe?.has(id);
   for (const o of Object.values(s.niveau.objects)) if (o.type === 'furniture') meuble(ctx, cam, o, estChoisi(o.id));
+  /* escaliers et trémies, sous les murs */
+  for (const t of s.tremies ?? []) tremie(ctx, cam, t);
+  for (const e of s.escaliers ?? []) escalier(ctx, cam, e.geo, estChoisi(e.id));
   /* maçonnerie (ouvertures découpées) */
   ctx.fillStyle = COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
   for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.fill('evenodd') }
@@ -243,6 +250,51 @@ function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: b
     if (i === 0 && t.genre !== 'ligne' && !t.tirets) { ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fill() }
     ctx.setLineDash(t.tirets ? [5, 4] : []); ctx.stroke(); ctx.setLineDash([]);
   });
+}
+
+/** le plan de coupe d'un plan d'étage (mm au-dessus du sol) : les marches plus hautes se dessinent en tirets */
+const PLAN_DE_COUPE = 1_100;
+
+/** un escalier en plan : ses marches, la ligne de coupe, la ligne de foulée fléchée vers la montée */
+function escalier(ctx: CanvasRenderingContext2D, cam: Camera, g: GeometrieEscalier, sel: boolean): void {
+  const E = (p: Point) => versEcran(cam, p);
+  ctx.lineWidth = sel ? 1.6 : 0.9;
+  for (const m of g.marches) {
+    const P = m.contour.map(E);
+    ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fill();
+    ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.encre;
+    ctx.setLineDash(m.z > PLAN_DE_COUPE ? [4, 3] : []); ctx.stroke(); ctx.setLineDash([]);
+  }
+  /* la ligne de coupe : une brisure en travers de la première marche coupée */
+  const k = g.marches.findIndex(m => m.z > PLAN_DE_COUPE);
+  if (k > 0) {
+    const c = g.marches[k]!.contour.map(E), a = c[0]!, b = c[1]!, d = c[3]!;
+    const P = (t: number, u: number) => ({ x: a.x + (b.x - a.x) * t + (d.x - a.x) * u, y: a.y + (b.y - a.y) * t + (d.y - a.y) * u });
+    ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
+    ctx.beginPath(); [P(-0.05, 0.9), P(0.45, 0.2), P(0.55, 0.8), P(1.05, 0.1)].forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke();
+  }
+  /* la ligne de foulée : un rond au départ, une flèche à l'arrivée */
+  const F = g.foulee.map(E);
+  if (F.length > 1) {
+    ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.encre; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 0.9;
+    ctx.beginPath(); F.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke();
+    ctx.beginPath(); ctx.arc(F[0]!.x, F[0]!.y, 3, 0, 2 * Math.PI); ctx.fill();
+    const z = F[F.length - 1]!, y = F[F.length - 2]!, ang = Math.atan2(z.y - y.y, z.x - y.x);
+    ctx.beginPath(); ctx.moveTo(z.x, z.y);
+    ctx.lineTo(z.x - 9 * Math.cos(ang - 0.4), z.y - 9 * Math.sin(ang - 0.4)); ctx.lineTo(z.x - 9 * Math.cos(ang + 0.4), z.y - 9 * Math.sin(ang + 0.4)); ctx.closePath(); ctx.fill();
+  }
+}
+
+/** une trémie vue de l'étage : son contour, barré (le vide), et les marches qu'on y voit */
+function tremie(ctx: CanvasRenderingContext2D, cam: Camera, t: { contour: Point[]; marches: Marche[] }): void {
+  const C = t.contour.map(p => versEcran(cam, p));
+  ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); C.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = COULEURS.gris; ctx.lineWidth = 0.7;
+  for (const m of t.marches) { const P = m.contour.map(p => versEcran(cam, p)); ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath(); ctx.stroke() }
+  ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1.2; ctx.setLineDash([6, 3]);
+  ctx.beginPath(); C.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+  if (C.length === 4) { ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(C[0]!.x, C[0]!.y); ctx.lineTo(C[2]!.x, C[2]!.y); ctx.moveTo(C[1]!.x, C[1]!.y); ctx.lineTo(C[3]!.x, C[3]!.y); ctx.stroke() }
 }
 
 function grille(ctx: CanvasRenderingContext2D, cam: Camera): void {

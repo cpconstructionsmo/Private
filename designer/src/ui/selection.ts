@@ -11,9 +11,10 @@ import { dansMeuble, emprise } from '../building/mobilier';
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
-  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' };
+  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' };
 
-export function viser(f: Floor, p: Point, rayon: Mm, sommets = true): Cible | null {
+/** viser : « escaliers » donne l'emprise des escaliers du niveau (calculée par l'appelant, qui connaît la hauteur à franchir) */
+export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: { id: string; emprise: Point[] }[] = []): Cible | null {
   const M = mursDroits(f);
   if (sommets) {
     let meilleur: { point: Point; d: number } | null = null;
@@ -43,6 +44,7 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true): Cible | nu
   const meubles = Object.values(f.objects).filter(o => o.type === 'furniture' && dansMeuble(o, p)).sort((a, b) =>
     (a.type === 'furniture' ? a.width * a.depth : 0) - (b.type === 'furniture' ? b.width * b.depth : 0));
   if (meubles[0]) return { genre: 'objet', id: meubles[0].id, type: 'furniture' };
+  for (const e of escaliers) if (positionDansAnneau(p, e.emprise) !== 'dehors') return { genre: 'objet', id: e.id, type: 'stair' };
   for (const w of M) if (distancePointSegment(p, w.axis) <= rayon) return { genre: 'objet', id: w.id, type: 'wall' };
   for (const z of plan.zones) if (z.piece && positionDansAnneau(p, z.polygone.contour) === 'dedans') return { genre: 'objet', id: z.piece.id, type: 'room' };
   return null;

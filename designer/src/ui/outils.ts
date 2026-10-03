@@ -19,8 +19,9 @@ import { dansCadre, viser } from './selection';
 import { MODELES_OUVERTURES, modeleOuverture } from '../catalogue/ouvertures';
 import { MODELES_MEUBLES, modeleMeuble } from '../catalogue/mobilier';
 import { poserMeuble } from '../building/mobilier';
+import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 
-export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'piece' | 'cote' | 'caler';
+export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'piece' | 'cote' | 'caler';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -34,9 +35,13 @@ export interface Reglages {
   /** le meuble posé par l'outil Mobilier, et son orientation quand il n'est pas contre un mur */
   modeleMeuble: string;
   rotationMeuble: number;
+  /** l'escalier posé par l'outil Escalier : forme, largeur, sens de la montée */
+  genreEscalier: 'straight' | 'quarter_left' | 'quarter_right';
+  largeurEscalier: Mm;
+  rotationEscalier: number;
 }
 
-export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout', modeleMeuble: 'canape-3p', rotationMeuble: 0 };
+export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout', modeleMeuble: 'canape-3p', rotationMeuble: 0, genreEscalier: 'straight', largeurEscalier: 900, rotationEscalier: 0 };
 
 /** dimensions par défaut d'une ouverture neuve (largeur, hauteur, allège) — modifiables ensuite */
 export const OUVERTURES: Record<Opening['kind'], { libelle: string; largeur: Mm; hauteur: Mm; allege: Mm }> = {
@@ -88,7 +93,8 @@ type Prise =
   | { genre: 'mur'; mur: MurDroit; depart: Point }
   | { genre: 'ouverture'; id: string; mur: MurDroit; decalage: Mm }
   | { genre: 'meuble'; id: string; depart: Point; decalage: Point; largeur: Mm; profondeur: Mm; rotation: number }
-  | { genre: 'cadre'; depart: Point };
+  | { genre: 'cadre'; depart: Point }
+  | { genre: 'escalier'; id: string; depart: Point; origine: Point };
 
 const AIDES: Record<NomOutil, string> = {
   selection: 'Cliquer pour choisir ; tirer une extrémité, un mur ou une ouverture pour la déplacer',
@@ -97,6 +103,7 @@ const AIDES: Record<NomOutil, string> = {
   rectangle: 'Rectangle de murs : cliquer deux angles opposés — ou, après le premier, taper 10x8 puis Entrée',
   ouverture: 'Choisir un modèle dans la bibliothèque (à droite), puis cliquer sur un mur — ou glisser le modèle sur le mur',
   mobilier: 'Choisir un meuble (à droite), puis cliquer pour le poser : près d’un mur il s’y plaque — T : tourner ; Alt : pose libre',
+  escalier: 'Cliquer le départ de l’escalier (milieu de la première marche) — T : tourner le sens de la montée',
   piece: 'Cliquer dans un espace clos pour le nommer',
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
@@ -217,10 +224,28 @@ export class Outils {
       rotation: pose.rotation, largeur: m.largeur, profondeur: m.profondeur, hauteur: m.hauteur };
   }
 
-  /** T : un quart de tour pour le meuble à poser (posé librement) */
+  /** T : un quart de tour pour le meuble ou l'escalier à poser */
   tourner(): Effet {
+    if (this.outil === 'escalier') {
+      this.reglages.rotationEscalier = (this.reglages.rotationEscalier + Math.PI / 2) % (2 * Math.PI);
+      return { aide: 'Escalier tourné d’un quart de tour' };
+    }
     this.reglages.rotationMeuble = (this.reglages.rotationMeuble + Math.PI / 2) % (2 * Math.PI);
     return { aide: 'Meuble tourné d’un quart de tour (près d’un mur, il s’oriente seul)' };
+  }
+
+  /** l'escalier à poser, départ en p (accroché) */
+  private escalierEn(g: Geste): Commande {
+    const p = this.accrocher(g).point, r = this.reglages;
+    return { type: 'creerEscalier', niveau: this.contexte().niveau, genre: r.genreEscalier, position: { x: Math.round(p.x), y: Math.round(p.y) }, rotation: r.rotationEscalier, largeur: r.largeurEscalier };
+  }
+
+  /** l'emprise des escaliers du niveau, pour les viser */
+  private escaliers(): { id: string; emprise: Point[] }[] {
+    const c = this.contexte(), f = this.niveau();
+    if (!f) return [];
+    const H = hauteurAFranchir(c.projet, f);
+    return Object.values(f.objects).flatMap(o => (o.type === 'stair' ? [{ id: o.id, emprise: geometrieEscalier(o, H).emprise }] : []));
   }
 
   /** le modèle posé (le premier de la bibliothèque si l'identifiant est inconnu) */
@@ -242,6 +267,12 @@ export class Outils {
         if (!this.prise) return { accroche: null };
         const p = this.prise;
         if (p.genre === 'cadre') return { cadre: [p.depart, g.point] };
+        if (p.genre === 'escalier') {
+          if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
+          this.bouge = true;
+          this.dernier = { type: 'modifierEscalier', id: p.id, position: { x: Math.round(p.origine.x + g.point.x - p.depart.x), y: Math.round(p.origine.y + g.point.y - p.depart.y) } };
+          return { apercu: [this.dernier] };
+        }
         if (p.genre === 'meuble') {
           /* un clic n'est pas un déplacement : sans mouvement franc, le meuble reste où il est */
           if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
@@ -289,6 +320,8 @@ export class Outils {
       }
       case 'mobilier':
         return { accroche: null, apercu: [this.meubleEn(g)] };
+      case 'escalier':
+        return { accroche: this.accrocher(g), apercu: [this.escalierEn(g)] };
       case 'cote':
       case 'caler':
         return { accroche: this.accrocher(g) };
@@ -320,7 +353,7 @@ export class Outils {
     if (!f) return {};
     switch (this.outil) {
       case 'selection': {
-        const cible = viser(f, g.point, g.rayon);
+        const cible = viser(f, g.point, g.rayon, true, this.escaliers());
         this.bouge = false; this.dernier = null;
         /* dans le vide : un cadre de sélection commence */
         if (!cible) { this.prise = { genre: 'cadre', depart: g.point }; return { selection: null, groupe: [] } }
@@ -332,6 +365,7 @@ export class Outils {
         }
         const o = f.objects[cible.id];
         if (o?.type === 'wall' && 'a' in o.axis) this.prise = { genre: 'mur', mur: o as MurDroit, depart: this.accrocher(g).point };
+        else if (o?.type === 'stair') this.prise = { genre: 'escalier', id: o.id, depart: g.point, origine: { ...o.position } };
         else if (o?.type === 'furniture') this.prise = { genre: 'meuble', id: o.id, depart: g.point, decalage: { x: g.point.x - o.position.x, y: g.point.y - o.position.y }, largeur: o.width, profondeur: o.depth, rotation: o.rotation };
         else if (o?.type === 'opening') {
           const w = f.objects[o.hostWallId];
@@ -362,6 +396,8 @@ export class Outils {
       }
       case 'mobilier':
         return { commandes: { titre: this.meuble.libelle, liste: [this.meubleEn(g)] }, apercu: [] };
+      case 'escalier':
+        { const cmd = this.escalierEn(g); this.outil = 'selection'; return { commandes: { titre: 'Escalier', liste: [cmd] }, apercu: [], fini: true, aide: AIDES.selection } }
       case 'piece': {
         const z = planDuNiveau(f).zones.find(z => positionDansAnneau(g.point, z.polygone.contour) === 'dedans');
         if (!z) return { aide: 'Cliquez à l’intérieur d’un espace fermé par des murs' };
@@ -448,7 +484,7 @@ export class Outils {
     }
     this.prise = null; this.bouge = false; this.dernier = null;
     if (!dernier) return { apercu: [] };
-    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : 'Déplacer une ouverture';
+    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : 'Déplacer une ouverture';
     return { apercu: [], commandes: { titre, liste: [dernier] } };
   }
 

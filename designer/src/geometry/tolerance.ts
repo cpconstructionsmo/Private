@@ -34,3 +34,11 @@ export const ANGLE_DROIT_TOITURE = Math.PI / 180;
 /** toiture : bords plus courts que ceci (mm) et coordonnées plus proches que
  *  ceci sont des défauts de dessin, redressés (repris de l'atelier) */
 export const REDRESSEMENT_TOITURE = 20;
+
+/** escalier : hauteur de marche plafond (mm) et fourchette de Blondel
+ *  (2 h + g, mm) — des repères d'usage, signalés s'ils ne sont pas tenus,
+ *  jamais imposés en silence */
+export const MARCHE_MAX = 190;
+export const BLONDEL = { min: 600, max: 650, cible: 630 } as const;
+/** échappée libre au-dessus d'une marche (mm), pour dessiner la trémie */
+export const ECHAPPEE = 2_000;

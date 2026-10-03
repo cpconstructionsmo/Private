@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Roof, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Roof, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -85,7 +85,10 @@ export type Commande =
   | { type: 'modifierToiture'; id: string; genre?: Roof['kind']; pente?: number; debord?: Mm; couverture?: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean }
   /** un meuble ou un équipement de la bibliothèque, posé sur un niveau */
   | { type: 'creerMeuble'; niveau: string; modele: Furniture['catalogRef']; position: Point; rotation: number; largeur: Mm; profondeur: Mm; hauteur: Mm }
-  | { type: 'modifierMeuble'; id: string; position?: Point; rotation?: number; largeur?: Mm; profondeur?: Mm; hauteur?: Mm };
+  | { type: 'modifierMeuble'; id: string; position?: Point; rotation?: number; largeur?: Mm; profondeur?: Mm; hauteur?: Mm }
+  /** un escalier, posé sur le niveau d'où il part ; ses marches et sa trémie se calculent */
+  | { type: 'creerEscalier'; niveau: string; genre: Stair['kind']; position: Point; rotation: number; largeur: Mm; giron?: Mm }
+  | { type: 'modifierEscalier'; id: string; genre?: Stair['kind']; position?: Point; rotation?: number; largeur?: Mm; giron?: Mm | null };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
@@ -105,6 +108,13 @@ function meubleInvalide(l: Mm, p: Mm, h: Mm): string | null {
   if (!fini(l, p, h)) return 'dimensions invalides';
   if (!(l >= 10 && l <= 20_000 && p >= 10 && p <= 20_000)) return 'largeur et profondeur de 1 cm à 20 m';
   if (!(h >= 0 && h <= 5_000)) return 'hauteur de 0 à 5 m';
+  return null;
+}
+
+/** largeur d'un escalier de 60 cm à 2 m ; giron de 18 à 40 cm */
+function escalierInvalide(largeur: Mm, giron?: Mm | null): string | null {
+  if (!fini(largeur) || !(largeur >= 600 && largeur <= 2_000)) return 'largeur d’escalier de 60 cm à 2 m';
+  if (giron !== undefined && giron !== null && !(fini(giron) && giron >= 180 && giron <= 400)) return 'giron de 18 à 40 cm';
   return null;
 }
 
@@ -471,6 +481,33 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
         if (cmd[k] === undefined) continue;
         avant[champs[k]] = o[champs[k]]; apres[champs[k]] = cmd[k];
+      }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, o, avant, apres, c)]);
+    }
+    case 'creerEscalier': {
+      if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      if (!ptFini(cmd.position) || !fini(cmd.rotation)) return refus('position invalide');
+      const e = escalierInvalide(cmd.largeur, cmd.giron);
+      if (e) return refus(e);
+      const s: Stair = {
+        id: c.id(), type: 'stair', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision,
+        position: { ...cmd.position }, rotation: cmd.rotation, width: cmd.largeur, kind: cmd.genre, ...(cmd.giron ? { going: cmd.giron } : {}),
+      };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: s }]);
+    }
+    case 'modifierEscalier': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'stair') return refus('escalier introuvable');
+      const o = t.objet;
+      if ((cmd.position && !ptFini(cmd.position)) || (cmd.rotation !== undefined && !fini(cmd.rotation))) return refus('position invalide');
+      const e = escalierInvalide(cmd.largeur ?? o.width, cmd.giron);
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      const champs = { genre: 'kind', position: 'position', rotation: 'rotation', largeur: 'width', giron: 'going' } as const;
+      for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
+        if (cmd[k] === undefined) continue;
+        avant[champs[k]] = o[champs[k]]; apres[champs[k]] = cmd[k];          // giron null : revenir au giron calculé
       }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, o, avant, apres, c)]);

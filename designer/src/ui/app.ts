@@ -5,11 +5,11 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsage, Wall } from '../model/types';
+import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsage, Stair, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -32,6 +32,7 @@ const USAGES: Record<RoomUsage, string> = {
 };
 const ROLES: Record<Wall['role'], string> = { exterior: 'Mur extérieur', partition: 'Cloison', bearing_interior: 'Refend' };
 const JUSTIFS: Record<Wall['justification'], string> = { center: 'À l’axe', left: 'Par la face gauche', right: 'Par la face droite' };
+const ESCALIERS: Record<Stair['kind'], string> = { straight: 'Droit', quarter_left: 'Quart tournant à gauche', quarter_right: 'Quart tournant à droite' };
 const TOITURES: Record<Roof['kind'], string> = { hip: 'À croupes', gable: 'Deux pans (pignons)', shed: 'Un pan', flat: 'Toit-terrasse' };
 const COUVERTURES: Record<Roof['covering'], string> = { tile: 'Tuiles terre cuite', slate: 'Ardoises', zinc: 'Zinc', steel: 'Bac acier', green: 'Végétalisée', gravel: 'Gravillons (terrasse)' };
 const CONTRAINTES: Record<string, string> = { horizontal: 'Horizontal', vertical: 'Vertical', parallel: 'Parallèle', perpendicular: 'Perpendiculaire', length: 'Longueur fixe', angle: 'Angle fixe' };
@@ -257,6 +258,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (collage && curseur) etiquette = { point: curseur, texte: 'Coller : clic pour poser · T tourner · X / Y retourner · Échap' };
     dessiner(ctx, cam, { niveau: f, dessous: i > 0 ? L[i - 1]! : null, selection, accroche, images, sommets: outils.outil === 'selection', etiquette,
       groupe: new Set(groupe), cadre,
+      escaliers: Object.values(f.objects).flatMap(o => (o.type === 'stair' ? [{ id: o.id, geo: geometrieEscalier(o, hauteurAFranchir(p, f)) }] : [])),
+      tremies: tremiesDuNiveau(p, f),
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
       ...(cotation ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
@@ -440,7 +443,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (e.key.toLowerCase() === 't') {
       const o = selection ? niveau().objects[selection] : undefined;
       if (o?.type === 'furniture') faire('Tourner', [{ type: 'modifierMeuble', id: o.id, rotation: o.rotation + Math.PI / 2 }]);
-      else if (outils.outil === 'mobilier') { effet(outils.tourner()); if (curseur) effet(outils.bouger({ point: curseur, rayon: pixelsEnMm(cam, 10) })) }
+      else if (o?.type === 'stair') faire('Tourner l’escalier', [{ type: 'modifierEscalier', id: o.id, rotation: o.rotation + Math.PI / 2 }]);
+      else if (outils.outil === 'mobilier' || outils.outil === 'escalier') { effet(outils.tourner()); if (curseur) effet(outils.bouger({ point: curseur, rayon: pixelsEnMm(cam, 10) })) }
       return;
     }
     const t = TOUCHES[e.key.toLowerCase()];
@@ -475,10 +479,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'selection', icone: '↖', libelle: 'Sélection', touche: 'V' }, { nom: 'mur', icone: '▬', libelle: 'Mur', touche: 'M' },
     { nom: 'cloison', icone: '▭', libelle: 'Cloison', touche: 'C' }, { nom: 'rectangle', icone: '⬚', libelle: 'Rectangle de murs', touche: 'R' },
     { nom: 'ouverture', icone: '◫', libelle: 'Ouverture', touche: 'O' }, { nom: 'mobilier', icone: '▣', libelle: 'Mobilier', touche: 'B' },
+    { nom: 'escalier', icone: '▤', libelle: 'Escalier', touche: 'E' },
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
-  function choisir(o: NomOutil) { if (en3D) void basculer3D(false); choixMur = null; if (o === 'ouverture' || o === 'mobilier') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+  function choisir(o: NomOutil) { if (en3D) void basculer3D(false); choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
@@ -516,7 +521,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     $<HTMLButtonElement>('.retablir').disabled = !peutRetablir(h);
     const f = niveau(), o = selection ? f.objects[selection] : undefined;
     aside.innerHTML = '';
-    if (en3D) panneau3D(); else if (groupe.length) panneauGroupe(f); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else if (outils.outil === 'mobilier') bibliothequeMobilier(); else panneauNiveau(f);
+    if (en3D) panneau3D(); else if (groupe.length) panneauGroupe(f); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else if (outils.outil === 'mobilier') bibliothequeMobilier(); else if (outils.outil === 'escalier') panneauEscalier(f); else panneauNiveau(f);
   }
 
   /** un champ de l'inspecteur */
@@ -663,6 +668,23 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
+      case 'stair': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierEscalier' }>>) => faire(t, [{ type: 'modifierEscalier', id: o.id, ...c }]);
+        const g = geometrieEscalier(o, hauteurAFranchir(h.projet, f));
+        const deg = Math.round(((o.rotation * 180 / Math.PI) % 360 + 360) % 360 * 10) / 10;
+        const dims = (P: Point[]) => { const xs = P.map(p => p.x), ys = P.map(p => p.y); return m(Math.max(...xs) - Math.min(...xs)) + ' × ' + m(Math.max(...ys) - Math.min(...ys)) };
+        A.append(titre('Escalier — ' + ESCALIERS[o.kind]),
+          champ('Forme', o.kind, v => mod('Forme de l’escalier', { genre: v as Stair['kind'] }), 'text', ESCALIERS),
+          champ('Largeur (m)', (o.width / 1000).toFixed(2), v => mod('Largeur de l’escalier', { largeur: mm(v) }), 'number'),
+          champ('Giron (cm, vide : calculé)', o.going ? o.going / 10 : '', v => mod('Giron', { giron: String(v).trim() ? Math.round(ent(v) * 10) : null }), 'number'),
+          champ('Sens de la montée (°)', deg, v => mod('Orientation', { rotation: ent(v) * Math.PI / 180 }), 'number'),
+          ligne(bouton('Tourner de 90° (T)', () => mod('Tourner l’escalier', { rotation: o.rotation + Math.PI / 2 }))),
+          bloc(resumeEscalier(f, g) + '<br>Emprise : ' + dims(g.emprise) + (g.tremie ? '<br>Trémie à l’étage : ' + dims(g.tremie) + ' (échappée de 2,00 m, plancher de 20 cm pris par défaut)' : '')));
+        for (const a of g.alertes) A.append(bloc('⚠️ ' + esc(a), 'alerte'));
+        A.append(bloc('Tirez l’escalier pour le déplacer. Repères d’usage (Blondel, échappée) : à confirmer avec le fabricant et selon le projet.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
       case 'constraint':
         A.append(titre('Contrainte'), bloc(CONTRAINTES[o.kind] ?? o.kind), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
@@ -755,6 +777,23 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ligne(bouton('Coller (Ctrl+V)', commencerCollage)),
       bloc('Maj + clic : ajouter ou retirer un objet · un cadre tiré dans le vide choisit ce qu’il contient · Ctrl+A : tout le niveau. Au collage : T tourne d’un quart de tour, X et Y retournent en miroir, un clic pose (sur un angle de mur, sauf Alt).'),
       ligne(bouton('Supprimer les ' + groupe.length + ' objets', supprimerChoix, 'dang')));
+  }
+
+  /** ce que l'escalier franchira depuis ce niveau, en clair */
+  function resumeEscalier(f: Floor, g: ReturnType<typeof geometrieEscalier>): string {
+    const arr = niveauDArrivee(h.projet, f);
+    return 'Hauteur à franchir : <b>' + m(g.hauteur) + '</b> (' + (arr ? 'jusqu’au sol de « ' + esc(arr.name) + ' »' : 'pas de niveau au-dessus : hauteur du niveau + 20 cm de plancher') + ')<br>'
+      + g.contremarches + ' hauteurs de ' + (g.hauteurMarche / 10).toFixed(1).replace('.', ',') + ' cm · giron ' + (g.giron / 10).toFixed(1).replace('.', ',') + ' cm · Blondel ' + (g.blondel / 10).toFixed(1).replace('.', ',') + ' cm';
+  }
+  function panneauEscalier(f: Floor) {
+    const r = outils.reglages;
+    const g = geometrieEscalier({ id: '', type: 'stair', status: 'proposed', sourceRefs: [], revision: 0, position: { x: 0, y: 0 }, rotation: 0, width: r.largeurEscalier, kind: r.genreEscalier }, hauteurAFranchir(h.projet, f));
+    aside.append(titre('Escalier'),
+      bloc('Cliquez le départ (le milieu de la première marche). T : tourner le sens de la montée. Marches et trémie se calculent depuis la hauteur à franchir, et suivent si elle change.'),
+      champ('Forme', r.genreEscalier, v => { r.genreEscalier = v as Stair['kind']; panneaux() }, 'text', ESCALIERS),
+      champ('Largeur (m)', (r.largeurEscalier / 1000).toFixed(2), v => { r.largeurEscalier = mm(v); panneaux() }, 'number'),
+      bloc(resumeEscalier(f, g)));
+    for (const a of g.alertes) aside.append(bloc('⚠️ ' + esc(a), 'alerte'));
   }
 
   function panneauNiveau(f: Floor) {
@@ -994,6 +1033,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Copier la sélection', touche: 'Ctrl+C', faire: () => void copierChoix() }, { libelle: 'Coller', touche: 'Ctrl+V', faire: commencerCollage },
     { libelle: 'Dupliquer la sélection', touche: 'Ctrl+D', faire: dupliquerChoix }, { libelle: 'Tout choisir sur ce niveau', touche: 'Ctrl+A', faire: () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'constraint').map(o => o.id)) },
     { libelle: 'Vue 3D / plan 2D', touche: '3', faire: () => void basculer3D() },
+    { libelle: 'Poser un escalier', touche: 'E', faire: () => choisir('escalier') },
     { libelle: 'Ajouter un niveau', faire: () => void ajouterNiveau() }, { libelle: 'Importer un fond (PDF, image)', faire: importerFond },
     { libelle: 'Importer le RDC lu par l’atelier (modele.json)', faire: importerAtelier },
     ...MODELES_OUVERTURES.map(m => ({ libelle: 'Poser : ' + m.libelle, faire: () => { outils.reglages.modeleOuverture = m.id; choisir('ouverture') } })),

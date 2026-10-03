@@ -23,7 +23,7 @@ const COULEURS: Record<Matiere, { couleur: string; opacite?: number; rugosite?: 
   tuile: { couleur: '#A9533D', rugosite: 0.85 }, ardoise: { couleur: '#4A5560', rugosite: 0.6 }, zinc: { couleur: '#8E979E', rugosite: 0.4 },
   bac_acier: { couleur: '#5B6670', rugosite: 0.5 }, vegetalise: { couleur: '#6F8F55' }, gravillons: { couleur: '#B9B2A3' },
   meuble: { couleur: '#C9A57E', rugosite: 0.7 }, tissu: { couleur: '#8693A1' }, linge: { couleur: '#EEF0F2' }, plan_travail: { couleur: '#5A5F66', rugosite: 0.5 },
-  sanitaire: { couleur: '#F6F8F9', rugosite: 0.25 }, electromenager: { couleur: '#D9DCDF', rugosite: 0.4 }, inox: { couleur: '#AEB4B9', rugosite: 0.3 },
+  sanitaire: { couleur: '#F6F8F9', rugosite: 0.25 }, escalier: { couleur: '#B58B5E', rugosite: 0.7 }, electromenager: { couleur: '#D9DCDF', rugosite: 0.4 }, inox: { couleur: '#AEB4B9', rugosite: 0.3 },
 };
 
 /** la géométrie d'une plaque (pan de toit, pignon) : dessus, dessous et chants, en mètres, axes de la vue */
