@@ -81,6 +81,8 @@ export class PagePdf {
     const op = f && t ? 'B' : f ? 'f' : 'S';
     return this.op(`${f ? `${n(f[0])} ${n(f[1])} ${n(f[2])} rg ` : ''}${t ? `${n(t[0])} ${n(t[1])} ${n(t[2])} RG ${n(o.ep ?? 0.35)} w [] 0 d 1 j ` : ''}${c} ${op}`);
   }
+  /** une image du document (DocumentPdf.imageJpeg), posée dans le rectangle (x, y, l, h) en points */
+  image(nom: string, x: number, y: number, l: number, h: number): this { return this.op(`q ${n(l)} 0 0 ${n(h)} ${n(x)} ${n(y)} cm /${nom} Do Q`) }
   cadre(x: number, y: number, l: number, h: number, o: { ep?: number; couleur?: string; fond?: string } = {}): this {
     const [r, g, b] = PagePdf.rvb(o.couleur ?? '#1A2B36');
     if (o.fond) { const [a, c, d] = PagePdf.rvb(o.fond); this.op(`${n(a)} ${n(c)} ${n(d)} rg ${n(x)} ${n(y)} ${n(l)} ${n(h)} re f`) }
@@ -90,6 +92,13 @@ export class PagePdf {
 
 export class DocumentPdf {
   private readonly pages: PagePdf[] = [];
+  private readonly images: { octets: Uint8Array; largeur: number; hauteur: number }[] = [];
+  /** une image JPEG, gardée telle quelle (le PDF la lit directement) ; rend son nom pour PagePdf.image */
+  imageJpeg(octets: Uint8Array, largeur: number, hauteur: number): string {
+    if (octets[0] !== 0xFF || octets[1] !== 0xD8) throw new Error('image : un JPEG est attendu');
+    this.images.push({ octets, largeur, hauteur });
+    return 'Im' + this.images.length;
+  }
   page(largeur: number, hauteur: number): PagePdf { const p = new PagePdf(largeur, hauteur); this.pages.push(p); return p }
   /** le nombre de pages, et la page i (pour numéroter après coup) */
   get nombre(): number { return this.pages.length }
@@ -101,8 +110,10 @@ export class DocumentPdf {
     let taille = 0;
     const pousser = (s: string) => { morceaux.push(s); taille += s.length };       // une chaîne d'octets (codes < 256)
     const obj = (i: number, corps: string) => { offsets[i] = taille; pousser(`${i} 0 obj\n${corps}\nendobj\n`) };
-    /* 1 catalogue, 2 pages, 3 et 4 polices, 5 informations, puis deux objets par page */
-    const P = this.pages, page = (k: number) => 6 + 2 * k, flux = (k: number) => 7 + 2 * k, dernier = 5 + 2 * P.length;
+    /* 1 catalogue, 2 pages, 3 et 4 polices, 5 informations, deux objets par page, puis les images */
+    const P = this.pages, page = (k: number) => 6 + 2 * k, flux = (k: number) => 7 + 2 * k, image = (k: number) => 6 + 2 * P.length + k;
+    const dernier = 5 + 2 * P.length + this.images.length;
+    const xo = this.images.length ? ' /XObject << ' + this.images.map((_, k) => `/Im${k + 1} ${image(k)} 0 R`).join(' ') + ' >>' : '';
     pousser('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
     obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
     obj(2, `<< /Type /Pages /Kids [${P.map((_, k) => page(k) + ' 0 R').join(' ')}] /Count ${P.length} >>`);
@@ -111,8 +122,12 @@ export class DocumentPdf {
     obj(5, `<< /Title ${chainePdf(titre)} /Producer (CP Constructions - CP Designer) >>`);
     P.forEach((p, k) => {
       const contenu = p.ops.join('\n');
-      obj(page(k), `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(p.largeur)} ${n(p.hauteur)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${flux(k)} 0 R >>`);
+      obj(page(k), `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(p.largeur)} ${n(p.hauteur)}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xo} >> /Contents ${flux(k)} 0 R >>`);
       obj(flux(k), `<< /Length ${contenu.length} >>\nstream\n${contenu}\nendstream`);
+    });
+    this.images.forEach((im, k) => {
+      let b = ''; for (let i = 0; i < im.octets.length; i++) b += String.fromCharCode(im.octets[i]!);
+      obj(image(k), `<< /Type /XObject /Subtype /Image /Width ${im.largeur} /Height ${im.hauteur} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.octets.length} >>\nstream\n${b}\nendstream`);
     });
     const xref = taille;
     let t = `xref\n0 ${dernier + 1}\n0000000000 65535 f \n`;

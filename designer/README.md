@@ -202,7 +202,9 @@ maçonnerie à chaque côté ; une maison qui sort de la limite est signalée.
 L'inspecteur garde la référence cadastrale, la voie et ses côtés, le nord et
 l'altitude NGF du ±0,00. La planche « Plan de masse (PCMI 2) » porte la
 limite cotée, la voie, les reculs, l'emprise et le débord du toit, le nord,
-le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Le terrain
+le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Une vue 3D gardée (panneau 3D :
+« Garder cette vue pour le dossier ») y entre en page « Vue 3D », image JPEG
+intégrée au PDF ; le PCMI 6 (insertion dans le site) reste à joindre. Le terrain
 lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
 revient avec l'import du RDC.
 
@@ -231,6 +233,12 @@ pour tout le niveau : une peau de 3 mm contre les faces des murs de la
 pièce, du sol au haut des murs, ouverte aux portes et fenêtres (allège et
 linteau restent peints) ; elle se voit en 3D et pendant la visite, ni en
 façade ni en coupe.
+
+**Modèles de maisons** (projet vide : panneau du niveau ou palette ;
+`src/catalogue/modeles-maisons.ts`) : plain-pied 3 chambres (13 × 9 m),
+plain-pied en L avec garage, maison à étage (9 × 8 m, R+1, escalier). Des
+plans fictifs posés en une transaction (murs, baies, pièces nommées,
+escalier, toiture) : tout se modifie ensuite, un « annuler » les retire.
 
 **Export DXF** (bouton « DXF » ; `src/export/dxf.ts`) : un fichier par niveau,
 DXF R12 en millimètres (le plus largement lu), dans le repère du plan, un

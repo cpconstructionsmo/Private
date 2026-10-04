@@ -15,6 +15,8 @@ export interface Vue3D {
   couper(z: number | null): void;
   /** une image PNG de la vue */
   image(): Promise<Blob>;
+  /** la vue en JPEG, avec sa taille en pixels (pour le dossier PDF) */
+  imageJpeg(): Promise<{ octets: Uint8Array; largeur: number; hauteur: number }>;
   stats(): { maillages: number; triangles: number };
   /** la visite à hauteur d'homme : glisser pour regarder, Z Q S D (ou W A S D) et flèches pour marcher, Maj pour presser le pas */
   visite(oui: boolean): void;
@@ -305,6 +307,11 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     enVisite: () => enVisite,
     marcheur: () => (enVisite ? marcheur : null),
     image() { peindre(); return new Promise((res, rej) => rendu.domElement.toBlob(b => (b ? res(b) : rej(new Error('image vide'))), 'image/png')) },
+    imageJpeg() {
+      peindre();
+      const c = rendu.domElement;
+      return new Promise((res, rej) => c.toBlob(b => { if (!b) { rej(new Error('image vide')); return } void b.arrayBuffer().then(a => res({ octets: new Uint8Array(a), largeur: c.width, hauteur: c.height })) }, 'image/jpeg', 0.92));
+    },
     stats() { let t = 0, n = 0; groupe.traverse(o => { if (o instanceof THREE.Mesh) { n++; t += (o.geometry.index?.count ?? o.geometry.attributes['position']!.count) / 3 } }); return { maillages: n, triangles: Math.round(t) } },
     detruire() { enVisite = false; cancelAnimationFrame(boucle); window.removeEventListener('keydown', enfoncee); window.removeEventListener('keyup', relachee); window.removeEventListener('blur', perdue); observateur.disconnect(); controles.dispose(); vider(); rendu.dispose(); rendu.domElement.remove() },
   };

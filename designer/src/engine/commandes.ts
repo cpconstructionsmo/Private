@@ -65,7 +65,7 @@ export type Commande =
   | { type: 'creerPiece'; niveau: string; point: Point; nom: string; usage: RoomUsage; humide?: boolean; origine?: Origine }
   | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point; sol?: string | null; murs?: string | null }
   | { type: 'supprimer'; id: string }
-  | { type: 'ajouterNiveau'; batiment: string; nom: string; altitude: Mm; hauteur: Mm }
+  | { type: 'ajouterNiveau'; batiment: string; nom: string; altitude: Mm; hauteur: Mm; id?: string }
   | { type: 'renommerProjet'; nom: string }
   /** déplacer une extrémité de mur : tous les murs qui y aboutissent suivent */
   | { type: 'deplacerSommet'; niveau: string; de: Point; vers: Point }
@@ -356,9 +356,11 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!b) return refus('bâtiment introuvable');
       if (!cmd.nom.trim()) return refus('un niveau a un nom');
       if (!fini(cmd.altitude, cmd.hauteur) || !(cmd.hauteur > 0)) return refus('altitude ou hauteur invalide');
+      /* un identifiant imposé (un modèle de maison pose l'étage et ses murs dans la même transaction) */
+      if (cmd.id !== undefined && (!cmd.id.trim() || p.buildings.some(x => x.floors.some(f => f.id === cmd.id)))) return refus('identifiant de niveau déjà pris');
       const ordre = b.floors.reduce((m, f) => Math.max(m, f.order), -1) + 1;
       return accepte([{ type: 'niveau.ajouter', batiment: b.id, index: b.floors.length,
-        niveau: { id: c.id(), name: cmd.nom.trim(), elevation: cmd.altitude, height: cmd.hauteur, order: ordre, objects: {} } }]);
+        niveau: { id: cmd.id ?? c.id(), name: cmd.nom.trim(), elevation: cmd.altitude, height: cmd.hauteur, order: ordre, objects: {} } }]);
     }
     case 'renommerProjet': {
       if (!cmd.nom.trim()) return refus('un projet a un nom');

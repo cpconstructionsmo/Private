@@ -562,9 +562,31 @@ function pageNotice(doc: DocumentPdf, projet: Project, o: OptionsPlanche): void 
   cartouche(page, projet, o.dossier ? 'PCMI 4 — Notice (brouillon)' : 'Notice (brouillon)', 0, o);
 }
 
+/* ---------- la perspective (vue 3D gardée) ---------- */
+
+function pagePerspective(doc: DocumentPdf, projet: Project, o: OptionsPlanche, v: NonNullable<OptionsDossier['perspective']>): void {
+  const page = doc.page(A3.l * PT, A3.h * PT), nom = doc.imageJpeg(v.jpeg, v.largeur, v.hauteur);
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  page.cadre(X(10), Y(287), 400 * PT, 277 * PT, { ep: 0.8 });
+  page.texte('Vue 3D du projet', X(ZONE.x + 4), Y(ZONE.y + 6), 11, { gras: true, couleur: '#2C4A5E' });
+  /* l'image, aussi grande que la zone le permet, sans la déformer */
+  const L = ZONE.l - 8, H = ZONE.h - 16, k = Math.min(L / v.largeur, H / v.hauteur), l = v.largeur * k, h = v.hauteur * k;
+  const x0 = ZONE.x + 4 + (L - l) / 2, y0 = ZONE.y + 12 + (H - h) / 2;
+  page.image(nom, X(x0), Y(y0 + h), l * PT, h * PT);
+  page.cadre(X(x0), Y(y0 + h), l * PT, h * PT, { ep: 0.3, couleur: '#9AA5AD' });
+  page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
+  for (const [i, l2] of ['Vue 3D calculée depuis le plan (matériaux et', 'toiture du projet). Pour le PCMI 6, le projet reste', 'à insérer dans une photographie de son', 'environnement (photomontage) : à joindre.'].entries())
+    page.texte(l2, X(COLONNE.x + 5), Y(20 + i * 4), 7, { couleur: '#6E7B84' });
+  cartouche(page, projet, o.dossier ? 'Vue 3D (complément au PCMI 6)' : 'Vue 3D', 0, o);
+}
+
 /* ---------- le dossier de permis de construire, en un PDF ---------- */
 
-export interface OptionsDossier { indice: string; date: string; maitreOuvrage?: string; adresseTerrain?: string; echelle?: number }
+export interface OptionsDossier {
+  indice: string; date: string; maitreOuvrage?: string; adresseTerrain?: string; echelle?: number;
+  /** une vue 3D gardée dans le Designer (JPEG), pour la page de perspective */
+  perspective?: { jpeg: Uint8Array; largeur: number; hauteur: number };
+}
 
 /** les pièces du dossier, dans l'ordre du formulaire ; « page » : null quand le Designer ne la produit pas */
 export interface PieceDossier { code: string; intitule: string; page: number | null; note?: string }
@@ -595,6 +617,8 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   plancheFacades(doc, projet, o);
   const aToit = toituresDuProjet(projet).length > 0, pToit = aToit ? debut() : null;
   if (aToit) plancheToiture(doc, projet, o);
+  const pVue = d.perspective ? debut() : null;
+  if (d.perspective) pagePerspective(doc, projet, o, d.perspective);
   const pPlans = debut();
   for (const f of niveaux) planche(doc, projet, f, o, lignes);
   const pieces: PieceDossier[] = [
@@ -603,7 +627,7 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
     { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe },
     { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: pNotice, note: 'brouillon à relire et compléter' },
     { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacades, ...(aToit ? { note: 'plan de toiture : page ' + pToit } : { note: 'toiture à définir (panneau 3D)' }) },
-    { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: null, note: 'à joindre (photomontage)' },
+    { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: null, note: pVue ? 'à joindre (photomontage) ; vue 3D du projet : page ' + pVue : 'à joindre (photomontage)' },
     { code: 'PCMI 7-8', intitule: 'Photographies (environnement proche et lointain)', page: null, note: 'à joindre' },
     { code: '—', intitule: 'Plans des niveaux (complément)', page: pPlans },
   ];
