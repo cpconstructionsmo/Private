@@ -21,7 +21,7 @@ import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } fr
 import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fonds';
 import type { Accroche } from '../building/accrochage';
 import { maquette } from '../vue3d/maquette';
-import { PAREMENTS, SOLS } from '../catalogue/materiaux';
+import { PAREMENTS, PEINTURES, SOLS } from '../catalogue/materiaux';
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
@@ -42,6 +42,7 @@ const CONTRAINTES: Record<string, string> = { horizontal: 'Horizontal', vertical
 const m = (mm: number) => (mm / 1000).toFixed(2).replace('.', ',') + ' m';
 const OPTIONS_PAREMENTS: Record<string, string> = { '': 'Sans (maçonnerie)', ...Object.fromEntries(PAREMENTS.map(m => [m.id, m.libelle])) };
 const OPTIONS_SOLS: Record<string, string> = { '': 'Non précisé', ...Object.fromEntries(SOLS.map(m => [m.id, m.libelle])) };
+const OPTIONS_PEINTURES: Record<string, string> = { '': 'Non précisé', ...Object.fromEntries(PEINTURES.map(m => [m.id, m.libelle])) };
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const date = (iso: string) => { try { return new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return iso } };
@@ -649,6 +650,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('Pièce humide', o.wet ? 1 : 0, v => faire('Pièce humide', [{ type: 'modifierPiece', id: o.id, humide: !!v }]), 'checkbox'),
           champ('Sol', o.floorFinish ?? '', v => faire('Sol', [{ type: 'modifierPiece', id: o.id, sol: v || null }]), 'text', OPTIONS_SOLS),
           ligne(bouton('Ce sol dans toutes les pièces du niveau', () => solPartout(o.floorFinish ?? null, f))),
+          champ('Murs (peinture, faïence)', o.wallFinish ?? '', v => faire('Peinture', [{ type: 'modifierPiece', id: o.id, murs: v || null }]), 'text', OPTIONS_PEINTURES),
+          ligne(bouton('Cette peinture dans toutes les pièces du niveau', () => peinturePartout(o.wallFinish ?? null, f))),
           bloc(z ? 'Surface entre murs : <b>' + m2(z.aire) + '</b><br>Périmètre : ' + m(z.perimetre) + '<br><span class="note">Surface intérieure brute — pas encore une surface réglementaire (Phase 7).</span>' : 'Pièce non fermée : son point n’est dans aucun espace clos.', z ? 'note' : 'alerte'),
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
@@ -813,14 +816,20 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const P = Object.values(f.objects).filter(o => o.type === 'room' && (o.floorFinish ?? null) !== id);
     if (P.length) faire('Sols du niveau', P.map(o => ({ type: 'modifierPiece', id: o.id, sol: id }) as Commande));
   }
+  function peinturePartout(id: string | null, f: Floor) {
+    const P = Object.values(f.objects).filter(o => o.type === 'room' && (o.wallFinish ?? null) !== id);
+    if (P.length) faire('Peinture du niveau', P.map(o => ({ type: 'modifierPiece', id: o.id, murs: id }) as Commande));
+  }
   /** les matériaux, dans le panneau 3D : façades et sols d'un coup */
   function sectionMateriaux(f: Floor) {
     const ext = h.projet.buildings.flatMap(b => b.floors).flatMap(x => Object.values(x.objects)).filter((o): o is Wall => o.type === 'wall' && o.role === 'exterior');
     const P = [...new Set(ext.map(w => w.finish ?? ''))], S = [...new Set(Object.values(f.objects).flatMap(o => (o.type === 'room' ? [o.floorFinish ?? ''] : [])))];
+    const Pe = [...new Set(Object.values(f.objects).flatMap(o => (o.type === 'room' ? [o.wallFinish ?? ''] : [])))];
     aside.append(titre('Matériaux'),
       /* « * » : des choix différents d'un mur (d'une pièce) à l'autre ; le garder ne change rien */
       champ('Façades (tous les murs extérieurs)', P.length > 1 ? '*' : P[0] ?? '', v => { if (v !== '*') parementPartout(v || null) }, 'text', P.length > 1 ? { '*': 'Plusieurs parements…', ...OPTIONS_PAREMENTS } : OPTIONS_PAREMENTS),
       champ('Sols (toutes les pièces de ' + f.name + ')', S.length > 1 ? '*' : S[0] ?? '', v => { if (v !== '*') solPartout(v || null, f) }, 'text', S.length > 1 ? { '*': 'Plusieurs sols…', ...OPTIONS_SOLS } : OPTIONS_SOLS),
+      champ('Murs intérieurs (pièces de ' + f.name + ')', Pe.length > 1 ? '*' : Pe[0] ?? '', v => { if (v !== '*') peinturePartout(v || null, f) }, 'text', Pe.length > 1 ? { '*': 'Plusieurs peintures…', ...OPTIONS_PEINTURES } : OPTIONS_PEINTURES),
       bloc('Un aspect, pas un descriptif : la référence du produit reste au programme technique. Mur par mur, pièce par pièce : dans leur inspecteur.'));
   }
 

@@ -297,6 +297,10 @@ try {
   await p.waitForFunction(n => window.cpDesigner.vue3d().maillages > n, avantMat);
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_MATERIAUX) await p.screenshot({ path: process.env.CAPTURE_MATERIAUX });
+  /* et une peinture dans toutes les pièces du niveau */
+  await p.selectOption('aside label:has-text("Murs intérieurs") select', 'peinture-vert-sauge');
+  const pieces = (await objets()).filter(o => o.type === 'room');
+  assert.ok(pieces.length > 0 && pieces.every(o => o.wallFinish === 'peinture-vert-sauge'), 'peinture dans toutes les pièces');
   await p.check('aside label:has-text("Vue maquette") input');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_3D_COUPE) await p.screenshot({ path: process.env.CAPTURE_3D_COUPE });
@@ -322,13 +326,15 @@ try {
   await p.keyboard.press('Escape');
   assert.equal(await p.evaluate(() => window.cpDesigner.vue3d()), null, 'retour au plan');
 
-  /* l'import s'annule d'un coup (le parement des façades, la toiture, le fond, puis le plan) */
+  /* l'import s'annule d'un coup (la peinture, le parement des façades, la toiture, le fond, puis le plan) */
   await p.mouse.click(1080, 820);
+  await p.keyboard.press('Control+z');
+  assert.ok((await objets()).filter(o => o.type === 'room').every(o => !o.wallFinish), 'un « annuler » retire la peinture de toutes les pièces');
   await p.keyboard.press('Control+z');
   assert.ok((await objets()).filter(o => o.type === 'wall').every(o => !o.finish), 'un « annuler » retire le parement de toutes les façades');
   await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
   O = await objets();
-  assert.equal(O.length, 0, 'quatre « annuler » (le parement, la toiture, le fond, le plan) : niveau vide');
+  assert.equal(O.length, 0, 'cinq « annuler » (la peinture, le parement, la toiture, le fond, le plan) : niveau vide');
 
   assert.equal(await p.locator('#cpd-diagnostic').count(), 0, 'page qui démarre : aucun diagnostic affiché');
   assert.deepEqual(erreurs, [], 'aucune erreur JavaScript');
@@ -342,7 +348,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe), escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux de façade, visite à hauteur d’homme, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe), escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

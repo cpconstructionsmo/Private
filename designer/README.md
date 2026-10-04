@@ -216,6 +216,11 @@ prise dans l'épaisseur du mur, sur la face qui donne dehors (l'intérieur
 garde sa teinte), avec son motif (lames, briques, carreaux, parquet) ; les
 façades du PDF prennent ses teintes et listent les matériaux (parements et
 couverture) ; la coupe tranche la peau avec le mur.
+Les murs intérieurs se peignent pièce par pièce (peintures, faïence) ou
+pour tout le niveau : une peau de 3 mm contre les faces des murs de la
+pièce, du sol au haut des murs, ouverte aux portes et fenêtres (allège et
+linteau restent peints) ; elle se voit en 3D et pendant la visite, ni en
+façade ni en coupe.
 
 **Escaliers** (outil E ; `src/building/escalier.ts`) : droit ou quart
 tournant avec palier ; on pose le départ, T tourne le sens de la montée.

@@ -3,11 +3,12 @@
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel, type Project, type Wall } from '../../src/model';
 import { annuler, executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
-import { maquette, volume, EPAISSEUR_PAREMENT } from '../../src/vue3d/maquette';
+import { maquette, volume, EPAISSEUR_PAREMENT, EPAISSEUR_PEINTURE } from '../../src/vue3d/maquette';
+import { aireSignee } from '../../src/geometry/polygon';
 import { facade } from '../../src/vue3d/facades';
 import { coupe } from '../../src/vue3d/coupe';
 import { planchesPdf } from '../../src/export/planche';
-import { PAREMENTS, SOLS, materiau } from '../../src/catalogue/materiaux';
+import { PAREMENTS, PEINTURES, SOLS, materiau } from '../../src/catalogue/materiaux';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 1) + (t += 1000)).toISOString(), id: generateurSequentiel('o') } };
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join(' ; ')); return r.historique };
@@ -34,7 +35,7 @@ const murs = (p: Project) => Object.values(p.buildings[0]!.floors[0]!.objects).f
 
 describe('catalogue des matériaux', () => {
   it('identifiants uniques et lisibles, teintes #RRGGBB, ni prix ni marque', () => {
-    const T = [...PAREMENTS, ...SOLS];
+    const T = [...PAREMENTS, ...SOLS, ...PEINTURES];
     expect(new Set(T.map(m => m.id)).size).toBe(T.length);
     for (const m of T) { expect(m.id).toMatch(/^[a-z0-9-]+$/); expect(m.couleur).toMatch(/^#[0-9A-F]{6}$/i); expect(m.libelle).not.toMatch(/€|prix/i) }
     expect(materiau('inconnu')).toBeUndefined();
@@ -84,5 +85,38 @@ describe('parement en 3D, en façade, en coupe', () => {
     const { h } = maison();
     const c = coupe(maquette(h.projet), { a: { x: 7_000, y: -2_000 }, b: { x: 7_000, y: 10_000 }, regard: { x: 1, y: 0 }, nom: 'A' });
     expect(c.coupees.filter(x => x.matiere === 'parement')).toHaveLength(2);
+  });
+});
+
+describe('peinture des murs intérieurs', () => {
+  /** la maison, une porte de 0,90 × 2,15 dans la cloison (à y = 4 m), la chambre peinte en vert sauge */
+  function peinte() {
+    const { h, a, n } = maison();
+    const cl = murs(h.projet).find(w => w.role === 'partition')!;
+    const chambre = Object.values(h.projet.buildings[0]!.floors[0]!.objects).find(o => o.type === 'room' && o.name === 'Chambre')!;
+    return { a, n, h: ok(executer(h, 'Peinture', [{ type: 'creerOuverture', mur: cl.id, position: 4_000, largeur: 900, hauteur: 2_150, allege: 0, genre: 'door' },
+      { type: 'modifierPiece', id: chambre.id, murs: 'peinture-vert-sauge' }], a)), chambre: chambre.id };
+  }
+  const aire = (P: { contour: readonly { x: number; y: number }[]; trous?: readonly (readonly { x: number; y: number }[])[] }) => Math.abs(aireSignee(P.contour)) - (P.trous ?? []).reduce((t, r) => t + Math.abs(aireSignee(r)), 0);
+
+  it('une peau de 3 mm contre les murs de la pièce, du sol au haut des murs, ouverte à la porte (linteau peint)', () => {
+    const { h, chambre } = peinte(), m = maquette(h.projet, undefined, { toiture: false });
+    const P = m.prismes.filter(p => p.matiere === 'peinture');
+    expect(P.every(p => p.objet === chambre && p.finition === 'peinture-vert-sauge')).toBe(true);
+    const plein = P.filter(p => p.z0 === 0 && p.z1 === 2_500), linteau = P.filter(p => p.z0 === 2_150 && p.z1 === 2_500);
+    expect(linteau.length).toBeGreaterThan(0);
+    /* la chambre fait 3,865 × 7,80 m entre faces (de 0,10 à 3,965 m) : un anneau de 3 mm, moins la largeur de la porte */
+    const per = 2 * (3_865 + 7_800), attendu = per * EPAISSEUR_PEINTURE - 900 * EPAISSEUR_PEINTURE;
+    expect(plein.reduce((t, p) => t + aire(p), 0) / attendu).toBeCloseTo(1, 1);
+    /* rien dans le séjour, ni en façade */
+    expect(P.every(p => p.contour.every(q => q.x < 4_000))).toBe(true);
+  });
+
+  it('commande annulable ; « non précisé » retire la peinture', () => {
+    const { h, a, chambre } = peinte();
+    expect(h.projet.buildings[0]!.floors[0]!.objects[chambre]).toHaveProperty('wallFinish', 'peinture-vert-sauge');
+    const h2 = ok(executer(h, 'x', [{ type: 'modifierPiece', id: chambre, murs: null }], a));
+    expect(maquette(h2.projet).prismes.some(p => p.matiere === 'peinture')).toBe(false);
+    expect(executer(h, 'x', [{ type: 'modifierPiece', id: chambre, murs: 'Rouge !' }], a).ok).toBe(false);
   });
 });

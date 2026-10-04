@@ -63,7 +63,7 @@ export type Commande =
   | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing']; origine?: Origine; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
   | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing']; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
   | { type: 'creerPiece'; niveau: string; point: Point; nom: string; usage: RoomUsage; humide?: boolean; origine?: Origine }
-  | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point; sol?: string | null }
+  | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point; sol?: string | null; murs?: string | null }
   | { type: 'supprimer'; id: string }
   | { type: 'ajouterNiveau'; batiment: string; nom: string; altitude: Mm; hauteur: Mm }
   | { type: 'renommerProjet'; nom: string }
@@ -309,6 +309,10 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.sol !== undefined) {
         if (cmd.sol !== null && !matiereValide(cmd.sol)) return refus('sol inconnu');
         avant['floorFinish'] = r.floorFinish ?? null; apres['floorFinish'] = cmd.sol;
+      }
+      if (cmd.murs !== undefined) {
+        if (cmd.murs !== null && !matiereValide(cmd.murs)) return refus('peinture inconnue');
+        avant['wallFinish'] = r.wallFinish ?? null; apres['wallFinish'] = cmd.murs;
       }
       return accepte([{ type: 'objet.modifier', niveau: t.niveauId, id: r.id, avant, apres }]);
     }

@@ -112,6 +112,8 @@ export interface Room extends BaseObject {
   excludedFromHabitable?: { value: boolean; reason: string };
   /** le sol fini (catalogue/materiaux.ts) */
   floorFinish?: string;
+  /** la peinture (ou la faïence) de ses murs, du sol au haut des murs */
+  wallFinish?: string;
 }
 
 /** un point d'accroche sur un objet, pour une cote */

@@ -49,7 +49,7 @@ export interface Terrain { sols: Surface[]; obstacles: Obstacle[]; boite: Maquet
 /** ce sur quoi on marche */
 const SOLS: ReadonlySet<Matiere> = new Set(['sol', 'plancher', 'escalier']);
 /** ce qui ne gêne pas : le sol fini (5 mm), les vantaux de portes et les portes de garage (supposés ouverts) */
-const TRAVERSABLES: ReadonlySet<Matiere> = new Set(['sol', 'porte', 'garage']);
+const TRAVERSABLES: ReadonlySet<Matiere> = new Set(['sol', 'porte', 'garage', 'peinture']);
 
 const boiteDe = (A: Anneau[]): Boite => {
   const P = A.flat();
