@@ -9,7 +9,7 @@ import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsag
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -263,6 +263,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       escaliers: Object.values(f.objects).flatMap(o => (o.type === 'stair' ? [{ id: o.id, geo: geometrieEscalier(o, hauteurAFranchir(p, f)) }] : [])),
       tremies: tremiesDuNiveau(p, f),
       /* les traits de coupe de tout le projet ; on ne choisit que ceux tracés sur ce niveau */
+      parcelle: (() => { const t = parcelleDuProjet(p); return t && t.niveau.id === f.id ? { plot: t.plot, reculs: reculs(t.plot, empriseAuSol(p)) } : null })(),
+      parcelleEnCours: outils.parcelleEnCours,
       coupes: traitsDeCoupe(p).map(({ id, niveau: n, ...l }) => (n === f.id ? { ...l, id } : l)),
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
       ...(cotation ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
@@ -445,7 +447,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (e.key === 'Enter') { effet(outils.touche('Enter')); return }
     if ((e.key === 'Delete' || e.key === 'Backspace') && choisis().length) { e.preventDefault(); supprimerChoix(); return }
     /* un chiffre pendant un tracé : la longueur se tape (comme sur les logiciels de plans) */
-    if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'cloison', 'rectangle'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
+    if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'cloison', 'rectangle', 'parcelle'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
     if (e.key === '3') { void basculer3D(); return }
     if (e.key.toLowerCase() === 't') {
       const o = selection ? niveau().objects[selection] : undefined;
@@ -467,7 +469,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     main.querySelector('.saisie')?.remove();
     const i = document.createElement('input');
     i.className = 'saisie'; i.value = premier; i.autocomplete = 'off';
-    i.placeholder = outils.outil === 'rectangle' ? '10x8' : '4,50 ou 4,50<90';
+    i.placeholder = outils.outil === 'rectangle' ? '10x8' : outils.outil === 'parcelle' ? '25,30 ou 25,30<90' : '4,50 ou 4,50<90';
     const e = curseur ? versEcran(cam, curseur) : { x: cam.largeur / 2, y: cam.hauteur / 2 };
     i.style.left = Math.min(cam.largeur - 160, e.x + 16) + 'px'; i.style.top = Math.min(cam.hauteur - 40, e.y + 34) + 'px';
     /* retirer la case fait perdre le focus : le blur ne doit pas la retirer une seconde fois */
@@ -488,10 +490,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'cloison', icone: '▭', libelle: 'Cloison', touche: 'C' }, { nom: 'rectangle', icone: '⬚', libelle: 'Rectangle de murs', touche: 'R' },
     { nom: 'ouverture', icone: '◫', libelle: 'Ouverture', touche: 'O' }, { nom: 'mobilier', icone: '▣', libelle: 'Mobilier', touche: 'B' },
     { nom: 'escalier', icone: '▤', libelle: 'Escalier', touche: 'E' }, { nom: 'coupe', icone: '✂', libelle: 'Trait de coupe', touche: 'K' },
+    { nom: 'parcelle', icone: '⛶', libelle: 'Parcelle (limite du terrain)', touche: 'L' },
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
-  function choisir(o: NomOutil) { if (en3D) void basculer3D(false); choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+  function choisir(o: NomOutil) {
+    if (en3D) void basculer3D(false);
+    /* la parcelle se trace sur le niveau le plus bas (le terrain) */
+    if (o === 'parcelle') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
@@ -701,6 +708,39 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           ligne(bouton('Inverser le regard (T)', () => mod('Inverser le regard de la coupe', { regard: o.look === 'left' ? 'right' : 'left' })), bouton('PDF des coupes', () => void exporterCoupes(), 'prim')));
         A.append(bloc(apercuCoupe(ligneDe(o)), 'apercu-coupe'),
           bloc('Les flèches montrent ce que la coupe regarde. Le plan de coupe prolonge le trait de part en part du bâtiment. Tirez le trait pour le déplacer. Le trait se voit sur tous les niveaux et dans le PDF ; il se choisit sur le niveau où il a été tracé.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'plot': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierParcelle' }>>) => faire(t, [{ type: 'modifierParcelle', id: o.id, ...c }]);
+        const E = empriseAuSol(h.projet), R = reculs(o, E), S = surfaceTerrain(o), em = aireEmprise(E);
+        const cotes = Object.fromEntries(o.contour.map((_, i) => [String(i), 'Côté ' + (i + 1) + ' (' + m(R[i]?.longueur ?? distance(o.contour[i]!, o.contour[(i + 1) % o.contour.length]!)) + ')']));
+        A.append(titre('Parcelle' + (o.reference ? ' ' + o.reference : '')),
+          ...(E.length && !maisonDansParcelle(o, E) ? [bloc('⛔ La maison sort de la parcelle : les reculs ne valent rien tant qu’elle n’est pas implantée dedans.', 'alerte')] : []),
+          bloc('Terrain : <b>' + m2(S) + '</b><br>Emprise au sol (maçonnerie, débords de toit exclus) : <b>' + m2(em) + '</b>' + (S ? ' · ' + (em / S * 100).toFixed(1).replace('.', ',') + ' % du terrain' : '')),
+          champ('Référence cadastrale', o.reference ?? '', v => mod('Référence cadastrale', { reference: v })),
+          champ('Nom de la voie', o.streetName ?? '', v => mod('Nom de la voie', { nomVoie: v })),
+          champ('Nord (° depuis le haut du plan, sens inverse des aiguilles)', Math.round(o.north * 1800 / Math.PI) / 10, v => mod('Direction du nord', { nord: ent(v) * Math.PI / 180 }), 'number'),
+          champ('Altitude NGF du ±0,00 (m)', o.groundFloorNgf ?? '', v => mod('Altitude du RDC', { altitudeRdc: String(v).trim() ? ent(v) : null }), 'number'),
+          titre('Côtés et reculs (mesurés)'));
+        o.contour.forEach((_, i) => {
+          const r = R[i];
+          A.append(champ('Côté ' + (i + 1) + ' : ' + m(r?.longueur ?? 0) + (r ? ' — recul ' + m(r.distance) : '') + ' · sur voie', o.street.includes(i) ? 1 : 0,
+            v => mod('Côté sur voie', { voies: v ? [...o.street, i].sort((x, y) => x - y) : o.street.filter(k => k !== i) }), 'checkbox'));
+        });
+        /* implanter : la parcelle se place autour de la maison, qui ne bouge pas */
+        const imp = { a: String(o.street[0] ?? 0), da: '5', b: String(((o.street[0] ?? 0) + 1) % o.contour.length), db: '3', p: String(o.street[0] ?? 0) };
+        A.append(titre('Implanter la maison'),
+          champ('Distance au côté', imp.a, v => { imp.a = v }, 'text', cotes), champ('… de (m)', imp.da, v => { imp.da = v }, 'number'),
+          champ('et au côté', imp.b, v => { imp.b = v }, 'text', cotes), champ('… de (m)', imp.db, v => { imp.db = v }, 'number'),
+          ligne(bouton('Placer', () => {
+            const c = placerParcelle(o, E, Number(imp.a), mm(imp.da), Number(imp.b), mm(imp.db));
+            if (!c) toast(E.length ? 'Ces deux côtés sont parallèles : prenez un côté sur rue et un côté latéral' : 'Aucun mur : rien à implanter', true);
+            else mod('Implanter la maison', { contour: c });
+          }, 'prim')),
+          champ('Rendre la maison parallèle au côté', imp.p, v => { imp.p = v }, 'text', cotes),
+          ligne(bouton('Tourner la parcelle', () => { const r = orienterParcelle(o, Number(imp.p), E); mod('Orienter la parcelle', { contour: r.contour, nord: r.nord }) })),
+          bloc('La maison ne bouge pas : c’est la parcelle qui se place autour d’elle (elle tourne avec son nord). Tirez la limite pour la déplacer à la main. Les reculs se mesurent depuis la maçonnerie ; les règles du PLU (reculs, emprise, hauteurs) restent à vérifier.'),
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
@@ -1062,6 +1102,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
       { cle: 'cot', libelle: 'Cotation', valeur: 'oui', options: { oui: 'Avec les chaînes de cotes', non: 'Sans' } },
       { cle: 'mob', libelle: 'Mobilier', valeur: 'oui', options: { oui: 'Avec le mobilier', non: 'Sans' } },
+      ...(parcelleDuProjet(h.projet) ? [{ cle: 'mas', libelle: 'Plan de masse', valeur: 'oui', options: { oui: 'Ajouter le plan de masse (PCMI 2) : parcelle, reculs, emprise', non: 'Sans' } }] : []),
       { cle: 'fac', libelle: 'Façades', valeur: 'oui', options: { oui: 'Ajouter la planche des quatre façades', non: 'Sans' } },
       { cle: 'cou', libelle: 'Coupes', valeur: 'oui', options: { oui: traitsDeCoupe(h.projet).length ? 'Ajouter les coupes ' + traitsDeCoupe(h.projet).map(l => l.nom + '-' + l.nom).join(', ') + ' (et leurs traits sur les plans)' : 'Ajouter une coupe A-A placée d’elle-même (ou tracez-la : outil K)', non: 'Sans' } },
       { cle: 'ind', libelle: 'Indice', valeur: 'A' }]);
@@ -1069,7 +1110,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     try {
       const { planchesPdf } = await import('../export/planche');
       const u = planchesPdf(h.projet, {
-        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui', mobilier: r['mob'] === 'oui', facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui',
+        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui', mobilier: r['mob'] === 'oui', facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui',
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
       });
       const a = document.createElement('a');

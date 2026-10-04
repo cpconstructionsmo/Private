@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -91,7 +91,10 @@ export type Commande =
   | { type: 'modifierEscalier'; id: string; genre?: Stair['kind']; position?: Point; rotation?: number; largeur?: Mm; giron?: Mm | null }
   /** un trait de coupe (A-A…) ; sans nom, la première lettre libre du projet */
   | { type: 'creerCoupe'; niveau: string; a: Point; b: Point; regard?: SectionLine['look']; nom?: string }
-  | { type: 'modifierCoupe'; id: string; a?: Point; b?: Point; regard?: SectionLine['look']; nom?: string };
+  | { type: 'modifierCoupe'; id: string; a?: Point; b?: Point; regard?: SectionLine['look']; nom?: string }
+  /** la parcelle (une par projet) ; « nomVoie », « reference » vides : effacés */
+  | { type: 'creerParcelle'; niveau: string; contour: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number; origine?: Origine }
+  | { type: 'modifierParcelle'; id: string; contour?: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number | null };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
@@ -131,6 +134,19 @@ function coupeInvalide(p: Project, a: Point, b: Point, nom: string, sauf?: strin
   if (distance(a, b) < 500) return 'trait de coupe trop court (50 cm au moins)';
   if (!/^[A-Za-z0-9]{1,3}$/.test(nom)) return 'nom de coupe : 1 à 3 lettres ou chiffres';
   if (nomsDeCoupes(p, sauf).has(nom)) return 'une coupe ' + nom + '-' + nom + ' existe déjà';
+  return null;
+}
+
+/** une limite de parcelle : 3 sommets au moins, distincts, une surface d'au moins 10 m², des côtés sur voie qui existent */
+function parcelleInvalide(contour: Point[], voies: number[], nord: number, altitude?: number | null): string | null {
+  if (contour.length < 3 || !contour.every(ptFini)) return 'limite de parcelle : trois sommets au moins';
+  if (contour.some((q, i) => distance(q, contour[(i + 1) % contour.length]!) < 100)) return 'limite de parcelle : côté de moins de 10 cm';
+  let a = 0;
+  contour.forEach((q, i) => { const r = contour[(i + 1) % contour.length]!; a += q.x * r.y - r.x * q.y });
+  if (Math.abs(a) / 2 < 10e6) return 'parcelle de moins de 10 m²';
+  if (!voies.every(i => Number.isInteger(i) && i >= 0 && i < contour.length)) return 'côté sur voie inconnu';
+  if (!fini(nord)) return 'direction du nord invalide';
+  if (altitude !== undefined && altitude !== null && !(fini(altitude) && altitude > -100 && altitude < 5_000)) return 'altitude NGF invalide';
   return null;
 }
 
@@ -553,6 +569,38 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         if (v[k] === undefined) continue;
         avant[champs[k]] = o[champs[k]]; apres[champs[k]] = v[k];
       }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, o, avant, apres, c)]);
+    }
+    case 'creerParcelle': {
+      if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      if (p.buildings.flatMap(b => b.floors).some(f => Object.values(f.objects).some(o => o.type === 'plot'))) return refus('le projet a déjà une parcelle : modifiez-la');
+      const e = parcelleInvalide(cmd.contour, cmd.voies ?? [], cmd.nord ?? 0, cmd.altitudeRdc);
+      if (e) return refus(e);
+      const t: Plot = {
+        id: c.id(), type: 'plot', floorId: cmd.niveau, ...provenance(c, cmd.origine), revision: c.revision,
+        contour: cmd.contour.map(q => ({ ...q })), street: [...(cmd.voies ?? [])], north: cmd.nord ?? 0,
+        ...(cmd.nomVoie?.trim() ? { streetName: cmd.nomVoie.trim() } : {}), ...(cmd.reference?.trim() ? { reference: cmd.reference.trim() } : {}),
+        ...(cmd.altitudeRdc !== undefined ? { groundFloorNgf: cmd.altitudeRdc } : {}),
+      };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: t }]);
+    }
+    case 'modifierParcelle': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'plot') return refus('parcelle introuvable');
+      const o = t.objet, contour = cmd.contour ?? o.contour;
+      /* une nouvelle limite d'un autre nombre de côtés : les côtés sur voie ne veulent plus rien dire */
+      const voies = cmd.voies ?? (contour.length === o.contour.length ? o.street : []);
+      const e = parcelleInvalide(contour, voies, cmd.nord ?? o.north, cmd.altitudeRdc);
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      const poser = (k: keyof Plot, v: unknown) => { avant[k] = o[k]; apres[k] = v };
+      if (cmd.contour) poser('contour', cmd.contour.map(q => ({ ...q })));
+      if (cmd.voies || voies !== o.street) poser('street', [...voies]);
+      if (cmd.nomVoie !== undefined) poser('streetName', cmd.nomVoie.trim() || undefined);
+      if (cmd.reference !== undefined) poser('reference', cmd.reference.trim() || undefined);
+      if (cmd.nord !== undefined) poser('north', cmd.nord);
+      if (cmd.altitudeRdc !== undefined) poser('groundFloorNgf', cmd.altitudeRdc ?? undefined);
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, o, avant, apres, c)]);
     }

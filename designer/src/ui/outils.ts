@@ -21,7 +21,7 @@ import { MODELES_MEUBLES, modeleMeuble } from '../catalogue/mobilier';
 import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 
-export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'piece' | 'cote' | 'caler';
+export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'piece' | 'cote' | 'caler';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -95,7 +95,8 @@ type Prise =
   | { genre: 'meuble'; id: string; depart: Point; decalage: Point; largeur: Mm; profondeur: Mm; rotation: number }
   | { genre: 'cadre'; depart: Point }
   | { genre: 'escalier'; id: string; depart: Point; origine: Point }
-  | { genre: 'coupe'; id: string; depart: Point; a: Point; b: Point };
+  | { genre: 'coupe'; id: string; depart: Point; a: Point; b: Point }
+  | { genre: 'parcelle'; id: string; depart: Point; contour: Point[] };
 
 const AIDES: Record<NomOutil, string> = {
   selection: 'Cliquer pour choisir ; tirer une extrémité, un mur ou une ouverture pour la déplacer',
@@ -106,6 +107,7 @@ const AIDES: Record<NomOutil, string> = {
   mobilier: 'Choisir un meuble (à droite), puis cliquer pour le poser : près d’un mur il s’y plaque — T : tourner ; Alt : pose libre',
   escalier: 'Cliquer le départ de l’escalier (milieu de la première marche) — T : tourner le sens de la montée',
   coupe: 'Trait de coupe : cliquer le départ puis l’arrivée (Maj : 45°) ; la coupe regarde à gauche du trait — T pour l’inverser ensuite',
+  parcelle: 'Limite de la parcelle : cliquer chaque sommet — ou taper la longueur du côté (12,50 ou 12,50<90) ; revenir au premier point ou Entrée pour fermer',
   piece: 'Cliquer dans un espace clos pour le nommer',
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
@@ -160,6 +162,8 @@ export class Outils {
   private clicsFond: Point[] = [];
   /** le dernier point visé pendant un tracé : il donne la direction d'une longueur tapée */
   private vise: Point | null = null;
+  /** les sommets de la limite de parcelle en cours de tracé */
+  private sommetsParcelle: Point[] = [];
 
   constructor(private readonly contexte: () => Contexte) {}
 
@@ -177,7 +181,28 @@ export class Outils {
 
   get traceEnCours(): boolean { return this.depart !== null || this.prise !== null || this.ancres.length > 0 || this.clicsFond.length > 0 }
 
-  private annulerGeste(): void { this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
+  private annulerGeste(): void { this.sommetsParcelle = []; this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
+
+  /** la limite en cours de tracé, jusqu'au dernier point visé (pour la dessiner) */
+  get parcelleEnCours(): Point[] { return this.sommetsParcelle.length ? [...this.sommetsParcelle, ...(this.vise ? [this.vise] : [])] : [] }
+
+  /** un sommet de plus pour la limite ; fermée (retour au premier point), elle devient la parcelle */
+  private sommetParcelle(p: Point, rayon: Mm): Effet {
+    const S = this.sommetsParcelle;
+    if (S.length >= 3 && distance(p, S[0]!) <= Math.max(rayon, EPS_COINCIDENCE)) return this.fermerParcelle();
+    if (S.length && distance(p, S[S.length - 1]!) < 100) return {};
+    S.push(p); this.depart = p; this.vise = null;
+    return { aide: S.length < 3 ? 'Sommet suivant — ou tapez la longueur du côté' : 'Sommet suivant ; revenir au premier point ou Entrée pour fermer la limite' };
+  }
+  private fermerParcelle(): Effet {
+    const c = this.contexte(), S = this.sommetsParcelle;
+    if (S.length < 3) return { aide: 'Trois sommets au moins' };
+    /* la parcelle se pose sur le niveau le plus bas (le terrain), quel que soit le niveau affiché */
+    const bas = [...(c.projet.buildings[0]?.floors ?? [])].sort((a, b) => a.elevation - b.elevation)[0];
+    const cmd: Commande = { type: 'creerParcelle', niveau: bas?.id ?? c.niveau, contour: S.map(q => ({ ...q })) };
+    this.annulerGeste(); this.outil = 'selection';
+    return { commandes: { titre: 'Parcelle', liste: [cmd] }, apercu: [], fini: true, aide: AIDES.selection };
+  }
 
   /** le point de départ d'un tracé en cours (mur, cloison, rectangle) */
   get departTrace(): Point | null { return this.depart }
@@ -269,6 +294,13 @@ export class Outils {
         if (!this.prise) return { accroche: null };
         const p = this.prise;
         if (p.genre === 'cadre') return { cadre: [p.depart, g.point] };
+        if (p.genre === 'parcelle') {
+          if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
+          this.bouge = true;
+          const dx = Math.round(g.point.x - p.depart.x), dy = Math.round(g.point.y - p.depart.y);
+          this.dernier = { type: 'modifierParcelle', id: p.id, contour: p.contour.map(q => ({ x: q.x + dx, y: q.y + dy })) };
+          return { apercu: [this.dernier] };
+        }
         if (p.genre === 'coupe') {
           if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
           this.bouge = true;
@@ -331,6 +363,11 @@ export class Outils {
         return { accroche: null, apercu: [this.meubleEn(g)] };
       case 'escalier':
         return { accroche: this.accrocher(g), apercu: [this.escalierEn(g)] };
+      case 'parcelle': {
+        const a = this.accrocher(g, this.depart);
+        if (this.sommetsParcelle.length) this.vise = a.point;
+        return { accroche: a };
+      }
       case 'coupe': {
         const a = this.accrocher(g, this.depart);
         if (!this.depart || distance(a.point, this.depart) < 500) return { accroche: a, apercu: [] };
@@ -381,6 +418,7 @@ export class Outils {
         if (o?.type === 'wall' && 'a' in o.axis) this.prise = { genre: 'mur', mur: o as MurDroit, depart: this.accrocher(g).point };
         else if (o?.type === 'stair') this.prise = { genre: 'escalier', id: o.id, depart: g.point, origine: { ...o.position } };
         else if (o?.type === 'section') this.prise = { genre: 'coupe', id: o.id, depart: g.point, a: { ...o.a }, b: { ...o.b } };
+        else if (o?.type === 'plot') this.prise = { genre: 'parcelle', id: o.id, depart: g.point, contour: o.contour.map(q => ({ ...q })) };
         else if (o?.type === 'furniture') this.prise = { genre: 'meuble', id: o.id, depart: g.point, decalage: { x: g.point.x - o.position.x, y: g.point.y - o.position.y }, largeur: o.width, profondeur: o.depth, rotation: o.rotation };
         else if (o?.type === 'opening') {
           const w = f.objects[o.hostWallId];
@@ -413,6 +451,11 @@ export class Outils {
         return { commandes: { titre: this.meuble.libelle, liste: [this.meubleEn(g)] }, apercu: [] };
       case 'escalier':
         { const cmd = this.escalierEn(g); this.outil = 'selection'; return { commandes: { titre: 'Escalier', liste: [cmd] }, apercu: [], fini: true, aide: AIDES.selection } }
+      case 'parcelle': {
+        if (!this.sommetsParcelle.length && c.projet.buildings.flatMap(b => b.floors).flatMap(x => Object.values(x.objects)).some(o => o.type === 'plot'))
+          return { aide: 'Le projet a déjà une parcelle : choisissez-la pour la modifier, ou supprimez-la pour la retracer' };
+        return this.sommetParcelle(this.accrocher(g, this.depart).point, g.rayon);
+      }
       case 'coupe': {
         const a = this.accrocher(g, this.depart);
         if (!this.depart) { this.depart = a.point; return { accroche: a, aide: 'Arrivée du trait de coupe (Maj : 45°) — Échap pour renoncer' } }
@@ -487,12 +530,13 @@ export class Outils {
       const sx = v.x < d.x ? -1 : 1, sy = v.y < d.y ? -1 : 1;
       return this.poserRectangle({ x: arrondi(d.x + sx * s.largeur), y: arrondi(d.y + sy * s.profondeur) });
     }
-    if (this.outil !== 'mur' && this.outil !== 'cloison') return {};
-    if (s.genre !== 'longueur') return { aide: 'Mur : tapez une longueur (4,50), ou 4,50<90 pour un angle' };
+    if (this.outil !== 'mur' && this.outil !== 'cloison' && this.outil !== 'parcelle') return {};
+    if (s.genre !== 'longueur') return { aide: 'Tapez une longueur (4,50), ou 4,50<90 pour un angle' };
     let u: Point;
     if (s.angle !== undefined) { const r = s.angle * Math.PI / 180; u = { x: Math.cos(r), y: Math.sin(r) } }
     else { const v = this.vise, L = v ? distance(v, d) : 0; u = v && L > EPS_COINCIDENCE ? { x: (v.x - d.x) / L, y: (v.y - d.y) / L } : { x: 1, y: 0 } }
-    return this.poserMur({ x: arrondi(d.x + u.x * s.longueur), y: arrondi(d.y + u.y * s.longueur) });
+    const fin = { x: arrondi(d.x + u.x * s.longueur), y: arrondi(d.y + u.y * s.longueur) };
+    return this.outil === 'parcelle' ? this.sommetParcelle(fin, 1) : this.poserMur(fin);
   }
 
   relacher(g: Geste): Effet {
@@ -507,12 +551,13 @@ export class Outils {
     }
     this.prise = null; this.bouge = false; this.dernier = null;
     if (!dernier) return { apercu: [] };
-    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : 'Déplacer une ouverture';
+    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : 'Déplacer une ouverture';
     return { apercu: [], commandes: { titre, liste: [dernier] } };
   }
 
   /** Échap : abandonner le geste ; Entrée : finir le tracé */
   touche(k: 'Escape' | 'Enter'): Effet {
+    if (k === 'Enter' && this.outil === 'parcelle' && this.sommetsParcelle.length >= 3) return this.fermerParcelle();
     const enCours = this.traceEnCours;
     this.annulerGeste();
     if (k === 'Escape' && !enCours && this.outil !== 'selection') { this.outil = 'selection'; return { apercu: [], aide: AIDES.selection, fini: true } }

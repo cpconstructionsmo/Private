@@ -12,6 +12,8 @@ import type { Toiture } from '../building/toiture';
 import { formeDe, traits, versPlan } from '../building/mobilier';
 import type { GeometrieEscalier, Marche } from '../building/escalier';
 import type { LigneDeCoupe } from '../vue3d/coupe';
+import type { Plot } from '../model/types';
+import type { Recul } from '../building/terrain';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
@@ -50,6 +52,9 @@ export interface Scene {
   cadre?: [Point, Point] | null;
   /** les traits de coupe (vue3d/coupe.ts), avec leurs flèches de regard ; « id » : celui qu'on peut choisir */
   coupes?: (LigneDeCoupe & { id?: string })[];
+  /** la parcelle (sur le niveau qui la porte) et ses reculs mesurés ; la limite en cours de tracé */
+  parcelle?: { plot: Plot; reculs: Recul[] } | null;
+  parcelleEnCours?: Point[];
 }
 
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
@@ -124,6 +129,15 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   }
   /* cotation automatique, puis la place des ouvertures choisies */
   if (s.cotation) for (const c of s.cotation) chaine(ctx, cam, c);
+  if (s.parcelle) dessinerParcelle(ctx, cam, s.parcelle.plot, s.parcelle.reculs, { sel: s.selection === s.parcelle.plot.id });
+  if (s.parcelleEnCours && s.parcelleEnCours.length > 1) {
+    const P = s.parcelleEnCours.map(p => versEcran(cam, p));
+    ctx.strokeStyle = COULEURS.vert; ctx.lineWidth = 1.6; ctx.setLineDash([12, 4, 2, 4]);
+    ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.stroke(); ctx.setLineDash([]);
+    const a = s.parcelleEnCours[s.parcelleEnCours.length - 2]!, b = s.parcelleEnCours[s.parcelleEnCours.length - 1]!, m = versEcran(cam, milieu(a, b));
+    ctx.fillStyle = COULEURS.vert; ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(texteCote(distance(a, b)), m.x, m.y - 4);
+  }
   for (const l of s.coupes ?? []) traitDeCoupe(ctx, cam, l, !!l.id && (l.id === s.selection || !!s.groupe?.has(l.id)));
   for (const p of s.places ?? []) place(ctx, cam, p);
   /* cotes */
@@ -254,6 +268,62 @@ function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: b
     if (i === 0 && t.genre !== 'ligne' && !t.tirets) { ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fill() }
     ctx.setLineDash(t.tirets ? [5, 4] : []); ctx.stroke(); ctx.setLineDash([]);
   });
+}
+
+/** la parcelle : la limite (trait mixte vert), la longueur de chaque côté à l'extérieur, les côtés sur voie
+    doublés et nommés, les reculs mesurés (de la maison à chaque côté) et la flèche du nord */
+export function dessinerParcelle(ctx: CanvasRenderingContext2D, cam: Camera, t: Plot, R: Recul[], o: { sel?: boolean; nord?: boolean } = {}): void {
+  const E = (p: Point) => versEcran(cam, p), C = t.contour.map(E), n = C.length;
+  /* sens du contour à l'écran (y inversé) : l'extérieur d'un côté est à droite si le contour tourne dans le sens horaire */
+  let a2 = 0; C.forEach((p, i) => { const q = C[(i + 1) % n]!; a2 += p.x * q.y - q.x * p.y });
+  const ext = (u: Point) => (a2 > 0 ? { x: u.y, y: -u.x } : { x: -u.y, y: u.x });
+  ctx.strokeStyle = o.sel ? COULEURS.accent : COULEURS.vert; ctx.lineWidth = o.sel ? 2.4 : 1.8; ctx.setLineDash([16, 4, 3, 4]);
+  ctx.beginPath(); C.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+  ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  C.forEach((a, i) => {
+    const b = C[(i + 1) % n]!, L = Math.hypot(b.x - a.x, b.y - a.y);
+    if (L < 30) return;
+    const u = { x: (b.x - a.x) / L, y: (b.y - a.y) / L }, v = ext(u), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const voie = t.street.includes(i);
+    if (voie) {                                   // le côté sur voie : doublé à l'extérieur, et la voie nommée
+      ctx.strokeStyle = COULEURS.gris; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(a.x + v.x * 6, a.y + v.y * 6); ctx.lineTo(b.x + v.x * 6, b.y + v.y * 6); ctx.stroke();
+    }
+    const ang = Math.atan2(u.y, u.x), lisible = ang > Math.PI / 2 || ang < -Math.PI / 2 ? ang + Math.PI : ang;
+    ctx.save(); ctx.translate(m.x + v.x * 14, m.y + v.y * 14); ctx.rotate(lisible);
+    ctx.fillStyle = COULEURS.vert; ctx.fillText(texteCote(distance(t.contour[i]!, t.contour[(i + 1) % n]!)), 0, 0);
+    if (voie) { ctx.fillStyle = COULEURS.gris; ctx.font = 'italic 11px system-ui, sans-serif'; ctx.fillText('Voie' + (t.streetName ? ' : ' + t.streetName : ' (alignement)'), 0, (v.y * Math.cos(lisible) - v.x * Math.sin(lisible)) > 0 ? 16 : -16); ctx.font = '600 11px system-ui, sans-serif' }
+    ctx.restore();
+  });
+  /* les reculs : de la maison au côté, tiretés, la distance au milieu */
+  ctx.strokeStyle = COULEURS.accent; ctx.fillStyle = COULEURS.accent; ctx.lineWidth = 0.9;
+  for (const r of R) {
+    if (r.distance < 1) continue;
+    const a = E(r.de), b = E(r.vers);
+    ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
+    for (const q of [a, b]) { ctx.beginPath(); ctx.arc(q.x, q.y, 2, 0, 2 * Math.PI); ctx.fill() }
+    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    ctx.font = '700 11px system-ui, sans-serif';
+    const tx = texteCote(r.distance), w = ctx.measureText(tx).width;
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(m.x - w / 2 - 2, m.y - 7, w + 4, 14);
+    ctx.fillStyle = COULEURS.accent; ctx.fillText(tx, m.x, m.y);
+  }
+  /* le nord, en haut à droite de la parcelle */
+  if (o.nord !== false) {
+    const xs = C.map(p => p.x), ys = C.map(p => p.y), c = { x: Math.max(...xs) + 34, y: Math.min(...ys) + 4 };
+    nord(ctx, c, t.north, 18);
+  }
+}
+
+/** une flèche du nord centrée en c (écran), de rayon r ; « angle » : le nord sur le plan, depuis le haut, sens trigonométrique */
+export function nord(ctx: CanvasRenderingContext2D, c: Point, angle: number, r: number): void {
+  const d = { x: -Math.sin(angle), y: -Math.cos(angle) }, g = { x: -d.y, y: d.x };
+  ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 2 * Math.PI); ctx.stroke();
+  ctx.fillStyle = COULEURS.encre;
+  ctx.beginPath(); ctx.moveTo(c.x + d.x * r, c.y + d.y * r); ctx.lineTo(c.x + g.x * r * 0.35, c.y + g.y * r * 0.35); ctx.lineTo(c.x - d.x * r * 0.6, c.y - d.y * r * 0.6); ctx.closePath(); ctx.fill();
+  ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('N', c.x + d.x * (r + 9), c.y + d.y * (r + 9));
 }
 
 /** le trait de coupe : mixte (trait-point), épais aux deux bouts, une flèche vers ce qu'on regarde et la lettre */

@@ -7,8 +7,9 @@
    feuille (comme on la lit) ; la page PDF est en points depuis le bas. */
 import type { Floor, Project } from '../model/types';
 import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building';
-import { dessiner, type Scene } from '../ui/dessin';
-import type { Camera } from '../ui/camera';
+import { dessiner, dessinerParcelle, nord, type Scene } from '../ui/dessin';
+import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle } from '../building/terrain';
+import { versEcran, type Camera } from '../ui/camera';
 import { DocumentPdf, type PagePdf } from './pdf';
 import { maquette, type Matiere } from '../vue3d/maquette';
 import { facade, FACADES, type CoteFacade, type Facade } from '../vue3d/facades';
@@ -40,6 +41,8 @@ export interface OptionsPlanche {
   echelle?: number;
   /** ajouter une planche des quatre façades */
   facades?: boolean;
+  /** ajouter le plan de masse (PCMI 2), s'il y a une parcelle */
+  masse?: boolean;
   /** ajouter les coupes (les traits tracés, sinon une coupe A-A placée d'elle-même) et leurs traits sur les plans */
   coupe?: boolean;
 }
@@ -88,16 +91,7 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
     dessiner(toile as unknown as CanvasRenderingContext2D, cam, scene);
   } else page.texte('Niveau vide : aucun mur à dessiner.', X(ZONE.x + 10), Y(ZONE.y + 20), 11, { couleur: '#6E7B84' });
 
-  /* l'échelle graphique, sous le dessin : 0 – 1 – 2 – 5 m (ou plus, à petite échelle) */
-  const pas = ech <= 100 ? [0, 1, 2, 5] : ech <= 250 ? [0, 2, 5, 10] : [0, 10, 20, 50];
-  const x0 = ZONE.x + 2, yb = 283;
-  pas.forEach((v, i) => {
-    if (i === 0) return;
-    const a = x0 + pas[i - 1]! * 1000 / ech, b = x0 + v * 1000 / ech;
-    page.cadre(X(a), Y(yb), (b - a) * PT, 1.6 * PT, { ep: 0.4, ...(i % 2 ? { fond: '#1A2B36' } : { fond: '#FFFFFF' }) });
-  });
-  pas.forEach(v => page.texte(String(v), X(x0 + v * 1000 / ech), Y(yb - 2.4), 6.5, { aligne: 'centre' }));
-  page.texte('m', X(x0 + pas[pas.length - 1]! * 1000 / ech + 3), Y(yb - 2.4), 6.5);
+  echelleGraphique(page, ech);
 
   /* la colonne de droite : les surfaces, puis le cartouche */
   page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
@@ -122,6 +116,20 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
   } else page.texte('Aucun espace clos.', X(COLONNE.x + 5), Y(y), 8, { couleur: '#6E7B84' });
 
   cartouche(page, projet, 'Plan : ' + f.name, ech, o);
+}
+
+/** l'échelle graphique, sous le dessin : 0 – 1 – 2 – 5 m (ou plus, à petite échelle) */
+function echelleGraphique(page: PagePdf, ech: number): void {
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  const pas = ech <= 100 ? [0, 1, 2, 5] : ech <= 250 ? [0, 2, 5, 10] : [0, 10, 20, 50];
+  const x0 = ZONE.x + 2, yb = 283;
+  pas.forEach((v, i) => {
+    if (i === 0) return;
+    const a = x0 + pas[i - 1]! * 1000 / ech, b = x0 + v * 1000 / ech;
+    page.cadre(X(a), Y(yb), (b - a) * PT, 1.6 * PT, { ep: 0.4, ...(i % 2 ? { fond: '#1A2B36' } : { fond: '#FFFFFF' }) });
+  });
+  pas.forEach(v => page.texte(String(v), X(x0 + v * 1000 / ech), Y(yb - 2.4), 6.5, { aligne: 'centre' }));
+  page.texte('m', X(x0 + pas[pas.length - 1]! * 1000 / ech + 3), Y(yb - 2.4), 6.5);
 }
 
 /** le cartouche CP Constructions, en bas de la colonne de droite */
@@ -208,6 +216,66 @@ function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
   for (const t of ['Hauteurs indicatives depuis le sol fini, au nu extérieur', 'du haut des murs : charpente, isolation et épaisseurs', 'réelles ne sont pas étudiées ici (à vérifier avant le PC).', '', 'Orientation supposée : le haut du plan est au nord', '(à confirmer sur le plan de masse).'])
     { page.texte(t, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
   cartouche(page, projet, 'Façades', ech, o);
+}
+
+/* ---------- le plan de masse (PCMI 2) ---------- */
+
+/** les échelles d'un plan de masse */
+const ECHELLES_MASSE = [100, 200, 250, 500, 1_000, 2_000] as const;
+
+function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): void {
+  const t = parcelleDuProjet(projet);
+  if (!t) return;
+  const page = doc.page(A3.l * PT, A3.h * PT);
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  page.cadre(X(10), Y(287), 400 * PT, 277 * PT, { ep: 0.8 });
+  page.texte('Plan de masse', X(ZONE.x + 4), Y(ZONE.y + 6), 11, { gras: true, couleur: '#2C4A5E' });
+  const plot = t.plot, E = empriseAuSol(projet), R = reculs(plot, E), S = surfaceTerrain(plot), em = aireEmprise(E);
+  /* la boîte : la parcelle et les débords de toit ; 30 mm de papier autour pour les cotes */
+  const P = [...plot.contour, ...E.flatMap(q => q.contour)];
+  const toits = projet.buildings.flatMap(b => b.floors).flatMap(f => { const r = toitureDuNiveau(f); return r?.ok ? r.toitures.map(x => x.egout) : [] });
+  for (const e of toits) P.push(...e);
+  const xmin = Math.min(...P.map(p => p.x)), xmax = Math.max(...P.map(p => p.x)), ymin = Math.min(...P.map(p => p.y)), ymax = Math.max(...P.map(p => p.y));
+  const ech = o.echelle ?? (ECHELLES_MASSE.find(e => (xmax - xmin) / e + 60 <= ZONE.l && (ymax - ymin) / e + 50 <= ZONE.h) ?? ECHELLES_MASSE[ECHELLES_MASSE.length - 1]!);
+  const cam: Camera = { centre: { x: (xmin + xmax) / 2, y: (ymin + ymax) / 2 }, echelle: PT / ech, largeur: ZONE.l * PT, hauteur: ZONE.h * PT };
+  const toile = new ToilePdf(page, ZONE.x * PT, ZONE.y * PT) as unknown as CanvasRenderingContext2D;
+  const E2 = (q: { x: number; y: number }) => versEcran(cam, q);
+  /* la maison : son emprise pleine, le débord du toit en tirets */
+  toile.fillStyle = '#C9D0D5'; toile.strokeStyle = '#1A2B36'; toile.lineWidth = 1.2;
+  for (const q of E) { toile.beginPath(); q.contour.map(E2).forEach((e, i) => (i ? toile.lineTo(e.x, e.y) : toile.moveTo(e.x, e.y))); toile.closePath(); toile.fill(); toile.stroke() }
+  toile.lineWidth = 0.7; toile.setLineDash([6, 3]);
+  for (const e of toits) { toile.beginPath(); e.map(E2).forEach((p, i) => (i ? toile.lineTo(p.x, p.y) : toile.moveTo(p.x, p.y))); toile.closePath(); toile.stroke() }
+  toile.setLineDash([]);
+  dessinerParcelle(toile, cam, plot, R, { nord: false });
+  /* l'altitude du ±0,00 au milieu de la maison */
+  if (E.length) {
+    const c = E2(E[0]!.contour.reduce((s, q) => ({ x: s.x + q.x / E[0]!.contour.length, y: s.y + q.y / E[0]!.contour.length }), { x: 0, y: 0 }));
+    toile.fillStyle = '#1A2B36'; toile.font = '700 12px sans-serif'; toile.textAlign = 'center'; toile.textBaseline = 'middle';
+    toile.fillText('±0,00' + (plot.groundFloorNgf !== undefined ? ' = ' + plot.groundFloorNgf.toFixed(2).replace('.', ',') + ' NGF' : ''), c.x, c.y);
+  }
+  /* le nord, en haut à droite du dessin */
+  nord(toile, { x: (ZONE.l - 14) * PT, y: 16 * PT }, plot.north, 22);
+  echelleGraphique(page, ech);
+
+  /* la colonne : le terrain, les reculs, les notes, le cartouche */
+  page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
+  let y = 20;
+  const ligne = (k: string, v: string, gras = true) => { page.texte(k, X(COLONNE.x + 5), Y(y), 8); page.texte(v, X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite', gras }); y += 5 };
+  page.texte('TERRAIN', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+  ligne('Référence cadastrale', plot.reference ?? '[à compléter]', !!plot.reference);
+  ligne('Voie', plot.streetName ?? (plot.street.length ? '[nom à compléter]' : '[côté sur voie à indiquer]'), !!plot.streetName);
+  ligne('Surface du terrain (tracée)', m2(S));
+  ligne('Emprise au sol (maçonnerie)', m2(em));
+  ligne('Part du terrain', S ? (em / S * 100).toFixed(1).replace('.', ',') + ' %' : '—');
+  ligne('±0,00 (sol fini RDC)', plot.groundFloorNgf !== undefined ? plot.groundFloorNgf.toFixed(2).replace('.', ',') + ' NGF' : '[NGF à compléter]', plot.groundFloorNgf !== undefined);
+  y += 4;
+  page.texte('RECULS (mesurés)', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+  if (E.length && !maisonDansParcelle(plot, E)) { page.texte('ATTENTION : la maison sort de la parcelle.', X(COLONNE.x + 5), Y(y), 8, { gras: true, couleur: '#C5563A' }); y += 6 }
+  for (const r of R) ligne('Côté ' + (r.cote + 1) + ' (' + (r.longueur / 1000).toFixed(2).replace('.', ',') + ' m)' + (r.voie ? ' — voie' : ''), (r.distance / 1000).toFixed(2).replace('.', ',') + ' m');
+  y += 3;
+  for (const l of ['Reculs : du nu extérieur de la maçonnerie au point', 'le plus proche de chaque limite. Emprise au sol :', 'débords de toit exclus. Limite tracée : à confirmer', 'sur le plan de bornage ; règles du PLU à vérifier.'])
+    { page.texte(l, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
+  cartouche(page, projet, 'Plan de masse (PCMI 2)', ech, o);
 }
 
 /* ---------- la planche de la coupe ---------- */
@@ -307,11 +375,12 @@ function reperage(page: PagePdf, projet: Project, l: LigneDeCoupe, y0: number): 
 export function planchesPdf(projet: Project, o: OptionsPlanche): Uint8Array<ArrayBuffer> {
   const doc = new DocumentPdf();
   const F = projet.buildings.flatMap(b => b.floors).filter(f => o.niveaux.includes(f.id)).sort((a, b) => a.elevation - b.elevation);
+  if (o.masse) plancheMasse(doc, projet, o);
   const lignes = o.coupe ? lignesDeCoupe(projet) : [];
   for (const f of F) planche(doc, projet, f, o, lignes);
   if (o.facades) plancheFacades(doc, projet, o);
   if (o.coupe) { if (lignes.length) for (const l of lignes) plancheCoupe(doc, projet, o, l); else plancheCoupe(doc, projet, o, null) }
-  if (!F.length && !o.facades && !o.coupe) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
+  if (!F.length && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet))) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
   return doc.octets((projet.name || 'Projet') + ' — plans');
 }
 

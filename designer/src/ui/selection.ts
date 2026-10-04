@@ -1,5 +1,5 @@
 /* Viser : qu'y a-t-il sous le curseur ? Dans l'ordre : une extrémité de
-   mur (pour la tirer), un trait de coupe, une ouverture, une cote, un mur,
+   mur (pour la tirer), un trait de coupe, la limite de parcelle, une ouverture, une cote, un mur,
    un meuble, une pièce. */
 import type { Floor, Mm, Point } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
@@ -12,7 +12,7 @@ import { dansMeuble, emprise } from '../building/mobilier';
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
-  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' };
+  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' };
 
 /** viser : « escaliers » donne l'emprise des escaliers du niveau (calculée par l'appelant, qui connaît la hauteur à franchir) */
 export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: { id: string; emprise: Point[] }[] = []): Cible | null {
@@ -30,6 +30,8 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
   }
   /* un trait de coupe (ceux de ce niveau : il y a été tracé) : à quelques pixels du trait */
   for (const o of Object.values(f.objects)) if (o.type === 'section' && distancePointSegment(p, { a: o.a, b: o.b }) <= rayon / 2) return { genre: 'objet', id: o.id, type: 'section' };
+  /* la limite de la parcelle : à quelques pixels d'un de ses côtés */
+  for (const o of Object.values(f.objects)) if (o.type === 'plot' && o.contour.some((a, i) => distancePointSegment(p, { a, b: o.contour[(i + 1) % o.contour.length]! }) <= rayon / 2)) return { genre: 'objet', id: o.id, type: 'plot' };
   const parId = new Map(M.map(w => [w.id, w]));
   for (const o of Object.values(f.objects)) {
     if (o.type !== 'opening') continue;
