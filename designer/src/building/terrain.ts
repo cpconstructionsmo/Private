@@ -10,7 +10,7 @@
    La maison ne bouge pas : implanter, c'est placer la PARCELLE autour d'elle
    (à une distance donnée de deux côtés), ou la tourner pour qu'un côté soit
    parallèle à la maison. Une seule commande modifie alors un seul objet. */
-import type { Floor, Mm, Plot, Point, Project } from '../model/types';
+import type { Floor, Landscape, Mm, Plot, Point, Project } from '../model/types';
 import { planDuNiveau } from './plan';
 import { union } from '../geometry/booleen';
 import { aireSignee, centroide, type Polygone } from '../geometry/polygon';
@@ -99,4 +99,20 @@ export function orienterParcelle(t: Plot, i: number, E: Polygone[]): { contour: 
   const rot = Math.round(th / (Math.PI / 2)) * (Math.PI / 2) - th;
   const P = E.flatMap(q => q.contour), c = P.length ? centroide(P.length >= 3 ? E[0]!.contour : P) : centroide(t.contour);
   return { contour: t.contour.map(q => { const r = tourner(q, rot, c); return { x: Math.round(r.x * 1000) / 1000, y: Math.round(r.y * 1000) / 1000 } }), nord: t.north + rot };
+}
+
+/* ---------- les aménagements extérieurs ---------- */
+
+export interface BilanAmenagement { id: string; genre: Landscape['kind']; finition: string; /** surface (mm²) ou longueur (mm) */ mesure: number }
+
+/** chaque aménagement du projet et sa mesure : surface (terrasse, allée, stationnement, espace vert) ou longueur (clôture) */
+export function bilanAmenagements(p: Project): BilanAmenagement[] {
+  const out: BilanAmenagement[] = [];
+  for (const b of p.buildings) for (const f of b.floors) for (const o of Object.values(f.objects)) {
+    if (o.type !== 'landscape') continue;
+    const n = o.closed ? o.points.length : o.points.length - 1;
+    let L = 0; for (let i = 0; i < n; i++) L += distance(o.points[i]!, o.points[(i + 1) % o.points.length]!);
+    out.push({ id: o.id, genre: o.kind, finition: o.finish, mesure: o.kind === 'fence' ? L : Math.abs(aireSignee(o.points)) });
+  }
+  return out;
 }

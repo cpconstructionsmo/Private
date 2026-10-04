@@ -5,6 +5,7 @@ import type { Floor, Mm, Point } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
 import { mursDroits } from '../building/murs';
 import { positionDansAnneau } from '../geometry/predicats';
+import { aireSignee } from '../geometry/polygon';
 import { distancePointSegment } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
 import { dessinCote } from './cotes';
@@ -12,7 +13,7 @@ import { dansMeuble, emprise } from '../building/mobilier';
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
-  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' };
+  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' };
 
 /** viser : « escaliers » donne l'emprise des escaliers du niveau (calculée par l'appelant, qui connaît la hauteur à franchir) */
 export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: { id: string; emprise: Point[] }[] = []): Cible | null {
@@ -50,6 +51,11 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
     (a.type === 'furniture' ? a.width * a.depth : 0) - (b.type === 'furniture' ? b.width * b.depth : 0));
   if (meubles[0]) return { genre: 'objet', id: meubles[0].id, type: 'furniture' };
   for (const e of escaliers) if (positionDansAnneau(p, e.emprise) !== 'dehors') return { genre: 'objet', id: e.id, type: 'stair' };
+  /* un aménagement extérieur : près d'une clôture, ou dans une surface (la plus petite d'abord) */
+  const L = Object.values(f.objects).flatMap(o => (o.type === 'landscape' ? [o] : []));
+  for (const o of L) if (o.kind === 'fence' && o.points.some((a, i) => (i < o.points.length - 1 || o.closed) && distancePointSegment(p, { a, b: o.points[(i + 1) % o.points.length]! }) <= rayon / 2)) return { genre: 'objet', id: o.id, type: 'landscape' };
+  const S = L.filter(o => o.kind !== 'fence' && positionDansAnneau(p, o.points) !== 'dehors').sort((a, b) => Math.abs(aireSignee(a.points)) - Math.abs(aireSignee(b.points)));
+  if (S[0]) return { genre: 'objet', id: S[0].id, type: 'landscape' };
   for (const w of M) if (distancePointSegment(p, w.axis) <= rayon) return { genre: 'objet', id: w.id, type: 'wall' };
   for (const z of plan.zones) if (z.piece && positionDansAnneau(p, z.polygone.contour) === 'dedans') return { genre: 'objet', id: z.piece.id, type: 'room' };
   return null;

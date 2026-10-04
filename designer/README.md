@@ -206,6 +206,16 @@ le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Le terrain
 lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
 revient avec l'import du RDC.
 
+**Aménagements extérieurs** (outil A ; `src/catalogue/amenagements.ts`) :
+clôtures (grillage rigide, palissade, mur bahut et grille, mur enduit,
+haie), terrasses, allées et accès, stationnement, espaces verts. On choisit
+le genre et l'aspect, puis on clique les points (ou on tape les longueurs) :
+Entrée finit une clôture, le retour au premier point ferme une surface. Ils
+se tracent sur le niveau le plus bas, se choisissent, se tirent ; la hauteur
+d'une clôture et le niveau d'une terrasse se règlent. Le plan de masse les
+dessine et les mesure (surface ou longueur, part d'espaces verts) ; la 3D
+les montre (une clôture arrête la visite) ; ni façade ni coupe.
+
 **Matériaux** (`src/catalogue/materiaux.ts`) : parements de façade (enduits,
 bardages, pierre, brique) et sols (carrelages, parquet, béton ciré…), des
 aspects courants, sans marque ni prix (le produit reste au programme
@@ -216,6 +226,19 @@ prise dans l'épaisseur du mur, sur la face qui donne dehors (l'intérieur
 garde sa teinte), avec son motif (lames, briques, carreaux, parquet) ; les
 façades du PDF prennent ses teintes et listent les matériaux (parements et
 couverture) ; la coupe tranche la peau avec le mur.
+Les murs intérieurs se peignent pièce par pièce (peintures, faïence) ou
+pour tout le niveau : une peau de 3 mm contre les faces des murs de la
+pièce, du sol au haut des murs, ouverte aux portes et fenêtres (allège et
+linteau restent peints) ; elle se voit en 3D et pendant la visite, ni en
+façade ni en coupe.
+
+**Dossier de permis** (PDF → « Composer : le dossier de permis complet ») :
+un seul PDF A3 numéroté « n / N » — page de garde (projet, maître
+d'ouvrage, adresse, référence cadastrale, surface du terrain, emprise) et
+sommaire des pièces, puis PCMI 2 (plan de masse), PCMI 3 (coupes), PCMI 5
+(façades) et les plans des niveaux, chaque cartouche portant sa pièce. Ce
+que le Designer ne produit pas (PCMI 1, 4, 6, 7-8, plan de toiture) est
+listé « à joindre » ; ce qui n'est pas connu s'écrit « [à compléter] ».
 
 **Escaliers** (outil E ; `src/building/escalier.ts`) : droit ou quart
 tournant avec palier ; on pose le départ, T tourne le sens de la montée.

@@ -215,6 +215,15 @@ try {
   assert.ok(fichierPdf.toString('latin1').includes('(Coupe A-A)') && fichierPdf.toString('latin1').includes('(PLAN DE REP\xC9RAGE)'), 'planche de la coupe');
   assert.match(dl.suggestedFilename(), /plans A3 - RDC\.pdf$/);
   if (process.env.PDF_SORTIE) await dl.saveAs(process.env.PDF_SORTIE);
+  /* le dossier de permis complet, du même dialogue */
+  await p.click('header button.bpdf');
+  await p.waitForSelector('.voile h2:has-text("Exporter en PDF")');
+  await p.selectOption('.voile label:has-text("Composer") select', 'dossier');
+  await p.fill('.voile label:has-text("Maître d’ouvrage") input', 'M. et Mme Fictifs');
+  const [dl2] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
+  const dossier = (await readFile(await dl2.path())).toString('latin1');
+  assert.ok(dossier.includes('(DEMANDE DE PERMIS DE CONSTRUIRE)') && dossier.includes('(M. et Mme Fictifs)') && dossier.includes('(PCMI 5 \x97 Fa\xE7ades)'), 'dossier de permis');
+  assert.match(dl2.suggestedFilename(), /dossier PC\.pdf$/);
   /* escalier : posé d'un clic (droit, 0,90 m), choisi, son calcul affiché ; à l'étage ajouté, sa trémie */
   await p.keyboard.press('e');
   assert.match(await p.textContent('aside'), /Hauteur à franchir/);
@@ -230,7 +239,7 @@ try {
   await clic(-600, 6000); await clic(10600, 6000);                    // à l'écart du message « PDF enregistré », en bas
   O = await objets();
   const tc = O.find(o => o.type === 'section');
-  assert.ok(tc && tc.name === 'A' && tc.look === 'left' && Math.abs(tc.a.y - tc.b.y) < 1, 'trait de coupe tracé, parcelle tracée et implantée : ' + JSON.stringify(tc));
+  assert.ok(tc && tc.name === 'A' && tc.look === 'left' && Math.abs(tc.a.y - tc.b.y) < 1, 'trait de coupe tracé, parcelle tracée et implantée, terrasse tracée : ' + JSON.stringify(tc));
   await clic(2500, tc.a.y);
   assert.match(await p.textContent('aside'), /Coupe A-A/);
   assert.ok(await p.locator('aside .apercu-coupe svg polygon').count() > 5, 'aperçu de la coupe');
@@ -248,6 +257,15 @@ try {
   await p.click('aside button:has-text("Placer")');
   assert.match(await p.textContent('aside'), /Côté 1 : [\d,]+ m — recul 5,00 m/, 'parcelle placée à 5 m du côté 1');
   if (process.env.CAPTURE_PARCELLE) await p.screenshot({ path: process.env.CAPTURE_PARCELLE });
+  /* aménagement : une terrasse en dalles tracée à l'outil A (quatre sommets, retour au premier) */
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('a');
+  await p.selectOption('aside label:has-text("Genre") select', 'terrace');
+  await p.selectOption('aside label:has-text("Aspect") select', 'terrasse-dalles');
+  for (const [x, y] of [[-1000, 5000], [-400, 5000], [-400, 7000], [-1000, 7000], [-1000, 5000]]) await clic(x, y);
+  const ter = (await objets()).find(o => o.type === 'landscape');
+  assert.ok(ter && ter.kind === 'terrace' && ter.finish === 'terrasse-dalles' && ter.points.length === 4, 'terrasse tracée : ' + JSON.stringify(ter));
+  await p.keyboard.press('Escape');
   await p.keyboard.press('f');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_RAPIDE) await p.screenshot({ path: process.env.CAPTURE_RAPIDE });
@@ -297,6 +315,10 @@ try {
   await p.waitForFunction(n => window.cpDesigner.vue3d().maillages > n, avantMat);
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_MATERIAUX) await p.screenshot({ path: process.env.CAPTURE_MATERIAUX });
+  /* et une peinture dans toutes les pièces du niveau */
+  await p.selectOption('aside label:has-text("Murs intérieurs") select', 'peinture-vert-sauge');
+  const pieces = (await objets()).filter(o => o.type === 'room');
+  assert.ok(pieces.length > 0 && pieces.every(o => o.wallFinish === 'peinture-vert-sauge'), 'peinture dans toutes les pièces');
   await p.check('aside label:has-text("Vue maquette") input');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_3D_COUPE) await p.screenshot({ path: process.env.CAPTURE_3D_COUPE });
@@ -309,11 +331,17 @@ try {
   const w0 = await p.evaluate(() => window.cpDesigner.marcheur());
   assert.ok(Math.abs(w0.pied - 5) < 1, 'les pieds sur le sol fini : ' + JSON.stringify(w0));
   assert.match(await p.textContent('aside'), /Visite à hauteur d’homme/);
-  await p.keyboard.down('KeyW'); await p.waitForTimeout(700); await p.keyboard.up('KeyW');
-  await p.keyboard.down('ArrowLeft'); await p.waitForTimeout(300); await p.keyboard.up('ArrowLeft');
+  /* touches tenues jusqu'à ce que le mouvement se voie : le rendu logiciel de la CI peut ne faire que quelques images par seconde */
+  await p.keyboard.down('KeyW');
+  await p.waitForFunction(w => { const m = window.cpDesigner.marcheur(); return Math.hypot(m.x - w.x, m.y - w.y) > 150 }, w0, { timeout: 20_000 }).catch(() => {});
+  await p.keyboard.up('KeyW');
+  const wMarche = await p.evaluate(() => window.cpDesigner.marcheur());
+  await p.keyboard.down('ArrowLeft');
+  await p.waitForFunction(c => window.cpDesigner.marcheur().cap > c + 0.1, wMarche.cap, { timeout: 20_000 }).catch(() => {});
+  await p.keyboard.up('ArrowLeft');
   const w1 = await p.evaluate(() => window.cpDesigner.marcheur());
   assert.ok(Math.hypot(w1.x - w0.x, w1.y - w0.y) > 150, 'le marcheur avance : ' + JSON.stringify([w0, w1]));
-  assert.ok(w1.cap > w0.cap + 0.1, 'il tourne à gauche');
+  assert.ok(w1.cap > wMarche.cap + 0.1, 'il tourne à gauche');
   assert.equal((await objets()).filter(o => o.type === 'roof').length, 1, 'les touches de la visite ne touchent pas au plan');
   if (process.env.CAPTURE_VISITE) await p.screenshot({ path: process.env.CAPTURE_VISITE });
   await p.keyboard.press('Escape');
@@ -322,13 +350,15 @@ try {
   await p.keyboard.press('Escape');
   assert.equal(await p.evaluate(() => window.cpDesigner.vue3d()), null, 'retour au plan');
 
-  /* l'import s'annule d'un coup (le parement des façades, la toiture, le fond, puis le plan) */
+  /* l'import s'annule d'un coup (la peinture, le parement des façades, la toiture, le fond, puis le plan) */
   await p.mouse.click(1080, 820);
+  await p.keyboard.press('Control+z');
+  assert.ok((await objets()).filter(o => o.type === 'room').every(o => !o.wallFinish), 'un « annuler » retire la peinture de toutes les pièces');
   await p.keyboard.press('Control+z');
   assert.ok((await objets()).filter(o => o.type === 'wall').every(o => !o.finish), 'un « annuler » retire le parement de toutes les façades');
   await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
   O = await objets();
-  assert.equal(O.length, 0, 'quatre « annuler » (le parement, la toiture, le fond, le plan) : niveau vide');
+  assert.equal(O.length, 0, 'cinq « annuler » (la peinture, le parement, la toiture, le fond, le plan) : niveau vide');
 
   assert.equal(await p.locator('#cpd-diagnostic').count(), 0, 'page qui démarre : aucun diagnostic affiché');
   assert.deepEqual(erreurs, [], 'aucune erreur JavaScript');
@@ -342,7 +372,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe), escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux de façade, visite à hauteur d’homme, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();
