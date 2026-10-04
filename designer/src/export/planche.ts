@@ -5,13 +5,17 @@
 
    Repère de la mise en page : millimètres depuis le haut-gauche de la
    feuille (comme on la lit) ; la page PDF est en points depuis le bas. */
-import type { Floor, Project } from '../model/types';
+import type { Floor, Project, Roof } from '../model/types';
+import type { Toiture } from '../building/toiture';
+import { centroide } from '../geometry/polygon';
 import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building';
 import { dessiner, dessinerAmenagement, dessinerParcelle, nord, type Scene } from '../ui/dessin';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
 import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, bilanAmenagements } from '../building/terrain';
+import { surfacesReglementaires, REFERENCES, type Surfaces } from '../building/surfaces';
 import { versEcran, type Camera } from '../ui/camera';
-import { DocumentPdf, type PagePdf } from './pdf';
+import { DocumentPdf, largeurTexte, type PagePdf } from './pdf';
+import { notice, A_COMPLETER } from './notice';
 import { maquette, COUVERTURES, type Matiere } from '../vue3d/maquette';
 import { facade, FACADES, type CoteFacade, type Facade } from '../vue3d/facades';
 import { coupe, lignesDeCoupe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
@@ -45,6 +49,8 @@ export interface OptionsPlanche {
   facades?: boolean;
   /** pour le dossier de permis : les titres portent leur pièce (PCMI 2, 3, 5) */
   dossier?: boolean;
+  /** ajouter le plan de toiture (avec les façades, PCMI 5), s'il y a une toiture */
+  toiture?: boolean;
   /** ajouter le plan de masse (PCMI 2), s'il y a une parcelle */
   masse?: boolean;
   /** ajouter les coupes (les traits tracés, sinon une coupe A-A placée d'elle-même) et leurs traits sur les plans */
@@ -145,7 +151,7 @@ function cartouche(page: PagePdf, projet: Project, titre: string, ech: number, o
   page.texte('Maîtrise d’œuvre', X(cx), Y(yc + 12.5), 7.5, { couleur: '#6E7B84' });
   page.texte(projet.name || 'Projet', X(cx), Y(yc + 21), 10.5, { gras: true });
   page.texte(titre, X(cx), Y(yc + 27), 9);
-  const rangs: [string, string][] = [['Échelle', '1/' + ech + ' (A3)'], ['Phase', projet.phase], ['Date', o.date], ['Indice', o.indice || 'A']];
+  const rangs: [string, string][] = [['Échelle', ech ? '1/' + ech + ' (A3)' : 'sans objet'], ['Phase', projet.phase], ['Date', o.date], ['Indice', o.indice || 'A']];
   rangs.forEach(([k, v], i) => {
     const yy = yc + 34 + i * 5;
     page.texte(k, X(cx), Y(yy), 8, { couleur: '#6E7B84' });
@@ -316,6 +322,97 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
   cartouche(page, projet, o.dossier ? 'PCMI 2 — Plan de masse' : 'Plan de masse (PCMI 2)', ech, o);
 }
 
+/* ---------- le plan de toiture (PCMI 5) ---------- */
+
+const TOITURES_FR: Record<string, string> = { hip: 'à croupes', gable: 'à deux pans', shed: 'à un pan', flat: 'toit-terrasse' };
+
+/** les toitures du projet, avec leur objet et le niveau qui les porte */
+function toituresDuProjet(projet: Project): { f: Floor; roof: Roof; t: Toiture }[] {
+  const out: { f: Floor; roof: Roof; t: Toiture }[] = [];
+  for (const f of projet.buildings.flatMap(b => b.floors)) {
+    const roof = Object.values(f.objects).find((x): x is Roof => x.type === 'roof'), r = toitureDuNiveau(f);
+    if (roof && r?.ok) for (const t of r.toitures) out.push({ f, roof, t });
+  }
+  return out;
+}
+
+function plancheToiture(doc: DocumentPdf, projet: Project, o: OptionsPlanche): void {
+  const T = toituresDuProjet(projet);
+  if (!T.length) return;
+  const page = doc.page(A3.l * PT, A3.h * PT);
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  page.cadre(X(10), Y(287), 400 * PT, 277 * PT, { ep: 0.8 });
+  page.texte('Plan de toiture', X(ZONE.x + 4), Y(ZONE.y + 6), 11, { gras: true, couleur: '#2C4A5E' });
+  const P = T.flatMap(x => x.t.egout);
+  const xmin = Math.min(...P.map(p => p.x)), xmax = Math.max(...P.map(p => p.x)), ymin = Math.min(...P.map(p => p.y)), ymax = Math.max(...P.map(p => p.y));
+  const ech = o.echelle ?? (ECHELLES.find(e => (xmax - xmin) / e + 50 <= ZONE.l && (ymax - ymin) / e + 40 <= ZONE.h) ?? ECHELLES[ECHELLES.length - 1]!);
+  const cam: Camera = { centre: { x: (xmin + xmax) / 2, y: (ymin + ymax) / 2 }, echelle: PT / ech, largeur: ZONE.l * PT, hauteur: ZONE.h * PT };
+  const E = (q: { x: number; y: number }): [number, number] => { const e = versEcran(cam, q); return [X(ZONE.x) + e.x, Y(ZONE.y) - e.y] };
+  for (const { f, roof, t } of T) {
+    /* les murs qui la portent, vus à travers la toiture : un trait fin gris, posé après les pans */
+    const murs = () => { for (const m of planDuNiveau(f).maconnerie) for (const r of [m.contour, ...(m.trous ?? [])]) {
+      const C = r.map(E);
+      C.forEach((a, i) => { const b = C[(i + 1) % C.length]!; page.trait(a[0], a[1], b[0], b[1], 0.3, '#8A96A0') });
+    } };
+    const teinte = TEINTES[COUVERTURES[roof.covering]] ?? '#FFFFFF';
+    if (t.terrasse) {
+      page.polygone(t.terrasse.dalle.map(E), { fond: teinte, trait: '#1A2B36', ep: 0.8 });
+      for (const a of t.terrasse.acrotere) page.polygone(a.contour.map(E), { fond: '#FFFFFF', trait: '#1A2B36', ep: 0.5 });
+      const c = E(centroide(t.terrasse.dalle));
+      page.texte('Toit-terrasse : pente d’évacuation à préciser', c[0], c[1], 7.5, { aligne: 'centre' });
+      murs();
+      continue;
+    }
+    for (const pan of t.pans) {
+      page.polygone(pan.contour.map(E), { fond: teinte, trait: '#1A2B36', ep: 0.7 });
+      /* la flèche de la pente, du haut vers le bas du pan, au milieu du pan */
+      const g = Math.hypot(pan.plan.a, pan.plan.b);
+      if (g < 1e-6) continue;
+      const c = centroide(pan.contour), d = { x: -pan.plan.a / g, y: -pan.plan.b / g }, L = 9 * ech;      // 9 mm de papier
+      const a0 = E({ x: c.x - d.x * L / 2, y: c.y - d.y * L / 2 }), a1 = E({ x: c.x + d.x * L / 2, y: c.y + d.y * L / 2 });
+      page.trait(a0[0], a0[1], a1[0], a1[1], 0.6);
+      const ux = (a1[0] - a0[0]) / Math.hypot(a1[0] - a0[0], a1[1] - a0[1]), uy = (a1[1] - a0[1]) / Math.hypot(a1[0] - a0[0], a1[1] - a0[1]);
+      page.polygone([[a1[0], a1[1]], [a1[0] - ux * 5 - uy * 2.2, a1[1] - uy * 5 + ux * 2.2], [a1[0] - ux * 5 + uy * 2.2, a1[1] - uy * 5 - ux * 2.2]], { fond: '#1A2B36' });
+      const deg = Math.atan(g) * 180 / Math.PI, mx = (a0[0] + a1[0]) / 2, my = (a0[1] + a1[1]) / 2;
+      /* l'étiquette à côté de la flèche, jamais dessus */
+      const lib = Math.round(deg) + '° · ' + Math.round(g * 100) + ' %';
+      if (Math.abs(uy) > Math.abs(ux)) page.texte(lib, mx + 5, my - 2.5, 7, { gras: true });             // flèche plutôt verticale : à sa droite
+      else page.texte(lib, mx, my + 5, 7, { aligne: 'centre', gras: true });                               // plutôt horizontale : au-dessus
+    }
+    murs();
+    /* les pignons : le haut du mur, en trait fort */
+    for (const pg of t.pignons) {
+      const Q = pg.points.map(E);
+      const xs = Q.map(q => q[0]), ys = Q.map(q => q[1]);
+      const i0 = xs.indexOf(Math.min(...xs)), i1 = xs.indexOf(Math.max(...xs));
+      const [p0, p1] = Math.max(...xs) - Math.min(...xs) > Math.max(...ys) - Math.min(...ys) ? [Q[i0]!, Q[i1]!] : [Q[ys.indexOf(Math.min(...ys))]!, Q[ys.indexOf(Math.max(...ys))]!];
+      page.trait(p0[0], p0[1], p1[0], p1[1], 2.2);
+    }
+  }
+  const t0 = T.flatMap(x => x.t), parcelle = parcelleDuProjet(projet);
+  nord(new ToilePdf(page, ZONE.x * PT, ZONE.y * PT) as unknown as CanvasRenderingContext2D, { x: (ZONE.l - 14) * PT, y: 16 * PT }, parcelle?.plot.north ?? 0, 22);
+  echelleGraphique(page, ech);
+
+  /* la colonne : la toiture en chiffres, puis le cartouche */
+  page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
+  let y = 20;
+  const ligne = (k: string, v: string) => { page.texte(k, X(COLONNE.x + 5), Y(y), 8); page.texte(v, X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite', gras: true }); y += 5 };
+  page.texte('TOITURE', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+  for (const { roof } of T.filter((x, i) => T.findIndex(z => z.roof.id === x.roof.id) === i)) {
+    ligne('Type', TOITURES_FR[roof.kind] ?? roof.kind);
+    if (roof.kind !== 'flat') ligne('Pente', roof.pitch + '° (' + Math.round(Math.tan(roof.pitch * Math.PI / 180) * 100) + ' %)');
+    ligne('Couverture', COUVERTURES_FR[roof.covering] ?? roof.covering);
+    ligne('Débord', (roof.overhang / 1000).toFixed(2).replace('.', ',') + ' m');
+  }
+  ligne('Égout (le plus bas)', m(Math.min(...t0.map(x => x.egoutZ))));
+  ligne('Faîtage (le plus haut)', m(Math.max(...t0.map(x => x.faitage))));
+  ligne('Surface de couverture', m2(t0.reduce((s, x) => s + x.surfaceCouverture, 0)));
+  y += 3;
+  for (const l of ['Flèches : sens de la pente, vers l’égout. Murs porteurs', 'en tirets fins ; pignons en trait fort. Charpente,', 'gouttières et descentes : à préciser au projet.'])
+    { page.texte(l, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
+  cartouche(page, projet, o.dossier ? 'PCMI 5 — Plan de toiture' : 'Plan de toiture', ech, o);
+}
+
 /* ---------- la planche de la coupe ---------- */
 
 /** ce que la coupe tranche, plein (poché) ; les remplissages des baies restent clairs */
@@ -417,11 +514,53 @@ export function planchesPdf(projet: Project, o: OptionsPlanche): Uint8Array<Arra
   const lignes = o.coupe ? lignesDeCoupe(projet) : [];
   for (const f of F) planche(doc, projet, f, o, lignes);
   if (o.facades) plancheFacades(doc, projet, o);
+  if (o.toiture) plancheToiture(doc, projet, o);
   if (o.coupe) { if (lignes.length) for (const l of lignes) plancheCoupe(doc, projet, o, l); else plancheCoupe(doc, projet, o, null) }
-  if (!F.length && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet))) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
+  if (!F.length && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet)) && !(o.toiture && toituresDuProjet(projet).length)) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
   return doc.octets((projet.name || 'Projet') + ' — plans');
 }
 
+
+/* ---------- la notice (PCMI 4), brouillon ---------- */
+
+/** les lignes d'un paragraphe coupé à une largeur (points), en Helvetica de corps donné */
+function couper(t: string, largeur: number, corps: number): string[] {
+  const L: string[] = [];
+  let l = '';
+  for (const mot of t.split(' ')) {
+    const essai = l ? l + ' ' + mot : mot;
+    if (largeurTexte(essai) * corps / 1000 > largeur && l) { L.push(l); l = mot } else l = essai;
+  }
+  if (l) L.push(l);
+  return L;
+}
+
+function pageNotice(doc: DocumentPdf, projet: Project, o: OptionsPlanche): void {
+  const page = doc.page(A3.l * PT, A3.h * PT);
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  page.cadre(X(10), Y(287), 400 * PT, 277 * PT, { ep: 0.8 });
+  page.texte('Notice descriptive', X(ZONE.x + 4), Y(ZONE.y + 6), 11, { gras: true, couleur: '#2C4A5E' });
+  page.texte('Brouillon établi à partir du projet : à relire et compléter (« ' + A_COMPLETER + ' ») avant le dépôt.', X(ZONE.x + 4), Y(ZONE.y + 12), 8, { couleur: '#C5563A' });
+  /* deux colonnes de texte dans la zone du dessin */
+  const col = (ZONE.l - 12) / 2, corps = 9, pas = 4.8;
+  let c = 0, y = ZONE.y + 24;
+  for (const r of notice(projet)) {
+    const lignes = r.paragraphes.map(p => couper(p, col * PT, corps));
+    const h = 8 + lignes.reduce((s, L) => s + L.length * pas + 2, 0);
+    if (y + h > ZONE.y + ZONE.h - 6 && c === 0) { c = 1; y = ZONE.y + 24 }
+    const x = ZONE.x + 4 + c * (col + 8);
+    page.texte(r.titre, X(x), Y(y), 10, { gras: true }); y += 7;
+    for (const L of lignes) {
+      for (const l of L) { page.texte(l, X(x), Y(y), corps, { couleur: l.includes(A_COMPLETER) ? '#8A3A26' : '#1A2B36' }); y += pas }
+      y += 2;
+    }
+    y += 4;
+  }
+  page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
+  for (const [i, l] of ['Rédigée par le Designer à partir de ce qui est', 'mesuré ou choisi dans le projet (reculs, emprise,', 'hauteurs, toiture, parements, menuiseries,', 'aménagements). Ce qu’il ne sait pas est écrit', '« ' + A_COMPLETER + ' ». La notice définitive se rédige', 'dans l’atelier.'].entries())
+    page.texte(l, X(COLONNE.x + 5), Y(20 + i * 4), 7, { couleur: '#6E7B84' });
+  cartouche(page, projet, o.dossier ? 'PCMI 4 — Notice (brouillon)' : 'Notice (brouillon)', 0, o);
+}
 
 /* ---------- le dossier de permis de construire, en un PDF ---------- */
 
@@ -437,6 +576,9 @@ export interface PieceDossier { code: string; intitule: string; page: number | n
  * listé « à joindre » : rien n'est inventé.
  */
 export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Array<ArrayBuffer>; pieces: PieceDossier[] } {
+  /* au-delà de 150 m² de surface de plancher, le dossier ne se produit pas au nom de CP Constructions (règle de l'atelier) */
+  const S = surfacesReglementaires(projet);
+  if (S.seuil.etat === 'bloquant') throw new Error(S.seuil.message);
   const doc = new DocumentPdf();
   const garde = doc.page(A3.l * PT, A3.h * PT);
   const niveaux = projet.buildings.flatMap(b => b.floors).sort((a, b) => a.elevation - b.elevation);
@@ -447,28 +589,32 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   if (t) plancheMasse(doc, projet, o);
   const lignes = lignesDeCoupe(projet), pCoupe = debut();
   if (lignes.length) for (const l of lignes) plancheCoupe(doc, projet, o, l); else plancheCoupe(doc, projet, o, null);
+  const pNotice = debut();
+  pageNotice(doc, projet, o);
   const pFacades = debut();
   plancheFacades(doc, projet, o);
+  const aToit = toituresDuProjet(projet).length > 0, pToit = aToit ? debut() : null;
+  if (aToit) plancheToiture(doc, projet, o);
   const pPlans = debut();
   for (const f of niveaux) planche(doc, projet, f, o, lignes);
   const pieces: PieceDossier[] = [
     { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: null, note: 'à joindre (extrait de carte, échelle et nord)' },
     { code: 'PCMI 2', intitule: 'Plan de masse des constructions', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
     { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe },
-    { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: null, note: 'à joindre (l’atelier la rédige)' },
-    { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacades, note: 'plan de toiture à joindre' },
+    { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: pNotice, note: 'brouillon à relire et compléter' },
+    { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacades, ...(aToit ? { note: 'plan de toiture : page ' + pToit } : { note: 'toiture à définir (panneau 3D)' }) },
     { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: null, note: 'à joindre (photomontage)' },
     { code: 'PCMI 7-8', intitule: 'Photographies (environnement proche et lointain)', page: null, note: 'à joindre' },
     { code: '—', intitule: 'Plans des niveaux (complément)', page: pPlans },
   ];
-  pageDeGarde(garde, projet, d, pieces, t ? { terrain: surfaceTerrain(t.plot), emprise: aireEmprise(empriseAuSol(projet)), reference: t.plot.reference } : null);
+  pageDeGarde(garde, projet, d, pieces, t ? { terrain: surfaceTerrain(t.plot), emprise: aireEmprise(empriseAuSol(projet)), reference: t.plot.reference } : null, S);
   /* chaque page numérotée, en bas à droite de la feuille */
   const N = doc.nombre;
   for (let i = 0; i < N; i++) doc.pageNo(i).texte((i + 1) + ' / ' + N, (410 - 2) * PT, (A3.h - 291.5) * PT, 7.5, { aligne: 'droite', couleur: '#6E7B84' });
   return { octets: doc.octets((projet.name || 'Projet') + ' — dossier de permis de construire'), pieces };
 }
 
-function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: PieceDossier[], terrain: { terrain: number; emprise: number; reference?: string | undefined } | null): void {
+function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: PieceDossier[], terrain: { terrain: number; emprise: number; reference?: string | undefined } | null, S: Surfaces): void {
   const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
   page.cadre(X(10), Y(287), 400 * PT, 277 * PT, { ep: 0.8 });
   page.texte('CP CONSTRUCTIONS', X(30), Y(40), 16, { gras: true, couleur: '#C5563A' });
@@ -482,7 +628,8 @@ function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: 
     ['Référence cadastrale', terrain?.reference || '[à compléter]'],
     ['Surface du terrain (tracée)', terrain ? m2(terrain.terrain) : '[parcelle à tracer]'],
     ['Emprise au sol (maçonnerie)', terrain ? m2(terrain.emprise) : '[à mesurer]'],
-    ['Surface de plancher', '[à calculer]'],
+    ['Surface de plancher', m2(S.surfacePlancher)],
+    ['Surface habitable', m2(S.habitable)],
     ['Phase · indice · date', projet.phase + ' · ' + (d.indice || 'A') + ' · ' + d.date],
   ];
   rangs.forEach(([k, v], i) => {
@@ -502,6 +649,9 @@ function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: 
     if (p.note) page.texte(p.note, X(x0 + 24), Y(y + 4.5), 7.5, { couleur: p.page === null ? '#C5563A' : '#6E7B84' });
     page.trait(X(x0), Y(y + 7.5), X(395), Y(y + 7.5), 0.2, '#DDD5C8');
   });
+  /* les surfaces : leurs règles, et le seuil */
+  const notes = ['Surface de plancher : ' + REFERENCES.surfacePlancher + ', au nu intérieur des façades, garage, trémies', 'et parties de moins de 1,80 m déduits. Surface habitable : ' + REFERENCES.surfaceHabitable + '.', S.seuil.message];
+  notes.forEach((l, i) => page.texte(l, X(30), Y(190 + i * 4.5), 7, { couleur: S.seuil.etat === 'alerte' && i === 2 ? '#C5563A' : '#6E7B84' }));
   for (const [i, l] of ['Document de travail CP Constructions, établi par le Designer à partir du plan : cotes, altitudes NGF,', 'règles du PLU et pièces « à joindre » à vérifier et compléter avant le dépôt. Rien n’y est inventé : ce qui', 'n’est pas connu est écrit « [à compléter] ».'].entries())
     page.texte(l, X(30), Y(250 + i * 5), 8, { couleur: '#6E7B84' });
 }
