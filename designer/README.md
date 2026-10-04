@@ -235,10 +235,31 @@ façade ni en coupe.
 **Dossier de permis** (PDF → « Composer : le dossier de permis complet ») :
 un seul PDF A3 numéroté « n / N » — page de garde (projet, maître
 d'ouvrage, adresse, référence cadastrale, surface du terrain, emprise) et
-sommaire des pièces, puis PCMI 2 (plan de masse), PCMI 3 (coupes), PCMI 5
-(façades) et les plans des niveaux, chaque cartouche portant sa pièce. Ce
-que le Designer ne produit pas (PCMI 1, 4, 6, 7-8, plan de toiture) est
-listé « à joindre » ; ce qui n'est pas connu s'écrit « [à compléter] ».
+sommaire des pièces, puis PCMI 2 (plan de masse), PCMI 3 (coupes), PCMI 4
+(brouillon de notice), PCMI 5 (façades, plan de toiture) et les plans des
+niveaux, chaque cartouche portant sa pièce. Ce que le Designer ne produit
+pas (PCMI 1, 6, 7-8) est listé « à joindre » ; ce qui n'est pas connu
+s'écrit « [à compléter] ».
+
+**Plan de toiture** (option de l'export PDF, et PCMI 5 du dossier) : les
+pans à leur couleur de couverture, faîtage, arêtiers et noues, une flèche
+de pente par pan (degrés et %), les pignons en trait fort, les murs vus à
+travers ; le tableau de la toiture (type, pente, couverture, débord, égout,
+faîtage, surface de couverture).
+
+**Surfaces réglementaires** (`src/building/surfaces.ts`, panneau du niveau
+et page de garde du dossier) : les règles de l'atelier — surface de
+plancher au nu intérieur des façades, moins garage, trémies et parties de
+moins de 1,80 m sous la toiture ; surface habitable ; articles cités « à
+vérifier ». Au-delà de 150 m² de surface de plancher, le recours à un
+architecte est obligatoire : le dossier ne se produit pas (alerte dès
+140 m²).
+
+**Notice (brouillon PCMI 4)** (`src/export/notice.ts`) : les rubriques de la
+notice écrites à partir de ce qui est mesuré ou choisi (terrain, reculs,
+emprise, surfaces, toiture et hauteurs, parements, menuiseries, clôtures,
+espaces verts, accès) ; le reste « [à compléter] ». À relire ; la notice
+définitive se rédige dans l'atelier.
 
 **Escaliers** (outil E ; `src/building/escalier.ts`) : droit ou quart
 tournant avec palier ; on pose le départ, T tourne le sens de la montée.

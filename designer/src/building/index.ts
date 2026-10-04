@@ -9,3 +9,4 @@ export * from './toiture';
 export * from './mobilier';
 export * from './escalier';
 export * from './terrain';
+export * from './surfaces';

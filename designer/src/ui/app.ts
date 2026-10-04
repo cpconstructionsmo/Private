@@ -9,7 +9,7 @@ import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsag
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -654,7 +654,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           ligne(bouton('Ce sol dans toutes les pièces du niveau', () => solPartout(o.floorFinish ?? null, f))),
           champ('Murs (peinture, faïence)', o.wallFinish ?? '', v => faire('Peinture', [{ type: 'modifierPiece', id: o.id, murs: v || null }]), 'text', OPTIONS_PEINTURES),
           ligne(bouton('Cette peinture dans toutes les pièces du niveau', () => peinturePartout(o.wallFinish ?? null, f))),
-          bloc(z ? 'Surface entre murs : <b>' + m2(z.aire) + '</b><br>Périmètre : ' + m(z.perimetre) + '<br><span class="note">Surface intérieure brute — pas encore une surface réglementaire (Phase 7).</span>' : 'Pièce non fermée : son point n’est dans aucun espace clos.', z ? 'note' : 'alerte'),
+          bloc(z ? 'Surface entre murs : <b>' + m2(z.aire) + '</b><br>Périmètre : ' + m(z.perimetre) + '<br><span class="note">Surface intérieure brute ; les surfaces réglementaires sont au panneau du niveau.</span>' : 'Pièce non fermée : son point n’est dans aucun espace clos.', z ? 'note' : 'alerte'),
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
@@ -977,7 +977,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       const t = document.createElement('table');
       t.innerHTML = plan.zones.map(z => `<tr><td>${esc(z.piece ? z.piece.name : 'À nommer')}</td><td>${m2(z.aire)}</td></tr>`).join('')
         + `<tr><td><b>Total</b> (${pieces.length} pièce${pieces.length > 1 ? 's' : ''})</td><td><b>${m2(plan.zones.reduce((s, z) => s + z.aire, 0))}</b></td></tr>`;
-      A.append(t, bloc('Surfaces intérieures brutes, mesurées entre les faces des murs : ni surface habitable ni surface de plancher (Phase 7).'));
+      A.append(t, bloc('Surfaces intérieures brutes, mesurées entre les faces des murs. Les surfaces réglementaires suivent.'));
+      /* les surfaces réglementaires du projet (tous les niveaux), et le seuil de 150 m² */
+      const S = surfacesReglementaires(h.projet), N = S.niveaux.find(x => x.niveau === f.id);
+      A.append(titre('Surfaces réglementaires (projet)'),
+        bloc('Surface de plancher : <b>' + m2(S.surfacePlancher) + '</b>' + (N && S.niveaux.length > 1 ? ' (dont ' + esc(f.name) + ' : ' + m2(N.surfacePlancher) + ')' : '')
+          + '<br>Surface habitable : <b>' + m2(S.habitable) + '</b><br>Emprise au sol : ' + m2(S.emprise)
+          + (N && (N.garages.length || N.tremies || N.basses) ? '<br><span class="note">Déduit sur ce niveau : ' + [N.garages.length ? 'garage ' + m2(N.garages.reduce((s, g) => s + g.aire, 0)) : '', N.tremies ? 'trémie ' + m2(N.tremies) : '', N.basses ? 'moins de 1,80 m ' + m2(N.basses) : ''].filter(Boolean).join(', ') + '</span>' : '')
+          + '<br><span class="note">Au nu intérieur des façades ; ' + esc(REFERENCES.surfacePlancher) + '.</span>'),
+        bloc((S.seuil.etat === 'ok' ? '' : '⚠️ ') + esc(S.seuil.message), S.seuil.etat === 'ok' ? 'note' : 'alerte'));
     } else A.append(bloc('Aucun espace clos.'));
     if (plan.baies.length) A.append(titre('Baies'), bloc(plan.baies.length + ' ouverture(s), dont ' + plan.baies.filter(b => b.exterieure).length + ' extérieure(s) — ' + m2(plan.baies.filter(b => b.exterieure).reduce((s, b) => s + b.surface, 0)) + ' de baies extérieures'));
 
@@ -1185,6 +1193,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'cot', libelle: 'Cotation', valeur: 'oui', options: { oui: 'Avec les chaînes de cotes', non: 'Sans' } },
       { cle: 'mob', libelle: 'Mobilier', valeur: 'oui', options: { oui: 'Avec le mobilier', non: 'Sans' } },
       ...(parcelleDuProjet(h.projet) ? [{ cle: 'mas', libelle: 'Plan de masse', valeur: 'oui', options: { oui: 'Ajouter le plan de masse (PCMI 2) : parcelle, reculs, emprise', non: 'Sans' } }] : []),
+      ...(niveaux().some(f => Object.values(f.objects).some(x => x.type === 'roof')) ? [{ cle: 'toi', libelle: 'Plan de toiture', valeur: 'oui', options: { oui: 'Ajouter le plan de toiture (pans, pentes, faîtage)', non: 'Sans' } }] : []),
       { cle: 'fac', libelle: 'Façades', valeur: 'oui', options: { oui: 'Ajouter la planche des quatre façades', non: 'Sans' } },
       { cle: 'cou', libelle: 'Coupes', valeur: 'oui', options: { oui: traitsDeCoupe(h.projet).length ? 'Ajouter les coupes ' + traitsDeCoupe(h.projet).map(l => l.nom + '-' + l.nom).join(', ') + ' (et leurs traits sur les plans)' : 'Ajouter une coupe A-A placée d’elle-même (ou tracez-la : outil K)', non: 'Sans' } },
       { cle: 'ind', libelle: 'Indice', valeur: 'A' },
@@ -1195,7 +1204,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     try {
       const { planchesPdf } = await import('../export/planche');
       const u = planchesPdf(h.projet, {
-        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui', mobilier: r['mob'] === 'oui', facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui',
+        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui', mobilier: r['mob'] === 'oui', facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui',
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
       });
       const a = document.createElement('a');

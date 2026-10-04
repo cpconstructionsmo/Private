@@ -22,20 +22,22 @@ function maison(parcelle: boolean) {
 }
 
 describe('dossier de permis de construire', () => {
-  it('garde, PCMI 2, PCMI 3, PCMI 5, plan du RDC : cinq pages numérotées, le sommaire renvoie aux bonnes pages', () => {
+  it('garde, PCMI 2, PCMI 3, PCMI 5 (façades et toiture), plan du RDC : sept pages numérotées (notice comprise), le sommaire renvoie aux bonnes pages', () => {
     const { octets, pieces } = dossierPc(maison(true), { indice: 'B', date: '04/10/2026', maitreOuvrage: 'M. et Mme Fictifs' });
     const s = texte(octets);
-    expect(s).toContain('/Count 5');
-    expect(pieces.filter(p => p.page !== null).map(p => [p.code, p.page])).toEqual([['PCMI 2', 2], ['PCMI 3', 3], ['PCMI 5', 4], ['—', 5]]);
-    expect(pieces.filter(p => p.page === null).map(p => p.code)).toEqual(['PCMI 1', 'PCMI 4', 'PCMI 6', 'PCMI 7-8']);
-    for (const t of ['(DEMANDE DE PERMIS DE CONSTRUIRE)', '(PI\xC8CES DU DOSSIER)', '(M. et Mme Fictifs)', '(AB 123)', '(PCMI 2 \x97 Plan de masse)', '(PCMI 3 \x97 Coupe A-A)', '(PCMI 5 \x97 Fa\xE7ades)', '(Plan : RDC)', '(1 / 5)', '(5 / 5)', '(page 2)', '([\xE0 compl\xE9ter])', '([\xE0 calculer])'])
+    expect(s).toContain('/Count 7');
+    expect(pieces.filter(p => p.page !== null).map(p => [p.code, p.page])).toEqual([['PCMI 2', 2], ['PCMI 3', 3], ['PCMI 4', 4], ['PCMI 5', 5], ['—', 7]]);
+    expect(pieces.find(p => p.code === 'PCMI 5')!.note).toBe('plan de toiture : page 6');
+    for (const t of ['(PCMI 5 \x97 Plan de toiture)', '(TOITURE)', '(\xE0 croupes)', '(35\xB0 \\(70 %\\))', '(35\xB0 \xB7 70 %)', '(1 / 7)', '(PCMI 4 \x97 Notice \\(brouillon\\))']) expect(s).toContain(t);
+    expect(pieces.filter(p => p.page === null).map(p => p.code)).toEqual(['PCMI 1', 'PCMI 6', 'PCMI 7-8']);
+    for (const t of ['(DEMANDE DE PERMIS DE CONSTRUIRE)', '(PI\xC8CES DU DOSSIER)', '(M. et Mme Fictifs)', '(AB 123)', '(PCMI 2 \x97 Plan de masse)', '(PCMI 3 \x97 Coupe A-A)', '(PCMI 5 \x97 Fa\xE7ades)', '(Plan : RDC)', '(7 / 7)', '(page 2)', '([\xE0 compl\xE9ter])', '(76,44 m\xB2)'])
       expect(s).toContain(t);
   });
 
   it('sans parcelle : pas de plan de masse, la pièce PCMI 2 est signalée à tracer ; l’adresse reste à compléter', () => {
     const { octets, pieces } = dossierPc(maison(false), { indice: 'A', date: '04/10/2026' });
     const s = texte(octets);
-    expect(s).toContain('/Count 4');
+    expect(s).toContain('/Count 6');
     const p2 = pieces.find(p => p.code === 'PCMI 2')!;
     expect([p2.page, p2.note]).toEqual([null, 'parcelle à tracer (outil L)']);
     expect(s).toContain('([parcelle \xE0 tracer])');
