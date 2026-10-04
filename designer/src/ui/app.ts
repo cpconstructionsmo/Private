@@ -21,6 +21,7 @@ import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } fr
 import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fonds';
 import type { Accroche } from '../building/accrochage';
 import { maquette } from '../vue3d/maquette';
+import { PAREMENTS, SOLS } from '../catalogue/materiaux';
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
@@ -39,6 +40,8 @@ const COUVERTURES: Record<Roof['covering'], string> = { tile: 'Tuiles terre cuit
 const CONTRAINTES: Record<string, string> = { horizontal: 'Horizontal', vertical: 'Vertical', parallel: 'Parallèle', perpendicular: 'Perpendiculaire', length: 'Longueur fixe', angle: 'Angle fixe' };
 
 const m = (mm: number) => (mm / 1000).toFixed(2).replace('.', ',') + ' m';
+const OPTIONS_PAREMENTS: Record<string, string> = { '': 'Sans (maçonnerie)', ...Object.fromEntries(PAREMENTS.map(m => [m.id, m.libelle])) };
+const OPTIONS_SOLS: Record<string, string> = { '': 'Non précisé', ...Object.fromEntries(SOLS.map(m => [m.id, m.libelle])) };
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const date = (iso: string) => { try { return new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return iso } };
@@ -582,6 +585,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('Hauteur (m)', (w.height / 1000).toFixed(2), v => faire('Hauteur', [{ type: 'modifierMur', id: w.id, hauteur: mm(v) }]), 'number'),
           champ('Type', w.role, v => faire('Type de mur', [{ type: 'modifierMur', id: w.id, role: v as Wall['role'] }]), 'text', ROLES),
           champ('Tracé', w.justification, v => faire('Justification', [{ type: 'modifierMur', id: w.id, justification: v as Wall['justification'] }]), 'text', JUSTIFS));
+        if (w.role === 'exterior') A.append(
+          champ('Parement extérieur', w.finish ?? '', v => faire('Parement', [{ type: 'modifierMur', id: w.id, finition: v || null }]), 'text', OPTIONS_PAREMENTS),
+          ligne(bouton('Ce parement sur toutes les façades', () => parementPartout(w.finish ?? null))));
         /* règle 5 : jamais « porteur » confirmé sans document */
         A.append(bloc('⚠️ Porteur : <b>' + (w.loadBearing.value ? 'oui' : 'non') + '</b> — à contrôler' + (w.loadBearing.missing ? ' (manque : ' + esc(w.loadBearing.missing) + ')' : ''), 'alerte'));
         A.append(titre('Contraintes'));
@@ -641,6 +647,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('Nom', o.name, v => faire('Nom de pièce', [{ type: 'modifierPiece', id: o.id, nom: v }])),
           champ('Usage', o.usage, v => faire('Usage', [{ type: 'modifierPiece', id: o.id, usage: v as RoomUsage }]), 'text', USAGES),
           champ('Pièce humide', o.wet ? 1 : 0, v => faire('Pièce humide', [{ type: 'modifierPiece', id: o.id, humide: !!v }]), 'checkbox'),
+          champ('Sol', o.floorFinish ?? '', v => faire('Sol', [{ type: 'modifierPiece', id: o.id, sol: v || null }]), 'text', OPTIONS_SOLS),
+          ligne(bouton('Ce sol dans toutes les pièces du niveau', () => solPartout(o.floorFinish ?? null, f))),
           bloc(z ? 'Surface entre murs : <b>' + m2(z.aire) + '</b><br>Périmètre : ' + m(z.perimetre) + '<br><span class="note">Surface intérieure brute — pas encore une surface réglementaire (Phase 7).</span>' : 'Pièce non fermée : son point n’est dans aucun espace clos.', z ? 'note' : 'alerte'),
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
@@ -792,7 +800,28 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ligne(bouton('🚶 Visite à hauteur d’homme (V)', () => visite(true), 'prim bvisite')),
       ligne(bouton('Recadrer', () => vue3d?.cadrer()), bouton('Image PNG', () => void imagePNG()), bouton('Retour au plan', () => void basculer3D(false), 'prim')),
       bloc('La 3D se calcule à partir du plan : chaque modification s’y voit aussitôt. Hauteurs des murs, appuis et hauteurs des ouvertures : ceux de l’inspecteur.'));
+    sectionMateriaux(niveau());
     sectionToiture(niveau());
+  }
+
+  /** un parement sur tous les murs extérieurs du projet, en une fois (un seul « annuler ») */
+  function parementPartout(id: string | null) {
+    const murs = h.projet.buildings.flatMap(b => b.floors).flatMap(x => Object.values(x.objects)).filter(o => o.type === 'wall' && o.role === 'exterior' && (o.finish ?? null) !== id);
+    if (murs.length) faire('Parement des façades', murs.map(o => ({ type: 'modifierMur', id: o.id, finition: id }) as Commande));
+  }
+  function solPartout(id: string | null, f: Floor) {
+    const P = Object.values(f.objects).filter(o => o.type === 'room' && (o.floorFinish ?? null) !== id);
+    if (P.length) faire('Sols du niveau', P.map(o => ({ type: 'modifierPiece', id: o.id, sol: id }) as Commande));
+  }
+  /** les matériaux, dans le panneau 3D : façades et sols d'un coup */
+  function sectionMateriaux(f: Floor) {
+    const ext = h.projet.buildings.flatMap(b => b.floors).flatMap(x => Object.values(x.objects)).filter((o): o is Wall => o.type === 'wall' && o.role === 'exterior');
+    const P = [...new Set(ext.map(w => w.finish ?? ''))], S = [...new Set(Object.values(f.objects).flatMap(o => (o.type === 'room' ? [o.floorFinish ?? ''] : [])))];
+    aside.append(titre('Matériaux'),
+      /* « * » : des choix différents d'un mur (d'une pièce) à l'autre ; le garder ne change rien */
+      champ('Façades (tous les murs extérieurs)', P.length > 1 ? '*' : P[0] ?? '', v => { if (v !== '*') parementPartout(v || null) }, 'text', P.length > 1 ? { '*': 'Plusieurs parements…', ...OPTIONS_PAREMENTS } : OPTIONS_PAREMENTS),
+      champ('Sols (toutes les pièces de ' + f.name + ')', S.length > 1 ? '*' : S[0] ?? '', v => { if (v !== '*') solPartout(v || null, f) }, 'text', S.length > 1 ? { '*': 'Plusieurs sols…', ...OPTIONS_SOLS } : OPTIONS_SOLS),
+      bloc('Un aspect, pas un descriptif : la référence du produit reste au programme technique. Mur par mur, pièce par pièce : dans leur inspecteur.'));
   }
 
   /** la toiture du niveau : ses choix (type, pente, débord, couverture) ; pans, faîtage et pignons se calculent */

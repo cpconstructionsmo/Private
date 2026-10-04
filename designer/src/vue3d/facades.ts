@@ -19,7 +19,7 @@ import type { Maquette, Matiere } from './maquette';
 export type CoteFacade = 'sud' | 'est' | 'nord' | 'ouest';
 export const FACADES: Record<CoteFacade, string> = { sud: 'Façade sud (bas du plan)', est: 'Façade est (droite du plan)', nord: 'Façade nord (haut du plan)', ouest: 'Façade ouest (gauche du plan)' };
 
-export interface FaceProjetee { points: { u: Mm; z: Mm }[]; profondeur: Mm; matiere: Matiere }
+export interface FaceProjetee { points: { u: Mm; z: Mm }[]; profondeur: Mm; matiere: Matiere; finition?: string }
 export interface Facade { cote: CoteFacade; faces: FaceProjetee[]; boite: { umin: Mm; umax: Mm; zmin: Mm; zmax: Mm } | null }
 
 /** ce qu'on voit d'une façade : ni les cloisons, ni le mobilier, ni les sols (derrière les murs) */
@@ -59,12 +59,12 @@ function audela(P: PointVu[]): PointVu[] {
 export function projeter(m: Maquette, v: Vue, caches: ReadonlySet<Matiere>, coupe = false): Pick<Facade, 'faces' | 'boite'> {
   const faces: FaceProjetee[] = [];
   /* rang : un côté de mur par son milieu (l'onglet d'un angle passe ainsi derrière la façade), un pan par son point le plus proche */
-  const ajouter = (points: PointVu[], rang: 'milieu' | 'proche', matiere: Matiere, ecart = 0) => {
+  const ajouter = (points: PointVu[], rang: 'milieu' | 'proche', matiere: Matiere, ecart = 0, finition?: string) => {
     const P = coupe ? audela(points) : points;
     if (P.length < 3) return;
     const prof = P.map(q => q.p), profondeur = (rang === 'milieu' ? (Math.min(...prof) + Math.max(...prof)) / 2 : Math.min(...prof)) + ecart;
     const Q = P.map(q => ({ u: q.u, z: q.z }));
-    if (Math.abs(aireSigneeUZ(Q)) > 1) faces.push({ points: Q, profondeur, matiere });          // vue de chant : rien à dessiner
+    if (Math.abs(aireSigneeUZ(Q)) > 1) faces.push({ points: Q, profondeur, matiere, ...(finition ? { finition } : {}) });          // vue de chant : rien à dessiner
   };
   const vu = (q: Point, z: number): PointVu => ({ u: v.u(q), p: v.prof(q), z });
   for (const p of m.prismes) {
@@ -72,7 +72,7 @@ export function projeter(m: Maquette, v: Vue, caches: ReadonlySet<Matiere>, coup
     for (const anneau of [p.contour, ...(p.trous ?? [])]) anneau.forEach((a, i) => {
       const b = anneau[(i + 1) % anneau.length]!;
       /* un côté vertical : le peintre tranchera entre ceux tournés vers l'observateur et les autres */
-      ajouter([vu(a, p.z0), vu(b, p.z0), vu(b, p.z1), vu(a, p.z1)], 'milieu', p.matiere);
+      ajouter([vu(a, p.z0), vu(b, p.z0), vu(b, p.z1), vu(a, p.z1)], 'milieu', p.matiere, 0, p.finition);
     });
   }
   for (const p of m.plaques) {
