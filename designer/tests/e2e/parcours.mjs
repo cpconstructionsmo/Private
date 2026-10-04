@@ -331,11 +331,17 @@ try {
   const w0 = await p.evaluate(() => window.cpDesigner.marcheur());
   assert.ok(Math.abs(w0.pied - 5) < 1, 'les pieds sur le sol fini : ' + JSON.stringify(w0));
   assert.match(await p.textContent('aside'), /Visite à hauteur d’homme/);
-  await p.keyboard.down('KeyW'); await p.waitForTimeout(700); await p.keyboard.up('KeyW');
-  await p.keyboard.down('ArrowLeft'); await p.waitForTimeout(300); await p.keyboard.up('ArrowLeft');
+  /* touches tenues jusqu'à ce que le mouvement se voie : le rendu logiciel de la CI peut ne faire que quelques images par seconde */
+  await p.keyboard.down('KeyW');
+  await p.waitForFunction(w => { const m = window.cpDesigner.marcheur(); return Math.hypot(m.x - w.x, m.y - w.y) > 150 }, w0, { timeout: 20_000 }).catch(() => {});
+  await p.keyboard.up('KeyW');
+  const wMarche = await p.evaluate(() => window.cpDesigner.marcheur());
+  await p.keyboard.down('ArrowLeft');
+  await p.waitForFunction(c => window.cpDesigner.marcheur().cap > c + 0.1, wMarche.cap, { timeout: 20_000 }).catch(() => {});
+  await p.keyboard.up('ArrowLeft');
   const w1 = await p.evaluate(() => window.cpDesigner.marcheur());
   assert.ok(Math.hypot(w1.x - w0.x, w1.y - w0.y) > 150, 'le marcheur avance : ' + JSON.stringify([w0, w1]));
-  assert.ok(w1.cap > w0.cap + 0.1, 'il tourne à gauche');
+  assert.ok(w1.cap > wMarche.cap + 0.1, 'il tourne à gauche');
   assert.equal((await objets()).filter(o => o.type === 'roof').length, 1, 'les touches de la visite ne touchent pas au plan');
   if (process.env.CAPTURE_VISITE) await p.screenshot({ path: process.env.CAPTURE_VISITE });
   await p.keyboard.press('Escape');
