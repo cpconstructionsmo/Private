@@ -215,6 +215,13 @@ try {
   assert.ok(fichierPdf.toString('latin1').includes('(Coupe A-A)') && fichierPdf.toString('latin1').includes('(PLAN DE REP\xC9RAGE)'), 'planche de la coupe');
   assert.match(dl.suggestedFilename(), /plans A3 - RDC\.pdf$/);
   if (process.env.PDF_SORTIE) await dl.saveAs(process.env.PDF_SORTIE);
+  /* le DXF du niveau : un fichier R12 en mm */
+  await p.click('header button.bdxf');
+  await p.waitForSelector('.voile h2:has-text("Exporter en DXF")');
+  const [dl3] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
+  const dxf = (await readFile(await dl3.path())).toString('latin1');
+  assert.ok(dxf.includes('AC1009') && dxf.includes('\r\nMURS\r\n') && dxf.trimEnd().endsWith('EOF'), 'DXF du niveau');
+  assert.match(dl3.suggestedFilename(), /RDC\.dxf$/);
   /* le dossier de permis complet, du même dialogue */
   await p.click('header button.bpdf');
   await p.waitForSelector('.voile h2:has-text("Exporter en PDF")');
@@ -372,7 +379,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();
