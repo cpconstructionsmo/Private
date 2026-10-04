@@ -7,8 +7,9 @@
    feuille (comme on la lit) ; la page PDF est en points depuis le bas. */
 import type { Floor, Project } from '../model/types';
 import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building';
-import { dessiner, dessinerParcelle, nord, type Scene } from '../ui/dessin';
-import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle } from '../building/terrain';
+import { dessiner, dessinerAmenagement, dessinerParcelle, nord, type Scene } from '../ui/dessin';
+import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
+import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, bilanAmenagements } from '../building/terrain';
 import { versEcran, type Camera } from '../ui/camera';
 import { DocumentPdf, type PagePdf } from './pdf';
 import { maquette, COUVERTURES, type Matiere } from '../vue3d/maquette';
@@ -254,11 +255,14 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
   const P = [...plot.contour, ...E.flatMap(q => q.contour)];
   const toits = projet.buildings.flatMap(b => b.floors).flatMap(f => { const r = toitureDuNiveau(f); return r?.ok ? r.toitures.map(x => x.egout) : [] });
   for (const e of toits) P.push(...e);
+  for (const f of projet.buildings.flatMap(b => b.floors)) for (const x of Object.values(f.objects)) if (x.type === 'landscape') P.push(...x.points);
   const xmin = Math.min(...P.map(p => p.x)), xmax = Math.max(...P.map(p => p.x)), ymin = Math.min(...P.map(p => p.y)), ymax = Math.max(...P.map(p => p.y));
   const ech = o.echelle ?? (ECHELLES_MASSE.find(e => (xmax - xmin) / e + 60 <= ZONE.l && (ymax - ymin) / e + 50 <= ZONE.h) ?? ECHELLES_MASSE[ECHELLES_MASSE.length - 1]!);
   const cam: Camera = { centre: { x: (xmin + xmax) / 2, y: (ymin + ymax) / 2 }, echelle: PT / ech, largeur: ZONE.l * PT, hauteur: ZONE.h * PT };
   const toile = new ToilePdf(page, ZONE.x * PT, ZONE.y * PT) as unknown as CanvasRenderingContext2D;
   const E2 = (q: { x: number; y: number }) => versEcran(cam, q);
+  /* les aménagements extérieurs, sous la maison */
+  for (const f of projet.buildings.flatMap(b => b.floors)) for (const x of Object.values(f.objects)) if (x.type === 'landscape') dessinerAmenagement(toile, cam, x);
   /* la maison : son emprise pleine, le débord du toit en tirets */
   toile.fillStyle = '#C9D0D5'; toile.strokeStyle = '#1A2B36'; toile.lineWidth = 1.2;
   for (const q of E) { toile.beginPath(); q.contour.map(E2).forEach((e, i) => (i ? toile.lineTo(e.x, e.y) : toile.moveTo(e.x, e.y))); toile.closePath(); toile.fill(); toile.stroke() }
@@ -291,6 +295,19 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
   page.texte('RECULS (mesurés)', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
   if (E.length && !maisonDansParcelle(plot, E)) { page.texte('ATTENTION : la maison sort de la parcelle.', X(COLONNE.x + 5), Y(y), 8, { gras: true, couleur: '#C5563A' }); y += 6 }
   for (const r of R) ligne('Côté ' + (r.cote + 1) + ' (' + (r.longueur / 1000).toFixed(2).replace('.', ',') + ' m)' + (r.voie ? ' — voie' : ''), (r.distance / 1000).toFixed(2).replace('.', ',') + ' m');
+  /* les aménagements : chacun avec sa surface ou sa longueur ; les espaces verts en part du terrain */
+  const Am = bilanAmenagements(projet);
+  if (Am.length) {
+    y += 4;
+    page.texte('AMÉNAGEMENTS', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    for (const a of Am.slice(0, 10)) {
+      const fin = finitionAmenagement(a.finition);
+      ligne(GENRES_AMENAGEMENT[a.genre].libelle + (fin ? ' : ' + fin.libelle.toLowerCase() : ''), a.genre === 'fence' ? (a.mesure / 1000).toFixed(2).replace('.', ',') + ' m' : m2(a.mesure), false);
+    }
+    if (Am.length > 10) { page.texte('… ' + (Am.length - 10) + ' autre(s)', X(COLONNE.x + 5), Y(y), 7, { couleur: '#6E7B84' }); y += 5 }
+    const vert = Am.filter(a => a.genre === 'green').reduce((t, a) => t + a.mesure, 0);
+    if (vert) ligne('Espaces verts', m2(vert) + (S ? ' (' + (vert / S * 100).toFixed(1).replace('.', ',') + ' %)' : ''));
+  }
   y += 3;
   for (const l of ['Reculs : du nu extérieur de la maçonnerie au point', 'le plus proche de chaque limite. Emprise au sol :', 'débords de toit exclus. Limite tracée : à confirmer', 'sur le plan de bornage ; règles du PLU à vérifier.'])
     { page.texte(l, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }

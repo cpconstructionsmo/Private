@@ -230,7 +230,7 @@ try {
   await clic(-600, 6000); await clic(10600, 6000);                    // à l'écart du message « PDF enregistré », en bas
   O = await objets();
   const tc = O.find(o => o.type === 'section');
-  assert.ok(tc && tc.name === 'A' && tc.look === 'left' && Math.abs(tc.a.y - tc.b.y) < 1, 'trait de coupe tracé, parcelle tracée et implantée : ' + JSON.stringify(tc));
+  assert.ok(tc && tc.name === 'A' && tc.look === 'left' && Math.abs(tc.a.y - tc.b.y) < 1, 'trait de coupe tracé, parcelle tracée et implantée, terrasse tracée : ' + JSON.stringify(tc));
   await clic(2500, tc.a.y);
   assert.match(await p.textContent('aside'), /Coupe A-A/);
   assert.ok(await p.locator('aside .apercu-coupe svg polygon').count() > 5, 'aperçu de la coupe');
@@ -248,6 +248,15 @@ try {
   await p.click('aside button:has-text("Placer")');
   assert.match(await p.textContent('aside'), /Côté 1 : [\d,]+ m — recul 5,00 m/, 'parcelle placée à 5 m du côté 1');
   if (process.env.CAPTURE_PARCELLE) await p.screenshot({ path: process.env.CAPTURE_PARCELLE });
+  /* aménagement : une terrasse en dalles tracée à l'outil A (quatre sommets, retour au premier) */
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('a');
+  await p.selectOption('aside label:has-text("Genre") select', 'terrace');
+  await p.selectOption('aside label:has-text("Aspect") select', 'terrasse-dalles');
+  for (const [x, y] of [[-1000, 5000], [-400, 5000], [-400, 7000], [-1000, 7000], [-1000, 5000]]) await clic(x, y);
+  const ter = (await objets()).find(o => o.type === 'landscape');
+  assert.ok(ter && ter.kind === 'terrace' && ter.finish === 'terrasse-dalles' && ter.points.length === 4, 'terrasse tracée : ' + JSON.stringify(ter));
+  await p.keyboard.press('Escape');
   await p.keyboard.press('f');
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_RAPIDE) await p.screenshot({ path: process.env.CAPTURE_RAPIDE });

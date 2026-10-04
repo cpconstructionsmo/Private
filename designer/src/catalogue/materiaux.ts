@@ -6,8 +6,9 @@
    Le MOTIF dit comment dessiner le matériau (lames, briques, carreaux…) ;
    « pas » est sa période en mm (largeur d'une lame, d'un carreau). */
 import type { Mm } from '../model/types';
+import { FINITIONS_AMENAGEMENT } from './amenagements';
 
-export type FamilleMateriau = 'enduit' | 'bardage' | 'pierre' | 'brique' | 'sol' | 'peinture';
+export type FamilleMateriau = 'enduit' | 'bardage' | 'pierre' | 'brique' | 'sol' | 'peinture' | 'amenagement';
 export type Motif = 'uni' | 'lames_h' | 'lames_v' | 'briques' | 'pierres' | 'carreaux' | 'parquet';
 
 export interface Materiau { id: string; famille: FamilleMateriau; libelle: string; couleur: string; motif: Motif; pas: Mm }
@@ -52,6 +53,10 @@ export const PEINTURES: readonly Materiau[] = [
   x('faience-blanche', 'peinture', 'Faïence blanche 30 × 60', '#F2F2EE', 'carreaux', 300),
 ];
 
-const PAR_ID = new Map([...PAREMENTS, ...SOLS, ...PEINTURES].map(m => [m.id, m]));
+/* les aménagements extérieurs (catalogue/amenagements.ts), vus comme des matériaux pour la 3D */
+const MOTIFS_EXT: Record<string, [Motif, Mm]> = { 'terrasse-bois': ['lames_h', 140], 'terrasse-dalles': ['carreaux', 600], 'allee-paves': ['briques', 100], 'palissade-bois': ['lames_v', 140] };
+const AMENAGEMENTS: Materiau[] = FINITIONS_AMENAGEMENT.map(a => x(a.id, 'amenagement', a.libelle, a.couleur, ...(MOTIFS_EXT[a.id] ?? ['uni', 0] as [Motif, Mm])));
+
+const PAR_ID = new Map([...PAREMENTS, ...SOLS, ...PEINTURES, ...AMENAGEMENTS].map(m => [m.id, m]));
 /** un matériau par son identifiant (undefined : inconnu — on dessine alors la matière par défaut) */
 export const materiau = (id: string | undefined): Materiau | undefined => (id ? PAR_ID.get(id) : undefined);

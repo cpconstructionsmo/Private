@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -94,6 +94,9 @@ export type Commande =
   | { type: 'modifierCoupe'; id: string; a?: Point; b?: Point; regard?: SectionLine['look']; nom?: string }
   /** la parcelle (une par projet) ; « nomVoie », « reference » vides : effacés */
   | { type: 'creerParcelle'; niveau: string; contour: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number; origine?: Origine }
+  /** un aménagement extérieur (clôture, terrasse, allée, stationnement, espace vert) */
+  | { type: 'creerAmenagement'; niveau: string; genre: Landscape['kind']; points: Point[]; ferme?: boolean; finition: string; hauteur: Mm }
+  | { type: 'modifierAmenagement'; id: string; points?: Point[]; ferme?: boolean; finition?: string; hauteur?: Mm }
   | { type: 'modifierParcelle'; id: string; contour?: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number | null };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
@@ -134,6 +137,20 @@ function coupeInvalide(p: Project, a: Point, b: Point, nom: string, sauf?: strin
   if (distance(a, b) < 500) return 'trait de coupe trop court (50 cm au moins)';
   if (!/^[A-Za-z0-9]{1,3}$/.test(nom)) return 'nom de coupe : 1 à 3 lettres ou chiffres';
   if (nomsDeCoupes(p, sauf).has(nom)) return 'une coupe ' + nom + '-' + nom + ' existe déjà';
+  return null;
+}
+
+/** un aménagement : une ligne de deux points au moins (clôture), une surface de trois et d'1 m² au moins */
+function amenagementInvalide(genre: Landscape['kind'], points: Point[], ferme: boolean, finition: string, hauteur: Mm): string | null {
+  if (!points.every(ptFini)) return 'position invalide';
+  if (points.some((q, i) => i > 0 && distance(q, points[i - 1]!) < 50)) return 'deux points confondus';
+  if (genre === 'fence' ? points.length < 2 : points.length < 3) return genre === 'fence' ? 'une clôture a deux points au moins' : 'une surface a trois sommets au moins';
+  if (genre !== 'fence' || ferme) {
+    let a = 0; points.forEach((q, i) => { const r = points[(i + 1) % points.length]!; a += q.x * r.y - r.x * q.y });
+    if (genre !== 'fence' && Math.abs(a) / 2 < 1e6) return 'surface de moins d’1 m²';
+  }
+  if (!matiereValide(finition)) return 'aspect inconnu';
+  if (!fini(hauteur) || hauteur < 0 || hauteur > 4_000) return 'hauteur de 0 à 4 m';
   return null;
 }
 
@@ -581,6 +598,31 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         if (v[k] === undefined) continue;
         avant[champs[k]] = o[champs[k]]; apres[champs[k]] = v[k];
       }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, o, avant, apres, c)]);
+    }
+    case 'creerAmenagement': {
+      if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const ferme = cmd.genre !== 'fence' || !!cmd.ferme;
+      const e = amenagementInvalide(cmd.genre, cmd.points, ferme, cmd.finition, cmd.hauteur);
+      if (e) return refus(e);
+      const o: Landscape = {
+        id: c.id(), type: 'landscape', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision,
+        kind: cmd.genre, points: cmd.points.map(q => ({ ...q })), closed: ferme, finish: cmd.finition, height: cmd.hauteur,
+      };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: o }]);
+    }
+    case 'modifierAmenagement': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'landscape') return refus('aménagement introuvable');
+      const o = t.objet, ferme = o.kind !== 'fence' || (cmd.ferme ?? o.closed);
+      const e = amenagementInvalide(o.kind, cmd.points ?? o.points, ferme, cmd.finition ?? o.finish, cmd.hauteur ?? o.height);
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.points) { avant['points'] = o.points; apres['points'] = cmd.points.map(q => ({ ...q })) }
+      if (cmd.ferme !== undefined && o.kind === 'fence') { avant['closed'] = o.closed; apres['closed'] = cmd.ferme }
+      if (cmd.finition !== undefined) { avant['finish'] = o.finish; apres['finish'] = cmd.finition }
+      if (cmd.hauteur !== undefined) { avant['height'] = o.height; apres['height'] = cmd.hauteur }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, o, avant, apres, c)]);
     }

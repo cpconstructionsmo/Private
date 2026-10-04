@@ -12,7 +12,8 @@ import type { Toiture } from '../building/toiture';
 import { formeDe, traits, versPlan } from '../building/mobilier';
 import type { GeometrieEscalier, Marche } from '../building/escalier';
 import type { LigneDeCoupe } from '../vue3d/coupe';
-import type { Plot } from '../model/types';
+import type { Landscape, Plot } from '../model/types';
+import { finitionAmenagement } from '../catalogue/amenagements';
 import type { Recul } from '../building/terrain';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
@@ -69,6 +70,9 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* fonds calés du niveau */
   for (const o of Object.values(s.niveau.objects)) if (o.type === 'underlay') fond(ctx, cam, o, s, dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  /* les aménagements extérieurs, sous tout le reste */
+  for (const o of Object.values(s.niveau.objects)) if (o.type === 'landscape') dessinerAmenagement(ctx, cam, o, o.id === s.selection || !!s.groupe?.has(o.id));
 
   /* le niveau du dessous, en fantôme */
   if (s.dessous) {
@@ -312,6 +316,34 @@ export function dessinerParcelle(ctx: CanvasRenderingContext2D, cam: Camera, t: 
   if (o.nord !== false) {
     const xs = C.map(p => p.x), ys = C.map(p => p.y), c = { x: Math.max(...xs) + 34, y: Math.min(...ys) + 4 };
     nord(ctx, c, t.north, 18);
+  }
+}
+
+/** un aménagement en plan : une surface teintée de son aspect, ou une clôture (trait fort et petites croix,
+    une haie en trait large et vert) */
+export function dessinerAmenagement(ctx: CanvasRenderingContext2D, cam: Camera, o: Landscape, sel = false): void {
+  const P = o.points.map(p => versEcran(cam, p)), f = finitionAmenagement(o.finish), coul = f?.couleur ?? COULEURS.gris;
+  ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y)));
+  if (o.kind !== 'fence') {
+    ctx.closePath();
+    ctx.globalAlpha = 0.55; ctx.fillStyle = coul; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.gris; ctx.lineWidth = sel ? 2 : 0.8; ctx.stroke();
+    return;
+  }
+  if (o.closed) ctx.closePath();
+  const haie = o.finish === 'haie-vive';
+  ctx.strokeStyle = sel ? COULEURS.accent : haie ? coul : COULEURS.encre; ctx.lineWidth = haie ? Math.max(3, (f?.epaisseur ?? 600) * cam.echelle) : sel ? 2.4 : 1.4;
+  ctx.globalAlpha = haie ? 0.7 : 1; ctx.stroke(); ctx.globalAlpha = 1;
+  if (haie) return;
+  /* une petite croix tous les mètres, le signe d'une clôture */
+  const n = o.closed ? P.length : P.length - 1, pas = Math.max(14, 1_000 * cam.echelle);
+  ctx.lineWidth = 0.9;
+  for (let i = 0; i < n; i++) {
+    const a = P[i]!, b = P[(i + 1) % P.length]!, L = Math.hypot(b.x - a.x, b.y - a.y);
+    for (let t = pas / 2; t < L; t += pas) {
+      const x = a.x + (b.x - a.x) * t / L, y = a.y + (b.y - a.y) * t / L;
+      ctx.beginPath(); ctx.moveTo(x - 3, y - 3); ctx.lineTo(x + 3, y + 3); ctx.moveTo(x - 3, y + 3); ctx.lineTo(x + 3, y - 3); ctx.stroke();
+    }
   }
 }
 

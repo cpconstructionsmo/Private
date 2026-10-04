@@ -206,6 +206,16 @@ le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Le terrain
 lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
 revient avec l'import du RDC.
 
+**Aménagements extérieurs** (outil A ; `src/catalogue/amenagements.ts`) :
+clôtures (grillage rigide, palissade, mur bahut et grille, mur enduit,
+haie), terrasses, allées et accès, stationnement, espaces verts. On choisit
+le genre et l'aspect, puis on clique les points (ou on tape les longueurs) :
+Entrée finit une clôture, le retour au premier point ferme une surface. Ils
+se tracent sur le niveau le plus bas, se choisissent, se tirent ; la hauteur
+d'une clôture et le niveau d'une terrasse se règlent. Le plan de masse les
+dessine et les mesure (surface ou longueur, part d'espaces verts) ; la 3D
+les montre (une clôture arrête la visite) ; ni façade ni coupe.
+
 **Matériaux** (`src/catalogue/materiaux.ts`) : parements de façade (enduits,
 bardages, pierre, brique) et sols (carrelages, parquet, béton ciré…), des
 aspects courants, sans marque ni prix (le produit reste au programme

@@ -23,6 +23,7 @@ import type { Floor, Mm, Opening, Point, Project, Roof } from '../model/types';
 import { planDuNiveau } from '../building/plan';
 import { toitureDuNiveau, type Point3 } from '../building/toiture';
 import { blocs, formeDe, versPlan } from '../building/mobilier';
+import { finitionAmenagement } from '../catalogue/amenagements';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
 import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
 import { difference, intersection } from '../geometry/booleen';
@@ -33,7 +34,7 @@ import { ajouter, multiplier, normaleGauche, normaliser, soustraire } from '../g
 
 export type Matiere = 'mur' | 'cloison' | 'plancher' | 'sol' | 'vitrage' | 'porte' | 'garage'
   | 'tuile' | 'ardoise' | 'zinc' | 'bac_acier' | 'vegetalise' | 'gravillons'
-  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier' | 'parement' | 'peinture';
+  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier' | 'parement' | 'peinture' | 'amenagement' | 'cloture';
 
 /** la matière dessinée d'une couverture */
 export const COUVERTURES: Record<Roof['covering'], Matiere> = { tile: 'tuile', slate: 'ardoise', zinc: 'zinc', steel: 'bac_acier', green: 'vegetalise', gravel: 'gravillons' };
@@ -215,6 +216,28 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
   }
 }
 
+/* les aménagements extérieurs : surfaces posées sur le terrain (la terrasse à son niveau fini, en dalle), clôtures
+   en relief le long de leur ligne. Le terrain de la vue est à −3 cm : les surfaces passent juste au-dessus. */
+function amenagements(f: Floor, prismes: Prisme[]): void {
+  for (const o of Object.values(f.objects)) {
+    if (o.type !== 'landscape') continue;
+    if (o.kind === 'fence') {
+      const e = (finitionAmenagement(o.finish)?.epaisseur ?? 40) / 2;
+      const n = o.closed ? o.points.length : o.points.length - 1;
+      for (let i = 0; i < n; i++) {
+        const a = o.points[i]!, b = o.points[(i + 1) % o.points.length]!, u = normaliser(soustraire(b, a)), v = multiplier(normaleGauche(u), e), w = multiplier(u, e);
+        /* chaque tronçon déborde d'une demi-épaisseur : les angles se referment */
+        const A = soustraire(a, w), B = ajouter(b, w);
+        prismes.push({ contour: [soustraire(A, v), soustraire(B, v), ajouter(B, v), ajouter(A, v)], z0: f.elevation - 30, z1: f.elevation + o.height, matiere: 'cloture', objet: o.id, niveau: f.id, finition: o.finish });
+      }
+      continue;
+    }
+    const haut = o.kind === 'terrace' ? -o.height : o.kind === 'green' ? -22 : -12;
+    const bas = o.kind === 'terrace' ? haut - 150 : -30;
+    prismes.push({ contour: o.points.map(q => ({ ...q })), z0: f.elevation + bas, z1: f.elevation + haut, matiere: 'amenagement', objet: o.id, niveau: f.id, finition: o.finish });
+  }
+}
+
 /* le mobilier : ses blocs (building/mobilier.ts), tournés et posés sur le sol du niveau */
 function meubles(f: Floor, prismes: Prisme[]): void {
   for (const o of Object.values(f.objects)) {
@@ -236,7 +259,7 @@ export function maquette(projet: Project, jusqua?: string, options: { toiture?: 
     const F = [...b.floors].sort((a, c) => a.elevation - c.elevation);
     const k = jusqua ? F.findIndex(f => f.id === jusqua) : -1;
     for (const f of k >= 0 ? F.slice(0, k + 1) : F) {
-      planchers(projet, f, prismes); murs(f, prismes); peintures(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
+      planchers(projet, f, prismes); murs(f, prismes); peintures(f, prismes); amenagements(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
       if (options.toiture !== false) toiture(f, prismes, plaques);
     }
   }

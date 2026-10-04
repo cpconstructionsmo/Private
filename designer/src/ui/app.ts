@@ -9,7 +9,7 @@ import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsag
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -22,6 +22,7 @@ import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fon
 import type { Accroche } from '../building/accrochage';
 import { maquette } from '../vue3d/maquette';
 import { PAREMENTS, PEINTURES, SOLS } from '../catalogue/materiaux';
+import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
@@ -451,7 +452,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (e.key === 'Enter') { effet(outils.touche('Enter')); return }
     if ((e.key === 'Delete' || e.key === 'Backspace') && choisis().length) { e.preventDefault(); supprimerChoix(); return }
     /* un chiffre pendant un tracé : la longueur se tape (comme sur les logiciels de plans) */
-    if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'cloison', 'rectangle', 'parcelle'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
+    if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'cloison', 'rectangle', 'parcelle', 'amenagement'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
     if (e.key === '3') { void basculer3D(); return }
     if (e.key.toLowerCase() === 't') {
       const o = selection ? niveau().objects[selection] : undefined;
@@ -495,14 +496,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'ouverture', icone: '◫', libelle: 'Ouverture', touche: 'O' }, { nom: 'mobilier', icone: '▣', libelle: 'Mobilier', touche: 'B' },
     { nom: 'escalier', icone: '▤', libelle: 'Escalier', touche: 'E' }, { nom: 'coupe', icone: '✂', libelle: 'Trait de coupe', touche: 'K' },
     { nom: 'parcelle', icone: '⛶', libelle: 'Parcelle (limite du terrain)', touche: 'L' },
+    { nom: 'amenagement', icone: '❀', libelle: 'Aménagement extérieur (clôture, terrasse, allée…)', touche: 'A' },
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
   function choisir(o: NomOutil) {
     if (en3D) void basculer3D(false);
     /* la parcelle se trace sur le niveau le plus bas (le terrain) */
-    if (o === 'parcelle') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
-    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+    if (o === 'parcelle' || o === 'amenagement') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
@@ -540,7 +542,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     $<HTMLButtonElement>('.retablir').disabled = !peutRetablir(h);
     const f = niveau(), o = selection ? f.objects[selection] : undefined;
     aside.innerHTML = '';
-    if (en3D) panneau3D(); else if (groupe.length) panneauGroupe(f); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else if (outils.outil === 'mobilier') bibliothequeMobilier(); else if (outils.outil === 'escalier') panneauEscalier(f); else panneauNiveau(f);
+    if (en3D) panneau3D(); else if (groupe.length) panneauGroupe(f); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else if (outils.outil === 'mobilier') bibliothequeMobilier(); else if (outils.outil === 'escalier') panneauEscalier(f); else if (outils.outil === 'amenagement') panneauAmenagement(); else panneauNiveau(f);
   }
 
   /** un champ de l'inspecteur */
@@ -722,6 +724,19 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
+      case 'landscape': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierAmenagement' }>>) => faire(t, [{ type: 'modifierAmenagement', id: o.id, ...c }]);
+        const fin = finitionAmenagement(o.finish), b = bilanAmenagements(h.projet).find(x => x.id === o.id);
+        A.append(titre(GENRES_AMENAGEMENT[o.kind].libelle + (fin ? ' — ' + fin.libelle : '')),
+          champ('Aspect', o.finish, v => mod('Aspect', { finition: v }), 'text', Object.fromEntries(finitionsDe(o.kind).map(x => [x.id, x.libelle]))));
+        if (o.kind === 'fence') A.append(champ('Hauteur (m)', (o.height / 1000).toFixed(2), v => mod('Hauteur de clôture', { hauteur: mm(v) }), 'number'),
+          champ('Fermée (revient au premier point)', o.closed ? 1 : 0, v => mod('Clôture fermée', { ferme: !!v }), 'checkbox'));
+        if (o.kind === 'terrace') A.append(champ('Niveau fini sous le ±0,00 (cm)', o.height / 10, v => mod('Niveau de terrasse', { hauteur: Math.round(ent(v) * 10) }), 'number'));
+        A.append(bloc(b ? (o.kind === 'fence' ? 'Longueur : <b>' + m(b.mesure) + '</b>' : 'Surface : <b>' + m2(b.mesure) + '</b>') : ''),
+          bloc('Tirez-le pour le déplacer. Il figure au plan de masse (PCMI 2) et en 3D.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
       case 'plot': {
         const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierParcelle' }>>) => faire(t, [{ type: 'modifierParcelle', id: o.id, ...c }]);
         const E = empriseAuSol(h.projet), R = reculs(o, E), S = surfaceTerrain(o), em = aireEmprise(E);
@@ -805,6 +820,19 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       bloc('La 3D se calcule à partir du plan : chaque modification s’y voit aussitôt. Hauteurs des murs, appuis et hauteurs des ouvertures : ceux de l’inspecteur.'));
     sectionMateriaux(niveau());
     sectionToiture(niveau());
+  }
+
+  /** l'outil Aménagement : le genre (clôture, terrasse…) et l'aspect de ce qu'on trace */
+  function panneauAmenagement() {
+    const r = outils.reglages, fin = outils.finitionAmenagement;
+    aside.append(titre('Aménagement extérieur'),
+      champ('Genre', r.genreAmenagement, v => { r.genreAmenagement = v as GenreAmenagement; r.finitionAmenagement = finitionsDe(r.genreAmenagement)[0]!.id; panneaux() }, 'text',
+        Object.fromEntries(Object.entries(GENRES_AMENAGEMENT).map(([k, g]) => [k, g.libelle]))),
+      champ('Aspect', fin.id, v => { r.finitionAmenagement = v; panneaux() }, 'text', Object.fromEntries(finitionsDe(r.genreAmenagement).map(x => [x.id, x.libelle]))),
+      bloc(GENRES_AMENAGEMENT[r.genreAmenagement].ligne
+        ? 'Cliquez chaque point de la clôture (ou tapez la longueur : 12,50<90) ; Entrée pour finir, retour au premier point pour la fermer. Hauteur ' + m(fin.hauteur) + ', réglable ensuite (le PLU la limite souvent : à vérifier).'
+        : 'Cliquez chaque sommet de la surface (ou tapez les longueurs) ; revenez au premier point ou appuyez sur Entrée pour la fermer.'),
+      bloc('Les aménagements se tracent sur le niveau le plus bas ; ils figurent au plan de masse (surfaces et longueurs) et en 3D.'));
   }
 
   /** un parement sur tous les murs extérieurs du projet, en une fois (un seul « annuler ») */

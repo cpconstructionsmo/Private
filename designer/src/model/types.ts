@@ -237,11 +237,25 @@ export interface Plot extends BaseObject {
   groundFloorNgf?: number;
 }
 
-/* Contraintes, valeur des cotes, toiture, mobilier, escaliers, coupes, parcelle s'ajoutent sans rien
+/** un aménagement extérieur du plan de masse, posé sur le niveau le plus bas : une clôture (ligne
+ *  ouverte ou fermée) ou une surface (terrasse, allée, stationnement, espace vert) */
+export interface Landscape extends BaseObject {
+  type: 'landscape';
+  kind: 'fence' | 'terrace' | 'path' | 'parking' | 'green';
+  points: Point[];
+  /** la ligne revient-elle à son premier point (toujours vrai pour une surface) */
+  closed: boolean;
+  /** l'aspect (catalogue/amenagements.ts) */
+  finish: string;
+  /** clôture : sa hauteur ; terrasse : son niveau fini sous le ±0,00 (mm, positif = plus bas) */
+  height: Mm;
+}
+
+/* Contraintes, valeur des cotes, toiture, mobilier, escaliers, coupes, parcelle, aménagements s'ajoutent sans rien
    changer aux projets déjà enregistrés (un type de plus, un champ
    facultatif) : le schéma reste à la version 1, l'instantané figé des
    tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot;
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape;
 
 export interface Floor {
   id: string;
