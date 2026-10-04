@@ -232,6 +232,14 @@ pièce, du sol au haut des murs, ouverte aux portes et fenêtres (allège et
 linteau restent peints) ; elle se voit en 3D et pendant la visite, ni en
 façade ni en coupe.
 
+**Export DXF** (bouton « DXF » ; `src/export/dxf.ts`) : un fichier par niveau,
+DXF R12 en millimètres (le plus largement lu), dans le repère du plan, un
+calque par famille : MURS et CLOISONS (ouverts au droit des baies),
+OUVERTURES (tableau, vitrage ou vantail, repère « F 120×125 all. 90 »),
+PIECES (nom, surface), COTES (chaînes extérieures), ESCALIERS, TREMIES,
+MOBILIER, TOITURE (égout), PARCELLE, AMENAGEMENTS ; texte en Windows-1252.
+Relu sans erreur par ezdxf (la bibliothèque DXF de l'atelier).
+
 **Dossier de permis** (PDF → « Composer : le dossier de permis complet ») :
 un seul PDF A3 numéroté « n / N » — page de garde (projet, maître
 d'ouvrage, adresse, référence cadastrale, surface du terrain, emprise) et

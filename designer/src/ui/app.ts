@@ -130,6 +130,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       <span class="esp"></span>
       <span class="etat" title="Enregistrement"></span>
       <button class="bpdf" title="Exporter les plans en PDF (A3, cotés, cartouche)">PDF</button>
+      <button class="bdxf" title="Exporter les plans en DXF (bureaux d’études, autres logiciels)">DXF</button>
       <button class="b3d" title="Vue 3D (touche 3) — Échap pour revenir au plan">3D</button>
       <button class="cmdk" title="Toutes les actions">⌘K</button>
       <a href="../index.html" style="color:#2C4A5E;font-size:12px">Suivi de chantiers</a>
@@ -531,6 +532,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   $<HTMLButtonElement>('.cmdk').onclick = () => palette();
   $<HTMLButtonElement>('.b3d').onclick = () => void basculer3D();
   $<HTMLButtonElement>('.bpdf').onclick = () => void exporterPdf();
+  $<HTMLButtonElement>('.bdxf').onclick = () => void exporterDxf();
   const selNiv = $<HTMLSelectElement>('select.niveaux');
   selNiv.onchange = () => { niveauId = selNiv.value; selection = null; apres() };
 
@@ -1169,6 +1171,24 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       toast('PDF enregistré : ' + a.download);
     } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
   }
+  /** les plans en DXF : un fichier par niveau (R12, mm, un calque par famille) */
+  async function exporterDxf() {
+    const r = await dialogue('Exporter en DXF', [
+      { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (un fichier chacun)' } }]);
+    if (!r) return;
+    try {
+      const { dxfNiveau, dxfOctets } = await import('../export/dxf');
+      const F = r['niv'] === 'tous' ? niveaux() : [niveau()];
+      for (const f of F) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([dxfOctets(dxfNiveau(h.projet, f))], { type: 'application/dxf' }));
+        a.download = (h.projet.name || 'projet') + ' - ' + f.name + '.dxf';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      }
+      toast(F.length > 1 ? F.length + ' fichiers DXF enregistrés' : 'DXF enregistré : ' + (h.projet.name || 'projet') + ' - ' + F[0]!.name + '.dxf');
+    } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
+  }
   /** le dossier de permis complet, en un PDF numéroté (export/planche.ts, dossierPc) */
   async function exporterDossier(r: Record<string, string>) {
     try {
@@ -1235,6 +1255,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     ...MODELES_MEUBLES.map(m => ({ libelle: 'Meubler : ' + m.libelle, faire: () => { outils.reglages.modeleMeuble = m.id; choisir('mobilier') } })),
     { libelle: 'Marquer un jalon (APS V1, PC…)', visible: () => !!enr.marquerJalon, faire: async () => { const r = await dialogue('Jalon', [{ cle: 'n', libelle: 'Nom du jalon', valeur: 'APS V1' }]); if (r && enr.marquerJalon) { await enr.marquerJalon(r['n']!); toast('Jalon « ' + r['n'] + ' » : il partira avec le prochain enregistrement') } } },
     { libelle: 'Exporter les plans en PDF (A3)', faire: () => void exporterPdf() },
+    { libelle: 'Exporter les plans en DXF (un fichier par niveau)', faire: () => void exporterDxf() },
     { libelle: 'Exporter le projet (JSON)', faire: exporter },
     { libelle: 'Retour au suivi de chantiers', faire: () => { location.href = '../index.html' } },
   ];
