@@ -22,6 +22,7 @@ import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fon
 import type { Accroche } from '../building/accrochage';
 import { maquette } from '../vue3d/maquette';
 import { PAREMENTS, PEINTURES, SOLS } from '../catalogue/materiaux';
+import { MODELES_MAISONS, modeleMaison } from '../catalogue/modeles-maisons';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
@@ -955,6 +956,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         if (confirm('Supprimer le niveau « ' + f.name + ' » et tout ce qu’il contient ? (Annuler le rétablit.)')) faire('Supprimer un niveau', [{ type: 'supprimerNiveau', id: f.id }]);
       }, 'dang')));
 
+    /* un projet vide : partir d'un modèle de maison plutôt que d'une page blanche */
+    if (!niveaux().some(x => Object.values(x.objects).some(o => o.type === 'wall'))) {
+      A.append(titre('Démarrer d’un modèle'));
+      for (const md of MODELES_MAISONS) A.append(ligne(bouton(md.libelle, () => poserModele(md.id), 'prim')), bloc(esc(md.description)));
+      A.append(bloc('Des plans fictifs, à adapter : tout se modifie ensuite comme un plan dessiné, et « annuler » les retire d’un coup.'));
+    }
+
     sectionToiture(f);
 
     A.append(titre('Fonds (plan PDF, image)'));
@@ -1171,6 +1179,14 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       toast('PDF enregistré : ' + a.download);
     } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
   }
+  /** poser un modèle de maison sur le projet vide (une transaction : un seul « annuler ») */
+  function poserModele(id: string) {
+    const md = modeleMaison(id), b = h.projet.buildings[0];
+    if (!md || !b) return;
+    if (niveaux().some(x => Object.values(x.objects).some(o => o.type === 'wall'))) { toast('Le projet a déjà des murs : un modèle se pose sur un projet vide', true); return }
+    const bas = [...b.floors].sort((x, y) => x.elevation - y.elevation)[0]!;
+    if (faire('Modèle : ' + md.libelle, md.commandes({ batiment: b.id, niveau: bas.id, id: () => ulid() }))) { niveauId = bas.id; cadrerTout(); toast('Modèle posé : ' + md.libelle + ' — à adapter') }
+  }
   /** les plans en DXF : un fichier par niveau (R12, mm, un calque par famille) */
   async function exporterDxf() {
     const r = await dialogue('Exporter en DXF', [
@@ -1256,6 +1272,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Marquer un jalon (APS V1, PC…)', visible: () => !!enr.marquerJalon, faire: async () => { const r = await dialogue('Jalon', [{ cle: 'n', libelle: 'Nom du jalon', valeur: 'APS V1' }]); if (r && enr.marquerJalon) { await enr.marquerJalon(r['n']!); toast('Jalon « ' + r['n'] + ' » : il partira avec le prochain enregistrement') } } },
     { libelle: 'Exporter les plans en PDF (A3)', faire: () => void exporterPdf() },
     { libelle: 'Exporter les plans en DXF (un fichier par niveau)', faire: () => void exporterDxf() },
+    ...MODELES_MAISONS.map(md => ({ libelle: 'Démarrer d’un modèle : ' + md.libelle, faire: () => poserModele(md.id) })),
     { libelle: 'Exporter le projet (JSON)', faire: exporter },
     { libelle: 'Retour au suivi de chantiers', faire: () => { location.href = '../index.html' } },
   ];

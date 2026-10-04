@@ -232,6 +232,12 @@ pièce, du sol au haut des murs, ouverte aux portes et fenêtres (allège et
 linteau restent peints) ; elle se voit en 3D et pendant la visite, ni en
 façade ni en coupe.
 
+**Modèles de maisons** (projet vide : panneau du niveau ou palette ;
+`src/catalogue/modeles-maisons.ts`) : plain-pied 3 chambres (13 × 9 m),
+plain-pied en L avec garage, maison à étage (9 × 8 m, R+1, escalier). Des
+plans fictifs posés en une transaction (murs, baies, pièces nommées,
+escalier, toiture) : tout se modifie ensuite, un « annuler » les retire.
+
 **Export DXF** (bouton « DXF » ; `src/export/dxf.ts`) : un fichier par niveau,
 DXF R12 en millimètres (le plus largement lu), dans le repère du plan, un
 calque par famille : MURS et CLOISONS (ouverts au droit des baies),
