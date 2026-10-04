@@ -10,6 +10,8 @@ const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => 
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join(' ; ')); return r.historique };
 const M = (n: string, x1: number, y1: number, x2: number, y2: number): Commande => ({ type: 'creerMur', niveau: n, a: { x: x1, y: y1 }, b: { x: x2, y: y2 }, epaisseur: 200, role: 'exterior' });
 const R = (x0: number, y0: number, x1: number, y1: number) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+/** un JPEG fictif de 8 × 8 pixels (deux bandes de couleur), pour la page de perspective */
+export const JPEG = Uint8Array.from(atob('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAAIAAgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDx74Tf8xX/ALZf+z0UUV8Pn/8AyMqvy/8ASUftPB//ACI8P/29/wClyP/Z'), c => c.charCodeAt(0));
 const texte = (u: Uint8Array) => Array.from(u, c => String.fromCharCode(c)).join('');
 
 function maison(parcelle: boolean) {
@@ -41,5 +43,16 @@ describe('dossier de permis de construire', () => {
     const p2 = pieces.find(p => p.code === 'PCMI 2')!;
     expect([p2.page, p2.note]).toEqual([null, 'parcelle à tracer (outil L)']);
     expect(s).toContain('([parcelle \xE0 tracer])');
+  });
+
+  it('avec une vue 3D gardée : une page « Vue 3D » (image JPEG intégrée), renvoyée depuis le PCMI 6', () => {
+    const { octets, pieces } = dossierPc(maison(true), { indice: 'A', date: '04/10/2026', perspective: { jpeg: JPEG, largeur: 8, hauteur: 8 } });
+    const s = texte(octets);
+    expect(s).toContain('/Count 8');
+    expect(s).toContain('/Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode');
+    expect(s).toContain('/XObject << /Im1 ');
+    expect(s).toContain('(Vue 3D \\(compl\xE9ment au PCMI 6\\))');
+    expect(pieces.find(p => p.code === 'PCMI 6')!.note).toBe('à joindre (photomontage) ; vue 3D du projet : page 7');
+    expect(() => dossierPc(maison(true), { indice: 'A', date: '04/10/2026', perspective: { jpeg: new Uint8Array([1, 2, 3]), largeur: 1, hauteur: 1 } })).toThrow(/JPEG/);
   });
 });

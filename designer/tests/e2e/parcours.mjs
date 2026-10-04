@@ -322,6 +322,9 @@ try {
   await p.waitForFunction(n => window.cpDesigner.vue3d().maillages > n, avantMat);
   await p.waitForTimeout(300);
   if (process.env.CAPTURE_MATERIAUX) await p.screenshot({ path: process.env.CAPTURE_MATERIAUX });
+  /* garder cette vue pour le dossier de permis (un JPEG de la vue) */
+  await p.click('aside button.bpersp');
+  await p.waitForSelector('aside button.bpersp:has-text("Vue gardée")', { timeout: 10_000 });
   /* et une peinture dans toutes les pièces du niveau */
   await p.selectOption('aside label:has-text("Murs intérieurs") select', 'peinture-vert-sauge');
   const pieces = (await objets()).filter(o => o.type === 'room');
@@ -389,7 +392,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

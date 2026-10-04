@@ -202,7 +202,9 @@ maçonnerie à chaque côté ; une maison qui sort de la limite est signalée.
 L'inspecteur garde la référence cadastrale, la voie et ses côtés, le nord et
 l'altitude NGF du ±0,00. La planche « Plan de masse (PCMI 2) » porte la
 limite cotée, la voie, les reculs, l'emprise et le débord du toit, le nord,
-le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Le terrain
+le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Une vue 3D gardée (panneau 3D :
+« Garder cette vue pour le dossier ») y entre en page « Vue 3D », image JPEG
+intégrée au PDF ; le PCMI 6 (insertion dans le site) reste à joindre. Le terrain
 lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
 revient avec l'import du RDC.
 

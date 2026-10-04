@@ -226,6 +226,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     }
     panneaux(); dessinerBientot();
   }
+  /* la vue 3D gardée pour le dossier de permis (le temps de la séance : une image, pas une donnée du projet) */
+  let perspective: { jpeg: Uint8Array; largeur: number; hauteur: number } | null = null;
+  async function garderPerspective() {
+    if (!vue3d) return;
+    try { const i = await vue3d.imageJpeg(); perspective = { jpeg: i.octets, largeur: i.largeur, hauteur: i.hauteur }; toast('Vue gardée : elle ira dans le dossier de permis (PDF → Composer)'); panneaux() }
+    catch (e) { toast('Vue impossible à garder : ' + String((e as Error)?.message ?? e), true) }
+  }
   async function imagePNG() {
     if (!vue3d) return;
     const a = document.createElement('a'); a.href = URL.createObjectURL(await vue3d.image()); a.download = (h.projet.name || 'projet') + ' - 3D.png'; a.click();
@@ -820,6 +827,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       champ('Montrer la toiture', toit3D ? 1 : 0, v => { toit3D = !!v; apres() }, 'checkbox'),
       ligne(bouton('🚶 Visite à hauteur d’homme (V)', () => visite(true), 'prim bvisite')),
       ligne(bouton('Recadrer', () => vue3d?.cadrer()), bouton('Image PNG', () => void imagePNG()), bouton('Retour au plan', () => void basculer3D(false), 'prim')),
+      ligne(bouton(perspective ? '✓ Vue gardée pour le dossier (la remplacer)' : 'Garder cette vue pour le dossier', () => void garderPerspective(), 'bpersp')),
       bloc('La 3D se calcule à partir du plan : chaque modification s’y voit aussitôt. Hauteurs des murs, appuis et hauteurs des ouvertures : ceux de l’inspecteur.'));
     sectionMateriaux(niveau());
     sectionToiture(niveau());
@@ -1210,7 +1218,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     try {
       const { dossierPc } = await import('../export/planche');
       const { octets, pieces } = dossierPc(h.projet, { indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'),
-        ...(r['mo']?.trim() ? { maitreOuvrage: r['mo'] } : {}), ...(r['adr']?.trim() ? { adresseTerrain: r['adr'] } : {}), ...(r['ech'] && r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}) });
+        ...(r['mo']?.trim() ? { maitreOuvrage: r['mo'] } : {}), ...(perspective && r['per'] !== 'non' ? { perspective } : {}), ...(r['adr']?.trim() ? { adresseTerrain: r['adr'] } : {}), ...(r['ech'] && r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}) });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([octets], { type: 'application/pdf' }));
       a.download = (h.projet.name || 'projet') + ' - dossier PC.pdf';
@@ -1234,7 +1242,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'cou', libelle: 'Coupes', valeur: 'oui', options: { oui: traitsDeCoupe(h.projet).length ? 'Ajouter les coupes ' + traitsDeCoupe(h.projet).map(l => l.nom + '-' + l.nom).join(', ') + ' (et leurs traits sur les plans)' : 'Ajouter une coupe A-A placée d’elle-même (ou tracez-la : outil K)', non: 'Sans' } },
       { cle: 'ind', libelle: 'Indice', valeur: 'A' },
       { cle: 'mo', libelle: 'Maître d’ouvrage (dossier)', valeur: '' },
-      { cle: 'adr', libelle: 'Adresse du terrain (dossier)', valeur: '' }]);
+      { cle: 'adr', libelle: 'Adresse du terrain (dossier)', valeur: '' },
+      ...(perspective ? [{ cle: 'per', libelle: 'Vue 3D (dossier)', valeur: 'oui', options: { oui: 'Ajouter la vue 3D gardée', non: 'Sans' } }] : [])]);
     if (!r) return;
     if (r['doc'] === 'dossier') { await exporterDossier(r); return }
     try {
