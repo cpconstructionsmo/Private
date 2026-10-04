@@ -91,6 +91,9 @@ export class PagePdf {
 export class DocumentPdf {
   private readonly pages: PagePdf[] = [];
   page(largeur: number, hauteur: number): PagePdf { const p = new PagePdf(largeur, hauteur); this.pages.push(p); return p }
+  /** le nombre de pages, et la page i (pour numéroter après coup) */
+  get nombre(): number { return this.pages.length }
+  pageNo(i: number): PagePdf { return this.pages[i]! }
 
   /** les octets du fichier : catalogue, pages, deux polices, informations ; table des renvois exacte */
   octets(titre: string): Uint8Array<ArrayBuffer> {

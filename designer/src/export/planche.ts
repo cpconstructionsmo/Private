@@ -43,6 +43,8 @@ export interface OptionsPlanche {
   echelle?: number;
   /** ajouter une planche des quatre façades */
   facades?: boolean;
+  /** pour le dossier de permis : les titres portent leur pièce (PCMI 2, 3, 5) */
+  dossier?: boolean;
   /** ajouter le plan de masse (PCMI 2), s'il y a une parcelle */
   masse?: boolean;
   /** ajouter les coupes (les traits tracés, sinon une coupe A-A placée d'elle-même) et leurs traits sur les plans */
@@ -235,7 +237,7 @@ function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
   y += 3;
   for (const t of ['Hauteurs indicatives depuis le sol fini, au nu extérieur', 'du haut des murs : charpente, isolation et épaisseurs', 'réelles ne sont pas étudiées ici (à vérifier avant le PC).', '', 'Orientation supposée : le haut du plan est au nord', '(à confirmer sur le plan de masse).'])
     { page.texte(t, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
-  cartouche(page, projet, 'Façades', ech, o);
+  cartouche(page, projet, o.dossier ? 'PCMI 5 — Façades' : 'Façades', ech, o);
 }
 
 /* ---------- le plan de masse (PCMI 2) ---------- */
@@ -311,7 +313,7 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
   y += 3;
   for (const l of ['Reculs : du nu extérieur de la maçonnerie au point', 'le plus proche de chaque limite. Emprise au sol :', 'débords de toit exclus. Limite tracée : à confirmer', 'sur le plan de bornage ; règles du PLU à vérifier.'])
     { page.texte(l, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
-  cartouche(page, projet, 'Plan de masse (PCMI 2)', ech, o);
+  cartouche(page, projet, o.dossier ? 'PCMI 2 — Plan de masse' : 'Plan de masse (PCMI 2)', ech, o);
 }
 
 /* ---------- la planche de la coupe ---------- */
@@ -382,7 +384,7 @@ function plancheCoupe(doc: DocumentPdf, projet: Project, o: OptionsPlanche, lign
     : ['Coupe placée d’elle-même : en travers de la maison,', 'par l’escalier s’il y en a un, jamais le long d’un mur.'];
   for (const t of [...note, 'Terrain naturel non relevé : supposé au niveau du sol', 'fini (à reporter depuis le plan topographique).', 'Épaisseurs dessinées indicatives (planchers, couverture) :', 'charpente et isolation ne sont pas étudiées ici.'])
     { page.texte(t, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
-  cartouche(page, projet, titre, ech, o);
+  cartouche(page, projet, o.dossier ? 'PCMI 3 — ' + titre : titre, ech, o);
 }
 
 /** le plan de repérage : la maçonnerie du niveau le plus bas, en petit, et le trait de coupe ; rend le y suivant */
@@ -420,3 +422,86 @@ export function planchesPdf(projet: Project, o: OptionsPlanche): Uint8Array<Arra
   return doc.octets((projet.name || 'Projet') + ' — plans');
 }
 
+
+/* ---------- le dossier de permis de construire, en un PDF ---------- */
+
+export interface OptionsDossier { indice: string; date: string; maitreOuvrage?: string; adresseTerrain?: string; echelle?: number }
+
+/** les pièces du dossier, dans l'ordre du formulaire ; « page » : null quand le Designer ne la produit pas */
+export interface PieceDossier { code: string; intitule: string; page: number | null; note?: string }
+
+/**
+ * Le dossier de permis (maison individuelle) en un seul PDF A3 : une page de garde avec le sommaire, puis
+ * le plan de masse (PCMI 2), les coupes (PCMI 3), les façades (PCMI 5) et les plans des niveaux ; chaque
+ * planche numérotée « n / N ». Ce que le Designer ne produit pas (situation, notice, insertion, photos) est
+ * listé « à joindre » : rien n'est inventé.
+ */
+export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Array<ArrayBuffer>; pieces: PieceDossier[] } {
+  const doc = new DocumentPdf();
+  const garde = doc.page(A3.l * PT, A3.h * PT);
+  const niveaux = projet.buildings.flatMap(b => b.floors).sort((a, b) => a.elevation - b.elevation);
+  const o: OptionsPlanche = { niveaux: niveaux.map(f => f.id), cotation: true, mobilier: false, indice: d.indice, date: d.date, dossier: true, coupe: true, ...(d.echelle ? { echelle: d.echelle } : {}) };
+  const debut = () => doc.nombre + 1;
+  const t = parcelleDuProjet(projet);
+  const pMasse = t ? debut() : null;
+  if (t) plancheMasse(doc, projet, o);
+  const lignes = lignesDeCoupe(projet), pCoupe = debut();
+  if (lignes.length) for (const l of lignes) plancheCoupe(doc, projet, o, l); else plancheCoupe(doc, projet, o, null);
+  const pFacades = debut();
+  plancheFacades(doc, projet, o);
+  const pPlans = debut();
+  for (const f of niveaux) planche(doc, projet, f, o, lignes);
+  const pieces: PieceDossier[] = [
+    { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: null, note: 'à joindre (extrait de carte, échelle et nord)' },
+    { code: 'PCMI 2', intitule: 'Plan de masse des constructions', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
+    { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe },
+    { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: null, note: 'à joindre (l’atelier la rédige)' },
+    { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacades, note: 'plan de toiture à joindre' },
+    { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: null, note: 'à joindre (photomontage)' },
+    { code: 'PCMI 7-8', intitule: 'Photographies (environnement proche et lointain)', page: null, note: 'à joindre' },
+    { code: '—', intitule: 'Plans des niveaux (complément)', page: pPlans },
+  ];
+  pageDeGarde(garde, projet, d, pieces, t ? { terrain: surfaceTerrain(t.plot), emprise: aireEmprise(empriseAuSol(projet)), reference: t.plot.reference } : null);
+  /* chaque page numérotée, en bas à droite de la feuille */
+  const N = doc.nombre;
+  for (let i = 0; i < N; i++) doc.pageNo(i).texte((i + 1) + ' / ' + N, (410 - 2) * PT, (A3.h - 291.5) * PT, 7.5, { aligne: 'droite', couleur: '#6E7B84' });
+  return { octets: doc.octets((projet.name || 'Projet') + ' — dossier de permis de construire'), pieces };
+}
+
+function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: PieceDossier[], terrain: { terrain: number; emprise: number; reference?: string | undefined } | null): void {
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  page.cadre(X(10), Y(287), 400 * PT, 277 * PT, { ep: 0.8 });
+  page.texte('CP CONSTRUCTIONS', X(30), Y(40), 16, { gras: true, couleur: '#C5563A' });
+  page.texte('Maîtrise d’œuvre', X(30), Y(47), 9, { couleur: '#6E7B84' });
+  page.texte('DEMANDE DE PERMIS DE CONSTRUIRE', X(30), Y(78), 22, { gras: true, couleur: '#2C4A5E' });
+  page.texte('Maison individuelle et/ou ses annexes', X(30), Y(88), 12);
+  page.texte(projet.name || 'Projet', X(30), Y(108), 16, { gras: true });
+  const rangs: [string, string][] = [
+    ['Maître d’ouvrage', d.maitreOuvrage?.trim() || '[à compléter]'],
+    ['Adresse du terrain', d.adresseTerrain?.trim() || '[à compléter]'],
+    ['Référence cadastrale', terrain?.reference || '[à compléter]'],
+    ['Surface du terrain (tracée)', terrain ? m2(terrain.terrain) : '[parcelle à tracer]'],
+    ['Emprise au sol (maçonnerie)', terrain ? m2(terrain.emprise) : '[à mesurer]'],
+    ['Surface de plancher', '[à calculer]'],
+    ['Phase · indice · date', projet.phase + ' · ' + (d.indice || 'A') + ' · ' + d.date],
+  ];
+  rangs.forEach(([k, v], i) => {
+    const y = 124 + i * 8;
+    page.texte(k, X(30), Y(y), 9.5, { couleur: '#6E7B84' });
+    page.texte(v, X(95), Y(y), 9.5, { gras: !v.startsWith('['), couleur: v.startsWith('[') ? '#C5563A' : '#1A2B36' });
+  });
+  /* le sommaire, à droite */
+  const x0 = 220;
+  page.texte('PIÈCES DU DOSSIER', X(x0), Y(78), 11, { gras: true, couleur: '#2C4A5E' });
+  page.trait(X(x0), Y(82), X(395), Y(82), 0.6);
+  pieces.forEach((p, i) => {
+    const y = 92 + i * 13;
+    page.texte(p.code, X(x0), Y(y), 9.5, { gras: true });
+    page.texte(p.intitule, X(x0 + 24), Y(y), 9.5);
+    page.texte(p.page !== null ? 'page ' + p.page : '—', X(395), Y(y), 9.5, { aligne: 'droite', gras: p.page !== null });
+    if (p.note) page.texte(p.note, X(x0 + 24), Y(y + 4.5), 7.5, { couleur: p.page === null ? '#C5563A' : '#6E7B84' });
+    page.trait(X(x0), Y(y + 7.5), X(395), Y(y + 7.5), 0.2, '#DDD5C8');
+  });
+  for (const [i, l] of ['Document de travail CP Constructions, établi par le Designer à partir du plan : cotes, altitudes NGF,', 'règles du PLU et pièces « à joindre » à vérifier et compléter avant le dépôt. Rien n’y est inventé : ce qui', 'n’est pas connu est écrit « [à compléter] ».'].entries())
+    page.texte(l, X(30), Y(250 + i * 5), 8, { couleur: '#6E7B84' });
+}

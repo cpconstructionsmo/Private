@@ -1161,9 +1161,25 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       toast('PDF enregistré : ' + a.download);
     } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
   }
+  /** le dossier de permis complet, en un PDF numéroté (export/planche.ts, dossierPc) */
+  async function exporterDossier(r: Record<string, string>) {
+    try {
+      const { dossierPc } = await import('../export/planche');
+      const { octets, pieces } = dossierPc(h.projet, { indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'),
+        ...(r['mo']?.trim() ? { maitreOuvrage: r['mo'] } : {}), ...(r['adr']?.trim() ? { adresseTerrain: r['adr'] } : {}), ...(r['ech'] && r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}) });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([octets], { type: 'application/pdf' }));
+      a.download = (h.projet.name || 'projet') + ' - dossier PC.pdf';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      const manque = pieces.filter(p => p.page === null).map(p => p.code);
+      toast('Dossier enregistré : ' + a.download + (manque.length ? ' — à joindre : ' + manque.join(', ') : ''));
+    } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
+  }
   /** les plans en PDF (A3, à l'échelle, cotés, cartouche) : chargé à la demande */
   async function exporterPdf() {
     const r = await dialogue('Exporter en PDF (A3)', [
+      { cle: 'doc', libelle: 'Composer', valeur: 'planches', options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 2, 3, 5, plans des niveaux)' } },
       { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (une page chacun)' } },
       { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
       { cle: 'cot', libelle: 'Cotation', valeur: 'oui', options: { oui: 'Avec les chaînes de cotes', non: 'Sans' } },
@@ -1171,8 +1187,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ...(parcelleDuProjet(h.projet) ? [{ cle: 'mas', libelle: 'Plan de masse', valeur: 'oui', options: { oui: 'Ajouter le plan de masse (PCMI 2) : parcelle, reculs, emprise', non: 'Sans' } }] : []),
       { cle: 'fac', libelle: 'Façades', valeur: 'oui', options: { oui: 'Ajouter la planche des quatre façades', non: 'Sans' } },
       { cle: 'cou', libelle: 'Coupes', valeur: 'oui', options: { oui: traitsDeCoupe(h.projet).length ? 'Ajouter les coupes ' + traitsDeCoupe(h.projet).map(l => l.nom + '-' + l.nom).join(', ') + ' (et leurs traits sur les plans)' : 'Ajouter une coupe A-A placée d’elle-même (ou tracez-la : outil K)', non: 'Sans' } },
-      { cle: 'ind', libelle: 'Indice', valeur: 'A' }]);
+      { cle: 'ind', libelle: 'Indice', valeur: 'A' },
+      { cle: 'mo', libelle: 'Maître d’ouvrage (dossier)', valeur: '' },
+      { cle: 'adr', libelle: 'Adresse du terrain (dossier)', valeur: '' }]);
     if (!r) return;
+    if (r['doc'] === 'dossier') { await exporterDossier(r); return }
     try {
       const { planchesPdf } = await import('../export/planche');
       const u = planchesPdf(h.projet, {
