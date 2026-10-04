@@ -72,6 +72,8 @@ export interface Wall extends BaseObject {
   /** jamais « confirmed » sans document : par défaut, à valider (règle 5) */
   loadBearing: Qualified<boolean>;
   compositionRef?: string;
+  /** le parement de sa face extérieure (catalogue/materiaux.ts), pour un mur de façade */
+  finish?: string;
 }
 
 export interface Opening extends BaseObject {
@@ -108,6 +110,8 @@ export interface Room extends BaseObject {
   usage: RoomUsage;
   wet: boolean;
   excludedFromHabitable?: { value: boolean; reason: string };
+  /** le sol fini (catalogue/materiaux.ts) */
+  floorFinish?: string;
 }
 
 /** un point d'accroche sur un objet, pour une cote */

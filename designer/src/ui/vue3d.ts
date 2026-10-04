@@ -4,6 +4,7 @@
    (le plan 2D reste léger). Unités : le mètre (la maquette est en mm) ;
    axes : x vers l'est, y vers le haut, z vers le sud (le y du plan, inversé). */
 import type { Maquette, Matiere, Plaque, Prisme } from '../vue3d/maquette';
+import { materiau, type Materiau } from '../catalogue/materiaux';
 import { avancer, depart, preparerVisite, regard, solSous, type Marcheur, type Terrain } from '../vue3d/visite';
 
 export interface Vue3D {
@@ -31,8 +32,34 @@ const COULEURS: Record<Matiere, { couleur: string; opacite?: number; rugosite?: 
   tuile: { couleur: '#A9533D', rugosite: 0.85 }, ardoise: { couleur: '#4A5560', rugosite: 0.6 }, zinc: { couleur: '#8E979E', rugosite: 0.4 },
   bac_acier: { couleur: '#5B6670', rugosite: 0.5 }, vegetalise: { couleur: '#6F8F55' }, gravillons: { couleur: '#B9B2A3' },
   meuble: { couleur: '#C9A57E', rugosite: 0.7 }, tissu: { couleur: '#8693A1' }, linge: { couleur: '#EEF0F2' }, plan_travail: { couleur: '#5A5F66', rugosite: 0.5 },
-  sanitaire: { couleur: '#F6F8F9', rugosite: 0.25 }, escalier: { couleur: '#B58B5E', rugosite: 0.7 }, electromenager: { couleur: '#D9DCDF', rugosite: 0.4 }, inox: { couleur: '#AEB4B9', rugosite: 0.3 },
+  sanitaire: { couleur: '#F6F8F9', rugosite: 0.25 }, parement: { couleur: '#EFEBE4' }, escalier: { couleur: '#B58B5E', rugosite: 0.7 }, electromenager: { couleur: '#D9DCDF', rugosite: 0.4 }, inox: { couleur: '#AEB4B9', rugosite: 0.3 },
 };
+
+/** le motif d'un matériau, peint sur une toile de 1 m × 1 m (répétée) : lames, briques, carreaux… ; null : uni */
+function motif(m: Materiau): HTMLCanvasElement | null {
+  if (m.motif === 'uni' || !m.pas || typeof document === 'undefined') return null;
+  const T = 512, k = T / 1000, c = document.createElement('canvas'); c.width = c.height = T;
+  const g = c.getContext('2d');
+  if (!g) return null;
+  g.fillStyle = m.couleur; g.fillRect(0, 0, T, T);
+  g.strokeStyle = 'rgba(0,0,0,.22)'; g.lineWidth = 2;
+  const p = m.pas * k, n = Math.ceil(T / p);
+  const ligne = (x0: number, y0: number, x1: number, y1: number) => { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke() };
+  switch (m.motif) {
+    case 'lames_h': for (let i = 0; i <= n; i++) ligne(0, i * p, T, i * p); break;
+    case 'lames_v': for (let i = 0; i <= n; i++) ligne(i * p, 0, i * p, T); break;
+    case 'carreaux': for (let i = 0; i <= n; i++) { ligne(0, i * p, T, i * p); ligne(i * p, 0, i * p, T) } break;
+    case 'briques': case 'pierres': case 'parquet': {
+      /* rangs décalés d'une demi-longueur : briques (3 hauteurs de long), pierres (2), lames de parquet (6) */
+      const L = p * (m.motif === 'briques' ? 3 : m.motif === 'pierres' ? 2 : 6);
+      for (let i = 0; i <= n; i++) {
+        ligne(0, i * p, T, i * p);
+        for (let x = (i % 2) * L / 2; x <= T; x += L) ligne(x, i * p, x, (i + 1) * p);
+      }
+    }
+  }
+  return c;
+}
 
 /** la géométrie d'une plaque (pan de toit, pignon) : dessus, dessous et chants, en mètres, axes de la vue */
 function geometriePlaque(THREE: typeof import('three'), p: Plaque) {
@@ -87,6 +114,21 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     color: c.couleur, roughness: c.rugosite ?? 0.9, metalness: 0, transparent: c.opacite !== undefined, opacity: c.opacite ?? 1,
     depthWrite: c.opacite === undefined, side: THREE.DoubleSide, clippingPlanes: [coupe],
   })])) as Record<Matiere, InstanceType<typeof THREE.MeshStandardMaterial>>;
+  /* les matières des matériaux du catalogue (parements, sols), créées à la demande */
+  const finitions = new Map<string, InstanceType<typeof THREE.MeshStandardMaterial>>();
+  const matiereDe = (p: Prisme) => {
+    const m = materiau(p.finition);
+    if (!m) return matieres[p.matiere];
+    let x = finitions.get(m.id);
+    if (!x) {
+      const toile = motif(m);
+      const map = toile ? new THREE.CanvasTexture(toile) : null;
+      if (map) { map.wrapS = map.wrapT = THREE.RepeatWrapping; map.colorSpace = THREE.SRGBColorSpace }
+      x = new THREE.MeshStandardMaterial({ color: map ? '#FFFFFF' : m.couleur, ...(map ? { map } : {}), roughness: 0.9, metalness: 0, side: THREE.DoubleSide, clippingPlanes: [coupe] });
+      finitions.set(m.id, x);
+    }
+    return x;
+  };
   const aretes = new THREE.LineBasicMaterial({ color: '#2B3640', transparent: true, opacity: 0.35, clippingPlanes: [coupe] });
 
   const groupe = new THREE.Group();
@@ -126,13 +168,13 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     const forme = new THREE.Shape(p.contour.map(q => new THREE.Vector2(q.x / 1000, q.y / 1000)));
     for (const t of p.trous ?? []) forme.holes.push(new THREE.Path(t.map(q => new THREE.Vector2(q.x / 1000, q.y / 1000))));
     const g = new THREE.ExtrudeGeometry(forme, { depth: (p.z1 - p.z0) / 1000, bevelEnabled: false });
-    const m = new THREE.Mesh(g, matieres[p.matiere]);
+    const m = new THREE.Mesh(g, matiereDe(p));
     /* le plan (x, y) se couche ; l'extrusion monte : (x, y, z) → (x, z, −y) */
     m.rotation.x = -Math.PI / 2; m.position.y = p.z0 / 1000;
     m.castShadow = p.matiere !== 'vitrage'; m.receiveShadow = true;
     if (p.objet) m.userData['objet'] = p.objet;
     groupe.add(m);
-    if (p.matiere === 'mur' || p.matiere === 'cloison' || p.matiere === 'plancher') {
+    if (p.matiere === 'mur' || p.matiere === 'cloison' || p.matiere === 'plancher' || p.matiere === 'parement') {
       const l = new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), aretes);
       l.rotation.copy(m.rotation); l.position.copy(m.position);
       groupe.add(l);

@@ -6,6 +6,9 @@
    - Un mur est son contour en plan (onglets compris), extrudé de sa base à
      sa hauteur ; une ouverture le découpe : la bande du mur qui la contient
      ne garde que l'allège (sous l'appui) et le linteau (au-dessus).
+   - Un mur de façade qui a un parement (enduit, bardage…) porte, sur sa
+     face extérieure, une peau de cette matière (EPAISSEUR_PAREMENT) prise
+     dans son épaisseur ; le sol d'une pièce prend son revêtement.
    - L'ouverture est remplie : vitrage (fenêtres, baies), vantail plein
      (portes), tablier (garage) ; rien pour un passage.
    - Chaque niveau a son plancher (le contour extérieur de sa maçonnerie)
@@ -21,11 +24,12 @@ import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../buildin
 import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
 import { difference, intersection } from '../geometry/booleen';
 import type { Anneau, Polygone } from '../geometry/polygon';
+import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
 
 export type Matiere = 'mur' | 'cloison' | 'plancher' | 'sol' | 'vitrage' | 'porte' | 'garage'
   | 'tuile' | 'ardoise' | 'zinc' | 'bac_acier' | 'vegetalise' | 'gravillons'
-  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier';
+  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier' | 'parement';
 
 /** la matière dessinée d'une couverture */
 export const COUVERTURES: Record<Roof['covering'], Matiere> = { tile: 'tuile', slate: 'ardoise', zinc: 'zinc', steel: 'bac_acier', green: 'vegetalise', gravel: 'gravillons' };
@@ -39,6 +43,8 @@ export interface Prisme {
   /** l'objet du modèle d'où vient le prisme (pour le choisir dans la vue) */
   objet?: string;
   niveau: string;
+  /** le matériau du catalogue (parement, sol) qui l'habille, s'il y en a un */
+  finition?: string;
 }
 
 /** une plaque : un polygone plan quelconque dans l'espace (pan de toit, pignon),
@@ -61,6 +67,8 @@ export interface Maquette {
 export const EPAISSEUR_PLANCHER = 200;
 /** épaisseur dessinée d'une couverture (mm), comptée verticalement sous le pan */
 export const EPAISSEUR_COUVERTURE = 200;
+/** épaisseur dessinée d'un parement (enduit, bardage), prise dans celle du mur (mm) */
+export const EPAISSEUR_PAREMENT = 20;
 /** épaisseur d'un vitrage, d'un vantail, d'un tablier dans la vue (mm) */
 const EPAISSEUR_REMPLISSAGE: Record<'vitrage' | 'porte' | 'garage', Mm> = { vitrage: 24, porte: 40, garage: 50 };
 
@@ -74,8 +82,25 @@ function bande(w: MurDroit, t0: Mm, t1: Mm): Polygone {
 const remplissage = (o: Opening): 'vitrage' | 'porte' | 'garage' | null =>
   o.kind === 'void' ? null : o.kind === 'door' ? 'porte' : o.kind === 'garage_door' ? 'garage' : 'vitrage';
 
+/** la peau extérieure d'un mur de façade : la bande de EPAISSEUR_PAREMENT le long de la face qui donne
+    dehors (celle dont un point, juste au-delà, sort de la maçonnerie du niveau), prolongée au-delà des bouts
+    (l'onglet d'un angle la coupe) ; null si aucune face ne donne dehors */
+function peauExterieure(w: MurDroit, exterieurs: readonly Anneau[]): Polygone | null {
+  const u = normaliser(soustraire(w.axis.b, w.axis.a)), n = normaleGauche(u), F = decalagesFaces(w);
+  const L = Math.hypot(w.axis.b.x - w.axis.a.x, w.axis.b.y - w.axis.a.y), m = ajouter(w.axis.a, multiplier(u, L / 2));
+  const dehors = (k: number) => !exterieurs.some(r => positionDansAnneau(ajouter(m, multiplier(n, k)), r) !== 'dehors');
+  const cote = dehors(F.gauche + 30) ? 1 : dehors(F.droite - 30) ? -1 : 0;
+  if (!cote) return null;
+  const face = cote > 0 ? F.gauche : F.droite, k0 = face - cote * EPAISSEUR_PAREMENT, k1 = face + cote * 1_000;
+  const P = (t: Mm, k: Mm) => ajouter(ajouter(w.axis.a, multiplier(u, t)), multiplier(n, k));
+  const M = 4 * w.thickness + 1_000;
+  return { contour: [P(-M, k0), P(L + M, k0), P(L + M, k1), P(-M, k1)] };
+}
+
 function murs(f: Floor, prismes: Prisme[]): void {
   const plan = planDuNiveau(f), contours = new Map(plan.murs.map(m => [m.id, m.contour]));
+  /* le dehors du niveau : hors des contours extérieurs de sa maçonnerie */
+  const exterieurs = plan.maconnerie.map(m => m.contour);
   const ouvertures = Object.values(f.objects).filter((o): o is Opening => o.type === 'opening');
   for (const w of mursDroits(f)) {
     const C = contours.get(w.id);
@@ -84,15 +109,20 @@ function murs(f: Floor, prismes: Prisme[]): void {
     const O = ouvertures.filter(o => o.hostWallId === w.id);
     const mur: Polygone[] = [{ contour: C }];
     const bandes = O.map(o => bande(w, o.offset - o.width / 2, o.offset + o.width / 2));
+    /* un parement : la peau du côté extérieur ; le reste du mur garde sa matière */
+    const peau = w.finish && w.role === 'exterior' ? peauExterieure(w, exterieurs) : null;
+    const poser = (P: Polygone[], a: number, b: number) => {
+      const parts = peau ? [...difference(P, [peau]).map(q => ({ q, m: matiere, fin: undefined })), ...intersection(P, [peau]).map(q => ({ q, m: 'parement' as Matiere, fin: w.finish }))]
+        : P.map(q => ({ q, m: matiere, fin: undefined }));
+      for (const { q, m, fin } of parts) prismes.push({ contour: q.contour, ...(q.trous?.length ? { trous: q.trous } : {}), z0: a, z1: b, matiere: m, objet: w.id, niveau: f.id, ...(fin ? { finition: fin } : {}) });
+    };
     /* le mur plein, hors des bandes des ouvertures */
-    for (const p of bandes.length ? difference(mur, bandes) : mur) prismes.push({ contour: p.contour, ...(p.trous?.length ? { trous: p.trous } : {}), z0, z1, matiere, objet: w.id, niveau: f.id });
+    poser(bandes.length ? difference(mur, bandes) : mur, z0, z1);
     O.forEach((o, i) => {
       const morceaux = intersection(mur, [bandes[i]!]);
       const bas = z0 + o.sill, haut = Math.min(z1, bas + o.height);
-      for (const p of morceaux) {
-        if (bas > z0) prismes.push({ contour: p.contour, z0, z1: bas, matiere, objet: w.id, niveau: f.id });              // allège
-        if (haut < z1) prismes.push({ contour: p.contour, z0: haut, z1, matiere, objet: w.id, niveau: f.id });            // linteau
-      }
+      if (bas > z0) poser(morceaux, z0, bas);              // allège
+      if (haut < z1) poser(morceaux, haut, z1);            // linteau
       /* le remplissage, au milieu de l'épaisseur */
       const m = remplissage(o);
       if (!m) return;
@@ -114,7 +144,7 @@ function planchers(projet: Project, f: Floor, prismes: Prisme[]): void {
     prismes.push({ contour: p.contour, ...(p.trous?.length ? { trous: p.trous } : {}), z0: f.elevation - EPAISSEUR_PLANCHER, z1: f.elevation, matiere: 'plancher', niveau: f.id });
   /* le sol fini des pièces, à peine au-dessus du plancher (lisible, sans scintillement) */
   for (const z of plan.zones) for (const p of ouvrir([{ contour: z.polygone.contour }]))
-    prismes.push({ contour: p.contour, ...(p.trous?.length ? { trous: p.trous } : {}), z0: f.elevation, z1: f.elevation + 5, matiere: 'sol', ...(z.piece ? { objet: z.piece.id } : {}), niveau: f.id });
+    prismes.push({ contour: p.contour, ...(p.trous?.length ? { trous: p.trous } : {}), z0: f.elevation, z1: f.elevation + 5, matiere: 'sol', ...(z.piece ? { objet: z.piece.id } : {}), niveau: f.id, ...(z.piece?.floorFinish ? { finition: z.piece.floorFinish } : {}) });
 }
 
 /* les escaliers : chaque marche, pleine depuis le sol du départ (un escalier maçonné ou un limon caché) */

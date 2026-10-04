@@ -206,6 +206,17 @@ le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Le terrain
 lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
 revient avec l'import du RDC.
 
+**Matériaux** (`src/catalogue/materiaux.ts`) : parements de façade (enduits,
+bardages, pierre, brique) et sols (carrelages, parquet, béton ciré…), des
+aspects courants, sans marque ni prix (le produit reste au programme
+technique). Le parement se choisit mur par mur (inspecteur d'un mur
+extérieur) ou pour toutes les façades d'un coup (panneau 3D) ; le sol, pièce
+par pièce ou pour tout le niveau. En 3D, le parement est une peau de 2 cm
+prise dans l'épaisseur du mur, sur la face qui donne dehors (l'intérieur
+garde sa teinte), avec son motif (lames, briques, carreaux, parquet) ; les
+façades du PDF prennent ses teintes et listent les matériaux (parements et
+couverture) ; la coupe tranche la peau avec le mur.
+
 **Escaliers** (outil E ; `src/building/escalier.ts`) : droit ou quart
 tournant avec palier ; on pose le départ, T tourne le sens de la montée.
 Le modèle ne garde que départ, sens, largeur et forme (et un giron imposé,

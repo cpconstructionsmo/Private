@@ -59,11 +59,11 @@ export interface Origine { label: string; document?: string; statut?: SourceStat
 export type Commande =
   | { type: 'creerMur'; niveau: string; a: Point; b: Point; epaisseur: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; id?: string; origine?: Origine; porteur?: Qualified<boolean> }
   | { type: 'deplacerMur'; id: string; a?: Point; b?: Point }
-  | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification'] }
+  | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; finition?: string | null }
   | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing']; origine?: Origine; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
   | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing']; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
   | { type: 'creerPiece'; niveau: string; point: Point; nom: string; usage: RoomUsage; humide?: boolean; origine?: Origine }
-  | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point }
+  | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point; sol?: string | null }
   | { type: 'supprimer'; id: string }
   | { type: 'ajouterNiveau'; batiment: string; nom: string; altitude: Mm; hauteur: Mm }
   | { type: 'renommerProjet'; nom: string }
@@ -149,6 +149,9 @@ function parcelleInvalide(contour: Point[], voies: number[], nord: number, altit
   if (altitude !== undefined && altitude !== null && !(fini(altitude) && altitude > -100 && altitude < 5_000)) return 'altitude NGF invalide';
   return null;
 }
+
+/** un identifiant de matériau : court, lisible (le catalogue peut grandir : un identifiant inconnu se dessine par défaut) */
+const matiereValide = (id: string): boolean => /^[a-z0-9-]{1,60}$/.test(id);
 
 const vantauxValides = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 4;
 
@@ -236,10 +239,11 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       } else {
         if (cmd.epaisseur !== undefined && !(cmd.epaisseur > 0)) return refus('l’épaisseur doit être positive');
         if (cmd.hauteur !== undefined && !(cmd.hauteur > 0)) return refus('la hauteur doit être positive');
-        for (const k of ['epaisseur', 'hauteur', 'role', 'justification'] as const) {
+        if (cmd.finition !== undefined && cmd.finition !== null && !matiereValide(cmd.finition)) return refus('parement inconnu');
+        for (const k of ['epaisseur', 'hauteur', 'role', 'justification', 'finition'] as const) {
           if (cmd[k] === undefined) continue;
-          const champ = ({ epaisseur: 'thickness', hauteur: 'height', role: 'role', justification: 'justification' } as const)[k];
-          avant[champ] = w[champ]; apres[champ] = cmd[k];
+          const champ = ({ epaisseur: 'thickness', hauteur: 'height', role: 'role', justification: 'justification', finition: 'finish' } as const)[k];
+          avant[champ] = w[champ] ?? null; apres[champ] = cmd[k];    // null (absent) : il le reste une fois passé par le JSON ; finition null : plus de parement
         }
       }
       return accepte([{ type: 'objet.modifier', niveau: t.niveauId, id: w.id, avant, apres }]);
@@ -302,6 +306,10 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.usage !== undefined) { avant['usage'] = r.usage; apres['usage'] = cmd.usage }
       if (cmd.humide !== undefined) { avant['wet'] = r.wet; apres['wet'] = cmd.humide }
       if (cmd.point !== undefined) { avant['seed'] = r.seed; apres['seed'] = { ...cmd.point } }
+      if (cmd.sol !== undefined) {
+        if (cmd.sol !== null && !matiereValide(cmd.sol)) return refus('sol inconnu');
+        avant['floorFinish'] = r.floorFinish ?? null; apres['floorFinish'] = cmd.sol;
+      }
       return accepte([{ type: 'objet.modifier', niveau: t.niveauId, id: r.id, avant, apres }]);
     }
     case 'supprimer': {

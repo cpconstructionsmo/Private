@@ -11,10 +11,11 @@ import { dessiner, dessinerParcelle, nord, type Scene } from '../ui/dessin';
 import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle } from '../building/terrain';
 import { versEcran, type Camera } from '../ui/camera';
 import { DocumentPdf, type PagePdf } from './pdf';
-import { maquette, type Matiere } from '../vue3d/maquette';
+import { maquette, COUVERTURES, type Matiere } from '../vue3d/maquette';
 import { facade, FACADES, type CoteFacade, type Facade } from '../vue3d/facades';
 import { coupe, lignesDeCoupe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import { ToilePdf } from './toile-pdf';
+import { materiau } from '../catalogue/materiaux';
 
 export const PT = 72 / 25.4;                       // points par millimètre
 export const A3 = { l: 420, h: 297 } as const;      // à l'italienne, mm
@@ -170,6 +171,17 @@ function hauteurs(projet: Project): { egout: number | null; faitage: number | nu
   return { egout, faitage, hautMurs };
 }
 
+/** les matériaux qui se voient en façade : parements des murs extérieurs, puis couverture */
+function materiauxFacade(projet: Project): [string, string][] {
+  const vus = new Map<string, string>();
+  const murs = projet.buildings.flatMap(b => b.floors).flatMap(f => Object.values(f.objects)).filter(o => o.type === 'wall' && o.role === 'exterior');
+  for (const w of murs) { const m = w.type === 'wall' ? materiau(w.finish) : undefined; if (m) vus.set(m.libelle, m.couleur) }
+  if (murs.some(w => w.type === 'wall' && !materiau(w.finish))) vus.set('Façade sans parement choisi', '#FFFFFF');
+  for (const f of projet.buildings.flatMap(b => b.floors)) for (const o of Object.values(f.objects)) if (o.type === 'roof') vus.set('Couverture : ' + COUVERTURES_FR[o.covering], TEINTES[COUVERTURES[o.covering]] ?? '#FFFFFF');
+  return [...vus];
+}
+const COUVERTURES_FR: Record<string, string> = { tile: 'tuiles', slate: 'ardoises', zinc: 'zinc', steel: 'bac acier', green: 'toiture végétalisée', gravel: 'toit-terrasse gravillonné' };
+
 function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsPlanche): void {
   const page = doc.page(A3.l * PT, A3.h * PT);
   const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
@@ -189,7 +201,7 @@ function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
     /* la façade centrée dans sa case ; z = 0 (le sol) sur une ligne commune */
     const solY = y0 + 10 + (CH - 16 + haut / ech) / 2, uc = (f.boite.umin + f.boite.umax) / 2, xc = x0 + 22 + (CL - 26) / 2;     // centrée dans sa case
     const P = (u: number, z: number): [number, number] => [X(xc + (u - uc) / ech), Y(solY - z / ech)];
-    for (const face of f.faces) page.polygone(face.points.map(q => P(q.u, q.z)), { fond: TEINTES[face.matiere] ?? '#FFFFFF', trait: '#1A2B36', ep: 0.3 });
+    for (const face of f.faces) page.polygone(face.points.map(q => P(q.u, q.z)), { fond: materiau(face.finition)?.couleur ?? TEINTES[face.matiere] ?? '#FFFFFF', trait: '#1A2B36', ep: 0.3 });
     /* le terrain */
     const [ga] = P(f.boite.umin - 1_500, 0), [gb] = P(f.boite.umax + 1_500, 0);
     page.trait(ga, Y(solY), gb, Y(solY), 1.1);
@@ -212,6 +224,13 @@ function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
   if (H.egout !== null) lignes.push(['Égout (le plus bas)', m(H.egout)]);
   if (H.faitage !== null) lignes.push(['Faîtage (le plus haut)', m(H.faitage)]);
   for (const [k, v] of lignes) { page.texte(k, X(COLONNE.x + 5), Y(y), 8); page.texte(v, X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite', gras: true }); y += 5 }
+  /* les matériaux de façade et de couverture (PCMI 5), avec leur teinte */
+  const mats = materiauxFacade(projet);
+  if (mats.length) {
+    y += 4;
+    page.texte('MATÉRIAUX', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 7;
+    for (const [lib, coul] of mats) { page.cadre(X(COLONNE.x + 5), Y(y + 0.8), 4 * PT, 3 * PT, { ep: 0.3, fond: coul }); page.texte(lib, X(COLONNE.x + 11), Y(y), 7.5); y += 5 }
+  }
   y += 3;
   for (const t of ['Hauteurs indicatives depuis le sol fini, au nu extérieur', 'du haut des murs : charpente, isolation et épaisseurs', 'réelles ne sont pas étudiées ici (à vérifier avant le PC).', '', 'Orientation supposée : le haut du plan est au nord', '(à confirmer sur le plan de masse).'])
     { page.texte(t, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
