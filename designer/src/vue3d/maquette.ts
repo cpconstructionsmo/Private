@@ -22,6 +22,7 @@
 import type { Floor, Mm, Opening, Point, Project, Roof } from '../model/types';
 import { planDuNiveau } from '../building/plan';
 import { toitureDuNiveau, type Point3 } from '../building/toiture';
+import { fenetresDeToit } from '../building/fenetres-toit';
 import { blocs, formeDe, versPlan } from '../building/mobilier';
 import { finitionAmenagement } from '../catalogue/amenagements';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
@@ -60,6 +61,9 @@ export interface Plaque {
   matiere: Matiere;
   objet?: string;
   niveau: string;
+  /** posée sur une autre plaque (une fenêtre de toit sur son pan) : le dessus de ce support, pour que les vues
+      la dessinent juste après lui, et non derrière (le peintre rangerait sinon le grand pan devant elle) */
+  support?: Point3[];
 }
 
 export interface Maquette {
@@ -214,7 +218,21 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
       for (const a of t.terrasse.acrotere) prismes.push({ contour: a.contour, ...(a.trous?.length ? { trous: a.trous } : {}), z0: t.terrasse.z1, z1: t.terrasse.zAcrotere, matiere: 'mur', objet: roof.id, niveau: f.id });
     }
   }
+  /* les fenêtres de toit : un dormant sombre posé sur la couverture, son vitrage en retrait des bords */
+  for (const { o, geo } of fenetresDeToit(f)) {
+    const support = geo.pan.contour.map(q => ({ ...q, z: geo.pan.plan.a * q.x + geo.pan.plan.b * q.y + geo.pan.plan.c }));
+    const n = geo.normale, k = (q: Point3, d: number): Point3 => ({ x: q.x + n.x * d, y: q.y + n.y * d, z: q.z + n.z * d });
+    plaques.push({ dessus: geo.coins.map(q => k(q, CHASSIS_TOIT.saillie)), decalage: { x: -n.x * CHASSIS_TOIT.saillie, y: -n.y * CHASSIS_TOIT.saillie, z: -n.z * CHASSIS_TOIT.saillie }, matiere: 'ardoise', objet: o.id, niveau: f.id, support });
+    const [c0, c1, , c3] = geo.coins as [Point3, Point3, Point3, Point3];
+    const unit = (a: Point3, b: Point3) => { const L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) || 1; return { x: (b.x - a.x) / L, y: (b.y - a.y) / L, z: (b.z - a.z) / L } };
+    const e1 = unit(c0, c1), e2 = unit(c0, c3), r = CHASSIS_TOIT.dormant;
+    const dedans = geo.coins.map((q, i) => { const s1 = i === 0 || i === 3 ? 1 : -1, s2 = i < 2 ? 1 : -1; return { x: q.x + (e1.x * s1 + e2.x * s2) * r, y: q.y + (e1.y * s1 + e2.y * s2) * r, z: q.z + (e1.z * s1 + e2.z * s2) * r } });
+    plaques.push({ dessus: dedans.map(q => k(q, CHASSIS_TOIT.saillie + 5)), decalage: { x: -n.x * 10, y: -n.y * 10, z: -n.z * 10 }, matiere: 'vitrage', objet: o.id, niveau: f.id, support });
+  }
 }
+
+/** un châssis de toit dessiné : il dépasse de la couverture de « saillie », son dormant fait « dormant » de large (mm) */
+export const CHASSIS_TOIT = { saillie: 80, dormant: 60 } as const;
 
 /* les aménagements extérieurs : surfaces posées sur le terrain (la terrasse à son niveau fini, en dalle), clôtures
    en relief le long de leur ligne. Le terrain de la vue est à −3 cm : les surfaces passent juste au-dessus. */

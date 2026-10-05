@@ -23,6 +23,7 @@ import type { Accroche } from '../building/accrochage';
 import { maquette } from '../vue3d/maquette';
 import { PAREMENTS, PEINTURES, SOLS } from '../catalogue/materiaux';
 import { MODELES_MAISONS, modeleMaison } from '../catalogue/modeles-maisons';
+import { geometrieFenetreToit, TAILLES_FENETRE_TOIT } from '../building/fenetres-toit';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
@@ -568,14 +569,21 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'parcelle', icone: '⛶', libelle: 'Parcelle (limite du terrain)', touche: 'L' },
     { nom: 'amenagement', icone: '❀', libelle: 'Aménagement extérieur (clôture, terrasse, allée…)', touche: 'A' },
     { nom: 'pointdevue', icone: '◉', libelle: 'Point de prise de vue (photographies du dossier)', touche: 'I' },
+    { nom: 'fenetretoit', icone: '◇', libelle: 'Fenêtre de toit', touche: 'H' },
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
   function choisir(o: NomOutil) {
     if (en3D) void basculer3D(false);
     /* la parcelle se trace sur le niveau le plus bas (le terrain) */
+    /* une fenêtre de toit se pose sur la toiture : on passe au niveau qui la porte */
+    if (o === 'fenetretoit' && !Object.values(niveau().objects).some(x => x.type === 'roof')) {
+      const t = niveaux().find(f => Object.values(f.objects).some(x => x.type === 'roof'));
+      if (!t) { toast('Aucune toiture : posez-la d’abord (panneau du niveau ou de la 3D), puis ses fenêtres', true); return }
+      niveauId = t.id; selection = null; apres();
+    }
     if (o === 'parcelle' || o === 'amenagement' || o === 'pointdevue') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
-    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
@@ -793,6 +801,21 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           ligne(bouton('Inverser le regard (T)', () => mod('Inverser le regard de la coupe', { regard: o.look === 'left' ? 'right' : 'left' })), bouton('PDF des coupes', () => void exporterCoupes(), 'prim')));
         A.append(bloc(apercuCoupe(ligneDe(o)), 'apercu-coupe'),
           bloc('Les flèches montrent ce que la coupe regarde. Le plan de coupe prolonge le trait de part en part du bâtiment. Tirez le trait pour le déplacer. Le trait se voit sur tous les niveaux et dans le PDF ; il se choisit sur le niveau où il a été tracé.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'roof_window': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierFenetreToit' }>>) => faire(t, [{ type: 'modifierFenetreToit', id: o.id, ...c }]);
+        const g = geometrieFenetreToit(niveau(), o), taille = o.width + 'x' + o.height;
+        const tailles = Object.fromEntries(TAILLES_FENETRE_TOIT.map(([l, hh]) => [l + 'x' + hh, (l / 10) + ' × ' + (hh / 10) + ' cm']));
+        A.append(titre('Fenêtre de toit'),
+          champ('Taille courante', tailles[taille] ? taille : '', v => { const [l, hh] = v.split('x').map(Number); if (l && hh) mod('Taille de la fenêtre de toit', { largeur: l, hauteur: hh }) }, 'text',
+            { '': 'Autre (ci-dessous)', ...tailles }),
+          champ('Largeur (cm)', o.width / 10, v => mod('Largeur de la fenêtre de toit', { largeur: Math.round(Number(v.replace(',', '.')) * 10) }), 'number'),
+          champ('Hauteur dans la pente (cm)', o.height / 10, v => mod('Hauteur de la fenêtre de toit', { hauteur: Math.round(Number(v.replace(',', '.')) * 10) }), 'number'),
+          bloc(g.ok ? 'Sur un pan de ' + g.geo.pente.toFixed(0) + '° ; en plan, ' + m(o.width) + ' × ' + m(o.height * Math.cos(g.geo.pente * Math.PI / 180)) + ' (la hauteur se raccourcit avec la pente).'
+            : '⚠️ ' + esc(g.raison), g.ok ? 'note' : 'alerte'),
+          bloc('Tirez-la pour la déplacer sur le pan. Dimensions de châssis courantes, sans marque : « ou équivalent » au descriptif.'),
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }

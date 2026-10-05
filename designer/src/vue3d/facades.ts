@@ -59,10 +59,11 @@ function audela(P: PointVu[]): PointVu[] {
 export function projeter(m: Maquette, v: Vue, caches: ReadonlySet<Matiere>, coupe = false): Pick<Facade, 'faces' | 'boite'> {
   const faces: FaceProjetee[] = [];
   /* rang : un côté de mur par son milieu (l'onglet d'un angle passe ainsi derrière la façade), un pan par son point le plus proche */
-  const ajouter = (points: PointVu[], rang: 'milieu' | 'proche', matiere: Matiere, ecart = 0, finition?: string) => {
+  const ajouter = (points: PointVu[], rang: 'milieu' | 'proche' | number, matiere: Matiere, ecart = 0, finition?: string) => {
     const P = coupe ? audela(points) : points;
     if (P.length < 3) return;
-    const prof = P.map(q => q.p), profondeur = (rang === 'milieu' ? (Math.min(...prof) + Math.max(...prof)) / 2 : Math.min(...prof)) + ecart;
+    /* un rang chiffré : la profondeur imposée (une plaque posée sur une autre se range juste devant elle) */
+    const prof = P.map(q => q.p), profondeur = (typeof rang === 'number' ? rang : rang === 'milieu' ? (Math.min(...prof) + Math.max(...prof)) / 2 : Math.min(...prof)) + ecart;
     const Q = P.map(q => ({ u: q.u, z: q.z }));
     if (Math.abs(aireSigneeUZ(Q)) > 1) faces.push({ points: Q, profondeur, matiere, ...(finition ? { finition } : {}) });          // vue de chant : rien à dessiner
   };
@@ -78,12 +79,13 @@ export function projeter(m: Maquette, v: Vue, caches: ReadonlySet<Matiere>, coup
   for (const p of m.plaques) {
     if (caches.has(p.matiere)) continue;
     const H = p.dessus, B = H.map(q => ({ x: q.x + p.decalage.x, y: q.y + p.decalage.y, z: q.z + p.decalage.z }));
-    ajouter(B.map(q => vu(q, q.z)), 'proche', p.matiere, 1);
+    const rang: 'proche' | number = p.support ? Math.min(...p.support.map(q => v.prof(q))) - 1 : 'proche';
+    ajouter(B.map(q => vu(q, q.z)), rang, p.matiere, 1);
     H.forEach((a, i) => {
       const b = H[(i + 1) % H.length]!, a2 = B[i]!, b2 = B[(i + 1) % H.length]!;
-      ajouter([vu(a, a.z), vu(b, b.z), vu(b2, b2.z), vu(a2, a2.z)], 'proche', p.matiere);
+      ajouter([vu(a, a.z), vu(b, b.z), vu(b2, b2.z), vu(a2, a2.z)], rang, p.matiere);
     });
-    ajouter(H.map(q => vu(q, q.z)), 'proche', p.matiere);
+    ajouter(H.map(q => vu(q, q.z)), typeof rang === 'number' ? rang - 0.5 : rang, p.matiere);
   }
   /* du plus loin au plus près ; à profondeur égale, la toiture après les murs */
   faces.sort((a, b) => b.profondeur - a.profondeur);

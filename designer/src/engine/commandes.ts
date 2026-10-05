@@ -12,13 +12,14 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, Wall } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
 import { mesurerCote, resoudre, type Epingle } from '../building/contraintes';
 import { calage, calageParDistance, TRANSFORMATION_NEUTRE } from '../building/fond';
+import { geometrieFenetreToit } from '../building/fenetres-toit';
 import { appliquerTout, type Operation } from './operations';
 
 export interface Contexte {
@@ -93,6 +94,8 @@ export type Commande =
   | { type: 'creerCoupe'; niveau: string; a: Point; b: Point; regard?: SectionLine['look']; nom?: string }
   | { type: 'modifierCoupe'; id: string; a?: Point; b?: Point; regard?: SectionLine['look']; nom?: string }
   | { type: 'creerPointDeVue'; niveau: string; a: Point; b: Point; piece?: Viewpoint['piece'] }
+  | { type: 'creerFenetreToit'; niveau: string; centre: Point; largeur?: Mm; hauteur?: Mm }
+  | { type: 'modifierFenetreToit'; id: string; centre?: Point; largeur?: Mm; hauteur?: Mm }
   | { type: 'modifierPointDeVue'; id: string; a?: Point; b?: Point; piece?: Viewpoint['piece'] }
   /** la parcelle (une par projet) ; « nomVoie », « reference » vides : effacés */
   | { type: 'creerParcelle'; niveau: string; contour: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number; origine?: Origine }
@@ -140,6 +143,15 @@ function coupeInvalide(p: Project, a: Point, b: Point, nom: string, sauf?: strin
   if (!/^[A-Za-z0-9]{1,3}$/.test(nom)) return 'nom de coupe : 1 à 3 lettres ou chiffres';
   if (nomsDeCoupes(p, sauf).has(nom)) return 'une coupe ' + nom + '-' + nom + ' existe déjà';
   return null;
+}
+
+/** une fenêtre de toit : une taille de châssis plausible, entière sur un pan de la toiture du niveau */
+function fenetreToitInvalide(f: Floor, centre: Point, largeur: Mm, hauteur: Mm): string | null {
+  if (!ptFini(centre) || !fini(largeur) || !fini(hauteur)) return 'position ou dimensions invalides';
+  if (largeur < 400 || largeur > 2_000) return 'largeur de fenêtre de toit de 40 cm à 2 m';
+  if (hauteur < 500 || hauteur > 2_000) return 'hauteur de fenêtre de toit (dans la pente) de 50 cm à 2 m';
+  const g = geometrieFenetreToit(f, { center: centre, width: largeur, height: hauteur });
+  return g.ok ? null : g.raison;
 }
 
 export const PIECES_POINT_DE_VUE: readonly Viewpoint['piece'][] = ['PCMI 7', 'PCMI 8', 'PCMI 6'];
@@ -598,6 +610,27 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         a: { ...cmd.a }, b: { ...cmd.b }, look: cmd.regard ?? 'left', name: nom,
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: s }]);
+    }
+    case 'creerFenetreToit': {
+      const f = trouverNiveau(p, cmd.niveau);
+      if (!f) return refus('niveau introuvable');
+      const largeur = cmd.largeur ?? 780, hauteur = cmd.hauteur ?? 980;
+      const e = fenetreToitInvalide(f.floor, cmd.centre, largeur, hauteur);
+      if (e) return refus(e);
+      const w: RoofWindow = { id: c.id(), type: 'roof_window', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision, center: { ...cmd.centre }, width: largeur, height: hauteur };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: w }]);
+    }
+    case 'modifierFenetreToit': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'roof_window') return refus('fenêtre de toit introuvable');
+      const o = t.objet, f = trouverNiveau(p, t.niveauId)!;
+      const e = fenetreToitInvalide(f.floor, cmd.centre ?? o.center, cmd.largeur ?? o.width, cmd.hauteur ?? o.height);
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      const champs = { centre: 'center', largeur: 'width', hauteur: 'height' } as const;
+      for (const k of Object.keys(champs) as (keyof typeof champs)[]) { if (cmd[k] === undefined) continue; avant[champs[k]] = o[champs[k]]; apres[champs[k]] = cmd[k] }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, o, avant, apres, c)]);
     }
     case 'creerPointDeVue': {
       if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');

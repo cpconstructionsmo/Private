@@ -8,7 +8,7 @@
 import type { Floor, Project, Roof } from '../model/types';
 import type { Toiture } from '../building/toiture';
 import { centroide } from '../geometry/polygon';
-import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building';
+import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit } from '../building';
 import { dessiner, dessinerAmenagement, dessinerParcelle, dessinerPointDeVue, nord, type Scene } from '../ui/dessin';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
 import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, bilanAmenagements, pointsDeVue, champDeVue } from '../building/terrain';
@@ -381,8 +381,14 @@ function plancheToiture(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
       murs();
       continue;
     }
+    for (const pan of t.pans) page.polygone(pan.contour.map(E), { fond: teinte, trait: '#1A2B36', ep: 0.7 });
+    /* les fenêtres de toit : le châssis en plan (raccourci par la pente), vitré, ses diagonales ; avant les flèches de pente */
+    for (const { geo } of fenetresDeToit(f)) {
+      const C = geo.plan.map(E);
+      page.polygone(C, { fond: '#C9DCE7', trait: '#1A2B36', ep: 0.6 });
+      page.trait(C[0]![0], C[0]![1], C[2]![0], C[2]![1], 0.3); page.trait(C[1]![0], C[1]![1], C[3]![0], C[3]![1], 0.3);
+    }
     for (const pan of t.pans) {
-      page.polygone(pan.contour.map(E), { fond: teinte, trait: '#1A2B36', ep: 0.7 });
       /* la flèche de la pente, du haut vers le bas du pan, au milieu du pan */
       const g = Math.hypot(pan.plan.a, pan.plan.b);
       if (g < 1e-6) continue;
@@ -425,6 +431,8 @@ function plancheToiture(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
   ligne('Égout (le plus bas)', m(Math.min(...t0.map(x => x.egoutZ))));
   ligne('Faîtage (le plus haut)', m(Math.max(...t0.map(x => x.faitage))));
   ligne('Surface de couverture', m2(t0.reduce((s, x) => s + x.surfaceCouverture, 0)));
+  const FT = T.filter((x, i) => T.findIndex(z => z.f.id === x.f.id) === i).flatMap(x => fenetresDeToit(x.f));
+  if (FT.length) ligne('Fenêtres de toit', FT.length + ' (' + [...new Set(FT.map(x => x.o.width / 10 + ' × ' + x.o.height / 10))].join(', ') + ' cm)');
   y += 3;
   for (const l of ['Flèches : sens de la pente, vers l’égout. Murs porteurs', 'en tirets fins ; pignons en trait fort. Charpente,', 'gouttières et descentes : à préciser au projet.'])
     { page.texte(l, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }

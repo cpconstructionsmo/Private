@@ -264,11 +264,21 @@ export interface Viewpoint extends BaseObject {
   piece: 'PCMI 6' | 'PCMI 7' | 'PCMI 8';
 }
 
+/** une fenêtre de toit (châssis posé dans la pente), sur le niveau qui porte la toiture : son centre en plan,
+ *  sa largeur (le long de l'égout) et sa hauteur (mesurée dans la pente). Le pan qui la porte est celui qui
+ *  contient son centre : il se déduit, il n'est pas gardé (la toiture se recalcule avec les murs) */
+export interface RoofWindow extends BaseObject {
+  type: 'roof_window';
+  center: Point;
+  width: Mm;
+  height: Mm;
+}
+
 /* Contraintes, valeur des cotes, toiture, mobilier, escaliers, coupes, parcelle, aménagements s'ajoutent sans rien
    changer aux projets déjà enregistrés (un type de plus, un champ
    facultatif) : le schéma reste à la version 1, l'instantané figé des
    tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint;
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow;
 
 export interface Floor {
   id: string;

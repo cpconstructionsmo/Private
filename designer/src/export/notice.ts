@@ -64,6 +64,8 @@ export function notice(p: Project): RubriqueNotice[] {
   const ouv = new Map<Opening['kind'], number>();
   for (const o of objets) if (o.type === 'opening') ouv.set(o.kind, (ouv.get(o.kind) ?? 0) + 1);
   const ouvs = [...ouv].filter(([k]) => k !== 'void').map(([k, n]) => n + ' ' + OUV[k][n > 1 ? 1 : 0]);
+  const ft = objets.filter(o => o.type === 'roof_window').length;
+  if (ft) ouvs.push(ft + (ft > 1 ? ' fenêtres de toit' : ' fenêtre de toit'));
   materiaux.push('Menuiseries : ' + (ouvs.length ? liste(ouvs) : 'aucune posée') + ' ; matériau et teinte ' + A_COMPLETER + '.');
   if (roofs.length) materiaux.push('Couverture : ' + COUV[roofs[0]!.r.covering] + ', teinte ' + A_COMPLETER + '.');
 

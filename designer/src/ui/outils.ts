@@ -22,7 +22,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'piece' | 'cote' | 'caler';
+export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'piece' | 'cote' | 'caler';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -101,6 +101,7 @@ type Prise =
   | { genre: 'escalier'; id: string; depart: Point; origine: Point }
   | { genre: 'coupe'; id: string; depart: Point; a: Point; b: Point }
   | { genre: 'pointdevue'; id: string; depart: Point; a: Point; b: Point }
+  | { genre: 'fenetretoit'; id: string; depart: Point; centre: Point }
   | { genre: 'parcelle'; id: string; depart: Point; contour: Point[] }
   | { genre: 'amenagement'; id: string; depart: Point; points: Point[] };
 
@@ -116,6 +117,7 @@ const AIDES: Record<NomOutil, string> = {
   parcelle: 'Limite de la parcelle : cliquer chaque sommet — ou taper la longueur du côté (12,50 ou 12,50<90) ; revenir au premier point ou Entrée pour fermer',
   amenagement: 'Aménagement (à droite : clôture, terrasse, allée…) : cliquer chaque point — ou taper la longueur ; Entrée pour finir une clôture, revenir au premier point pour fermer',
   pointdevue: 'Point de prise de vue d’une photographie du dossier : cliquer l’appareil, puis le point visé (Maj : 45°)',
+  fenetretoit: 'Fenêtre de toit : cliquer sur un pan de la toiture (vue du niveau qui la porte) pour y poser un châssis de 78 × 98 cm',
   piece: 'Cliquer dans un espace clos pour le nommer',
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
@@ -335,6 +337,12 @@ export class Outils {
           this.dernier = { type: 'modifierParcelle', id: p.id, contour: p.contour.map(q => ({ x: q.x + dx, y: q.y + dy })) };
           return { apercu: [this.dernier] };
         }
+        if (p.genre === 'fenetretoit') {
+          if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
+          this.bouge = true;
+          this.dernier = { type: 'modifierFenetreToit', id: p.id, centre: { x: Math.round(p.centre.x + g.point.x - p.depart.x), y: Math.round(p.centre.y + g.point.y - p.depart.y) } };
+          return { apercu: [this.dernier] };
+        }
         if (p.genre === 'coupe' || p.genre === 'pointdevue') {
           if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
           this.bouge = true;
@@ -409,6 +417,8 @@ export class Outils {
         if (!this.depart || distance(a.point, this.depart) < 500) return { accroche: a, apercu: [] };
         return { accroche: a, apercu: [{ type: 'creerCoupe', niveau: c.niveau, a: this.depart, b: a.point }] };
       }
+      case 'fenetretoit':
+        return { accroche: null, apercu: [{ type: 'creerFenetreToit', niveau: c.niveau, centre: { x: Math.round(g.point.x), y: Math.round(g.point.y) } }] };
       case 'pointdevue': {
         const a = this.accrocher(g, this.depart);
         if (!this.depart || distance(a.point, this.depart) < 500) return { accroche: a, apercu: [] };
@@ -460,6 +470,7 @@ export class Outils {
         else if (o?.type === 'stair') this.prise = { genre: 'escalier', id: o.id, depart: g.point, origine: { ...o.position } };
         else if (o?.type === 'section') this.prise = { genre: 'coupe', id: o.id, depart: g.point, a: { ...o.a }, b: { ...o.b } };
         else if (o?.type === 'viewpoint') this.prise = { genre: 'pointdevue', id: o.id, depart: g.point, a: { ...o.a }, b: { ...o.b } };
+        else if (o?.type === 'roof_window') this.prise = { genre: 'fenetretoit', id: o.id, depart: g.point, centre: { ...o.center } };
         else if (o?.type === 'landscape') this.prise = { genre: 'amenagement', id: o.id, depart: g.point, points: o.points.map(q => ({ ...q })) };
         else if (o?.type === 'plot') this.prise = { genre: 'parcelle', id: o.id, depart: g.point, contour: o.contour.map(q => ({ ...q })) };
         else if (o?.type === 'furniture') this.prise = { genre: 'meuble', id: o.id, depart: g.point, decalage: { x: g.point.x - o.position.x, y: g.point.y - o.position.y }, largeur: o.width, profondeur: o.depth, rotation: o.rotation };
@@ -508,6 +519,10 @@ export class Outils {
         const cmd: Commande = { type: 'creerCoupe', niveau: c.niveau, a: this.depart, b: a.point };
         this.depart = null; this.outil = 'selection';
         return { commandes: { titre: 'Trait de coupe', liste: [cmd] }, apercu: [], fini: true, aide: AIDES.selection };
+      }
+      case 'fenetretoit': {
+        const cmd: Commande = { type: 'creerFenetreToit', niveau: c.niveau, centre: { x: Math.round(g.point.x), y: Math.round(g.point.y) } };
+        return { commandes: { titre: 'Fenêtre de toit', liste: [cmd] }, apercu: [], aide: AIDES.fenetretoit };
       }
       case 'pointdevue': {
         const a = this.accrocher(g, this.depart);
@@ -604,7 +619,7 @@ export class Outils {
     }
     this.prise = null; this.bouge = false; this.dernier = null;
     if (!dernier) return { apercu: [] };
-    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'pointdevue' ? 'Déplacer un point de vue' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : 'Déplacer une ouverture';
+    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'pointdevue' ? 'Déplacer un point de vue' : p.genre === 'fenetretoit' ? 'Déplacer une fenêtre de toit' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : 'Déplacer une ouverture';
     return { apercu: [], commandes: { titre, liste: [dernier] } };
   }
 

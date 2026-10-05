@@ -9,6 +9,7 @@ import type { Accroche } from '../building/accrochage';
 import { dimensionsPiece, type ChaineCotes, type PlaceOuverture } from '../building/cotation';
 import { manoeuvreDe } from '../catalogue/ouvertures';
 import type { Toiture } from '../building/toiture';
+import { fenetresDeToit } from '../building/fenetres-toit';
 import { formeDe, traits, versPlan } from '../building/mobilier';
 import type { GeometrieEscalier, Marche } from '../building/escalier';
 import type { LigneDeCoupe } from '../vue3d/coupe';
@@ -169,6 +170,14 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   for (const t of s.toitures ?? []) {
     ctx.strokeStyle = COULEURS.gris; ctx.lineWidth = 1;
     ctx.setLineDash([8, 4]); chemin(ctx, cam, { contour: t.egout }); ctx.stroke(); ctx.setLineDash([]);
+  }
+  /* les fenêtres de toit, au-dessus du plan : en tirets, le vitrage marqué par sa diagonale vers le haut de la pente */
+  for (const { o, geo } of fenetresDeToit(s.niveau)) {
+    const sel = estChoisi(o.id), P = geo.plan.map(E);
+    ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.bleu; ctx.lineWidth = sel ? 1.8 : 1.1; ctx.setLineDash([6, 3]);
+    ctx.fillStyle = sel ? 'rgba(197,86,58,.10)' : 'rgba(141,183,207,.18)';
+    ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(P[0]!.x, P[0]!.y); ctx.lineTo(P[2]!.x, P[2]!.y); ctx.moveTo(P[1]!.x, P[1]!.y); ctx.lineTo(P[3]!.x, P[3]!.y); ctx.stroke(); ctx.setLineDash([]);
   }
   /* cotation automatique, puis la place des ouvertures choisies */
   if (s.cotation) for (const c of s.cotation) chaine(ctx, cam, c);
