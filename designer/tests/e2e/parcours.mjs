@@ -94,6 +94,23 @@ try {
   O = await objets();
   assert.equal(O.find(o => o.role === 'partition').axis.a.x, 4000, 'annuler');
 
+  /* l'équerre : un mur tracé de travers tombe à 90° ; Q la coupe ; « Mettre d'équerre » redresse après coup */
+  await p.keyboard.press('m'); await clic(5000, 5000); await clic(9000, 5150); await p.keyboard.press('Escape');
+  await p.keyboard.press('q');
+  await clic(5000, 7000); await clic(9000, 7300); await p.keyboard.press('Escape');
+  await p.keyboard.press('q');
+  O = await objets();
+  const deTravers = O.filter(o => o.type === 'wall' && o.axis.a.x === 5000);
+  assert.deepEqual(deTravers.map(w => [w.axis.b.y, w.axis.a.y]), [[5000, 5000], [7300, 7000]], 'aimanté à l’équerre, puis libre (Q) : ' + JSON.stringify(deTravers.map(w => w.axis)));
+  await p.keyboard.press('v'); await p.mouse.click(1080, 820);
+  await p.click('aside button:has-text("les murs du niveau")');
+  O = await objets();
+  const redresse = O.find(o => o.id === deTravers[1].id);
+  assert.equal(redresse.axis.a.y, redresse.axis.b.y, 'mis d’équerre : ' + JSON.stringify(redresse.axis));
+  assert.match(await p.textContent('.toast'), /1 mur redressé/);
+  for (let k = 0; k < 3; k++) await p.keyboard.press('Control+z');
+  assert.equal((await objets()).filter(o => o.type === 'wall').length, 5, 'annulé : la maison d’origine');
+
   /* un fond image : import, calage par une distance de 10 m, verrouillage */
   const [fc] = await Promise.all([p.waitForEvent('filechooser'), p.click('text=Importer un fond…')]);
   await fc.setFiles({ name: 'plan-fictif.png', mimeType: 'image/png', buffer: png(1040, 840) });
@@ -461,7 +478,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

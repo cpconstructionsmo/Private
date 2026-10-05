@@ -20,6 +20,8 @@ import { ouvrirSession, type Enregistreur } from './session';
 import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } from '../import/atelier';
 import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fonds';
 import type { Accroche } from '../building/accrochage';
+import { equerrer } from '../building/equerre';
+import { ANGLE_EQUERRE } from '../geometry/tolerance';
 import { maquette } from '../vue3d/maquette';
 import { PAREMENTS, PEINTURES, SOLS } from '../catalogue/materiaux';
 import { MODELES_MAISONS, modeleMaison } from '../catalogue/modeles-maisons';
@@ -181,10 +183,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   let cotation = (() => { try { return localStorage.getItem('cpDesigner:cotation') !== 'non' } catch { return true } })();
   /** les sols en couleur à l'écran (plan de présentation), une préférence de cet appareil */
   let solsCouleur = (() => { try { return localStorage.getItem('cpDesigner:sols') === 'oui' } catch { return false } })();
+  /** l'équerre du tracé des murs (aimantés à 90°), une préférence de cet appareil */
+  const equerreTrace = (() => { try { return localStorage.getItem('cpDesigner:equerre') !== 'non' } catch { return true } })();
   /* la vue 3D : chargée à la première ouverture */
   let vue3d: Vue3D | null = null, en3D = false, coupe3D = false, niveaux3D: 'tous' | 'jusqua' = 'tous', toit3D = true;
 
   const outils = new Outils(() => ({ projet: h.projet, niveau: niveauId, selection }));
+  outils.reglages.equerre = equerreTrace;
   const niveau = (p: Project = h.projet): Floor => trouverNiveau(p, niveauId)?.floor ?? p.buildings[0]!.floors[0]!;
   const niveaux = () => [...h.projet.buildings[0]!.floors].sort((a, b) => a.elevation - b.elevation);
 
@@ -538,6 +543,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (t) { choisir(t); return }
     if (e.key.toLowerCase() === 'f') { cadrerTout(); return }
     if (e.key.toLowerCase() === 'g') { basculerGrille(); return }
+    if (e.key.toLowerCase() === 'q') { basculerEquerre(); return }
   });
   window.addEventListener('keyup', e => { if (e.key === ' ') { espace = false; canvas.style.cursor = '' } });
 
@@ -595,6 +601,19 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     cotation = oui;
     try { localStorage.setItem('cpDesigner:cotation', oui ? 'oui' : 'non') } catch { /* navigation privée : le choix vaut pour la séance */ }
     panneaux(); dessinerBientot();
+  }
+  function basculerEquerre(oui = !outils.reglages.equerre) {
+    const e = outils.basculerEquerre(oui);
+    try { localStorage.setItem('cpDesigner:equerre', oui ? 'oui' : 'non') } catch { /* le choix vaut pour la séance */ }
+    if (e.aide) toast(e.aide);
+    panneaux();
+  }
+  /** redresser à l'équerre les murs presque d'équerre : ceux qu'on cite, ou tout le niveau */
+  function mettreDEquerre(murs?: string[]) {
+    const e = equerrer(niveau(), murs);
+    const n = e.redresses.length;
+    if (faire('Mettre d’équerre', [{ type: 'equerrerMurs', niveau: niveauId, ...(murs ? { murs } : {}) }]))
+      toast(n + ' mur' + (n > 1 ? 's redressés' : ' redressé') + ' à l’équerre' + (e.orientation ? ' (repère tourné de ' + (e.orientation * 180 / Math.PI).toFixed(1).replace('.', ',') + '°)' : '') + ' — Ctrl+Z pour revenir');
   }
   function basculerGrille() { outils.reglages.grille = outils.reglages.grille ? 0 : 100; toast(outils.reglages.grille ? 'Grille d’accrochage : 10 cm' : 'Grille d’accrochage coupée'); panneaux() }
   function cadrerTout() {
@@ -689,6 +708,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           barreOutils();
         });
         A.append(ligne(ct('horizontal'), ct('vertical'), ct('length'), ct('angle'), deux('parallel'), deux('perpendicular')));
+        A.append(titre('Équerre'), ligne(bouton('Mettre ce mur d’équerre', () => mettreDEquerre([w.id])), bouton('Tout le niveau', () => mettreDEquerre())),
+          bloc('Redresse à 90° les murs qui en sont à moins de ' + Math.round(ANGLE_EQUERRE * 180 / Math.PI) + '° ; les angles restent fermés, les cloisons suivent.', 'note'));
         A.append(titre('Objet'), provenance(w), ligne(bouton('Supprimer', () => supprimer(w.id), 'dang')));
         break;
       }
@@ -1033,6 +1054,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       bloc([...n].map(([t, k]) => k + ' ' + (types[t] ?? t) + (k > 1 ? 's' : '')).join(', ')),
       ligne(bouton('Copier (Ctrl+C)', () => copierChoix()), bouton('Dupliquer (Ctrl+D)', dupliquerChoix), bouton('Couper (Ctrl+X)', () => { if (copierChoix()) supprimerChoix() })),
       ligne(bouton('Coller (Ctrl+V)', commencerCollage)),
+      ...(n.get('wall') ? [ligne(bouton('Mettre d’équerre les ' + n.get('wall') + ' murs', () => mettreDEquerre(groupe.filter(id => f.objects[id]?.type === 'wall'))))] : []),
       bloc('Maj + clic : ajouter ou retirer un objet · un cadre tiré dans le vide choisit ce qu’il contient · Ctrl+A : tout le niveau. Au collage : T tourne d’un quart de tour, X et Y retournent en miroir, un clic pose (sur un angle de mur, sauf Alt).'),
       ligne(bouton('Supprimer les ' + groupe.length + ' objets', supprimerChoix, 'dang')));
   }
@@ -1154,17 +1176,20 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     } else A.append(bloc('Aucun espace clos.'));
     if (plan.baies.length) A.append(titre('Baies'), bloc(plan.baies.length + ' ouverture(s), dont ' + plan.baies.filter(b => b.exterieure).length + ' extérieure(s) — ' + m2(plan.baies.filter(b => b.exterieure).reduce((s, b) => s + b.surface, 0)) + ' de baies extérieures'));
 
+    if (mursDroits(f).length) A.append(titre('Murs'), ligne(bouton('Mettre d’équerre les murs du niveau', () => mettreDEquerre())),
+      bloc('Pour un plan repris à la souris ou sur un fond : redresse à 90° les murs qui en sont à moins de ' + Math.round(ANGLE_EQUERRE * 180 / Math.PI) + '°, angles fermés, cloisons comprises (Ctrl+Z pour revenir).', 'note'));
     A.append(titre('Réglages'),
       champ('Épaisseur des murs (cm)', outils.reglages.epaisseurMur / 10, v => { outils.reglages.epaisseurMur = ent(v) * 10 }, 'number'),
       champ('Épaisseur des cloisons (cm)', outils.reglages.epaisseurCloison / 10, v => { outils.reglages.epaisseurCloison = ent(v) * 10 }, 'number'),
       champ('Grille d’accrochage', String(outils.reglages.grille), v => { outils.reglages.grille = Number(v) }, 'text', { '0': 'Sans', '10': '1 cm', '50': '5 cm', '100': '10 cm', '500': '50 cm' }),
+      champ('Murs d’équerre au tracé (Q)', outils.reglages.equerre ? 1 : 0, v => basculerEquerre(!!v), 'checkbox'),
       champ('Rectangle de murs', outils.reglages.rectangle, v => { outils.reglages.rectangle = v as 'hors_tout' | 'interieur' }, 'text', { hors_tout: 'Cotes hors tout', interieur: 'Cotes intérieures' }),
       champ('Cotation automatique', cotation ? 1 : 0, v => basculerCotation(!!v), 'checkbox'),
       champ('Sols en couleur (présentation)', solsCouleur ? 1 : 0, v => {
         solsCouleur = !!v; try { localStorage.setItem('cpDesigner:sols', solsCouleur ? 'oui' : 'non') } catch { /* préférence non gardée */ }
         dessinerBientot();
       }, 'checkbox'),
-      bloc('Pendant un tracé, tapez la longueur (4,50 puis Entrée ; 4,50<90 pour un angle ; 10x8 pour un rectangle) · Alt : sans accrochage · Maj : angles à 45° · Espace + glisser : déplacer la vue · F : tout voir · Ctrl+K : toutes les actions'));
+      bloc('Pendant un tracé, tapez la longueur (4,50 puis Entrée ; 4,50<90 pour un angle ; 10x8 pour un rectangle) · Alt : sans accrochage · Q : murs d’équerre oui / non · Maj : angles à 45° · Espace + glisser : déplacer la vue · F : tout voir · Ctrl+K : toutes les actions'));
     A.append(titre('Enregistrement'), bloc(esc(enr.raison) + (enr.mode === 'serveur' ? '' : '<br>Le travail reste dans ce navigateur, sur cet appareil.')));
   }
 
@@ -1422,6 +1447,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     ...OUTILS.map(o => ({ libelle: 'Outil : ' + o.libelle, touche: o.touche, faire: () => choisir(o.nom) })),
     { libelle: 'Annuler', touche: 'Ctrl+Z', faire: annuler }, { libelle: 'Rétablir', touche: 'Ctrl+Maj+Z', faire: retablir },
     { libelle: 'Tout voir', touche: 'F', faire: cadrerTout }, { libelle: 'Grille d’accrochage oui / non', touche: 'G', faire: basculerGrille },
+    { libelle: 'Équerre du tracé des murs oui / non', touche: 'Q', faire: () => basculerEquerre() },
+    { libelle: 'Mettre d’équerre les murs du niveau', faire: () => mettreDEquerre() },
     { libelle: 'Cotation automatique oui / non', faire: () => basculerCotation() },
     { libelle: 'Copier la sélection', touche: 'Ctrl+C', faire: () => void copierChoix() }, { libelle: 'Coller', touche: 'Ctrl+V', faire: commencerCollage },
     { libelle: 'Dupliquer la sélection', touche: 'Ctrl+D', faire: dupliquerChoix }, { libelle: 'Tout choisir sur ce niveau', touche: 'Ctrl+A', faire: () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'constraint').map(o => o.id)) },

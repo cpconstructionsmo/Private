@@ -15,6 +15,7 @@ import { positionDansAnneau } from '../geometry/predicats';
 import { distancePointSegment, projeterSurDroite } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
+import { directionDEquerre, orientationDuPlan } from '../building/equerre';
 import { dansCadre, viser } from './selection';
 import { MODELES_OUVERTURES, modeleOuverture } from '../catalogue/ouvertures';
 import { MODELES_MEUBLES, modeleMeuble } from '../catalogue/mobilier';
@@ -43,9 +44,11 @@ export interface Reglages {
   /** l'aménagement extérieur tracé par l'outil Aménagement, et son aspect */
   genreAmenagement: GenreAmenagement;
   finitionAmenagement: string;
+  /** murs et cloisons aimantés à l'équerre pendant le tracé (Alt : libre) */
+  equerre: boolean;
 }
 
-export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout', modeleMeuble: 'canape-3p', rotationMeuble: 0, genreEscalier: 'straight', largeurEscalier: 900, rotationEscalier: 0, genreAmenagement: 'fence', finitionAmenagement: 'grillage-rigide-vert' };
+export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout', modeleMeuble: 'canape-3p', rotationMeuble: 0, genreEscalier: 'straight', largeurEscalier: 900, rotationEscalier: 0, genreAmenagement: 'fence', finitionAmenagement: 'grillage-rigide-vert', equerre: true };
 
 /** dimensions par défaut d'une ouverture neuve (largeur, hauteur, allège) — modifiables ensuite */
 export const OUVERTURES: Record<Opening['kind'], { libelle: string; largeur: Mm; hauteur: Mm; allege: Mm }> = {
@@ -108,7 +111,7 @@ type Prise =
 
 const AIDES: Record<NomOutil, string> = {
   selection: 'Cliquer pour choisir ; tirer une extrémité, un mur ou une ouverture pour la déplacer',
-  mur: 'Cliquer le départ puis chaque angle — ou taper la longueur (4,50) puis Entrée ; 4,50<90 : longueur et angle ; Échap pour finir ; Maj : 45°',
+  mur: 'Cliquer le départ puis chaque angle (aimanté à l’équerre ; Q : libre) — ou taper la longueur (4,50) puis Entrée ; 4,50<90 : longueur et angle ; Échap pour finir ; Maj : 45°',
   cloison: 'Cloison : cliquer le départ puis l’arrivée — ou taper la longueur puis Entrée ; Échap pour finir',
   rectangle: 'Rectangle de murs : cliquer deux angles opposés — ou, après le premier, taper 10x8 puis Entrée',
   ouverture: 'Choisir un modèle dans la bibliothèque (à droite), puis cliquer sur un mur — ou glisser le modèle sur le mur',
@@ -238,12 +241,14 @@ export class Outils {
   /** le point de départ d'un tracé en cours (mur, cloison, rectangle) */
   get departTrace(): Point | null { return this.depart }
 
-  /** le point accroché (ou le point brut avec Alt) */
-  private accrocher(g: Geste, depuis?: Point | null): Accroche {
+  /** le point accroché (ou le point brut avec Alt) ; equerre : le tracé d'un mur, aimanté à angle droit */
+  private accrocher(g: Geste, depuis?: Point | null, equerre = false): Accroche {
     const f = this.niveau();
     let a: Accroche = f ? accrochageDuNiveau(f).chercher(g.point, { rayon: g.rayon, desactive: !!g.alt, grille: this.reglages.grille, ...(depuis ? { depuis } : {}) })
       : { point: g.point, genre: 'libre' };
-    if (g.maj && depuis) a = { point: bloquer(depuis, a.point), genre: 'libre' };
+    const q = equerre && f && depuis && this.reglages.equerre && !g.alt && !g.maj ? this.aEquerre(f, depuis, a, g) : null;
+    if (q) a = q;
+    else if (g.maj && depuis) a = { point: bloquer(depuis, a.point), genre: 'libre' };
     /* un point libre (sans accroche) vient d'un pixel : on le garde au millimètre */
     else if (a.genre === 'libre') a = { ...a, point: { x: Math.round(a.point.x), y: Math.round(a.point.y) } };
     /* sur une face ou un axe : la position le long du mur, au millimètre */
@@ -257,6 +262,34 @@ export class Outils {
     /* alignement : la coordonnée qui suit le curseur aussi (l'autre est celle du départ, exacte) */
     else if (a.genre === 'alignement' && depuis) a = { ...a, point: a.point.y === depuis.y ? { x: Math.round(a.point.x), y: a.point.y } : { x: a.point.x, y: Math.round(a.point.y) } };
     return a;
+  }
+
+  /** le point d'équerre : sur la direction d'équerre la plus proche du curseur (au millimètre, ou au pas de la grille),
+      ou là où elle coupe la face visée ; une accroche exacte (extrémité, intersection, milieu, perpendiculaire)
+      l'emporte, et un mur franchement biais reste libre (null) */
+  private aEquerre(f: Floor, depuis: Point, a: Accroche, g: Geste): Accroche | null {
+    if (a.genre === 'extremite' || a.genre === 'intersection' || a.genre === 'milieu' || a.genre === 'perpendiculaire') return null;
+    const u = directionDEquerre(depuis, g.point, orientationDuPlan(f));
+    if (!u) return null;
+    if ((a.genre === 'face' || a.genre === 'axe') && a.support) {
+      const { a: A, b: B } = a.support, v = { x: B.x - A.x, y: B.y - A.y }, w = { x: A.x - depuis.x, y: A.y - depuis.y };
+      const det = u.x * v.y - u.y * v.x;
+      if (Math.abs(det) <= EPS_COINCIDENCE) return null;
+      const s = (w.x * v.y - w.y * v.x) / det, t = (w.x * u.y - w.y * u.x) / det;
+      const p = { x: arrondi(depuis.x + s * u.x), y: arrondi(depuis.y + s * u.y) };
+      return s > EPS_COINCIDENCE && t >= 0 && t <= 1 && distance(p, g.point) <= 3 * g.rayon ? { ...a, point: p, guide: { a: depuis, b: p } } : null;
+    }
+    const pas = this.reglages.grille > 0 ? this.reglages.grille : 1;
+    const s = Math.round(((g.point.x - depuis.x) * u.x + (g.point.y - depuis.y) * u.y) / pas) * pas;
+    if (!(s > 0)) return null;
+    const p = { x: arrondi(depuis.x + s * u.x), y: arrondi(depuis.y + s * u.y) };
+    return { point: p, genre: 'equerre', guide: { a: depuis, b: p } };
+  }
+
+  /** Q : l'équerre du tracé, oui ou non */
+  basculerEquerre(oui = !this.reglages.equerre): Effet {
+    this.reglages.equerre = oui;
+    return { aide: oui ? 'Murs aimantés à l’équerre (Alt : libre le temps d’un clic)' : 'Équerre coupée : murs libres (Maj : 45°)' };
   }
 
   private murSous(g: Geste): MurDroit | null {
@@ -387,7 +420,7 @@ export class Outils {
       }
       case 'mur':
       case 'cloison': {
-        const a = this.accrocher(g, this.depart);
+        const a = this.accrocher(g, this.depart, true);
         if (!this.depart || distance(a.point, this.depart) <= EPS_COINCIDENCE) return { accroche: a, apercu: [] };
         this.vise = a.point;
         return { accroche: a, apercu: [this.murDe(this.depart, a.point)] };
@@ -489,7 +522,7 @@ export class Outils {
       }
       case 'mur':
       case 'cloison': {
-        const a = this.accrocher(g, this.depart);
+        const a = this.accrocher(g, this.depart, true);
         if (!this.depart) { this.depart = a.point; this.premier = a.point; return { accroche: a } }
         return this.poserMur(a.point);
       }

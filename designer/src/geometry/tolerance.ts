@@ -27,6 +27,14 @@ export const EPS_SUR_FACE = 2 * JEU_SOUDURE;
  *  n'y ferait qu'un « 0,00 » illisible. */
 export const FUSION_COTES = 5;
 
+/** équerre : un mur à moins de 8° d'une direction d'équerre (0°, 90°…) est
+ *  « presque d'équerre » — un tracé à la souris, ou par-dessus un fond, en
+ *  dévie de quelques degrés ; un pan coupé (45°) ou un mur biais voulu, non */
+export const ANGLE_EQUERRE = (8 * Math.PI) / 180;
+/** équerre : le point d'une cloison posé sur une face (ou l'axe) d'un mur
+ *  à moins de ceci (mm) y est posé exactement */
+export const PRISE_FACE_EQUERRE = 0.5;
+
 /** toiture automatique : un bord de plan à moins de 1° d'un angle droit est
  *  droit (au-delà, le plan n'est pas orthogonal) — sauf un bord court, où
  *  quelques millimètres de dessin faussent l'angle (voir la tolérance suivante) */

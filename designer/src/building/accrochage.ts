@@ -19,14 +19,15 @@ import { intersectionSegments, projeterSurDroite, projeterSurSegment, type Segme
 import { distance, milieu } from '../geometry/vecteur';
 import { contoursMurs, mursDroits } from './murs';
 
-export type GenreAccroche = 'extremite' | 'intersection' | 'milieu' | 'perpendiculaire' | 'face' | 'axe' | 'alignement' | 'grille' | 'libre';
+/** « equerre » : le tracé d'un mur aimanté à angle droit (posé par l'outil, voir building/equerre.ts) */
+export type GenreAccroche = 'extremite' | 'intersection' | 'milieu' | 'perpendiculaire' | 'face' | 'axe' | 'alignement' | 'grille' | 'equerre' | 'libre';
 
 export interface Accroche {
   point: Point;
   genre: GenreAccroche;
   /** le mur concerné, s'il y en a un */
   objet?: string;
-  /** pour l'alignement et la perpendiculaire : la ligne de rappel à dessiner */
+  /** pour l'alignement, la perpendiculaire et l'équerre : la ligne de rappel à dessiner */
   guide?: Segment;
   /** pour une face ou un axe : le segment sur lequel le point glisse */
   support?: Segment;
