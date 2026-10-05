@@ -22,7 +22,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'piece' | 'cote' | 'caler';
+export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'piece' | 'cote' | 'caler';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -100,6 +100,7 @@ type Prise =
   | { genre: 'cadre'; depart: Point }
   | { genre: 'escalier'; id: string; depart: Point; origine: Point }
   | { genre: 'coupe'; id: string; depart: Point; a: Point; b: Point }
+  | { genre: 'pointdevue'; id: string; depart: Point; a: Point; b: Point }
   | { genre: 'parcelle'; id: string; depart: Point; contour: Point[] }
   | { genre: 'amenagement'; id: string; depart: Point; points: Point[] };
 
@@ -114,6 +115,7 @@ const AIDES: Record<NomOutil, string> = {
   coupe: 'Trait de coupe : cliquer le départ puis l’arrivée (Maj : 45°) ; la coupe regarde à gauche du trait — T pour l’inverser ensuite',
   parcelle: 'Limite de la parcelle : cliquer chaque sommet — ou taper la longueur du côté (12,50 ou 12,50<90) ; revenir au premier point ou Entrée pour fermer',
   amenagement: 'Aménagement (à droite : clôture, terrasse, allée…) : cliquer chaque point — ou taper la longueur ; Entrée pour finir une clôture, revenir au premier point pour fermer',
+  pointdevue: 'Point de prise de vue d’une photographie du dossier : cliquer l’appareil, puis le point visé (Maj : 45°)',
   piece: 'Cliquer dans un espace clos pour le nommer',
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
@@ -204,6 +206,10 @@ export class Outils {
   get finitionAmenagement() {
     const r = this.reglages, f = finitionAmenagement(r.finitionAmenagement);
     return f && f.genre === r.genreAmenagement ? f : finitionsDe(r.genreAmenagement)[0]!;
+  }
+  /** le niveau le plus bas (le terrain) : parcelle, aménagements et points de vue s'y posent */
+  private niveauBas(c: { projet: Project; niveau: string }): string {
+    return [...(c.projet.buildings[0]?.floors ?? [])].sort((a, b) => a.elevation - b.elevation)[0]?.id ?? c.niveau;
   }
   /** finir l'aménagement tracé : une clôture peut rester ouverte, une surface se ferme toujours */
   private finirAmenagement(ferme: boolean): Effet {
@@ -329,11 +335,12 @@ export class Outils {
           this.dernier = { type: 'modifierParcelle', id: p.id, contour: p.contour.map(q => ({ x: q.x + dx, y: q.y + dy })) };
           return { apercu: [this.dernier] };
         }
-        if (p.genre === 'coupe') {
+        if (p.genre === 'coupe' || p.genre === 'pointdevue') {
           if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
           this.bouge = true;
           const dx = Math.round(g.point.x - p.depart.x), dy = Math.round(g.point.y - p.depart.y);
-          this.dernier = { type: 'modifierCoupe', id: p.id, a: { x: p.a.x + dx, y: p.a.y + dy }, b: { x: p.b.x + dx, y: p.b.y + dy } };
+          const a = { x: p.a.x + dx, y: p.a.y + dy }, b = { x: p.b.x + dx, y: p.b.y + dy };
+          this.dernier = p.genre === 'coupe' ? { type: 'modifierCoupe', id: p.id, a, b } : { type: 'modifierPointDeVue', id: p.id, a, b };
           return { apercu: [this.dernier] };
         }
         if (p.genre === 'escalier') {
@@ -402,6 +409,11 @@ export class Outils {
         if (!this.depart || distance(a.point, this.depart) < 500) return { accroche: a, apercu: [] };
         return { accroche: a, apercu: [{ type: 'creerCoupe', niveau: c.niveau, a: this.depart, b: a.point }] };
       }
+      case 'pointdevue': {
+        const a = this.accrocher(g, this.depart);
+        if (!this.depart || distance(a.point, this.depart) < 500) return { accroche: a, apercu: [] };
+        return { accroche: a, apercu: [{ type: 'creerPointDeVue', niveau: this.niveauBas(c), a: this.depart, b: a.point }] };
+      }
       case 'cote':
       case 'caler':
         return { accroche: this.accrocher(g) };
@@ -447,6 +459,7 @@ export class Outils {
         if (o?.type === 'wall' && 'a' in o.axis) this.prise = { genre: 'mur', mur: o as MurDroit, depart: this.accrocher(g).point };
         else if (o?.type === 'stair') this.prise = { genre: 'escalier', id: o.id, depart: g.point, origine: { ...o.position } };
         else if (o?.type === 'section') this.prise = { genre: 'coupe', id: o.id, depart: g.point, a: { ...o.a }, b: { ...o.b } };
+        else if (o?.type === 'viewpoint') this.prise = { genre: 'pointdevue', id: o.id, depart: g.point, a: { ...o.a }, b: { ...o.b } };
         else if (o?.type === 'landscape') this.prise = { genre: 'amenagement', id: o.id, depart: g.point, points: o.points.map(q => ({ ...q })) };
         else if (o?.type === 'plot') this.prise = { genre: 'parcelle', id: o.id, depart: g.point, contour: o.contour.map(q => ({ ...q })) };
         else if (o?.type === 'furniture') this.prise = { genre: 'meuble', id: o.id, depart: g.point, decalage: { x: g.point.x - o.position.x, y: g.point.y - o.position.y }, largeur: o.width, profondeur: o.depth, rotation: o.rotation };
@@ -495,6 +508,14 @@ export class Outils {
         const cmd: Commande = { type: 'creerCoupe', niveau: c.niveau, a: this.depart, b: a.point };
         this.depart = null; this.outil = 'selection';
         return { commandes: { titre: 'Trait de coupe', liste: [cmd] }, apercu: [], fini: true, aide: AIDES.selection };
+      }
+      case 'pointdevue': {
+        const a = this.accrocher(g, this.depart);
+        if (!this.depart) { this.depart = a.point; return { accroche: a, aide: 'Point visé : la direction de la photographie (Maj : 45°) — Échap pour renoncer' } }
+        if (distance(a.point, this.depart) < 500) return { aide: 'Direction trop courte : 50 cm au moins' };
+        const cmd: Commande = { type: 'creerPointDeVue', niveau: this.niveauBas(c), a: this.depart, b: a.point };
+        this.depart = null; this.outil = 'selection';
+        return { commandes: { titre: 'Point de prise de vue', liste: [cmd] }, apercu: [], fini: true, aide: AIDES.selection };
       }
       case 'piece': {
         const z = planDuNiveau(f).zones.find(z => positionDansAnneau(g.point, z.polygone.contour) === 'dedans');
@@ -583,7 +604,7 @@ export class Outils {
     }
     this.prise = null; this.bouge = false; this.dernier = null;
     if (!dernier) return { apercu: [] };
-    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : 'Déplacer une ouverture';
+    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'pointdevue' ? 'Déplacer un point de vue' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : 'Déplacer une ouverture';
     return { apercu: [], commandes: { titre, liste: [dernier] } };
   }
 

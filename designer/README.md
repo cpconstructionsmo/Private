@@ -265,7 +265,12 @@ par l'utilisateur, jamais inventées :
   transparent qui garde les ombres), la focale se règle, on tourne la vue
   jusqu'à ce que la maison s'y pose, puis « Garder pour le PCMI 6 ».
 Ces images restent sur l'appareil le temps de la séance (ni enregistrées
-dans le projet, ni partagées). Une pièce non fournie est listée « à
+dans le projet, ni partagées). Les **points de prise de vue** (outil I :
+l'appareil, puis le point visé), eux, sont des objets du projet : chacun
+porte sa pièce (PCMI 6, 7 ou 8 ; la première libre par défaut) et figure au
+plan de masse (cône de 50°, flèche, pièce, liste « Prises de vue ») comme
+le demande le formulaire ; la page de la photographie le dit alors
+« reporté ». Une pièce non fournie est listée « à
 joindre » ; ce qui n'est pas connu (point de vue, échelle) s'écrit
 « [à compléter] ».
 

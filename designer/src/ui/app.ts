@@ -5,11 +5,11 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsage, Stair, Wall } from '../model/types';
+import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsage, Stair, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -361,7 +361,14 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       choisirGroupe([...g]);
     }
     if (e.aide) $<HTMLElement>('.aide').textContent = e.aide;
-    if (e.commandes) faire(e.commandes.titre, e.commandes.liste);
+    if (e.commandes) {
+      const avant = new Set(Object.keys(niveau().objects));
+      /* un point de vue tout juste posé est choisi : on lui donne aussitôt sa pièce (PCMI 6, 7, 8) */
+      if (faire(e.commandes.titre, e.commandes.liste) && e.commandes.liste.length === 1 && e.commandes.liste[0]!.type === 'creerPointDeVue') {
+        const nouveau = Object.keys(niveau().objects).find(k => !avant.has(k));
+        if (nouveau) { selection = nouveau; groupe = []; panneaux() }
+      }
+    }
     if (e.demande?.genre === 'nomPiece') nommerPiece(e.demande.niveau, e.demande.point);
     if (e.demande?.genre === 'distanceFond') calerParDistance(e.demande.id, e.demande.image);
     if (e.fini) barreOutils();
@@ -558,14 +565,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'escalier', icone: '▤', libelle: 'Escalier', touche: 'E' }, { nom: 'coupe', icone: '✂', libelle: 'Trait de coupe', touche: 'K' },
     { nom: 'parcelle', icone: '⛶', libelle: 'Parcelle (limite du terrain)', touche: 'L' },
     { nom: 'amenagement', icone: '❀', libelle: 'Aménagement extérieur (clôture, terrasse, allée…)', touche: 'A' },
+    { nom: 'pointdevue', icone: '◉', libelle: 'Point de prise de vue (photographies du dossier)', touche: 'I' },
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
   function choisir(o: NomOutil) {
     if (en3D) void basculer3D(false);
     /* la parcelle se trace sur le niveau le plus bas (le terrain) */
-    if (o === 'parcelle' || o === 'amenagement') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
-    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+    if (o === 'parcelle' || o === 'amenagement' || o === 'pointdevue') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
     nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
@@ -783,6 +791,16 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           ligne(bouton('Inverser le regard (T)', () => mod('Inverser le regard de la coupe', { regard: o.look === 'left' ? 'right' : 'left' })), bouton('PDF des coupes', () => void exporterCoupes(), 'prim')));
         A.append(bloc(apercuCoupe(ligneDe(o)), 'apercu-coupe'),
           bloc('Les flèches montrent ce que la coupe regarde. Le plan de coupe prolonge le trait de part en part du bâtiment. Tirez le trait pour le déplacer. Le trait se voit sur tous les niveaux et dans le PDF ; il se choisit sur le niveau où il a été tracé.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'viewpoint': {
+        const deg = Math.round(((90 - Math.atan2(o.b.y - o.a.y, o.b.x - o.a.x) * 180 / Math.PI) % 360 + 360) % 360);
+        A.append(titre('Point de prise de vue — ' + o.piece),
+          champ('Photographie du dossier', o.piece, v => faire('Pièce du point de vue', [{ type: 'modifierPointDeVue', id: o.id, piece: v as Viewpoint['piece'] }]), 'text',
+            { 'PCMI 6': 'PCMI 6 — insertion (photomontage)', 'PCMI 7': 'PCMI 7 — environnement proche', 'PCMI 8': 'PCMI 8 — environnement lointain' }),
+          bloc('Direction : ' + deg + '° depuis le haut du plan (sens horaire)' + (parcelleDuProjet(h.projet) ? '' : ' · le nord se règle sur la parcelle')),
+          bloc('Le formulaire du permis demande de reporter au plan de masse (PCMI 2) d’où chaque photographie a été prise, et vers où. Le point de vue y figure, avec sa pièce ; tirez-le pour le déplacer.'),
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
@@ -1059,6 +1077,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     A.append(etat('PCMI 6', 'Insertion', piecesDossier.insertion, 'à composer dans la vue 3D (photo du terrain)'));
     piece('photoProche', 'PCMI 7', 'Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)', 'bpcmi7');
     piece('photoLointaine', 'PCMI 8', 'Environnement lointain', 'Point et angle de prise de vue', 'bpcmi8');
+    const PV = pointsDeVue(h.projet);
+    A.append(bloc('Points de prise de vue au plan de masse (outil I) : ' + (PV.length ? PV.map(v => v.piece).join(', ') : '<span class="note">aucun</span>')));
     A.append(bloc('Extrait de carte (Géoportail, cadastre) et photographies : à fournir, le Designer ne les invente pas. Gardés sur cet appareil le temps de la séance (ni enregistrés dans le projet, ni partagés), ils vont au dossier de permis (PDF → Composer).'));
 
     A.append(titre('Contrôle'));

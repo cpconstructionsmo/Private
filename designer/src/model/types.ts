@@ -251,11 +251,24 @@ export interface Landscape extends BaseObject {
   height: Mm;
 }
 
+/** un point de prise de vue (plan de masse, PCMI 2) : d'où a été prise une photographie du dossier (insertion,
+ *  environnement proche ou lointain) et vers où. Le formulaire du permis demande de les reporter au plan de
+ *  masse. La photographie elle-même n'est pas dans le projet */
+export interface Viewpoint extends BaseObject {
+  type: 'viewpoint';
+  /** l'appareil */
+  a: Point;
+  /** un point visé : la direction de la prise de vue */
+  b: Point;
+  /** la pièce du dossier que la photographie illustre */
+  piece: 'PCMI 6' | 'PCMI 7' | 'PCMI 8';
+}
+
 /* Contraintes, valeur des cotes, toiture, mobilier, escaliers, coupes, parcelle, aménagements s'ajoutent sans rien
    changer aux projets déjà enregistrés (un type de plus, un champ
    facultatif) : le schéma reste à la version 1, l'instantané figé des
    tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape;
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint;
 
 export interface Floor {
   id: string;

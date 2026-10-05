@@ -12,9 +12,9 @@ import type { Toiture } from '../building/toiture';
 import { formeDe, traits, versPlan } from '../building/mobilier';
 import type { GeometrieEscalier, Marche } from '../building/escalier';
 import type { LigneDeCoupe } from '../vue3d/coupe';
-import type { Landscape, Plot } from '../model/types';
+import type { Landscape, Plot, Viewpoint } from '../model/types';
 import { finitionAmenagement } from '../catalogue/amenagements';
-import type { Recul } from '../building/terrain';
+import { champDeVue, type Recul } from '../building/terrain';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
@@ -73,6 +73,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
 
   /* les aménagements extérieurs, sous tout le reste */
   for (const o of Object.values(s.niveau.objects)) if (o.type === 'landscape') dessinerAmenagement(ctx, cam, o, o.id === s.selection || !!s.groupe?.has(o.id));
+  for (const o of Object.values(s.niveau.objects)) if (o.type === 'viewpoint') dessinerPointDeVue(ctx, cam, o, o.id === s.selection || !!s.groupe?.has(o.id));
 
   /* le niveau du dessous, en fantôme */
   if (s.dessous) {
@@ -377,6 +378,25 @@ function traitDeCoupe(ctx: CanvasRenderingContext2D, cam: Camera, l: LigneDeCoup
     ctx.beginPath(); ctx.moveTo(q.x + r.x * 6, q.y + r.y * 6); ctx.lineTo(q.x + g.x * 4, q.y + g.y * 4); ctx.lineTo(q.x - g.x * 4, q.y - g.y * 4); ctx.closePath(); ctx.fill();
     ctx.fillText(l.nom, p.x - u.x * s * 12 + r.x * 14, p.y - u.y * s * 12 + r.y * 14);
   }
+}
+
+/** un point de prise de vue : l'appareil (un disque), le champ (un cône léger), la direction fléchée et la pièce (PCMI 7…) */
+export function dessinerPointDeVue(ctx: CanvasRenderingContext2D, cam: Camera, v: Viewpoint, sel = false): void {
+  const c = champDeVue(v), A = versEcran(cam, v.a), B = versEcran(cam, v.b), G = versEcran(cam, c.gauche), D = versEcran(cam, c.droite);
+  const coul = sel ? COULEURS.accent : COULEURS.bleu, u = normaliser(soustraire(B, A));
+  ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(G.x, G.y); ctx.lineTo(D.x, D.y); ctx.closePath();
+  ctx.fillStyle = sel ? 'rgba(197,86,58,.12)' : 'rgba(44,74,94,.08)'; ctx.fill();
+  ctx.strokeStyle = coul; ctx.lineWidth = 0.8; ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(G.x, G.y); ctx.lineTo(A.x, A.y); ctx.lineTo(D.x, D.y); ctx.stroke(); ctx.setLineDash([]);
+  ctx.lineWidth = sel ? 2 : 1.4;
+  ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+  const g = normaleGauche(u);
+  ctx.fillStyle = coul;
+  ctx.beginPath(); ctx.moveTo(B.x, B.y); ctx.lineTo(B.x - u.x * 10 + g.x * 4, B.y - u.y * 10 + g.y * 4); ctx.lineTo(B.x - u.x * 10 - g.x * 4, B.y - u.y * 10 - g.y * 4); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(A.x, A.y, 5, 0, 2 * Math.PI); ctx.fill();
+  /* la pièce, derrière l'appareil */
+  ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(v.piece, A.x - u.x * 26, A.y - u.y * 18);
 }
 
 /** le plan de coupe d'un plan d'étage (mm au-dessus du sol) : les marches plus hautes se dessinent en tirets */

@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Wall } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, Wall } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -92,6 +92,8 @@ export type Commande =
   /** un trait de coupe (A-A…) ; sans nom, la première lettre libre du projet */
   | { type: 'creerCoupe'; niveau: string; a: Point; b: Point; regard?: SectionLine['look']; nom?: string }
   | { type: 'modifierCoupe'; id: string; a?: Point; b?: Point; regard?: SectionLine['look']; nom?: string }
+  | { type: 'creerPointDeVue'; niveau: string; a: Point; b: Point; piece?: Viewpoint['piece'] }
+  | { type: 'modifierPointDeVue'; id: string; a?: Point; b?: Point; piece?: Viewpoint['piece'] }
   /** la parcelle (une par projet) ; « nomVoie », « reference » vides : effacés */
   | { type: 'creerParcelle'; niveau: string; contour: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number; origine?: Origine }
   /** un aménagement extérieur (clôture, terrasse, allée, stationnement, espace vert) */
@@ -137,6 +139,16 @@ function coupeInvalide(p: Project, a: Point, b: Point, nom: string, sauf?: strin
   if (distance(a, b) < 500) return 'trait de coupe trop court (50 cm au moins)';
   if (!/^[A-Za-z0-9]{1,3}$/.test(nom)) return 'nom de coupe : 1 à 3 lettres ou chiffres';
   if (nomsDeCoupes(p, sauf).has(nom)) return 'une coupe ' + nom + '-' + nom + ' existe déjà';
+  return null;
+}
+
+export const PIECES_POINT_DE_VUE: readonly Viewpoint['piece'][] = ['PCMI 7', 'PCMI 8', 'PCMI 6'];
+
+/** un point de prise de vue : une direction lisible (50 cm au moins entre l'appareil et le point visé), une pièce connue */
+function pointDeVueInvalide(a: Point, b: Point, piece: string): string | null {
+  if (!ptFini(a) || !ptFini(b)) return 'position invalide';
+  if (distance(a, b) < 500) return 'direction de prise de vue trop courte (50 cm au moins)';
+  if (!PIECES_POINT_DE_VUE.includes(piece as Viewpoint['piece'])) return 'pièce du dossier inconnue : PCMI 6, 7 ou 8';
   return null;
 }
 
@@ -586,6 +598,27 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         a: { ...cmd.a }, b: { ...cmd.b }, look: cmd.regard ?? 'left', name: nom,
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: s }]);
+    }
+    case 'creerPointDeVue': {
+      if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      /* par défaut, la première pièce qui n'a pas encore son point de vue (PCMI 7, puis 8, puis 6) */
+      const pris = new Set(p.buildings.flatMap(b => b.floors).flatMap(f => Object.values(f.objects)).flatMap(o => (o.type === 'viewpoint' ? [o.piece] : [])));
+      const piece = cmd.piece ?? PIECES_POINT_DE_VUE.find(x => !pris.has(x)) ?? 'PCMI 7';
+      const e = pointDeVueInvalide(cmd.a, cmd.b, piece);
+      if (e) return refus(e);
+      const v: Viewpoint = { id: c.id(), type: 'viewpoint', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision, a: { ...cmd.a }, b: { ...cmd.b }, piece };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: v }]);
+    }
+    case 'modifierPointDeVue': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'viewpoint') return refus('point de vue introuvable');
+      const o = t.objet;
+      const e = pointDeVueInvalide(cmd.a ?? o.a, cmd.b ?? o.b, cmd.piece ?? o.piece);
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      for (const k of ['a', 'b', 'piece'] as const) { if (cmd[k] === undefined) continue; avant[k] = o[k]; apres[k] = cmd[k] }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, o, avant, apres, c)]);
     }
     case 'modifierCoupe': {
       const t = trouverObjet(p, cmd.id);
