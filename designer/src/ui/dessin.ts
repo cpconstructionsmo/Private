@@ -27,8 +27,8 @@ import { boiteVisible, pasDeGrille, versEcran, type Camera } from './camera';
 import { dessinCote, texteCote } from './cotes';
 
 export const COULEURS = {
-  fond: '#FBFAF7', grille: '#ECE7DE', grilleForte: '#DDD5C8', encre: '#1A2B36', mur: '#26394A', cloison: '#5E6E79',
-  piece: '#F5F1EA', aNommer: '#FBE3DA', texte: '#1A2B36', gris: '#6E7B84', accent: '#C5563A', vert: '#3F7A5A', bleu: '#2C4A5E', fantome: '#B9C2C8',
+  fond: '#FFFFFF', grille: '#ECECEC', grilleForte: '#D6D6D6', encre: '#1A1A1A', mur: '#FFFFFF', cloison: '#5E6E79',
+  piece: '#FBE4DA', aNommer: '#FDF1EC', texte: '#1A2B36', gris: '#6E7B84', accent: '#C5563A', vert: '#3F7A5A', bleu: '#2C4A5E', fantome: '#B9C2C8',
 };
 
 export interface Scene {
@@ -129,8 +129,23 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   for (const t of s.tremies ?? []) tremie(ctx, cam, t);
   for (const e of s.escaliers ?? []) escalier(ctx, cam, e.geo, estChoisi(e.id));
   /* maçonnerie (ouvertures découpées) */
+  /* la maçonnerie : blanche, hachurée à 45°, cernée de noir (les murs composés se dessinent ensuite couche à couche) */
   ctx.fillStyle = COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
   for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.fill('evenodd') }
+  if (plan.maconnerieOuverte.length) {
+    ctx.save();
+    ctx.beginPath();
+    for (const p of plan.maconnerieOuverte) for (const a of [p.contour, ...(p.trous ?? [])] as Anneau[]) { a.forEach((pt, i) => { const e = E(pt); if (i) ctx.lineTo(e.x, e.y); else ctx.moveTo(e.x, e.y) }); ctx.closePath() }
+    ctx.clip('evenodd');
+    const pas = Math.max(4, 70 * cam.echelle);
+    ctx.strokeStyle = '#3A3A3A'; ctx.lineWidth = 0.6; ctx.beginPath();
+    const l = cam.largeur, h = cam.hauteur;
+    for (let x = -h; x <= l; x += pas) { ctx.moveTo(x, h); ctx.lineTo(x + h, 0) }
+    ctx.stroke();
+    ctx.restore();
+    ctx.lineWidth = 1.2; ctx.strokeStyle = COULEURS.encre;
+    for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.stroke() }
+  }
   /* les murs composés : chaque couche à sa place (enduit dehors, isolant, plâtre), cernée d'un trait fin */
   const C = couchesDuNiveau(s.niveau);
   if (C.length) {
@@ -176,7 +191,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.font = '600 12px system-ui, sans-serif';
     ctx.fillText(z.piece ? z.piece.name : 'À nommer', e.x, e.y - 8);
     ctx.font = '11px system-ui, sans-serif'; ctx.fillStyle = COULEURS.gris;
-    ctx.fillText(m2(z.aire), e.x, e.y + 8);
+    ctx.fillText('S : ' + m2(z.aire), e.x, e.y + 8);
     const d = dimensionsPiece(z.polygone.contour);
     if (d && d.profondeur * cam.echelle > 60) ctx.fillText(texteCote(d.largeur) + ' × ' + texteCote(d.profondeur), e.x, e.y + 22);
   }

@@ -34,6 +34,7 @@ import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture,
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
 import { traits } from '../building/mobilier';
 import { icone } from './icones';
+import { MATIERES_PLANCHER, compositionPlancher, compositionsPlancher, epaisseurPlancher, type CompositionPlancher } from '../catalogue/planchers';
 import { COMPOSITION_PAR_DEFAUT, MATIERES_COUCHES, compositionMur, compositionsDu, epaisseurComposition, genreDuRole, type CompositionMur } from '../catalogue/murs';
 
 const USAGES: Record<RoomUsage, string> = {
@@ -56,127 +57,155 @@ const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
 const date = (iso: string) => { try { return new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return iso } };
 
 const CSS = `
-.cpd{position:fixed;inset:0;display:grid;grid-template-columns:auto 1fr 320px;grid-template-rows:56px 38px auto 1fr 26px;font:13px/1.4 system-ui,-apple-system,sans-serif;color:#1A2B36;background:#FBFAF7}
-.cpd header{grid-column:1/4;grid-row:1;display:flex;align-items:stretch;gap:0;padding:0 0 0 12px;background:#1F2F3A;color:#E9EEF1}
-.cpd header .marque{display:flex;flex-direction:column;justify-content:center;padding-right:12px;color:#fff;font-weight:700;letter-spacing:.06em;font-size:11px;line-height:1.1}
-.cpd header .marque b{color:#E07A5F;font-size:15px}
-.cpd header input.nom{align-self:center;font:600 14px system-ui;border:1px solid transparent;border-radius:6px;padding:4px 6px;width:150px;color:#fff;background:none;text-transform:uppercase;letter-spacing:.02em;text-overflow:ellipsis}
-.cpd header input.nom:hover,.cpd header input.nom:focus{border-color:#4C6272;background:#2C3F4C}
-.cpd header nav.onglets{display:flex;margin-left:14px;border-left:1px solid #33475A}
-.cpd header nav.onglets button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:74px;padding:4px 6px 3px;border:none;border-right:1px solid #33475A;border-bottom:3px solid transparent;border-radius:0;background:none;color:#E9EEF1;font:600 12.5px system-ui;cursor:pointer}
-.cpd header nav.onglets button:hover{background:#2C3F4C}
-.cpd header nav.onglets button.actif{background:#2C3F4C;border-bottom-color:#E07A5F;color:#fff}
+.cpd{--ent:#2B2B2B;--sous:#3A3A3A;--ruban:#4D4D4D;--pan:#3B3B3B;--carte:#2F2F2F;--trait:#565656;--txt:#EFEFEF;--txt2:#BDBDBD;--acc:#1FA89A;--acc2:#17867B;--orange:#E8743B;
+  position:fixed;inset:0;display:grid;grid-template-columns:auto 1fr 380px;grid-template-rows:52px 36px 92px 1fr;font:13px/1.4 "Segoe UI",system-ui,-apple-system,sans-serif;color:var(--txt);background:var(--pan)}
+.cpd header{grid-column:1/4;grid-row:1;display:flex;align-items:stretch;padding:0 0 0 10px;background:var(--ent);color:var(--txt)}
+.cpd header .marque{display:flex;flex-direction:column;justify-content:center;padding-right:10px;color:#fff;font-weight:700;letter-spacing:.06em;font-size:10px;line-height:1.1}
+.cpd header .marque b{color:var(--acc);font-size:17px;letter-spacing:.02em}
+.cpd header input.nom{align-self:center;font:600 14px "Segoe UI",system-ui;border:1px solid transparent;border-radius:4px;padding:4px 6px;width:190px;color:#fff;background:none;text-transform:uppercase;letter-spacing:.02em;text-overflow:ellipsis}
+.cpd header input.nom:hover,.cpd header input.nom:focus{border-color:var(--trait);background:var(--sous)}
+.cpd header nav.onglets{display:flex;margin-left:10px;border-left:1px solid #444}
+.cpd header nav.onglets button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:92px;padding:4px 8px 2px;border:none;border-right:1px solid #444;border-bottom:3px solid transparent;border-radius:0;background:none;color:var(--txt);font:600 13px "Segoe UI",system-ui;cursor:pointer}
+.cpd header nav.onglets button:hover{background:#353535}
+.cpd header nav.onglets button.actif{background:#3A3A3A;border-bottom-color:var(--acc);color:#fff}
 .cpd header .esp{flex:1}
-.cpd header .droite-entete{display:flex;align-items:center;gap:6px;padding:0 10px}
-.cpd header .droite-entete button{background:#2C3F4C;border-color:#4C6272;color:#E9EEF1}
-.cpd header .droite-entete a{color:#BFD0DA;font-size:12px;white-space:nowrap}
-.cpd .etat{font-size:11.5px;padding:3px 8px;border-radius:12px;background:#28463A;color:#BFE3CB;white-space:nowrap;max-width:170px;overflow:hidden;text-overflow:ellipsis}
+.cpd header .droite-entete{display:flex;align-items:center;gap:2px;padding:0 8px}
+.cpd header .droite-entete button,.cpd header .droite-entete a{display:flex;align-items:center;justify-content:center;width:38px;height:38px;padding:0;border:none;border-radius:4px;background:none;color:var(--txt);text-decoration:none}
+.cpd header .droite-entete button:hover,.cpd header .droite-entete a:hover{background:#3A3A3A}
+.cpd header .droite-entete button.texte{width:auto;padding:0 8px;font:600 12px "Segoe UI",system-ui}
+.cpd .etat{font-size:11px;padding:2px 8px;border-radius:10px;background:#24443F;color:#A9E2D9;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;margin-right:6px}
 .cpd .etat.local,.cpd .etat.hors_ligne,.cpd .etat.en_attente{background:#4A3B1E;color:#F3D9A4}
 .cpd .etat.conflit{background:#5A2A1E;color:#F6C3B3}
-.cpd .sous{grid-column:1/3;grid-row:2;display:flex;align-items:stretch;background:#2C3F4C;color:#E9EEF1;overflow-x:auto;scrollbar-width:thin}
-.cpd .sous button{display:flex;align-items:center;gap:7px;padding:0 14px;border:none;border-right:1px solid #3B5060;border-bottom:3px solid transparent;border-radius:0;background:none;color:#E9EEF1;font:500 12.5px system-ui;white-space:nowrap;cursor:pointer}
-.cpd .sous button:hover{background:#34495A}
-.cpd .sous button.actif{border-bottom-color:#E07A5F;background:#34495A;color:#fff}
-.cpd .ruban{grid-column:1/3;grid-row:3;display:flex;align-items:stretch;gap:0;height:81px;background:#3A4E5C;color:#E9EEF1;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
-.cpd .ruban .tuile-outil{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:96px;min-width:96px;height:78px;padding:4px;border:none;border-right:1px solid #4A606F;border-bottom:3px solid transparent;border-radius:0;background:none;color:#E9EEF1;font:500 11.5px/1.15 system-ui;text-align:center;cursor:pointer}
-.cpd .ruban .tuile-outil:hover{background:#465C6B}
-.cpd .ruban .tuile-outil.actif{background:#4C6272;border-bottom-color:#E07A5F;color:#fff}
-.cpd .ruban .tuile-outil svg{width:30px;height:30px}
-.cpd .ruban .tuile-outil kbd{font:10px system-ui;opacity:.6}
-.cpd .ruban .options{display:flex;align-items:center;gap:10px;padding:6px 14px;font-size:12px;color:#E9EEF1}
+.cpd .sous{grid-column:1/3;grid-row:2;display:flex;align-items:stretch;background:var(--sous);color:var(--txt);overflow-x:auto;scrollbar-width:thin}
+.cpd .sous button{display:flex;align-items:center;gap:8px;padding:0 16px;border:none;border-right:1px solid #4A4A4A;border-bottom:3px solid transparent;border-radius:0;background:none;color:var(--txt);font:600 12.5px "Segoe UI",system-ui;white-space:nowrap;cursor:pointer}
+.cpd .sous button:hover{background:#444}
+.cpd .sous button.actif{border-bottom-color:var(--acc);background:#444;color:#fff}
+.cpd .ruban{grid-column:1/3;grid-row:3;display:flex;align-items:stretch;background:var(--ruban);color:var(--txt);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.cpd .ruban .tuile-outil{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;width:112px;min-width:112px;padding:6px 4px 4px;border:none;border-right:1px solid #5E5E5E;border-bottom:3px solid transparent;border-radius:0;background:none;color:var(--txt);font:500 12px/1.15 "Segoe UI",system-ui;text-align:center;cursor:pointer}
+.cpd .ruban .tuile-outil:hover{background:#595959}
+.cpd .ruban .tuile-outil.actif{background:#606060;border-bottom-color:var(--acc);color:#fff}
+.cpd .ruban .tuile-outil svg{width:38px;height:38px}
+.cpd .ruban .tuile-outil kbd{display:none}
+.cpd .ruban .options{display:flex;align-items:center;gap:12px;padding:6px 14px;font-size:12px;color:var(--txt)}
 .cpd .ruban .options label{display:flex;align-items:center;gap:6px;white-space:nowrap}
-.cpd .ruban .options select{background:#2C3F4C;color:#fff;border:1px solid #5A7080;border-radius:5px;padding:3px 6px}
-.cpd .compo{position:relative;align-self:center;margin:0 12px;min-width:320px;max-width:380px}
-.cpd .compo .carte{display:flex;flex-direction:column;gap:4px;padding:7px 10px;border-radius:6px;background:#2C3F4C;border:1px solid #5A7080;cursor:pointer;color:#fff}
-.cpd .compo .carte:hover{border-color:#E07A5F}
-.cpd .compo .tete{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:12.5px}
-.cpd .compo .couches{display:flex;flex-wrap:wrap;gap:3px}
-.cpd .compo .couches span{font-size:10.5px;padding:1px 5px;border-radius:3px;border:1px solid #E07A5F;color:#F3C9BC}
-.cpd .liste-compo{position:fixed;z-index:25;max-height:60vh;overflow:auto;background:#2C3F4C;border:1px solid #5A7080;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:4px;box-sizing:border-box}
-.cpd .liste-compo .carte{display:flex;flex-direction:column;gap:4px;padding:7px 10px;border-radius:6px;border:1px solid transparent;margin:2px 0;cursor:pointer;color:#fff}
-.cpd .liste-compo .carte:hover{border-color:#E07A5F}
-.cpd .liste-compo .carte.choisi{border-color:#E07A5F;background:#34495A}
-.cpd .liste-compo .tete{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:12.5px}
-.cpd .liste-compo .couches{display:flex;flex-wrap:wrap;gap:3px}
-.cpd .liste-compo .couches span{font-size:10.5px;padding:1px 5px;border-radius:3px;border:1px solid #E07A5F;color:#F3C9BC}
-.cpd .liste-compo .apercu-couches{display:flex;height:8px;border-radius:2px;overflow:hidden;border:1px solid #1A2B36}
-.cpd .compo .apercu-couches{display:flex;height:8px;border-radius:2px;overflow:hidden;border:1px solid #1A2B36}
-.cpd .catalogue{grid-column:1;grid-row:4;width:252px;overflow:auto;background:#F4F0E8;border-right:1px solid #E4DED3;padding:10px;box-sizing:border-box}
+.cpd .ruban .options select{background:var(--carte);color:#fff;border:1px solid var(--trait);border-radius:4px;padding:3px 6px}
+.cpd .compo{position:relative;align-self:stretch;display:flex;align-items:center;margin:0 10px;min-width:330px;max-width:390px}
+.cpd .compo .carte,.cpd .liste-compo .carte,.cpd aside .carte{display:flex;flex-direction:column;gap:5px;padding:8px 10px;border-radius:4px;background:var(--carte);border:1px solid #444;cursor:pointer;color:#fff;width:100%;box-sizing:border-box}
+.cpd .compo .carte:hover,.cpd .liste-compo .carte:hover,.cpd aside .carte:hover{border-color:var(--acc)}
+.cpd .tete{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:12.5px}
+.cpd .couches{display:flex;flex-wrap:wrap;gap:3px}
+.cpd .couches span{font-size:10.5px;padding:1px 5px;border-radius:2px;border:1px solid var(--orange);color:#F6C9B0}
+.cpd .couches span.b{border-color:var(--acc);color:#A9E2D9}
+.cpd .apercu-couches{display:flex;height:9px;border-radius:2px;overflow:hidden;border:1px solid #111}
+.cpd .liste-compo{position:fixed;z-index:25;max-height:60vh;overflow:auto;background:var(--sous);border:1px solid var(--trait);border-radius:4px;box-shadow:0 10px 30px rgba(0,0,0,.45);padding:6px;box-sizing:border-box}
+.cpd .liste-compo .carte{margin:3px 0}
+.cpd .liste-compo .carte.choisi,.cpd aside .carte.choisi{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+.cpd .catalogue{grid-column:1;grid-row:4;width:236px;overflow:auto;background:var(--pan);border-right:1px solid #2A2A2A;padding:10px 8px;box-sizing:border-box;color:var(--txt)}
 .cpd .catalogue:empty{display:none}
-.cpd .catalogue h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#6E7B84;margin:4px 0 6px}
-.cpd .catalogue .note{font-size:12px;color:#6E7B84}
-.cpd .catalogue input.chercher{width:100%;box-sizing:border-box;border:1px solid #DDD5C8;border-radius:16px;padding:5px 10px;margin:0 0 8px;background:#fff}
+.cpd .catalogue.ferme{width:44px;padding:8px 4px}
+.cpd .catalogue input.chercher{width:100%;box-sizing:border-box;border:none;border-radius:14px;padding:6px 10px 6px 30px;margin:0 0 8px;background:#D6D6D6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E") 9px 50% no-repeat;color:#222}
+.cpd .catalogue button.fermer-cat{display:flex;align-items:center;gap:8px;width:100%;margin:0 0 10px;padding:6px 10px;border:none;border-radius:3px;background:var(--acc);color:#fff;font:600 12px "Segoe UI",system-ui;cursor:pointer}
+.cpd .catalogue.ferme button.fermer-cat{width:36px;padding:6px;justify-content:center}
+.cpd .catalogue .cat{display:flex;align-items:center;gap:10px;width:100%;padding:9px 6px;border:none;border-bottom:1px solid #4A4A4A;border-radius:0;background:none;color:var(--txt);font:600 12px "Segoe UI",system-ui;text-transform:uppercase;letter-spacing:.02em;text-align:left;cursor:pointer}
+.cpd .catalogue .cat:hover{background:#444}
+.cpd .catalogue .cat.actif{background:#4A4A4A;color:#fff;box-shadow:3px 0 0 var(--acc) inset}
+.cpd .catalogue .cat svg{flex:none}
+.cpd .catalogue .note,.cpd .volet .note{font-size:11.5px;color:var(--txt2)}
+.cpd .volet{position:absolute;left:0;top:0;z-index:7;max-height:calc(100% - 20px);overflow:auto;background:rgba(66,66,66,.96);color:var(--txt);box-shadow:4px 4px 18px rgba(0,0,0,.35);padding:12px 16px 16px;min-width:300px;max-width:min(760px,calc(100% - 40px));box-sizing:border-box}
+.cpd .volet h4{margin:4px 0 10px;font:700 13px "Segoe UI",system-ui;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+.cpd .volet .tuiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}
+.cpd .volet .tuile{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 4px 7px;border:1px solid transparent;border-radius:3px;background:#4F4F4F;cursor:grab;font-size:11.5px;line-height:1.2;text-align:center;user-select:none;color:#fff}
+.cpd .volet .tuile:hover{border-color:var(--acc)}
+.cpd .volet .tuile.choisi{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+.cpd .volet .tuile svg{width:96px;height:44px;background:#fff;border-radius:2px}
+.cpd .volet .tuile .pastille{width:100%;height:34px;border-radius:2px;border:1px solid #333}
 .cpd button,.cpd select,.cpd input{font:inherit;color:inherit}
-.cpd button{border:1px solid #DDD5C8;background:#fff;border-radius:6px;padding:4px 9px;cursor:pointer}
-.cpd button:hover{border-color:#C5563A}
+.cpd button{border:1px solid var(--trait);background:#4A4A4A;color:var(--txt);border-radius:3px;padding:5px 10px;cursor:pointer}
+.cpd button:hover{border-color:var(--acc)}
 .cpd button:disabled{opacity:.4;cursor:default}
-.cpd button.prim{background:#C5563A;border-color:#C5563A;color:#fff}
-.cpd button.dang{color:#A13A20}
-.cpd main{grid-column:2;grid-row:4;position:relative;overflow:hidden;touch-action:none}
+.cpd button.prim{background:var(--acc);border-color:var(--acc);color:#fff}
+.cpd button.prim:hover{background:var(--acc2)}
+.cpd button.dang{color:#FF9B85}
+.cpd main{grid-column:2;grid-row:4;position:relative;overflow:hidden;touch-action:none;background:#fff}
 .cpd main canvas.plan2d{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
-.cpd .flottant{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:4;display:flex;gap:6px;align-items:center}
-.cpd .flottant .groupe{display:flex;align-items:center;gap:2px;background:#2C3F4C;border-radius:7px;padding:3px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
-.cpd .flottant button,.cpd .flottant select{background:none;border:none;color:#fff;border-radius:5px;padding:4px 8px;font-size:13px}
-.cpd .flottant select{background:#2C3F4C;min-width:120px}
-.cpd .flottant button:hover{background:#3B5060}
-.cpd .flottant button.actif{background:#C5563A}
-.cpd .affichages{position:absolute;top:calc(100% + 6px);right:0;background:#fff;color:#1A2B36;border:1px solid #DDD5C8;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:8px 12px;min-width:250px;z-index:20}
-.cpd .affichages label{display:flex;align-items:center;gap:8px;margin:5px 0;white-space:nowrap}
-.cpd .droite{grid-column:3;grid-row:2/5;display:flex;flex-direction:column;min-height:0;border-left:1px solid #E4DED3;background:#fff}
-.cpd .apercu{position:relative;height:210px;flex:none;background:#DCE5DC;border-bottom:1px solid #E4DED3;overflow:hidden}
+.cpd .flottant{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:5;display:flex;gap:8px;align-items:center}
+.cpd .flottant .groupe,.cpd .bas .groupe{display:flex;align-items:center;gap:1px;background:#3A3A3A;border-radius:4px;padding:2px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.cpd .flottant button,.cpd .flottant select,.cpd .bas button{background:none;border:none;color:#fff;border-radius:3px;padding:5px 9px;font-size:13px}
+.cpd .flottant select{background:#3A3A3A;min-width:150px;font-weight:600}
+.cpd .flottant button:hover,.cpd .bas button:hover{background:#505050}
+.cpd .flottant button.actif,.cpd .bas button.actif{background:var(--acc)}
+.cpd .affichages{position:absolute;top:calc(100% + 6px);right:0;background:#3A3A3A;color:var(--txt);border-radius:4px;box-shadow:0 10px 30px rgba(0,0,0,.3);padding:8px 12px;min-width:250px;z-index:20}
+.cpd .affichages label{display:flex;align-items:center;gap:8px;margin:6px 0;white-space:nowrap}
+.cpd .bas{position:absolute;left:10px;right:10px;bottom:8px;z-index:5;display:flex;align-items:flex-end;gap:8px;pointer-events:none}
+.cpd .bas > *{pointer-events:auto}
+.cpd .bas .esp{flex:1;pointer-events:none}
+.cpd .bas .aide{pointer-events:none;align-self:center;font-size:11.5px;color:#666;background:rgba(255,255,255,.85);padding:2px 8px;border-radius:10px;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cpd .bas .acc{color:var(--orange);font-weight:600;pointer-events:none}
+.cpd .bas .coord{font-size:11px;color:#777;background:rgba(255,255,255,.85);padding:2px 6px;border-radius:8px;pointer-events:none}
+.cpd .tableau-surfaces{position:absolute;left:10px;bottom:46px;z-index:6;background:#3A3A3A;color:var(--txt);border-radius:4px;box-shadow:0 10px 30px rgba(0,0,0,.3);padding:10px 14px;min-width:300px;max-height:60%;overflow:auto;font-size:12.5px}
+.cpd .tableau-surfaces table{width:100%;border-collapse:collapse}
+.cpd .tableau-surfaces td{padding:3px 4px;border-bottom:1px solid #4A4A4A}
+.cpd .tableau-surfaces td:last-child{text-align:right;white-space:nowrap}
+.cpd .boussole{position:absolute;left:18px;top:50%;z-index:4;width:64px;height:84px;margin-top:-42px;pointer-events:none}
+.cpd .droite{grid-column:3;grid-row:2/5;display:flex;flex-direction:column;min-height:0;background:var(--pan)}
+.cpd .apercu{position:relative;height:250px;flex:none;background:#53704B;overflow:hidden}
 .cpd .apercu .attrape{position:absolute;inset:0;z-index:3;cursor:zoom-in}
-.cpd .apercu .legende-apercu{position:absolute;left:8px;bottom:6px;z-index:4;font-size:11px;color:#1A2B36;background:rgba(255,255,255,.8);padding:1px 6px;border-radius:8px;pointer-events:none}
-.cpd .apercu .vide-apercu{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#6E7B84;font-size:12px;padding:12px;text-align:center}
+.cpd .apercu .legende-apercu{position:absolute;left:8px;bottom:6px;z-index:4;font-size:11px;color:#fff;background:rgba(0,0,0,.45);padding:1px 8px;border-radius:8px;pointer-events:none}
+.cpd .apercu .vide-apercu{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#E8EFE6;font-size:12px;padding:12px;text-align:center}
 .cpd .apercu canvas{position:absolute;inset:0;width:100%;height:100%}
-.cpd aside{flex:1;overflow:auto;padding:12px;min-height:0}
-.cpd aside h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#6E7B84;margin:14px 0 6px}
-.cpd aside h3:first-child{margin-top:0}
-.cpd aside label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:5px 0}
-.cpd aside label input:not([type=checkbox]):not([type=range]),.cpd aside label select{width:130px;border:1px solid #DDD5C8;border-radius:5px;padding:3px 6px;background:#fff}
-.cpd aside .ligne,.cpd .catalogue .ligne{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
-.cpd aside .note{font-size:12px;color:#6E7B84}
-.cpd aside .alerte{font-size:12px;padding:6px 8px;border-left:3px solid #C5563A;background:#FBF3EF;margin:4px 0}
-.cpd aside .ok{font-size:12px;padding:6px 8px;border-left:3px solid #3F7A5A;background:#EEF3EF}
+.cpd aside{flex:1;overflow:auto;padding:0 18px 18px;min-height:0;background:var(--pan);color:var(--txt)}
+.cpd aside .entete-panneau{display:flex;align-items:center;gap:8px;margin:0 -18px 14px;padding:9px 18px;background:var(--sous);border-bottom:3px solid var(--acc);font-weight:600;font-size:13px}
+.cpd aside .titre-panneau{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;font-size:20px;font-weight:600;color:#fff}
+.cpd aside .titre-panneau .vignette{width:80px;height:80px;border:1px solid #666;display:flex;align-items:center;justify-content:center;color:#ddd;flex:none}
+.cpd aside h3{font-size:16px;font-weight:600;color:#fff;margin:18px 0 8px;padding-top:12px;border-top:1px solid #4E4E4E}
+.cpd aside h3:first-child{margin-top:4px;border-top:none;padding-top:0}
+.cpd aside .sous-titre{font-size:11.5px;color:var(--txt2);margin:2px 0 6px}
+.cpd aside label{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:7px 0;color:var(--txt2);font-size:12.5px}
+.cpd aside label input:not([type=checkbox]):not([type=range]),.cpd aside label select{width:150px;border:none;border-bottom:1px solid #8A8A8A;border-radius:0;padding:3px 2px;background:transparent;color:#fff}
+.cpd aside label select option{background:#3B3B3B}
+.cpd aside label input:focus,.cpd aside label select:focus{outline:none;border-bottom-color:var(--acc)}
+.cpd aside .ligne,.cpd .catalogue .ligne{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.cpd aside .note{font-size:12px;color:var(--txt2)}
+.cpd aside .alerte{font-size:12px;padding:6px 8px;border-left:3px solid var(--orange);background:#4A3E37;margin:4px 0;color:#F5DCCD}
+.cpd aside .ok{font-size:12px;padding:6px 8px;border-left:3px solid var(--acc);background:#33473F;color:#CDEBE4}
 .cpd aside table{width:100%;border-collapse:collapse;font-size:12px}
-.cpd aside td{padding:3px 0;border-bottom:1px solid #F0EBE3}
+.cpd aside td{padding:4px 0;border-bottom:1px solid #4A4A4A}
 .cpd aside td:last-child{text-align:right;white-space:nowrap}
-.cpd aside .niv{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:6px;cursor:pointer}
-.cpd aside .niv.actif{background:#F5F1EA;font-weight:600}
-.cpd aside .chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 6px;border-radius:10px;background:#EEF3EF;color:#3F7A5A}
+.cpd aside .niv{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:3px;cursor:pointer}
+.cpd aside .niv:hover{background:#444}
+.cpd aside .niv.actif{background:#4A4A4A;font-weight:600;box-shadow:3px 0 0 var(--acc) inset}
+.cpd aside .chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 7px;border-radius:10px;background:#33473F;color:#A9E2D9}
 .cpd aside .chip button{border:none;padding:0 2px;background:none;color:inherit}
-.cpd aside .couches-mur{display:flex;flex-direction:column;gap:2px;margin:4px 0}
-.cpd aside .couches-mur div{display:flex;align-items:center;gap:6px;font-size:12px}
-.cpd aside .couches-mur i{display:inline-block;width:14px;height:12px;border:1px solid #1A2B36}
-.cpd footer{grid-column:1/4;grid-row:5;display:flex;gap:16px;align-items:center;padding:0 12px;border-top:1px solid #E4DED3;background:#fff;font-size:12px;color:#6E7B84}
-.cpd footer .acc{color:#C5563A;font-weight:600}
-.cpd .toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);background:#1A2B36;color:#fff;padding:8px 14px;border-radius:8px;max-width:70%;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:6}
-.cpd .toast.err{background:#A13A20}
-.cpd .voile{position:fixed;inset:0;background:rgba(26,43,54,.35);display:flex;align-items:flex-start;justify-content:center;padding-top:min(12vh,80px);z-index:30}
-.cpd .boite{background:#fff;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.2);width:min(440px,92vw);padding:16px;box-sizing:border-box;max-height:calc(100vh - min(12vh,80px) - 16px);overflow-y:auto}
-.cpd .boite h2{font-size:16px;margin:0 0 10px}
-.cpd .boite label{display:block;margin:8px 0}
-.cpd .boite label input,.cpd .boite label select{display:block;width:100%;box-sizing:border-box;margin-top:3px;border:1px solid #DDD5C8;border-radius:6px;padding:6px 8px}
-.cpd .boite .pied{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;position:sticky;bottom:-16px;background:#fff;padding:8px 0 16px;margin-bottom:-16px}
-.cpd .palette input{width:100%;box-sizing:border-box;border:1px solid #DDD5C8;border-radius:6px;padding:8px 10px;font-size:15px}
+.cpd aside .couches-mur{display:flex;flex-direction:column;gap:3px;margin:6px 0}
+.cpd aside .couches-mur div{display:flex;align-items:center;gap:8px;font-size:12px}
+.cpd aside .couches-mur i{display:inline-block;width:16px;height:12px;border:1px solid #111}
+.cpd aside .apercu-coupe svg{background:#fff;border-radius:3px}
+.cpd aside .schema-hauteur{display:flex;gap:14px;align-items:flex-start}
+.cpd footer{display:none}
+.cpd .toast{pointer-events:none;position:absolute;left:50%;bottom:52px;transform:translateX(-50%);background:#2B2B2B;color:#fff;padding:9px 16px;border-radius:4px;max-width:70%;box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:8;border-left:4px solid var(--acc)}
+.cpd .toast.err{border-left-color:#E5533D;background:#4A2A24}
+.cpd .voile{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding-top:min(12vh,80px);z-index:30}
+.cpd .boite{background:#3B3B3B;color:var(--txt);border-radius:4px;box-shadow:0 10px 40px rgba(0,0,0,.4);width:min(440px,92vw);padding:16px 18px;box-sizing:border-box;max-height:calc(100vh - min(12vh,80px) - 16px);overflow-y:auto;border-top:3px solid var(--acc)}
+.cpd .boite h2{font-size:16px;margin:0 0 12px;color:#fff}
+.cpd .boite label{display:block;margin:10px 0;color:var(--txt2);font-size:12.5px}
+.cpd .boite label input,.cpd .boite label select{display:block;width:100%;box-sizing:border-box;margin-top:3px;border:none;border-bottom:1px solid #8A8A8A;border-radius:0;padding:6px 2px;background:transparent;color:#fff}
+.cpd .boite label select option{background:#3B3B3B}
+.cpd .boite .pied{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;position:sticky;bottom:-16px;background:#3B3B3B;padding:8px 0 16px;margin-bottom:-16px}
+.cpd .boite table td,.cpd .boite table th{padding:3px 4px;border-bottom:1px solid #4A4A4A}
+.cpd .palette input{width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #8A8A8A;padding:8px 4px;font-size:15px;background:transparent;color:#fff}
 .cpd .palette ul{list-style:none;margin:8px 0 0;padding:0;max-height:50vh;overflow:auto}
-.cpd .palette li{padding:7px 10px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between}
-.cpd .palette li.sel{background:#F5F1EA}
-.cpd .palette li kbd{font-size:11px;color:#6E7B84}
-.cpd .biblio details{margin:4px 0}
-.cpd .biblio summary{cursor:pointer;font-weight:600;padding:5px 2px;border-bottom:1px solid #E4DED3;text-transform:uppercase;font-size:11.5px;letter-spacing:.04em}
-.cpd .biblio .tuiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0 8px}
-.cpd .biblio .tuile{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px;border:1px solid #DDD5C8;border-radius:8px;background:#fff;cursor:grab;font-size:11px;line-height:1.25;text-align:center;user-select:none}
-.cpd .biblio .tuile:hover{border-color:#C5563A}
-.cpd .biblio .tuile.choisi{border-color:#C5563A;background:#FBF3EF;box-shadow:0 0 0 1px #C5563A inset}
-.cpd .biblio .tuile svg{width:72px;height:34px}
-.cpd .biblio .pastille{width:100%;height:26px;border-radius:4px;border:1px solid #CFC7BA}
+.cpd .palette li{padding:7px 10px;border-radius:3px;cursor:pointer;display:flex;justify-content:space-between}
+.cpd .palette li.sel{background:#4A4A4A;box-shadow:3px 0 0 var(--acc) inset}
+.cpd .palette li kbd{font-size:11px;color:var(--txt2)}
 .cpd main .hote3d{position:absolute;inset:0;display:none}
 .cpd main .hote3d canvas{cursor:grab}
 .cpd.en3d main .hote3d{display:block}
 .cpd .apercu .hote3d{position:absolute;inset:0;display:block}
-.cpd .saisie{position:absolute;z-index:5;width:150px;border:2px solid #C5563A;border-radius:6px;padding:4px 8px;font:600 14px system-ui;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.15)}
-@media (max-width:1320px){.cpd header nav.onglets button{min-width:62px;font-size:11.5px}.cpd header .etat{max-width:110px}}
-@media (max-width:980px){.cpd{grid-template-columns:auto 1fr;grid-template-rows:56px 38px auto 1fr 38vh 26px}.cpd .droite{grid-column:1/3;grid-row:5;border-left:none;border-top:1px solid #E4DED3;flex-direction:row}.cpd .apercu{height:auto;width:40%}.cpd footer{grid-row:6}.cpd header input.nom{display:none}.cpd header nav.onglets button{min-width:60px;font-size:11px}}
+.cpd .saisie{position:absolute;z-index:5;width:150px;border:2px solid var(--acc);border-radius:4px;padding:4px 8px;font:600 14px system-ui;background:#fff;color:#222;box-shadow:0 4px 14px rgba(0,0,0,.15)}
+@media (max-width:1600px){.cpd header nav.onglets button{min-width:78px}.cpd header input.nom{width:150px}.cpd .etat{max-width:90px}.cpd .compo{min-width:300px}}
+@media (max-width:1400px){.cpd{grid-template-columns:auto 1fr 330px}.cpd header nav.onglets button{min-width:68px;font-size:12px}.cpd header input.nom{width:120px}}
+@media (max-width:1180px){.cpd header nav.onglets button{min-width:60px;font-size:11px;padding:4px 4px 2px}.cpd header input.nom{display:none}.cpd .etat{display:none}}
+@media (max-width:900px){.cpd{grid-template-columns:1fr;grid-template-rows:52px 36px 92px 1fr 40vh}.cpd .catalogue{display:none}.cpd main{grid-column:1}.cpd .droite{grid-column:1;grid-row:5}.cpd .sous,.cpd .ruban{grid-column:1}}
 `;
 
 interface Action { libelle: string; touche?: string; faire: () => void; visible?: () => boolean }
@@ -190,10 +219,12 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       <span class="esp"></span>
       <span class="droite-entete">
         <span class="etat" title="Enregistrement"></span>
-        <button class="bpdf" title="Exporter les plans en PDF (A3, cotés, cartouche)">PDF</button>
-        <button class="bdxf" title="Exporter les plans en DXF (bureaux d’études, autres logiciels)">DXF</button>
-        <button class="cmdk" title="Toutes les actions (Ctrl+K)">⌘K</button>
-        <a href="../index.html" title="Retour au suivi de chantiers">Suivi ↗</a>
+        <button class="baide" title="Aide : raccourcis et manière de faire">${icone('aide', 22)}</button>
+        <button class="bpdf texte" title="Exporter les plans en PDF (A3, cotés, cartouche)">PDF</button>
+        <button class="bdxf texte" title="Exporter les plans en DXF (bureaux d’études, autres logiciels)">DXF</button>
+        <button class="cmdk" title="Toutes les actions (Ctrl+K)">${icone('chercher', 22)}</button>
+        <button class="bplein" title="Plein écran">${icone('plein_ecran', 22)}</button>
+        <a href="../index.html" title="Retour au suivi de chantiers">${icone('sortir', 22)}</a>
       </span>
     </header>
     <div class="sous"></div>
@@ -204,11 +235,18 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         <span class="groupe"><select class="niveaux" title="Niveau affiché"></select></span>
         <span class="groupe"><button class="annuler" title="Annuler (Ctrl+Z)">↶</button><button class="retablir" title="Rétablir (Ctrl+Maj+Z)">↷</button></span>
         <span class="groupe"><button class="b3d" title="Permuter le plan et la vue 3D (touche 3)">⇄ 3D</button></span>
-        <span class="groupe" style="position:relative"><button class="baff" title="Ce que montre le plan">Affichages ▾</button></span>
+        <span class="groupe" style="position:relative"><button class="baff" title="Ce que montre le plan">${icone('oeil', 18)} Affichages ▾</button></span>
+      </div>
+      <svg class="boussole" viewBox="0 0 64 84" aria-hidden="true"></svg>
+      <div class="bas">
+        <span class="groupe" style="position:relative"><button class="bsurf" title="Les surfaces des pièces du niveau">${icone('tableau', 18)} Tableaux de surfaces ▴</button></span>
+        <span class="aide"></span><span class="esp"></span><span class="acc"></span><span class="coord"></span>
+        <span class="groupe"><button class="bzoomp" title="Zoom avant">${icone('zoom_plus', 18)}</button><button class="bzoomm" title="Zoom arrière">${icone('zoom_moins', 18)}</button></span>
+        <span class="groupe"><button class="bcadrer" title="Tout voir (F)">${icone('cadrer', 18)} Tout voir</button></span>
       </div>
     </main>
     <div class="droite"><div class="apercu"><div class="vide-apercu">Aperçu 3D…</div><div class="attrape" title="Agrandir (touche 3)"></div><span class="legende-apercu">3D</span></div><aside></aside></div>
-    <footer><span class="aide"></span><span class="esp" style="flex:1"></span><span class="acc"></span><span class="coord"></span></footer></div>`;
+    </div>`;
   const $ = <T extends Element>(s: string) => racine.querySelector(s) as T;
   const canvas = $<HTMLCanvasElement>('canvas.plan2d'), main = $<HTMLElement>('main'), aside = $<HTMLElement>('aside');
   const ongletsNav = $<HTMLElement>('nav.onglets'), sousNav = $<HTMLElement>('.sous'), ruban = $<HTMLElement>('.ruban'), catalogue = $<HTMLElement>('.catalogue');
@@ -277,7 +315,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     groupe = groupe.filter(id => niveau().objects[id]);
     if (groupe.length < 2) groupe = [];
     if (en3D && vue3d) { vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe() } else apercu3DBientot();
-    barreOutils(); panneaux(); dessinerBientot();
+    barreOutils(); panneaux(); dessinerBientot(); majTableauSurfaces(); boussole();
   }
 
   /* ---------- vue 3D ---------- */
@@ -750,7 +788,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         outil('rectangle', 'Rectangle de murs'), action('Mettre d’équerre', 'equerre', () => mettreDEquerre(), 'Redresser à 90° les murs presque d’équerre du niveau')],
         options: () => optionsMurs() },
       { id: 'pieces', libelle: 'Types de pièces', icone: 'pieces', tuiles: () => [
-        ...TYPES_PIECES.map(t => ({ libelle: t.libelle, icone: 'piece', faire: () => choisirTypePiece(t.libelle), actif: () => outils.outil === 'piece' && typePiece === t.libelle, titre: 'Cliquez dans un espace clos pour en faire : ' + t.libelle })),
+        ...TYPES_PIECES.map(t => ({ libelle: t.libelle, icone: t.icone, faire: () => choisirTypePiece(t.libelle), actif: () => outils.outil === 'piece' && typePiece === t.libelle, titre: 'Cliquez dans un espace clos pour en faire : ' + t.libelle })),
         { ...outil('piece', 'Autre nom…'), faire: () => { typePiece = null; choisir('piece') }, actif: () => outils.outil === 'piece' && !typePiece }] },
       { id: 'niveaux', libelle: 'Niveaux', icone: 'niveaux', tuiles: () => [action('Ajouter un niveau', 'niveau_plus', () => void ajouterNiveau()), outil('escalier')] },
       { id: 'transformations', libelle: 'Transformations', icone: 'transformations', tuiles: () => [outil('selection'),
@@ -822,6 +860,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   const sousCourant = () => { const O = ongletCourant(); return O.sous.find(x => x.id === sousOnglets[O.id]) ?? O.sous[0]! };
   function ouvrirOnglet(id: string, sous?: string) {
     const quitteStudio = onglet === 'studio' && id !== 'studio';
+    if (id !== onglet || (sous && sous !== sousOnglets[id])) { categorieOuverte = null; recherche = '' }
     onglet = id;
     if (sous) sousOnglets[id] = sous;
     if (quitteStudio && en3D) void basculer3D(false);
@@ -849,7 +888,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     }
     for (const e of S.options?.() ?? []) ruban.appendChild(e);
     const defile = catalogue.scrollTop;
-    catalogue.innerHTML = '';
+    catalogue.innerHTML = ''; catalogue.className = 'catalogue';
+    main.querySelector('.volet')?.remove();
     S.catalogue?.();
     catalogue.scrollTop = defile;
     ajusterCamera();
@@ -915,13 +955,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
 
   /* ---------- types de pièces ---------- */
-  const TYPES_PIECES: { libelle: string; usage: RoomUsage; humide?: boolean }[] = [
-    { libelle: 'Cuisine', usage: 'kitchen', humide: true }, { libelle: 'Séjour', usage: 'living' }, { libelle: 'Salon', usage: 'living' },
-    { libelle: 'Salle à manger', usage: 'living' }, { libelle: 'Pièce de vie', usage: 'living' }, { libelle: 'Entrée', usage: 'circulation' },
-    { libelle: 'Salle d’eau', usage: 'bathroom', humide: true }, { libelle: 'Salle de bain', usage: 'bathroom', humide: true }, { libelle: 'WC', usage: 'wc', humide: true },
-    { libelle: 'Chambre', usage: 'bedroom' }, { libelle: 'Placard', usage: 'storage' }, { libelle: 'Dressing', usage: 'storage' },
-    { libelle: 'Cellier', usage: 'storage' }, { libelle: 'Buanderie', usage: 'technical', humide: true }, { libelle: 'Bureau', usage: 'other' },
-    { libelle: 'Dégagement', usage: 'circulation' }, { libelle: 'Sous escalier', usage: 'storage' }, { libelle: 'Garage', usage: 'garage' },
+  const TYPES_PIECES: { libelle: string; usage: RoomUsage; humide?: boolean; icone: string }[] = [
+    { libelle: 'Cuisine', usage: 'kitchen', humide: true, icone: 'cuisine' }, { libelle: 'Séjour', usage: 'living', icone: 'canape' }, { libelle: 'Salon', usage: 'living', icone: 'tv' },
+    { libelle: 'Salle à manger', usage: 'living', icone: 'table' }, { libelle: 'Pièce de vie', usage: 'living', icone: 'fauteuil' }, { libelle: 'Entrée', usage: 'circulation', icone: 'cle' },
+    { libelle: 'Salle d’eau', usage: 'bathroom', humide: true, icone: 'douche' }, { libelle: 'Salle de bain', usage: 'bathroom', humide: true, icone: 'bain' }, { libelle: 'WC', usage: 'wc', humide: true, icone: 'wc' },
+    { libelle: 'Chambre', usage: 'bedroom', icone: 'lit' }, { libelle: 'Placard', usage: 'storage', icone: 'placard' }, { libelle: 'Dressing', usage: 'storage', icone: 'cintre' },
+    { libelle: 'Cellier', usage: 'storage', icone: 'cellier' }, { libelle: 'Buanderie', usage: 'technical', humide: true, icone: 'lave_linge' }, { libelle: 'Bureau', usage: 'other', icone: 'bureau' },
+    { libelle: 'Dégagement', usage: 'circulation', icone: 'degagement' }, { libelle: 'Sous escalier', usage: 'storage', icone: 'escalier' }, { libelle: 'Garage', usage: 'garage', icone: 'garage' },
   ];
   /** le type de pièce posé d'un clic (null : on demande le nom) */
   let typePiece: string | null = null;
@@ -972,6 +1012,40 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   $<HTMLButtonElement>('.cmdk').onclick = () => palette();
   $<HTMLButtonElement>('.b3d').onclick = () => void basculer3D();
   apercuBoite.querySelector<HTMLElement>('.attrape')!.onclick = () => { if (!en3D && onglet === 'studio') ouvrirOnglet('trace'); void basculer3D() };
+  /* barre du bas : tableau des surfaces, zoom, tout voir ; en-tête : aide, plein écran */
+  const zoomCentre = (k: number) => { cam = zoomer(cam, k, { x: cam.largeur / 2, y: cam.hauteur / 2 }); dessinerBientot() };
+  $<HTMLButtonElement>('.bzoomp').onclick = () => zoomCentre(1.25);
+  $<HTMLButtonElement>('.bzoomm').onclick = () => zoomCentre(0.8);
+  $<HTMLButtonElement>('.bcadrer').onclick = () => cadrerTout();
+  $<HTMLButtonElement>('.bplein').onclick = () => { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.().catch(() => toast('Plein écran refusé par le navigateur', true)) };
+  $<HTMLButtonElement>('.baide').onclick = () => afficherRapport('Aide',
+    `<p><b>Tracer</b> : onglet Tracé → Murs, choisissez le type de mur et sa composition, puis cliquez chaque angle (les murs s’aimantent à l’équerre ; Q : libre). Tapez une longueur au clavier (4,50 puis Entrée ; 4,50<90 pour un angle ; 10x8 pour un rectangle).</p>
+     <p><b>Poser</b> : onglets Ouvrant et Produit, une catégorie du catalogue (à gauche), un modèle, puis un clic sur le plan — ou glissez-le.</p>
+     <p><b>Modifier</b> : cliquez un objet ; son panneau est à droite. Tirez une extrémité, un mur, une ouverture pour la déplacer.</p>
+     <p><b>Raccourcis</b> : V sélection · M mur extérieur · J mur intérieur · C cloison · U cloison fictive · R rectangle · O ouvrant · B mobilier · E escalier · P pièce · D cote · K coupe · 3 permuter plan / 3D · F tout voir · G grille · Ctrl+Z / Ctrl+Maj+Z · Ctrl+C / V / D · Ctrl+K toutes les actions · Espace + glisser : déplacer la vue.</p>`);
+  let tableauSurfaces = false;
+  $<HTMLButtonElement>('.bsurf').onclick = () => { tableauSurfaces = !tableauSurfaces; majTableauSurfaces() };
+  /** le tableau des surfaces du niveau, au-dessus du plan (comme on l'ouvre en bas à gauche) */
+  function majTableauSurfaces() {
+    main.querySelector('.tableau-surfaces')?.remove();
+    $<HTMLButtonElement>('.bsurf').classList.toggle('actif', tableauSurfaces);
+    if (!tableauSurfaces) return;
+    const f = niveau(), plan = planDuNiveau(f), Z = plan.zones;
+    const d = document.createElement('div'); d.className = 'tableau-surfaces';
+    const S = surfacesReglementaires(h.projet);
+    d.innerHTML = `<b>${esc(f.name)} — surfaces entre murs</b><table>${Z.map(z => `<tr><td>${esc(z.piece ? z.piece.name : 'À nommer')}</td><td>${m2(z.aire)}</td></tr>`).join('')}
+      <tr><td><b>Total</b></td><td><b>${m2(Z.reduce((t, z) => t + z.aire, 0))}</b></td></tr></table>
+      <div style="margin-top:8px;font-size:12px;color:#BDBDBD">Projet : surface de plancher <b style="color:#fff">${m2(S.surfacePlancher)}</b> · habitable <b style="color:#fff">${m2(S.habitable)}</b> · emprise ${m2(S.emprise)}</div>`;
+    main.appendChild(d);
+  }
+  /** la boussole du plan : le nord de la parcelle (sinon le haut du plan) */
+  function boussole() {
+    const t = parcelleDuProjet(h.projet), a = t ? -t.plot.north * 180 / Math.PI : 0;
+    $<SVGSVGElement>('svg.boussole').innerHTML = `<g transform="rotate(${a.toFixed(1)} 32 44)" font-family="Segoe UI,system-ui" font-size="11" font-weight="700" fill="#222" text-anchor="middle">
+      <circle cx="32" cy="44" r="19" fill="rgba(255,255,255,.85)" stroke="#222" stroke-width="1.5"/>
+      <path d="M32 27 L37 44 L32 61 L27 44 Z" fill="#fff" stroke="#222" stroke-width="1.2"/><path d="M32 27 L37 44 L27 44 Z" fill="#222"/>
+      <text x="32" y="20">N</text><text x="32" y="78">S</text><text x="58" y="48">E</text><text x="6" y="48">O</text></g>`;
+  }
   /* Affichages : ce que montre le plan (préférences de cet appareil) */
   $<HTMLButtonElement>('.baff').onclick = e => {
     const hote = (e.currentTarget as HTMLElement).parentElement!;
@@ -1004,6 +1078,14 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const f = niveau(), o = selection ? f.objects[selection] : undefined;
     aside.innerHTML = '';
     const S = sousCourant();
+    /* le bandeau du panneau : ce qu'il montre */
+    const TYPES: Record<string, [string, string]> = { wall: ['murs', 'Mur'], opening: ['ouvrant', 'Ouvrant'], room: ['piece', 'Pièce'], dimension: ['cote', 'Cote'], underlay: ['fond', 'Fond'],
+      furniture: ['produit', 'Produit'], stair: ['escalier', 'Escalier'], section: ['coupe', 'Coupe'], roof_window: ['fenetre_toit', 'Fenêtre de toit'], viewpoint: ['point_de_vue', 'Point de vue'],
+      landscape: ['exterieur', 'Aménagement'], plot: ['parcelle', 'Terrain'], constraint: ['equerre', 'Contrainte'], roof: ['toit', 'Toit'] };
+    const [ic, lib] = en3D ? ['vue3d', 'Vue 3D'] : groupe.length ? ['tout', 'Sélection'] : o ? TYPES[o.type] ?? ['trace', 'Objet']
+      : outils.outil === 'ouverture' ? ['ouvrant', 'Ouvrant'] : outils.outil === 'mobilier' ? ['produit', 'Produit'] : outils.outil === 'escalier' ? ['escalier', 'Escalier']
+      : outils.outil === 'amenagement' ? ['exterieur', 'Extérieur'] : S.panneau ? [S.icone, S.libelle] : ['niveaux', 'Niveau'];
+    aside.insertAdjacentHTML('beforeend', `<div class="entete-panneau">${icone(ic, 18)}<span>${esc(lib)}</span></div>`);
     if (en3D) panneau3D(); else if (groupe.length) panneauGroupe(f); else if (o) inspecteur(f, o);
     else if (outils.outil === 'ouverture') panneauOuverture(); else if (outils.outil === 'mobilier') panneauMobilier();
     else if (outils.outil === 'escalier') panneauEscalier(f); else if (outils.outil === 'amenagement') panneauAmenagement();
@@ -1282,29 +1364,78 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
 
   /** la bibliothèque d'ouvertures : un clic choisit le modèle, on peut aussi le glisser sur un mur */
-  /** les familles ouvertes dans les catalogues (gardées d'un rendu à l'autre) */
-  const famillesOuvertes = new Set<string>(['ouv:fenetres']);
-  /* au clic (et non à l'événement « toggle », qui arrive après coup : un rendu entre les deux l'aurait perdu) */
-  const replier = (d: HTMLDetailsElement, cle: string) => { d.addEventListener('click', e => { if ((e.target as HTMLElement).closest('summary')) { if (d.open) famillesOuvertes.delete(cle); else famillesOuvertes.add(cle) } }) };
-  function bibliotheque() {
-    const A = catalogue, choisi = outils.modele.id;
-    A.append(titre('Bibliothèque d’ouvertures'), bloc('Choisissez un modèle, puis cliquez sur un mur — ou glissez-le sur le mur.'));
-    const b = document.createElement('div'); b.className = 'biblio';
-    for (const [fam, nomFam] of Object.entries(FAMILLES)) {
-      const M = MODELES_OUVERTURES.filter(m => m.famille === fam);
-      const d = document.createElement('details');
-      d.open = famillesOuvertes.has('ouv:' + fam) || M.some(m => m.id === choisi);
-      replier(d, 'ouv:' + fam);
-      d.innerHTML = `<summary>${esc(nomFam)}</summary><div class="tuiles">${M.map(m => `<div class="tuile${m.id === choisi ? ' choisi' : ''}" draggable="true" data-m="${m.id}" title="${esc(m.libelle)} — ${esc(MANOEUVRES[m.manoeuvre])}">${symbole(m)}<span>${esc(m.libelle)}</span></div>`).join('')}</div>`;
-      b.append(d);
+  /* ---------- le catalogue (à gauche) : des catégories ; une catégorie ouvre son volet de modèles sur le plan ---------- */
+  interface TuileCatalogue { id: string; libelle: string; dessin: string; titre?: string; choisi?: boolean; choisir: () => void; glisser?: string }
+  interface Categorie { cle: string; libelle: string; icone: string; tuiles?: () => TuileCatalogue[]; action?: () => void }
+  let categorieOuverte: string | null = null, catalogueFerme = false, recherche = '';
+  let categoriesCourantes: Categorie[] = [];
+  const sansAccents = (t: string) => t.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  function rendreCatalogue(cats: Categorie[]) {
+    categoriesCourantes = cats;
+    catalogue.className = 'catalogue' + (catalogueFerme ? ' ferme' : '');
+    const f = document.createElement('button'); f.className = 'fermer-cat';
+    f.innerHTML = catalogueFerme ? '›' : '‹ Fermer catalogue'; f.title = catalogueFerme ? 'Ouvrir le catalogue' : 'Fermer le catalogue';
+    f.onclick = () => { catalogueFerme = !catalogueFerme; categorieOuverte = null; barreOutils() };
+    if (catalogueFerme) { catalogue.append(f); rendreVolet(); return }
+    const q = document.createElement('input'); q.className = 'chercher'; q.placeholder = 'rechercher…'; q.value = recherche;
+    q.oninput = () => { recherche = q.value; rendreVolet() };
+    catalogue.append(q, f);
+    for (const c of cats) {
+      const b = document.createElement('button'); b.className = 'cat' + (c.cle === categorieOuverte ? ' actif' : ''); b.dataset['cat'] = c.cle;
+      b.innerHTML = icone(c.icone, 20) + '<span>' + esc(c.libelle) + '</span>';
+      b.onclick = () => { if (c.action) { categorieOuverte = null; c.action(); return } categorieOuverte = categorieOuverte === c.cle ? null : c.cle; recherche = ''; barreOutils() };
+      catalogue.append(b);
     }
-    b.querySelectorAll<HTMLElement>('.tuile').forEach(t => {
-      t.onclick = () => { outils.reglages.modeleOuverture = t.dataset['m']!; if (outils.outil !== 'ouverture') choisir('ouverture'); barreOutils(); panneaux(); $<HTMLElement>('.aide').textContent = 'Cliquez sur un mur pour poser : ' + outils.modele.libelle };
-      t.ondragstart = e => { outils.reglages.modeleOuverture = t.dataset['m']!; e.dataTransfer?.setData('text/plain', 'cp-ouverture:' + t.dataset['m']); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy' };
-    });
-    A.append(b);
+    rendreVolet();
   }
-
+  /** le volet de la catégorie ouverte (ou des résultats d'une recherche), posé sur le plan */
+  function rendreVolet() {
+    main.querySelector('.volet')?.remove();
+    const q = sansAccents(recherche.trim());
+    const c = categoriesCourantes.find(x => x.cle === categorieOuverte);
+    if (!q && !c?.tuiles) return;
+    const T = q ? categoriesCourantes.flatMap(x => x.tuiles?.() ?? []).filter(t => sansAccents(t.libelle).includes(q)) : c!.tuiles!();
+    const v = document.createElement('div'); v.className = 'volet';
+    v.innerHTML = `<h4>${q ? icone('chercher', 18) + ' ' + T.length + ' résultat' + (T.length > 1 ? 's' : '') : icone(c!.icone, 18) + ' ' + esc(c!.libelle)}</h4>`;
+    const g = document.createElement('div'); g.className = 'tuiles';
+    for (const t of T) {
+      const e = document.createElement('div'); e.className = 'tuile' + (t.choisi ? ' choisi' : ''); e.dataset['m'] = t.id; e.title = t.titre ?? t.libelle;
+      e.innerHTML = t.dessin + '<span>' + esc(t.libelle) + '</span>';
+      /* un modèle choisi : le volet se range, le plan est libre pour la pose */
+      e.onclick = () => { t.choisir(); categorieOuverte = null; recherche = ''; barreOutils(); panneaux() };
+      if (t.glisser) {
+        e.draggable = true;
+        /* pendant le glisser, le volet s'efface (après le départ du glisser : le modifier au départ l'interromprait) */
+        e.ondragstart = ev => { t.choisir(); ev.dataTransfer?.setData('text/plain', t.glisser!); if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'copy'; setTimeout(() => { v.style.visibility = 'hidden' }) };
+        e.ondragend = () => { categorieOuverte = null; barreOutils() };
+      }
+      g.appendChild(e);
+    }
+    if (!T.length) g.innerHTML = '<div class="note">Aucun modèle ne correspond.</div>';
+    v.appendChild(g);
+    main.appendChild(v);
+  }
+  /** les catégories d'ouvrants : un découpage par usage, comme on les cherche */
+  const CATEGORIES_OUVRANTS: { cle: string; libelle: string; icone: string; dans: (m: ModeleOuverture) => boolean }[] = [
+    { cle: 'fixe', libelle: 'Fixe', icone: 'fixe', dans: m => m.genre === 'window' && m.manoeuvre === 'fixed' },
+    { cle: 'baie', libelle: 'Baie vitrée', icone: 'baie', dans: m => m.genre === 'bay' },
+    { cle: 'porte-fenetre', libelle: 'Porte-fenêtre', icone: 'porte_fenetre', dans: m => m.genre === 'french_window' },
+    { cle: 'fenetre', libelle: 'Fenêtre', icone: 'fenetre', dans: m => m.genre === 'window' && m.manoeuvre !== 'fixed' },
+    { cle: 'porte-ext', libelle: 'Porte extérieure', icone: 'porte_ext', dans: m => m.famille === 'portes_entree' },
+    { cle: 'porte-int', libelle: 'Porte intérieure', icone: 'porte_int', dans: m => m.famille === 'portes_interieures' },
+    { cle: 'garage', libelle: 'Porte de garage', icone: 'garage', dans: m => m.famille === 'garage' },
+    { cle: 'ouverture', libelle: 'Ouverture', icone: 'passage', dans: m => m.famille === 'passages' },
+  ];
+  function bibliotheque() {
+    const choisi = outils.modele.id;
+    rendreCatalogue([
+      ...CATEGORIES_OUVRANTS.map(c => ({ cle: c.cle, libelle: c.libelle, icone: c.icone, tuiles: () => MODELES_OUVERTURES.filter(c.dans).map(m => ({
+        id: m.id, libelle: m.libelle, dessin: symbole(m), titre: m.libelle + ' — ' + MANOEUVRES[m.manoeuvre], choisi: m.id === choisi, glisser: 'cp-ouverture:' + m.id,
+        choisir: () => { outils.reglages.modeleOuverture = m.id; if (outils.outil !== 'ouverture') choisir('ouverture'); $<HTMLElement>('.aide').textContent = 'Cliquez sur un mur pour poser : ' + m.libelle },
+      })) })),
+      { cle: 'fenetre-toit', libelle: 'Fenêtre de toit', icone: 'fenetre_toit', action: () => choisir('fenetretoit') },
+    ]);
+  }
   /** la visite à hauteur d'homme (vue 3D) : on y entre, on en sort */
   function visite(oui: boolean) {
     if (!vue3d) return;
@@ -1407,26 +1538,18 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     A.append(ligne(bouton('Retirer la toiture', () => supprimer(r.id), 'dang')));
   }
 
-  /** la bibliothèque de mobilier : un clic choisit le meuble ; on le pose d'un clic (ou en le glissant), il se plaque contre le mur proche */
+  /** le mobilier : une catégorie par pièce ; un meuble choisi se pose d'un clic (ou glissé), contre le mur proche */
   function bibliothequeMobilier() {
-    const A = catalogue, choisi = outils.meuble.id;
-    A.append(titre('Mobilier'), bloc('Choisissez un meuble, puis cliquez pour le poser — ou glissez-le sur le plan.'));
-    const b = document.createElement('div'); b.className = 'biblio';
-    for (const [fam, nomFam] of Object.entries(FAMILLES_MEUBLES)) {
-      const M = MODELES_MEUBLES.filter(m => m.famille === fam);
-      const d = document.createElement('details');
-      d.open = famillesOuvertes.has('meu:' + fam) || M.some(m => m.id === choisi);
-      replier(d, 'meu:' + fam);
-      d.innerHTML = `<summary>${esc(nomFam)}</summary><div class="tuiles">${M.map(m => `<div class="tuile${m.id === choisi ? ' choisi' : ''}" draggable="true" data-m="${m.id}" title="${esc(m.libelle)} — ${texteCote(m.largeur)} × ${texteCote(m.profondeur)} m">${symboleMeuble(m)}<span>${esc(m.libelle)}</span></div>`).join('')}</div>`;
-      b.append(d);
-    }
-    b.querySelectorAll<HTMLElement>('.tuile').forEach(t => {
-      t.onclick = () => { outils.reglages.modeleMeuble = t.dataset['m']!; if (outils.outil !== 'mobilier') choisir('mobilier'); barreOutils(); panneaux(); $<HTMLElement>('.aide').textContent = 'Cliquez pour poser : ' + outils.meuble.libelle + ' (T : tourner)' };
-      t.ondragstart = e => { outils.reglages.modeleMeuble = t.dataset['m']!; e.dataTransfer?.setData('text/plain', 'cp-meuble:' + t.dataset['m']); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy' };
-    });
-    A.append(b);
+    const choisi = outils.meuble.id;
+    const ICONES: Record<string, string> = { sejour: 'produit', chambre: 'lit', cuisine: 'cuisine', salle_de_bains: 'bain', wc_buanderie: 'wc', accessibilite: 'pmr' };
+    rendreCatalogue([
+      ...Object.entries(FAMILLES_MEUBLES).map(([fam, nom]) => ({ cle: 'meu-' + fam, libelle: nom, icone: ICONES[fam] ?? 'produit', tuiles: () => MODELES_MEUBLES.filter(m => m.famille === fam).map(m => ({
+        id: m.id, libelle: m.libelle, dessin: symboleMeuble(m), titre: m.libelle + ' — ' + texteCote(m.largeur) + ' × ' + texteCote(m.profondeur) + ' m', choisi: m.id === choisi, glisser: 'cp-meuble:' + m.id,
+        choisir: () => { outils.reglages.modeleMeuble = m.id; if (outils.outil !== 'mobilier') choisir('mobilier'); $<HTMLElement>('.aide').textContent = 'Cliquez pour poser : ' + m.libelle + ' (T : tourner)' },
+      })) })),
+      { cle: 'escalier', libelle: 'Escalier', icone: 'escalier', action: () => choisir('escalier') },
+    ]);
   }
-
   /** l'outil Ouverture : le modèle choisi (le catalogue est à gauche) */
   function panneauOuverture() {
     const m = outils.modele;
@@ -1442,23 +1565,19 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   /** le nuancier de l'onglet Revêtement : un clic pose la teinte sur ce qui est choisi (un mur, une pièce), sinon partout */
   function nuancier(quoi: 'facades' | 'sols' | 'murs') {
     const L = quoi === 'facades' ? PAREMENTS : quoi === 'sols' ? SOLS : PEINTURES;
-    catalogue.append(titre(quoi === 'facades' ? 'Parements de façade' : quoi === 'sols' ? 'Sols' : 'Murs intérieurs'),
-      bloc(quoi === 'facades' ? 'Un clic : le mur de façade choisi, ou toutes les façades.' : 'Un clic : la pièce choisie, ou toutes les pièces du niveau.'));
-    const b = document.createElement('div'); b.className = 'biblio';
-    const t = document.createElement('div'); t.className = 'tuiles';
-    for (const x of L) {
-      const e = document.createElement('div'); e.className = 'tuile'; e.dataset['m'] = x.id; e.title = x.libelle;
-      e.innerHTML = `<div class="pastille" style="background:${x.couleur}"></div><span>${esc(x.libelle)}</span>`;
-      e.onclick = () => {
-        const o = selection ? niveau().objects[selection] : undefined;
-        if (quoi === 'facades') { if (o?.type === 'wall' && o.role === 'exterior') faire('Parement', [{ type: 'modifierMur', id: o.id, finition: x.id }]); else parementPartout(x.id) }
-        else if (o?.type === 'room') faire(quoi === 'sols' ? 'Sol' : 'Peinture', [{ type: 'modifierPiece', id: o.id, ...(quoi === 'sols' ? { sol: x.id } : { murs: x.id }) }]);
-        else if (quoi === 'sols') solPartout(x.id, niveau()); else peinturePartout(x.id, niveau());
-        toast(x.libelle + ' : posé' + (o && (o.type === 'room' || o.type === 'wall') ? '' : ' partout'));
-      };
-      t.appendChild(e);
-    }
-    b.appendChild(t); catalogue.appendChild(b);
+    const familles = [...new Set(L.map(x => x.famille))];
+    const NOMS: Record<string, string> = { enduit: 'Enduits', bardage: 'Bardages', pierre: 'Pierre', brique: 'Brique', sol: 'Sols', peinture: 'Peintures et faïences' };
+    const poser = (x: (typeof L)[number]) => {
+      const o = selection ? niveau().objects[selection] : undefined;
+      if (quoi === 'facades') { if (o?.type === 'wall' && o.role === 'exterior') faire('Parement', [{ type: 'modifierMur', id: o.id, finition: x.id }]); else parementPartout(x.id) }
+      else if (o?.type === 'room') faire(quoi === 'sols' ? 'Sol' : 'Peinture', [{ type: 'modifierPiece', id: o.id, ...(quoi === 'sols' ? { sol: x.id } : { murs: x.id }) }]);
+      else if (quoi === 'sols') solPartout(x.id, niveau()); else peinturePartout(x.id, niveau());
+      toast(x.libelle + ' : posé' + (o && (o.type === 'room' || o.type === 'wall') ? '' : ' partout'));
+    };
+    const tuiles = (fam: string) => L.filter(x => x.famille === fam).map(x => ({ id: x.id, libelle: x.libelle, dessin: `<div class="pastille" style="background:${x.couleur}"></div>`, choisir: () => poser(x) }));
+    /* une seule famille : son volet s'ouvre d'emblée */
+    if (familles.length === 1 && categorieOuverte === null && !catalogueFerme) categorieOuverte = 'rev-' + familles[0];
+    rendreCatalogue(familles.map(fam => ({ cle: 'rev-' + fam, libelle: NOMS[fam] ?? fam, icone: quoi === 'facades' ? 'facade' : quoi === 'sols' ? 'sol' : 'peinture', tuiles: () => tuiles(fam) })));
   }
   function basculerSols(oui = !solsCouleur) {
     solsCouleur = oui; try { localStorage.setItem('cpDesigner:sols', oui ? 'oui' : 'non') } catch { /* préférence non gardée */ }
@@ -1561,8 +1680,47 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (plan.baies.length) A.append(titre('Baies'), bloc(plan.baies.length + ' ouverture(s), dont ' + plan.baies.filter(b => b.exterieure).length + ' extérieure(s) — ' + m2(plan.baies.filter(b => b.exterieure).reduce((s, b) => s + b.surface, 0)) + ' de baies extérieures'));
 
   }
+  /** la carte d'une composition de plafond ou de sol ; un clic ouvre le choix */
+  let choixPlancher: 'plafond' | 'sol' | null = null;
+  function cartePlancher(f: Floor, genre: 'plafond' | 'sol'): HTMLElement[] {
+    const id = genre === 'plafond' ? f.ceilingRef : f.floorRef, k = compositionPlancher(id);
+    const carte = (x: CompositionPlancher | undefined, choisi = false) => {
+      const c = document.createElement('div'); c.className = 'carte' + (choisi ? ' choisi' : '');
+      c.innerHTML = x ? `<div class="tete"><span>${esc(x.libelle)}</span><span>${Math.round(epaisseurPlancher(x) / 10)} cm</span></div>
+        <div class="apercu-couches">${x.couches.map(y => `<i style="flex:${y.epaisseur};background:${MATIERES_PLANCHER[y.matiere].couleur}"></i>`).join('')}</div>
+        <div class="couches">${x.couches.map((y, i) => `<span class="${i % 2 ? 'b' : ''}">${esc(MATIERES_PLANCHER[y.matiere].libelle)}</span>`).join('')}</div>`
+        : `<div class="tete"><span>Non précisé</span><span>—</span></div><div class="couches"><span class="b">choisir une composition</span></div>`;
+      return c;
+    };
+    const c0 = carte(k); c0.title = 'Changer la composition'; c0.dataset['plancher'] = genre;
+    c0.onclick = () => { choixPlancher = choixPlancher === genre ? null : genre; panneaux() };
+    const out: HTMLElement[] = [c0];
+    if (choixPlancher === genre) for (const x of [...compositionsPlancher(genre), undefined]) {
+      const c = carte(x, (x?.id ?? null) === (id ?? null)); c.style.marginTop = '4px';
+      c.onclick = () => { choixPlancher = null; faire(genre === 'plafond' ? 'Plafond' : 'Plancher', [{ type: 'modifierNiveau', id: f.id, [genre === 'plafond' ? 'plafond' : 'plancher']: x?.id ?? null }]) };
+      out.push(c);
+    }
+    return out;
+  }
   function panneauNiveau(f: Floor) {
     const A = aside, plan = planDuNiveau(f);
+    const t = document.createElement('div'); t.className = 'titre-panneau';
+    t.innerHTML = `<span>Éditer ${esc(f.name)}</span><span class="vignette">${icone('niveaux', 40)}</span>`;
+    A.append(t);
+    A.append(titre('Informations'), champ('Nom', f.name, v => faire('Nom du niveau', [{ type: 'modifierNiveau', id: f.id, nom: v }])),
+      champ('Altitude du sol fini (m)', (f.elevation / 1000).toFixed(2), v => faire('Altitude', [{ type: 'modifierNiveau', id: f.id, altitude: mm(v) }]), 'number'));
+    A.append(titre('Plafond'), bloc('Composition du plafond', 'sous-titre'), ...cartePlancher(f, 'plafond'));
+    A.append(titre('Sol'), bloc('Composition du plancher', 'sous-titre'), ...cartePlancher(f, 'sol'));
+    /* la hauteur : sous plafond, et ce qu'elle fait avec le plafond — confrontée au sol du niveau du dessus */
+    const kp = compositionPlancher(f.ceilingRef), L = niveaux(), i = L.findIndex(x => x.id === f.id), dessus = L[i + 1];
+    const hn = f.height + (kp ? epaisseurPlancher(kp) : 0);
+    A.append(titre('Hauteur'),
+      champ('Hauteur sous plafond (cm)', Math.round(f.height / 10), v => faire('Hauteur', [{ type: 'modifierNiveau', id: f.id, hauteur: Math.round(ent(v) * 10) }]), 'number'),
+      bloc('Hauteur du niveau : <b>' + Math.round(hn / 10) + ' cm</b>' + (kp ? ' (sous plafond + ' + Math.round(epaisseurPlancher(kp) / 10) + ' cm de plafond)' : ' (plafond non précisé)'), 'note'));
+    if (dessus && kp) {
+      const ecart = dessus.elevation - f.elevation - hn;
+      A.append(bloc('Sol de « ' + esc(dessus.name) + ' » à ' + m(dessus.elevation) + ' : ' + (Math.abs(ecart) < 10 ? '✓ cohérent' : 'écart de ' + Math.round(ecart / 10) + ' cm avec la hauteur du niveau (épaisseur du plancher à revoir ?)'), Math.abs(ecart) < 10 ? 'ok' : 'alerte'));
+    }
     A.append(titre('Niveaux'));
     for (const n of niveaux()) {
       const e = document.createElement('div');
@@ -1571,10 +1729,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       e.onclick = () => { niveauId = n.id; selection = null; apres() };
       A.append(e);
     }
-    A.append(champ('Nom', f.name, v => faire('Nom du niveau', [{ type: 'modifierNiveau', id: f.id, nom: v }])),
-      champ('Altitude du sol (m)', (f.elevation / 1000).toFixed(2), v => faire('Altitude', [{ type: 'modifierNiveau', id: f.id, altitude: mm(v) }]), 'number'),
-      champ('Hauteur sous plafond (m)', (f.height / 1000).toFixed(2), v => faire('Hauteur', [{ type: 'modifierNiveau', id: f.id, hauteur: mm(v) }]), 'number'),
-      ligne(bouton('+ Niveau', ajouterNiveau), bouton('Supprimer ce niveau', () => {
+    A.append(ligne(bouton('+ Niveau', ajouterNiveau), bouton('Supprimer ce niveau', () => {
         if (confirm('Supprimer le niveau « ' + f.name + ' » et tout ce qu’il contient ? (Annuler le rétablit.)')) faire('Supprimer un niveau', [{ type: 'supprimerNiveau', id: f.id }]);
       }, 'dang')));
 
@@ -1922,12 +2077,12 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
 
   /* ---------- départ ---------- */
-  placerVues(); barreOutils(); panneaux();
+  placerVues(); barreOutils(); panneaux(); boussole();
   /* l'aperçu 3D se charge une fois le plan affiché : il ne retarde pas l'ouverture */
   setTimeout(() => { void preparer3D().catch(() => { /* l'aperçu le dit ; le plan reste utilisable */ }) }, 600);
   requestAnimationFrame(() => {
     cam = { ...cam, largeur: main.clientWidth, hauteur: main.clientHeight };
-    if (mursDroits(niveau()).length) cadrerTout(); else { cam = cadrer(cam, { xmin: 0, ymin: 0, xmax: 12_000, ymax: 10_000 }); dessinerBientot() }
+    if (mursDroits(niveau()).length) cadrerTout(); else { cam = cadrer(cam, { xmin: 0, ymin: 0, xmax: 12_000, ymax: 10_000 }, 100); dessinerBientot() }        // la marge laisse libres les boutons posés sur le plan
     /* pour les vérifications automatiques (tests dans Chromium) : publié une fois la vue cadrée,
        sinon un premier clic calculé avant le cadrage tomberait ailleurs */
     (window as unknown as Record<string, unknown>)['cpDesigner'] = { projet: () => h.projet, niveau: () => niveauId, camera: () => cam, geometrieOuverture, vue3d: () => (en3D && vue3d ? vue3d.stats() : null), marcheur: () => (en3D && vue3d ? vue3d.marcheur() : null) };

@@ -294,6 +294,9 @@ export interface Floor {
   height: Mm;
   order: number;
   objects: Record<string, BuildingObject>;
+  /** ce qui le couvre et ce qui le porte (catalogue/planchers.ts) ; absents : non précisés */
+  ceilingRef?: string;
+  floorRef?: string;
 }
 
 export interface Building { id: string; name: string; floors: Floor[] }
