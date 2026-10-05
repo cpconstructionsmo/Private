@@ -92,12 +92,12 @@ const CSS = `
 .cpd footer .acc{color:#C5563A;font-weight:600}
 .cpd .toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);background:#1A2B36;color:#fff;padding:8px 14px;border-radius:8px;max-width:70%;box-shadow:0 4px 16px rgba(0,0,0,.15)}
 .cpd .toast.err{background:#A13A20}
-.cpd .voile{position:fixed;inset:0;background:rgba(26,43,54,.35);display:flex;align-items:flex-start;justify-content:center;padding-top:12vh;z-index:10}
-.cpd .boite{background:#fff;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.2);width:min(440px,92vw);padding:16px}
+.cpd .voile{position:fixed;inset:0;background:rgba(26,43,54,.35);display:flex;align-items:flex-start;justify-content:center;padding-top:min(12vh,80px);z-index:10}
+.cpd .boite{background:#fff;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.2);width:min(440px,92vw);padding:16px;box-sizing:border-box;max-height:calc(100vh - min(12vh,80px) - 16px);overflow-y:auto}
 .cpd .boite h2{font-size:16px;margin:0 0 10px}
 .cpd .boite label{display:block;margin:8px 0}
 .cpd .boite label input,.cpd .boite label select{display:block;width:100%;box-sizing:border-box;margin-top:3px;border:1px solid #DDD5C8;border-radius:6px;padding:6px 8px}
-.cpd .boite .pied{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.cpd .boite .pied{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;position:sticky;bottom:-16px;background:#fff;padding:8px 0 16px;margin-bottom:-16px}
 .cpd .palette input{width:100%;box-sizing:border-box;border:1px solid #DDD5C8;border-radius:6px;padding:8px 10px;font-size:15px}
 .cpd .palette ul{list-style:none;margin:8px 0 0;padding:0;max-height:50vh;overflow:auto}
 .cpd .palette li{padding:7px 10px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between}
@@ -178,6 +178,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   let cam: Camera = { centre: { x: 5_000, y: 4_000 }, echelle: 0.06, largeur: 800, hauteur: 600 };
   /* la cotation automatique : un choix d'affichage, propre à cet appareil */
   let cotation = (() => { try { return localStorage.getItem('cpDesigner:cotation') !== 'non' } catch { return true } })();
+  /** les sols en couleur à l'écran (plan de présentation), une préférence de cet appareil */
+  let solsCouleur = (() => { try { return localStorage.getItem('cpDesigner:sols') === 'oui' } catch { return false } })();
   /* la vue 3D : chargée à la première ouverture */
   let vue3d: Vue3D | null = null, en3D = false, coupe3D = false, niveaux3D: 'tous' | 'jusqua' = 'tous', toit3D = true;
 
@@ -325,7 +327,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const toit = toitureDuNiveau(f);
     if (collage && curseur) etiquette = { point: curseur, texte: 'Coller : clic pour poser · T tourner · X / Y retourner · Échap' };
     dessiner(ctx, cam, { niveau: f, dessous: i > 0 ? L[i - 1]! : null, selection, accroche, images, sommets: outils.outil === 'selection', etiquette,
-      groupe: new Set(groupe), cadre,
+      groupe: new Set(groupe), cadre, presentation: solsCouleur,
       escaliers: Object.values(f.objects).flatMap(o => (o.type === 'stair' ? [{ id: o.id, geo: geometrieEscalier(o, hauteurAFranchir(p, f)) }] : [])),
       tremies: tremiesDuNiveau(p, f),
       /* les traits de coupe de tout le projet ; on ne choisit que ceux tracés sur ce niveau */
@@ -1109,6 +1111,10 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       champ('Grille d’accrochage', String(outils.reglages.grille), v => { outils.reglages.grille = Number(v) }, 'text', { '0': 'Sans', '10': '1 cm', '50': '5 cm', '100': '10 cm', '500': '50 cm' }),
       champ('Rectangle de murs', outils.reglages.rectangle, v => { outils.reglages.rectangle = v as 'hors_tout' | 'interieur' }, 'text', { hors_tout: 'Cotes hors tout', interieur: 'Cotes intérieures' }),
       champ('Cotation automatique', cotation ? 1 : 0, v => basculerCotation(!!v), 'checkbox'),
+      champ('Sols en couleur (présentation)', solsCouleur ? 1 : 0, v => {
+        solsCouleur = !!v; try { localStorage.setItem('cpDesigner:sols', solsCouleur ? 'oui' : 'non') } catch { /* préférence non gardée */ }
+        dessinerBientot();
+      }, 'checkbox'),
       bloc('Pendant un tracé, tapez la longueur (4,50 puis Entrée ; 4,50<90 pour un angle ; 10x8 pour un rectangle) · Alt : sans accrochage · Maj : angles à 45° · Espace + glisser : déplacer la vue · F : tout voir · Ctrl+K : toutes les actions'));
     A.append(titre('Enregistrement'), bloc(esc(enr.raison) + (enr.mode === 'serveur' ? '' : '<br>Le travail reste dans ce navigateur, sur cet appareil.')));
   }
@@ -1328,6 +1334,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   async function exporterPdf() {
     const r = await dialogue('Exporter en PDF (A3)', [
       { cle: 'doc', libelle: 'Composer', valeur: 'planches', options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)' } },
+      { cle: 'pre', libelle: 'Plans', valeur: 'technique', options: { technique: 'Plans techniques (cotés)', presentation: 'Plans de présentation pour le client (sols en couleur, mobilier, sans cotes)' } },
       { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (une page chacun)' } },
       { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
       { cle: 'cot', libelle: 'Cotation', valeur: 'oui', options: { oui: 'Avec les chaînes de cotes', non: 'Sans' } },
@@ -1345,12 +1352,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     try {
       const { planchesPdf } = await import('../export/planche');
       const u = planchesPdf(h.projet, {
-        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui', mobilier: r['mob'] === 'oui', facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui',
+        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui' && r['pre'] !== 'presentation', mobilier: r['mob'] === 'oui' || r['pre'] === 'presentation',
+        ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui',
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
       });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([u], { type: 'application/pdf' }));
-      a.download = (h.projet.name || 'projet') + ' - plans A3' + (r['niv'] === 'tous' ? '' : ' - ' + niveau().name) + '.pdf';
+      a.download = (h.projet.name || 'projet') + (r['pre'] === 'presentation' ? ' - plans de presentation' : ' - plans A3') + (r['niv'] === 'tous' ? '' : ' - ' + niveau().name) + '.pdf';
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
       toast('PDF enregistré : ' + a.download);
