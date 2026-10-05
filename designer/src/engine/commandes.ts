@@ -16,10 +16,11 @@ import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
-import { EPS_COINCIDENCE } from '../geometry/tolerance';
+import { ANGLE_EQUERRE, EPS_COINCIDENCE } from '../geometry/tolerance';
 import { mesurerCote, resoudre, type Epingle } from '../building/contraintes';
 import { calage, calageParDistance, TRANSFORMATION_NEUTRE } from '../building/fond';
 import { geometrieFenetreToit } from '../building/fenetres-toit';
+import { equerrer } from '../building/equerre';
 import { appliquerTout, type Operation } from './operations';
 
 export interface Contexte {
@@ -70,6 +71,8 @@ export type Commande =
   | { type: 'renommerProjet'; nom: string }
   /** déplacer une extrémité de mur : tous les murs qui y aboutissent suivent */
   | { type: 'deplacerSommet'; niveau: string; de: Point; vers: Point }
+  /** redresser à l'équerre les murs presque d'équerre (ceux qu'on cite, ou tout le niveau) — voir building/equerre.ts */
+  | { type: 'equerrerMurs'; niveau: string; murs?: string[] }
   | { type: 'ajouterContrainte'; niveau: string; genre: Constraint['kind']; murs: string[]; valeur?: number }
   | { type: 'modifierContrainte'; id: string; valeur: number }
   | { type: 'creerCote'; niveau: string; refs: [ObjectAnchor, ObjectAnchor]; motrice?: boolean; decalage?: Mm }
@@ -413,6 +416,14 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
       if (!ptFini(cmd.de) || !ptFini(cmd.vers)) return refus('coordonnées invalides');
       return ajuster(p, cmd.niveau, [], [{ de: cmd.de, vers: cmd.vers }], c, murDroitsAuSommet(p, cmd.niveau, cmd.de));
+    }
+    case 'equerrerMurs': {
+      const n = trouverNiveau(p, cmd.niveau);
+      if (!n) return refus('niveau introuvable');
+      const e = equerrer(n.floor, cmd.murs);
+      if (!e.equerres.length) return refus('aucun mur presque d’équerre (à moins de ' + Math.round(ANGLE_EQUERRE * 180 / Math.PI) + '°) : rien à redresser');
+      if (!e.epingles.length) return refus('les murs sont déjà d’équerre');
+      return ajuster(p, cmd.niveau, [], e.epingles, c, e.redresses);
     }
     case 'ajouterContrainte': {
       const n = trouverNiveau(p, cmd.niveau);

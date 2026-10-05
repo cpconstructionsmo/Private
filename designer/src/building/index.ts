@@ -11,3 +11,4 @@ export * from './escalier';
 export * from './terrain';
 export * from './surfaces';
 export * from './fenetres-toit';
+export * from './equerre';

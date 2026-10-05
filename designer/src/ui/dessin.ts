@@ -601,6 +601,7 @@ function marque(ctx: CanvasRenderingContext2D, cam: Camera, a: Accroche): void {
     case 'milieu': ctx.moveTo(e.x, e.y - 6); ctx.lineTo(e.x + 6, e.y + 5); ctx.lineTo(e.x - 6, e.y + 5); ctx.closePath(); break;
     case 'perpendiculaire': ctx.moveTo(e.x - 6, e.y + 5); ctx.lineTo(e.x + 6, e.y + 5); ctx.moveTo(e.x, e.y + 5); ctx.lineTo(e.x, e.y - 7); break;
     case 'grille': ctx.moveTo(e.x - 5, e.y); ctx.lineTo(e.x + 5, e.y); ctx.moveTo(e.x, e.y - 5); ctx.lineTo(e.x, e.y + 5); break;
+    case 'equerre': ctx.moveTo(e.x - 6, e.y - 7); ctx.lineTo(e.x - 6, e.y + 6); ctx.lineTo(e.x + 7, e.y + 6); ctx.rect(e.x - 6, e.y + 1, 5, 5); break;
     default: ctx.arc(e.x, e.y, 5, 0, 2 * Math.PI);
   }
   ctx.stroke();
@@ -609,5 +610,5 @@ function marque(ctx: CanvasRenderingContext2D, cam: Camera, a: Accroche): void {
 /** les libellés des accroches, pour la barre d'état */
 export const NOMS_ACCROCHE: Record<Accroche['genre'], string> = {
   extremite: 'extrémité', intersection: 'intersection', milieu: 'milieu', perpendiculaire: 'perpendiculaire', face: 'face du mur',
-  axe: 'axe du mur', alignement: 'alignement', grille: 'grille', libre: '',
+  axe: 'axe du mur', alignement: 'alignement', grille: 'grille', equerre: 'équerre', libre: '',
 };

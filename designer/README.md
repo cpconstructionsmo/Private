@@ -283,6 +283,20 @@ chaînes de cotes ; la colonne « Sols et surfaces » dit le sol de chaque
 pièce (ou « sol à choisir »). Les traits du motif sont coupés au contour
 de la pièce par un calcul pur (`src/geometry/hachures.ts`).
 
+**Équerre des murs** (`src/building/equerre.ts`) : au tracé (Mur,
+Cloison), la direction s'aimante à 90° dès qu'elle en est à moins de 8°
+(repère des axes du plan, ou du fond calé, ou de la maison si elle est
+tournée) ; une extrémité, une intersection ou un milieu visés l'emportent,
+une face visée arrête le mur d'équerre dessus ; Alt : libre le temps d'un
+clic, Q : équerre oui / non (réglage gardé sur l'appareil). Après coup,
+« Mettre d'équerre » (panneau du niveau, d'un mur, d'un groupe, Ctrl+K)
+redresse les murs presque d'équerre d'un plan repris à la main : chaque
+mur presque horizontal impose une même ordonnée à ses bouts, chaque mur
+presque vertical une même abscisse ; chaque coordonnée prend la moyenne
+(au mm), les angles restent fermés, une cloison en T reste sur sa face,
+un pan coupé reste biais, les contraintes et cotes motrices sont tenues
+(ou la commande est refusée avec la raison) ; Ctrl+Z revient.
+
 **Terrain en pente** (outil N ; `src/building/terrain.ts`,
 `src/geometry/triangulation.ts`) : les points cotés du terrain naturel,
 lus sur le plan du géomètre (un clic, l'altitude NGF), appartiennent à la
