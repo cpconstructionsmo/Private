@@ -5,7 +5,7 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { BuildingObject, Floor, Mm, Opening, Point, Project, Roof, RoomUsage, Stair, Viewpoint, Wall } from '../model/types';
+import type { BuildingObject, Floor, Mm, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
@@ -373,6 +373,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       }
     }
     if (e.demande?.genre === 'nomPiece') nommerPiece(e.demande.niveau, e.demande.point);
+    if (e.demande?.genre === 'pointCote') void poserPointCote(e.demande.point);
     if (e.demande?.genre === 'distanceFond') calerParDistance(e.demande.id, e.demande.image);
     if (e.fini) barreOutils();
     dessinerBientot();
@@ -570,6 +571,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'amenagement', icone: '❀', libelle: 'Aménagement extérieur (clôture, terrasse, allée…)', touche: 'A' },
     { nom: 'pointdevue', icone: '◉', libelle: 'Point de prise de vue (photographies du dossier)', touche: 'I' },
     { nom: 'fenetretoit', icone: '◇', libelle: 'Fenêtre de toit', touche: 'H' },
+    { nom: 'altitude', icone: '⊕', libelle: 'Point coté du terrain (altitude NGF)', touche: 'N' },
     { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
@@ -582,7 +584,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       if (!t) { toast('Aucune toiture : posez-la d’abord (panneau du niveau ou de la 3D), puis ses fenêtres', true); return }
       niveauId = t.id; selection = null; apres();
     }
-    if (o === 'parcelle' || o === 'amenagement' || o === 'pointdevue') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
+    if (o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'altitude') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
     choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   function barreOutils() {
     nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
@@ -853,6 +855,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('Nom de la voie', o.streetName ?? '', v => mod('Nom de la voie', { nomVoie: v })),
           champ('Nord (° depuis le haut du plan, sens inverse des aiguilles)', Math.round(o.north * 1800 / Math.PI) / 10, v => mod('Direction du nord', { nord: ent(v) * Math.PI / 180 }), 'number'),
           champ('Altitude NGF du ±0,00 (m)', o.groundFloorNgf ?? '', v => mod('Altitude du RDC', { altitudeRdc: String(v).trim() ? ent(v) : null }), 'number'),
+          ...pointsCotes(o),
           titre('Côtés et reculs (mesurés)'));
         o.contour.forEach((_, i) => {
           const r = R[i];
@@ -1049,6 +1052,29 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       champ('Largeur (m)', (r.largeurEscalier / 1000).toFixed(2), v => { r.largeurEscalier = mm(v); panneaux() }, 'number'),
       bloc(resumeEscalier(f, g)));
     for (const a of g.alertes) aside.append(bloc('⚠️ ' + esc(a), 'alerte'));
+  }
+
+  /** les points cotés du terrain naturel, dans l'inspecteur de la parcelle : chacun se corrige ou se retire */
+  function pointsCotes(o: Plot): HTMLElement[] {
+    const A = o.spotHeights ?? [];
+    const remplacer = (titreAction: string, L: { point: Point; ngf: number }[]) => faire(titreAction, [{ type: 'modifierParcelle', id: o.id, altitudesTerrain: L }]);
+    const out: HTMLElement[] = [titre('Terrain naturel (' + A.length + ' point' + (A.length > 1 ? 's' : '') + ' coté' + (A.length > 1 ? 's' : '') + ')')];
+    A.forEach((x, i) => out.push(ligne(
+      champ('Point ' + (i + 1) + ' (NGF, m)', x.ngf, v => { const z = Number(String(v).replace(',', '.')); if (Number.isFinite(z)) remplacer('Altitude d’un point coté', A.map((y, k) => (k === i ? { ...y, ngf: z } : y))) }, 'number'),
+      bouton('✕', () => remplacer('Retirer un point coté', A.filter((_, k) => k !== i))))));
+    out.push(ligne(bouton('Coter le terrain (outil N)', () => choisir('altitude'))),
+      bloc('Les altitudes du terrain naturel relevées par le géomètre : la coupe (PCMI 3) en tire le profil du terrain, le plan de masse les reporte. Elles suivent la parcelle quand on l’implante.'));
+    return out;
+  }
+  /** un point coté posé d'un clic (outil N) : son altitude se demande aussitôt */
+  async function poserPointCote(point: Point) {
+    const t = parcelleDuProjet(h.projet);
+    if (!t) { toast('Tracez d’abord la parcelle (outil L) : les points cotés lui appartiennent', true); return }
+    const r = await dialogue('Point coté du terrain naturel', [{ cle: 'z', libelle: 'Altitude NGF (m), lue sur le plan du géomètre', valeur: '' }]);
+    if (!r) return;
+    const z = Number(String(r['z']).replace(',', '.'));
+    if (!String(r['z']).trim() || !Number.isFinite(z)) { toast('Altitude illisible : un nombre en mètres, par exemple 102,35', true); return }
+    faire('Point coté du terrain', [{ type: 'modifierParcelle', id: t.plot.id, altitudesTerrain: [...(t.plot.spotHeights ?? []), { point: { x: Math.round(point.x), y: Math.round(point.y) }, ngf: z }] }]);
   }
 
   function panneauNiveau(f: Floor) {

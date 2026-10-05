@@ -36,7 +36,11 @@ export function notice(p: Project): RubriqueNotice[] {
     terrain.push('Le terrain' + (t.plot.reference ? ' (parcelle ' + t.plot.reference + ')' : '') + ' a une surface de ' + m2(surfaceTerrain(t.plot)) + ' (limite tracée, à confirmer sur le plan de bornage)'
       + (t.plot.streetName ? ' ; il est desservi par ' + t.plot.streetName + '.' : t.plot.street.length ? ' ; il est desservi par la voie ' + A_COMPLETER + '.' : '.'));
   } else terrain.push('Terrain : surface et limites ' + A_COMPLETER + ' (parcelle à tracer).');
-  terrain.push('État initial (relief, végétation, constructions existantes, abords) : ' + A_COMPLETER + '.');
+  /* le relief : relevé (points cotés) ou à compléter ; le reste de l'état initial ne se mesure pas ici */
+  const Z = (t?.plot.spotHeights ?? []).map(x => x.ngf), f2 = (v: number) => v.toFixed(2).replace('.', ',');
+  if (Z.length > 1) terrain.push('Relief : le terrain naturel va de ' + f2(Math.min(...Z)) + ' à ' + f2(Math.max(...Z)) + ' NGF (' + Z.length + ' points cotés relevés, soit ' + f2(Math.max(...Z) - Math.min(...Z)) + ' m de dénivelé).');
+  else if (Z.length === 1) terrain.push('Relief : un point coté relevé à ' + f2(Z[0]!) + ' NGF ; ' + A_COMPLETER + '.');
+  terrain.push('État initial (' + (Z.length > 1 ? '' : 'relief, ') + 'végétation, constructions existantes, abords) : ' + A_COMPLETER + '.');
 
   /* 2. implantation, volume */
   const implantation: string[] = [];

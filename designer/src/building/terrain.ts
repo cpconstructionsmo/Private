@@ -17,6 +17,7 @@ import { aireSignee, centroide, type Polygone } from '../geometry/polygon';
 import { distancePointSegment, projeterSurSegment } from '../geometry/segment';
 import { distance, tourner } from '../geometry/vecteur';
 import { positionDansAnneau } from '../geometry/predicats';
+import { barycentre, delaunay, type Triangle } from '../geometry/triangulation';
 
 /** la parcelle du projet, et le niveau qui la porte (null : pas de parcelle) */
 export function parcelleDuProjet(p: Project): { plot: Plot; niveau: Floor } | null {
@@ -134,4 +135,49 @@ export function champDeVue(v: Viewpoint): { gauche: Point; droite: Point } {
   const t = Math.atan2(v.b.y - v.a.y, v.b.x - v.a.x), L = distance(v.a, v.b);
   const bord = (s: number) => ({ x: v.a.x + L * Math.cos(t + s * DEMI_CHAMP), y: v.a.y + L * Math.sin(t + s * DEMI_CHAMP) });
   return { gauche: bord(1), droite: bord(-1) };
+}
+
+/* ---------- le terrain naturel : ses points cotés, interpolés ---------- */
+
+/** l'interpolation d'un relevé : les triangles de Delaunay des points cotés (gardés tant que le relevé ne change pas) */
+const tins = new WeakMap<readonly { point: Point; ngf: number }[], Triangle[]>();
+function tin(A: readonly { point: Point; ngf: number }[]): Triangle[] {
+  let T = tins.get(A);
+  if (!T) { T = delaunay(A.map(x => x.point)); tins.set(A, T) }
+  return T;
+}
+
+/** l'altitude NGF (m) du terrain naturel en un point du plan, déduite des points cotés de la parcelle (null : aucun point) :
+ *  dans un triangle du relevé, linéaire entre ses trois sommets ; au-dehors, la pente du triangle le plus proche prolongée ;
+ *  avec un seul point, le terrain est plat ; avec des points alignés, il varie le long de leur ligne seulement */
+export function altitudeTerrain(t: Plot, p: Point): number | null {
+  const A = t.spotHeights ?? [];
+  if (!A.length) return null;
+  if (A.length === 1) return A[0]!.ngf;
+  const T = tin(A);
+  if (!T.length) {
+    /* des points alignés : la droite qui passe par les deux plus éloignés */
+    let i0 = 0, i1 = 1, dmax = -1;
+    for (let i = 0; i < A.length; i++) for (let j = i + 1; j < A.length; j++) { const d = distance(A[i]!.point, A[j]!.point); if (d > dmax) { dmax = d; i0 = i; i1 = j } }
+    const a = A[i0]!, b = A[i1]!, L2 = dmax * dmax;
+    const s = ((p.x - a.point.x) * (b.point.x - a.point.x) + (p.y - a.point.y) * (b.point.y - a.point.y)) / L2;
+    return a.ngf + s * (b.ngf - a.ngf);
+  }
+  const plan = ([i, j, k]: Triangle) => { const w = barycentre(p, A[i]!.point, A[j]!.point, A[k]!.point); return w[0] * A[i]!.ngf + w[1] * A[j]!.ngf + w[2] * A[k]!.ngf };
+  for (const tr of T) if (barycentre(p, A[tr[0]]!.point, A[tr[1]]!.point, A[tr[2]]!.point).every(w => w >= -1e-9)) return plan(tr);
+  /* au-dehors du relevé : le triangle dont le centre est le plus proche, son plan prolongé */
+  const centre = ([i, j, k]: Triangle) => ({ x: (A[i]!.point.x + A[j]!.point.x + A[k]!.point.x) / 3, y: (A[i]!.point.y + A[j]!.point.y + A[k]!.point.y) / 3 });
+  return plan(T.reduce((m, tr) => (distance(centre(tr), p) < distance(centre(m), p) ? tr : m)));
+}
+
+/** le profil du terrain naturel le long d'un segment : (s le long du segment en mm, z par rapport au ±0,00 en mm),
+ *  un point tous les « pas » ; null sans point coté ou sans altitude NGF du ±0,00 (on ne peut rien placer) */
+export function profilTerrain(t: Plot, a: Point, b: Point, pas: Mm = 250): { s: Mm; z: Mm }[] | null {
+  if (!t.spotHeights?.length || t.groundFloorNgf === undefined) return null;
+  const L = distance(a, b), n = Math.max(2, Math.ceil(L / pas) + 1), out: { s: Mm; z: Mm }[] = [];
+  for (let i = 0; i < n; i++) {
+    const s = (L * i) / (n - 1), q = { x: a.x + ((b.x - a.x) * s) / (L || 1), y: a.y + ((b.y - a.y) * s) / (L || 1) };
+    out.push({ s, z: Math.round((altitudeTerrain(t, q)! - t.groundFloorNgf) * 1000) || 0 });
+  }
+  return out;
 }

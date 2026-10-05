@@ -360,6 +360,14 @@ export function dessinerParcelle(ctx: CanvasRenderingContext2D, cam: Camera, t: 
     ctx.fillStyle = '#FFFFFF'; ctx.fillRect(m.x - w / 2 - 2, m.y - 7, w + 4, 14);
     ctx.fillStyle = COULEURS.accent; ctx.fillText(tx, m.x, m.y);
   }
+  /* les points cotés du terrain naturel : une croix et son altitude NGF */
+  for (const x of t.spotHeights ?? []) {
+    const e = E(x.point);
+    ctx.strokeStyle = COULEURS.vert; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(e.x - 4, e.y); ctx.lineTo(e.x + 4, e.y); ctx.moveTo(e.x, e.y - 4); ctx.lineTo(e.x, e.y + 4); ctx.stroke();
+    ctx.fillStyle = COULEURS.vert; ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(x.ngf.toFixed(2).replace('.', ','), e.x + 3, e.y - 2);
+  }
   /* le nord, en haut à droite de la parcelle */
   if (o.nord !== false) {
     const xs = C.map(p => p.x), ys = C.map(p => p.y), c = { x: Math.max(...xs) + 34, y: Math.min(...ys) + 4 };

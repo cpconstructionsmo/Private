@@ -235,6 +235,9 @@ export interface Plot extends BaseObject {
   north: Radian;
   /** l'altitude NGF du ±0,00 (sol fini du RDC), en mètres, si elle est connue */
   groundFloorNgf?: number;
+  /** les points cotés du terrain naturel (plan du géomètre) : altitudes NGF en mètres, posées dans le repère du plan ;
+   *  ils suivent la parcelle quand on l'implante (translation, rotation) */
+  spotHeights?: { point: Point; ngf: number }[];
 }
 
 /** un aménagement extérieur du plan de masse, posé sur le niveau le plus bas : une clôture (ligne
