@@ -36,7 +36,7 @@ export interface Coupe {
 }
 
 /** ce qui ne figure pas dans une coupe : le mobilier, et le sol fini (5 mm, confondu avec le plancher) */
-const CACHES: ReadonlySet<Matiere> = new Set(['sol', 'meuble', 'tissu', 'linge', 'plan_travail', 'sanitaire', 'electromenager', 'inox', 'peinture', 'amenagement', 'cloture']);
+const CACHES: ReadonlySet<Matiere> = new Set(['sol', 'meuble', 'tissu', 'linge', 'plan_travail', 'sanitaire', 'electromenager', 'inox', 'peinture', 'amenagement', 'cloture', 'tronc', 'feuillage']);
 
 /** u le long du trait, vers la droite de l'observateur ; profondeur dans le sens du regard */
 export function vueDeCoupe(l: LigneDeCoupe): Vue {

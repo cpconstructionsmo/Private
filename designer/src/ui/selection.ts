@@ -1,6 +1,7 @@
 /* Viser : qu'y a-t-il sous le curseur ? Dans l'ordre : une extrémité de
    mur (pour la tirer), un trait de coupe, la limite de parcelle, une ouverture, une cote, un mur,
-   un meuble, une pièce. */
+   un meuble, une pièce ; puis ce qui est au terrain (équipements, réseaux,
+   plateformes, arbres). */
 import { fenetresDeToit } from '../building/fenetres-toit';
 import type { Floor, Mm, Point } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
@@ -14,7 +15,7 @@ import { dansMeuble, emprise } from '../building/mobilier';
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
-  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' };
+  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' | 'platform' | 'network' | 'network_item' | 'tree' };
 
 /** viser : « escaliers » donne l'emprise des escaliers du niveau (calculée par l'appelant, qui connaît la hauteur à franchir) */
 export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: { id: string; emprise: Point[] }[] = []): Cible | null {
@@ -61,8 +62,18 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
   for (const o of L) if (o.kind === 'fence' && o.points.some((a, i) => (i < o.points.length - 1 || o.closed) && distancePointSegment(p, { a, b: o.points[(i + 1) % o.points.length]! }) <= rayon / 2)) return { genre: 'objet', id: o.id, type: 'landscape' };
   const S = L.filter(o => o.kind !== 'fence' && positionDansAnneau(p, o.points) !== 'dehors').sort((a, b) => Math.abs(aireSignee(a.points)) - Math.abs(aireSignee(b.points)));
   if (S[0]) return { genre: 'objet', id: S[0].id, type: 'landscape' };
+  /* le terrain : un équipement (son symbole), un réseau (près de son trait), une plateforme (près de son bord), un arbre (sa couronne) */
+  const T = Object.values(f.objects);
+  for (const o of T) if (o.type === 'network_item' && distance(o.position, p) <= rayon) return { genre: 'objet', id: o.id, type: 'network_item' };
+  for (const o of T) if (o.type === 'network' && o.points.some((a, i) => i > 0 && distancePointSegment(p, { a: o.points[i - 1]!, b: a }) <= rayon / 2)) return { genre: 'objet', id: o.id, type: 'network' };
+  for (const o of T) if (o.type === 'platform' && o.contour.some((a, i) => distancePointSegment(p, { a, b: o.contour[(i + 1) % o.contour.length]! }) <= rayon / 2)) return { genre: 'objet', id: o.id, type: 'platform' };
+  const arbres = T.filter(o => o.type === 'tree' && distance(o.position, p) <= Math.max(rayon, o.diameter / 2)).sort((a, b) => (a.type === 'tree' ? a.diameter : 0) - (b.type === 'tree' ? b.diameter : 0));
+  if (arbres[0]) return { genre: 'objet', id: arbres[0].id, type: 'tree' };
   for (const w of M) if (distancePointSegment(p, w.axis) <= rayon) return { genre: 'objet', id: w.id, type: 'wall' };
   for (const z of plan.zones) if (z.piece && positionDansAnneau(p, z.polygone.contour) === 'dedans') return { genre: 'objet', id: z.piece.id, type: 'room' };
+  /* enfin, l'intérieur d'une plateforme (la plus petite d'abord) : la maison et ses pièces passent avant */
+  const PF = T.flatMap(o => (o.type === 'platform' && positionDansAnneau(p, o.contour) !== 'dehors' ? [o] : [])).sort((a, b) => Math.abs(aireSignee(a.contour)) - Math.abs(aireSignee(b.contour)));
+  if (PF[0]) return { genre: 'objet', id: PF[0].id, type: 'platform' };
   return null;
 }
 
@@ -79,6 +90,9 @@ export function dansCadre(f: Floor, p: Point, q: Point): string[] {
     else if (o.type === 'room' && dedans(o.seed)) out.push(o.id);
     else if (o.type === 'furniture' && emprise(o).every(dedans)) out.push(o.id);
     else if (o.type === 'dimension' && o.refs.every(r => murs.has(r.objectId))) out.push(o.id);
+    else if ((o.type === 'network_item' || o.type === 'tree') && dedans(o.position)) out.push(o.id);
+    else if (o.type === 'network' && o.points.every(dedans)) out.push(o.id);
+    else if (o.type === 'platform' && o.contour.every(dedans)) out.push(o.id);
   }
   return out;
 }

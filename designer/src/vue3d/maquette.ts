@@ -35,7 +35,7 @@ import { ajouter, multiplier, normaleGauche, normaliser, soustraire } from '../g
 
 export type Matiere = 'mur' | 'cloison' | 'plancher' | 'sol' | 'vitrage' | 'porte' | 'garage'
   | 'tuile' | 'ardoise' | 'zinc' | 'bac_acier' | 'vegetalise' | 'gravillons'
-  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier' | 'parement' | 'peinture' | 'amenagement' | 'cloture';
+  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier' | 'parement' | 'peinture' | 'amenagement' | 'cloture' | 'tronc' | 'feuillage';
 
 /** la matière dessinée d'une couverture */
 export const COUVERTURES: Record<Roof['covering'], Matiere> = { tile: 'tuile', slate: 'ardoise', zinc: 'zinc', steel: 'bac_acier', green: 'vegetalise', gravel: 'gravillons' };
@@ -256,6 +256,20 @@ function amenagements(f: Floor, prismes: Prisme[]): void {
   }
 }
 
+/* les arbres conservés ou à planter : un tronc, puis une couronne (un octaèdre aplati en tranches) ; l'arbre
+   à abattre n'est pas dans la vue du projet. Silhouette d'usage, pour l'insertion : pas une essence. */
+function arbres(f: Floor, prismes: Prisme[]): void {
+  const rond = (c: Point, r: number, n = 16): Anneau => Array.from({ length: n }, (_, i) => ({ x: c.x + r * Math.cos((2 * Math.PI * i) / n), y: c.y + r * Math.sin((2 * Math.PI * i) / n) }));
+  for (const o of Object.values(f.objects)) {
+    if (o.type !== 'tree' || o.state === 'felled') continue;
+    const R = o.diameter / 2, fut = Math.max(1_200, R * 0.9), haut = fut + R * 1.6;
+    prismes.push({ contour: rond(o.position, Math.max(60, R * 0.08), 10), z0: f.elevation - 30, z1: f.elevation + fut + R * 0.3, matiere: 'tronc', objet: o.id, niveau: f.id });
+    /* la couronne en cinq tranches, la plus large au tiers bas */
+    const T = [0.55, 0.9, 1, 0.8, 0.45];
+    T.forEach((k, i) => prismes.push({ contour: rond(o.position, R * k), z0: f.elevation + fut + ((haut - fut) * i) / T.length, z1: f.elevation + fut + ((haut - fut) * (i + 1)) / T.length, matiere: 'feuillage', objet: o.id, niveau: f.id }));
+  }
+}
+
 /* le mobilier : ses blocs (building/mobilier.ts), tournés et posés sur le sol du niveau */
 function meubles(f: Floor, prismes: Prisme[]): void {
   for (const o of Object.values(f.objects)) {
@@ -277,7 +291,7 @@ export function maquette(projet: Project, jusqua?: string, options: { toiture?: 
     const F = [...b.floors].sort((a, c) => a.elevation - c.elevation);
     const k = jusqua ? F.findIndex(f => f.id === jusqua) : -1;
     for (const f of k >= 0 ? F.slice(0, k + 1) : F) {
-      planchers(projet, f, prismes); murs(f, prismes); peintures(f, prismes); amenagements(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
+      planchers(projet, f, prismes); murs(f, prismes); peintures(f, prismes); amenagements(f, prismes); arbres(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
       if (options.toiture !== false) toiture(f, prismes, plaques);
     }
   }
