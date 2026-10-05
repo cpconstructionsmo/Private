@@ -379,6 +379,14 @@ try {
   await p.click('aside button:has-text("Maison à étage")');
   const etages = await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.map(f => [f.name, Object.values(f.objects).filter(o => o.type === 'wall').length]));
   assert.ok(etages.length === 2 && etages.every(([, n]) => n >= 6), 'modèle à étage posé : ' + JSON.stringify(etages));
+  /* une fenêtre de toit (outil H) : le Designer passe au niveau qui porte la toiture (l'étage), un clic sur le pan sud la pose */
+  await p.keyboard.press('h');
+  assert.equal(await p.evaluate(() => document.querySelector('select.niveaux')?.selectedOptions[0]?.textContent), 'Étage', 'passé au niveau de la toiture');
+  await clic(4500, 1800);
+  const ft = await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.flatMap(f => Object.values(f.objects)).filter(o => o.type === 'roof_window'));
+  assert.deepEqual(ft.map(o => [o.width, o.height]), [[780, 980]], 'fenêtre de toit posée : ' + JSON.stringify(ft));
+  await p.keyboard.press('Escape');
+  await p.selectOption('select.niveaux', { label: 'RDC' });
   /* les pièces images du dossier : une photographie (PCMI 7), puis l'insertion composée dans la 3D (PCMI 6) ;
      une capture de la page sert d'image fictive */
   const imageFictive = await p.screenshot({ type: 'png', clip: { x: 0, y: 0, width: 640, height: 400 } });
@@ -420,6 +428,8 @@ try {
   await p.uncheck('aside label:has-text("Sols en couleur") input');
   await p.mouse.click(1080, 820);
   await p.keyboard.press('Control+z');
+  assert.equal(await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.flatMap(f => Object.values(f.objects)).filter(o => o.type === 'roof_window').length), 0, 'un « annuler » retire la fenêtre de toit');
+  await p.keyboard.press('Control+z');
   assert.equal(await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.length), 1, 'un « annuler » retire le modèle et son étage');
   /* un point de prise de vue (outil I) : l'appareil, puis le point visé ; il prend la première pièce libre (PCMI 7) */
   await p.keyboard.press('i');
@@ -440,7 +450,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

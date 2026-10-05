@@ -21,6 +21,7 @@ import { cotationExterieure } from '../building/cotation';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
 import { emprise } from '../building/mobilier';
 import { toitureDuNiveau } from '../building/toiture';
+import { fenetresDeToit } from '../building/fenetres-toit';
 import { difference } from '../geometry/booleen';
 import { centroide, type Anneau } from '../geometry/polygon';
 
@@ -107,6 +108,7 @@ export function dxfNiveau(projet: Project, f: Floor): string {
   for (const t of tremiesDuNiveau(projet, f)) { w.polyligne('TREMIES', t.contour); if (t.contour.length === 4) { w.ligne('TREMIES', t.contour[0]!, t.contour[2]!); w.ligne('TREMIES', t.contour[1]!, t.contour[3]!) } }
   const toit = toitureDuNiveau(f);
   if (toit?.ok) for (const t of toit.toitures) w.polyligne('TOITURE', t.egout as Anneau);
+  for (const { geo } of fenetresDeToit(f)) { w.polyligne('TOITURE', geo.plan); w.ligne('TOITURE', geo.plan[0]!, geo.plan[2]!); w.ligne('TOITURE', geo.plan[1]!, geo.plan[3]!) }
 
   w.g(0, 'ENDSEC').g(0, 'EOF');
   return w.L.join('\r\n') + '\r\n';

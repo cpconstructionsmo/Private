@@ -283,6 +283,17 @@ chaînes de cotes ; la colonne « Sols et surfaces » dit le sol de chaque
 pièce (ou « sol à choisir »). Les traits du motif sont coupés au contour
 de la pièce par un calcul pur (`src/geometry/hachures.ts`).
 
+**Fenêtres de toit** (outil H ; `src/building/fenetres-toit.ts`) : un
+châssis posé sur un pan de la toiture du niveau qui la porte (le Designer
+y passe de lui-même), d'un clic ; tailles courantes sans marque (78 × 98,
+114 × 118… « ou équivalent ») ou libres. Tout se déduit du pan qui contient
+le centre : pente, sens de la montée, coins dans l'espace, emprise en plan
+(raccourcie par la pente) ; une fenêtre hors toiture, hors pan ou à cheval
+sur un bord est refusée. En 3D (dormant et vitrage sur la couverture), en
+tirets sur le plan du niveau, au plan de toiture (PCMI 5) et dans sa
+colonne, sur les façades (dessinées juste après leur pan), dans la notice
+(menuiseries) et au DXF (calque TOITURE).
+
 **Plan de toiture** (option de l'export PDF, et PCMI 5 du dossier) : les
 pans à leur couleur de couverture, faîtage, arêtiers et noues, une flèche
 de pente par pan (degrés et %), les pignons en trait fort, les murs vus à
