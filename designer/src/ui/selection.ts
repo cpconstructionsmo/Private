@@ -4,7 +4,7 @@
 import { fenetresDeToit } from '../building/fenetres-toit';
 import type { Floor, Mm, Point } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
-import { mursDroits } from '../building/murs';
+import { mursDroits, mursFictifs } from '../building/murs';
 import { positionDansAnneau } from '../geometry/predicats';
 import { aireSignee } from '../geometry/polygon';
 import { distancePointSegment } from '../geometry/segment';
@@ -49,6 +49,8 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
   }
   const plan = planDuNiveau(f);
   for (const c of plan.murs) if (positionDansAnneau(p, c.contour) !== 'dehors') return { genre: 'objet', id: c.id, type: 'wall' };
+  /* une cloison fictive : près de son trait */
+  for (const v of mursFictifs(f)) if (distancePointSegment(p, v.axis) <= rayon / 2) return { genre: 'objet', id: v.id, type: 'wall' };
   /* un meuble (le plus petit d'abord : une chaise sous une table se choisit) */
   const meubles = Object.values(f.objects).filter(o => o.type === 'furniture' && dansMeuble(o, p)).sort((a, b) =>
     (a.type === 'furniture' ? a.width * a.depth : 0) - (b.type === 'furniture' ? b.width * b.depth : 0));
@@ -69,7 +71,7 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
 export function dansCadre(f: Floor, p: Point, q: Point): string[] {
   const x0 = Math.min(p.x, q.x), x1 = Math.max(p.x, q.x), y0 = Math.min(p.y, q.y), y1 = Math.max(p.y, q.y);
   const dedans = (a: Point) => a.x >= x0 && a.x <= x1 && a.y >= y0 && a.y <= y1;
-  const murs = new Set(mursDroits(f).filter(w => dedans(w.axis.a) && dedans(w.axis.b)).map(w => w.id));
+  const murs = new Set([...mursDroits(f), ...mursFictifs(f)].filter(w => dedans(w.axis.a) && dedans(w.axis.b)).map(w => w.id));
   const parId = new Map(mursDroits(f).map(w => [w.id, w]));
   const out: string[] = [...murs];
   for (const o of Object.values(f.objects)) {

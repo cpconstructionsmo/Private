@@ -31,8 +31,9 @@ export class ToilePdf {
   set textBaseline(v: string) { this.e.base = v } get textBaseline(): string { return this.e.base }
   set globalAlpha(v: number) { this.e.alpha = v } get globalAlpha(): number { return this.e.alpha }
   setLineDash(d: number[]): void { this.e.dash = [...d] }
-  save(): void { this.pile.push({ ...this.e, m: [...this.e.m], dash: [...this.e.dash] }) }
-  restore(): void { const e = this.pile.pop(); if (e) this.e = e }
+  /* save / restore enveloppent aussi l'état graphique du PDF (q … Q) : une découpe (clip) ne vaut que jusqu'au restore */
+  save(): void { this.pile.push({ ...this.e, m: [...this.e.m], dash: [...this.e.dash] }); this.page.op('q') }
+  restore(): void { const e = this.pile.pop(); if (e) { this.e = e; this.page.op('Q') } }
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void { this.e.m = [a, b, c, d, e, f] }
   translate(x: number, y: number): void { this.e.m = mult(this.e.m, [1, 0, 0, 1, x, y]) }
   rotate(t: number): void { this.e.m = mult(this.e.m, [Math.cos(t), Math.sin(t), -Math.sin(t), Math.cos(t), 0, 0]) }
@@ -72,6 +73,11 @@ export class ToilePdf {
     if (!t) return;
     const k = this.trait, d = this.e.dash.length ? `[${this.e.dash.map(v => n(v * k)).join(' ')}] 0 d` : '[] 0 d';
     this.page.op(`${this.couleur(this.e.stroke, 'RG')} ${n(Math.max(0.15, this.e.lw * k))} w 1 J 1 j ${d} ${t} S`);
+  }
+  /** découper la suite du dessin au chemin courant (les couches d'un mur, leurs hachures) */
+  clip(regle?: string): void {
+    const t = this.trace();
+    if (t) this.page.op(`${t} ${regle === 'evenodd' ? 'W*' : 'W'} n`);
   }
   fillRect(x: number, y: number, l: number, h: number): void { this.beginPath(); this.rect(x, y, l, h); this.fill() }
   strokeRect(x: number, y: number, l: number, h: number): void { this.beginPath(); this.rect(x, y, l, h); this.stroke() }

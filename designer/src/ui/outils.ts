@@ -15,6 +15,7 @@ import { positionDansAnneau } from '../geometry/predicats';
 import { distancePointSegment, projeterSurDroite } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
+import { compositionMur, epaisseurComposition, roleDuGenre, type CompositionMur, type GenreMur } from '../catalogue/murs';
 import { directionDEquerre, orientationDuPlan } from '../building/equerre';
 import { dansCadre, viser } from './selection';
 import { MODELES_OUVERTURES, modeleOuverture } from '../catalogue/ouvertures';
@@ -23,7 +24,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler';
+export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -46,9 +47,11 @@ export interface Reglages {
   finitionAmenagement: string;
   /** murs et cloisons aimantés à l'équerre pendant le tracé (Alt : libre) */
   equerre: boolean;
+  /** la composition tracée pour chaque genre de mur (catalogue/murs.ts) ; '' : « sur mesure », à l'épaisseur réglée */
+  compositions: Record<GenreMur, string>;
 }
 
-export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout', modeleMeuble: 'canape-3p', rotationMeuble: 0, genreEscalier: 'straight', largeurEscalier: 900, rotationEscalier: 0, genreAmenagement: 'fence', finitionAmenagement: 'grillage-rigide-vert', equerre: true };
+export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout', modeleMeuble: 'canape-3p', rotationMeuble: 0, genreEscalier: 'straight', largeurEscalier: 900, rotationEscalier: 0, genreAmenagement: 'fence', finitionAmenagement: 'grillage-rigide-vert', equerre: true, compositions: { exterieur: '', interieur: '', cloison: '' } };
 
 /** dimensions par défaut d'une ouverture neuve (largeur, hauteur, allège) — modifiables ensuite */
 export const OUVERTURES: Record<Opening['kind'], { libelle: string; largeur: Mm; hauteur: Mm; allege: Mm }> = {
@@ -112,7 +115,9 @@ type Prise =
 const AIDES: Record<NomOutil, string> = {
   selection: 'Cliquer pour choisir ; tirer une extrémité, un mur ou une ouverture pour la déplacer',
   mur: 'Cliquer le départ puis chaque angle (aimanté à l’équerre ; Q : libre) — ou taper la longueur (4,50) puis Entrée ; 4,50<90 : longueur et angle ; Échap pour finir ; Maj : 45°',
+  refend: 'Mur intérieur : cliquer le départ puis chaque angle — ou taper la longueur (4,50) puis Entrée ; Échap pour finir',
   cloison: 'Cloison : cliquer le départ puis l’arrivée — ou taper la longueur puis Entrée ; Échap pour finir',
+  fictive: 'Cloison fictive (limite de pièce sans mur, une cuisine ouverte) : cliquer le départ puis l’arrivée, d’un mur à l’autre',
   rectangle: 'Rectangle de murs : cliquer deux angles opposés — ou, après le premier, taper 10x8 puis Entrée',
   ouverture: 'Choisir un modèle dans la bibliothèque (à droite), puis cliquer sur un mur — ou glisser le modèle sur le mur',
   mobilier: 'Choisir un meuble (à droite), puis cliquer pour le poser : près d’un mur il s’y plaque — T : tourner ; Alt : pose libre',
@@ -419,7 +424,9 @@ export class Outils {
         return { accroche: a, apercu: [this.dernier] };
       }
       case 'mur':
-      case 'cloison': {
+      case 'refend':
+      case 'cloison':
+      case 'fictive': {
         const a = this.accrocher(g, this.depart, true);
         if (!this.depart || distance(a.point, this.depart) <= EPS_COINCIDENCE) return { accroche: a, apercu: [] };
         this.vise = a.point;
@@ -473,18 +480,26 @@ export class Outils {
       tracé est la face extérieure (hors tout) ou la face intérieure, selon le réglage */
   private rectangleDe(p: Point, q: Point): Commande[] | string {
     const x0 = Math.min(p.x, q.x), x1 = Math.max(p.x, q.x), y0 = Math.min(p.y, q.y), y1 = Math.max(p.y, q.y);
-    const e = this.reglages.epaisseurMur, horsTout = this.reglages.rectangle === 'hors_tout';
+    const k = compositionMur(this.reglages.compositions.exterieur);
+    const e = k ? epaisseurComposition(k) : this.reglages.epaisseurMur, horsTout = this.reglages.rectangle === 'hors_tout';
     if (x1 - x0 <= EPS_COINCIDENCE || y1 - y0 <= EPS_COINCIDENCE) return 'Tirez un rectangle';
     if (horsTout && Math.min(x1 - x0, y1 - y0) <= 2 * e) return 'Rectangle trop petit pour l’épaisseur des murs';
     const P = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
     const niveau = this.contexte().niveau;
-    return P.map((a, i) => ({ type: 'creerMur', niveau, a, b: P[(i + 1) % 4]!, epaisseur: e, role: 'exterior', justification: horsTout ? 'right' : 'left' }) as Commande);
+    return P.map((a, i) => ({ type: 'creerMur', niveau, a, b: P[(i + 1) % 4]!, epaisseur: e, role: 'exterior', justification: horsTout ? 'right' : 'left', ...(k ? { composition: k.id } : {}) }) as Commande);
   }
 
+  /** le genre de mur de l'outil, son rôle, et sa composition choisie (s'il en a une) */
+  get murTrace(): { role: Wall['role']; genre: GenreMur | null; composition: CompositionMur | undefined; epaisseur: Mm } {
+    const o = this.outil, r = this.reglages;
+    const genre: GenreMur | null = o === 'refend' ? 'interieur' : o === 'cloison' ? 'cloison' : o === 'fictive' ? null : 'exterieur';
+    const composition = genre ? compositionMur(r.compositions[genre]) : undefined;
+    const role: Wall['role'] = genre ? roleDuGenre(genre) : 'virtual';
+    return { role, genre, composition, epaisseur: composition ? epaisseurComposition(composition) : o === 'cloison' ? r.epaisseurCloison : r.epaisseurMur };
+  }
   private murDe(a: Point, b: Point): Commande {
-    const cloison = this.outil === 'cloison';
-    const role: Wall['role'] = cloison ? 'partition' : 'exterior';
-    return { type: 'creerMur', niveau: this.contexte().niveau, a, b, epaisseur: cloison ? this.reglages.epaisseurCloison : this.reglages.epaisseurMur, role };
+    const t = this.murTrace;
+    return { type: 'creerMur', niveau: this.contexte().niveau, a, b, epaisseur: t.epaisseur, role: t.role, ...(t.composition ? { composition: t.composition.id } : {}) };
   }
 
   appuyer(g: Geste): Effet {
@@ -521,7 +536,9 @@ export class Outils {
         return { selection: cible.id };
       }
       case 'mur':
-      case 'cloison': {
+      case 'refend':
+      case 'cloison':
+      case 'fictive': {
         const a = this.accrocher(g, this.depart, true);
         if (!this.depart) { this.depart = a.point; this.premier = a.point; return { accroche: a } }
         return this.poserMur(a.point);
@@ -611,9 +628,9 @@ export class Outils {
     /* un tour fermé (retour au premier point) termine le tracé ; une
        cloison s'arrête à chaque trait */
     const ferme = this.premier !== null && distance(p, this.premier) <= EPS_COINCIDENCE;
-    if (ferme || this.outil === 'cloison') { this.depart = null; this.premier = null } else this.depart = p;
+    if (ferme || this.outil === 'cloison' || this.outil === 'fictive') { this.depart = null; this.premier = null } else this.depart = p;
     this.vise = null;
-    return { commandes: { titre: this.outil === 'cloison' ? 'Cloison' : 'Mur', liste: [cmd] }, apercu: [] };
+    return { commandes: { titre: this.outil === 'cloison' ? 'Cloison' : this.outil === 'fictive' ? 'Cloison fictive' : this.outil === 'refend' ? 'Mur intérieur' : 'Mur', liste: [cmd] }, apercu: [] };
   }
 
   private poserRectangle(q: Point): Effet {
@@ -637,7 +654,7 @@ export class Outils {
       const sx = v.x < d.x ? -1 : 1, sy = v.y < d.y ? -1 : 1;
       return this.poserRectangle({ x: arrondi(d.x + sx * s.largeur), y: arrondi(d.y + sy * s.profondeur) });
     }
-    if (this.outil !== 'mur' && this.outil !== 'cloison' && this.outil !== 'parcelle' && this.outil !== 'amenagement') return {};
+    if (!['mur', 'refend', 'cloison', 'fictive', 'parcelle', 'amenagement'].includes(this.outil)) return {};
     if (s.genre !== 'longueur') return { aide: 'Tapez une longueur (4,50), ou 4,50<90 pour un angle' };
     let u: Point;
     if (s.angle !== undefined) { const r = s.angle * Math.PI / 180; u = { x: Math.cos(r), y: Math.sin(r) } }

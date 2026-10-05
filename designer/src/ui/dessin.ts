@@ -4,7 +4,9 @@
    maçonnerie, ouvertures, cotes, contraintes, sélection, accrochage. */
 import type { Floor, Furniture, Opening, Point, Underlay } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
-import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
+import { decalagesFaces, mursDroits, mursFictifs, type MurDroit } from '../building/murs';
+import { couchesDuNiveau, type BandeCouche } from '../building/couches';
+import { MATIERES_COUCHES } from '../catalogue/murs';
 import type { Accroche } from '../building/accrochage';
 import { dimensionsPiece, type ChaineCotes, type PlaceOuverture } from '../building/cotation';
 import { manoeuvreDe } from '../catalogue/ouvertures';
@@ -129,6 +131,19 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* maçonnerie (ouvertures découpées) */
   ctx.fillStyle = COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
   for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.fill('evenodd') }
+  /* les murs composés : chaque couche à sa place (enduit dehors, isolant, plâtre), cernée d'un trait fin */
+  const C = couchesDuNiveau(s.niveau);
+  if (C.length) {
+    for (const b of C) couche(ctx, cam, b);
+    ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1.1;
+    for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.stroke() }
+  }
+  /* les cloisons fictives : un trait mixte, sans matière */
+  for (const v of mursFictifs(s.niveau)) {
+    const a = E(v.axis.a), b = E(v.axis.b), sel = estChoisi(v.id);
+    ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.gris; ctx.lineWidth = sel ? 2 : 1.2; ctx.setLineDash([10, 4, 2, 4]);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
+  }
   /* l'axe (la ligne de tracé) du seul mur choisi : le plan reste net */
   const choisi = s.selection ? s.niveau.objects[s.selection] : undefined;
   if (choisi?.type === 'wall' && 'a' in choisi.axis) {
@@ -522,6 +537,41 @@ function fond(ctx: CanvasRenderingContext2D, cam: Camera, u: Underlay, s: Scene,
   ctx.drawImage(img.image, 0, 0, img.largeur, img.hauteur);
   ctx.globalAlpha = 1;
   if (u.id === s.selection) { ctx.strokeStyle = COULEURS.accent; ctx.lineWidth = 2 / (k * t.scale); ctx.strokeRect(0, 0, img.largeur, img.hauteur) }
+}
+
+/** une couche de mur composé : sa teinte, puis son motif (hachures de maçonnerie, ondulation d'isolant), dans sa bande */
+function couche(ctx: CanvasRenderingContext2D, cam: Camera, b: BandeCouche): void {
+  const M = MATIERES_COUCHES[b.matiere];
+  ctx.save();
+  ctx.beginPath();
+  for (const p of b.polygones) for (const a of [p.contour, ...(p.trous ?? [])] as Anneau[]) {
+    a.forEach((pt, i) => { const e = versEcran(cam, pt); if (i) ctx.lineTo(e.x, e.y); else ctx.moveTo(e.x, e.y) });
+    ctx.closePath();
+  }
+  ctx.fillStyle = M.couleur; ctx.fill('evenodd');
+  ctx.strokeStyle = 'rgba(26,43,54,.55)'; ctx.lineWidth = 0.5; ctx.stroke();
+  const large = (b.a - b.de) * cam.echelle;                     // la largeur de la bande à l'écran (px)
+  if (large >= 2.5 && M.motif !== 'plein') {
+    ctx.clip('evenodd');
+    ctx.strokeStyle = 'rgba(26,43,54,.5)'; ctx.lineWidth = 0.6; ctx.beginPath();
+    const u = normaliser(soustraire(b.axe.b, b.axe.a)), n = normaleGauche(u), L = distance(b.axe.a, b.axe.b);
+    const P = (t: number, d: number) => versEcran(cam, ajouter(ajouter(b.axe.a, multiplier(u, t)), multiplier(n, d)));
+    const ext = (b.a - b.de) * 4 + 600;
+    if (M.motif === 'isolant') {
+      /* l'ondulation de l'isolant : un zigzag d'un bord à l'autre, au pas de sa largeur */
+      const pas = Math.max(b.a - b.de, 6 / cam.echelle);
+      for (let t = -ext, k = 0; t <= L + ext; t += pas / 2, k++) { const e = P(t, k % 2 ? b.a : b.de); if (k) ctx.lineTo(e.x, e.y); else ctx.moveTo(e.x, e.y) }
+    } else {
+      /* des hachures à 45° (croix : dans les deux sens), au pas de 5 px à l'écran */
+      const pas = 5 / cam.echelle, h = b.a - b.de;
+      for (let t = -ext; t <= L + ext; t += pas) {
+        const a = P(t, b.de), c = P(t + h, b.a); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y);
+        if (M.motif === 'croix') { const a2 = P(t + h, b.de), c2 = P(t, b.a); ctx.moveTo(a2.x, a2.y); ctx.lineTo(c2.x, c2.y) }
+      }
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function chemin(ctx: CanvasRenderingContext2D, cam: Camera, p: Polygone): void {

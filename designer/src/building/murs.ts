@@ -186,5 +186,10 @@ function simple(A: readonly Point[]): boolean {
   return true;
 }
 
+/** les murs droits bâtis d'un niveau — les cloisons fictives (sans matière) n'en sont pas : voir mursFictifs */
 export const mursDroits = (f: Floor): MurDroit[] =>
-  Object.values(f.objects).filter((o): o is MurDroit => o.type === 'wall' && estDroit(o));
+  Object.values(f.objects).filter((o): o is MurDroit => o.type === 'wall' && estDroit(o) && o.role !== 'virtual');
+
+/** les cloisons fictives d'un niveau : des limites de pièces, sans matière */
+export const mursFictifs = (f: Floor): MurDroit[] =>
+  Object.values(f.objects).filter((o): o is MurDroit => o.type === 'wall' && estDroit(o) && o.role === 'virtual');

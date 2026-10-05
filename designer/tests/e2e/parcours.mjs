@@ -51,17 +51,21 @@ try {
   const p = await navigateur.newPage({ viewport: { width: 1400, height: 860 } });
   const erreurs = [];
   p.on('pageerror', e => erreurs.push(e.message));
+  /* le parcours trace des murs « sur mesure » de 20 cm (ses surfaces attendues en dépendent) ; les compositions ont leur propre étape */
+  await p.addInitScript(() => { if (!localStorage.getItem('cpDesigner:compositions')) localStorage.setItem('cpDesigner:compositions', JSON.stringify({ exterieur: '', interieur: '', cloison: '' })) });
   await p.goto(`http://localhost:${port}/index.html?chantier=essai-e2e`);
-  await p.waitForSelector('.cpd canvas');
+  await p.waitForSelector('.cpd canvas.plan2d');
   await p.waitForFunction(() => window.cpDesigner);
   const etat = await p.textContent('.etat');
   assert.match(etat, /Non connecté/, 'sans session : mode local annoncé');
 
   const ecran = (x, y) => p.evaluate(([x, y]) => {
-    const c = window.cpDesigner.camera(), r = document.querySelector('.cpd canvas').getBoundingClientRect();
+    const c = window.cpDesigner.camera(), r = document.querySelector('.cpd canvas.plan2d').getBoundingClientRect();
     return { x: r.left + (x - c.centre.x) * c.echelle + c.largeur / 2, y: r.top + c.hauteur / 2 - (y - c.centre.y) * c.echelle };
   }, [x, y]);
   const clic = async (x, y) => { const e = await ecran(x, y); await p.mouse.move(e.x, e.y); await p.mouse.down(); await p.mouse.up() };
+  /* un clic dans le vide du plan (coin bas droit du dessin) : rien n'est plus choisi */
+  const videClic = async () => { const r = await p.locator('.cpd canvas.plan2d').boundingBox(); await p.mouse.click(r.x + r.width - 24, r.y + r.height - 24) };
   const objets = () => p.evaluate(() => Object.values(window.cpDesigner.projet().buildings[0].floors[0].objects));
 
   /* une maison de 10 × 8 m, une cloison, une porte, deux pièces, une cote */
@@ -89,7 +93,7 @@ try {
   const cloison = O.find(o => o.role === 'partition');
   assert.ok(Math.abs(cloison.axis.a.x - 5000) <= 1 && Math.abs(cloison.axis.b.x - 5000) <= 1, 'cloison déplacée à 5 m : ' + JSON.stringify(cloison.axis));
   /* annuler (Ctrl+Z) la remet à 4 m */
-  await p.mouse.click(1080, 820);
+  await videClic();
   await p.keyboard.press('Control+z');
   O = await objets();
   assert.equal(O.find(o => o.role === 'partition').axis.a.x, 4000, 'annuler');
@@ -102,7 +106,7 @@ try {
   O = await objets();
   const deTravers = O.filter(o => o.type === 'wall' && o.axis.a.x === 5000);
   assert.deepEqual(deTravers.map(w => [w.axis.b.y, w.axis.a.y]), [[5000, 5000], [7300, 7000]], 'aimanté à l’équerre, puis libre (Q) : ' + JSON.stringify(deTravers.map(w => w.axis)));
-  await p.keyboard.press('v'); await p.mouse.click(1080, 820);
+  await p.keyboard.press('v'); await videClic();
   await p.click('aside button:has-text("les murs du niveau")');
   O = await objets();
   const redresse = O.find(o => o.id === deTravers[1].id);
@@ -126,7 +130,7 @@ try {
   assert.ok(Math.abs(fond.transform.scale - 10) < 1e-6 && fond.locked, 'fond calé (10 mm par pixel) et verrouillé : ' + JSON.stringify(fond));
 
   /* un fond PDF : rendu par pdf.js sans erreur */
-  await p.mouse.click(1080, 820);
+  await videClic();
   const [fc2] = await Promise.all([p.waitForEvent('filechooser'), p.click('text=Importer un fond…')]);
   await fc2.setFiles({ name: 'plan-fictif.pdf', mimeType: 'application/pdf', buffer: pdf() });
   await p.waitForFunction(() => Object.values(window.cpDesigner.projet().buildings[0].floors[0].objects).filter(o => o.type === 'underlay').length === 2);
@@ -171,11 +175,11 @@ try {
   assert.equal(porte.offset, 200 + 1500 + 450, 'porte à 1,50 m de l’angle intérieur : ' + porte.offset);
   /* bibliothèque d'ouvertures : une fenêtre 2 vantaux glissée sur le mur du haut, puis changée en baie coulissante */
   await p.keyboard.press('Escape'); await p.keyboard.press('o');
-  assert.match(await p.textContent('aside'), /Bibliothèque d’ouvertures/);
+  assert.match(await p.textContent('.catalogue'), /Bibliothèque d’ouvertures/);
   if (process.env.CAPTURE_BIBLIO) await p.screenshot({ path: process.env.CAPTURE_BIBLIO });
   {
-    const cible = await ecran(6000, 7900), r = await p.locator('.cpd canvas').boundingBox();
-    await p.locator('.tuile[data-m="fen-2v-120x125"]').dragTo(p.locator('.cpd canvas'), { targetPosition: { x: cible.x - r.x, y: cible.y - r.y } });
+    const cible = await ecran(6000, 7900), r = await p.locator('.cpd canvas.plan2d').boundingBox();
+    await p.locator('.tuile[data-m="fen-2v-120x125"]').dragTo(p.locator('.cpd canvas.plan2d'), { targetPosition: { x: cible.x - r.x, y: cible.y - r.y } });
   }
   O = await objets();
   const fen = O.find(o => o.type === 'opening' && o.kind === 'window');
@@ -187,17 +191,17 @@ try {
   await p.keyboard.press('Escape');
   /* mobilier : un lit posé près du mur du bas s'y plaque ; un canapé glissé près du mur du haut s'y retourne */
   await p.keyboard.press('b');
-  assert.match(await p.textContent('aside'), /Mobilier/);
-  await p.click('aside summary:has-text("Chambre")');
+  assert.match(await p.textContent('.catalogue'), /Mobilier/);
+  await p.click('.catalogue summary:has-text("Chambre")');
   await p.click('.tuile[data-m="lit-160"]');
   await clic(5000, 900);
   O = await objets();
   const lit = O.find(o => o.type === 'furniture');
   assert.deepEqual([lit?.position, lit?.rotation], [{ x: 5000, y: 200 + 1000 }, 0], 'lit plaqué contre le mur du bas : ' + JSON.stringify(lit));
-  await p.click('aside summary:has-text("Séjour")');
+  await p.click('.catalogue summary:has-text("Séjour")');
   {
-    const cible = await ecran(5000, 7300), r = await p.locator('.cpd canvas').boundingBox();
-    await p.locator('.tuile[data-m="canape-3p"]').dragTo(p.locator('.cpd canvas'), { targetPosition: { x: cible.x - r.x, y: cible.y - r.y } });
+    const cible = await ecran(5000, 7300), r = await p.locator('.cpd canvas.plan2d').boundingBox();
+    await p.locator('.tuile[data-m="canape-3p"]').dragTo(p.locator('.cpd canvas.plan2d'), { targetPosition: { x: cible.x - r.x, y: cible.y - r.y } });
   }
   O = await objets();
   const canape = O.find(o => o.type === 'furniture' && o.catalogRef.id === 'canape-3p');
@@ -389,7 +393,7 @@ try {
   assert.equal(await p.evaluate(() => window.cpDesigner.vue3d()), null, 'retour au plan');
 
   /* l'import s'annule d'un coup (la peinture, le parement des façades, la toiture, le fond, puis le plan) */
-  await p.mouse.click(1080, 820);
+  await videClic();
   await p.keyboard.press('Control+z');
   assert.ok((await objets()).filter(o => o.type === 'room').every(o => !o.wallFinish), 'un « annuler » retire la peinture de toutes les pièces');
   await p.keyboard.press('Control+z');
@@ -418,6 +422,8 @@ try {
   /* les pièces images du dossier : une photographie (PCMI 7), puis l'insertion composée dans la 3D (PCMI 6) ;
      une capture de la page sert d'image fictive */
   const imageFictive = await p.screenshot({ type: 'png', clip: { x: 0, y: 0, width: 640, height: 400 } });
+  /* onglet Dossier → Dossier de permis : les pièces fournies */
+  await p.click('nav.onglets button[data-o=dossier]'); await p.click('.sous button[data-s=permis]');
   const [fc7] = await Promise.all([p.waitForEvent('filechooser'), p.click('aside button.bpcmi7')]);
   await fc7.setFiles({ name: 'proche.png', mimeType: 'image/png', buffer: imageFictive });
   await p.fill('.voile input[name=leg]', 'depuis la rue, vers le nord');
@@ -444,8 +450,11 @@ try {
     assert.ok(dossier6.includes(t), 'dossier : ' + t);
   assert.equal(dossier6.match(/\/Subtype \/Image /g)?.length, 2, 'deux images dans le dossier (insertion et photographie)');
   /* le plan de présentation : sols en couleur à l'écran (préférence de l'appareil), puis en PDF pour le client */
-  await p.check('aside label:has-text("Sols en couleur") input');
+  /* onglet Indications → Couleurs de pièces */
+  await p.click('nav.onglets button[data-o=indications]'); await p.click('.sous button[data-s=couleurs]');
+  await p.click('.ruban .tuile-outil:has-text("Sols en couleur")');
   assert.equal(await p.evaluate(() => localStorage.getItem('cpDesigner:sols')), 'oui');
+  assert.equal(await p.locator('.ruban .tuile-outil.actif:has-text("Sols en couleur")').count(), 1, 'la tuile dit l’état');
   if (process.env.CAPTURE_PRESENTATION) await p.screenshot({ path: process.env.CAPTURE_PRESENTATION });
   await p.click('header button.bpdf');
   await p.selectOption('.voile select[name=pre]', 'presentation');
@@ -453,8 +462,10 @@ try {
   const pres = (await readFile(await dl7.path())).toString('latin1');
   assert.ok(pres.includes('(Plan de pr\xE9sentation : RDC)') && pres.includes('(SOLS ET SURFACES)'), 'plan de présentation');
   assert.match(dl7.suggestedFilename(), /plans de presentation/);
-  await p.uncheck('aside label:has-text("Sols en couleur") input');
-  await p.mouse.click(1080, 820);
+  await p.click('.ruban .tuile-outil:has-text("Sols en couleur")');
+  assert.equal(await p.evaluate(() => localStorage.getItem('cpDesigner:sols')), 'non');
+  await p.click('nav.onglets button[data-o=trace]');
+  await videClic();
   await p.keyboard.press('Control+z');
   assert.equal(await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.flatMap(f => Object.values(f.objects)).filter(o => o.type === 'roof_window').length), 0, 'un « annuler » retire la fenêtre de toit');
   await p.keyboard.press('Control+z');
@@ -469,6 +480,33 @@ try {
   await p.keyboard.press('Control+z');
   assert.equal((await objets()).filter(o => o.type === 'viewpoint').length, 0, 'un « annuler » retire le point de vue');
 
+  /* l'interface à onglets : murs composés (la composition choisie est gardée), cloison fictive, types de pièces, toit, nuancier */
+  await p.goto(`http://localhost:${port}/index.html?chantier=essai-onglets`);
+  await p.waitForFunction(() => window.cpDesigner);
+  await p.click('nav.onglets button[data-o=trace]'); await p.click('.sous button[data-s=murs]');
+  await p.click('.ruban .o-rectangle');
+  await p.click('.compo .carte');
+  await p.click('.liste-compo .carte:has-text("Mur extérieur isolé 40")');
+  assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('cpDesigner:compositions')).exterieur), 'ext-isole-40', 'composition gardée sur l’appareil');
+  await clic(0, 0); await clic(10000, 8000);
+  const M = (await objets()).filter(o => o.type === 'wall');
+  assert.ok(M.length === 4 && M.every(w => w.thickness === 400 && w.compositionRef === 'ext-isole-40'), 'rectangle en murs isolés 40 : ' + JSON.stringify(M.map(w => [w.thickness, w.compositionRef])));
+  if (process.env.CAPTURE_ONGLETS) await p.screenshot({ path: process.env.CAPTURE_ONGLETS });
+  await p.click('.ruban .o-fictive'); await clic(4000, 400); await clic(4000, 7600);
+  assert.equal((await objets()).filter(o => o.type === 'wall' && o.role === 'virtual').length, 1, 'cloison fictive tracée');
+  await p.click('.sous button[data-s=pieces]');
+  await p.click('.ruban .tuile-outil:has-text("Chambre")');
+  await clic(2000, 4000); await clic(7000, 4000);
+  assert.deepEqual((await objets()).filter(o => o.type === 'room').map(o => o.name + ' : ' + o.usage).sort(), ['Chambre 2 : bedroom', 'Chambre : bedroom'], 'deux chambres de part et d’autre de la cloison fictive');
+  await p.click('nav.onglets button[data-o=toit]');
+  await p.click('.ruban .toit-gable');
+  assert.deepEqual((await objets()).filter(o => o.type === 'roof').map(o => o.kind), ['gable'], 'toit deux pans posé d’un clic');
+  assert.match(await p.textContent('aside'), /Toiture — RDC/);
+  await p.click('nav.onglets button[data-o=revetement]');
+  await p.click('.catalogue .tuile[data-m="enduit-ton-pierre"]');
+  assert.ok((await objets()).filter(o => o.type === 'wall' && o.role === 'exterior').every(w => w.finish === 'enduit-ton-pierre'), 'parement posé sur toutes les façades');
+  assert.deepEqual(erreurs, [], 'aucune erreur JavaScript (onglets)');
+
   /* le programme introuvable (ancienne page gardée en cache) : un rechargement
      sans cache, puis la raison affichée — jamais un écran muet */
   const p2 = await navigateur.newPage();
@@ -478,8 +516,12 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, diagnostic au démarrage');
-} catch (e) { echec = e }
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, types de pièces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, diagnostic au démarrage');
+} catch (e) {
+  echec = e;
+  /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */
+  if (process.env.CAPTURE_ECHEC) for (const pg of navigateur.contexts().flatMap(c => c.pages())) { await pg.screenshot({ path: process.env.CAPTURE_ECHEC }).catch(() => {}); break }
+}
 await navigateur.close();
 serveur.close();
 if (echec) { console.error(echec); process.exit(1) }
