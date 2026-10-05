@@ -10,7 +10,7 @@
    La maison ne bouge pas : implanter, c'est placer la PARCELLE autour d'elle
    (à une distance donnée de deux côtés), ou la tourner pour qu'un côté soit
    parallèle à la maison. Une seule commande modifie alors un seul objet. */
-import type { Floor, Landscape, Mm, Plot, Point, Project } from '../model/types';
+import type { Floor, Landscape, Mm, Plot, Point, Project, Viewpoint } from '../model/types';
 import { planDuNiveau } from './plan';
 import { union } from '../geometry/booleen';
 import { aireSignee, centroide, type Polygone } from '../geometry/polygon';
@@ -115,4 +115,23 @@ export function bilanAmenagements(p: Project): BilanAmenagement[] {
     out.push({ id: o.id, genre: o.kind, finition: o.finish, mesure: o.kind === 'fence' ? L : Math.abs(aireSignee(o.points)) });
   }
   return out;
+}
+
+/* ---------- les points de prise de vue ---------- */
+
+/** demi-angle du champ dessiné d'un point de vue (un appareil courant voit environ 50° en largeur) */
+export const DEMI_CHAMP = (25 * Math.PI) / 180;
+
+/** les points de vue du projet, dans l'ordre des pièces (PCMI 6, 7, 8) */
+export function pointsDeVue(p: Project): Viewpoint[] {
+  const V: Viewpoint[] = [];
+  for (const b of p.buildings) for (const f of b.floors) for (const o of Object.values(f.objects)) if (o.type === 'viewpoint') V.push(o);
+  return V.sort((x, y) => x.piece.localeCompare(y.piece));
+}
+
+/** le champ dessiné d'un point de vue : les deux bords du cône, à la distance du point visé */
+export function champDeVue(v: Viewpoint): { gauche: Point; droite: Point } {
+  const t = Math.atan2(v.b.y - v.a.y, v.b.x - v.a.x), L = distance(v.a, v.b);
+  const bord = (s: number) => ({ x: v.a.x + L * Math.cos(t + s * DEMI_CHAMP), y: v.a.y + L * Math.sin(t + s * DEMI_CHAMP) });
+  return { gauche: bord(1), droite: bord(-1) };
 }

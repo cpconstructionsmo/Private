@@ -9,9 +9,9 @@ import type { Floor, Project, Roof } from '../model/types';
 import type { Toiture } from '../building/toiture';
 import { centroide } from '../geometry/polygon';
 import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building';
-import { dessiner, dessinerAmenagement, dessinerParcelle, nord, type Scene } from '../ui/dessin';
+import { dessiner, dessinerAmenagement, dessinerParcelle, dessinerPointDeVue, nord, type Scene } from '../ui/dessin';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
-import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, bilanAmenagements } from '../building/terrain';
+import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, bilanAmenagements, pointsDeVue, champDeVue } from '../building/terrain';
 import { surfacesReglementaires, REFERENCES, type Surfaces } from '../building/surfaces';
 import { versEcran, type Camera } from '../ui/camera';
 import { DocumentPdf, largeurTexte, type PagePdf } from './pdf';
@@ -264,6 +264,8 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
   const toits = projet.buildings.flatMap(b => b.floors).flatMap(f => { const r = toitureDuNiveau(f); return r?.ok ? r.toitures.map(x => x.egout) : [] });
   for (const e of toits) P.push(...e);
   for (const f of projet.buildings.flatMap(b => b.floors)) for (const x of Object.values(f.objects)) if (x.type === 'landscape') P.push(...x.points);
+  const PV = pointsDeVue(projet);
+  for (const v of PV) { const c = champDeVue(v); P.push(v.a, v.b, c.gauche, c.droite) }
   const xmin = Math.min(...P.map(p => p.x)), xmax = Math.max(...P.map(p => p.x)), ymin = Math.min(...P.map(p => p.y)), ymax = Math.max(...P.map(p => p.y));
   const ech = o.echelle ?? (ECHELLES_MASSE.find(e => (xmax - xmin) / e + 60 <= ZONE.l && (ymax - ymin) / e + 50 <= ZONE.h) ?? ECHELLES_MASSE[ECHELLES_MASSE.length - 1]!);
   const cam: Camera = { centre: { x: (xmin + xmax) / 2, y: (ymin + ymax) / 2 }, echelle: PT / ech, largeur: ZONE.l * PT, hauteur: ZONE.h * PT };
@@ -278,6 +280,8 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
   for (const e of toits) { toile.beginPath(); e.map(E2).forEach((p, i) => (i ? toile.lineTo(p.x, p.y) : toile.moveTo(p.x, p.y))); toile.closePath(); toile.stroke() }
   toile.setLineDash([]);
   dessinerParcelle(toile, cam, plot, R, { nord: false });
+  /* les points de prise de vue des photographies du dossier (PCMI 6, 7, 8) */
+  for (const v of PV) dessinerPointDeVue(toile, cam, v);
   /* l'altitude du ±0,00 au milieu de la maison */
   if (E.length) {
     const c = E2(E[0]!.contour.reduce((s, q) => ({ x: s.x + q.x / E[0]!.contour.length, y: s.y + q.y / E[0]!.contour.length }), { x: 0, y: 0 }));
@@ -315,6 +319,12 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
     if (Am.length > 10) { page.texte('… ' + (Am.length - 10) + ' autre(s)', X(COLONNE.x + 5), Y(y), 7, { couleur: '#6E7B84' }); y += 5 }
     const vert = Am.filter(a => a.genre === 'green').reduce((t, a) => t + a.mesure, 0);
     if (vert) ligne('Espaces verts', m2(vert) + (S ? ' (' + (vert / S * 100).toFixed(1).replace('.', ',') + ' %)' : ''));
+  }
+  if (PV.length) {
+    y += 4;
+    page.texte('PRISES DE VUE', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    const NOMS: Record<string, string> = { 'PCMI 6': 'insertion', 'PCMI 7': 'environnement proche', 'PCMI 8': 'environnement lointain' };
+    for (const v of PV) ligne(v.piece + ' — ' + NOMS[v.piece], 'reportée', false);
   }
   y += 3;
   for (const l of ['Reculs : du nu extérieur de la maçonnerie au point', 'le plus proche de chaque limite. Emprise au sol :', 'débords de toit exclus. Limite tracée : à confirmer', 'sur le plan de bornage ; règles du PLU à vérifier.'])
@@ -636,11 +646,16 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   plancheFacades(doc, projet, o);
   const aToit = toituresDuProjet(projet).length > 0, pToit = aToit ? debut() : null;
   if (aToit) plancheToiture(doc, projet, o);
+  /* le point de prise de vue d'une photographie : reporté au plan de masse s'il y est tracé (outil I), sinon à reporter */
+  const PV = pointsDeVue(projet);
+  const priseDeVue = (code: string, v: ImageDossier) => PV.some(x => x.piece === code) && t
+    ? 'Point et angle de prise de vue reportés sur le plan de masse (PCMI 2' + (pMasse ? ', page ' + pMasse : '') + ')' + (v.legende?.trim() ? ' : ' + v.legende.trim() : '') + '.'
+    : 'Point et angle de prise de vue à reporter sur le plan de masse (PCMI 2)' + (v.legende?.trim() ? ' : ' + v.legende.trim() : ' : ' + A_COMPLETER) + '.';
   const pInsertion = d.insertion ? debut() : null;
   if (d.insertion) pageImage(doc, projet, o, 'Insertion du projet dans son environnement', 'PCMI 6 — Insertion', d.insertion, [
     'Photomontage : la maquette 3D du projet (calculée depuis le plan, avec ses matériaux et sa toiture) posée sur une photographie du terrain, cadrée à la main dans le Designer.',
-    'La concordance du point de vue et de la focale avec la photographie est à vérifier à l’œil ; le point de prise de vue est à reporter sur le plan de masse (PCMI 2)'
-      + (d.insertion.legende?.trim() ? ' : ' + d.insertion.legende.trim() : ' : ' + A_COMPLETER) + '.',
+    'La concordance du point de vue et de la focale avec la photographie est à vérifier à l’œil.',
+    priseDeVue('PCMI 6', d.insertion),
   ]);
   const pVue = d.perspective ? debut() : null;
   if (d.perspective) pageImage(doc, projet, o, 'Vue 3D du projet', 'Vue 3D (complément au PCMI 6)', d.perspective, [
@@ -649,7 +664,7 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   ]);
   const photo = (code: string, quoi: string, v: ImageDossier) => pageImage(doc, projet, o, 'Photographie de l’environnement ' + quoi, code + ' — Environnement ' + quoi, v, [
     'Photographie fournie pour le dossier.',
-    'Point et angle de prise de vue à reporter sur le plan de masse (PCMI 2)' + (v.legende?.trim() ? ' : ' + v.legende.trim() : ' : ' + A_COMPLETER) + '.',
+    priseDeVue(code, v),
   ]);
   const pProche = d.photoProche ? debut() : null;
   if (d.photoProche) photo('PCMI 7', 'proche', d.photoProche);
@@ -657,6 +672,7 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   if (d.photoLointaine) photo('PCMI 8', 'lointain', d.photoLointaine);
   const pPlans = debut();
   for (const f of niveaux) planche(doc, projet, f, o, lignes);
+  const noteVue = (code: string) => (PV.some(x => x.piece === code) && t ? 'point de vue reporté au PCMI 2' : 'point de vue à reporter au PCMI 2');
   const pieces: PieceDossier[] = [
     { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: pSituation, ...(pSituation ? { note: 'extrait de carte fourni : échelle et nord à vérifier' } : { note: 'à joindre (extrait de carte, échelle et nord)' }) },
     { code: 'PCMI 2', intitule: 'Plan de masse des constructions', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
@@ -665,8 +681,8 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
     { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacades, ...(aToit ? { note: 'plan de toiture : page ' + pToit } : { note: 'toiture à définir (panneau 3D)' }) },
     { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: pInsertion,
       note: (pInsertion ? 'photomontage composé dans le Designer' : 'à joindre (photomontage)') + (pVue ? ' ; vue 3D du projet : page ' + pVue : '') },
-    { code: 'PCMI 7', intitule: 'Photographie de l’environnement proche', page: pProche, note: pProche ? 'point de vue à reporter au PCMI 2' : 'à joindre' },
-    { code: 'PCMI 8', intitule: 'Photographie de l’environnement lointain', page: pLointaine, note: pLointaine ? 'point de vue à reporter au PCMI 2' : 'à joindre' },
+    { code: 'PCMI 7', intitule: 'Photographie de l’environnement proche', page: pProche, note: pProche ? noteVue('PCMI 7') : 'à joindre' },
+    { code: 'PCMI 8', intitule: 'Photographie de l’environnement lointain', page: pLointaine, note: pLointaine ? noteVue('PCMI 8') : 'à joindre' },
     { code: '—', intitule: 'Plans des niveaux (complément)', page: pPlans },
   ];
   pageDeGarde(garde, projet, d, pieces, t ? { terrain: surfaceTerrain(t.plot), emprise: aireEmprise(empriseAuSol(projet)), reference: t.plot.reference } : null, S);
