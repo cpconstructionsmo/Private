@@ -26,6 +26,7 @@ import { MODELES_MAISONS, modeleMaison } from '../catalogue/modeles-maisons';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
+import type { ImageDossier } from '../export/planche';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
 import { traits } from '../building/mobilier';
@@ -217,7 +218,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (oui) {
       choixMur = null; effet(outils.choisir('selection')); selection = null; barreOutils(); panneaux();
       try {
-        if (!vue3d) { const { creerVue3D } = await import('./vue3d'); vue3d = await creerVue3D($<HTMLElement>('.hote3d')) }
+        if (!vue3d) { const { creerVue3D } = await import('./vue3d'); vue3d = await creerVue3D($<HTMLElement>('.hote3d')); if (photoSite) vue3d.photo(photoSite) }
         vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe();
       } catch (e) {
         toast('La vue 3D n’a pas pu s’ouvrir sur ce navigateur (' + String((e as Error)?.message ?? e) + ')', true);
@@ -227,7 +228,58 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     panneaux(); dessinerBientot();
   }
   /* la vue 3D gardée pour le dossier de permis (le temps de la séance : une image, pas une donnée du projet) */
-  let perspective: { jpeg: Uint8Array; largeur: number; hauteur: number } | null = null;
+  let perspective: ImageDossier | null = null;
+  /* les autres pièces images du dossier (PCMI 1, 6, 7, 8), gardées de même le temps de la séance : photos du
+     terrain et extraits de carte ne sont ni enregistrés dans le projet, ni partagés */
+  const piecesDossier: { situation?: ImageDossier; insertion?: ImageDossier; photoProche?: ImageDossier; photoLointaine?: ImageDossier } = {};
+  /** la photographie du terrain posée derrière la maquette 3D, pour composer l'insertion (PCMI 6) */
+  let photoSite: ImageBitmap | null = null;
+  /** une image choisie par l'utilisateur (JPEG, PNG…), décodée par le navigateur ; rien si le choix est abandonné */
+  function choisirImage(): Promise<{ image: ImageBitmap; nom: string } | null> {
+    return new Promise(res => {
+      const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*';
+      i.onchange = async () => {
+        const f = i.files?.[0];
+        if (!f) { res(null); return }
+        try { res({ image: await createImageBitmap(f), nom: f.name }) } catch { toast('Image illisible : ' + f.name, true); res(null) }
+      };
+      i.click();
+    });
+  }
+  /** l'image en JPEG pour le PDF, ramenée à 2 400 px de côté au plus (un A3 à 200 dpi environ) */
+  async function enJpeg(image: ImageBitmap, legende?: string): Promise<ImageDossier> {
+    const k = Math.min(1, 2_400 / Math.max(image.width, image.height));
+    const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(image.width * k)); c.height = Math.max(1, Math.round(image.height * k));
+    c.getContext('2d')!.drawImage(image, 0, 0, c.width, c.height);
+    const b = await new Promise<Blob | null>(r => c.toBlob(r, 'image/jpeg', 0.9));
+    if (!b) throw new Error('image vide');
+    return { jpeg: new Uint8Array(await b.arrayBuffer()), largeur: c.width, hauteur: c.height, ...(legende?.trim() ? { legende: legende.trim() } : {}) };
+  }
+  /** une pièce image du dossier (PCMI 1, 7, 8) : l'image, puis ce qu'on en dit (source et échelle, point de vue) */
+  async function importerPiece(cle: 'situation' | 'photoProche' | 'photoLointaine', titreDialogue: string, invite: string) {
+    const c = await choisirImage();
+    if (!c) return;
+    const r = await dialogue(titreDialogue, [{ cle: 'leg', libelle: invite, valeur: piecesDossier[cle]?.legende ?? '' }]);
+    if (!r) return;
+    try { piecesDossier[cle] = await enJpeg(c.image, r['leg']); toast(c.nom + ' : gardée pour le dossier de permis'); panneaux() }
+    catch (e) { toast('Image impossible à garder : ' + String((e as Error)?.message ?? e), true) }
+  }
+  async function poserPhotoSite() {
+    const c = await choisirImage();
+    if (!c || !vue3d) return;
+    photoSite = c.image; vue3d.photo(photoSite); panneaux();
+    toast('Photo posée derrière la maquette : tournez la vue jusqu’à ce que la maison s’y pose');
+  }
+  async function garderInsertion() {
+    if (!vue3d) return;
+    const r = await dialogue('Garder pour le PCMI 6', [{ cle: 'pv', libelle: 'Point de prise de vue (à reporter au plan de masse), ex. : depuis la rue, face à l’entrée', valeur: piecesDossier.insertion?.legende ?? '' }]);
+    if (!r) return;
+    try {
+      const i = await vue3d.imageJpeg();
+      piecesDossier.insertion = { jpeg: i.octets, largeur: i.largeur, hauteur: i.hauteur, ...(r['pv']?.trim() ? { legende: r['pv'].trim() } : {}) };
+      toast('Insertion gardée : elle ira au PCMI 6 du dossier de permis'); panneaux();
+    } catch (e) { toast('Insertion impossible à garder : ' + String((e as Error)?.message ?? e), true) }
+  }
   async function garderPerspective() {
     if (!vue3d) return;
     try { const i = await vue3d.imageJpeg(); perspective = { jpeg: i.octets, largeur: i.largeur, hauteur: i.hauteur }; toast('Vue gardée : elle ira dans le dossier de permis (PDF → Composer)'); panneaux() }
@@ -829,6 +881,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ligne(bouton('Recadrer', () => vue3d?.cadrer()), bouton('Image PNG', () => void imagePNG()), bouton('Retour au plan', () => void basculer3D(false), 'prim')),
       ligne(bouton(perspective ? '✓ Vue gardée pour le dossier (la remplacer)' : 'Garder cette vue pour le dossier', () => void garderPerspective(), 'bpersp')),
       bloc('La 3D se calcule à partir du plan : chaque modification s’y voit aussitôt. Hauteurs des murs, appuis et hauteurs des ouvertures : ceux de l’inspecteur.'));
+    /* l'insertion dans le site (PCMI 6) : la maquette sur une photographie du terrain, accordée à la main */
+    aside.append(titre('Insertion dans le site (PCMI 6)'));
+    if (!photoSite) aside.append(ligne(bouton('Photo du terrain…', () => void poserPhotoSite(), 'bphoto')),
+      bloc('Une photographie du terrain prise d’où la maison sera vue (de la rue, le plus souvent). Elle se met derrière la maquette ; tournez la vue jusqu’à ce que la maison s’y pose, puis gardez-la pour le dossier. La photo reste sur cet appareil, le temps de la séance.'));
+    else aside.append(
+      champ('Focale : champ de vision vertical (°)', Math.round(vue3d?.focale() ?? 45), v => { vue3d?.focale(Number(v.replace(',', '.'))) }, 'number'),
+      bloc('Tournez (glisser), déplacez (clic droit) et zoomez (molette) jusqu’à ce que la maison se pose au bon endroit, vue d’où la photo a été prise. Un téléphone tenu en largeur voit environ 45 à 55° en hauteur.'),
+      ligne(bouton(piecesDossier.insertion ? '✓ Gardée pour le PCMI 6 (la remplacer)' : 'Garder pour le PCMI 6', () => void garderInsertion(), 'prim binsertion'),
+        bouton('Retirer la photo', () => { photoSite = null; vue3d?.photo(null); panneaux() })));
     sectionMateriaux(niveau());
     sectionToiture(niveau());
   }
@@ -984,6 +1045,21 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
 
     A.append(titre('Plan de l’atelier'), ligne(bouton('Importer le RDC lu par l’atelier…', importerAtelier)),
       bloc('Le fichier 01_modele/modele.json du projet de l’atelier (plan DXF ou PDF déjà lu). Murs, ouvertures et pièces arrivent sur ce niveau, vide.'));
+
+    /* les pièces images du dossier de permis : ce que le Designer ne dessine pas, fourni par l'utilisateur */
+    A.append(titre('Dossier de permis : pièces fournies'));
+    const etat = (code: string, nom: string, v: ImageDossier | null | undefined, sinon: string) =>
+      bloc('<b>' + code + '</b> ' + nom + ' : ' + (v ? '✓ ' + v.largeur + ' × ' + v.hauteur + ' px' + (v.legende ? ' — ' + esc(v.legende) : '') : '<span class="note">' + sinon + '</span>'));
+    const piece = (cle: 'situation' | 'photoProche' | 'photoLointaine', code: string, nom: string, invite: string, classe: string) => {
+      A.append(etat(code, nom, piecesDossier[cle], 'à joindre'),
+        ligne(bouton(piecesDossier[cle] ? 'Remplacer…' : 'Importer…', () => void importerPiece(cle, code + ' — ' + nom, invite), classe),
+          ...(piecesDossier[cle] ? [bouton('Retirer', () => { delete piecesDossier[cle]; panneaux() })] : [])));
+    };
+    piece('situation', 'PCMI 1', 'Plan de situation', 'Source et échelle de l’extrait (ex. : Géoportail, 1/5 000)', 'bpcmi1');
+    A.append(etat('PCMI 6', 'Insertion', piecesDossier.insertion, 'à composer dans la vue 3D (photo du terrain)'));
+    piece('photoProche', 'PCMI 7', 'Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)', 'bpcmi7');
+    piece('photoLointaine', 'PCMI 8', 'Environnement lointain', 'Point et angle de prise de vue', 'bpcmi8');
+    A.append(bloc('Extrait de carte (Géoportail, cadastre) et photographies : à fournir, le Designer ne les invente pas. Gardés sur cet appareil le temps de la séance (ni enregistrés dans le projet, ni partagés), ils vont au dossier de permis (PDF → Composer).'));
 
     A.append(titre('Contrôle'));
     if (plan.alertes.length) for (const a of plan.alertes) A.append(bloc('⚠️ ' + esc(a.message), 'alerte'));
@@ -1218,7 +1294,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     try {
       const { dossierPc } = await import('../export/planche');
       const { octets, pieces } = dossierPc(h.projet, { indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'),
-        ...(r['mo']?.trim() ? { maitreOuvrage: r['mo'] } : {}), ...(perspective && r['per'] !== 'non' ? { perspective } : {}), ...(r['adr']?.trim() ? { adresseTerrain: r['adr'] } : {}), ...(r['ech'] && r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}) });
+        ...(r['mo']?.trim() ? { maitreOuvrage: r['mo'] } : {}), ...(perspective && r['per'] !== 'non' ? { perspective } : {}), ...piecesDossier, ...(r['adr']?.trim() ? { adresseTerrain: r['adr'] } : {}), ...(r['ech'] && r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}) });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([octets], { type: 'application/pdf' }));
       a.download = (h.projet.name || 'projet') + ' - dossier PC.pdf';
@@ -1231,7 +1307,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   /** les plans en PDF (A3, à l'échelle, cotés, cartouche) : chargé à la demande */
   async function exporterPdf() {
     const r = await dialogue('Exporter en PDF (A3)', [
-      { cle: 'doc', libelle: 'Composer', valeur: 'planches', options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 2, 3, 5, plans des niveaux)' } },
+      { cle: 'doc', libelle: 'Composer', valeur: 'planches', options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)' } },
       { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (une page chacun)' } },
       { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
       { cle: 'cot', libelle: 'Cotation', valeur: 'oui', options: { oui: 'Avec les chaînes de cotes', non: 'Sans' } },

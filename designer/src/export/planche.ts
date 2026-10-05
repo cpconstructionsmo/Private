@@ -562,30 +562,43 @@ function pageNotice(doc: DocumentPdf, projet: Project, o: OptionsPlanche): void 
   cartouche(page, projet, o.dossier ? 'PCMI 4 — Notice (brouillon)' : 'Notice (brouillon)', 0, o);
 }
 
-/* ---------- la perspective (vue 3D gardée) ---------- */
+/* ---------- les pages d'image : vue 3D, situation, insertion, photographies ---------- */
 
-function pagePerspective(doc: DocumentPdf, projet: Project, o: OptionsPlanche, v: NonNullable<OptionsDossier['perspective']>): void {
+/** une image fournie au dossier (JPEG) : vue 3D gardée, extrait de carte, photomontage, photographie */
+export interface ImageDossier { jpeg: Uint8Array; largeur: number; hauteur: number; /** ce qu'en dit l'utilisateur : source, échelle, point de vue… */ legende?: string }
+
+/** une page A3 : l'image aussi grande que la zone le permet (sans la déformer), sa légende, et les notes à droite */
+function pageImage(doc: DocumentPdf, projet: Project, o: OptionsPlanche, entete: string, titre: string, v: ImageDossier, notes: string[]): void {
   const page = doc.page(A3.l * PT, A3.h * PT), nom = doc.imageJpeg(v.jpeg, v.largeur, v.hauteur);
   const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
   page.cadre(X(10), Y(287), 400 * PT, 277 * PT, { ep: 0.8 });
-  page.texte('Vue 3D du projet', X(ZONE.x + 4), Y(ZONE.y + 6), 11, { gras: true, couleur: '#2C4A5E' });
-  /* l'image, aussi grande que la zone le permet, sans la déformer */
-  const L = ZONE.l - 8, H = ZONE.h - 16, k = Math.min(L / v.largeur, H / v.hauteur), l = v.largeur * k, h = v.hauteur * k;
+  page.texte(entete, X(ZONE.x + 4), Y(ZONE.y + 6), 11, { gras: true, couleur: '#2C4A5E' });
+  const leg = v.legende?.trim();
+  const L = ZONE.l - 8, H = ZONE.h - 16 - (leg ? 7 : 0), k = Math.min(L / v.largeur, H / v.hauteur), l = v.largeur * k, h = v.hauteur * k;
   const x0 = ZONE.x + 4 + (L - l) / 2, y0 = ZONE.y + 12 + (H - h) / 2;
   page.image(nom, X(x0), Y(y0 + h), l * PT, h * PT);
   page.cadre(X(x0), Y(y0 + h), l * PT, h * PT, { ep: 0.3, couleur: '#9AA5AD' });
+  if (leg) page.texte(leg, X(x0), Y(y0 + h + 5), 8.5, { couleur: '#1A2B36' });
   page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
-  for (const [i, l2] of ['Vue 3D calculée depuis le plan (matériaux et', 'toiture du projet). Pour le PCMI 6, le projet reste', 'à insérer dans une photographie de son', 'environnement (photomontage) : à joindre.'].entries())
-    page.texte(l2, X(COLONNE.x + 5), Y(20 + i * 4), 7, { couleur: '#6E7B84' });
-  cartouche(page, projet, o.dossier ? 'Vue 3D (complément au PCMI 6)' : 'Vue 3D', 0, o);
+  let y = 20;
+  /* « [à compléter] » en rouge, même coupé en fin de ligne */
+  for (const n of notes) { for (const l2 of couper(n, (COLONNE.l - 10) * PT, 7)) { page.texte(l2, X(COLONNE.x + 5), Y(y), 7, { couleur: /\[à|compléter\]/.test(l2) ? '#C5563A' : '#6E7B84' }); y += 4 } y += 2 }
+  cartouche(page, projet, titre, 0, o);
 }
 
 /* ---------- le dossier de permis de construire, en un PDF ---------- */
 
 export interface OptionsDossier {
   indice: string; date: string; maitreOuvrage?: string; adresseTerrain?: string; echelle?: number;
-  /** une vue 3D gardée dans le Designer (JPEG), pour la page de perspective */
-  perspective?: { jpeg: Uint8Array; largeur: number; hauteur: number };
+  /** une vue 3D gardée dans le Designer, pour la page de perspective */
+  perspective?: ImageDossier;
+  /** PCMI 1 : l'extrait de carte fourni (Géoportail, cadastre…) ; sa légende dit la source et l'échelle */
+  situation?: ImageDossier;
+  /** PCMI 6 : le photomontage composé dans la 3D (maquette posée sur une photographie du terrain) */
+  insertion?: ImageDossier;
+  /** PCMI 7 et 8 : les photographies de l'environnement proche et lointain ; leur légende dit le point de vue */
+  photoProche?: ImageDossier;
+  photoLointaine?: ImageDossier;
 }
 
 /** les pièces du dossier, dans l'ordre du formulaire ; « page » : null quand le Designer ne la produit pas */
@@ -593,9 +606,10 @@ export interface PieceDossier { code: string; intitule: string; page: number | n
 
 /**
  * Le dossier de permis (maison individuelle) en un seul PDF A3 : une page de garde avec le sommaire, puis
- * le plan de masse (PCMI 2), les coupes (PCMI 3), les façades (PCMI 5) et les plans des niveaux ; chaque
- * planche numérotée « n / N ». Ce que le Designer ne produit pas (situation, notice, insertion, photos) est
- * listé « à joindre » : rien n'est inventé.
+ * la situation (PCMI 1, si l'extrait de carte est fourni), le plan de masse (PCMI 2), les coupes (PCMI 3),
+ * la notice (PCMI 4), les façades et la toiture (PCMI 5), l'insertion (PCMI 6, si le photomontage est
+ * composé), les photographies (PCMI 7 et 8, si elles sont fournies) et les plans des niveaux ; chaque
+ * planche numérotée « n / N ». Une pièce qui manque est listée « à joindre » : rien n'est inventé.
  */
 export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Array<ArrayBuffer>; pieces: PieceDossier[] } {
   /* au-delà de 150 m² de surface de plancher, le dossier ne se produit pas au nom de CP Constructions (règle de l'atelier) */
@@ -607,6 +621,11 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   const o: OptionsPlanche = { niveaux: niveaux.map(f => f.id), cotation: true, mobilier: false, indice: d.indice, date: d.date, dossier: true, coupe: true, ...(d.echelle ? { echelle: d.echelle } : {}) };
   const debut = () => doc.nombre + 1;
   const t = parcelleDuProjet(projet);
+  const pSituation = d.situation ? debut() : null;
+  if (d.situation) pageImage(doc, projet, o, 'Plan de situation du terrain', 'PCMI 1 — Plan de situation', d.situation, [
+    'Extrait de carte fourni pour le dossier' + (d.situation.legende?.trim() ? ' : ' + d.situation.legende.trim() : ' (source et échelle : ' + A_COMPLETER + ')') + '.',
+    'Le terrain doit y être repéré, avec l’échelle et la direction du nord : à vérifier sur l’extrait avant le dépôt.',
+  ]);
   const pMasse = t ? debut() : null;
   if (t) plancheMasse(doc, projet, o);
   const lignes = lignesDeCoupe(projet), pCoupe = debut();
@@ -617,18 +636,37 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   plancheFacades(doc, projet, o);
   const aToit = toituresDuProjet(projet).length > 0, pToit = aToit ? debut() : null;
   if (aToit) plancheToiture(doc, projet, o);
+  const pInsertion = d.insertion ? debut() : null;
+  if (d.insertion) pageImage(doc, projet, o, 'Insertion du projet dans son environnement', 'PCMI 6 — Insertion', d.insertion, [
+    'Photomontage : la maquette 3D du projet (calculée depuis le plan, avec ses matériaux et sa toiture) posée sur une photographie du terrain, cadrée à la main dans le Designer.',
+    'La concordance du point de vue et de la focale avec la photographie est à vérifier à l’œil ; le point de prise de vue est à reporter sur le plan de masse (PCMI 2)'
+      + (d.insertion.legende?.trim() ? ' : ' + d.insertion.legende.trim() : ' : ' + A_COMPLETER) + '.',
+  ]);
   const pVue = d.perspective ? debut() : null;
-  if (d.perspective) pagePerspective(doc, projet, o, d.perspective);
+  if (d.perspective) pageImage(doc, projet, o, 'Vue 3D du projet', 'Vue 3D (complément au PCMI 6)', d.perspective, [
+    'Vue 3D calculée depuis le plan (matériaux et toiture du projet).',
+    pInsertion ? 'L’insertion dans le site (PCMI 6) est page ' + pInsertion + '.' : 'Pour le PCMI 6, le projet reste à insérer dans une photographie de son environnement (photomontage) : à joindre.',
+  ]);
+  const photo = (code: string, quoi: string, v: ImageDossier) => pageImage(doc, projet, o, 'Photographie de l’environnement ' + quoi, code + ' — Environnement ' + quoi, v, [
+    'Photographie fournie pour le dossier.',
+    'Point et angle de prise de vue à reporter sur le plan de masse (PCMI 2)' + (v.legende?.trim() ? ' : ' + v.legende.trim() : ' : ' + A_COMPLETER) + '.',
+  ]);
+  const pProche = d.photoProche ? debut() : null;
+  if (d.photoProche) photo('PCMI 7', 'proche', d.photoProche);
+  const pLointaine = d.photoLointaine ? debut() : null;
+  if (d.photoLointaine) photo('PCMI 8', 'lointain', d.photoLointaine);
   const pPlans = debut();
   for (const f of niveaux) planche(doc, projet, f, o, lignes);
   const pieces: PieceDossier[] = [
-    { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: null, note: 'à joindre (extrait de carte, échelle et nord)' },
+    { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: pSituation, ...(pSituation ? { note: 'extrait de carte fourni : échelle et nord à vérifier' } : { note: 'à joindre (extrait de carte, échelle et nord)' }) },
     { code: 'PCMI 2', intitule: 'Plan de masse des constructions', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
     { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe },
     { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: pNotice, note: 'brouillon à relire et compléter' },
     { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacades, ...(aToit ? { note: 'plan de toiture : page ' + pToit } : { note: 'toiture à définir (panneau 3D)' }) },
-    { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: null, note: pVue ? 'à joindre (photomontage) ; vue 3D du projet : page ' + pVue : 'à joindre (photomontage)' },
-    { code: 'PCMI 7-8', intitule: 'Photographies (environnement proche et lointain)', page: null, note: 'à joindre' },
+    { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: pInsertion,
+      note: (pInsertion ? 'photomontage composé dans le Designer' : 'à joindre (photomontage)') + (pVue ? ' ; vue 3D du projet : page ' + pVue : '') },
+    { code: 'PCMI 7', intitule: 'Photographie de l’environnement proche', page: pProche, note: pProche ? 'point de vue à reporter au PCMI 2' : 'à joindre' },
+    { code: 'PCMI 8', intitule: 'Photographie de l’environnement lointain', page: pLointaine, note: pLointaine ? 'point de vue à reporter au PCMI 2' : 'à joindre' },
     { code: '—', intitule: 'Plans des niveaux (complément)', page: pPlans },
   ];
   pageDeGarde(garde, projet, d, pieces, t ? { terrain: surfaceTerrain(t.plot), emprise: aireEmprise(empriseAuSol(projet)), reference: t.plot.reference } : null, S);
