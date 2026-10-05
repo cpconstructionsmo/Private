@@ -12,12 +12,28 @@
 
    Une extrémité libre est coupée d'équerre. Un angle trop aigu (l'onglet
    partirait au loin) est coupé d'équerre lui aussi, plutôt que d'inventer
-   une pointe. */
+   une pointe.
+
+   À trois rayons ou plus, les onglets dessinent autour de P un petit
+   polygone que le bout de chaque mur, tiré d'un angle à l'autre, ne
+   couvrirait pas : il resterait un vide (0,02 m² pour trois murs de 20 cm
+   dont deux alignés), compté comme une « pièce à nommer ». On le couvre :
+   - un mur qui traverse P (jonction en T), ou deux bouts alignés de mêmes
+     faces (un mur coupé en deux à l'angle d'un garage), forment le mur
+     traversant : ces deux bouts sont coupés d'équerre en P, et les autres
+     murs viennent buter sur sa face, leur bout passant par le pied de P
+     sur cette face ;
+   - sans mur traversant (Y, croix de quatre bouts), le bout de chaque mur
+     passe par P, le centre de la jonction.
+   Un bout qui, par ce point, se croiserait lui-même (des murs minces qui se
+   rejoignent dans l'épaisseur d'un mur épais : ils le chevauchent déjà, il
+   n'y a pas de vide) garde son simple trait. */
 import type { Floor, Mm, Point, Wall } from '../model/types';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
-import { intersectionDroites, projeterSurDroite } from '../geometry/segment';
-import { ajouter, distance, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
-import type { Anneau } from '../geometry/polygon';
+import { distancePointSegment, intersectionDroites, intersectionSegments, projeterSurDroite } from '../geometry/segment';
+import { ajouter, distance, multiplier, normaleGauche, normaliser, scalaire, soustraire, vectoriel } from '../geometry/vecteur';
+import { centroide, type Anneau } from '../geometry/polygon';
+import { positionDansAnneau } from '../geometry/predicats';
 
 export const LIMITE_ONGLET_MUR = 4;          // en multiples de la plus forte épaisseur au sommet
 
@@ -91,29 +107,83 @@ export function contoursMurs(murs: readonly MurDroit[], eps: number = EPS_COINCI
   });
   for (const R of rayons) R.sort((x, y) => x.angle - y.angle);
 
-  /* les deux angles du contour d'un mur à l'un de ses sommets */
-  const coins = (k: number, depuis: 'a' | 'b', mur: MurDroit): { gauche: Point; droite: Point } => {
-    const R = rayons[k]!;
-    const i = R.findIndex(r => r.mur === mur && r.depuis === depuis);
-    const r = R[i]!;
-    const equerre = { gauche: r.gauche.p, droite: r.droite.p };
-    if (R.length < 2) return equerre;
-    const suivant = R[(i + 1) % R.length]!, precedent = R[(i - 1 + R.length) % R.length]!;
-    const emax = Math.max(...R.map(x => x.mur.thickness));
-    const P = sommets[k]!;
+  /* le bout de chaque rayon à chaque sommet : ses deux angles, et le point
+     intermédiaire qui ferme la jonction (null : le bout est un simple trait) */
+  type Bout = { gauche: Point; droite: Point; centre: Point | null };
+  const bouts: Map<Rayon, Bout>[] = sommets.map((P, k) => {
+    const R = rayons[k]!, out = new Map<Rayon, Bout>();
+    const emax = Math.max(0, ...R.map(x => x.mur.thickness));
     const onglet = (x: Point | null, defaut: Point): Point => (x && distance(x, P) <= LIMITE_ONGLET_MUR * emax ? x : defaut);
-    return {
-      gauche: onglet(intersectionDroites(ligne(r.gauche), ligne(suivant.droite)), equerre.gauche),
-      droite: onglet(intersectionDroites(ligne(r.droite), ligne(precedent.gauche)), equerre.droite),
-    };
-  };
+    /* le mur traversant : un mur qui passe par P, sinon deux bouts alignés de mêmes faces (le plus épais) */
+    let traversant: Rayon | null = R.find(r => r.depuis === 'corps') ?? null;
+    const paire = new Set<Rayon>();
+    if (!traversant && R.length >= 3) {
+      let best: [Rayon, Rayon] | null = null;
+      for (const r of R) for (const q of R) {
+        if (r === q || scalaire(r.dir, q.dir) > -1 + 1e-9) continue;
+        if (distance(r.gauche.p, q.droite.p) > eps || distance(r.droite.p, q.gauche.p) > eps) continue;
+        if (!best || r.mur.thickness > best[0].mur.thickness) best = [r, q];
+      }
+      if (best) { paire.add(best[0]).add(best[1]); traversant = best[0] }
+    }
+    R.forEach((r, i) => {
+      const equerre = { gauche: r.gauche.p, droite: r.droite.p };
+      if (r.depuis === 'corps') return;
+      if (R.length < 2 || paire.has(r)) { out.set(r, { ...equerre, centre: null }); return }
+      const suivant = R[(i + 1) % R.length]!, precedent = R[(i - 1 + R.length) % R.length]!;
+      const b: Bout = {
+        gauche: onglet(intersectionDroites(ligne(r.gauche), ligne(suivant.droite)), equerre.gauche),
+        droite: onglet(intersectionDroites(ligne(r.droite), ligne(precedent.gauche)), equerre.droite),
+        centre: null,
+      };
+      if (R.length >= 3) b.centre = P;
+      out.set(r, b);
+    });
+    /* contre un mur traversant : de chaque côté, un même point sur sa face, le pied de P ramené entre
+       les angles extrêmes des murs qui y butent (sinon le bout d'un mur déborderait au-dehors) */
+    if (traversant) for (const cote of [1, -1]) {
+      const T = traversant, face = cote > 0 ? T.gauche : T.droite;
+      /* les murs de ce côté, dans l'ordre des angles comptés depuis le traversant */
+      const relatif = (r: Rayon) => Math.atan2(vectoriel(T.dir, r.dir), scalaire(T.dir, r.dir));
+      const ici = [...out].filter(([r]) => !paire.has(r) && Math.sign(vectoriel(T.dir, r.dir)) === cote)
+        .sort(([x], [y]) => relatif(x) - relatif(y)).map(([, b]) => b);
+      const s = ici.flatMap(b => [b.droite, b.gauche])
+        .filter(q => Math.abs(vectoriel(T.dir, soustraire(q, face.p))) <= eps)
+        .map(q => scalaire(soustraire(q, face.p), T.dir));
+      const t = s.length ? Math.min(Math.max(0, Math.min(...s)), Math.max(...s)) : 0;
+      /* si les angles sont déjà dans le traversant (murs qui se chevauchent), ce point recoupe le bout à sa face */
+      for (const b of ici) b.centre = ajouter(face.p, multiplier(T.dir, t));
+    }
+    /* sans mur traversant : P doit être dans le polygone des angles (murs justifiés d'un côté), sinon on prend son centre */
+    if (!traversant && R.length >= 3) {
+      const poly = R.flatMap(r => { const b = out.get(r); return b ? [b.droite, b.gauche] : [] });
+      if (positionDansAnneau(P, poly) === 'dehors') { const c = centroide(poly); for (const b of out.values()) b.centre = c }
+    }
+    /* un point intermédiaire déjà sur le trait du bout n'apporte rien : le contour reste un quadrilatère */
+    for (const b of out.values()) if (b.centre && distancePointSegment(b.centre, { a: b.droite, b: b.gauche }) <= eps) b.centre = null;
+    return out;
+  });
+  const bout = (k: number, depuis: 'a' | 'b', mur: MurDroit): Bout => bouts[k]!.get(rayons[k]!.find(r => r.mur === mur && r.depuis === depuis)!)!;
 
   return murs.map((w, i) => {
     const e = extremites[i]!;
-    const A = coins(e.a, 'a', w), B = coins(e.b, 'b', w);
+    const A = bout(e.a, 'a', w), B = bout(e.b, 'b', w);
     /* depuis a, la gauche du rayon est la gauche du mur ; depuis b, c'est sa droite */
-    return { id: w.id, contour: [A.droite, B.gauche, B.droite, A.gauche] };
+    const contour = (a: Point | null, b: Point | null): Point[] => [A.droite, B.gauche, ...(b ? [b] : []), B.droite, A.gauche, ...(a ? [a] : [])];
+    /* un bout qui se croiserait lui-même (le point est derrière un angle) garde son simple trait */
+    const a = A.centre && simple(contour(A.centre, null)) ? A.centre : null, b = B.centre && simple(contour(null, B.centre)) ? B.centre : null;
+    return { id: w.id, contour: simple(contour(a, b)) ? contour(a, b) : contour(null, null) };
   });
+}
+
+/** un anneau simple : deux côtés non voisins ne se touchent pas */
+function simple(A: readonly Point[]): boolean {
+  const n = A.length;
+  for (let i = 0; i < n; i++) for (let j = i + 2; j < n; j++) {
+    if (i === 0 && j === n - 1) continue;
+    if (intersectionSegments({ a: A[i]!, b: A[(i + 1) % n]! }, { a: A[j]!, b: A[(j + 1) % n]! }).type !== 'aucune') return false;
+  }
+  return true;
 }
 
 export const mursDroits = (f: Floor): MurDroit[] =>

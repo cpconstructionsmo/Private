@@ -59,6 +59,52 @@ describe('murs : contours et jonctions', () => {
     const { h } = maison(n => [{ type: 'creerMur', niveau: n, a: { x: 0, y: 0 }, b: { x: 5_000, y: 0 }, epaisseur: 200, justification: 'left' }]);
     expect(contoursMurs(mursDroits(rdc(h.projet)))[0]!.contour).toEqual([{ x: 0, y: -200 }, { x: 5_000, y: -200 }, { x: 5_000, y: 0 }, { x: 0, y: 0 }]);
   });
+
+  /* à trois murs ou plus en un point, aucun vide au milieu de la jonction, et les murs ne se recouvrent pas */
+  const jonctionPleine = (f: Floor): void => {
+    const C = contoursMurs(mursDroits(f)), P = planDuNiveau(f);
+    const somme = C.reduce((t, c) => t + aire({ contour: c.contour }), 0);
+    const perim = C.reduce((t, c) => t + c.contour.reduce((s, p, i) => { const q = c.contour[(i + 1) % c.contour.length]!; return s + Math.hypot(q.x - p.x, q.y - p.y) }, 0), 0);
+    expect(Math.abs(P.maconnerie.reduce((t, p) => t + aire(p), 0) - somme)).toBeLessThan(perim * 0.01);
+    expect(P.zones.filter(z => z.aire < 1e6), 'pas de vide de moins de 1 m² dans la maçonnerie').toHaveLength(0);
+  };
+
+  it('trois bouts en un point, dont deux alignés (façade coupée à l’angle d’un garage) : un mur traversant, sans vide', () => {
+    const { h } = maison(n => [M(n, 0, 0, 16_000, 0), M(n, 16_000, 0, 16_000, 6_000), M(n, 16_000, 6_000, 11_000, 6_000),
+      M(n, 11_000, 6_000, 11_000, 10_000), M(n, 11_000, 6_000, 11_000, 0), M(n, 11_000, 10_000, 0, 10_000), M(n, 0, 10_000, 0, 0)]);
+    const f = rdc(h.projet), C = contoursMurs(mursDroits(f)), P = planDuNiveau(f);
+    /* les deux bouts alignés sont coupés d'équerre en P ; le mur du garage bute sur leur face */
+    expect(C[3]!.contour).toEqual([{ x: 11_100, y: 6_000 }, { x: 11_100, y: 10_100 }, { x: 10_900, y: 9_900 }, { x: 10_900, y: 6_000 }]);
+    expect(C[4]!.contour).toEqual([{ x: 10_900, y: 6_000 }, { x: 10_900, y: 100 }, { x: 11_100, y: 100 }, { x: 11_100, y: 6_000 }]);
+    expect(C[2]!.contour).toEqual([{ x: 16_100, y: 6_100 }, { x: 11_100, y: 6_100 }, { x: 11_100, y: 5_900 }, { x: 15_900, y: 5_900 }]);
+    expect(P.zones.map(z => m2(z.aire)).sort((a, b) => a - b)).toEqual([27.84, 105.84]);
+    jonctionPleine(f);
+  });
+
+  it('Y de trois bouts à 120° : le bout de chaque mur passe par le centre, sans vide', () => {
+    const { h } = maison(n => [0, 1, 2].map(i => { const t = Math.PI / 2 + i * 2 * Math.PI / 3; return M(n, 0, 0, Math.round(3_000 * Math.cos(t)), Math.round(3_000 * Math.sin(t))) }));
+    const f = rdc(h.projet);
+    expect(planDuNiveau(f).maconnerie.flatMap(p => p.trous ?? [])).toHaveLength(0);
+    expect(contoursMurs(mursDroits(f)).every(c => c.contour.some(p => p.x === 0 && p.y === 0))).toBe(true);
+    jonctionPleine(f);
+  });
+
+  it('croix de quatre cloisons qui finissent au même point : quatre pièces, sans vide au centre', () => {
+    const { h } = maison(n => [...boite(n), M(n, 5_000, 0, 5_000, 4_000, 100, 'partition'), M(n, 5_000, 8_000, 5_000, 4_000, 100, 'partition'),
+      M(n, 0, 4_000, 5_000, 4_000, 100, 'partition'), M(n, 10_000, 4_000, 5_000, 4_000, 100, 'partition')]);
+    const f = rdc(h.projet);
+    expect(planDuNiveau(f).zones.map(z => m2(z.aire))).toEqual([18.6725, 18.6725, 18.6725, 18.6725]);
+    jonctionPleine(f);
+  });
+
+  it('deux murs qui butent en biais au même point d’une cloison, du même côté : sans vide contre sa face', () => {
+    /* l'onglet des deux murs (20 cm, 60° entre eux) est à 20 cm de l'axe, au-delà de la face de la cloison (5 cm) */
+    const { h } = maison(n => [M(n, 0, 0, 10_000, 0, 100, 'partition'), M(n, 5_000, 0, 3_268, 3_000), M(n, 5_000, 0, 6_732, 3_000)]);
+    const f = rdc(h.projet);
+    expect(planDuNiveau(f).maconnerie.flatMap(p => p.trous ?? [])).toHaveLength(0);
+    expect(planDuNiveau(f).maconnerie).toHaveLength(1);
+    jonctionPleine(f);
+  });
 });
 
 describe('pièces détectées', () => {

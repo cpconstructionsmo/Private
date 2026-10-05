@@ -62,7 +62,7 @@ export const MODELES_MAISONS: readonly ModeleMaison[] = [
     commandes(c) {
       const a = atelier(c), n = c.niveau;
       /* le mur entre maison et garage continue la façade est de la maison : un seul mur, sur lequel la façade nord
-         du garage vient en T (trois murs dans l'angle rentrant laisseraient un vide) */
+         du garage vient en T */
       const sud = a.mur(n, P(0, 0), P(16_000, 0));
       a.mur(n, P(16_000, 0), P(16_000, 6_000)); a.mur(n, P(16_000, 6_000), P(11_000, 6_000));
       const g = a.mur(n, P(11_000, 10_000), P(11_000, 0));
