@@ -264,6 +264,17 @@ try {
   await p.click('aside button:has-text("Placer")');
   assert.match(await p.textContent('aside'), /Côté 1 : [\d,]+ m — recul 5,00 m/, 'parcelle placée à 5 m du côté 1');
   if (process.env.CAPTURE_PARCELLE) await p.screenshot({ path: process.env.CAPTURE_PARCELLE });
+  /* un point coté du terrain naturel (outil N) : un clic, son altitude NGF ; un « annuler » le retire */
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('n');
+  await clic(5000, 3000);
+  await p.fill('.voile input[name=z]', '101,25'); await p.keyboard.press('Enter');
+  await p.waitForFunction(() => Object.values(window.cpDesigner.projet().buildings[0].floors[0].objects).find(o => o.type === 'plot')?.spotHeights?.length === 1);
+  const pc = (await objets()).find(o => o.type === 'plot').spotHeights[0];
+  assert.deepEqual([pc.point, pc.ngf], [{ x: 5000, y: 3000 }, 101.25], 'point coté posé : ' + JSON.stringify(pc));
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('Control+z');
+  assert.ok(!(await objets()).find(o => o.type === 'plot').spotHeights, 'un « annuler » retire le point coté');
   /* aménagement : une terrasse en dalles tracée à l'outil A (quatre sommets, retour au premier) */
   await p.keyboard.press('Escape');
   await p.keyboard.press('a');
@@ -450,7 +461,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

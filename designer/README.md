@@ -283,6 +283,20 @@ chaînes de cotes ; la colonne « Sols et surfaces » dit le sol de chaque
 pièce (ou « sol à choisir »). Les traits du motif sont coupés au contour
 de la pièce par un calcul pur (`src/geometry/hachures.ts`).
 
+**Terrain en pente** (outil N ; `src/building/terrain.ts`,
+`src/geometry/triangulation.ts`) : les points cotés du terrain naturel,
+lus sur le plan du géomètre (un clic, l'altitude NGF), appartiennent à la
+parcelle et la suivent quand on l'implante. Le terrain s'en déduit partout
+par une triangulation de Delaunay (linéaire dans chaque triangle, pente du
+triangle le plus proche prolongée au-dehors ; un point : plat ; des points
+alignés : le long de leur ligne). Avec l'altitude NGF du ±0,00, la coupe
+(PCMI 3) dessine le terrain naturel en tirets et ses altitudes (aux bouts,
+au droit des façades) ; le terrain fini est supposé égal au terrain
+naturel hors de la maison, et c'est écrit (déblais, remblais « [à
+compléter] »). Le plan de masse reporte les points et l'étendue du terrain
+naturel, le ±0,00 par rapport à lui ; la notice, le relief. Sans altitude
+du ±0,00, rien n'est placé, et la coupe le dit.
+
 **Fenêtres de toit** (outil H ; `src/building/fenetres-toit.ts`) : un
 châssis posé sur un pan de la toiture du niveau qui la porte (le Designer
 y passe de lui-même), d'un clic ; tailles courantes sans marque (78 × 98,

@@ -102,7 +102,9 @@ export type Commande =
   /** un aménagement extérieur (clôture, terrasse, allée, stationnement, espace vert) */
   | { type: 'creerAmenagement'; niveau: string; genre: Landscape['kind']; points: Point[]; ferme?: boolean; finition: string; hauteur: Mm }
   | { type: 'modifierAmenagement'; id: string; points?: Point[]; ferme?: boolean; finition?: string; hauteur?: Mm }
-  | { type: 'modifierParcelle'; id: string; contour?: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number | null };
+  | { type: 'modifierParcelle'; id: string; contour?: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number | null;
+      /** les points cotés du terrain naturel, en entier (la liste remplace la précédente) */
+      altitudesTerrain?: { point: Point; ngf: number }[] };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
@@ -189,6 +191,23 @@ function parcelleInvalide(contour: Point[], voies: number[], nord: number, altit
   if (!fini(nord)) return 'direction du nord invalide';
   if (altitude !== undefined && altitude !== null && !(fini(altitude) && altitude > -100 && altitude < 5_000)) return 'altitude NGF invalide';
   return null;
+}
+
+/** des points cotés du terrain naturel : positions et altitudes NGF plausibles, deux points jamais confondus */
+function altitudesInvalides(A: { point: Point; ngf: number }[]): string | null {
+  if (A.length > 300) return 'trop de points cotés (300 au plus)';
+  for (const x of A) if (!ptFini(x.point) || !fini(x.ngf) || x.ngf <= -100 || x.ngf >= 5_000) return 'point coté invalide (altitude NGF en mètres)';
+  for (let i = 0; i < A.length; i++) for (let j = i + 1; j < A.length; j++) if (distance(A[i]!.point, A[j]!.point) < 100) return 'deux points cotés à moins de 10 cm l’un de l’autre';
+  return null;
+}
+
+/** la limite déplacée d'un bloc (translation, rotation) : la transformation qui fait passer de l'une à l'autre, ou null si elle a changé de forme */
+function deplacementRigide(avant: Point[], apres: Point[]): ((p: Point) => Point) | null {
+  if (avant.length !== apres.length || avant.length < 2) return null;
+  const a0 = avant[0]!, a1 = avant[1]!, b0 = apres[0]!, b1 = apres[1]!;
+  const t = Math.atan2(b1.y - b0.y, b1.x - b0.x) - Math.atan2(a1.y - a0.y, a1.x - a0.x), c = Math.cos(t), s = Math.sin(t);
+  const f = (p: Point): Point => { const x = p.x - a0.x, y = p.y - a0.y; return { x: b0.x + x * c - y * s, y: b0.y + x * s + y * c } };
+  return avant.every((q, i) => distance(f(q), apres[i]!) < 1) ? f : null;
 }
 
 /** un identifiant de matériau : court, lisible (le catalogue peut grandir : un identifiant inconnu se dessine par défaut) */
@@ -723,6 +742,15 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.reference !== undefined) poser('reference', cmd.reference.trim() || undefined);
       if (cmd.nord !== undefined) poser('north', cmd.nord);
       if (cmd.altitudeRdc !== undefined) poser('groundFloorNgf', cmd.altitudeRdc ?? undefined);
+      if (cmd.altitudesTerrain !== undefined) {
+        const ea = altitudesInvalides(cmd.altitudesTerrain);
+        if (ea) return refus(ea);
+        poser('spotHeights', cmd.altitudesTerrain.length ? cmd.altitudesTerrain.map(x => ({ point: { ...x.point }, ngf: x.ngf })) : undefined);
+      } else if (cmd.contour && o.spotHeights?.length) {
+        /* les points cotés appartiennent au terrain : la parcelle implantée (déplacée, tournée) les emporte */
+        const f = deplacementRigide(o.contour, cmd.contour);
+        if (f) poser('spotHeights', o.spotHeights.map(x => ({ point: f(x.point), ngf: x.ngf })));
+      }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, o, avant, apres, c)]);
     }

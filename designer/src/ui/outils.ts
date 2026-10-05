@@ -22,7 +22,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'piece' | 'cote' | 'caler';
+export type NomOutil = 'selection' | 'mur' | 'cloison' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -70,6 +70,7 @@ export interface Geste {
 
 export type Demande =
   | { genre: 'nomPiece'; niveau: string; point: Point }
+  | { genre: 'pointCote'; point: Point }
   | { genre: 'distanceFond'; id: string; image: [Point, Point] };
 
 export interface Effet {
@@ -118,6 +119,7 @@ const AIDES: Record<NomOutil, string> = {
   amenagement: 'Aménagement (à droite : clôture, terrasse, allée…) : cliquer chaque point — ou taper la longueur ; Entrée pour finir une clôture, revenir au premier point pour fermer',
   pointdevue: 'Point de prise de vue d’une photographie du dossier : cliquer l’appareil, puis le point visé (Maj : 45°)',
   fenetretoit: 'Fenêtre de toit : cliquer sur un pan de la toiture (vue du niveau qui la porte) pour y poser un châssis de 78 × 98 cm',
+  altitude: 'Point coté du terrain : cliquer où le géomètre a relevé une altitude, puis la saisir (NGF, en mètres)',
   piece: 'Cliquer dans un espace clos pour le nommer',
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
@@ -417,6 +419,8 @@ export class Outils {
         if (!this.depart || distance(a.point, this.depart) < 500) return { accroche: a, apercu: [] };
         return { accroche: a, apercu: [{ type: 'creerCoupe', niveau: c.niveau, a: this.depart, b: a.point }] };
       }
+      case 'altitude':
+        return { accroche: null };
       case 'fenetretoit':
         return { accroche: null, apercu: [{ type: 'creerFenetreToit', niveau: c.niveau, centre: { x: Math.round(g.point.x), y: Math.round(g.point.y) } }] };
       case 'pointdevue': {
@@ -520,6 +524,8 @@ export class Outils {
         this.depart = null; this.outil = 'selection';
         return { commandes: { titre: 'Trait de coupe', liste: [cmd] }, apercu: [], fini: true, aide: AIDES.selection };
       }
+      case 'altitude':
+        return { demande: { genre: 'pointCote', point: { ...g.point } }, aide: AIDES.altitude };
       case 'fenetretoit': {
         const cmd: Commande = { type: 'creerFenetreToit', niveau: c.niveau, centre: { x: Math.round(g.point.x), y: Math.round(g.point.y) } };
         return { commandes: { titre: 'Fenêtre de toit', liste: [cmd] }, apercu: [], aide: AIDES.fenetretoit };
