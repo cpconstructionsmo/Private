@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-05 · Chiffrage : moins-values (retirer une prestation du marché)';
+const VERSION='2026-10-05 · Prospects : trois catégories (maison neuve, rénovation, apporteur d’affaires)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -21571,6 +21571,13 @@ function TableauBord({data,save,open,allerA,allerVers}){
    L'affaire avant qu'elle soit une affaire : le commercial dépose ce qu'il sait
    du projet et demande un chiffrage, le maître d'œuvre le pose et arrête sa
    marge. Une fois signée, la fiche se transforme en chantier. */
+/* ---------- les trois catégories de prospects ----------
+   Maison neuve (la demande d'un commercial pour une construction), rénovation
+   (des travaux sur l'existant), apporteur d'affaires (un projet amené par un
+   apporteur). Un prospect saisi avant les catégories n'en porte pas : il
+   reste dans « Maison neuve », où se trouvaient tous les prospects. */
+const PROSPECT_CATEGORIES=[{id:'neuf',label:'Maison neuve'},{id:'renovation',label:'Rénovation'},{id:'apporteur',label:'Apporteur d’affaires'}];
+const prospectCategorie=p=>PROSPECT_CATEGORIES.some(c=>c.id===(p&&p.categorie))?p.categorie:'neuf';
 function Prospects({data,save,cible}){
   const [f,setF]=useState(null);
   /* nul en création (le formulaire complet reste utile pour tout saisir
@@ -21582,8 +21589,10 @@ function Prospects({data,save,cible}){
   const [filtre,setFiltre]=useState('actifs');
   const [nvTaux,setNvTaux]=useState({communal:'',dept:'',exoPTZ:false});
   const P=data.prospects||[];
+  /* l'onglet ouvert : celui du prospect qu'on rouvre, sinon « Maison neuve » */
+  const [categorie,setCategorie]=useState(()=>{const c=ouv&&P.find(x=>x.id===ouv);return c?prospectCategorie(c):'neuf'});
   const maj=(id,p)=>save({...data,prospects:P.map(x=>x.id===id?{...x,...p}:x)});
-  const neuf=()=>({nom:'',civilite:'',client:'',telClient:'',emailClient:'',adresseClient:'',
+  const neuf=()=>({categorie,nom:'',civilite:'',client:'',telClient:'',emailClient:'',adresseClient:'',
     afficherClient2:false,client2:'',civilite2:'',telClient2:'',emailClient2:'',adresseClient2:'',commune:'',
     commercial:'',commercialTel:'',commercialEmail:'',demandeLe:today(),statut:'demande',produits:[],
     typeTerrain:'',surfaceTerrain:'',prestation:'',chauffage:'',niveaux:'',nbChambres:'',
@@ -21625,7 +21634,8 @@ function Prospects({data,save,cible}){
       prospects:P.map(x=>x.id===p.id?{...x,statut:'gagne',chantierId:id}:x)});
     getDriveToken().then(t=>creerArborescence(t,id,ch.nom)).catch(()=>{});
   };
-  const L=P.filter(p=>filtre==='tous'?true:filtre==='afaire'?prospectAFaire(p)
+  const PC=P.filter(p=>prospectCategorie(p)===categorie);
+  const L=PC.filter(p=>filtre==='tous'?true:filtre==='afaire'?prospectAFaire(p)
     :['demande','encours','chiffre','attente'].indexOf(p.statut)>=0)
     .sort((a,b)=>{
       /* ce qui attend une réponse remonte, puis le plus ancien d'abord */
@@ -21633,7 +21643,8 @@ function Prospects({data,save,cible}){
       if(pa!==pb)return pa-pb;
       return (a.demandeLe||'9999').localeCompare(b.demandeLe||'9999');
     });
-  const nAF=P.filter(prospectAFaire).length;
+  const nAF=PC.filter(prospectAFaire).length;
+  const libCat=(PROSPECT_CATEGORIES.find(c=>c.id===categorie)||PROSPECT_CATEGORIES[0]).label;
   /* comme les chantiers : cliquer un prospect ouvre sa fiche en entier plutôt
      que de la déplier sur place — le formulaire d'édition, lui, continue de
      s'ouvrir par-dessus, qu'on parte de la liste ou de la fiche. */
@@ -21644,6 +21655,10 @@ function Prospects({data,save,cible}){
     onTransformer={()=>transformer(ouvert)}/>;
   return <div>
     <H2 action={<button className="btn acc s" onClick={()=>{setCaseModif(null);setF(neuf())}}>+ Prospect</button>}>PROSPECTS ({P.length})</H2>
+    <div className="row" style={{gap:6,marginBottom:12,flexWrap:'wrap'}}>
+      {PROSPECT_CATEGORIES.map(c=>{const n=P.filter(p=>prospectCategorie(p)===c.id).length;
+        return <button key={c.id} className={'btn '+(categorie===c.id?'acc':'gh')} onClick={()=>setCategorie(c.id)}>{c.label} ({n})</button>})}
+    </div>
     {nAF>0&&<div className="xs" style={{marginBottom:10,padding:'8px 10px',borderRadius:8,
       background:'#F6E2DC',borderLeft:'3px solid '+TERRA,lineHeight:1.6}}>
       <b style={{color:TERRA}}>{nAF} chiffrage{nAF>1?'s':''} à réaliser</b> — ce sont les fiches en tête de liste.
@@ -21652,6 +21667,8 @@ function Prospects({data,save,cible}){
       {!!caseModif&&<div className="xs mut" style={{marginBottom:10,lineHeight:1.5}}>
         Modification de la case {caseModif} — les deux autres ne bougent pas.</div>}
       {(!caseModif||caseModif===1)&&<React.Fragment>
+      <Fld label="CATÉGORIE"><select className="in" value={prospectCategorie(f)} onChange={e=>setF({...f,categorie:e.target.value})}>
+        {PROSPECT_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select></Fld>
       <Fld label="NOM DU PROJET"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Dupont — Ceaucé"/></Fld>
       <ImportContact label="Remplir depuis Contacts"
         onLu={c=>setF(p=>({...p,client:c.nom||p.client,telClient:c.tel||p.telClient,
@@ -21710,18 +21727,21 @@ function Prospects({data,save,cible}){
       </React.Fragment>}
 
       {(!caseModif||caseModif===2)&&<React.Fragment>
-      <Fld label="COMMUNE DE CONSTRUCTION"><input className="in" value={f.commune||''}
+      <Fld label={prospectCategorie(f)==='renovation'?'ADRESSE DES TRAVAUX':'COMMUNE DE CONSTRUCTION'}><input className="in" value={f.commune||''}
         onChange={e=>setF(avecTaxesAuto({...f,commune:e.target.value},data))} placeholder="Lotissement, commune, parcelle…"/></Fld>
 
-      <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>LA DEMANDE DU COMMERCIAL</div>
+      {/* qui amène le projet : le commercial, ou l'apporteur d'affaires (mêmes champs, autre nom) */}
+      {(()=>{const ap=prospectCategorie(f)==='apporteur', qui=ap?'DE L’APPORTEUR':'DU COMMERCIAL';return <React.Fragment>
+      <div className="h2" style={{marginTop:16,marginBottom:8,fontSize:13}}>{ap?'L’APPORTEUR D’AFFAIRES':'LA DEMANDE DU COMMERCIAL'}</div>
       <div className="g2">
-        <Fld label="COMMERCIAL"><input className="in" value={f.commercial||''} onChange={e=>setF({...f,commercial:e.target.value})}/></Fld>
-        <Fld label="TÉL. DU COMMERCIAL"><input className="in" type="tel" value={f.commercialTel||''} onChange={e=>setF({...f,commercialTel:e.target.value})}/></Fld>
+        <Fld label={ap?'APPORTEUR D’AFFAIRES':'COMMERCIAL'}><input className="in" value={f.commercial||''} onChange={e=>setF({...f,commercial:e.target.value})}/></Fld>
+        <Fld label={'TÉL. '+qui}><input className="in" type="tel" value={f.commercialTel||''} onChange={e=>setF({...f,commercialTel:e.target.value})}/></Fld>
       </div>
       <div className="g2">
-        <Fld label="E-MAIL DU COMMERCIAL"><input className="in" type="email" value={f.commercialEmail||''} onChange={e=>setF({...f,commercialEmail:e.target.value})}/></Fld>
+        <Fld label={'E-MAIL '+qui}><input className="in" type="email" value={f.commercialEmail||''} onChange={e=>setF({...f,commercialEmail:e.target.value})}/></Fld>
         <Fld label="DEMANDÉ LE"><input className="in" type="date" value={f.demandeLe||''} onChange={e=>setF({...f,demandeLe:e.target.value})}/></Fld>
       </div>
+      </React.Fragment>})()}
       <div className="g2">
         <Fld label="TYPE DE TERRAIN"><input className="in" list="pterr" value={f.typeTerrain||''} onChange={e=>setF({...f,typeTerrain:e.target.value})}/>
           <datalist id="pterr">{TERRAINS.map(t=><option key={t} value={t}/>)}</datalist></Fld>
@@ -21878,13 +21898,13 @@ function Prospects({data,save,cible}){
       <Acts onSave={ok} onCancel={()=>{setF(null);setCaseModif(null)}}
         onDel={f.id?()=>{if(confirm('Supprimer ce prospect ?')){save({...data,prospects:P.filter(x=>x.id!==f.id)});setF(null);setCaseModif(null)}}:null}/>
     </div>}
-    {P.length>0&&<div className="row" style={{gap:6,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+    {PC.length>0&&<div className="row" style={{gap:6,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
       <span className="xs mut">Afficher</span>
       {[['afaire','À chiffrer'],['actifs','En cours'],['tous','Tous']].map(([id,l])=>
         <button key={id} className={'btn s '+(filtre===id?'':'gh')} onClick={()=>setFiltre(id)}>{l}</button>)}
     </div>}
-    {!P.length&&!f&&<Empty>Aucun prospect. « + Prospect » ouvre la première demande de chiffrage.</Empty>}
-    {P.length>0&&!L.length&&<Empty>Aucun prospect dans cette vue.</Empty>}
+    {!PC.length&&!f&&<Empty>Aucun prospect « {libCat} ». « + Prospect » en ouvre un dans cette catégorie.</Empty>}
+    {PC.length>0&&!L.length&&<Empty>Aucun prospect dans cette vue.</Empty>}
     <div className="grid-ch">
     {L.map(p=>{
       const st=prospectSt(p.statut), prix=prospectPrixTTC(p,data.majorationsCorps), r=ratioM2(prix,p);
@@ -22014,7 +22034,10 @@ function FicheProspect({p,data,save,maj,back,onModifier,onTransformer}){
     <button className="btn gh s" onClick={back}>← Prospects</button>
     <div className="sp" style={{marginTop:12,marginBottom:4,gap:8,alignItems:'flex-start'}}>
       <span className="h2" style={{fontSize:17}}>{p.nom}</span>
-      <span className="pill" style={{background:st.c+'1A',color:st.c}}>{st.label}</span>
+      <span className="row" style={{gap:6}}>
+        <span className="pill" style={{background:NAVY+'14',color:NAVY}}>{(PROSPECT_CATEGORIES.find(c=>c.id===prospectCategorie(p))||PROSPECT_CATEGORIES[0]).label}</span>
+        <span className="pill" style={{background:st.c+'1A',color:st.c}}>{st.label}</span>
+      </span>
     </div>
     <div className="xs mut" style={{marginBottom:12,lineHeight:1.5}}>
       {[p.client,p.commune].filter(Boolean).join(' — ')}
