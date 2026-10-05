@@ -10,6 +10,10 @@
      géomètre) ; sur un plan sans 3D, les textes qui ne sont qu'une altitude
      (« 81.37 ») valent point coté à leur point d'insertion.
 
+   Le relevé peut aussi venir en TEXTE (CSV, TXT : « matricule ; X ; Y ; Z »,
+   séparés par des points-virgules, des virgules, des tabulations ou des
+   espaces) : seuls les points cotés en sont lus.
+
    Les coordonnées d'un géomètre sont en mètres, souvent en Lambert (des
    centaines de kilomètres) : tout passe en millimètres, puis se ramène près
    de l'origine (le décalage est rendu, pour mémoire). Rien n'est deviné
@@ -125,5 +129,39 @@ export function lirePlanGeometre(texte: string): PlanGeometre {
     limites: limites.map(l => ({ ...l, points: nette(l.points.map(moins)) })).filter(l => l.points.length >= 3),
     points: garde.map(g => ({ point: moins(g.point), ngf: Math.round(g.ngf * 1_000) / 1_000 })),
     sourceAltitudes, decalage, unite,
+  };
+}
+
+/** le relevé en texte : une ligne par point, « [matricule] X Y Z [code] » ; les lignes illisibles (en-tête…) sont ignorées.
+    Les nombres peuvent avoir une virgule décimale quand le séparateur n'est pas la virgule. En mètres. */
+export function lirePointsTexte(texte: string): PlanGeometre & { lignes: number; ignorees: number } {
+  const L = texte.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const brut: { point: Point; ngf: number }[] = [];
+  let ignorees = 0;
+  for (const l of L) {
+    /* « ; » ou tabulation ; sinon la virgule sépare si elle est suivie d'un espace ou s'il n'y a pas d'espaces (« 1,652340.1,… ») ;
+       sinon ce sont des espaces, et la virgule est décimale (« 652340,12 6862110,50 81,37 ») */
+    const sep = l.includes(';') ? ';' : l.includes('\t') ? '\t' : /,\s/.test(l) || l.split(/\s+/).length < 3 ? ',' : null;
+    const champs = (sep ? l.split(sep) : l.split(/\s+/)).map(c => c.trim());
+    const nombres = champs.map(c => (/^[+-]?\d+([.,]\d+)?$/.test(c) ? Number(c.replace(',', '.')) : NaN));
+    /* les trois premiers nombres qui se suivent, après un éventuel matricule : X, Y, Z */
+    let k = -1;
+    for (let i = 0; i + 2 < nombres.length; i++) if ([0, 1, 2].every(j => Number.isFinite(nombres[i + j]!))) { k = i; break }
+    if (k < 0) { ignorees++; continue }
+    /* un matricule numérique (1, 2, 3…) devant X Y Z : quatre nombres de suite, le premier petit et entier */
+    if (k + 3 < nombres.length && Number.isFinite(nombres[k + 3]!) && Number.isInteger(nombres[k]!) && Math.abs(nombres[k]!) < 100_000 && Math.abs(nombres[k + 1]!) >= 1_000) k++;
+    const [x, y, z] = [nombres[k]!, nombres[k + 1]!, nombres[k + 2]!];
+    if (!(Number.isFinite(z) && Math.abs(z) > 0.001 && z > -500 && z < 5_000)) { ignorees++; continue }
+    brut.push({ point: { x: x * 1_000, y: y * 1_000 }, ngf: z });
+  }
+  const garde: { point: Point; ngf: number }[] = [];
+  const pas = Math.max(1, Math.ceil(brut.length / MAX_POINTS));
+  for (let j = 0; j < brut.length; j += pas) { const q = brut[j]!; if (!garde.some(g => distance(g.point, q.point) < ECART_MIN)) garde.push(q) }
+  const c0 = garde.length ? garde.reduce((s, g) => ({ x: s.x + g.point.x / garde.length, y: s.y + g.point.y / garde.length }), { x: 0, y: 0 }) : { x: 0, y: 0 };
+  const decalage = { x: Math.round(c0.x / 1_000) * 1_000, y: Math.round(c0.y / 1_000) * 1_000 };
+  return {
+    calques: [], limites: [], unite: 'm', decalage, lignes: L.length, ignorees,
+    sourceAltitudes: garde.length ? 'points' : 'aucune',
+    points: garde.map(g => ({ point: { x: Math.round(g.point.x - decalage.x), y: Math.round(g.point.y - decalage.y) }, ngf: Math.round(g.ngf * 1_000) / 1_000 })),
   };
 }

@@ -39,7 +39,7 @@ const COULEURS: Record<Matiere, { couleur: string; opacite?: number; rugosite?: 
   tuile: { couleur: '#A9533D', rugosite: 0.85 }, ardoise: { couleur: '#4A5560', rugosite: 0.6 }, zinc: { couleur: '#8E979E', rugosite: 0.4 },
   bac_acier: { couleur: '#5B6670', rugosite: 0.5 }, vegetalise: { couleur: '#6F8F55' }, gravillons: { couleur: '#B9B2A3' },
   meuble: { couleur: '#C9A57E', rugosite: 0.7 }, tissu: { couleur: '#8693A1' }, linge: { couleur: '#EEF0F2' }, plan_travail: { couleur: '#5A5F66', rugosite: 0.5 },
-  sanitaire: { couleur: '#F6F8F9', rugosite: 0.25 }, parement: { couleur: '#EFEBE4' }, peinture: { couleur: '#F7F6F2' }, amenagement: { couleur: '#C9C3B6' }, cloture: { couleur: '#3E4247' }, tronc: { couleur: '#6B4E36', rugosite: 0.9 }, feuillage: { couleur: '#5C8A4A', rugosite: 0.95 }, escalier: { couleur: '#B58B5E', rugosite: 0.7 }, electromenager: { couleur: '#D9DCDF', rugosite: 0.4 }, inox: { couleur: '#AEB4B9', rugosite: 0.3 },
+  sanitaire: { couleur: '#F6F8F9', rugosite: 0.25 }, parement: { couleur: '#EFEBE4' }, peinture: { couleur: '#F7F6F2' }, amenagement: { couleur: '#C9C3B6' }, cloture: { couleur: '#3E4247' }, tronc: { couleur: '#6B4E36', rugosite: 0.9 }, terrain: { couleur: '#B7C79A', rugosite: 1 }, feuillage: { couleur: '#5C8A4A', rugosite: 0.95 }, escalier: { couleur: '#B58B5E', rugosite: 0.7 }, electromenager: { couleur: '#D9DCDF', rugosite: 0.4 }, inox: { couleur: '#AEB4B9', rugosite: 0.3 },
 };
 
 /** le motif d'un matériau, peint sur une toile de 1 m × 1 m (répétée) : lames, briques, carreaux… ; null : uni */
@@ -273,6 +273,18 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
       vider();
       for (const p of m.prismes) maillage(p);
       for (const p of m.plaques) plaque(p);
+      /* le relief du terrain : une nappe d'herbe ; le sol plat descend sous son point le plus bas */
+      if (m.relief) {
+        const T = m.relief.triangles, pos: number[] = [];
+        for (let i = 0; i < T.length; i += 3) pos.push(T[i]! / 1000, T[i + 2]! / 1000, -T[i + 1]! / 1000);
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.computeVertexNormals();
+        const r = new THREE.Mesh(g, matieres.terrain);
+        r.receiveShadow = true;
+        groupe.add(r);
+      }
+      sol.position.y = m.relief ? Math.min(-0.03, m.relief.zmin / 1000 - 0.05) : -0.03;
       const premiere = !boite;
       boite = m.boite;
       terrain = preparerVisite(m); derniere = m; poserPlafonds();

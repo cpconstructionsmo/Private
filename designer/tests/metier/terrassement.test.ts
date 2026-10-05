@@ -5,9 +5,10 @@
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel, type Platform, type Plot, type Project } from '../../src/model';
 import { annuler, executer, nouvelHistorique, type Acteur, type Commande } from '../../src/engine';
-import { courbesDeNiveau, cubature, longueurReseau, metreTerrain, talusDe } from '../../src/building';
+import { altitudeFinie, courbesDeNiveau, cubature, longueurReseau, metreTerrain, profilEnLong, reliefTerrain, talusDe } from '../../src/building';
 import { viser, dansCadre } from '../../src/ui/selection';
 import { planchesPdf } from '../../src/export/planche';
+import { maquette } from '../../src/vue3d/maquette';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 6) + (t += 1000)).toISOString(), id: generateurSequentiel('o') } };
 /** une parcelle de 40 × 40 m relevée à ses coins et en son centre, selon z(x, y) en NGF */
@@ -157,6 +158,31 @@ describe('commandes et métré du terrain', () => {
     if (!r.ok) throw new Error(r.erreurs.join());
     const pdf = planchesPdf(r.historique.projet, { niveaux: [], cotation: true, mobilier: true, indice: 'A', date: '06/10/2026', masse: true });
     const s = Array.from(pdf, c => String.fromCharCode(c)).join('');
+    /* la 3D : le relief du terrain fini, la plateforme à son niveau (−0,30) ; 4 nœuds par maille, deux triangles */
+    const R = maquette(r.historique.projet).relief!;
+    expect(R.triangles.length % 9).toBe(0); expect(R.triangles.length).toBeGreaterThan(9 * 1_000);
+    expect(R.zmin).toBeLessThan(-1_000); expect(R.zmax).toBeGreaterThan(1_000);
+    const auCentre = (() => { const T = R.triangles; for (let i = 0; i < T.length; i += 3) if (Math.abs(T[i]! - 5_000) < 300 && Math.abs(T[i + 1]! - 4_000) < 300) return T[i + 2]!; return null })();
+    expect(auCentre).toBe(-300);
     for (const t of ['(TERRASSEMENT', '(R\xC9SEAUX', '(PLANTATIONS', '(EU \x97 Eaux us\xE9es', '(EU PVC \xD8 100)']) expect(s).toContain(t);
+  });
+
+  it('le terrain fini : plateforme, puis talus jusqu’au terrain naturel ; relief en grille ; profil en long', () => {
+    const t = plot(() => 100, 101);                                       // terrain plat à 100 ; ±0,00 à 101
+    const pf = plateforme(-500);                                           // plateforme à 100,50 : 0,50 m de remblai
+    expect(altitudeFinie(t, [pf], { x: 0, y: 0 })).toBe(100.5);
+    expect(altitudeFinie(t, [pf], { x: 5_000 + 300, y: 0 })).toBeCloseTo(100.5 - 0.2, 9);   // 30 cm du bord, pente 3/2 : 20 cm plus bas
+    expect(altitudeFinie(t, [pf], { x: 5_000 + 1_000, y: 0 })).toBeCloseTo(100, 9);                   // au-delà du pied (75 cm) : le terrain naturel
+    const { groundFloorNgf: _, ...sans } = t;
+    expect(altitudeFinie(sans as Plot, [pf], { x: 0, y: 0 })).toBeCloseTo(100, 9);                     // sans ±0,00 : rien ne se place
+    const R = reliefTerrain(t, [pf])!;
+    expect(R.nx).toBeLessThanOrEqual(120); expect(R.z).toHaveLength((R.nx + 1) * (R.ny + 1));
+    expect(R.zmin).toBeCloseTo(100, 9); expect(R.zmax).toBe(100.5);
+    expect(R.dedans.every(Boolean)).toBe(true);                             // la parcelle est le rectangle de la grille
+    const P = profilEnLong(t, [pf], { x: -10_000, y: 0 }, { x: 10_000, y: 0 }, 500);
+    expect(P).toHaveLength(41); expect(P[0]!.d).toBe(0); expect(P[40]!.d).toBe(20_000);
+    expect(P.every(q => Math.abs(q.tn - 100) < 1e-9)).toBe(true);
+    expect(P[20]!.fini).toBe(100.5); expect(P[0]!.fini).toBeCloseTo(100, 9);
+    expect(reliefTerrain({ ...t, spotHeights: t.spotHeights!.slice(0, 2) }, [])).toBeNull();
   });
 });

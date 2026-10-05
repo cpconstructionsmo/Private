@@ -62,6 +62,7 @@ const I: Record<string, string> = {
   compteur: '<circle cx="12" cy="12" r="8"/><path d="M12 12l4-3"/><path d="M8 16h8"/>',
   arbre: '<circle cx="12" cy="9" r="6"/><path d="M12 15v6M9 21h6"/>',
   arbre_abattre: '<circle cx="12" cy="9" r="6"/><path d="M12 15v6"/><path d="M5 3l14 14M19 3L5 17"/>',
+  profil: '<path d="M3 17l5-6 4 3 4-5 5 3"/><path d="M3 20h18" stroke-dasharray="2 2"/><circle cx="3" cy="17" r="1"/><circle cx="21" cy="12" r="1"/>',
   metre: '<path d="M3 15l12-12 6 6-12 12z"/><path d="M7 11l2 2m1-5l2 2m1-5l2 2"/>',
   point_de_vue: '<path d="M4 8h4l2-3h4l2 3h4v11H4z"/><circle cx="12" cy="13" r="3"/>',
   vue3d: '<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/>',

@@ -16,6 +16,9 @@
      (portes), tablier (garage) ; rien pour un passage.
    - Chaque niveau a son plancher (le contour extérieur de sa maçonnerie)
      et le sol de chaque pièce fermée.
+   - Le relief (building/terrassement.ts) : le terrain fini de la parcelle
+     (terrain naturel, plateformes à leur niveau, talus) en une nappe de
+     triangles, quand le relevé et l'altitude du ±0,00 le permettent.
    - La toiture (building/toiture.ts) : chaque pan est une plaque inclinée
      de l'épaisseur d'une couverture, les pignons montent jusqu'au toit, un
      toit-terrasse est une dalle et son acrotère. */
@@ -27,6 +30,8 @@ import { blocs, formeDe, versPlan } from '../building/mobilier';
 import { finitionAmenagement } from '../catalogue/amenagements';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
 import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
+import { parcelleDuProjet } from '../building/terrain';
+import { plateformesDuProjet, reliefTerrain } from '../building/terrassement';
 import { difference, intersection } from '../geometry/booleen';
 import { aireSignee, type Anneau, type Polygone } from '../geometry/polygon';
 import { decalerPolyligne } from '../geometry/decalage';
@@ -35,7 +40,7 @@ import { ajouter, multiplier, normaleGauche, normaliser, soustraire } from '../g
 
 export type Matiere = 'mur' | 'cloison' | 'plancher' | 'sol' | 'vitrage' | 'porte' | 'garage'
   | 'tuile' | 'ardoise' | 'zinc' | 'bac_acier' | 'vegetalise' | 'gravillons'
-  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier' | 'parement' | 'peinture' | 'amenagement' | 'cloture' | 'tronc' | 'feuillage';
+  | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier' | 'parement' | 'peinture' | 'amenagement' | 'cloture' | 'tronc' | 'feuillage' | 'terrain';
 
 /** la matière dessinée d'une couverture */
 export const COUVERTURES: Record<Roof['covering'], Matiere> = { tile: 'tuile', slate: 'ardoise', zinc: 'zinc', steel: 'bac_acier', green: 'vegetalise', gravel: 'gravillons' };
@@ -70,6 +75,30 @@ export interface Maquette {
   prismes: Prisme[];
   plaques: Plaque[];
   boite: { xmin: Mm; ymin: Mm; zmin: Mm; xmax: Mm; ymax: Mm; zmax: Mm } | null;
+  /** le relief du terrain fini : des triangles (x, y, z en mm, à la suite), et son point le plus bas ; absent sans relevé */
+  relief?: { triangles: number[]; zmin: Mm; zmax: Mm };
+}
+
+const reliefs = new WeakMap<object, { P: readonly object[]; R: ReturnType<typeof reliefTerrain> }>();
+/* le relief : la grille du terrain fini (NGF) ramenée au zéro du projet (le ±0,00 du niveau qui porte la parcelle) */
+function relief(projet: Project): Maquette['relief'] {
+  const T = parcelleDuProjet(projet);
+  if (!T || T.plot.groundFloorNgf === undefined) return undefined;
+  /* la maquette se refait à chaque modification : le relief, lui, attend que la parcelle ou une plateforme change */
+  const P = plateformesDuProjet(projet), k = reliefs.get(T.plot);
+  const R = k && k.P.length === P.length && k.P.every((o, i) => o === P[i]) ? k.R : reliefTerrain(T.plot, P);
+  reliefs.set(T.plot, { P, R });
+  if (!R) return undefined;
+  const ngf0 = T.plot.groundFloorNgf, e0 = T.niveau.elevation, w = R.nx + 1;
+  const Z = (i: number, j: number) => Math.round((R.z[j * w + i]! - ngf0) * 1000) + e0;
+  const out: number[] = [];
+  const s = (i: number, j: number) => out.push(R.x0 + i * R.px, R.y0 + j * R.py, Z(i, j));
+  for (let j = 0; j < R.ny; j++) for (let i = 0; i < R.nx; i++) {
+    if (!R.dedans[j * R.nx + i]) continue;
+    s(i, j); s(i + 1, j); s(i + 1, j + 1);
+    s(i, j); s(i + 1, j + 1); s(i, j + 1);
+  }
+  return { triangles: out, zmin: Math.round((R.zmin - ngf0) * 1000) + e0, zmax: Math.round((R.zmax - ngf0) * 1000) + e0 };
 }
 
 /** épaisseur dessinée d'un plancher (mm) : un ordre de grandeur pour la vue, pas une donnée de structure */
@@ -302,7 +331,8 @@ export function maquette(projet: Project, jusqua?: string, options: { toiture?: 
   };
   for (const p of prismes) for (const q of p.contour) etendre(q.x, q.y, p.z0, p.z1);
   for (const p of plaques) for (const q of p.dessus) etendre(q.x, q.y, Math.min(q.z, q.z + p.decalage.z), Math.max(q.z, q.z + p.decalage.z));
-  return { prismes, plaques, boite };
+  const r = relief(projet);
+  return { prismes, plaques, boite, ...(r ? { relief: r } : {}) };
 }
 
 /** le volume d'un prisme (mm³) : pour les contrôles */

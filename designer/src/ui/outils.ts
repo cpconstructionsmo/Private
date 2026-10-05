@@ -24,7 +24,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre';
+export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -103,6 +103,8 @@ export interface Effet {
   groupe?: string[];
   /** le cadre de sélection en cours (null : plus de cadre) */
   cadre?: [Point, Point] | null;
+  /** le trait du profil en long du terrain (null : plus de profil) ; il n'est pas enregistré */
+  profil?: [Point, Point] | null;
 }
 
 interface Contexte { projet: Project; niveau: string; selection: string | null }
@@ -139,6 +141,7 @@ const AIDES: Record<NomOutil, string> = {
   reseau: 'Réseau (VRD) : cliquer chaque point, du branchement au bâtiment ; Entrée pour finir',
   equipement: 'Équipement de réseau (regard, boîte de branchement, compteur…) : cliquer pour le poser',
   arbre: 'Arbre : cliquer pour le poser (existant, à planter ou à abattre, au panneau)',
+  profil: 'Profil en long du terrain : cliquer le départ puis l’arrivée du trait ; le profil s’affiche au panneau',
   pointdevue: 'Point de prise de vue d’une photographie du dossier : cliquer l’appareil, puis le point visé (Maj : 45°)',
   fenetretoit: 'Fenêtre de toit : cliquer sur un pan de la toiture (vue du niveau qui la porte) pour y poser un châssis de 78 × 98 cm',
   altitude: 'Point coté du terrain : cliquer où le géomètre a relevé une altitude, puis la saisir (NGF, en mètres)',
@@ -498,6 +501,11 @@ export class Outils {
       }
       case 'altitude':
         return { accroche: null };
+      case 'profil': {
+        const a = this.accrocher(g, this.depart);
+        if (this.sommetsTrace.length) this.vise = a.point;
+        return { accroche: a };
+      }
       case 'fenetretoit':
         return { accroche: null, apercu: [{ type: 'creerFenetreToit', niveau: c.niveau, centre: { x: Math.round(g.point.x), y: Math.round(g.point.y) } }] };
       case 'pointdevue': {
@@ -615,6 +623,14 @@ export class Outils {
       case 'arbre': {
         const p = { x: Math.round(g.point.x), y: Math.round(g.point.y) };
         return { commandes: { titre: 'Arbre', liste: [{ type: 'creerArbre', niveau: this.niveauBas(c), position: p, diametre: this.reglages.diametreArbre, etat: this.reglages.etatArbre }] }, apercu: [] };
+      }
+      case 'profil': {
+        const a = this.accrocher(g, this.depart).point;
+        if (!this.sommetsTrace.length) { this.sommetsTrace.push(a); this.depart = a; return { aide: 'Arrivée du trait du profil — Échap pour renoncer', profil: null } }
+        const d = this.sommetsTrace[0]!;
+        if (distance(a, d) < 1_000) return { aide: 'Trait trop court : 1 m au moins' };
+        this.annulerGeste();
+        return { profil: [d, a], aide: AIDES.profil };
       }
       case 'coupe': {
         const a = this.accrocher(g, this.depart);

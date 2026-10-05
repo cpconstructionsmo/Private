@@ -368,6 +368,10 @@ logiciel de terrain :
   `$INSUNITS` (mètres par défaut) ; coordonnées Lambert ramenées près de la
   maison (le décalage est dit) ; 300 points au plus. Rien n'est deviné : sans
   limite trouvée, rien n'est inventé ; l'altitude du ±0,00 se demande.
+- **Relevé en texte** (CSV, TXT : « matricule ; X ; Y ; Z ; code », points-
+  virgules, virgules, tabulations ou espaces, virgule décimale admise) : les
+  points seuls, centrés sur la parcelle déjà tracée — calage à vérifier sur
+  un point connu (le DXF garde limite et points dans le même repère).
 - **Courbes de niveau** tirées du relevé triangulé, tous les 10 cm à 2 m
   (une maîtresse cotée toutes les cinq), au plan et au plan de masse.
 - **Plateformes** (outil W, ou « Plateforme de la maison » : 1 m autour de
@@ -388,6 +392,13 @@ logiciel de terrain :
 - **Végétation** (outil Z) : arbres existants conservés, à planter, à
   abattre (barrés), avec leur couronne ; en 3D, tronc et couronne (pas
   l'arbre à abattre), cachés des façades et coupes.
+- **Terrain fini** : le terrain naturel, sauf sur les plateformes (leur
+  niveau) et leurs talus. **Profil en long** (outil S) : un trait A → B, et
+  au panneau le profil du terrain naturel (tirets) et du terrain fini, avec
+  les altitudes aux bouts, la pente moyenne et l'exagération des hauteurs
+  (le trait n'est pas enregistré). **Relief en 3D** : une nappe du terrain
+  fini sur la parcelle (grille d'au plus 120 mailles de côté), le sol plat
+  passant sous son point le plus bas.
 - **Plan de masse (PCMI 2)** : courbes, plateformes et talus, réseaux,
   équipements, arbres, et dans la colonne : terrassement (estimé), réseaux
   (légende des couleurs), plantations.

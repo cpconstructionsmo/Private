@@ -351,7 +351,18 @@ try {
   await p.click('.sous button[data-s=terrassement]');
   assert.match(await p.textContent('aside'), /Déblai[\s\S]*Remblai/, 'cubatures de la plateforme sur le relevé');
   if (process.env.CAPTURE_TERRAIN) { await p.keyboard.press('f'); for (let k = 0; k < 2; k++) await p.click('.bzoomm'); await p.waitForTimeout(300); await p.screenshot({ path: process.env.CAPTURE_TERRAIN }) }
+  /* le profil en long (S) : deux clics, le graphique au panneau */
   await p.click('.sous button[data-s=terrain]');
+  await p.keyboard.press('s');
+  await clic(-1500, 2000); await clic(12000, 2000);
+  assert.match(await p.textContent('aside'), /Profil en long A → B \(13,50 m\)[\s\S]*Pente moyenne du TN/, 'profil en long affiché');
+  if (process.env.CAPTURE_PROFIL) await p.screenshot({ path: process.env.CAPTURE_PROFIL });
+  if (process.env.CAPTURE_RELIEF) {
+    await p.keyboard.press('3');
+    await p.waitForFunction(() => (window.cpDesigner.vue3d()?.maillages ?? 0) > 0, null, { timeout: 20_000 });
+    await p.waitForTimeout(600); await p.screenshot({ path: process.env.CAPTURE_RELIEF }); await p.keyboard.press('Escape');
+  }
+  await p.keyboard.press('Escape');
   const avantCourbes = await p.evaluate(() => localStorage.getItem('cpDesigner:courbes'));
   await p.click('.ruban .b-courbes');
   assert.notEqual(await p.evaluate(() => localStorage.getItem('cpDesigner:courbes')), avantCourbes, 'courbes de niveau basculées');
@@ -580,7 +591,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, courbes de niveau), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

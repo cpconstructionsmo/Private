@@ -3,7 +3,7 @@
    mètres passés en millimètres et ramenés près de l'origine. DXF fictifs,
    écrits ici. */
 import { describe, expect, it } from 'vitest';
-import { lirePlanGeometre } from '../../src/import/geometre';
+import { lirePlanGeometre, lirePointsTexte } from '../../src/import/geometre';
 
 /** un DXF minimal : une section ENTITIES faite des groupes donnés */
 const dxf = (entites: (string | number)[][], unites?: number) => [
@@ -49,5 +49,24 @@ describe('plan du géomètre (DXF)', () => {
     expect(g.limites[0]!.surface).toBeCloseTo(50, 6);
     const vide = lirePlanGeometre(dxf([lw('0', [[0, 0], [5, 5]], false)]));
     expect(vide.limites).toEqual([]); expect(vide.points).toEqual([]); expect(vide.sourceAltitudes).toBe('aucune');
+  });
+});
+
+describe('relevé du géomètre en texte (CSV, TXT)', () => {
+  const X = 652_340, Y = 6_862_110;
+  it('matricule ; X ; Y ; Z ; code — en-tête ignoré, virgules décimales, ramené près de l’origine', () => {
+    const g = lirePointsTexte(['Matricule;X;Y;Z;Code', `1;${X},00;${Y},00;81,37;TN`, `2;${X + 20},00;${Y},00;81,20;TN`, `3;${X + 20},00;${Y + 30},00;80,29;TN`, `4;${X},00;${Y + 30},00;80,77;TN`].join('\n'));
+    expect(g.ignorees).toBe(1);
+    expect(g.points).toHaveLength(4);
+    expect(g.decalage).toEqual({ x: (X + 10) * 1_000, y: (Y + 15) * 1_000 });
+    expect(g.points[0]).toEqual({ point: { x: -10_000, y: -15_000 }, ngf: 81.37 });
+  });
+  it('espaces (virgule décimale ou point), virgules séparatrices, sans matricule', () => {
+    for (const t of [`${X},5 ${Y},5 81,4`, `P12 ${X}.5 ${Y}.5 81.4 BORDURE`, `12, ${X}.5, ${Y}.5, 81.4`, `${X}.5,${Y}.5,81.4`]) {
+      const g = lirePointsTexte(t);
+      expect(g.points, t).toHaveLength(1);
+      expect(g.points[0]!.ngf, t).toBe(81.4);
+      expect(g.decalage.x + g.points[0]!.point.x, t).toBe((X + 0.5) * 1_000);
+    }
   });
 });

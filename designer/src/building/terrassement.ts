@@ -13,6 +13,11 @@
      sur un relevé interpolé, à confirmer par l'entreprise de terrassement
      (foisonnement, décapage, purges non comptés).
 
+   - Le TERRAIN FINI : le terrain naturel, sauf sur les plateformes (leur
+     niveau) et sur leurs talus (la pente depuis leur bord, tant qu'elle
+     n'a pas rejoint le terrain naturel). Il donne le relief de la vue 3D
+     et le profil en long.
+
    Toutes les altitudes du terrain sont en NGF (m) ; celles des plateformes
    se donnent par rapport au ±0,00 (mm), placé grâce à l'altitude NGF du
    RDC portée par la parcelle. */
@@ -21,6 +26,7 @@ import { delaunay } from '../geometry/triangulation';
 import { aireSignee } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { distance } from '../geometry/vecteur';
+import { distancePointSegment } from '../geometry/segment';
 import { altitudeTerrain, parcelleDuProjet } from './terrain';
 
 export interface CourbeDeNiveau {
@@ -201,3 +207,69 @@ export function metreTerrain(p: Project): MetreTerrain {
     arbres: { existants: A.filter(a => a.type === 'tree' && a.state === 'existing').length, aPlanter: A.filter(a => a.type === 'tree' && a.state === 'planted').length, aAbattre: A.filter(a => a.type === 'tree' && a.state === 'felled').length },
   };
 }
+
+/* ---------- le terrain fini : relief et profil ---------- */
+
+/** la distance d'un point au bord d'une plateforme (0 dedans) */
+const distanceAuContour = (q: Point, C: readonly Point[]): number =>
+  positionDansAnneau(q, C) !== 'dehors' ? 0 : Math.min(...C.map((a, i) => distancePointSegment(q, { a, b: C[(i + 1) % C.length]! })));
+
+/** l'altitude NGF (m) du terrain fini en un point : le niveau d'une plateforme qui le contient, sinon le terrain
+    naturel retaillé par les talus (en déblai, la pente ne dépasse pas le terrain ; en remblai, elle ne passe pas dessous) ;
+    null sans relevé. Sans altitude du ±0,00, les plateformes ne se placent pas : le terrain naturel seul. */
+export function altitudeFinie(t: Plot, plateformes: readonly Platform[], q: Point): number | null {
+  const tn = altitudeTerrain(t, q);
+  if (tn === null || t.groundFloorNgf === undefined) return tn;
+  let z = tn;
+  for (const o of plateformes) {
+    const zp = altitudePlateforme(t, o)!, d = distanceAuContour(q, o.contour);
+    if (d === 0) return zp;
+    const h = d / 1000 / o.slope;
+    if (z > zp) z = Math.min(z, zp + h); else z = Math.max(z, zp - h);
+  }
+  return z;
+}
+
+export interface Relief {
+  /** la grille : son coin bas-gauche, ses pas (mm, calés pour tomber juste sur la parcelle), son nombre de mailles */
+  x0: Mm; y0: Mm; px: Mm; py: Mm; nx: number; ny: number;
+  /** l'altitude finie (NGF, m) à chaque nœud, rangée par lignes (ny + 1 lignes de nx + 1 nœuds) */
+  z: number[];
+  /** chaque maille (rangée par lignes) : dans la parcelle ou non */
+  dedans: boolean[];
+  zmin: number; zmax: number;
+}
+
+/** le relief du terrain fini sur la parcelle : une grille d'au plus « mailles » de côté ; null sans relevé de trois points */
+export function reliefTerrain(t: Plot, plateformes: readonly Platform[], mailles = 120): Relief | null {
+  if ((t.spotHeights?.length ?? 0) < 3) return null;
+  const C = t.contour, xs = C.map(q => q.x), ys = C.map(q => q.y);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0, h = Math.max(...ys) - y0;
+  const pas = Math.max(250, Math.max(w, h) / mailles);
+  const nx = Math.max(1, Math.ceil(w / pas)), ny = Math.max(1, Math.ceil(h / pas)), px = w / nx, py = h / ny;
+  const z: number[] = [], dedans: boolean[] = [];
+  let zmin = Infinity, zmax = -Infinity;
+  for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
+    const v = altitudeFinie(t, plateformes, { x: x0 + i * px, y: y0 + j * py })!;
+    z.push(v); zmin = Math.min(zmin, v); zmax = Math.max(zmax, v);
+  }
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) dedans.push(positionDansAnneau({ x: x0 + (i + 0.5) * px, y: y0 + (j + 0.5) * py }, C) !== 'dehors');
+  return { x0, y0, px, py, nx, ny, z, dedans, zmin, zmax };
+}
+
+export interface PointDeProfil { /** abscisse le long du trait (mm) */ d: Mm; point: Point; /** NGF (m) */ tn: number; fini: number }
+
+/** le profil en long du terrain le long d'un trait : terrain naturel et terrain fini, tous les « pas » mm (et aux deux bouts) */
+export function profilEnLong(t: Plot, plateformes: readonly Platform[], a: Point, b: Point, pas: Mm = 250): PointDeProfil[] {
+  const L = distance(a, b), n = Math.max(1, Math.min(2_000, Math.ceil(L / pas))), out: PointDeProfil[] = [];
+  if ((t.spotHeights?.length ?? 0) === 0 || L === 0) return out;
+  for (let k = 0; k <= n; k++) {
+    const s = k / n, q = { x: a.x + (b.x - a.x) * s, y: a.y + (b.y - a.y) * s };
+    out.push({ d: L * s, point: q, tn: altitudeTerrain(t, q)!, fini: altitudeFinie(t, plateformes, q)! });
+  }
+  return out;
+}
+
+/** les plateformes du projet */
+export const plateformesDuProjet = (p: Project): Platform[] =>
+  p.buildings.flatMap(b => b.floors).flatMap(f => Object.values(f.objects)).filter((o): o is Platform => o.type === 'platform');
