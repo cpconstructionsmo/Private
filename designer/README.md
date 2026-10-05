@@ -204,7 +204,8 @@ l'altitude NGF du ±0,00. La planche « Plan de masse (PCMI 2) » porte la
 limite cotée, la voie, les reculs, l'emprise et le débord du toit, le nord,
 le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Une vue 3D gardée (panneau 3D :
 « Garder cette vue pour le dossier ») y entre en page « Vue 3D », image JPEG
-intégrée au PDF ; le PCMI 6 (insertion dans le site) reste à joindre. Le terrain
+intégrée au PDF ; l'insertion dans le site (PCMI 6) se compose aussi dans la
+3D (voir « Dossier de permis »). Le terrain
 lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
 revient avec l'import du RDC.
 
@@ -253,9 +254,20 @@ un seul PDF A3 numéroté « n / N » — page de garde (projet, maître
 d'ouvrage, adresse, référence cadastrale, surface du terrain, emprise) et
 sommaire des pièces, puis PCMI 2 (plan de masse), PCMI 3 (coupes), PCMI 4
 (brouillon de notice), PCMI 5 (façades, plan de toiture) et les plans des
-niveaux, chaque cartouche portant sa pièce. Ce que le Designer ne produit
-pas (PCMI 1, 6, 7-8) est listé « à joindre » ; ce qui n'est pas connu
-s'écrit « [à compléter] ».
+niveaux, chaque cartouche portant sa pièce. Les pièces images sont fournies
+par l'utilisateur, jamais inventées :
+- PCMI 1 (extrait de carte : Géoportail, cadastre…) et PCMI 7 et 8
+  (photographies de l'environnement proche et lointain) s'importent dans
+  le panneau du niveau (« Dossier de permis : pièces fournies »), avec ce
+  qu'on en dit (source et échelle, point de vue) ;
+- PCMI 6 (insertion) se compose dans la 3D : « Photo du terrain… » pose la
+  photographie derrière la maquette (cadrée sans déformation, sol
+  transparent qui garde les ombres), la focale se règle, on tourne la vue
+  jusqu'à ce que la maison s'y pose, puis « Garder pour le PCMI 6 ».
+Ces images restent sur l'appareil le temps de la séance (ni enregistrées
+dans le projet, ni partagées). Une pièce non fournie est listée « à
+joindre » ; ce qui n'est pas connu (point de vue, échelle) s'écrit
+« [à compléter] ».
 
 **Plan de toiture** (option de l'export PDF, et PCMI 5 du dossier) : les
 pans à leur couleur de couverture, faîtage, arêtiers et noues, une flèche

@@ -31,7 +31,7 @@ describe('dossier de permis de construire', () => {
     expect(pieces.filter(p => p.page !== null).map(p => [p.code, p.page])).toEqual([['PCMI 2', 2], ['PCMI 3', 3], ['PCMI 4', 4], ['PCMI 5', 5], ['—', 7]]);
     expect(pieces.find(p => p.code === 'PCMI 5')!.note).toBe('plan de toiture : page 6');
     for (const t of ['(PCMI 5 \x97 Plan de toiture)', '(TOITURE)', '(\xE0 croupes)', '(35\xB0 \\(70 %\\))', '(35\xB0 \xB7 70 %)', '(1 / 7)', '(PCMI 4 \x97 Notice \\(brouillon\\))']) expect(s).toContain(t);
-    expect(pieces.filter(p => p.page === null).map(p => p.code)).toEqual(['PCMI 1', 'PCMI 6', 'PCMI 7-8']);
+    expect(pieces.filter(p => p.page === null).map(p => p.code)).toEqual(['PCMI 1', 'PCMI 6', 'PCMI 7', 'PCMI 8']);
     for (const t of ['(DEMANDE DE PERMIS DE CONSTRUIRE)', '(PI\xC8CES DU DOSSIER)', '(M. et Mme Fictifs)', '(AB 123)', '(PCMI 2 \x97 Plan de masse)', '(PCMI 3 \x97 Coupe A-A)', '(PCMI 5 \x97 Fa\xE7ades)', '(Plan : RDC)', '(7 / 7)', '(page 2)', '([\xE0 compl\xE9ter])', '(76,44 m\xB2)'])
       expect(s).toContain(t);
   });
@@ -54,5 +54,22 @@ describe('dossier de permis de construire', () => {
     expect(s).toContain('(Vue 3D \\(compl\xE9ment au PCMI 6\\))');
     expect(pieces.find(p => p.code === 'PCMI 6')!.note).toBe('à joindre (photomontage) ; vue 3D du projet : page 7');
     expect(() => dossierPc(maison(true), { indice: 'A', date: '04/10/2026', perspective: { jpeg: new Uint8Array([1, 2, 3]), largeur: 1, hauteur: 1 } })).toThrow(/JPEG/);
+  });
+
+  it('avec la situation, l’insertion et les deux photographies : PCMI 1 à 8 dans l’ordre du formulaire, plus rien « à joindre »', () => {
+    const img = (legende?: string) => ({ jpeg: JPEG, largeur: 8, hauteur: 8, ...(legende ? { legende } : {}) });
+    const { octets, pieces } = dossierPc(maison(true), { indice: 'A', date: '05/10/2026',
+      situation: img('Géoportail, 1/5 000'), insertion: img(), perspective: img(), photoProche: img('depuis la rue, vers le nord'), photoLointaine: img() });
+    const s = texte(octets);
+    /* garde, situation, masse, coupe, notice, façades, toiture, insertion, vue 3D, proche, lointaine, RDC */
+    expect(s).toContain('/Count 12');
+    expect(pieces.map(p => [p.code, p.page])).toEqual([['PCMI 1', 2], ['PCMI 2', 3], ['PCMI 3', 4], ['PCMI 4', 5], ['PCMI 5', 6], ['PCMI 6', 8], ['PCMI 7', 10], ['PCMI 8', 11], ['—', 12]]);
+    expect(pieces.find(p => p.code === 'PCMI 6')!.note).toBe('photomontage composé dans le Designer ; vue 3D du projet : page 9');
+    expect(s.match(/\/Subtype \/Image /g)).toHaveLength(5);
+    for (const t of ['(PCMI 1 \x97 Plan de situation)', '(G\xE9oportail, 1/5 000)', '(PCMI 6 \x97 Insertion)', '(PCMI 7 \x97 Environnement proche)', '(PCMI 8 \x97 Environnement lointain)',
+      '(depuis la rue, vers le nord)', '(L\x92insertion dans le site \\(PCMI 6\\) est page 8.)'])
+      expect(s).toContain(t);
+    /* ce que l'utilisateur n'a pas dit (point de vue de l'insertion et de la photo lointaine) reste à compléter, en rouge */
+    expect(s.match(/\[\xE0 compl\xE9ter\]/g)!.length).toBeGreaterThanOrEqual(2);
   });
 });

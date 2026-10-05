@@ -17,6 +17,11 @@ export interface Vue3D {
   image(): Promise<Blob>;
   /** la vue en JPEG, avec sa taille en pixels (pour le dossier PDF) */
   imageJpeg(): Promise<{ octets: Uint8Array; largeur: number; hauteur: number }>;
+  /** une photographie du terrain derrière la maquette (insertion, PCMI 6), cadrée sans déformation ; null : la retirer.
+      Le sol devient transparent : seules les ombres de la maison s'y posent */
+  photo(image: ImageBitmap | HTMLImageElement | HTMLCanvasElement | null): void;
+  /** le champ de vision vertical de la caméra (°), pour s'accorder à la focale de la photographie */
+  focale(degres?: number): number;
   stats(): { maillages: number; triangles: number };
   /** la visite à hauteur d'homme : glisser pour regarder, Z Q S D (ou W A S D) et flèches pour marcher, Maj pour presser le pas */
   visite(oui: boolean): void;
@@ -103,7 +108,8 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
   soleil.shadow.mapSize.set(2048, 2048);
   soleil.shadow.bias = -0.0005;
   scene.add(soleil, soleil.target);
-  const sol = new THREE.Mesh(new THREE.CircleGeometry(400, 64), new THREE.MeshStandardMaterial({ color: '#DCE3D3', roughness: 1 }));
+  const solPlein = new THREE.MeshStandardMaterial({ color: '#DCE3D3', roughness: 1 }), solOmbre = new THREE.ShadowMaterial({ opacity: 0.28 });
+  const sol = new THREE.Mesh<InstanceType<typeof THREE.CircleGeometry>, InstanceType<typeof THREE.Material>>(new THREE.CircleGeometry(400, 64), solPlein);
   sol.rotation.x = -Math.PI / 2; sol.position.y = -0.03; sol.receiveShadow = true;
   scene.add(sol);
 
@@ -137,7 +143,7 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
   scene.add(groupe);
   let boite: Maquette['boite'] = null;
   /* la visite : le terrain (sols, obstacles) déduit de la maquette, le marcheur, les touches tenues */
-  let terrain: Terrain | null = null, marcheur: Marcheur | null = null, enVisite = false, boucle = 0, avant = 0, coupeAvant = 1e6;
+  let terrain: Terrain | null = null, marcheur: Marcheur | null = null, enVisite = false, boucle = 0, avant = 0, coupeAvant = 1e6, fovOrbite = 45;
   let orbite: { position: InstanceType<typeof THREE.Vector3>; cible: InstanceType<typeof THREE.Vector3> } | null = null;
   const tenues = new Set<string>();
   /* à l'intérieur, le soleil ne passe pas le toit : une lumière d'ambiance, et des plafonds blancs au haut des murs */
@@ -243,11 +249,20 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     }
   }
 
+  /* la photographie du terrain (insertion) : en fond, « couvrante » (rognée, jamais étirée) */
+  let fond: InstanceType<typeof THREE.Texture> | null = null, fondTaille = { l: 1, h: 1 };
+  function cadrerFond() {
+    if (!fond) return;
+    const a = camera.aspect, b = fondTaille.l / fondTaille.h;
+    if (b > a) { fond.repeat.set(a / b, 1); fond.offset.set((1 - a / b) / 2, 0) } else { fond.repeat.set(1, b / a); fond.offset.set(0, (1 - b / a) / 2) }
+  }
+
   function taille() {
     const l = conteneur.clientWidth || 800, h = conteneur.clientHeight || 600;
     rendu.setSize(l, h, false);
     rendu.domElement.style.width = '100%'; rendu.domElement.style.height = '100%';
     camera.aspect = l / h; camera.updateProjectionMatrix();
+    cadrerFond();
     peindre();
   }
   const observateur = new ResizeObserver(taille);
@@ -290,7 +305,7 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
         /* l'orbite est gardée pour le retour ; la vue maquette (murs coupés) n'a pas de sens à hauteur d'homme */
         orbite = { position: camera.position.clone(), cible: controles.target.clone() };
         coupeAvant = coupe.constant; coupe.constant = 1e6;
-        camera.fov = 65; camera.updateProjectionMatrix();
+        fovOrbite = camera.fov; camera.fov = 65; camera.updateProjectionMatrix();
         ambiance.intensity = 1.1; matieres.porte.visible = false; poserPlafonds();            // portes ouvertes : on les passe
         if (!marcheur && terrain) marcheur = depart(terrain);
         placerCamera();
@@ -298,7 +313,7 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
       } else {
         cancelAnimationFrame(boucle);
         coupe.constant = coupeAvant;
-        camera.fov = 45; camera.updateProjectionMatrix();
+        camera.fov = fovOrbite; camera.updateProjectionMatrix();
         ambiance.intensity = 0; matieres.porte.visible = true; poserPlafonds();
         if (orbite) { camera.position.copy(orbite.position); controles.target.copy(orbite.cible); controles.update() }
         peindre();
@@ -311,6 +326,25 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
       peindre();
       const c = rendu.domElement;
       return new Promise((res, rej) => c.toBlob(b => { if (!b) { rej(new Error('image vide')); return } void b.arrayBuffer().then(a => res({ octets: new Uint8Array(a), largeur: c.width, hauteur: c.height })) }, 'image/jpeg', 0.92));
+    },
+    photo(image) {
+      fond?.dispose(); fond = null;
+      if (image) {
+        /* recopiée sur une toile : WebGL ne retourne pas une ImageBitmap (flipY ignoré), la photo serait à l'envers */
+        let toile = image as HTMLCanvasElement;
+        if (!(image instanceof HTMLCanvasElement)) { toile = document.createElement('canvas'); toile.width = image.width; toile.height = image.height; toile.getContext('2d')?.drawImage(image, 0, 0) }
+        fond = new THREE.CanvasTexture(toile);
+        fond.colorSpace = THREE.SRGBColorSpace; fond.needsUpdate = true;
+        fondTaille = { l: image.width, h: image.height };
+        cadrerFond();
+      }
+      scene.background = fond ?? new THREE.Color('#E6EDF1');
+      sol.material = fond ? solOmbre : solPlein;
+      peindre();
+    },
+    focale(degres) {
+      if (degres !== undefined && Number.isFinite(degres) && !enVisite) { camera.fov = Math.min(90, Math.max(15, degres)); camera.updateProjectionMatrix(); peindre() }
+      return camera.fov;
     },
     stats() { let t = 0, n = 0; groupe.traverse(o => { if (o instanceof THREE.Mesh) { n++; t += (o.geometry.index?.count ?? o.geometry.attributes['position']!.count) / 3 } }); return { maillages: n, triangles: Math.round(t) } },
     detruire() { enVisite = false; cancelAnimationFrame(boucle); window.removeEventListener('keydown', enfoncee); window.removeEventListener('keyup', relachee); window.removeEventListener('blur', perdue); observateur.disconnect(); controles.dispose(); vider(); rendu.dispose(); rendu.domElement.remove() },

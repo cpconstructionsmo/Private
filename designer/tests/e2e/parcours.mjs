@@ -6,7 +6,7 @@
    Lancement : npm run test:navigateur (compile d'abord). Chromium :
    /opt/pw-browsers/chromium, ou la variable CHROMIUM. */
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { strict as assert } from 'node:assert';
@@ -379,6 +379,34 @@ try {
   await p.click('aside button:has-text("Maison à étage")');
   const etages = await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.map(f => [f.name, Object.values(f.objects).filter(o => o.type === 'wall').length]));
   assert.ok(etages.length === 2 && etages.every(([, n]) => n >= 6), 'modèle à étage posé : ' + JSON.stringify(etages));
+  /* les pièces images du dossier : une photographie (PCMI 7), puis l'insertion composée dans la 3D (PCMI 6) ;
+     une capture de la page sert d'image fictive */
+  const imageFictive = await p.screenshot({ type: 'png', clip: { x: 0, y: 0, width: 640, height: 400 } });
+  const [fc7] = await Promise.all([p.waitForEvent('filechooser'), p.click('aside button.bpcmi7')]);
+  await fc7.setFiles({ name: 'proche.png', mimeType: 'image/png', buffer: imageFictive });
+  await p.fill('.voile input[name=leg]', 'depuis la rue, vers le nord');
+  await p.click('.voile button.prim');
+  await p.waitForFunction(() => /PCMI 7 Environnement proche : ✓ 640 × 400 px — depuis la rue/.test(document.querySelector('aside').textContent));
+  await p.keyboard.press('3');
+  await p.waitForFunction(() => (window.cpDesigner.vue3d()?.maillages ?? 0) > 0, null, { timeout: 20_000 });
+  const [fcs] = await Promise.all([p.waitForEvent('filechooser'), p.click('aside button.bphoto')]);
+  await fcs.setFiles({ name: 'terrain.png', mimeType: 'image/png', buffer: imageFictive });
+  await p.waitForSelector('aside button.binsertion');
+  await p.fill('aside label:has-text("Focale") input', '50'); await p.keyboard.press('Tab');
+  await p.click('aside button.binsertion');
+  await p.fill('.voile input[name=pv]', 'depuis la rue, face à l’entrée');
+  await p.click('.voile button.prim');
+  await p.waitForSelector('aside button.binsertion:has-text("Gardée pour le PCMI 6")', { timeout: 10_000 });
+  if (process.env.CAPTURE_INSERTION) await p.screenshot({ path: process.env.CAPTURE_INSERTION });
+  await p.keyboard.press('Escape');
+  await p.click('header button.bpdf');
+  await p.selectOption('.voile label:has-text("Composer") select', 'dossier');
+  const [dl6] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
+  const dossier6 = (await readFile(await dl6.path())).toString('latin1');
+  if (process.env.CAPTURE_DOSSIER) await writeFile(process.env.CAPTURE_DOSSIER, await readFile(await dl6.path()));
+  for (const t of ['(PCMI 6 \x97 Insertion)', '(PCMI 7 \x97 Environnement proche)', '(depuis la rue, vers le nord)', '(depuis la rue, face \xE0 l\x92entr\xE9e)'])
+    assert.ok(dossier6.includes(t), 'dossier : ' + t);
+  assert.equal(dossier6.match(/\/Subtype \/Image /g)?.length, 2, 'deux images dans le dossier (insertion et photographie)');
   await p.mouse.click(1080, 820);
   await p.keyboard.press('Control+z');
   assert.equal(await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.length), 1, 'un « annuler » retire le modèle et son étage');
@@ -392,7 +420,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();
