@@ -14,6 +14,8 @@ import type { GeometrieEscalier, Marche } from '../building/escalier';
 import type { LigneDeCoupe } from '../vue3d/coupe';
 import type { Landscape, Plot, Viewpoint } from '../model/types';
 import { finitionAmenagement } from '../catalogue/amenagements';
+import { materiau, motifEnPlan, type Materiau } from '../catalogue/materiaux';
+import { traitsDeMotif, type Segment2 } from '../geometry/hachures';
 import { champDeVue, type Recul } from '../building/terrain';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
@@ -56,6 +58,26 @@ export interface Scene {
   /** la parcelle (sur le niveau qui la porte) et ses reculs mesurés ; la limite en cours de tracé */
   parcelle?: { plot: Plot; reculs: Recul[] } | null;
   parcelleEnCours?: Point[];
+  /** le plan de présentation : chaque pièce à la couleur de son sol, avec son motif (carreaux, lames) */
+  presentation?: boolean;
+}
+
+/** une teinte assombrie (k < 1), opaque : les joints se voient pareil à l'écran et sur le papier */
+function assombrir(c: string, k: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (!m) return c;
+  const v = parseInt(m[1]!, 16), f = (x: number) => Math.round(x * k).toString(16).padStart(2, '0');
+  return '#' + f(v >> 16 & 255) + f(v >> 8 & 255) + f(v & 255);
+}
+
+/* les traits du motif de sol d'une pièce : calculés une fois par zone (le plan d'un niveau est gardé en cache) */
+const motifsDeSol = new WeakMap<Polygone, Map<string, Segment2[]>>();
+function traitsDeSol(z: Polygone, m: Materiau): Segment2[] {
+  let c = motifsDeSol.get(z);
+  if (!c) { c = new Map(); motifsDeSol.set(z, c) }
+  let t = c.get(m.id);
+  if (!t) { const mp = motifEnPlan(m); t = mp ? traitsDeMotif(mp, z) : []; c.set(m.id, t) }
+  return t;
 }
 
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
@@ -83,10 +105,19 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   }
 
   const plan = planDuNiveau(s.niveau);
-  /* pièces */
+  /* pièces ; en présentation, à la couleur de leur sol, avec son motif */
   for (const z of plan.zones) {
-    ctx.fillStyle = z.piece ? COULEURS.piece : COULEURS.aNommer;
+    const sol = s.presentation && z.piece ? materiau(z.piece.floorFinish) : undefined;
+    ctx.fillStyle = sol ? sol.couleur : z.piece ? COULEURS.piece : COULEURS.aNommer;
     chemin(ctx, cam, z.polygone); ctx.fill();
+    if (sol) {
+      const T = traitsDeSol(z.polygone, sol);
+      if (T.length) {
+        ctx.strokeStyle = assombrir(sol.couleur, 0.78); ctx.lineWidth = 0.6; ctx.beginPath();
+        for (const [a, b] of T) { const p = E(a), q = E(b); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y) }
+        ctx.stroke();
+      }
+    }
   }
   /* mobilier, sous les murs */
   const estChoisi = (id: string) => id === s.selection || !!s.groupe?.has(id);
@@ -118,6 +149,13 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   for (const z of plan.zones) {
     const c = z.piece && positionDansAnneau(z.piece.seed, z.polygone.contour) === 'dedans' ? z.piece.seed : centroide(z.polygone.contour);
     const e = E(c);
+    /* en présentation, une étiquette claire sous le nom : il reste lisible sur un parquet ou un carrelage sombre */
+    if (s.presentation && z.piece?.floorFinish) {
+      ctx.font = '600 12px system-ui, sans-serif';
+      const l = Math.max(ctx.measureText(z.piece.name).width, 60) + 12;
+      const d = dimensionsPiece(z.polygone.contour), trois = !!d && d.profondeur * cam.echelle > 60;      // la ligne des dimensions, si elle s'écrit
+      ctx.fillStyle = 'rgba(255,255,255,.82)'; ctx.fillRect(e.x - l / 2, e.y - 18, l, trois ? 48 : 34);
+    }
     ctx.fillStyle = z.piece ? COULEURS.texte : COULEURS.accent;
     ctx.font = '600 12px system-ui, sans-serif';
     ctx.fillText(z.piece ? z.piece.name : 'À nommer', e.x, e.y - 8);

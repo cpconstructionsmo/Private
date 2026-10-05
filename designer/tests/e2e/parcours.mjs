@@ -407,6 +407,17 @@ try {
   for (const t of ['(PCMI 6 \x97 Insertion)', '(PCMI 7 \x97 Environnement proche)', '(depuis la rue, vers le nord)', '(depuis la rue, face \xE0 l\x92entr\xE9e)'])
     assert.ok(dossier6.includes(t), 'dossier : ' + t);
   assert.equal(dossier6.match(/\/Subtype \/Image /g)?.length, 2, 'deux images dans le dossier (insertion et photographie)');
+  /* le plan de présentation : sols en couleur à l'écran (préférence de l'appareil), puis en PDF pour le client */
+  await p.check('aside label:has-text("Sols en couleur") input');
+  assert.equal(await p.evaluate(() => localStorage.getItem('cpDesigner:sols')), 'oui');
+  if (process.env.CAPTURE_PRESENTATION) await p.screenshot({ path: process.env.CAPTURE_PRESENTATION });
+  await p.click('header button.bpdf');
+  await p.selectOption('.voile select[name=pre]', 'presentation');
+  const [dl7] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
+  const pres = (await readFile(await dl7.path())).toString('latin1');
+  assert.ok(pres.includes('(Plan de pr\xE9sentation : RDC)') && pres.includes('(SOLS ET SURFACES)'), 'plan de présentation');
+  assert.match(dl7.suggestedFilename(), /plans de presentation/);
+  await p.uncheck('aside label:has-text("Sols en couleur") input');
   await p.mouse.click(1080, 820);
   await p.keyboard.press('Control+z');
   assert.equal(await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.length), 1, 'un « annuler » retire le modèle et son étage');
@@ -429,7 +440,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, diagnostic au démarrage');
 } catch (e) { echec = e }
 await navigateur.close();
 serveur.close();

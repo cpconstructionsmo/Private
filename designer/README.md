@@ -274,6 +274,15 @@ le demande le formulaire ; la page de la photographie le dit alors
 joindre » ; ce qui n'est pas connu (point de vue, échelle) s'écrit
 « [à compléter] ».
 
+**Plan de présentation** (PDF → « Plans : plans de présentation pour le
+client » ; à l'écran, « Sols en couleur » dans les réglages du niveau) :
+chaque pièce à la couleur de son sol, avec son motif vu de dessus
+(carreaux en grille, lames de parquet aux joints décalés, calés sur
+l'origine du plan pour se suivre d'une pièce à l'autre), le mobilier, sans
+chaînes de cotes ; la colonne « Sols et surfaces » dit le sol de chaque
+pièce (ou « sol à choisir »). Les traits du motif sont coupés au contour
+de la pièce par un calcul pur (`src/geometry/hachures.ts`).
+
 **Plan de toiture** (option de l'export PDF, et PCMI 5 du dossier) : les
 pans à leur couleur de couverture, faîtage, arêtiers et noues, une flèche
 de pente par pan (degrés et %), les pignons en trait fort, les murs vus à

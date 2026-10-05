@@ -6,6 +6,7 @@
    Le MOTIF dit comment dessiner le matériau (lames, briques, carreaux…) ;
    « pas » est sa période en mm (largeur d'une lame, d'un carreau). */
 import type { Mm } from '../model/types';
+import type { MotifPlan } from '../geometry/hachures';
 import { FINITIONS_AMENAGEMENT } from './amenagements';
 
 export type FamilleMateriau = 'enduit' | 'bardage' | 'pierre' | 'brique' | 'sol' | 'peinture' | 'amenagement';
@@ -60,3 +61,18 @@ const AMENAGEMENTS: Materiau[] = FINITIONS_AMENAGEMENT.map(a => x(a.id, 'amenage
 const PAR_ID = new Map([...PAREMENTS, ...SOLS, ...PEINTURES, ...AMENAGEMENTS].map(m => [m.id, m]));
 /** un matériau par son identifiant (undefined : inconnu — on dessine alors la matière par défaut) */
 export const materiau = (id: string | undefined): Materiau | undefined => (id ? PAR_ID.get(id) : undefined);
+
+/** le motif d'un matériau vu de dessus (plan de présentation), aux proportions de la 3D : carreaux en grille,
+ *  lames de parquet (6 largeurs de long), briques (3), pierres (2) en rangs aux joints décalés ; null : uni */
+export function motifEnPlan(m: Materiau): MotifPlan | null {
+  if (!m.pas) return null;
+  switch (m.motif) {
+    case 'carreaux': return { genre: 'grille', pas: m.pas };
+    case 'parquet': return { genre: 'rangs', pas: m.pas, longueur: m.pas * 6 };
+    case 'briques': return { genre: 'rangs', pas: m.pas, longueur: m.pas * 3 };
+    case 'pierres': return { genre: 'rangs', pas: m.pas, longueur: m.pas * 2 };
+    case 'lames_h': return { genre: 'rangs', pas: m.pas };
+    case 'lames_v': return { genre: 'colonnes', pas: m.pas };
+    default: return null;
+  }
+}

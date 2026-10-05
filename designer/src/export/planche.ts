@@ -55,6 +55,8 @@ export interface OptionsPlanche {
   masse?: boolean;
   /** ajouter les coupes (les traits tracés, sinon une coupe A-A placée d'elle-même) et leurs traits sur les plans */
   coupe?: boolean;
+  /** des plans de présentation (pour le client) : sols en couleur avec leur motif, la colonne dit le sol de chaque pièce */
+  presentation?: boolean;
 }
 
 /** la boîte de ce qui se dessine sur un niveau (mm) : maçonnerie, meubles, débord de toit */
@@ -95,7 +97,7 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
     const scene: Scene = {
       niveau, dessous: null, selection: null, accroche: null, images: new Map(), sommets: false, impression: true,
       escaliers: Object.values(niveau.objects).flatMap(x => (x.type === 'stair' ? [{ id: x.id, geo: geometrieEscalier(x, hauteurAFranchir(projet, f)) }] : [])),
-      tremies: tremiesDuNiveau(projet, f), coupes: traits,
+      tremies: tremiesDuNiveau(projet, f), coupes: traits, ...(o.presentation ? { presentation: true } : {}),
       ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech) } : {}), ...(t?.ok ? { toitures: t.toitures } : {}),
     };
     dessiner(toile as unknown as CanvasRenderingContext2D, cam, scene);
@@ -107,16 +109,22 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
   page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
   const zones = planDuNiveau(niveau).zones;
   let y = 20;
-  page.texte('SURFACES', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' });
+  page.texte(o.presentation ? 'SOLS ET SURFACES' : 'SURFACES', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' });
   page.texte('intérieures brutes, entre murs', X(COLONNE.x + 5), Y(y + 4.2), 6.5, { couleur: '#6E7B84' });
   y += 10;
-  const lignes = zones.map(z => ({ nom: z.piece?.name ?? 'Espace à nommer', aire: z.aire })).sort((a, b) => b.aire - a.aire);
-  const max = Math.floor((287 - CARTOUCHE_H - 20 - y) / 5);
+  const lignes = zones.map(z => ({ nom: z.piece?.name ?? 'Espace à nommer', aire: z.aire, sol: z.piece ? materiau(z.piece.floorFinish) : undefined })).sort((a, b) => b.aire - a.aire);
+  /* en présentation, chaque pièce dit aussi son sol (une pastille de sa couleur) : deux lignes par pièce */
+  const pas = o.presentation ? 8.5 : 5;
+  const max = Math.floor((287 - CARTOUCHE_H - 20 - y) / pas);
   for (const l of lignes.slice(0, max)) {
     page.texte(l.nom, X(COLONNE.x + 5), Y(y), 8);
     page.texte(m2(l.aire), X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite' });
-    page.trait(X(COLONNE.x + 5), Y(y + 1.4), X(COLONNE.x + COLONNE.l - 5), Y(y + 1.4), 0.2, '#DDD5C8');
-    y += 5;
+    if (o.presentation) {
+      if (l.sol) page.cadre(X(COLONNE.x + 5), Y(y + 4.6), 2.6 * PT, 2.6 * PT, { ep: 0.2, fond: l.sol.couleur });
+      page.texte(l.sol ? l.sol.libelle : 'sol à choisir', X(COLONNE.x + (l.sol ? 9 : 5)), Y(y + 4.2), 6.5, { couleur: '#6E7B84' });
+    }
+    page.trait(X(COLONNE.x + 5), Y(y + pas - 3.6), X(COLONNE.x + COLONNE.l - 5), Y(y + pas - 3.6), 0.2, '#DDD5C8');
+    y += pas;
   }
   if (lignes.length > max) { page.texte('… ' + (lignes.length - max) + ' autre(s)', X(COLONNE.x + 5), Y(y), 7, { couleur: '#6E7B84' }); y += 5 }
   if (lignes.length) {
@@ -125,7 +133,7 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
     page.texte('Ni surface habitable ni surface de plancher.', X(COLONNE.x + 5), Y(y + 6), 6.5, { couleur: '#6E7B84' });
   } else page.texte('Aucun espace clos.', X(COLONNE.x + 5), Y(y), 8, { couleur: '#6E7B84' });
 
-  cartouche(page, projet, 'Plan : ' + f.name, ech, o);
+  cartouche(page, projet, (o.presentation ? 'Plan de présentation : ' : 'Plan : ') + f.name, ech, o);
 }
 
 /** l'échelle graphique, sous le dessin : 0 – 1 – 2 – 5 m (ou plus, à petite échelle) */
