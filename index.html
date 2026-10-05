@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-01 · Plans d’exécution : lien « Ouvrir dans CP Designer (préversion) »';
+const VERSION='2026-10-05 · Chiffrage : moins-values (retirer une prestation du marché)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1270,10 +1270,16 @@ const majorationPourCorps=(majTarifs,corps)=>{
 };
 const posteMontantMajore=(x,majTarifs)=>Math.round((+(x&&x.montant)||0)
   *(1+majorationPourCorps(majTarifs,x&&x.libelle)/100)*100)/100;
+/* une moins-value retire une prestation du marché (la peinture faite par le
+   client, par exemple) : son montant se saisit en positif — le prix de ce
+   qu'on enlève — et se compte en négatif une fois cochée « Déduire du
+   marché », comme une option se compte une fois cochée « Inclure ». */
+const optionSigne=x=>(x&&x.moinsValue)?-1:1;
+const optionMontant=(x,majTarifs)=>optionSigne(x)*posteMontantMajore(x,majTarifs);
 const optionsInclues=p=>((p&&p.optionsChiffrage)||[]).filter(x=>x.incluse);
 const prospectPostesHT=(p,majTarifs)=>((p&&p.postes)||[]).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0)
-  +optionsInclues(p).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0);
-const prospectOptionsHT=(p,majTarifs)=>((p&&p.optionsChiffrage)||[]).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0);
+  +optionsInclues(p).reduce((s,x)=>s+optionMontant(x,majTarifs),0);
+const prospectOptionsHT=(p,majTarifs)=>((p&&p.optionsChiffrage)||[]).reduce((s,x)=>s+optionMontant(x,majTarifs),0);
 const prospectCoutHT=(p,majTarifs)=>{
   const d=prospectPostesHT(p,majTarifs);
   return d||+((p&&p.coutHT))||0;
@@ -1352,7 +1358,7 @@ const prixAvecRetro=(base,pct)=>{
   return Math.round(b/(1-p/100)*100)/100;
 };
 const prospectPostesRetro=(p,majTarifs)=>Math.round((((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x,majTarifs),0)
-  +optionsInclues(p).reduce((s,x)=>s+posteRetro(x,majTarifs),0))*100)/100;
+  +optionsInclues(p).reduce((s,x)=>s+optionSigne(x)*posteRetro(x,majTarifs),0))*100)/100;
 const prospectRetro=(p,majTarifs)=>{
   if(!p)return 0;
   const parPoste=prospectPostesRetro(p,majTarifs);
@@ -3315,13 +3321,17 @@ function dossierDocumentXml(p,px,com,majTarifs){
      montant et le statut (incluse ou non dans le prix ci-dessus) regardent
      le client. */
   const opts=(p.optionsChiffrage||[]).filter(x=>(x.libelle||'').trim());
+  /* les moins-values (prestations retirées) se lisent avec leur signe moins, dans le même tableau */
+  const avecMV=opts.some(x=>x.moinsValue), seulementMV=opts.length>0&&opts.every(x=>x.moinsValue);
   const p3b=opts.length?[
-    titre('4.  Options proposées'),
-    par('Prestations complémentaires proposées, à retenir ou non selon votre choix :',{sz:18,ap:100}),
+    titre(seulementMV?'4.  Moins-values proposées':avecMV?'4.  Options et moins-values proposées':'4.  Options proposées'),
+    par(avecMV?'Prestations ajoutées (options) ou retirées (moins-values), à retenir ou non selon votre choix :'
+      :'Prestations complémentaires proposées, à retenir ou non selon votre choix :',{sz:18,ap:100}),
     tbl([6200,2400,1800],[tr([entC(6200,'Désignation'),entC(2400,'Montant HT','right'),entC(1800,'Statut','right')])]
-      .concat(opts.map(x=>tr([celC(6200,majCorps(x.libelle),'left'),celC(2400,eurDoc(posteMontantMajore(x,majTarifs)),'right'),
-        celC(1800,x.incluse?'Incluse':'En option','right')])))),
-    par('Une option « incluse » est déjà comptée dans le coût prévisionnel des travaux ci-dessus ; une option « en option » ne l’est pas encore.',
+      .concat(opts.map(x=>tr([celC(6200,majCorps(x.libelle)+(x.moinsValue?' (moins-value)':''),'left'),celC(2400,eurDoc(optionMontant(x,majTarifs)),'right'),
+        celC(1800,x.moinsValue?(x.incluse?'Déduite':'Proposée'):(x.incluse?'Incluse':'En option'),'right')])))),
+    par((seulementMV?'':'Une option « incluse » est déjà comptée dans le coût prévisionnel des travaux ci-dessus ; une option « en option » ne l’est pas encore.')
+      +(avecMV?(seulementMV?'':' ')+'Une moins-value « déduite » est déjà retirée du coût prévisionnel ci-dessus ; une moins-value « proposée » ne l’est pas encore.':''),
       {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
   ].join(''):'';
 
@@ -5027,9 +5037,9 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
   const pOptions=options.length?[
     titre('Options de chiffrage'),
     table([4200,2000,1200,1400,1600],['Option','Montant HT','Inclus','Rétro %','Rétrocédé'],
-      options.map(x=>[(x.libelle?majCorps(x.libelle):'(sans libellé)')+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
-        eurDoc(posteMontantMajore(x,majTarifs)),x.incluse?'Oui':'Non',
-        retroTauxAffiche(x),eurDoc(posteRetro(x,majTarifs))])),
+      options.map(x=>[(x.libelle?majCorps(x.libelle):'(sans libellé)')+(x.moinsValue?' (moins-value)':'')+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
+        eurDoc(optionMontant(x,majTarifs)),x.moinsValue?(x.incluse?'Déduite':'Non'):(x.incluse?'Oui':'Non'),
+        retroTauxAffiche(x),eurDoc(optionSigne(x)*posteRetro(x,majTarifs))])),
     options.map(detailQuantitatif).join(''),
   ].join(''):'';
 
@@ -22039,8 +22049,9 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
   const setPoste=(id,fn)=>onChange(L.map(x=>x.id===id?(typeof fn==='function'?fn(x):fn):x));
   const dl=options?'pcorpsopt':'pcorps';
   const majTarifs=data&&data.majorationsCorps;
-  const total=L.reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0);
-  const totalInclues=L.filter(x=>x.incluse).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0);
+  const total=L.reduce((s,x)=>s+(options?optionMontant(x,majTarifs):posteMontantMajore(x,majTarifs)),0);
+  const totalInclues=L.filter(x=>x.incluse).reduce((s,x)=>s+optionMontant(x,majTarifs),0);
+  const totalMV=options?L.filter(x=>x.moinsValue).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0):0;
   /* l'impact d'une option sur la marge se lit sur le projet tel qu'il est
      réellement en train de se saisir — les autres options, pas encore
      enregistrées via onChange, comptent donc telles qu'affichées ici. */
@@ -22101,18 +22112,21 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
   return <Fld label={options?'OPTIONS DE CHIFFRAGE':'CHIFFRAGE PAR POSTE'}>
     {options&&<div className="xs mut" style={{marginTop:-6,marginBottom:10,lineHeight:1.5}}>
       Prestations proposées au client, pas encore décidées. Cochez « Inclure dans le marché »
-      pour celles qui doivent compter dans le total du projet.
+      pour celles qui doivent compter dans le total du projet. Une moins-value retire une prestation
+      (montant saisi en positif, compté en moins) : cochez « Déduire du marché » pour l’enlever du total.
     </div>}
     {L.map((x,i)=><div key={x.id} ref={glisse.attacher(i)}
       style={{marginBottom:8,paddingBottom:8,borderBottom:'1px solid '+RULE,
         background:glisse.pris===i?'#EFECE6':'transparent'}}>
       <div className="row" style={{gap:6,alignItems:'center'}}>
-        <Poignee onPointerDown={e=>glisse.saisir(i,e)} titre={'Déplacer '+(options?'cette option':'ce poste')}/>
+        <Poignee onPointerDown={e=>glisse.saisir(i,e)} titre={'Déplacer '+(options?(x.moinsValue?'cette moins-value':'cette option'):'ce poste')}/>
+        {x.moinsValue&&<span className="xs b" title="Prestation retirée du marché : comptée en moins"
+          style={{color:TERRA,border:'1px solid '+TERRA,borderRadius:4,padding:'1px 5px',flex:'0 0 auto'}}>− MOINS-VALUE</span>}
         <input className="in" style={{flex:1,minWidth:0,textTransform:'uppercase'}} list={dl} value={x.libelle||''}
-          placeholder="Corps d’état" onChange={e=>set(x.id,{libelle:e.target.value})}/>
+          placeholder={x.moinsValue?'Prestation retirée':'Corps d’état'} onChange={e=>set(x.id,{libelle:e.target.value})}/>
         <input className="in" style={{width:110,flex:'0 0 auto',background:x.quantitatif?'#F2EFE9':null}}
           type="number" value={x.montant||''} disabled={!!x.quantitatif}
-          placeholder="€ HT" onChange={e=>set(x.id,{montant:e.target.value})}/>
+          placeholder={x.moinsValue?'€ HT retiré':'€ HT'} onChange={e=>set(x.id,{montant:e.target.value})}/>
         <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
           onClick={()=>onChange(L.filter(y=>y.id!==x.id))}>✕</button>
       </div>
@@ -22125,7 +22139,8 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
       </div>}
       {options&&<label className="row xs" style={{gap:6,alignItems:'center',marginTop:4,paddingLeft:2,cursor:'pointer'}}>
         <input type="checkbox" checked={!!x.incluse} onChange={e=>set(x.id,{incluse:e.target.checked})}/>
-        <span className="mut">Inclure dans le marché</span>
+        <span className="mut">{x.moinsValue?'Déduire du marché':'Inclure dans le marché'}</span>
+        {x.moinsValue&&+x.montant>0&&<span className="b" style={{color:TERRA}}>{eur(optionMontant(x,majTarifs))} HT</span>}
       </label>}
       {options&&pLive&&!!x.montant&&(()=>{const im=impactOption(pLive,x,majTarifs);return im.coutHT!==0&&
         <div className="xs mut" style={{marginTop:3,paddingLeft:2,lineHeight:1.5}}>
@@ -22174,6 +22189,8 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
     <div className="row" style={{gap:10,alignItems:'center',marginTop:4,flexWrap:'wrap'}}>
       <button className="btn gh s" onClick={()=>onChange([...L,{id:uid(),libelle:'',montant:'',retroPct:''}])}>
         {options?'+ Option':'+ Poste'}</button>
+      {options&&<button className="btn gh s" title="Retirer une prestation du marché : son montant se compte en moins"
+        onClick={()=>onChange([...L,{id:uid(),libelle:'',montant:'',retroPct:'',moinsValue:true}])}>+ Moins-value</button>}
       {options&&<select className="in" style={{width:'auto',maxWidth:220,fontSize:12,padding:'4px 6px'}} value=""
         onChange={e=>{if(e.target.value)onChange([...L,{id:uid(),libelle:e.target.value,montant:'',retroPct:''}])}}>
         <option value="">Modèle…</option>
@@ -22181,6 +22198,7 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
       </select>}
       {L.length>0&&<span className="xs b">Total {eur(total)} HT</span>}
       {options&&L.length>0&&<span className="xs mut">dont {eur(totalInclues)} HT inclus au marché</span>}
+      {options&&totalMV>0&&<span className="xs mut">moins-values : {eur(-totalMV)} HT</span>}
     </div>
   </Fld>;
 }
