@@ -18,6 +18,7 @@ import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
 import { ANGLE_EQUERRE, EPAISSEUR_FICTIVE, EPS_COINCIDENCE } from '../geometry/tolerance';
 import { compositionMur, epaisseurComposition, genreDuRole, roleDuGenre } from '../catalogue/murs';
+import { compositionPlancher } from '../catalogue/planchers';
 import { mesurerCote, resoudre, type Epingle } from '../building/contraintes';
 import { calage, calageParDistance, TRANSFORMATION_NEUTRE } from '../building/fond';
 import { geometrieFenetreToit } from '../building/fenetres-toit';
@@ -82,7 +83,8 @@ export type Commande =
   | { type: 'modifierContrainte'; id: string; valeur: number }
   | { type: 'creerCote'; niveau: string; refs: [ObjectAnchor, ObjectAnchor]; motrice?: boolean; decalage?: Mm }
   | { type: 'modifierCote'; id: string; valeur?: Mm; motrice?: boolean; decalage?: Mm }
-  | { type: 'modifierNiveau'; id: string; nom?: string; altitude?: Mm; hauteur?: Mm }
+  /** plafond, plancher : une composition de catalogue/planchers.ts ; null : non précisé */
+  | { type: 'modifierNiveau'; id: string; nom?: string; altitude?: Mm; hauteur?: Mm; plafond?: string | null; plancher?: string | null }
   | { type: 'supprimerNiveau'; id: string }
   /** un fond ; un tracé produit par le logiciel (plan source d'un import) arrive déjà calé, et peut être verrouillé d'emblée */
   | { type: 'ajouterFond'; niveau: string; fichier: string; nom?: string; page?: number; calage?: Underlay['transform']; verrouille?: boolean; opacite?: number; origine?: Origine }
@@ -568,6 +570,12 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.nom !== undefined) { avant['name'] = f.name; apres['name'] = cmd.nom.trim() }
       if (cmd.altitude !== undefined) { avant['elevation'] = f.elevation; apres['elevation'] = cmd.altitude }
       if (cmd.hauteur !== undefined) { avant['height'] = f.height; apres['height'] = cmd.hauteur }
+      for (const [cle, champ, genre] of [['plafond', 'ceilingRef', 'plafond'], ['plancher', 'floorRef', 'sol']] as const) {
+        const v = cmd[cle];
+        if (v === undefined) continue;
+        if (v !== null && compositionPlancher(v)?.genre !== genre) return refus(cle === 'plafond' ? 'composition de plafond inconnue' : 'composition de plancher inconnue');
+        avant[champ] = f[champ] ?? null; apres[champ] = v;
+      }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([{ type: 'niveau.modifier', niveau: f.id, avant, apres }]);
     }

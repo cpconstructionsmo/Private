@@ -295,6 +295,23 @@ choisir un outil au clavier ouvre son onglet. Barre flottante sur le plan :
 niveau, annuler / rétablir, ⇄ 3D, Affichages (cotation, sols en couleur,
 grille, équerre).
 
+**Habillage** : thème anthracite et turquoise, catalogue à gauche en
+catégories (recherche, « Fermer catalogue ») dont chacune ouvre son volet
+de modèles sur le plan — Ouvrant : fixe, baie vitrée (coulissante, à
+galandage), porte-fenêtre, fenêtre, portes extérieure, intérieure, de
+garage, ouverture, fenêtre de toit ; Produit : une catégorie par pièce ;
+Revêtement : enduits, bardages, pierre, brique, sols, peintures. Le
+panneau de droite porte un bandeau (ce qu'il montre) ; sans sélection,
+« Éditer RDC » : informations, **plafond et sol** du niveau
+(`src/catalogue/planchers.ts` : combles perdus, laine soufflée, plancher
+d'étage, rampant ; béton isolé sur vide sanitaire, dallage sur
+terre-plein, plancher béton ou bois — couches et épaisseurs d'usage, à
+confirmer), hauteur sous plafond, hauteur du niveau, et l'écart avec le sol
+du niveau du dessus. Sur le plan : murs hachurés, pièces saumon
+(« S : … m² »), boussole (nord de la parcelle), en bas « Tableaux de
+surfaces », zoom et « Tout voir » ; en haut à droite : aide, PDF, DXF,
+recherche d'actions, plein écran, retour au suivi.
+
 **Murs composés** (`src/catalogue/murs.ts`, `src/building/couches.ts`) : mur
 extérieur, mur intérieur (J), cloison et cloison fictive (U) se tracent
 chacun avec sa composition, choisie sur la carte du ruban (Mur extérieur
