@@ -16,11 +16,13 @@ import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
-import { ANGLE_EQUERRE, EPS_COINCIDENCE } from '../geometry/tolerance';
+import { ANGLE_EQUERRE, EPAISSEUR_FICTIVE, EPS_COINCIDENCE } from '../geometry/tolerance';
+import { compositionMur, epaisseurComposition, genreDuRole, roleDuGenre } from '../catalogue/murs';
 import { mesurerCote, resoudre, type Epingle } from '../building/contraintes';
 import { calage, calageParDistance, TRANSFORMATION_NEUTRE } from '../building/fond';
 import { geometrieFenetreToit } from '../building/fenetres-toit';
 import { equerrer } from '../building/equerre';
+import { mursDroits, mursFictifs } from '../building/murs';
 import { appliquerTout, type Operation } from './operations';
 
 export interface Contexte {
@@ -59,9 +61,12 @@ function porteurQualifie(q: Qualified<boolean> | undefined, defaut: boolean): Qu
 export interface Origine { label: string; document?: string; statut?: SourceStatus; meta?: Record<string, unknown> }
 
 export type Commande =
-  | { type: 'creerMur'; niveau: string; a: Point; b: Point; epaisseur: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; id?: string; origine?: Origine; porteur?: Qualified<boolean> }
+  /** composition : un mur du catalogue (catalogue/murs.ts) — son épaisseur est celle des couches, l'épaisseur donnée est ignorée ;
+   *  rôle « virtual » : une cloison fictive, sans matière (épaisseur de calcul EPAISSEUR_FICTIVE) */
+  | { type: 'creerMur'; niveau: string; a: Point; b: Point; epaisseur: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; id?: string; origine?: Origine; porteur?: Qualified<boolean>; composition?: string }
   | { type: 'deplacerMur'; id: string; a?: Point; b?: Point }
-  | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; finition?: string | null }
+  /** composition : une autre composition (épaisseur et rôle suivent) ; null : « sur mesure ». Une épaisseur donnée seule rend le mur « sur mesure » */
+  | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; finition?: string | null; composition?: string | null }
   | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing']; origine?: Origine; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
   | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing']; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
   | { type: 'creerPiece'; niveau: string; point: Point; nom: string; usage: RoomUsage; humide?: boolean; origine?: Origine }
@@ -254,6 +259,18 @@ function ajuster(p: Project, niveauId: string, avant: Operation[], epingles: Epi
     ops.push({ type: 'objet.modifier', niveau: niveauId, id, avant: { axis: w.axis, revision: w.revision, sourceRefs: w.sourceRefs },
       apres: { axis: axe, revision: c.revision, sourceRefs: [...w.sourceRefs, source(c, principaux.includes(id) ? 'Modification' : 'Ajusté (raccords, contraintes)')] } });
   }
+  /* les cloisons fictives ne sont pas dans le réseau : un bout posé sur un sommet qui bouge le suit */
+  const deplaces: [Point, Point][] = Object.entries(r.axes).flatMap(([id, axe]) => {
+    const w = n.floor.objects[id] as Wall;
+    return 'a' in w.axis ? [[w.axis.a, axe.a], [w.axis.b, axe.b]] as [Point, Point][] : [];
+  });
+  for (const v of mursFictifs(n.floor)) {
+    const suit = (q: Point) => deplaces.find(([de]) => distance(de, q) <= EPS_COINCIDENCE)?.[1] ?? q;
+    const a = suit(v.axis.a), b = suit(v.axis.b);
+    if (a === v.axis.a && b === v.axis.b) continue;
+    if (distance(a, b) <= EPS_COINCIDENCE) return refus('une cloison fictive s’écraserait');
+    ops.push({ type: 'objet.modifier', niveau: niveauId, id: v.id, avant: { axis: v.axis, revision: v.revision }, apres: { axis: { a: { ...a }, b: { ...b } }, revision: c.revision } });
+  }
   return accepte(ops);
 }
 
@@ -277,11 +294,18 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!(cmd.epaisseur > 0)) return refus('l’épaisseur doit être positive');
       /* un identifiant fourni (import : les ouvertures s'y rattachent dans la même transaction) doit être neuf */
       if (cmd.id !== undefined && (!cmd.id.trim() || trouverObjet(p, cmd.id))) return refus('identifiant de mur déjà pris');
+      const k = compositionMur(cmd.composition);
+      if (cmd.composition !== undefined && !k) return refus('composition de mur inconnue');
+      if (k && cmd.role === 'virtual') return refus('une cloison fictive n’a pas de composition');
+      const role: Wall['role'] = cmd.role ?? (k ? roleDuGenre(k.genre) : 'partition');
+      if (k && genreDuRole(role) !== k.genre) return refus('« ' + k.libelle + ' » ne convient pas à ce type de mur');
       const mur: Wall = {
         id: cmd.id ?? c.id(), type: 'wall', floorId: cmd.niveau, ...provenance(c, cmd.origine), revision: c.revision,
-        axis: { a: { ...cmd.a }, b: { ...cmd.b } }, thickness: cmd.epaisseur, justification: cmd.justification ?? 'center',
-        height: cmd.hauteur ?? n.floor.height, baseOffset: 0, role: cmd.role ?? 'partition',
-        loadBearing: porteurQualifie(cmd.porteur, cmd.role === 'exterior'),
+        axis: { a: { ...cmd.a }, b: { ...cmd.b } }, thickness: role === 'virtual' ? EPAISSEUR_FICTIVE : k ? epaisseurComposition(k) : cmd.epaisseur,
+        justification: role === 'virtual' ? 'center' : cmd.justification ?? 'center',
+        height: cmd.hauteur ?? n.floor.height, baseOffset: 0, role,
+        loadBearing: porteurQualifie(cmd.porteur, role === 'exterior'),
+        ...(k ? { compositionRef: k.id } : {}),
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: mur }]);
     }
@@ -297,15 +321,31 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         const a = cmd.a ?? w.axis.a, b = cmd.b ?? w.axis.b;
         if (!ptFini(a) || !ptFini(b)) return refus('coordonnées invalides');
         if (distance(a, b) <= EPS_COINCIDENCE) return refus('un mur doit avoir une longueur');
+        /* une cloison fictive n'est pas dans le réseau des murs : elle se déplace seule */
+        if (w.role === 'virtual') { avant['axis'] = w.axis; apres['axis'] = { a: { ...a }, b: { ...b } }; return accepte([{ type: 'objet.modifier', niveau: t.niveauId, id: w.id, avant, apres }]) }
         /* les deux extrémités sont épinglées ; les murs raccordés suivent */
         return ajuster(p, t.niveauId, [], [{ de: w.axis.a, vers: a }, { de: w.axis.b, vers: b }], c, [w.id]);
       } else {
         if (cmd.epaisseur !== undefined && !(cmd.epaisseur > 0)) return refus('l’épaisseur doit être positive');
+        /* la composition décide de l'épaisseur (et du rôle) ; une épaisseur saisie à la main la quitte ; une cloison fictive n'en a pas */
+        const role = cmd.role ?? w.role;
+        let k = cmd.composition === undefined ? compositionMur(w.compositionRef) : compositionMur(cmd.composition);
+        if (cmd.composition && !k) return refus('composition de mur inconnue');
+        if (cmd.composition && role === 'virtual') return refus('une cloison fictive n’a pas de composition');
+        if (cmd.composition === undefined && (cmd.epaisseur !== undefined || role === 'virtual' || (k && genreDuRole(role) !== k.genre))) k = undefined;
+        const roleFinal: Wall['role'] = cmd.composition && k && cmd.role === undefined ? roleDuGenre(k.genre) : role;
+        if (k && genreDuRole(roleFinal) !== k.genre) return refus('« ' + k.libelle + ' » ne convient pas à ce type de mur');
+        const epaisseur = roleFinal === 'virtual' ? EPAISSEUR_FICTIVE : k ? epaisseurComposition(k) : cmd.epaisseur ?? (w.role === 'virtual' ? 70 : undefined);
+        if ((w.compositionRef ?? null) !== (k?.id ?? null)) { avant['compositionRef'] = w.compositionRef ?? null; apres['compositionRef'] = k?.id ?? null }
+        if (roleFinal !== w.role) { avant['role'] = w.role; apres['role'] = roleFinal }
+        if (epaisseur !== undefined && epaisseur !== w.thickness) { avant['thickness'] = w.thickness; apres['thickness'] = epaisseur }
+        if (roleFinal === 'virtual' && w.justification !== 'center') { avant['justification'] = w.justification; apres['justification'] = 'center' }
+        if (roleFinal === 'virtual' && ouverturesDe(p, w.id).length) return refus('ce mur porte des ouvertures : une cloison fictive n’en reçoit pas');
         if (cmd.hauteur !== undefined && !(cmd.hauteur > 0)) return refus('la hauteur doit être positive');
         if (cmd.finition !== undefined && cmd.finition !== null && !matiereValide(cmd.finition)) return refus('parement inconnu');
-        for (const k of ['epaisseur', 'hauteur', 'role', 'justification', 'finition'] as const) {
-          if (cmd[k] === undefined) continue;
-          const champ = ({ epaisseur: 'thickness', hauteur: 'height', role: 'role', justification: 'justification', finition: 'finish' } as const)[k];
+        for (const k of ['hauteur', 'justification', 'finition'] as const) {
+          if (cmd[k] === undefined || (k === 'justification' && roleFinal === 'virtual')) continue;
+          const champ = ({ hauteur: 'height', justification: 'justification', finition: 'finish' } as const)[k];
           avant[champ] = w[champ] ?? null; apres[champ] = cmd[k];    // null (absent) : il le reste une fois passé par le JSON ; finition null : plus de parement
         }
       }
@@ -314,6 +354,7 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
     case 'creerOuverture': {
       const t = trouverObjet(p, cmd.mur);
       if (!t || t.objet.type !== 'wall') return refus('mur hôte introuvable');
+      if (t.objet.role === 'virtual') return refus('une cloison fictive ne reçoit pas d’ouverture : elle n’a pas de matière');
       if (!fini(cmd.position, cmd.largeur, cmd.hauteur)) return refus('dimensions invalides');
       const e = horsDuMur(cmd.position, cmd.largeur, longueurMur(t.objet));
       if (e) return refus(e);
@@ -415,6 +456,19 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
     case 'deplacerSommet': {
       if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
       if (!ptFini(cmd.de) || !ptFini(cmd.vers)) return refus('coordonnées invalides');
+      const n = trouverNiveau(p, cmd.niveau)!;
+      /* le bout d'une cloison fictive seule (aucun mur bâti n'y aboutit) : elle seule bouge */
+      if (!mursDroits(n.floor).some(w => distance(w.axis.a, cmd.de) <= EPS_COINCIDENCE || distance(w.axis.b, cmd.de) <= EPS_COINCIDENCE)) {
+        const V = mursFictifs(n.floor).filter(v => distance(v.axis.a, cmd.de) <= EPS_COINCIDENCE || distance(v.axis.b, cmd.de) <= EPS_COINCIDENCE);
+        if (!V.length) return refus('aucune extrémité de mur à cet endroit');
+        const ops: Operation[] = [];
+        for (const v of V) {
+          const a = distance(v.axis.a, cmd.de) <= EPS_COINCIDENCE ? cmd.vers : v.axis.a, b = distance(v.axis.b, cmd.de) <= EPS_COINCIDENCE ? cmd.vers : v.axis.b;
+          if (distance(a, b) <= EPS_COINCIDENCE) return refus('un mur doit avoir une longueur');
+          ops.push({ type: 'objet.modifier', niveau: cmd.niveau, id: v.id, avant: { axis: v.axis, revision: v.revision }, apres: { axis: { a: { ...a }, b: { ...b } }, revision: c.revision } });
+        }
+        return accepte(ops);
+      }
       return ajuster(p, cmd.niveau, [], [{ de: cmd.de, vers: cmd.vers }], c, murDroitsAuSommet(p, cmd.niveau, cmd.de));
     }
     case 'equerrerMurs': {

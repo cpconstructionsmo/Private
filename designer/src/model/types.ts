@@ -68,9 +68,12 @@ export interface Wall extends BaseObject {
   justification: 'center' | 'left' | 'right';
   height: Mm;
   baseOffset: Mm;
-  role: 'exterior' | 'partition' | 'bearing_interior';
+  /** virtual : une cloison fictive — une limite de pièce sans matière (une cuisine ouverte sur le séjour) :
+   *  elle sépare les espaces au plan et aux surfaces, rien d'autre (ni 3D, ni exports, ni ouvertures) */
+  role: 'exterior' | 'partition' | 'bearing_interior' | 'virtual';
   /** jamais « confirmed » sans document : par défaut, à valider (règle 5) */
   loadBearing: Qualified<boolean>;
+  /** sa composition (catalogue/murs.ts) : les couches, dont la somme fait l'épaisseur ; absente : mur « sur mesure » */
   compositionRef?: string;
   /** le parement de sa face extérieure (catalogue/materiaux.ts), pour un mur de façade */
   finish?: string;

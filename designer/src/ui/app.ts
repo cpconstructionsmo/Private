@@ -33,12 +33,14 @@ import type { ImageDossier } from '../export/planche';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
 import { traits } from '../building/mobilier';
+import { icone } from './icones';
+import { COMPOSITION_PAR_DEFAUT, MATIERES_COUCHES, compositionMur, compositionsDu, epaisseurComposition, genreDuRole, type CompositionMur } from '../catalogue/murs';
 
 const USAGES: Record<RoomUsage, string> = {
   living: 'Séjour', bedroom: 'Chambre', kitchen: 'Cuisine', bathroom: 'Salle d’eau / de bains', wc: 'WC', circulation: 'Circulation',
   storage: 'Rangement', garage: 'Garage', technical: 'Technique', other: 'Autre',
 };
-const ROLES: Record<Wall['role'], string> = { exterior: 'Mur extérieur', partition: 'Cloison', bearing_interior: 'Refend' };
+const ROLES: Record<Wall['role'], string> = { exterior: 'Mur extérieur', bearing_interior: 'Mur intérieur (refend)', partition: 'Cloison', virtual: 'Cloison fictive' };
 const JUSTIFS: Record<Wall['justification'], string> = { center: 'À l’axe', left: 'Par la face gauche', right: 'Par la face droite' };
 const ESCALIERS: Record<Stair['kind'], string> = { straight: 'Droit', quarter_left: 'Quart tournant à gauche', quarter_right: 'Quart tournant à droite' };
 const TOITURES: Record<Roof['kind'], string> = { hip: 'À croupes', gable: 'Deux pans (pignons)', shed: 'Un pan', flat: 'Toit-terrasse' };
@@ -54,33 +56,84 @@ const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
 const date = (iso: string) => { try { return new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return iso } };
 
 const CSS = `
-.cpd{position:fixed;inset:0;display:grid;grid-template-columns:52px 1fr 300px;grid-template-rows:48px 1fr 28px;font:13px/1.4 system-ui,-apple-system,sans-serif;color:#1A2B36;background:#FBFAF7}
-.cpd header{grid-column:1/4;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid #E4DED3;background:#fff}
-.cpd header .marque{color:#C5563A;font-weight:700;letter-spacing:.05em;font-size:12px}
-.cpd header input.nom{font:600 15px system-ui;border:1px solid transparent;border-radius:6px;padding:3px 6px;min-width:120px;color:#1A2B36;background:none}
-.cpd header input.nom:hover,.cpd header input.nom:focus{border-color:#DDD5C8;background:#fff}
+.cpd{position:fixed;inset:0;display:grid;grid-template-columns:auto 1fr 320px;grid-template-rows:56px 38px auto 1fr 26px;font:13px/1.4 system-ui,-apple-system,sans-serif;color:#1A2B36;background:#FBFAF7}
+.cpd header{grid-column:1/4;grid-row:1;display:flex;align-items:stretch;gap:0;padding:0 0 0 12px;background:#1F2F3A;color:#E9EEF1}
+.cpd header .marque{display:flex;flex-direction:column;justify-content:center;padding-right:12px;color:#fff;font-weight:700;letter-spacing:.06em;font-size:11px;line-height:1.1}
+.cpd header .marque b{color:#E07A5F;font-size:15px}
+.cpd header input.nom{align-self:center;font:600 14px system-ui;border:1px solid transparent;border-radius:6px;padding:4px 6px;width:150px;color:#fff;background:none;text-transform:uppercase;letter-spacing:.02em;text-overflow:ellipsis}
+.cpd header input.nom:hover,.cpd header input.nom:focus{border-color:#4C6272;background:#2C3F4C}
+.cpd header nav.onglets{display:flex;margin-left:14px;border-left:1px solid #33475A}
+.cpd header nav.onglets button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:74px;padding:4px 6px 3px;border:none;border-right:1px solid #33475A;border-bottom:3px solid transparent;border-radius:0;background:none;color:#E9EEF1;font:600 12.5px system-ui;cursor:pointer}
+.cpd header nav.onglets button:hover{background:#2C3F4C}
+.cpd header nav.onglets button.actif{background:#2C3F4C;border-bottom-color:#E07A5F;color:#fff}
 .cpd header .esp{flex:1}
-.cpd .etat{font-size:12px;padding:3px 8px;border-radius:12px;background:#EEF3EF;color:#3F7A5A;white-space:nowrap;max-width:420px;overflow:hidden;text-overflow:ellipsis}
-.cpd .etat.local,.cpd .etat.hors_ligne,.cpd .etat.en_attente{background:#FBF1DF;color:#8A5A12}
-.cpd .etat.conflit{background:#FBE3DA;color:#A13A20}
+.cpd header .droite-entete{display:flex;align-items:center;gap:6px;padding:0 10px}
+.cpd header .droite-entete button{background:#2C3F4C;border-color:#4C6272;color:#E9EEF1}
+.cpd header .droite-entete a{color:#BFD0DA;font-size:12px;white-space:nowrap}
+.cpd .etat{font-size:11.5px;padding:3px 8px;border-radius:12px;background:#28463A;color:#BFE3CB;white-space:nowrap;max-width:170px;overflow:hidden;text-overflow:ellipsis}
+.cpd .etat.local,.cpd .etat.hors_ligne,.cpd .etat.en_attente{background:#4A3B1E;color:#F3D9A4}
+.cpd .etat.conflit{background:#5A2A1E;color:#F6C3B3}
+.cpd .sous{grid-column:1/3;grid-row:2;display:flex;align-items:stretch;background:#2C3F4C;color:#E9EEF1;overflow-x:auto;scrollbar-width:thin}
+.cpd .sous button{display:flex;align-items:center;gap:7px;padding:0 14px;border:none;border-right:1px solid #3B5060;border-bottom:3px solid transparent;border-radius:0;background:none;color:#E9EEF1;font:500 12.5px system-ui;white-space:nowrap;cursor:pointer}
+.cpd .sous button:hover{background:#34495A}
+.cpd .sous button.actif{border-bottom-color:#E07A5F;background:#34495A;color:#fff}
+.cpd .ruban{grid-column:1/3;grid-row:3;display:flex;align-items:stretch;gap:0;height:81px;background:#3A4E5C;color:#E9EEF1;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.cpd .ruban .tuile-outil{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:96px;min-width:96px;height:78px;padding:4px;border:none;border-right:1px solid #4A606F;border-bottom:3px solid transparent;border-radius:0;background:none;color:#E9EEF1;font:500 11.5px/1.15 system-ui;text-align:center;cursor:pointer}
+.cpd .ruban .tuile-outil:hover{background:#465C6B}
+.cpd .ruban .tuile-outil.actif{background:#4C6272;border-bottom-color:#E07A5F;color:#fff}
+.cpd .ruban .tuile-outil svg{width:30px;height:30px}
+.cpd .ruban .tuile-outil kbd{font:10px system-ui;opacity:.6}
+.cpd .ruban .options{display:flex;align-items:center;gap:10px;padding:6px 14px;font-size:12px;color:#E9EEF1}
+.cpd .ruban .options label{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.cpd .ruban .options select{background:#2C3F4C;color:#fff;border:1px solid #5A7080;border-radius:5px;padding:3px 6px}
+.cpd .compo{position:relative;align-self:center;margin:0 12px;min-width:320px;max-width:380px}
+.cpd .compo .carte{display:flex;flex-direction:column;gap:4px;padding:7px 10px;border-radius:6px;background:#2C3F4C;border:1px solid #5A7080;cursor:pointer;color:#fff}
+.cpd .compo .carte:hover{border-color:#E07A5F}
+.cpd .compo .tete{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:12.5px}
+.cpd .compo .couches{display:flex;flex-wrap:wrap;gap:3px}
+.cpd .compo .couches span{font-size:10.5px;padding:1px 5px;border-radius:3px;border:1px solid #E07A5F;color:#F3C9BC}
+.cpd .liste-compo{position:fixed;z-index:25;max-height:60vh;overflow:auto;background:#2C3F4C;border:1px solid #5A7080;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:4px;box-sizing:border-box}
+.cpd .liste-compo .carte{display:flex;flex-direction:column;gap:4px;padding:7px 10px;border-radius:6px;border:1px solid transparent;margin:2px 0;cursor:pointer;color:#fff}
+.cpd .liste-compo .carte:hover{border-color:#E07A5F}
+.cpd .liste-compo .carte.choisi{border-color:#E07A5F;background:#34495A}
+.cpd .liste-compo .tete{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:12.5px}
+.cpd .liste-compo .couches{display:flex;flex-wrap:wrap;gap:3px}
+.cpd .liste-compo .couches span{font-size:10.5px;padding:1px 5px;border-radius:3px;border:1px solid #E07A5F;color:#F3C9BC}
+.cpd .liste-compo .apercu-couches{display:flex;height:8px;border-radius:2px;overflow:hidden;border:1px solid #1A2B36}
+.cpd .compo .apercu-couches{display:flex;height:8px;border-radius:2px;overflow:hidden;border:1px solid #1A2B36}
+.cpd .catalogue{grid-column:1;grid-row:4;width:252px;overflow:auto;background:#F4F0E8;border-right:1px solid #E4DED3;padding:10px;box-sizing:border-box}
+.cpd .catalogue:empty{display:none}
+.cpd .catalogue h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#6E7B84;margin:4px 0 6px}
+.cpd .catalogue .note{font-size:12px;color:#6E7B84}
+.cpd .catalogue input.chercher{width:100%;box-sizing:border-box;border:1px solid #DDD5C8;border-radius:16px;padding:5px 10px;margin:0 0 8px;background:#fff}
 .cpd button,.cpd select,.cpd input{font:inherit;color:inherit}
 .cpd button{border:1px solid #DDD5C8;background:#fff;border-radius:6px;padding:4px 9px;cursor:pointer}
 .cpd button:hover{border-color:#C5563A}
 .cpd button:disabled{opacity:.4;cursor:default}
 .cpd button.prim{background:#C5563A;border-color:#C5563A;color:#fff}
 .cpd button.dang{color:#A13A20}
-.cpd nav{grid-column:1;grid-row:2/3;display:flex;flex-direction:column;gap:4px;padding:6px;border-right:1px solid #E4DED3;background:#fff}
-.cpd nav button{width:40px;height:40px;padding:0;font-size:17px;display:flex;align-items:center;justify-content:center;position:relative}
-.cpd nav button.actif{background:#1A2B36;color:#fff;border-color:#1A2B36}
-.cpd nav button small{position:absolute;right:2px;bottom:0;font-size:9px;opacity:.6}
-.cpd main{grid-column:2;grid-row:2/3;position:relative;overflow:hidden;touch-action:none}
-.cpd main canvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
-.cpd aside{grid-column:3;grid-row:2/3;overflow:auto;border-left:1px solid #E4DED3;background:#fff;padding:12px}
+.cpd main{grid-column:2;grid-row:4;position:relative;overflow:hidden;touch-action:none}
+.cpd main canvas.plan2d{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+.cpd .flottant{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:4;display:flex;gap:6px;align-items:center}
+.cpd .flottant .groupe{display:flex;align-items:center;gap:2px;background:#2C3F4C;border-radius:7px;padding:3px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.cpd .flottant button,.cpd .flottant select{background:none;border:none;color:#fff;border-radius:5px;padding:4px 8px;font-size:13px}
+.cpd .flottant select{background:#2C3F4C;min-width:120px}
+.cpd .flottant button:hover{background:#3B5060}
+.cpd .flottant button.actif{background:#C5563A}
+.cpd .affichages{position:absolute;top:calc(100% + 6px);right:0;background:#fff;color:#1A2B36;border:1px solid #DDD5C8;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:8px 12px;min-width:250px;z-index:20}
+.cpd .affichages label{display:flex;align-items:center;gap:8px;margin:5px 0;white-space:nowrap}
+.cpd .droite{grid-column:3;grid-row:2/5;display:flex;flex-direction:column;min-height:0;border-left:1px solid #E4DED3;background:#fff}
+.cpd .apercu{position:relative;height:210px;flex:none;background:#DCE5DC;border-bottom:1px solid #E4DED3;overflow:hidden}
+.cpd .apercu .attrape{position:absolute;inset:0;z-index:3;cursor:zoom-in}
+.cpd .apercu .legende-apercu{position:absolute;left:8px;bottom:6px;z-index:4;font-size:11px;color:#1A2B36;background:rgba(255,255,255,.8);padding:1px 6px;border-radius:8px;pointer-events:none}
+.cpd .apercu .vide-apercu{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#6E7B84;font-size:12px;padding:12px;text-align:center}
+.cpd .apercu canvas{position:absolute;inset:0;width:100%;height:100%}
+.cpd aside{flex:1;overflow:auto;padding:12px;min-height:0}
 .cpd aside h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#6E7B84;margin:14px 0 6px}
 .cpd aside h3:first-child{margin-top:0}
 .cpd aside label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:5px 0}
 .cpd aside label input:not([type=checkbox]):not([type=range]),.cpd aside label select{width:130px;border:1px solid #DDD5C8;border-radius:5px;padding:3px 6px;background:#fff}
-.cpd aside .ligne{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.cpd aside .ligne,.cpd .catalogue .ligne{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
 .cpd aside .note{font-size:12px;color:#6E7B84}
 .cpd aside .alerte{font-size:12px;padding:6px 8px;border-left:3px solid #C5563A;background:#FBF3EF;margin:4px 0}
 .cpd aside .ok{font-size:12px;padding:6px 8px;border-left:3px solid #3F7A5A;background:#EEF3EF}
@@ -91,11 +144,14 @@ const CSS = `
 .cpd aside .niv.actif{background:#F5F1EA;font-weight:600}
 .cpd aside .chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 6px;border-radius:10px;background:#EEF3EF;color:#3F7A5A}
 .cpd aside .chip button{border:none;padding:0 2px;background:none;color:inherit}
-.cpd footer{grid-column:1/4;display:flex;gap:16px;align-items:center;padding:0 12px;border-top:1px solid #E4DED3;background:#fff;font-size:12px;color:#6E7B84}
+.cpd aside .couches-mur{display:flex;flex-direction:column;gap:2px;margin:4px 0}
+.cpd aside .couches-mur div{display:flex;align-items:center;gap:6px;font-size:12px}
+.cpd aside .couches-mur i{display:inline-block;width:14px;height:12px;border:1px solid #1A2B36}
+.cpd footer{grid-column:1/4;grid-row:5;display:flex;gap:16px;align-items:center;padding:0 12px;border-top:1px solid #E4DED3;background:#fff;font-size:12px;color:#6E7B84}
 .cpd footer .acc{color:#C5563A;font-weight:600}
-.cpd .toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);background:#1A2B36;color:#fff;padding:8px 14px;border-radius:8px;max-width:70%;box-shadow:0 4px 16px rgba(0,0,0,.15)}
+.cpd .toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);background:#1A2B36;color:#fff;padding:8px 14px;border-radius:8px;max-width:70%;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:6}
 .cpd .toast.err{background:#A13A20}
-.cpd .voile{position:fixed;inset:0;background:rgba(26,43,54,.35);display:flex;align-items:flex-start;justify-content:center;padding-top:min(12vh,80px);z-index:10}
+.cpd .voile{position:fixed;inset:0;background:rgba(26,43,54,.35);display:flex;align-items:flex-start;justify-content:center;padding-top:min(12vh,80px);z-index:30}
 .cpd .boite{background:#fff;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.2);width:min(440px,92vw);padding:16px;box-sizing:border-box;max-height:calc(100vh - min(12vh,80px) - 16px);overflow-y:auto}
 .cpd .boite h2{font-size:16px;margin:0 0 10px}
 .cpd .boite label{display:block;margin:8px 0}
@@ -107,20 +163,20 @@ const CSS = `
 .cpd .palette li.sel{background:#F5F1EA}
 .cpd .palette li kbd{font-size:11px;color:#6E7B84}
 .cpd .biblio details{margin:4px 0}
-.cpd .biblio summary{cursor:pointer;font-weight:600;padding:4px 0}
-.cpd .biblio .tuiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:4px 0 8px}
+.cpd .biblio summary{cursor:pointer;font-weight:600;padding:5px 2px;border-bottom:1px solid #E4DED3;text-transform:uppercase;font-size:11.5px;letter-spacing:.04em}
+.cpd .biblio .tuiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0 8px}
 .cpd .biblio .tuile{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px;border:1px solid #DDD5C8;border-radius:8px;background:#fff;cursor:grab;font-size:11px;line-height:1.25;text-align:center;user-select:none}
 .cpd .biblio .tuile:hover{border-color:#C5563A}
 .cpd .biblio .tuile.choisi{border-color:#C5563A;background:#FBF3EF;box-shadow:0 0 0 1px #C5563A inset}
 .cpd .biblio .tuile svg{width:72px;height:34px}
+.cpd .biblio .pastille{width:100%;height:26px;border-radius:4px;border:1px solid #CFC7BA}
 .cpd main .hote3d{position:absolute;inset:0;display:none}
 .cpd main .hote3d canvas{cursor:grab}
 .cpd.en3d main .hote3d{display:block}
-.cpd.en3d main > canvas{visibility:hidden}
-.cpd header button.b3d{font-weight:700}
-.cpd header button.b3d.actif{background:#1A2B36;color:#fff;border-color:#1A2B36}
+.cpd .apercu .hote3d{position:absolute;inset:0;display:block}
 .cpd .saisie{position:absolute;z-index:5;width:150px;border:2px solid #C5563A;border-radius:6px;padding:4px 8px;font:600 14px system-ui;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.15)}
-@media (max-width:820px){.cpd{grid-template-columns:48px 1fr;grid-template-rows:48px 1fr 40vh 28px}.cpd aside{grid-column:1/3;grid-row:3/4;border-left:none;border-top:1px solid #E4DED3}.cpd footer{grid-row:4/5}}
+@media (max-width:1320px){.cpd header nav.onglets button{min-width:62px;font-size:11.5px}.cpd header .etat{max-width:110px}}
+@media (max-width:980px){.cpd{grid-template-columns:auto 1fr;grid-template-rows:56px 38px auto 1fr 38vh 26px}.cpd .droite{grid-column:1/3;grid-row:5;border-left:none;border-top:1px solid #E4DED3;flex-direction:row}.cpd .apercu{height:auto;width:40%}.cpd footer{grid-row:6}.cpd header input.nom{display:none}.cpd header nav.onglets button{min-width:60px;font-size:11px}}
 `;
 
 interface Action { libelle: string; touche?: string; faire: () => void; visible?: () => boolean }
@@ -128,24 +184,35 @@ interface Action { libelle: string; touche?: string; faire: () => void; visible?
 export async function demarrer(racine: HTMLElement): Promise<void> {
   const params = new URLSearchParams(location.search);
   racine.innerHTML = `<style>${CSS}</style><div class="cpd"><header>
-      <span class="marque">CP DESIGNER</span>
+      <span class="marque"><b>CP</b>DESIGNER</span>
       <input class="nom" title="Nom du projet" spellcheck="false">
-      <select class="niveaux" title="Niveau affiché"></select>
-      <button class="annuler" title="Annuler (Ctrl+Z)">↶</button><button class="retablir" title="Rétablir (Ctrl+Maj+Z)">↷</button>
+      <nav class="onglets"></nav>
       <span class="esp"></span>
-      <span class="etat" title="Enregistrement"></span>
-      <button class="bpdf" title="Exporter les plans en PDF (A3, cotés, cartouche)">PDF</button>
-      <button class="bdxf" title="Exporter les plans en DXF (bureaux d’études, autres logiciels)">DXF</button>
-      <button class="b3d" title="Vue 3D (touche 3) — Échap pour revenir au plan">3D</button>
-      <button class="cmdk" title="Toutes les actions">⌘K</button>
-      <a href="../index.html" style="color:#2C4A5E;font-size:12px">Suivi de chantiers</a>
+      <span class="droite-entete">
+        <span class="etat" title="Enregistrement"></span>
+        <button class="bpdf" title="Exporter les plans en PDF (A3, cotés, cartouche)">PDF</button>
+        <button class="bdxf" title="Exporter les plans en DXF (bureaux d’études, autres logiciels)">DXF</button>
+        <button class="cmdk" title="Toutes les actions (Ctrl+K)">⌘K</button>
+        <a href="../index.html" title="Retour au suivi de chantiers">Suivi ↗</a>
+      </span>
     </header>
-    <nav></nav>
-    <main><canvas></canvas><div class="hote3d"></div></main>
-    <aside></aside>
+    <div class="sous"></div>
+    <div class="ruban"></div>
+    <div class="catalogue"></div>
+    <main><canvas class="plan2d"></canvas><div class="hote3d"></div>
+      <div class="flottant">
+        <span class="groupe"><select class="niveaux" title="Niveau affiché"></select></span>
+        <span class="groupe"><button class="annuler" title="Annuler (Ctrl+Z)">↶</button><button class="retablir" title="Rétablir (Ctrl+Maj+Z)">↷</button></span>
+        <span class="groupe"><button class="b3d" title="Permuter le plan et la vue 3D (touche 3)">⇄ 3D</button></span>
+        <span class="groupe" style="position:relative"><button class="baff" title="Ce que montre le plan">Affichages ▾</button></span>
+      </div>
+    </main>
+    <div class="droite"><div class="apercu"><div class="vide-apercu">Aperçu 3D…</div><div class="attrape" title="Agrandir (touche 3)"></div><span class="legende-apercu">3D</span></div><aside></aside></div>
     <footer><span class="aide"></span><span class="esp" style="flex:1"></span><span class="acc"></span><span class="coord"></span></footer></div>`;
   const $ = <T extends Element>(s: string) => racine.querySelector(s) as T;
-  const canvas = $<HTMLCanvasElement>('canvas'), main = $<HTMLElement>('main'), aside = $<HTMLElement>('aside'), nav = $<HTMLElement>('nav');
+  const canvas = $<HTMLCanvasElement>('canvas.plan2d'), main = $<HTMLElement>('main'), aside = $<HTMLElement>('aside');
+  const ongletsNav = $<HTMLElement>('nav.onglets'), sousNav = $<HTMLElement>('.sous'), ruban = $<HTMLElement>('.ruban'), catalogue = $<HTMLElement>('.catalogue');
+  const apercuBoite = $<HTMLElement>('.apercu'), hote3d = $<HTMLElement>('.hote3d');
   const ctx = canvas.getContext('2d')!;
   const etat = $<HTMLElement>('.etat');
 
@@ -209,31 +276,74 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (selection && !niveau().objects[selection]) selection = null;
     groupe = groupe.filter(id => niveau().objects[id]);
     if (groupe.length < 2) groupe = [];
-    if (en3D && vue3d) { vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe() }
-    panneaux(); dessinerBientot();
+    if (en3D && vue3d) { vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe() } else apercu3DBientot();
+    barreOutils(); panneaux(); dessinerBientot();
   }
 
   /* ---------- vue 3D ---------- */
   const maquetteAffichee = () => maquette(h.projet, niveaux3D === 'jusqua' ? niveauId : undefined, { toiture: toit3D });
   /* « vue maquette » : murs coupés à 1,20 m au-dessus du sol du niveau affiché, comme une maison de poupée */
   function appliquerCoupe() { vue3d?.couper(coupe3D ? niveau().elevation + 1_200 : null) }
+  /* le plan et la 3D se partagent l'écran : l'un au centre, l'autre en aperçu (à droite) ; ⇄ ou la touche 3 les permutent */
+  let camPlan: Camera | null = null;
+  /** la taille du plan à l'écran, relue aussitôt qu'un onglet ouvre ou ferme le catalogue (un clic qui suit tombe juste) */
+  function ajusterCamera() {
+    const hote = canvas.parentElement ?? main;
+    if (hote.clientWidth && hote.clientHeight) cam = { ...cam, largeur: hote.clientWidth, hauteur: hote.clientHeight };
+  }
+  function placerVues() {
+    const attrape = apercuBoite.querySelector('.attrape')!;
+    if (en3D) { main.prepend(hote3d); apercuBoite.insertBefore(canvas, attrape) }
+    else { main.prepend(canvas); apercuBoite.insertBefore(hote3d, attrape) }
+    apercuBoite.querySelector('.legende-apercu')!.textContent = en3D ? 'Plan 2D' : '3D';
+    apercuBoite.querySelector<HTMLElement>('.vide-apercu')!.style.display = en3D || vue3d ? 'none' : '';
+    ajusterCamera();
+  }
+  /** la 3D (three.js) : chargée une fois, dans son hôte, où qu'il soit */
+  let vue3dEnCours: Promise<Vue3D | null> | null = null;
+  function preparer3D(): Promise<Vue3D | null> {
+    if (vue3d) return Promise.resolve(vue3d);
+    vue3dEnCours ??= (async () => {
+      try {
+        const { creerVue3D } = await import('./vue3d');
+        vue3d = await creerVue3D(hote3d); if (photoSite) vue3d.photo(photoSite);
+        vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe(); placerVues();
+        return vue3d;
+      } catch (e) {
+        apercuBoite.querySelector<HTMLElement>('.vide-apercu')!.textContent = 'Aperçu 3D indisponible sur ce navigateur';
+        throw e;
+      }
+    })();
+    return vue3dEnCours;
+  }
   async function basculer3D(oui = !en3D) {
     if (oui === en3D) return;
     if (!oui) vue3d?.visite(false);
     en3D = oui;
     racine.querySelector('.cpd')!.classList.toggle('en3d', oui);
     $<HTMLButtonElement>('.b3d').classList.toggle('actif', oui);
+    /* la caméra du plan se garde : l'aperçu montre tout le niveau, le retour retrouve la vue */
+    if (oui) camPlan = cam; else if (camPlan) { cam = { ...camPlan }; camPlan = null }
+    placerVues();
     if (oui) {
       choixMur = null; effet(outils.choisir('selection')); selection = null; barreOutils(); panneaux();
       try {
-        if (!vue3d) { const { creerVue3D } = await import('./vue3d'); vue3d = await creerVue3D($<HTMLElement>('.hote3d')); if (photoSite) vue3d.photo(photoSite) }
-        vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe();
+        await preparer3D();
+        vue3d!.mettreAJour(maquetteAffichee()); appliquerCoupe(); vue3d!.cadrer();
       } catch (e) {
         toast('La vue 3D n’a pas pu s’ouvrir sur ce navigateur (' + String((e as Error)?.message ?? e) + ')', true);
-        en3D = false; racine.querySelector('.cpd')!.classList.remove('en3d'); $<HTMLButtonElement>('.b3d').classList.remove('actif');
+        en3D = false; racine.querySelector('.cpd')!.classList.remove('en3d'); $<HTMLButtonElement>('.b3d').classList.remove('actif'); placerVues();
       }
-    }
+    } else vue3d?.cadrer();
+    requestAnimationFrame(() => { if (en3D) cadrerTout(); dessinerBientot() });
     panneaux(); dessinerBientot();
+  }
+  /* l'aperçu suit le plan, sans le ralentir : mis à jour un instant après la dernière modification */
+  let minuterie3D = 0;
+  function apercu3DBientot() {
+    if (!vue3d || en3D) return;
+    clearTimeout(minuterie3D);
+    minuterie3D = window.setTimeout(() => { if (vue3d && !en3D) { vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe() } }, 400);
   }
   /* la vue 3D gardée pour le dossier de permis (le temps de la séance : une image, pas une donnée du projet) */
   let perspective: ImageDossier | null = null;
@@ -311,7 +421,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     return h.projet;
   }
   function peindre() {
-    const dpr = window.devicePixelRatio || 1, l = main.clientWidth, ht = main.clientHeight;
+    const hote = canvas.parentElement ?? main, dpr = window.devicePixelRatio || 1, l = hote.clientWidth, ht = hote.clientHeight;
     if (canvas.width !== Math.round(l * dpr) || canvas.height !== Math.round(ht * dpr)) { canvas.width = Math.round(l * dpr); canvas.height = Math.round(ht * dpr) }
     cam = { ...cam, largeur: l, hauteur: ht };
     const p = projetAffiche(), f = niveau(p);
@@ -341,7 +451,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       parcelleEnCours: outils.parcelleEnCours,
       coupes: traitsDeCoupe(p).map(({ id, niveau: n, ...l }) => (n === f.id ? { ...l, id } : l)),
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
-      ...(cotation ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
+      ...(cotation && !en3D ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
   }
   function chargerFond(cle: string, page?: number) {
@@ -350,7 +460,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     imageDuFond(cle, page, undefined, enr.fonds).then(i => { if (i) { images.set(cle, i); dessinerBientot() } else toast('Le fichier d’un fond n’est ni sur cet appareil ni sur le serveur : réimportez-le pour le voir.', true) })
       .catch(e => toast('Fond illisible : ' + String((e as Error)?.message ?? e), true));
   }
-  new ResizeObserver(() => dessinerBientot()).observe(main);
+  const redimension = new ResizeObserver(() => dessinerBientot());
+  redimension.observe(main); redimension.observe(apercuBoite);
 
   /* ---------- gestes ---------- */
   const geste = (e: PointerEvent | MouseEvent): Geste => {
@@ -569,38 +680,268 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
 
   /* ---------- outils ---------- */
   const OUTILS: { nom: NomOutil; icone: string; libelle: string; touche: string }[] = [
-    { nom: 'selection', icone: '↖', libelle: 'Sélection', touche: 'V' }, { nom: 'mur', icone: '▬', libelle: 'Mur', touche: 'M' },
-    { nom: 'cloison', icone: '▭', libelle: 'Cloison', touche: 'C' }, { nom: 'rectangle', icone: '⬚', libelle: 'Rectangle de murs', touche: 'R' },
-    { nom: 'ouverture', icone: '◫', libelle: 'Ouverture', touche: 'O' }, { nom: 'mobilier', icone: '▣', libelle: 'Mobilier', touche: 'B' },
-    { nom: 'escalier', icone: '▤', libelle: 'Escalier', touche: 'E' }, { nom: 'coupe', icone: '✂', libelle: 'Trait de coupe', touche: 'K' },
-    { nom: 'parcelle', icone: '⛶', libelle: 'Parcelle (limite du terrain)', touche: 'L' },
-    { nom: 'amenagement', icone: '❀', libelle: 'Aménagement extérieur (clôture, terrasse, allée…)', touche: 'A' },
-    { nom: 'pointdevue', icone: '◉', libelle: 'Point de prise de vue (photographies du dossier)', touche: 'I' },
-    { nom: 'fenetretoit', icone: '◇', libelle: 'Fenêtre de toit', touche: 'H' },
-    { nom: 'altitude', icone: '⊕', libelle: 'Point coté du terrain (altitude NGF)', touche: 'N' },
-    { nom: 'piece', icone: '⌂', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: '↔', libelle: 'Cote', touche: 'D' },
+    { nom: 'selection', icone: 'selection', libelle: 'Sélection', touche: 'V' }, { nom: 'mur', icone: 'mur_exterieur', libelle: 'Mur extérieur', touche: 'M' },
+    { nom: 'refend', icone: 'mur_interieur', libelle: 'Mur intérieur', touche: 'J' },
+    { nom: 'cloison', icone: 'cloison', libelle: 'Cloison', touche: 'C' }, { nom: 'fictive', icone: 'cloison_fictive', libelle: 'Cloison fictive', touche: 'U' },
+    { nom: 'rectangle', icone: 'rectangle', libelle: 'Rectangle de murs', touche: 'R' },
+    { nom: 'ouverture', icone: 'ouverture_mur', libelle: 'Ouverture', touche: 'O' }, { nom: 'mobilier', icone: 'produit', libelle: 'Mobilier', touche: 'B' },
+    { nom: 'escalier', icone: 'escalier', libelle: 'Escalier', touche: 'E' }, { nom: 'coupe', icone: 'coupe', libelle: 'Trait de coupe', touche: 'K' },
+    { nom: 'parcelle', icone: 'parcelle', libelle: 'Parcelle (limite du terrain)', touche: 'L' },
+    { nom: 'amenagement', icone: 'exterieur', libelle: 'Aménagement extérieur (clôture, terrasse, allée…)', touche: 'A' },
+    { nom: 'pointdevue', icone: 'point_de_vue', libelle: 'Point de prise de vue (photographies du dossier)', touche: 'I' },
+    { nom: 'fenetretoit', icone: 'fenetre_toit', libelle: 'Fenêtre de toit', touche: 'H' },
+    { nom: 'altitude', icone: 'altitude', libelle: 'Point coté du terrain (altitude NGF)', touche: 'N' },
+    { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
+  /** l'onglet et le sous-onglet où vit chaque outil : choisir l'outil (au clavier) y mène */
+  const PLACE_OUTIL: Partial<Record<NomOutil, [string, string]>> = {
+    mur: ['trace', 'murs'], refend: ['trace', 'murs'], cloison: ['trace', 'murs'], fictive: ['trace', 'murs'], rectangle: ['trace', 'murs'],
+    piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
+    ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
+    mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
+  };
   function choisir(o: NomOutil) {
     if (en3D) void basculer3D(false);
     /* la parcelle se trace sur le niveau le plus bas (le terrain) */
     /* une fenêtre de toit se pose sur la toiture : on passe au niveau qui la porte */
     if (o === 'fenetretoit' && !Object.values(niveau().objects).some(x => x.type === 'roof')) {
       const t = niveaux().find(f => Object.values(f.objects).some(x => x.type === 'roof'));
-      if (!t) { toast('Aucune toiture : posez-la d’abord (panneau du niveau ou de la 3D), puis ses fenêtres', true); return }
+      if (!t) { toast('Aucune toiture : posez-la d’abord (onglet Toit), puis ses fenêtres', true); return }
       niveauId = t.id; selection = null; apres();
     }
     if (o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'altitude') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
+    const place = PLACE_OUTIL[o];
+    if (place) { onglet = place[0]; sousOnglets[place[0]] = place[1] }
+    if (o !== 'piece') typePiece = null;
     choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+
+  /* ---------- onglets, sous-onglets, ruban ---------- */
+  interface Tuile { libelle: string; icone: string; faire: () => void; actif?: () => boolean; titre?: string; touche?: string; classe?: string }
+  interface SousOnglet { id: string; libelle: string; icone: string; tuiles?: () => Tuile[]; options?: () => HTMLElement[]; catalogue?: () => void; entrer?: () => void; panneau?: (f: Floor) => void }
+  interface Onglet { id: string; libelle: string; icone: string; sous: SousOnglet[] }
+  const outil = (n: NomOutil, libelle?: string, icone?: string): Tuile => {
+    const o = OUTILS.find(x => x.nom === n)!;
+    return { libelle: libelle ?? o.libelle, icone: icone ?? o.icone, faire: () => choisir(n), actif: () => outils.outil === n, touche: o.touche, classe: 'o-' + n };
+  };
+  const action = (libelle: string, icone: string, faire: () => void, titre?: string, classe?: string): Tuile => ({ libelle, icone, faire, ...(titre ? { titre } : {}), ...(classe ? { classe } : {}) });
+  /** le niveau qui porte la toiture : celui qui en a une, sinon le plus haut qui a des murs */
+  const niveauToit = (): Floor => niveaux().find(f => Object.values(f.objects).some(o => o.type === 'roof'))
+    ?? [...niveaux()].reverse().find(f => mursDroits(f).some(w => w.role === 'exterior')) ?? niveau();
+  function poserToit(genre: Roof['kind']) {
+    const f = niveauToit(), r = Object.values(f.objects).find((o): o is Roof => o.type === 'roof');
+    if (niveauId !== f.id) { niveauId = f.id; selection = null }
+    if (r) faire('Toiture : ' + TOITURES[genre], [{ type: 'modifierToiture', id: r.id, genre, ...(genre === 'flat' ? { couverture: 'gravel' as const } : r.covering === 'gravel' ? { couverture: 'tile' as const } : {}) }]);
+    else faire('Toiture : ' + TOITURES[genre], [{ type: 'creerToiture', niveau: f.id, genre, pente: genre === 'flat' ? 0 : 35, debord: 500, couverture: genre === 'flat' ? 'gravel' : 'tile' }]);
+    apres();
+  }
+  const ONGLETS: Onglet[] = [
+    { id: 'trace', libelle: 'Tracé', icone: 'trace', sous: [
+      { id: 'terrain', libelle: 'Terrain naturel', icone: 'terrain', tuiles: () => [outil('parcelle', 'Parcelle'), outil('altitude', 'Point coté'),
+        action('Importer un fond', 'fond', importerFond, 'Un plan PDF ou une image (plan du géomètre, plan à reprendre), à caler'),
+        action('Caler le fond', 'caler', () => {
+          const u = Object.values(niveau().objects).find(o => o.type === 'underlay');
+          if (!u) { toast('Aucun fond sur ce niveau : importez-le d’abord', true); return }
+          if (u.locked) { selection = u.id; panneaux(); toast('Déverrouillez le fond pour le caler', true); return }
+          selection = u.id; effet(outils.choisir('caler')); barreOutils();
+        }, 'Deux points du fond dont vous connaissez la distance'),
+        action('Plan de l’atelier', 'atelier', importerAtelier, 'Le RDC lu par l’atelier (modele.json)')] },
+      { id: 'murs', libelle: 'Murs', icone: 'murs', tuiles: () => [outil('mur', 'Mur extérieur'), outil('refend', 'Mur intérieur'), outil('cloison'), outil('fictive'),
+        outil('rectangle', 'Rectangle de murs'), action('Mettre d’équerre', 'equerre', () => mettreDEquerre(), 'Redresser à 90° les murs presque d’équerre du niveau')],
+        options: () => optionsMurs() },
+      { id: 'pieces', libelle: 'Types de pièces', icone: 'pieces', tuiles: () => [
+        ...TYPES_PIECES.map(t => ({ libelle: t.libelle, icone: 'piece', faire: () => choisirTypePiece(t.libelle), actif: () => outils.outil === 'piece' && typePiece === t.libelle, titre: 'Cliquez dans un espace clos pour en faire : ' + t.libelle })),
+        { ...outil('piece', 'Autre nom…'), faire: () => { typePiece = null; choisir('piece') }, actif: () => outils.outil === 'piece' && !typePiece }] },
+      { id: 'niveaux', libelle: 'Niveaux', icone: 'niveaux', tuiles: () => [action('Ajouter un niveau', 'niveau_plus', () => void ajouterNiveau()), outil('escalier')] },
+      { id: 'transformations', libelle: 'Transformations', icone: 'transformations', tuiles: () => [outil('selection'),
+        action('Tout choisir', 'tout', () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'constraint').map(o => o.id)), 'Ctrl+A'),
+        action('Copier', 'copier', () => void copierChoix(), 'Ctrl+C'), action('Coller', 'coller', commencerCollage, 'Ctrl+V — T : quart de tour, X / Y : miroir'),
+        action('Dupliquer', 'dupliquer', dupliquerChoix, 'Ctrl+D'), action('Mettre d’équerre', 'equerre', () => mettreDEquerre(choisis().filter(id => niveau().objects[id]?.type === 'wall').length ? choisis().filter(id => niveau().objects[id]?.type === 'wall') : undefined))] },
+      { id: 'implantation', libelle: 'Implantation', icone: 'implantation', tuiles: () => [
+        action('Implanter la maison', 'implantation', () => {
+          const t = parcelleDuProjet(h.projet);
+          if (!t) { toast('Tracez d’abord la parcelle (Terrain naturel → Parcelle)', true); return }
+          niveauId = t.niveau.id; selection = t.plot.id; apres();
+        }, 'La parcelle se place autour de la maison : distances aux limites, orientation'),
+        outil('parcelle', 'Tracer la parcelle')] },
+    ] },
+    { id: 'ouvrant', libelle: 'Ouvrant', icone: 'ouvrant', sous: [
+      { id: 'ouvrant', libelle: 'Ouvrant', icone: 'ouvrant', catalogue: () => bibliotheque(), entrer: () => { if (outils.outil !== 'ouverture') choisir('ouverture') } },
+      { id: 'tremie', libelle: 'Trémie et escalier', icone: 'escalier', tuiles: () => [outil('escalier')] },
+    ] },
+    { id: 'toit', libelle: 'Toit', icone: 'toit', sous: [
+      { id: 'toit', libelle: 'Toit', icone: 'toit', tuiles: () => (['hip', 'gable', 'shed', 'flat'] as const).map(g => ({
+        libelle: ({ hip: 'Toit multi-pans', gable: 'Toit deux pans', shed: 'Toit une pente', flat: 'Toit plat' } as const)[g], icone: ({ hip: 'toit_croupes', gable: 'toit_deux_pans', shed: 'toit_un_pan', flat: 'toit_plat' } as const)[g],
+        faire: () => poserToit(g), actif: () => Object.values(niveauToit().objects).some(o => o.type === 'roof' && o.kind === g), classe: 'toit-' + g })),
+        panneau: () => sectionToiture(niveauToit()) },
+      { id: 'fenetres', libelle: 'Fenêtres de toit', icone: 'fenetre_toit', tuiles: () => [outil('fenetretoit')], panneau: () => sectionToiture(niveauToit()) },
+    ] },
+    { id: 'exterieur', libelle: 'Extérieur', icone: 'exterieur', sous: [
+      { id: 'amenagements', libelle: 'Aménagements', icone: 'exterieur', tuiles: () => (Object.keys(GENRES_AMENAGEMENT) as GenreAmenagement[]).map(g => ({
+        libelle: GENRES_AMENAGEMENT[g].libelle, icone: ({ fence: 'cloture', terrace: 'terrasse', path: 'allee', parking: 'allee', green: 'pelouse' } as const)[g],
+        faire: () => { outils.reglages.genreAmenagement = g; outils.reglages.finitionAmenagement = finitionsDe(g)[0]!.id; choisir('amenagement') },
+        actif: () => outils.outil === 'amenagement' && outils.reglages.genreAmenagement === g })) },
+      { id: 'terrain', libelle: 'Terrain', icone: 'terrain', tuiles: () => [outil('parcelle', 'Parcelle'), outil('altitude', 'Point coté')] },
+      { id: 'vues', libelle: 'Prises de vue', icone: 'point_de_vue', tuiles: () => [outil('pointdevue', 'Point de prise de vue')] },
+    ] },
+    { id: 'produit', libelle: 'Produit', icone: 'produit', sous: [
+      { id: 'mobilier', libelle: 'Produit', icone: 'produit', catalogue: () => bibliothequeMobilier(), entrer: () => { if (outils.outil !== 'mobilier') choisir('mobilier') } },
+      { id: 'escalier', libelle: 'Escalier', icone: 'escalier', tuiles: () => [outil('escalier')] },
+    ] },
+    { id: 'revetement', libelle: 'Revêtement', icone: 'revetement', sous: [
+      { id: 'facades', libelle: 'Façades', icone: 'facade', catalogue: () => nuancier('facades'), panneau: f => sectionMateriaux(f) },
+      { id: 'sols', libelle: 'Sols', icone: 'sol', catalogue: () => nuancier('sols'), panneau: f => sectionMateriaux(f) },
+      { id: 'murs', libelle: 'Murs intérieurs', icone: 'peinture', catalogue: () => nuancier('murs'), panneau: f => sectionMateriaux(f) },
+    ] },
+    { id: 'studio', libelle: 'Studio', icone: 'studio', sous: [
+      { id: 'vue3d', libelle: 'Vue 3D', icone: 'vue3d', entrer: () => void basculer3D(true), tuiles: () => [
+        action('Recadrer', 'vue3d', () => vue3d?.cadrer()), action('Visite', 'visite', () => { void basculer3D(true).then(() => visite(true)) }, 'À hauteur d’homme (V)'),
+        action('Image PNG', 'image', () => void imagePNG()), action('Garder pour le dossier', 'permis', () => void garderPerspective(), 'La vue ira au dossier de permis')] },
+      { id: 'insertion', libelle: 'Insertion (PCMI 6)', icone: 'photo', entrer: () => void basculer3D(true), tuiles: () => [
+        action('Photo du terrain', 'photo', () => { void basculer3D(true).then(() => poserPhotoSite()) }), action('Garder pour le PCMI 6', 'permis', () => void garderInsertion())] },
+    ] },
+    { id: 'indications', libelle: 'Indications', icone: 'indications', sous: [
+      { id: 'cotes', libelle: 'Cotes', icone: 'cote', tuiles: () => [outil('cote'), { libelle: 'Cotation automatique', icone: 'cote', faire: () => basculerCotation(), actif: () => cotation }] },
+      { id: 'coupes', libelle: 'Coupes', icone: 'coupe', tuiles: () => [outil('coupe'), action('PDF des coupes', 'pdf', () => void exporterCoupes())] },
+      { id: 'couleurs', libelle: 'Couleurs de pièces', icone: 'couleurs', tuiles: () => [{ libelle: 'Sols en couleur', icone: 'couleurs', faire: () => basculerSols(), actif: () => solsCouleur }, outil('piece', 'Nommer une pièce')] },
+      { id: 'surfaces', libelle: 'Tableaux de surfaces', icone: 'tableau', panneau: f => panneauSurfaces(f) },
+    ] },
+    { id: 'dossier', libelle: 'Dossier', icone: 'dossier', sous: [
+      { id: 'plans', libelle: 'Plans', icone: 'pdf', tuiles: () => [action('Plans en PDF', 'pdf', () => void exporterPdf()), action('Plans en DXF', 'dxf', () => void exporterDxf()), action('Projet (JSON)', 'json', exporter)] },
+      { id: 'permis', libelle: 'Dossier de permis', icone: 'permis', tuiles: () => [action('Dossier PC complet', 'permis', () => void exporterPdf('dossier')),
+        action('PCMI 1 situation', 'image', () => void importerPiece('situation', 'PCMI 1 — Plan de situation', 'Source et échelle de l’extrait (ex. : Géoportail, 1/5 000)')),
+        action('PCMI 7 proche', 'photo', () => void importerPiece('photoProche', 'PCMI 7 — Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)')),
+        action('PCMI 8 lointain', 'photo', () => void importerPiece('photoLointaine', 'PCMI 8 — Environnement lointain', 'Point et angle de prise de vue'))],
+        panneau: () => sectionPieces() },
+    ] },
+  ];
+  let onglet = 'trace';
+  const sousOnglets: Record<string, string> = Object.fromEntries(ONGLETS.map(o => [o.id, o.sous[0]!.id]));
+  sousOnglets['trace'] = 'murs';
+  const ongletCourant = () => ONGLETS.find(o => o.id === onglet) ?? ONGLETS[0]!;
+  const sousCourant = () => { const O = ongletCourant(); return O.sous.find(x => x.id === sousOnglets[O.id]) ?? O.sous[0]! };
+  function ouvrirOnglet(id: string, sous?: string) {
+    const quitteStudio = onglet === 'studio' && id !== 'studio';
+    onglet = id;
+    if (sous) sousOnglets[id] = sous;
+    if (quitteStudio && en3D) void basculer3D(false);
+    /* un outil qui n'a rien à faire dans le nouvel onglet laisse la place à la sélection */
+    const place = PLACE_OUTIL[outils.outil];
+    if (place && (place[0] !== id || (sous && place[1] !== sous))) { choixMur = null; effet(outils.choisir('selection')) }
+    sousCourant().entrer?.();
+    barreOutils(); panneaux(); dessinerBientot();
+  }
   function barreOutils() {
-    nav.innerHTML = OUTILS.map(o => `<button data-o="${o.nom}" class="${outils.outil === o.nom ? 'actif' : ''}" title="${o.libelle} (${o.touche})">${o.icone}<small>${o.touche}</small></button>`).join('');
-    nav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => choisir(b.dataset['o'] as NomOutil));
-    $<HTMLElement>('.aide').textContent = choixMur ? choixMur.libelle : outils.aide;
+    const O = ongletCourant(), S = sousCourant();
+    ongletsNav.innerHTML = ONGLETS.map(o => `<button data-o="${o.id}" class="${o.id === O.id ? 'actif' : ''}" title="${esc(o.libelle)}">${icone(o.icone, 22)}<span>${esc(o.libelle)}</span></button>`).join('');
+    ongletsNav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => ouvrirOnglet(b.dataset['o']!));
+    sousNav.innerHTML = O.sous.map(x => `<button data-s="${x.id}" class="${x.id === S.id ? 'actif' : ''}">${icone(x.icone, 18)}<span>${esc(x.libelle)}</span></button>`).join('');
+    sousNav.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => ouvrirOnglet(O.id, b.dataset['s']!));
+    ruban.innerHTML = '';
+    racine.querySelector('.liste-compo')?.remove();
+    for (const t of S.tuiles?.() ?? []) {
+      const b = document.createElement('button');
+      b.className = 'tuile-outil' + (t.actif?.() ? ' actif' : '') + (t.classe ? ' ' + t.classe : '');
+      b.title = (t.titre ?? t.libelle) + (t.touche ? ' (' + t.touche + ')' : '');
+      b.innerHTML = icone(t.icone, 30) + '<span>' + esc(t.libelle) + '</span>' + (t.touche ? '<kbd>' + esc(t.touche) + '</kbd>' : '');
+      b.onclick = () => { t.faire(); barreOutils() };
+      ruban.appendChild(b);
+    }
+    for (const e of S.options?.() ?? []) ruban.appendChild(e);
+    const defile = catalogue.scrollTop;
+    catalogue.innerHTML = '';
+    S.catalogue?.();
+    catalogue.scrollTop = defile;
+    ajusterCamera();
+    $<HTMLElement>('.aide').textContent = choixMur ? choixMur.libelle : outils.outil === 'piece' && typePiece ? 'Cliquez dans un espace clos : il devient « ' + typePiece + ' » (Échap pour finir)' : outils.aide;
+  }
+
+  /* ---------- murs : la composition tracée ---------- */
+  /** les compositions choisies, gardées sur cet appareil ; '' : « sur mesure » (épaisseur réglée) */
+  outils.reglages.compositions = (() => {
+    try { const c = JSON.parse(localStorage.getItem('cpDesigner:compositions') ?? 'null'); if (c && typeof c === 'object') return { ...COMPOSITION_PAR_DEFAUT, ...c } } catch { /* rien de gardé */ }
+    return { ...COMPOSITION_PAR_DEFAUT };
+  })();
+  let listeCompositions = false;
+  /** la carte d'une composition : son nom, son épaisseur, ses couches */
+  function carteComposition(k: CompositionMur | undefined, epaisseurSurMesure: Mm): HTMLElement {
+    const c = document.createElement('div'); c.className = 'carte';
+    c.innerHTML = k
+      ? `<div class="tete"><span>${esc(k.libelle)}</span><span>${Math.round(epaisseurComposition(k) / 10)} cm</span></div>
+         <div class="apercu-couches">${k.couches.map(x => `<i style="flex:${x.epaisseur};background:${MATIERES_COUCHES[x.matiere].couleur}" title="${esc(MATIERES_COUCHES[x.matiere].libelle)} ${x.epaisseur / 10} cm"></i>`).join('')}</div>
+         <div class="couches">${k.couches.map(x => `<span>${esc(MATIERES_COUCHES[x.matiere].libelle)}</span>`).join('')}</div>`
+      : `<div class="tete"><span>Sur mesure</span><span>${(epaisseurSurMesure / 10).toLocaleString('fr-FR')} cm</span></div><div class="couches"><span>épaisseur réglée, sans couches</span></div>`;
+    return c;
+  }
+  function optionsMurs(): HTMLElement[] {
+    const t = outils.murTrace, out: HTMLElement[] = [];
+    const genre = outils.outil === 'rectangle' ? 'exterieur' : t.genre;
+    if (genre && ['mur', 'refend', 'cloison', 'rectangle'].includes(outils.outil)) {
+      const r = outils.reglages, k = compositionMur(r.compositions[genre]);
+      const boite = document.createElement('div'); boite.className = 'compo';
+      const carte = carteComposition(k, genre === 'cloison' ? r.epaisseurCloison : r.epaisseurMur);
+      carte.title = 'Choisir la composition';
+      carte.onclick = () => { listeCompositions = !listeCompositions; barreOutils() };
+      boite.appendChild(carte);
+      if (listeCompositions) {
+        /* la liste flotte au-dessus du plan, sous la carte (le ruban garde sa hauteur : le plan ne bouge pas) */
+        const L = document.createElement('div'); L.className = 'liste-compo';
+        for (const x of [...compositionsDu(genre), undefined]) {
+          const c = carteComposition(x, genre === 'cloison' ? r.epaisseurCloison : r.epaisseurMur);
+          if ((x?.id ?? '') === r.compositions[genre]) c.classList.add('choisi');
+          c.onclick = () => {
+            r.compositions[genre] = x?.id ?? ''; listeCompositions = false;
+            try { localStorage.setItem('cpDesigner:compositions', JSON.stringify(r.compositions)) } catch { /* gardé pour la séance */ }
+            barreOutils();
+          };
+          L.appendChild(c);
+        }
+        racine.querySelector('.cpd')!.appendChild(L);
+        requestAnimationFrame(() => { const r = carte.getBoundingClientRect(); L.style.left = r.left + 'px'; L.style.top = r.bottom + 4 + 'px'; L.style.width = r.width + 'px' });
+      }
+      out.push(boite);
+    }
+    const o = document.createElement('div'); o.className = 'options';
+    const eq = document.createElement('label'); eq.innerHTML = '<input type="checkbox"' + (outils.reglages.equerre ? ' checked' : '') + '> Équerre (Q)';
+    eq.querySelector('input')!.onchange = e => basculerEquerre((e.target as HTMLInputElement).checked);
+    o.appendChild(eq);
+    if (outils.outil === 'rectangle') {
+      const l = document.createElement('label'); l.innerHTML = 'Cotes <select><option value="hors_tout">hors tout</option><option value="interieur">intérieures</option></select>';
+      const sel = l.querySelector('select')!; sel.value = outils.reglages.rectangle; sel.onchange = () => { outils.reglages.rectangle = sel.value as 'hors_tout' | 'interieur' };
+      o.appendChild(l);
+    }
+    out.push(o);
+    return out;
+  }
+
+  /* ---------- types de pièces ---------- */
+  const TYPES_PIECES: { libelle: string; usage: RoomUsage; humide?: boolean }[] = [
+    { libelle: 'Cuisine', usage: 'kitchen', humide: true }, { libelle: 'Séjour', usage: 'living' }, { libelle: 'Salon', usage: 'living' },
+    { libelle: 'Salle à manger', usage: 'living' }, { libelle: 'Pièce de vie', usage: 'living' }, { libelle: 'Entrée', usage: 'circulation' },
+    { libelle: 'Salle d’eau', usage: 'bathroom', humide: true }, { libelle: 'Salle de bain', usage: 'bathroom', humide: true }, { libelle: 'WC', usage: 'wc', humide: true },
+    { libelle: 'Chambre', usage: 'bedroom' }, { libelle: 'Placard', usage: 'storage' }, { libelle: 'Dressing', usage: 'storage' },
+    { libelle: 'Cellier', usage: 'storage' }, { libelle: 'Buanderie', usage: 'technical', humide: true }, { libelle: 'Bureau', usage: 'other' },
+    { libelle: 'Dégagement', usage: 'circulation' }, { libelle: 'Sous escalier', usage: 'storage' }, { libelle: 'Garage', usage: 'garage' },
+  ];
+  /** le type de pièce posé d'un clic (null : on demande le nom) */
+  let typePiece: string | null = null;
+  function choisirTypePiece(libelle: string) {
+    const t = TYPES_PIECES.find(x => x.libelle === libelle)!;
+    /* une pièce choisie prend ce type tout de suite */
+    const o = selection ? niveau().objects[selection] : undefined;
+    if (o?.type === 'room') { faire('Pièce : ' + libelle, [{ type: 'modifierPiece', id: o.id, nom: nomLibre(libelle, o.id), usage: t.usage, humide: !!t.humide }]); return }
+    typePiece = libelle; choisir('piece');
+  }
+  /** « Chambre », puis « Chambre 2 », « Chambre 3 »… sur le niveau */
+  function nomLibre(libelle: string, sauf?: string): string {
+    const pris = new Set(Object.values(niveau().objects).flatMap(o => (o.type === 'room' && o.id !== sauf ? [o.name] : [])));
+    if (!pris.has(libelle)) return libelle;
+    for (let i = 2; ; i++) if (!pris.has(libelle + ' ' + i)) return libelle + ' ' + i;
   }
   function basculerCotation(oui = !cotation) {
     cotation = oui;
     try { localStorage.setItem('cpDesigner:cotation', oui ? 'oui' : 'non') } catch { /* navigation privée : le choix vaut pour la séance */ }
-    panneaux(); dessinerBientot();
+    barreOutils(); panneaux(); dessinerBientot();
   }
   function basculerEquerre(oui = !outils.reglages.equerre) {
     const e = outils.basculerEquerre(oui);
@@ -619,7 +960,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   function cadrerTout() {
     const pts: Point[] = [];
     for (const w of mursDroits(niveau())) pts.push(w.axis.a, w.axis.b);
-    if (pts.length) cam = cadrer(cam, boiteAnneau(pts), cotation ? 110 : 60);        // la place des cotes autour
+    if (pts.length) cam = cadrer(cam, boiteAnneau(pts), en3D ? 14 : cotation ? 110 : 60);        // la place des cotes autour (l'aperçu n'en a pas)
     dessinerBientot();
   }
 
@@ -630,6 +971,25 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   $<HTMLButtonElement>('.retablir').onclick = retablir;
   $<HTMLButtonElement>('.cmdk').onclick = () => palette();
   $<HTMLButtonElement>('.b3d').onclick = () => void basculer3D();
+  apercuBoite.querySelector<HTMLElement>('.attrape')!.onclick = () => { if (!en3D && onglet === 'studio') ouvrirOnglet('trace'); void basculer3D() };
+  /* Affichages : ce que montre le plan (préférences de cet appareil) */
+  $<HTMLButtonElement>('.baff').onclick = e => {
+    const hote = (e.currentTarget as HTMLElement).parentElement!;
+    const deja = hote.querySelector('.affichages');
+    if (deja) { deja.remove(); return }
+    const m = document.createElement('div'); m.className = 'affichages';
+    const c = (libelle: string, val: boolean, f: (v: boolean) => void) => {
+      const l = document.createElement('label'); l.innerHTML = '<input type="checkbox"' + (val ? ' checked' : '') + '> ' + esc(libelle);
+      l.querySelector('input')!.onchange = ev => f((ev.target as HTMLInputElement).checked); m.appendChild(l);
+    };
+    c('Cotation automatique', cotation, v => basculerCotation(v));
+    c('Sols en couleur (présentation)', solsCouleur, v => basculerSols(v));
+    c('Grille d’accrochage (10 cm)', outils.reglages.grille > 0, v => { outils.reglages.grille = v ? 100 : 0; panneaux() });
+    c('Murs d’équerre au tracé (Q)', outils.reglages.equerre, v => basculerEquerre(v));
+    hote.appendChild(m);
+    const fermer = (ev: MouseEvent) => { if (!hote.contains(ev.target as Node)) { m.remove(); window.removeEventListener('pointerdown', fermer) } };
+    setTimeout(() => window.addEventListener('pointerdown', fermer));
+  };
   $<HTMLButtonElement>('.bpdf').onclick = () => void exporterPdf();
   $<HTMLButtonElement>('.bdxf').onclick = () => void exporterDxf();
   const selNiv = $<HTMLSelectElement>('select.niveaux');
@@ -643,7 +1003,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     $<HTMLButtonElement>('.retablir').disabled = !peutRetablir(h);
     const f = niveau(), o = selection ? f.objects[selection] : undefined;
     aside.innerHTML = '';
-    if (en3D) panneau3D(); else if (groupe.length) panneauGroupe(f); else if (o) inspecteur(f, o); else if (outils.outil === 'ouverture') bibliotheque(); else if (outils.outil === 'mobilier') bibliothequeMobilier(); else if (outils.outil === 'escalier') panneauEscalier(f); else if (outils.outil === 'amenagement') panneauAmenagement(); else panneauNiveau(f);
+    const S = sousCourant();
+    if (en3D) panneau3D(); else if (groupe.length) panneauGroupe(f); else if (o) inspecteur(f, o);
+    else if (outils.outil === 'ouverture') panneauOuverture(); else if (outils.outil === 'mobilier') panneauMobilier();
+    else if (outils.outil === 'escalier') panneauEscalier(f); else if (outils.outil === 'amenagement') panneauAmenagement();
+    else if (S.panneau) S.panneau(f); else panneauNiveau(f);
   }
 
   /** un champ de l'inspecteur */
@@ -682,12 +1046,24 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const plan = planDuNiveau(f);
     switch (o.type) {
       case 'wall': {
-        const w = o as MurDroit, L = distance(w.axis.a, w.axis.b);
+        const w = o as MurDroit, L = distance(w.axis.a, w.axis.b), g = genreDuRole(w.role), k = compositionMur(w.compositionRef);
         A.append(titre(ROLES[w.role]),
           champ('Longueur (m)', (L / 1000).toFixed(3), v => longueurMur(w, mm(v)), 'number'),
-          champ('Épaisseur (cm)', w.thickness / 10, v => faire('Épaisseur', [{ type: 'modifierMur', id: w.id, epaisseur: ent(v) * 10 }]), 'number'),
+          champ('Type', w.role, v => faire('Type de mur', [{ type: 'modifierMur', id: w.id, role: v as Wall['role'] }]), 'text', ROLES));
+        if (w.role === 'virtual') {
+          A.append(bloc('Une limite de pièce sans mur (cuisine ouverte sur le séjour, par exemple) : elle sépare les surfaces au plan, sans matière — ni 3D, ni ouverture, ni cote.'),
+            titre('Objet'), provenance(w), ligne(bouton('Supprimer', () => supprimer(w.id), 'dang')));
+          break;
+        }
+        A.append(champ('Composition', w.compositionRef ?? '', v => faire('Composition', [{ type: 'modifierMur', id: w.id, composition: v || null }]), 'text',
+          { '': 'Sur mesure', ...Object.fromEntries((g ? compositionsDu(g) : []).map(x => [x.id, x.libelle + ' (' + epaisseurComposition(x) / 10 + ' cm)'])) }));
+        if (k) {
+          const c = document.createElement('div'); c.className = 'couches-mur';
+          c.innerHTML = k.couches.map(x => `<div><i style="background:${MATIERES_COUCHES[x.matiere].couleur}"></i><span style="flex:1">${esc(MATIERES_COUCHES[x.matiere].libelle)}</span><span class="note">${(x.epaisseur / 10).toLocaleString('fr-FR')} cm</span></div>`).join('');
+          A.append(c, bloc(w.role === 'exterior' ? 'De l’extérieur (en haut) vers l’intérieur. Épaisseurs d’usage, à confirmer par l’étude thermique et le descriptif.' : 'D’une face à l’autre. Épaisseurs d’usage, à confirmer au descriptif.'));
+        }
+        A.append(champ('Épaisseur (cm)', w.thickness / 10, v => faire('Épaisseur', [{ type: 'modifierMur', id: w.id, epaisseur: ent(v) * 10 }]), 'number'),
           champ('Hauteur (m)', (w.height / 1000).toFixed(2), v => faire('Hauteur', [{ type: 'modifierMur', id: w.id, hauteur: mm(v) }]), 'number'),
-          champ('Type', w.role, v => faire('Type de mur', [{ type: 'modifierMur', id: w.id, role: v as Wall['role'] }]), 'text', ROLES),
           champ('Tracé', w.justification, v => faire('Justification', [{ type: 'modifierMur', id: w.id, justification: v as Wall['justification'] }]), 'text', JUSTIFS));
         if (w.role === 'exterior') A.append(
           champ('Parement extérieur', w.finish ?? '', v => faire('Parement', [{ type: 'modifierMur', id: w.id, finition: v || null }]), 'text', OPTIONS_PAREMENTS),
@@ -906,19 +1282,24 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
 
   /** la bibliothèque d'ouvertures : un clic choisit le modèle, on peut aussi le glisser sur un mur */
+  /** les familles ouvertes dans les catalogues (gardées d'un rendu à l'autre) */
+  const famillesOuvertes = new Set<string>(['ouv:fenetres']);
+  /* au clic (et non à l'événement « toggle », qui arrive après coup : un rendu entre les deux l'aurait perdu) */
+  const replier = (d: HTMLDetailsElement, cle: string) => { d.addEventListener('click', e => { if ((e.target as HTMLElement).closest('summary')) { if (d.open) famillesOuvertes.delete(cle); else famillesOuvertes.add(cle) } }) };
   function bibliotheque() {
-    const A = aside, choisi = outils.modele.id;
-    A.append(titre('Bibliothèque d’ouvertures'), bloc('Choisissez un modèle, puis cliquez sur un mur — ou glissez-le sur le mur. Dimensions de tableau courantes, à confirmer avec le menuisier ; tout se règle ensuite.'));
+    const A = catalogue, choisi = outils.modele.id;
+    A.append(titre('Bibliothèque d’ouvertures'), bloc('Choisissez un modèle, puis cliquez sur un mur — ou glissez-le sur le mur.'));
     const b = document.createElement('div'); b.className = 'biblio';
     for (const [fam, nomFam] of Object.entries(FAMILLES)) {
       const M = MODELES_OUVERTURES.filter(m => m.famille === fam);
       const d = document.createElement('details');
-      d.open = M.some(m => m.id === choisi) || fam === 'fenetres';
+      d.open = famillesOuvertes.has('ouv:' + fam) || M.some(m => m.id === choisi);
+      replier(d, 'ouv:' + fam);
       d.innerHTML = `<summary>${esc(nomFam)}</summary><div class="tuiles">${M.map(m => `<div class="tuile${m.id === choisi ? ' choisi' : ''}" draggable="true" data-m="${m.id}" title="${esc(m.libelle)} — ${esc(MANOEUVRES[m.manoeuvre])}">${symbole(m)}<span>${esc(m.libelle)}</span></div>`).join('')}</div>`;
       b.append(d);
     }
     b.querySelectorAll<HTMLElement>('.tuile').forEach(t => {
-      t.onclick = () => { outils.reglages.modeleOuverture = t.dataset['m']!; panneaux(); $<HTMLElement>('.aide').textContent = 'Cliquez sur un mur pour poser : ' + outils.modele.libelle };
+      t.onclick = () => { outils.reglages.modeleOuverture = t.dataset['m']!; if (outils.outil !== 'ouverture') choisir('ouverture'); barreOutils(); panneaux(); $<HTMLElement>('.aide').textContent = 'Cliquez sur un mur pour poser : ' + outils.modele.libelle };
       t.ondragstart = e => { outils.reglages.modeleOuverture = t.dataset['m']!; e.dataTransfer?.setData('text/plain', 'cp-ouverture:' + t.dataset['m']); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy' };
     });
     A.append(b);
@@ -1028,21 +1409,60 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
 
   /** la bibliothèque de mobilier : un clic choisit le meuble ; on le pose d'un clic (ou en le glissant), il se plaque contre le mur proche */
   function bibliothequeMobilier() {
-    const A = aside, choisi = outils.meuble.id;
-    A.append(titre('Mobilier'), bloc('Choisissez un meuble, puis cliquez pour le poser — ou glissez-le sur le plan. Près d’un mur, il s’y plaque et se tourne vers la pièce ; près d’un angle, il s’y cale. T : tourner · Alt : pose libre. Dimensions courantes, réglables ensuite.'));
+    const A = catalogue, choisi = outils.meuble.id;
+    A.append(titre('Mobilier'), bloc('Choisissez un meuble, puis cliquez pour le poser — ou glissez-le sur le plan.'));
     const b = document.createElement('div'); b.className = 'biblio';
     for (const [fam, nomFam] of Object.entries(FAMILLES_MEUBLES)) {
       const M = MODELES_MEUBLES.filter(m => m.famille === fam);
       const d = document.createElement('details');
-      d.open = M.some(m => m.id === choisi);
+      d.open = famillesOuvertes.has('meu:' + fam) || M.some(m => m.id === choisi);
+      replier(d, 'meu:' + fam);
       d.innerHTML = `<summary>${esc(nomFam)}</summary><div class="tuiles">${M.map(m => `<div class="tuile${m.id === choisi ? ' choisi' : ''}" draggable="true" data-m="${m.id}" title="${esc(m.libelle)} — ${texteCote(m.largeur)} × ${texteCote(m.profondeur)} m">${symboleMeuble(m)}<span>${esc(m.libelle)}</span></div>`).join('')}</div>`;
       b.append(d);
     }
     b.querySelectorAll<HTMLElement>('.tuile').forEach(t => {
-      t.onclick = () => { outils.reglages.modeleMeuble = t.dataset['m']!; panneaux(); $<HTMLElement>('.aide').textContent = 'Cliquez pour poser : ' + outils.meuble.libelle + ' (T : tourner)' };
+      t.onclick = () => { outils.reglages.modeleMeuble = t.dataset['m']!; if (outils.outil !== 'mobilier') choisir('mobilier'); barreOutils(); panneaux(); $<HTMLElement>('.aide').textContent = 'Cliquez pour poser : ' + outils.meuble.libelle + ' (T : tourner)' };
       t.ondragstart = e => { outils.reglages.modeleMeuble = t.dataset['m']!; e.dataTransfer?.setData('text/plain', 'cp-meuble:' + t.dataset['m']); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy' };
     });
     A.append(b);
+  }
+
+  /** l'outil Ouverture : le modèle choisi (le catalogue est à gauche) */
+  function panneauOuverture() {
+    const m = outils.modele;
+    aside.append(titre('Ouvrant'), bloc('<b>' + esc(m.libelle) + '</b><br>' + m2(m.largeur * m.hauteur) + ' de tableau · ' + texteCote(m.largeur) + ' × ' + texteCote(m.hauteur) + ' m' + (m.allege ? ' · allège ' + texteCote(m.allege) + ' m' : '') + '<br>' + esc(MANOEUVRES[m.manoeuvre])),
+      bloc('Cliquez sur un mur pour la poser — ou glissez le modèle du catalogue (à gauche) sur le mur. Elle se place ensuite par ses distances aux murs voisins (inspecteur). Dimensions de tableau courantes, à confirmer avec le menuisier.'));
+  }
+  /** l'outil Mobilier : le meuble choisi (le catalogue est à gauche) */
+  function panneauMobilier() {
+    const m = outils.meuble;
+    aside.append(titre('Produit'), bloc('<b>' + esc(m.libelle) + '</b><br>' + texteCote(m.largeur) + ' × ' + texteCote(m.profondeur) + ' m, hauteur ' + texteCote(m.hauteur) + ' m'),
+      bloc('Cliquez pour le poser — ou glissez-le du catalogue sur le plan. Près d’un mur, il s’y plaque et se tourne vers la pièce ; près d’un angle, il s’y cale. T : tourner · Alt : pose libre. Dimensions courantes, réglables ensuite.'));
+  }
+  /** le nuancier de l'onglet Revêtement : un clic pose la teinte sur ce qui est choisi (un mur, une pièce), sinon partout */
+  function nuancier(quoi: 'facades' | 'sols' | 'murs') {
+    const L = quoi === 'facades' ? PAREMENTS : quoi === 'sols' ? SOLS : PEINTURES;
+    catalogue.append(titre(quoi === 'facades' ? 'Parements de façade' : quoi === 'sols' ? 'Sols' : 'Murs intérieurs'),
+      bloc(quoi === 'facades' ? 'Un clic : le mur de façade choisi, ou toutes les façades.' : 'Un clic : la pièce choisie, ou toutes les pièces du niveau.'));
+    const b = document.createElement('div'); b.className = 'biblio';
+    const t = document.createElement('div'); t.className = 'tuiles';
+    for (const x of L) {
+      const e = document.createElement('div'); e.className = 'tuile'; e.dataset['m'] = x.id; e.title = x.libelle;
+      e.innerHTML = `<div class="pastille" style="background:${x.couleur}"></div><span>${esc(x.libelle)}</span>`;
+      e.onclick = () => {
+        const o = selection ? niveau().objects[selection] : undefined;
+        if (quoi === 'facades') { if (o?.type === 'wall' && o.role === 'exterior') faire('Parement', [{ type: 'modifierMur', id: o.id, finition: x.id }]); else parementPartout(x.id) }
+        else if (o?.type === 'room') faire(quoi === 'sols' ? 'Sol' : 'Peinture', [{ type: 'modifierPiece', id: o.id, ...(quoi === 'sols' ? { sol: x.id } : { murs: x.id }) }]);
+        else if (quoi === 'sols') solPartout(x.id, niveau()); else peinturePartout(x.id, niveau());
+        toast(x.libelle + ' : posé' + (o && (o.type === 'room' || o.type === 'wall') ? '' : ' partout'));
+      };
+      t.appendChild(e);
+    }
+    b.appendChild(t); catalogue.appendChild(b);
+  }
+  function basculerSols(oui = !solsCouleur) {
+    solsCouleur = oui; try { localStorage.setItem('cpDesigner:sols', oui ? 'oui' : 'non') } catch { /* préférence non gardée */ }
+    barreOutils(); panneaux(); dessinerBientot();
   }
 
   /** plusieurs objets choisis : ce qu'ils sont, et ce qu'on peut en faire ensemble */
@@ -1099,6 +1519,48 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     faire('Point coté du terrain', [{ type: 'modifierParcelle', id: t.plot.id, altitudesTerrain: [...(t.plot.spotHeights ?? []), { point: { x: Math.round(point.x), y: Math.round(point.y) }, ngf: z }] }]);
   }
 
+  /** les pièces images du dossier de permis : ce que le Designer ne dessine pas, fourni par l'utilisateur */
+  function sectionPieces() {
+    const A = aside;
+    A.append(titre('Dossier de permis : pièces fournies'));
+    const etat = (code: string, nom: string, v: ImageDossier | null | undefined, sinon: string) =>
+      bloc('<b>' + code + '</b> ' + nom + ' : ' + (v ? '✓ ' + v.largeur + ' × ' + v.hauteur + ' px' + (v.legende ? ' — ' + esc(v.legende) : '') : '<span class="note">' + sinon + '</span>'));
+    const piece = (cle: 'situation' | 'photoProche' | 'photoLointaine', code: string, nom: string, invite: string, classe: string) => {
+      A.append(etat(code, nom, piecesDossier[cle], 'à joindre'),
+        ligne(bouton(piecesDossier[cle] ? 'Remplacer…' : 'Importer…', () => void importerPiece(cle, code + ' — ' + nom, invite), classe),
+          ...(piecesDossier[cle] ? [bouton('Retirer', () => { delete piecesDossier[cle]; panneaux() })] : [])));
+    };
+    piece('situation', 'PCMI 1', 'Plan de situation', 'Source et échelle de l’extrait (ex. : Géoportail, 1/5 000)', 'bpcmi1');
+    A.append(etat('PCMI 6', 'Insertion', piecesDossier.insertion, 'à composer dans la vue 3D (photo du terrain)'));
+    piece('photoProche', 'PCMI 7', 'Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)', 'bpcmi7');
+    piece('photoLointaine', 'PCMI 8', 'Environnement lointain', 'Point et angle de prise de vue', 'bpcmi8');
+    const PV = pointsDeVue(h.projet);
+    A.append(bloc('Points de prise de vue au plan de masse (outil I) : ' + (PV.length ? PV.map(v => v.piece).join(', ') : '<span class="note">aucun</span>')));
+    A.append(bloc('Extrait de carte (Géoportail, cadastre) et photographies : à fournir, le Designer ne les invente pas. Gardés sur cet appareil le temps de la séance (ni enregistrés dans le projet, ni partagés), ils vont au dossier de permis (PDF → Composer).'));
+
+  }
+  /** les surfaces du niveau (entre murs), puis réglementaires (projet) */
+  function panneauSurfaces(f: Floor) {
+    const A = aside, plan = planDuNiveau(f);
+    const pieces = plan.zones.filter(z => z.piece);
+    A.append(titre('Surfaces (entre murs)'));
+    if (plan.zones.length) {
+      const t = document.createElement('table');
+      t.innerHTML = plan.zones.map(z => `<tr><td>${esc(z.piece ? z.piece.name : 'À nommer')}</td><td>${m2(z.aire)}</td></tr>`).join('')
+        + `<tr><td><b>Total</b> (${pieces.length} pièce${pieces.length > 1 ? 's' : ''})</td><td><b>${m2(plan.zones.reduce((s, z) => s + z.aire, 0))}</b></td></tr>`;
+      A.append(t, bloc('Surfaces intérieures brutes, mesurées entre les faces des murs. Les surfaces réglementaires suivent.'));
+      /* les surfaces réglementaires du projet (tous les niveaux), et le seuil de 150 m² */
+      const S = surfacesReglementaires(h.projet), N = S.niveaux.find(x => x.niveau === f.id);
+      A.append(titre('Surfaces réglementaires (projet)'),
+        bloc('Surface de plancher : <b>' + m2(S.surfacePlancher) + '</b>' + (N && S.niveaux.length > 1 ? ' (dont ' + esc(f.name) + ' : ' + m2(N.surfacePlancher) + ')' : '')
+          + '<br>Surface habitable : <b>' + m2(S.habitable) + '</b><br>Emprise au sol : ' + m2(S.emprise)
+          + (N && (N.garages.length || N.tremies || N.basses) ? '<br><span class="note">Déduit sur ce niveau : ' + [N.garages.length ? 'garage ' + m2(N.garages.reduce((s, g) => s + g.aire, 0)) : '', N.tremies ? 'trémie ' + m2(N.tremies) : '', N.basses ? 'moins de 1,80 m ' + m2(N.basses) : ''].filter(Boolean).join(', ') + '</span>' : '')
+          + '<br><span class="note">Au nu intérieur des façades ; ' + esc(REFERENCES.surfacePlancher) + '.</span>'),
+        bloc((S.seuil.etat === 'ok' ? '' : '⚠️ ') + esc(S.seuil.message), S.seuil.etat === 'ok' ? 'note' : 'alerte'));
+    } else A.append(bloc('Aucun espace clos.'));
+    if (plan.baies.length) A.append(titre('Baies'), bloc(plan.baies.length + ' ouverture(s), dont ' + plan.baies.filter(b => b.exterieure).length + ' extérieure(s) — ' + m2(plan.baies.filter(b => b.exterieure).reduce((s, b) => s + b.surface, 0)) + ' de baies extérieures'));
+
+  }
   function panneauNiveau(f: Floor) {
     const A = aside, plan = planDuNiveau(f);
     A.append(titre('Niveaux'));
@@ -1137,44 +1599,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     A.append(titre('Plan de l’atelier'), ligne(bouton('Importer le RDC lu par l’atelier…', importerAtelier)),
       bloc('Le fichier 01_modele/modele.json du projet de l’atelier (plan DXF ou PDF déjà lu). Murs, ouvertures et pièces arrivent sur ce niveau, vide.'));
 
-    /* les pièces images du dossier de permis : ce que le Designer ne dessine pas, fourni par l'utilisateur */
-    A.append(titre('Dossier de permis : pièces fournies'));
-    const etat = (code: string, nom: string, v: ImageDossier | null | undefined, sinon: string) =>
-      bloc('<b>' + code + '</b> ' + nom + ' : ' + (v ? '✓ ' + v.largeur + ' × ' + v.hauteur + ' px' + (v.legende ? ' — ' + esc(v.legende) : '') : '<span class="note">' + sinon + '</span>'));
-    const piece = (cle: 'situation' | 'photoProche' | 'photoLointaine', code: string, nom: string, invite: string, classe: string) => {
-      A.append(etat(code, nom, piecesDossier[cle], 'à joindre'),
-        ligne(bouton(piecesDossier[cle] ? 'Remplacer…' : 'Importer…', () => void importerPiece(cle, code + ' — ' + nom, invite), classe),
-          ...(piecesDossier[cle] ? [bouton('Retirer', () => { delete piecesDossier[cle]; panneaux() })] : [])));
-    };
-    piece('situation', 'PCMI 1', 'Plan de situation', 'Source et échelle de l’extrait (ex. : Géoportail, 1/5 000)', 'bpcmi1');
-    A.append(etat('PCMI 6', 'Insertion', piecesDossier.insertion, 'à composer dans la vue 3D (photo du terrain)'));
-    piece('photoProche', 'PCMI 7', 'Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)', 'bpcmi7');
-    piece('photoLointaine', 'PCMI 8', 'Environnement lointain', 'Point et angle de prise de vue', 'bpcmi8');
-    const PV = pointsDeVue(h.projet);
-    A.append(bloc('Points de prise de vue au plan de masse (outil I) : ' + (PV.length ? PV.map(v => v.piece).join(', ') : '<span class="note">aucun</span>')));
-    A.append(bloc('Extrait de carte (Géoportail, cadastre) et photographies : à fournir, le Designer ne les invente pas. Gardés sur cet appareil le temps de la séance (ni enregistrés dans le projet, ni partagés), ils vont au dossier de permis (PDF → Composer).'));
+    sectionPieces();
 
     A.append(titre('Contrôle'));
     if (plan.alertes.length) for (const a of plan.alertes) A.append(bloc('⚠️ ' + esc(a.message), 'alerte'));
     else A.append(bloc(mursDroits(f).length ? '✓ Aucune alerte sur ce niveau' : 'Aucun mur : choisissez l’outil Mur (M) pour commencer.', 'ok'));
 
-    const pieces = plan.zones.filter(z => z.piece);
-    A.append(titre('Surfaces (entre murs)'));
-    if (plan.zones.length) {
-      const t = document.createElement('table');
-      t.innerHTML = plan.zones.map(z => `<tr><td>${esc(z.piece ? z.piece.name : 'À nommer')}</td><td>${m2(z.aire)}</td></tr>`).join('')
-        + `<tr><td><b>Total</b> (${pieces.length} pièce${pieces.length > 1 ? 's' : ''})</td><td><b>${m2(plan.zones.reduce((s, z) => s + z.aire, 0))}</b></td></tr>`;
-      A.append(t, bloc('Surfaces intérieures brutes, mesurées entre les faces des murs. Les surfaces réglementaires suivent.'));
-      /* les surfaces réglementaires du projet (tous les niveaux), et le seuil de 150 m² */
-      const S = surfacesReglementaires(h.projet), N = S.niveaux.find(x => x.niveau === f.id);
-      A.append(titre('Surfaces réglementaires (projet)'),
-        bloc('Surface de plancher : <b>' + m2(S.surfacePlancher) + '</b>' + (N && S.niveaux.length > 1 ? ' (dont ' + esc(f.name) + ' : ' + m2(N.surfacePlancher) + ')' : '')
-          + '<br>Surface habitable : <b>' + m2(S.habitable) + '</b><br>Emprise au sol : ' + m2(S.emprise)
-          + (N && (N.garages.length || N.tremies || N.basses) ? '<br><span class="note">Déduit sur ce niveau : ' + [N.garages.length ? 'garage ' + m2(N.garages.reduce((s, g) => s + g.aire, 0)) : '', N.tremies ? 'trémie ' + m2(N.tremies) : '', N.basses ? 'moins de 1,80 m ' + m2(N.basses) : ''].filter(Boolean).join(', ') + '</span>' : '')
-          + '<br><span class="note">Au nu intérieur des façades ; ' + esc(REFERENCES.surfacePlancher) + '.</span>'),
-        bloc((S.seuil.etat === 'ok' ? '' : '⚠️ ') + esc(S.seuil.message), S.seuil.etat === 'ok' ? 'note' : 'alerte'));
-    } else A.append(bloc('Aucun espace clos.'));
-    if (plan.baies.length) A.append(titre('Baies'), bloc(plan.baies.length + ' ouverture(s), dont ' + plan.baies.filter(b => b.exterieure).length + ' extérieure(s) — ' + m2(plan.baies.filter(b => b.exterieure).reduce((s, b) => s + b.surface, 0)) + ' de baies extérieures'));
+    panneauSurfaces(f);
 
     if (mursDroits(f).length) A.append(titre('Murs'), ligne(bouton('Mettre d’équerre les murs du niveau', () => mettreDEquerre())),
       bloc('Pour un plan repris à la souris ou sur un fond : redresse à 90° les murs qui en sont à moins de ' + Math.round(ANGLE_EQUERRE * 180 / Math.PI) + '°, angles fermés, cloisons comprises (Ctrl+Z pour revenir).', 'note'));
@@ -1185,10 +1616,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       champ('Murs d’équerre au tracé (Q)', outils.reglages.equerre ? 1 : 0, v => basculerEquerre(!!v), 'checkbox'),
       champ('Rectangle de murs', outils.reglages.rectangle, v => { outils.reglages.rectangle = v as 'hors_tout' | 'interieur' }, 'text', { hors_tout: 'Cotes hors tout', interieur: 'Cotes intérieures' }),
       champ('Cotation automatique', cotation ? 1 : 0, v => basculerCotation(!!v), 'checkbox'),
-      champ('Sols en couleur (présentation)', solsCouleur ? 1 : 0, v => {
-        solsCouleur = !!v; try { localStorage.setItem('cpDesigner:sols', solsCouleur ? 'oui' : 'non') } catch { /* préférence non gardée */ }
-        dessinerBientot();
-      }, 'checkbox'),
+      champ('Sols en couleur (présentation)', solsCouleur ? 1 : 0, v => basculerSols(!!v), 'checkbox'),
       bloc('Pendant un tracé, tapez la longueur (4,50 puis Entrée ; 4,50<90 pour un angle ; 10x8 pour un rectangle) · Alt : sans accrochage · Q : murs d’équerre oui / non · Maj : angles à 45° · Espace + glisser : déplacer la vue · F : tout voir · Ctrl+K : toutes les actions'));
     A.append(titre('Enregistrement'), bloc(esc(enr.raison) + (enr.mode === 'serveur' ? '' : '<br>Le travail reste dans ce navigateur, sur cet appareil.')));
   }
@@ -1305,6 +1733,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
 
   async function nommerPiece(niv: string, point: Point) {
+    const t = typePiece ? TYPES_PIECES.find(x => x.libelle === typePiece) : undefined;
+    if (t) { faire('Pièce ' + t.libelle, [{ type: 'creerPiece', niveau: niv, point, nom: nomLibre(t.libelle), usage: t.usage, humide: !!t.humide }]); return }
     const r = await dialogue('Nommer la pièce', [{ cle: 'nom', libelle: 'Nom', valeur: '' }, { cle: 'usage', libelle: 'Usage', valeur: 'living', options: USAGES }]);
     if (r && r['nom']!.trim()) faire('Pièce ' + r['nom'], [{ type: 'creerPiece', niveau: niv, point, nom: r['nom']!, usage: r['usage'] as RoomUsage }]);
   }
@@ -1405,9 +1835,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
   }
   /** les plans en PDF (A3, à l'échelle, cotés, cartouche) : chargé à la demande */
-  async function exporterPdf() {
+  async function exporterPdf(doc: 'planches' | 'dossier' = 'planches') {
     const r = await dialogue('Exporter en PDF (A3)', [
-      { cle: 'doc', libelle: 'Composer', valeur: 'planches', options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)' } },
+      { cle: 'doc', libelle: 'Composer', valeur: doc, options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)' } },
       { cle: 'pre', libelle: 'Plans', valeur: 'technique', options: { technique: 'Plans techniques (cotés)', presentation: 'Plans de présentation pour le client (sols en couleur, mobilier, sans cotes)' } },
       { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (une page chacun)' } },
       { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
@@ -1492,7 +1922,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
 
   /* ---------- départ ---------- */
-  barreOutils(); panneaux();
+  placerVues(); barreOutils(); panneaux();
+  /* l'aperçu 3D se charge une fois le plan affiché : il ne retarde pas l'ouverture */
+  setTimeout(() => { void preparer3D().catch(() => { /* l'aperçu le dit ; le plan reste utilisable */ }) }, 600);
   requestAnimationFrame(() => {
     cam = { ...cam, largeur: main.clientWidth, hauteur: main.clientHeight };
     if (mursDroits(niveau()).length) cadrerTout(); else { cam = cadrer(cam, { xmin: 0, ymin: 0, xmax: 12_000, ymax: 10_000 }); dessinerBientot() }

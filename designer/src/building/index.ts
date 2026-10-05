@@ -12,3 +12,4 @@ export * from './terrain';
 export * from './surfaces';
 export * from './fenetres-toit';
 export * from './equerre';
+export * from './couches';

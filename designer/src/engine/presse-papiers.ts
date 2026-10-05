@@ -79,7 +79,7 @@ export function commandesColler(pp: PressePapiers, niveau: string, pl: Placement
     const n = id();
     nouveaux.set(w.id, n);
     const just: Wall['justification'] = retourne && w.justification !== 'center' ? (w.justification === 'left' ? 'right' : 'left') : w.justification;
-    cmds.push({ type: 'creerMur', niveau, id: n, a: T(w.axis.a), b: T(w.axis.b), epaisseur: w.thickness, hauteur: w.height, role: w.role, justification: just, porteur: structuredClone(w.loadBearing) });
+    cmds.push({ type: 'creerMur', niveau, id: n, a: T(w.axis.a), b: T(w.axis.b), epaisseur: w.thickness, hauteur: w.height, role: w.role, justification: just, porteur: structuredClone(w.loadBearing), ...(w.compositionRef ? { composition: w.compositionRef } : {}) });
   }
   for (const o of O) {
     if (o.type === 'opening') {

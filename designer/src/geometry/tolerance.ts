@@ -35,6 +35,11 @@ export const ANGLE_EQUERRE = (8 * Math.PI) / 180;
  *  à moins de ceci (mm) y est posé exactement */
 export const PRISE_FACE_EQUERRE = 0.5;
 
+/** cloison fictive : son épaisseur de calcul (mm). Assez pour séparer deux
+ *  espaces dans les booléens (1 unité = 0,01 mm), trop peu pour compter :
+ *  0,5 mm × 5 m de long = 0,0025 m² retiré aux surfaces */
+export const EPAISSEUR_FICTIVE = 0.5;
+
 /** toiture automatique : un bord de plan à moins de 1° d'un angle droit est
  *  droit (au-delà, le plan n'est pas orthogonal) — sauf un bord court, où
  *  quelques millimètres de dessin faussent l'angle (voir la tolérance suivante) */

@@ -283,6 +283,35 @@ chaînes de cotes ; la colonne « Sols et surfaces » dit le sol de chaque
 pièce (ou « sol à choisir »). Les traits du motif sont coupés au contour
 de la pièce par un calcul pur (`src/geometry/hachures.ts`).
 
+**Interface à onglets** (`src/ui/app.ts`, icônes `src/ui/icones.ts`) : en haut,
+les onglets Tracé, Ouvrant, Toit, Extérieur, Produit, Revêtement, Studio,
+Indications et Dossier ; sous eux, leurs sous-onglets (Tracé : Terrain
+naturel, Murs, Types de pièces, Niveaux, Transformations, Implantation…) et
+un ruban de hauteur fixe avec leurs outils en tuiles. À gauche, le catalogue
+de l'onglet (ouvertures, mobilier, nuancier des revêtements) ; à droite,
+l'aperçu (la 3D quand on dessine, le plan quand on est en 3D : un clic ou ⇄
+les permute) et le panneau de ce qui est choisi. Les raccourcis restent :
+choisir un outil au clavier ouvre son onglet. Barre flottante sur le plan :
+niveau, annuler / rétablir, ⇄ 3D, Affichages (cotation, sols en couleur,
+grille, équerre).
+
+**Murs composés** (`src/catalogue/murs.ts`, `src/building/couches.ts`) : mur
+extérieur, mur intérieur (J), cloison et cloison fictive (U) se tracent
+chacun avec sa composition, choisie sur la carte du ruban (Mur extérieur
+isolé 40 / 38 / 36, brique, béton cellulaire, ossature bois, non isolé ;
+murs intérieurs parpaing ou béton ; cloisons 72/48, 98/48, carreaux de
+plâtre ; ou « sur mesure »), gardée sur l'appareil. L'épaisseur du mur est
+la somme de ses couches ; le plan dessine chaque couche (enduit, parpaing
+hachuré, isolant ondulé, plâtre), l'enduit toujours côté extérieur, les
+couches en onglet aux angles. L'inspecteur change la composition ; une
+épaisseur saisie à la main rend le mur « sur mesure ». La **cloison
+fictive** sépare deux pièces sans matière (une cuisine ouverte) : elle
+coupe la surface au plan, mais n'existe ni en 3D, ni dans les exports, ni
+pour les ouvertures ; son trait de calcul (0,5 mm) retire moins d'un
+centième de m² aux surfaces. **Types de pièces** : une tuile (Cuisine,
+Séjour, Chambre…) puis un clic dans un espace clos le nomme (Chambre 2,
+Chambre 3… si le nom est pris) ; une pièce choisie prend le type aussitôt.
+
 **Équerre des murs** (`src/building/equerre.ts`) : au tracé (Mur,
 Cloison), la direction s'aimante à 90° dès qu'elle en est à moins de 8°
 (repère des axes du plan, ou du fond calé, ou de la maison si elle est

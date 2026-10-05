@@ -1,0 +1,80 @@
+/* Les icônes de l'éditeur : des pictogrammes au trait (SVG en ligne, couleur
+   du texte), dessinés pour CP Designer. Une icône = le contenu d'un SVG de
+   24 × 24 ; icone() l'enveloppe. */
+
+const I: Record<string, string> = {
+  /* onglets */
+  trace: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>',
+  ouvrant: '<rect x="6" y="3" width="12" height="18"/><path d="M15 12h.01"/>',
+  toit: '<path d="M2 13l10-8 10 8"/><path d="M5 11v8h14v-8"/>',
+  exterieur: '<path d="M3 20h18"/><path d="M6 20v-6l6-5 6 5v6"/><path d="M4 9l2-3m14 3l-2-3"/>',
+  produit: '<path d="M4 12h16v5H4z"/><path d="M6 12V8h12v4"/><path d="M6 17v2m12-2v2"/>',
+  revetement: '<path d="M5 4h11v5H5z"/><path d="M16 6h3v6h-8v3"/><path d="M10 15h2v6h-2z"/>',
+  studio: '<circle cx="12" cy="12" r="8"/><path d="M12 4l3 8m5-2l-8 2m4 8l-4-6m-6 4l6-6M4 9l8 3"/>',
+  indications: '<path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/><circle cx="16" cy="16" r="2"/>',
+  dossier: '<path d="M3 6h7l2 2h9v11H3z"/>',
+  /* sous-onglets du tracé */
+  terrain: '<path d="M2 18l6-7 4 4 3-3 7 6z"/><circle cx="17" cy="6" r="2"/>',
+  murs: '<path d="M3 6h18v12H3z"/><path d="M3 10h18M3 14h18M8 6v4m8-4v4M12 10v4M6 14v4m12-4v4"/>',
+  pieces: '<path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4z"/><path d="M15 15l4 4m0-4l-4 4"/>',
+  niveaux: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  transformations: '<path d="M4 4h6v6H4z"/><path d="M14 14h6v6h-6z"/><path d="M10 7h7v5m-3-3l3 3 3-3"/>',
+  implantation: '<path d="M3 21l4-14h10l4 14z"/><path d="M9 14h6v4H9z"/>',
+  /* outils */
+  selection: '<path d="M5 3l14 8-6 2-2 6z"/>',
+  mur_exterieur: '<path d="M3 7h18v10H3z"/><path d="M3 9.5h18M3 14.5h18"/><path d="M6 7l-3 3m6-3l-6 6m9-6l-9 9m12-9l-9 9m12-9l-9 9m9-6l-6 6"/>',
+  mur_interieur: '<path d="M3 8h18v8H3z"/><path d="M6 8l-3 3m6-3l-6 6m9-6l-8 8m11-8l-8 8m11-8l-8 8m8-5l-3 3"/>',
+  cloison: '<path d="M3 10h18v4H3z"/>',
+  cloison_fictive: '<path d="M3 12h3m3 0h2m3 0h3m3 0h3" stroke-dasharray="0"/><path d="M3 9v6m18-6v6"/>',
+  rectangle: '<path d="M4 6h16v12H4z"/><path d="M6.5 8.5h11v7h-11z"/>',
+  equerre: '<path d="M5 3v16h16"/><path d="M5 13h6v6"/>',
+  piece: '<path d="M4 20V8l8-5 8 5v12z"/><path d="M10 20v-6h4v6"/>',
+  cote: '<path d="M3 12h18"/><path d="M3 8v8m18-8v8"/><path d="M6 10l-3 2 3 2m12-4l3 2-3 2"/>',
+  coupe: '<path d="M4 4l16 16"/><path d="M4 4v5m0-5h5m11 16v-5m0 5h-5"/>',
+  escalier: '<path d="M3 20h4v-4h4v-4h4V8h4V4"/>',
+  parcelle: '<path d="M3 7l9-4 9 6-3 12H5z"/><circle cx="12" cy="11" r="1.5"/>',
+  altitude: '<circle cx="12" cy="12" r="4"/><path d="M12 2v6m0 8v6M2 12h6m8 0h6"/>',
+  fond: '<path d="M4 5h16v14H4z"/><path d="M4 15l5-5 4 4 2-2 5 5"/>',
+  caler: '<path d="M4 20L20 4"/><circle cx="4" cy="20" r="2"/><circle cx="20" cy="4" r="2"/>',
+  niveau_plus: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 4-2"/><path d="M19 15v6m-3-3h6"/>',
+  copier: '<path d="M8 8h12v12H8z"/><path d="M4 16V4h12"/>',
+  coller: '<path d="M6 4h12v17H6z"/><path d="M9 2h6v4H9z"/>',
+  dupliquer: '<path d="M4 4h10v10H4z"/><path d="M10 10h10v10H10z"/>',
+  miroir: '<path d="M12 3v18" stroke-dasharray="2 2"/><path d="M9 6L3 18h6zM15 6l6 12h-6z"/>',
+  tout: '<path d="M3 3h18v18H3z" stroke-dasharray="3 2"/><path d="M8 8h8v8H8z"/>',
+  fenetre_toit: '<path d="M3 18L12 6l9 12z"/><path d="M10 11h4v4h-4z"/>',
+  toit_croupes: '<path d="M2 16l5-7h10l5 7z"/><path d="M7 9l3 7m7-7l-3 7"/>',
+  toit_deux_pans: '<path d="M3 16l4-8h10l4 8z"/><path d="M7 8l-4 8m14-8l4 8M12 8v8" stroke-dasharray="0"/>',
+  toit_un_pan: '<path d="M3 17V9l18-3v11z"/>',
+  toit_plat: '<path d="M3 10h18v6H3z"/><path d="M3 12h18"/>',
+  cloture: '<path d="M4 20V7l2-2 2 2v13m4 0V7l2-2 2 2v13m4 0V7"/><path d="M3 10h18M3 15h18"/>',
+  terrasse: '<path d="M3 14h18v4H3z"/><path d="M6 14v4m4-4v4m4-4v4m4-4v4"/>',
+  allee: '<path d="M8 21l2-18m6 18l-2-18"/><path d="M9 9h6m-6 6h6"/>',
+  pelouse: '<path d="M3 20c2-5 3-5 4 0 1-6 3-6 4 0 1-5 3-5 4 0 1-6 3-6 4 0"/>',
+  point_de_vue: '<path d="M4 8h4l2-3h4l2 3h4v11H4z"/><circle cx="12" cy="13" r="3"/>',
+  vue3d: '<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/>',
+  visite: '<circle cx="12" cy="5" r="2"/><path d="M12 7v7l-3 7m3-7l3 7M8 11h8"/>',
+  photo: '<path d="M4 7h4l2-2h4l2 2h4v12H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  image: '<path d="M4 5h16v14H4z"/><circle cx="9" cy="10" r="2"/><path d="M4 17l5-4 4 3 3-2 4 3"/>',
+  pdf: '<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/><path d="M9 14h6M9 17h4"/>',
+  dxf: '<path d="M6 2h9l5 5v15H6z"/><path d="M9 12l6 6m0-6l-6 6"/>',
+  json: '<path d="M8 4c-3 0-2 4-2 6s-2 2-2 2 2 0 2 2-1 6 2 6m8-16c3 0 2 4 2 6s2 2 2 2-2 0-2 2 1 6-2 6"/>',
+  couleurs: '<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><circle cx="12" cy="16" r="3"/>',
+  tableau: '<path d="M3 5h18v14H3z"/><path d="M3 10h18M3 15h18M9 5v14"/>',
+  calque: '<path d="M12 4l9 5-9 5-9-5z"/><path d="M3 14l9 5 9-5" stroke-dasharray="2 2"/>',
+  atelier: '<path d="M4 20V9l8-5 8 5v11"/><path d="M9 20v-6h6v6"/><path d="M15 3l3 3"/>',
+  modele: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M9 14h6"/>',
+  facade: '<path d="M3 20h18"/><path d="M5 20V9l7-5 7 5v11"/><path d="M8 12h3v3H8zM13 12h3v8h-3z"/>',
+  sol: '<path d="M3 7h18v12H3z"/><path d="M3 11h18M3 15h18M9 7v4m6 0v4m-6 0v4"/>',
+  peinture: '<path d="M5 4h12v5H5z"/><path d="M17 6h2v5h-7v3"/><path d="M11 14h2v7h-2z"/>',
+  materiaux: '<path d="M4 4h7v7H4zM13 13h7v7h-7z"/><path d="M13 4h7v7h-7z" stroke-dasharray="2 2"/><path d="M4 13h7v7H4z" stroke-dasharray="2 2"/>',
+  notice: '<path d="M6 2h12v20H6z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
+  permis: '<path d="M5 3h14v18H5z"/><path d="M8 8h8M8 12h8M8 16h5"/><path d="M15 16l1.5 1.5L19 15"/>',
+  ouverture_mur: '<path d="M2 12h5m10 0h5"/><path d="M7 9v6m10-6v6"/><path d="M7 12a10 10 0 0 1 10 0" stroke-dasharray="2 2"/>',
+};
+
+/** une icône de l'éditeur (24 × 24, au trait) ; vide si elle n'existe pas */
+export function icone(nom: string, taille = 24): string {
+  const c = I[nom];
+  return c ? `<svg viewBox="0 0 24 24" width="${taille}" height="${taille}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${c}</svg>` : '';
+}

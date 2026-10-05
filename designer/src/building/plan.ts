@@ -8,6 +8,8 @@
    - un vide sans pièce nommée est « à nommer » ;
    - une pièce nommée dont le point n'est dans aucun vide est « non fermée » ;
    - deux pièces nommées dans le même vide sont signalées.
+   Une cloison fictive (sans matière) coupe un vide en deux pièces — une
+   cuisine ouverte sur le séjour — sans rien ajouter à la maçonnerie.
 
    Le modèle étant immuable, le plan d'un niveau se garde en cache tant que
    ce niveau n'a pas changé (même objet). */
@@ -16,7 +18,8 @@ import { aire, perimetre, type Anneau, type Polygone } from '../geometry/polygon
 import { unionSoudee, difference } from '../geometry/booleen';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
-import { contoursMurs, decalagesFaces, mursDroits, type ContourMur, type MurDroit } from './murs';
+import { contoursMurs, decalagesFaces, mursDroits, mursFictifs, type ContourMur, type MurDroit } from './murs';
+import { EPAISSEUR_FICTIVE } from '../geometry/tolerance';
 
 export interface Zone {
   /** le vide fermé (intérieur des murs) */
@@ -78,10 +81,14 @@ function calculer(f: Floor): PlanNiveau {
   const alertes: Alerte[] = [];
 
   /* les vides fermés : les trous de la maçonnerie */
-  const zones: Zone[] = maconnerie.flatMap(p => (p.trous ?? []).map(h => {
-    const polygone: Polygone = { contour: [...h].reverse() };       // le vide, vu comme une surface
-    return { polygone, aire: aire(polygone), perimetre: perimetre(h) };
-  }));
+  const vides: Polygone[] = maconnerie.flatMap(p => (p.trous ?? []).map(h => ({ contour: [...h].reverse() })));       // le vide, vu comme une surface
+  /* les cloisons fictives : un trait d'épaisseur de calcul, prolongé d'autant à chaque bout pour franchir le vide jusqu'au mur */
+  const traits = mursFictifs(f).map(v => {
+    const u = normaliser(soustraire(v.axis.b, v.axis.a)), n = normaleGauche(u), e = EPAISSEUR_FICTIVE / 2;
+    const a = ajouter(v.axis.a, multiplier(u, -EPAISSEUR_FICTIVE)), b = ajouter(v.axis.b, multiplier(u, EPAISSEUR_FICTIVE));
+    return { contour: [ajouter(a, multiplier(n, -e)), ajouter(b, multiplier(n, -e)), ajouter(b, multiplier(n, e)), ajouter(a, multiplier(n, e))] } as Polygone;
+  });
+  const zones: Zone[] = (traits.length ? difference(vides, traits) : vides).map(polygone => ({ polygone, aire: aire(polygone), perimetre: perimetre(polygone.contour) }));
   const pieces = Object.values(f.objects).filter((o): o is Room => o.type === 'room');
   const dans = new Map<number, Room[]>();
   for (const r of pieces) {
