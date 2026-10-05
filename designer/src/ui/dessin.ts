@@ -6,6 +6,7 @@ import type { Floor, Furniture, Opening, Point, Underlay } from '../model/types'
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
 import { decalagesFaces, mursDroits, mursFictifs, type MurDroit } from '../building/murs';
 import { couchesDuNiveau, type BandeCouche } from '../building/couches';
+import { dessinerTerrain } from './dessin-terrain';
 import { MATIERES_COUCHES } from '../catalogue/murs';
 import type { Accroche } from '../building/accrochage';
 import { dimensionsPiece, type ChaineCotes, type PlaceOuverture } from '../building/cotation';
@@ -60,7 +61,12 @@ export interface Scene {
   coupes?: (LigneDeCoupe & { id?: string })[];
   /** la parcelle (sur le niveau qui la porte) et ses reculs mesurés ; la limite en cours de tracé */
   parcelle?: { plot: Plot; reculs: Recul[] } | null;
+  /** l'intervalle des courbes de niveau (m) ; absent : pas de courbes */
+  courbes?: number | null;
+  /** le tracé en cours d'une limite, d'une plateforme, d'un réseau */
   parcelleEnCours?: Point[];
+  /** le trait du profil en long du terrain (A → B) */
+  profil?: [Point, Point] | null;
   /** le plan de présentation : chaque pièce à la couleur de son sol, avec son motif (carreaux, lames) */
   presentation?: boolean;
 }
@@ -97,6 +103,8 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   /* les aménagements extérieurs, sous tout le reste */
+  /* le terrain : courbes de niveau, plateformes et talus, arbres, réseaux, sous les aménagements */
+  dessinerTerrain(ctx, cam, s.niveau, s.parcelle?.plot ?? null, { courbes: s.courbes ?? null, choisis: new Set([...(s.groupe ?? []), ...(s.selection ? [s.selection] : [])]) });
   for (const o of Object.values(s.niveau.objects)) if (o.type === 'landscape') dessinerAmenagement(ctx, cam, o, o.id === s.selection || !!s.groupe?.has(o.id));
   for (const o of Object.values(s.niveau.objects)) if (o.type === 'viewpoint') dessinerPointDeVue(ctx, cam, o, o.id === s.selection || !!s.groupe?.has(o.id));
 
@@ -212,6 +220,13 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* cotation automatique, puis la place des ouvertures choisies */
   if (s.cotation) for (const c of s.cotation) chaine(ctx, cam, c);
   if (s.parcelle) dessinerParcelle(ctx, cam, s.parcelle.plot, s.parcelle.reculs, { sel: s.selection === s.parcelle.plot.id });
+  if (s.profil) {
+    const [A, B] = s.profil.map(p => versEcran(cam, p)) as [{ x: number; y: number }, { x: number; y: number }];
+    ctx.strokeStyle = '#7A4FA0'; ctx.lineWidth = 1.8; ctx.setLineDash([14, 4, 3, 4]);
+    ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#7A4FA0'; ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const [e, t] of [[A, 'A'], [B, 'B']] as const) { ctx.beginPath(); ctx.arc(e.x, e.y, 3, 0, 2 * Math.PI); ctx.fill(); ctx.fillText(t, e.x, e.y - 12) }
+  }
   if (s.parcelleEnCours && s.parcelleEnCours.length > 1) {
     const P = s.parcelleEnCours.map(p => versEcran(cam, p));
     ctx.strokeStyle = COULEURS.vert; ctx.lineWidth = 1.6; ctx.setLineDash([12, 4, 2, 4]);

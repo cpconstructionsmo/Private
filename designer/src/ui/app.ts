@@ -5,11 +5,11 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { BuildingObject, Floor, Mm, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Viewpoint, Wall } from '../model/types';
+import type { BuildingObject, Floor, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -34,6 +34,8 @@ import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture,
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
 import { traits } from '../building/mobilier';
 import { icone } from './icones';
+import { lirePlanGeometre, lirePointsTexte } from '../import/geometre';
+import { NOMS_EQUIPEMENTS, ETATS_ARBRES } from './dessin-terrain';
 import { MATIERES_PLANCHER, compositionPlancher, compositionsPlancher, epaisseurPlancher, type CompositionPlancher } from '../catalogue/planchers';
 import { COMPOSITION_PAR_DEFAUT, MATIERES_COUCHES, compositionMur, compositionsDu, epaisseurComposition, genreDuRole, type CompositionMur } from '../catalogue/murs';
 
@@ -88,7 +90,7 @@ const CSS = `
 .cpd .ruban .tuile-outil kbd{display:none}
 .cpd .ruban .options{display:flex;align-items:center;gap:12px;padding:6px 14px;font-size:12px;color:var(--txt)}
 .cpd .ruban .options label{display:flex;align-items:center;gap:6px;white-space:nowrap}
-.cpd .ruban .options select{background:var(--carte);color:#fff;border:1px solid var(--trait);border-radius:4px;padding:3px 6px}
+.cpd .ruban .options select,.cpd .ruban .options input[type=number]{background:var(--carte);color:#fff;border:1px solid var(--trait);border-radius:4px;padding:3px 6px}
 .cpd .compo{position:relative;align-self:stretch;display:flex;align-items:center;margin:0 10px;min-width:330px;max-width:390px}
 .cpd .compo .carte,.cpd .liste-compo .carte,.cpd aside .carte{display:flex;flex-direction:column;gap:5px;padding:8px 10px;border-radius:4px;background:var(--carte);border:1px solid #444;cursor:pointer;color:#fff;width:100%;box-sizing:border-box}
 .cpd .compo .carte:hover,.cpd .liste-compo .carte:hover,.cpd aside .carte:hover{border-color:var(--acc)}
@@ -287,6 +289,10 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   /* la cotation automatique : un choix d'affichage, propre à cet appareil */
   let cotation = (() => { try { return localStorage.getItem('cpDesigner:cotation') !== 'non' } catch { return true } })();
   /** les sols en couleur à l'écran (plan de présentation), une préférence de cet appareil */
+  /** l'intervalle des courbes de niveau (m) ; 0 : masquées (préférence de cet appareil) */
+  let courbes = (() => { try { const v = Number(localStorage.getItem('cpDesigner:courbes') ?? '0.5'); return Number.isFinite(v) && v >= 0 ? v : 0.5 } catch { return 0.5 } })();
+  /** le trait du profil en long (outil S) : une mesure du moment, pas enregistrée */
+  let profilTrait: [Point, Point] | null = null;
   let solsCouleur = (() => { try { return localStorage.getItem('cpDesigner:sols') === 'oui' } catch { return false } })();
   /** l'équerre du tracé des murs (aimantés à 90°), une préférence de cet appareil */
   const equerreTrace = (() => { try { return localStorage.getItem('cpDesigner:equerre') !== 'non' } catch { return true } })();
@@ -486,7 +492,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       tremies: tremiesDuNiveau(p, f),
       /* les traits de coupe de tout le projet ; on ne choisit que ceux tracés sur ce niveau */
       parcelle: (() => { const t = parcelleDuProjet(p); return t && t.niveau.id === f.id ? { plot: t.plot, reculs: reculs(t.plot, empriseAuSol(p)) } : null })(),
-      parcelleEnCours: outils.parcelleEnCours,
+      parcelleEnCours: outils.parcelleEnCours, courbes: courbes || null, profil: profilTrait,
       coupes: traitsDeCoupe(p).map(({ id, niveau: n, ...l }) => (n === f.id ? { ...l, id } : l)),
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
       ...(cotation && !en3D ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
@@ -511,6 +517,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (e.apercu !== undefined) apercu = e.apercu;
     if (e.selection !== undefined) { selection = e.selection; if (e.groupe === undefined) groupe = []; panneaux() }
     if (e.cadre !== undefined) cadre = e.cadre;
+    if (e.profil !== undefined) { profilTrait = e.profil; if (e.profil) panneaux() }
     if (e.groupe !== undefined) choisirGroupe(e.groupe);
     if (e.basculer) {
       const g = new Set(groupe.length ? groupe : selection ? [selection] : []);
@@ -678,7 +685,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (e.key === 'Enter') { effet(outils.touche('Enter')); return }
     if ((e.key === 'Delete' || e.key === 'Backspace') && choisis().length) { e.preventDefault(); supprimerChoix(); return }
     /* un chiffre pendant un tracé : la longueur se tape (comme sur les logiciels de plans) */
-    if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'cloison', 'rectangle', 'parcelle', 'amenagement'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
+    if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'refend', 'cloison', 'rectangle', 'parcelle', 'amenagement', 'plateforme', 'reseau'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
     if (e.key === '3') { void basculer3D(); return }
     if (e.key.toLowerCase() === 't') {
       const o = selection ? niveau().objects[selection] : undefined;
@@ -701,7 +708,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     main.querySelector('.saisie')?.remove();
     const i = document.createElement('input');
     i.className = 'saisie'; i.value = premier; i.autocomplete = 'off';
-    i.placeholder = outils.outil === 'rectangle' ? '10x8' : outils.outil === 'parcelle' ? '25,30 ou 25,30<90' : '4,50 ou 4,50<90';
+    i.placeholder = outils.outil === 'rectangle' ? '10x8' : ['parcelle', 'plateforme', 'reseau'].includes(outils.outil) ? '25,30 ou 25,30<90' : '4,50 ou 4,50<90';
     const e = curseur ? versEcran(cam, curseur) : { x: cam.largeur / 2, y: cam.hauteur / 2 };
     i.style.left = Math.min(cam.largeur - 160, e.x + 16) + 'px'; i.style.top = Math.min(cam.hauteur - 40, e.y + 34) + 'px';
     /* retirer la case fait perdre le focus : le blur ne doit pas la retirer une seconde fois */
@@ -729,6 +736,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'pointdevue', icone: 'point_de_vue', libelle: 'Point de prise de vue (photographies du dossier)', touche: 'I' },
     { nom: 'fenetretoit', icone: 'fenetre_toit', libelle: 'Fenêtre de toit', touche: 'H' },
     { nom: 'altitude', icone: 'altitude', libelle: 'Point coté du terrain (altitude NGF)', touche: 'N' },
+    { nom: 'plateforme', icone: 'plateforme', libelle: 'Plateforme de terrassement (et son talus)', touche: 'W' },
+    { nom: 'reseau', icone: 'reseau', libelle: 'Réseau (VRD)', touche: 'X' },
+    { nom: 'equipement', icone: 'regard', libelle: 'Équipement de réseau (regard, compteur…)', touche: 'Y' },
+    { nom: 'arbre', icone: 'arbre', libelle: 'Arbre', touche: 'Z' },
+    { nom: 'profil', icone: 'profil', libelle: 'Profil en long du terrain', touche: 'S' },
     { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
@@ -737,6 +749,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     mur: ['trace', 'murs'], refend: ['trace', 'murs'], cloison: ['trace', 'murs'], fictive: ['trace', 'murs'], rectangle: ['trace', 'murs'],
     piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
     ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
+    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'],
     mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
   };
   function choisir(o: NomOutil) {
@@ -748,14 +761,17 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       if (!t) { toast('Aucune toiture : posez-la d’abord (onglet Toit), puis ses fenêtres', true); return }
       niveauId = t.id; selection = null; apres();
     }
-    if (o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'altitude') { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
+    if (['parcelle', 'amenagement', 'pointdevue', 'altitude', 'plateforme', 'reseau', 'equipement', 'arbre', 'profil'].includes(o)) { const bas = [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0]; if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() } }
+    /* l'outil mène à sa place, sauf s'il est déjà offert ici (la parcelle est au Tracé et à l'Extérieur) */
     const place = PLACE_OUTIL[o];
-    if (place) { onglet = place[0]; sousOnglets[place[0]] = place[1] }
+    if (place && !offertIci(o)) { onglet = place[0]; sousOnglets[place[0]] = place[1] }
     if (o !== 'piece') typePiece = null;
-    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+  /** l'outil est-il une tuile du sous-onglet ouvert ? */
+  const offertIci = (o: NomOutil) => !!sousCourant().tuiles?.().some(t => !!t.classe?.split(' ').includes('o-' + o));
 
   /* ---------- onglets, sous-onglets, ruban ---------- */
-  interface Tuile { libelle: string; icone: string; faire: () => void; actif?: () => boolean; titre?: string; touche?: string; classe?: string }
+  interface Tuile { libelle: string; icone: string; faire: () => void; actif?: () => boolean; titre?: string; touche?: string; classe?: string; couleur?: string }
   interface SousOnglet { id: string; libelle: string; icone: string; tuiles?: () => Tuile[]; options?: () => HTMLElement[]; catalogue?: () => void; entrer?: () => void; panneau?: (f: Floor) => void }
   interface Onglet { id: string; libelle: string; icone: string; sous: SousOnglet[] }
   const outil = (n: NomOutil, libelle?: string, icone?: string): Tuile => {
@@ -775,7 +791,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
   const ONGLETS: Onglet[] = [
     { id: 'trace', libelle: 'Tracé', icone: 'trace', sous: [
-      { id: 'terrain', libelle: 'Terrain naturel', icone: 'terrain', tuiles: () => [outil('parcelle', 'Parcelle'), outil('altitude', 'Point coté'),
+      { id: 'terrain', libelle: 'Terrain naturel', icone: 'terrain', tuiles: () => [...tuilesTerrain(),
         action('Importer un fond', 'fond', importerFond, 'Un plan PDF ou une image (plan du géomètre, plan à reprendre), à caler'),
         action('Caler le fond', 'caler', () => {
           const u = Object.values(niveau().objects).find(o => o.type === 'underlay');
@@ -783,7 +799,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           if (u.locked) { selection = u.id; panneaux(); toast('Déverrouillez le fond pour le caler', true); return }
           selection = u.id; effet(outils.choisir('caler')); barreOutils();
         }, 'Deux points du fond dont vous connaissez la distance'),
-        action('Plan de l’atelier', 'atelier', importerAtelier, 'Le RDC lu par l’atelier (modele.json)')] },
+        action('Plan de l’atelier', 'atelier', importerAtelier, 'Le RDC lu par l’atelier (modele.json)')], panneau: f => panneauTerrain(f) },
       { id: 'murs', libelle: 'Murs', icone: 'murs', tuiles: () => [outil('mur', 'Mur extérieur'), outil('refend', 'Mur intérieur'), outil('cloison'), outil('fictive'),
         outil('rectangle', 'Rectangle de murs'), action('Mettre d’équerre', 'equerre', () => mettreDEquerre(), 'Redresser à 90° les murs presque d’équerre du niveau')],
         options: () => optionsMurs() },
@@ -815,11 +831,28 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { id: 'fenetres', libelle: 'Fenêtres de toit', icone: 'fenetre_toit', tuiles: () => [outil('fenetretoit')], panneau: () => sectionToiture(niveauToit()) },
     ] },
     { id: 'exterieur', libelle: 'Extérieur', icone: 'exterieur', sous: [
+      { id: 'terrain', libelle: 'Terrain', icone: 'terrain', tuiles: () => tuilesTerrain(), panneau: f => panneauTerrain(f) },
+      { id: 'terrassement', libelle: 'Terrassement', icone: 'plateforme', tuiles: () => [outil('plateforme', 'Plateforme'),
+        action('Plateforme de la maison', 'cubature', plateformeMaison, 'Une plateforme autour de la maison (1 m de débord), au niveau réglé ci-contre'),
+        { libelle: 'Courbes de niveau', icone: 'courbes', faire: () => basculerCourbes(), actif: () => courbes > 0 }],
+        options: () => optionsTerrassement(), panneau: f => panneauMetre(f) },
+      { id: 'reseaux', libelle: 'Réseaux', icone: 'reseau', tuiles: () => (Object.keys(NOMS_RESEAUX) as Network['kind'][]).map(g => ({
+        libelle: NOMS_RESEAUX[g].libelle, icone: 'reseau', couleur: NOMS_RESEAUX[g].couleur, classe: 'o-reseau res-' + g,
+        faire: () => { outils.reglages.genreReseau = g; choisir('reseau') }, actif: () => outils.outil === 'reseau' && outils.reglages.genreReseau === g })),
+        panneau: f => panneauMetre(f) },
+      { id: 'equipements', libelle: 'Équipements', icone: 'regard', tuiles: () => (Object.keys(NOMS_EQUIPEMENTS) as NetworkItem['kind'][]).map(g => ({
+        libelle: NOMS_EQUIPEMENTS[g].libelle, icone: ICONES_EQUIPEMENTS[g], classe: 'o-equipement eq-' + g,
+        faire: () => { outils.reglages.genreEquipement = g; choisir('equipement') }, actif: () => outils.outil === 'equipement' && outils.reglages.genreEquipement === g })),
+        panneau: f => panneauMetre(f) },
+      { id: 'vegetation', libelle: 'Végétation', icone: 'arbre', tuiles: () => (['planted', 'existing', 'felled'] as Tree['state'][]).map(e => ({
+        libelle: ({ planted: 'Arbre à planter', existing: 'Arbre existant', felled: 'Arbre à abattre' } as const)[e], icone: e === 'felled' ? 'arbre_abattre' : 'arbre', classe: 'o-arbre arbre-' + e,
+        couleur: e === 'felled' ? '#E07A6E' : e === 'planted' ? '#8FD18A' : '#C6E3B5',
+        faire: () => { outils.reglages.etatArbre = e; choisir('arbre') }, actif: () => outils.outil === 'arbre' && outils.reglages.etatArbre === e })),
+        options: () => optionsVegetation(), panneau: f => panneauMetre(f) },
       { id: 'amenagements', libelle: 'Aménagements', icone: 'exterieur', tuiles: () => (Object.keys(GENRES_AMENAGEMENT) as GenreAmenagement[]).map(g => ({
         libelle: GENRES_AMENAGEMENT[g].libelle, icone: ({ fence: 'cloture', terrace: 'terrasse', path: 'allee', parking: 'allee', green: 'pelouse' } as const)[g],
         faire: () => { outils.reglages.genreAmenagement = g; outils.reglages.finitionAmenagement = finitionsDe(g)[0]!.id; choisir('amenagement') },
         actif: () => outils.outil === 'amenagement' && outils.reglages.genreAmenagement === g })) },
-      { id: 'terrain', libelle: 'Terrain', icone: 'terrain', tuiles: () => [outil('parcelle', 'Parcelle'), outil('altitude', 'Point coté')] },
       { id: 'vues', libelle: 'Prises de vue', icone: 'point_de_vue', tuiles: () => [outil('pointdevue', 'Point de prise de vue')] },
     ] },
     { id: 'produit', libelle: 'Produit', icone: 'produit', sous: [
@@ -866,7 +899,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (quitteStudio && en3D) void basculer3D(false);
     /* un outil qui n'a rien à faire dans le nouvel onglet laisse la place à la sélection */
     const place = PLACE_OUTIL[outils.outil];
-    if (place && (place[0] !== id || (sous && place[1] !== sous))) { choixMur = null; effet(outils.choisir('selection')) }
+    if (place && (place[0] !== id || (sous && place[1] !== sous)) && !offertIci(outils.outil)) { choixMur = null; effet(outils.choisir('selection')) }
     sousCourant().entrer?.();
     barreOutils(); panneaux(); dessinerBientot();
   }
@@ -883,6 +916,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       b.className = 'tuile-outil' + (t.actif?.() ? ' actif' : '') + (t.classe ? ' ' + t.classe : '');
       b.title = (t.titre ?? t.libelle) + (t.touche ? ' (' + t.touche + ')' : '');
       b.innerHTML = icone(t.icone, 30) + '<span>' + esc(t.libelle) + '</span>' + (t.touche ? '<kbd>' + esc(t.touche) + '</kbd>' : '');
+      if (t.couleur) b.querySelector('svg')?.setAttribute('style', 'color:' + t.couleur);
       b.onclick = () => { t.faire(); barreOutils() };
       ruban.appendChild(b);
     }
@@ -1081,7 +1115,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     /* le bandeau du panneau : ce qu'il montre */
     const TYPES: Record<string, [string, string]> = { wall: ['murs', 'Mur'], opening: ['ouvrant', 'Ouvrant'], room: ['piece', 'Pièce'], dimension: ['cote', 'Cote'], underlay: ['fond', 'Fond'],
       furniture: ['produit', 'Produit'], stair: ['escalier', 'Escalier'], section: ['coupe', 'Coupe'], roof_window: ['fenetre_toit', 'Fenêtre de toit'], viewpoint: ['point_de_vue', 'Point de vue'],
-      landscape: ['exterieur', 'Aménagement'], plot: ['parcelle', 'Terrain'], constraint: ['equerre', 'Contrainte'], roof: ['toit', 'Toit'] };
+      landscape: ['exterieur', 'Aménagement'], plot: ['parcelle', 'Terrain'], constraint: ['equerre', 'Contrainte'], roof: ['toit', 'Toit'],
+      platform: ['plateforme', 'Plateforme'], network: ['reseau', 'Réseau'], network_item: ['regard', 'Équipement'], tree: ['arbre', 'Arbre'] };
     const [ic, lib] = en3D ? ['vue3d', 'Vue 3D'] : groupe.length ? ['tout', 'Sélection'] : o ? TYPES[o.type] ?? ['trace', 'Objet']
       : outils.outil === 'ouverture' ? ['ouvrant', 'Ouvrant'] : outils.outil === 'mobilier' ? ['produit', 'Produit'] : outils.outil === 'escalier' ? ['escalier', 'Escalier']
       : outils.outil === 'amenagement' ? ['exterieur', 'Extérieur'] : S.panneau ? [S.icone, S.libelle] : ['niveaux', 'Niveau'];
@@ -1357,6 +1392,47 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
+      case 'platform': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierPlateforme' }>>) => faire(t, [{ type: 'modifierPlateforme', id: o.id, ...c }]);
+        const t = parcelleDuProjet(h.projet)?.plot ?? null, ngf = t ? altitudePlateforme(t, o) : null, c = t ? cubature(t, o) : null;
+        A.append(titre(o.label ?? 'Plateforme'),
+          champ('Nom', o.label ?? '', v => mod('Nom de la plateforme', { nom: v.trim() || null })),
+          champ('Niveau fini par rapport au ±0,00 (m)', (o.level / 1000).toFixed(2), v => mod('Niveau de la plateforme', { niveauFini: mm(v) }), 'number'),
+          champ('Talus : horizontal pour 1 vertical', o.slope, v => mod('Pente du talus', { talus: ent(v) }), 'number', TALUS),
+          bloc(ngf !== null ? 'Soit <b>' + ngf.toFixed(2).replace('.', ',') + ' NGF</b>' : 'Altitude NGF : <span class="note">renseignez l’altitude du ±0,00 sur la parcelle</span>'));
+        A.append(...blocCubature(c, t));
+        A.append(bloc('Tirez-la pour la déplacer. Le talus part de son bord et rejoint le terrain naturel (pente choisie) ; peignes au plan de masse.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'network': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierReseau' }>>) => faire(t, [{ type: 'modifierReseau', id: o.id, ...c }]);
+        A.append(titre('Réseau — ' + NOMS_RESEAUX[o.kind].libelle),
+          champ('Réseau', o.kind, v => mod('Genre du réseau', { genre: v as Network['kind'] }), 'text', Object.fromEntries(Object.entries(NOMS_RESEAUX).map(([k, x]) => [k, x.libelle + ' (' + x.code + ')']))),
+          champ('Canalisation (ex. : PVC Ø 100, gaine TPC Ø 63)', o.spec ?? '', v => mod('Canalisation', { spec: v.trim() || null })),
+          bloc('Longueur : <b>' + m(longueurReseau(o)) + '</b> · ' + o.points.length + ' points'),
+          bloc('Le tracé se fait du branchement (en limite) au bâtiment. Profondeurs, pentes et diamètres : à confirmer par le concessionnaire et l’étude de sol.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'network_item': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierEquipement' }>>) => faire(t, [{ type: 'modifierEquipement', id: o.id, ...c }]);
+        A.append(titre(NOMS_EQUIPEMENTS[o.kind].libelle),
+          champ('Équipement', o.kind, v => mod('Genre de l’équipement', { genre: v as NetworkItem['kind'] }), 'text', Object.fromEntries(Object.entries(NOMS_EQUIPEMENTS).map(([k, x]) => [k, x.libelle]))),
+          champ('Repère au plan (sinon ' + NOMS_EQUIPEMENTS[o.kind].code + ')', o.label ?? '', v => mod('Repère', { nom: v.trim() || null })),
+          bloc('Tirez-le pour le déplacer. Il figure au plan de masse avec son repère.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'tree': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierArbre' }>>) => faire(t, [{ type: 'modifierArbre', id: o.id, ...c }]);
+        A.append(titre(ETATS_ARBRES[o.state]),
+          champ('État', o.state, v => mod('État de l’arbre', { etat: v as Tree['state'] }), 'text', ETATS_ARBRES),
+          champ('Diamètre de la couronne (m)', (o.diameter / 1000).toFixed(1), v => mod('Couronne', { diametre: mm(v) }), 'number'),
+          bloc('Tirez-le pour le déplacer. Le formulaire du permis demande de montrer au plan de masse les plantations conservées, supprimées ou créées.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
       case 'constraint':
         A.append(titre('Contrainte'), bloc(CONTRAINTES[o.kind] ?? o.kind), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
@@ -1613,6 +1689,161 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       champ('Largeur (m)', (r.largeurEscalier / 1000).toFixed(2), v => { r.largeurEscalier = mm(v); panneaux() }, 'number'),
       bloc(resumeEscalier(f, g)));
     for (const a of g.alertes) aside.append(bloc('⚠️ ' + esc(a), 'alerte'));
+  }
+
+  /* ---------- le terrain (façon logiciel de terrain : relevé, terrassement, VRD, végétation) ---------- */
+  const TALUS: Record<string, string> = { '1': '1/1 (45°)', '1.5': '3/2 (34°, usuel en remblai)', '2': '2/1 (27°)', '3': '3/1 (18°, tondable)' };
+  const ICONES_EQUIPEMENTS: Record<NetworkItem['kind'], string> = { regard: 'regard', branchement: 'regard', compteur_eau: 'compteur', coffret_elec: 'compteur',
+    chambre_telecom: 'regard', coffret_gaz: 'compteur', infiltration: 'cubature', cuve_ep: 'cubature', assainissement: 'cubature' };
+  /** les tuiles du relevé : limite, points cotés, plan du géomètre, courbes */
+  const tuilesTerrain = (): Tuile[] => [outil('parcelle', 'Parcelle'), outil('altitude', 'Point coté'),
+    action('Plan du géomètre (DXF, CSV)', 'geometre', importerGeometre, 'La limite et les points cotés d’un plan de géomètre (DXF), ou ses points en texte (CSV, TXT : X Y Z)', 'b-geometre'),
+    { libelle: 'Courbes de niveau', icone: 'courbes', faire: () => basculerCourbes(), actif: () => courbes > 0, titre: 'Tirées des points cotés (triangulation du relevé)', classe: 'b-courbes' },
+    outil('profil', 'Profil en long')];
+  function basculerCourbes(v = courbes > 0 ? 0 : 0.5) {
+    courbes = v; try { localStorage.setItem('cpDesigner:courbes', String(v)) } catch { /* préférence de la séance */ }
+    barreOutils(); panneaux(); dessinerBientot();
+  }
+  function optionsTerrassement(): HTMLElement[] {
+    const r = outils.reglages, o = document.createElement('div'); o.className = 'options';
+    const n = document.createElement('label'); n.innerHTML = 'Niveau fini (m / ±0,00) <input type="number" step="0.05" style="width:70px">';
+    const i = n.querySelector('input')!; i.value = (r.niveauPlateforme / 1000).toFixed(2); i.onchange = () => { r.niveauPlateforme = mm(i.value) };
+    const t = document.createElement('label'); t.innerHTML = 'Talus <select>' + Object.entries(TALUS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('') + '</select>';
+    const s = t.querySelector('select')!; s.value = String(r.talusPlateforme); s.onchange = () => { r.talusPlateforme = Number(s.value) };
+    o.append(n, t);
+    return [o];
+  }
+  function optionsVegetation(): HTMLElement[] {
+    const r = outils.reglages, o = document.createElement('div'); o.className = 'options';
+    const d = document.createElement('label'); d.innerHTML = 'Couronne (m) <input type="number" step="0.5" min="0.3" style="width:60px">';
+    const i = d.querySelector('input')!; i.value = String(r.diametreArbre / 1000); i.onchange = () => { r.diametreArbre = Math.max(300, mm(i.value)) };
+    o.append(d);
+    return [o];
+  }
+  /** une plateforme autour de la maison : le rectangle de son emprise, 1 m plus large de chaque côté */
+  function plateformeMaison() {
+    const E = empriseAuSol(h.projet).flatMap(q => q.contour);
+    if (!E.length) { toast('Aucun mur extérieur : tracez d’abord la maison', true); return }
+    const b = boiteAnneau(E), d = 1_000, bas = [...niveaux()].sort((a, c) => a.elevation - c.elevation)[0]!;
+    const contour = [{ x: b.xmin - d, y: b.ymin - d }, { x: b.xmax + d, y: b.ymin - d }, { x: b.xmax + d, y: b.ymax + d }, { x: b.xmin - d, y: b.ymax + d }].map(q => ({ x: Math.round(q.x), y: Math.round(q.y) }));
+    const avant = new Set(Object.keys(bas.objects));
+    if (faire('Plateforme de la maison', [{ type: 'creerPlateforme', niveau: bas.id, contour, niveauFini: outils.reglages.niveauPlateforme, talus: outils.reglages.talusPlateforme, nom: 'Plateforme de la maison' }])) {
+      niveauId = bas.id; selection = Object.keys(niveau().objects).find(k => !avant.has(k)) ?? null; apres();
+    }
+  }
+  /** les cubatures d'une plateforme, en clair */
+  function blocCubature(c: ReturnType<typeof cubature>, t: Plot | null): HTMLElement[] {
+    if (!c) return [bloc(!t ? 'Tracez la parcelle pour situer le terrain.' : t.groundFloorNgf === undefined ? 'Renseignez l’altitude NGF du ±0,00 (parcelle) : sans elle, rien ne se cube.' : 'Cotez le terrain naturel (trois points au moins, outil N ou plan du géomètre) pour calculer les cubatures.', 'alerte')];
+    const v = (x: number) => x.toFixed(1).replace('.', ',') + ' m³';
+    return [bloc('Surface : <b>' + c.surface.toFixed(1).replace('.', ',') + ' m²</b> · terrain naturel dessous : ' + c.tnMin.toFixed(2).replace('.', ',') + ' à ' + c.tnMax.toFixed(2).replace('.', ',') + ' NGF'
+      + '<br>Déblai : <b>' + v(c.deblai) + '</b> (+ talus ' + v(c.talusDeblai) + ')<br>Remblai : <b>' + v(c.remblai) + '</b> (+ talus ' + v(c.talusRemblai) + ')'),
+      bloc('Volumes en place, estimés sur le relevé (triangulé) par mailles de 25 cm, sans foisonnement ni décapage de la terre végétale : à confirmer par le terrassier.')];
+  }
+  /** le panneau du terrain : relevé, courbes, ce qui est posé */
+  function panneauTerrain(f: Floor) {
+    const A = aside, t = parcelleDuProjet(h.projet)?.plot ?? null, P = t?.spotHeights ?? [];
+    A.append(titre('Terrain naturel'));
+    if (!t) { A.append(bloc('Tracez la limite (outil L) ou importez le plan du géomètre (DXF) : la limite et les points cotés y sont lus.'), ligne(bouton('Plan du géomètre (DXF)…', importerGeometre, 'prim'))); return }
+    if (profilTrait) A.append(...sectionProfil(t, profilTrait));
+    const Z = P.map(x => x.ngf);
+    A.append(bloc('Parcelle : <b>' + m2(surfaceTerrain(t)) + '</b>' + (t.reference ? ' · ' + esc(t.reference) : '')
+      + '<br>Points cotés : <b>' + P.length + '</b>' + (Z.length ? ' · de ' + Math.min(...Z).toFixed(2).replace('.', ',') + ' à ' + Math.max(...Z).toFixed(2).replace('.', ',') + ' NGF (dénivelé ' + (Math.max(...Z) - Math.min(...Z)).toFixed(2).replace('.', ',') + ' m)' : '')
+      + '<br>±0,00 : ' + (t.groundFloorNgf !== undefined ? '<b>' + t.groundFloorNgf.toFixed(2).replace('.', ',') + ' NGF</b>' : '<span class="note">à renseigner (parcelle)</span>')),
+      champ('Courbes de niveau', String(courbes), v => basculerCourbes(Number(v)), 'text', { '0': 'Masquées', '0.1': 'Tous les 10 cm', '0.25': 'Tous les 25 cm', '0.5': 'Tous les 50 cm', '1': 'Tous les 1 m', '2': 'Tous les 2 m' }),
+      bloc('Une courbe maîtresse (trait plus fort, cotée) toutes les cinq. Elles sont tirées des points cotés, triangulés entre eux : là où il n’y a pas de point, le terrain est supposé plan.'),
+      ligne(bouton('Plan du géomètre (DXF)…', importerGeometre), bouton('La parcelle', () => { niveauId = parcelleDuProjet(h.projet)!.niveau.id; selection = t.id; apres() })));
+    if (P.length < 3) A.append(bloc('Trois points cotés au moins pour les courbes, les talus et les cubatures.', 'alerte'));
+    panneauMetre(f, false);
+  }
+  /** le profil en long : terrain naturel (tirets) et terrain fini (plateformes, talus), le long du trait A → B */
+  function sectionProfil(t: Plot, [a, b]: [Point, Point]): HTMLElement[] {
+    const P = profilEnLong(t, plateformesDuProjet(h.projet), a, b, Math.max(100, distance(a, b) / 300));
+    const out: HTMLElement[] = [titre('Profil en long A → B (' + m(distance(a, b)) + ')')];
+    if (!P.length) return [...out, bloc('Cotez le terrain (points cotés ou plan du géomètre) pour tracer le profil.', 'alerte')];
+    const Z = P.flatMap(q => [q.tn, q.fini]), z0 = Math.min(...Z), z1 = Math.max(...Z), dz = Math.max(z1 - z0, 0.5), L = P[P.length - 1]!.d;
+    const W = 300, H = 150, g = 36, X = (d: number) => g + (d / L) * (W - g - 6), Y = (z: number) => 8 + (H - 30) * (1 - (z - (z0 - dz * 0.1)) / (dz * 1.2));
+    const ligneSvg = (k: 'tn' | 'fini') => P.map((q, i) => (i ? 'L' : 'M') + X(q.d).toFixed(1) + ' ' + Y(q[k]).toFixed(1)).join('');
+    /* l'exagération des hauteurs : l'échelle verticale rapportée à l'horizontale */
+    const ex = ((H - 30) / (dz * 1.2) / 1000) / ((W - g - 6) / L);
+    const pas = dz > 4 ? 1 : dz > 1.5 ? 0.5 : 0.25, lignes: string[] = [];
+    for (let z = Math.ceil((z0 - dz * 0.1) / pas) * pas; z <= z1 + dz * 0.1; z += pas) lignes.push(`<line x1="${g}" x2="${W - 6}" y1="${Y(z).toFixed(1)}" y2="${Y(z).toFixed(1)}" stroke="#555" stroke-width=".5"/><text x="${g - 3}" y="${(Y(z) + 3).toFixed(1)}" font-size="8" text-anchor="end" fill="#BDBDBD">${z.toFixed(2).replace('.', ',')}</text>`);
+    const svg = bloc(`<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#2E2E2E;border-radius:4px">${lignes.join('')}
+      <path d="${ligneSvg('fini')}L${X(L).toFixed(1)} ${H - 22}L${X(0).toFixed(1)} ${H - 22}Z" fill="rgba(143,209,138,.18)"/>
+      <path d="${ligneSvg('tn')}" fill="none" stroke="#C9A27C" stroke-width="1.4" stroke-dasharray="4 3"/>
+      <path d="${ligneSvg('fini')}" fill="none" stroke="#8FD18A" stroke-width="1.8"/>
+      <text x="${g}" y="${H - 8}" font-size="10" font-weight="700" fill="#C9A4E8">A</text><text x="${W - 6}" y="${H - 8}" font-size="10" font-weight="700" fill="#C9A4E8" text-anchor="end">B</text>
+      <text x="${(W + g) / 2}" y="${H - 8}" font-size="8" fill="#BDBDBD" text-anchor="middle">${esc(m(L))} · hauteurs ×${ex.toFixed(1).replace('.', ',')}</text></svg>`, 'profil');
+    const f = (z: number) => z.toFixed(2).replace('.', ',');
+    out.push(svg, bloc('<span style="color:#C9A27C">- - -</span> terrain naturel · <span style="color:#8FD18A">———</span> terrain fini (plateformes et talus)<br>'
+      + 'En A : TN ' + f(P[0]!.tn) + ' / fini ' + f(P[0]!.fini) + ' · en B : TN ' + f(P[P.length - 1]!.tn) + ' / fini ' + f(P[P.length - 1]!.fini) + ' NGF<br>'
+      + 'Pente moyenne du TN : ' + ((P[P.length - 1]!.tn - P[0]!.tn) / (L / 1000) * 100).toFixed(1).replace('.', ',') + ' %'),
+      ligne(bouton('Effacer le profil', () => { profilTrait = null; panneaux(); dessinerBientot() }), bouton('Nouveau trait (S)', () => choisir('profil'))));
+    return out;
+  }
+  /** le métré du terrain : cubatures, réseaux, équipements, arbres */
+  function panneauMetre(_f: Floor, avecTitre = true) {
+    const A = aside, M = metreTerrain(h.projet), v = (x: number) => x.toFixed(1).replace('.', ',') + ' m³';
+    if (avecTitre) A.append(titre('Métré du terrain')); else A.append(titre('Métré'));
+    const t = parcelleDuProjet(h.projet)?.plot ?? null;
+    const nPf = niveaux().flatMap(f => Object.values(f.objects)).filter(o => o.type === 'platform').length;
+    if (nPf && !M.plateformes.length) A.append(...blocCubature(null, t));
+    if (M.plateformes.length) {
+      const tb = document.createElement('table');
+      tb.innerHTML = '<tr><td><b>Plateforme</b></td><td><b>Déblai</b></td><td><b>Remblai</b></td></tr>' + M.plateformes.map(c => `<tr><td>${esc(c.nom)} (${c.niveau.toFixed(2).replace('.', ',')})</td><td>${v(c.deblai + c.talusDeblai)}</td><td>${v(c.remblai + c.talusRemblai)}</td></tr>`).join('')
+        + `<tr><td><b>Total</b></td><td><b>${v(M.deblai)}</b></td><td><b>${v(M.remblai)}</b></td></tr>`;
+      A.append(tb, bloc('Talus compris. ' + (M.deblai > M.remblai ? 'Excédent de ' + v(M.deblai - M.remblai) + ' à évacuer (ou à régaler).' : M.remblai > M.deblai ? 'Apport de ' + v(M.remblai - M.deblai) + ' nécessaire.' : 'Déblai et remblai équilibrés.') + ' Estimation sans foisonnement : à confirmer par le terrassier.'));
+    }
+    if (M.reseaux.length || M.equipements.length) {
+      const tb = document.createElement('table');
+      tb.innerHTML = M.reseaux.map(r => `<tr><td><i style="display:inline-block;width:14px;height:3px;background:${NOMS_RESEAUX[r.genre].couleur};vertical-align:middle;margin-right:6px"></i>${esc(NOMS_RESEAUX[r.genre].libelle)}</td><td>${r.longueur.toFixed(1).replace('.', ',')} m</td></tr>`).join('')
+        + M.equipements.map(e => `<tr><td>${esc(NOMS_EQUIPEMENTS[e.genre as NetworkItem['kind']]?.libelle ?? e.genre)}</td><td>${e.nombre} u</td></tr>`).join('');
+      A.append(titre('Réseaux et équipements'), tb);
+    }
+    const B = M.arbres;
+    if (B.existants + B.aPlanter + B.aAbattre) A.append(titre('Végétation'), bloc('Arbres existants conservés : <b>' + B.existants + '</b><br>À planter : <b>' + B.aPlanter + '</b><br>À abattre : <b>' + B.aAbattre + '</b>'));
+    if (!nPf && !M.reseaux.length && !M.equipements.length && !(B.existants + B.aPlanter + B.aAbattre)) A.append(bloc('Rien de posé : plateformes (Terrassement), réseaux, équipements et arbres se métrent ici, et vont au plan de masse (PCMI 2).'));
+  }
+  /** le plan du géomètre (DXF) : sa limite et ses points cotés deviennent la parcelle et son relevé ; un « annuler » le retire */
+  function importerGeometre() {
+    const i = document.createElement('input'); i.type = 'file'; i.accept = '.dxf,.csv,.txt,application/dxf,image/vnd.dxf,text/csv,text/plain';
+    i.onchange = async () => {
+      const fichier = i.files?.[0];
+      if (!fichier) return;
+      let G;
+      const texte = /\.(csv|txt)$/i.test(fichier.name);
+      try { G = texte ? lirePointsTexte(await fichier.text()) : lirePlanGeometre(await fichier.text()) } catch (e) { toast('Fichier illisible : ' + String((e as Error)?.message ?? e), true); return }
+      const T = parcelleDuProjet(h.projet);
+      if (texte && !T) { toast('Le relevé en texte n’a que des points : tracez ou importez d’abord la limite de la parcelle (DXF)', true); return }
+      if (!G.limites.length && !G.points.length) { toast(texte ? 'Aucune ligne « X Y Z » lisible dans ce fichier' : 'Ni limite fermée ni point coté dans ce DXF (calques : ' + (G.calques.join(', ') || 'aucun') + ')', true); return }
+      const SOURCES = { points: 'points 3D', polylignes3d: 'sommets des polylignes 3D', textes: 'textes d’altitude', aucune: '—' };
+      const r = await dialogue('Plan du géomètre — ' + fichier.name, [
+        { cle: 'l', libelle: 'Limite de propriété', valeur: G.limites.length ? '0' : '', options: { ...(T ? { '': 'Garder la limite actuelle' } : { '': 'Aucune' }), ...Object.fromEntries(G.limites.slice(0, 30).map((l, k) => [String(k), 'Calque « ' + l.calque + ' » — ' + l.surface.toFixed(0) + ' m² (' + l.points.length + ' sommets)'])) } },
+        { cle: 'p', libelle: 'Points cotés (' + G.points.length + (texte ? ', lus dans le fichier texte' : ', lus sur les ' + SOURCES[G.sourceAltitudes]) + ')', valeur: G.points.length ? 'remplacer' : 'aucun', options: { remplacer: 'Remplacer le relevé', ajouter: 'Ajouter au relevé', aucun: 'Ne pas les reprendre' } },
+        { cle: 'z', libelle: 'Altitude NGF du ±0,00 (m) — à fixer avec le géomètre', valeur: T?.plot.groundFloorNgf !== undefined ? String(T.plot.groundFloorNgf) : '' },
+      ]);
+      if (!r) return;
+      const lim = r['l'] ? G.limites[Number(r['l'])] : undefined, z = String(r['z'] ?? '').trim(), zr = z ? ent(z) : undefined;
+      if (zr !== undefined && !Number.isFinite(zr)) { toast('Altitude du ±0,00 illisible', true); return }
+      /* le relevé se pose au centre de la maison : la limite s'y place, on l'implante ensuite (Implanter la maison) ;
+         des points sans limite (fichier texte) se posent au centre de la parcelle : un calage à vérifier sur un point connu */
+      const E = texte ? T!.plot.contour : empriseAuSol(h.projet).flatMap(q => q.contour), b = E.length ? boiteAnneau(E) : null;
+      const c = b ? { x: Math.round((b.xmin + b.xmax) / 2), y: Math.round((b.ymin + b.ymax) / 2) } : { x: 0, y: 0 };
+      const mv = (q: Point): Point => ({ x: q.x + c.x, y: q.y + c.y });
+      const pts = r['p'] === 'aucun' ? undefined : [...(r['p'] === 'ajouter' && T ? T.plot.spotHeights ?? [] : []), ...G.points.map(x => ({ point: mv(x.point), ngf: x.ngf }))];
+      const bas = [...niveaux()].sort((a, k) => a.elevation - k.elevation)[0]!;
+      if (!T && !lim) { toast('Choisissez une limite : les points cotés appartiennent à la parcelle', true); return }
+      let ok: boolean;
+      if (T) ok = faire('Plan du géomètre', [{ type: 'modifierParcelle', id: T.plot.id, ...(lim ? { contour: lim.points.map(mv) } : {}), ...(pts ? { altitudesTerrain: pts } : {}), ...(zr !== undefined ? { altitudeRdc: zr } : {}) }]);
+      else ok = faire('Plan du géomètre', [{ type: 'creerParcelle', niveau: bas.id, contour: lim!.points.map(mv), voies: [0], ...(zr !== undefined ? { altitudeRdc: zr } : {}), ...(pts?.length ? { altitudesTerrain: pts } : {}) }]);
+      if (!ok) return;
+      const N = parcelleDuProjet(h.projet);
+      if (N) { niveauId = N.niveau.id; selection = N.plot.id }
+      if (courbes === 0 && pts?.length) courbes = 0.5;
+      apres();
+      if (texte) { toast('Relevé repris : ' + G.points.length + ' points cotés, centrés sur la parcelle. Vérifiez le calage sur un point connu (le DXF du géomètre garde limite et points dans le même repère).' + (zr === undefined ? ' Altitude du ±0,00 à renseigner.' : ''), true); return }
+      toast('Plan du géomètre repris : ' + (lim ? 'limite ' + lim.surface.toFixed(0) + ' m²' : 'limite inchangée') + (pts ? ', ' + G.points.length + ' points cotés' : '') + ' (coordonnées ramenées de ' + (G.decalage.x / 1000).toFixed(0) + ' ; ' + (G.decalage.y / 1000).toFixed(0) + ' m). Vérifiez le côté sur voie, le nord et l’implantation.' + (zr === undefined ? ' Altitude du ±0,00 à renseigner.' : ''), zr === undefined);
+    };
+    i.click();
   }
 
   /** les points cotés du terrain naturel, dans l'inspecteur de la parcelle : chacun se corrige ou se retire */

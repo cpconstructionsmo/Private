@@ -357,6 +357,52 @@ compléter] »). Le plan de masse reporte les points et l'étendue du terrain
 naturel, le ±0,00 par rapport à lui ; la notice, le relief. Sans altitude
 du ±0,00, rien n'est placé, et la coupe le dit.
 
+**Module terrain** (onglet Extérieur : Terrain, Terrassement, Réseaux,
+Équipements, Végétation ; `src/building/terrassement.ts`,
+`src/import/geometre.ts`, `src/ui/dessin-terrain.ts`) — les fonctions d'un
+logiciel de terrain :
+- **Plan du géomètre (DXF)** : les polylignes fermées sont proposées comme
+  limite (un calque « LIMITE », « PARCELLE »… d'abord, avec leur surface),
+  les points cotés lus sur les points et blocs 3D, sinon sur les sommets des
+  polylignes 3D, sinon sur les textes d'altitude (« 81.37 ») ; unités de
+  `$INSUNITS` (mètres par défaut) ; coordonnées Lambert ramenées près de la
+  maison (le décalage est dit) ; 300 points au plus. Rien n'est deviné : sans
+  limite trouvée, rien n'est inventé ; l'altitude du ±0,00 se demande.
+- **Relevé en texte** (CSV, TXT : « matricule ; X ; Y ; Z ; code », points-
+  virgules, virgules, tabulations ou espaces, virgule décimale admise) : les
+  points seuls, centrés sur la parcelle déjà tracée — calage à vérifier sur
+  un point connu (le DXF garde limite et points dans le même repère).
+- **Courbes de niveau** tirées du relevé triangulé, tous les 10 cm à 2 m
+  (une maîtresse cotée toutes les cinq), au plan et au plan de masse.
+- **Plateformes** (outil W, ou « Plateforme de la maison » : 1 m autour de
+  l'emprise) : un contour, un niveau fini par rapport au ±0,00, une pente de
+  talus (1/1, 3/2, 2/1, 3/1). Le talus part de chaque point du bord, vers
+  l'extérieur, jusqu'à rencontrer le terrain naturel (au plus 40 m) ; il est
+  dessiné en peignes (déblai brun, remblai vert) avec son pied en tirets.
+- **Cubatures** : sous la plateforme, maille de 25 cm (déblai et remblai,
+  terrain naturel le plus bas et le plus haut) ; talus en prismes entre
+  rayons voisins. Volumes en place, sans foisonnement ni décapage : à
+  confirmer par le terrassier. Le métré dit l'excédent ou l'apport.
+- **Réseaux (VRD)** (outil X) : eaux usées, eaux pluviales, eau potable,
+  électricité, télécom, gaz, chacun à sa couleur et son trait, avec son
+  code et sa canalisation (« PVC Ø 100 ») ; longueurs au métré.
+  **Équipements** (outil Y) : regard, boîte de branchement, compteur d'eau,
+  coffrets, chambre télécom, puits d'infiltration, cuve EP, assainissement
+  autonome.
+- **Végétation** (outil Z) : arbres existants conservés, à planter, à
+  abattre (barrés), avec leur couronne ; en 3D, tronc et couronne (pas
+  l'arbre à abattre), cachés des façades et coupes.
+- **Terrain fini** : le terrain naturel, sauf sur les plateformes (leur
+  niveau) et leurs talus. **Profil en long** (outil S) : un trait A → B, et
+  au panneau le profil du terrain naturel (tirets) et du terrain fini, avec
+  les altitudes aux bouts, la pente moyenne et l'exagération des hauteurs
+  (le trait n'est pas enregistré). **Relief en 3D** : une nappe du terrain
+  fini sur la parcelle (grille d'au plus 120 mailles de côté), le sol plat
+  passant sous son point le plus bas.
+- **Plan de masse (PCMI 2)** : courbes, plateformes et talus, réseaux,
+  équipements, arbres, et dans la colonne : terrassement (estimé), réseaux
+  (légende des couleurs), plantations.
+
 **Fenêtres de toit** (outil H ; `src/building/fenetres-toit.ts`) : un
 châssis posé sur un pan de la toiture du niveau qui la porte (le Designer
 y passe de lui-même), d'un clic ; tailles courantes sans marque (78 × 98,

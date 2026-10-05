@@ -11,6 +11,8 @@ import { centroide } from '../geometry/polygon';
 import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit } from '../building';
 import { dessiner, dessinerAmenagement, dessinerParcelle, dessinerPointDeVue, nord, type Scene } from '../ui/dessin';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
+import { metreTerrain, NOMS_RESEAUX, talusDe } from '../building/terrassement';
+import { dessinerTerrain, NOMS_EQUIPEMENTS } from '../ui/dessin-terrain';
 import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, bilanAmenagements, pointsDeVue, champDeVue, profilTerrain, altitudeTerrain } from '../building/terrain';
 import { segmentsDans } from '../geometry/hachures';
 import { surfacesReglementaires, REFERENCES, type Surfaces } from '../building/surfaces';
@@ -276,12 +278,20 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
   const PV = pointsDeVue(projet);
   for (const v of PV) { const c = champDeVue(v); P.push(v.a, v.b, c.gauche, c.droite) }
   for (const x of plot.spotHeights ?? []) P.push(x.point);
+  /* le terrain : plateformes (et le pied de leurs talus), réseaux, équipements, arbres */
+  for (const x of Object.values(t.niveau.objects)) {
+    if (x.type === 'platform') { P.push(...x.contour); P.push(...(talusDe(plot, x)?.pied ?? [])) }
+    else if (x.type === 'network') P.push(...x.points);
+    else if (x.type === 'network_item' || x.type === 'tree') P.push(x.position);
+  }
   const xmin = Math.min(...P.map(p => p.x)), xmax = Math.max(...P.map(p => p.x)), ymin = Math.min(...P.map(p => p.y)), ymax = Math.max(...P.map(p => p.y));
   const ech = o.echelle ?? (ECHELLES_MASSE.find(e => (xmax - xmin) / e + 60 <= ZONE.l && (ymax - ymin) / e + 50 <= ZONE.h) ?? ECHELLES_MASSE[ECHELLES_MASSE.length - 1]!);
   const cam: Camera = { centre: { x: (xmin + xmax) / 2, y: (ymin + ymax) / 2 }, echelle: PT / ech, largeur: ZONE.l * PT, hauteur: ZONE.h * PT };
   const toile = new ToilePdf(page, ZONE.x * PT, ZONE.y * PT) as unknown as CanvasRenderingContext2D;
   const E2 = (q: { x: number; y: number }) => versEcran(cam, q);
-  /* les aménagements extérieurs, sous la maison */
+  /* le terrain (courbes de niveau, plateformes et talus, arbres, réseaux), puis les aménagements extérieurs, sous la maison */
+  const Zt = (plot.spotHeights ?? []).map(x => x.ngf), denivele = Zt.length ? Math.max(...Zt) - Math.min(...Zt) : 0;
+  dessinerTerrain(toile, cam, t.niveau, plot, { courbes: Zt.length >= 3 ? (denivele <= 3 ? 0.25 : denivele <= 8 ? 0.5 : 1) : null });
   for (const f of projet.buildings.flatMap(b => b.floors)) for (const x of Object.values(f.objects)) if (x.type === 'landscape') dessinerAmenagement(toile, cam, x);
   /* la maison : son emprise pleine, le débord du toit en tirets */
   toile.fillStyle = '#C9D0D5'; toile.strokeStyle = '#1A2B36'; toile.lineWidth = 1.2;
@@ -334,6 +344,31 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
     if (Am.length > 10) { page.texte('… ' + (Am.length - 10) + ' autre(s)', X(COLONNE.x + 5), Y(y), 7, { couleur: '#6E7B84' }); y += 5 }
     const vert = Am.filter(a => a.genre === 'green').reduce((t, a) => t + a.mesure, 0);
     if (vert) ligne('Espaces verts', m2(vert) + (S ? ' (' + (vert / S * 100).toFixed(1).replace('.', ',') + ' %)' : ''));
+  }
+  /* le terrassement et les réseaux (le raccordement aux réseaux se montre au plan de masse) */
+  const Mt = metreTerrain(projet), f1 = (v: number) => v.toFixed(1).replace('.', ',');
+  if (Mt.plateformes.length) {
+    y += 4;
+    page.texte('TERRASSEMENT (estimé)', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    for (const c of Mt.plateformes.slice(0, 4)) ligne(c.nom + ' à ' + c.niveau.toFixed(2).replace('.', ',') + ' NGF', m2(c.surface * 1e6), false);
+    ligne('Déblais (plateformes et talus)', f1(Mt.deblai) + ' m³'); ligne('Remblais (plateformes et talus)', f1(Mt.remblai) + ' m³');
+  }
+  if (Mt.reseaux.length || Mt.equipements.length) {
+    y += 4;
+    page.texte('RÉSEAUX', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    for (const r of Mt.reseaux) {
+      const N = NOMS_RESEAUX[r.genre];
+      page.trait(X(COLONNE.x + 5), Y(y - 1), X(COLONNE.x + 12), Y(y - 1), 1.4, N.couleur);
+      page.texte(N.code + ' — ' + N.libelle, X(COLONNE.x + 14), Y(y), 8); page.texte(f1(r.longueur) + ' m', X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite', gras: true }); y += 5;
+    }
+    for (const e of Mt.equipements) ligne(NOMS_EQUIPEMENTS[e.genre as keyof typeof NOMS_EQUIPEMENTS]?.libelle ?? e.genre, String(e.nombre), false);
+  }
+  if (Mt.arbres.existants + Mt.arbres.aPlanter + Mt.arbres.aAbattre) {
+    y += 4;
+    page.texte('PLANTATIONS', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    if (Mt.arbres.existants) ligne('Arbres existants conservés', String(Mt.arbres.existants), false);
+    if (Mt.arbres.aPlanter) ligne('Arbres à planter', String(Mt.arbres.aPlanter), false);
+    if (Mt.arbres.aAbattre) ligne('Arbres à abattre', String(Mt.arbres.aAbattre), false);
   }
   if (PV.length) {
     y += 4;

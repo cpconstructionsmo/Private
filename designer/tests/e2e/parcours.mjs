@@ -310,6 +310,65 @@ try {
   for (const [x, y] of [[-1000, 5000], [-400, 5000], [-400, 7000], [-1000, 7000], [-1000, 5000]]) await clic(x, y);
   const ter = (await objets()).find(o => o.type === 'landscape');
   assert.ok(ter && ter.kind === 'terrace' && ter.finish === 'terrasse-dalles' && ter.points.length === 4, 'terrasse tracée : ' + JSON.stringify(ter));
+  /* le terrain : une plateforme (W), un réseau d'eaux usées (X, Entrée pour finir), un arbre (Z) ; le métré les compte */
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('w');
+  for (const [x, y] of [[1000, 1000], [9000, 1000], [9000, 7000], [1000, 7000], [1000, 1000]]) await clic(x, y);
+  const pf = (await objets()).find(o => o.type === 'platform');
+  assert.ok(pf && pf.contour.length === 4 && pf.level === 0 && pf.slope === 1.5, 'plateforme tracée : ' + JSON.stringify(pf));
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('x');
+  for (const [x, y] of [[-700, 1000], [-700, 3500]]) await clic(x, y);
+  await p.keyboard.press('Enter');
+  const eu = (await objets()).find(o => o.type === 'network');
+  assert.ok(eu && eu.kind === 'eu' && eu.points.length === 2, 'réseau tracé : ' + JSON.stringify(eu));
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('z');
+  await clic(-700, 4300);
+  const arbre = (await objets()).find(o => o.type === 'tree');
+  assert.ok(arbre && arbre.state === 'planted' && arbre.diameter === 4000, 'arbre posé : ' + JSON.stringify(arbre));
+  await p.keyboard.press('Escape');
+  await p.click('nav.onglets button[data-o=exterieur]'); await p.click('.sous button[data-s=terrassement]');
+  const metre = await p.textContent('aside');
+  assert.match(metre, /Métré du terrain/); assert.match(metre, /Eaux usées/); assert.match(metre, /À planter : 1/);
+  /* le plan du géomètre (DXF fictif en Lambert, mètres) : sa limite et ses points cotés remplacent ceux de la parcelle ; un « annuler » les retire */
+  await p.click('.sous button[data-s=terrain]');
+  const g = (...L) => L.join('\n');
+  const dxfG = g('0', 'SECTION', '2', 'ENTITIES',
+    '0', 'LWPOLYLINE', '8', 'LIMITE', '90', '4', '70', '1', '10', '650000', '20', '6860000', '10', '650030', '20', '6860000', '10', '650030', '20', '6860025', '10', '650000', '20', '6860025',
+    ...[[650000, 6860000, 100.2], [650030, 6860000, 100.6], [650030, 6860025, 101.4], [650000, 6860025, 101.0], [650015, 6860012, 100.8]].flatMap(([x, y, z]) => ['0', 'POINT', '8', 'TOPO', '10', x, '20', y, '30', z]),
+    '0', 'ENDSEC', '0', 'EOF');
+  const [fcg] = await Promise.all([p.waitForEvent('filechooser'), p.click('.ruban .b-geometre')]);
+  await fcg.setFiles({ name: 'releve.dxf', mimeType: 'application/dxf', buffer: Buffer.from(dxfG) });
+  await p.waitForSelector('.voile select[name=l]');
+  assert.match(await p.textContent('.voile select[name=l]'), /Calque « LIMITE » — 750 m²/);
+  await p.fill('.voile input[name=z]', '100,50'); await p.keyboard.press('Enter');
+  await p.waitForFunction(() => Object.values(window.cpDesigner.projet().buildings[0].floors[0].objects).find(o => o.type === 'plot')?.spotHeights?.length === 5);
+  const parcG = (await objets()).find(o => o.type === 'plot');
+  assert.equal(parcG.groundFloorNgf, 100.5, 'altitude du ±0,00 reprise');
+  assert.ok(Math.abs(Math.abs(parcG.contour.reduce((s, q, i, C) => s + q.x * C[(i + 1) % C.length].y - C[(i + 1) % C.length].x * q.y, 0) / 2e6) - 750) < 1, 'limite du géomètre : 750 m²');
+  await videClic();                                                // la parcelle reprise est choisie : le panneau du sous-onglet revient
+  await p.click('.sous button[data-s=terrassement]');
+  assert.match(await p.textContent('aside'), /Déblai[\s\S]*Remblai/, 'cubatures de la plateforme sur le relevé');
+  if (process.env.CAPTURE_TERRAIN) { await p.keyboard.press('f'); for (let k = 0; k < 2; k++) await p.click('.bzoomm'); await p.waitForTimeout(300); await p.screenshot({ path: process.env.CAPTURE_TERRAIN }) }
+  /* le profil en long (S) : deux clics, le graphique au panneau */
+  await p.click('.sous button[data-s=terrain]');
+  await p.keyboard.press('s');
+  await clic(-1500, 2000); await clic(12000, 2000);
+  assert.match(await p.textContent('aside'), /Profil en long A → B \(13,50 m\)[\s\S]*Pente moyenne du TN/, 'profil en long affiché');
+  if (process.env.CAPTURE_PROFIL) await p.screenshot({ path: process.env.CAPTURE_PROFIL });
+  if (process.env.CAPTURE_RELIEF) {
+    await p.keyboard.press('3');
+    await p.waitForFunction(() => (window.cpDesigner.vue3d()?.maillages ?? 0) > 0, null, { timeout: 20_000 });
+    await p.waitForTimeout(600); await p.screenshot({ path: process.env.CAPTURE_RELIEF }); await p.keyboard.press('Escape');
+  }
+  await p.keyboard.press('Escape');
+  const avantCourbes = await p.evaluate(() => localStorage.getItem('cpDesigner:courbes'));
+  await p.click('.ruban .b-courbes');
+  assert.notEqual(await p.evaluate(() => localStorage.getItem('cpDesigner:courbes')), avantCourbes, 'courbes de niveau basculées');
+  await p.keyboard.press('Control+z');
+  assert.equal((await objets()).find(o => o.type === 'plot').spotHeights, undefined, 'un « annuler » retire le relevé du géomètre');
+  await p.click('nav.onglets button[data-o=trace]'); await p.click('.sous button[data-s=murs]');
   await p.keyboard.press('Escape');
   await p.keyboard.press('f');
   await p.waitForTimeout(300);
@@ -532,7 +591,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

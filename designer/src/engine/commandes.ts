@@ -12,13 +12,14 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
 import { ANGLE_EQUERRE, EPAISSEUR_FICTIVE, EPS_COINCIDENCE } from '../geometry/tolerance';
 import { compositionMur, epaisseurComposition, genreDuRole, roleDuGenre } from '../catalogue/murs';
 import { compositionPlancher } from '../catalogue/planchers';
+import { aireSignee } from '../geometry/polygon';
 import { mesurerCote, resoudre, type Epingle } from '../building/contraintes';
 import { calage, calageParDistance, TRANSFORMATION_NEUTRE } from '../building/fond';
 import { geometrieFenetreToit } from '../building/fenetres-toit';
@@ -108,8 +109,19 @@ export type Commande =
   | { type: 'modifierFenetreToit'; id: string; centre?: Point; largeur?: Mm; hauteur?: Mm }
   | { type: 'modifierPointDeVue'; id: string; a?: Point; b?: Point; piece?: Viewpoint['piece'] }
   /** la parcelle (une par projet) ; « nomVoie », « reference » vides : effacés */
-  | { type: 'creerParcelle'; niveau: string; contour: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number; origine?: Origine }
+  | { type: 'creerParcelle'; niveau: string; contour: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number; origine?: Origine;
+      /** le relevé, d'emblée (plan du géomètre) */
+      altitudesTerrain?: { point: Point; ngf: number }[] }
   /** un aménagement extérieur (clôture, terrasse, allée, stationnement, espace vert) */
+  /** le terrassement et les réseaux du terrain (building/terrassement.ts) : posés sur le niveau le plus bas */
+  | { type: 'creerPlateforme'; niveau: string; contour: Point[]; niveauFini: Mm; talus: number; nom?: string }
+  | { type: 'modifierPlateforme'; id: string; contour?: Point[]; niveauFini?: Mm; talus?: number; nom?: string | null }
+  | { type: 'creerReseau'; niveau: string; genre: Network['kind']; points: Point[]; spec?: string }
+  | { type: 'modifierReseau'; id: string; genre?: Network['kind']; points?: Point[]; spec?: string | null }
+  | { type: 'creerEquipement'; niveau: string; genre: NetworkItem['kind']; position: Point; nom?: string }
+  | { type: 'modifierEquipement'; id: string; genre?: NetworkItem['kind']; position?: Point; nom?: string | null }
+  | { type: 'creerArbre'; niveau: string; position: Point; diametre: Mm; etat: Tree['state'] }
+  | { type: 'modifierArbre'; id: string; position?: Point; diametre?: Mm; etat?: Tree['state'] }
   | { type: 'creerAmenagement'; niveau: string; genre: Landscape['kind']; points: Point[]; ferme?: boolean; finition: string; hauteur: Mm }
   | { type: 'modifierAmenagement'; id: string; points?: Point[]; ferme?: boolean; finition?: string; hauteur?: Mm }
   | { type: 'modifierParcelle'; id: string; contour?: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number | null;
@@ -285,6 +297,8 @@ function sommetsDe(p: Project, x: ObjectAnchor): Point[] {
 }
 
 const GENRES_UN_MUR: readonly Constraint['kind'][] = ['horizontal', 'vertical', 'length', 'angle'];
+const GENRES_RESEAU: readonly Network['kind'][] = ['eu', 'ep', 'aep', 'elec', 'telecom', 'gaz'];
+const GENRES_EQUIPEMENT: readonly NetworkItem['kind'][] = ['regard', 'branchement', 'compteur_eau', 'coffret_elec', 'chambre_telecom', 'coffret_gaz', 'infiltration', 'cuve_ep', 'assainissement'];
 
 export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
   switch (cmd.type) {
@@ -761,6 +775,88 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, o, avant, apres, c)]);
     }
+    case 'creerPlateforme': case 'modifierPlateforme': {
+      const t = cmd.type === 'modifierPlateforme' ? trouverObjet(p, cmd.id) : null;
+      if (cmd.type === 'modifierPlateforme' && (!t || t.objet.type !== 'platform')) return refus('plateforme introuvable');
+      if (cmd.type === 'creerPlateforme' && !trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const o = t?.objet as Platform | undefined;
+      const contour = cmd.contour ?? o!.contour, niveauFini = cmd.niveauFini ?? o!.level, pente = cmd.talus ?? o!.slope;
+      if (contour.length < 3 || !contour.every(ptFini) || !(Math.abs(aireSignee(contour)) > 1e4)) return refus('une plateforme est un polygone d’au moins trois sommets, de quelque surface');
+      if (!Number.isFinite(niveauFini) || Math.abs(niveauFini) > 50_000) return refus('niveau de plateforme invalide');
+      if (!(Number.isFinite(pente) && pente >= 0.2 && pente <= 10)) return refus('pente de talus entre 0,2 et 10 (horizontal pour 1 vertical)');
+      if (cmd.type === 'creerPlateforme') {
+        const n: Platform = { id: c.id(), type: 'platform', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision,
+          contour: contour.map(q => ({ ...q })), level: niveauFini, slope: pente, ...(cmd.nom?.trim() ? { label: cmd.nom.trim() } : {}) };
+        return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: n }]);
+      }
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.contour) { avant['contour'] = o!.contour; apres['contour'] = contour.map(q => ({ ...q })) }
+      if (cmd.niveauFini !== undefined) { avant['level'] = o!.level; apres['level'] = niveauFini }
+      if (cmd.talus !== undefined) { avant['slope'] = o!.slope; apres['slope'] = pente }
+      if (cmd.nom !== undefined) { avant['label'] = o!.label ?? null; apres['label'] = cmd.nom?.trim() || null }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
+    }
+    case 'creerReseau': case 'modifierReseau': {
+      const t = cmd.type === 'modifierReseau' ? trouverObjet(p, cmd.id) : null;
+      if (cmd.type === 'modifierReseau' && (!t || t.objet.type !== 'network')) return refus('réseau introuvable');
+      if (cmd.type === 'creerReseau' && !trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const o = t?.objet as Network | undefined;
+      const points = cmd.points ?? o!.points, genre = cmd.genre ?? o!.kind;
+      if (!GENRES_RESEAU.includes(genre)) return refus('réseau inconnu');
+      if (points.length < 2 || !points.every(ptFini) || points.some((q, i) => i > 0 && distance(q, points[i - 1]!) <= EPS_COINCIDENCE)) return refus('un réseau va d’un point à un autre (deux points distincts au moins)');
+      if (cmd.type === 'creerReseau') {
+        const n: Network = { id: c.id(), type: 'network', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision,
+          kind: genre, points: points.map(q => ({ ...q })), ...(cmd.spec?.trim() ? { spec: cmd.spec.trim() } : {}) };
+        return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: n }]);
+      }
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.points) { avant['points'] = o!.points; apres['points'] = points.map(q => ({ ...q })) }
+      if (cmd.genre !== undefined) { avant['kind'] = o!.kind; apres['kind'] = genre }
+      if (cmd.spec !== undefined) { avant['spec'] = o!.spec ?? null; apres['spec'] = cmd.spec?.trim() || null }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
+    }
+    case 'creerEquipement': case 'modifierEquipement': {
+      const t = cmd.type === 'modifierEquipement' ? trouverObjet(p, cmd.id) : null;
+      if (cmd.type === 'modifierEquipement' && (!t || t.objet.type !== 'network_item')) return refus('équipement introuvable');
+      if (cmd.type === 'creerEquipement' && !trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const o = t?.objet as NetworkItem | undefined;
+      const position = cmd.position ?? o!.position, genre = cmd.genre ?? o!.kind;
+      if (!GENRES_EQUIPEMENT.includes(genre)) return refus('équipement inconnu');
+      if (!ptFini(position)) return refus('position invalide');
+      if (cmd.type === 'creerEquipement') {
+        const n: NetworkItem = { id: c.id(), type: 'network_item', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision,
+          kind: genre, position: { ...position }, ...(cmd.nom?.trim() ? { label: cmd.nom.trim() } : {}) };
+        return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: n }]);
+      }
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.position) { avant['position'] = o!.position; apres['position'] = { ...position } }
+      if (cmd.genre !== undefined) { avant['kind'] = o!.kind; apres['kind'] = genre }
+      if (cmd.nom !== undefined) { avant['label'] = o!.label ?? null; apres['label'] = cmd.nom?.trim() || null }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
+    }
+    case 'creerArbre': case 'modifierArbre': {
+      const t = cmd.type === 'modifierArbre' ? trouverObjet(p, cmd.id) : null;
+      if (cmd.type === 'modifierArbre' && (!t || t.objet.type !== 'tree')) return refus('arbre introuvable');
+      if (cmd.type === 'creerArbre' && !trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const o = t?.objet as Tree | undefined;
+      const position = cmd.position ?? o!.position, diametre = cmd.diametre ?? o!.diameter, etat = cmd.etat ?? o!.state;
+      if (!ptFini(position)) return refus('position invalide');
+      if (!(diametre >= 300 && diametre <= 30_000)) return refus('diamètre de couronne entre 0,30 et 30 m');
+      if (!['existing', 'planted', 'felled'].includes(etat)) return refus('état inconnu');
+      if (cmd.type === 'creerArbre') {
+        const n: Tree = { id: c.id(), type: 'tree', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision, position: { ...position }, diameter: diametre, state: etat };
+        return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: n }]);
+      }
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.position) { avant['position'] = o!.position; apres['position'] = { ...position } }
+      if (cmd.diametre !== undefined) { avant['diameter'] = o!.diameter; apres['diameter'] = diametre }
+      if (cmd.etat !== undefined) { avant['state'] = o!.state; apres['state'] = etat }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
+    }
     case 'creerAmenagement': {
       if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
       const ferme = cmd.genre !== 'fence' || !!cmd.ferme;
@@ -789,13 +885,14 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
     case 'creerParcelle': {
       if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
       if (p.buildings.flatMap(b => b.floors).some(f => Object.values(f.objects).some(o => o.type === 'plot'))) return refus('le projet a déjà une parcelle : modifiez-la');
-      const e = parcelleInvalide(cmd.contour, cmd.voies ?? [], cmd.nord ?? 0, cmd.altitudeRdc);
+      const e = parcelleInvalide(cmd.contour, cmd.voies ?? [], cmd.nord ?? 0, cmd.altitudeRdc) ?? (cmd.altitudesTerrain?.length ? altitudesInvalides(cmd.altitudesTerrain) : null);
       if (e) return refus(e);
       const t: Plot = {
         id: c.id(), type: 'plot', floorId: cmd.niveau, ...provenance(c, cmd.origine), revision: c.revision,
         contour: cmd.contour.map(q => ({ ...q })), street: [...(cmd.voies ?? [])], north: cmd.nord ?? 0,
         ...(cmd.nomVoie?.trim() ? { streetName: cmd.nomVoie.trim() } : {}), ...(cmd.reference?.trim() ? { reference: cmd.reference.trim() } : {}),
         ...(cmd.altitudeRdc !== undefined ? { groundFloorNgf: cmd.altitudeRdc } : {}),
+        ...(cmd.altitudesTerrain?.length ? { spotHeights: cmd.altitudesTerrain.map(x => ({ point: { ...x.point }, ngf: x.ngf })) } : {}),
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: t }]);
     }

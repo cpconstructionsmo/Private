@@ -284,7 +284,45 @@ export interface RoofWindow extends BaseObject {
    changer aux projets déjà enregistrés (un type de plus, un champ
    facultatif) : le schéma reste à la version 1, l'instantané figé des
    tests le vérifie. */
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow;
+/** une plateforme de terrassement : une surface mise à niveau (l'assise de la maison, une terrasse, un accès…),
+ *  raccordée au terrain naturel par un talus ; posée sur le niveau le plus bas */
+export interface Platform extends BaseObject {
+  type: 'platform';
+  contour: Point[];
+  /** son niveau fini, par rapport au ±0,00 du projet (mm) */
+  level: Mm;
+  /** la pente du talus : horizontal pour 1 vertical (1,5 : talus « 3 pour 2 ») */
+  slope: number;
+  label?: string;
+}
+
+/** un réseau extérieur (VRD) : une canalisation ou une gaine, tracée point à point */
+export interface Network extends BaseObject {
+  type: 'network';
+  kind: 'eu' | 'ep' | 'aep' | 'elec' | 'telecom' | 'gaz';
+  points: Point[];
+  /** matériau et diamètre, en clair (« PVC Ø 100 ») */
+  spec?: string;
+}
+
+/** un équipement de réseau, ponctuel (regard, boîte de branchement, compteur, coffret, puisard…) */
+export interface NetworkItem extends BaseObject {
+  type: 'network_item';
+  kind: 'regard' | 'branchement' | 'compteur_eau' | 'coffret_elec' | 'chambre_telecom' | 'coffret_gaz' | 'infiltration' | 'cuve_ep' | 'assainissement';
+  position: Point;
+  label?: string;
+}
+
+/** un arbre ou un arbuste du plan de masse : existant, à planter, ou à abattre */
+export interface Tree extends BaseObject {
+  type: 'tree';
+  position: Point;
+  /** le diamètre de la couronne (mm) */
+  diameter: Mm;
+  state: 'existing' | 'planted' | 'felled';
+}
+
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree;
 
 export interface Floor {
   id: string;
