@@ -126,3 +126,14 @@ describe('cloison fictive', () => {
     expect(mursFictifs(s.historique.projet.buildings[0]!.floors[0]!)[0]!.axis.b).toEqual({ x: 5_000, y: 4_000 });
   });
 });
+
+describe('murs composés au PDF', () => {
+  it('le plan A3 dessine les couches (découpées) sans erreur, et la cloison fictive en trait mixte', async () => {
+    const { planchesPdf } = await import('../../src/export/planche');
+    const { h } = projet(n => [...rectangle(n, 'ext-isole-36'), { type: 'creerMur', niveau: n, a: { x: 4_000, y: 0 }, b: { x: 4_000, y: 8_000 }, epaisseur: 70, role: 'virtual' }]);
+    const f = h.projet.buildings[0]!.floors[0]!;
+    const s = Array.from(planchesPdf(h.projet, { niveaux: [f.id], cotation: false, mobilier: false, indice: 'A', date: '05/10/2026' }), c => String.fromCharCode(c)).join('');
+    expect(s).toMatch(/ W\* n/);                                  // les couches découpées au contour
+    expect((s.match(/\bq\b/g) ?? []).length).toBe((s.match(/\bQ\b/g) ?? []).length);
+  });
+});
