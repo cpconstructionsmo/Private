@@ -21,12 +21,14 @@
      triangles, quand le relevé et l'altitude du ±0,00 le permettent.
    - La toiture (building/toiture.ts) : chaque pan est une plaque inclinée
      de l'épaisseur d'une couverture, les pignons montent jusqu'au toit, un
-     toit-terrasse est une dalle et son acrotère. */
+     toit-terrasse est une dalle et son acrotère ; les lucarnes
+     (building/lucarnes.ts) posent sur leur pan façade, jouées et toiture. */
 import type { Floor, Mm, Opening, Point, Project, Roof } from '../model/types';
 import { planDuNiveau } from '../building/plan';
 import { toitureDuNiveau, type Point3 } from '../building/toiture';
 import { fenetresDeToit } from '../building/fenetres-toit';
 import { eauxPluviales } from '../building/eaux-pluviales';
+import { lucarnesDuNiveau } from '../building/lucarnes';
 import { blocs, formeDe, versPlan } from '../building/mobilier';
 import { finitionAmenagement } from '../catalogue/amenagements';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
@@ -248,6 +250,17 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
       prismes.push({ contour: t.terrasse.dalle, z0: t.terrasse.z0, z1: t.terrasse.z1, matiere: m, objet: roof.id, niveau: f.id });
       for (const a of t.terrasse.acrotere) prismes.push({ contour: a.contour, ...(a.trous?.length ? { trous: a.trous } : {}), z0: t.terrasse.z1, z1: t.terrasse.zAcrotere, matiere: 'mur', objet: roof.id, niveau: f.id });
     }
+  }
+  /* les lucarnes : leur toiture (couverture du toit, plus mince), leur façade et leurs jouées (épaissies vers
+     l'intérieur), la fenêtre posée devant la façade */
+  for (const { o, geo } of lucarnesDuNiveau(f)) {
+    /* posée sur son pan : les vues (façades, coupes) la rangent juste devant lui, comme une fenêtre de toit */
+    const E = 150, mt = geo.montee, tr = geo.travers, support = geo.pan.contour.map(q => ({ ...q, z: geo.pan.plan.a * q.x + geo.pan.plan.b * q.y + geo.pan.plan.c }));
+    const base = { objet: o.id, niveau: f.id, support };
+    for (const T of geo.toits) plaques.push({ dessus: T, decalage: { x: 0, y: 0, z: -EPAISSEUR_COUVERTURE / 2 }, matiere: m, ...base });
+    plaques.push({ dessus: geo.facade, decalage: { x: mt.x * E, y: mt.y * E, z: 0 }, matiere: 'mur', ...base });
+    geo.joues.forEach((J, i) => { const s = i === 0 ? 1 : -1; plaques.push({ dessus: J, decalage: { x: tr.x * E * s, y: tr.y * E * s, z: 0 }, matiere: 'mur', ...base }) });
+    plaques.push({ dessus: geo.fenetre.map(q => ({ x: q.x - mt.x * 30, y: q.y - mt.y * 30, z: q.z })), decalage: { x: mt.x * 25, y: mt.y * 25, z: 0 }, matiere: 'vitrage', ...base });
   }
   /* les fenêtres de toit : un dormant sombre posé sur la couverture, son vitrage en retrait des bords */
   for (const { o, geo } of fenetresDeToit(f)) {

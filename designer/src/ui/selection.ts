@@ -3,6 +3,7 @@
    un meuble, une pièce ; puis ce qui est au terrain (équipements, réseaux,
    plateformes, arbres). */
 import { fenetresDeToit } from '../building/fenetres-toit';
+import { lucarnesDuNiveau } from '../building/lucarnes';
 import type { Floor, Mm, Point } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
 import { mursDroits, mursFictifs } from '../building/murs';
@@ -16,7 +17,7 @@ import { sectionPoteau } from '../building/structure';
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
-  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' | 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' };
+  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' | 'dormer' | 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' };
 
 /** viser : « escaliers » donne l'emprise des escaliers du niveau (calculée par l'appelant, qui connaît la hauteur à franchir) */
 export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: { id: string; emprise: Point[] }[] = []): Cible | null {
@@ -36,6 +37,7 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
   for (const o of Object.values(f.objects)) if (o.type === 'section' && distancePointSegment(p, { a: o.a, b: o.b }) <= rayon / 2) return { genre: 'objet', id: o.id, type: 'section' };
   for (const o of Object.values(f.objects)) if (o.type === 'viewpoint' && distancePointSegment(p, { a: o.a, b: o.b }) <= rayon / 2) return { genre: 'objet', id: o.id, type: 'viewpoint' };
   for (const { o, geo } of fenetresDeToit(f)) if (positionDansAnneau(p, geo.plan) !== 'dehors') return { genre: 'objet', id: o.id, type: 'roof_window' };
+  for (const { o, geo } of lucarnesDuNiveau(f)) if (positionDansAnneau(p, geo.plan) !== 'dehors') return { genre: 'objet', id: o.id, type: 'dormer' };
   /* la limite de la parcelle : à quelques pixels d'un de ses côtés */
   for (const o of Object.values(f.objects)) if (o.type === 'plot' && o.contour.some((a, i) => distancePointSegment(p, { a, b: o.contour[(i + 1) % o.contour.length]! }) <= rayon / 2)) return { genre: 'objet', id: o.id, type: 'plot' };
   const parId = new Map(M.map(w => [w.id, w]));

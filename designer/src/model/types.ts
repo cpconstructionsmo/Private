@@ -288,6 +288,25 @@ export interface RoofWindow extends BaseObject {
   height: Mm;
 }
 
+/** une lucarne, sur le niveau qui porte la toiture : seuls ses CHOIX sont gardés — le milieu de sa façade en plan,
+ *  sa largeur, la hauteur de sa façade au-dessus du toit, la pente de sa petite toiture, sa fenêtre. Le pan qui la
+ *  porte, ses jouées, ses noues et sa couverture se déduisent (building/lucarnes.ts) : elle suit la toiture */
+export interface Dormer extends BaseObject {
+  type: 'dormer';
+  /** jacobine (deux pans, fronton), capucine (trois pans, croupe en façade), rampante (un pan, moins pentu que le toit) */
+  kind: 'gable' | 'hip' | 'shed';
+  /** le milieu du bas de la façade, en plan (sur le pan) */
+  center: Point;
+  width: Mm;
+  /** la hauteur de la façade, du toit à l'égout de la lucarne */
+  height: Mm;
+  /** la pente de sa toiture, en degrés */
+  pitch: number;
+  /** la fenêtre de la façade : largeur et hauteur */
+  windowWidth: Mm;
+  windowHeight: Mm;
+}
+
 /* Contraintes, valeur des cotes, toiture, mobilier, escaliers, coupes, parcelle, aménagements s'ajoutent sans rien
    changer aux projets déjà enregistrés (un type de plus, un champ
    facultatif) : le schéma reste à la version 1, l'instantané figé des
@@ -374,7 +393,7 @@ export interface Foundation extends BaseObject {
   hatches: Point[];
 }
 
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree | Column | Beam | Foundation;
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree | Column | Beam | Foundation | Dormer;
 
 export interface Floor {
   id: string;

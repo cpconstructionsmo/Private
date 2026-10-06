@@ -27,6 +27,7 @@ import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soust
 import { sectionPoteau, empriseDePoutre } from '../building/structure';
 import type { PlanFondations } from '../building/fondations';
 import type { EauxPluviales } from '../building/eaux-pluviales';
+import { lucarnesDuNiveau } from '../building/lucarnes';
 import { boiteVisible, pasDeGrille, versEcran, type Camera } from './camera';
 import { dessinCote, texteCote } from './cotes';
 
@@ -253,6 +254,18 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillStyle = sel ? 'rgba(197,86,58,.10)' : 'rgba(141,183,207,.18)';
     ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(P[0]!.x, P[0]!.y); ctx.lineTo(P[2]!.x, P[2]!.y); ctx.moveTo(P[1]!.x, P[1]!.y); ctx.lineTo(P[3]!.x, P[3]!.y); ctx.stroke(); ctx.setLineDash([]);
+  }
+  /* les lucarnes, au-dessus du plan : leur emprise en tirets, la façade en trait plein, le faîtage en trait mixte */
+  for (const { o, geo } of lucarnesDuNiveau(s.niveau)) {
+    const sel = estChoisi(o.id), P = geo.plan.map(E);
+    ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.bleu; ctx.lineWidth = sel ? 1.8 : 1.1; ctx.fillStyle = sel ? 'rgba(197,86,58,.10)' : 'rgba(44,74,94,.08)';
+    ctx.setLineDash([6, 3]); ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+    ctx.lineWidth = sel ? 2.4 : 1.8; ctx.beginPath(); ctx.moveTo(P[0]!.x, P[0]!.y); ctx.lineTo(P[1]!.x, P[1]!.y); ctx.stroke();
+    if (o.kind !== 'shed') {
+      const debut = o.kind === 'hip' ? o.width / 2 : 0, fond = Math.max(...geo.plan.map(q => (q.x - o.center.x) * geo.montee.x + (q.y - o.center.y) * geo.montee.y));
+      const a = E({ x: o.center.x + geo.montee.x * debut, y: o.center.y + geo.montee.y * debut }), b = E({ x: o.center.x + geo.montee.x * fond, y: o.center.y + geo.montee.y * fond });
+      ctx.lineWidth = 1; ctx.setLineDash([10, 3, 2, 3]); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
+    }
   }
   /* cotation automatique, puis la place des ouvertures choisies */
   if (s.cotation) for (const c of s.cotation) chaine(ctx, cam, c);

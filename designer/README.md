@@ -448,6 +448,19 @@ niveau, en section pleine au plan ; une poutre (largeur, retombée sous le
 plafond) en tirets au plan ; tous deux en 3D, déplaçables, métrés.
 Sections à confirmer par l'étude de structure.
 
+**Lucarnes** (Toit › Lucarnes ; `src/building/lucarnes.ts`) : jacobine
+(deux pans et fronton), capucine (trois pans, croupe en façade) ou rampante
+(un pan moins pentu que le toit), posée d'un clic sur un pan, au pied de sa
+façade ; elle monte dans la pente jusqu'à ce que le toit rejoigne son
+faîtage. Seuls les choix sont gardés (genre, point de façade, largeur,
+hauteur de façade, pente, fenêtre) : jouées, noues et couverture se
+déduisent du pan, la lucarne suit la toiture. Refusée hors du pan, débordant
+du pan, rampante trop pentue, fenêtre trop grande. Tirée pour la déplacer,
+réglée à l'inspecteur ; au plan (emprise en tirets, façade, faîtage), au
+plan de toiture, en 3D, aux façades et au métré (nombre par genre,
+couverture, façades et jouées, fenêtres). Le pan n'est pas percé sous la
+lucarne : charpente et chevêtre restent à étudier.
+
 **Égout et gouttières** (Toit › Égout et gouttières ;
 `src/building/eaux-pluviales.ts`) : les lignes du toit se déduisent des pans
 calculés — égout (à l'altitude de l'égout), rive (pignon, haut d'un pan),

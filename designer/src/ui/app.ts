@@ -5,7 +5,7 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { Beam, BuildingObject, Column, Floor, Foundation, Underlay, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
+import type { Beam, BuildingObject, Column, Dormer, Floor, Foundation, Underlay, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
@@ -29,6 +29,7 @@ import { maquette } from '../vue3d/maquette';
 import { PAREMENTS, PEINTURES, SOLS } from '../catalogue/materiaux';
 import { MODELES_MAISONS, modeleMaison } from '../catalogue/modeles-maisons';
 import { geometrieFenetreToit, TAILLES_FENETRE_TOIT } from '../building/fenetres-toit';
+import { geometrieLucarne, LUCARNES } from '../building/lucarnes';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
@@ -801,6 +802,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'profil', icone: 'profil', libelle: 'Profil en long du terrain', touche: 'S' },
     { nom: 'poteau', icone: 'poteau', libelle: 'Poteau', touche: '' }, { nom: 'poutre', icone: 'poutre', libelle: 'Poutre', touche: '' },
     { nom: 'trappe', icone: 'trappe', libelle: 'Trappe de visite', touche: '' }, { nom: 'descente', icone: 'descente', libelle: 'Descente d’eaux pluviales', touche: '' },
+    { nom: 'lucarne', icone: 'lucarne_gable', libelle: 'Lucarne', touche: '' },
     { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.filter(o => o.touche).map(o => [o.touche.toLowerCase(), o.nom]));
@@ -809,14 +811,14 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     mur: ['trace', 'murs'], refend: ['trace', 'murs'], cloison: ['trace', 'murs'], fictive: ['trace', 'murs'], rectangle: ['trace', 'murs'],
     piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
     ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
-    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'], descente: ['toit', 'eaux'],
+    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'], descente: ['toit', 'eaux'], lucarne: ['toit', 'lucarnes'],
     mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
   };
   function choisir(o: NomOutil) {
     if (en3D) void basculer3D(false);
     /* la parcelle se trace sur le niveau le plus bas (le terrain) */
     /* une fenêtre de toit, une descente se posent sur la toiture : on passe au niveau qui la porte */
-    if ((o === 'fenetretoit' || o === 'descente') && !Object.values(niveau().objects).some(x => x.type === 'roof')) {
+    if ((o === 'fenetretoit' || o === 'descente' || o === 'lucarne') && !Object.values(niveau().objects).some(x => x.type === 'roof')) {
       const t = niveaux().find(f => Object.values(f.objects).some(x => x.type === 'roof'));
       if (!t) { toast('Aucune toiture : posez-la d’abord (onglet Toit), puis ses fenêtres', true); return }
       niveauId = t.id; selection = null; apres();
@@ -826,7 +828,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const place = PLACE_OUTIL[o];
     if (place && !offertIci(o)) { onglet = place[0]; sousOnglets[place[0]] = place[1] }
     if (o !== 'piece') typePiece = null;
-    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre' || o === 'poteau' || o === 'poutre' || o === 'trappe' || o === 'descente') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre' || o === 'poteau' || o === 'poutre' || o === 'trappe' || o === 'descente' || o === 'lucarne') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   /** l'outil est-il une tuile du sous-onglet ouvert ? */
   const offertIci = (o: NomOutil) => !!sousCourant().tuiles?.().some(t => !!t.classe?.split(' ').includes('o-' + o));
 
@@ -895,6 +897,10 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         faire: () => poserToit(g), actif: () => Object.values(niveauToit().objects).some(o => o.type === 'roof' && o.kind === g), classe: 'toit-' + g })),
         panneau: () => sectionToiture(niveauToit()) },
       { id: 'fenetres', libelle: 'Fenêtres de toit', icone: 'fenetre_toit', tuiles: () => [outil('fenetretoit')], panneau: () => sectionToiture(niveauToit()) },
+      { id: 'lucarnes', libelle: 'Lucarnes', icone: 'lucarne_gable', tuiles: () => (['gable', 'hip', 'shed'] as const).map(g => ({
+        libelle: LUCARNES[g].replace(/ \(.*/, ''), icone: 'lucarne_' + g, classe: 'o-lucarne luc-' + g, titre: LUCARNES[g] + ' : cliquez sur un pan, au pied de sa façade',
+        faire: () => { outils.reglages.genreLucarne = g; choisir('lucarne') }, actif: () => outils.outil === 'lucarne' && outils.reglages.genreLucarne === g })),
+        panneau: () => sectionToiture(niveauToit()) },
       { id: 'eaux', libelle: 'Égout et gouttières', icone: 'descente', entrer: () => { const f = niveauToit(); if (f.id !== niveauId) { niveauId = f.id; selection = null; apres() } },
         tuiles: () => [outil('descente', 'Descente EP'),
           ...(['genoise_1', 'genoise_2', 'genoise_3'] as const).map(g => ({ libelle: FINITIONS_EGOUT[g], icone: 'genoise', classe: 'egout-' + g, titre: 'Égout en génoise (tuiles canal en encorbellement)',
@@ -1199,7 +1205,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const S = sousCourant();
     /* le bandeau du panneau : ce qu'il montre */
     const TYPES: Record<string, [string, string]> = { wall: ['murs', 'Mur'], opening: ['ouvrant', 'Ouvrant'], room: ['piece', 'Pièce'], dimension: ['cote', 'Cote'], underlay: ['fond', 'Fond'],
-      furniture: ['produit', 'Produit'], stair: ['escalier', 'Escalier'], section: ['coupe', 'Coupe'], roof_window: ['fenetre_toit', 'Fenêtre de toit'], viewpoint: ['point_de_vue', 'Point de vue'],
+      furniture: ['produit', 'Produit'], stair: ['escalier', 'Escalier'], section: ['coupe', 'Coupe'], roof_window: ['fenetre_toit', 'Fenêtre de toit'], dormer: ['lucarne_gable', 'Lucarne'], viewpoint: ['point_de_vue', 'Point de vue'],
       landscape: ['exterieur', 'Aménagement'], plot: ['parcelle', 'Terrain'], constraint: ['equerre', 'Contrainte'], roof: ['toit', 'Toit'],
       platform: ['plateforme', 'Plateforme'], network: ['reseau', 'Réseau'], network_item: ['regard', 'Équipement'], tree: ['arbre', 'Arbre'], column: ['poteau', 'Poteau'], beam: ['poutre', 'Poutre'] };
     const [ic, lib] = en3D ? ['vue3d', 'Vue 3D'] : groupe.length ? ['tout', 'Sélection'] : o ? TYPES[o.type] ?? ['trace', 'Objet']
@@ -1417,6 +1423,22 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           bloc(g.ok ? 'Sur un pan de ' + g.geo.pente.toFixed(0) + '° ; en plan, ' + m(o.width) + ' × ' + m(o.height * Math.cos(g.geo.pente * Math.PI / 180)) + ' (la hauteur se raccourcit avec la pente).'
             : '⚠️ ' + esc(g.raison), g.ok ? 'note' : 'alerte'),
           bloc('Tirez-la pour la déplacer sur le pan. Dimensions de châssis courantes, sans marque : « ou équivalent » au descriptif.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'dormer': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierLucarne' }>>) => faire(t, [{ type: 'modifierLucarne', id: o.id, ...c }]);
+        const g = geometrieLucarne(niveau(), o), cmEnMm = (v: string) => Math.round(Number(v.replace(',', '.')) * 10);
+        A.append(titre('Lucarne'),
+          champ('Genre', o.kind, v => mod('Genre de lucarne', { genre: v as Dormer['kind'] }), 'text', LUCARNES),
+          champ('Largeur (cm)', o.width / 10, v => mod('Largeur de la lucarne', { largeur: cmEnMm(v) }), 'number'),
+          champ('Hauteur de façade (cm)', o.height / 10, v => mod('Hauteur de la lucarne', { hauteur: cmEnMm(v) }), 'number'),
+          champ('Pente de sa toiture (°)', o.pitch, v => mod('Pente de la lucarne', { pente: Number(v.replace(',', '.')) }), 'number'),
+          champ('Fenêtre : largeur (cm)', o.windowWidth / 10, v => mod('Fenêtre de la lucarne', { fenetreLargeur: cmEnMm(v) }), 'number'),
+          champ('Fenêtre : hauteur (cm)', o.windowHeight / 10, v => mod('Fenêtre de la lucarne', { fenetreHauteur: cmEnMm(v) }), 'number'),
+          bloc(g.ok ? 'Façade de ' + m(g.geo.z0) + ' (pied, sur le toit) à ' + m(g.geo.zf) + ' (égout)' + (o.kind !== 'shed' ? ', faîtage à ' + m(g.geo.zr) : ', haut à ' + m(g.geo.zr)) + ' depuis le ±0,00 ; couverture ' + m2(g.geo.surfaceCouverture) + '.'
+            : '⚠️ ' + esc(g.raison), g.ok ? 'note' : 'alerte'),
+          bloc('Tirez-la pour la déplacer sur le pan. Ossature, habillage des jouées et fenêtre : à préciser au projet.'),
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }

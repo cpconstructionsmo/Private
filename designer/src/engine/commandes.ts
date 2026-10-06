@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -24,6 +24,7 @@ import { mesurerCote, resoudre, type Epingle } from '../building/contraintes';
 import { calage, calageParDistance, TRANSFORMATION_NEUTRE } from '../building/fond';
 import { geometrieFenetreToit } from '../building/fenetres-toit';
 import { toitureDuNiveau } from '../building/toiture';
+import { geometrieLucarne, LUCARNE_PAR_DEFAUT } from '../building/lucarnes';
 import { distancePointSegment } from '../geometry/segment';
 import { equerrer } from '../building/equerre';
 import { mursDroits, mursFictifs } from '../building/murs';
@@ -111,6 +112,9 @@ export type Commande =
   | { type: 'creerPointDeVue'; niveau: string; a: Point; b: Point; piece?: Viewpoint['piece'] }
   | { type: 'creerFenetreToit'; niveau: string; centre: Point; largeur?: Mm; hauteur?: Mm }
   | { type: 'modifierFenetreToit'; id: string; centre?: Point; largeur?: Mm; hauteur?: Mm }
+  /** une lucarne sur la toiture du niveau ; sans valeurs : celles de LUCARNE_PAR_DEFAUT, la pente du toit (jacobine, capucine) */
+  | { type: 'creerLucarne'; niveau: string; genre: Dormer['kind']; centre: Point; largeur?: Mm; hauteur?: Mm; pente?: number; fenetreLargeur?: Mm; fenetreHauteur?: Mm }
+  | { type: 'modifierLucarne'; id: string; genre?: Dormer['kind']; centre?: Point; largeur?: Mm; hauteur?: Mm; pente?: number; fenetreLargeur?: Mm; fenetreHauteur?: Mm }
   | { type: 'modifierPointDeVue'; id: string; a?: Point; b?: Point; piece?: Viewpoint['piece'] }
   /** la parcelle (une par projet) ; « nomVoie », « reference » vides : effacés */
   | { type: 'creerParcelle'; niveau: string; contour: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number; origine?: Origine;
@@ -307,6 +311,18 @@ function sommetsDe(p: Project, x: ObjectAnchor): Point[] {
   if (!t || t.objet.type !== 'wall' || !('a' in t.objet.axis)) return [];
   const { a, b } = t.objet.axis;
   return x.feature === 'start' ? [a] : x.feature === 'end' ? [b] : [a, b];
+}
+
+/** une lucarne : des dimensions plausibles, entière sur un pan de la toiture du niveau */
+function lucarneInvalide(f: Floor, o: Pick<Dormer, 'kind' | 'center' | 'width' | 'height' | 'pitch' | 'windowWidth' | 'windowHeight'>): string | null {
+  if (!['gable', 'hip', 'shed'].includes(o.kind)) return 'lucarne inconnue';
+  if (!ptFini(o.center) || !fini(o.width, o.height, o.pitch, o.windowWidth, o.windowHeight)) return 'position ou dimensions invalides';
+  if (o.width < 800 || o.width > 4_000) return 'largeur de lucarne de 80 cm à 4 m';
+  if (o.height < 800 || o.height > 3_000) return 'hauteur de façade de lucarne de 80 cm à 3 m';
+  if (o.pitch < 5 || o.pitch > 70) return 'pente de lucarne de 5 à 70°';
+  if (o.windowWidth < 300 || o.windowHeight < 300) return 'fenêtre de lucarne de 30 cm au moins';
+  const g = geometrieLucarne(f, o);
+  return g.ok ? null : g.raison;
 }
 
 /** l'arase d'un mur extérieur au-dessus de la hauteur sous plafond (plafond, isolant, entraits ou fermettes) :
@@ -776,6 +792,31 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (e) return refus(e);
       const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
       const champs = { centre: 'center', largeur: 'width', hauteur: 'height' } as const;
+      for (const k of Object.keys(champs) as (keyof typeof champs)[]) { if (cmd[k] === undefined) continue; avant[champs[k]] = o[champs[k]]; apres[champs[k]] = cmd[k] }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, o, avant, apres, c)]);
+    }
+    case 'creerLucarne': {
+      const n = trouverNiveau(p, cmd.niveau);
+      if (!n) return refus('niveau introuvable');
+      const D = LUCARNE_PAR_DEFAUT, roof = Object.values(n.floor.objects).find(o => o.type === 'roof');
+      const v = { kind: cmd.genre, center: { ...cmd.centre }, width: cmd.largeur ?? D.largeur, height: cmd.hauteur ?? D.hauteur,
+        pitch: cmd.pente ?? (cmd.genre === 'shed' ? D.penteRampante : roof?.type === 'roof' ? roof.pitch : 40), windowWidth: cmd.fenetreLargeur ?? D.fenetreLargeur, windowHeight: cmd.fenetreHauteur ?? D.fenetreHauteur };
+      const e = lucarneInvalide(n.floor, v);
+      if (e) return refus(e);
+      const o: Dormer = { id: c.id(), type: 'dormer', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision, ...v };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: o }]);
+    }
+    case 'modifierLucarne': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'dormer') return refus('lucarne introuvable');
+      const o = t.objet, f = trouverNiveau(p, t.niveauId)!.floor;
+      const champs = { genre: 'kind', centre: 'center', largeur: 'width', hauteur: 'height', pente: 'pitch', fenetreLargeur: 'windowWidth', fenetreHauteur: 'windowHeight' } as const;
+      const v = { ...o };
+      for (const k of Object.keys(champs) as (keyof typeof champs)[]) if (cmd[k] !== undefined) (v as Record<string, unknown>)[champs[k]] = cmd[k];
+      const e = lucarneInvalide(f, v);
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) { if (cmd[k] === undefined) continue; avant[champs[k]] = o[champs[k]]; apres[champs[k]] = cmd[k] }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, o, avant, apres, c)]);
