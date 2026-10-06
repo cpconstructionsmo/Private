@@ -8,7 +8,7 @@
 import type { BuildingObject, Floor, Project, Roof } from '../model/types';
 import type { Toiture } from '../building/toiture';
 import { centroide } from '../geometry/polygon';
-import { planDuNiveau, cotationExterieure, cotesInterieures, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit } from '../building';
+import { planDuNiveau, cotationExterieure, cotesInterieures, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit, planFondations, fondationsDuProjet, SOUBASSEMENTS, type PlanFondations } from '../building';
 import { dessiner, dessinerAmenagement, dessinerParcelle, dessinerPointDeVue, nord, type Scene } from '../ui/dessin';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
 import { metreTerrain, NOMS_RESEAUX, talusDe } from '../building/terrassement';
@@ -60,6 +60,8 @@ export interface OptionsPlanche {
   coupe?: boolean;
   /** des plans de présentation (pour le client) : sols en couleur avec leur motif, la colonne dit le sol de chaque pièce */
   presentation?: boolean;
+  /** ajouter le plan de fondations, s'il y a des fondations */
+  fondations?: boolean;
 }
 
 /** la boîte de ce qui se dessine sur un niveau (mm) : maçonnerie, meubles, débord de toit */
@@ -83,15 +85,22 @@ const m2 = (v: number) => (v / 1e6).toFixed(2).replace('.', ',') + ' m²';
 
 const SUR_LE_TERRAIN = new Set<BuildingObject['type']>(['platform', 'network', 'network_item', 'tree']);
 
-function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche, traits: LigneDeCoupe[]): void {
+/** la planche d'un niveau ; « fondations » : son plan de fondations (semelles, trappes ; ni mobilier, ni escalier, ni toiture) */
+function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche, traits: LigneDeCoupe[], fondations = false): void {
   const page = doc.page(A3.l * PT, A3.h * PT);
   /* coordonnées de mise en page (mm, haut-gauche) → page PDF */
   const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
   /* le plan d'un niveau montre le bâtiment : le terrain (plateformes, réseaux, arbres) et les abords (clôtures, allées,
      stationnement, espaces verts) vont au plan de masse ; seule la terrasse, accolée à la maison, reste */
-  const garde = (x: BuildingObject) => (o.mobilier || x.type !== 'furniture') && !SUR_LE_TERRAIN.has(x.type) && !(x.type === 'landscape' && x.kind !== 'terrace');
+  const garde = (x: BuildingObject) => (fondations
+    ? ['wall', 'opening', 'room', 'column', 'foundation', 'dimension'].includes(x.type)
+    : (o.mobilier || x.type !== 'furniture') && !SUR_LE_TERRAIN.has(x.type) && !(x.type === 'landscape' && x.kind !== 'terrace'));
   const niveau: Floor = { ...f, objects: Object.fromEntries(Object.entries(f.objects).filter(([, x]) => garde(x))) };
-  const B = boiteDessin(niveau, o.mobilier);
+  const PF = fondations ? planFondations(niveau) : null;
+  let B = boiteDessin(niveau, o.mobilier && !fondations);
+  /* les semelles débordent des murs : la boîte les comprend */
+  if (B && PF) for (const q of [...PF.emprise.flatMap(x => x.contour), ...PF.isolees.flatMap(x => x.contour)])
+    B = { xmin: Math.min(B.xmin, q.x), ymin: Math.min(B.ymin, q.y), xmax: Math.max(B.xmax, q.x), ymax: Math.max(B.ymax, q.y) };
   const ech = o.echelle ?? (B ? echelleNormalisee(B.xmax - B.xmin, B.ymax - B.ymin, o.cotation) : 100);
 
   /* le cadre de la feuille */
@@ -105,8 +114,9 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
     const scene: Scene = {
       niveau, dessous: null, selection: null, accroche: null, images: new Map(), sommets: false, impression: true,
       escaliers: Object.values(niveau.objects).flatMap(x => (x.type === 'stair' ? [{ id: x.id, geo: geometrieEscalier(x, hauteurAFranchir(projet, f)) }] : [])),
-      tremies: tremiesDuNiveau(projet, f), coupes: traits, ...(o.presentation ? { presentation: true } : {}),
-      ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech), cotesInterieures: cotesInterieures(niveau, 6 * ech) } : {}), ...(t?.ok ? { toitures: t.toitures } : {}),
+      tremies: fondations ? [] : tremiesDuNiveau(projet, f), coupes: fondations ? [] : traits, ...(o.presentation ? { presentation: true } : {}),
+      ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech), ...(fondations ? {} : { cotesInterieures: cotesInterieures(niveau, 6 * ech) }) } : {}), ...(t?.ok && !fondations ? { toitures: t.toitures } : {}),
+      ...(PF ? { fondations: PF } : {}),
     };
     /* rien ne sort de la zone du dessin (ni sur la colonne, ni sur le cartouche) */
     toile.save(); toile.beginPath(); toile.rect(0, 0, ZONE.l * PT, ZONE.h * PT); toile.clip();
@@ -116,8 +126,9 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
 
   echelleGraphique(page, ech);
 
-  /* la colonne de droite : les surfaces, puis le cartouche */
+  /* la colonne de droite : les surfaces (ou les fondations), puis le cartouche */
   page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
+  if (PF) { colonneFondations(page, PF); cartouche(page, projet, 'Plan de fondations : ' + f.name, ech, o); return }
   const zones = planDuNiveau(niveau).zones;
   let y = 20;
   page.texte(o.presentation ? 'SOLS ET SURFACES' : 'SURFACES', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' });
@@ -145,6 +156,36 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
   } else page.texte('Aucun espace clos.', X(COLONNE.x + 5), Y(y), 8, { couleur: '#6E7B84' });
 
   cartouche(page, projet, (o.presentation ? 'Plan de présentation : ' : 'Plan : ') + f.name, ech, o);
+}
+
+/** la colonne d'un plan de fondations : soubassement, sections, assise, légende, ce qui reste à valider */
+function colonneFondations(page: PagePdf, P: PlanFondations): void {
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT, fd = P.fondation, x0 = COLONNE.x + 5, x1 = COLONNE.x + COLONNE.l - 5;
+  const cm = (v: number) => (v / 10).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' cm', mm = (v: number) => (v / 1000).toFixed(2).replace('.', ',') + ' m';
+  let y = 20;
+  page.texte('FONDATIONS', X(x0), Y(y), 9, { gras: true, couleur: '#2C4A5E' });
+  page.texte(SOUBASSEMENTS[fd.kind], X(x0), Y(y + 4.2), 6.5, { couleur: '#6E7B84' });
+  y += 10;
+  const rangs: [string, string][] = [
+    ['Semelles filantes', cm(fd.footingWidth) + ' × ' + cm(fd.footingHeight)], ['Longueur', mm(P.longueur)],
+    ...(P.isolees.length ? [['Semelles isolées', P.isolees.length + ' × ' + cm(fd.padSize) + ' × ' + cm(fd.padSize) + ' × ' + cm(fd.padHeight)] as [string, string]] : []),
+    ['Hors gel', mm(fd.frostDepth)], ['Bon sol (étude G2)', fd.bearingDepth === undefined ? 'à préciser' : mm(fd.bearingDepth)], ['Assise sous le terrain', mm(P.assise)],
+    ...(fd.kind === 'crawl_space' ? [['Vide sanitaire', cm(fd.crawlHeight)], ['Trappes de visite', String(P.trappes.length)]] as [string, string][] : []),
+  ];
+  for (const [k, v] of rangs) {
+    page.texte(k, X(x0), Y(y), 8); page.texte(v, X(x1), Y(y), 8, { aligne: 'droite', gras: true });
+    page.trait(X(x0), Y(y + 1.4), X(x1), Y(y + 1.4), 0.2, '#DDD5C8');
+    y += 5;
+  }
+  y += 3;
+  /* la légende */
+  page.cadre(X(x0), Y(y + 1), 6 * PT, 3 * PT, { ep: 0.4, fond: '#C9D0D6' }); page.texte('semelle (sous le sol)', X(x0 + 8), Y(y + 0.5), 7); y += 5;
+  page.cadre(X(x0), Y(y + 1.5), 3.5 * PT, 3.5 * PT, { ep: 0.5 }); page.texte('TV : trappe de visite', X(x0 + 8), Y(y + 0.5), 7); y += 7;
+  page.texte('À VALIDER', X(x0), Y(y), 8, { gras: true, couleur: '#C5563A' }); y += 4.5;
+  for (const t of ['Dimensions proposées, à remplacer par celles de', 'l’étude de sol (G2) et du bureau d’études.', ...P.alertes.flatMap(a => couper('• ' + a, (COLONNE.l - 10) * PT, 6.5))]) {
+    if (y > 287 - CARTOUCHE_H - 6) { page.texte('…', X(x0), Y(y), 6.5); break }
+    page.texte(t, X(x0), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6;
+  }
 }
 
 /** l'échelle graphique, sous le dessin : 0 – 1 – 2 – 5 m (ou plus, à petite échelle) */
@@ -619,10 +660,12 @@ export function planchesPdf(projet: Project, o: OptionsPlanche): Uint8Array<Arra
   if (o.masse) plancheMasse(doc, projet, o);
   const lignes = o.coupe ? lignesDeCoupe(projet) : [];
   for (const f of F) planche(doc, projet, f, o, lignes);
+  const FD = o.fondations ? fondationsDuProjet(projet) : null;
+  if (FD) planche(doc, projet, FD.niveau, { ...o, mobilier: false }, [], true);
   if (o.facades) plancheFacades(doc, projet, o);
   if (o.toiture) plancheToiture(doc, projet, o);
   if (o.coupe) { if (lignes.length) for (const l of lignes) plancheCoupe(doc, projet, o, l); else plancheCoupe(doc, projet, o, null) }
-  if (!F.length && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet)) && !(o.toiture && toituresDuProjet(projet).length)) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
+  if (!F.length && !FD && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet)) && !(o.toiture && toituresDuProjet(projet).length)) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
   return doc.octets((projet.name || 'Projet') + ' — plans');
 }
 

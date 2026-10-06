@@ -11,6 +11,7 @@ import { accrochageDuNiveau, type Accroche, type AimantFond } from '../building/
 import { mursDroits, type MurDroit } from '../building/murs';
 import { planDuNiveau } from '../building/plan';
 import { planVersImage } from '../building/fond';
+import { COTE_TRAPPE, fondationsDuProjet, trappeProche } from '../building/fondations';
 import { positionDansAnneau } from '../geometry/predicats';
 import { distancePointSegment, projeterSurDroite } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
@@ -24,7 +25,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre';
+export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -148,6 +149,7 @@ const AIDES: Record<NomOutil, string> = {
   equipement: 'Équipement de réseau (regard, boîte de branchement, compteur…) : cliquer pour le poser',
   arbre: 'Arbre : cliquer pour le poser (existant, à planter ou à abattre, au panneau)',
   poteau: 'Poteau : cliquer pour le poser (section et matière au ruban) ; il s’accroche aux angles et aux murs',
+  trappe: 'Trappe de visite du vide sanitaire (60 × 60 cm) : cliquer dans une pièce, hors des semelles ; cliquer une trappe la retire',
   poutre: 'Poutre : cliquer le départ puis l’arrivée (Maj : 45°) ; elle passe sous le plafond, sa retombée se règle au ruban',
   profil: 'Profil en long du terrain : cliquer le départ puis l’arrivée du trait ; le profil s’affiche au panneau',
   pointdevue: 'Point de prise de vue d’une photographie du dossier : cliquer l’appareil, puis le point visé (Maj : 45°)',
@@ -249,6 +251,14 @@ export class Outils {
   /** le niveau le plus bas (le terrain) : parcelle, aménagements et points de vue s'y posent */
   private niveauBas(c: { projet: Project; niveau: string }): string {
     return [...(c.projet.buildings[0]?.floors ?? [])].sort((a, b) => a.elevation - b.elevation)[0]?.id ?? c.niveau;
+  }
+  /** la trappe de visite sous le pointeur : retirée si l'on clique sur une trappe, posée sinon (null : pas de fondations) */
+  private trappe(c: { projet: Project }, g: Geste): { titre: string; liste: Commande[] } | null {
+    const F = fondationsDuProjet(c.projet);
+    if (!F) return null;
+    const T = F.fondation.hatches, k = trappeProche(F.fondation, g.point, COTE_TRAPPE / 2);
+    if (k >= 0) return { titre: 'Retirer une trappe de visite', liste: [{ type: 'modifierFondations', id: F.fondation.id, trappes: T.filter((_, i) => i !== k) }] };
+    return { titre: 'Trappe de visite', liste: [{ type: 'modifierFondations', id: F.fondation.id, trappes: [...T, { x: Math.round(g.point.x), y: Math.round(g.point.y) }] }] };
   }
   /** finir l'aménagement tracé : une clôture peut rester ouverte, une surface se ferme toujours */
   private finirAmenagement(ferme: boolean): Effet {
@@ -522,6 +532,10 @@ export class Outils {
         const a = this.accrocher(g), r = this.reglages;
         return { accroche: a, apercu: [{ type: 'creerPoteau', niveau: c.niveau, position: { x: Math.round(a.point.x), y: Math.round(a.point.y) }, largeur: r.largeurPoteau, profondeur: r.profondeurPoteau, matiere: r.matierePoteau }] };
       }
+      case 'trappe': {
+        const t = this.trappe(c, g);
+        return { accroche: null, apercu: t ? t.liste : [] };
+      }
       case 'poutre': {
         const a = this.accrocher(g, this.depart), r = this.reglages;
         if (!this.depart || distance(a.point, this.depart) < 300) return { accroche: a, apercu: [] };
@@ -651,6 +665,11 @@ export class Outils {
       case 'poteau': {
         const a = this.accrocher(g).point, r = this.reglages;
         return { commandes: { titre: 'Poteau', liste: [{ type: 'creerPoteau', niveau: c.niveau, position: { x: Math.round(a.x), y: Math.round(a.y) }, largeur: r.largeurPoteau, profondeur: r.profondeurPoteau, matiere: r.matierePoteau }] }, apercu: [] };
+      }
+      case 'trappe': {
+        const t = this.trappe(c, g);
+        if (!t) return { aide: 'Posez d’abord les fondations (Tracé › Fondations : vide sanitaire)' };
+        return { commandes: t, apercu: [] };
       }
       case 'poutre': {
         const a = this.accrocher(g, this.depart).point, r = this.reglages;

@@ -13,6 +13,8 @@
      avec leurs compositions ;
    - la TOITURE : surface de couverture, longueur d'égout (gouttières) ;
    - POTEAUX et POUTRES : nombre, longueur, volume ;
+   - les FONDATIONS (building/fondations.ts) : fouilles, semelles filantes et
+     isolées, soubassement, trappes ; toutes à valider par l'étude de sol ;
    - le TERRAIN (building/terrassement.ts) : déblai, remblai, réseaux.
 
    Ce qui relève d'une hypothèse d'usage le dit (« à confirmer ») ; ce qui ne
@@ -22,6 +24,7 @@ import { planDuNiveau } from './plan';
 import { mursDroits } from './murs';
 import { toitureDuNiveau } from './toiture';
 import { fenetresDeToit } from './fenetres-toit';
+import { planFondations, SOUBASSEMENTS } from './fondations';
 import { metreTerrain, NOMS_RESEAUX } from './terrassement';
 import { compositionMur } from '../catalogue/murs';
 import { modeleMeuble, type FamilleMeuble } from '../catalogue/mobilier';
@@ -120,11 +123,40 @@ function metreNiveau(p: Project, f: Floor, ajouter: (l: LigneMetre) => void): vo
     }
   }
 
+  /* ---------- fondations ---------- */
+  const F = planFondations(f);
+  if (F) {
+    const fd = F.fondation, VS = fd.kind === 'crawl_space';
+    const etude = 'à valider par l’étude de sol et le bureau d’études';
+    const surface = F.emprise.reduce((s, q) => s + Math.abs(aireSignee(q.contour)) - (q.trous ?? []).reduce((t, h) => t + Math.abs(aireSignee(h)), 0), 0);
+    if (surface > 0) {
+      ajouter({ lot: 'Terrassement et VRD', libelle: 'Fouilles en rigole des semelles filantes', quantite: (surface * F.assise) / 1e9, unite: 'm³', detail: 'assise à ' + cm(F.assise) + ' cm sous le terrain : ' + etude, aPreciser: fd.bearingDepth === undefined });
+      ajouter({ lot: 'Gros œuvre', libelle: 'Semelles filantes ' + cm(fd.footingWidth) + ' × ' + cm(fd.footingHeight) + ' cm', quantite: ml(F.longueur), unite: 'ml', detail: etude });
+      ajouter({ lot: 'Gros œuvre', libelle: 'Béton des semelles filantes', quantite: (surface * fd.footingHeight) / 1e9, unite: 'm³', detail: 'armatures selon l’étude' });
+      /* du dessus des semelles au plancher : jusqu'au terrain, plus la hauteur du vide sanitaire (terrain au fond du vide) */
+      const h = F.assise - fd.footingHeight + (VS ? fd.crawlHeight : 0);
+      ajouter({ lot: 'Gros œuvre', libelle: 'Murs de soubassement (' + SOUBASSEMENTS[fd.kind].toLowerCase() + ', hauteur ' + cm(h) + ' cm)', quantite: m2(F.longueur * h), unite: 'm²',
+        detail: VS ? 'du dessus des semelles au plancher, fond du vide au niveau du terrain : à confirmer' : 'du dessus des semelles au terrain : arase à confirmer' });
+    }
+    const k = F.isolees.length;
+    if (k) {
+      ajouter({ lot: 'Gros œuvre', libelle: 'Semelles isolées ' + cm(fd.padSize) + ' × ' + cm(fd.padSize) + ' × ' + cm(fd.padHeight) + ' cm', quantite: k, unite: 'u', detail: 'sous poteaux : ' + etude });
+      ajouter({ lot: 'Gros œuvre', libelle: 'Béton des semelles isolées', quantite: (k * fd.padSize * fd.padSize * fd.padHeight) / 1e9, unite: 'm³' });
+      ajouter({ lot: 'Terrassement et VRD', libelle: 'Fouilles en puits des semelles isolées', quantite: (k * fd.padSize * fd.padSize * F.assise) / 1e9, unite: 'm³', detail: 'assise à ' + cm(F.assise) + ' cm sous le terrain' });
+    }
+    if (VS) {
+      ajouter({ lot: 'Gros œuvre', libelle: 'Trappes de visite du vide sanitaire', quantite: F.trappes.length, unite: 'u', ...(F.trappes.length ? {} : { aPreciser: true, detail: 'aucune posée au plan' }) });
+      ajouter({ lot: 'Gros œuvre', libelle: 'Ventilation du vide sanitaire (grilles)', quantite: 0, unite: 'u', aPreciser: true, detail: 'nombre et section selon le DTU et l’étude' });
+    }
+  }
+
   /* ---------- plancher et plafond du niveau ---------- */
   const emprise = plan.maconnerie.reduce((s, q) => s + Math.abs(aireSignee(q.contour)), 0);
   if (emprise > 0) {
     const kp = compositionPlancher(f.floorRef), kc = compositionPlancher(f.ceilingRef);
-    ajouter({ lot: 'Gros œuvre', libelle: (f.elevation <= 0 ? 'Dallage / plancher bas' : 'Plancher') + ' — ' + (kp ? kp.libelle : 'composition à choisir') + n, quantite: m2(emprise), unite: 'm²', detail: 'au nu extérieur de la maçonnerie', ...(kp ? {} : { aPreciser: true }) });
+    /* sur fondations, le plancher bas dit son soubassement : porté sur vide sanitaire, ou dallage sur terre-plein */
+    const bas = F ? (F.fondation.kind === 'crawl_space' ? 'Plancher bas sur vide sanitaire' : 'Dallage sur terre-plein') : f.elevation <= 0 ? 'Dallage / plancher bas' : 'Plancher';
+    ajouter({ lot: 'Gros œuvre', libelle: bas + ' — ' + (kp ? kp.libelle : 'composition à choisir') + n, quantite: m2(emprise), unite: 'm²', detail: 'au nu extérieur de la maçonnerie', ...(kp ? {} : { aPreciser: true }) });
     const interieur = plan.zones.reduce((s, z) => s + z.aire, 0);
     ajouter({ lot: 'Plâtrerie et isolation', libelle: 'Plafonds — ' + (kc ? kc.libelle : 'composition à choisir') + n, quantite: m2(interieur), unite: 'm²', ...(kc ? {} : { aPreciser: true }) });
   }

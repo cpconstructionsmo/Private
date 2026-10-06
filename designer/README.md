@@ -430,6 +430,8 @@ de constructeur ; quantités seulement, **sans prix** :
   une pièce humide signale sa faïence et son étanchéité « à préciser » ;
 - **toiture** : couverture (surface rampante), gouttières (longueur
   d'égout), descentes à préciser, fenêtres de toit ;
+- **fondations** : fouilles, semelles filantes (ml, béton), semelles
+  isolées, murs de soubassement, trappes et ventilation du vide sanitaire ;
 - **poteaux et poutres**, escaliers, équipements (cuisine, salle de bains,
   WC) ; **terrain** : déblais, remblais, réseaux.
 Export CSV (« ; », virgule décimale) pour le tableur ou le chiffrage.
@@ -439,6 +441,23 @@ un poteau (section, rotation, béton, acier ou bois) du sol au plafond du
 niveau, en section pleine au plan ; une poutre (largeur, retombée sous le
 plafond) en tirets au plan ; tous deux en 3D, déplaçables, métrés.
 Sections à confirmer par l'étude de structure.
+
+**Fondations** (Tracé › Fondations ; `src/building/fondations.ts`) : on
+choisit le soubassement — **vide sanitaire** (plancher porté) ou
+**terre-plein** (dallage) — et les semelles se calculent : une semelle
+filante sous chaque mur extérieur et chaque mur intérieur porteur (pas sous
+les cloisons), centrée sous le corps du mur et continue sous les seuils ; une
+semelle isolée sous chaque poteau. L'assise est la plus profonde du hors gel
+et du bon sol (étude G2, « à préciser » tant qu'elle n'est pas lue). Les
+trappes de visite du vide sanitaire se posent d'un clic (un clic sur une
+trappe la retire) ; une trappe hors des pièces ou sur une semelle se
+signale. Seuls les choix sont gardés (un objet `foundation`, toujours
+« be_validation ») : les semelles suivent les murs. Plan de fondations à
+l'écran (dans le sous-onglet) et en planche PDF A3 (Dossier › Plans) ;
+quantités au métré. Les valeurs proposées (semelles 50 × 25 cm, hors gel
+0,80 m, vide sanitaire 0,60 m, semelles isolées 80 × 80 × 30 cm) sont des
+ordres de grandeur, à remplacer par ceux de l'étude de sol et du bureau
+d'études.
 
 **Fenêtres de toit** (outil H ; `src/building/fenetres-toit.ts`) : un
 châssis posé sur un pan de la toiture du niveau qui la porte (le Designer

@@ -5,11 +5,11 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { Beam, BuildingObject, Column, Floor, Underlay, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
+import type { Beam, BuildingObject, Column, Floor, Foundation, Underlay, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -500,6 +500,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       parcelleEnCours: outils.parcelleEnCours, courbes: courbes || null, profil: onglet === 'exterieur' ? profilTrait : null,
       coupes: traitsDeCoupe(p).map(({ id, niveau: n, ...l }) => (n === f.id ? { ...l, id } : l)),
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
+      /* le plan de fondations se montre dans son sous-onglet */
+      fondations: onglet === 'trace' && sousOnglets['trace'] === 'fondations' ? planFondations(f) : null,
       ...(cotation && !en3D ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)), cotesInterieures: cotesInterieures(f, pixelsEnMm(cam, 22)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
   }
@@ -716,7 +718,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (cmd && e.key.toLowerCase() === 'd') { e.preventDefault(); dupliquerChoix(); return }
     if (cmd && e.key.toLowerCase() === 'a') {
       e.preventDefault();
-      choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'constraint').map(o => o.id));
+      choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'foundation' && o.type !== 'constraint').map(o => o.id));
       return;
     }
     /* pendant un collage : tourner, retourner, renoncer */
@@ -797,6 +799,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'arbre', icone: 'arbre', libelle: 'Arbre', touche: 'Z' },
     { nom: 'profil', icone: 'profil', libelle: 'Profil en long du terrain', touche: 'S' },
     { nom: 'poteau', icone: 'poteau', libelle: 'Poteau', touche: '' }, { nom: 'poutre', icone: 'poutre', libelle: 'Poutre', touche: '' },
+    { nom: 'trappe', icone: 'trappe', libelle: 'Trappe de visite', touche: '' },
     { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.filter(o => o.touche).map(o => [o.touche.toLowerCase(), o.nom]));
@@ -805,7 +808,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     mur: ['trace', 'murs'], refend: ['trace', 'murs'], cloison: ['trace', 'murs'], fictive: ['trace', 'murs'], rectangle: ['trace', 'murs'],
     piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
     ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
-    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'],
+    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'],
     mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
   };
   function choisir(o: NomOutil) {
@@ -822,7 +825,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const place = PLACE_OUTIL[o];
     if (place && !offertIci(o)) { onglet = place[0]; sousOnglets[place[0]] = place[1] }
     if (o !== 'piece') typePiece = null;
-    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre' || o === 'poteau' || o === 'poutre') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre' || o === 'poteau' || o === 'poutre' || o === 'trappe') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   /** l'outil est-il une tuile du sous-onglet ouvert ? */
   const offertIci = (o: NomOutil) => !!sousCourant().tuiles?.().some(t => !!t.classe?.split(' ').includes('o-' + o));
 
@@ -863,9 +866,14 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         ...TYPES_PIECES.map(t => ({ libelle: t.libelle, icone: t.icone, faire: () => choisirTypePiece(t.libelle), actif: () => outils.outil === 'piece' && typePiece === t.libelle, titre: 'Cliquez dans un espace clos pour en faire : ' + t.libelle })),
         { ...outil('piece', 'Autre nom…'), faire: () => { typePiece = null; choisir('piece') }, actif: () => outils.outil === 'piece' && !typePiece }] },
       { id: 'structure', libelle: 'Poteaux et poutres', icone: 'poteau', tuiles: () => [outil('poteau', 'Poteau'), outil('poutre', 'Poutre')], options: () => optionsStructure() },
+      { id: 'fondations', libelle: 'Fondations', icone: 'fondations', entrer: () => allerAuxFondations(), tuiles: () => [
+        ...(['crawl_space', 'slab_on_grade'] as const).map(g => ({ libelle: SOUBASSEMENTS[g], icone: g === 'crawl_space' ? 'vide_sanitaire' : 'terre_plein', classe: 'fond-' + g,
+          titre: g === 'crawl_space' ? 'Plancher porté sur un vide sanitaire, semelles filantes sous les murs porteurs' : 'Dallage sur terre-plein, semelles filantes sous les murs porteurs',
+          faire: () => poserFondations(g), actif: () => fondationsDuProjet(h.projet)?.fondation.kind === g })),
+        outil('trappe', 'Trappe de visite')], panneau: () => panneauFondations() },
       { id: 'niveaux', libelle: 'Niveaux', icone: 'niveaux', tuiles: () => [action('Ajouter un niveau', 'niveau_plus', () => void ajouterNiveau()), outil('escalier')] },
       { id: 'transformations', libelle: 'Transformations', icone: 'transformations', tuiles: () => [outil('selection'),
-        action('Tout choisir', 'tout', () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'constraint').map(o => o.id)), 'Ctrl+A'),
+        action('Tout choisir', 'tout', () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'foundation' && o.type !== 'constraint').map(o => o.id)), 'Ctrl+A'),
         action('Copier', 'copier', () => void copierChoix(), 'Ctrl+C'), action('Coller', 'coller', commencerCollage, 'Ctrl+V — T : quart de tour, X / Y : miroir'),
         action('Dupliquer', 'dupliquer', dupliquerChoix, 'Ctrl+D'), action('Mettre d’équerre', 'equerre', () => mettreDEquerre(choisis().filter(id => niveau().objects[id]?.type === 'wall').length ? choisis().filter(id => niveau().objects[id]?.type === 'wall') : undefined))] },
       { id: 'implantation', libelle: 'Implantation', icone: 'implantation', tuiles: () => [
@@ -1801,6 +1809,49 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     return [o];
   }
 
+  /* ---------- les fondations ---------- */
+  /** les fondations se posent sur le niveau le plus bas : on y va */
+  function allerAuxFondations() {
+    const F = fondationsDuProjet(h.projet), bas = F?.niveau ?? [...niveaux()].sort((a, b) => a.elevation - b.elevation)[0];
+    if (bas && bas.id !== niveauId) { niveauId = bas.id; selection = null; apres() }
+  }
+  function poserFondations(genre: Foundation['kind']) {
+    allerAuxFondations();
+    const F = fondationsDuProjet(h.projet);
+    if (F) { if (F.fondation.kind !== genre) faire('Soubassement : ' + SOUBASSEMENTS[genre], [{ type: 'modifierFondations', id: F.fondation.id, genre }]) }
+    else faire('Fondations : ' + SOUBASSEMENTS[genre].toLowerCase(), [{ type: 'creerFondations', niveau: niveauId, genre }]);
+    apres();
+  }
+  function panneauFondations() {
+    const A = aside, F = fondationsDuProjet(h.projet);
+    A.append(titre('Fondations'));
+    if (!F) {
+      A.append(bloc('Choisissez le soubassement au ruban : <b>vide sanitaire</b> (plancher porté) ou <b>terre-plein</b> (dallage). Les semelles filantes se placent d’elles-mêmes sous les murs extérieurs et les murs intérieurs porteurs, une semelle isolée sous chaque poteau ; elles suivent les murs.'),
+        bloc('Les dimensions proposées sont des ordres de grandeur, à remplacer par celles de l’étude de sol (G2) et du bureau d’études.', 'alerte'));
+      return;
+    }
+    const fd = F.fondation, P = planFondations(F.niveau)!;
+    const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierFondations' }>>) => faire(t, [{ type: 'modifierFondations', id: fd.id, ...c }]);
+    const cmEnMm = (v: string) => Math.round(ent(v) * 10);
+    A.append(bloc('<b>À valider par l’étude de sol et le bureau d’études</b> : rien ici n’est un dimensionnement.', 'alerte'),
+      champ('Soubassement', fd.kind, v => mod('Soubassement', { genre: v as Foundation['kind'] }), 'text', SOUBASSEMENTS),
+      champ('Semelles filantes : largeur (cm)', fd.footingWidth / 10, v => mod('Largeur des semelles', { largeur: cmEnMm(v) }), 'number'),
+      champ('Semelles filantes : hauteur (cm)', fd.footingHeight / 10, v => mod('Hauteur des semelles', { hauteur: cmEnMm(v) }), 'number'),
+      champ('Hors gel : profondeur (cm)', fd.frostDepth / 10, v => mod('Profondeur hors gel', { horsGel: cmEnMm(v) }), 'number'),
+      champ('Bon sol : profondeur (cm, étude G2 ; vide : inconnue)', fd.bearingDepth === undefined ? '' : fd.bearingDepth / 10, v => mod('Profondeur du bon sol', { bonSol: String(v).trim() ? cmEnMm(v) : null }), 'number'));
+    if (fd.kind === 'crawl_space') A.append(champ('Vide sanitaire : hauteur (cm)', fd.crawlHeight / 10, v => mod('Hauteur du vide sanitaire', { hauteurVide: cmEnMm(v) }), 'number'));
+    A.append(champ('Semelles isolées : côté (cm)', fd.padSize / 10, v => mod('Semelles isolées', { coteIsolee: cmEnMm(v) }), 'number'),
+      champ('Semelles isolées : hauteur (cm)', fd.padHeight / 10, v => mod('Semelles isolées', { hauteurIsolee: cmEnMm(v) }), 'number'));
+    A.append(bloc('Semelles filantes : <b>' + m(P.longueur) + '</b> (' + P.filantes.length + ' mur' + (P.filantes.length > 1 ? 's' : '') + ' porteur' + (P.filantes.length > 1 ? 's' : '') + ')'
+      + (P.isolees.length ? '<br>Semelles isolées : <b>' + P.isolees.length + '</b>' : '')
+      + '<br>Assise à <b>' + m(P.assise) + '</b> sous le terrain : ' + esc(P.raisonAssise)
+      + (fd.kind === 'crawl_space' ? '<br>Trappes de visite : <b>' + P.trappes.length + '</b>' : '')
+      + '<br><span class="note">Une cloison ne reçoit pas de semelle ; un mur intérieur, oui (porteur à confirmer). Le détail est au métré (Dossier › Métré).</span>'));
+    for (const a of P.alertes) A.append(bloc('⚠️ ' + esc(a), 'alerte'));
+    if (fd.kind === 'crawl_space' && fd.hatches.length) A.append(ligne(bouton('Retirer les trappes', () => mod('Retirer les trappes', { trappes: [] }))));
+    A.append(ligne(bouton('Retirer les fondations', () => supprimer(fd.id), 'dang')));
+  }
+
   /* ---------- le métré du projet (par lot, sans prix) ---------- */
   function panneauMetreProjet() {
     const A = aside, L = metreProjet(h.projet);
@@ -2365,6 +2416,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'mob', libelle: 'Mobilier', valeur: 'oui', options: { oui: 'Avec le mobilier', non: 'Sans' } },
       ...(parcelleDuProjet(h.projet) ? [{ cle: 'mas', libelle: 'Plan de masse', valeur: 'oui', options: { oui: 'Ajouter le plan de masse (PCMI 2) : parcelle, reculs, emprise', non: 'Sans' } }] : []),
       ...(niveaux().some(f => Object.values(f.objects).some(x => x.type === 'roof')) ? [{ cle: 'toi', libelle: 'Plan de toiture', valeur: 'oui', options: { oui: 'Ajouter le plan de toiture (pans, pentes, faîtage)', non: 'Sans' } }] : []),
+      ...(fondationsDuProjet(h.projet) ? [{ cle: 'fon', libelle: 'Plan de fondations', valeur: 'oui', options: { oui: 'Ajouter le plan de fondations (semelles, assise, trappes)', non: 'Sans' } }] : []),
       { cle: 'fac', libelle: 'Façades', valeur: 'oui', options: { oui: 'Ajouter la planche des quatre façades', non: 'Sans' } },
       { cle: 'cou', libelle: 'Coupes', valeur: 'oui', options: { oui: traitsDeCoupe(h.projet).length ? 'Ajouter les coupes ' + traitsDeCoupe(h.projet).map(l => l.nom + '-' + l.nom).join(', ') + ' (et leurs traits sur les plans)' : 'Ajouter une coupe A-A placée d’elle-même (ou tracez-la : outil K)', non: 'Sans' } },
       { cle: 'ind', libelle: 'Indice', valeur: 'A' },
@@ -2377,7 +2429,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       const { planchesPdf } = await import('../export/planche');
       const u = planchesPdf(h.projet, {
         niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui' && r['pre'] !== 'presentation', mobilier: r['mob'] === 'oui' || r['pre'] === 'presentation',
-        ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui',
+        ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui', fondations: r['fon'] === 'oui',
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
       });
       const a = document.createElement('a');
@@ -2401,7 +2453,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Mettre d’équerre les murs du niveau', faire: () => mettreDEquerre() },
     { libelle: 'Cotation automatique oui / non', faire: () => basculerCotation() },
     { libelle: 'Copier la sélection', touche: 'Ctrl+C', faire: () => void copierChoix() }, { libelle: 'Coller', touche: 'Ctrl+V', faire: commencerCollage },
-    { libelle: 'Dupliquer la sélection', touche: 'Ctrl+D', faire: dupliquerChoix }, { libelle: 'Tout choisir sur ce niveau', touche: 'Ctrl+A', faire: () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'constraint').map(o => o.id)) },
+    { libelle: 'Dupliquer la sélection', touche: 'Ctrl+D', faire: dupliquerChoix }, { libelle: 'Tout choisir sur ce niveau', touche: 'Ctrl+A', faire: () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'foundation' && o.type !== 'constraint').map(o => o.id)) },
     { libelle: 'Vue 3D / plan 2D', touche: '3', faire: () => void basculer3D() },
     { libelle: 'Poser un escalier', touche: 'E', faire: () => choisir('escalier') },
     { libelle: 'Ajouter un niveau', faire: () => void ajouterNiveau() }, { libelle: 'Importer un fond (PDF, image)', faire: importerFond },

@@ -391,9 +391,23 @@ try {
   const struct = (await objets()).filter(o => o.type === 'column' || o.type === 'beam').map(o => o.type).sort();
   assert.deepEqual(struct, ['beam', 'column'], 'poteau et poutre posés');
   await p.keyboard.press('Escape');
+  /* les fondations (Tracé › Fondations) : vide sanitaire, semelles calculées, une trappe posée puis retirée d'un clic */
+  await p.click('.sous button[data-s=fondations]');
+  await p.click('.ruban .fond-crawl_space');
+  const fondP = await p.textContent('aside');
+  assert.match(fondP, /Fondations[\s\S]*Semelles filantes[\s\S]*Assise à[\s\S]*sans trappe de visite/, 'fondations posées, semelles et assise au panneau');
+  const fondation = async () => (await objets()).find(o => o.type === 'foundation');
+  assert.equal((await fondation()).status, 'be_validation', 'fondations à valider par le bureau d’études');
+  await p.click('.ruban .o-trappe'); await clic(2500, 6500);
+  assert.equal((await fondation()).hatches.length, 1, 'trappe de visite posée');
+  await clic(2500, 6500);
+  assert.equal((await fondation()).hatches.length, 0, 'un clic sur la trappe la retire');
+  await p.keyboard.press('Control+z');
+  assert.equal((await fondation()).hatches.length, 1, 'annuler rend la trappe');
+  await p.keyboard.press('Escape');
   await p.click('nav.onglets button[data-o=dossier]'); await p.click('.sous button[data-s=metre]');
   const metreP = await p.textContent('aside');
-  assert.match(metreP, /Métré du projet[\s\S]*Gros œuvre[\s\S]*Murs extérieurs[\s\S]*Poteaux béton 20 × 20 cm[\s\S]*Menuiseries/, 'métré du projet par lot');
+  assert.match(metreP, /Métré du projet[\s\S]*Fouilles en rigole[\s\S]*Gros œuvre[\s\S]*Murs extérieurs[\s\S]*Semelles filantes 50 × 25 cm[\s\S]*Plancher bas sur vide sanitaire[\s\S]*Poteaux béton 20 × 20 cm[\s\S]*Menuiseries/, 'métré du projet par lot, fondations comprises');
   const [csvM] = await Promise.all([p.waitForEvent('download'), p.click('.ruban .b-metre')]);
   assert.match(csvM.suggestedFilename(), /metre\.csv$/);
   if (process.env.CAPTURE_METRE) await p.screenshot({ path: process.env.CAPTURE_METRE });
@@ -620,7 +634,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

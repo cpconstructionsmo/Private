@@ -25,6 +25,7 @@ import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/poly
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
 import { sectionPoteau, empriseDePoutre } from '../building/structure';
+import type { PlanFondations } from '../building/fondations';
 import { boiteVisible, pasDeGrille, versEcran, type Camera } from './camera';
 import { dessinCote, texteCote } from './cotes';
 
@@ -72,6 +73,8 @@ export interface Scene {
   profil?: [Point, Point] | null;
   /** le plan de présentation : chaque pièce à la couleur de son sol, avec son motif (carreaux, lames) */
   presentation?: boolean;
+  /** le plan de fondations (semelles sous les murs, trappes), quand on le montre */
+  fondations?: PlanFondations | null;
 }
 
 /** une teinte assombrie (k < 1), opaque : les joints se voient pareil à l'écran et sur le papier */
@@ -139,6 +142,8 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* escaliers et trémies, sous les murs */
   for (const t of s.tremies ?? []) tremie(ctx, cam, t);
   for (const e of s.escaliers ?? []) escalier(ctx, cam, e.geo, estChoisi(e.id));
+  /* les semelles, sous les murs : on en voit les débords de part et d'autre */
+  if (s.fondations) semelles(ctx, cam, s.fondations);
   /* maçonnerie (ouvertures découpées) */
   /* la maçonnerie : blanche, hachurée à 45°, cernée de noir (les murs composés se dessinent ensuite couche à couche) */
   ctx.fillStyle = COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
@@ -164,6 +169,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1.1;
     for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.stroke() }
   }
+  if (s.fondations) trappes(ctx, cam, s.fondations);
   /* les cloisons fictives : un trait mixte, sans matière */
   for (const v of mursFictifs(s.niveau)) {
     const a = E(v.axis.a), b = E(v.axis.b), sel = estChoisi(v.id);
@@ -190,9 +196,9 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   for (const c of s.cotesInterieures ?? []) ligneCotee(ctx, cam, [c.a, c.b], COULEURS.gris);
   /* noms et surfaces : à la place voulue (le point de la pièce), sauf si un meuble est dessous — l'étiquette va alors au plus près, là où elle se lit */
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  /* ce que l'étiquette doit éviter : les meubles, et les cotes intérieures (une bande autour de chaque ligne, son texte compris) */
+  /* ce que l'étiquette doit éviter : les meubles, les trappes de visite, et les cotes intérieures (une bande autour de chaque ligne, son texte compris) */
   const bande = 14 / cam.echelle;
-  const meubles = [...Object.values(s.niveau.objects).flatMap(o => (o.type === 'furniture' ? [emprise(o)] : [])),
+  const meubles = [...Object.values(s.niveau.objects).flatMap(o => (o.type === 'furniture' ? [emprise(o)] : [])), ...(s.fondations?.trappes ?? []).map(t => t.contour),
     ...(s.cotesInterieures ?? []).map(c => [{ x: Math.min(c.a.x, c.b.x) - bande, y: Math.min(c.a.y, c.b.y) - bande }, { x: Math.max(c.a.x, c.b.x) + bande, y: Math.max(c.a.y, c.b.y) + bande }])];
   for (const z of plan.zones) {
     const voulue = z.piece && positionDansAnneau(z.piece.seed, z.polygone.contour) === 'dedans' ? z.piece.seed : centroide(z.polygone.contour);
@@ -567,6 +573,36 @@ function tremie(ctx: CanvasRenderingContext2D, cam: Camera, t: { contour: Point[
   ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1.2; ctx.setLineDash([6, 3]);
   ctx.beginPath(); C.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
   if (C.length === 4) { ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(C[0]!.x, C[0]!.y); ctx.lineTo(C[2]!.x, C[2]!.y); ctx.moveTo(C[1]!.x, C[1]!.y); ctx.lineTo(C[3]!.x, C[3]!.y); ctx.stroke() }
+}
+
+const BETON = '#C9D0D6';
+
+/** les semelles filantes (leur union) et isolées : un aplat béton cerné de tirets (elles sont sous le sol) ; une isolée porte ses diagonales */
+function semelles(ctx: CanvasRenderingContext2D, cam: Camera, F: PlanFondations): void {
+  ctx.fillStyle = BETON; ctx.strokeStyle = COULEURS.bleu; ctx.lineWidth = 1; ctx.setLineDash([6, 3]);
+  for (const p of F.emprise) { chemin(ctx, cam, p); ctx.fill('evenodd'); ctx.stroke() }
+  for (const x of F.isolees) {
+    const P = x.contour.map(q => versEcran(cam, q));
+    ctx.beginPath(); P.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(P[0]!.x, P[0]!.y); ctx.lineTo(P[2]!.x, P[2]!.y); ctx.moveTo(P[1]!.x, P[1]!.y); ctx.lineTo(P[3]!.x, P[3]!.y); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+
+/** les trappes de visite : un carré barré, « TV » ; en rouge si elle est mal placée (hors des pièces, sur une semelle) */
+function trappes(ctx: CanvasRenderingContext2D, cam: Camera, F: PlanFondations): void {
+  for (const t of F.trappes) {
+    const P = t.contour.map(q => versEcran(cam, q)), c = versEcran(cam, t.centre);
+    ctx.strokeStyle = t.ok ? COULEURS.bleu : COULEURS.accent; ctx.lineWidth = 1.4; ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath(); P.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(P[0]!.x, P[0]!.y); ctx.lineTo(P[2]!.x, P[2]!.y); ctx.moveTo(P[1]!.x, P[1]!.y); ctx.lineTo(P[3]!.x, P[3]!.y); ctx.stroke();
+    const l = Math.abs(P[1]!.x - P[0]!.x);
+    if (l > 18) {
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(c.x - 9, c.y - 6, 18, 12);
+      ctx.fillStyle = t.ok ? COULEURS.bleu : COULEURS.accent; ctx.font = '600 9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('TV', c.x, c.y);
+    }
+  }
 }
 
 function grille(ctx: CanvasRenderingContext2D, cam: Camera): void {

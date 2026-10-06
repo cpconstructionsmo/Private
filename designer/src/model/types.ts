@@ -342,7 +342,31 @@ export interface Beam extends BaseObject {
   material: 'concrete' | 'steel' | 'wood';
 }
 
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree | Column | Beam;
+/** les fondations du bâtiment, posées sur le niveau le plus bas : seuls les CHOIX sont gardés (soubassement,
+ *  sections, profondeurs) ; les semelles se calculent sous les murs porteurs et les poteaux (building/fondations.ts),
+ *  elles suivent donc chaque mur. Leur dimensionnement relève de l'étude de sol et du bureau d'études : l'objet
+ *  est toujours « be_validation », jamais présenté comme validé (règle 5) */
+export interface Foundation extends BaseObject {
+  type: 'foundation';
+  /** vide sanitaire (plancher porté) ou terre-plein (dallage sur le sol) */
+  kind: 'crawl_space' | 'slab_on_grade';
+  /** la section des semelles filantes */
+  footingWidth: Mm;
+  footingHeight: Mm;
+  /** la profondeur hors gel sous le terrain fini (elle dépend du département et de l'altitude) */
+  frostDepth: Mm;
+  /** la profondeur du bon sol, lue dans l'étude de sol (G2) ; absente : pas encore connue */
+  bearingDepth?: Mm;
+  /** la hauteur du vide sanitaire, du terrain au-dessous du plancher */
+  crawlHeight: Mm;
+  /** les semelles isolées sous les poteaux : côté et hauteur */
+  padSize: Mm;
+  padHeight: Mm;
+  /** les trappes de visite du vide sanitaire (leur centre) */
+  hatches: Point[];
+}
+
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree | Column | Beam | Foundation;
 
 export interface Floor {
   id: string;
