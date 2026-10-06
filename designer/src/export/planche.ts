@@ -8,7 +8,7 @@
 import type { BuildingObject, Floor, Project, Roof } from '../model/types';
 import type { Toiture } from '../building/toiture';
 import { centroide } from '../geometry/polygon';
-import { planDuNiveau, cotationExterieure, cotesInterieures, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit, planFondations, fondationsDuProjet, SOUBASSEMENTS, type PlanFondations } from '../building';
+import { planDuNiveau, cotationExterieure, cotesInterieures, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, type GenreLigne, type PlanFondations } from '../building';
 import { dessiner, dessinerAmenagement, dessinerParcelle, dessinerPointDeVue, nord, type Scene } from '../ui/dessin';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
 import { metreTerrain, NOMS_RESEAUX, talusDe } from '../building/terrassement';
@@ -116,7 +116,7 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
       escaliers: Object.values(niveau.objects).flatMap(x => (x.type === 'stair' ? [{ id: x.id, geo: geometrieEscalier(x, hauteurAFranchir(projet, f)) }] : [])),
       tremies: fondations ? [] : tremiesDuNiveau(projet, f), coupes: fondations ? [] : traits, ...(o.presentation ? { presentation: true } : {}),
       ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech), ...(fondations ? {} : { cotesInterieures: cotesInterieures(niveau, 6 * ech) }) } : {}), ...(t?.ok && !fondations ? { toitures: t.toitures } : {}),
-      ...(PF ? { fondations: PF } : {}),
+      ...(PF ? { fondations: PF } : { eaux: eauxPluviales(niveau) }),
     };
     /* rien ne sort de la zone du dessin (ni sur la colonne, ni sur le cartouche) */
     toile.save(); toile.beginPath(); toile.rect(0, 0, ZONE.l * PT, ZONE.h * PT); toile.clip();
@@ -496,6 +496,17 @@ function plancheToiture(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
       else page.texte(lib, mx, my + 5, 7, { aligne: 'centre', gras: true });                               // plutôt horizontale : au-dessus
     }
     murs();
+    /* les gouttières (le long des égouts) et les descentes d'eaux pluviales */
+    const EP = eauxPluviales(f);
+    if (EP && roof.gutter !== 'none') {
+      for (const l of EP.lignes) if (l.genre === 'egout') { const a = E(l.a), b = E(l.b); page.trait(a[0], a[1], b[0], b[1], 1.6, '#2C6E9E') }
+      for (const d of EP.descentes) {
+        const c = E(d.point);
+        const r = 1.6 * PT;
+        page.polygone(Array.from({ length: 16 }, (_, k) => [c[0] + r * Math.cos(k * Math.PI / 8), c[1] + r * Math.sin(k * Math.PI / 8)] as [number, number]), { fond: '#FFFFFF', trait: d.ok ? '#2C6E9E' : '#C5563A', ep: 0.8 });
+        page.texte('EP', c[0] + 3 * PT, c[1] + 1 * PT, 6.5, { gras: true, couleur: '#2C6E9E' });
+      }
+    }
     /* les pignons : le haut du mur, en trait fort */
     for (const pg of t.pignons) {
       const Q = pg.points.map(E);
@@ -523,10 +534,22 @@ function plancheToiture(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
   ligne('Égout (le plus bas)', m(Math.min(...t0.map(x => x.egoutZ))));
   ligne('Faîtage (le plus haut)', m(Math.max(...t0.map(x => x.faitage))));
   ligne('Surface de couverture', m2(t0.reduce((s, x) => s + x.surfaceCouverture, 0)));
-  const FT = T.filter((x, i) => T.findIndex(z => z.f.id === x.f.id) === i).flatMap(x => fenetresDeToit(x.f));
+  const niveauxToit = T.filter((x, i) => T.findIndex(z => z.f.id === x.f.id) === i);
+  const FT = niveauxToit.flatMap(x => fenetresDeToit(x.f));
   if (FT.length) ligne('Fenêtres de toit', FT.length + ' (' + [...new Set(FT.map(x => x.o.width / 10 + ' × ' + x.o.height / 10))].join(', ') + ' cm)');
+  /* les lignes du toit et ses eaux pluviales */
+  const EPs = niveauxToit.flatMap(x => { const e = eauxPluviales(x.f); return e ? [e] : [] });
+  if (EPs.length) {
+    y += 2;
+    const somme = (g: GenreLigne) => EPs.reduce((s, e) => s + e.longueurs[g], 0);
+    for (const g of ['egout', 'faitage', 'aretier', 'noue', 'rive'] as const) if (somme(g) > 0) ligne(NOMS_LIGNES[g], (somme(g) / 1000).toFixed(2).replace('.', ',') + ' m');
+    const r = EPs[0]!.roof;
+    if (r.eavesFinish) ligne('Finition d’égout', FINITIONS_EGOUT[r.eavesFinish]);
+    ligne('Gouttières', r.gutter ? GOUTTIERES[r.gutter] + (r.gutter !== 'none' && r.gutterMaterial ? ' ' + MATIERES_GOUTTIERE[r.gutterMaterial] : '') : 'à choisir');
+    if (r.gutter !== 'none') ligne('Descentes (EP)', String(EPs.reduce((s, e) => s + e.descentes.length, 0)) || 'à placer');
+  }
   y += 3;
-  for (const l of ['Flèches : sens de la pente, vers l’égout. Murs porteurs', 'en tirets fins ; pignons en trait fort. Charpente,', 'gouttières et descentes : à préciser au projet.'])
+  for (const l of ['Flèches : sens de la pente, vers l’égout. Murs porteurs', 'en traits fins ; pignons en trait fort ; gouttières en', 'bleu, EP : descente. Charpente et diamètres des', 'descentes (DTU 60.11) : à préciser au projet.'])
     { page.texte(l, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
   cartouche(page, projet, o.dossier ? 'PCMI 5 — Plan de toiture' : 'Plan de toiture', ech, o);
 }

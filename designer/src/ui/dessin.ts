@@ -26,6 +26,7 @@ import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
 import { sectionPoteau, empriseDePoutre } from '../building/structure';
 import type { PlanFondations } from '../building/fondations';
+import type { EauxPluviales } from '../building/eaux-pluviales';
 import { boiteVisible, pasDeGrille, versEcran, type Camera } from './camera';
 import { dessinCote, texteCote } from './cotes';
 
@@ -75,6 +76,9 @@ export interface Scene {
   presentation?: boolean;
   /** le plan de fondations (semelles sous les murs, trappes), quand on le montre */
   fondations?: PlanFondations | null;
+  /** les eaux pluviales de la toiture du niveau : ses descentes ; « gouttieres » : l'égout qui les porte, marqué */
+  eaux?: EauxPluviales | null;
+  gouttieres?: boolean;
 }
 
 /** une teinte assombrie (k < 1), opaque : les joints se voient pareil à l'écran et sur le papier */
@@ -226,6 +230,21 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   for (const t of s.toitures ?? []) {
     ctx.strokeStyle = COULEURS.gris; ctx.lineWidth = 1;
     ctx.setLineDash([8, 4]); chemin(ctx, cam, { contour: t.egout }); ctx.stroke(); ctx.setLineDash([]);
+  }
+  /* les gouttières (le long des égouts, dans le sous-onglet du toit) et les descentes d'eaux pluviales */
+  if (s.eaux) {
+    if (s.gouttieres && s.eaux.roof.gutter !== 'none') {
+      ctx.strokeStyle = '#2C6E9E'; ctx.lineWidth = 3; ctx.beginPath();
+      for (const l of s.eaux.lignes) if (l.genre === 'egout') { const a = E(l.a), b = E(l.b); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y) }
+      ctx.stroke();
+    }
+    for (const d of s.eaux.descentes) {
+      const c = E(d.point), r = Math.max(4, 50 * cam.echelle);
+      ctx.fillStyle = '#FFFFFF'; ctx.strokeStyle = d.ok ? '#2C6E9E' : COULEURS.accent; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = d.ok ? '#2C6E9E' : COULEURS.accent; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('EP', c.x + r + 3, c.y);
+    }
   }
   /* les fenêtres de toit, au-dessus du plan : en tirets, le vitrage marqué par sa diagonale vers le haut de la pente */
   for (const { o, geo } of fenetresDeToit(s.niveau)) {

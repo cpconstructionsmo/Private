@@ -11,7 +11,8 @@
      humide signale sa faïence et son étanchéité, à préciser ;
    - le NIVEAU : son plancher (surface de la maçonnerie) et son plafond,
      avec leurs compositions ;
-   - la TOITURE : surface de couverture, longueur d'égout (gouttières) ;
+   - la TOITURE : surface de couverture, faîtage, arêtiers, noues, rives,
+     génoise ou caisson, gouttières (longueur d'égout), descentes posées ;
    - POTEAUX et POUTRES : nombre, longueur, volume ;
    - les FONDATIONS (building/fondations.ts) : fouilles, semelles filantes et
      isolées, soubassement, trappes ; toutes à valider par l'étude de sol ;
@@ -24,6 +25,7 @@ import { planDuNiveau } from './plan';
 import { mursDroits } from './murs';
 import { toitureDuNiveau } from './toiture';
 import { fenetresDeToit } from './fenetres-toit';
+import { eauxPluviales, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, NOMS_LIGNES } from './eaux-pluviales';
 import { planFondations, SOUBASSEMENTS } from './fondations';
 import { metreTerrain, NOMS_RESEAUX } from './terrassement';
 import { compositionMur } from '../catalogue/murs';
@@ -178,14 +180,25 @@ function metreNiveau(p: Project, f: Floor, ajouter: (l: LigneMetre) => void): vo
     ajouter({ lot: 'Peinture', libelle: 'Plafonds', quantite: m2(z.aire), unite: 'm²' });
   }
 
-  /* ---------- toiture ---------- */
+  /* ---------- toiture : couverture, lignes (égout, rives, faîtage, arêtiers, noues), eaux pluviales ---------- */
   const t = toitureDuNiveau(f);
   if (t?.ok) {
     const R = objets.find(o => o.type === 'roof');
-    for (const x of t.toitures) {
-      ajouter({ lot: 'Charpente et couverture', libelle: 'Couverture — ' + (R?.type === 'roof' ? COUVERTURES[R.covering] : ''), quantite: m2(x.surfaceCouverture), unite: 'm²', detail: 'surface rampante' });
-      if (x.genre !== 'flat') ajouter({ lot: 'Charpente et couverture', libelle: 'Gouttières (longueur d’égout)', quantite: ml(perimetre(x.egout)), unite: 'ml', detail: 'pignons compris : à ajuster selon le plan de toiture' });
-      ajouter({ lot: 'Charpente et couverture', libelle: 'Descentes d’eaux pluviales', quantite: 0, unite: 'u', aPreciser: true, detail: 'nombre et position à préciser' });
+    for (const x of t.toitures) ajouter({ lot: 'Charpente et couverture', libelle: 'Couverture — ' + (R?.type === 'roof' ? COUVERTURES[R.covering] : ''), quantite: m2(x.surfaceCouverture), unite: 'm²', detail: 'surface rampante' });
+    const E = eauxPluviales(f);
+    if (E) {
+      const lot = 'Charpente et couverture', r = E.roof, eg = E.longueurs.egout;
+      for (const g of ['faitage', 'aretier', 'noue', 'rive'] as const) if (E.longueurs[g] > 0) ajouter({ lot, libelle: NOMS_LIGNES[g], quantite: ml(E.longueurs[g]), unite: 'ml', detail: g === 'rive' ? 'en rampant (pignons, haut de pan)' : 'en vraie grandeur' });
+      if (r.eavesFinish?.startsWith('genoise')) ajouter({ lot, libelle: FINITIONS_EGOUT[r.eavesFinish], quantite: ml(eg), unite: 'ml', detail: 'le long des égouts' });
+      else if (r.eavesFinish === 'boxed') ajouter({ lot, libelle: 'Habillage de sous-face (caisson)', quantite: m2(eg * r.overhang), unite: 'm²', detail: 'longueur d’égout × débord : à confirmer aux angles' });
+      if (r.gutter !== 'none') {
+        const nom = r.gutter ? GOUTTIERES[r.gutter].toLowerCase() + (r.gutterMaterial ? ' ' + MATIERES_GOUTTIERE[r.gutterMaterial] : '') : 'modèle à choisir';
+        ajouter({ lot, libelle: 'Gouttières — ' + nom, quantite: ml(eg), unite: 'ml', detail: 'longueur d’égout, pignons exclus', ...(r.gutter && r.gutterMaterial ? {} : { aPreciser: true }) });
+        const n = E.descentes.length;
+        ajouter({ lot, libelle: 'Descentes d’eaux pluviales', quantite: n, unite: 'u',
+          detail: n ? '≈ ' + (E.surfacePlan / 1e6 / n).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' m² de toiture en plan par descente ; hauteur et diamètre selon le DTU 60.11' : 'nombre et position à préciser (DTU 60.11)',
+          ...(n ? {} : { aPreciser: true }) });
+      }
     }
   }
   for (const { o } of fenetresDeToit(f)) ajouter({ lot: 'Charpente et couverture', libelle: 'Fenêtres de toit ' + cm(o.width) + ' × ' + cm(o.height) + ' cm', quantite: 1, unite: 'u' });

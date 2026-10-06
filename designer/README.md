@@ -428,8 +428,10 @@ de constructeur ; quantités seulement, **sans prix** :
 - **pièces** : sol (avec son revêtement), plinthes (portes déduites), murs
   à peindre (périmètre × hauteur sous plafond, baies déduites), plafonds ;
   une pièce humide signale sa faïence et son étanchéité « à préciser » ;
-- **toiture** : couverture (surface rampante), gouttières (longueur
-  d'égout), descentes à préciser, fenêtres de toit ;
+- **toiture** : couverture (surface rampante), faîtage, arêtiers, noues,
+  rives (en vraie grandeur), génoise ou caisson, gouttières (longueur
+  d'égout, pignons exclus), descentes posées (surface en plan desservie),
+  fenêtres de toit ;
 - **fondations** : fouilles, semelles filantes (ml, béton), semelles
   isolées, murs de soubassement, trappes et ventilation du vide sanitaire ;
 - **poteaux et poutres**, escaliers, équipements (cuisine, salle de bains,
@@ -441,6 +443,20 @@ un poteau (section, rotation, béton, acier ou bois) du sol au plafond du
 niveau, en section pleine au plan ; une poutre (largeur, retombée sous le
 plafond) en tirets au plan ; tous deux en 3D, déplaçables, métrés.
 Sections à confirmer par l'étude de structure.
+
+**Égout et gouttières** (Toit › Égout et gouttières ;
+`src/building/eaux-pluviales.ts`) : les lignes du toit se déduisent des pans
+calculés — égout (à l'altitude de l'égout), rive (pignon, haut d'un pan),
+faîtage, arêtier ou noue (selon que les pans s'écartent ou se rejoignent).
+On choisit la finition de l'égout (chevrons, caisson, génoise de 1 à 3
+rangs), la gouttière (demi-ronde, moulurée, chéneau, ou sans) et sa matière ;
+les descentes se posent d'un clic sur l'égout (accrochées ; un clic sur une
+descente la retire ; refusées loin de l'égout, signalées sur une rive). Le
+panneau donne les longueurs et la surface de toiture en plan par descente :
+nombre et diamètre restent à dimensionner selon le DTU 60.11. Gouttières en
+bleu et descentes « EP » au plan et au plan de toiture ; en 3D, gouttière
+(une fois choisie : un projet qui n'en dit rien garde sa vue), descentes
+(coude, chute le long du mur) et génoise en gradins.
 
 **Fondations** (Tracé › Fondations ; `src/building/fondations.ts`) : on
 choisit le soubassement — **vide sanitaire** (plancher porté) ou

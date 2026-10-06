@@ -619,6 +619,21 @@ try {
   await p.click('.ruban .toit-gable');
   assert.deepEqual((await objets()).filter(o => o.type === 'roof').map(o => o.kind), ['gable'], 'toit deux pans posé d’un clic');
   assert.match(await p.textContent('aside'), /Toiture — RDC/);
+  /* l'égout et les gouttières : une génoise d'un clic, une descente posée sur l'égout (accrochée), retirée d'un clic, rendue par « annuler » */
+  await p.click('.sous button[data-s=eaux]');
+  await p.click('.ruban .egout-genoise_2');
+  const toit = async () => (await objets()).find(o => o.type === 'roof');
+  assert.equal((await toit()).eavesFinish, 'genoise_2', 'génoise posée');
+  assert.match(await p.textContent('aside'), /Égout : [\s\S]*Faîtage : [\s\S]*Rives : [\s\S]*Aucune descente/, 'lignes du toit et alerte sans descente');
+  await p.click('.ruban .o-descente'); await clic(3000, -350);
+  const dp = (await toit()).downpipes;
+  assert.ok(dp?.length === 1 && dp[0].x === 3000, 'descente posée sur l’égout : ' + JSON.stringify(dp));
+  assert.match(await p.textContent('aside'), /Descentes posées : 1/);
+  await clic(dp[0].x, dp[0].y);
+  assert.equal((await toit()).downpipes, undefined, 'un clic sur la descente la retire');
+  await p.keyboard.press('Control+z');
+  assert.equal((await toit()).downpipes.length, 1, 'annuler rend la descente');
+  await p.keyboard.press('Escape');
   await p.click('nav.onglets button[data-o=revetement]');
   await p.click('.catalogue .cat[data-cat=rev-enduit]');
   await p.click('.volet .tuile[data-m="enduit-ton-pierre"]');
@@ -634,7 +649,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

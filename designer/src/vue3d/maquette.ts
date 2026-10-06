@@ -26,6 +26,7 @@ import type { Floor, Mm, Opening, Point, Project, Roof } from '../model/types';
 import { planDuNiveau } from '../building/plan';
 import { toitureDuNiveau, type Point3 } from '../building/toiture';
 import { fenetresDeToit } from '../building/fenetres-toit';
+import { eauxPluviales } from '../building/eaux-pluviales';
 import { blocs, formeDe, versPlan } from '../building/mobilier';
 import { finitionAmenagement } from '../catalogue/amenagements';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
@@ -261,6 +262,60 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
   }
 }
 
+/** dessinés (ordres de grandeur pour la vue) : gouttière, descente, rang de génoise (saillie et hauteur) */
+export const EAUX_3D = { gouttiere: 120, descente: 80, rangSaillie: 70, rangHauteur: 90 } as const;
+
+/* l'égout et les eaux pluviales : la gouttière le long de chaque égout (une fois choisie : un projet qui n'en dit
+   rien garde sa vue d'avant), chaque descente
+   ramenée de l'égout contre le mur par un coude puis jusqu'au sol, la génoise en gradins sous l'égout */
+function egoutEtEaux(projet: Project, f: Floor, prismes: Prisme[]): void {
+  const E = eauxPluviales(f), T = toitureDuNiveau(f);
+  if (!E || !T?.ok) return;
+  const r = E.roof, G = EAUX_3D, zE = T.toitures[0]!.egoutZ, zMur = T.toitures[0]!.hautMurs;
+  const sol = Math.min(...projet.buildings.flatMap(b => b.floors).map(x => x.elevation));
+  const egout = T.toitures.flatMap(t => t.egout.map((a, i) => ({ a, b: t.egout[(i + 1) % t.egout.length]!, anneau: t.egout })));
+  /* la normale d'un égout vers le dehors */
+  const dehors = (l: { a: Point; b: Point }, A: Anneau) => {
+    const n = normaleGauche(normaliser(soustraire(l.b, l.a))), m = { x: (l.a.x + l.b.x) / 2 + n.x * 10, y: (l.a.y + l.b.y) / 2 + n.y * 10 };
+    return positionDansAnneau(m, A) === 'dedans' ? multiplier(n, -1) : n;
+  };
+  const bande = (a: Point, b: Point, n: Point, d0: Mm, d1: Mm): Anneau => [ajouter(a, multiplier(n, d0)), ajouter(b, multiplier(n, d0)), ajouter(b, multiplier(n, d1)), ajouter(a, multiplier(n, d1))];
+  for (const l of E.lignes) {
+    if (l.genre !== 'egout') continue;
+    const A = egout.find(e => positionDansAnneau({ x: (l.a.x + l.b.x) / 2, y: (l.a.y + l.b.y) / 2 }, e.anneau) !== 'dehors')?.anneau ?? egout[0]!.anneau;
+    const n = dehors(l, A);
+    if (r.gutter && r.gutter !== 'none') prismes.push({ contour: bande(l.a, l.b, n, 0, G.gouttiere), z0: zE - G.gouttiere, z1: zE - 20, matiere: 'zinc', objet: r.id, niveau: f.id });
+    /* la génoise : sous l'égout, contre le mur (le nu est à « débord » en retrait de l'égout), un gradin par rang */
+    const rangs = r.eavesFinish?.startsWith('genoise') ? Number(r.eavesFinish.slice(-1)) : 0;
+    /* le rang du haut passe sous la sous-face du toit, là où il s'avance le plus (sinon il percerait la couverture) */
+    const zG = zMur - rangs * G.rangSaillie * Math.tan((r.pitch * Math.PI) / 180) - EPAISSEUR_COUVERTURE;
+    /* l'égout déborde aussi aux bouts : chaque gradin est raccourci jusqu'au nu des murs d'angle, plus sa saillie */
+    const u = normaliser(soustraire(l.b, l.a));
+    for (let k = 0; k < rangs; k++) {
+      const c = Math.max(0, r.overhang - (k + 1) * G.rangSaillie), a = ajouter(l.a, multiplier(u, c)), b = ajouter(l.b, multiplier(u, -c));
+      prismes.push({ contour: bande(a, b, n, -r.overhang, -r.overhang + (k + 1) * G.rangSaillie), z0: zG - (rangs - k) * G.rangHauteur, z1: zG - (rangs - k - 1) * G.rangHauteur, matiere: 'tuile', objet: r.id, niveau: f.id });
+    }
+  }
+  if (r.gutter === 'none') return;
+  /* les descentes : du point de l'égout, un coude jusqu'au nu du mur le plus proche, puis droit au sol */
+  const nus = planDuNiveau(f).maconnerie.map(m => m.contour);
+  const carre = (c: Point, d: Mm): Anneau => [{ x: c.x - d / 2, y: c.y - d / 2 }, { x: c.x + d / 2, y: c.y - d / 2 }, { x: c.x + d / 2, y: c.y + d / 2 }, { x: c.x - d / 2, y: c.y + d / 2 }];
+  for (const d of E.descentes) {
+    let w = d.point, best = Infinity;
+    for (const A of nus) A.forEach((a, i) => {
+      const b = A[(i + 1) % A.length]!, ab = soustraire(b, a), L2 = ab.x * ab.x + ab.y * ab.y || 1;
+      const t = Math.max(0, Math.min(1, ((d.point.x - a.x) * ab.x + (d.point.y - a.y) * ab.y) / L2)), q = { x: a.x + t * ab.x, y: a.y + t * ab.y };
+      const e = Math.hypot(q.x - d.point.x, q.y - d.point.y);
+      if (e < best) { best = e; w = q }
+    });
+    const u = best > 1 ? normaliser(soustraire(d.point, w)) : { x: 0, y: 0 }, pied = ajouter(w, multiplier(u, G.descente / 2 + 20));          // à 2 cm du mur (colliers)
+    const zc = zE - G.gouttiere - 250;
+    prismes.push({ contour: carre(d.point, G.descente), z0: zc, z1: zE - G.gouttiere, matiere: 'zinc', objet: r.id, niveau: f.id });
+    if (best > G.descente / 2 + 20) prismes.push({ contour: bande(d.point, pied, normaleGauche(u), -G.descente / 2, G.descente / 2), z0: zc - G.descente, z1: zc, matiere: 'zinc', objet: r.id, niveau: f.id });
+    prismes.push({ contour: carre(pied, G.descente), z0: sol, z1: zc, matiere: 'zinc', objet: r.id, niveau: f.id });
+  }
+}
+
 /** un châssis de toit dessiné : il dépasse de la couverture de « saillie », son dormant fait « dormant » de large (mm) */
 export const CHASSIS_TOIT = { saillie: 80, dormant: 60 } as const;
 
@@ -331,7 +386,7 @@ export function maquette(projet: Project, jusqua?: string, options: { toiture?: 
     const k = jusqua ? F.findIndex(f => f.id === jusqua) : -1;
     for (const f of k >= 0 ? F.slice(0, k + 1) : F) {
       planchers(projet, f, prismes); murs(f, prismes); peintures(f, prismes); amenagements(f, prismes); arbres(f, prismes); structure(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
-      if (options.toiture !== false) toiture(f, prismes, plaques);
+      if (options.toiture !== false) { toiture(f, prismes, plaques); egoutEtEaux(projet, f, prismes) }
     }
   }
   let boite: Maquette['boite'] = null;

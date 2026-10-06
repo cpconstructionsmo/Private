@@ -9,7 +9,7 @@ import type { Beam, BuildingObject, Column, Floor, Foundation, Underlay, Mm, Net
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -502,6 +502,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
       /* le plan de fondations se montre dans son sous-onglet */
       fondations: onglet === 'trace' && sousOnglets['trace'] === 'fondations' ? planFondations(f) : null,
+      eaux: eauxPluviales(f), gouttieres: onglet === 'toit' && sousOnglets['toit'] === 'eaux',
       ...(cotation && !en3D ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)), cotesInterieures: cotesInterieures(f, pixelsEnMm(cam, 22)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
   }
@@ -799,7 +800,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'arbre', icone: 'arbre', libelle: 'Arbre', touche: 'Z' },
     { nom: 'profil', icone: 'profil', libelle: 'Profil en long du terrain', touche: 'S' },
     { nom: 'poteau', icone: 'poteau', libelle: 'Poteau', touche: '' }, { nom: 'poutre', icone: 'poutre', libelle: 'Poutre', touche: '' },
-    { nom: 'trappe', icone: 'trappe', libelle: 'Trappe de visite', touche: '' },
+    { nom: 'trappe', icone: 'trappe', libelle: 'Trappe de visite', touche: '' }, { nom: 'descente', icone: 'descente', libelle: 'Descente d’eaux pluviales', touche: '' },
     { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.filter(o => o.touche).map(o => [o.touche.toLowerCase(), o.nom]));
@@ -808,14 +809,14 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     mur: ['trace', 'murs'], refend: ['trace', 'murs'], cloison: ['trace', 'murs'], fictive: ['trace', 'murs'], rectangle: ['trace', 'murs'],
     piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
     ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
-    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'],
+    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'], descente: ['toit', 'eaux'],
     mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
   };
   function choisir(o: NomOutil) {
     if (en3D) void basculer3D(false);
     /* la parcelle se trace sur le niveau le plus bas (le terrain) */
-    /* une fenêtre de toit se pose sur la toiture : on passe au niveau qui la porte */
-    if (o === 'fenetretoit' && !Object.values(niveau().objects).some(x => x.type === 'roof')) {
+    /* une fenêtre de toit, une descente se posent sur la toiture : on passe au niveau qui la porte */
+    if ((o === 'fenetretoit' || o === 'descente') && !Object.values(niveau().objects).some(x => x.type === 'roof')) {
       const t = niveaux().find(f => Object.values(f.objects).some(x => x.type === 'roof'));
       if (!t) { toast('Aucune toiture : posez-la d’abord (onglet Toit), puis ses fenêtres', true); return }
       niveauId = t.id; selection = null; apres();
@@ -825,7 +826,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const place = PLACE_OUTIL[o];
     if (place && !offertIci(o)) { onglet = place[0]; sousOnglets[place[0]] = place[1] }
     if (o !== 'piece') typePiece = null;
-    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre' || o === 'poteau' || o === 'poutre' || o === 'trappe') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre' || o === 'poteau' || o === 'poutre' || o === 'trappe' || o === 'descente') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   /** l'outil est-il une tuile du sous-onglet ouvert ? */
   const offertIci = (o: NomOutil) => !!sousCourant().tuiles?.().some(t => !!t.classe?.split(' ').includes('o-' + o));
 
@@ -894,6 +895,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         faire: () => poserToit(g), actif: () => Object.values(niveauToit().objects).some(o => o.type === 'roof' && o.kind === g), classe: 'toit-' + g })),
         panneau: () => sectionToiture(niveauToit()) },
       { id: 'fenetres', libelle: 'Fenêtres de toit', icone: 'fenetre_toit', tuiles: () => [outil('fenetretoit')], panneau: () => sectionToiture(niveauToit()) },
+      { id: 'eaux', libelle: 'Égout et gouttières', icone: 'descente', entrer: () => { const f = niveauToit(); if (f.id !== niveauId) { niveauId = f.id; selection = null; apres() } },
+        tuiles: () => [outil('descente', 'Descente EP'),
+          ...(['genoise_1', 'genoise_2', 'genoise_3'] as const).map(g => ({ libelle: FINITIONS_EGOUT[g], icone: 'genoise', classe: 'egout-' + g, titre: 'Égout en génoise (tuiles canal en encorbellement)',
+            faire: () => finitionEgout(g), actif: () => toitDuNiveau()?.eavesFinish === g }))],
+        panneau: () => panneauEaux() },
     ] },
     { id: 'exterieur', libelle: 'Extérieur', icone: 'exterieur', sous: [
       { id: 'terrain', libelle: 'Terrain', icone: 'terrain', tuiles: () => tuilesTerrain(), panneau: f => panneauTerrain(f) },
@@ -1807,6 +1813,36 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (outils.outil === 'poutre') o.append(nb('Largeur (cm)', r.largeurPoutre, v => { r.largeurPoutre = v }), nb('Retombée (cm)', r.retombeePoutre, v => { r.retombeePoutre = v }), mat(r.matierePoutre, v => { r.matierePoutre = v }));
     else o.append(nb('Section (cm)', r.largeurPoteau, v => { r.largeurPoteau = v }), nb('×', r.profondeurPoteau, v => { r.profondeurPoteau = v }), mat(r.matierePoteau, v => { r.matierePoteau = v }));
     return [o];
+  }
+
+  /* ---------- l'égout et les eaux pluviales ---------- */
+  const toitDuNiveau = (): Roof | undefined => Object.values(niveauToit().objects).find((o): o is Roof => o.type === 'roof');
+  function finitionEgout(g: NonNullable<Roof['eavesFinish']>) {
+    const r = toitDuNiveau();
+    if (!r) { toast('Aucune toiture : posez-la d’abord (Toit)', true); return }
+    faire('Égout : ' + FINITIONS_EGOUT[g], [{ type: 'modifierToiture', id: r.id, egout: r.eavesFinish === g ? null : g }]);
+    apres();
+  }
+  function panneauEaux() {
+    const A = aside, f = niveauToit(), r = toitDuNiveau();
+    A.append(titre('Égout et gouttières'));
+    if (!r) { A.append(bloc('Aucune toiture : posez-la d’abord (sous-onglet Toit).')); return }
+    const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierToiture' }>>) => faire(t, [{ type: 'modifierToiture', id: r.id, ...c }]);
+    const E = eauxPluviales(f);
+    if (!E) { A.append(bloc(r.kind === 'flat' ? 'Toit-terrasse : évacuation par naissances et trop-pleins, à préciser au projet.' : '⚠️ Toiture non calculable sur ce plan.', 'alerte')); return }
+    A.append(champ('Finition de l’égout', r.eavesFinish ?? '', v => mod('Finition de l’égout', { egout: (v || null) as Roof['eavesFinish'] | null }), 'text', { '': 'À choisir', ...FINITIONS_EGOUT }),
+      champ('Gouttière', r.gutter ?? '', v => mod('Gouttière', { gouttiere: (v || null) as Roof['gutter'] | null }), 'text', { '': 'À choisir', ...GOUTTIERES }));
+    if (r.gutter !== 'none') A.append(champ('Matière', r.gutterMaterial ?? '', v => mod('Matière des gouttières', { matiereGouttiere: (v || null) as Roof['gutterMaterial'] | null }), 'text', { '': 'À choisir', ...MATIERES_GOUTTIERE }));
+    const L = E.longueurs, ml = (v: number) => (v / 1000).toFixed(2).replace('.', ',') + ' m';
+    A.append(bloc((['egout', 'faitage', 'aretier', 'noue', 'rive'] as const).filter(g => L[g] > 0).map(g => NOMS_LIGNES[g] + ' : <b>' + ml(L[g]) + '</b>').join('<br>')
+      + '<br><span class="note">Égout en plan ; rives, arêtiers et noues en vraie grandeur. Détail au métré (Dossier › Métré).</span>'));
+    if (r.gutter !== 'none') {
+      const n = E.descentes.length;
+      A.append(bloc('Descentes posées : <b>' + n + '</b>' + (n ? ' — ≈ ' + (E.surfacePlan / 1e6 / n).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' m² de toiture en plan par descente' : '')
+        + '<br><span class="note">Outil « Descente EP » : un clic sur l’égout la pose, un clic sur elle la retire. Nombre et diamètre selon le DTU 60.11 (surface desservie, région).</span>'));
+      if (n) A.append(ligne(bouton('Retirer les descentes', () => mod('Retirer les descentes', { descentes: [] }))));
+    }
+    for (const a of E.alertes) A.append(bloc('⚠️ ' + esc(a), 'alerte'));
   }
 
   /* ---------- les fondations ---------- */

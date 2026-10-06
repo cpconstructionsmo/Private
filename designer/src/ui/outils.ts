@@ -12,6 +12,7 @@ import { mursDroits, type MurDroit } from '../building/murs';
 import { planDuNiveau } from '../building/plan';
 import { planVersImage } from '../building/fond';
 import { COTE_TRAPPE, fondationsDuProjet, trappeProche } from '../building/fondations';
+import { eauxPluviales, pointDEgout } from '../building/eaux-pluviales';
 import { positionDansAnneau } from '../geometry/predicats';
 import { distancePointSegment, projeterSurDroite } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
@@ -25,7 +26,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe';
+export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -149,6 +150,7 @@ const AIDES: Record<NomOutil, string> = {
   equipement: 'Équipement de réseau (regard, boîte de branchement, compteur…) : cliquer pour le poser',
   arbre: 'Arbre : cliquer pour le poser (existant, à planter ou à abattre, au panneau)',
   poteau: 'Poteau : cliquer pour le poser (section et matière au ruban) ; il s’accroche aux angles et aux murs',
+  descente: 'Descente d’eaux pluviales : cliquer sur l’égout de la toiture (elle s’y accroche) ; cliquer une descente la retire',
   trappe: 'Trappe de visite du vide sanitaire (60 × 60 cm) : cliquer dans une pièce, hors des semelles ; cliquer une trappe la retire',
   poutre: 'Poutre : cliquer le départ puis l’arrivée (Maj : 45°) ; elle passe sous le plafond, sa retombée se règle au ruban',
   profil: 'Profil en long du terrain : cliquer le départ puis l’arrivée du trait ; le profil s’affiche au panneau',
@@ -259,6 +261,16 @@ export class Outils {
     const T = F.fondation.hatches, k = trappeProche(F.fondation, g.point, COTE_TRAPPE / 2);
     if (k >= 0) return { titre: 'Retirer une trappe de visite', liste: [{ type: 'modifierFondations', id: F.fondation.id, trappes: T.filter((_, i) => i !== k) }] };
     return { titre: 'Trappe de visite', liste: [{ type: 'modifierFondations', id: F.fondation.id, trappes: [...T, { x: Math.round(g.point.x), y: Math.round(g.point.y) }] }] };
+  }
+  /** la descente sous le pointeur : retirée si l'on clique sur une descente, sinon posée au point de l'égout le plus proche */
+  private descente(c: { projet: Project; niveau: string }, g: Geste): { titre: string; liste: Commande[] } | { aide: string } | null {
+    const f = trouverNiveau(c.projet, c.niveau)?.floor, E = f ? eauxPluviales(f) : null;
+    if (!E) return null;
+    const D = E.roof.downpipes ?? [], k = D.findIndex(q => distance(q, g.point) <= Math.max(150, g.rayon));
+    if (k >= 0) return { titre: 'Retirer une descente', liste: [{ type: 'modifierToiture', id: E.roof.id, descentes: D.filter((_, i) => i !== k) }] };
+    const p = pointDEgout(E, g.point, Math.max(600, g.rayon * 3));
+    if (!p) return { aide: 'Cliquez près de l’égout (le bord bas de la toiture, en tirets)' };
+    return { titre: 'Descente d’eaux pluviales', liste: [{ type: 'modifierToiture', id: E.roof.id, descentes: [...D, p] }] };
   }
   /** finir l'aménagement tracé : une clôture peut rester ouverte, une surface se ferme toujours */
   private finirAmenagement(ferme: boolean): Effet {
@@ -536,6 +548,10 @@ export class Outils {
         const t = this.trappe(c, g);
         return { accroche: null, apercu: t ? t.liste : [] };
       }
+      case 'descente': {
+        const t = this.descente(c, g);
+        return { accroche: null, apercu: t && 'liste' in t ? t.liste : [] };
+      }
       case 'poutre': {
         const a = this.accrocher(g, this.depart), r = this.reglages;
         if (!this.depart || distance(a.point, this.depart) < 300) return { accroche: a, apercu: [] };
@@ -669,6 +685,12 @@ export class Outils {
       case 'trappe': {
         const t = this.trappe(c, g);
         if (!t) return { aide: 'Posez d’abord les fondations (Tracé › Fondations : vide sanitaire)' };
+        return { commandes: t, apercu: [] };
+      }
+      case 'descente': {
+        const t = this.descente(c, g);
+        if (!t) return { aide: 'Pas de toiture en pente sur ce niveau : posez-la d’abord (onglet Toit)' };
+        if (!('liste' in t)) return { aide: t.aide };
         return { commandes: t, apercu: [] };
       }
       case 'poutre': {
