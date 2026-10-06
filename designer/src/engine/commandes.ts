@@ -23,6 +23,8 @@ import { aireSignee } from '../geometry/polygon';
 import { mesurerCote, resoudre, type Epingle } from '../building/contraintes';
 import { calage, calageParDistance, TRANSFORMATION_NEUTRE } from '../building/fond';
 import { geometrieFenetreToit } from '../building/fenetres-toit';
+import { toitureDuNiveau } from '../building/toiture';
+import { distancePointSegment } from '../geometry/segment';
 import { equerrer } from '../building/equerre';
 import { mursDroits, mursFictifs } from '../building/murs';
 import { appliquerTout, type Operation } from './operations';
@@ -94,7 +96,9 @@ export type Commande =
   | { type: 'modifierFond'; id: string; verrouille?: boolean; opacite?: number }
   /** la toiture d'un niveau (une seule) : ses choix ; la géométrie se calcule */
   | { type: 'creerToiture'; niveau: string; genre: Roof['kind']; pente: number; debord: Mm; couverture: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean }
-  | { type: 'modifierToiture'; id: string; genre?: Roof['kind']; pente?: number; debord?: Mm; couverture?: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean }
+  /** egout, gouttiere, matiereGouttiere : null efface le choix ; descentes : la liste entière (elle remplace la précédente) */
+  | { type: 'modifierToiture'; id: string; genre?: Roof['kind']; pente?: number; debord?: Mm; couverture?: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean;
+      egout?: Roof['eavesFinish'] | null; gouttiere?: Roof['gutter'] | null; matiereGouttiere?: Roof['gutterMaterial'] | null; descentes?: Point[] }
   /** un meuble ou un équipement de la bibliothèque, posé sur un niveau */
   | { type: 'creerMeuble'; niveau: string; modele: Furniture['catalogRef']; position: Point; rotation: number; largeur: Mm; profondeur: Mm; hauteur: Mm }
   | { type: 'modifierMeuble'; id: string; position?: Point; rotation?: number; largeur?: Mm; profondeur?: Mm; hauteur?: Mm }
@@ -1037,11 +1041,22 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       const e = toitureInvalide(cmd.genre ?? r.kind, cmd.pente ?? r.pitch, cmd.debord ?? r.overhang);
       if (e) return refus(e);
       const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
-      const champs = { genre: 'kind', pente: 'pitch', debord: 'overhang', couverture: 'covering', faitage: 'ridge', inverse: 'flip' } as const;
+      if (cmd.egout !== undefined && cmd.egout !== null && !['rafters', 'boxed', 'genoise_1', 'genoise_2', 'genoise_3'].includes(cmd.egout)) return refus('finition d’égout inconnue');
+      if (cmd.gouttiere !== undefined && cmd.gouttiere !== null && !['half_round', 'ogee', 'box', 'none'].includes(cmd.gouttiere)) return refus('gouttière inconnue');
+      if (cmd.matiereGouttiere !== undefined && cmd.matiereGouttiere !== null && !['zinc', 'pvc', 'aluminium', 'copper'].includes(cmd.matiereGouttiere)) return refus('matière de gouttière inconnue');
+      if (cmd.descentes) {
+        if (cmd.descentes.length > 30 || !cmd.descentes.every(ptFini)) return refus('descentes invalides');
+        /* une descente part de l'égout : à 30 cm près de son contour */
+        const toit = toitureDuNiveau(trouverNiveau(p, t.niveauId)!.floor);
+        if (toit?.ok && cmd.descentes.some(q => !toit.toitures.some(x => x.egout.some((a, i) => distancePointSegment(q, { a, b: x.egout[(i + 1) % x.egout.length]! }) <= 300))))
+          return refus('une descente se place sur l’égout de la toiture');
+      }
+      const champs = { genre: 'kind', pente: 'pitch', debord: 'overhang', couverture: 'covering', faitage: 'ridge', inverse: 'flip', egout: 'eavesFinish', gouttiere: 'gutter', matiereGouttiere: 'gutterMaterial' } as const;
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
         if (cmd[k] === undefined) continue;
         avant[champs[k]] = r[champs[k]]; apres[champs[k]] = cmd[k];
       }
+      if (cmd.descentes) { avant['downpipes'] = r.downpipes; apres['downpipes'] = cmd.descentes.length ? cmd.descentes.map(q => ({ x: q.x, y: q.y })) : undefined }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, r, avant, apres, c)]);
     }

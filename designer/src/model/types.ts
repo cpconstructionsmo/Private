@@ -174,6 +174,14 @@ export interface Roof extends BaseObject {
   ridge?: 'long' | 'short';
   /** un pan : l'égout bas passe de l'autre côté */
   flip?: boolean;
+  /* L'égout et les eaux pluviales (facultatifs : un projet qui ne les a pas reste valable) */
+  /** la finition de l'égout : chevrons apparents, caisson (sous-face habillée), génoise d'un à trois rangs */
+  eavesFinish?: 'rafters' | 'boxed' | 'genoise_1' | 'genoise_2' | 'genoise_3';
+  /** la gouttière : pendante demi-ronde, moulurée (havraise), chéneau ; « none » : sans gouttière */
+  gutter?: 'half_round' | 'ogee' | 'box' | 'none';
+  gutterMaterial?: 'zinc' | 'pvc' | 'aluminium' | 'copper';
+  /** les descentes d'eaux pluviales : leur point sur l'égout, en plan */
+  downpipes?: Point[];
 }
 
 /** un meuble ou un équipement posé (lit, évier, WC…) : il meuble le plan et

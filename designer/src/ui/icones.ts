@@ -66,6 +66,8 @@ const I: Record<string, string> = {
   fondations: '<path d="M4 4h16v9H4z"/><path d="M7 13v3H3v4h18v-4h-4v-3"/><path d="M3 20h18" stroke-dasharray="2 2"/>',
   vide_sanitaire: '<path d="M3 8h18v3H3z"/><path d="M5 11v6m14-6v6"/><path d="M3 17h5v3H3zm13 0h5v3h-5z"/><path d="M8 15h8" stroke-dasharray="2 2"/>',
   terre_plein: '<path d="M3 9h18v4H3z"/><path d="M3 13v3h5v-3m8 0v3h5v-3"/><path d="M8 16l2 3m2-3l2 3m2-3"/>',
+  descente: '<path d="M3 6h14l2 2"/><path d="M15 8v13"/><path d="M19 8v13"/><path d="M3 6v2h12"/>',
+  genoise: '<path d="M2 6h20"/><path d="M4 9a2 2 0 0 0 4 0m2 0a2 2 0 0 0 4 0m2 0a2 2 0 0 0 4 0"/><path d="M5 13a2 2 0 0 0 4 0m2 0a2 2 0 0 0 4 0"/><path d="M3 18h18v3H3z"/>',
   trappe: '<path d="M5 5h14v14H5z"/><path d="M5 5l14 14M19 5L5 19"/>',
   poutre: '<path d="M2 9h20v5H2z"/><path d="M5 14v7m14-7v7"/>',
   profil: '<path d="M3 17l5-6 4 3 4-5 5 3"/><path d="M3 20h18" stroke-dasharray="2 2"/><circle cx="3" cy="17" r="1"/><circle cx="21" cy="12" r="1"/>',
