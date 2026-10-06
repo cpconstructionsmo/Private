@@ -6,6 +6,7 @@
 import type { Maquette, Matiere, Plaque, Prisme } from '../vue3d/maquette';
 import { materiau, type Materiau } from '../catalogue/materiaux';
 import { avancer, depart, preparerVisite, regard, solSous, type Marcheur, type Terrain } from '../vue3d/visite';
+import { texture, type GenreTexture } from './textures';
 
 export interface Vue3D {
   mettreAJour(m: Maquette): void;
@@ -23,6 +24,8 @@ export interface Vue3D {
   /** le champ de vision vertical de la caméra (°), pour s'accorder à la focale de la photographie */
   focale(degres?: number): number;
   stats(): { maillages: number; triangles: number };
+  /** le rendu : réaliste (textures, ciel, ombres d'angle) ou maquette (aplats et arêtes, plus léger) */
+  rendu(mode?: 'realiste' | 'maquette'): 'realiste' | 'maquette';
   /** la visite à hauteur d'homme : glisser pour regarder, Z Q S D (ou W A S D) et flèches pour marcher, Maj pour presser le pas */
   visite(oui: boolean): void;
   enVisite(): boolean;
@@ -39,7 +42,7 @@ const COULEURS: Record<Matiere, { couleur: string; opacite?: number; rugosite?: 
   tuile: { couleur: '#A9533D', rugosite: 0.85 }, ardoise: { couleur: '#4A5560', rugosite: 0.6 }, zinc: { couleur: '#8E979E', rugosite: 0.4 },
   bac_acier: { couleur: '#5B6670', rugosite: 0.5 }, vegetalise: { couleur: '#6F8F55' }, gravillons: { couleur: '#B9B2A3' },
   meuble: { couleur: '#C9A57E', rugosite: 0.7 }, tissu: { couleur: '#8693A1' }, linge: { couleur: '#EEF0F2' }, plan_travail: { couleur: '#5A5F66', rugosite: 0.5 },
-  sanitaire: { couleur: '#F6F8F9', rugosite: 0.25 }, parement: { couleur: '#EFEBE4' }, peinture: { couleur: '#F7F6F2' }, amenagement: { couleur: '#C9C3B6' }, cloture: { couleur: '#3E4247' }, tronc: { couleur: '#6B4E36', rugosite: 0.9 }, terrain: { couleur: '#B7C79A', rugosite: 1 }, feuillage: { couleur: '#5C8A4A', rugosite: 0.95 }, escalier: { couleur: '#B58B5E', rugosite: 0.7 }, electromenager: { couleur: '#D9DCDF', rugosite: 0.4 }, inox: { couleur: '#AEB4B9', rugosite: 0.3 },
+  sanitaire: { couleur: '#F6F8F9', rugosite: 0.25 }, parement: { couleur: '#EFEBE4' }, peinture: { couleur: '#F7F6F2' }, amenagement: { couleur: '#C9C3B6' }, cloture: { couleur: '#3E4247' }, tronc: { couleur: '#6B4E36', rugosite: 0.9 }, terrain: { couleur: '#6B8A47', rugosite: 1 }, feuillage: { couleur: '#5C8A4A', rugosite: 0.95 }, escalier: { couleur: '#B58B5E', rugosite: 0.7 }, electromenager: { couleur: '#D9DCDF', rugosite: 0.4 }, inox: { couleur: '#AEB4B9', rugosite: 0.3 },
 };
 
 /** le motif d'un matériau, peint sur une toile de 1 m × 1 m (répétée) : lames, briques, carreaux… ; null : uni */
@@ -78,42 +81,79 @@ function geometriePlaque(THREE: typeof import('three'), p: Plaque) {
   const ax = Math.abs(n.x) >= Math.abs(n.y) && Math.abs(n.x) >= Math.abs(n.z) ? 'x' : Math.abs(n.y) >= Math.abs(n.z) ? 'y' : 'z';
   const deux = H.map(v => (ax === 'x' ? new THREE.Vector2(v.y, v.z) : ax === 'y' ? new THREE.Vector2(v.x, v.z) : new THREE.Vector2(v.x, v.y)));
   const tris = THREE.ShapeUtils.triangulateShape(deux, []);
-  const pos: number[] = [];
-  const tri = (a: InstanceType<typeof THREE.Vector3>, b: InstanceType<typeof THREE.Vector3>, c: InstanceType<typeof THREE.Vector3>) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  /* les coordonnées de texture, en mètres dans le plan de la plaque : u horizontal, v vers le haut de la pente
+     (les rangs de tuiles courent le long de l'égout) ; une plaque horizontale prend x et z */
+  const N = n.clone().normalize(), haut = new THREE.Vector3(0, 1, 0);
+  const e1 = Math.abs(N.y) > 0.999 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3().crossVectors(haut, N).normalize();
+  const e2 = new THREE.Vector3().crossVectors(N, e1).normalize();
+  if (e2.y < 0) e2.negate();
+  const pos: number[] = [], uv: number[] = [];
+  const tri = (a: InstanceType<typeof THREE.Vector3>, b: InstanceType<typeof THREE.Vector3>, c: InstanceType<typeof THREE.Vector3>) => {
+    pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+    for (const v of [a, b, c]) uv.push(v.dot(e1), v.dot(e2));
+  };
   for (const [i, j, k] of tris) { tri(H[i!]!, H[j!]!, H[k!]!); tri(B[k!]!, B[j!]!, B[i!]!) }
   H.forEach((a, i) => { const b = H[(i + 1) % H.length]!, a2 = B[i]!, b2 = B[(i + 1) % H.length]!; tri(a, a2, b2); tri(a, b2, b) });
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.computeVertexNormals();
   return g;
 }
+
+/** les matières qui prennent une texture au rendu réaliste, et laquelle */
+const TEXTURES: Partial<Record<Matiere, GenreTexture>> = {
+  tuile: 'tuile', ardoise: 'ardoise', zinc: 'zinc', bac_acier: 'bac_acier', gravillons: 'gravier', mur: 'enduit', parement: 'enduit',
+  plancher: 'beton', amenagement: 'beton', terrain: 'herbe', vegetalise: 'herbe', porte: 'bois', escalier: 'bois',
+};
 
 export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
   const THREE = await import('three');
   const { OrbitControls } = await import('three/examples/jsm/controls/OrbitControls.js');
 
+  const { EffectComposer } = await import('three/examples/jsm/postprocessing/EffectComposer.js');
+  const { RenderPass } = await import('three/examples/jsm/postprocessing/RenderPass.js');
+  const { GTAOPass } = await import('three/examples/jsm/postprocessing/GTAOPass.js');
+  const { OutputPass } = await import('three/examples/jsm/postprocessing/OutputPass.js');
+  const { Sky } = await import('three/examples/jsm/objects/Sky.js');
+  const { RoomEnvironment } = await import('three/examples/jsm/environments/RoomEnvironment.js');
+
   const rendu = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   rendu.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   rendu.shadowMap.enabled = true;
   rendu.shadowMap.type = THREE.PCFSoftShadowMap;
+  /* des tons de cinéma : les hautes lumières (ciel, enduit au soleil) ne « brûlent » pas */
+  rendu.toneMapping = THREE.ACESFilmicToneMapping;
+  rendu.toneMappingExposure = 0.82;
   rendu.localClippingEnabled = true;
   rendu.domElement.className = 'vue3d';
   conteneur.appendChild(rendu.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#E6EDF1');
-  scene.add(new THREE.HemisphereLight('#FFFFFF', '#B9B4A8', 0.8));
+  const FOND = '#E6EDF1';
+  scene.background = new THREE.Color(FOND);
+  const hemi = new THREE.HemisphereLight('#FFFFFF', '#B9B4A8', 0.8);
+  scene.add(hemi);
   const soleil = new THREE.DirectionalLight('#FFFFFF', 2.4);         // assez fort pour que deux pans se distinguent
   soleil.castShadow = true;
-  soleil.shadow.mapSize.set(2048, 2048);
-  soleil.shadow.bias = -0.0005;
+  soleil.shadow.mapSize.set(4096, 4096);
+  soleil.shadow.bias = -0.0003; soleil.shadow.normalBias = 0.02; soleil.shadow.radius = 3;
   scene.add(soleil, soleil.target);
+  /* le rendu réaliste : un environnement (reflets des vitrages, lumière d'ambiance), un ciel, une brume d'horizon */
+  const pmrem = new THREE.PMREMGenerator(rendu);
+  const environnement = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  const ciel = new Sky();
+  ciel.scale.setScalar(4_000);
+  const u = ciel.material.uniforms as Record<string, { value: unknown }>;
+  u['turbidity']!.value = 4; u['rayleigh']!.value = 1.2; u['mieCoefficient']!.value = 0.004; u['mieDirectionalG']!.value = 0.8;
+  scene.add(ciel);
+  const brume = new THREE.Fog('#DCE6EE', 120, 900);
   const solPlein = new THREE.MeshStandardMaterial({ color: '#DCE3D3', roughness: 1 }), solOmbre = new THREE.ShadowMaterial({ opacity: 0.28 });
   const sol = new THREE.Mesh<InstanceType<typeof THREE.CircleGeometry>, InstanceType<typeof THREE.Material>>(new THREE.CircleGeometry(400, 64), solPlein);
   sol.rotation.x = -Math.PI / 2; sol.position.y = -0.03; sol.receiveShadow = true;
   scene.add(sol);
 
-  const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 2_000);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 10_000);
   const controles = new OrbitControls(camera, rendu.domElement);
   controles.maxPolarAngle = Math.PI / 2 - 0.02;        // jamais sous le terrain
 
@@ -122,6 +162,31 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     color: c.couleur, roughness: c.rugosite ?? 0.9, metalness: 0, transparent: c.opacite !== undefined, opacity: c.opacite ?? 1,
     depthWrite: c.opacite === undefined, side: THREE.DoubleSide, clippingPlanes: [coupe],
   })])) as Record<Matiere, InstanceType<typeof THREE.MeshStandardMaterial>>;
+  /* le rendu réaliste : les textures peintes (textures.ts), créées une fois, répétées au mètre */
+  const anisotropie = rendu.capabilities.getMaxAnisotropy();
+  const peinte = (genre: GenreTexture, base: string) => {
+    const t = texture(genre, base);
+    const carte = new THREE.CanvasTexture(t.couleur), relief = new THREE.CanvasTexture(t.relief);
+    for (const x of [carte, relief]) { x.wrapS = x.wrapT = THREE.RepeatWrapping; x.anisotropy = anisotropie }
+    carte.colorSpace = THREE.SRGBColorSpace;
+    return { carte, relief };
+  };
+  const texturees = (Object.entries(TEXTURES) as [Matiere, GenreTexture][]).map(([k, genre]) => ({ m: matieres[k], couleur: COULEURS[k].couleur, ...peinte(genre, COULEURS[k].couleur) }));
+  const herbe = peinte('herbe', '#5F7F3E');
+  herbe.carte.repeat.set(400, 400); herbe.relief.repeat.set(400, 400);
+  matieres.vitrage.metalness = 0.2; matieres.vitrage.roughness = 0.05; matieres.vitrage.opacity = 0.45;
+  /** passer d'un rendu à l'autre : textures, ciel, brume, arêtes, lumières */
+  function appliquerMode() {
+    const R = mode === 'realiste';
+    for (const t of texturees) { t.m.map = R ? t.carte : null; t.m.bumpMap = R ? t.relief : null; t.m.bumpScale = 1.5; t.m.color.set(R ? '#FFFFFF' : t.couleur); t.m.needsUpdate = true }
+    solPlein.map = R ? herbe.carte : null; solPlein.bumpMap = R ? herbe.relief : null; solPlein.color.set(R ? '#FFFFFF' : '#DCE3D3'); solPlein.needsUpdate = true;
+    scene.environment = R ? environnement : null; scene.environmentIntensity = 0.25;
+    hemi.intensity = R ? 0.3 : 0.8; soleil.intensity = R ? 3.4 : 2.4;
+    aretes.visible = !R;
+    const photo = scene.background instanceof THREE.Texture;
+    ciel.visible = R && !photo; scene.fog = R && !photo ? brume : null;
+    if (!photo) scene.background = R ? null : new THREE.Color(FOND);
+  }
   /* les matières des matériaux du catalogue (parements, sols), créées à la demande */
   const finitions = new Map<string, InstanceType<typeof THREE.MeshStandardMaterial>>();
   /* un grillage se voit au travers : une maille, pas un mur */
@@ -134,8 +199,11 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     if (!x) {
       const toile = motif(m);
       const map = toile ? new THREE.CanvasTexture(toile) : null;
-      if (map) { map.wrapS = map.wrapT = THREE.RepeatWrapping; map.colorSpace = THREE.SRGBColorSpace }
-      x = new THREE.MeshStandardMaterial({ color: map ? '#FFFFFF' : m.couleur, ...(map ? { map } : {}), roughness: 0.9, metalness: 0, side: THREE.DoubleSide, clippingPlanes: [coupe] });
+      if (map) { map.wrapS = map.wrapT = THREE.RepeatWrapping; map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = anisotropie }
+      /* un enduit uni prend du grain (et son relief) : il ne ressemble plus à du plastique */
+      const grainEnduit = !map && m.motif === 'uni' ? peinte('enduit', m.couleur) : null;
+      x = new THREE.MeshStandardMaterial({ color: map || grainEnduit ? '#FFFFFF' : m.couleur, ...(map ? { map } : grainEnduit ? { map: grainEnduit.carte, bumpMap: grainEnduit.relief, bumpScale: 1.5 } : {}),
+        roughness: 0.9, metalness: 0, side: THREE.DoubleSide, clippingPlanes: [coupe] });
       finitions.set(m.id, x);
     }
     return x;
@@ -172,7 +240,20 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     }
   }
 
-  const peindre = () => rendu.render(scene, camera);
+  /* le composeur : la scène, l'ombre des angles et des recoins (GTAO), puis les tons et l'espace de couleur */
+  const cible = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+  const composeur = new EffectComposer(rendu, cible);
+  composeur.addPass(new RenderPass(scene, camera));
+  const ombresAngles = new GTAOPass(scene, camera, 1, 1);
+  ombresAngles.blendIntensity = 1;
+  composeur.addPass(ombresAngles);
+  composeur.addPass(new OutputPass());
+  let mode: 'realiste' | 'maquette' = 'realiste';
+  const peindre = () => {
+    /* l'ombre des angles ne connaît pas la coupe de la vue maquette : elle se tait quand les murs sont coupés */
+    ombresAngles.enabled = mode === 'realiste' && coupe.constant > 1e5;
+    composeur.render();
+  };
   controles.addEventListener('change', peindre);
 
   function maillage(p: Prisme) {
@@ -263,6 +344,7 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
   function taille() {
     const l = conteneur.clientWidth || 800, h = conteneur.clientHeight || 600;
     rendu.setSize(l, h, false);
+    composeur.setSize(l, h); ombresAngles.setSize(l * rendu.getPixelRatio(), h * rendu.getPixelRatio());
     rendu.domElement.style.width = '100%'; rendu.domElement.style.height = '100%';
     camera.aspect = l / h; camera.updateProjectionMatrix();
     cadrerFond();
@@ -279,9 +361,11 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
       /* le relief du terrain : une nappe d'herbe ; le sol plat descend sous son point le plus bas */
       if (m.relief) {
         const T = m.relief.triangles, pos: number[] = [];
-        for (let i = 0; i < T.length; i += 3) pos.push(T[i]! / 1000, T[i + 2]! / 1000, -T[i + 1]! / 1000);
+        const uv: number[] = [];
+        for (let i = 0; i < T.length; i += 3) { pos.push(T[i]! / 1000, T[i + 2]! / 1000, -T[i + 1]! / 1000); uv.push(T[i]! / 1000, T[i + 1]! / 1000) }
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));          // l'herbe, au mètre
         g.computeVertexNormals();
         const r = new THREE.Mesh(g, matieres.terrain);
         r.receiveShadow = true;
@@ -298,6 +382,7 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
         const c = new THREE.Vector3((boite.xmin + boite.xmax) / 2000, 0, -(boite.ymin + boite.ymax) / 2000);
         const R = Math.max(boite.xmax - boite.xmin, boite.ymax - boite.ymin, 5_000) / 1000;
         soleil.position.set(c.x - R, R * 1.6, c.z + R * 1.2); soleil.target.position.copy(c);
+        (u['sunPosition']!.value as InstanceType<typeof THREE.Vector3>).copy(soleil.position.clone().sub(c).normalize());
         const s = soleil.shadow.camera;
         s.left = -R * 1.5; s.right = R * 1.5; s.top = R * 1.5; s.bottom = -R * 1.5; s.near = 0.1; s.far = R * 6; s.updateProjectionMatrix();
       }
@@ -353,17 +438,23 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
         fondTaille = { l: image.width, h: image.height };
         cadrerFond();
       }
-      scene.background = fond ?? new THREE.Color('#E6EDF1');
+      scene.background = fond ?? null;
       sol.material = fond ? solOmbre : solPlein;
+      appliquerMode();
       peindre();
     },
     focale(degres) {
       if (degres !== undefined && Number.isFinite(degres) && !enVisite) { camera.fov = Math.min(90, Math.max(15, degres)); camera.updateProjectionMatrix(); peindre() }
       return camera.fov;
     },
+    rendu(m) {
+      if (m && m !== mode) { mode = m; appliquerMode(); peindre() }
+      return mode;
+    },
     stats() { let t = 0, n = 0; groupe.traverse(o => { if (o instanceof THREE.Mesh) { n++; t += (o.geometry.index?.count ?? o.geometry.attributes['position']!.count) / 3 } }); return { maillages: n, triangles: Math.round(t) } },
-    detruire() { enVisite = false; cancelAnimationFrame(boucle); window.removeEventListener('keydown', enfoncee); window.removeEventListener('keyup', relachee); window.removeEventListener('blur', perdue); observateur.disconnect(); controles.dispose(); vider(); rendu.dispose(); rendu.domElement.remove() },
+    detruire() { enVisite = false; cancelAnimationFrame(boucle); window.removeEventListener('keydown', enfoncee); window.removeEventListener('keyup', relachee); window.removeEventListener('blur', perdue); observateur.disconnect(); controles.dispose(); vider(); composeur.dispose(); cible.dispose(); pmrem.dispose(); environnement.dispose(); rendu.dispose(); rendu.domElement.remove() },
   };
+  appliquerMode();
   taille();
   return vue;
 }

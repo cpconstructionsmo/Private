@@ -355,7 +355,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     vue3dEnCours ??= (async () => {
       try {
         const { creerVue3D } = await import('./vue3d');
-        vue3d = await creerVue3D(hote3d); if (photoSite) vue3d.photo(photoSite);
+        vue3d = await creerVue3D(hote3d); vue3d.rendu(renduPrefere()); if (photoSite) vue3d.photo(photoSite);
         vue3d.mettreAJour(maquetteAffichee()); appliquerCoupe(); placerVues();
         return vue3d;
       } catch (e) {
@@ -1647,6 +1647,10 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     $<HTMLElement>('.hote3d').focus?.();
     panneaux();
   }
+  /** le rendu préféré de la 3D, gardé sur cet appareil : réaliste par défaut ; « maquette » sur un ordinateur lent */
+  function renduPrefere(): 'realiste' | 'maquette' {
+    try { return localStorage.getItem('cpDesigner:rendu3d') === 'maquette' ? 'maquette' : 'realiste' } catch { return 'realiste' }
+  }
   function panneau3D() {
     if (vue3d?.enVisite()) {
       aside.append(titre('Visite à hauteur d’homme'),
@@ -1657,6 +1661,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     }
     aside.append(titre('Vue 3D'),
       bloc('Glisser : tourner autour · clic droit (ou Maj + glisser) : déplacer · molette : zoom · F : recadrer · Échap : retour au plan'),
+      champ('Rendu', vue3d?.rendu() ?? renduPrefere(), v => {
+        const r = v === 'maquette' ? 'maquette' : 'realiste';
+        try { localStorage.setItem('cpDesigner:rendu3d', r) } catch { /* gardé pour la séance */ }
+        vue3d?.rendu(r);
+      }, 'text', { realiste: 'Réaliste (textures, ciel, ombres)', maquette: 'Maquette (aplats et arêtes, plus léger)' }),
       champ('Vue maquette (murs coupés à 1,20 m)', coupe3D ? 1 : 0, v => { coupe3D = !!v; appliquerCoupe() }, 'checkbox'),
       champ('Niveaux montrés', niveaux3D, v => { niveaux3D = v as 'tous' | 'jusqua'; apres() }, 'text', { tous: 'Tous', jusqua: 'Jusqu’au niveau affiché' }),
       champ('Montrer la toiture', toit3D ? 1 : 0, v => { toit3D = !!v; apres() }, 'checkbox'),
