@@ -165,6 +165,9 @@ describe('commandes et métré du terrain', () => {
     const auCentre = (() => { const T = R.triangles; for (let i = 0; i < T.length; i += 3) if (Math.abs(T[i]! - 5_000) < 300 && Math.abs(T[i + 1]! - 4_000) < 300) return T[i + 2]!; return null })();
     expect(auCentre).toBe(-300);
     for (const t of ['(TERRASSEMENT', '(R\xC9SEAUX', '(PLANTATIONS', '(EU \x97 Eaux us\xE9es', '(EU PVC \xD8 100)']) expect(s).toContain(t);
+    /* le plan du niveau montre le bâtiment : ni réseaux, ni plateforme (ils sont au plan de masse) */
+    const rdc = Array.from(planchesPdf(r.historique.projet, { niveaux: [n], cotation: true, mobilier: true, indice: 'A', date: '06/10/2026' }), c => String.fromCharCode(c)).join('');
+    expect(rdc).not.toContain('(EU PVC'); expect(rdc).not.toContain('Plateforme de la maison');
   });
 
   it('le terrain fini : plateforme, puis talus jusqu’au terrain naturel ; relief en grille ; profil en long', () => {

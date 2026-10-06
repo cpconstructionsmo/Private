@@ -124,7 +124,10 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
   })])) as Record<Matiere, InstanceType<typeof THREE.MeshStandardMaterial>>;
   /* les matières des matériaux du catalogue (parements, sols), créées à la demande */
   const finitions = new Map<string, InstanceType<typeof THREE.MeshStandardMaterial>>();
+  /* un grillage se voit au travers : une maille, pas un mur */
+  const grillage = new THREE.MeshStandardMaterial({ color: '#3F6B4A', roughness: 0.8, metalness: 0.2, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, clippingPlanes: [coupe] });
   const matiereDe = (p: Prisme) => {
+    if (p.matiere === 'cloture' && p.finition?.startsWith('grillage')) { grillage.color.set(materiau(p.finition)?.couleur ?? '#3F6B4A'); return grillage }
     const m = materiau(p.finition);
     if (!m) return matieres[p.matiere];
     let x = finitions.get(m.id);

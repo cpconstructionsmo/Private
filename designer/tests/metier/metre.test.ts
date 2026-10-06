@@ -86,4 +86,23 @@ describe('métré du projet', () => {
     expect(csv[0]).toBe('Lot;Ouvrage;Quantité;Unité;Détail;À préciser');
     expect(csv.find(x => x.includes('"Appuis de fenêtre"'))).toBe('"Gros œuvre";"Appuis de fenêtre";1,2;ml;"";');
   });
+
+  it('libellés : un modèle garde ses dimensions sans les répéter ; une ligne cumulée liste ses pièces ; la faïence murale va à la faïence', () => {
+    const { h: h0, a, n } = maison();
+    const F = h0.projet.buildings[0]!.floors[0]!, O = Object.values(F.objects);
+    const est = O.find(o => o.type === 'wall' && (o as { axis: { a: { x: number }; b: { x: number } } }).axis.a.x === 10_000 && (o as { axis: { b: { x: number } } }).axis.b.x === 10_000)!;
+    const sejour = O.find(o => o.type === 'room')!;
+    const h = ok(executer(h0, 'x', [
+      { type: 'creerOuverture', mur: est.id, position: 2_000, largeur: 1_200, hauteur: 1_250, allege: 900, genre: 'window', modele: { id: 'fen-2v-120x125', label: 'Fenêtre 2 vantaux 120 × 125' } },
+      { type: 'creerMur', niveau: n, a: { x: 6_000, y: 0 }, b: { x: 6_000, y: 8_000 }, epaisseur: 72, role: 'partition' },
+      { type: 'modifierPiece', id: sejour.id, sol: 'parquet-chene', murs: 'faience-blanche' },
+      { type: 'creerPiece', niveau: n, point: { x: 7_500, y: 4_000 }, nom: 'Chambre', usage: 'bedroom' },
+    ], a));
+    const ch = Object.values(h.projet.buildings[0]!.floors[0]!.objects).find(o => o.type === 'room' && o.name === 'Chambre')!;
+    const L = metreProjet(ok(executer(h, 'x', [{ type: 'modifierPiece', id: ch.id, sol: 'parquet-chene' }], a)).projet);
+    expect(ligne(L, 'Menuiseries extérieures', 'Fenêtre 2 vantaux')[0]!.libelle).toBe('Fenêtre 2 vantaux 120 × 125');
+    expect(ligne(L, 'Revêtements de sol', 'Sol — Parquet chêne')[0]!.detail).toBe('Séjour, Chambre');
+    expect(ligne(L, 'Faïence', 'Murs — Faïence blanche')[0]!.detail).toBe('Séjour');
+    expect(ligne(L, 'Peinture', 'Murs — Faïence')).toHaveLength(0);
+  });
 });

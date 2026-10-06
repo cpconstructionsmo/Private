@@ -41,6 +41,8 @@ export interface LigneMetre {
   detail?: string;
   /** une quantité qui attend une donnée (hauteur de faïence, par exemple) */
   aPreciser?: boolean;
+  /** le détail est un nom de pièce : une ligne cumulée les liste toutes */
+  pieces?: boolean;
 }
 
 export const LOTS = ['Terrassement et VRD', 'Gros œuvre', 'Charpente et couverture', 'Menuiseries extérieures', 'Menuiseries intérieures',
@@ -67,7 +69,11 @@ export function metreProjet(p: Project): LigneMetre[] {
   /* cumuler les lignes de même lot, libellé et unité */
   const ajouter = (l: LigneMetre) => {
     const x = L.find(y => y.lot === l.lot && y.libelle === l.libelle && y.unite === l.unite);
-    if (x) { x.quantite += l.quantite; if (l.aPreciser) x.aPreciser = true } else L.push({ ...l });
+    if (!x) { L.push({ ...l, ...(l.detail ? { detail: l.detail } : {}) }); return }
+    x.quantite += l.quantite;
+    if (l.aPreciser) x.aPreciser = true;
+    /* une ligne cumulée de pièces (« Sol — carrelage ») dit toutes ses pièces, pas la première seulement */
+    if (l.pieces && l.detail && !x.detail?.split(', ').includes(l.detail)) x.detail = (x.detail ? x.detail + ', ' : '') + l.detail;
   };
   const niveaux = p.buildings.flatMap(b => b.floors).sort((a, b) => a.elevation - b.elevation);
 
@@ -105,7 +111,9 @@ function metreNiveau(p: Project, f: Floor, ajouter: (l: LigneMetre) => void): vo
     const w = parId.get(o.hostWallId);
     if (!w) continue;
     const ext = w.role === 'exterior', lot = ext ? 'Menuiseries extérieures' : 'Menuiseries intérieures';
-    if (o.kind !== 'void') ajouter({ lot, libelle: (o.catalogRef?.label ?? GENRES_BAIES[o.kind]) + ' ' + cm(o.width) + ' × ' + cm(o.height) + ' cm', quantite: 1, unite: 'u' });
+    /* le libellé du modèle porte déjà ses dimensions (« Fenêtre 2 vantaux 120 × 125 ») : on ne les répète pas, sauf si on les a changées */
+    const dims = cm(o.width) + ' × ' + cm(o.height), lib = o.catalogRef?.label;
+    if (o.kind !== 'void') ajouter({ lot, libelle: lib && lib.includes(dims) ? lib : (lib ?? GENRES_BAIES[o.kind]) + ' ' + dims + ' cm', quantite: 1, unite: 'u' });
     if (w.role !== 'partition') {
       ajouter({ lot: 'Gros œuvre', libelle: 'Linteaux', quantite: ml(o.width + 2 * APPUI_LINTEAU), unite: 'ml', detail: 'baie + 2 × 20 cm d’appui : à confirmer selon l’étude' });
       if (ext && o.kind === 'window') ajouter({ lot: 'Gros œuvre', libelle: 'Appuis de fenêtre', quantite: ml(o.width), unite: 'ml' });
@@ -128,11 +136,13 @@ function metreNiveau(p: Project, f: Floor, ajouter: (l: LigneMetre) => void): vo
     const touche = plan.baies.filter(b => b.cotes.includes(r.name));
     const baies = touche.reduce((s, b) => s + b.surface, 0), passages = touche.filter(b => PASSAGES.has(b.genre)).reduce((s, b) => s + b.largeur, 0);
     const sol = materiau(r.floorFinish), mur = materiau(r.wallFinish), P = perimetre(z.polygone.contour);
-    ajouter({ lot: 'Revêtements de sol', libelle: 'Sol — ' + (sol ? sol.libelle : 'à choisir'), quantite: m2(z.aire), unite: 'm²', detail: r.name, ...(sol ? {} : { aPreciser: true }) });
+    ajouter({ lot: 'Revêtements de sol', libelle: 'Sol — ' + (sol ? sol.libelle : 'à choisir'), quantite: m2(z.aire), unite: 'm²', detail: r.name, pieces: true, ...(sol ? {} : { aPreciser: true }) });
     ajouter({ lot: 'Revêtements de sol', libelle: 'Plinthes', quantite: ml(Math.max(0, P - passages)), unite: 'ml', detail: 'portes et passages déduits' });
     const murs = m2(Math.max(0, P * hsp - baies));
     if (r.wet) ajouter({ lot: 'Faïence', libelle: 'Faïence et étanchéité des pièces humides (' + r.name + ')', quantite: 0, unite: 'm²', aPreciser: true, detail: 'hauteur et emprise à préciser (douche, baignoire, crédence)' });
-    ajouter({ lot: 'Peinture', libelle: 'Murs — ' + (mur ? mur.libelle : 'finition à choisir'), quantite: murs, unite: 'm²', detail: 'périmètre × hauteur sous plafond, baies déduites', ...(mur ? {} : { aPreciser: true }) });
+    /* une faïence murale toute hauteur est de la faïence, pas de la peinture */
+    const faience = !!mur?.id.startsWith('faience');
+    ajouter({ lot: faience ? 'Faïence' : 'Peinture', libelle: 'Murs — ' + (mur ? mur.libelle : 'finition à choisir'), quantite: murs, unite: 'm²', detail: r.name, pieces: true, ...(mur ? {} : { aPreciser: true }) });
     ajouter({ lot: 'Peinture', libelle: 'Plafonds', quantite: m2(z.aire), unite: 'm²' });
   }
 

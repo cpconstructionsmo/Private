@@ -5,7 +5,7 @@
 
    Repère de la mise en page : millimètres depuis le haut-gauche de la
    feuille (comme on la lit) ; la page PDF est en points depuis le bas. */
-import type { Floor, Project, Roof } from '../model/types';
+import type { BuildingObject, Floor, Project, Roof } from '../model/types';
 import type { Toiture } from '../building/toiture';
 import { centroide } from '../geometry/polygon';
 import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit } from '../building';
@@ -81,11 +81,16 @@ export function echelleNormalisee(l: number, h: number, cotation = true): number
 
 const m2 = (v: number) => (v / 1e6).toFixed(2).replace('.', ',') + ' m²';
 
+const SUR_LE_TERRAIN = new Set<BuildingObject['type']>(['platform', 'network', 'network_item', 'tree']);
+
 function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche, traits: LigneDeCoupe[]): void {
   const page = doc.page(A3.l * PT, A3.h * PT);
   /* coordonnées de mise en page (mm, haut-gauche) → page PDF */
   const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
-  const niveau: Floor = o.mobilier ? f : { ...f, objects: Object.fromEntries(Object.entries(f.objects).filter(([, x]) => x.type !== 'furniture')) };
+  /* le plan d'un niveau montre le bâtiment : le terrain (plateformes, réseaux, arbres) et les abords (clôtures, allées,
+     stationnement, espaces verts) vont au plan de masse ; seule la terrasse, accolée à la maison, reste */
+  const garde = (x: BuildingObject) => (o.mobilier || x.type !== 'furniture') && !SUR_LE_TERRAIN.has(x.type) && !(x.type === 'landscape' && x.kind !== 'terrace');
+  const niveau: Floor = { ...f, objects: Object.fromEntries(Object.entries(f.objects).filter(([, x]) => garde(x))) };
   const B = boiteDessin(niveau, o.mobilier);
   const ech = o.echelle ?? (B ? echelleNormalisee(B.xmax - B.xmin, B.ymax - B.ymin, o.cotation) : 100);
 
@@ -103,7 +108,10 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
       tremies: tremiesDuNiveau(projet, f), coupes: traits, ...(o.presentation ? { presentation: true } : {}),
       ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech) } : {}), ...(t?.ok ? { toitures: t.toitures } : {}),
     };
+    /* rien ne sort de la zone du dessin (ni sur la colonne, ni sur le cartouche) */
+    toile.save(); toile.beginPath(); toile.rect(0, 0, ZONE.l * PT, ZONE.h * PT); toile.clip();
     dessiner(toile as unknown as CanvasRenderingContext2D, cam, scene);
+    toile.restore();
   } else page.texte('Niveau vide : aucun mur à dessiner.', X(ZONE.x + 10), Y(ZONE.y + 20), 11, { couleur: '#6E7B84' });
 
   echelleGraphique(page, ech);
@@ -314,9 +322,17 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
 
   /* la colonne : le terrain, les reculs, les notes, le cartouche */
   page.trait(X(COLONNE.x), Y(10), X(COLONNE.x), Y(287), 0.6);
+  const Am = bilanAmenagements(projet), Mt = metreTerrain(projet), f1 = (v: number) => v.toFixed(1).replace('.', ',');
+  /* ce qu'elle aura à dire : si c'est beaucoup (terrain, réseaux, plantations…), l'interligne se resserre pour finir au-dessus du cartouche */
+  const nbArbres = [Mt.arbres.existants, Mt.arbres.aPlanter, Mt.arbres.aAbattre].filter(Boolean).length;
+  const rubriques = [true, true, Am.length > 0, Mt.plateformes.length > 0, Mt.reseaux.length + Mt.equipements.length > 0, nbArbres > 0, PV.length > 0].filter(Boolean).length;
+  const lignes = 8 + R.length + (Am.length ? Math.min(Am.length, 10) + 2 : 0) + (Mt.plateformes.length ? Math.min(Mt.plateformes.length, 4) + 2 : 0) + Mt.reseaux.length + Mt.equipements.length + nbArbres + PV.length;
+  const besoin = 10 + rubriques * 12 + lignes * 5, dispo = 287 - CARTOUCHE_H - 6 - 20;
+  const k = Math.max(0.72, Math.min(1, dispo / besoin)), note = besoin * k + 18 <= dispo + 10;
   let y = 20;
-  const ligne = (k: string, v: string, gras = true) => { page.texte(k, X(COLONNE.x + 5), Y(y), 8); page.texte(v, X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite', gras }); y += 5 };
-  page.texte('TERRAIN', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+  const ligne = (k2: string, v: string, gras = true) => { page.texte(k2, X(COLONNE.x + 5), Y(y), 8); page.texte(v, X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite', gras }); y += 5 * k };
+  const titreCol = (t: string) => { y += 4 * k; page.texte(t, X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8 * k };
+  y -= 4 * k; titreCol('TERRAIN');
   ligne('Référence cadastrale', plot.reference ?? '[à compléter]', !!plot.reference);
   ligne('Voie', plot.streetName ?? (plot.street.length ? '[nom à compléter]' : '[côté sur voie à indiquer]'), !!plot.streetName);
   ligne('Surface du terrain (tracée)', m2(S));
@@ -328,15 +344,12 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
   /* l'altitude du terrain naturel au droit de la maison (son centre), comparée au ±0,00 */
   const E0 = E[0], tnMaison = E0 && Z.length ? altitudeTerrain(plot, centroide(E0.contour)) : null;
   if (tnMaison !== null && plot.groundFloorNgf !== undefined) ligne('±0,00 au-dessus du TN (centre)', ((plot.groundFloorNgf - tnMaison) >= 0 ? '+' : '') + f2(plot.groundFloorNgf - tnMaison) + ' m');
-  y += 4;
-  page.texte('RECULS (mesurés)', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+  titreCol('RECULS (mesurés)');
   if (E.length && !maisonDansParcelle(plot, E)) { page.texte('ATTENTION : la maison sort de la parcelle.', X(COLONNE.x + 5), Y(y), 8, { gras: true, couleur: '#C5563A' }); y += 6 }
   for (const r of R) ligne('Côté ' + (r.cote + 1) + ' (' + (r.longueur / 1000).toFixed(2).replace('.', ',') + ' m)' + (r.voie ? ' — voie' : ''), (r.distance / 1000).toFixed(2).replace('.', ',') + ' m');
   /* les aménagements : chacun avec sa surface ou sa longueur ; les espaces verts en part du terrain */
-  const Am = bilanAmenagements(projet);
   if (Am.length) {
-    y += 4;
-    page.texte('AMÉNAGEMENTS', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    titreCol('AMÉNAGEMENTS');
     for (const a of Am.slice(0, 10)) {
       const fin = finitionAmenagement(a.finition);
       ligne(GENRES_AMENAGEMENT[a.genre].libelle + (fin ? ' : ' + fin.libelle.toLowerCase() : ''), a.genre === 'fence' ? (a.mesure / 1000).toFixed(2).replace('.', ',') + ' m' : m2(a.mesure), false);
@@ -346,38 +359,34 @@ function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsPlanche): voi
     if (vert) ligne('Espaces verts', m2(vert) + (S ? ' (' + (vert / S * 100).toFixed(1).replace('.', ',') + ' %)' : ''));
   }
   /* le terrassement et les réseaux (le raccordement aux réseaux se montre au plan de masse) */
-  const Mt = metreTerrain(projet), f1 = (v: number) => v.toFixed(1).replace('.', ',');
   if (Mt.plateformes.length) {
-    y += 4;
-    page.texte('TERRASSEMENT (estimé)', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    titreCol('TERRASSEMENT (estimé)');
     for (const c of Mt.plateformes.slice(0, 4)) ligne(c.nom + ' à ' + c.niveau.toFixed(2).replace('.', ',') + ' NGF', m2(c.surface * 1e6), false);
     ligne('Déblais (plateformes et talus)', f1(Mt.deblai) + ' m³'); ligne('Remblais (plateformes et talus)', f1(Mt.remblai) + ' m³');
   }
   if (Mt.reseaux.length || Mt.equipements.length) {
-    y += 4;
-    page.texte('RÉSEAUX', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    titreCol('RÉSEAUX');
     for (const r of Mt.reseaux) {
       const N = NOMS_RESEAUX[r.genre];
       page.trait(X(COLONNE.x + 5), Y(y - 1), X(COLONNE.x + 12), Y(y - 1), 1.4, N.couleur);
-      page.texte(N.code + ' — ' + N.libelle, X(COLONNE.x + 14), Y(y), 8); page.texte(f1(r.longueur) + ' m', X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite', gras: true }); y += 5;
+      page.texte(N.code + ' — ' + N.libelle, X(COLONNE.x + 14), Y(y), 8); page.texte(f1(r.longueur) + ' m', X(COLONNE.x + COLONNE.l - 5), Y(y), 8, { aligne: 'droite', gras: true }); y += 5 * k;
     }
     for (const e of Mt.equipements) ligne(NOMS_EQUIPEMENTS[e.genre as keyof typeof NOMS_EQUIPEMENTS]?.libelle ?? e.genre, String(e.nombre), false);
   }
   if (Mt.arbres.existants + Mt.arbres.aPlanter + Mt.arbres.aAbattre) {
-    y += 4;
-    page.texte('PLANTATIONS', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    titreCol('PLANTATIONS');
     if (Mt.arbres.existants) ligne('Arbres existants conservés', String(Mt.arbres.existants), false);
     if (Mt.arbres.aPlanter) ligne('Arbres à planter', String(Mt.arbres.aPlanter), false);
     if (Mt.arbres.aAbattre) ligne('Arbres à abattre', String(Mt.arbres.aAbattre), false);
   }
   if (PV.length) {
-    y += 4;
-    page.texte('PRISES DE VUE', X(COLONNE.x + 5), Y(y), 9, { gras: true, couleur: '#2C4A5E' }); y += 8;
+    titreCol('PRISES DE VUE');
     const NOMS: Record<string, string> = { 'PCMI 6': 'insertion', 'PCMI 7': 'environnement proche', 'PCMI 8': 'environnement lointain' };
     for (const v of PV) ligne(v.piece + ' — ' + NOMS[v.piece], 'reportée', false);
   }
+  /* la note, si elle tient au-dessus du cartouche */
   y += 3;
-  for (const l of ['Reculs : du nu extérieur de la maçonnerie au point', 'le plus proche de chaque limite. Emprise au sol :', 'débords de toit exclus. Limite tracée : à confirmer', 'sur le plan de bornage ; règles du PLU à vérifier.'])
+  if (note || y + 15 <= 287 - CARTOUCHE_H - 2) for (const l of ['Reculs : du nu extérieur de la maçonnerie au point', 'le plus proche de chaque limite. Emprise au sol :', 'débords de toit exclus. Limite tracée : à confirmer', 'sur le plan de bornage ; règles du PLU à vérifier.'])
     { page.texte(l, X(COLONNE.x + 5), Y(y), 6.5, { couleur: '#6E7B84' }); y += 3.6 }
   cartouche(page, projet, o.dossier ? 'PCMI 2 — Plan de masse' : 'Plan de masse (PCMI 2)', ech, o);
 }
