@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-05 · Prospects : trois catégories (maison neuve, rénovation, apporteur d’affaires)';
+const VERSION='2026-10-06 · Onglet CP DESIGNER dans le menu (ouvrir le Designer sur un chantier ou un projet libre)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -472,7 +472,7 @@ const PIECES_MAIL_DEFAUT=['plans_pc','plans_exe'];
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
 const NAV=[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],
   ['artisans','ARTISANS'],['cmd','ACHATS'],['bilan','FINANCES']];
-const NAV_PLUS=[['biblio','PRIX'],['produits','PRODUITS'],['fournisseurs','FOURNISSEURS'],['agenda','AGENDA'],['donnees','DONNÉES']];
+const NAV_PLUS=[['designer','CP DESIGNER'],['biblio','PRIX'],['produits','PRODUITS'],['fournisseurs','FOURNISSEURS'],['agenda','AGENDA'],['donnees','DONNÉES']];
 
 /* Les pièces qu'on attend à chaque phase. Le tableau de bord ne réclame que
    celles-là : réclamer les seize à un chantier qui démarre ne dit rien. */
@@ -7172,6 +7172,7 @@ function App({session}){
       :view==='fournisseurs'?<Fournisseurs data={data} save={save} cible={cible&&cible.type==='fournisseur'?cible.id:null}/>
       :view==='agenda'?<Agenda data={data} save={save} jourInitial={agendaJour}/>
       :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
+      :view==='designer'?<DesignerAccueil data={data}/>
       :view==='artisans'?<Artisans data={data} save={save} cible={cible&&cible.type==='artisan'?cible.id:null}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
       :view==='bilan'?<Bilan data={data} open={setOpen}/>
@@ -7802,6 +7803,31 @@ function DriveStatus({compte,onCompte}){
 }
 
 /* ---------------- CHANTIERS ---------------- */
+/* ---------------- CP DESIGNER ----------------
+   Le module de conception (designer/) reste une page à part : cet onglet ne
+   fait que l'ouvrir, sur le projet d'un chantier (seul son identifiant est
+   passé, voir designerLien) ou sur un projet libre. Rien du Designer n'est
+   lu ni rangé ici (ses projets sont dans les tables designer_*). */
+function DesignerAccueil({data}){
+  const [q,setQ]=useState('');
+  const n=t=>(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const liste=[...(data.chantiers||[])].filter(c=>!q.trim()||n(c.nom+' '+(c.client||'')+' '+(c.adresse||'')).includes(n(q.trim())))
+    .sort((a,b)=>(a.nom||'').localeCompare(b.nom||''));
+  return <div>
+    <H2 action={<a className="btn acc s" href="designer/" target="_blank" rel="noreferrer" title="Un projet sans dossier : esquisse, essai">+ Projet libre</a>}>CP DESIGNER</H2>
+    <p className="sm mut" style={{marginTop:-4,marginBottom:12}}>Le plan, la 3D, le terrain, le métré et le dossier de permis de chaque maison. Le Designer s’ouvre dans un nouvel onglet, sur le projet du chantier choisi.</p>
+    <input className="in" value={q} onChange={e=>setQ(e.target.value)} placeholder="Chercher un chantier, un client…" style={{marginBottom:12}}/>
+    {!liste.length&&<Empty>{(data.chantiers||[]).length?'Aucun chantier ne correspond.':'Aucun chantier : créez-le dans CHANTIERS, ou ouvrez un projet libre.'}</Empty>}
+    {liste.map(c=><div key={c.id} className="card" style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center'}}>
+      <div style={{minWidth:0}}>
+        <div className="b">{c.nom||'Chantier sans nom'}</div>
+        <div className="xs mut">{[c.client,c.adresse].filter(Boolean).join(' — ')}</div>
+      </div>
+      <a className="btn s" href={designerLien(c)} target="_blank" rel="noreferrer" style={{whiteSpace:'nowrap'}}>Ouvrir dans CP Designer</a>
+    </div>)}
+  </div>;
+}
+
 function Chantiers({data,save,open}){
   const [f,setF]=useState(null);
   const ok=()=>{
@@ -14427,7 +14453,7 @@ function Docs({data,ch,up,save}){
                   onClick={()=>setPlanElec(true)}>
                   {(r.plan&&r.plan.fond)?'Ouvrir le plan ('+elecNiveaux(r).reduce((t,n)=>t+(n.plan.symboles||[]).length,0)+' symboles'+((r.niveaux||[]).length?', '+(1+r.niveaux.length)+' niveaux':'')+')':'Dessiner le plan'}</button>}
                 {x.id==='plans_exe'&&ch.id&&<a className="xs b" href={designerLien(ch)} target="_blank" rel="noreferrer"
-                  style={{color:NAVY,textDecoration:'none'}} title="Dessiner le plan dans CP Designer (préversion)">Ouvrir dans CP Designer (préversion)</a>}
+                  style={{color:NAVY,textDecoration:'none'}} title="Dessiner le plan dans CP Designer">Ouvrir dans CP Designer</a>}
                 {x.id==='plans_exe'&&!!fichiersDe(r).length&&(r.lienPublic
                   ?<span className="xs" style={{color:GREEN}}>✓ Lisible sans compte Google — le QR du marché y mène</span>
                   :<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}

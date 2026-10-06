@@ -65,6 +65,12 @@ let ko=0;const chk=(c,m)=>{console.log((c?'OK  ':'KO  ')+m);if(!c)ko++};
   /* retour à la liste des prospects après un rechargement sur l'accueil */
   await p2.mouse.move(4,450);await p2.waitForTimeout(300);await p2.click('nav.bot >> text=PROSPECTS');await p2.waitForTimeout(300);
   chk(!(await p2.locator('text=← Prospects').count()),'aller aux prospects depuis l’accueil ouvre la liste, pas une fiche');
+  /* l'onglet CP DESIGNER : la liste des chantiers, chacun ouvre le Designer sur son projet ; un projet libre */
+  await p2.mouse.move(4,450);await p2.waitForTimeout(300);await p2.click('nav.bot >> text=CP DESIGNER');await p2.waitForTimeout(400);
+  const lien=p2.locator('main a',{hasText:'Ouvrir dans CP Designer'}).first();
+  chk(/Maison Leroux/.test(await p2.textContent('main'))&&(await lien.getAttribute('href'))==='designer/?chantier=c1'&&(await lien.getAttribute('target'))==='_blank','onglet CP DESIGNER : chaque chantier ouvre le Designer sur son projet, dans un nouvel onglet');
+  chk((await p2.locator('main a',{hasText:'Projet libre'}).getAttribute('href'))==='designer/','onglet CP DESIGNER : un projet libre');
+  await p2.screenshot({path:require('os').tmpdir()+'/cp-tests/nav_designer.png'});
   chk(!erreurs.length,'aucune erreur JavaScript '+erreurs.join(' | '));
   await ctx.close();
   /* --- tablette tactile : pas de survol, bandeau toujours là --- */
@@ -79,6 +85,7 @@ let ko=0;const chk=(c,m)=>{console.log((c?'OK  ':'KO  ')+m);if(!c)ko++};
   chk(bb.x>=0&&bb.y>700,'téléphone : barre de navigation en bas');
   await m.click('nav.bot >> text=PLUS');await m.waitForTimeout(200);
   chk(!/DPE/.test(await m.textContent('nav.bot')),'téléphone : « PLUS » sans DPE');
+  chk(/CP DESIGNER/.test(await m.textContent('nav.bot')),'téléphone : CP DESIGNER sous « PLUS »');
   await m.screenshot({path:require('os').tmpdir()+'/cp-tests/nav_tel.png'});
   await tel.close();await b.close();
   console.log(ko?'\n'+ko+' echec(s)':'\nTout est bon.');process.exitCode=ko?1:0;

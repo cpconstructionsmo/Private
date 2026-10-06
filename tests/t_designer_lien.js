@@ -9,6 +9,8 @@ chk(M.designerLien({id:'abc123',nom:'Maison fictive'})==='designer/?chantier=abc
 chk(M.designerLien({id:'a b&c'})==='designer/?chantier=a%20b%26c','identifiant encodé dans l’adresse');
 chk(M.designerLien(null)==='designer/?chantier=','sans chantier : pas d’erreur');
 const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
-chk(/Ouvrir dans CP Designer \(préversion\)/.test(html),'le lien figure sur la fiche (Plans d’exécution)');
+chk(/title="Dessiner le plan dans CP Designer">Ouvrir dans CP Designer<\/a>/.test(html),'le lien figure sur la fiche (Plans d’exécution)');
+chk(/\['designer','CP DESIGNER'\]/.test(html),'l’onglet CP DESIGNER est dans le menu');
+chk(/view==='designer'\?<DesignerAccueil data=\{data\}\/>/.test(html)&&/href="designer\/" target="_blank"/.test(html),'l’onglet ouvre la page du Designer : un chantier ou un projet libre');
 chk(!/designer_projects|designer_revisions|designer_changesets/.test(html),'le suivi de chantiers ne lit ni n’écrit les tables du Designer');
 fin();
