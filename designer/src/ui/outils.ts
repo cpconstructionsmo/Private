@@ -4,7 +4,7 @@
    enregistrées), une sélection, une question à poser. Ils ne touchent ni
    au DOM ni au modèle : l'application exécute les commandes (et peut donc
    les refuser), les tests rejouent des gestes sans navigateur. */
-import type { Beam, Column, Floor, Mm, Network, NetworkItem, ObjectAnchor, Opening, Point, Project, Tree, Wall } from '../model/types';
+import type { Beam, Column, Dormer, Floor, Mm, Network, NetworkItem, ObjectAnchor, Opening, Point, Project, Tree, Wall } from '../model/types';
 import type { Commande } from '../engine/commandes';
 import { trouverNiveau } from '../model/projet';
 import { accrochageDuNiveau, type Accroche, type AimantFond } from '../building/accrochage';
@@ -26,7 +26,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente';
+export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente' | 'lucarne';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -61,13 +61,15 @@ export interface Reglages {
   /** la structure : section des poteaux, largeur et retombée des poutres, matière */
   largeurPoteau: Mm; profondeurPoteau: Mm; matierePoteau: Column['material'];
   largeurPoutre: Mm; retombeePoutre: Mm; matierePoutre: Beam['material'];
+  /** la lucarne posée par l'outil Lucarne */
+  genreLucarne: Dormer['kind'];
   /** le mur se trace par son axe, ou par sa face à gauche ou à droite du tracé (pour suivre un trait du plan qu'on reprend) */
   justification: Wall['justification'];
 }
 
 export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout', modeleMeuble: 'canape-3p', rotationMeuble: 0, genreEscalier: 'straight', largeurEscalier: 900, rotationEscalier: 0, genreAmenagement: 'fence', finitionAmenagement: 'grillage-rigide-vert', equerre: true, compositions: { exterieur: '', interieur: '', cloison: '' },
   niveauPlateforme: 0, talusPlateforme: 1.5, genreReseau: 'eu', genreEquipement: 'regard', etatArbre: 'planted', diametreArbre: 4_000,
-  largeurPoteau: 200, profondeurPoteau: 200, matierePoteau: 'concrete', largeurPoutre: 200, retombeePoutre: 300, matierePoutre: 'concrete', justification: 'center' };
+  largeurPoteau: 200, profondeurPoteau: 200, matierePoteau: 'concrete', largeurPoutre: 200, retombeePoutre: 300, matierePoutre: 'concrete', justification: 'center', genreLucarne: 'gable' };
 
 /** dimensions par défaut d'une ouverture neuve (largeur, hauteur, allège) — modifiables ensuite */
 export const OUVERTURES: Record<Opening['kind'], { libelle: string; largeur: Mm; hauteur: Mm; allege: Mm }> = {
@@ -127,6 +129,7 @@ type Prise =
   | { genre: 'coupe'; id: string; depart: Point; a: Point; b: Point }
   | { genre: 'pointdevue'; id: string; depart: Point; a: Point; b: Point }
   | { genre: 'fenetretoit'; id: string; depart: Point; centre: Point }
+  | { genre: 'lucarne'; id: string; depart: Point; centre: Point }
   | { genre: 'parcelle'; id: string; depart: Point; contour: Point[] }
   | { genre: 'amenagement'; id: string; depart: Point; points: Point[] }
   /** un objet du terrain (plateforme, réseau, équipement, arbre) : il se déplace d'un bloc */
@@ -155,6 +158,7 @@ const AIDES: Record<NomOutil, string> = {
   poutre: 'Poutre : cliquer le départ puis l’arrivée (Maj : 45°) ; elle passe sous le plafond, sa retombée se règle au ruban',
   profil: 'Profil en long du terrain : cliquer le départ puis l’arrivée du trait ; le profil s’affiche au panneau',
   pointdevue: 'Point de prise de vue d’une photographie du dossier : cliquer l’appareil, puis le point visé (Maj : 45°)',
+  lucarne: 'Lucarne : cliquer sur un pan de la toiture, au pied de sa façade (vue du niveau qui la porte) ; elle monte dans la pente',
   fenetretoit: 'Fenêtre de toit : cliquer sur un pan de la toiture (vue du niveau qui la porte) pour y poser un châssis de 78 × 98 cm',
   altitude: 'Point coté du terrain : cliquer où le géomètre a relevé une altitude, puis la saisir (NGF, en mètres)',
   piece: 'Cliquer dans un espace clos pour le nommer',
@@ -446,10 +450,11 @@ export class Outils {
           this.dernier = { type: 'modifierParcelle', id: p.id, contour: p.contour.map(q => ({ x: q.x + dx, y: q.y + dy })) };
           return { apercu: [this.dernier] };
         }
-        if (p.genre === 'fenetretoit') {
+        if (p.genre === 'fenetretoit' || p.genre === 'lucarne') {
           if (!this.bouge && distance(g.point, p.depart) < g.rayon / 3) return {};
           this.bouge = true;
-          this.dernier = { type: 'modifierFenetreToit', id: p.id, centre: { x: Math.round(p.centre.x + g.point.x - p.depart.x), y: Math.round(p.centre.y + g.point.y - p.depart.y) } };
+          const centre = { x: Math.round(p.centre.x + g.point.x - p.depart.x), y: Math.round(p.centre.y + g.point.y - p.depart.y) };
+          this.dernier = p.genre === 'lucarne' ? { type: 'modifierLucarne', id: p.id, centre } : { type: 'modifierFenetreToit', id: p.id, centre };
           return { apercu: [this.dernier] };
         }
         if (p.genre === 'coupe' || p.genre === 'pointdevue') {
@@ -559,6 +564,8 @@ export class Outils {
       }
       case 'fenetretoit':
         return { accroche: null, apercu: [{ type: 'creerFenetreToit', niveau: c.niveau, centre: { x: Math.round(g.point.x), y: Math.round(g.point.y) } }] };
+      case 'lucarne':
+        return { accroche: null, apercu: [{ type: 'creerLucarne', niveau: c.niveau, genre: this.reglages.genreLucarne, centre: { x: Math.round(g.point.x), y: Math.round(g.point.y) } }] };
       case 'pointdevue': {
         const a = this.accrocher(g, this.depart);
         if (!this.depart || distance(a.point, this.depart) < 500) return { accroche: a, apercu: [] };
@@ -620,6 +627,7 @@ export class Outils {
         else if (o?.type === 'section') this.prise = { genre: 'coupe', id: o.id, depart: g.point, a: { ...o.a }, b: { ...o.b } };
         else if (o?.type === 'viewpoint') this.prise = { genre: 'pointdevue', id: o.id, depart: g.point, a: { ...o.a }, b: { ...o.b } };
         else if (o?.type === 'roof_window') this.prise = { genre: 'fenetretoit', id: o.id, depart: g.point, centre: { ...o.center } };
+        else if (o?.type === 'dormer') this.prise = { genre: 'lucarne', id: o.id, depart: g.point, centre: { ...o.center } };
         else if (o?.type === 'landscape') this.prise = { genre: 'amenagement', id: o.id, depart: g.point, points: o.points.map(q => ({ ...q })) };
         else if (o?.type === 'platform') this.prise = { genre: 'terrain', id: o.id, objet: 'platform', depart: g.point, points: o.contour.map(q => ({ ...q })) };
         else if (o?.type === 'network') this.prise = { genre: 'terrain', id: o.id, objet: 'network', depart: g.point, points: o.points.map(q => ({ ...q })) };
@@ -723,6 +731,10 @@ export class Outils {
         const cmd: Commande = { type: 'creerFenetreToit', niveau: c.niveau, centre: { x: Math.round(g.point.x), y: Math.round(g.point.y) } };
         return { commandes: { titre: 'Fenêtre de toit', liste: [cmd] }, apercu: [], aide: AIDES.fenetretoit };
       }
+      case 'lucarne': {
+        const cmd: Commande = { type: 'creerLucarne', niveau: c.niveau, genre: this.reglages.genreLucarne, centre: { x: Math.round(g.point.x), y: Math.round(g.point.y) } };
+        return { commandes: { titre: 'Lucarne', liste: [cmd] }, apercu: [], aide: AIDES.lucarne };
+      }
       case 'pointdevue': {
         const a = this.accrocher(g, this.depart);
         if (!this.depart) { this.depart = a.point; return { accroche: a, aide: 'Point visé : la direction de la photographie (Maj : 45°) — Échap pour renoncer' } }
@@ -818,7 +830,7 @@ export class Outils {
     }
     this.prise = null; this.bouge = false; this.dernier = null;
     if (!dernier) return { apercu: [] };
-    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'pointdevue' ? 'Déplacer un point de vue' : p.genre === 'fenetretoit' ? 'Déplacer une fenêtre de toit' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : p.genre === 'terrain' ? 'Déplacer : ' + ({ platform: 'plateforme', network: 'réseau', network_item: 'équipement', tree: 'arbre', column: 'poteau', beam: 'poutre' } as const)[p.objet] : 'Déplacer une ouverture';
+    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'pointdevue' ? 'Déplacer un point de vue' : p.genre === 'fenetretoit' ? 'Déplacer une fenêtre de toit' : p.genre === 'lucarne' ? 'Déplacer une lucarne' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : p.genre === 'terrain' ? 'Déplacer : ' + ({ platform: 'plateforme', network: 'réseau', network_item: 'équipement', tree: 'arbre', column: 'poteau', beam: 'poutre' } as const)[p.objet] : 'Déplacer une ouverture';
     return { apercu: [], commandes: { titre, liste: [dernier] } };
   }
 

@@ -8,7 +8,7 @@
 import type { BuildingObject, Floor, Project, Roof } from '../model/types';
 import type { Toiture } from '../building/toiture';
 import { centroide } from '../geometry/polygon';
-import { planDuNiveau, cotationExterieure, cotesInterieures, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, type GenreLigne, type PlanFondations } from '../building';
+import { planDuNiveau, cotationExterieure, cotesInterieures, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, lucarnesDuNiveau, LUCARNES, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, type GenreLigne, type PlanFondations } from '../building';
 import { dessiner, dessinerAmenagement, dessinerParcelle, dessinerPointDeVue, nord, type Scene } from '../ui/dessin';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
 import { metreTerrain, NOMS_RESEAUX, talusDe } from '../building/terrassement';
@@ -480,6 +480,12 @@ function plancheToiture(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
       page.polygone(C, { fond: '#C9DCE7', trait: '#1A2B36', ep: 0.6 });
       page.trait(C[0]![0], C[0]![1], C[2]![0], C[2]![1], 0.3); page.trait(C[1]![0], C[1]![1], C[3]![0], C[3]![1], 0.3);
     }
+    /* les lucarnes : leurs pans en plan (même couverture), la façade en trait fort */
+    for (const { geo } of lucarnesDuNiveau(f)) {
+      for (const T of geo.toits) page.polygone(T.map(E), { fond: teinte, trait: '#1A2B36', ep: 0.5 });
+      const a = E(geo.plan[0]!), b = E(geo.plan[1]!);
+      page.trait(a[0], a[1], b[0], b[1], 1.6);
+    }
     for (const pan of t.pans) {
       /* la flèche de la pente, du haut vers le bas du pan, au milieu du pan */
       const g = Math.hypot(pan.plan.a, pan.plan.b);
@@ -536,6 +542,8 @@ function plancheToiture(doc: DocumentPdf, projet: Project, o: OptionsPlanche): v
   ligne('Surface de couverture', m2(t0.reduce((s, x) => s + x.surfaceCouverture, 0)));
   const niveauxToit = T.filter((x, i) => T.findIndex(z => z.f.id === x.f.id) === i);
   const FT = niveauxToit.flatMap(x => fenetresDeToit(x.f));
+  const LU = niveauxToit.flatMap(x => lucarnesDuNiveau(x.f));
+  if (LU.length) ligne('Lucarnes', LU.length + ' (' + [...new Set(LU.map(x => LUCARNES[x.o.kind].replace(/ \(.*/, '').toLowerCase()))].join(', ') + ')');
   if (FT.length) ligne('Fenêtres de toit', FT.length + ' (' + [...new Set(FT.map(x => x.o.width / 10 + ' × ' + x.o.height / 10))].join(', ') + ' cm)');
   /* les lignes du toit et ses eaux pluviales */
   const EPs = niveauxToit.flatMap(x => { const e = eauxPluviales(x.f); return e ? [e] : [] });

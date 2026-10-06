@@ -11,6 +11,7 @@
      humide signale sa faïence et son étanchéité, à préciser ;
    - le NIVEAU : son plancher (surface de la maçonnerie) et son plafond,
      avec leurs compositions ;
+   - les LUCARNES : nombre par genre, couverture, façades et jouées, fenêtres ;
    - la TOITURE : surface de couverture, faîtage, arêtiers, noues, rives,
      génoise ou caisson, gouttières (longueur d'égout), descentes posées ;
    - POTEAUX et POUTRES : nombre, longueur, volume ;
@@ -25,6 +26,7 @@ import { planDuNiveau } from './plan';
 import { mursDroits } from './murs';
 import { toitureDuNiveau } from './toiture';
 import { fenetresDeToit } from './fenetres-toit';
+import { lucarnesDuNiveau, LUCARNES } from './lucarnes';
 import { eauxPluviales, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, NOMS_LIGNES } from './eaux-pluviales';
 import { planFondations, SOUBASSEMENTS } from './fondations';
 import { metreTerrain, NOMS_RESEAUX } from './terrassement';
@@ -66,6 +68,12 @@ const FAMILLES_EQUIPEMENTS = new Set<FamilleMeuble>(['cuisine', 'salle_de_bains'
 const PASSAGES = new Set<Opening['kind']>(['door', 'french_window', 'garage_door', 'bay', 'void']);
 
 const m2 = (mm2: number) => mm2 / 1e6, ml = (mm: number) => mm / 1_000;
+/** la surface d'un polygone plan dans l'espace (mm²) */
+const aireEspace = (P: { x: number; y: number; z: number }[]): number => {
+  let x = 0, y = 0, z = 0;
+  P.forEach((a, i) => { const b = P[(i + 1) % P.length]!; x += a.y * b.z - a.z * b.y; y += a.z * b.x - a.x * b.z; z += a.x * b.y - a.y * b.x });
+  return Math.hypot(x, y, z) / 2;
+};
 const cm = (mm: number) => (mm / 10).toLocaleString('fr-FR', { maximumFractionDigits: 1 });
 
 /** le métré du projet, ligne par ligne, rangé par lot */
@@ -200,6 +208,15 @@ function metreNiveau(p: Project, f: Floor, ajouter: (l: LigneMetre) => void): vo
           ...(n ? {} : { aPreciser: true }) });
       }
     }
+  }
+  /* les lucarnes : comptées par genre, leur couverture et leurs murs (façade et jouées, fenêtre déduite), leur fenêtre */
+  for (const { o, geo } of lucarnesDuNiveau(f)) {
+    const lot = 'Charpente et couverture';
+    ajouter({ lot, libelle: 'Lucarnes — ' + LUCARNES[o.kind].toLowerCase(), quantite: 1, unite: 'u', detail: 'largeur ' + cm(o.width) + ' cm, façade ' + cm(o.height) + ' cm' });
+    ajouter({ lot, libelle: 'Couverture des lucarnes', quantite: m2(geo.surfaceCouverture), unite: 'm²', detail: 'surface rampante' });
+    const murs = [geo.facade, ...geo.joues].reduce((s, P) => s + aireEspace(P), 0) - o.windowWidth * o.windowHeight;
+    ajouter({ lot, libelle: 'Façades et jouées des lucarnes', quantite: m2(murs), unite: 'm²', detail: 'fenêtres déduites ; ossature et habillage à préciser', aPreciser: true });
+    ajouter({ lot: 'Menuiseries extérieures', libelle: 'Fenêtres de lucarne ' + cm(o.windowWidth) + ' × ' + cm(o.windowHeight) + ' cm', quantite: 1, unite: 'u' });
   }
   for (const { o } of fenetresDeToit(f)) ajouter({ lot: 'Charpente et couverture', libelle: 'Fenêtres de toit ' + cm(o.width) + ' × ' + cm(o.height) + ' cm', quantite: 1, unite: 'u' });
 
