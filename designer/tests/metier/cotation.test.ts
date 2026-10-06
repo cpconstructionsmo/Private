@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel, type Floor, type Project, type Wall } from '../../src/model';
 import { executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
-import { cotationExterieure, dimensionsPiece, mursDroits, placeOuverture, planDuNiveau, positionPour } from '../../src/building';
+import { cotationExterieure, cotesInterieures, dimensionsPiece, mursDroits, placeEtiquette, placeOuverture, planDuNiveau, positionPour } from '../../src/building';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 1) + (t += 1000)).toISOString(), id: generateurSequentiel('o') } };
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join(' ; ')); return r.historique };
@@ -94,5 +94,45 @@ describe('place d’une ouverture', () => {
     const { f, bas } = maison();
     expect(placeOuverture(f, bas.id)).toBeNull();
     expect(placeOuverture(f, 'inconnu')).toBeNull();
+  });
+});
+
+describe('cotes intérieures et étiquettes des pièces', () => {
+  it('chaque pièce rectangulaire : sa largeur et sa profondeur entre faces, en retrait des murs, depuis le coin bas-gauche', () => {
+    const { f } = maison();
+    const C = cotesInterieures(f, 450);
+    expect(C).toHaveLength(4);
+    /* à gauche de la cloison : faces x = 100 et 3 965, y = 100 et 7 900 */
+    const L = C.map(c => ({ l: Math.round(Math.hypot(c.b.x - c.a.x, c.b.y - c.a.y)), a: { x: Math.round(c.a.x), y: Math.round(c.a.y) } }));
+    expect(L).toContainEqual({ l: 3_865, a: { x: 100, y: 550 } });
+    expect(L).toContainEqual({ l: 7_800, a: { x: 550, y: 100 } });
+    /* à droite : faces x = 4 035 et 9 900 */
+    expect(L).toContainEqual({ l: 5_865, a: { x: 4_035, y: 550 } });
+    /* trop étroite pour le retrait : pas de cote */
+    expect(cotesInterieures(f, 2_000)).toHaveLength(2);
+    /* une pièce de moins de 2 m de large (un WC) : pas de cote, son étiquette dit ses dimensions */
+    const p = creerProjet({ nom: 'Fictif', id: generateurSequentiel('p') }), n = rdc(p).id;
+    const g = rdc(ok(executer(nouvelHistorique(p), 'Murs', [...contour(n, [[0, 0], [5_800, 0], [5_800, 8_000], [0, 8_000]]), M(n, 4_000, 0, 4_000, 8_000, 70, 'partition')], acteur())).projet);
+    expect(cotesInterieures(g, 450).length).toBe(2);
+  });
+
+  it('l’étiquette reste à sa place si elle est libre ; sinon elle va au plus près, hors des meubles, dans la pièce', () => {
+    const piece = [{ x: 0, y: 0 }, { x: 6_000, y: 0 }, { x: 6_000, y: 4_000 }, { x: 0, y: 4_000 }];
+    const demi = { l: 600, h: 300 }, voulue = { x: 3_000, y: 2_000 };
+    expect(placeEtiquette(piece, [], voulue, demi)).toEqual(voulue);
+    const table = [{ x: 2_200, y: 1_400 }, { x: 3_800, y: 1_400 }, { x: 3_800, y: 2_600 }, { x: 2_200, y: 2_600 }];
+    const p = placeEtiquette(piece, [table], voulue, demi);
+    expect(p).not.toEqual(voulue);
+    const dehors = p.x + demi.l <= 2_200 || p.x - demi.l >= 3_800 || p.y + demi.h <= 1_400 || p.y - demi.h >= 2_600;
+    expect(dehors).toBe(true);
+    expect(p.x - demi.l).toBeGreaterThanOrEqual(0); expect(p.y + demi.h).toBeLessThanOrEqual(4_000);
+    /* une pièce entièrement meublée : la place voulue */
+    expect(placeEtiquette(piece, [piece], voulue, demi)).toEqual(voulue);
+    /* une pièce sans place libre : là où l'étiquette couvre le moins (ici, sur le petit meuble plutôt que sur le lit) */
+    const lit = [{ x: 0, y: 0 }, { x: 6_000, y: 0 }, { x: 6_000, y: 2_600 }, { x: 0, y: 2_600 }];
+    const chevet = [{ x: 0, y: 2_600 }, { x: 2_000, y: 2_600 }, { x: 2_000, y: 4_000 }, { x: 0, y: 4_000 }];
+    const q = placeEtiquette(piece, [lit, chevet], { x: 1_000, y: 1_000 }, demi);
+    expect(q.y - demi.h).toBeGreaterThanOrEqual(2_600 - 1);
+    expect(q.x - demi.l).toBeGreaterThanOrEqual(2_000 - 1);
   });
 });

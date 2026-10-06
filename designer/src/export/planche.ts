@@ -8,7 +8,7 @@
 import type { BuildingObject, Floor, Project, Roof } from '../model/types';
 import type { Toiture } from '../building/toiture';
 import { centroide } from '../geometry/polygon';
-import { planDuNiveau, cotationExterieure, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit } from '../building';
+import { planDuNiveau, cotationExterieure, cotesInterieures, toitureDuNiveau, emprise, mursDroits, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau, fenetresDeToit } from '../building';
 import { dessiner, dessinerAmenagement, dessinerParcelle, dessinerPointDeVue, nord, type Scene } from '../ui/dessin';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
 import { metreTerrain, NOMS_RESEAUX, talusDe } from '../building/terrassement';
@@ -106,7 +106,7 @@ function planche(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsPlanche,
       niveau, dessous: null, selection: null, accroche: null, images: new Map(), sommets: false, impression: true,
       escaliers: Object.values(niveau.objects).flatMap(x => (x.type === 'stair' ? [{ id: x.id, geo: geometrieEscalier(x, hauteurAFranchir(projet, f)) }] : [])),
       tremies: tremiesDuNiveau(projet, f), coupes: traits, ...(o.presentation ? { presentation: true } : {}),
-      ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech) } : {}), ...(t?.ok ? { toitures: t.toitures } : {}),
+      ...(o.cotation ? { cotation: cotationExterieure(niveau, ECART_COTES * ech), cotesInterieures: cotesInterieures(niveau, 6 * ech) } : {}), ...(t?.ok ? { toitures: t.toitures } : {}),
     };
     /* rien ne sort de la zone du dessin (ni sur la colonne, ni sur le cartouche) */
     toile.save(); toile.beginPath(); toile.rect(0, 0, ZONE.l * PT, ZONE.h * PT); toile.clip();
