@@ -56,6 +56,26 @@ describe('maquette 3D', () => {
     expect(Math.min(...xs)).toBeCloseTo(1_400, 6); expect(Math.max(...xs)).toBeCloseTo(2_600, 6);
   });
 
+  it('menuiseries : dormant et ouvrants autour du vitrage, dormant d’une porte, appui de fenêtre dehors ; rien pour un passage', () => {
+    const { h } = maison();
+    const P = maquette(h.projet).prismes, W = rdc(h.projet).objects;
+    const de = (genre: string, m: string) => P.filter(p => p.matiere === m && (W[p.objet!] as { kind?: string })?.kind === genre);
+    /* fenêtre de 1,20 m : deux vantaux ; dormant (montants, traverses haute et basse) + 4 profils par vantail */
+    expect(de('window', 'menuiserie')).toHaveLength(4 + 2 * 4);
+    /* les profils restent dans le tableau (x de 1,40 à 2,60), au milieu du mur (7 cm d'épaisseur) */
+    for (const q of de('window', 'menuiserie').flatMap(p => p.contour)) { expect(q.x).toBeGreaterThanOrEqual(1_400 - 1e-6); expect(q.x).toBeLessThanOrEqual(2_600 + 1e-6); expect(Math.abs(q.y)).toBeLessThanOrEqual(35 + 1e-6) }
+    /* la porte : deux montants et une traverse haute (pas de seuil) ; le passage : rien */
+    expect(de('door', 'menuiserie')).toHaveLength(3);
+    expect(de('void', 'menuiserie')).toHaveLength(0);
+    /* l'appui : sous l'allège (85 → 90 cm), dehors (y < 0), 4 cm au-delà du nu, 3 cm de chaque côté du tableau */
+    const appuis = P.filter(p => p.matiere === 'appui');
+    expect(appuis).toHaveLength(1);
+    const ap = appuis[0]!, ys = ap.contour.map(q => q.y), xs = ap.contour.map(q => q.x);
+    expect([ap.z0, ap.z1]).toEqual([850, 900]);
+    expect(Math.min(...ys)).toBeCloseTo(-140, 6); expect(Math.max(...ys)).toBeCloseTo(0, 6);
+    expect(Math.min(...xs)).toBeCloseTo(1_370, 6); expect(Math.max(...xs)).toBeCloseTo(2_630, 6);
+  });
+
   it('planchers et sols : un plancher sous la maçonnerie, le sol de chaque pièce fermée', () => {
     const { h } = maison();
     const P = maquette(h.projet).prismes;

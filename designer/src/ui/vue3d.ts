@@ -38,7 +38,7 @@ const MARCHE = 1.4, COURSE = 3.5, ROTATION = 1.6;
 
 const COULEURS: Record<Matiere, { couleur: string; opacite?: number; rugosite?: number }> = {
   mur: { couleur: '#EFEBE4' }, cloison: { couleur: '#F7F5F1' }, plancher: { couleur: '#B5AFA4' }, sol: { couleur: '#D8C6A6' },
-  vitrage: { couleur: '#8DB7CF', opacite: 0.35, rugosite: 0.1 }, porte: { couleur: '#7A5A3E', rugosite: 0.7 }, garage: { couleur: '#C3C8CC', rugosite: 0.6 },
+  vitrage: { couleur: '#8DB7CF', opacite: 0.35, rugosite: 0.1 }, menuiserie: { couleur: '#F2F2EF', rugosite: 0.45 }, appui: { couleur: '#D8D2C5', rugosite: 0.8 }, porte: { couleur: '#7A5A3E', rugosite: 0.7 }, garage: { couleur: '#C3C8CC', rugosite: 0.6 },
   tuile: { couleur: '#A9533D', rugosite: 0.85 }, ardoise: { couleur: '#4A5560', rugosite: 0.6 }, zinc: { couleur: '#8E979E', rugosite: 0.4 },
   bac_acier: { couleur: '#5B6670', rugosite: 0.5 }, vegetalise: { couleur: '#6F8F55' }, gravillons: { couleur: '#B9B2A3' },
   meuble: { couleur: '#C9A57E', rugosite: 0.7 }, tissu: { couleur: '#8693A1' }, linge: { couleur: '#EEF0F2' }, plan_travail: { couleur: '#5A5F66', rugosite: 0.5 },
@@ -104,7 +104,7 @@ function geometriePlaque(THREE: typeof import('three'), p: Plaque) {
 /** les matières qui prennent une texture au rendu réaliste, et laquelle */
 const TEXTURES: Partial<Record<Matiere, GenreTexture>> = {
   tuile: 'tuile', ardoise: 'ardoise', zinc: 'zinc', bac_acier: 'bac_acier', gravillons: 'gravier', mur: 'enduit', parement: 'enduit',
-  plancher: 'beton', amenagement: 'beton', terrain: 'herbe', vegetalise: 'herbe', porte: 'bois', escalier: 'bois',
+  plancher: 'beton', amenagement: 'beton', appui: 'beton', feuillage: 'feuillage', terrain: 'herbe', vegetalise: 'herbe', porte: 'bois', escalier: 'bois',
 };
 
 export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
@@ -275,7 +275,7 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
 
   function plaque(p: Plaque) {
     const g = geometriePlaque(THREE, p);
-    const m = new THREE.Mesh(g, matieres[p.matiere]);
+    const m = new THREE.Mesh(g, p.finition ? matiereDe({ contour: [], z0: 0, z1: 0, niveau: '', matiere: p.matiere, finition: p.finition }) : matieres[p.matiere]);
     m.castShadow = true; m.receiveShadow = true;
     if (p.objet) m.userData['objet'] = p.objet;
     groupe.add(m);
@@ -378,13 +378,14 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
       /* en visite, le marcheur reste où il est ; ses pieds suivent le sol s'il a changé */
       if (enVisite && marcheur) { marcheur = { ...marcheur, pied: solSous(terrain, marcheur, marcheur.pied) }; placerCamera() }
       if (boite) {
-        /* le soleil au sud-ouest, haut : des ombres lisibles sur les façades sud */
+        /* le soleil au sud-est, assez bas : la vue de départ (depuis le sud-ouest) voit les façades sud éclairées
+           et l'ombre portée de la maison s'allonger sur l'herbe, à gauche */
         const c = new THREE.Vector3((boite.xmin + boite.xmax) / 2000, 0, -(boite.ymin + boite.ymax) / 2000);
         const R = Math.max(boite.xmax - boite.xmin, boite.ymax - boite.ymin, 5_000) / 1000;
-        soleil.position.set(c.x - R, R * 1.6, c.z + R * 1.2); soleil.target.position.copy(c);
+        soleil.position.set(c.x + R * 1.1, R * 1.25, c.z + R * 0.9); soleil.target.position.copy(c);
         (u['sunPosition']!.value as InstanceType<typeof THREE.Vector3>).copy(soleil.position.clone().sub(c).normalize());
         const s = soleil.shadow.camera;
-        s.left = -R * 1.5; s.right = R * 1.5; s.top = R * 1.5; s.bottom = -R * 1.5; s.near = 0.1; s.far = R * 6; s.updateProjectionMatrix();
+        s.left = -R * 2; s.right = R * 2; s.top = R * 2; s.bottom = -R * 2; s.near = 0.1; s.far = R * 8; s.updateProjectionMatrix();
       }
       if (enVisite) return;
       if (premiere) vue.cadrer(); else peindre();

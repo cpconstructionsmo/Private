@@ -80,12 +80,12 @@ export function projeter(m: Maquette, v: Vue, caches: ReadonlySet<Matiere>, coup
     if (caches.has(p.matiere)) continue;
     const H = p.dessus, B = H.map(q => ({ x: q.x + p.decalage.x, y: q.y + p.decalage.y, z: q.z + p.decalage.z }));
     const rang: 'proche' | number = p.support ? Math.min(...p.support.map(q => v.prof(q))) - 1 : 'proche';
-    ajouter(B.map(q => vu(q, q.z)), rang, p.matiere, 1);
+    ajouter(B.map(q => vu(q, q.z)), rang, p.matiere, 1, p.finition);
     H.forEach((a, i) => {
       const b = H[(i + 1) % H.length]!, a2 = B[i]!, b2 = B[(i + 1) % H.length]!;
-      ajouter([vu(a, a.z), vu(b, b.z), vu(b2, b2.z), vu(a2, a2.z)], rang, p.matiere);
+      ajouter([vu(a, a.z), vu(b, b.z), vu(b2, b2.z), vu(a2, a2.z)], rang, p.matiere, 0, p.finition);
     });
-    ajouter(H.map(q => vu(q, q.z)), typeof rang === 'number' ? rang - 0.5 : rang, p.matiere);
+    ajouter(H.map(q => vu(q, q.z)), typeof rang === 'number' ? rang - 0.5 : rang, p.matiere, 0, p.finition);
   }
   /* du plus loin au plus près ; à profondeur égale, la toiture après les murs */
   faces.sort((a, b) => b.profondeur - a.profondeur);

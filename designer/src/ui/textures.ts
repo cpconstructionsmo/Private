@@ -6,7 +6,7 @@
    Le hasard est tiré d'une graine fixe : la même texture à chaque
    ouverture, la même image d'un export à l'autre. */
 
-export type GenreTexture = 'tuile' | 'ardoise' | 'enduit' | 'herbe' | 'gravier' | 'bois' | 'beton' | 'zinc' | 'bac_acier';
+export type GenreTexture = 'tuile' | 'ardoise' | 'enduit' | 'herbe' | 'gravier' | 'bois' | 'beton' | 'zinc' | 'bac_acier' | 'feuillage';
 
 export interface Texture { couleur: HTMLCanvasElement; relief: HTMLCanvasElement }
 
@@ -83,6 +83,15 @@ export function texture(genre: GenreTexture, base: string, graine = 7): Texture 
         const x = alea() * T, y = alea() * T, k = (alea() - 0.45) * 0.5;
         g.strokeStyle = nuance(base, k); g.lineWidth = 1; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (alea() - 0.5) * 3, y - 3 - alea() * 5); g.stroke();
         const v = Math.round(128 + k * 200); r.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; r.fillRect(x, y - 3, 1, 3);
+      }
+      break;
+    }
+    case 'feuillage': {
+      /* des feuilles : de petites taches claires et sombres serrées, des trous d'ombre */
+      for (let i = 0; i < 14_000; i++) {
+        const x = alea() * T, y = alea() * T, s = 2 + alea() * 5, k = (alea() - 0.55) * 0.7;
+        g.fillStyle = nuance(base, k); g.beginPath(); g.ellipse(x, y, s, s * 0.6, alea() * 3, 0, 7); g.fill();
+        const v = Math.round(128 + k * 160); r.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; r.beginPath(); r.ellipse(x, y, s, s * 0.6, 0, 0, 7); r.fill();
       }
       break;
     }
