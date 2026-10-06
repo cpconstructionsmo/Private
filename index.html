@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-05 · Prospects : trois catégories (maison neuve, rénovation, apporteur d’affaires)';
+const VERSION='2026-10-06 · Onglet CP DESIGNER : chantiers et prospects (avant-projet repris sur le chantier une fois signé)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -472,7 +472,7 @@ const PIECES_MAIL_DEFAUT=['plans_pc','plans_exe'];
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
 const NAV=[['tdb','ACCUEIL'],['prospects','PROSPECTS'],['chantiers','CHANTIERS'],
   ['artisans','ARTISANS'],['cmd','ACHATS'],['bilan','FINANCES']];
-const NAV_PLUS=[['biblio','PRIX'],['produits','PRODUITS'],['fournisseurs','FOURNISSEURS'],['agenda','AGENDA'],['donnees','DONNÉES']];
+const NAV_PLUS=[['designer','CP DESIGNER'],['biblio','PRIX'],['produits','PRODUITS'],['fournisseurs','FOURNISSEURS'],['agenda','AGENDA'],['donnees','DONNÉES']];
 
 /* Les pièces qu'on attend à chaque phase. Le tableau de bord ne réclame que
    celles-là : réclamer les seize à un chantier qui démarre ne dit rien. */
@@ -876,8 +876,13 @@ const CONTROLES=[
 const uid=()=>Math.random().toString(36).slice(2,10);
 /* CP Designer (module de conception, designer/) : une page à part, sur le
    même site. Le chantier ne lui passe que son identifiant ; rien du
-   Designer n'est rangé dans app_data (tables designer_*). */
-const designerLien=ch=>'designer/?chantier='+encodeURIComponent((ch&&ch.id)||'');
+   Designer n'est rangé dans app_data (tables designer_*). Un prospect y
+   dessine son avant-projet (?prospect=…) ; signé, il devient un chantier
+   d'un autre identifiant : le chantier passe aussi celui de son prospect,
+   pour que le Designer rouvre le même projet. */
+const designerLien=ch=>'designer/?chantier='+encodeURIComponent((ch&&ch.id)||'')
+  +(ch&&ch.prospectId?'&prospect='+encodeURIComponent(ch.prospectId):'');
+const designerLienProspect=p=>'designer/?prospect='+encodeURIComponent((p&&p.id)||'');
 const eur=n=>(n||0).toLocaleString('fr-FR',{maximumFractionDigits:0})+' €';
 /* un prix unitaire se lit au centime, contrairement au montant d'un marché */
 const eurc=n=>(n||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
@@ -7172,6 +7177,7 @@ function App({session}){
       :view==='fournisseurs'?<Fournisseurs data={data} save={save} cible={cible&&cible.type==='fournisseur'?cible.id:null}/>
       :view==='agenda'?<Agenda data={data} save={save} jourInitial={agendaJour}/>
       :view==='chantiers'?<Chantiers data={data} save={save} open={setOpen}/>
+      :view==='designer'?<DesignerAccueil data={data}/>
       :view==='artisans'?<Artisans data={data} save={save} cible={cible&&cible.type==='artisan'?cible.id:null}/>
       :view==='cmd'?<CommandesGlob data={data} open={setOpen}/>
       :view==='bilan'?<Bilan data={data} open={setOpen}/>
@@ -7802,6 +7808,39 @@ function DriveStatus({compte,onCompte}){
 }
 
 /* ---------------- CHANTIERS ---------------- */
+/* ---------------- CP DESIGNER ----------------
+   Le module de conception (designer/) reste une page à part : cet onglet ne
+   fait que l'ouvrir, sur le projet d'un chantier (seul son identifiant est
+   passé, voir designerLien) ou sur un projet libre. Rien du Designer n'est
+   lu ni rangé ici (ses projets sont dans les tables designer_*). */
+function DesignerAccueil({data}){
+  const [q,setQ]=useState('');
+  const n=t=>(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const garde=x=>!q.trim()||n([x.nom,x.client,x.adresse,x.commune].filter(Boolean).join(' ')).includes(n(q.trim()));
+  const parNom=(a,b)=>(a.nom||'').localeCompare(b.nom||'');
+  const chantiers=[...(data.chantiers||[])].filter(garde).sort(parNom);
+  /* les prospects en cours : un prospect signé est devenu un chantier (il est dans la liste du dessus), un prospect sans suite n'est plus dessiné */
+  const prospects=(data.prospects||[]).filter(p=>!p.chantierId&&p.statut!=='perdu').filter(garde).sort(parNom);
+  const ligne=(cle,nom,sous,badge,href)=><div key={cle} className="card" style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center'}}>
+    <div style={{minWidth:0}}>
+      <div className="b">{nom}{badge&&<span className="xs" style={{marginLeft:8,padding:'2px 8px',borderRadius:10,background:badge.c,color:'#fff',fontWeight:600}}>{badge.label}</span>}</div>
+      <div className="xs mut">{sous}</div>
+    </div>
+    <a className="btn s" href={href} target="_blank" rel="noreferrer" style={{whiteSpace:'nowrap'}}>Ouvrir dans CP Designer</a>
+  </div>;
+  return <div>
+    <H2 action={<a className="btn acc s" href="designer/" target="_blank" rel="noreferrer" title="Un projet sans dossier : esquisse, essai">+ Projet libre</a>}>CP DESIGNER</H2>
+    <p className="sm mut" style={{marginTop:-4,marginBottom:12}}>Le plan, la 3D, le terrain, le métré et le dossier de permis de chaque maison. Le Designer s’ouvre dans un nouvel onglet, sur le projet du dossier choisi. L’avant-projet d’un prospect se retrouve sur son chantier une fois signé.</p>
+    <input className="in" value={q} onChange={e=>setQ(e.target.value)} placeholder="Chercher un chantier, un prospect, un client…" style={{marginBottom:12}}/>
+    <div className="lbl" style={{margin:'4px 0 8px'}}>CHANTIERS ({chantiers.length})</div>
+    {!chantiers.length&&<Empty>{(data.chantiers||[]).length?'Aucun chantier ne correspond.':'Aucun chantier : créez-le dans CHANTIERS.'}</Empty>}
+    {chantiers.map(c=>ligne('c:'+c.id,c.nom||'Chantier sans nom',[c.client,c.adresse].filter(Boolean).join(' — '),null,designerLien(c)))}
+    <div className="lbl" style={{margin:'18px 0 8px'}}>PROSPECTS — AVANT-PROJET ({prospects.length})</div>
+    {!prospects.length&&<Empty>{(data.prospects||[]).some(p=>!p.chantierId&&p.statut!=='perdu')?'Aucun prospect ne correspond.':'Aucun prospect en cours.'}</Empty>}
+    {prospects.map(p=>ligne('p:'+p.id,p.nom||'Prospect sans nom',[p.client,p.commune,(PROSPECT_CATEGORIES.find(c=>c.id===prospectCategorie(p))||{}).label].filter(Boolean).join(' — '),prospectSt(p.statut),designerLienProspect(p)))}
+  </div>;
+}
+
 function Chantiers({data,save,open}){
   const [f,setF]=useState(null);
   const ok=()=>{
@@ -14427,7 +14466,7 @@ function Docs({data,ch,up,save}){
                   onClick={()=>setPlanElec(true)}>
                   {(r.plan&&r.plan.fond)?'Ouvrir le plan ('+elecNiveaux(r).reduce((t,n)=>t+(n.plan.symboles||[]).length,0)+' symboles'+((r.niveaux||[]).length?', '+(1+r.niveaux.length)+' niveaux':'')+')':'Dessiner le plan'}</button>}
                 {x.id==='plans_exe'&&ch.id&&<a className="xs b" href={designerLien(ch)} target="_blank" rel="noreferrer"
-                  style={{color:NAVY,textDecoration:'none'}} title="Dessiner le plan dans CP Designer (préversion)">Ouvrir dans CP Designer (préversion)</a>}
+                  style={{color:NAVY,textDecoration:'none'}} title="Dessiner le plan dans CP Designer">Ouvrir dans CP Designer</a>}
                 {x.id==='plans_exe'&&!!fichiersDe(r).length&&(r.lienPublic
                   ?<span className="xs" style={{color:GREEN}}>✓ Lisible sans compte Google — le QR du marché y mène</span>
                   :<button className="xs b" style={{color:TERRA,background:'none',border:'none',padding:0}}
