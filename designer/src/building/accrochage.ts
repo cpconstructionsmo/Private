@@ -6,9 +6,12 @@
      2. une intersection de deux axes ;
      3. un milieu d'axe ;
      4. le pied de la perpendiculaire depuis le point de départ du tracé ;
+     3 bis. un angle du FOND (bout ou croisement de ses traits) ;
      5. un point sur une face ou sur un axe (le plus proche des deux) ;
+     5 bis. un point sur un trait du fond (l'aimant du plan qu'on reprend) ;
      6. l'alignement horizontal ou vertical avec le point de départ ;
      7. la grille.
+   Les murs passent avant le fond : on referme sur ce qu'on a déjà tracé.
    Dans une même catégorie, le plus proche gagne. Alt (option « desactive »)
    rend le point tel quel. Les points et segments candidats sont rangés une
    fois pour toutes dans des index spatiaux : une recherche ne lit que le
@@ -20,7 +23,7 @@ import { distance, milieu } from '../geometry/vecteur';
 import { contoursMurs, mursDroits } from './murs';
 
 /** « equerre » : le tracé d'un mur aimanté à angle droit (posé par l'outil, voir building/equerre.ts) */
-export type GenreAccroche = 'extremite' | 'intersection' | 'milieu' | 'perpendiculaire' | 'face' | 'axe' | 'alignement' | 'grille' | 'equerre' | 'libre';
+export type GenreAccroche = 'extremite' | 'intersection' | 'milieu' | 'perpendiculaire' | 'face' | 'axe' | 'coin_fond' | 'trait_fond' | 'alignement' | 'grille' | 'equerre' | 'libre';
 
 export interface Accroche {
   point: Point;
@@ -44,9 +47,11 @@ export interface OptionsAccrochage {
   depuis?: Point;
   /** les genres coupés par l'utilisateur */
   sans?: readonly GenreAccroche[];
+  /** l'aimant des fonds calés du niveau (leurs traits, en mm sur le plan) */
+  fonds?: readonly AimantFond[];
 }
 
-const ORDRE: readonly GenreAccroche[] = ['extremite', 'intersection', 'milieu', 'perpendiculaire', 'face', 'axe', 'alignement', 'grille'];
+const ORDRE: readonly GenreAccroche[] = ['extremite', 'intersection', 'coin_fond', 'milieu', 'perpendiculaire', 'face', 'axe', 'trait_fond', 'alignement', 'grille'];
 
 interface PointCandidat { point: Point; genre: 'extremite' | 'intersection' | 'milieu'; objet: string }
 interface SegmentCandidat { seg: Segment; genre: 'face' | 'axe'; objet: string }
@@ -109,6 +114,14 @@ export class Accrochage {
       if (Math.abs(curseur.y - D.y) <= r) proposer({ point: { x: curseur.x, y: D.y }, genre: 'alignement', guide: { a: D, b: { x: curseur.x, y: D.y } } });
       if (Math.abs(curseur.x - D.x) <= r) proposer({ point: { x: D.x, y: curseur.y }, genre: 'alignement', guide: { a: D, b: { x: D.x, y: curseur.y } } });
     }
+    /* l'aimant du fond : ses angles, puis ses traits (et la perpendiculaire depuis le départ, sur un trait) */
+    for (const F of o.fonds ?? []) {
+      for (const q of F.points.chercher(zone)) proposer({ point: q, genre: 'coin_fond' });
+      for (const t of F.traits.chercher(zone)) {
+        const sur = projeterSurSegment(curseur, t);
+        proposer({ point: sur.point, genre: 'trait_fond', support: t });
+      }
+    }
     if (o.grille && o.grille > 0) {
       const g = o.grille;
       proposer({ point: { x: Math.round(curseur.x / g) * g, y: Math.round(curseur.y / g) * g }, genre: 'grille' });
@@ -129,4 +142,31 @@ export function accrochageDuNiveau(f: Floor): Accrochage {
   let a = cache.get(f);
   if (!a) { a = new Accrochage(f); cache.set(f, a) }
   return a;
+}
+
+/** l'aimant d'un fond : ses traits ramenés sur le plan (mm), leurs bouts et leurs croisements, rangés pour une
+    recherche autour du curseur. Construit une fois par fond calé (il suit le calage : un nouveau calage, un nouvel aimant). */
+export class AimantFond {
+  readonly traits: IndexSpatial<Segment>;
+  readonly points: IndexSpatial<Point>;
+  readonly nombre: number;
+  constructor(traits: readonly Segment[]) {
+    const T = traits.filter(t => distance(t.a, t.b) > 1);
+    this.traits = new IndexSpatial(T.map(t => ({ boite: boiteSeg(t), valeur: t })));
+    /* les bouts (un même angle dessiné par deux traits n'en fait qu'un, au millimètre) */
+    const P: Point[] = [], vus = new Set<string>();
+    const garder = (q: Point) => { const k = Math.round(q.x) + ':' + Math.round(q.y); if (!vus.has(k)) { vus.add(k); P.push(q) } };
+    for (const t of T) { garder(t.a); garder(t.b) }
+    /* les croisements (un T, une croix) hors des bouts communs ; au plus 20 000 pour un plan très chargé */
+    for (const t of T) {
+      if (P.length > 20_000) break;
+      for (const u of this.traits.chercher(boiteSeg(t))) {
+        if (u === t) continue;
+        const x = intersectionSegments(t, u);
+        if (x.type === 'point' && ![t.a, t.b].some(e => distance(e, x.point) < 1)) garder(x.point);
+      }
+    }
+    this.points = new IndexSpatial(P.map(q => ({ boite: { xmin: q.x, ymin: q.y, xmax: q.x, ymax: q.y }, valeur: q })));
+    this.nombre = T.length;
+  }
 }

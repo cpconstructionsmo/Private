@@ -343,6 +343,19 @@ presque vertical une même abscisse ; chaque coordonnée prend la moyenne
 un pan coupé reste biais, les contraintes et cotes motrices sont tenues
 (ou la commande est refusée avec la raison) ; Ctrl+Z revient.
 
+**Aimant sur le fond** (`src/import/traits-fond.ts`, `AimantFond` dans
+`src/building/accrochage.ts`) : pour refaire un plan importé, les tracés
+s'accrochent aux traits du fond calé — à ses angles et croisements
+(losange), puis le long de ses traits (le trait attrapé est surligné).
+Un PDF vectoriel donne ses vrais tracés (lus par pdf.js, matrice courante
+comprise ; courbes réduites à leurs bouts, découpes ignorées) ; une image
+ou un PDF scanné donne ses lignes horizontales et verticales (un trait fin :
+son axe ; un mur poché : ses deux faces). Les murs déjà tracés passent
+avant le fond ; avec l'équerre, un mur s'arrête d'équerre sur un trait du
+fond ; Alt : tracé libre. Pour poser la face d'un mur sur la ligne du plan,
+« Par : axe / face gauche / face droite » au ruban (Tab pendant le tracé).
+Interrupteur au ruban Murs et dans Affichages (gardé sur l'appareil).
+
 **Terrain en pente** (outil N ; `src/building/terrain.ts`,
 `src/geometry/triangulation.ts`) : les points cotés du terrain naturel,
 lus sur le plan du géomètre (un clic, l'altitude NGF), appartiennent à la

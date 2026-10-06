@@ -7,7 +7,7 @@
 import type { Beam, Column, Floor, Mm, Network, NetworkItem, ObjectAnchor, Opening, Point, Project, Tree, Wall } from '../model/types';
 import type { Commande } from '../engine/commandes';
 import { trouverNiveau } from '../model/projet';
-import { accrochageDuNiveau, type Accroche } from '../building/accrochage';
+import { accrochageDuNiveau, type Accroche, type AimantFond } from '../building/accrochage';
 import { mursDroits, type MurDroit } from '../building/murs';
 import { planDuNiveau } from '../building/plan';
 import { planVersImage } from '../building/fond';
@@ -59,11 +59,13 @@ export interface Reglages {
   /** la structure : section des poteaux, largeur et retombée des poutres, matière */
   largeurPoteau: Mm; profondeurPoteau: Mm; matierePoteau: Column['material'];
   largeurPoutre: Mm; retombeePoutre: Mm; matierePoutre: Beam['material'];
+  /** le mur se trace par son axe, ou par sa face à gauche ou à droite du tracé (pour suivre un trait du plan qu'on reprend) */
+  justification: Wall['justification'];
 }
 
 export const REGLAGES_DEFAUT: Reglages = { epaisseurMur: 200, epaisseurCloison: 70, modeleOuverture: 'pe-90x215', grille: 0, rectangle: 'hors_tout', modeleMeuble: 'canape-3p', rotationMeuble: 0, genreEscalier: 'straight', largeurEscalier: 900, rotationEscalier: 0, genreAmenagement: 'fence', finitionAmenagement: 'grillage-rigide-vert', equerre: true, compositions: { exterieur: '', interieur: '', cloison: '' },
   niveauPlateforme: 0, talusPlateforme: 1.5, genreReseau: 'eu', genreEquipement: 'regard', etatArbre: 'planted', diametreArbre: 4_000,
-  largeurPoteau: 200, profondeurPoteau: 200, matierePoteau: 'concrete', largeurPoutre: 200, retombeePoutre: 300, matierePoutre: 'concrete' };
+  largeurPoteau: 200, profondeurPoteau: 200, matierePoteau: 'concrete', largeurPoutre: 200, retombeePoutre: 300, matierePoutre: 'concrete', justification: 'center' };
 
 /** dimensions par défaut d'une ouverture neuve (largeur, hauteur, allège) — modifiables ensuite */
 export const OUVERTURES: Record<Opening['kind'], { libelle: string; largeur: Mm; hauteur: Mm; allege: Mm }> = {
@@ -194,6 +196,8 @@ const arrondi = (v: number) => Math.round(v * 1e6) / 1e6;
 export class Outils {
   outil: NomOutil = 'selection';
   reglages: Reglages = { ...REGLAGES_DEFAUT };
+  /** l'aimant des fonds du niveau (leurs traits calés sur le plan) ; vide : l'aimant du fond est coupé ou pas encore prêt */
+  aimantsFond: AimantFond[] = [];
   /** tracé de murs en cours */
   private depart: Point | null = null;
   private premier: Point | null = null;
@@ -282,7 +286,7 @@ export class Outils {
   /** le point accroché (ou le point brut avec Alt) ; equerre : le tracé d'un mur, aimanté à angle droit */
   private accrocher(g: Geste, depuis?: Point | null, equerre = false): Accroche {
     const f = this.niveau();
-    let a: Accroche = f ? accrochageDuNiveau(f).chercher(g.point, { rayon: g.rayon, desactive: !!g.alt, grille: this.reglages.grille, ...(depuis ? { depuis } : {}) })
+    let a: Accroche = f ? accrochageDuNiveau(f).chercher(g.point, { rayon: g.rayon, desactive: !!g.alt, grille: this.reglages.grille, ...(depuis ? { depuis } : {}), ...(this.aimantsFond.length ? { fonds: this.aimantsFond } : {}) })
       : { point: g.point, genre: 'libre' };
     const q = equerre && f && depuis && this.reglages.equerre && !g.alt && !g.maj ? this.aEquerre(f, depuis, a, g) : null;
     if (q) a = q;
@@ -306,10 +310,11 @@ export class Outils {
       ou là où elle coupe la face visée ; une accroche exacte (extrémité, intersection, milieu, perpendiculaire)
       l'emporte, et un mur franchement biais reste libre (null) */
   private aEquerre(f: Floor, depuis: Point, a: Accroche, g: Geste): Accroche | null {
-    if (a.genre === 'extremite' || a.genre === 'intersection' || a.genre === 'milieu' || a.genre === 'perpendiculaire') return null;
+    if (a.genre === 'extremite' || a.genre === 'intersection' || a.genre === 'milieu' || a.genre === 'perpendiculaire' || a.genre === 'coin_fond') return null;
     const u = directionDEquerre(depuis, g.point, orientationDuPlan(f));
     if (!u) return null;
-    if ((a.genre === 'face' || a.genre === 'axe') && a.support) {
+    /* une face, un axe ou un trait du fond visés : le mur d'équerre s'arrête dessus */
+    if ((a.genre === 'face' || a.genre === 'axe' || a.genre === 'trait_fond') && a.support) {
       const { a: A, b: B } = a.support, v = { x: B.x - A.x, y: B.y - A.y }, w = { x: A.x - depuis.x, y: A.y - depuis.y };
       const det = u.x * v.y - u.y * v.x;
       if (Math.abs(det) <= EPS_COINCIDENCE) return null;
@@ -560,7 +565,8 @@ export class Outils {
   }
   private murDe(a: Point, b: Point): Commande {
     const t = this.murTrace;
-    return { type: 'creerMur', niveau: this.contexte().niveau, a, b, epaisseur: t.epaisseur, role: t.role, ...(t.composition ? { composition: t.composition.id } : {}) };
+    return { type: 'creerMur', niveau: this.contexte().niveau, a, b, epaisseur: t.epaisseur, role: t.role, ...(t.composition ? { composition: t.composition.id } : {}),
+      ...(this.reglages.justification !== 'center' && t.role !== 'virtual' ? { justification: this.reglages.justification } : {}) };
   }
 
   appuyer(g: Geste): Effet {

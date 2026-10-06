@@ -130,6 +130,22 @@ try {
   O = await objets();
   const fond = O.find(o => o.type === 'underlay');
   assert.ok(Math.abs(fond.transform.scale - 10) < 1e-6 && fond.locked, 'fond calé (10 mm par pixel) et verrouillé : ' + JSON.stringify(fond));
+  /* l'aimant du fond : ses lignes sont trouvées sur l'image ; au tracé d'un mur, le curseur s'accroche à la ligne x = 20 px */
+  {
+    const t = fond.transform, c = Math.cos(t.rotation), sn = Math.sin(t.rotation);
+    const versPlan = (u, v) => ({ x: t.tx + t.scale * (u * c + v * sn), y: t.ty + t.scale * (u * sn - v * c) });
+    await p.keyboard.press('m');
+    /* les quatre lignes du cadre de l'image (en leur milieu) : la première qui n'est pas sous un mur (les murs passent avant) */
+    let acc = '';
+    for (const [u, v] of [[520, 20.5], [520, 819.5], [1019.5, 420], [20.5, 420]]) {
+      const pl = versPlan(u, v), e = await ecran(pl.x, pl.y);
+      for (let k = 0; k < 12 && !/fond/.test(acc); k++) { await p.mouse.move(e.x + 3 + (k % 2), e.y + 3); await p.waitForTimeout(250); acc = await p.textContent('.acc') }
+      if (/fond/.test(acc)) break;
+    }
+    assert.match(acc, /Accroché : (trait|angle) du fond/, 'aimant sur la ligne du fond : ' + acc);
+    if (process.env.CAPTURE_AIMANT) await p.screenshot({ path: process.env.CAPTURE_AIMANT });
+    await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  }
 
   /* un fond PDF : rendu par pdf.js sans erreur */
   await videClic();
@@ -604,7 +620,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */
