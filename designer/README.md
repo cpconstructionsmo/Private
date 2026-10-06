@@ -115,7 +115,16 @@ ouvertures, allèges et linteaux, vitrages, portes, planchers, sols, niveaux
 à leur altitude) et s'affiche avec three.js, chargé seulement à la première
 ouverture. On tourne autour, on zoome, « vue maquette » coupe les murs à
 1,20 m pour voir l'intérieur, une image PNG s'enregistre ; chaque
-modification (annuler compris) s'y voit aussitôt.
+modification (annuler compris) s'y voit aussitôt. Deux rendus, au choix
+(gardé sur l'appareil) : **réaliste** par défaut — textures peintes par le
+programme (`src/ui/textures.ts` : tuiles, ardoises, zinc, enduit, béton,
+bois, gravier, herbe, avec leur relief ; aucune image dans le dépôt), ciel,
+brume d'horizon, reflets d'environnement sur les vitrages, ombre des angles
+(GTAO), tons de cinéma — ou **maquette** (aplats et arêtes, plus léger).
+Les fenêtres ont leur menuiserie (dormant, un ouvrant par vantail, montant
+central) et, en façade, leur appui ; portes et portes de garage, leur
+dormant. Pignons et lucarnes prennent le parement des façades ; les arbres
+ont une couronne arrondie et feuillue.
 
 **Toiture** (`src/building/toiture.ts`, panneau du niveau ou de la 3D) : le
 modèle ne garde que les choix (type, pente, débord, couverture) ; pans,

@@ -42,7 +42,7 @@ import { decalerPolyligne } from '../geometry/decalage';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
 
-export type Matiere = 'mur' | 'cloison' | 'plancher' | 'sol' | 'vitrage' | 'porte' | 'garage'
+export type Matiere = 'mur' | 'cloison' | 'plancher' | 'sol' | 'vitrage' | 'porte' | 'garage' | 'menuiserie' | 'appui'
   | 'tuile' | 'ardoise' | 'zinc' | 'bac_acier' | 'vegetalise' | 'gravillons'
   | 'meuble' | 'tissu' | 'linge' | 'plan_travail' | 'sanitaire' | 'electromenager' | 'inox' | 'escalier' | 'parement' | 'peinture' | 'amenagement' | 'cloture' | 'tronc' | 'feuillage' | 'terrain';
 
@@ -70,6 +70,8 @@ export interface Plaque {
   matiere: Matiere;
   objet?: string;
   niveau: string;
+  /** le matériau du catalogue qui l'habille (le parement des façades, pour un pignon ou une lucarne) */
+  finition?: string;
   /** posée sur une autre plaque (une fenêtre de toit sur son pan) : le dessus de ce support, pour que les vues
       la dessinent juste après lui, et non derrière (le peintre rangerait sinon le grand pan devant elle) */
   support?: Point3[];
@@ -123,6 +125,12 @@ function bande(w: MurDroit, t0: Mm, t1: Mm): Polygone {
   return { contour: [P(t0, -L), P(t1, -L), P(t1, L), P(t0, L)] };
 }
 
+/** les menuiseries dessinées (mm) : profil du dormant et des ouvrants, leur épaisseur ; l'appui (saillie, hauteur, débord latéral) */
+export const MENUISERIE_3D = { dormant: 60, ouvrant: 50, profondeur: 70, appuiSaillie: 40, appuiHauteur: 50, appuiDebord: 30 } as const;
+
+/** le nombre de vantaux dessinés : celui de l'ouverture, sinon l'usage (fenêtre de 1 m et plus, porte-fenêtre, baie : deux) */
+export const vantauxDessines = (o: Opening): number => o.leaves ?? (o.kind === 'window' ? (o.width >= 1_000 ? 2 : 1) : o.kind === 'french_window' || o.kind === 'bay' ? 2 : 1);
+
 const remplissage = (o: Opening): 'vitrage' | 'porte' | 'garage' | null =>
   o.kind === 'void' ? null : o.kind === 'door' ? 'porte' : o.kind === 'garage_door' ? 'garage' : 'vitrage';
 
@@ -175,6 +183,31 @@ function murs(f: Floor, prismes: Prisme[]): void {
       const P = (t: Mm, k: Mm): Point => ajouter(ajouter(w.axis.a, multiplier(u, t)), multiplier(n, milieu + k));
       const t0 = o.offset - o.width / 2, t1 = o.offset + o.width / 2;
       prismes.push({ contour: [P(t0, -e), P(t1, -e), P(t1, e), P(t0, e)], z0: bas, z1: haut, matiere: m, objet: o.id, niveau: f.id });
+      /* la menuiserie autour du remplissage : le dormant, et pour un vitrage les ouvrants de chaque vantail
+         (le vitrage reste entier derrière : ce sont des profils posés devant ses bords) */
+      const M = MENUISERIE_3D, d = M.profondeur / 2;
+      const barre = (a: Mm, b: Mm, z0: Mm, z1: Mm) => { if (b - a > 1 && z1 - z0 > 1) prismes.push({ contour: [P(a, -d), P(b, -d), P(b, d), P(a, d)], z0, z1, matiere: 'menuiserie', objet: o.id, niveau: f.id }) };
+      const c = M.dormant, seuil = o.kind === 'window';                    // une porte, une porte-fenêtre n'ont pas de traverse basse
+      barre(t0, t0 + c, bas, haut); barre(t1 - c, t1, bas, haut); barre(t0 + c, t1 - c, haut - c, haut);
+      if (seuil) barre(t0 + c, t1 - c, bas, bas + c);
+      if (m === 'vitrage') {
+        const n = vantauxDessines(o), l = (t1 - t0 - 2 * c) / n, r = M.ouvrant, zb = seuil ? bas + c : bas, zh = haut - c;
+        for (let k = 0; k < n; k++) {
+          const a = t0 + c + k * l, b = a + l;
+          barre(a, a + r, zb, zh); barre(b - r, b, zb, zh); barre(a + r, b - r, zh - r, zh); barre(a + r, b - r, zb, zb + r);
+        }
+      }
+      /* l'appui d'une fenêtre de façade : une pierre sous l'ouverture, qui déborde dehors et un peu de chaque côté */
+      if (o.kind === 'window' && w.role === 'exterior') {
+        const dehors = (k: number) => !exterieurs.some(r => positionDansAnneau(P(o.offset, k - milieu), r) !== 'dehors');
+        const cote = dehors(F.gauche + 30) ? 1 : dehors(F.droite - 30) ? -1 : 0;
+        if (cote) {
+          const face = (cote > 0 ? F.gauche : F.droite) - milieu, A = M.appuiDebord;
+          const k0 = face - cote * (F.gauche - F.droite) / 2, k1 = face + cote * M.appuiSaillie;
+          prismes.push({ contour: [P(t0 - A, Math.min(k0, k1)), P(t1 + A, Math.min(k0, k1)), P(t1 + A, Math.max(k0, k1)), P(t0 - A, Math.max(k0, k1))],
+            z0: bas - M.appuiHauteur, z1: bas, matiere: 'appui', objet: o.id, niveau: f.id });
+        }
+      }
     });
   }
 }
@@ -238,13 +271,16 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
   const r = toitureDuNiveau(f), roof = Object.values(f.objects).find((o): o is Roof => o.type === 'roof');
   if (!r?.ok || !roof) return;
   const m = COUVERTURES[roof.covering];
+  /* pignons et lucarnes prennent le parement des façades du niveau (celui du premier mur extérieur qui en a un) */
+  const parement = mursDroits(f).find(w => w.role === 'exterior' && w.finish)?.finish;
+  const habille = parement ? { finition: parement } : {};
   for (const t of r.toitures) {
     for (const p of t.pans) plaques.push({ dessus: p.contour.map(q => ({ ...q, z: p.plan.a * q.x + p.plan.b * q.y + p.plan.c })), decalage: { x: 0, y: 0, z: -EPAISSEUR_COUVERTURE }, matiere: m, objet: roof.id, niveau: f.id });
     /* un pignon s'arrête sous la couverture (sinon son chant et le dessus du toit se disputent le même plan) */
     for (const g of t.pignons) {
       const z0 = Math.min(...g.points.map(q => q.z));
       const dessus = g.points.map(q => (q.z > z0 + 1 ? { ...q, z: Math.max(z0, q.z - EPAISSEUR_COUVERTURE) } : q));
-      plaques.push({ dessus, decalage: { ...g.vers, z: 0 }, matiere: 'mur', objet: roof.id, niveau: f.id });
+      plaques.push({ dessus, decalage: { ...g.vers, z: 0 }, matiere: 'mur', objet: roof.id, niveau: f.id, ...habille });
     }
     if (t.terrasse) {
       prismes.push({ contour: t.terrasse.dalle, z0: t.terrasse.z0, z1: t.terrasse.z1, matiere: m, objet: roof.id, niveau: f.id });
@@ -258,8 +294,8 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
     const E = 150, mt = geo.montee, tr = geo.travers, support = geo.pan.contour.map(q => ({ ...q, z: geo.pan.plan.a * q.x + geo.pan.plan.b * q.y + geo.pan.plan.c }));
     const base = { objet: o.id, niveau: f.id, support };
     for (const T of geo.toits) plaques.push({ dessus: T, decalage: { x: 0, y: 0, z: -EPAISSEUR_COUVERTURE / 2 }, matiere: m, ...base });
-    plaques.push({ dessus: geo.facade, decalage: { x: mt.x * E, y: mt.y * E, z: 0 }, matiere: 'mur', ...base });
-    geo.joues.forEach((J, i) => { const s = i === 0 ? 1 : -1; plaques.push({ dessus: J, decalage: { x: tr.x * E * s, y: tr.y * E * s, z: 0 }, matiere: 'mur', ...base }) });
+    plaques.push({ dessus: geo.facade, decalage: { x: mt.x * E, y: mt.y * E, z: 0 }, matiere: 'mur', ...base, ...habille });
+    geo.joues.forEach((J, i) => { const s = i === 0 ? 1 : -1; plaques.push({ dessus: J, decalage: { x: tr.x * E * s, y: tr.y * E * s, z: 0 }, matiere: 'mur', ...base, ...habille }) });
     plaques.push({ dessus: geo.fenetre.map(q => ({ x: q.x - mt.x * 30, y: q.y - mt.y * 30, z: q.z })), decalage: { x: mt.x * 25, y: mt.y * 25, z: 0 }, matiere: 'vitrage', ...base });
   }
   /* les fenêtres de toit : un dormant sombre posé sur la couverture, son vitrage en retrait des bords */
@@ -361,10 +397,15 @@ function arbres(f: Floor, prismes: Prisme[]): void {
   for (const o of Object.values(f.objects)) {
     if (o.type !== 'tree' || o.state === 'felled') continue;
     const R = o.diameter / 2, fut = Math.max(1_200, R * 0.9), haut = fut + R * 1.6;
-    prismes.push({ contour: rond(o.position, Math.max(60, R * 0.08), 10), z0: f.elevation - 30, z1: f.elevation + fut + R * 0.3, matiere: 'tronc', objet: o.id, niveau: f.id });
-    /* la couronne en cinq tranches, la plus large au tiers bas */
-    const T = [0.55, 0.9, 1, 0.8, 0.45];
-    T.forEach((k, i) => prismes.push({ contour: rond(o.position, R * k), z0: f.elevation + fut + ((haut - fut) * i) / T.length, z1: f.elevation + fut + ((haut - fut) * (i + 1)) / T.length, matiere: 'feuillage', objet: o.id, niveau: f.id }));
+    prismes.push({ contour: rond(o.position, Math.max(60, R * 0.08), 12), z0: f.elevation - 30, z1: f.elevation + fut + R * 0.3, matiere: 'tronc', objet: o.id, niveau: f.id });
+    /* la couronne : un ellipsoïde en tranches fines, au rayon un peu irrégulier (un hasard fixe, tiré de la position) :
+       une silhouette ronde d'arbre feuillu plutôt qu'une pile de disques */
+    const N = 14, graine = Math.abs(Math.sin(o.position.x * 12.9898 + o.position.y * 78.233)) * 43758.5453;
+    for (let i = 0; i < N; i++) {
+      const t0 = i / N, t1 = (i + 1) / N, t = (t0 + t1) / 2, k = Math.sqrt(Math.max(0, 1 - (2 * t - 1) ** 2));
+      const bruit = 0.92 + 0.12 * ((graine * (i + 1)) % 1);
+      prismes.push({ contour: rond(o.position, Math.max(R * 0.18, R * k * bruit), 28), z0: f.elevation + fut + (haut - fut) * t0, z1: f.elevation + fut + (haut - fut) * t1, matiere: 'feuillage', objet: o.id, niveau: f.id });
+    }
   }
 }
 
