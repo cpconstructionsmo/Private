@@ -619,6 +619,13 @@ try {
   await p.click('.ruban .toit-gable');
   assert.deepEqual((await objets()).filter(o => o.type === 'roof').map(o => o.kind), ['gable'], 'toit deux pans posé d’un clic');
   assert.match(await p.textContent('aside'), /Toiture — RDC/);
+  /* les murs extérieurs tracés montent à l'arase (2,85 m) ; leur hauteur se règle d'un coup au panneau de la toiture */
+  const hauteurMurs = p.locator('aside label:has-text("Hauteur des murs extérieurs") input');
+  assert.equal(await hauteurMurs.inputValue(), '2.85', 'murs extérieurs à l’arase');
+  await hauteurMurs.fill('2.70'); await hauteurMurs.press('Tab');
+  assert.ok((await objets()).filter(o => o.type === 'wall' && o.role === 'exterior').every(w => w.height === 2_700), 'hauteur des murs extérieurs réglée');
+  await p.keyboard.press('Control+z');
+  assert.ok((await objets()).filter(o => o.type === 'wall' && o.role === 'exterior').every(w => w.height === 2_850), 'un seul « annuler » la rend');
   /* l'égout et les gouttières : une génoise d'un clic, une descente posée sur l'égout (accrochée), retirée d'un clic, rendue par « annuler » */
   await p.click('.sous button[data-s=eaux]');
   await p.click('.ruban .egout-genoise_2');

@@ -52,7 +52,7 @@ describe('fenêtres de toit', () => {
     const P0 = creerProjet({ nom: 'Vide', id: generateurSequentiel('p') });
     expect(refus(executer(nouvelHistorique(P0), 'x', [{ type: 'creerFenetreToit', niveau: P0.buildings[0]!.floors[0]!.id, centre: { x: 0, y: 0 } }], a))).toMatch(/ne porte pas de toiture/);
     expect(refus(executer(h, 'x', [{ type: 'creerFenetreToit', niveau: n, centre: { x: 30_000, y: 30_000 } }], a))).toMatch(/aucun pan/);
-    expect(refus(executer(h, 'x', [{ type: 'creerFenetreToit', niveau: n, centre: { x: 8_000, y: 9_350 } }], a))).toMatch(/déborde du pan/);
+    expect(refus(executer(h, 'x', [{ type: 'creerFenetreToit', niveau: n, centre: { x: 8_000, y: 9_100 } }], a))).toMatch(/déborde du pan/);
     expect(refus(executer(h, 'x', [{ type: 'creerFenetreToit', niveau: n, centre: CENTRE, largeur: 300 }], a))).toMatch(/40 cm à 2 m/);
     const h2 = ok(executer(h, 'x', [{ type: 'creerFenetreToit', niveau: n, centre: CENTRE }], a));
     const id = fenetresDeToit(rdc(h2.projet))[0]!.o.id;

@@ -17,13 +17,14 @@ function atelier(c: ContexteModele) {
   const cmds: Commande[] = [];
   return {
     cmds,
-    mur(niveau: string, a: Point, b: Point, role: 'exterior' | 'partition' | 'bearing_interior' = 'exterior'): string {
+    /** sans hauteur : celle par défaut (un mur extérieur monte à l'arase, voir hauteurMurExterieur) */
+    mur(niveau: string, a: Point, b: Point, role: 'exterior' | 'partition' | 'bearing_interior' = 'exterior', hauteur?: Mm): string {
       const id = c.id();
-      cmds.push({ type: 'creerMur', id, niveau, a, b, epaisseur: role === 'partition' ? 70 : 200, role });
+      cmds.push({ type: 'creerMur', id, niveau, a, b, epaisseur: role === 'partition' ? 70 : 200, role, ...(hauteur ? { hauteur } : {}) });
       return id;
     },
     /** un contour fermé de murs extérieurs ; rend leurs identifiants, dans l'ordre des côtés */
-    contour(niveau: string, S: Point[]): string[] { return S.map((a, i) => this.mur(niveau, a, S[(i + 1) % S.length]!)) },
+    contour(niveau: string, S: Point[], hauteur?: Mm): string[] { return S.map((a, i) => this.mur(niveau, a, S[(i + 1) % S.length]!, 'exterior', hauteur)) },
     porte(mur: string, position: Mm, largeur: Mm = 900) { cmds.push({ type: 'creerOuverture', mur, position, largeur, hauteur: 2_150, allege: 0, genre: 'door' }) },
     fenetre(mur: string, position: Mm, largeur: Mm = 1_200, hauteur: Mm = 1_250, allege: Mm = 900) { cmds.push({ type: 'creerOuverture', mur, position, largeur, hauteur, allege, genre: 'window' }) },
     baie(mur: string, position: Mm, largeur: Mm = 2_400) { cmds.push({ type: 'creerOuverture', mur, position, largeur, hauteur: 2_150, allege: 0, genre: 'french_window' }) },
@@ -52,7 +53,7 @@ export const MODELES_MAISONS: readonly ModeleMaison[] = [
       a.piece(n, P(3_250, 4_500), 'Séjour, cuisine', 'living'); a.piece(n, P(9_000, 4_500), 'Dégagement', 'circulation');
       a.piece(n, P(7_650, 2_000), 'Salle de bains', 'bathroom', true); a.piece(n, P(9_300, 2_000), 'WC', 'wc', true); a.piece(n, P(11_400, 2_000), 'Chambre 3', 'bedroom');
       a.piece(n, P(8_100, 7_000), 'Chambre 1', 'bedroom'); a.piece(n, P(11_375, 7_000), 'Chambre 2', 'bedroom');
-      a.cmds.push({ type: 'creerToiture', niveau: n, genre: 'hip', pente: 35, debord: 500, couverture: 'tile' });
+      a.cmds.push({ type: 'creerToiture', niveau: n, genre: 'hip', pente: 35, debord: 200, couverture: 'tile' });
       return a.cmds;
     },
   },
@@ -78,7 +79,7 @@ export const MODELES_MAISONS: readonly ModeleMaison[] = [
       a.piece(n, P(3_000, 5_000), 'Séjour, cuisine', 'living'); a.piece(n, P(8_500, 5_000), 'Dégagement', 'circulation');
       a.piece(n, P(7_100, 2_200), 'Salle d’eau, WC', 'bathroom', true); a.piece(n, P(9_600, 2_200), 'Chambre 2', 'bedroom');
       a.piece(n, P(8_500, 7_700), 'Chambre 1', 'bedroom'); a.piece(n, P(13_500, 3_000), 'Garage', 'garage');
-      a.cmds.push({ type: 'creerToiture', niveau: n, genre: 'hip', pente: 35, debord: 500, couverture: 'tile' });
+      a.cmds.push({ type: 'creerToiture', niveau: n, genre: 'hip', pente: 35, debord: 200, couverture: 'tile' });
       return a.cmds;
     },
   },
@@ -87,7 +88,8 @@ export const MODELES_MAISONS: readonly ModeleMaison[] = [
     description: 'RDC : séjour-cuisine, entrée et escalier, WC, cellier. Étage : 2 chambres, salle de bains, palier ; toiture à deux pans.',
     commandes(c) {
       const a = atelier(c), n = c.niveau, e = c.id();
-      const [sud, est, nord, ouest] = a.contour(n, [P(0, 0), P(9_000, 0), P(9_000, 8_000), P(0, 8_000)]) as [string, string, string, string];
+      /* les murs du RDC montent jusqu'au plancher de l'étage (posé ensuite, à 2,70 m) */
+      const [sud, est, nord, ouest] = a.contour(n, [P(0, 0), P(9_000, 0), P(9_000, 8_000), P(0, 8_000)], 2_700) as [string, string, string, string];
       a.mur(n, P(6_000, 0), P(6_000, 2_000), 'partition');
       const r2 = a.mur(n, P(6_000, 2_000), P(9_000, 2_000), 'partition');
       a.mur(n, P(7_500, 0), P(7_500, 2_000), 'partition');
@@ -105,7 +107,7 @@ export const MODELES_MAISONS: readonly ModeleMaison[] = [
       a.porte(x6, 3_000, 800); a.porte(x6, 6_500, 800); a.porte(s2, 1_000, 700);
       a.piece(e, P(3_000, 6_000), 'Chambre 1', 'bedroom'); a.piece(e, P(3_000, 2_000), 'Chambre 2', 'bedroom');
       a.piece(e, P(7_500, 1_000), 'Salle de bains', 'bathroom', true); a.piece(e, P(6_800, 7_000), 'Palier', 'circulation');
-      a.cmds.push({ type: 'creerToiture', niveau: e, genre: 'gable', pente: 40, debord: 400, couverture: 'tile' });
+      a.cmds.push({ type: 'creerToiture', niveau: e, genre: 'gable', pente: 40, debord: 200, couverture: 'tile' });
       return a.cmds;
     },
   },

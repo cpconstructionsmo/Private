@@ -846,7 +846,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const f = niveauToit(), r = Object.values(f.objects).find((o): o is Roof => o.type === 'roof');
     if (niveauId !== f.id) { niveauId = f.id; selection = null }
     if (r) faire('Toiture : ' + TOITURES[genre], [{ type: 'modifierToiture', id: r.id, genre, ...(genre === 'flat' ? { couverture: 'gravel' as const } : r.covering === 'gravel' ? { couverture: 'tile' as const } : {}) }]);
-    else faire('Toiture : ' + TOITURES[genre], [{ type: 'creerToiture', niveau: f.id, genre, pente: genre === 'flat' ? 0 : 35, debord: 500, couverture: genre === 'flat' ? 'gravel' : 'tile' }]);
+    else faire('Toiture : ' + TOITURES[genre], [{ type: 'creerToiture', niveau: f.id, genre, pente: genre === 'flat' ? 0 : 35, debord: 200, couverture: genre === 'flat' ? 'gravel' : 'tile' }]);
     apres();
   }
   const ONGLETS: Onglet[] = [
@@ -1700,12 +1700,22 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     A.append(titre('Toiture — ' + f.name));
     if (!r) {
       A.append(bloc('Aucune toiture sur ce niveau. Elle se pose sur le haut des murs extérieurs et suit leur contour.'),
-        ligne(bouton('Ajouter une toiture', () => faire('Toiture', [{ type: 'creerToiture', niveau: f.id, genre: 'hip', pente: 35, debord: 500, couverture: 'tile' }]), 'prim')));
+        ligne(bouton('Ajouter une toiture', () => faire('Toiture', [{ type: 'creerToiture', niveau: f.id, genre: 'hip', pente: 35, debord: 200, couverture: 'tile' }]), 'prim')));
       return;
     }
     const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierToiture' }>>) => faire(t, [{ type: 'modifierToiture', id: r.id, ...c }]);
     A.append(champ('Type', r.kind, v => mod('Type de toiture', { genre: v as Roof['kind'], ...(v === 'flat' ? { couverture: 'gravel' as const } : r.covering === 'gravel' ? { couverture: 'tile' as const } : {}) }), 'text', TOITURES));
     if (r.kind !== 'flat') A.append(champ('Pente (°)', r.pitch, v => mod('Pente', { pente: ent(v) }), 'number'));
+    /* la toiture se pose sur le haut des murs extérieurs : leur hauteur se règle ici, tous ensemble (un seul « annuler ») */
+    const ext = mursDroits(f).filter(w => w.role === 'exterior');
+    if (ext.length) {
+      const hm = Math.max(...ext.map(w => w.height));
+      A.append(champ('Hauteur des murs extérieurs (m)' + (ext.some(w => w.height !== hm) ? ' — inégales' : ''), (hm / 1000).toFixed(2), v => {
+        const x = mm(v);
+        if (!(x >= 1_000 && x <= 15_000)) { toast('Hauteur de mur de 1 à 15 m', true); return }
+        faire('Hauteur des murs extérieurs', ext.map(w => ({ type: 'modifierMur' as const, id: w.id, hauteur: x })));
+      }, 'number'));
+    }
     A.append(champ('Débord (m)', (r.overhang / 1000).toFixed(2), v => mod('Débord', { debord: mm(v) }), 'number'),
       champ('Couverture', r.covering, v => mod('Couverture', { couverture: v as Roof['covering'] }), 'text', COUVERTURES));
     if (r.kind === 'gable' || r.kind === 'shed') A.append(champ(r.kind === 'gable' ? 'Faîtage' : 'Égout bas et haut', r.ridge ?? 'long', v => mod('Sens de la toiture', { faitage: v as 'long' | 'short' }), 'text', { long: 'Le long du grand côté', short: 'Le long du petit côté' }));

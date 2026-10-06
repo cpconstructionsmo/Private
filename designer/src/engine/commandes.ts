@@ -309,6 +309,17 @@ function sommetsDe(p: Project, x: ObjectAnchor): Point[] {
   return x.feature === 'start' ? [a] : x.feature === 'end' ? [b] : [a, b];
 }
 
+/** l'arase d'un mur extérieur au-dessus de la hauteur sous plafond (plafond, isolant, entraits ou fermettes) :
+ *  2,50 m sous plafond donnent 2,85 m de mur, hauteur courante d'un mur en parpaing de plain-pied (à confirmer au projet) */
+export const REHAUSSE_ARASE: Mm = 350;
+
+/** la hauteur d'un mur extérieur tracé sans hauteur : jusqu'à l'arase (hauteur sous plafond + REHAUSSE_ARASE),
+ *  sans dépasser le plancher du niveau du dessus s'il y en a un (ses propres murs prennent la suite) */
+export function hauteurMurExterieur(p: Project, f: Floor): Mm {
+  const dessus = p.buildings.flatMap(b => b.floors).filter(x => x.elevation > f.elevation).map(x => x.elevation - f.elevation);
+  return Math.min(f.height + REHAUSSE_ARASE, ...dessus);
+}
+
 /** les valeurs proposées d'emblée : des ordres de grandeur d'une maison individuelle, jamais une étude
  *  (l'objet reste « be_validation ») ; la profondeur hors gel se lit sur la carte du département */
 export const FONDATIONS_PAR_DEFAUT = { largeur: 500, hauteur: 250, horsGel: 800, hauteurVide: 600, coteIsolee: 800, hauteurIsolee: 300 } as const;
@@ -350,7 +361,7 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         id: cmd.id ?? c.id(), type: 'wall', floorId: cmd.niveau, ...provenance(c, cmd.origine), revision: c.revision,
         axis: { a: { ...cmd.a }, b: { ...cmd.b } }, thickness: role === 'virtual' ? EPAISSEUR_FICTIVE : k ? epaisseurComposition(k) : cmd.epaisseur,
         justification: role === 'virtual' ? 'center' : cmd.justification ?? 'center',
-        height: cmd.hauteur ?? n.floor.height, baseOffset: 0, role,
+        height: cmd.hauteur ?? (role === 'exterior' ? hauteurMurExterieur(p, n.floor) : n.floor.height), baseOffset: 0, role,
         loadBearing: porteurQualifie(cmd.porteur, role === 'exterior'),
         ...(k ? { compositionRef: k.id } : {}),
       };
@@ -1057,6 +1068,23 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         avant[champs[k]] = r[champs[k]]; apres[champs[k]] = cmd[k];
       }
       if (cmd.descentes) { avant['downpipes'] = r.downpipes; apres['downpipes'] = cmd.descentes.length ? cmd.descentes.map(q => ({ x: q.x, y: q.y })) : undefined }
+      else if (cmd.debord !== undefined && cmd.debord !== r.overhang && r.downpipes?.length) {
+        /* le débord change : l'égout avance ou recule, les descentes le suivent (au point le plus proche du nouvel égout) */
+        const f = trouverNiveau(p, t.niveauId)!.floor;
+        const toit = toitureDuNiveau({ ...f, objects: { ...f.objects, [r.id]: { ...r, overhang: cmd.debord } } });
+        if (toit?.ok) {
+          const proche = (q: Point): Point => {
+            let best = q, d = Infinity;
+            for (const x of toit.toitures) x.egout.forEach((a, i) => {
+              const b = x.egout[(i + 1) % x.egout.length]!, ab = soustraire(b, a), L2 = ab.x * ab.x + ab.y * ab.y || 1;
+              const u = Math.max(0, Math.min(1, ((q.x - a.x) * ab.x + (q.y - a.y) * ab.y) / L2)), m = { x: Math.round(a.x + u * ab.x), y: Math.round(a.y + u * ab.y) };
+              if (distance(m, q) < d) { d = distance(m, q); best = m }
+            });
+            return best;
+          };
+          avant['downpipes'] = r.downpipes; apres['downpipes'] = r.downpipes.map(proche);
+        }
+      }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t.niveauId, r, avant, apres, c)]);
     }

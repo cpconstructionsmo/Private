@@ -66,6 +66,11 @@ describe('eaux pluviales', () => {
     const h2 = ok(executer(h1, 'x', [{ type: 'modifierToiture', id: roof.id, descentes: [{ x: -600, y: 4_000 }] }], a));
     expect(E(h2).alertes.join()).toMatch(/pas sur un égout/);
     expect(annuler(h2).projet.buildings[0]!.floors[0]!.objects[roof.id]).toMatchObject({ downpipes: [p, { x: 8_000, y: 8_600 }] });
+    /* le débord change (50 → 20 cm) : les descentes suivent l'égout */
+    const h4 = ok(executer(h1, 'x', [{ type: 'modifierToiture', id: roof.id, debord: 200 }], a));
+    expect((h4.projet.buildings[0]!.floors[0]!.objects[roof.id] as Roof).downpipes).toEqual([{ x: 3_000, y: -300 }, { x: 8_000, y: 8_300 }]);
+    expect(E(h4).alertes).toEqual([]);
+    expect((annuler(h4).projet.buildings[0]!.floors[0]!.objects[roof.id] as Roof).downpipes).toEqual([p, { x: 8_000, y: 8_600 }]);
     const h3 = ok(executer(h1, 'x', [{ type: 'modifierToiture', id: roof.id, descentes: [] }], a));
     expect((h3.projet.buildings[0]!.floors[0]!.objects[roof.id] as Roof).downpipes).toBeUndefined();
   });
