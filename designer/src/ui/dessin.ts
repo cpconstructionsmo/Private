@@ -9,11 +9,11 @@ import { couchesDuNiveau, type BandeCouche } from '../building/couches';
 import { dessinerTerrain } from './dessin-terrain';
 import { MATIERES_COUCHES } from '../catalogue/murs';
 import type { Accroche } from '../building/accrochage';
-import { dimensionsPiece, type ChaineCotes, type PlaceOuverture } from '../building/cotation';
+import { dimensionsPiece, placeEtiquette, type ChaineCotes, type CoteInterieure, type PlaceOuverture } from '../building/cotation';
 import { manoeuvreDe } from '../catalogue/ouvertures';
 import type { Toiture } from '../building/toiture';
 import { fenetresDeToit } from '../building/fenetres-toit';
-import { formeDe, traits, versPlan } from '../building/mobilier';
+import { emprise, formeDe, traits, versPlan } from '../building/mobilier';
 import type { GeometrieEscalier, Marche } from '../building/escalier';
 import type { LigneDeCoupe } from '../vue3d/coupe';
 import type { Landscape, Plot, Viewpoint } from '../model/types';
@@ -46,6 +46,8 @@ export interface Scene {
   etiquette?: { point: Point; texte: string } | null;
   /** la cotation automatique (chaînes extérieures), si elle est affichée */
   cotation?: ChaineCotes[];
+  /** les cotes intérieures des pièces (entre faces), si elles sont affichées */
+  cotesInterieures?: CoteInterieure[];
   /** la place des ouvertures choisies ou en cours de pose, entre leurs murs voisins */
   places?: PlaceOuverture[];
   /** la toiture du niveau : son égout (débord) en tirets */
@@ -184,10 +186,19 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     const b = plan.baies.find(x => x.id === o.id);
     if (w) ouverture(ctx, cam, w, o, estChoisi(o.id), b ? b.cotes[0] !== 'extérieur' : true);
   }
-  /* noms et surfaces */
+  /* les cotes intérieures, avant les noms : une étiquette reste au-dessus */
+  for (const c of s.cotesInterieures ?? []) ligneCotee(ctx, cam, [c.a, c.b], COULEURS.gris);
+  /* noms et surfaces : à la place voulue (le point de la pièce), sauf si un meuble est dessous — l'étiquette va alors au plus près, là où elle se lit */
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  /* ce que l'étiquette doit éviter : les meubles, et les cotes intérieures (une bande autour de chaque ligne, son texte compris) */
+  const bande = 14 / cam.echelle;
+  const meubles = [...Object.values(s.niveau.objects).flatMap(o => (o.type === 'furniture' ? [emprise(o)] : [])),
+    ...(s.cotesInterieures ?? []).map(c => [{ x: Math.min(c.a.x, c.b.x) - bande, y: Math.min(c.a.y, c.b.y) - bande }, { x: Math.max(c.a.x, c.b.x) + bande, y: Math.max(c.a.y, c.b.y) + bande }])];
   for (const z of plan.zones) {
-    const c = z.piece && positionDansAnneau(z.piece.seed, z.polygone.contour) === 'dedans' ? z.piece.seed : centroide(z.polygone.contour);
+    const voulue = z.piece && positionDansAnneau(z.piece.seed, z.polygone.contour) === 'dedans' ? z.piece.seed : centroide(z.polygone.contour);
+    ctx.font = '600 12px system-ui, sans-serif';
+    const lpx = Math.max(ctx.measureText(z.piece ? z.piece.name : 'À nommer').width, 70) / 2 + 4;
+    const c = meubles.length ? placeEtiquette(z.polygone.contour, meubles, voulue, { l: lpx / cam.echelle, h: 22 / cam.echelle }) : voulue;
     const e = E(c);
     /* en présentation, une étiquette claire sous le nom : il reste lisible sur un parquet ou un carrelage sombre */
     if (s.presentation && z.piece?.floorFinish) {

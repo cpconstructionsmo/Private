@@ -10,6 +10,7 @@ import { decalagesFaces, mursDroits, type MurDroit } from './murs';
 import type { Anneau } from '../geometry/polygon';
 import { ajouter, distance, multiplier, normaleGauche, normaliser, scalaire, soustraire } from '../geometry/vecteur';
 import { distancePointSegment } from '../geometry/segment';
+import { positionDansAnneau } from '../geometry/predicats';
 import { EPS_COINCIDENCE, EPS_SUR_FACE, FUSION_COTES } from '../geometry/tolerance';
 
 export type Cote4 = 'bas' | 'haut' | 'gauche' | 'droite';
@@ -80,9 +81,9 @@ export function cotationExterieure(f: Floor, ecart: Mm = 700): ChaineCotes[] {
   return chaines;
 }
 
-/** largeur et profondeur d'une pièce rectangulaire (null sinon) ; les sommets
+/** les quatre coins d'une pièce rectangulaire (null sinon) ; les sommets
     alignés (là où une cloison arrive sur un mur) ne comptent pas */
-export function dimensionsPiece(contour: Anneau): { largeur: Mm; profondeur: Mm } | null {
+export function rectangleDe(contour: Anneau): [Point, Point, Point, Point] | null {
   let P = [...contour];
   for (let change = true; change && P.length > 3;) {
     change = false;
@@ -96,8 +97,68 @@ export function dimensionsPiece(contour: Anneau): { largeur: Mm; profondeur: Mm 
   const egal = (x: number, y: number) => Math.abs(x - y) <= EPS_SUR_FACE;
   /* un parallélogramme aux diagonales égales est un rectangle */
   if (!egal(distance(a, b), distance(c, d)) || !egal(distance(b, c), distance(d, a)) || !egal(distance(a, c), distance(b, d))) return null;
-  const l1 = distance(a, b), l2 = distance(b, c);
+  return [a, b, c, d];
+}
+
+/** largeur et profondeur d'une pièce rectangulaire (null sinon) */
+export function dimensionsPiece(contour: Anneau): { largeur: Mm; profondeur: Mm } | null {
+  const R = rectangleDe(contour);
+  if (!R) return null;
+  const l1 = distance(R[0], R[1]), l2 = distance(R[1], R[2]);
   return { largeur: Math.max(l1, l2), profondeur: Math.min(l1, l2) };
+}
+
+/** sous cette largeur, une pièce n'a pas de cotes intérieures (son étiquette porte ses dimensions) */
+export const LARGEUR_COTEE = 2_000;
+
+/** une cote intérieure : d'une face à l'autre d'une pièce, tracée en retrait du mur */
+export interface CoteInterieure { piece: string; a: Point; b: Point }
+
+/** les cotes intérieures d'un niveau : la largeur et la profondeur de chaque pièce rectangulaire, entre faces
+    (ce qu'on mesure sur place), tracées à « retrait » des murs, le long des deux murs du coin le plus bas à
+    gauche (le même coin d'une pièce à l'autre : le plan se lit d'un coup d'œil). Une pièce trop étroite pour
+    son retrait n'en a pas ; une pièce en L non plus (ses dimensions ne se disent pas en deux cotes). */
+export function cotesInterieures(f: Floor, retrait: Mm = 450): CoteInterieure[] {
+  const out: CoteInterieure[] = [];
+  for (const z of planDuNiveau(f).zones) {
+    const R = rectangleDe(z.polygone.contour);
+    if (!R) continue;
+    /* le coin d'où partent les deux cotes : le plus bas à gauche */
+    const k = R.reduce((m, q, i) => (q.x + q.y < R[m]!.x + R[m]!.y - EPS_COINCIDENCE ? i : m), 0);
+    const C = R[k]!, P = R[(k + 1) % 4]!, Q = R[(k + 3) % 4]!;
+    const u = normaliser(soustraire(P, C)), v = normaliser(soustraire(Q, C)), lu = distance(C, P), lv = distance(C, Q);
+    /* trop étroite pour son retrait, ou moins de 2 m de large (un WC, un cellier) : l'étiquette dit déjà ses dimensions */
+    if (lu < Math.max(2 * retrait, LARGEUR_COTEE) || lv < Math.max(2 * retrait, LARGEUR_COTEE)) continue;
+    const nom = z.piece?.name ?? '';
+    out.push({ piece: nom, a: ajouter(C, multiplier(v, retrait)), b: ajouter(P, multiplier(v, retrait)) });
+    out.push({ piece: nom, a: ajouter(C, multiplier(u, retrait)), b: ajouter(Q, multiplier(u, retrait)) });
+  }
+  return out;
+}
+
+/** la place d'une étiquette (un rectangle de demi-côtés « demi », en mm) dans une pièce : là où on l'a voulue
+    (le point de la pièce) si elle n'y couvre rien, sinon le point le plus proche où elle ne couvre rien, toute
+    l'étiquette dans la pièce ; dans une pièce trop meublée pour cela, là où elle couvre le moins (la place
+    voulue à égalité). Les obstacles (meubles, cotes) sont comparés par leurs boîtes. */
+export function placeEtiquette(contour: Anneau, obstacles: readonly (readonly Point[])[], voulue: Point, demi: { l: Mm; h: Mm }): Point {
+  const boites = obstacles.map(o => ({ x0: Math.min(...o.map(q => q.x)), x1: Math.max(...o.map(q => q.x)), y0: Math.min(...o.map(q => q.y)), y1: Math.max(...o.map(q => q.y)) }));
+  /* ce que l'étiquette couvre (mm²) ; Infinity si elle sort de la pièce */
+  const couvre = (p: Point) => {
+    const r = { x0: p.x - demi.l, x1: p.x + demi.l, y0: p.y - demi.h, y1: p.y + demi.h };
+    if ([[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]].some(([x, y]) => positionDansAnneau({ x: x!, y: y! }, contour) !== 'dedans')) return Infinity;
+    return boites.reduce((t, b) => t + Math.max(0, Math.min(b.x1, r.x1) - Math.max(b.x0, r.x0)) * Math.max(0, Math.min(b.y1, r.y1) - Math.max(b.y0, r.y0)), 0);
+  };
+  const c0 = couvre(voulue);
+  if (c0 === 0) return voulue;
+  const xs = contour.map(q => q.x), ys = contour.map(q => q.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), n = 24;
+  let meilleur = voulue, c = c0, d = 0;
+  for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) {
+    const p = { x: x0 + ((x1 - x0) * i) / n, y: y0 + ((y1 - y0) * j) / n }, k = couvre(p), e = distance(p, voulue);
+    /* moins couvert, ou aussi peu mais plus près (une différence de moins de 1 % ne compte pas) */
+    if (k < c * 0.99 || (Math.abs(k - c) <= c * 0.01 && e < d)) { meilleur = p; c = k; d = e }
+  }
+  return meilleur;
 }
 
 /** la place d'une ouverture dans son mur, mesurée le long d'une face (côté
