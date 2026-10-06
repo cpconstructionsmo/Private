@@ -481,6 +481,14 @@ d'échappée). En plan : marches coupées à 1,10 m (au-dessus, en tirets),
 ligne de foulée fléchée ; à l'étage, la trémie barrée et les marches qu'on
 y voit ; en 3D, les marches et la trémie ouverte dans le plancher.
 
+**Ouverture depuis le suivi de chantiers** (`src/ui/session.ts`) : onglet
+« CP DESIGNER » du menu, ou pièce « Plans d'exécution » d'un chantier.
+`?chantier=…` ouvre le projet du chantier ; `?prospect=…` l'avant-projet
+d'un prospect. Un prospect signé devient un chantier d'un autre identifiant :
+le suivi passe alors les deux (`?chantier=…&prospect=…`), et tant que le
+chantier n'a pas de projet, celui du prospect s'ouvre (sur le serveur comme
+sur la copie de l'appareil) — sans doublon. Sans paramètre : projet libre.
+
 ## Travailler
 
 ```

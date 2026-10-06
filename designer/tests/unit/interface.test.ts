@@ -340,4 +340,33 @@ describe('ouverture de session', () => {
     expect(await d.lister('c9')).toHaveLength(1);
     expect(canonique(o2.projet)).toBe(canonique(r.historique.projet));
   });
+
+  it('prospect, puis chantier signé : l’avant-projet dessiné pour le prospect s’ouvre sur le chantier, sans doublon', async () => {
+    const d = new DepotMemoire(), copie = new CopieMemoire();
+    const deps = { utilisateur: async () => 'cp@exemple.fr', depot: () => d, copie, signaler };
+    const o = await ouvrirSession(new URLSearchParams('prospect=p7'), deps);
+    expect(o.projet.crmChantierId).toBe('p7'); expect(o.projet.name).toBe('Avant-projet du prospect');
+    const r = executer(nouvelHistorique(o.projet), 'Mur', [{ type: 'creerMur', niveau: o.projet.buildings[0]!.floors[0]!.id, a: { x: 0, y: 0 }, b: { x: 5_000, y: 0 }, epaisseur: 200 }], acteur());
+    if (!r.ok) throw new Error();
+    await o.enregistreur.ajouter(r.changeSet, r.historique.projet);
+    /* le prospect devient le chantier c12 : le suivi passe les deux */
+    const o2 = await ouvrirSession(new URLSearchParams('chantier=c12&prospect=p7'), deps);
+    expect(o2.projet.id).toBe(o.projet.id);
+    expect(canonique(o2.projet)).toBe(canonique(r.historique.projet));
+    expect(await d.lister('c12')).toHaveLength(0);
+    /* un chantier qui a déjà son propre projet le garde */
+    const o3 = await ouvrirSession(new URLSearchParams('chantier=c13'), deps);
+    const o4 = await ouvrirSession(new URLSearchParams('chantier=c13&prospect=p7'), deps);
+    expect(o4.projet.id).toBe(o3.projet.id);
+  });
+
+  it('hors connexion aussi : la copie locale du prospect suit le chantier', async () => {
+    const copie = new CopieMemoire(), deps = { utilisateur: async () => null, depot: () => new DepotMemoire(), copie, signaler };
+    const o = await ouvrirSession(new URLSearchParams('prospect=p8'), deps);
+    const r = executer(nouvelHistorique(o.projet), 'Mur', [{ type: 'creerMur', niveau: o.projet.buildings[0]!.floors[0]!.id, a: { x: 0, y: 0 }, b: { x: 4_000, y: 0 }, epaisseur: 200 }], acteur());
+    if (!r.ok) throw new Error();
+    await o.enregistreur.ajouter(r.changeSet, r.historique.projet);
+    const o2 = await ouvrirSession(new URLSearchParams('chantier=c20&prospect=p8'), deps);
+    expect(canonique(o2.projet)).toBe(canonique(r.historique.projet));
+  });
 });

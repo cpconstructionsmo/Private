@@ -45,8 +45,10 @@ qu'on ait à les redire.
   **séparé du CRM** : on n'ajoute rien de ce module dans `index.html`, et
   rien de ses données dans `app_data` (tables `designer_*`,
   `supabase/designer/schema.sql`). Le CRM ne fait que l'ouvrir, par des
-  liens (`designerLien`) : onglet « CP DESIGNER » du menu (un chantier ou un
-  projet libre) et pièce « Plans d'exécution » de la fiche chantier.
+  liens (`designerLien`, `designerLienProspect`) : onglet « CP DESIGNER » du
+  menu (chantiers, prospects en cours, projet libre) et pièce « Plans
+  d'exécution » de la fiche chantier. Un chantier issu d'un prospect passe
+  aussi `prospect=` : le Designer rouvre l'avant-projet du prospect.
 - Décisions d'architecture : `docs/designer/` (ADR). Toute demande qui
   contredit un ADR ou les 7 règles de la spécification se signale, au lieu
   d'être appliquée en silence.

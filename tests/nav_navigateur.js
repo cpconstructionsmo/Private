@@ -70,6 +70,8 @@ let ko=0;const chk=(c,m)=>{console.log((c?'OK  ':'KO  ')+m);if(!c)ko++};
   const lien=p2.locator('main a',{hasText:'Ouvrir dans CP Designer'}).first();
   chk(/Maison Leroux/.test(await p2.textContent('main'))&&(await lien.getAttribute('href'))==='designer/?chantier=c1'&&(await lien.getAttribute('target'))==='_blank','onglet CP DESIGNER : chaque chantier ouvre le Designer sur son projet, dans un nouvel onglet');
   chk((await p2.locator('main a',{hasText:'Projet libre'}).getAttribute('href'))==='designer/','onglet CP DESIGNER : un projet libre');
+  const lienP=p2.locator('main .card',{hasText:'Maison Moualid'}).locator('a');
+  chk((await lienP.getAttribute('href'))==='designer/?prospect=p1'&&/PROSPECTS — AVANT-PROJET/.test(await p2.textContent('main')),'onglet CP DESIGNER : les prospects en cours, chacun sur son avant-projet');
   await p2.screenshot({path:require('os').tmpdir()+'/cp-tests/nav_designer.png'});
   chk(!erreurs.length,'aucune erreur JavaScript '+erreurs.join(' | '));
   await ctx.close();
