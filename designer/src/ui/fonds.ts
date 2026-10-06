@@ -11,6 +11,7 @@
    garde à son tour sur son appareil. */
 import { FichiersIndexedDB, type FichierLocal } from '../persistence/copie-idb';
 import type { StockFonds } from '../persistence/fonds-supabase';
+import { lignesDeLImage, traitsDuPdf, type CodesPdf, type Trait } from '../import/traits-fond';
 
 export interface ImageFond { image: CanvasImageSource; largeur: number; hauteur: number }
 
@@ -75,4 +76,42 @@ export async function nombrePages(f: File): Promise<number> {
   if (!estPdf(f.type, f.name)) return 1;
   const pdfjs = await chargerPdfjs();
   return (await pdfjs.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise).numPages;
+}
+
+/** au plus ce côté (pixels) pour chercher les lignes d'une image : assez fin pour un plan, assez court pour ne pas attendre */
+const COTE_ANALYSE = 2_400;
+
+/** les lignes d'une image (ou d'un rendu de PDF sans tracés), dans le repère donné (« k » : unités du repère par pixel) */
+function lignesDuRendu(source: CanvasImageSource, l: number, h: number, k: number): Trait[] {
+  const r = Math.min(1, COTE_ANALYSE / Math.max(l, h)), L = Math.max(1, Math.round(l * r)), H = Math.max(1, Math.round(h * r));
+  const c = document.createElement('canvas'); c.width = L; c.height = H;
+  const x = c.getContext('2d', { willReadFrequently: true })!;
+  x.fillStyle = '#FFFFFF'; x.fillRect(0, 0, L, H); x.drawImage(source, 0, 0, L, H);
+  const d = x.getImageData(0, 0, L, H).data, g = new Uint8Array(L * H);
+  for (let i = 0; i < L * H; i++) g[i] = (d[4 * i]! * 299 + d[4 * i + 1]! * 587 + d[4 * i + 2]! * 114) / 1000;
+  const f = k / r;
+  return lignesDeLImage(g, L, H).map(([a, b]) => [{ x: a.x * f, y: a.y * f }, { x: b.x * f, y: b.y * f }]);
+}
+
+/** les traits d'un fond, pour l'aimant, dans le repère de son image (points pour un PDF, pixels pour une image) ;
+    un PDF vectoriel donne ses tracés, un scan ses lignes horizontales et verticales ; null si le fichier manque */
+export async function traitsDuFond(cle: string, page = 1, stock = new FichiersIndexedDB(), distant?: StockFonds): Promise<{ traits: Trait[]; source: 'vecteurs' | 'image' } | null> {
+  const f = await fichierDuFond(cle, stock, distant);
+  if (!f) return null;
+  if (!estPdf(f.type, f.nom)) {
+    const im = await createImageBitmap(f.donnees);
+    return { traits: lignesDuRendu(im, im.width, im.height, 1), source: 'image' };
+  }
+  const pdfjs = await chargerPdfjs();
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await f.donnees.arrayBuffer()) }).promise;
+  const p = await doc.getPage(Math.min(Math.max(1, page), doc.numPages));
+  const v1 = p.getViewport({ scale: 1 });
+  const ops = await p.getOperatorList();
+  const traits = traitsDuPdf(ops.fnArray, ops.argsArray, pdfjs.OPS as unknown as CodesPdf, v1.transform);
+  if (traits.length >= 20) return { traits, source: 'vecteurs' };
+  /* un PDF sans tracés (un scan enregistré en PDF) : ses lignes, sur un rendu de la page */
+  const v = p.getViewport({ scale: 2 }), canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(v.width); canvas.height = Math.ceil(v.height);
+  await p.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport: v }).promise;
+  return { traits: lignesDuRendu(canvas, canvas.width, canvas.height, 1 / 2), source: 'image' };
 }

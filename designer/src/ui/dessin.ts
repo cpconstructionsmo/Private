@@ -688,9 +688,15 @@ function marque(ctx: CanvasRenderingContext2D, cam: Camera, a: Accroche): void {
     const p = versEcran(cam, a.guide.a), q = versEcran(cam, a.guide.b);
     ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); ctx.setLineDash([]);
   }
+  /* le trait du fond attrapé : surligné, pour voir sur quelle ligne du plan on glisse */
+  if (a.genre === 'trait_fond' && a.support) {
+    const p = versEcran(cam, a.support.a), q = versEcran(cam, a.support.b);
+    ctx.save(); ctx.globalAlpha = 0.55; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); ctx.restore();
+  }
   ctx.beginPath();
   switch (a.genre) {
     case 'extremite': ctx.rect(e.x - 5, e.y - 5, 10, 10); break;
+    case 'coin_fond': ctx.moveTo(e.x, e.y - 7); ctx.lineTo(e.x + 7, e.y); ctx.lineTo(e.x, e.y + 7); ctx.lineTo(e.x - 7, e.y); ctx.closePath(); break;
     case 'intersection': ctx.moveTo(e.x - 6, e.y - 6); ctx.lineTo(e.x + 6, e.y + 6); ctx.moveTo(e.x + 6, e.y - 6); ctx.lineTo(e.x - 6, e.y + 6); break;
     case 'milieu': ctx.moveTo(e.x, e.y - 6); ctx.lineTo(e.x + 6, e.y + 5); ctx.lineTo(e.x - 6, e.y + 5); ctx.closePath(); break;
     case 'perpendiculaire': ctx.moveTo(e.x - 6, e.y + 5); ctx.lineTo(e.x + 6, e.y + 5); ctx.moveTo(e.x, e.y + 5); ctx.lineTo(e.x, e.y - 7); break;
@@ -704,5 +710,5 @@ function marque(ctx: CanvasRenderingContext2D, cam: Camera, a: Accroche): void {
 /** les libellés des accroches, pour la barre d'état */
 export const NOMS_ACCROCHE: Record<Accroche['genre'], string> = {
   extremite: 'extrémité', intersection: 'intersection', milieu: 'milieu', perpendiculaire: 'perpendiculaire', face: 'face du mur',
-  axe: 'axe du mur', alignement: 'alignement', grille: 'grille', equerre: 'équerre', libre: '',
+  axe: 'axe du mur', coin_fond: 'angle du fond', trait_fond: 'trait du fond', alignement: 'alignement', grille: 'grille', equerre: 'équerre', libre: '',
 };

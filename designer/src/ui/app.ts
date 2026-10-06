@@ -5,7 +5,7 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { Beam, BuildingObject, Column, Floor, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
+import type { Beam, BuildingObject, Column, Floor, Underlay, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
@@ -18,7 +18,10 @@ import { Outils, OUVERTURES, type Effet, type Geste, type NomOutil } from './out
 import { dessinCote, texteCote } from './cotes';
 import { ouvrirSession, type Enregistreur } from './session';
 import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } from '../import/atelier';
-import { imageDuFond, importerFichier, nombrePages, type ImageFond } from './fonds';
+import { imageDuFond, importerFichier, nombrePages, traitsDuFond, type ImageFond } from './fonds';
+import { AimantFond } from '../building/accrochage';
+import { imageVersPlan } from '../building/fond';
+import type { Trait } from '../import/traits-fond';
 import type { Accroche } from '../building/accrochage';
 import { equerrer } from '../building/equerre';
 import { ANGLE_EQUERRE } from '../geometry/tolerance';
@@ -90,8 +93,9 @@ const CSS = `
 .cpd .ruban .tuile-outil kbd{display:none}
 .cpd .ruban .options{display:flex;align-items:center;gap:12px;padding:6px 14px;font-size:12px;color:var(--txt)}
 .cpd .ruban .options label{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.cpd .ruban .options.pile{flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;padding:4px 12px}
 .cpd .ruban .options select,.cpd .ruban .options input[type=number]{background:var(--carte);color:#fff;border:1px solid var(--trait);border-radius:4px;padding:3px 6px}
-.cpd .compo{position:relative;align-self:stretch;display:flex;align-items:center;margin:0 10px;min-width:330px;max-width:390px}
+.cpd .compo{position:relative;align-self:stretch;display:flex;align-items:center;margin:0 10px;min-width:250px;max-width:330px}
 .cpd .compo .carte,.cpd .liste-compo .carte,.cpd aside .carte{display:flex;flex-direction:column;gap:5px;padding:8px 10px;border-radius:4px;background:var(--carte);border:1px solid #444;cursor:pointer;color:#fff;width:100%;box-sizing:border-box}
 .cpd .compo .carte:hover,.cpd .liste-compo .carte:hover,.cpd aside .carte:hover{border-color:var(--acc)}
 .cpd .tete{display:flex;justify-content:space-between;gap:10px;font-weight:600;font-size:12.5px}
@@ -204,7 +208,7 @@ const CSS = `
 .cpd.en3d main .hote3d{display:block}
 .cpd .apercu .hote3d{position:absolute;inset:0;display:block}
 .cpd .saisie{position:absolute;z-index:5;width:150px;border:2px solid var(--acc);border-radius:4px;padding:4px 8px;font:600 14px system-ui;background:#fff;color:#222;box-shadow:0 4px 14px rgba(0,0,0,.15)}
-@media (max-width:1600px){.cpd header nav.onglets button{min-width:78px}.cpd header input.nom{width:150px}.cpd .etat{max-width:90px}.cpd .compo{min-width:300px}}
+@media (max-width:1600px){.cpd header nav.onglets button{min-width:78px}.cpd header input.nom{width:150px}.cpd .etat{max-width:90px}.cpd .compo{min-width:240px}}
 @media (max-width:1400px){.cpd{grid-template-columns:auto 1fr 330px}.cpd header nav.onglets button{min-width:68px;font-size:12px}.cpd header input.nom{width:120px}}
 @media (max-width:1180px){.cpd header nav.onglets button{min-width:60px;font-size:11px;padding:4px 4px 2px}.cpd header input.nom{display:none}.cpd .etat{display:none}}
 @media (max-width:900px){.cpd{grid-template-columns:1fr;grid-template-rows:52px 36px 92px 1fr 40vh}.cpd .catalogue{display:none}.cpd main{grid-column:1}.cpd .droite{grid-column:1;grid-row:5}.cpd .sous,.cpd .ruban{grid-column:1}}
@@ -471,6 +475,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const p = projetAffiche(), f = niveau(p);
     const L = niveaux(), i = L.findIndex(x => x.id === niveauId);
     for (const o of Object.values(f.objects)) if (o.type === 'underlay') chargerFond(o.fileKey, o.page);
+    outils.aimantsFond = aimantFond ? aimantsDuNiveau(f) : [];
     let etiquette: Scene['etiquette'] = null;
     const nouveaux = apercu.filter((c): c is Extract<Commande, { type: 'creerMur' }> => c.type === 'creerMur');
     if (curseur && nouveaux.length === 4 && outils.outil === 'rectangle') {
@@ -497,6 +502,55 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
       ...(cotation && !en3D ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
+  }
+  /* ---------- l'aimant du fond : les traits du plan qu'on reprend ---------- */
+  let aimantFond = (() => { try { return localStorage.getItem('cpDesigner:aimantFond') !== 'non' } catch { return true } })();
+  /** les traits de chaque fichier de fond (repère de son image) ; null : illisible ou absent */
+  const traitsFonds = new Map<string, Trait[] | null>(), traitsEnCours = new Set<string>();
+  /** l'aimant de chaque fond, pour son calage du moment (un nouveau calage, un nouvel aimant) */
+  const aimants = new Map<string, AimantFond>();
+  function aimantsDuNiveau(f: Floor): AimantFond[] {
+    const out: AimantFond[] = [];
+    for (const o of Object.values(f.objects)) {
+      if (o.type !== 'underlay' || o.opacity <= 0) continue;
+      const k = o.fileKey + '#' + (o.page ?? 1);
+      if (!traitsFonds.has(k)) { chargerTraits(o, k); continue }
+      const T = traitsFonds.get(k);
+      if (!T?.length) continue;
+      const c = k + '@' + [o.transform.scale, o.transform.rotation, o.transform.tx, o.transform.ty].join(',');
+      let a = aimants.get(c);
+      if (!a) {
+        if (aimants.size > 8) aimants.clear();
+        a = new AimantFond(T.map(([p, q]) => ({ a: imageVersPlan(o.transform, p), b: imageVersPlan(o.transform, q) })));
+        aimants.set(c, a);
+      }
+      out.push(a);
+    }
+    return out;
+  }
+  function chargerTraits(o: Underlay, k: string) {
+    if (traitsEnCours.has(k)) return;
+    traitsEnCours.add(k);
+    traitsDuFond(o.fileKey, o.page, undefined, enr.fonds).then(r => {
+      traitsFonds.set(k, r?.traits ?? null);
+      if (r?.traits.length) toast('Aimant du fond : ' + r.traits.length.toLocaleString('fr-FR') + (r.source === 'vecteurs' ? ' traits lus dans le PDF' : ' lignes trouvées sur l’image (horizontales et verticales)') + ' — Alt : tracé libre');
+      dessinerBientot();
+    }).catch(() => { traitsFonds.set(k, null) }).finally(() => traitsEnCours.delete(k));
+  }
+  function basculerAimant(oui = !aimantFond) {
+    aimantFond = oui;
+    try { localStorage.setItem('cpDesigner:aimantFond', oui ? 'oui' : 'non') } catch { /* le choix vaut pour la séance */ }
+    toast(oui ? 'Aimant sur le fond : les tracés s’accrochent aux traits du plan' : 'Aimant sur le fond coupé');
+    barreOutils(); dessinerBientot();
+  }
+  const JUSTIFS_TRACE: Record<Wall['justification'], string> = { center: 'l’axe', left: 'la face gauche', right: 'la face droite' };
+  function basculerJustification() {
+    const r = outils.reglages, ordre: Wall['justification'][] = ['center', 'left', 'right'];
+    r.justification = ordre[(ordre.indexOf(r.justification) + 1) % 3]!;
+    toast('Le mur se trace par ' + JUSTIFS_TRACE[r.justification] + ' (Tab pour changer)');
+    barreOutils();
+    if (curseur) effet(outils.bouger({ point: curseur, rayon: pixelsEnMm(cam, 10) }));
+    dessinerBientot();
   }
   function chargerFond(cle: string, page?: number) {
     if (images.has(cle) || enChargement.has(cle)) return;
@@ -683,6 +737,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (en3D && e.key.toLowerCase() === 'v') { visite(true); return }
     if (e.key === 'Escape') { choixMur = null; effet(outils.touche('Escape')); barreOutils(); return }
     if (e.key === 'Enter') { effet(outils.touche('Enter')); return }
+    if (e.key === 'Tab' && ['mur', 'refend', 'cloison'].includes(outils.outil)) { e.preventDefault(); basculerJustification(); return }
     if ((e.key === 'Delete' || e.key === 'Backspace') && choisis().length) { e.preventDefault(); supprimerChoix(); return }
     /* un chiffre pendant un tracé : la longueur se tape (comme sur les logiciels de plans) */
     if (/^[0-9.,]$/.test(e.key) && outils.departTrace && ['mur', 'refend', 'cloison', 'rectangle', 'parcelle', 'amenagement', 'plateforme', 'reseau'].includes(outils.outil)) { e.preventDefault(); ouvrirSaisie(e.key); return }
@@ -978,10 +1033,22 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       }
       out.push(boite);
     }
-    const o = document.createElement('div'); o.className = 'options';
+    /* les options en pile (équerre, aimant, tracé par) : le ruban garde sa largeur */
+    const o = document.createElement('div'); o.className = 'options pile';
     const eq = document.createElement('label'); eq.innerHTML = '<input type="checkbox"' + (outils.reglages.equerre ? ' checked' : '') + '> Équerre (Q)';
     eq.querySelector('input')!.onchange = e => basculerEquerre((e.target as HTMLInputElement).checked);
     o.appendChild(eq);
+    const am = document.createElement('label'); am.className = 'b-aimant'; am.title = 'Les tracés s’accrochent aux traits du fond importé (angles et lignes du plan) ; Alt : libre';
+    am.innerHTML = '<input type="checkbox"' + (aimantFond ? ' checked' : '') + '> Aimant (fond)';
+    am.querySelector('input')!.onchange = e => basculerAimant((e.target as HTMLInputElement).checked);
+    o.appendChild(am);
+    if (['mur', 'refend', 'cloison'].includes(outils.outil)) {
+      const j = document.createElement('label'); j.title = 'Pour suivre un trait du plan : la face du mur se pose sur la ligne (Tab pendant le tracé)';
+      j.innerHTML = 'Par <select class="justif">' + Object.entries(JUSTIFS_TRACE).map(([k, v]) => `<option value="${k}">${esc(v.replace('l’', '').replace('la ', ''))}</option>`).join('') + '</select>';
+      const sel = j.querySelector('select')!; sel.value = outils.reglages.justification;
+      sel.onchange = () => { outils.reglages.justification = sel.value as Wall['justification'] };
+      o.appendChild(j);
+    }
     if (outils.outil === 'rectangle') {
       const l = document.createElement('label'); l.innerHTML = 'Cotes <select><option value="hors_tout">hors tout</option><option value="interieur">intérieures</option></select>';
       const sel = l.querySelector('select')!; sel.value = outils.reglages.rectangle; sel.onchange = () => { outils.reglages.rectangle = sel.value as 'hors_tout' | 'interieur' };
@@ -1097,6 +1164,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     c('Sols en couleur (présentation)', solsCouleur, v => basculerSols(v));
     c('Grille d’accrochage (10 cm)', outils.reglages.grille > 0, v => { outils.reglages.grille = v ? 100 : 0; panneaux() });
     c('Murs d’équerre au tracé (Q)', outils.reglages.equerre, v => basculerEquerre(v));
+    c('Aimant sur le fond (traits du plan importé)', aimantFond, v => basculerAimant(v));
     hote.appendChild(m);
     const fermer = (ev: MouseEvent) => { if (!hote.contains(ev.target as Node)) { m.remove(); window.removeEventListener('pointerdown', fermer) } };
     setTimeout(() => window.addEventListener('pointerdown', fermer));
