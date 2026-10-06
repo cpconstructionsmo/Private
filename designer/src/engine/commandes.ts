@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -126,6 +126,11 @@ export type Commande =
   | { type: 'creerPoutre'; niveau: string; a: Point; b: Point; largeur: Mm; retombee: Mm; matiere: Beam['material'] }
   | { type: 'modifierPoutre'; id: string; a?: Point; b?: Point; largeur?: Mm; retombee?: Mm; matiere?: Beam['material'] }
   | { type: 'modifierArbre'; id: string; position?: Point; diametre?: Mm; etat?: Tree['state'] }
+  /** les fondations du bâtiment (une seule, sur le niveau le plus bas) : ses choix ; les semelles se calculent.
+   *  Une valeur absente prend celle de FONDATIONS_PAR_DEFAUT (à valider par l'étude de sol et le bureau d'études) */
+  | { type: 'creerFondations'; niveau: string; genre: Foundation['kind']; largeur?: Mm; hauteur?: Mm; horsGel?: Mm; bonSol?: Mm; hauteurVide?: Mm; coteIsolee?: Mm; hauteurIsolee?: Mm }
+  /** bonSol null : pas encore connu ; trappes : la liste entière (elle remplace la précédente) */
+  | { type: 'modifierFondations'; id: string; genre?: Foundation['kind']; largeur?: Mm; hauteur?: Mm; horsGel?: Mm; bonSol?: Mm | null; hauteurVide?: Mm; coteIsolee?: Mm; hauteurIsolee?: Mm; trappes?: Point[] }
   | { type: 'creerAmenagement'; niveau: string; genre: Landscape['kind']; points: Point[]; ferme?: boolean; finition: string; hauteur: Mm }
   | { type: 'modifierAmenagement'; id: string; points?: Point[]; ferme?: boolean; finition?: string; hauteur?: Mm }
   | { type: 'modifierParcelle'; id: string; contour?: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number | null;
@@ -298,6 +303,24 @@ function sommetsDe(p: Project, x: ObjectAnchor): Point[] {
   if (!t || t.objet.type !== 'wall' || !('a' in t.objet.axis)) return [];
   const { a, b } = t.objet.axis;
   return x.feature === 'start' ? [a] : x.feature === 'end' ? [b] : [a, b];
+}
+
+/** les valeurs proposées d'emblée : des ordres de grandeur d'une maison individuelle, jamais une étude
+ *  (l'objet reste « be_validation ») ; la profondeur hors gel se lit sur la carte du département */
+export const FONDATIONS_PAR_DEFAUT = { largeur: 500, hauteur: 250, horsGel: 800, hauteurVide: 600, coteIsolee: 800, hauteurIsolee: 300 } as const;
+
+/** des fondations plausibles : chaque valeur dans un ordre de grandeur de maison individuelle */
+function fondationsInvalides(v: { largeur: Mm; hauteur: Mm; horsGel: Mm; bonSol?: Mm | null | undefined; hauteurVide: Mm; coteIsolee: Mm; hauteurIsolee: Mm; trappes: Point[] }): string | null {
+  if (!fini(v.largeur, v.hauteur, v.horsGel, v.hauteurVide, v.coteIsolee, v.hauteurIsolee)) return 'valeur invalide';
+  if (!(v.largeur >= 300 && v.largeur <= 2_000)) return 'largeur de semelle de 30 cm à 2 m';
+  if (!(v.hauteur >= 150 && v.hauteur <= 1_500)) return 'hauteur de semelle de 15 cm à 1,50 m';
+  if (!(v.horsGel >= 300 && v.horsGel <= 2_000)) return 'profondeur hors gel de 30 cm à 2 m';
+  if (v.bonSol !== undefined && v.bonSol !== null && !(fini(v.bonSol) && v.bonSol >= 0 && v.bonSol <= 10_000)) return 'profondeur du bon sol de 0 à 10 m';
+  if (!(v.hauteurVide >= 200 && v.hauteurVide <= 2_000)) return 'hauteur de vide sanitaire de 20 cm à 2 m';
+  if (!(v.coteIsolee >= 300 && v.coteIsolee <= 4_000)) return 'semelle isolée de 30 cm à 4 m de côté';
+  if (!(v.hauteurIsolee >= 150 && v.hauteurIsolee <= 1_500)) return 'hauteur de semelle isolée de 15 cm à 1,50 m';
+  if (v.trappes.length > 20 || !v.trappes.every(ptFini)) return 'trappes de visite invalides';
+  return null;
 }
 
 const GENRES_UN_MUR: readonly Constraint['kind'][] = ['horizontal', 'vertical', 'length', 'angle'];
@@ -906,6 +929,39 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.matiere !== undefined) { avant['material'] = o!.material; apres['material'] = matiere }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
+    }
+    case 'creerFondations': {
+      if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      if (p.buildings.flatMap(b => b.floors).some(f => Object.values(f.objects).some(o => o.type === 'foundation'))) return refus('le projet a déjà ses fondations : modifiez-les');
+      if (!['crawl_space', 'slab_on_grade'].includes(cmd.genre)) return refus('soubassement inconnu');
+      const D = FONDATIONS_PAR_DEFAUT;
+      const v = { largeur: cmd.largeur ?? D.largeur, hauteur: cmd.hauteur ?? D.hauteur, horsGel: cmd.horsGel ?? D.horsGel, bonSol: cmd.bonSol,
+        hauteurVide: cmd.hauteurVide ?? D.hauteurVide, coteIsolee: cmd.coteIsolee ?? D.coteIsolee, hauteurIsolee: cmd.hauteurIsolee ?? D.hauteurIsolee, trappes: [] };
+      const e = fondationsInvalides(v);
+      if (e) return refus(e);
+      /* le dimensionnement relève de l'étude de sol et du bureau d'études : jamais « confirmé » ici (règle 5) */
+      const o: Foundation = { id: c.id(), type: 'foundation', floorId: cmd.niveau, ...provenance(c, undefined), status: 'be_validation', revision: c.revision,
+        kind: cmd.genre, footingWidth: v.largeur, footingHeight: v.hauteur, frostDepth: v.horsGel, ...(v.bonSol !== undefined ? { bearingDepth: v.bonSol } : {}),
+        crawlHeight: v.hauteurVide, padSize: v.coteIsolee, padHeight: v.hauteurIsolee, hatches: [] };
+      return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: o }]);
+    }
+    case 'modifierFondations': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'foundation') return refus('fondations introuvables');
+      const o = t.objet;
+      if (cmd.genre !== undefined && !['crawl_space', 'slab_on_grade'].includes(cmd.genre)) return refus('soubassement inconnu');
+      const e = fondationsInvalides({ largeur: cmd.largeur ?? o.footingWidth, hauteur: cmd.hauteur ?? o.footingHeight, horsGel: cmd.horsGel ?? o.frostDepth, bonSol: cmd.bonSol,
+        hauteurVide: cmd.hauteurVide ?? o.crawlHeight, coteIsolee: cmd.coteIsolee ?? o.padSize, hauteurIsolee: cmd.hauteurIsolee ?? o.padHeight, trappes: cmd.trappes ?? o.hatches });
+      if (e) return refus(e);
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      const champs = { genre: 'kind', largeur: 'footingWidth', hauteur: 'footingHeight', horsGel: 'frostDepth', bonSol: 'bearingDepth', hauteurVide: 'crawlHeight', coteIsolee: 'padSize', hauteurIsolee: 'padHeight' } as const;
+      for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
+        if (cmd[k] === undefined) continue;
+        avant[champs[k]] = o[champs[k]]; apres[champs[k]] = cmd[k];          // bonSol null : de nouveau inconnu
+      }
+      if (cmd.trappes) { avant['hatches'] = o.hatches; apres['hatches'] = cmd.trappes.map(q => ({ x: q.x, y: q.y })) }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t.niveauId, o, avant, apres, c)]);
     }
     case 'creerAmenagement': {
       if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
