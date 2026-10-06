@@ -12,10 +12,11 @@ import { distancePointSegment } from '../geometry/segment';
 import { distance } from '../geometry/vecteur';
 import { dessinCote } from './cotes';
 import { dansMeuble, emprise } from '../building/mobilier';
+import { sectionPoteau } from '../building/structure';
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
-  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' | 'platform' | 'network' | 'network_item' | 'tree' };
+  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' | 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' };
 
 /** viser : « escaliers » donne l'emprise des escaliers du niveau (calculée par l'appelant, qui connaît la hauteur à franchir) */
 export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: { id: string; emprise: Point[] }[] = []): Cible | null {
@@ -52,6 +53,9 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
   for (const c of plan.murs) if (positionDansAnneau(p, c.contour) !== 'dehors') return { genre: 'objet', id: c.id, type: 'wall' };
   /* une cloison fictive : près de son trait */
   for (const v of mursFictifs(f)) if (distancePointSegment(p, v.axis) <= rayon / 2) return { genre: 'objet', id: v.id, type: 'wall' };
+  /* la structure : un poteau (sa section), une poutre (près de son axe) */
+  for (const o of Object.values(f.objects)) if (o.type === 'column' && positionDansAnneau(p, sectionPoteau(o)) !== 'dehors') return { genre: 'objet', id: o.id, type: 'column' };
+  for (const o of Object.values(f.objects)) if (o.type === 'beam' && distancePointSegment(p, { a: o.a, b: o.b }) <= Math.max(o.width / 2, rayon / 2)) return { genre: 'objet', id: o.id, type: 'beam' };
   /* un meuble (le plus petit d'abord : une chaise sous une table se choisit) */
   const meubles = Object.values(f.objects).filter(o => o.type === 'furniture' && dansMeuble(o, p)).sort((a, b) =>
     (a.type === 'furniture' ? a.width * a.depth : 0) - (b.type === 'furniture' ? b.width * b.depth : 0));
@@ -90,7 +94,8 @@ export function dansCadre(f: Floor, p: Point, q: Point): string[] {
     else if (o.type === 'room' && dedans(o.seed)) out.push(o.id);
     else if (o.type === 'furniture' && emprise(o).every(dedans)) out.push(o.id);
     else if (o.type === 'dimension' && o.refs.every(r => murs.has(r.objectId))) out.push(o.id);
-    else if ((o.type === 'network_item' || o.type === 'tree') && dedans(o.position)) out.push(o.id);
+    else if ((o.type === 'network_item' || o.type === 'tree' || o.type === 'column') && dedans(o.position)) out.push(o.id);
+    else if (o.type === 'beam' && dedans(o.a) && dedans(o.b)) out.push(o.id);
     else if (o.type === 'network' && o.points.every(dedans)) out.push(o.id);
     else if (o.type === 'platform' && o.contour.every(dedans)) out.push(o.id);
   }

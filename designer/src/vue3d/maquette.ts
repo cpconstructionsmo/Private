@@ -31,6 +31,7 @@ import { finitionAmenagement } from '../catalogue/amenagements';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
 import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
 import { parcelleDuProjet } from '../building/terrain';
+import { sectionPoteau, empriseDePoutre } from '../building/structure';
 import { plateformesDuProjet, reliefTerrain } from '../building/terrassement';
 import { difference, intersection } from '../geometry/booleen';
 import { aireSignee, type Anneau, type Polygone } from '../geometry/polygon';
@@ -299,6 +300,15 @@ function arbres(f: Floor, prismes: Prisme[]): void {
   }
 }
 
+/* la structure : un poteau du sol au plafond du niveau, une poutre sous le plafond (sa retombée) */
+function structure(f: Floor, prismes: Prisme[]): void {
+  const M: Record<string, Matiere> = { concrete: 'plancher', steel: 'inox', wood: 'escalier' };
+  for (const o of Object.values(f.objects)) {
+    if (o.type === 'column') prismes.push({ contour: sectionPoteau(o), z0: f.elevation, z1: f.elevation + f.height, matiere: M[o.material]!, objet: o.id, niveau: f.id });
+    else if (o.type === 'beam') prismes.push({ contour: empriseDePoutre(o), z0: f.elevation + f.height - o.depth, z1: f.elevation + f.height, matiere: M[o.material]!, objet: o.id, niveau: f.id });
+  }
+}
+
 /* le mobilier : ses blocs (building/mobilier.ts), tournés et posés sur le sol du niveau */
 function meubles(f: Floor, prismes: Prisme[]): void {
   for (const o of Object.values(f.objects)) {
@@ -320,7 +330,7 @@ export function maquette(projet: Project, jusqua?: string, options: { toiture?: 
     const F = [...b.floors].sort((a, c) => a.elevation - c.elevation);
     const k = jusqua ? F.findIndex(f => f.id === jusqua) : -1;
     for (const f of k >= 0 ? F.slice(0, k + 1) : F) {
-      planchers(projet, f, prismes); murs(f, prismes); peintures(f, prismes); amenagements(f, prismes); arbres(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
+      planchers(projet, f, prismes); murs(f, prismes); peintures(f, prismes); amenagements(f, prismes); arbres(f, prismes); structure(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
       if (options.toiture !== false) toiture(f, prismes, plaques);
     }
   }

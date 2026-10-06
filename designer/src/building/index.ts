@@ -14,3 +14,5 @@ export * from './fenetres-toit';
 export * from './equerre';
 export * from './couches';
 export * from './terrassement';
+export * from './metre';
+export * from './structure';
