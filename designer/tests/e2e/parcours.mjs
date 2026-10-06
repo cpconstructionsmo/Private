@@ -368,6 +368,19 @@ try {
   assert.notEqual(await p.evaluate(() => localStorage.getItem('cpDesigner:courbes')), avantCourbes, 'courbes de niveau basculées');
   await p.keyboard.press('Control+z');
   assert.equal((await objets()).find(o => o.type === 'plot').spotHeights, undefined, 'un « annuler » retire le relevé du géomètre');
+  /* la structure : un poteau, une poutre (Tracé › Poteaux et poutres) ; puis le métré du projet (Dossier › Métré) et son CSV */
+  await p.click('nav.onglets button[data-o=trace]'); await p.click('.sous button[data-s=structure]');
+  await p.click('.ruban .o-poteau'); await clic(5000, 3000);
+  await p.click('.ruban .o-poutre'); await clic(200, 5000); await clic(9800, 5000);
+  const struct = (await objets()).filter(o => o.type === 'column' || o.type === 'beam').map(o => o.type).sort();
+  assert.deepEqual(struct, ['beam', 'column'], 'poteau et poutre posés');
+  await p.keyboard.press('Escape');
+  await p.click('nav.onglets button[data-o=dossier]'); await p.click('.sous button[data-s=metre]');
+  const metreP = await p.textContent('aside');
+  assert.match(metreP, /Métré du projet[\s\S]*Gros œuvre[\s\S]*Murs extérieurs[\s\S]*Poteaux béton 20 × 20 cm[\s\S]*Menuiseries/, 'métré du projet par lot');
+  const [csvM] = await Promise.all([p.waitForEvent('download'), p.click('.ruban .b-metre')]);
+  assert.match(csvM.suggestedFilename(), /metre\.csv$/);
+  if (process.env.CAPTURE_METRE) await p.screenshot({ path: process.env.CAPTURE_METRE });
   await p.click('nav.onglets button[data-o=trace]'); await p.click('.sous button[data-s=murs]');
   await p.keyboard.press('Escape');
   await p.keyboard.press('f');
@@ -591,7 +604,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D, matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

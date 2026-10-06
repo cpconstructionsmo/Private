@@ -403,6 +403,30 @@ logiciel de terrain :
   équipements, arbres, et dans la colonne : terrassement (estimé), réseaux
   (légende des couleurs), plantations.
 
+**Métré du projet** (Dossier › Métré ; `src/building/metre.ts`) — chaque
+objet porte ses règles de métré, comme dans un logiciel de saisie de projet
+de constructeur ; quantités seulement, **sans prix** :
+- **murs** par composition : longueur à l'axe, surface nette (baies
+  déduites), volume ; doublage des murs extérieurs ; cloisons en m² ;
+- **ouvertures** : menuiseries par modèle et dimensions (extérieures,
+  intérieures), linteaux (baie + 2 × 20 cm d'appui, à confirmer), appuis ;
+- **niveau** : plancher bas ou dallage (surface de la maçonnerie) et
+  plafonds, avec leur composition (« à choisir » sinon) ;
+- **pièces** : sol (avec son revêtement), plinthes (portes déduites), murs
+  à peindre (périmètre × hauteur sous plafond, baies déduites), plafonds ;
+  une pièce humide signale sa faïence et son étanchéité « à préciser » ;
+- **toiture** : couverture (surface rampante), gouttières (longueur
+  d'égout), descentes à préciser, fenêtres de toit ;
+- **poteaux et poutres**, escaliers, équipements (cuisine, salle de bains,
+  WC) ; **terrain** : déblais, remblais, réseaux.
+Export CSV (« ; », virgule décimale) pour le tableur ou le chiffrage.
+
+**Poteaux et poutres** (Tracé › Poteaux et poutres ; `src/building/structure.ts`) :
+un poteau (section, rotation, béton, acier ou bois) du sol au plafond du
+niveau, en section pleine au plan ; une poutre (largeur, retombée sous le
+plafond) en tirets au plan ; tous deux en 3D, déplaçables, métrés.
+Sections à confirmer par l'étude de structure.
+
 **Fenêtres de toit** (outil H ; `src/building/fenetres-toit.ts`) : un
 châssis posé sur un pan de la toiture du niveau qui la porte (le Designer
 y passe de lui-même), d'un clic ; tailles courantes sans marque (78 × 98,

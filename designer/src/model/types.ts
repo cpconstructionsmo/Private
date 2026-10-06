@@ -322,7 +322,27 @@ export interface Tree extends BaseObject {
   state: 'existing' | 'planted' | 'felled';
 }
 
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree;
+/** un poteau : une section (largeur × profondeur) posée sur le sol du niveau, de la hauteur du niveau */
+export interface Column extends BaseObject {
+  type: 'column';
+  position: Point;
+  width: Mm;
+  depth: Mm;
+  rotation: Radian;
+  material: 'concrete' | 'steel' | 'wood';
+}
+
+/** une poutre : de a à b, sous le plafond du niveau ; « depth » est sa retombée sous le plafond */
+export interface Beam extends BaseObject {
+  type: 'beam';
+  a: Point;
+  b: Point;
+  width: Mm;
+  depth: Mm;
+  material: 'concrete' | 'steel' | 'wood';
+}
+
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree | Column | Beam;
 
 export interface Floor {
   id: string;

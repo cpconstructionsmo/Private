@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -121,6 +121,10 @@ export type Commande =
   | { type: 'creerEquipement'; niveau: string; genre: NetworkItem['kind']; position: Point; nom?: string }
   | { type: 'modifierEquipement'; id: string; genre?: NetworkItem['kind']; position?: Point; nom?: string | null }
   | { type: 'creerArbre'; niveau: string; position: Point; diametre: Mm; etat: Tree['state'] }
+  | { type: 'creerPoteau'; niveau: string; position: Point; largeur: Mm; profondeur: Mm; rotation?: number; matiere: Column['material'] }
+  | { type: 'modifierPoteau'; id: string; position?: Point; largeur?: Mm; profondeur?: Mm; rotation?: number; matiere?: Column['material'] }
+  | { type: 'creerPoutre'; niveau: string; a: Point; b: Point; largeur: Mm; retombee: Mm; matiere: Beam['material'] }
+  | { type: 'modifierPoutre'; id: string; a?: Point; b?: Point; largeur?: Mm; retombee?: Mm; matiere?: Beam['material'] }
   | { type: 'modifierArbre'; id: string; position?: Point; diametre?: Mm; etat?: Tree['state'] }
   | { type: 'creerAmenagement'; niveau: string; genre: Landscape['kind']; points: Point[]; ferme?: boolean; finition: string; hauteur: Mm }
   | { type: 'modifierAmenagement'; id: string; points?: Point[]; ferme?: boolean; finition?: string; hauteur?: Mm }
@@ -854,6 +858,52 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.position) { avant['position'] = o!.position; apres['position'] = { ...position } }
       if (cmd.diametre !== undefined) { avant['diameter'] = o!.diameter; apres['diameter'] = diametre }
       if (cmd.etat !== undefined) { avant['state'] = o!.state; apres['state'] = etat }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
+    }
+    case 'creerPoteau': case 'modifierPoteau': {
+      const t = cmd.type === 'modifierPoteau' ? trouverObjet(p, cmd.id) : null;
+      if (cmd.type === 'modifierPoteau' && (!t || t.objet.type !== 'column')) return refus('poteau introuvable');
+      if (cmd.type === 'creerPoteau' && !trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const o = t?.objet as Column | undefined;
+      const position = cmd.position ?? o!.position, largeur = cmd.largeur ?? o!.width, profondeur = cmd.profondeur ?? o!.depth;
+      const rotation = cmd.rotation ?? o?.rotation ?? 0, matiere = cmd.matiere ?? o!.material;
+      if (!ptFini(position) || !fini(rotation)) return refus('position invalide');
+      if (!(largeur >= 50 && largeur <= 2_000 && profondeur >= 50 && profondeur <= 2_000)) return refus('section de poteau entre 5 cm et 2 m');
+      if (!['concrete', 'steel', 'wood'].includes(matiere)) return refus('matière inconnue');
+      if (cmd.type === 'creerPoteau') {
+        const n: Column = { id: c.id(), type: 'column', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision, position: { ...position }, width: largeur, depth: profondeur, rotation, material: matiere };
+        return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: n }]);
+      }
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.position) { avant['position'] = o!.position; apres['position'] = { ...position } }
+      if (cmd.largeur !== undefined) { avant['width'] = o!.width; apres['width'] = largeur }
+      if (cmd.profondeur !== undefined) { avant['depth'] = o!.depth; apres['depth'] = profondeur }
+      if (cmd.rotation !== undefined) { avant['rotation'] = o!.rotation; apres['rotation'] = rotation }
+      if (cmd.matiere !== undefined) { avant['material'] = o!.material; apres['material'] = matiere }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
+    }
+    case 'creerPoutre': case 'modifierPoutre': {
+      const t = cmd.type === 'modifierPoutre' ? trouverObjet(p, cmd.id) : null;
+      if (cmd.type === 'modifierPoutre' && (!t || t.objet.type !== 'beam')) return refus('poutre introuvable');
+      if (cmd.type === 'creerPoutre' && !trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const o = t?.objet as Beam | undefined;
+      const a = cmd.a ?? o!.a, b = cmd.b ?? o!.b, largeur = cmd.largeur ?? o!.width, retombee = cmd.retombee ?? o!.depth, matiere = cmd.matiere ?? o!.material;
+      if (!ptFini(a) || !ptFini(b)) return refus('position invalide');
+      if (distance(a, b) < 300) return refus('une poutre fait 30 cm au moins');
+      if (!(largeur >= 50 && largeur <= 1_000 && retombee >= 0 && retombee <= 2_000)) return refus('largeur de poutre entre 5 cm et 1 m, retombée entre 0 et 2 m');
+      if (!['concrete', 'steel', 'wood'].includes(matiere)) return refus('matière inconnue');
+      if (cmd.type === 'creerPoutre') {
+        const n: Beam = { id: c.id(), type: 'beam', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision, a: { ...a }, b: { ...b }, width: largeur, depth: retombee, material: matiere };
+        return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: n }]);
+      }
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.a) { avant['a'] = o!.a; apres['a'] = { ...a } }
+      if (cmd.b) { avant['b'] = o!.b; apres['b'] = { ...b } }
+      if (cmd.largeur !== undefined) { avant['width'] = o!.width; apres['width'] = largeur }
+      if (cmd.retombee !== undefined) { avant['depth'] = o!.depth; apres['depth'] = retombee }
+      if (cmd.matiere !== undefined) { avant['material'] = o!.material; apres['material'] = matiere }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
     }

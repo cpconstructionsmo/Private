@@ -24,6 +24,7 @@ import { champDeVue, type Recul } from '../building/terrain';
 import { centroide, mm2EnM2, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, milieu, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
+import { sectionPoteau, empriseDePoutre } from '../building/structure';
 import { boiteVisible, pasDeGrille, versEcran, type Camera } from './camera';
 import { dessinCote, texteCote } from './cotes';
 
@@ -234,6 +235,19 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     const a = s.parcelleEnCours[s.parcelleEnCours.length - 2]!, b = s.parcelleEnCours[s.parcelleEnCours.length - 1]!, m = versEcran(cam, milieu(a, b));
     ctx.fillStyle = COULEURS.vert; ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(texteCote(distance(a, b)), m.x, m.y - 4);
+  }
+  /* la structure : un poteau en section pleine, une poutre en tirets (au-dessus du plan de coupe, vue en dessous) */
+  for (const o of Object.values(s.niveau.objects)) {
+    if (o.type !== 'column' && o.type !== 'beam') continue;
+    const ch = o.id === s.selection || !!s.groupe?.has(o.id);
+    const P = (o.type === 'column' ? sectionPoteau(o) : empriseDePoutre(o)).map(q => versEcran(cam, q));
+    ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath();
+    if (o.type === 'column') {
+      ctx.fillStyle = o.material === 'wood' ? '#B58B5E' : o.material === 'steel' ? '#7C8790' : '#5A5A5A'; ctx.fill();
+      ctx.strokeStyle = ch ? '#E8743B' : '#1E1E1E'; ctx.lineWidth = ch ? 2.2 : 1; ctx.setLineDash([]); ctx.stroke();
+    } else {
+      ctx.strokeStyle = ch ? '#E8743B' : '#3C3C3C'; ctx.lineWidth = ch ? 2 : 1; ctx.setLineDash([7, 4]); ctx.stroke(); ctx.setLineDash([]);
+    }
   }
   for (const l of s.coupes ?? []) traitDeCoupe(ctx, cam, l, !!l.id && (l.id === s.selection || !!s.groupe?.has(l.id)));
   for (const p of s.places ?? []) place(ctx, cam, p);

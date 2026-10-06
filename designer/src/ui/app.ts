@@ -5,11 +5,11 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { BuildingObject, Floor, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
+import type { Beam, BuildingObject, Column, Floor, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -492,7 +492,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       tremies: tremiesDuNiveau(p, f),
       /* les traits de coupe de tout le projet ; on ne choisit que ceux tracés sur ce niveau */
       parcelle: (() => { const t = parcelleDuProjet(p); return t && t.niveau.id === f.id ? { plot: t.plot, reculs: reculs(t.plot, empriseAuSol(p)) } : null })(),
-      parcelleEnCours: outils.parcelleEnCours, courbes: courbes || null, profil: profilTrait,
+      parcelleEnCours: outils.parcelleEnCours, courbes: courbes || null, profil: onglet === 'exterieur' ? profilTrait : null,
       coupes: traitsDeCoupe(p).map(({ id, niveau: n, ...l }) => (n === f.id ? { ...l, id } : l)),
       ...(toit?.ok ? { toitures: toit.toitures } : {}),
       ...(cotation && !en3D ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)) } : {}), places }, dpr);
@@ -741,15 +741,16 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'equipement', icone: 'regard', libelle: 'Équipement de réseau (regard, compteur…)', touche: 'Y' },
     { nom: 'arbre', icone: 'arbre', libelle: 'Arbre', touche: 'Z' },
     { nom: 'profil', icone: 'profil', libelle: 'Profil en long du terrain', touche: 'S' },
+    { nom: 'poteau', icone: 'poteau', libelle: 'Poteau', touche: '' }, { nom: 'poutre', icone: 'poutre', libelle: 'Poutre', touche: '' },
     { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
   ];
-  const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.map(o => [o.touche.toLowerCase(), o.nom]));
+  const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.filter(o => o.touche).map(o => [o.touche.toLowerCase(), o.nom]));
   /** l'onglet et le sous-onglet où vit chaque outil : choisir l'outil (au clavier) y mène */
   const PLACE_OUTIL: Partial<Record<NomOutil, [string, string]>> = {
     mur: ['trace', 'murs'], refend: ['trace', 'murs'], cloison: ['trace', 'murs'], fictive: ['trace', 'murs'], rectangle: ['trace', 'murs'],
     piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
     ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
-    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'],
+    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'],
     mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
   };
   function choisir(o: NomOutil) {
@@ -766,7 +767,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const place = PLACE_OUTIL[o];
     if (place && !offertIci(o)) { onglet = place[0]; sousOnglets[place[0]] = place[1] }
     if (o !== 'piece') typePiece = null;
-    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre' || o === 'poteau' || o === 'poutre') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   /** l'outil est-il une tuile du sous-onglet ouvert ? */
   const offertIci = (o: NomOutil) => !!sousCourant().tuiles?.().some(t => !!t.classe?.split(' ').includes('o-' + o));
 
@@ -806,6 +807,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { id: 'pieces', libelle: 'Types de pièces', icone: 'pieces', tuiles: () => [
         ...TYPES_PIECES.map(t => ({ libelle: t.libelle, icone: t.icone, faire: () => choisirTypePiece(t.libelle), actif: () => outils.outil === 'piece' && typePiece === t.libelle, titre: 'Cliquez dans un espace clos pour en faire : ' + t.libelle })),
         { ...outil('piece', 'Autre nom…'), faire: () => { typePiece = null; choisir('piece') }, actif: () => outils.outil === 'piece' && !typePiece }] },
+      { id: 'structure', libelle: 'Poteaux et poutres', icone: 'poteau', tuiles: () => [outil('poteau', 'Poteau'), outil('poutre', 'Poutre')], options: () => optionsStructure() },
       { id: 'niveaux', libelle: 'Niveaux', icone: 'niveaux', tuiles: () => [action('Ajouter un niveau', 'niveau_plus', () => void ajouterNiveau()), outil('escalier')] },
       { id: 'transformations', libelle: 'Transformations', icone: 'transformations', tuiles: () => [outil('selection'),
         action('Tout choisir', 'tout', () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'constraint').map(o => o.id)), 'Ctrl+A'),
@@ -879,6 +881,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     ] },
     { id: 'dossier', libelle: 'Dossier', icone: 'dossier', sous: [
       { id: 'plans', libelle: 'Plans', icone: 'pdf', tuiles: () => [action('Plans en PDF', 'pdf', () => void exporterPdf()), action('Plans en DXF', 'dxf', () => void exporterDxf()), action('Projet (JSON)', 'json', exporter)] },
+      { id: 'metre', libelle: 'Métré', icone: 'metre', tuiles: () => [action('Métré (CSV)', 'tableau', exporterMetre, 'Le métré par lot, à ouvrir dans un tableur', 'b-metre')], panneau: () => panneauMetreProjet() },
       { id: 'permis', libelle: 'Dossier de permis', icone: 'permis', tuiles: () => [action('Dossier PC complet', 'permis', () => void exporterPdf('dossier')),
         action('PCMI 1 situation', 'image', () => void importerPiece('situation', 'PCMI 1 — Plan de situation', 'Source et échelle de l’extrait (ex. : Géoportail, 1/5 000)')),
         action('PCMI 7 proche', 'photo', () => void importerPiece('photoProche', 'PCMI 7 — Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)')),
@@ -1116,7 +1119,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const TYPES: Record<string, [string, string]> = { wall: ['murs', 'Mur'], opening: ['ouvrant', 'Ouvrant'], room: ['piece', 'Pièce'], dimension: ['cote', 'Cote'], underlay: ['fond', 'Fond'],
       furniture: ['produit', 'Produit'], stair: ['escalier', 'Escalier'], section: ['coupe', 'Coupe'], roof_window: ['fenetre_toit', 'Fenêtre de toit'], viewpoint: ['point_de_vue', 'Point de vue'],
       landscape: ['exterieur', 'Aménagement'], plot: ['parcelle', 'Terrain'], constraint: ['equerre', 'Contrainte'], roof: ['toit', 'Toit'],
-      platform: ['plateforme', 'Plateforme'], network: ['reseau', 'Réseau'], network_item: ['regard', 'Équipement'], tree: ['arbre', 'Arbre'] };
+      platform: ['plateforme', 'Plateforme'], network: ['reseau', 'Réseau'], network_item: ['regard', 'Équipement'], tree: ['arbre', 'Arbre'], column: ['poteau', 'Poteau'], beam: ['poutre', 'Poutre'] };
     const [ic, lib] = en3D ? ['vue3d', 'Vue 3D'] : groupe.length ? ['tout', 'Sélection'] : o ? TYPES[o.type] ?? ['trace', 'Objet']
       : outils.outil === 'ouverture' ? ['ouvrant', 'Ouvrant'] : outils.outil === 'mobilier' ? ['produit', 'Produit'] : outils.outil === 'escalier' ? ['escalier', 'Escalier']
       : outils.outil === 'amenagement' ? ['exterieur', 'Extérieur'] : S.panneau ? [S.icone, S.libelle] : ['niveaux', 'Niveau'];
@@ -1433,6 +1436,27 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
+      case 'column': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierPoteau' }>>) => faire(t, [{ type: 'modifierPoteau', id: o.id, ...c }]);
+        A.append(titre('Poteau ' + MATIERES_STRUCTURE[o.material].toLowerCase()),
+          champ('Matière', o.material, v => mod('Matière du poteau', { matiere: v as Column['material'] }), 'text', MATIERES_STRUCTURE),
+          champ('Largeur (cm)', o.width / 10, v => mod('Section du poteau', { largeur: Math.round(ent(v) * 10) }), 'number'),
+          champ('Profondeur (cm)', o.depth / 10, v => mod('Section du poteau', { profondeur: Math.round(ent(v) * 10) }), 'number'),
+          champ('Rotation (°)', Math.round(o.rotation * 1800 / Math.PI) / 10, v => mod('Rotation du poteau', { rotation: ent(v) * Math.PI / 180 }), 'number'),
+          bloc('Du sol au plafond du niveau (' + m(f.height) + '). Section à confirmer par l’étude de structure.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'beam': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierPoutre' }>>) => faire(t, [{ type: 'modifierPoutre', id: o.id, ...c }]);
+        A.append(titre('Poutre ' + MATIERES_STRUCTURE[o.material].toLowerCase()),
+          champ('Matière', o.material, v => mod('Matière de la poutre', { matiere: v as Beam['material'] }), 'text', MATIERES_STRUCTURE),
+          champ('Largeur (cm)', o.width / 10, v => mod('Largeur de la poutre', { largeur: Math.round(ent(v) * 10) }), 'number'),
+          champ('Retombée sous plafond (cm)', o.depth / 10, v => mod('Retombée de la poutre', { retombee: Math.round(ent(v) * 10) }), 'number'),
+          bloc('Portée : <b>' + m(distance(o.a, o.b)) + '</b> · hauteur libre dessous : ' + m(f.height - o.depth) + '. Section et appuis à confirmer par l’étude de structure.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
       case 'constraint':
         A.append(titre('Contrainte'), bloc(CONTRAINTES[o.kind] ?? o.kind), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
@@ -1689,6 +1713,48 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       champ('Largeur (m)', (r.largeurEscalier / 1000).toFixed(2), v => { r.largeurEscalier = mm(v); panneaux() }, 'number'),
       bloc(resumeEscalier(f, g)));
     for (const a of g.alertes) aside.append(bloc('⚠️ ' + esc(a), 'alerte'));
+  }
+
+  /* ---------- la structure : poteaux et poutres ---------- */
+  function optionsStructure(): HTMLElement[] {
+    const r = outils.reglages, o = document.createElement('div'); o.className = 'options';
+    const nb = (lib: string, val: Mm, f: (v: Mm) => void) => {
+      const l = document.createElement('label'); l.innerHTML = esc(lib) + ' <input type="number" step="1" style="width:56px">';
+      const i = l.querySelector('input')!; i.value = String(val / 10); i.onchange = () => { const v = Math.round(ent(i.value) * 10); if (v > 0) f(v) };
+      return l;
+    };
+    const mat = (val: string, f: (v: Column['material']) => void) => {
+      const l = document.createElement('label'); l.innerHTML = 'Matière <select>' + Object.entries(MATIERES_STRUCTURE).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('') + '</select>';
+      const x = l.querySelector('select')!; x.value = val; x.onchange = () => f(x.value as Column['material']);
+      return l;
+    };
+    if (outils.outil === 'poutre') o.append(nb('Largeur (cm)', r.largeurPoutre, v => { r.largeurPoutre = v }), nb('Retombée (cm)', r.retombeePoutre, v => { r.retombeePoutre = v }), mat(r.matierePoutre, v => { r.matierePoutre = v }));
+    else o.append(nb('Section (cm)', r.largeurPoteau, v => { r.largeurPoteau = v }), nb('×', r.profondeurPoteau, v => { r.profondeurPoteau = v }), mat(r.matierePoteau, v => { r.matierePoteau = v }));
+    return [o];
+  }
+
+  /* ---------- le métré du projet (par lot, sans prix) ---------- */
+  function panneauMetreProjet() {
+    const A = aside, L = metreProjet(h.projet);
+    A.append(titre('Métré du projet'));
+    if (!L.length) { A.append(bloc('Rien à métrer : tracez la maison.')); return }
+    const q = (x: number, u: string) => (u === 'u' ? String(Math.round(x)) : x.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ' ' + u;
+    const n = L.filter(l => l.aPreciser).length;
+    A.append(bloc('Quantités tirées du plan, sans prix (le chiffrage se fait à part). ' + (n ? '<b>' + n + ' ligne' + (n > 1 ? 's' : '') + ' à préciser</b> (⚠️).' : ''), n ? 'alerte' : 'note'),
+      ligne(bouton('Exporter le métré (CSV)', exporterMetre, 'prim')));
+    for (const lot of [...new Set(L.map(l => l.lot))]) {
+      const t = document.createElement('table');
+      t.innerHTML = L.filter(l => l.lot === lot).map(l => `<tr title="${esc(l.detail ?? '')}"><td>${l.aPreciser ? '⚠️ ' : ''}${esc(l.libelle)}${l.detail ? '<br><span class="note">' + esc(l.detail) + '</span>' : ''}</td><td style="white-space:nowrap;text-align:right">${l.aPreciser && !l.quantite ? '—' : q(l.quantite, l.unite)}</td></tr>`).join('');
+      A.append(titre(lot), t);
+    }
+    A.append(bloc('Murs à l’axe ; pièces entre les faces des murs, sur la hauteur sous plafond ; linteaux avec 20 cm d’appui de chaque côté (à confirmer) ; volumes en place. À relire avant tout devis.'));
+  }
+  function exporterMetre() {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['\uFEFF' + metreCsv(metreProjet(h.projet))], { type: 'text/csv;charset=utf-8' }));
+    a.download = (h.projet.name || 'projet') + ' - metre.csv'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast('Métré exporté : il s’ouvre dans un tableur (séparateur « ; »)');
   }
 
   /* ---------- le terrain (façon logiciel de terrain : relevé, terrassement, VRD, végétation) ---------- */
