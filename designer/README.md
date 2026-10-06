@@ -125,7 +125,11 @@ surfaces sur les mêmes plans), deux pans à pignons (sur un rectangle ; sur
 un plan en L, T, U, chaque bout d'aile devient un pignon et les noues se
 forment dans les angles rentrants), un pan sur un plan rectangulaire,
 toit-terrasse avec acrotère. Le toit passe par le haut des
-murs au nu extérieur ; égout, faîtage et surface de couverture sont
+murs au nu extérieur — un mur extérieur tracé sans hauteur monte à l'arase,
+hauteur sous plafond + 35 cm (2,85 m pour 2,50 m, mur en parpaing courant ;
+sous un étage, jusqu'à son plancher), et la hauteur des murs extérieurs se
+règle d'un coup au panneau de la toiture ; débord proposé : 20 cm. Égout,
+faîtage et surface de couverture sont
 annoncés (indicatifs : la charpente n'est pas étudiée). Un plan qui ne
 convient pas est refusé avec sa raison. En plan : égout en tirets, lignes
 des pans en pointillé.

@@ -10,7 +10,7 @@ const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => 
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join(' ; ')); return r.historique };
 const rdc = (p: Project): Floor => p.buildings[0]!.floors[0]!;
 const M = (n: string, x1: number, y1: number, x2: number, y2: number, e = 200, role: Wall['role'] = 'exterior'): Commande =>
-  ({ type: 'creerMur', niveau: n, a: { x: x1, y: y1 }, b: { x: x2, y: y2 }, epaisseur: e, role });
+  ({ type: 'creerMur', niveau: n, a: { x: x1, y: y1 }, b: { x: x2, y: y2 }, epaisseur: e, hauteur: 2_500, role });
 const boite = (n: string): Commande[] => [M(n, 0, 0, 10_000, 0), M(n, 10_000, 0, 10_000, 8_000), M(n, 10_000, 8_000, 0, 8_000), M(n, 0, 8_000, 0, 0)];
 const m3 = (v: number) => Math.round(v / 1e9 * 1e6) / 1e6;
 

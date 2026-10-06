@@ -41,11 +41,27 @@ describe('projet', () => {
 });
 
 describe('commandes', () => {
+  it('hauteur par défaut : un mur extérieur monte à l’arase (2,85 m), une cloison au plafond (2,50 m), sous un étage jusqu’à son plancher', async () => {
+    const { h, a, rdc } = depart();
+    const h1 = ok(executer(h, 'x', [...quatreMurs(rdc), mur(rdc, 5_000, 0, 5_000, 8_000, 70, 'partition'), { type: 'creerToiture', niveau: rdc, genre: 'hip', pente: 35, debord: 200, couverture: 'tile' }], a));
+    const W = Object.values(h1.projet.buildings[0]!.floors[0]!.objects).filter((o): o is Wall => o.type === 'wall');
+    expect(W.filter(w => w.role === 'exterior').map(w => w.height)).toEqual([2_850, 2_850, 2_850, 2_850]);
+    expect(W.find(w => w.role === 'partition')!.height).toBe(2_500);
+    /* l'égout : 2,85 m au nu du mur, moins 20 cm de débord à 35° */
+    const { toitureDuNiveau } = await import('../../src/building');
+    const t = toitureDuNiveau(h1.projet.buildings[0]!.floors[0]!)!;
+    expect(t.ok && t.toitures[0]!.egoutZ).toBeCloseTo(2_850 - 200 * Math.tan(35 * Math.PI / 180), 6);
+    /* un étage à 2,70 m : les murs extérieurs du RDC tracés ensuite s'arrêtent à son plancher */
+    const h2 = ok(executer(h, 'x', [{ type: 'ajouterNiveau', batiment: h.projet.buildings[0]!.id, nom: 'Étage', altitude: 2_700, hauteur: 2_500 }, mur(rdc, 0, 0, 4_000, 0)], a));
+    expect(Object.values(h2.projet.buildings[0]!.floors[0]!.objects).find(o => o.type === 'wall')).toMatchObject({ height: 2_700 });
+  });
+
   it('un mur : créé, daté, signé ; « porteur » à contrôler, jamais confirmé', () => {
     const { h, a, rdc } = depart();
     const h1 = ok(executer(h, 'Mur', [mur(rdc, 0, 0, 5_000, 0)], a));
     const w = Object.values(h1.projet.buildings[0]!.floors[0]!.objects)[0] as Wall;
-    expect(w).toMatchObject({ type: 'wall', thickness: 200, height: 2_500, revision: 1, status: 'confirmed' });
+    /* un mur extérieur tracé sans hauteur monte à l'arase : 2,50 m sous plafond + 35 cm */
+    expect(w).toMatchObject({ type: 'wall', thickness: 200, height: 2_850, revision: 1, status: 'confirmed' });
     expect(w.loadBearing.status).toBe('to_check');
     expect(w.sourceRefs[0]).toMatchObject({ kind: 'user', by: 'CP' });
     expect(h1.projet.revision).toBe(1);
