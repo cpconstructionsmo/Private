@@ -80,8 +80,13 @@ leur mur et des pièces nommées ; statuts repris (✅ → confirmé, ⚠️ / �
 vérifier, hauteurs non lues signalées), tracé du plan source en fond
 verrouillé, rapport des surfaces atelier / Designer pièce par pièce, un
 seul « annuler ». Ce qui ne se convertit pas (poteau, baie qui dépasse)
-est signalé, jamais inventé. Essai sur un vrai RDC (hors dépôt) : 6 pièces
-sur 6 à l'identique, au centième de m².
+est signalé, jamais inventé. Les pièces lues par l'atelier restent fermées :
+un bord de pièce qu'aucun mur ne longe devient, avec une porte lue dedans,
+la suite de la cloison de la même ligne (porte au bout d'une cloison, contre
+le mur qui la croise), sinon une cloison fictive (passage ouvert, « à
+vérifier ») ; un éclat de dessin logé dans l'épaisseur d'un mur plus épais
+est écarté. Essais sur de vrais RDC (hors dépôt) : 6 pièces sur 6, puis 12
+sur 12 (au lieu de 8), aux surfaces de l'atelier à quelques centièmes.
 
 **Tracé rapide et cotation automatique** (pour se rapprocher des logiciels
 de plans de maisons) :

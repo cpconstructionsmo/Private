@@ -89,6 +89,35 @@ describe('import du modèle de l’atelier', () => {
     expect(planDuNiveau(f).alertes).toEqual([]);
   });
 
+  it('les pièces de l’atelier restent fermées : porte au bout d’une cloison, passage ouvert, éclat dans un mur', () => {
+    /* 10 × 6 m (murs de 20 cm) ; une cloison verticale qui s'arrête à 1,30 m du mur (passage ouvert vers le séjour) ;
+       une cloison horizontale qui s'arrête à 1,80 m du mur, une porte lue dans l'écart ; un éclat de 5 cm dans le mur de droite */
+    const val = (v: number) => ({ valeur: v, statut: 'confirme' as const });
+    const R = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    const piece = (id: string, nom: string, usage: string, P: [number, number][]) => ({ id, nom, usage, polygone: P, surface_calculee: 0 });
+    const m: ModeleAtelier = { schema_version: 1, batiment: { niveaux: [{
+      murs: [
+        { id: 'M1', polygone: R(0, 0, 10, 6), trous: [R(0.2, 0.2, 9.8, 5.8)], epaisseur: 0.2, exterieur: true },
+        { id: 'M2', polygone: R(3.965, 0.2, 4.035, 4.5), epaisseur: 0.07, exterieur: false },
+        { id: 'M3', polygone: R(4.035, 2.965, 8.0, 3.035), epaisseur: 0.07, exterieur: false },
+        { id: 'M4', polygone: R(9.81, 4.0, 9.99, 4.05), epaisseur: 0.05, exterieur: false }],
+      ouvertures: [{ id: 'O1', type: 'porte', position: [8.9, 3.0], largeur: val(0.8), hauteur: val(2.04), allege: val(0) }],
+      pieces: [piece('P1', 'Séjour', 'sejour', R(0.2, 0.2, 3.965, 5.8)), piece('P2', 'Chambre', 'chambre', R(4.035, 0.2, 9.8, 2.965)), piece('P3', 'Bureau', 'chambre', R(4.035, 3.035, 9.8, 5.8))],
+    }] } };
+    const { f, rapport } = importer(m);
+    const S = surfaces(f);
+    expect(Object.keys(S).sort()).toEqual(['Bureau', 'Chambre', 'Séjour']);
+    expect(S['Chambre']).toBeCloseTo(5.765 * 2.765, 1);
+    expect(S['Bureau']).toBeCloseTo(5.765 * 2.765, 1);
+    /* la cloison horizontale traverse l'écart jusqu'au mur, la porte s'y pose ; le passage ouvert : une cloison fictive */
+    const W = Object.values(f.objects).filter((o): o is Wall => o.type === 'wall');
+    expect(W.filter(w => w.role === 'virtual')).toHaveLength(1);
+    expect(Object.values(f.objects).filter(o => o.type === 'opening')).toHaveLength(1);
+    expect(rapport.avertissements.some(a => a.includes('cloison fictive'))).toBe(true);
+    expect(rapport.avertissements.some(a => a.includes('Éclat'))).toBe(true);
+    expect(W.some(w => 'a' in w.axis && Math.hypot(w.axis.b.x - w.axis.a.x, w.axis.b.y - w.axis.a.y) < 300)).toBe(false);
+  });
+
   it('un fichier qui n’est pas un modèle de l’atelier est refusé, avec la raison', () => {
     expect(() => lireModeleAtelier({ name: 'autre' })).toThrow(/pas un modèle de l’atelier/);
     expect(() => lireModeleAtelier({ schema_version: 9, batiment: { niveaux: [{ murs: [{}] }] } })).toThrow(/plus récente/);
