@@ -164,9 +164,12 @@ fait de commandes ordinaires : un seul « annuler ».
 
 **Export PDF** (bouton « PDF » ; `src/export/`) : une planche A3 par niveau,
 à la plus grande échelle normalisée qui tient (1/50, 1/75, 1/100…), cotes,
-débord de toit, mobilier au choix, tableau des surfaces, cartouche CP
-Constructions (projet, plan, échelle, phase, date, indice), échelle
-graphique. Le PDF est écrit sans bibliothèque et en vectoriel : le plan y
+débord de toit, mobilier au choix, tableau des surfaces, échelle
+graphique. Chaque planche porte, comme les dossiers du cabinet, la colonne
+CP Constructions sur toute sa hauteur (logo, titre, numéro de feuille et
+indice, construction de, adresse du projet, zone sismique, dessiné par,
+RE 2020, format, échelle) et son titre en bas à gauche ; ce qui n'est pas
+saisi s'écrit « [à préciser] ». Le PDF est écrit sans bibliothèque et en vectoriel : le plan y
 est dessiné par le même code qu'à l'écran, sur une « toile PDF ».
 
 **Façades** (`src/vue3d/facades.ts`, option de l'export PDF) : les quatre
@@ -263,9 +266,13 @@ MOBILIER, TOITURE (égout), PARCELLE, AMENAGEMENTS ; texte en Windows-1252.
 Relu sans erreur par ezdxf (la bibliothèque DXF de l'atelier).
 
 **Dossier de permis** (PDF → « Composer : le dossier de permis complet ») :
-un seul PDF A3 numéroté « n / N » — page de garde (projet, maître
-d'ouvrage, adresse, référence cadastrale, surface du terrain, emprise) et
-sommaire des pièces, puis PCMI 2 (plan de masse), PCMI 3 (coupes), PCMI 4
+un seul PDF A3 numéroté « n / N » — page de garde sur le modèle des
+dossiers du cabinet (société, maître de l'ouvrage, « Demande de permis de
+construire », RE 2020 avec couverture, chauffage et divers, tableau des
+dates et modifications, lieu de construction, cadastre, surface du
+terrain ; à droite le tableau des surfaces pièce par pièce, S.H et S.A,
+le résumé du projet — emprise, surface de plancher, surface habitable,
+surface vitrée — et le sommaire des pièces), puis PCMI 2 (plan de masse), PCMI 3 (coupes), PCMI 4
 (brouillon de notice), PCMI 5 (façades, plan de toiture) et les plans des
 niveaux, chaque cartouche portant sa pièce. Les pièces images sont fournies
 par l'utilisateur, jamais inventées :
@@ -286,6 +293,19 @@ le demande le formulaire ; la page de la photographie le dit alors
 « reporté ». Une pièce non fournie est listée « à
 joindre » ; ce qui n'est pas connu (point de vue, échelle) s'écrit
 « [à compléter] ».
+
+Les **informations du dossier** (Dossier › Dossier de permis ›
+« Informations » : maître d'ouvrage et son adresse, lieu de construction,
+références cadastrales et surface du terrain — à défaut celles de la
+parcelle tracée —, zone sismique, couverture, chauffage, divers,
+modifications « jj/mm/aaaa — objet ») sont enregistrées avec le projet
+(commande `modifierDossier`, annulable). Le **cabinet** (« Cabinet » :
+société, adresse, téléphone, e-mail, SIREN, TVA, dessinateur) est réglé
+sur l'appareil (`localStorage`, clé `cpDesigner:cabinet`), comme les
+réglages de l'atelier : ces coordonnées ne vont ni dans le projet ni dans
+le dépôt. Le logo est celui du site (`assets/logo.png`), mis en JPEG au
+moment de l'export ; s'il ne se charge pas, le nom de la société le
+remplace.
 
 **Plan de présentation** (PDF → « Plans : plans de présentation pour le
 client » ; à l'écran, « Sols en couleur » dans les réglages du niveau) :

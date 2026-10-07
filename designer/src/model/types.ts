@@ -414,6 +414,28 @@ export interface Site { id: string; underlays: Underlay[] }
 
 export type ProjectPhase = 'ESQ' | 'APS' | 'APD' | 'PC' | 'PCM' | 'EXE';
 
+/** ce que disent la page de garde et le cartouche des planches : le maître d'ouvrage, le lieu, le cadastre, les
+ *  choix techniques annoncés, l'historique des modifications. Tout est facultatif : une case vide s'imprime
+ *  « [à préciser] ». Données du dossier (jamais dans le dépôt) */
+export interface InfosDossier {
+  /** « M. X et Mme Y » */
+  maitreOuvrage?: string;
+  /** l'adresse du maître d'ouvrage (une ligne par ligne d'adresse) */
+  adresseMaitreOuvrage?: string;
+  /** l'adresse du terrain (une ligne par ligne d'adresse) */
+  lieuConstruction?: string;
+  /** « ZB n°237 et 238 » ; absente : celle de la parcelle tracée */
+  referencesCadastrales?: string;
+  /** la surface du terrain déclarée (m²) ; absente : celle de la parcelle tracée */
+  surfaceTerrain?: number;
+  couverture?: string;
+  chauffage?: string;
+  divers?: string;
+  zoneSismique?: string;
+  /** les modifications du dossier, dans l'ordre (date jj/mm/aaaa, objet) */
+  modifications?: { date: string; objet: string }[];
+}
+
 export interface Project {
   id: string;
   /** version du schéma : toute évolution passe par une migration testée */
@@ -427,6 +449,8 @@ export interface Project {
   revision: number;
   site: Site;
   buildings: Building[];
+  /** les informations du dossier (page de garde, cartouches) ; absentes : à préciser */
+  dossier?: InfosDossier;
 }
 
 export const SCHEMA_VERSION = 1;

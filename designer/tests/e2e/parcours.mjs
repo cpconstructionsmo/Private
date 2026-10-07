@@ -538,6 +538,20 @@ try {
   const imageFictive = await p.screenshot({ type: 'png', clip: { x: 0, y: 0, width: 640, height: 400 } });
   /* onglet Dossier → Dossier de permis : les pièces fournies */
   await p.click('nav.onglets button[data-o=dossier]'); await p.click('.sous button[data-s=permis]');
+  /* les informations du dossier (enregistrées dans le projet) et le cabinet (réglé sur l'appareil) */
+  await p.click('aside button.binfos');
+  await p.fill('.voile textarea[name=lieuConstruction]', 'Lieu-dit Le Fictif\n00000 Villefictive');
+  await p.fill('.voile input[name=surfaceTerrain]', '812');
+  await p.fill('.voile input[name=chauffage]', 'Pompe à chaleur air / eau');
+  await p.fill('.voile textarea[name=modifications]', '01/10/2026 — Permis de construire');
+  await p.click('.voile button.prim');
+  await p.waitForFunction(() => /Lieu : Lieu-dit Le Fictif, 00000 Villefictive/.test(document.querySelector('aside').textContent));
+  assert.deepEqual(await p.evaluate(() => window.cpDesigner.projet().dossier),
+    { lieuConstruction: 'Lieu-dit Le Fictif\n00000 Villefictive', surfaceTerrain: 812, chauffage: 'Pompe à chaleur air / eau', modifications: [{ date: '01/10/2026', objet: 'Permis de construire' }] }, 'informations du dossier');
+  await p.click('aside button.bcabinet');
+  await p.fill('.voile input[name=dessinateur]', 'C. Fictif');
+  await p.click('.voile button.prim');
+  await p.waitForFunction(() => /dessiné par C\. Fictif/.test(document.querySelector('aside').textContent));
   const [fc7] = await Promise.all([p.waitForEvent('filechooser'), p.click('aside button.bpcmi7')]);
   await fc7.setFiles({ name: 'proche.png', mimeType: 'image/png', buffer: imageFictive });
   await p.fill('.voile input[name=leg]', 'depuis la rue, vers le nord');
@@ -560,7 +574,7 @@ try {
   const [dl6] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
   const dossier6 = (await readFile(await dl6.path())).toString('latin1');
   if (process.env.CAPTURE_DOSSIER) await writeFile(process.env.CAPTURE_DOSSIER, await readFile(await dl6.path()));
-  for (const t of ['(PCMI 6 \x97 Insertion)', '(PCMI 7 \x97 Environnement proche)', '(depuis la rue, vers le nord)', '(depuis la rue, face \xE0 l\x92entr\xE9e)'])
+  for (const t of ['(Lieu-dit Le Fictif)', '(812 m\xB2)', '(Pompe \xE0 chaleur air / eau)', '(PERMIS DE CONSTRUIRE)', '(C. Fictif)', '(PCMI 6 \x97 Insertion)', '(PCMI 7 \x97 Environnement proche)', '(depuis la rue, vers le nord)', '(depuis la rue, face \xE0 l\x92entr\xE9e)'])
     assert.ok(dossier6.includes(t), 'dossier : ' + t);
   assert.equal(dossier6.match(/\/Subtype \/Image /g)?.length, 2, 'deux images dans le dossier (insertion et photographie)');
   /* le plan de présentation : sols en couleur à l'écran (préférence de l'appareil), puis en PDF pour le client */
@@ -580,6 +594,8 @@ try {
   assert.equal(await p.evaluate(() => localStorage.getItem('cpDesigner:sols')), 'non');
   await p.click('nav.onglets button[data-o=trace]');
   await videClic();
+  await p.keyboard.press('Control+z');
+  assert.equal(await p.evaluate(() => window.cpDesigner.projet().dossier ?? null), null, 'un « annuler » retire les informations du dossier');
   await p.keyboard.press('Control+z');
   assert.equal(await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.flatMap(f => Object.values(f.objects)).filter(o => o.type === 'roof_window').length), 0, 'un « annuler » retire la fenêtre de toit');
   await p.keyboard.press('Control+z');
@@ -676,7 +692,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, lucarne, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, lucarne, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

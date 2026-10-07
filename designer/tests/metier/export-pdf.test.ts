@@ -25,9 +25,10 @@ const texte = (u: Uint8Array) => Array.from(u, c => String.fromCharCode(c)).join
 
 describe('export PDF', () => {
   it('échelle normalisée : la plus grande qui tient, cotes comprises', () => {
-    expect(echelleNormalisee(12_000, 9_000)).toBe(50);
-    expect(echelleNormalisee(20_000, 12_000)).toBe(100);
-    expect(echelleNormalisee(20_000, 12_000, false)).toBe(75);
+    /* la zone du dessin laisse la place aux encadrés et à la colonne CP : 12 × 9 m cotés passent au 1/75 */
+    expect(echelleNormalisee(12_000, 9_000)).toBe(75);
+    expect(echelleNormalisee(20_000, 12_000)).toBe(125);
+    expect(echelleNormalisee(20_000, 12_000, false)).toBe(100);
     expect(echelleNormalisee(400_000, 1_000)).toBe(1_000);
   });
 
@@ -54,7 +55,8 @@ describe('export PDF', () => {
     /* cartouche, échelle, surfaces, cotes (texte tourné), pièces */
     const e = echelleNormalisee(B.xmax - B.xmin, B.ymax - B.ymin);
     expect(e).toBe(75);                                                  // 13 × 10 m débord compris : 1/50 ne tient plus
-    for (const t of ['(CP CONSTRUCTIONS)', '(Maison fictive)', '(Plan : RDC)', '(1/75 \\(A3\\))', '(03/10/2026)', '(B)', '(S\xE9jour - cuisine)', '(37,00 m\xB2)', '(12,00)'])
+    /* la colonne CP : société (sans logo), feuille, indice et date, format, échelle ; le titre et le projet en bas à gauche */
+    for (const t of ['(CP CONSTRUCTIONS)', '(Maison fictive)', '(Plan : RDC)', '(PLAN DU)', '(rez-de-chauss\xE9e)', '(Plan RDC)', '(indice B du 03/10/2026)', '(Format : A3)', '(\xC9chelle : 1/75)', '(S\xE9jour - cuisine)', '(37,00 m\xB2)', '(12,00)'])
       expect(s).toContain(t);
     expect((s.match(/ re S/g) ?? []).length).toBeGreaterThan(0);
     /* le dessin est vectoriel : des chemins remplis (maçonnerie) et tracés */
