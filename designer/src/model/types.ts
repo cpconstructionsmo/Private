@@ -99,6 +99,8 @@ export interface Opening extends BaseObject {
   operation?: 'hinged' | 'sliding' | 'fixed' | 'tilt_turn' | 'sectional' | 'up_and_over' | 'roller';
   /** le modèle de la bibliothèque d'où vient l'ouverture (identifiant et libellé, pour mémoire) */
   catalogRef?: { id: string; label: string };
+  /** son volet : roulant (motorisé ou manuel, coffre intégré), ou battants ; absent : pas de volet dit */
+  shutter?: 'roller_motorized' | 'roller_manual' | 'hinged';
 }
 
 export type RoomUsage = 'living' | 'bedroom' | 'kitchen' | 'bathroom' | 'wc' | 'circulation'

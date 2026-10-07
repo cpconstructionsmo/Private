@@ -57,6 +57,7 @@ describe('façades', () => {
     const u = planchesPdf(p, { niveaux: [p.buildings[0]!.floors[0]!.id], cotation: true, mobilier: true, indice: 'A', date: '03/10/2026', facades: true });
     const s = Array.from(u, c => String.fromCharCode(c)).join('');
     expect(s).toContain('/Count 2');
-    for (const t of ['(Fa\xE7ade sud \\(bas du plan\\))', '(Fa\xE7ade ouest \\(gauche du plan\\))', '(HAUTEURS)', '(+6,60 fa\xEEtage)', '(+2,00 \xE9gout)', '(Fa\xE7ades)']) expect(s).toContain(t);
+    /* nommées par leur orientation (le nord de la parcelle, sinon le haut du plan) ; niveaux, faîtage, encadrés */
+    for (const t of ['(FA\xC7ADE SUD)', '(FA\xC7ADE OUEST)', '(NIVEAUX ET LECTURE DES FA\xC7ADES)', '(MAT\xC9RIAUX & TEINTES)', '(+6,60)', '(+2,00)', '(\xE9gout)', '(FA\xC7ADES)']) expect(s, t).toContain(t);
   });
 });

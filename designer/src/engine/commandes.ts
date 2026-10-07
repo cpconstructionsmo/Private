@@ -73,7 +73,8 @@ export type Commande =
   /** composition : une autre composition (épaisseur et rôle suivent) ; null : « sur mesure ». Une épaisseur donnée seule rend le mur « sur mesure » */
   | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; finition?: string | null; composition?: string | null }
   | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing']; origine?: Origine; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
-  | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing']; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
+  /** volet : null l'efface */
+  | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing']; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef']; volet?: Opening['shutter'] | null }
   | { type: 'creerPiece'; niveau: string; point: Point; nom: string; usage: RoomUsage; humide?: boolean; origine?: Origine }
   | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point; sol?: string | null; murs?: string | null }
   | { type: 'supprimer'; id: string }
@@ -356,6 +357,7 @@ function fondationsInvalides(v: { largeur: Mm; hauteur: Mm; horsGel: Mm; bonSol?
   return null;
 }
 
+const VOLETS = new Set<string>(['roller_motorized', 'roller_manual', 'hinged']);
 const CHAMPS_DOSSIER = new Set(['maitreOuvrage', 'adresseMaitreOuvrage', 'lieuConstruction', 'referencesCadastrales', 'surfaceTerrain', 'couverture', 'chauffage', 'divers', 'zoneSismique', 'modifications']);
 
 const GENRES_UN_MUR: readonly Constraint['kind'][] = ['horizontal', 'vertical', 'length', 'angle'];
@@ -459,7 +461,8 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.vantaux !== undefined && !vantauxValides(cmd.vantaux)) return refus('de 1 à 4 vantaux');
       const avant: Record<string, unknown> = { revision: o.revision, sourceRefs: o.sourceRefs };
       const apres: Record<string, unknown> = { revision: c.revision, sourceRefs: [...o.sourceRefs, source(c, 'Modification')] };
-      const champs = { position: 'offset', largeur: 'width', hauteur: 'height', allege: 'sill', genre: 'kind', sens: 'swing', vantaux: 'leaves', manoeuvre: 'operation', modele: 'catalogRef' } as const;
+      if (cmd.volet !== undefined && cmd.volet !== null && !VOLETS.has(cmd.volet)) return refus('volet inconnu');
+      const champs = { position: 'offset', largeur: 'width', hauteur: 'height', allege: 'sill', genre: 'kind', sens: 'swing', vantaux: 'leaves', manoeuvre: 'operation', modele: 'catalogRef', volet: 'shutter' } as const;
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
         if (cmd[k] === undefined) continue;
         avant[champs[k]] = o[champs[k]] ?? null; apres[champs[k]] = cmd[k];

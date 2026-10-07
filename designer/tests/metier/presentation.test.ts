@@ -27,16 +27,16 @@ describe('plan de présentation', () => {
     const P = maisonMeublee(), f = P.buildings[0]!.floors[0]!;
     const pres = texte(planchesPdf(P, { niveaux: [f.id], cotation: false, mobilier: true, indice: 'A', date: '05/10/2026', presentation: true }));
     const tech = texte(planchesPdf(P, { niveaux: [f.id], cotation: true, mobilier: true, indice: 'A', date: '05/10/2026' }));
-    for (const t of ['(Plan de pr\xE9sentation : RDC)', '(SOLS ET SURFACES)', '(Parquet ch\xEAne)', '(Carrelage clair 60 \xD7 60)', '(sol \xE0 choisir)']) expect(pres).toContain(t);
-    expect(tech).not.toContain('(SOLS ET SURFACES)');
-    expect(tech).toContain('(Plan : RDC)');
+    for (const t of ['(PLAN DE PR\xC9SENTATION \x96 REZ-DE-CHAUSS\xC9E)', '(SOLS ET SURFACES \x96 RDC)', '(Parquet ch\xEAne)', '(Carrelage clair 60 \xD7 60)', '(\xE0 choisir)']) expect(pres, t).toContain(t);
+    expect(tech).not.toContain('(SOLS ET SURFACES');
+    expect(tech).toContain('(PLAN DU REZ-DE-CHAUSS\xC9E)');
     /* le parquet (#C69C6E) et le carrelage clair (#E7E2D8) remplissent leurs pièces ; le plan technique ne les connaît pas */
     const rvb = (c: string) => [1, 3, 5].map(i => (Math.round(parseInt(c.slice(i, i + 2), 16) / 255 * 100) / 100).toString()).join(' ') + ' rg';
     expect(pres).toContain(rvb('#C69C6E'));
     expect(pres).toContain(rvb('#E7E2D8'));
     expect(tech).not.toContain(rvb('#C69C6E'));
-    /* les motifs : beaucoup plus de traits que le plan technique, malgré l'absence de cotes */
+    /* les motifs des sols : des centaines de traits (le plan technique a les siens : hachures de la maçonnerie, cotes) */
     const traits = (s: string) => (s.match(/ l\b/g) ?? []).length;
-    expect(traits(pres)).toBeGreaterThan(traits(tech) + 200);
+    expect(traits(pres)).toBeGreaterThan(1_000);
   });
 });

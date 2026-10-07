@@ -2,12 +2,13 @@
    lit le plan dérivé (planDuNiveau), les cotes (dessinCote) et la caméra.
    Ordre : grille, fond calé, niveau du dessous en fantôme, pièces,
    maçonnerie, ouvertures, cotes, contraintes, sélection, accrochage. */
-import type { Floor, Furniture, Opening, Point, Underlay } from '../model/types';
+import type { Floor, Furniture, Opening, Point, Room, Underlay } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
 import { decalagesFaces, mursDroits, mursFictifs, type MurDroit } from '../building/murs';
 import { couchesDuNiveau, type BandeCouche } from '../building/couches';
+import { intersection } from '../geometry/booleen';
 import { dessinerTerrain } from './dessin-terrain';
-import { MATIERES_COUCHES } from '../catalogue/murs';
+import { MATIERES_COUCHES, compositionMur } from '../catalogue/murs';
 import type { Accroche } from '../building/accrochage';
 import { dimensionsPiece, placeEtiquette, type ChaineCotes, type CoteInterieure, type PlaceOuverture } from '../building/cotation';
 import { manoeuvreDe } from '../catalogue/ouvertures';
@@ -60,6 +61,9 @@ export interface Scene {
   tremies?: { contour: Point[]; marches: Marche[] }[];
   /** pour l'impression (export PDF) : fond blanc, sans grille */
   impression?: boolean;
+  /** le style des dossiers du cabinet (planches imprimées) : pièces blanches, maçonnerie grise hachurée, doublage
+      isolant crème ondulé, cloisons grises pleines, étiquettes « SH : 12,91 m² », portes en trait plein */
+  dossier?: boolean;
   /** plusieurs objets choisis ensemble, et le cadre de sélection en cours */
   groupe?: ReadonlySet<string>;
   cadre?: [Point, Point] | null;
@@ -130,7 +134,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* pièces ; en présentation, à la couleur de leur sol, avec son motif */
   for (const z of plan.zones) {
     const sol = s.presentation && z.piece ? materiau(z.piece.floorFinish) : undefined;
-    ctx.fillStyle = sol ? sol.couleur : z.piece ? COULEURS.piece : COULEURS.aNommer;
+    ctx.fillStyle = s.dossier ? '#FFFFFF' : sol ? sol.couleur : z.piece ? COULEURS.piece : COULEURS.aNommer;
     chemin(ctx, cam, z.polygone); ctx.fill();
     if (sol) {
       const T = traitsDeSol(z.polygone, sol);
@@ -143,7 +147,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   }
   /* mobilier, sous les murs */
   const estChoisi = (id: string) => id === s.selection || !!s.groupe?.has(id);
-  for (const o of Object.values(s.niveau.objects)) if (o.type === 'furniture') meuble(ctx, cam, o, estChoisi(o.id));
+  for (const o of Object.values(s.niveau.objects)) if (o.type === 'furniture') meuble(ctx, cam, o, estChoisi(o.id), !!s.dossier);
   /* escaliers et trémies, sous les murs */
   for (const t of s.tremies ?? []) tremie(ctx, cam, t);
   for (const e of s.escaliers ?? []) escalier(ctx, cam, e.geo, estChoisi(e.id));
@@ -151,15 +155,15 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   if (s.fondations) semelles(ctx, cam, s.fondations);
   /* maçonnerie (ouvertures découpées) */
   /* la maçonnerie : blanche, hachurée à 45°, cernée de noir (les murs composés se dessinent ensuite couche à couche) */
-  ctx.fillStyle = COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
+  ctx.fillStyle = s.dossier ? DOSSIER.maconnerie : COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
   for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.fill('evenodd') }
   if (plan.maconnerieOuverte.length) {
     ctx.save();
     ctx.beginPath();
     for (const p of plan.maconnerieOuverte) for (const a of [p.contour, ...(p.trous ?? [])] as Anneau[]) { a.forEach((pt, i) => { const e = E(pt); if (i) ctx.lineTo(e.x, e.y); else ctx.moveTo(e.x, e.y) }); ctx.closePath() }
     ctx.clip('evenodd');
-    const pas = Math.max(4, 70 * cam.echelle);
-    ctx.strokeStyle = '#3A3A3A'; ctx.lineWidth = 0.6; ctx.beginPath();
+    const pas = s.dossier ? DOSSIER.pasHachures : Math.max(4, 70 * cam.echelle);
+    ctx.strokeStyle = s.dossier ? DOSSIER.hachures : '#3A3A3A'; ctx.lineWidth = s.dossier ? 0.45 : 0.6; ctx.beginPath();
     const l = cam.largeur, h = cam.hauteur;
     for (let x = -h; x <= l; x += pas) { ctx.moveTo(x, h); ctx.lineTo(x + h, 0) }
     ctx.stroke();
@@ -167,10 +171,17 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.lineWidth = 1.2; ctx.strokeStyle = COULEURS.encre;
     for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.stroke() }
   }
+  /* au dossier, une cloison sans composition se dessine pleine, grise (elle n'est pas de la maçonnerie) */
+  if (s.dossier) {
+    const cloisons = new Set(mursDroits(s.niveau).filter(w => w.role === 'partition' && !compositionMur(w.compositionRef)).map(w => w.id));
+    ctx.fillStyle = DOSSIER.cloison; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
+    for (const m of plan.murs) if (cloisons.has(m.id)) for (const p of intersection([{ contour: m.contour }], plan.maconnerieOuverte)) { chemin(ctx, cam, p); ctx.fill('evenodd'); ctx.stroke() }
+  }
   /* les murs composés : chaque couche à sa place (enduit dehors, isolant, plâtre), cernée d'un trait fin */
   const C = couchesDuNiveau(s.niveau);
   if (C.length) {
-    for (const b of C) couche(ctx, cam, b);
+    const genres = new Map(mursDroits(s.niveau).map(w => [w.id, compositionMur(w.compositionRef)?.genre]));
+    for (const b of C) couche(ctx, cam, b, s.dossier ? (genres.get(b.mur) === 'cloison' ? 'cloison' : 'dossier') : null);
     ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1.1;
     for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.stroke() }
   }
@@ -195,10 +206,10 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     const w = murs.get(o.hostWallId);
     /* sens inconnu (plan importé) : la porte s'ouvre côté pièce, jamais vers l'extérieur */
     const b = plan.baies.find(x => x.id === o.id);
-    if (w) ouverture(ctx, cam, w, o, estChoisi(o.id), b ? b.cotes[0] !== 'extérieur' : true);
+    if (w) ouverture(ctx, cam, w, o, estChoisi(o.id), b ? b.cotes[0] !== 'extérieur' : true, !!s.dossier);
   }
   /* les cotes intérieures, avant les noms : une étiquette reste au-dessus */
-  for (const c of s.cotesInterieures ?? []) ligneCotee(ctx, cam, [c.a, c.b], COULEURS.gris);
+  for (const c of s.cotesInterieures ?? []) ligneCotee(ctx, cam, [c.a, c.b], s.dossier ? '#6E6E6E' : COULEURS.gris, false, !!s.dossier);
   /* noms et surfaces : à la place voulue (le point de la pièce), sauf si un meuble est dessous — l'étiquette va alors au plus près, là où elle se lit */
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   /* ce que l'étiquette doit éviter : les meubles, les trappes de visite, et les cotes intérieures (une bande autour de chaque ligne, son texte compris) */
@@ -218,6 +229,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
       const d = dimensionsPiece(z.polygone.contour), trois = !!d && d.profondeur * cam.echelle > 60;      // la ligne des dimensions, si elle s'écrit
       ctx.fillStyle = 'rgba(255,255,255,.82)'; ctx.fillRect(e.x - l / 2, e.y - 18, l, trois ? 48 : 34);
     }
+    if (s.dossier) { etiquetteDossier(ctx, cam, z, e); continue }
     ctx.fillStyle = z.piece ? COULEURS.texte : COULEURS.accent;
     ctx.font = '600 12px system-ui, sans-serif';
     ctx.fillText(z.piece ? z.piece.name : 'À nommer', e.x, e.y - 8);
@@ -228,7 +240,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   }
   /* la toiture au-dessus : son égout (le débord) en tirets, comme sur un plan d'étage ; ses arêtiers
      traverseraient les pièces, ils restent pour la 3D et le plan de toiture */
-  for (const t of s.toitures ?? []) {
+  for (const t of s.dossier ? [] : s.toitures ?? []) {
     ctx.strokeStyle = COULEURS.gris; ctx.lineWidth = 1;
     ctx.setLineDash([8, 4]); chemin(ctx, cam, { contour: t.egout }); ctx.stroke(); ctx.setLineDash([]);
   }
@@ -248,7 +260,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     }
   }
   /* les fenêtres de toit, au-dessus du plan : en tirets, le vitrage marqué par sa diagonale vers le haut de la pente */
-  for (const { o, geo } of fenetresDeToit(s.niveau)) {
+  for (const { o, geo } of s.dossier ? [] : fenetresDeToit(s.niveau)) {
     const sel = estChoisi(o.id), P = geo.plan.map(E);
     ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.bleu; ctx.lineWidth = sel ? 1.8 : 1.1; ctx.setLineDash([6, 3]);
     ctx.fillStyle = sel ? 'rgba(197,86,58,.10)' : 'rgba(141,183,207,.18)';
@@ -256,7 +268,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.beginPath(); ctx.moveTo(P[0]!.x, P[0]!.y); ctx.lineTo(P[2]!.x, P[2]!.y); ctx.moveTo(P[1]!.x, P[1]!.y); ctx.lineTo(P[3]!.x, P[3]!.y); ctx.stroke(); ctx.setLineDash([]);
   }
   /* les lucarnes, au-dessus du plan : leur emprise en tirets, la façade en trait plein, le faîtage en trait mixte */
-  for (const { o, geo } of lucarnesDuNiveau(s.niveau)) {
+  for (const { o, geo } of s.dossier ? [] : lucarnesDuNiveau(s.niveau)) {
     const sel = estChoisi(o.id), P = geo.plan.map(E);
     ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.bleu; ctx.lineWidth = sel ? 1.8 : 1.1; ctx.fillStyle = sel ? 'rgba(197,86,58,.10)' : 'rgba(44,74,94,.08)';
     ctx.setLineDash([6, 3]); ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
@@ -380,14 +392,15 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
 }
 
 /** une ligne de cote d'un point à un autre, ses traits obliques et ses valeurs */
-function ligneCotee(ctx: CanvasRenderingContext2D, cam: Camera, reperes: Point[], coul: string, gras = false): void {
+function ligneCotee(ctx: CanvasRenderingContext2D, cam: Camera, reperes: Point[], coul: string, gras = false, fine = false): void {
   const E = reperes.map(p => versEcran(cam, p));
   if (E.length < 2) return;
-  ctx.strokeStyle = coul; ctx.fillStyle = coul; ctx.lineWidth = 1;
+  ctx.strokeStyle = coul; ctx.fillStyle = coul; ctx.lineWidth = fine ? 0.6 : 1;
+  const k = fine ? 2.4 : 4;
   ctx.beginPath(); ctx.moveTo(E[0]!.x, E[0]!.y); ctx.lineTo(E[E.length - 1]!.x, E[E.length - 1]!.y);
-  for (const t of E) { ctx.moveTo(t.x - 4, t.y + 4); ctx.lineTo(t.x + 4, t.y - 4) }
+  for (const t of E) { ctx.moveTo(t.x - k, t.y + k); ctx.lineTo(t.x + k, t.y - k) }
   ctx.stroke();
-  ctx.font = (gras ? '600 ' : '') + '11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.font = (gras ? '600 ' : '') + (fine ? '8.5px' : '11px') + ' system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
   for (let i = 0; i + 1 < E.length; i++) {
     const a = E[i]!, b = E[i + 1]!, texte = texteCote(distance(reperes[i]!, reperes[i + 1]!));
     const l = Math.hypot(b.x - a.x, b.y - a.y);
@@ -415,9 +428,9 @@ function place(ctx: CanvasRenderingContext2D, cam: Camera, p: PlaceOuverture): v
 }
 
 /** un meuble en plan : son symbole (building/mobilier.ts), tourné à sa place ; le premier trait est son contour, rempli */
-function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: boolean): void {
-  const T = traits(formeDe(o), o.width, o.depth);
-  ctx.lineWidth = sel ? 1.6 : 0.9; ctx.strokeStyle = sel ? COULEURS.accent : COULEURS.gris;
+function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: boolean, dossier = false): void {
+  const forme = formeDe(o), T = traits(forme, o.width, o.depth);
+  ctx.lineWidth = sel ? 1.6 : dossier ? 0.7 : 0.9; ctx.strokeStyle = sel ? COULEURS.accent : dossier ? '#6B6B6B' : COULEURS.gris;
   T.forEach((t, i) => {
     const P = t.genre === 'rect' ? [{ x: t.x0, y: t.y0 }, { x: t.x1, y: t.y0 }, { x: t.x1, y: t.y1 }, { x: t.x0, y: t.y1 }]
       : t.genre === 'ellipse' ? Array.from({ length: 32 }, (_, k) => ({ x: t.cx + t.rx * Math.cos(k * Math.PI / 16), y: t.cy + t.ry * Math.sin(k * Math.PI / 16) }))
@@ -428,6 +441,32 @@ function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: b
     if (i === 0 && t.genre !== 'ligne' && !t.tirets) { ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fill() }
     ctx.setLineDash(t.tirets ? [5, 4] : []); ctx.stroke(); ctx.setLineDash([]);
   });
+  /* le placard des plans : « PL » au milieu */
+  if (forme === 'placard') {
+    const c = versEcran(cam, o.position);
+    ctx.fillStyle = '#7A7A7A'; ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('PL', c.x, c.y);
+  }
+}
+
+/* les teintes du style des dossiers du cabinet */
+export const DOSSIER = { maconnerie: '#DCDCDC', hachures: '#4A4A4A', pasHachures: 3.3, cloison: '#A9A9A9', isolant: '#F6ECD6', ondulation: '#8B7B5B' } as const;
+
+/** l'étiquette d'une pièce au dossier : le nom en gras, « SH : 12,91 m² » (SA : surface annexe) dessous ; debout dans une pièce étroite */
+function etiquetteDossier(ctx: CanvasRenderingContext2D, cam: Camera, z: { piece?: Room | null; aire: number; polygone: Polygone }, e: { x: number; y: number }): void {
+  const nom = z.piece ? z.piece.name : 'À nommer';
+  const annexe = !!z.piece && (z.piece.usage === 'garage' || !!z.piece.excludedFromHabitable?.value);
+  const sous = (annexe ? 'SA : ' : 'SH : ') + m2(z.aire);
+  ctx.font = '700 12.5px Helvetica, sans-serif';
+  const l = Math.max(ctx.measureText(nom).width, ctx.measureText(sous).width * 0.85) + 6;
+  const xs = z.polygone.contour.map(q => q.x), ys = z.polygone.contour.map(q => q.y);
+  const larg = (Math.max(...xs) - Math.min(...xs)) * cam.echelle, haut = (Math.max(...ys) - Math.min(...ys)) * cam.echelle;
+  ctx.save(); ctx.translate(e.x, e.y);
+  if (larg < l && haut > larg) ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = z.piece ? '#222222' : COULEURS.accent; ctx.font = '700 12.5px Helvetica, sans-serif'; ctx.fillText(nom, 0, -6);
+  ctx.fillStyle = '#5A5A5A'; ctx.font = '10.5px Helvetica, sans-serif'; ctx.fillText(sous, 0, 8);
+  ctx.restore();
 }
 
 /** la parcelle : la limite (trait mixte vert), la longueur de chaque côté à l'extérieur, les côtés sur voie
@@ -663,8 +702,12 @@ function fond(ctx: CanvasRenderingContext2D, cam: Camera, u: Underlay, s: Scene,
 }
 
 /** une couche de mur composé : sa teinte, puis son motif (hachures de maçonnerie, ondulation d'isolant), dans sa bande */
-function couche(ctx: CanvasRenderingContext2D, cam: Camera, b: BandeCouche): void {
-  const M = MATIERES_COUCHES[b.matiere];
+function couche(ctx: CanvasRenderingContext2D, cam: Camera, b: BandeCouche, style: 'dossier' | 'cloison' | null = null): void {
+  const M0 = MATIERES_COUCHES[b.matiere];
+  /* au dossier : la maçonnerie grise hachurée, l'isolant crème ondulé, plâtre et enduit blancs ; une cloison toute grise */
+  const M = style === 'cloison' ? { ...M0, couleur: DOSSIER.cloison, motif: 'plein' as const }
+    : style === 'dossier' ? (M0.motif === 'hachures' || M0.motif === 'croix' ? { ...M0, couleur: DOSSIER.maconnerie, motif: 'hachures' as const }
+      : M0.motif === 'isolant' ? { ...M0, couleur: DOSSIER.isolant } : { ...M0, couleur: '#FFFFFF' }) : M0;
   ctx.save();
   ctx.beginPath();
   for (const p of b.polygones) for (const a of [p.contour, ...(p.trous ?? [])] as Anneau[]) {
@@ -676,17 +719,17 @@ function couche(ctx: CanvasRenderingContext2D, cam: Camera, b: BandeCouche): voi
   const large = (b.a - b.de) * cam.echelle;                     // la largeur de la bande à l'écran (px)
   if (large >= 2.5 && M.motif !== 'plein') {
     ctx.clip('evenodd');
-    ctx.strokeStyle = 'rgba(26,43,54,.5)'; ctx.lineWidth = 0.6; ctx.beginPath();
+    ctx.strokeStyle = style ? (M.motif === 'isolant' ? DOSSIER.ondulation : DOSSIER.hachures) : 'rgba(26,43,54,.5)'; ctx.lineWidth = style ? 0.45 : 0.6; ctx.beginPath();
     const u = normaliser(soustraire(b.axe.b, b.axe.a)), n = normaleGauche(u), L = distance(b.axe.a, b.axe.b);
     const P = (t: number, d: number) => versEcran(cam, ajouter(ajouter(b.axe.a, multiplier(u, t)), multiplier(n, d)));
     const ext = (b.a - b.de) * 4 + 600;
     if (M.motif === 'isolant') {
       /* l'ondulation de l'isolant : un zigzag d'un bord à l'autre, au pas de sa largeur */
-      const pas = Math.max(b.a - b.de, 6 / cam.echelle);
+      const pas = style ? Math.max((b.a - b.de) * 0.55, 2.2 / cam.echelle) : Math.max(b.a - b.de, 6 / cam.echelle);
       for (let t = -ext, k = 0; t <= L + ext; t += pas / 2, k++) { const e = P(t, k % 2 ? b.a : b.de); if (k) ctx.lineTo(e.x, e.y); else ctx.moveTo(e.x, e.y) }
     } else {
       /* des hachures à 45° (croix : dans les deux sens), au pas de 5 px à l'écran */
-      const pas = 5 / cam.echelle, h = b.a - b.de;
+      const pas = (style ? DOSSIER.pasHachures : 5) / cam.echelle, h = b.a - b.de;
       for (let t = -ext; t <= L + ext; t += pas) {
         const a = P(t, b.de), c = P(t + h, b.a); ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y);
         if (M.motif === 'croix') { const a2 = P(t + h, b.de), c2 = P(t, b.a); ctx.moveTo(a2.x, a2.y); ctx.lineTo(c2.x, c2.y) }
@@ -705,7 +748,7 @@ function chemin(ctx: CanvasRenderingContext2D, cam: Camera, p: Polygone): void {
   }
 }
 
-function ouverture(ctx: CanvasRenderingContext2D, cam: Camera, w: MurDroit, o: Opening, sel: boolean, gaucheInterieur: boolean): void {
+function ouverture(ctx: CanvasRenderingContext2D, cam: Camera, w: MurDroit, o: Opening, sel: boolean, gaucheInterieur: boolean, dossier = false): void {
   const g = geometrieOuverture(w, o);
   const E = (p: Point) => versEcran(cam, p);
   const u = normaliser(soustraire(w.axis.b, w.axis.a)), n = normaleGauche(u);
@@ -756,7 +799,8 @@ function ouverture(ctx: CanvasRenderingContext2D, cam: Camera, w: MurDroit, o: O
     ctx.beginPath(); ctx.moveTo(Pp.x, Pp.y); ctx.lineTo(B.x, B.y); ctx.stroke();
     const r0 = Math.atan2(B.y - Pp.y, B.x - Pp.x), r1 = Math.atan2(F.y - Pp.y, F.x - Pp.x);
     let d = r1 - r0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-    ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(Pp.x, Pp.y, Math.hypot(B.x - Pp.x, B.y - Pp.y), r0, r1, d < 0); ctx.stroke(); ctx.setLineDash([]);
+    /* au dossier, la porte bat en trait plein, la fenêtre en tirets */
+    ctx.setLineDash(dossier && o.kind === 'door' ? [] : [3, 3]); ctx.beginPath(); ctx.arc(Pp.x, Pp.y, Math.hypot(B.x - Pp.x, B.y - Pp.y), r0, r1, d < 0); ctx.stroke(); ctx.setLineDash([]);
   }
 }
 

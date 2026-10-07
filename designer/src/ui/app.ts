@@ -1387,6 +1387,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('Genre', op.kind, v => mod('Genre', { genre: v as Opening['kind'] }), 'text', genres),
           champ('Vantaux', mo.vantaux, v => mod('Vantaux', { vantaux: Number(v) }), 'text', { 1: '1', 2: '2', 3: '3', 4: '4' }),
           champ('Manœuvre', mo.manoeuvre, v => mod('Manœuvre', { manoeuvre: v as NonNullable<Opening['operation']> }), 'text', MANOEUVRES),
+          /* le volet : « VR » devant la baie sur le plan, et dans la légende */
+          ...(op.kind === 'window' || op.kind === 'french_window' || op.kind === 'bay'
+            ? [champ('Volet', op.shutter ?? '', v => mod('Volet', { volet: (v || null) as Opening['shutter'] | null }), 'text', { '': '— aucun —', roller_motorized: 'Volet roulant motorisé', roller_manual: 'Volet roulant manuel', hinged: 'Volets battants' })] : []),
           champ('Largeur (m)', (op.width / 1000).toFixed(3), v => mod('Largeur', { largeur: mm(v) }), 'number'),
           champ('Hauteur (m)', (op.height / 1000).toFixed(3), v => mod('Hauteur', { hauteur: mm(v) }), 'number'),
           champ('Allège (m)', (op.sill / 1000).toFixed(3), v => mod('Allège', { allege: mm(v) }), 'number'),

@@ -49,6 +49,23 @@ function sortie(w: MurDroit, cotes: [string, string]): Point | null {
   return null;
 }
 
+/** les baies des murs extérieurs, vues de leur côté du plan : leurs bords projetés (x pour bas et haut, y pour gauche et
+    droite), et la normale qui sort du bâtiment (pour écrire « VR » dehors, coter « 0,90 × 1,35 all. 0,80 ») */
+export function baiesExterieures(f: Floor): { ouverture: Opening; cote: Cote4; de: Mm; a: Mm; sortie: Point; centre: Point; epaisseur: Mm }[] {
+  const plan = planDuNiveau(f), murs = new Map(mursDroits(f).map(w => [w.id, w]));
+  const out: { ouverture: Opening; cote: Cote4; de: Mm; a: Mm; sortie: Point; centre: Point; epaisseur: Mm }[] = [];
+  for (const b of plan.baies) {
+    const w = murs.get(b.mur), o = f.objects[b.id] as Opening | undefined;
+    if (!b.exterieure || !w || !o) continue;
+    const s = sortie(w, b.cotes);
+    if (!s) continue;
+    const c = coteDe(s), u = normaliser(soustraire(w.axis.b, w.axis.a));
+    const v = [-1, 1].map(k => { const p = ajouter(b.centre, multiplier(u, k * o.width / 2)); return horizontal(c) ? p.x : p.y });
+    out.push({ ouverture: o, cote: c, de: Math.min(...v), a: Math.max(...v), sortie: s, centre: b.centre, epaisseur: w.thickness });
+  }
+  return out;
+}
+
 /** les chaînes de cotes extérieures d'un niveau ; « ecart » : entre deux lignes de cote (mm) */
 export function cotationExterieure(f: Floor, ecart: Mm = 700): ChaineCotes[] {
   const plan = planDuNiveau(f);

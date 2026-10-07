@@ -121,8 +121,9 @@ export function traitsDeCoupe(projet: Project): (LigneDeCoupe & { id: string; ni
 export function lignesDeCoupe(projet: Project): LigneDeCoupe[] {
   const T = traitsDeCoupe(projet);
   if (T.length) return T.map(({ a, b, regard, nom }) => ({ a, b, regard, nom }));
-  const l = coupeAutomatique(projet);
-  return l ? [l] : [];
+  /* sans trait tracé : la coupe en travers (A), puis celle en long (B), comme les dossiers du cabinet */
+  const a = coupeAutomatique(projet), b = coupeAutomatique(projet, true);
+  return a ? (b ? [a, b] : [a]) : [];
 }
 
 /** marge du trait de coupe au-delà de la maçonnerie, de chaque côté (mm) */
@@ -132,14 +133,15 @@ const PAS_ESSAI = 300;
 
 /** la ligne de coupe placée d'elle-même : en travers de la plus petite dimension de la maison (elle montre ainsi
     la pente du toit d'une maison en longueur), par l'escalier s'il y en a un, sinon par le milieu ; jamais le long
-    d'un mur (elle le trancherait sur toute sa longueur). null : rien à couper. */
-export function coupeAutomatique(projet: Project): LigneDeCoupe | null {
+    d'un mur (elle le trancherait sur toute sa longueur). « enLong » : la seconde coupe (B), dans la longueur.
+    null : rien à couper. */
+export function coupeAutomatique(projet: Project, enLong = false): LigneDeCoupe | null {
   const P: Point[] = [], niveaux = projet.buildings.flatMap(b => b.floors);
   for (const f of niveaux) for (const p of planDuNiveau(f).maconnerie) P.push(...p.contour);
   if (!P.length) return null;
   const xmin = Math.min(...P.map(p => p.x)), xmax = Math.max(...P.map(p => p.x)), ymin = Math.min(...P.map(p => p.y)), ymax = Math.max(...P.map(p => p.y));
   /* en travers de la plus petite dimension : le trait est parallèle à y si la maison est plus large que profonde */
-  const enX = xmax - xmin >= ymax - ymin;
+  const enX = (xmax - xmin >= ymax - ymin) !== enLong;
   const coord = (p: Point) => (enX ? p.x : p.y), lo = enX ? xmin : ymin, hi = enX ? xmax : ymax;
   let c = (lo + hi) / 2;
   for (const f of niveaux) for (const o of Object.values(f.objects)) {
@@ -159,7 +161,8 @@ export function coupeAutomatique(projet: Project): LigneDeCoupe | null {
     const x = c + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * PAS_ESSAI;
     if (libre(x)) { c = x; break }
   }
+  const nom = enLong ? 'B' : 'A';
   return enX
-    ? { a: { x: c, y: ymin - DEPASSEMENT }, b: { x: c, y: ymax + DEPASSEMENT }, regard: { x: 1, y: 0 }, nom: 'A' }
-    : { a: { x: xmin - DEPASSEMENT, y: c }, b: { x: xmax + DEPASSEMENT, y: c }, regard: { x: 0, y: 1 }, nom: 'A' };
+    ? { a: { x: c, y: ymin - DEPASSEMENT }, b: { x: c, y: ymax + DEPASSEMENT }, regard: { x: 1, y: 0 }, nom }
+    : { a: { x: xmin - DEPASSEMENT, y: c }, b: { x: xmax + DEPASSEMENT, y: c }, regard: { x: 0, y: 1 }, nom };
 }

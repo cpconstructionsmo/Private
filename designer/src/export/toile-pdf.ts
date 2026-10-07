@@ -84,9 +84,9 @@ export class ToilePdf {
   drawImage(): void { /* les fonds calés ne s'impriment pas : le plan est le dessin */ }
 
   /* --- le texte --- */
-  private police(): { corps: number; gras: boolean } {
+  private police(): { corps: number; gras: boolean; italique: boolean } {
     const px = Number(/(\d+(?:\.\d+)?)px/.exec(this.e.font)?.[1] ?? 10);
-    return { corps: px * this.corps, gras: /\b(bold|[6-9]00)\b/.test(this.e.font) };
+    return { corps: px * this.corps, gras: /\b(bold|[6-9]00)\b/.test(this.e.font), italique: /\bitalic\b/.test(this.e.font) };
   }
   measureText(t: string): { width: number } { const p = this.police(); return { width: largeurTexte(t, p.gras) * p.corps / 1000 } }
   fillText(t: string, x: number, y: number): void {
@@ -97,6 +97,6 @@ export class ToilePdf {
     const m = this.e.m, [X, Y] = this.versPage(x + dx, y + dy);
     /* la direction du texte (axe x de la toile) et sa verticale, retournées pour la page */
     const ux = m[0], uy = -m[1], lu = Math.hypot(ux, uy) || 1, vx = -m[2], vy = m[3], lv = Math.hypot(vx, vy) || 1;
-    this.page.op(`BT ${this.couleur(this.e.fill, 'rg')} /${p.gras ? 'F2' : 'F1'} 1 Tf ${n(ux / lu * p.corps)} ${n(uy / lu * p.corps)} ${n(vx / lv * p.corps)} ${n(vy / lv * p.corps)} ${n(X)} ${n(Y)} Tm ${chainePdf(t)} Tj ET`);
+    this.page.op(`BT ${this.couleur(this.e.fill, 'rg')} /${p.gras ? (p.italique ? 'F4' : 'F2') : p.italique ? 'F3' : 'F1'} 1 Tf ${n(ux / lu * p.corps)} ${n(uy / lu * p.corps)} ${n(vx / lv * p.corps)} ${n(vy / lv * p.corps)} ${n(X)} ${n(Y)} Tm ${chainePdf(t)} Tj ET`);
   }
 }

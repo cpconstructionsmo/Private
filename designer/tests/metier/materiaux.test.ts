@@ -78,7 +78,8 @@ describe('parement en 3D, en façade, en coupe', () => {
     const f = facade(maquette(h.projet), 'sud');
     expect(f.faces.some(x => x.finition === 'enduit-ton-pierre')).toBe(true);
     const s = Array.from(planchesPdf(h.projet, { niveaux: [n], cotation: true, mobilier: true, indice: 'A', date: '04/10/2026', facades: true }), c => String.fromCharCode(c)).join('');
-    for (const t of ['(MAT\xC9RIAUX)', '(Enduit ton pierre)', '(Couverture : tuiles)']) expect(s).toContain(t);
+    for (const t of ['(MAT\xC9RIAUX & TEINTES)', '(Enduit ton pierre)', '(Couverture)']) expect(s, t).toContain(t);
+    expect(s).toMatch(/\(tuiles, pente \d+\xB0\)/);
   });
 
   it('en coupe, la peau est tranchée avec le mur', () => {

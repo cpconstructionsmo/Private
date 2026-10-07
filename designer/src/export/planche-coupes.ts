@@ -1,0 +1,237 @@
+/* La planche des coupes (PCMI 3), comme celles des dossiers du cabinet :
+   jusqu'à deux coupes l'une sous l'autre, à la même échelle, chacune sur
+   son terrain — le terrain naturel relevé (altitudes NGF) et le sol en
+   place dessous, en beige —, la maçonnerie coupée hachurée, la toiture vue
+   au-delà dans sa couverture, le nom des pièces traversées, les niveaux à
+   gauche et à droite (cote par rapport au RDC fini et altitude NGF), les
+   limites de propriété en tirets bleus et les distances jusqu'à elles ;
+   dessous, la légende, les notes et le repérage des coupes sur la parcelle.
+   Tout se déduit de la maquette (vue3d/coupe.ts) et de la parcelle. */
+import type { Point, Project } from '../model/types';
+import { planDuNiveau, toitureDuNiveau, parcelleDuProjet, profilTerrain, empriseAuSol, fondationsDuProjet, SOUBASSEMENTS } from '../building';
+import { maquette, type Matiere } from '../vue3d/maquette';
+import { coupe, traitsDeCoupe, type Coupe, type LigneDeCoupe } from '../vue3d/coupe';
+import { segmentsDans } from '../geometry/hachures';
+import type { PagePdf, DocumentPdf } from './pdf';
+import { PagePdf as Page } from './pdf';
+import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, BRIQUE, colonne, nouvelleFeuille, texte, metres, niveauRelatif, titreDessin, legende, tailleLegende, pastille, pastilleTrait,
+  couper, nordFleche, orientation, A_PRECISER, type Signature, type LigneLegende } from './feuille';
+import { ECHELLES } from './planche-niveau';
+import { peindre } from './planche-facades';
+
+export interface OptionsCoupes extends Signature { echelle?: number | undefined; dossier?: boolean | undefined }
+
+const TERRE = '#EDE5D8', TERRE_POINTS = '#CDBFA9', TN = '#7A3E2E', LIMITE = '#2C5B8A';
+const COUVERTURES: ReadonlySet<Matiere> = new Set(['tuile', 'ardoise', 'zinc', 'bac_acier', 'vegetalise', 'gravillons']);
+
+/** ce qu'il faut d'une coupe pour la dessiner */
+interface CoupeVue {
+  l: LigneDeCoupe; C: Coupe;
+  /** u et altitude (relative) du terrain naturel, s'il est relevé et placé */
+  tn: { u: number; z: number }[] | null;
+  /** les limites de propriété traversées (u) */
+  limites: number[];
+  /** la maison au droit de la coupe (u) */
+  maison: [number, number][];
+  /** l'étendue dessinée (u) et les altitudes */
+  u0: number; u1: number; zmin: number; zmax: number;
+  pieces: { nom: string; u: number; z: number; l: number }[];
+}
+
+function preparer(projet: Project, l: LigneDeCoupe): CoupeVue | null {
+  const C = coupe(maquette(projet), l);
+  if (!C.boite) return null;
+  const d = { x: l.regard.y, y: -l.regard.x }, uDe = (p: Point) => (p.x - l.a.x) * d.x + (p.y - l.a.y) * d.y;
+  const enPlan = (u: number): Point => ({ x: l.a.x + d.x * u, y: l.a.y + d.y * u });
+  const parc = parcelleDuProjet(projet)?.plot, ngf0 = parc?.groundFloorNgf;
+  /* les limites de propriété traversées par la droite de coupe */
+  const limites: number[] = [];
+  if (parc) {
+    const A = enPlan(C.boite.umin - 60_000), B = enPlan(C.boite.umax + 60_000);
+    for (const [s, t] of segmentsDans(A, B, { contour: parc.contour })) limites.push(uDe(s), uDe(t));
+  }
+  limites.sort((a, b) => a - b);
+  const lim = limites.length >= 2 ? [limites[0]!, limites[limites.length - 1]!] : [];
+  const u0 = lim.length ? Math.min(lim[0]!, C.boite.umin - 1_000) : C.boite.umin - 2_000, u1 = lim.length ? Math.max(lim[1]!, C.boite.umax + 1_000) : C.boite.umax + 2_000;
+  const tn = parc && ngf0 !== undefined && parc.spotHeights?.length ? profilTerrain(parc, enPlan(u0), enPlan(u1), 200)?.map(q => ({ u: u0 + q.s, z: q.z })) ?? null : null;
+  const maison = empriseAuSol(projet).flatMap(q => segmentsDans(enPlan(u0), enPlan(u1), q)).map(([a, b]) => [uDe(a), uDe(b)].sort((x, y) => x - y) as [number, number]);
+  /* les pièces traversées, au niveau de leur sol */
+  const pieces: CoupeVue['pieces'] = [];
+  for (const f of projet.buildings.flatMap(b => b.floors)) for (const z of planDuNiveau(f).zones) {
+    if (!z.piece) continue;
+    for (const [s, t] of segmentsDans(enPlan(u0), enPlan(u1), z.polygone)) {
+      const a = uDe(s), b = uDe(t);
+      if (Math.abs(b - a) > 900) pieces.push({ nom: z.piece.name, u: (a + b) / 2, z: f.elevation + 1_050, l: Math.abs(b - a) });
+    }
+  }
+  const zt = tn?.map(q => q.z) ?? [];
+  return { l, C, tn, limites: lim, maison, u0, u1, zmin: Math.min(C.boite.zmin, 0, ...zt) - 1_000, zmax: C.boite.zmax, pieces };
+}
+
+export function plancheCoupes(doc: DocumentPdf, projet: Project, o: OptionsCoupes, lignes: LigneDeCoupe[]): void {
+  const V = lignes.map(l => preparer(projet, l)).filter((x): x is CoupeVue => !!x);
+  if (!V.length) {
+    const page = nouvelleFeuille(doc);
+    texte(page, 'Rien à couper : aucun mur.', 20, 30, 10, { couleur: GRIS_TEXTE });
+    colonne(page, projet, o, 'Coupes', 'sur terrain', 'PCMI 3', 0);
+    return;
+  }
+  /* deux coupes par feuille ; la même échelle pour toutes */
+  const Z = { x: ZONE_DESSIN.x + 4, y: ZONE_DESSIN.y + 4, l: ZONE_DESSIN.l - 8, h: ZONE_DESSIN.h - 8 }, BAS = 62, COTES = 32;
+  const largeur = (v: CoupeVue, e: number) => (v.u1 - v.u0) / e + 2 * COTES;
+  const hauteur = (v: CoupeVue, e: number) => (v.zmax - v.zmin) / e + 30;
+  const parFeuille = (e: number) => (V.length > 1 && V.slice(0, 2).reduce((s, v) => s + hauteur(v, e), 0) <= Z.h - BAS ? 2 : 1);
+  const tient = (e: number) => V.every(v => largeur(v, e) <= Z.l) && Math.max(...V.map(v => hauteur(v, e))) <= Z.h - BAS;
+  /* deux coupes par feuille comme les dossiers du cabinet, si l'échelle n'y perd pas plus d'un cran et demi */
+  const seule = ECHELLES.filter(e => e >= 75).find(tient) ?? ECHELLES[ECHELLES.length - 1]!;
+  const deux = V.length > 1 ? ECHELLES.filter(e => e >= 75).find(e => tient(e) && parFeuille(e) === 2) : undefined;
+  const ech = o.echelle ?? (deux && deux <= seule * 1.5 ? deux : seule);
+  const n = parFeuille(ech);
+  for (let i = 0; i < V.length; i += n) {
+    const page = nouvelleFeuille(doc), lot = V.slice(i, i + n);
+    const H = lot.reduce((s, v) => s + hauteur(v, ech), 0), ecart = (Z.h - BAS - H) / (lot.length + 1);
+    let y = Z.y + ecart;
+    for (const v of lot) { dessinerCoupe(page, projet, v, Z.x + (Z.l - largeur(v, ech)) / 2, y, ech); y += hauteur(v, ech) + ecart }
+    basDePage(page, projet, V, Z.x, Z.y + Z.h - BAS + 4, Z.l);
+    colonne(page, projet, o, 'Coupes', 'sur terrain', 'PCMI 3', ech);
+  }
+}
+
+/** une coupe : (x0, y0) le coin haut-gauche de sa place */
+function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, y0: number, e: number): void {
+  const COTES = 32, ySol = y0 + 4 + v.zmax / e;
+  const Pm = (u: number, z: number): [number, number] => [x0 + COTES + (u - v.u0) / e, ySol - z / e];
+  const P = (u: number, z: number): [number, number] => { const [a, b] = Pm(u, z); return [X(a), Y(b)] };
+  const ngf0 = parcelleDuProjet(projet)?.plot.groundFloorNgf, ngf = (z: number) => (ngf0! + z / 1000).toFixed(2).replace('.', ',');
+  /* le terrain : le sol en place sous le terrain naturel (ou le ±0,00), en beige pointillé */
+  const sol = v.tn ?? [{ u: v.u0, z: 0 }, { u: v.u1, z: 0 }];
+  const fond = [...sol.map(q => P(q.u, q.z)), P(v.u1, v.zmin), P(v.u0, v.zmin)];
+  page.polygone(fond, { fond: TERRE });
+  page.decouper(fond);
+  for (let k = 0; k < 900; k++) { const u = v.u0 + ((k * 7919) % 1000) / 1000 * (v.u1 - v.u0), z = v.zmin + ((k * 104729) % 997) / 997 * (Math.max(...sol.map(q => q.z)) - v.zmin); const [px, py] = P(u, z); page.cadre(px, py, 0.5, 0.5, { ep: 0, fond: TERRE_POINTS }) }
+  page.restaurer();
+  /* ce qu'on voit au-delà : la couverture dans sa teinte, le reste en blanc au trait */
+  for (const f of v.C.vues) {
+    if (COUVERTURES.has(f.matiere) || ['vitrage', 'menuiserie', 'appui', 'porte', 'garage'].includes(f.matiere)) peindre(page, f, P, e, 0);
+    else page.polygone(f.points.map(q => P(q.u, q.z)), { fond: '#FFFFFF', trait: '#3A3A3A', ep: 0.25 });
+  }
+  /* ce que le plan tranche : hachuré (maçonnerie, planchers, charpente), vitrages clairs */
+  for (const c of v.C.coupees) {
+    const Q = c.points.map(q => P(q.u, q.z));
+    if (c.matiere === 'vitrage') { page.polygone(Q, { fond: '#C9D7DC', trait: ENCRE, ep: 0.4 }); continue }
+    if (c.matiere === 'porte' || c.matiere === 'garage' || c.matiere === 'menuiserie') { page.polygone(Q, { fond: '#3B3F44', trait: ENCRE, ep: 0.4 }); continue }
+    page.polygone(Q, { fond: '#DCDCDC' });
+    page.decouper(Q);
+    const us = c.points.map(q => q.u), zs = c.points.map(q => q.z), [a0, b0] = Pm(Math.min(...us), Math.min(...zs)), [a1, b1] = Pm(Math.max(...us), Math.max(...zs));
+    for (let t = a0 - (b0 - b1); t < a1; t += 1.1) page.trait(X(t), Y(b0), X(t + (b0 - b1)), Y(b1), 0.25, '#4A4A4A');
+    page.restaurer();
+    page.polygone(Q, { trait: ENCRE, ep: 0.5 });
+  }
+  /* le terrain naturel, son altitude aux bouts et au droit de la maison */
+  if (v.tn) {
+    page.ligne(v.tn.map(q => P(q.u, q.z)), 0.6, '#2A2A2A');
+    const zEn = (u: number) => { const k = v.tn!.findIndex(q => q.u >= u); if (k <= 0) return v.tn![Math.max(0, k)]!.z; const a = v.tn![k - 1]!, b = v.tn![k]!; return a.z + (b.z - a.z) * (u - a.u) / ((b.u - a.u) || 1) };
+    const etiquette = (u: number, droite: boolean) => { const [x, y] = Pm(u, zEn(u)); texte(page, 'TN ' + ngf(zEn(u)), x + (droite ? -1 : 1), y - 1.5, 5.8, { couleur: TN, ...(droite ? { aligne: 'droite' as const } : {}) }) };
+    etiquette(v.u0 + 300, false); etiquette(v.u1 - 300, true);
+    for (const [a, b] of v.maison) { const [xa, ya] = Pm(a, zEn(a)), [xb, yb] = Pm(b, zEn(b)); texte(page, 'TN ' + niveauRelatif(zEn(a)) + ' (' + ngf(zEn(a)) + ')', xa - 1.5, ya + 3.6, 5.8, { couleur: TN, aligne: 'droite' }); texte(page, 'TN ' + niveauRelatif(zEn(b)) + ' (' + ngf(zEn(b)) + ')', xb + 1.5, yb + 3.6, 5.8, { couleur: TN }) }
+  } else page.trait(...P(v.u0, 0), ...P(v.u1, 0), 0.6, '#2A2A2A');
+  /* le nom des pièces traversées ; « Comble perdu » sous une toiture en pente */
+  for (const p of v.pieces) { const [x, y] = Pm(p.u, p.z); texte(page, p.nom, x, y, p.l / e > 22 ? 7 : 5.8, { gras: true, aligne: 'centre', couleur: '#222222' }) }
+  const toits = projet.buildings.flatMap(b => b.floors).flatMap(f => { const r = toitureDuNiveau(f); return r?.ok ? r.toitures : [] });
+  if (toits.length && toits.some(t => !t.terrasse) && v.maison.length) {
+    const a = Math.min(...v.maison.map(m => m[0])), b = Math.max(...v.maison.map(m => m[1])), t = toits[0]!;
+    const [x, y] = Pm((a + b) / 2, t.hautMurs + (t.faitage - t.hautMurs) * 0.28);
+    texte(page, 'Comble perdu', x, y, 6.5, { italique: true, aligne: 'centre', couleur: '#3A3A3A' });
+  }
+  /* les limites de propriété */
+  for (const u of v.limites) {
+    const [x] = Pm(u, 0), [, yh] = Pm(u, v.zmax), [, yb] = Pm(u, v.zmin);
+    page.trait(X(x), Y(yh - 2), X(x), Y(yb), 0.6, LIMITE, [2.4, 1.6]);
+    page.texte('Limite de propriété', X(x + 2.6), Y((yh + ySol) / 2), 6.5, { gras: true, angle: 90, aligne: 'centre', couleur: LIMITE });
+  }
+  /* les niveaux : faîtage le plus haut, égout, sol fini à gauche ; arase et autres faîtages à droite */
+  const t = toits[0];
+  const gauche: [number, string][] = [], droite: [number, string][] = [];
+  if (t) { gauche.push([t.faitage, 'Faîtage']); gauche.push([t.egoutZ, 'Égout']); droite.push([t.hautMurs, 'Arase maçonnerie']) }
+  gauche.push([0, 'Niveau fini RDC']);
+  const autres = v.C.coupees.filter(c => COUVERTURES.has(c.matiere)).map(c => Math.max(...c.points.map(q => q.z)));
+  if (autres.length && t && Math.max(...autres) < t.faitage - 100) droite.unshift([Math.max(...autres), 'Faîtage']);
+  const repere = (z: number, lib: string, cote: 'g' | 'd') => {
+    const [, y] = Pm(0, z), xa = cote === 'g' ? x0 - 2 : x0 + COTES + (v.u1 - v.u0) / e + 3, xt = xa + (cote === 'g' ? 28 : 2);
+    page.trait(X(xa + (cote === 'g' ? 20 : 0)), Y(y), X(xa + (cote === 'g' ? 33 : 13)), Y(y), 0.4, ENCRE);
+    const xm = cote === 'g' ? xa + 28 : xa + 5;
+    page.polygone([[X(xm), Y(y)], [X(xm + 1.7), Y(y - 2.3)], [X(xm - 1.7), Y(y - 2.3)]], { fond: '#FFFFFF', trait: ENCRE, ep: 0.4 });
+    const val = niveauRelatif(z) + (ngf0 !== undefined ? '  (' + ngf(z) + ' NGF)' : '');
+    if (cote === 'g') { texte(page, lib, xt - 4, y - 4.6, 7, { gras: true, aligne: 'droite', couleur: '#222222' }); texte(page, val, xt - 4, y - 1.2, 6.5, { aligne: 'droite', couleur: '#222222' }) }
+    else { texte(page, lib, xt + 8, y - 4.6, 7, { gras: true, couleur: '#222222' }); texte(page, val, xt + 8, y - 1.2, 6.5, { couleur: '#222222' }) }
+  };
+  for (const [z, l] of gauche) repere(z, l, 'g');
+  for (const [z, l] of droite) repere(z, l, 'd');
+  /* les distances : limite – maison – limite (ou la maison seule) */
+  const R = [...(v.limites.length ? [v.limites[0]!] : []), ...(v.maison.length ? [Math.min(...v.maison.map(m => m[0])), Math.max(...v.maison.map(m => m[1]))] : []), ...(v.limites.length ? [v.limites[1]!] : [])].sort((a, b) => a - b);
+  const [, yc] = Pm(0, v.zmin); const ycote = yc + 4;
+  if (R.length > 1) {
+    page.trait(X(Pm(R[0]!, 0)[0]), Y(ycote), X(Pm(R[R.length - 1]!, 0)[0]), Y(ycote), 0.35, ENCRE);
+    R.forEach((u, i) => {
+      const [x] = Pm(u, 0);
+      page.trait(X(x - 1), Y(ycote + 1), X(x + 1), Y(ycote - 1), 0.5, ENCRE);
+      if (i) { const [xp] = Pm(R[i - 1]!, 0); texte(page, metres(u - R[i - 1]!), (x + xp) / 2, ycote - 1, 7, { aligne: 'centre', couleur: '#222222' }) }
+    });
+  }
+  /* le titre de la coupe */
+  const sens = orientation(v.l.regard, parcelleDuProjet(projet)?.plot.north ?? 0);
+  titreDessin(page, 'COUPE ' + v.l.nom + '–' + v.l.nom, 'Coupe sur terrain – regard vers le ' + sens + ' – échelle 1/' + e, x0 + COTES - 8, ycote + 9, 11);
+}
+
+/** le bas de la feuille : la légende, les notes, le repérage des coupes */
+function basDePage(page: PagePdf, projet: Project, V: CoupeVue[], x: number, y: number, l: number): void {
+  const parc = parcelleDuProjet(projet)?.plot, ngf0 = parc?.groundFloorNgf, releve = V.some(v => v.tn);
+  const L: LigneLegende[] = [
+    { pastille: pastilleTrait('#2A2A2A', 0.6), texte: 'Terrain naturel (TN)' + (releve ? ' – relevé du plan de masse, altitudes NGF' : ' – non relevé : ±0,00 supposé') },
+    { pastille: pastille(TERRE, { trait: '#B9AE9C' }), texte: 'Sol en place' },
+    { pastille: pastille('#DCDCDC', { hachures: '#4A4A4A' }), texte: 'Maçonnerie, planchers et charpente (coupés)' },
+    ...(V.some(v => v.limites.length) ? [{ pastille: pastilleTrait(LIMITE, 0.6, [2.4, 1.6]), texte: 'Limite de propriété' }] : []),
+    { pastille: (pg: PagePdf, px: number, py: number) => { pg.trait(X(px), Y(py + 2.5), X(px + 7), Y(py + 2.5), 0.4, ENCRE); pg.polygone([[X(px + 3.5), Y(py + 2.5)], [X(px + 5.2), Y(py + 0.2)], [X(px + 1.8), Y(py + 0.2)]], { fond: '#FFFFFF', trait: ENCRE, ep: 0.4 }) }, texte: 'Repère de niveau (cote / RDC fini et altitude NGF)' },
+  ];
+  legende(page, x, y, 'LÉGENDE', L, 7, 4.1);
+  const tl = tailleLegende('LÉGENDE', L, 1, 7, 4.1).l;
+  /* les notes */
+  const t = projet.buildings.flatMap(b => b.floors).flatMap(f => { const r = toitureDuNiveau(f); return r?.ok ? r.toitures : [] })[0];
+  const fd = fondationsDuProjet(projet)?.fondation;
+  const roof = projet.buildings.flatMap(b => b.floors).flatMap(f => Object.values(f.objects)).find(o => o.type === 'roof');
+  const notes = [
+    'Niveau fini du rez-de-chaussée ±0,00' + (ngf0 !== undefined ? ' = ' + ngf0.toFixed(2).replace('.', ',') + ' NGF' : ' (altitude NGF à préciser)') + '. Cotes de niveau exprimées par rapport au RDC fini' + (ngf0 !== undefined ? ', altitudes NGF entre parenthèses.' : '.'),
+    releve ? 'Le terrain naturel est tracé à partir des ' + (parc?.spotHeights?.length ?? 0) + ' points cotés relevés reportés sur le plan de masse (PCMI 2), interpolés le long des plans de coupe. Terrain fini supposé égal au terrain naturel hors de la maison : déblais et remblais ' + A_PRECISER + '.'
+      : parc?.spotHeights?.length ? 'Points cotés relevés, mais l’altitude NGF du ±0,00 n’est pas renseignée (parcelle) : terrain non placé.'
+        : 'Le terrain naturel n’est pas relevé : il est supposé au niveau du sol fini (à reporter du plan topographique, outil N).',
+    (fd ? 'Plancher du RDC sur ' + SOUBASSEMENTS[fd.kind].toLowerCase() + ' ; ' : '') + (t && roof?.type === 'roof' ? 'égout de toiture à ' + niveauRelatif(t.egoutZ) + ' ; pente ' + roof.pitch + '°.' : ''),
+    traitsDeCoupe(projet).length ? 'Traits de coupe tracés sur le plan ; le plan de coupe les prolonge de part en part du bâtiment.' : 'Coupes placées d’elles-mêmes : en travers et en long de la maison, par l’escalier s’il y en a un, jamais le long d’un mur.',
+    'Épaisseurs dessinées indicatives : charpente et isolation à préciser au projet.',
+  ].filter(Boolean);
+  const xn = x + tl + 12, ln = Math.min(140, l - tl - 12 - 82);
+  texte(page, 'NOTES', xn, y + 3, 8.5, { gras: true, couleur: '#222222' });
+  let yy = y + 8;
+  for (const n of notes) { for (const s of couper(n, ln * PT, 6.8)) { texte(page, s, xn, yy, 6.8, { couleur: GRIS_TEXTE }); yy += 3.3 } yy += 1.2 }
+  /* le repérage : la parcelle (ou la maison), les traits de coupe et leurs lettres, le nord */
+  const rx = x + l - 78, rw = 78, rh = 54;
+  page.cadre(X(rx), Y(y + rh), rw * PT, rh * PT, { ep: 0.4, couleur: '#9A9A9A', fond: '#FFFFFF' });
+  texte(page, 'Repérage des coupes', rx + 3, y + 4.5, 7.5, { gras: true, couleur: '#222222' });
+  const E = empriseAuSol(projet), Q = [...(parc ? parc.contour : []), ...E.flatMap(q => q.contour)];
+  if (!Q.length) return;
+  const xmin = Math.min(...Q.map(p => p.x)), xmax = Math.max(...Q.map(p => p.x)), ymin = Math.min(...Q.map(p => p.y)), ymax = Math.max(...Q.map(p => p.y));
+  const k = Math.min((rw - 22) / Math.max(1, xmax - xmin), (rh - 16) / Math.max(1, ymax - ymin));
+  const ox = rx + 5 + (rw - 22 - (xmax - xmin) * k) / 2, oy = y + 8 + (rh - 16 + (ymax - ymin) * k) / 2;
+  const M = (p: Point): [number, number] => [X(ox + (p.x - xmin) * k), Y(oy - (p.y - ymin) * k)];
+  if (parc) page.polygone(parc.contour.map(M), { fond: '#E3EBD3', trait: ENCRE, ep: 0.5 });
+  for (const q of E) page.polygone(q.contour.map(M), { fond: '#BFC4CA', trait: ENCRE, ep: 0.4 });
+  for (const v of V) {
+    const d = { x: v.l.regard.y, y: -v.l.regard.x }, a = { x: v.l.a.x + d.x * (v.u0 - 0), y: v.l.a.y + d.y * (v.u0 - 0) }, b = { x: v.l.a.x + d.x * v.u1, y: v.l.a.y + d.y * v.u1 };
+    const A = M(a), B = M(b);
+    page.trait(A[0], A[1], B[0], B[1], 0.5, BRIQUE, [3, 1, 0.6, 1]);
+    page.texte(v.l.nom, A[0] - (B[0] - A[0]) * 0.04, A[1] - (B[1] - A[1]) * 0.04 - 2, 7, { gras: true, couleur: BRIQUE, aligne: 'centre' });
+    page.texte(v.l.nom, B[0] + (B[0] - A[0]) * 0.04, B[1] + (B[1] - A[1]) * 0.04 - 2, 7, { gras: true, couleur: BRIQUE, aligne: 'centre' });
+  }
+  nordFleche(page, rx + rw - 8, y + 14, parc?.north ?? 0, 4);
+  if (parc?.streetName) texte(page, parc.streetName, rx + rw / 2, y + rh - 2, 5.6, { italique: true, aligne: 'centre', couleur: GRIS_TEXTE });
+  void Page;
+}

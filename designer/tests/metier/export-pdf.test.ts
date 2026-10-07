@@ -25,10 +25,10 @@ const texte = (u: Uint8Array) => Array.from(u, c => String.fromCharCode(c)).join
 
 describe('export PDF', () => {
   it('échelle normalisée : la plus grande qui tient, cotes comprises', () => {
-    /* la zone du dessin laisse la place aux encadrés et à la colonne CP : 12 × 9 m cotés passent au 1/75 */
-    expect(echelleNormalisee(12_000, 9_000)).toBe(75);
-    expect(echelleNormalisee(20_000, 12_000)).toBe(125);
-    expect(echelleNormalisee(20_000, 12_000, false)).toBe(100);
+    /* la zone du dessin va du cadre à la colonne CP (les encadrés se posent dans les vides) : 12 × 9 m cotés passent au 1/50 */
+    expect(echelleNormalisee(12_000, 9_000)).toBe(50);
+    expect(echelleNormalisee(20_000, 12_000)).toBe(75);
+    expect(echelleNormalisee(20_000, 12_000, false)).toBe(75);
     expect(echelleNormalisee(400_000, 1_000)).toBe(1_000);
   });
 
@@ -42,7 +42,7 @@ describe('export PDF', () => {
   it('une planche A3 du plan de l’atelier : PDF valide, renvois exacts, cartouche et surfaces', () => {
     const p = maisonFictive(), f = p.buildings[0]!.floors[0]!;
     const B = boiteDessin(f)!;
-    expect(B.xmax - B.xmin).toBeGreaterThan(12_000);                  // le débord de toit compte
+    expect(B.xmax - B.xmin).toBeGreaterThanOrEqual(12_000);           // la maçonnerie (le débord du toit n'est pas au plan du niveau)
     const u = planchesPdf(p, { niveaux: [f.id], cotation: true, mobilier: true, indice: 'B', date: '03/10/2026' });
     const s = texte(u);
     expect(s.startsWith('%PDF-1.4')).toBe(true);
@@ -54,10 +54,12 @@ describe('export PDF', () => {
     lignes.forEach((l, i) => expect(s.slice(Number(l.slice(0, 10)), Number(l.slice(0, 10)) + 10)).toMatch(new RegExp('^' + (i + 1) + ' 0 obj')));
     /* cartouche, échelle, surfaces, cotes (texte tourné), pièces */
     const e = echelleNormalisee(B.xmax - B.xmin, B.ymax - B.ymin);
-    expect(e).toBe(75);                                                  // 13 × 10 m débord compris : 1/50 ne tient plus
-    /* la colonne CP : société (sans logo), feuille, indice et date, format, échelle ; le titre et le projet en bas à gauche */
-    for (const t of ['(CP CONSTRUCTIONS)', '(Maison fictive)', '(Plan : RDC)', '(PLAN DU)', '(rez-de-chauss\xE9e)', '(Plan RDC)', '(indice B du 03/10/2026)', '(Format : A3)', '(\xC9chelle : 1/75)', '(S\xE9jour - cuisine)', '(37,00 m\xB2)', '(12,00)'])
-      expect(s).toContain(t);
+    expect(e).toBe(50);                                                  // 12 × 9 m : le 1/50 tient, cotes comprises
+    /* la colonne CP : société (sans logo), titre, feuille, indice et date, format, échelle ; le titre de la planche en bas à gauche */
+    for (const t of ['(CP CONSTRUCTIONS)', '(PLAN DU REZ-DE-CHAUSS\xC9E)', '(PLAN DU)', '(rez-de-chauss\xE9e)', '(Plan RDC)', '(indice B du 03/10/2026)', '(Format :)', '(A3)', '(\xC9chelle :)', '(S\xE9jour - cuisine)', '(SH : 37,00 m\xB2)', '(TABLEAU DES SURFACES \x96 RDC)', '(L\xC9GENDE)'])
+      expect(s, t).toContain(t);
+    /* l'échelle de la planche : la plus grande où le plan, ses cotes et ses encadrés tiennent */
+    expect(s).toMatch(/\(1\/(50|75)\) Tj/);
     expect((s.match(/ re S/g) ?? []).length).toBeGreaterThan(0);
     /* le dessin est vectoriel : des chemins remplis (maçonnerie) et tracés */
     expect((s.match(/ f\*?\n?/g) ?? []).length).toBeGreaterThan(10);
@@ -70,7 +72,8 @@ describe('export PDF', () => {
     const ids = p.buildings[0]!.floors.map(f => f.id);
     const s = texte(planchesPdf(p, { niveaux: ids, cotation: false, mobilier: false, indice: 'A', date: '03/10/2026' }));
     expect(s).toContain('/Count 2');
-    expect(s.indexOf('(Plan : RDC)')).toBeLessThan(s.indexOf('(Plan : \xC9tage)'));
+    expect(s.indexOf('(PLAN DU REZ-DE-CHAUSS\xC9E)')).toBeGreaterThan(0);
+    expect(s.indexOf('(PLAN DU REZ-DE-CHAUSS\xC9E)')).toBeLessThan(s.indexOf('(PLAN DE L\x92\xC9TAGE)'));
     expect(s).toContain('(Niveau vide : aucun mur \xE0 dessiner.)');
   });
 });

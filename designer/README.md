@@ -165,11 +165,39 @@ fait de commandes ordinaires : un seul « annuler ».
 **Export PDF** (bouton « PDF » ; `src/export/`) : une planche A3 par niveau,
 à la plus grande échelle normalisée qui tient (1/50, 1/75, 1/100…), cotes,
 débord de toit, mobilier au choix, tableau des surfaces, échelle
-graphique. Chaque planche porte, comme les dossiers du cabinet, la colonne
-CP Constructions sur toute sa hauteur (logo, titre, numéro de feuille et
-indice, construction de, adresse du projet, zone sismique, dessiné par,
-RE 2020, format, échelle) et son titre en bas à gauche ; ce qui n'est pas
-saisi s'écrit « [à préciser] ». Le PDF est écrit sans bibliothèque et en vectoriel : le plan y
+graphique. Toutes les planches suivent le modèle des dossiers de permis du
+cabinet (`src/export/feuille.ts` et un module par planche) :
+- la feuille : un cadre, la colonne CP Constructions sur toute la hauteur
+  (logo, titre en Times sur fond gris, numéro de feuille et indice,
+  construction de, adresse du projet, zone sismique, dessiné par, RE 2020,
+  format, échelle ; intitulés en italique soulignés), le titre de la
+  planche en bas à gauche ; ce qui n'est pas saisi s'écrit « [à préciser] » ;
+- le plan d'un niveau (`planche-niveau.ts`) : pièces blanches, maçonnerie
+  grise hachurée, doublage isolant crème ondulé, cloisons grises,
+  « SH : 12,91 m² » (SA pour un garage), placards « PL », trois chaînes de
+  cotes (baies « 0,90 × 1,35 » et « all. 0,80 », décrochés, hors tout),
+  « VR » devant les baies à volet roulant (volet choisi dans l'inspecteur
+  de la baie), repères de coupe en brique ; le tableau des surfaces, la
+  légende, le nord et l'échelle se posent dans les vides du dessin (la
+  plus grande échelle où tout tient) ;
+- les façades (`planche-facades.ts`) : couverture rayée de ses rangs,
+  parements à leur teinte et à leur motif, menuiseries gris anthracite,
+  niveaux à gauche (égout, RDC fini, terrain naturel), faîtages vus
+  au-dessus, dimensions sous les baies, encadrés « Matériaux & teintes » et
+  « Niveaux et lecture des façades » ; nommées par leur orientation ;
+- le plan de toiture (`planche-toiture.ts`) : pans gris rayés, faîtages,
+  arêtiers, noues, égout et gouttière, flèches de pente, faîtages cotés
+  (et en NGF), le nu des murs en tirets, la couverture en chiffres ;
+- les coupes (`planche-coupes.ts`) : deux par feuille, sur leur terrain
+  (terrain naturel relevé, sol en place), maçonnerie coupée hachurée,
+  toiture vue au-delà, pièces traversées, niveaux et altitudes NGF,
+  limites de propriété ; légende, notes, repérage. Sans trait tracé, deux
+  coupes se placent d'elles-mêmes : en travers (A) et en long (B) ;
+- le plan de masse (`planche-masse.ts`) : parcelle verte aux côtés cotés,
+  bornes, voie, toiture vue de dessus, emprise en tirets, aménagements,
+  arbres, réseaux, prises de vue, reculs en rouge ; légende, « Surfaces et
+  règles », notes, puis les listes (terrain, reculs, aménagements,
+  terrassement, réseaux, plantations, prises de vue). Le PDF est écrit sans bibliothèque et en vectoriel : le plan y
 est dessiné par le même code qu'à l'écran, sur une « toile PDF ».
 
 **Façades** (`src/vue3d/facades.ts`, option de l'export PDF) : les quatre

@@ -254,8 +254,8 @@ try {
   const fichierPdf = await readFile(chemin);
   assert.equal(fichierPdf.subarray(0, 8).toString('latin1'), '%PDF-1.4', 'un PDF');
   assert.ok(fichierPdf.toString('latin1').includes('(CP CONSTRUCTIONS)'), 'cartouche');
-  assert.ok(fichierPdf.toString('latin1').includes('(Fa\xE7ade sud \\(bas du plan\\))') && fichierPdf.toString('latin1').includes('/Count 3'), 'planche des façades');
-  assert.ok(fichierPdf.toString('latin1').includes('(Coupe A-A)') && fichierPdf.toString('latin1').includes('(PLAN DE REP\xC9RAGE)'), 'planche de la coupe');
+  assert.ok(fichierPdf.toString('latin1').includes('(FA\xC7ADE SUD)') && fichierPdf.toString('latin1').includes('/Count 3'), 'planche des façades');
+  assert.ok(fichierPdf.toString('latin1').includes('(COUPE A\x96A)') && fichierPdf.toString('latin1').includes('(Rep\xE9rage des coupes)'), 'planche de la coupe');
   assert.match(dl.suggestedFilename(), /plans A3 - RDC\.pdf$/);
   if (process.env.PDF_SORTIE) await dl.saveAs(process.env.PDF_SORTIE);
   /* le DXF du niveau : un fichier R12 en mm */
@@ -272,7 +272,7 @@ try {
   await p.fill('.voile label:has-text("Maître d’ouvrage") input', 'M. et Mme Fictifs');
   const [dl2] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
   const dossier = (await readFile(await dl2.path())).toString('latin1');
-  assert.ok(dossier.includes('(DEMANDE DE PERMIS DE CONSTRUIRE)') && dossier.includes('(M. et Mme Fictifs)') && dossier.includes('(PCMI 5 \x97 Fa\xE7ades)'), 'dossier de permis');
+  assert.ok(dossier.includes('(PLAN DE PERMIS DE CONSTRUIRE)') && dossier.includes('(M. et Mme Fictifs)') && dossier.includes('(FA\xC7ADES)') && dossier.includes('(PCMI 5)'), 'dossier de permis');
   assert.match(dl2.suggestedFilename(), /dossier PC\.pdf$/);
   /* escalier : posé d'un clic (droit, 0,90 m), choisi, son calcul affiché ; à l'étage ajouté, sa trémie */
   await p.keyboard.press('e');
@@ -574,7 +574,7 @@ try {
   const [dl6] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
   const dossier6 = (await readFile(await dl6.path())).toString('latin1');
   if (process.env.CAPTURE_DOSSIER) await writeFile(process.env.CAPTURE_DOSSIER, await readFile(await dl6.path()));
-  for (const t of ['(Lieu-dit Le Fictif)', '(812 m\xB2)', '(Pompe \xE0 chaleur air / eau)', '(PERMIS DE CONSTRUIRE)', '(C. Fictif)', '(PCMI 6 \x97 Insertion)', '(PCMI 7 \x97 Environnement proche)', '(depuis la rue, vers le nord)', '(depuis la rue, face \xE0 l\x92entr\xE9e)'])
+  for (const t of ['(Lieu-dit Le Fictif)', '(812 m\xB2)', '(Pompe \xE0 chaleur air / eau)', '(PERMIS DE CONSTRUIRE)', '(C. Fictif)', '(PCMI 6 \x97 INSERTION DU PROJET DANS SON ENVIRONNEMENT)', '(PCMI 7 \x97 PHOTOGRAPHIE DE L\x92ENVIRONNEMENT PROCHE)', '(depuis la rue, vers le nord)', '(depuis la rue, face \xE0 l\x92entr\xE9e)'])
     assert.ok(dossier6.includes(t), 'dossier : ' + t);
   assert.equal(dossier6.match(/\/Subtype \/Image /g)?.length, 2, 'deux images dans le dossier (insertion et photographie)');
   /* le plan de présentation : sols en couleur à l'écran (préférence de l'appareil), puis en PDF pour le client */
@@ -588,7 +588,7 @@ try {
   await p.selectOption('.voile select[name=pre]', 'presentation');
   const [dl7] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
   const pres = (await readFile(await dl7.path())).toString('latin1');
-  assert.ok(pres.includes('(Plan de pr\xE9sentation : RDC)') && pres.includes('(SOLS ET SURFACES)'), 'plan de présentation');
+  assert.ok(pres.includes('(PLAN DE PR\xC9SENTATION \x96 REZ-DE-CHAUSS\xC9E)') && pres.includes('(SOLS ET SURFACES \x96 RDC)'), 'plan de présentation');
   assert.match(dl7.suggestedFilename(), /plans de presentation/);
   await p.click('.ruban .tuile-outil:has-text("Sols en couleur")');
   assert.equal(await p.evaluate(() => localStorage.getItem('cpDesigner:sols')), 'non');
