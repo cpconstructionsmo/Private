@@ -8,8 +8,8 @@
    photographiques, les reculs en rouge ; à droite, la légende, le tableau
    « Surfaces et règles » et les notes sur le fond de plan.
    Tout se déduit de la parcelle et du projet : ce qui manque est écrit. */
-import type { Point, Project, Landscape } from '../model/types';
-import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, pointsDeVue, champDeVue, surfacesReglementaires, toitureDuNiveau, lignesDeToiture, NOMS_RESEAUX, bilanAmenagements, metreTerrain, altitudeTerrain } from '../building';
+import type { Point, Project, Landscape, ReglesPlu } from '../model/types';
+import { controlePlu, surfacesDuTerrain, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, pointsDeVue, champDeVue, surfacesReglementaires, toitureDuNiveau, lignesDeToiture, NOMS_RESEAUX, bilanAmenagements, metreTerrain, altitudeTerrain } from '../building';
 import { GENRES_AMENAGEMENT } from '../catalogue/amenagements';
 import { finitionAmenagement } from '../catalogue/amenagements';
 import { NOMS_EQUIPEMENTS } from '../ui/dessin-terrain';
@@ -233,19 +233,36 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
   const mesure = (k: Landscape['kind']) => amenagements.filter(a => a.kind === k).reduce((s, a) => s + Math.abs(aireAnneau(a.points)), 0);
   const graves = mesure('path') + mesure('parking'), terrasse = mesure('terrace');
   const pleine = Math.max(0, S - em - graves - terrasse);
-  const lignes: string[][] = [
-    ['Terrain' + (plot.reference ? ' (' + plot.reference + ')' : ''), enM2(S), ''],
-    ['Emprise au sol', enM2(em), pc(em)],
-    ['Surface de plancher', enM2(SR.surfacePlancher), ''],
-    ...(graves ? [['Allées et stationnement', enM2(graves), pc(graves)]] : []),
-    ...(terrasse ? [['Terrasse', enM2(terrasse), pc(terrasse)]] : []),
-    ['Pleine terre (le reste)', enM2(pleine), pc(pleine)],
-    ...(H ? [['Hauteurs égout / faîtage', metres(H.egout) + ' / ' + metres(H.faitage) + ' m', '']] : []),
+  /* les règles du PLU saisies sur la parcelle, en regard des mesures (building/plu.ts) : « 24 % (max. 35 %) », en rouge si elles ne
+     sont pas tenues ; sans règles, la note le dit */
+  const CP = controlePlu(projet), regle = (k: keyof ReglesPlu) => CP?.regles.find(r => r.cle === k);
+  const lim = (k: keyof ReglesPlu) => { const r = regle(k); return r ? ' (' + r.limite + ')' : '' };
+  const SF = surfacesDuTerrain(projet);
+  const lignes: { l: string[]; k?: (keyof ReglesPlu)[] }[] = [
+    { l: ['Terrain' + (plot.reference ? ' (' + plot.reference + ')' : ''), enM2(S), ''] },
+    { l: ['Emprise au sol', enM2(em), pc(em) + lim('empriseMax')], k: ['empriseMax'] },
+    { l: ['Surface de plancher', enM2(SR.surfacePlancher), ''] },
+    ...(graves ? [{ l: ['Allées et stationnement', enM2(graves), pc(graves)] }] : []),
+    ...(terrasse ? [{ l: ['Terrasse', enM2(terrasse), pc(terrasse)] }] : []),
+    { l: ['Pleine terre (le reste)', enM2(pleine), pc(pleine) + lim('pleineTerreMin')], k: ['pleineTerreMin'] },
+    ...(SF && (regle('permeableMin') || SF.permeables) ? [{ l: ['Surfaces non imperméabilisées', enM2(SF.nonImpermeabilisees), pc(SF.nonImpermeabilisees) + lim('permeableMin')], k: ['permeableMin' as const] }] : []),
+    ...(regle('biotopeMin') ? [{ l: ['Coefficient de biotope', regle('biotopeMin')!.valeur, '(' + regle('biotopeMin')!.limite + ')'], k: ['biotopeMin' as const] }] : []),
+    ...(regle('stationnementMin') ? [{ l: ['Stationnement', regle('stationnementMin')!.valeur, '(' + regle('stationnementMin')!.limite + ')'], k: ['stationnementMin' as const] }] : []),
+    ...(H ? [{ l: ['Hauteurs égout / faîtage', (regle('egoutMax')?.valeur.replace(' m', '') ?? metres(H.egout)) + ' / ' + (regle('faitageMax')?.valeur.replace(' m', '') ?? metres(H.faitage)) + ' m',
+      regle('egoutMax') || regle('faitageMax') ? '(max. ' + (plot.plu?.egoutMax !== undefined ? metres(plot.plu.egoutMax) : '–') + ' / ' + (plot.plu?.faitageMax !== undefined ? metres(plot.plu.faitageMax) : '–') + ' m)' : ''], k: ['egoutMax' as const, 'faitageMax' as const] }] : []),
+    ...(regle('reculVoieMin') ? [{ l: ['Recul sur voie (le plus petit)', regle('reculVoieMin')!.valeur, '(' + regle('reculVoieMin')!.limite + ')'], k: ['reculVoieMin' as const] }] : []),
+    ...(regle('reculLimitesMin') ? [{ l: ['Recul sur limites séparatives', regle('reculLimitesMin')!.valeur, '(' + regle('reculLimitesMin')!.limite + ')'], k: ['reculLimitesMin' as const] }] : []),
   ];
-  const ht = tableau(page, px, py, [{ titre: 'SURFACES ET RÈGLES', largeur: 54 }, { titre: '', largeur: 34, aligne: 'droite' }, { titre: '', largeur: 24, aligne: 'droite' }], lignes, { corps: 7.2, pas: 4.8 });
+  const couleurs = lignes.map(x => (x.k?.some(k => regle(k)?.etat === 'non_conforme') ? ROUGE : undefined));
+  const zonePlu = plot.plu?.zone?.trim();
+  const ht = tableau(page, px, py, [{ titre: 'SURFACES ET RÈGLES' + (zonePlu ? ' (zone ' + zonePlu + ')' : ''), largeur: 50 }, { titre: '', largeur: 28, aligne: 'droite' }, { titre: '', largeur: 34, aligne: 'droite' }], lignes.map(x => x.l), { corps: 7.2, pas: 4.8, couleurs });
   py += ht + 1.5;
-  for (const t of couper('Règles du PLU (emprise, hauteurs, reculs, stationnement, pleine terre) : ' + A_PRECISER + ' – à vérifier sur le règlement de la zone.', PANNEAU * PT, 6))
-    { texte(page, t, px, py + 2.5, 6, { couleur: ROUGE_MANQUE }); py += 3 }
+  const RG = CP?.regles ?? [], non = RG.filter(r => r.etat === 'non_conforme'), verifier = RG.filter(r => r.etat === 'a_verifier');
+  const note = !RG.length ? [{ t: 'Règles du PLU (emprise, hauteurs, reculs, stationnement, pleine terre) : ' + A_PRECISER + ' – à saisir dans le panneau de la parcelle, d’après le règlement de la zone.', c: ROUGE_MANQUE }]
+    : [{ t: 'Règles : ' + (plot.plu?.source?.trim() || 'règlement de la zone ' + A_PRECISER) + '. Mesures du projet ; hauteurs depuis ' + (CP!.reference === 'tn' ? 'le terrain naturel le plus bas sous la maison' : 'le RDC fini (terrain naturel non relevé)') + '.', c: GRIS_TEXTE },
+      ...(non.length ? [{ t: 'Non tenu : ' + non.map(r => r.libelle.toLowerCase() + ' ' + r.valeur + ' (' + r.limite + ')').join(' ; ') + '.', c: ROUGE }] : []),
+      ...(verifier.length ? [{ t: 'À vérifier : ' + verifier.map(r => r.libelle.toLowerCase()).join(', ') + '.', c: ROUGE_MANQUE }] : [])];
+  for (const n of note) for (const t of couper(n.t, PANNEAU * PT, 6)) { texte(page, t, px, py + 2.5, 6, { couleur: n.c }); py += 3 }
   if (E.length && !maisonDansParcelle(plot, E)) { texte(page, 'ATTENTION : la maison sort de la parcelle.', px, py + 3, 7.5, { gras: true, couleur: ROUGE }); py += 4.5 }
   py += 5;
   /* les notes */

@@ -14,7 +14,8 @@
    motrices restent vraies, ou la commande est refusée. */
 import { cadastreInvalide, deplacerCadastre } from '../building/cadastre';
 import { teinteOuvrageInvalide } from '../catalogue/menuiseries';
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage } from '../model/types';
+import { reglesPluInvalides } from '../building/plu';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -152,7 +153,9 @@ export type Commande =
       /** le fond cadastral calé (building/cadastre.ts) ; null le retire */
       cadastre?: Plot['cadastre'] | null;
       /** le terrain fini aux abords, par rapport au ±0,00 (mm, de −3 m à +0,5 m) ; null le retire */
-      terrainFini?: Mm | null };
+      terrainFini?: Mm | null;
+      /** les règles du PLU (building/plu.ts), en entier ; null les retire */
+      plu?: ReglesPlu | null };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
@@ -1117,6 +1120,11 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.terrainFini !== undefined) {
         if (cmd.terrainFini !== null && !(Number.isFinite(cmd.terrainFini) && cmd.terrainFini >= -3_000 && cmd.terrainFini <= 500)) return refus('terrain fini : entre 3 m sous le sol fini et 50 cm au-dessus');
         poser('finishedGround', cmd.terrainFini === null ? undefined : Math.round(cmd.terrainFini));
+      }
+      if (cmd.plu !== undefined) {
+        if (cmd.plu !== null) { const ep = reglesPluInvalides(cmd.plu); if (ep) return refus(ep) }
+        const R = cmd.plu ? Object.fromEntries(Object.entries(cmd.plu).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v])) : {};
+        poser('plu', Object.keys(R).length ? R : undefined);
       }
       if (cmd.cadastre !== undefined) {
         if (cmd.cadastre !== null) { const ec = cadastreInvalide(cmd.cadastre); if (ec) return refus(ec) }

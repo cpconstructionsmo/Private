@@ -43,5 +43,9 @@ export const FINITIONS_AMENAGEMENT: readonly FinitionAmenagement[] = [
   f('massif-plante', 'green', 'Massif planté', '#7FA05E', 0),
 ];
 
+/** les surfaces qui laissent l'eau s'infiltrer (comptées « non imperméabilisées » au contrôle du PLU, à côté de la pleine
+    terre) ; tout autre revêtement d'allée, de stationnement ou de terrasse compte imperméable, par prudence */
+export const FINITIONS_PERMEABLES: ReadonlySet<string> = new Set(['allee-gravillons', 'stationnement-evergreen']);
+
 export const finitionAmenagement = (id: string): FinitionAmenagement | undefined => FINITIONS_AMENAGEMENT.find(x => x.id === id);
 export const finitionsDe = (g: GenreAmenagement): FinitionAmenagement[] => FINITIONS_AMENAGEMENT.filter(x => x.genre === g);
