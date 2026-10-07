@@ -253,6 +253,22 @@ intégrée au PDF ; l'insertion dans le site (PCMI 6) se compose aussi dans la
 lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
 revient avec l'import du RDC.
 
+**Fond cadastral** (`src/building/cadastre.ts`, panneau de la parcelle) :
+les parcelles voisines et le bâti existant du plan cadastral (GeoJSON
+d'Etalab : fichiers « parcelles » et « batiments » d'une commune, .json ou
+.json.gz, importés depuis l'appareil ; ou téléchargés sur
+cadastre.data.gouv.fr par le code INSEE). Les coordonnées en degrés sont
+projetées en Lambert 93. Le terrain est retrouvé par la référence
+cadastrale de la parcelle (« ZB n° 237 et 238 ») et calé sur la limite
+tracée : rotation cherchée, translation des centres, échelle inchangée ;
+l'écart moyen restant est affiché, et la rotation peut donner le nord du
+plan. Seul ce qui est à moins de 150 m du terrain est gardé ; le fond suit
+la parcelle quand on l'implante. Au plan de masse : limites voisines au
+trait gris avec leur référence, bâti existant hachuré, légende, et la note
+« limites cadastrales hors terrain d'assiette non garanties ». Sans fond,
+la note le dit « [à préciser] ». La maison y est cotée en longueur et en
+largeur (nu extérieur des murs), hors de la toiture.
+
 **Aménagements extérieurs** (outil A ; `src/catalogue/amenagements.ts`) :
 clôtures (grillage rigide, palissade, mur bahut et grille, mur enduit,
 haie), terrasses, allées et accès, stationnement, espaces verts. On choisit

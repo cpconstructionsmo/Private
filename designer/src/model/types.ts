@@ -251,6 +251,10 @@ export interface Plot extends BaseObject {
   /** les points cotés du terrain naturel (plan du géomètre) : altitudes NGF en mètres, posées dans le repère du plan ;
    *  ils suivent la parcelle quand on l'implante (translation, rotation) */
   spotHeights?: { point: Point; ngf: number }[];
+  /** le fond cadastral (plan de masse) : les parcelles voisines et le bâti existant du cadastre, calés sur la
+   *  limite (repère du plan) ; « terrain » : les parcelles du projet ; écart moyen du calage (mm). Ils suivent
+   *  la parcelle quand on l'implante. Limites non garanties. */
+  cadastre?: { parcelles: { reference: string; contour: Point[]; terrain?: boolean }[]; batiments: Point[][]; source: string; date: string; ecart?: Mm };
 }
 
 /** un aménagement extérieur du plan de masse, posé sur le niveau le plus bas : une clôture (ligne

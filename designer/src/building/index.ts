@@ -19,3 +19,4 @@ export * from './structure';
 export * from './fondations';
 export * from './eaux-pluviales';
 export * from './lucarnes';
+export * from './cadastre';

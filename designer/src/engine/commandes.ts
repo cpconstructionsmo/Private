@@ -12,6 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
+import { cadastreInvalide, deplacerCadastre } from '../building/cadastre';
 import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
@@ -146,7 +147,9 @@ export type Commande =
   | { type: 'modifierAmenagement'; id: string; points?: Point[]; ferme?: boolean; finition?: string; hauteur?: Mm }
   | { type: 'modifierParcelle'; id: string; contour?: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number | null;
       /** les points cotés du terrain naturel, en entier (la liste remplace la précédente) */
-      altitudesTerrain?: { point: Point; ngf: number }[] };
+      altitudesTerrain?: { point: Point; ngf: number }[];
+      /** le fond cadastral calé (building/cadastre.ts) ; null le retire */
+      cadastre?: Plot['cadastre'] | null };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
@@ -1100,6 +1103,14 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.reference !== undefined) poser('reference', cmd.reference.trim() || undefined);
       if (cmd.nord !== undefined) poser('north', cmd.nord);
       if (cmd.altitudeRdc !== undefined) poser('groundFloorNgf', cmd.altitudeRdc ?? undefined);
+      if (cmd.cadastre !== undefined) {
+        if (cmd.cadastre !== null) { const ec = cadastreInvalide(cmd.cadastre); if (ec) return refus(ec) }
+        poser('cadastre', cmd.cadastre ?? undefined);
+      } else if (cmd.contour && o.cadastre) {
+        /* le fond cadastral suit la parcelle implantée, comme les points cotés */
+        const f = deplacementRigide(o.contour, cmd.contour);
+        if (f) poser('cadastre', deplacerCadastre(o.cadastre, f));
+      }
       if (cmd.altitudesTerrain !== undefined) {
         const ea = altitudesInvalides(cmd.altitudesTerrain);
         if (ea) return refus(ea);
