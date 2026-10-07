@@ -10,7 +10,7 @@ import { intersection } from '../geometry/booleen';
 import { dessinerTerrain } from './dessin-terrain';
 import { MATIERES_COUCHES, compositionMur } from '../catalogue/murs';
 import type { Accroche } from '../building/accrochage';
-import { dimensionsPiece, placeEtiquette, type ChaineCotes, type CoteInterieure, type PlaceOuverture } from '../building/cotation';
+import { dimensionsPiece, placeEtiquette, placeEtiquetteCouverte, type ChaineCotes, type CoteInterieure, type PlaceOuverture } from '../building/cotation';
 import { manoeuvreDe } from '../catalogue/ouvertures';
 import type { Toiture } from '../building/toiture';
 import { fenetresDeToit } from '../building/fenetres-toit';
@@ -215,12 +215,34 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* ce que l'étiquette doit éviter : les meubles, les trappes de visite, et les cotes intérieures (une bande autour de chaque ligne, son texte compris) */
   const bande = 14 / cam.echelle;
   const meubles = [...Object.values(s.niveau.objects).flatMap(o => (o.type === 'furniture' ? [emprise(o)] : [])), ...(s.fondations?.trappes ?? []).map(t => t.contour),
-    ...(s.cotesInterieures ?? []).map(c => [{ x: Math.min(c.a.x, c.b.x) - bande, y: Math.min(c.a.y, c.b.y) - bande }, { x: Math.max(c.a.x, c.b.x) + bande, y: Math.max(c.a.y, c.b.y) + bande }])];
+    ...(s.cotesInterieures ?? []).map(c => [{ x: Math.min(c.a.x, c.b.x) - bande, y: Math.min(c.a.y, c.b.y) - bande }, { x: Math.max(c.a.x, c.b.x) + bande, y: Math.max(c.a.y, c.b.y) + bande }]),
+    /* au dossier, chaque mur (une cloison qui s'arrête dans une pièce en est un) et le débattement de chaque porte */
+    ...(s.dossier ? [...murs.values()].flatMap(w => {
+      const L = distance(w.axis.a, w.axis.b);
+      if (L < 1) return [];
+      const u = { x: (w.axis.b.x - w.axis.a.x) / L, y: (w.axis.b.y - w.axis.a.y) / L }, n = { x: -u.y * w.thickness / 2, y: u.x * w.thickness / 2 };
+      const mur = [{ x: w.axis.a.x + n.x, y: w.axis.a.y + n.y }, { x: w.axis.b.x + n.x, y: w.axis.b.y + n.y }, { x: w.axis.b.x - n.x, y: w.axis.b.y - n.y }, { x: w.axis.a.x - n.x, y: w.axis.a.y - n.y }];
+      const portes = Object.values(s.niveau.objects).flatMap(o => {
+        if (o.type !== 'opening' || o.hostWallId !== w.id || o.kind !== 'door') return [];
+        const c = { x: w.axis.a.x + u.x * o.offset, y: w.axis.a.y + u.y * o.offset }, r = o.width;
+        return [[{ x: c.x - r, y: c.y - r }, { x: c.x + r, y: c.y + r }]];
+      });
+      return [mur, ...portes];
+    }) : [])];
   for (const z of plan.zones) {
     const voulue = z.piece && positionDansAnneau(z.piece.seed, z.polygone.contour) === 'dedans' ? z.piece.seed : centroide(z.polygone.contour);
     ctx.font = '600 12px system-ui, sans-serif';
     const lpx = Math.max(ctx.measureText(z.piece ? z.piece.name : 'À nommer').width, 70) / 2 + 4;
-    const c = meubles.length ? placeEtiquette(z.polygone.contour, meubles, voulue, { l: lpx / cam.echelle, h: 22 / cam.echelle }) : voulue;
+    let c = meubles.length ? placeEtiquette(z.polygone.contour, meubles, voulue, { l: lpx / cam.echelle, h: 22 / cam.echelle }) : voulue;
+    /* au dossier : l'étiquette couchée si elle tient dans la pièce sans rien couvrir, sinon debout si elle y tient mieux */
+    let debout: boolean | undefined;
+    if (s.dossier) {
+      const dl = largeurEtiquetteDossier(ctx, z) / 2 / cam.echelle, dh = 15 / cam.echelle;
+      const H = placeEtiquetteCouverte(z.polygone.contour, meubles, voulue, { l: dl, h: dh });
+      const V = H.couvre === 0 ? null : placeEtiquetteCouverte(z.polygone.contour, meubles, voulue, { l: dh, h: dl });
+      if (V && (V.couvre < H.couvre * 0.5 || (H.couvre === Infinity && V.couvre < Infinity))) { c = V.point; debout = true }
+      else if (H.couvre < Infinity) { c = H.point; debout = false }
+    }
     const e = E(c);
     /* en présentation, une étiquette claire sous le nom : il reste lisible sur un parquet ou un carrelage sombre */
     if (s.presentation && z.piece?.floorFinish) {
@@ -229,7 +251,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
       const d = dimensionsPiece(z.polygone.contour), trois = !!d && d.profondeur * cam.echelle > 60;      // la ligne des dimensions, si elle s'écrit
       ctx.fillStyle = 'rgba(255,255,255,.82)'; ctx.fillRect(e.x - l / 2, e.y - 18, l, trois ? 48 : 34);
     }
-    if (s.dossier) { etiquetteDossier(ctx, cam, z, e); continue }
+    if (s.dossier) { etiquetteDossier(ctx, cam, z, e, debout); continue }
     ctx.fillStyle = z.piece ? COULEURS.texte : COULEURS.accent;
     ctx.font = '600 12px system-ui, sans-serif';
     ctx.fillText(z.piece ? z.piece.name : 'À nommer', e.x, e.y - 8);
@@ -453,16 +475,22 @@ function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: b
 export const DOSSIER = { maconnerie: '#DCDCDC', hachures: '#4A4A4A', pasHachures: 3.3, cloison: '#A9A9A9', isolant: '#F6ECD6', ondulation: '#8B7B5B' } as const;
 
 /** l'étiquette d'une pièce au dossier : le nom en gras, « SH : 12,91 m² » (SA : surface annexe) dessous ; debout dans une pièce étroite */
-function etiquetteDossier(ctx: CanvasRenderingContext2D, cam: Camera, z: { piece?: Room | null; aire: number; polygone: Polygone }, e: { x: number; y: number }): void {
+/** la largeur (px) de l'étiquette d'une pièce au dossier : son nom en gras, ou sa surface */
+function largeurEtiquetteDossier(ctx: CanvasRenderingContext2D, z: { piece?: Room | null; aire: number }): number {
+  const nom = z.piece ? z.piece.name : 'À nommer';
+  ctx.font = '700 12.5px Helvetica, sans-serif';
+  return Math.max(ctx.measureText(nom).width, ctx.measureText('SH : ' + m2(z.aire)).width * 0.85) + 6;
+}
+/** « debout » : le sens choisi par la place de l'étiquette ; à défaut, debout dans une pièce plus étroite que le nom */
+function etiquetteDossier(ctx: CanvasRenderingContext2D, cam: Camera, z: { piece?: Room | null; aire: number; polygone: Polygone }, e: { x: number; y: number }, debout?: boolean): void {
   const nom = z.piece ? z.piece.name : 'À nommer';
   const annexe = !!z.piece && (z.piece.usage === 'garage' || !!z.piece.excludedFromHabitable?.value);
   const sous = (annexe ? 'SA : ' : 'SH : ') + m2(z.aire);
-  ctx.font = '700 12.5px Helvetica, sans-serif';
-  const l = Math.max(ctx.measureText(nom).width, ctx.measureText(sous).width * 0.85) + 6;
+  const l = largeurEtiquetteDossier(ctx, z);
   const xs = z.polygone.contour.map(q => q.x), ys = z.polygone.contour.map(q => q.y);
   const larg = (Math.max(...xs) - Math.min(...xs)) * cam.echelle, haut = (Math.max(...ys) - Math.min(...ys)) * cam.echelle;
   ctx.save(); ctx.translate(e.x, e.y);
-  if (larg < l && haut > larg) ctx.rotate(-Math.PI / 2);
+  if (debout ?? (larg < l && haut > larg)) ctx.rotate(-Math.PI / 2);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = z.piece ? '#222222' : COULEURS.accent; ctx.font = '700 12.5px Helvetica, sans-serif'; ctx.fillText(nom, 0, -6);
   ctx.fillStyle = '#5A5A5A'; ctx.font = '10.5px Helvetica, sans-serif'; ctx.fillText(sous, 0, 8);

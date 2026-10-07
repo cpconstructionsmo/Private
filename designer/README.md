@@ -91,6 +91,8 @@ de plans de maisons) :
   hors tout (les murs poussent vers l'intérieur) ou intérieures ;
 - **cotation automatique** autour du plan (`src/building/cotation.ts`) :
   chaînes des ouvertures, des décrochés et hors tout, de chaque côté ;
+  cotes intérieures de chaque pièce (entre faces, en retrait d'un mur ; une
+  pièce en L est cotée sur sa plus grande portée, en long et en travers) ;
   dimensions des pièces rectangulaires sous leur surface. Tout est dérivé
   (ADR-0002) : rien n'est enregistré, la cotation suit chaque modification.
   Elle se coupe dans les réglages (choix propre à l'appareil) ;
@@ -177,9 +179,12 @@ cabinet (`src/export/feuille.ts` et un module par planche) :
   « SH : 12,91 m² » (SA pour un garage), placards « PL », trois chaînes de
   cotes (baies « 0,90 × 1,35 » et « all. 0,80 », décrochés, hors tout),
   « VR » devant les baies à volet roulant (volet choisi dans l'inspecteur
-  de la baie), repères de coupe en brique ; le tableau des surfaces, la
-  légende, le nord et l'échelle se posent dans les vides du dessin (la
-  plus grande échelle où tout tient) ;
+  de la baie), repères de coupe en brique, cotes intérieures des pièces,
+  noms couchés ou debout selon la place ; le tableau des surfaces, la
+  légende, le nord et l'échelle se posent dans les vides du dessin. On
+  garde la plus grande échelle où tout tient : le plan centré, sinon calé
+  en haut (le blanc du bas reçoit légende et échelle), l'échelle graphique
+  seule ou accolée sous la légende ;
 - les façades (`planche-facades.ts`) : couverture rayée de ses rangs,
   parements à leur teinte et à leur motif, menuiseries gris anthracite,
   niveaux à gauche (égout, RDC fini, terrain naturel), faîtages vus

@@ -134,12 +134,14 @@ export interface CoteInterieure { piece: string; a: Point; b: Point }
 /** les cotes intérieures d'un niveau : la largeur et la profondeur de chaque pièce rectangulaire, entre faces
     (ce qu'on mesure sur place), tracées à « retrait » des murs, le long des deux murs du coin le plus bas à
     gauche (le même coin d'une pièce à l'autre : le plan se lit d'un coup d'œil). Une pièce trop étroite pour
-    son retrait n'en a pas ; une pièce en L non plus (ses dimensions ne se disent pas en deux cotes). */
+    son retrait n'en a pas. Une pièce en L (ou à décroché) a aussi ses deux cotes, comme aux dossiers du cabinet :
+    la plus grande largeur entre faces le long de son axe principal, puis en travers, chacune tracée en retrait
+    d'un mur (voir cotesPieceIrreguliere). */
 export function cotesInterieures(f: Floor, retrait: Mm = 450): CoteInterieure[] {
   const out: CoteInterieure[] = [];
   for (const z of planDuNiveau(f).zones) {
     const R = rectangleDe(z.polygone.contour);
-    if (!R) continue;
+    if (!R) { out.push(...cotesPieceIrreguliere(z.polygone.contour, z.piece?.name ?? '', retrait)); continue }
     /* le coin d'où partent les deux cotes : le plus bas à gauche */
     const k = R.reduce((m, q, i) => (q.x + q.y < R[m]!.x + R[m]!.y - EPS_COINCIDENCE ? i : m), 0);
     const C = R[k]!, P = R[(k + 1) % 4]!, Q = R[(k + 3) % 4]!;
@@ -153,11 +155,51 @@ export function cotesInterieures(f: Floor, retrait: Mm = 450): CoteInterieure[] 
   return out;
 }
 
+/** les deux cotes d'une pièce qui n'est pas un rectangle : dans le repère de son plus long mur (u, et v en travers),
+    on mesure l'intérieur sur une ligne tracée à « retrait » d'une face — en bas ou en haut pour la largeur, à gauche
+    ou à droite pour la profondeur —, et on garde la plus longue des portées d'un seul tenant (le côté bas ou gauche
+    à égalité, comme pour les pièces rectangulaires). */
+function cotesPieceIrreguliere(contour: Anneau, nom: string, retrait: Mm): CoteInterieure[] {
+  if (contour.length < 4) return [];
+  let u = { x: 1, y: 0 }, lmax = 0;
+  contour.forEach((a, i) => { const b = contour[(i + 1) % contour.length]!, l = distance(a, b); if (l > lmax + EPS_COINCIDENCE) { lmax = l; u = normaliser(soustraire(b, a)) } });
+  const v = normaleGauche(u), out: CoteInterieure[] = [];
+  for (const [axe, travers] of [[u, v], [v, u]] as const) {
+    const t = contour.map(q => scalaire(q, travers)), tmin = Math.min(...t), tmax = Math.max(...t);
+    const a = contour.map(q => scalaire(q, axe)), amin = Math.min(...a), amax = Math.max(...a);
+    if (tmax - tmin < 2 * retrait || amax - amin < LARGEUR_COTEE) continue;
+    let meilleure: { a: Point; b: Point; l: number } | null = null;
+    for (const niveau of [tmin + retrait, tmax - retrait]) {
+      /* les traversées de la ligne par le contour, triées le long de l'axe : l'intérieur va d'une traversée à la suivante */
+      const X: number[] = [];
+      contour.forEach((p, i) => {
+        const q = contour[(i + 1) % contour.length]!, sp = scalaire(p, travers) - niveau, sq = scalaire(q, travers) - niveau;
+        if ((sp > 0) !== (sq > 0)) X.push(scalaire(p, axe) + (scalaire(q, axe) - scalaire(p, axe)) * sp / (sp - sq));
+      });
+      X.sort((x, y) => x - y);
+      for (let k = 0; k + 1 < X.length; k += 2) {
+        const l = X[k + 1]! - X[k]!;
+        if (l >= LARGEUR_COTEE && (!meilleure || l > meilleure.l + EPS_COINCIDENCE)) {
+          const point = (s: number): Point => ajouter(multiplier(axe, s), multiplier(travers, niveau));
+          meilleure = { a: point(X[k]!), b: point(X[k + 1]!), l };
+        }
+      }
+    }
+    if (meilleure) out.push({ piece: nom, a: meilleure.a, b: meilleure.b });
+  }
+  return out;
+}
+
 /** la place d'une étiquette (un rectangle de demi-côtés « demi », en mm) dans une pièce : là où on l'a voulue
     (le point de la pièce) si elle n'y couvre rien, sinon le point le plus proche où elle ne couvre rien, toute
     l'étiquette dans la pièce ; dans une pièce trop meublée pour cela, là où elle couvre le moins (la place
     voulue à égalité). Les obstacles (meubles, cotes) sont comparés par leurs boîtes. */
 export function placeEtiquette(contour: Anneau, obstacles: readonly (readonly Point[])[], voulue: Point, demi: { l: Mm; h: Mm }): Point {
+  return placeEtiquetteCouverte(contour, obstacles, voulue, demi).point;
+}
+/** la même place, et ce que l'étiquette y couvre encore (mm² ; Infinity si elle ne tient pas dans la pièce) :
+    de quoi comparer une étiquette couchée et une étiquette debout */
+export function placeEtiquetteCouverte(contour: Anneau, obstacles: readonly (readonly Point[])[], voulue: Point, demi: { l: Mm; h: Mm }): { point: Point; couvre: number } {
   const boites = obstacles.map(o => ({ x0: Math.min(...o.map(q => q.x)), x1: Math.max(...o.map(q => q.x)), y0: Math.min(...o.map(q => q.y)), y1: Math.max(...o.map(q => q.y)) }));
   /* ce que l'étiquette couvre (mm²) ; Infinity si elle sort de la pièce */
   const couvre = (p: Point) => {
@@ -166,7 +208,7 @@ export function placeEtiquette(contour: Anneau, obstacles: readonly (readonly Po
     return boites.reduce((t, b) => t + Math.max(0, Math.min(b.x1, r.x1) - Math.max(b.x0, r.x0)) * Math.max(0, Math.min(b.y1, r.y1) - Math.max(b.y0, r.y0)), 0);
   };
   const c0 = couvre(voulue);
-  if (c0 === 0) return voulue;
+  if (c0 === 0) return { point: voulue, couvre: 0 };
   const xs = contour.map(q => q.x), ys = contour.map(q => q.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), n = 24;
   let meilleur = voulue, c = c0, d = 0;
@@ -175,7 +217,7 @@ export function placeEtiquette(contour: Anneau, obstacles: readonly (readonly Po
     /* moins couvert, ou aussi peu mais plus près (une différence de moins de 1 % ne compte pas) */
     if (k < c * 0.99 || (Math.abs(k - c) <= c * 0.01 && e < d)) { meilleur = p; c = k; d = e }
   }
-  return meilleur;
+  return { point: meilleur, couvre: c };
 }
 
 /** la place d'une ouverture dans son mur, mesurée le long d'une face (côté

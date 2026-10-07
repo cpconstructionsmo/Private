@@ -144,55 +144,68 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   let leg: { l: number; h: number; k: number } | null = null;
   for (const ech of candidates) {
     const W = Bw / ech, H = Bh / ech;
-    const x0 = zone.x + marge('gauche') + (zone.l - W - marge('gauche') - marge('droite')) / 2;
-    let y0 = zone.y + marge('haut') + (zone.h - H - marge('haut') - marge('bas')) / 2;
+    /* le bloc du plan et de ses cotes : centré ; sinon calé en haut (le blanc du bas reçoit légende et échelle, comme aux
+       dossiers du cabinet), puis en haut à gauche ; ce n'est qu'ensuite qu'on passe à l'échelle de plan suivante */
+    const xc = zone.x + marge('gauche') + (zone.l - W - marge('gauche') - marge('droite')) / 2;
+    let yc = zone.y + marge('haut') + (zone.h - H - marge('haut') - marge('bas')) / 2;
     /* le bloc (plan et cotes) qui descendrait sur le titre remonte d'autant, s'il a la place */
-    const bas = y0 + H + marge('bas'), gauche = x0 - marge('gauche');
-    if (bas > TITRE.y0 && gauche < TITRE.x1) y0 -= Math.min(bas - TITRE.y0, y0 - marge('haut') - zone.y);
-    const P = (p: Point): [number, number] => [x0 + (p.x - Bx.xmin) / ech, y0 + (Bx.ymax - p.y) / ech];
-    const occ = new Occupation({ x: ZONE_DESSIN.x + 3, y: ZONE_DESSIN.y + 3, l: ZONE_DESSIN.l - 6, h: ZONE_DESSIN.h - 6 });
-    occ.rectangle(TITRE.x0, TITRE.y0, TITRE.x1, TITRE.y1);
-    for (const m of plan.maconnerie) occ.polygone(m.contour.map(P), 3);
-    for (const z of plan.zones) occ.polygone(z.polygone.contour.map(P), 1);
-    for (const x of Object.values(niveau.objects)) if (x.type === 'landscape') occ.polygone(x.points.map(P), 2);
-    for (const c of CH) {
-      const k = c.rang, h = c.cote === 'haut' || c.cote === 'bas';
-      const d = PREMIERE + ECART * k, a = c.reperes[0]!, b = c.reperes[c.reperes.length - 1]!;
-      if (h) { const y = c.cote === 'haut' ? y0 - d : y0 + H + d; occ.rectangle(P({ x: a, y: 0 })[0], y - 4.5, P({ x: b, y: 0 })[0], y + 4) }
-      else { const x = c.cote === 'gauche' ? x0 - d : x0 + W + d; occ.rectangle(x - 4.5, P({ x: 0, y: b })[1], x + 4, P({ x: 0, y: a })[1]) }
+    if (yc + H + marge('bas') > TITRE.y0 && xc - marge('gauche') < TITRE.x1) yc -= Math.min(yc + H + marge('bas') - TITRE.y0, yc - marge('haut') - zone.y);
+    /* calé en haut, on garde au-dessus des cotes la place des repères de coupe */
+    const haut = zone.y + marge('haut') + (traits.length && nb('haut') ? 9 : 0);
+    const positions: [number, number][] = [[xc, yc], [xc, Math.min(yc, haut)], [zone.x + marge('gauche'), Math.min(yc, haut)]];
+    for (const [x0, y0] of positions) {
+      const P = (p: Point): [number, number] => [x0 + (p.x - Bx.xmin) / ech, y0 + (Bx.ymax - p.y) / ech];
+      /* deux essais : l'échelle graphique seule dans un blanc, sinon accolée sous la légende (comme aux dossiers du cabinet) ;
+         ce n'est qu'ensuite qu'on passe à l'échelle de plan suivante */
+      for (const accole of [false, true]) {
+        const occ = new Occupation({ x: ZONE_DESSIN.x + 3, y: ZONE_DESSIN.y + 3, l: ZONE_DESSIN.l - 6, h: ZONE_DESSIN.h - 6 });
+        occ.rectangle(TITRE.x0, TITRE.y0, TITRE.x1, TITRE.y1);
+        for (const m of plan.maconnerie) occ.polygone(m.contour.map(P), 3);
+        for (const z of plan.zones) occ.polygone(z.polygone.contour.map(P), 1);
+        for (const x of Object.values(niveau.objects)) if (x.type === 'landscape') occ.polygone(x.points.map(P), 2);
+        for (const c of CH) {
+          const k = c.rang, h = c.cote === 'haut' || c.cote === 'bas';
+          const d = PREMIERE + ECART * k, a = c.reperes[0]!, b = c.reperes[c.reperes.length - 1]!;
+          if (h) { const y = c.cote === 'haut' ? y0 - d : y0 + H + d; occ.rectangle(P({ x: a, y: 0 })[0], y - 4.5, P({ x: b, y: 0 })[0], y + 4) }
+          else { const x = c.cote === 'gauche' ? x0 - d : x0 + W + d; occ.rectangle(x - 4.5, P({ x: 0, y: b })[1], x + 4, P({ x: 0, y: a })[1]) }
+        }
+        /* les cotes de chaque côté occupent la bande entre le mur et la dernière chaîne (les lignes d'attache la traversent) */
+        for (const c of ['haut', 'bas', 'gauche', 'droite'] as const) if (nb(c)) {
+          const d = PREMIERE + ECART * (nb(c) - 1) + 4;
+          if (c === 'haut') occ.rectangle(x0, y0 - d, x0 + W, y0 - PREMIERE + 4.5);
+          if (c === 'bas') occ.rectangle(x0, y0 + H + PREMIERE - 4.5, x0 + W, y0 + H + d);
+        }
+        /* les « VR » devant les baies */
+        for (const b of baiesExterieures(niveau)) if (b.ouverture.shutter === 'roller_motorized' || b.ouverture.shutter === 'roller_manual') {
+          const [cx, cy] = P(b.centre), d = b.epaisseur / 2 / ech + 4.2;
+          occ.rectangle(cx + b.sortie.x * d - 3, cy - b.sortie.y * d - 2, cx + b.sortie.x * d + 3, cy - b.sortie.y * d + 2);
+        }
+        const RC = rectangleCoupes(x0, y0, W, H, marge, zone);
+        for (const l of traits) { const E = extremitesCoupe(l, P, RC); if (E) { occ.segment(E[0], E[1], 2); occ.rectangle(E[0][0], E[0][1], E[0][0], E[0][1], 11); occ.rectangle(E[1][0], E[1][1], E[1][0], E[1][1], 11) } }
+        const Z = occ.zone, bd = { x: Z.x + Z.l, y: Z.y + Z.h - 14 }, hg = { x: Z.x, y: Z.y };
+        const places: Places = { tab: null, leg: null, nord: null, ech: null };
+        leg = null;
+        if (tab) { places.tab = occ.placer(tab.l, tab.h, [{ ...hg, coin: 'hg' }, { x: Z.x + Z.l, y: Z.y, coin: 'hd' }, { x: Z.x, y: bd.y, coin: 'bg' }, { ...bd, coin: 'bd' }]); if (places.tab) occ.rectangle(places.tab.x, places.tab.y, places.tab.x + tab.l, places.tab.y + tab.h, 3) }
+        /* la légende : sur une colonne si elle tient, sinon sur deux ou trois (un blanc large et bas) */
+        const le = largeurEchelle(ech) + 2, sous = accole ? 14 : 0;
+        for (const lg of legs) {
+          const lb = accole ? Math.max(lg.l, le) : lg.l;
+          places.leg = occ.placer(lb, lg.h + sous, [{ x: Z.x + Z.l / 2, y: bd.y, coin: 'bg' }, { x: Z.x, y: bd.y, coin: 'bg' }, { ...bd, coin: 'bd' }, { x: Z.x + Z.l, y: Z.y, coin: 'hd' }, { x: Z.x + Z.l / 2, y: Z.y + Z.h, coin: 'bg' }]);
+          if (places.leg) { leg = lg; occ.rectangle(places.leg.x, places.leg.y, places.leg.x + lb, places.leg.y + lg.h + sous, 3); break }
+        }
+        {
+          const t = places.tab;
+          places.nord = occ.placer(18, 18, [...(t && tab ? [{ x: t.x + tab.l, y: t.y + tab.h + 4, coin: 'hd' as const }] : []), { x: Z.x + Z.l, y: Z.y, coin: 'hd' as const }, { ...bd, coin: 'bd' as const }]);
+          if (places.nord) occ.rectangle(places.nord.x, places.nord.y, places.nord.x + 18, places.nord.y + 18, 2);
+        }
+        places.ech = accole && places.leg && leg ? { x: places.leg.x, y: places.leg.y + leg.h + 2 } : occ.placer(le, 12, [{ x: places.leg ? places.leg.x + (leg?.l ?? 0) + 20 : Z.x + Z.l / 2, y: bd.y + 8, coin: 'bg' }, { ...bd, coin: 'bd' }, { x: Z.x, y: bd.y, coin: 'bg' }]);
+        const complet = (!tab || places.tab) && (!legs.length || places.leg) && places.ech;
+        choix = { ech, x0, y0, occ, places };
+        if (complet) break;
+      }
+      if (choix && (!tab || choix.places.tab) && (!legs.length || choix.places.leg) && choix.places.ech) break;
     }
-    /* les cotes de chaque côté occupent la bande entre le mur et la dernière chaîne (les lignes d'attache la traversent) */
-    for (const c of ['haut', 'bas', 'gauche', 'droite'] as const) if (nb(c)) {
-      const d = PREMIERE + ECART * (nb(c) - 1) + 4;
-      if (c === 'haut') occ.rectangle(x0, y0 - d, x0 + W, y0 - PREMIERE + 4.5);
-      if (c === 'bas') occ.rectangle(x0, y0 + H + PREMIERE - 4.5, x0 + W, y0 + H + d);
-    }
-    /* les « VR » devant les baies */
-    for (const b of baiesExterieures(niveau)) if (b.ouverture.shutter === 'roller_motorized' || b.ouverture.shutter === 'roller_manual') {
-      const [cx, cy] = P(b.centre), d = b.epaisseur / 2 / ech + 4.2;
-      occ.rectangle(cx + b.sortie.x * d - 3, cy - b.sortie.y * d - 2, cx + b.sortie.x * d + 3, cy - b.sortie.y * d + 2);
-    }
-    const RC = rectangleCoupes(x0, y0, W, H, marge, zone);
-    for (const l of traits) { const E = extremitesCoupe(l, P, RC); if (E) { occ.segment(E[0], E[1], 0); occ.rectangle(E[0][0], E[0][1], E[0][0], E[0][1], 8); occ.rectangle(E[1][0], E[1][1], E[1][0], E[1][1], 8) } }
-    const Z = occ.zone, bd = { x: Z.x + Z.l, y: Z.y + Z.h - 14 }, hg = { x: Z.x, y: Z.y };
-    const places: Places = { tab: null, leg: null, nord: null, ech: null };
-    leg = null;
-    if (tab) { places.tab = occ.placer(tab.l, tab.h, [{ ...hg, coin: 'hg' }, { x: Z.x + Z.l, y: Z.y, coin: 'hd' }, { x: Z.x, y: bd.y, coin: 'bg' }, { ...bd, coin: 'bd' }]); if (places.tab) occ.rectangle(places.tab.x, places.tab.y, places.tab.x + tab.l, places.tab.y + tab.h, 3) }
-    /* la légende : sur une colonne si elle tient, sinon sur deux ou trois (un blanc large et bas) */
-    for (const lg of legs) {
-      places.leg = occ.placer(lg.l, lg.h, [{ x: Z.x + Z.l / 2, y: bd.y, coin: 'bg' }, { x: Z.x, y: bd.y, coin: 'bg' }, { ...bd, coin: 'bd' }, { x: Z.x + Z.l, y: Z.y, coin: 'hd' }, { x: Z.x + Z.l / 2, y: Z.y + Z.h, coin: 'bg' }]);
-      if (places.leg) { leg = lg; occ.rectangle(places.leg.x, places.leg.y, places.leg.x + lg.l, places.leg.y + lg.h, 3); break }
-    }
-    {
-      const t = places.tab;
-      places.nord = occ.placer(18, 18, [...(t && tab ? [{ x: t.x + tab.l, y: t.y + tab.h + 4, coin: 'hd' as const }] : []), { x: Z.x + Z.l, y: Z.y, coin: 'hd' as const }, { ...bd, coin: 'bd' as const }]);
-      if (places.nord) occ.rectangle(places.nord.x, places.nord.y, places.nord.x + 18, places.nord.y + 18, 2);
-    }
-    const le = largeurEchelle(ech) + 2;
-    places.ech = occ.placer(le, 12, [{ x: places.leg ? places.leg.x + (leg?.l ?? 0) + 20 : Z.x + Z.l / 2, y: bd.y + 8, coin: 'bg' }, { ...bd, coin: 'bd' }, { x: Z.x, y: bd.y, coin: 'bg' }]);
-    const complet = (!tab || places.tab) && (!legs.length || places.leg) && places.ech;
-    choix = { ech, x0, y0, occ, places };
-    if (complet) break;
+    if (choix && (!tab || choix.places.tab) && (!legs.length || choix.places.leg) && choix.places.ech) break;
   }
   const { ech, x0, y0, places } = choix!;
   const W = Bw / ech, H = Bh / ech;
