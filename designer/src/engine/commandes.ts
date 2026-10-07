@@ -13,7 +13,8 @@
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
 import { cadastreInvalide, deplacerCadastre } from '../building/cadastre';
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier } from '../model/types';
+import { teinteOuvrageInvalide } from '../catalogue/menuiseries';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -361,7 +362,7 @@ function fondationsInvalides(v: { largeur: Mm; hauteur: Mm; horsGel: Mm; bonSol?
 }
 
 const VOLETS = new Set<string>(['roller_motorized', 'roller_manual', 'hinged']);
-const CHAMPS_DOSSIER = new Set(['maitreOuvrage', 'adresseMaitreOuvrage', 'lieuConstruction', 'referencesCadastrales', 'surfaceTerrain', 'couverture', 'chauffage', 'divers', 'zoneSismique', 'modifications']);
+const CHAMPS_DOSSIER = new Set(['maitreOuvrage', 'adresseMaitreOuvrage', 'lieuConstruction', 'referencesCadastrales', 'surfaceTerrain', 'couverture', 'chauffage', 'divers', 'zoneSismique', 'modifications', 'menuiseries', 'porteEntree', 'porteGarage']);
 
 const GENRES_UN_MUR: readonly Constraint['kind'][] = ['horizontal', 'vertical', 'length', 'angle'];
 const GENRES_RESEAU: readonly Network['kind'][] = ['eu', 'ep', 'aep', 'elec', 'telecom', 'gaz'];
@@ -544,6 +545,14 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
           if (!Array.isArray(M) || M.length > 30 || M.some(x => typeof x?.date !== 'string' || typeof x?.objet !== 'string')) return refus('modifications invalides');
           const L = M.map(x => ({ date: x.date.trim(), objet: x.objet.trim() })).filter(x => x.date || x.objet);
           if (L.length) apres[k] = L; else delete apres[k];
+          continue;
+        }
+        if (k === 'menuiseries' || k === 'porteEntree' || k === 'porteGarage') {
+          const e = teinteOuvrageInvalide(v);
+          if (e) return refus(e);
+          const x = v as TeinteOuvrage, materiau = x.materiau?.trim();
+          const t: TeinteOuvrage = { ...(materiau ? { materiau } : {}), ...(x.teinte ? { teinte: x.teinte } : {}) };
+          if (Object.keys(t).length) apres[k] = t; else delete apres[k];
           continue;
         }
         if (typeof v === 'string' && v.length > 500) return refus('texte trop long (500 caractères au plus)');

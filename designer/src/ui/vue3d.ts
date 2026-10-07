@@ -5,6 +5,7 @@
    axes : x vers l'est, y vers le haut, z vers le sud (le y du plan, inversé). */
 import type { Maquette, Matiere, Plaque, Prisme } from '../vue3d/maquette';
 import { materiau, type Materiau } from '../catalogue/materiaux';
+import { teinteMenuiserie } from '../catalogue/menuiseries';
 import { avancer, depart, preparerVisite, regard, solSous, type Marcheur, type Terrain } from '../vue3d/visite';
 import { texture, type GenreTexture } from './textures';
 
@@ -193,6 +194,13 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
   const grillage = new THREE.MeshStandardMaterial({ color: '#3F6B4A', roughness: 0.8, metalness: 0.2, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, clippingPlanes: [coupe] });
   const matiereDe = (p: Prisme) => {
     if (p.matiere === 'cloture' && p.finition?.startsWith('grillage')) { grillage.color.set(materiau(p.finition)?.couleur ?? '#3F6B4A'); return grillage }
+    /* une menuiserie, une porte à la teinte choisie au dossier (catalogue/menuiseries.ts) : une laque, sans motif */
+    const tm = teinteMenuiserie(p.finition);
+    if (tm) {
+      let x = finitions.get(tm.id);
+      if (!x) { x = new THREE.MeshStandardMaterial({ color: tm.couleur, roughness: 0.45, metalness: 0.1, side: THREE.DoubleSide, clippingPlanes: [coupe] }); finitions.set(tm.id, x) }
+      return x;
+    }
     const m = materiau(p.finition);
     if (!m) return matieres[p.matiere];
     let x = finitions.get(m.id);

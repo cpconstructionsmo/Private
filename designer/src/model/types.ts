@@ -438,9 +438,17 @@ export interface InfosDossier {
   chauffage?: string;
   divers?: string;
   zoneSismique?: string;
+  /** les menuiseries extérieures (fenêtres, portes-fenêtres, baies) : matériau et teinte (catalogue/menuiseries.ts) */
+  menuiseries?: TeinteOuvrage;
+  /** la porte d'entrée, la porte de garage : à défaut, comme les menuiseries */
+  porteEntree?: TeinteOuvrage;
+  porteGarage?: TeinteOuvrage;
   /** les modifications du dossier, dans l'ordre (date jj/mm/aaaa, objet) */
   modifications?: { date: string; objet: string }[];
 }
+
+/** le matériau (« PVC », « Aluminium »…) et la teinte (identifiant de catalogue/menuiseries.ts) d'un ouvrage */
+export interface TeinteOuvrage { materiau?: string; teinte?: string }
 
 export interface Project {
   id: string;

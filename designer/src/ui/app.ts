@@ -27,6 +27,7 @@ import { equerrer } from '../building/equerre';
 import { ANGLE_EQUERRE } from '../geometry/tolerance';
 import { maquette } from '../vue3d/maquette';
 import { PAREMENTS, PEINTURES, SOLS } from '../catalogue/materiaux';
+import { MATERIAUX_MENUISERIES, TEINTES_MENUISERIES } from '../catalogue/menuiseries';
 import { MODELES_MAISONS, modeleMaison } from '../catalogue/modeles-maisons';
 import { geometrieFenetreToit, TAILLES_FENETRE_TOIT } from '../building/fenetres-toit';
 import { geometrieLucarne, LUCARNES } from '../building/lucarnes';
@@ -495,6 +496,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'couverture', libelle: 'Couverture (vide : celle du toit dessiné)', valeur: D.couverture ?? '' },
       { cle: 'chauffage', libelle: 'Chauffage', valeur: D.chauffage ?? '' },
       { cle: 'divers', libelle: 'Divers (ventilation, eau chaude…)', valeur: D.divers ?? '' },
+      /* les menuiseries : matériau et teinte ; les portes prennent ceux des menuiseries tant qu'on ne choisit rien */
+      ...(['menuiseries', 'porteEntree', 'porteGarage'] as const).flatMap(q => {
+        const nom = q === 'menuiseries' ? 'Menuiseries (fenêtres, baies)' : q === 'porteEntree' ? 'Porte d’entrée' : 'Porte de garage', vide = q === 'menuiseries' ? '— à préciser' : '— comme les menuiseries';
+        return [
+          { cle: q + ':m', libelle: nom + ' : matériau', valeur: D[q]?.materiau ?? '', options: { '': vide, ...Object.fromEntries(MATERIAUX_MENUISERIES.map(x => [x, x])) } },
+          { cle: q + ':t', libelle: nom + ' : teinte', valeur: D[q]?.teinte ?? '', options: { '': vide, ...Object.fromEntries(TEINTES_MENUISERIES.map(x => [x.id, x.libelle])) } }];
+      }),
       { cle: 'modifications', libelle: 'Modifications : une par ligne, « jj/mm/aaaa — objet »', valeur: (D.modifications ?? []).map(m => (m.date ? m.date + ' — ' : '') + m.objet).join('\n'), lignes: 3 }]);
     if (!r) return;
     const st = r['surfaceTerrain']!.trim(), n = Number(st.replace(/\s/g, '').replace(',', '.'));
@@ -502,7 +510,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const champs: Extract<Commande, { type: 'modifierDossier' }>['champs'] = {
       maitreOuvrage: r['maitreOuvrage']!, adresseMaitreOuvrage: r['adresseMaitreOuvrage']!, lieuConstruction: r['lieuConstruction']!,
       referencesCadastrales: r['referencesCadastrales']!, zoneSismique: r['zoneSismique']!, couverture: r['couverture']!, chauffage: r['chauffage']!, divers: r['divers']!,
-      surfaceTerrain: st ? n : null, modifications: lireModifications(r['modifications']!) };
+      surfaceTerrain: st ? n : null, modifications: lireModifications(r['modifications']!),
+      ...Object.fromEntries((['menuiseries', 'porteEntree', 'porteGarage'] as const).map(q => {
+        const m = r[q + ':m'] ?? '', t = r[q + ':t'] ?? '';
+        return [q, m || t ? { ...(m ? { materiau: m } : {}), ...(t ? { teinte: t } : {}) } : null];
+      })) };
     if (faire('Informations du dossier', [{ type: 'modifierDossier', champs }])) toast('Informations du dossier enregistrées');
   }
   async function poserPhotoSite() {

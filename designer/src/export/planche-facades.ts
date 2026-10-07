@@ -15,6 +15,7 @@ import { toitureDuNiveau, baiesExterieures, lignesDeToiture, parcelleDuProjet, a
 import { maquette, COUVERTURES, type Matiere } from '../vue3d/maquette';
 import { facade, type CoteFacade, type Facade, type FaceProjetee } from '../vue3d/facades';
 import { materiau } from '../catalogue/materiaux';
+import { choixOuvrage, teinteMenuiserie, type OuvrageMenuiserie } from '../catalogue/menuiseries';
 import { PagePdf, type DocumentPdf } from './pdf';
 import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, colonne, nouvelleFeuille, texte, metres, niveauRelatif, echelleGraphique, encadre, orientation, couper, A_PRECISER, ROUGE_MANQUE, type Signature } from './feuille';
 import { ECHELLES } from './planche-niveau';
@@ -289,10 +290,10 @@ export function peindre(page: PagePdf, f: FaceProjetee, P: (u: number, z: number
       page.polygone(Q, { trait: ANTHRACITE, ep: 0.35 });
       return;
     }
-    case 'menuiserie': page.polygone(Q, { fond: ANTHRACITE, trait: '#202224', ep: 0.25 }); return;
+    case 'menuiserie': page.polygone(Q, { fond: teinte(f.finition), trait: '#202224', ep: 0.25 }); return;
     case 'appui': page.polygone(Q, { fond: '#E4E4E4', trait: '#6A6A6A', ep: 0.25 }); return;
     case 'porte': {
-      page.polygone(Q, { fond: ANTHRACITE, trait: '#202224', ep: 0.35 });
+      page.polygone(Q, { fond: teinte(f.finition), trait: '#202224', ep: 0.35 });
       /* la poignée : un trait clair vertical près d'un bord */
       const us = f.points.map(q => q.u), zs = f.points.map(q => q.z), u1 = Math.max(...us), z0 = Math.min(...zs);
       const a = P(u1 - 110, z0 + 950), b = P(u1 - 110, z0 + 1_150);
@@ -300,7 +301,7 @@ export function peindre(page: PagePdf, f: FaceProjetee, P: (u: number, z: number
       return;
     }
     case 'garage': {
-      page.polygone(Q, { fond: ANTHRACITE, trait: '#202224', ep: 0.35 });
+      page.polygone(Q, { fond: teinte(f.finition), trait: '#202224', ep: 0.35 });
       const us = f.points.map(q => q.u), zs = f.points.map(q => q.z), u0 = Math.min(...us), u1 = Math.max(...us);
       page.decouper(Q);
       for (let z = Math.min(...zs) + 250; z < Math.max(...zs); z += 250) { const a = P(u0, z), b = P(u1, z); page.trait(a[0], a[1], b[0], b[1], 0.25, '#5E646B') }
@@ -310,6 +311,9 @@ export function peindre(page: PagePdf, f: FaceProjetee, P: (u: number, z: number
     default: page.polygone(Q, { fond: '#FFFFFF', trait: '#2A2A2A', ep: 0.25 }); void e;
   }
 }
+
+/** la teinte d'une menuiserie, d'une porte : celle choisie au dossier, sinon le gris anthracite des dossiers du cabinet */
+const teinte = (id?: string) => teinteMenuiserie(id)?.couleur ?? ANTHRACITE;
 
 function assombrir(c: string, k: number): string {
   const m = /^#([0-9a-f]{6})$/i.exec(c);
@@ -348,11 +352,21 @@ function contenuPanneaux(projet: Project, niveauxToit: Floor[], egout: number | 
   if (sansParement) L.push({ pastille: sw(ENDUIT_DEFAUT), titre: P.length ? 'Autres façades' : 'Façades', texte: 'parement ' + A_PRECISER, manque: true });
   const ouv = niveaux.flatMap(f => Object.values(f.objects)).filter(x => x.type === 'opening');
   const volets = ouv.some(x => x.type === 'opening' && (x.shutter === 'roller_motorized' || x.shutter === 'roller_manual'));
-  if (ouv.some(x => x.type === 'opening' && (x.kind === 'window' || x.kind === 'french_window' || x.kind === 'bay')))
-    L.push({ pastille: sw(ANTHRACITE, (page, x, y) => page.cadre(X(x + 2), Y(y + 4.8), 9 * PT, 3.2 * PT, { ep: 0, fond: VITRE })), titre: 'Menuiseries', texte: 'dessinées gris anthracite – teinte et matériau ' + A_PRECISER + (volets ? ' – volets roulants intégrés' : ''), manque: true });
-  if (ouv.some(x => x.type === 'opening' && x.kind === 'door')) L.push({ pastille: sw(ANTHRACITE), titre: 'Porte d’entrée', texte: 'dessinée gris anthracite – ' + A_PRECISER, manque: true });
-  if (ouv.some(x => x.type === 'opening' && x.kind === 'garage_door'))
-    L.push({ pastille: sw(ANTHRACITE, (page, x, y) => { for (let k = 1; k < 4; k++) page.trait(X(x), Y(y + k * 1.6), X(x + 13), Y(y + k * 1.6), 0.25, '#5E646B') }), titre: 'Porte de garage', texte: 'dessinée gris anthracite – ' + A_PRECISER, manque: true });
+  /* menuiseries, porte d'entrée, porte de garage : le matériau et la teinte choisis (informations du dossier), ou ce qui manque */
+  const decrit = (q: OuvrageMenuiserie, genre: 'e' | 'es') => {
+    const c = choixOuvrage(D, q), t = teinteMenuiserie(c.teinte);
+    const texte = [c.materiau ?? 'matériau ' + A_PRECISER, t ? t.libelle : 'dessiné' + genre + ' gris anthracite – teinte ' + A_PRECISER].join(' – ');
+    return { couleur: t?.couleur ?? ANTHRACITE, texte, manque: !c.materiau || !t };
+  };
+  if (ouv.some(x => x.type === 'opening' && (x.kind === 'window' || x.kind === 'french_window' || x.kind === 'bay'))) {
+    const d = decrit('menuiseries', 'es');
+    L.push({ pastille: sw(d.couleur, (page, x, y) => page.cadre(X(x + 2), Y(y + 4.8), 9 * PT, 3.2 * PT, { ep: 0, fond: VITRE })), titre: 'Menuiseries', texte: d.texte + (volets ? ' – volets roulants intégrés' : ''), manque: d.manque });
+  }
+  if (ouv.some(x => x.type === 'opening' && x.kind === 'door')) { const d = decrit('porteEntree', 'e'); L.push({ pastille: sw(d.couleur), titre: 'Porte d’entrée', texte: d.texte, manque: d.manque }) }
+  if (ouv.some(x => x.type === 'opening' && x.kind === 'garage_door')) {
+    const d = decrit('porteGarage', 'e');
+    L.push({ pastille: sw(d.couleur, (page, x, y) => { for (let k = 1; k < 4; k++) page.trait(X(x), Y(y + k * 1.6), X(x + 13), Y(y + k * 1.6), 0.25, '#5E646B') }), titre: 'Porte de garage', texte: d.texte, manque: d.manque });
+  }
   if (roof?.gutter && roof.gutter !== 'none')
     L.push({ pastille: (page, x, y) => { page.cadre(X(x), Y(y + 1.6), 13 * PT, 1.6 * PT, { ep: 0, fond: ANTHRACITE }); page.cadre(X(x + 9), Y(y + 6.5), 1.4 * PT, 4.9 * PT, { ep: 0, fond: ANTHRACITE }) },
       titre: 'Gouttières et descentes EP', texte: GOUTTIERES[roof.gutter] + (roof.gutterMaterial ? ' – ' + MATIERES_GOUTTIERE[roof.gutterMaterial] : '') });
