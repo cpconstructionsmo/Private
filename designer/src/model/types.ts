@@ -248,6 +248,10 @@ export interface Plot extends BaseObject {
   north: Radian;
   /** l'altitude NGF du ±0,00 (sol fini du RDC), en mètres, si elle est connue */
   groundFloorNgf?: number;
+  /** les règles du PLU de la zone, telles qu'on les lit au règlement (building/plu.ts les confronte au projet) */
+  plu?: ReglesPlu;
+  /** le terrain fini aux abords de la construction, par rapport au ±0,00 (mm ; −150 : 15 cm sous le sol fini) */
+  finishedGround?: Mm;
   /** les points cotés du terrain naturel (plan du géomètre) : altitudes NGF en mètres, posées dans le repère du plan ;
    *  ils suivent la parcelle quand on l'implante (translation, rotation) */
   spotHeights?: { point: Point; ngf: number }[];
@@ -438,9 +442,40 @@ export interface InfosDossier {
   chauffage?: string;
   divers?: string;
   zoneSismique?: string;
+  /** les menuiseries extérieures (fenêtres, portes-fenêtres, baies) : matériau et teinte (catalogue/menuiseries.ts) */
+  menuiseries?: TeinteOuvrage;
+  /** la porte d'entrée, la porte de garage : à défaut, comme les menuiseries */
+  porteEntree?: TeinteOuvrage;
+  porteGarage?: TeinteOuvrage;
   /** les modifications du dossier, dans l'ordre (date jj/mm/aaaa, objet) */
   modifications?: { date: string; objet: string }[];
 }
+
+/** les règles d'urbanisme saisies pour la parcelle : ce qui est absent n'est pas contrôlé. Pourcentages de la surface du
+ *  terrain ; hauteurs et reculs en mm */
+export interface ReglesPlu {
+  /** « UGc » */
+  zone?: string;
+  /** le document lu : « PLUi de … approuvé le … », « règlement de lotissement » */
+  source?: string;
+  empriseMax?: number;
+  pleineTerreMin?: number;
+  /** surfaces non imperméabilisées (pleine terre et revêtements perméables) */
+  permeableMin?: number;
+  /** coefficient de biotope (0 à 1) et le coefficient que le règlement donne aux revêtements perméables */
+  biotopeMin?: number;
+  biotopePermeable?: number;
+  stationnementMin?: number;
+  /** les places prévues au projet */
+  stationnementPrevu?: number;
+  egoutMax?: Mm;
+  faitageMax?: Mm;
+  reculVoieMin?: Mm;
+  reculLimitesMin?: Mm;
+}
+
+/** le matériau (« PVC », « Aluminium »…) et la teinte (identifiant de catalogue/menuiseries.ts) d'un ouvrage */
+export interface TeinteOuvrage { materiau?: string; teinte?: string }
 
 export interface Project {
   id: string;

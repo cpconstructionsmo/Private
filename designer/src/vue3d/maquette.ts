@@ -31,6 +31,7 @@ import { eauxPluviales } from '../building/eaux-pluviales';
 import { lucarnesDuNiveau } from '../building/lucarnes';
 import { blocs, formeDe, versPlan } from '../building/mobilier';
 import { finitionAmenagement } from '../catalogue/amenagements';
+import { choixOuvrage, type OuvrageMenuiserie } from '../catalogue/menuiseries';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
 import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
 import { parcelleDuProjet } from '../building/terrain';
@@ -149,7 +150,15 @@ function peauExterieure(w: MurDroit, exterieurs: readonly Anneau[]): Polygone | 
   return { contour: [P(-M, k0), P(L + M, k0), P(L + M, k1), P(-M, k1)] };
 }
 
-function murs(f: Floor, prismes: Prisme[]): void {
+/** les teintes choisies des menuiseries (identifiants de catalogue/menuiseries.ts), par remplissage ; absentes : couleurs par défaut */
+type Teintes = Partial<Record<'vitrage' | 'porte' | 'garage', string>>;
+function teintesDuProjet(projet: Project): Teintes {
+  const t = (q: OuvrageMenuiserie) => choixOuvrage(projet.dossier, q).teinte;
+  const v = t('menuiseries'), po = t('porteEntree'), g = t('porteGarage');
+  return { ...(v ? { vitrage: v } : {}), ...(po ? { porte: po } : {}), ...(g ? { garage: g } : {}) };
+}
+
+function murs(f: Floor, prismes: Prisme[], teintes: Teintes = {}): void {
   const plan = planDuNiveau(f), contours = new Map(plan.murs.map(m => [m.id, m.contour]));
   /* le dehors du niveau : hors des contours extérieurs de sa maçonnerie */
   const exterieurs = plan.maconnerie.map(m => m.contour);
@@ -182,11 +191,13 @@ function murs(f: Floor, prismes: Prisme[]): void {
       const milieu = (F.gauche + F.droite) / 2, e = EPAISSEUR_REMPLISSAGE[m] / 2;
       const P = (t: Mm, k: Mm): Point => ajouter(ajouter(w.axis.a, multiplier(u, t)), multiplier(n, milieu + k));
       const t0 = o.offset - o.width / 2, t1 = o.offset + o.width / 2;
-      prismes.push({ contour: [P(t0, -e), P(t1, -e), P(t1, e), P(t0, e)], z0: bas, z1: haut, matiere: m, objet: o.id, niveau: f.id });
+      /* la teinte choisie : le dormant et les ouvrants d'une baie, le panneau d'une porte pleine */
+      const teinte = teintes[m === 'vitrage' ? 'vitrage' : m], fin = teinte ? { finition: teinte } : {};
+      prismes.push({ contour: [P(t0, -e), P(t1, -e), P(t1, e), P(t0, e)], z0: bas, z1: haut, matiere: m, objet: o.id, niveau: f.id, ...(m !== 'vitrage' ? fin : {}) });
       /* la menuiserie autour du remplissage : le dormant, et pour un vitrage les ouvrants de chaque vantail
          (le vitrage reste entier derrière : ce sont des profils posés devant ses bords) */
       const M = MENUISERIE_3D, d = M.profondeur / 2;
-      const barre = (a: Mm, b: Mm, z0: Mm, z1: Mm) => { if (b - a > 1 && z1 - z0 > 1) prismes.push({ contour: [P(a, -d), P(b, -d), P(b, d), P(a, d)], z0, z1, matiere: 'menuiserie', objet: o.id, niveau: f.id }) };
+      const barre = (a: Mm, b: Mm, z0: Mm, z1: Mm) => { if (b - a > 1 && z1 - z0 > 1) prismes.push({ contour: [P(a, -d), P(b, -d), P(b, d), P(a, d)], z0, z1, matiere: 'menuiserie', objet: o.id, niveau: f.id, ...fin }) };
       const c = M.dormant, seuil = o.kind === 'window';                    // une porte, une porte-fenêtre n'ont pas de traverse basse
       barre(t0, t0 + c, bas, haut); barre(t1 - c, t1, bas, haut); barre(t0 + c, t1 - c, haut - c, haut);
       if (seuil) barre(t0 + c, t1 - c, bas, bas + c);
@@ -434,12 +445,12 @@ function meubles(f: Floor, prismes: Prisme[]): void {
 /** la maquette d'un projet ; « jusqu'à » : ne montrer que les niveaux jusqu'à celui-ci (inclus) ;
     « toiture » : la montrer ou non (par défaut, oui) */
 export function maquette(projet: Project, jusqua?: string, options: { toiture?: boolean } = {}): Maquette {
-  const prismes: Prisme[] = [], plaques: Plaque[] = [];
+  const prismes: Prisme[] = [], plaques: Plaque[] = [], teintes = teintesDuProjet(projet);
   for (const b of projet.buildings) {
     const F = [...b.floors].sort((a, c) => a.elevation - c.elevation);
     const k = jusqua ? F.findIndex(f => f.id === jusqua) : -1;
     for (const f of k >= 0 ? F.slice(0, k + 1) : F) {
-      planchers(projet, f, prismes); murs(f, prismes); peintures(f, prismes); amenagements(f, prismes); arbres(f, prismes); structure(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
+      planchers(projet, f, prismes); murs(f, prismes, teintes); peintures(f, prismes); amenagements(f, prismes); arbres(f, prismes); structure(f, prismes); meubles(f, prismes); escaliers(projet, f, prismes);
       if (options.toiture !== false) { toiture(f, prismes, plaques); egoutEtEaux(projet, f, prismes) }
     }
   }

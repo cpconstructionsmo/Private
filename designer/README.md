@@ -80,8 +80,13 @@ leur mur et des pièces nommées ; statuts repris (✅ → confirmé, ⚠️ / �
 vérifier, hauteurs non lues signalées), tracé du plan source en fond
 verrouillé, rapport des surfaces atelier / Designer pièce par pièce, un
 seul « annuler ». Ce qui ne se convertit pas (poteau, baie qui dépasse)
-est signalé, jamais inventé. Essai sur un vrai RDC (hors dépôt) : 6 pièces
-sur 6 à l'identique, au centième de m².
+est signalé, jamais inventé. Les pièces lues par l'atelier restent fermées :
+un bord de pièce qu'aucun mur ne longe devient, avec une porte lue dedans,
+la suite de la cloison de la même ligne (porte au bout d'une cloison, contre
+le mur qui la croise), sinon une cloison fictive (passage ouvert, « à
+vérifier ») ; un éclat de dessin logé dans l'épaisseur d'un mur plus épais
+est écarté. Essais sur de vrais RDC (hors dépôt) : 6 pièces sur 6, puis 12
+sur 12 (au lieu de 8), aux surfaces de l'atelier à quelques centièmes.
 
 **Tracé rapide et cotation automatique** (pour se rapprocher des logiciels
 de plans de maisons) :
@@ -186,7 +191,10 @@ cabinet (`src/export/feuille.ts` et un module par planche) :
   en haut (le blanc du bas reçoit légende et échelle), l'échelle graphique
   seule ou accolée sous la légende ;
 - les façades (`planche-facades.ts`) : couverture rayée de ses rangs,
-  parements à leur teinte et à leur motif, menuiseries gris anthracite,
+  parements à leur teinte et à leur motif, menuiseries, porte d'entrée et
+  porte de garage au matériau et à la teinte choisis aux informations du
+  dossier (`catalogue/menuiseries.ts`, teintes RAL ; gris anthracite et
+  « [à préciser] » sinon ; la 3D les suit), terrain fini (TF) à son niveau,
   niveaux à gauche (égout, RDC fini, terrain naturel), faîtages vus
   au-dessus, dimensions sous les baies, encadrés « Matériaux & teintes » et
   « Niveaux et lecture des façades » ; nommées par leur orientation ;
@@ -196,7 +204,9 @@ cabinet (`src/export/feuille.ts` et un module par planche) :
 - les coupes (`planche-coupes.ts`) : deux par feuille, sur leur terrain
   (terrain naturel relevé, sol en place), maçonnerie coupée hachurée,
   toiture vue au-delà, pièces traversées, niveaux et altitudes NGF,
-  limites de propriété ; légende, notes, repérage. Sans trait tracé, deux
+  limites de propriété, terrain fini aux abords (vert), comble blanc avec
+  le plafond et son isolant (composition du plafond du niveau) et
+  « Comble perdu » ; légende, notes, repérage. Sans trait tracé, deux
   coupes se placent d'elles-mêmes : en travers (A) et en long (B) ;
 - le plan de masse (`planche-masse.ts`) : parcelle verte aux côtés cotés,
   bornes, voie, toiture vue de dessus, emprise en tirets, aménagements,
@@ -257,6 +267,19 @@ intégrée au PDF ; l'insertion dans le site (PCMI 6) se compose aussi dans la
 3D (voir « Dossier de permis »). Le terrain
 lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
 revient avec l'import du RDC.
+
+**Terrain fini et règles du PLU** (panneau de la parcelle) : le terrain
+fini aux abords (cm par rapport au ±0,00) va aux façades, aux coupes et
+au plan de masse. Les règles du PLU lues au règlement de la zone (zone,
+source, emprise maximale, pleine terre et surfaces non imperméabilisées
+minimales, coefficient de biotope, stationnement, hauteurs à l'égout et
+au faîtage, reculs sur voie et sur limites) sont confrontées au projet
+(`src/building/plu.ts`) : ✅ / ⛔ / ❓ au panneau, « 24 % (max. 35 %) » au
+tableau « Surfaces et règles » du plan de masse, en rouge si elles ne
+sont pas tenues. Seuls les gravillons et les dalles engazonnées comptent
+« non imperméabilisés » à côté de la pleine terre ; une mesure qui manque
+(places prévues, coefficient des revêtements perméables, terrain naturel
+pour les hauteurs) laisse la règle « à vérifier ».
 
 **Fond cadastral** (`src/building/cadastre.ts`, panneau de la parcelle) :
 les parcelles voisines et le bâti existant du plan cadastral (GeoJSON

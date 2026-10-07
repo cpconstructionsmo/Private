@@ -53,7 +53,7 @@ export function lireModeleAtelier(brut: unknown): ModeleAtelier {
 
 /* ---------------------------------------------------------------- 1 à 3 : les axes des murs */
 
-export interface AxeMur { a: Point; b: Point; epaisseur: Mm; exterieur: boolean; region: string }
+export interface AxeMur { a: Point; b: Point; epaisseur: Mm; exterieur: boolean; region: string; /** cloison fictive (passage ouvert entre deux pièces) */ fictive?: boolean }
 
 const MM = 1000;
 const enMm = (p: PointM): Point => ({ x: p[0] * MM, y: p[1] * MM });
@@ -96,7 +96,7 @@ function aretes(contour: Point[], trous: Point[][]): Arete[] {
 const dansRegion = (p: Point, contour: Anneau, trous: Anneau[]): boolean =>
   positionDansAnneau(p, contour) === 'dedans' && trous.every(t => positionDansAnneau(p, t) === 'dehors');
 
-interface Troncon { a: Point; b: Point; e: Mm; exterieur: boolean; region: string }
+interface Troncon { a: Point; b: Point; e: Mm; exterieur: boolean; region: string; fictive?: boolean }
 
 /** 1. les tronçons d'axe d'une région */
 function tronconsRegion(m: MurAtelier): Troncon[] {
@@ -127,14 +127,14 @@ function reunir(T: Troncon[], ouvertures: Point[]): Troncon[] {
     const u = normaliser(soustraire(t.b, t.a));
     return u.x < -1e-9 || (Math.abs(u.x) <= 1e-9 && u.y < 0) ? multiplier(u, -1) : u;
   };
-  const groupes: { u: Point; c: number; e: Mm; ext: boolean; region: string; iv: [number, number][] }[] = [];
+  const groupes: { u: Point; c: number; e: Mm; ext: boolean; region: string; fictive?: boolean; iv: [number, number][] }[] = [];
   for (const t of T) {
     const u = sens(t), c = vectoriel(u, t.a);
     const g = groupes.find(g => g.region === t.region && Math.abs(vectoriel(g.u, u)) < TOL_PARALLELE && Math.abs(g.c - c) <= 3
       && Math.abs(g.e - t.e) <= Math.max(5, 0.1 * t.e));
     const s0 = scalaire(u, t.a), s1 = scalaire(u, t.b);
     const iv: [number, number] = [Math.min(s0, s1), Math.max(s0, s1)];
-    if (g) g.iv.push(iv); else groupes.push({ u, c, e: t.e, ext: t.exterieur, region: t.region, iv: [iv] });
+    if (g) g.iv.push(iv); else groupes.push({ u, c, e: t.e, ext: t.exterieur, region: t.region, ...(t.fictive ? { fictive: true } : {}), iv: [iv] });
   }
   const out: Troncon[] = [];
   for (const g of groupes) {
@@ -153,7 +153,7 @@ function reunir(T: Troncon[], ouvertures: Point[]): Troncon[] {
       if (der && (ecart <= Math.max(1.5 * g.e, 30) || ouvertureDansEcart)) der[1] = Math.max(der[1], iv[1]);
       else fusion.push([iv[0], iv[1]]);
     }
-    for (const [s0, s1] of fusion) out.push({ a: point(s0), b: point(s1), e: g.e, exterieur: g.ext, region: g.region });
+    for (const [s0, s1] of fusion) out.push({ a: point(s0), b: point(s1), e: g.e, exterieur: g.ext, region: g.region, ...(g.fictive ? { fictive: true } : {}) });
   }
   return out;
 }
@@ -196,7 +196,79 @@ function raccorder(T: Troncon[]): Troncon[] {
   return out.map(t => ({ ...t, a: pt(t.a), b: pt(t.b) }));
 }
 
-export function axesDesMurs(murs: MurAtelier[], ouvertures: OuvertureAtelier[] = []): { axes: AxeMur[]; avertissements: string[] } {
+/** les bouts d'une lacune vont jusqu'aux murs alignés qui la prolongent (à moins de 20 cm) : sans quoi un jour de
+    quelques centimètres réunirait encore les deux pièces (les murs qui la croisent, raccorder() les rejoint) */
+function jusquAuxMurs(t: Troncon, axes: Troncon[]): Troncon {
+  const u = normaliser(soustraire(t.b, t.a)), n = normaleGauche(u), c = scalaire(t.a, n);
+  const s0 = scalaire(t.a, u), s1 = scalaire(t.b, u);
+  let a0 = s0, a1 = s1;
+  for (const q of axes) {
+    const w = normaliser(soustraire(q.b, q.a));
+    if (Math.abs(vectoriel(u, w)) > TOL_PARALLELE || Math.abs(scalaire(q.a, n) - c) > Math.max(q.e / 2, 20) + 30) continue;
+    for (const E of [q.a, q.b]) {
+      const s = scalaire(E, u);
+      if (s < s0 && s0 - s <= 200) a0 = Math.min(a0, s);
+      if (s > s1 && s - s1 <= 200) a1 = Math.max(a1, s);
+    }
+  }
+  const point = (s: number): Point => ajouter(multiplier(u, s), multiplier(n, c));
+  return { ...t, a: point(a0), b: point(a1) };
+}
+
+/** 3 bis. les pièces lues par l'atelier doivent rester fermées : un bord de pièce qu'aucun mur ne longe (une porte au
+    bout d'une cloison, contre le mur qui la croise ; un passage ouvert) est une lacune. Avec une porte lue dedans, la
+    cloison de la même ligne la traverse ; sans porte, une cloison fictive sépare les deux pièces comme l'atelier les
+    a séparées. Rend les tronçons à ajouter. */
+function lacunes(axes: Troncon[], pieces: PieceAtelier[], ouvertures: Point[]): Troncon[] {
+  const PAS = 50, MIN = 250, out: Troncon[] = [];
+  const couvert = (p: Point) => axes.some(t => distancePointSegment(p, t) <= t.e / 2 + 30) || out.some(t => distancePointSegment(p, t) <= t.e / 2 + 30);
+  const faces = pieces.map(pc => pc.polygone.map(enMm));
+  faces.forEach((F, k) => {
+    const sens = aireSignee(F) > 0 ? 1 : -1;
+    F.forEach((a, i) => {
+      const b = F[(i + 1) % F.length]!, L = distance(a, b);
+      if (L < MIN) return;
+      const u = { x: (b.x - a.x) / L, y: (b.y - a.y) / L }, n = multiplier(normaleGauche(u), -sens);       // vers le dehors de la pièce
+      /* les points du bord, loin des sommets, que rien ne couvre ; les suites assez longues sont des lacunes */
+      let debut: number | null = null;
+      const fin = (s1: number) => {
+        if (debut === null) return;
+        const s0 = debut; debut = null;
+        if (s1 - s0 < MIN) return;
+        const p = ajouter(a, multiplier(u, s0)), q = ajouter(a, multiplier(u, s1)), m = ajouter(a, multiplier(u, (s0 + s1) / 2));
+        /* l'autre face : le bord parallèle d'une autre pièce, en face, à moins de 40 cm ; l'axe au milieu */
+        let d = 0;
+        faces.forEach((G, j) => { if (j === k) return; G.forEach((c, h) => {
+          const e = G[(h + 1) % G.length]!, v = normaliser(soustraire(e, c));
+          if (Math.abs(vectoriel(u, v)) > TOL_PARALLELE) return;
+          const dd = scalaire(soustraire(c, m), n), t = scalaire(soustraire(m, c), v), Lv = distance(c, e);
+          if (dd > 1 && dd < 400 && t > -1 && t < Lv + 1 && (d === 0 || dd < d)) d = dd;
+        }) });
+        const decale = (r: Point) => ajouter(r, multiplier(n, d / 2));
+        const porte = ouvertures.some(o => { const w = soustraire(o, m); return Math.abs(scalaire(w, n) - d / 2) <= Math.max(d, 200) && Math.abs(scalaire(w, u)) <= (s1 - s0) / 2 + 100 });
+        /* une porte : la cloison de la même ligne (même épaisseur, même région) traverse la lacune */
+        const voisine = porte ? axes.find(t => {
+          const w = normaliser(soustraire(t.b, t.a));
+          if (Math.abs(vectoriel(u, w)) > TOL_PARALLELE) return false;
+          return Math.abs(scalaire(soustraire(t.a, decale(m)), normaleGauche(w))) <= Math.max(t.e / 2, 20) + 30 && Math.min(distance(t.a, decale(p)), distance(t.b, decale(p)), distance(t.a, decale(q)), distance(t.b, decale(q))) <= t.e + 60;
+        }) : undefined;
+        if (voisine) {
+          const w = normaliser(soustraire(voisine.b, voisine.a)), nw = normaleGauche(w), c = scalaire(voisine.a, nw);
+          const surLigne = (r: Point) => ajouter(r, multiplier(nw, c - scalaire(r, nw)));
+          out.push(jusquAuxMurs({ a: surLigne(p), b: surLigne(q), e: voisine.e, exterieur: false, region: voisine.region }, axes));
+        } else out.push(jusquAuxMurs({ a: decale(p), b: decale(q), e: Math.max(d, 1), exterieur: false, region: 'fictive', fictive: true }, axes));
+      };
+      for (let s0 = 60; s0 <= L - 60; s0 += PAS) {
+        const p = ajouter(a, multiplier(u, s0));
+        if (couvert(p)) fin(s0); else if (debut === null) debut = s0;
+      }
+      fin(L - 60);
+    });
+  });
+  return out;
+}
+
+export function axesDesMurs(murs: MurAtelier[], ouvertures: OuvertureAtelier[] = [], pieces: PieceAtelier[] = []): { axes: AxeMur[]; avertissements: string[] } {
   const avertissements: string[] = [];
   const bruts: Troncon[] = [];
   for (const m of murs) {
@@ -206,14 +278,29 @@ export function axesDesMurs(murs: MurAtelier[], ouvertures: OuvertureAtelier[] =
   }
   /* deux passes : la seconde voit les murs déjà prolongés par la première
      (une cloison en baïonnette rejoint un mur qui vient d'être allongé) */
-  const axes = raccorder(raccorder(reunir(bruts, ouvertures.map(o => enMm(o.position)))))
+  const O = ouvertures.map(o => enMm(o.position));
+  /* un éclat de dessin logé dans l'épaisseur d'un mur plus épais (le joint de deux aplats) n'est pas un mur : il
+     arrêterait ce mur avant son angle, et la pièce s'ouvrirait sur le dehors */
+  const sansEclats = (T: Troncon[]) => T.filter(t => {
+    const dedans = T.some(q => q !== t && q.e > t.e + 20 && distancePointSegment(t.a, q) <= q.e / 2 + 10 && distancePointSegment(t.b, q) <= q.e / 2 + 10);
+    if (dedans) avertissements.push('Éclat de ' + Math.round(distance(t.a, t.b)) + ' mm dans l’épaisseur d’un mur ignoré');
+    return !dedans;
+  });
+  let T = raccorder(raccorder(sansEclats(reunir(bruts, O))));
+  const L = pieces.length ? lacunes(T, pieces, O) : [];
+  if (L.length) {
+    const nf = L.filter(t => t.fictive).length;
+    if (nf) avertissements.push(nf + ' cloison' + (nf > 1 ? 's' : '') + ' fictive' + (nf > 1 ? 's' : '') + ' posée' + (nf > 1 ? 's' : '') + ' entre des pièces ouvertes l’une sur l’autre (comme l’atelier les a séparées) — à vérifier');
+    T = raccorder(raccorder(sansEclats(reunir([...bruts, ...L], O))));
+  }
+  const axes = T
     .filter(t => {
       const L = distance(t.a, t.b);
       if (L >= 50) return true;
       avertissements.push('Morceau de mur de ' + Math.round(L) + ' mm ignoré (trop court)');
       return false;
     })
-    .map(t => ({ a: t.a, b: t.b, epaisseur: Math.round(t.e), exterieur: t.exterieur, region: t.region }));
+    .map(t => ({ a: t.a, b: t.b, epaisseur: Math.round(t.e), exterieur: t.exterieur, region: t.region, ...(t.fictive ? { fictive: true } : {}) }));
   return { axes, avertissements };
 }
 
@@ -297,12 +384,19 @@ export function commandesImport(modele: ModeleAtelier, niveau: string, id: () =>
   const n = modele.batiment.niveaux[0]!;
   const fichier = modele.source_rdc?.fichier || 'plan du RDC';
   const label = 'Import atelier : ' + fichier;
-  const { axes, avertissements } = axesDesMurs(n.murs, n.ouvertures);
+  const { axes, avertissements } = axesDesMurs(n.murs, n.ouvertures, n.pieces);
   const commandes: Commande[] = [];
   const murs: { id: string; axe: AxeMur }[] = [];
   const parRegion = new Map(n.murs.map(m => [m.id, m]));
   for (const axe of axes) {
-    const mid = id(), region = parRegion.get(axe.region)!;
+    const mid = id();
+    if (axe.fictive) {
+      commandes.push({ type: 'creerMur', id: mid, niveau, a: axe.a, b: axe.b, epaisseur: 70, role: 'virtual',
+        origine: { label, document: fichier, statut: 'to_check', meta: { atelier: { region: 'fictive' }, aVerifier: ['passage ouvert entre deux pièces lues par l’atelier : cloison fictive (sans matière)'] } } });
+      murs.push({ id: mid, axe });
+      continue;
+    }
+    const region = parRegion.get(axe.region)!;
     const porteur = porteurDe(region, fichier);
     commandes.push({
       type: 'creerMur', id: mid, niveau, a: axe.a, b: axe.b, epaisseur: axe.epaisseur, role: axe.exterieur ? 'exterior' : 'partition',
@@ -315,7 +409,7 @@ export function commandesImport(modele: ModeleAtelier, niveau: string, id: () =>
   let nOuv = 0;
   for (const o of n.ouvertures) {
     const P = enMm(o.position);
-    const hote = murs.map(m => ({ m, d: distancePointSegment(P, m.axe) })).filter(x => x.d <= x.m.axe.epaisseur / 2 + 50).sort((x, y) => x.d - y.d)[0];
+    const hote = murs.filter(m => !m.axe.fictive).map(m => ({ m, d: distancePointSegment(P, m.axe) })).filter(x => x.d <= x.m.axe.epaisseur / 2 + 50).sort((x, y) => x.d - y.d)[0];
     if (!hote) { avertissements.push('Ouverture ' + o.id + ' (' + o.type + ') : aucun mur à son emplacement — non posée'); continue }
     const genre = GENRES[o.type] ?? 'void';
     const L = distance(hote.m.axe.a, hote.m.axe.b);

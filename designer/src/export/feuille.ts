@@ -233,24 +233,24 @@ export function encadre(page: PagePdf, x: number, y: number, l: number, h: numbe
 
 /** un tableau encadré : une ligne d'en-tête grisée, des lignes fines, une ligne de total grisée en gras ; rend sa hauteur (mm) */
 export function tableau(page: PagePdf, x: number, y: number, colonnes: { titre: string; largeur: number; aligne?: 'gauche' | 'droite' | 'centre' }[], lignes: string[][],
-  o: { total?: string[]; corps?: number; pas?: number; titre?: string } = {}): number {
+  o: { total?: string[]; corps?: number; pas?: number; titre?: string; couleurs?: (string | undefined)[] } = {}): number {
   const corps = o.corps ?? 8, pas = o.pas ?? 5.2, L = colonnes.reduce((s, c) => s + c.largeur, 0);
   let yy = y;
   if (o.titre) { texte(page, o.titre, x, yy + 3.2, corps + 2, { gras: true, couleur: '#222222' }); yy += 6.5 }
   const debut = yy;
-  const rang = (cells: string[], fond: string | null, gras: boolean) => {
+  const rang = (cells: string[], fond: string | null, gras: boolean, couleur = '#222222') => {
     if (fond) page.cadre(X(x), Y(yy + pas), L * PT, pas * PT, { ep: 0, fond });
     let cx = x;
     cells.forEach((t, i) => {
       const c = colonnes[i]!, al = c.aligne ?? 'gauche';
       const tx = al === 'droite' ? cx + c.largeur - 1.6 : al === 'centre' ? cx + c.largeur / 2 : cx + 1.6;
-      texte(page, t, tx, yy + pas / 2 + corps * 0.13, corps, { gras, aligne: al, couleur: '#222222' });
+      texte(page, t, tx, yy + pas / 2 + corps * 0.13, corps, { gras, aligne: al, couleur });
       cx += c.largeur;
     });
     yy += pas;
   };
   rang(colonnes.map(c => c.titre), '#EDEDED', true);
-  for (const l of lignes) { page.trait(X(x), Y(yy), X(x + L), Y(yy), 0.2, '#C8C8C8'); rang(l, null, false) }
+  lignes.forEach((l, i) => { page.trait(X(x), Y(yy), X(x + L), Y(yy), 0.2, '#C8C8C8'); rang(l, null, false, o.couleurs?.[i]) });
   if (o.total) { page.trait(X(x), Y(yy), X(x + L), Y(yy), 0.4, ENCRE); rang(o.total, '#EDEDED', true) }
   page.cadre(X(x), Y(yy), L * PT, (yy - debut) * PT, { ep: 0.6, couleur: ENCRE });
   return yy - y;

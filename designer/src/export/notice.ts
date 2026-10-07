@@ -9,6 +9,7 @@ import { parcelleDuProjet, reculs, empriseAuSol, aireEmprise, surfaceTerrain, bi
 import { surfacesReglementaires } from '../building/surfaces';
 import { toitureDuNiveau } from '../building/toiture';
 import { materiau } from '../catalogue/materiaux';
+import { choixOuvrage, teinteMenuiserie, type OuvrageMenuiserie } from '../catalogue/menuiseries';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
 
 export interface RubriqueNotice { titre: string; paragraphes: string[] }
@@ -70,7 +71,11 @@ export function notice(p: Project): RubriqueNotice[] {
   const ouvs = [...ouv].filter(([k]) => k !== 'void').map(([k, n]) => n + ' ' + OUV[k][n > 1 ? 1 : 0]);
   const ft = objets.filter(o => o.type === 'roof_window').length;
   if (ft) ouvs.push(ft + (ft > 1 ? ' fenêtres de toit' : ' fenêtre de toit'));
-  materiaux.push('Menuiseries : ' + (ouvs.length ? liste(ouvs) : 'aucune posée') + ' ; matériau et teinte ' + A_COMPLETER + '.');
+  /* le matériau et la teinte choisis aux informations du dossier ; la porte d'entrée et celle du garage si elles diffèrent */
+  const dit = (q: OuvrageMenuiserie) => { const c = choixOuvrage(p.dossier, q); return (c.materiau ?? 'matériau ' + A_COMPLETER) + ', ' + (teinteMenuiserie(c.teinte)?.libelle ?? 'teinte ' + A_COMPLETER) };
+  const portes = (['porteEntree', 'porteGarage'] as const).filter(q => (q === 'porteEntree' ? ouv.has('door') : ouv.has('garage_door')) && dit(q) !== dit('menuiseries'))
+    .map(q => (q === 'porteEntree' ? 'porte d’entrée : ' : 'porte de garage : ') + dit(q));
+  materiaux.push('Menuiseries : ' + (ouvs.length ? liste(ouvs) : 'aucune posée') + ' ; ' + dit('menuiseries') + (portes.length ? ' ; ' + portes.join(' ; ') : '') + '.');
   if (roofs.length) materiaux.push('Couverture : ' + COUV[roofs[0]!.r.covering] + ', teinte ' + A_COMPLETER + '.');
 
   /* 4. abords : clôtures, espaces libres, accès et stationnement */

@@ -175,6 +175,8 @@ export function plancheToiture(doc: DocumentPdf, projet: Project, o: OptionsToit
     page.polygone(t.egout.map(E), { trait: ENCRE, ep: 1.2 });
     if (r.gutter && r.gutter !== 'none') page.polygone(decaler(t.egout, 0.9 * ech).map(E), { trait: ENCRE, ep: 0.35 });
     for (const pg of t.pignons) { const Q = pg.points.map(E); const xs = Q.map(q => q[0]), ys = Q.map(q => q[1]); const i0 = xs.indexOf(Math.min(...xs)), i1 = xs.indexOf(Math.max(...xs)); const [p0, p1] = Math.max(...xs) - Math.min(...xs) > Math.max(...ys) - Math.min(...ys) ? [Q[i0]!, Q[i1]!] : [Q[ys.indexOf(Math.min(...ys))]!, Q[ys.indexOf(Math.max(...ys))]!]; page.trait(p0[0], p0[1], p1[0], p1[1], 2) }
+    /* ce qui est déjà écrit sur le toit (les pentes, puis les faîtages) : une étiquette de faîtage l'évite */
+    const poses: { x0: number; y0: number; x1: number; y1: number }[] = [];
     /* une flèche « 35° » au milieu de chaque pan, vers l'égout */
     for (const pan of t.pans) {
       const g = Math.hypot(pan.plan.a, pan.plan.b);
@@ -185,17 +187,27 @@ export function plancheToiture(doc: DocumentPdf, projet: Project, o: OptionsToit
       const lib = Math.round(Math.atan(g) * 180 / Math.PI) + '°', lw = Page.largeur(lib, 6.8, { gras: true }) / PT;
       const vertical = Math.abs(b[1] - a[1]) > Math.abs(b[0] - a[0]), lx = vertical ? (a[0] + b[0]) / 2 + 2.6 : (a[0] + b[0]) / 2 - lw / 2, ly = vertical ? (a[1] + b[1]) / 2 + 1.2 : Math.min(a[1], b[1]) - 2.2;
       page.cadre(X(lx - 0.8), Y(ly + 1), (lw + 1.6) * PT, 3.6 * PT, { ep: 0, fond: '#FFFFFF' });
+      poses.push({ x0: lx - 0.8, y0: ly - 2.6, x1: lx + lw + 0.8, y1: ly + 1 });
       texte(page, lib, lx, ly, 6.8, { gras: true, couleur: '#222222' });
     }
     /* les faîtages cotés, en brique, le long de leur ligne */
-    for (const l of faitagesReunis(LT)) {
+    /* les plus longs d'abord ; une étiquette qui en couvrirait une autre glisse le long de son faîtage, sinon elle se tait
+       (petits faîtages serrés d'un patio : la hauteur se lit sur le voisin) */
+    const longueur = (l: { a: { x: number; y: number }; b: { x: number; y: number } }) => Math.hypot(l.b.x - l.a.x, l.b.y - l.a.y);
+    for (const l of faitagesReunis(LT).sort((p, q) => longueur(q) - longueur(p))) {
       const a = Pm(l.a), b = Pm(l.b), z = Math.max(l.a.z, l.b.z);
       let ang = Math.atan2(-(b[1] - a[1]), b[0] - a[0]) * 180 / Math.PI;
       if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
-      const m: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
       const t1 = 'Faîtage ' + niveauRelatif(z), t2 = ngf0 !== undefined ? ngf(z) + ' NGF' : '';
       const lw = Math.max(Page.largeur(t1, 6.8, { gras: true }), Page.largeur(t2, 5.6)) / PT + 2;
       const r2 = ang * Math.PI / 180, ux = Math.cos(r2), uy = -Math.sin(r2), nx = -uy, ny = ux;                  // le long du faîtage, et vers le bas du texte (mm)
+      const Lp = Math.hypot(b[0] - a[0], b[1] - a[1]), mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const boite = (c: [number, number]) => { const P = [[-lw / 2, -4], [lw / 2, -4], [lw / 2, 3.4], [-lw / 2, 3.4]].map(([u, v]) => [c[0] + ux * u! + nx * v!, c[1] + uy * u! + ny * v!]); const xs = P.map(q => q[0]!), ys = P.map(q => q[1]!); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) } };
+      const libre = (q: { x0: number; y0: number; x1: number; y1: number }) => poses.every(p => q.x1 < p.x0 || q.x0 > p.x1 || q.y1 < p.y0 || q.y0 > p.y1);
+      const glisse = [0, 0.3, -0.3, 0.6, -0.6].map(k => k * Math.max(0, Lp - lw) / 1.2).map((d): [number, number] => [mid[0] + ux * d, mid[1] + uy * d]);
+      const m = glisse.find(c => libre(boite(c)));
+      if (!m) continue;
+      poses.push(boite(m));
       const C = (u: number, v: number): [number, number] => [X(m[0] + ux * u + nx * v), Y(m[1] + uy * u + ny * v)];
       page.polygone([C(-lw / 2, -4), C(lw / 2, -4), C(lw / 2, t2 ? 3.4 : 0.8), C(-lw / 2, t2 ? 3.4 : 0.8)], { fond: '#FFFFFF' });
       const [tx, ty] = C(0, -1.2), [sx, sy] = C(0, 2.2);

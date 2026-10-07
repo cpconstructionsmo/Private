@@ -9,7 +9,7 @@ import type { Beam, BuildingObject, Column, Dormer, Floor, Foundation, Underlay,
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, type CadastreLu, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, type CadastreLu, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -27,6 +27,7 @@ import { equerrer } from '../building/equerre';
 import { ANGLE_EQUERRE } from '../geometry/tolerance';
 import { maquette } from '../vue3d/maquette';
 import { PAREMENTS, PEINTURES, SOLS } from '../catalogue/materiaux';
+import { MATERIAUX_MENUISERIES, TEINTES_MENUISERIES } from '../catalogue/menuiseries';
 import { MODELES_MAISONS, modeleMaison } from '../catalogue/modeles-maisons';
 import { geometrieFenetreToit, TAILLES_FENETRE_TOIT } from '../building/fenetres-toit';
 import { geometrieLucarne, LUCARNES } from '../building/lucarnes';
@@ -34,7 +35,7 @@ import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenage
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
 import type { Cabinet, ImageDossier } from '../export/planche';
-import type { InfosDossier } from '../model/types';
+import type { InfosDossier, ReglesPlu } from '../model/types';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
 import { traits } from '../building/mobilier';
@@ -495,6 +496,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'couverture', libelle: 'Couverture (vide : celle du toit dessiné)', valeur: D.couverture ?? '' },
       { cle: 'chauffage', libelle: 'Chauffage', valeur: D.chauffage ?? '' },
       { cle: 'divers', libelle: 'Divers (ventilation, eau chaude…)', valeur: D.divers ?? '' },
+      /* les menuiseries : matériau et teinte ; les portes prennent ceux des menuiseries tant qu'on ne choisit rien */
+      ...(['menuiseries', 'porteEntree', 'porteGarage'] as const).flatMap(q => {
+        const nom = q === 'menuiseries' ? 'Menuiseries (fenêtres, baies)' : q === 'porteEntree' ? 'Porte d’entrée' : 'Porte de garage', vide = q === 'menuiseries' ? '— à préciser' : '— comme les menuiseries';
+        return [
+          { cle: q + ':m', libelle: nom + ' : matériau', valeur: D[q]?.materiau ?? '', options: { '': vide, ...Object.fromEntries(MATERIAUX_MENUISERIES.map(x => [x, x])) } },
+          { cle: q + ':t', libelle: nom + ' : teinte', valeur: D[q]?.teinte ?? '', options: { '': vide, ...Object.fromEntries(TEINTES_MENUISERIES.map(x => [x.id, x.libelle])) } }];
+      }),
       { cle: 'modifications', libelle: 'Modifications : une par ligne, « jj/mm/aaaa — objet »', valeur: (D.modifications ?? []).map(m => (m.date ? m.date + ' — ' : '') + m.objet).join('\n'), lignes: 3 }]);
     if (!r) return;
     const st = r['surfaceTerrain']!.trim(), n = Number(st.replace(/\s/g, '').replace(',', '.'));
@@ -502,7 +510,11 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const champs: Extract<Commande, { type: 'modifierDossier' }>['champs'] = {
       maitreOuvrage: r['maitreOuvrage']!, adresseMaitreOuvrage: r['adresseMaitreOuvrage']!, lieuConstruction: r['lieuConstruction']!,
       referencesCadastrales: r['referencesCadastrales']!, zoneSismique: r['zoneSismique']!, couverture: r['couverture']!, chauffage: r['chauffage']!, divers: r['divers']!,
-      surfaceTerrain: st ? n : null, modifications: lireModifications(r['modifications']!) };
+      surfaceTerrain: st ? n : null, modifications: lireModifications(r['modifications']!),
+      ...Object.fromEntries((['menuiseries', 'porteEntree', 'porteGarage'] as const).map(q => {
+        const m = r[q + ':m'] ?? '', t = r[q + ':t'] ?? '';
+        return [q, m || t ? { ...(m ? { materiau: m } : {}), ...(t ? { teinte: t } : {}) } : null];
+      })) };
     if (faire('Informations du dossier', [{ type: 'modifierDossier', champs }])) toast('Informations du dossier enregistrées');
   }
   async function poserPhotoSite() {
@@ -1555,8 +1567,10 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('Nom de la voie', o.streetName ?? '', v => mod('Nom de la voie', { nomVoie: v })),
           champ('Nord (° depuis le haut du plan, sens inverse des aiguilles)', Math.round(o.north * 1800 / Math.PI) / 10, v => mod('Direction du nord', { nord: ent(v) * Math.PI / 180 }), 'number'),
           champ('Altitude NGF du ±0,00 (m)', o.groundFloorNgf ?? '', v => mod('Altitude du RDC', { altitudeRdc: String(v).trim() ? ent(v) : null }), 'number'),
+          champ('Terrain fini aux abords (cm par rapport au ±0,00, ex. : −15)', o.finishedGround !== undefined ? o.finishedGround / 10 : '', v => mod('Terrain fini', { terrainFini: String(v).trim() ? Math.round(ent(v) * 10) : null }), 'number'),
           ...pointsCotes(o),
           ...fondCadastralPanneau(o),
+          ...reglesPluPanneau(o),
           titre('Côtés et reculs (mesurés)'));
         o.contour.forEach((_, i) => {
           const r = R[i];
@@ -2198,6 +2212,38 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       bouton('✕', () => remplacer('Retirer un point coté', A.filter((_, k) => k !== i))))));
     out.push(ligne(bouton('Coter le terrain (outil N)', () => choisir('altitude'))),
       bloc('Les altitudes du terrain naturel relevées par le géomètre : la coupe (PCMI 3) en tire le profil du terrain, le plan de masse les reporte. Elles suivent la parcelle quand on l’implante.'));
+    return out;
+  }
+  /** les règles du PLU, dans l'inspecteur de la parcelle : saisies d'après le règlement, confrontées aux mesures du projet */
+  function reglesPluPanneau(o: Plot): HTMLElement[] {
+    const R: ReglesPlu = o.plu ?? {};
+    const poser = (k: keyof ReglesPlu, v: string | number | undefined) => {
+      const x: Record<string, unknown> = { ...R };
+      if (v === undefined || v === '' || (typeof v === 'number' && !Number.isFinite(v))) delete x[k]; else x[k] = v;
+      faire('Règles du PLU', [{ type: 'modifierParcelle', id: o.id, plu: Object.keys(x).length ? x as ReglesPlu : null }]);
+    };
+    const nombre = (k: keyof ReglesPlu, libelle: string, facteur = 1) => champ(libelle, R[k] !== undefined ? Number(R[k]) / facteur : '',
+      v => poser(k, String(v).trim() ? Math.round(ent(v) * facteur * 1000) / 1000 : undefined), 'number');
+    const out: HTMLElement[] = [titre('Règles du PLU'),
+      champ('Zone (ex. : UGc)', R.zone ?? '', v => poser('zone', v.trim() || undefined)),
+      champ('Source (PLU, date, lotissement…)', R.source ?? '', v => poser('source', v.trim() || undefined)),
+      nombre('empriseMax', 'Emprise au sol maximale (% du terrain)'),
+      nombre('pleineTerreMin', 'Pleine terre minimale (%)'),
+      nombre('permeableMin', 'Surfaces non imperméabilisées minimales (%)'),
+      nombre('biotopeMin', 'Coefficient de biotope minimal (0 à 1)'),
+      nombre('biotopePermeable', 'Coefficient des revêtements perméables (0 à 1)'),
+      nombre('stationnementMin', 'Places de stationnement exigées'),
+      nombre('stationnementPrevu', 'Places prévues au projet'),
+      nombre('egoutMax', 'Hauteur maximale à l’égout (m)', 1000),
+      nombre('faitageMax', 'Hauteur maximale au faîtage (m)', 1000),
+      nombre('reculVoieMin', 'Recul minimal sur voie (m)', 1000),
+      nombre('reculLimitesMin', 'Recul minimal sur limites séparatives (m)', 1000)];
+    const C = controlePlu(h.projet);
+    if (C?.regles.length) {
+      const signe = { conforme: '✅', non_conforme: '⛔', a_verifier: '❓' } as const;
+      out.push(bloc(C.regles.map(r => signe[r.etat] + ' ' + esc(r.libelle) + ' : <b>' + esc(r.valeur) + '</b> (' + esc(r.limite) + ')').join('<br>')
+        + '<br><span class="note">Hauteurs mesurées depuis ' + (C.reference === 'tn' ? 'le terrain naturel le plus bas sous la maison' : 'le RDC fini : relevez le terrain naturel pour les contrôler') + '. Le règlement de la zone reste la référence.</span>'));
+    } else out.push(bloc('Saisissez les règles lues au règlement de la zone : le plan de masse (PCMI 2) les met en regard du projet, en rouge si elles ne sont pas tenues.'));
     return out;
   }
   /** le fond cadastral, dans l'inspecteur de la parcelle : son état, l'import d'un GeoJSON, le téléchargement, le retrait */
