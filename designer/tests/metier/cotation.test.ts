@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel, type Floor, type Project, type Wall } from '../../src/model';
 import { executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
-import { cotationExterieure, cotesInterieures, dimensionsPiece, mursDroits, placeEtiquette, placeOuverture, planDuNiveau, positionPour } from '../../src/building';
+import { cotationExterieure, cotesInterieures, dimensionsPiece, mursDroits, placeEtiquette, placeEtiquetteCouverte, placeOuverture, planDuNiveau, positionPour } from '../../src/building';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 1) + (t += 1000)).toISOString(), id: generateurSequentiel('o') } };
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join(' ; ')); return r.historique };
@@ -114,6 +114,22 @@ describe('cotes intérieures et étiquettes des pièces', () => {
     const p = creerProjet({ nom: 'Fictif', id: generateurSequentiel('p') }), n = rdc(p).id;
     const g = rdc(ok(executer(nouvelHistorique(p), 'Murs', [...contour(n, [[0, 0], [5_800, 0], [5_800, 8_000], [0, 8_000]]), M(n, 4_000, 0, 4_000, 8_000, 70, 'partition')], acteur())).projet);
     expect(cotesInterieures(g, 450).length).toBe(2);
+  });
+
+  it('une pièce en L a aussi ses deux cotes : la plus grande portée entre faces, en long puis en travers, en retrait d’un mur', () => {
+    const p = creerProjet({ nom: 'Fictif', id: generateurSequentiel('p') }), n = rdc(p).id;
+    const f = rdc(ok(executer(nouvelHistorique(p), 'Murs', contour(n, [[0, 0], [8_000, 0], [8_000, 3_000], [3_000, 3_000], [3_000, 7_000], [0, 7_000]]), acteur())).projet);
+    const C = cotesInterieures(f, 450).map(c => ({ l: Math.round(Math.hypot(c.b.x - c.a.x, c.b.y - c.a.y)), a: { x: Math.round(Math.min(c.a.x, c.b.x)), y: Math.round(Math.min(c.a.y, c.b.y)) } }));
+    /* faces : x = 100 à 7 900 dans la branche basse (y = 100 à 2 900), y = 100 à 6 900 dans la branche gauche (x = 100 à 2 900) */
+    expect(C).toHaveLength(2);
+    expect(C).toContainEqual({ l: 7_800, a: { x: 100, y: 550 } });
+    expect(C).toContainEqual({ l: 6_800, a: { x: 550, y: 100 } });
+  });
+
+  it('une étiquette trop large pour une pièce étroite y tient debout', () => {
+    const couloir = [{ x: 0, y: 0 }, { x: 1_500, y: 0 }, { x: 1_500, y: 4_000 }, { x: 0, y: 4_000 }], voulue = { x: 750, y: 2_000 };
+    expect(placeEtiquetteCouverte(couloir, [], voulue, { l: 1_000, h: 300 }).couvre).toBe(Infinity);
+    expect(placeEtiquetteCouverte(couloir, [], voulue, { l: 300, h: 1_000 })).toEqual({ point: voulue, couvre: 0 });
   });
 
   it('l’étiquette reste à sa place si elle est libre ; sinon elle va au plus près, hors des meubles, dans la pièce', () => {
