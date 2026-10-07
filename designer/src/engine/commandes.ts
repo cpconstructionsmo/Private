@@ -12,7 +12,7 @@
    Déplacer un mur ou un sommet passe par le solveur (building/contraintes) :
    les murs qui s'y raccordent suivent, les contraintes et les cotes
    motrices restent vraies, ou la commande est refusée. */
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer } from '../model/types';
+import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -79,6 +79,8 @@ export type Commande =
   | { type: 'supprimer'; id: string }
   | { type: 'ajouterNiveau'; batiment: string; nom: string; altitude: Mm; hauteur: Mm; id?: string }
   | { type: 'renommerProjet'; nom: string }
+  /** les informations du dossier : les champs donnés remplacent les anciens ; '' ou null efface un champ */
+  | { type: 'modifierDossier'; champs: { [K in keyof InfosDossier]?: InfosDossier[K] | null } }
   /** déplacer une extrémité de mur : tous les murs qui y aboutissent suivent */
   | { type: 'deplacerSommet'; niveau: string; de: Point; vers: Point }
   /** redresser à l'équerre les murs presque d'équerre (ceux qu'on cite, ou tout le niveau) — voir building/equerre.ts */
@@ -354,6 +356,8 @@ function fondationsInvalides(v: { largeur: Mm; hauteur: Mm; horsGel: Mm; bonSol?
   return null;
 }
 
+const CHAMPS_DOSSIER = new Set(['maitreOuvrage', 'adresseMaitreOuvrage', 'lieuConstruction', 'referencesCadastrales', 'surfaceTerrain', 'couverture', 'chauffage', 'divers', 'zoneSismique', 'modifications']);
+
 const GENRES_UN_MUR: readonly Constraint['kind'][] = ['horizontal', 'vertical', 'length', 'angle'];
 const GENRES_RESEAU: readonly Network['kind'][] = ['eu', 'ep', 'aep', 'elec', 'telecom', 'gaz'];
 const GENRES_EQUIPEMENT: readonly NetworkItem['kind'][] = ['regard', 'branchement', 'compteur_eau', 'coffret_elec', 'chambre_telecom', 'coffret_gaz', 'infiltration', 'cuve_ep', 'assainissement'];
@@ -522,6 +526,25 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       const ordre = b.floors.reduce((m, f) => Math.max(m, f.order), -1) + 1;
       return accepte([{ type: 'niveau.ajouter', batiment: b.id, index: b.floors.length,
         niveau: { id: cmd.id ?? c.id(), name: cmd.nom.trim(), elevation: cmd.altitude, height: cmd.hauteur, order: ordre, objects: {} } }]);
+    }
+    case 'modifierDossier': {
+      const avant = p.dossier ?? {}, apres: Record<string, unknown> = { ...avant };
+      for (const [k, v] of Object.entries(cmd.champs)) {
+        if (!CHAMPS_DOSSIER.has(k)) return refus('information de dossier inconnue : ' + k);
+        if (v === null || v === undefined || (typeof v === 'string' && !v.trim())) { delete apres[k]; continue }
+        if (k === 'surfaceTerrain' && !(typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 1e7)) return refus('surface du terrain invalide');
+        if (k === 'modifications') {
+          const M = v as { date: string; objet: string }[];
+          if (!Array.isArray(M) || M.length > 30 || M.some(x => typeof x?.date !== 'string' || typeof x?.objet !== 'string')) return refus('modifications invalides');
+          const L = M.map(x => ({ date: x.date.trim(), objet: x.objet.trim() })).filter(x => x.date || x.objet);
+          if (L.length) apres[k] = L; else delete apres[k];
+          continue;
+        }
+        if (typeof v === 'string' && v.length > 500) return refus('texte trop long (500 caractères au plus)');
+        apres[k] = typeof v === 'string' ? v.trim() : v;
+      }
+      /* un champ absent s'écrit null : il le reste une fois le ChangeSet passé par le JSON */
+      return accepte([{ type: 'projet.modifier', avant: { dossier: p.dossier ?? null }, apres: { dossier: Object.keys(apres).length ? apres : null } }]);
     }
     case 'renommerProjet': {
       if (!cmd.nom.trim()) return refus('un projet a un nom');

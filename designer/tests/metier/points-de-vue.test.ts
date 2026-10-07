@@ -64,7 +64,8 @@ describe('points de prise de vue', () => {
     expect(pieces.find(p => p.code === 'PCMI 7')!.note).toBe('point de vue reporté au PCMI 2');
     expect(pieces.find(p => p.code === 'PCMI 8')!.note).toBe('point de vue à reporter au PCMI 2');
     /* (la note est coupée en lignes dans la colonne) */
-    expect(s).toContain('(Point et angle de prise de vue report\xE9s sur le plan de masse \\(PCMI 2,) Tj');
+    /* la note coupée à la largeur des encadrés : son début suffit */
+    expect(s).toContain('(Point et angle de prise de vue report\xE9s sur le plan de masse');
     /* la photographie lointaine n'a ni point de vue tracé ni légende : à reporter, à compléter */
     expect(s).toContain('(Point et angle de prise de vue \xE0 reporter sur le plan de masse');
   });

@@ -33,7 +33,8 @@ import { geometrieLucarne, LUCARNES } from '../building/lucarnes';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
-import type { ImageDossier } from '../export/planche';
+import type { Cabinet, ImageDossier } from '../export/planche';
+import type { InfosDossier } from '../model/types';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
 import { traits } from '../building/mobilier';
@@ -195,6 +196,7 @@ const CSS = `
 .cpd .boite{background:#3B3B3B;color:var(--txt);border-radius:4px;box-shadow:0 10px 40px rgba(0,0,0,.4);width:min(440px,92vw);padding:16px 18px;box-sizing:border-box;max-height:calc(100vh - min(12vh,80px) - 16px);overflow-y:auto;border-top:3px solid var(--acc)}
 .cpd .boite h2{font-size:16px;margin:0 0 12px;color:#fff}
 .cpd .boite label{display:block;margin:10px 0;color:var(--txt2);font-size:12.5px}
+.cpd .boite label textarea{display:block;width:100%;box-sizing:border-box;margin-top:3px;border:1px solid #8A8A8A;border-radius:2px;padding:5px 6px;background:transparent;color:#fff;font:inherit;resize:vertical}
 .cpd .boite label input,.cpd .boite label select{display:block;width:100%;box-sizing:border-box;margin-top:3px;border:none;border-bottom:1px solid #8A8A8A;border-radius:0;padding:6px 2px;background:transparent;color:#fff}
 .cpd .boite label select option{background:#3B3B3B}
 .cpd .boite .pied{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;position:sticky;bottom:-16px;background:#3B3B3B;padding:8px 0 16px;margin-bottom:-16px}
@@ -430,6 +432,78 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (!r) return;
     try { piecesDossier[cle] = await enJpeg(c.image, r['leg']); toast(c.nom + ' : gardée pour le dossier de permis'); panneaux() }
     catch (e) { toast('Image impossible à garder : ' + String((e as Error)?.message ?? e), true) }
+  }
+  /* le cabinet qui signe les planches (colonne CP, page de garde) : réglé sur cet appareil, comme les
+     réglages de l'atelier — ni dans le projet, ni dans le dépôt */
+  function reglagesCabinet(): Partial<Cabinet> {
+    try { const c = JSON.parse(localStorage.getItem('cpDesigner:cabinet') ?? 'null'); if (c && typeof c === 'object') return c } catch { /* rien de réglé */ }
+    return {};
+  }
+  async function reglerCabinet() {
+    const C = reglagesCabinet();
+    const r = await dialogue('Cabinet (réglé sur cet appareil)', [
+      { cle: 'societe', libelle: 'Société', valeur: C.societe ?? 'CP Constructions' },
+      { cle: 'adresse', libelle: 'Adresse (une ligne par ligne)', valeur: C.adresse ?? '', lignes: 2 },
+      { cle: 'telephone', libelle: 'Téléphone', valeur: C.telephone ?? '' },
+      { cle: 'email', libelle: 'E-mail', valeur: C.email ?? '' },
+      { cle: 'siren', libelle: 'SIREN', valeur: C.siren ?? '' },
+      { cle: 'tva', libelle: 'N° de TVA', valeur: C.tva ?? '' },
+      { cle: 'dessinateur', libelle: 'Dessiné par', valeur: C.dessinateur ?? '' }]);
+    if (!r) return;
+    const c: Record<string, string> = {};
+    for (const [k, v] of Object.entries(r)) if (v.trim()) c[k] = v.trim();
+    try { localStorage.setItem('cpDesigner:cabinet', JSON.stringify(c)); toast('Cabinet réglé sur cet appareil') } catch { toast('Réglages impossibles à garder sur cet appareil (navigation privée ?)', true) }
+    panneaux();
+  }
+  /** le logo CP du site (assets/logo.png, à côté du CRM), en JPEG sur fond blanc ; rien s'il ne se charge pas */
+  let logoCabinet: Promise<ImageDossier | null> | null = null;
+  function chargerLogo(): Promise<ImageDossier | null> {
+    logoCabinet ??= (async () => {
+      try {
+        const rep = await fetch(new URL('../assets/logo.png', document.baseURI).href);
+        if (!rep.ok) return null;
+        const im = await createImageBitmap(await rep.blob());
+        const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+        const g = c.getContext('2d')!; g.fillStyle = '#FFFFFF'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0);
+        const b = await new Promise<Blob | null>(r => c.toBlob(r, 'image/jpeg', 0.92));
+        return b ? { jpeg: new Uint8Array(await b.arrayBuffer()), largeur: c.width, hauteur: c.height } : null;
+      } catch { return null }
+    })();
+    return logoCabinet;
+  }
+  /** ce que les exports reçoivent du cabinet : ses réglages (sur le modèle par défaut) et le logo */
+  async function signature(): Promise<{ cabinet: Cabinet; logo?: ImageDossier }> {
+    const { CABINET_PAR_DEFAUT } = await import('../export/planche');
+    const logo = await chargerLogo();
+    return { cabinet: { ...CABINET_PAR_DEFAUT, ...reglagesCabinet() }, ...(logo ? { logo } : {}) };
+  }
+  /** une modification par ligne : « 28/09/2026 — objet » (la date d'abord), ou l'objet seul */
+  const lireModifications = (t: string) => t.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const m = /^(\d{1,2}\/\d{1,2}\/\d{2,4})\s*[—–:\-]?\s*(.*)$/.exec(l);
+    return m ? { date: m[1]!, objet: m[2]!.trim() } : { date: '', objet: l };
+  });
+  /** les informations du dossier (page de garde, colonne des planches) : enregistrées dans le projet */
+  async function informationsDossier() {
+    const D: InfosDossier = h.projet.dossier ?? {};
+    const r = await dialogue('Informations du dossier', [
+      { cle: 'maitreOuvrage', libelle: 'Maître d’ouvrage (ex. : M. et Mme Dupont)', valeur: D.maitreOuvrage ?? '' },
+      { cle: 'adresseMaitreOuvrage', libelle: 'Adresse du maître d’ouvrage', valeur: D.adresseMaitreOuvrage ?? '', lignes: 2 },
+      { cle: 'lieuConstruction', libelle: 'Lieu de construction (adresse du terrain)', valeur: D.lieuConstruction ?? '', lignes: 2 },
+      { cle: 'referencesCadastrales', libelle: 'Références cadastrales (vide : celle de la parcelle)', valeur: D.referencesCadastrales ?? '' },
+      { cle: 'surfaceTerrain', libelle: 'Surface du terrain, m² (vide : celle de la parcelle)', valeur: D.surfaceTerrain ? String(D.surfaceTerrain).replace('.', ',') : '' },
+      { cle: 'zoneSismique', libelle: 'Zone sismique (ex. : 2 (faible))', valeur: D.zoneSismique ?? '' },
+      { cle: 'couverture', libelle: 'Couverture (vide : celle du toit dessiné)', valeur: D.couverture ?? '' },
+      { cle: 'chauffage', libelle: 'Chauffage', valeur: D.chauffage ?? '' },
+      { cle: 'divers', libelle: 'Divers (ventilation, eau chaude…)', valeur: D.divers ?? '' },
+      { cle: 'modifications', libelle: 'Modifications : une par ligne, « jj/mm/aaaa — objet »', valeur: (D.modifications ?? []).map(m => (m.date ? m.date + ' — ' : '') + m.objet).join('\n'), lignes: 3 }]);
+    if (!r) return;
+    const st = r['surfaceTerrain']!.trim(), n = Number(st.replace(/\s/g, '').replace(',', '.'));
+    if (st && !(Number.isFinite(n) && n > 0)) { toast('Surface du terrain illisible : un nombre de m², par exemple 812', true); return }
+    const champs: Extract<Commande, { type: 'modifierDossier' }>['champs'] = {
+      maitreOuvrage: r['maitreOuvrage']!, adresseMaitreOuvrage: r['adresseMaitreOuvrage']!, lieuConstruction: r['lieuConstruction']!,
+      referencesCadastrales: r['referencesCadastrales']!, zoneSismique: r['zoneSismique']!, couverture: r['couverture']!, chauffage: r['chauffage']!, divers: r['divers']!,
+      surfaceTerrain: st ? n : null, modifications: lireModifications(r['modifications']!) };
+    if (faire('Informations du dossier', [{ type: 'modifierDossier', champs }])) toast('Informations du dossier enregistrées');
   }
   async function poserPhotoSite() {
     const c = await choisirImage();
@@ -958,6 +1032,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { id: 'plans', libelle: 'Plans', icone: 'pdf', tuiles: () => [action('Plans en PDF', 'pdf', () => void exporterPdf()), action('Plans en DXF', 'dxf', () => void exporterDxf()), action('Projet (JSON)', 'json', exporter)] },
       { id: 'metre', libelle: 'Métré', icone: 'metre', tuiles: () => [action('Métré (CSV)', 'tableau', exporterMetre, 'Le métré par lot, à ouvrir dans un tableur', 'b-metre')], panneau: () => panneauMetreProjet() },
       { id: 'permis', libelle: 'Dossier de permis', icone: 'permis', tuiles: () => [action('Dossier PC complet', 'permis', () => void exporterPdf('dossier')),
+        action('Informations', 'notice', () => void informationsDossier(), 'Maître d’ouvrage, lieu, cadastre, chauffage, modifications…'),
+        action('Cabinet', 'atelier', () => void reglerCabinet(), 'Société, coordonnées et dessinateur (réglés sur cet appareil)'),
         action('PCMI 1 situation', 'image', () => void importerPiece('situation', 'PCMI 1 — Plan de situation', 'Source et échelle de l’extrait (ex. : Géoportail, 1/5 000)')),
         action('PCMI 7 proche', 'photo', () => void importerPiece('photoProche', 'PCMI 7 — Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)')),
         action('PCMI 8 lointain', 'photo', () => void importerPiece('photoLointaine', 'PCMI 8 — Environnement lointain', 'Point et angle de prise de vue'))],
@@ -2134,6 +2210,12 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   /** les pièces images du dossier de permis : ce que le Designer ne dessine pas, fourni par l'utilisateur */
   function sectionPieces() {
     const A = aside;
+    const D = h.projet.dossier ?? {}, C = reglagesCabinet();
+    A.append(titre('Informations du dossier'),
+      bloc('Maître d’ouvrage : ' + (D.maitreOuvrage ? esc(D.maitreOuvrage) : '<span class="note">à compléter</span>') + '<br>Lieu : ' + (D.lieuConstruction ? esc(D.lieuConstruction.replace(/\n/g, ', ')) : '<span class="note">à compléter</span>')
+        + '<br>Cabinet : ' + esc(C.societe ?? 'CP Constructions') + (C.dessinateur ? ' — dessiné par ' + esc(C.dessinateur) : '')),
+      ligne(bouton('Compléter…', () => void informationsDossier(), 'prim binfos'), bouton('Cabinet…', () => void reglerCabinet(), 'bcabinet')),
+      bloc('Les informations vont à la page de garde et à la colonne de chaque planche (ce qui manque s’écrit « [à préciser] ») ; elles sont enregistrées avec le projet. Le cabinet (société, SIREN, dessinateur…) est réglé sur cet appareil.'));
     A.append(titre('Dossier de permis : pièces fournies'));
     const etat = (code: string, nom: string, v: ImageDossier | null | undefined, sinon: string) =>
       bloc('<b>' + code + '</b> ' + nom + ' : ' + (v ? '✓ ' + v.largeur + ' × ' + v.hauteur + ' px' + (v.legende ? ' — ' + esc(v.legende) : '') : '<span class="note">' + sinon + '</span>'));
@@ -2394,11 +2476,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
 
   /* ---------- dialogues, palette, messages ---------- */
-  function dialogue(t: string, champs: { cle: string; libelle: string; valeur: string; options?: Record<string, string> }[]): Promise<Record<string, string> | null> {
+  /** une boîte de saisie ; « lignes » : un texte sur plusieurs lignes (une adresse, une liste) */
+  function dialogue(t: string, champs: { cle: string; libelle: string; valeur: string; options?: Record<string, string>; lignes?: number }[]): Promise<Record<string, string> | null> {
     return new Promise(res => {
       const v = document.createElement('div'); v.className = 'voile';
       v.innerHTML = `<form class="boite"><h2>${esc(t)}</h2>${champs.map(c => `<label>${esc(c.libelle)}${c.options
         ? `<select name="${c.cle}">${Object.entries(c.options).map(([k, l]) => `<option value="${k}" ${k === c.valeur ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`
+        : c.lignes ? `<textarea name="${c.cle}" rows="${c.lignes}">${esc(c.valeur)}</textarea>`
         : `<input name="${c.cle}" value="${esc(c.valeur)}" autocomplete="off">`}</label>`).join('')}
         <div class="pied"><button type="button" class="non">Annuler</button><button class="prim">Valider</button></div></form>`;
       const fin = (r: Record<string, string> | null) => { v.remove(); res(r) };
@@ -2406,7 +2490,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       v.querySelector<HTMLButtonElement>('.non')!.onclick = () => fin(null);
       v.onkeydown = e => { if (e.key === 'Escape') fin(null) };
       racine.querySelector('.cpd')!.appendChild(v);
-      v.querySelector<HTMLInputElement>('input,select')?.focus();
+      v.querySelector<HTMLInputElement>('input,select,textarea')?.focus();
     });
   }
   let minuterie = 0;
@@ -2432,7 +2516,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   async function exporterCoupes() {
     try {
       const { planchesPdf } = await import('../export/planche');
-      const u = planchesPdf(h.projet, { niveaux: [], cotation: true, mobilier: false, coupe: true, indice: 'A', date: new Date().toLocaleDateString('fr-FR') });
+      const u = planchesPdf(h.projet, { ...await signature(), niveaux: [], cotation: true, mobilier: false, coupe: true, indice: 'A', date: new Date().toLocaleDateString('fr-FR') });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([u], { type: 'application/pdf' }));
       a.download = (h.projet.name || 'projet') + ' - coupes A3.pdf';
@@ -2471,7 +2555,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   async function exporterDossier(r: Record<string, string>) {
     try {
       const { dossierPc } = await import('../export/planche');
-      const { octets, pieces } = dossierPc(h.projet, { indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'),
+      const sig = await signature();
+      const { octets, pieces } = dossierPc(h.projet, { ...sig, indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'),
         ...(r['mo']?.trim() ? { maitreOuvrage: r['mo'] } : {}), ...(perspective && r['per'] !== 'non' ? { perspective } : {}), ...piecesDossier, ...(r['adr']?.trim() ? { adresseTerrain: r['adr'] } : {}), ...(r['ech'] && r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}) });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([octets], { type: 'application/pdf' }));
@@ -2497,14 +2582,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'fac', libelle: 'Façades', valeur: 'oui', options: { oui: 'Ajouter la planche des quatre façades', non: 'Sans' } },
       { cle: 'cou', libelle: 'Coupes', valeur: 'oui', options: { oui: traitsDeCoupe(h.projet).length ? 'Ajouter les coupes ' + traitsDeCoupe(h.projet).map(l => l.nom + '-' + l.nom).join(', ') + ' (et leurs traits sur les plans)' : 'Ajouter une coupe A-A placée d’elle-même (ou tracez-la : outil K)', non: 'Sans' } },
       { cle: 'ind', libelle: 'Indice', valeur: 'A' },
-      { cle: 'mo', libelle: 'Maître d’ouvrage (dossier)', valeur: '' },
+      { cle: 'mo', libelle: 'Maître d’ouvrage (dossier)', valeur: h.projet.dossier?.maitreOuvrage ?? '' },
       { cle: 'adr', libelle: 'Adresse du terrain (dossier)', valeur: '' },
       ...(perspective ? [{ cle: 'per', libelle: 'Vue 3D (dossier)', valeur: 'oui', options: { oui: 'Ajouter la vue 3D gardée', non: 'Sans' } }] : [])]);
     if (!r) return;
     if (r['doc'] === 'dossier') { await exporterDossier(r); return }
     try {
       const { planchesPdf } = await import('../export/planche');
-      const u = planchesPdf(h.projet, {
+      const sig = await signature();
+      const u = planchesPdf(h.projet, { ...sig,
         niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui' && r['pre'] !== 'presentation', mobilier: r['mob'] === 'oui' || r['pre'] === 'presentation',
         ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui', fondations: r['fon'] === 'oui',
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),

@@ -72,4 +72,28 @@ describe('dossier de permis de construire', () => {
     /* ce que l'utilisateur n'a pas dit (point de vue de l'insertion et de la photo lointaine) reste à compléter, en rouge */
     expect(s.match(/\[\xE0 compl\xE9ter\]/g)!.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('les informations du dossier (commande modifierDossier) vont à la page de garde et à la colonne CP ; le cabinet et son logo signent chaque planche', () => {
+    const p0 = maison(true), a = acteur();
+    let h = ok(executer(nouvelHistorique(p0), 'Infos', [{ type: 'modifierDossier', champs: { maitreOuvrage: 'M. et Mme Fictifs', lieuConstruction: 'Lieu-dit Le Fictif\n00000 Villefictive',
+      referencesCadastrales: 'ZZ 1 et 2', surfaceTerrain: 812, chauffage: 'Pompe à chaleur', zoneSismique: '2 (faible)', modifications: [{ date: '01/10/2026', objet: 'Permis de construire' }, { date: ' ', objet: ' ' }] } }], a));
+    expect(h.projet.dossier).toEqual({ maitreOuvrage: 'M. et Mme Fictifs', lieuConstruction: 'Lieu-dit Le Fictif\n00000 Villefictive', referencesCadastrales: 'ZZ 1 et 2', surfaceTerrain: 812,
+      chauffage: 'Pompe à chaleur', zoneSismique: '2 (faible)', modifications: [{ date: '01/10/2026', objet: 'Permis de construire' }] });
+    /* refusés : un champ inconnu, une surface absurde, un texte trop long ; rien n'est écrit */
+    for (const champs of [{ inconnu: 'x' }, { surfaceTerrain: -3 }, { divers: 'x'.repeat(501) }] as never[])
+      expect(executer(h, 'Refus', [{ type: 'modifierDossier', champs }], a).ok).toBe(false);
+    const { octets } = dossierPc(h.projet, { indice: 'B', date: '04/10/2026', cabinet: { societe: 'Cabinet Fictif', dessinateur: 'C. Fictif', siren: '000 000 000' }, logo: { jpeg: JPEG, largeur: 8, hauteur: 8 } });
+    const s = texte(octets);
+    for (const t of ['(Lieu-dit Le Fictif)', '(00000 Villefictive)', '(ZZ 1 et 2)', '(812 m\xB2)', '(Pompe \xE0 chaleur)', '(2 \\(faible\\))', '(01/10/2026)', '(PERMIS DE CONSTRUIRE)',
+      '(Soci\xE9t\xE9 CABINET FICTIF)', '(SIREN : 000 000 000)', '(C. Fictif)', '(Dessin\xE9 par :)'])
+      expect(s, t).toContain(t);
+    /* le logo : une seule image dans le document, posée sur chaque page (garde et planches) */
+    expect(s.match(/\/Subtype \/Image /g)).toHaveLength(1);
+    expect(s.match(/\/Im1 Do/g)!.length).toBeGreaterThanOrEqual(7);
+    /* effacer un champ (chaîne vide) ; annuler rend les informations d'avant */
+    h = ok(executer(h, 'Effacer', [{ type: 'modifierDossier', champs: { chauffage: '', surfaceTerrain: null } }], a));
+    expect(h.projet.dossier?.chauffage).toBeUndefined();
+    expect(h.projet.dossier?.surfaceTerrain).toBeUndefined();
+    expect(h.projet.dossier?.maitreOuvrage).toBe('M. et Mme Fictifs');
+  });
 });
