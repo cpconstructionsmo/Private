@@ -26,22 +26,26 @@ export function maisonEnPente(ngfRdc?: number): Project {
   return h.projet;
 }
 
+/** les textes d'un PDF, mis bout à bout (une phrase coupée en lignes se retrouve entière) */
+const textes = (s: string) => [...s.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map(m => m[1]!.replace(/\\(.)/g, '$1')).join(' ');
+
 describe('terrain en pente', () => {
   it('la coupe (PCMI 3) : le terrain naturel interpolé, ses altitudes NGF au droit des façades, le ±0,00 en NGF, la note du terrain fini', () => {
     const P = maisonEnPente(101.0), f = P.buildings[0]!.floors[0]!;
     const s = texte(planchesPdf(P, { niveaux: [f.id], cotation: false, mobilier: false, indice: 'A', date: '05/10/2026', coupe: true }));
-    expect(s).toContain('(\xB10,00 sol RDC \\(101,00 NGF\\))');
+    expect(s).toContain('(\xB10,00  \\(101,00 NGF\\))');
     /* la coupe placée d'elle-même traverse la maison du sud au nord : façades à y = −100 et 9 100 (nu extérieur) */
-    for (const t of ['(TN 100,47)', '(TN 101,03)']) expect(s).toContain(t);
-    expect(s).toContain('(Terrain naturel \\(tirets verts\\) : interpol\xE9 entre les 5 points)');
-    expect(s).toContain('(remblais [\xE0 compl\xE9ter].)');
-    expect(s).not.toContain('(Terrain naturel non relev\xE9');
+    for (const t of ['100,47', '101,03']) expect(s).toMatch(new RegExp('\\(TN [^)]*' + t));
+    const txt = textes(s);
+    expect(txt).toContain('trac\xE9 \xE0 partir des 5 points cot\xE9s relev\xE9s');
+    expect(txt).toContain('remblais [\xE0 pr\xE9ciser].');
+    expect(txt).not.toContain('n\x92est pas relev\xE9');
   });
 
   it('sans altitude NGF du ±0,00 : le terrain n’est pas placé, et la coupe le dit', () => {
     const P = maisonEnPente(), f = P.buildings[0]!.floors[0]!;
     const s = texte(planchesPdf(P, { niveaux: [f.id], cotation: false, mobilier: false, indice: 'A', date: '05/10/2026', coupe: true }));
-    expect(s).toContain('(Points cot\xE9s relev\xE9s, mais l\x92altitude NGF du \xB10,00)');
+    expect(textes(s)).toContain('Points cot\xE9s relev\xE9s, mais l\x92altitude NGF du \xB10,00');
     expect(s).not.toContain('(TN ');
   });
 
@@ -51,7 +55,7 @@ describe('terrain en pente', () => {
     expect(s).toContain('(100,00 \xE0 101,50 NGF \\(5 pts\\))');
     /* au centre de la maison (y = 4 500) : TN 100,75 ; le ±0,00 à 101,00 est 0,25 m au-dessus */
     expect(s).toContain('(+0,25 m)');
-    expect(s).toContain('(100,75)');                                            // le point coté du milieu, dessiné
+    expect(s).toContain('(TN 100,75)');                                         // le point coté du milieu, dessiné
     const n = notice(P).flatMap(r => r.paragraphes).join(' ');
     expect(n).toMatch(/Relief : le terrain naturel va de 100,00 à 101,50 NGF \(5 points cotés relevés, soit 1,50 m de dénivelé\)/);
     expect((Object.values(f.objects).find(o => o.type === 'plot') as Plot).spotHeights).toHaveLength(5);

@@ -8,7 +8,7 @@
    profondeur ; le dos est du côté −y (contre le mur), le devant du côté +y. */
 import type { Mm } from '../model/types';
 
-export type Forme = 'boite' | 'lit' | 'canape' | 'fauteuil' | 'table' | 'table_ronde' | 'chaise' | 'armoire' | 'commode' | 'bureau'
+export type Forme = 'boite' | 'lit' | 'canape' | 'fauteuil' | 'table' | 'table_ronde' | 'chaise' | 'armoire' | 'placard' | 'commode' | 'bureau'
   | 'meuble_tv' | 'meuble_bas' | 'evier' | 'plaque' | 'refrigerateur' | 'lave_vaisselle' | 'colonne' | 'ilot'
   | 'wc' | 'lavabo' | 'vasque_double' | 'douche' | 'baignoire' | 'lave_linge' | 'chauffe_eau' | 'aire_rotation';
 
@@ -43,6 +43,10 @@ export const MODELES_MEUBLES: readonly ModeleMeuble[] = [
   m('armoire-2p', 'chambre', 'Armoire 2 portes', 'armoire', 1_000, 600, 2_000),
   m('armoire-3p', 'chambre', 'Armoire 3 portes', 'armoire', 1_500, 600, 2_200),
   m('commode', 'chambre', 'Commode', 'commode', 1_000, 500, 850),
+  /* les placards intégrés (« PL » des plans) : façades coulissantes, de sol à plafond */
+  m('placard-100', 'chambre', 'Placard 100', 'placard', 1_000, 600, 2_500),
+  m('placard-150', 'chambre', 'Placard 150', 'placard', 1_500, 600, 2_500),
+  m('placard-200', 'chambre', 'Placard 200', 'placard', 2_000, 600, 2_500),
   m('bureau', 'chambre', 'Bureau', 'bureau', 1_200, 600, 750),
   m('meuble-bas-60', 'cuisine', 'Meuble bas 60', 'meuble_bas', 600, 600, 900),
   m('meuble-bas-120', 'cuisine', 'Meuble bas 120', 'meuble_bas', 1_200, 600, 900),

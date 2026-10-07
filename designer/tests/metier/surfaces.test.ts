@@ -66,7 +66,7 @@ describe('surfaces réglementaires', () => {
   it('le dossier de permis porte la surface de plancher et la surface habitable', () => {
     const { p } = projet(n => quatre(n));
     const s = Array.from(dossierPc(p, { indice: 'A', date: '04/10/2026' }).octets, c => String.fromCharCode(c)).join('');
-    expect(s).toContain('(76,44 m\xB2)');
+    expect(s).toContain('(76,44)');                                     // surface habitable, au résumé de la page de garde
     expect(s).not.toContain('([\xE0 calculer])');
   });
 });

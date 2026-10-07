@@ -57,7 +57,7 @@ describe('trait de coupe : la coupe', () => {
 
   it('un trait tracé remplace la coupe automatique ; trait le long du faîtage : la coupe longitudinale', () => {
     const { h, a, n } = maison();
-    expect(lignesDeCoupe(h.projet).map(l => l.nom)).toEqual(['A']);                        // automatique
+    expect(lignesDeCoupe(h.projet).map(l => l.nom)).toEqual(['A', 'B']);                   // automatiques : en travers, en long
     const h1 = ok(executer(h, 'Coupe', [{ type: 'creerCoupe', niveau: n, a: { x: -1_000, y: 4_000 }, b: { x: 11_000, y: 4_000 }, nom: 'B' }], a));
     const L = lignesDeCoupe(h1.projet);
     expect(L.map(l => l.nom)).toEqual(['B']);
@@ -74,11 +74,12 @@ describe('trait de coupe : la coupe', () => {
     const h1 = ok(executer(h, 'Coupes', [{ type: 'creerCoupe', niveau: n, a: { x: 5_000, y: -1_000 }, b: { x: 5_000, y: 9_000 } },
       { type: 'creerCoupe', niveau: n, a: { x: -1_000, y: 3_000 }, b: { x: 11_000, y: 3_000 } }], a));
     const s = Array.from(planchesPdf(h1.projet, { niveaux: [n], cotation: true, mobilier: true, indice: 'A', date: '03/10/2026', coupe: true }), c => String.fromCharCode(c)).join('');
-    expect(s).toContain('/Count 3');
-    expect(s).toContain('(Coupe A-A)'); expect(s).toContain('(Coupe B-B)');
-    expect(s).toContain('(Trait de coupe trac\xE9 sur le plan ; le plan de coupe)');
+    /* le plan, puis les deux coupes sur une même feuille (comme les dossiers du cabinet) */
+    expect(s).toContain('/Count 2');
+    expect(s).toContain('(COUPE A\x96A)'); expect(s).toContain('(COUPE B\x96B)');
+    expect(s).toMatch(/\(Traits de coupe trac\xE9s sur le plan ; le plan de coupe/);
     /* les coupes seules */
-    expect(Array.from(planchesPdf(h1.projet, { niveaux: [], cotation: true, mobilier: false, indice: 'A', date: '03/10/2026', coupe: true }), c => String.fromCharCode(c)).join('')).toContain('/Count 2');
+    expect(Array.from(planchesPdf(h1.projet, { niveaux: [], cotation: true, mobilier: false, indice: 'A', date: '03/10/2026', coupe: true }), c => String.fromCharCode(c)).join('')).toContain('/Count 1');
   });
 });
 

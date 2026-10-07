@@ -125,7 +125,7 @@ describe('plan de masse : PDF et import', () => {
     const { h, n } = maison();
     const s = Array.from(planchesPdf(h.projet, { niveaux: [n], cotation: true, mobilier: true, indice: 'A', date: '03/10/2026', masse: true }), c => String.fromCharCode(c)).join('');
     expect(s).toContain('/Count 2');
-    for (const t of ['(Plan de masse \\(PCMI 2\\))', '(TERRAIN)', '(RECULS \\(mesur\xE9s\\))', '(600,00 m\xB2)', '(83,64 m\xB2)', '(2,90 m)', '(rue des Essais)', '([NGF \xE0 compl\xE9ter])']) expect(s).toContain(t);
+    for (const t of ['(PLAN DE MASSE)', '(PCMI 2)', '(TERRAIN)', '(RECULS \\(mesur\xE9s\\))', '(600,00 m\xB2)', '(83,64 m\xB2)', '(2,90 m)', '(rue des Essais)', '([NGF \xE0 compl\xE9ter])']) expect(s).toContain(t);
   });
 
   it('le terrain lu par l’atelier revient dans le repère du RDC (implantation inversée)', () => {

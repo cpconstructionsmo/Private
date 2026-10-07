@@ -83,6 +83,7 @@ describe('coupe', () => {
     const u = planchesPdf(p, { niveaux: [p.buildings[0]!.floors[0]!.id], cotation: true, mobilier: true, indice: 'A', date: '03/10/2026', coupe: true });
     const s = Array.from(u, c => String.fromCharCode(c)).join('');
     expect(s).toContain('/Count 2');
-    for (const t of ['(Coupe A-A)', '(HAUTEURS)', '(PLAN DE REP\xC9RAGE)', '(+6,60 fa\xEEtage)', '(\xB10,00 sol RDC)', '(4,60)']) expect(s).toContain(t);
+    /* les deux coupes placées d'elles-mêmes (en travers, en long) sur une feuille ; niveaux, repérage, légende */
+    for (const t of ['(COUPE A\x96A)', '(COUPE B\x96B)', '(Rep\xE9rage des coupes)', '(Fa\xEEtage)', '(+6,60)', '(Niveau fini RDC)', '(\xB10,00)', '(L\xC9GENDE)', '(NOTES)']) expect(s, t).toContain(t);
   });
 });
