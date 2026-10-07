@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-06 · Onglet CP DESIGNER : chantiers et prospects (avant-projet repris sur le chantier une fois signé)';
+const VERSION='2026-10-07 · Prospects : une coche « Parti à la concurrence » archive le prospect';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -499,6 +499,16 @@ const PROSPECT_ST=[
 const prospectSt=id=>PROSPECT_ST.find(s=>s.id===id)||PROSPECT_ST[0];
 /* les deux états qui appellent une réponse de votre part */
 const prospectAFaire=p=>p&&(p.statut==='demande'||p.statut==='encours');
+/* Un prospect parti à la concurrence s'archive d'une coche, sur sa fiche : il
+   passe « sans suite », quitte les prospects en cours, les relances et les
+   rappels, et se retrouve sous « Archivés ». On garde la date, le statut
+   qu'il avait (décocher l'y remet) et, si on le sait, le concurrent retenu. */
+const prospectArchive=p=>!!(p&&p.archive);
+const prospectLibelle=p=>prospectArchive(p)&&p.archive.motif==='concurrence'
+  ?{...prospectSt('perdu'),label:'Parti à la concurrence'}:prospectSt(p&&p.statut);
+const prospectArchiver=(p,oui,quand)=>oui
+  ?{statut:'perdu',archive:{motif:'concurrence',le:quand,concurrent:'',statutAvant:p.statut==='perdu'?'attente':p.statut}}
+  :{statut:(p.archive&&p.archive.statutAvant)||'attente',archive:null};
 const TERRAINS=['Lotissement viabilisé','Terrain diffus viabilisé','Terrain diffus non viabilisé','Terrain en pente','Division parcellaire','Terrain avec démolition préalable'];
 const PRESTATIONS=['Clé en main','Hors d’eau hors d’air','Gros œuvre seul','Second œuvre seul','Extension','Surélévation','Rénovation lourde'];
 const CHAUFFAGES=['Pompe à chaleur air/eau','Pompe à chaleur air/air','Trineo — T One','Plancher chauffant hydraulique','Poêle à granulés','Poêle à bois','Chaudière gaz condensation','Radiateurs électriques','Solaire thermique en appoint'];
@@ -6787,7 +6797,7 @@ function rechercheIndex(data){
       c.nom+(n.creeLe?' · '+fd(n.creeLe.slice(0,10)):''),[n.texte],{type:'chantier',id:c.id})});
   });
   (data.prospects||[]).forEach(p=>{
-    ajoute('prospect',p.id,p.nom,[prospectSt(p.statut).label,p.client,p.commune].filter(Boolean).join(' · '),
+    ajoute('prospect',p.id,p.nom,[prospectLibelle(p).label,p.client,p.commune].filter(Boolean).join(' · '),
       [p.client2,p.adresseClient,p.telClient,p.emailClient,p.commercial],{type:'prospect',id:p.id});
     (p.notesDossier||[]).forEach(n=>{if(n&&n.texte)ajoute('note',p.id+'-'+n.id,n.texte.length>90?n.texte.slice(0,90)+'…':n.texte,
       p.nom+(n.creeLe?' · '+fd(n.creeLe.slice(0,10)):''),[n.texte],{type:'prospect',id:p.id})});
@@ -21365,7 +21375,7 @@ function TableauBord({data,save,open,allerA,allerVers}){
   const limiteRappel=dansJours(RAPPEL_AVANCE);
   (data.chantiers||[]).forEach(c=>(c.notesDossier||[]).forEach(n=>{
     if(n.rappel&&!n.fait&&n.rappel<=limiteRappel)rappels.push({n,nom:c.nom,aller:()=>open(c.id)})}));
-  (data.prospects||[]).filter(p=>!p.chantierId).forEach(p=>(p.notesDossier||[]).forEach(n=>{
+  (data.prospects||[]).filter(p=>!p.chantierId&&!prospectArchive(p)).forEach(p=>(p.notesDossier||[]).forEach(n=>{
     if(n.rappel&&!n.fait&&n.rappel<=limiteRappel)rappels.push({n,nom:p.nom,aller:()=>allerA('prospects',null,p.id)})}));
   rappels.sort((a,b)=>a.n.rappel.localeCompare(b.n.rappel));
   const rappelsDus=rappels.filter(r=>r.n.rappel<=t);
@@ -21655,6 +21665,8 @@ function Prospects({data,save,cible}){
       taxeRaccordement:f.taxeRaccordement===''?'':+f.taxeRaccordement,
       terrainPrix:f.terrainPrix===''?'':+f.terrainPrix,
       fraisNotaire:f.fraisNotaire===''?'':+f.fraisNotaire};
+    /* un statut remis « en cours » à la main sort le prospect des archives */
+    if(r.statut!=='perdu'&&r.archive)r.archive=null;
     save({...data,prospects:f.id?P.map(x=>x.id===f.id?{...x,...r}:x):[...P,{...r,id:uid()}]});
     setF(null);setCaseModif(null);
   };
@@ -21675,6 +21687,7 @@ function Prospects({data,save,cible}){
   };
   const PC=P.filter(p=>prospectCategorie(p)===categorie);
   const L=PC.filter(p=>filtre==='tous'?true:filtre==='afaire'?prospectAFaire(p)
+    :filtre==='archives'?p.statut==='perdu'
     :['demande','encours','chiffre','attente'].indexOf(p.statut)>=0)
     .sort((a,b)=>{
       /* ce qui attend une réponse remonte, puis le plus ancien d'abord */
@@ -21939,14 +21952,14 @@ function Prospects({data,save,cible}){
     </div>}
     {PC.length>0&&<div className="row" style={{gap:6,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
       <span className="xs mut">Afficher</span>
-      {[['afaire','À chiffrer'],['actifs','En cours'],['tous','Tous']].map(([id,l])=>
+      {[['afaire','À chiffrer'],['actifs','En cours'],['archives','Archivés ('+PC.filter(p=>p.statut==='perdu').length+')'],['tous','Tous']].map(([id,l])=>
         <button key={id} className={'btn s '+(filtre===id?'':'gh')} onClick={()=>setFiltre(id)}>{l}</button>)}
     </div>}
     {!PC.length&&!f&&<Empty>Aucun prospect « {libCat} ». « + Prospect » en ouvre un dans cette catégorie.</Empty>}
     {PC.length>0&&!L.length&&<Empty>Aucun prospect dans cette vue.</Empty>}
     <div className="grid-ch">
     {L.map(p=>{
-      const st=prospectSt(p.statut), prix=prospectPrixTTC(p,data.majorationsCorps), r=ratioM2(prix,p);
+      const st=prospectLibelle(p), prix=prospectPrixTTC(p,data.majorationsCorps), r=ratioM2(prix,p);
       const attente=prospectAFaire(p)?joursDepuis(p.demandeLe):null;
       return <button key={p.id} className="card" style={{borderLeft:'3px solid '+st.c}} onClick={()=>setOuv(p.id)}>
         <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
@@ -21966,6 +21979,7 @@ function Prospects({data,save,cible}){
           <div><div className="mut">Ratio</div><div className="b" style={{color:r?NAVY:MUTED}}>{eurM2(r)}</div></div>
         </div>
         {p.chantierId&&<div className="xs" style={{color:GREEN,marginTop:6}}>✓ Chantier créé</div>}
+        {prospectArchive(p)&&<div className="xs mut" style={{marginTop:6}}>Archivé le {fd(p.archive.le)}{p.archive.concurrent?' — retenu : '+p.archive.concurrent:''}</div>}
       </button>;
     })}
     </div>
@@ -22062,7 +22076,7 @@ function NotesDossier({notes,onChange}){
    plusieurs cases (fiche client, demande de chiffrage, votre chiffrage)
    vient dans un lot séparé. */
 function FicheProspect({p,data,save,maj,back,onModifier,onTransformer}){
-  const st=prospectSt(p.statut), prix=prospectPrixTTC(p,data.majorationsCorps), r=ratioM2(prix,p);
+  const st=prospectLibelle(p), prix=prospectPrixTTC(p,data.majorationsCorps), r=ratioM2(prix,p);
   /* le programme technique s'ouvre en plein écran, à la place de la fiche */
   const [ptr,setPtr]=useState(()=>positionReprise().view==='prospects'&&!positionReprise().open
     &&positionReprise().prospect===p.id&&!!positionReprise().prospectPtr);
@@ -22085,9 +22099,23 @@ function FicheProspect({p,data,save,maj,back,onModifier,onTransformer}){
     <NotesDossier notes={p.notesDossier} onChange={L=>maj({notesDossier:L})}/>
     <DetailProspect p={p} maj={maj} data={data} onModifier={onModifier} onPtr={save?()=>setPtr(true):null}/>
     <div className="row" style={{gap:8,marginTop:4,flexWrap:'wrap'}}>
-      {p.statut!=='gagne'&&<button className="btn gh s" onClick={onTransformer}>Transformer en chantier</button>}
+      {p.statut!=='gagne'&&!prospectArchive(p)&&<button className="btn gh s" onClick={onTransformer}>Transformer en chantier</button>}
       {p.chantierId&&<span className="xs" style={{color:GREEN,alignSelf:'center'}}>✓ Chantier créé</span>}
     </div>
+    {/* parti à la concurrence : une coche l'archive, la décocher le remet où il était */}
+    {p.statut!=='gagne'&&!p.chantierId&&<div className="archive-prospect" style={{marginTop:12,padding:'10px 12px',borderRadius:8,
+      background:prospectArchive(p)?MUTED+'14':'transparent',border:'1px solid '+RULE}}>
+      <label className="row sm" style={{gap:8,alignItems:'center',cursor:'pointer'}}>
+        <input type="checkbox" checked={prospectArchive(p)} onChange={e=>maj(prospectArchiver(p,e.target.checked,today()))}/>
+        <span><b>Parti à la concurrence</b> — archiver ce prospect</span>
+      </label>
+      {prospectArchive(p)?<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+        Archivé le {fd(p.archive.le)} : il ne figure plus dans les prospects en cours, les relances ni les rappels
+        (filtre « Archivés » de la liste). Décochez pour le remettre en « {prospectSt(p.archive.statutAvant||'attente').label} ».
+        <Fld label="CONCURRENT RETENU (FACULTATIF)"><input className="in" key={p.id+':'+(p.archive.concurrent||'')} defaultValue={p.archive.concurrent||''}
+          placeholder="Constructeur, artisan…" onBlur={e=>{const v=e.target.value.trim();if(v!==(p.archive.concurrent||''))maj({archive:{...p.archive,concurrent:v}})}}/></Fld>
+      </div>:<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Le prospect et tout son dossier restent consultables.</div>}
+    </div>}
   </div>;
 }
 
