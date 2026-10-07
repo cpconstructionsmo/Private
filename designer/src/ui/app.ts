@@ -1567,6 +1567,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('Nom de la voie', o.streetName ?? '', v => mod('Nom de la voie', { nomVoie: v })),
           champ('Nord (° depuis le haut du plan, sens inverse des aiguilles)', Math.round(o.north * 1800 / Math.PI) / 10, v => mod('Direction du nord', { nord: ent(v) * Math.PI / 180 }), 'number'),
           champ('Altitude NGF du ±0,00 (m)', o.groundFloorNgf ?? '', v => mod('Altitude du RDC', { altitudeRdc: String(v).trim() ? ent(v) : null }), 'number'),
+          champ('Terrain fini aux abords (cm par rapport au ±0,00, ex. : −15)', o.finishedGround !== undefined ? o.finishedGround / 10 : '', v => mod('Terrain fini', { terrainFini: String(v).trim() ? Math.round(ent(v) * 10) : null }), 'number'),
           ...pointsCotes(o),
           ...fondCadastralPanneau(o),
           titre('Côtés et reculs (mesurés)'));

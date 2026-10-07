@@ -58,6 +58,16 @@ describe('planches au modèle des dossiers du cabinet', () => {
     for (const t of ['(COUPE A\x96A)', '(COUPE B\x96B)', '(Rep\xE9rage des coupes)', '(Niveau fini RDC)']) expect(s, t).toContain(t);
   });
 
+  it('le comble à la coupe : blanc, « Comble perdu », le plafond et son isolant si la composition est choisie', () => {
+    const { h, n, a } = maison();
+    const o = { niveaux: [], cotation: true, mobilier: false, indice: 'A', date: '07/10/2026', coupe: true };
+    const s0 = texte(planchesPdf(h.projet, o));
+    expect(s0).toContain('(Comble perdu)');
+    expect(s0).not.toContain('Isolant des combles');
+    const h1 = ok(executer(h, 'Plafond', [{ type: 'modifierNiveau', id: n, plafond: 'plafond-combles-soufflee' }], a));
+    expect(texte(planchesPdf(h1.projet, o))).toContain('(Isolant des combles : laine souffl\xE9e 32 cm \\(plafond sous combles, laine souffl\xE9e\\))');
+  });
+
   it('la page de garde : le titre en Times, souligné ; chaque planche porte la colonne CP en Times et en italique', () => {
     const { h } = maison();
     const s = texte(dossierPc(h.projet, { indice: 'A', date: '07/10/2026', maitreOuvrage: 'M. et Mme Fictifs' }).octets);

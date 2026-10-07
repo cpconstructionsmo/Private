@@ -36,6 +36,8 @@ export type Police = 'sans' | 'serif';
 function octet(c: string): number | null {
   if (c === ' ' || c === ' ') return 0x20;                // espaces fines : une espace
   if (WINANSI[c] !== undefined) return WINANSI[c]!;
+  /* le signe moins (−) n'est pas dans les polices standard : le trait d'union le remplace (« TN −0,26 » ne perd pas son signe) */
+  if (c === '−') return 0x2D;
   const n = c.codePointAt(0)!;
   return n >= 0x20 && n <= 0x7E || n >= 0xA0 && n <= 0xFF ? n : null;
 }
@@ -45,9 +47,9 @@ export function largeurTexte(t: string, gras = false, police: Police = 'sans'): 
   const L = police === 'serif' ? (gras ? LARGEURS_TIMES_GRAS : LARGEURS_TIMES) : gras ? LARGEURS_GRAS : LARGEURS;
   const S = police === 'serif' ? SPECIAUX_TIMES : SPECIAUX, defaut = police === 'serif' ? 500 : 556;
   let w = 0;
-  for (const c of t) {
-    if (octet(c) === null) continue;
-    const n = c.codePointAt(0)!;
+  for (const x of t) {
+    if (octet(x) === null) continue;
+    const c = x === '−' ? '-' : x, n = c.codePointAt(0)!;
     w += S[c] ?? (n >= 32 && n <= 126 ? L[n - 32]! : (() => { const b = c.normalize('NFD')[0]!.codePointAt(0)!; return b >= 32 && b <= 126 ? L[b - 32]! : defaut })());
   }
   return w;

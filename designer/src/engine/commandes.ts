@@ -150,7 +150,9 @@ export type Commande =
       /** les points cotés du terrain naturel, en entier (la liste remplace la précédente) */
       altitudesTerrain?: { point: Point; ngf: number }[];
       /** le fond cadastral calé (building/cadastre.ts) ; null le retire */
-      cadastre?: Plot['cadastre'] | null };
+      cadastre?: Plot['cadastre'] | null;
+      /** le terrain fini aux abords, par rapport au ±0,00 (mm, de −3 m à +0,5 m) ; null le retire */
+      terrainFini?: Mm | null };
 
 const fini = (...v: number[]): boolean => v.every(Number.isFinite);
 const ptFini = (p: Point): boolean => fini(p.x, p.y);
@@ -1112,6 +1114,10 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.reference !== undefined) poser('reference', cmd.reference.trim() || undefined);
       if (cmd.nord !== undefined) poser('north', cmd.nord);
       if (cmd.altitudeRdc !== undefined) poser('groundFloorNgf', cmd.altitudeRdc ?? undefined);
+      if (cmd.terrainFini !== undefined) {
+        if (cmd.terrainFini !== null && !(Number.isFinite(cmd.terrainFini) && cmd.terrainFini >= -3_000 && cmd.terrainFini <= 500)) return refus('terrain fini : entre 3 m sous le sol fini et 50 cm au-dessus');
+        poser('finishedGround', cmd.terrainFini === null ? undefined : Math.round(cmd.terrainFini));
+      }
       if (cmd.cadastre !== undefined) {
         if (cmd.cadastre !== null) { const ec = cadastreInvalide(cmd.cadastre); if (ec) return refus(ec) }
         poser('cadastre', cmd.cadastre ?? undefined);

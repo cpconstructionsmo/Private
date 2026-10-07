@@ -48,7 +48,7 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
   const niveaux = projet.buildings.flatMap(b => b.floors);
   const toits = niveaux.flatMap(f => { const r = toitureDuNiveau(f); return r?.ok ? r.toitures.map(x => ({ f, t: x })) : [] });
   const egout = toits.length ? Math.min(...toits.map(x => x.t.egoutZ)) : null;
-  const ngf0 = t?.plot.groundFloorNgf;
+  const ngf0 = t?.plot.groundFloorNgf, tf = t?.plot.finishedGround;
   /* la façade sur la voie (si la parcelle le dit) : celle dont la normale va vers le milieu du côté sur voie */
   const voie = t && t.plot.street.length ? (() => {
     const C = t.plot.contour, i = t.plot.street[0]!, a = C[i]!, b = C[(i + 1) % C.length]!;
@@ -118,11 +118,11 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
 
   /* les façades */
   let y = Z.y + ecart(ech) / 2;
-  for (const v of [h1!, h2!]) { dessinerFacade(page, v, Z.x, y, ech, egout, ngf0); y += hauteur(v, ech) + ecart(ech) }
+  for (const v of [h1!, h2!]) { dessinerFacade(page, v, Z.x, y, ech, egout, ngf0, tf); y += hauteur(v, ech) + ecart(ech) }
   const y3 = y;
-  dessinerFacade(page, b1!, Z.x, y3, ech, egout, ngf0);
+  dessinerFacade(page, b1!, Z.x, y3, ech, egout, ngf0, tf);
   const libre = hPanneaux(ech) > y3 - Z.y + 2 ? Z.l - PANNEAU - 6 : Z.l;
-  dessinerFacade(page, b2!, Z.x + Math.max(largeur(b1!, ech) + 6, Math.min((libre - 6) / 2 + 3, libre - largeur(b2!, ech))), y3, ech, egout, ngf0);
+  dessinerFacade(page, b2!, Z.x + Math.max(largeur(b1!, ech) + 6, Math.min((libre - 6) / 2 + 3, libre - largeur(b2!, ech))), y3, ech, egout, ngf0, tf);
 
   /* les encadrés, à droite des deux premières façades */
   const px = Z.x + Z.l - PANNEAU;
@@ -137,7 +137,7 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
 }
 
 /** une façade dessinée : (x0, y0) le coin haut-gauche de sa case */
-function dessinerFacade(page: PagePdf, v: FacadeVue, x0: number, y0: number, e: number, egout: number | null, ngf0: number | undefined): void {
+function dessinerFacade(page: PagePdf, v: FacadeVue, x0: number, y0: number, e: number, egout: number | null, ngf0: number | undefined, tf?: number): void {
   const xl = x0 + GAUCHE, ySol = y0 + HAUT + v.zmax / e;
   const P = (u: number, z: number): [number, number] => [X(xl + (u - v.umin) / e), Y(ySol - z / e)];
   const Pm = (u: number, z: number): [number, number] => [xl + (u - v.umin) / e, ySol - z / e];
@@ -155,9 +155,10 @@ function dessinerFacade(page: PagePdf, v: FacadeVue, x0: number, y0: number, e: 
     const [cx, cy] = P(c.u, c.z);
     page.texte('pente ' + pente + '°', cx, cy, 6.5, { gras: true, aligne: 'centre', couleur: '#FFFFFF' });
   }
-  /* le terrain fini (vert) au ±0,00, le terrain naturel relevé en tirets */
-  const [g0] = Pm(v.umin - 600, 0), [g1] = Pm(v.umax + 600, 0);
-  page.trait(X(g0), Y(ySol), X(g1), Y(ySol), 0.9, TF);
+  /* le terrain fini (vert) à son niveau aux abords (au ±0,00 s'il n'est pas saisi), le terrain naturel relevé en tirets */
+  const [g0] = Pm(v.umin - 600, 0), [g1] = Pm(v.umax + 600, 0), yTf = ySol - (tf ?? 0) / e;
+  page.trait(X(g0), Y(yTf), X(g1), Y(yTf), 0.9, TF);
+  if (tf !== undefined) texte(page, 'TF ' + niveauRelatif(tf), g1, yTf - 1.2, 6, { aligne: 'droite', couleur: TF });
   if (v.tn) page.ligne(v.tn.map(q => P(q.u, q.z)), 0.5, TN, [2.2, 1.6]);
   /* les niveaux, à gauche : égout, sol fini, terrain naturel */
   const nv = (z: number, t: string, sous: string, plein: boolean, gras = true) => {
@@ -386,13 +387,14 @@ function contenuPanneaux(projet: Project, niveauxToit: Floor[], egout: number | 
     },
   };
   /* les niveaux */
-  const ngf0 = parcelleDuProjet(projet)?.plot.groundFloorNgf, ngf = (z: number) => (ngf0! + z / 1000).toFixed(2).replace('.', ',');
+  const ngf0 = parcelleDuProjet(projet)?.plot.groundFloorNgf, tf = parcelleDuProjet(projet)?.plot.finishedGround, ngf = (z: number) => (ngf0! + z / 1000).toFixed(2).replace('.', ',');
   const fait = [...new Set(vues.flatMap(v => v.faitages.map(f => Math.round(f.z / 10) * 10)))].sort((a, b) => b - a);
   const relevé = vues.some(v => v.tn);
   const lignes: { pastille: (page: PagePdf, x: number, y: number) => void; titre: string; texte: string }[] = [
     { pastille: (page, x, y) => page.trait(X(x + 1), Y(y + 3), X(x + 12), Y(y + 3), 0.5, TN, [2.2, 1.6]), titre: 'TN – terrain naturel',
       texte: relevé ? 'relevé du plan de masse (altitudes relatives' + (ngf0 !== undefined ? ', RDC fini = ' + ngf0.toFixed(2).replace('.', ',') : '') + ')' : 'non relevé : à reporter du plan topographique (outil N)' },
-    { pastille: (page, x, y) => page.trait(X(x + 1), Y(y + 3), X(x + 12), Y(y + 3), 0.9, TF), titre: 'TF – terrain fini', texte: 'abords dessinés au niveau du sol fini – ' + A_PRECISER },
+    { pastille: (page, x, y) => page.trait(X(x + 1), Y(y + 3), X(x + 12), Y(y + 3), 0.9, TF), titre: 'TF – terrain fini',
+      texte: tf !== undefined ? 'abords de la construction : ' + niveauRelatif(tf) + (ngf0 !== undefined ? ' (' + ngf(tf) + ')' : '') : 'abords dessinés au niveau du sol fini – ' + A_PRECISER },
     { pastille: (page, x, y) => page.polygone([[X(x + 6.5), Y(y + 4.2)], [X(x + 8.3), Y(y + 1.8)], [X(x + 4.7), Y(y + 1.8)]], { fond: ENCRE }), titre: 'Niveaux réglementaires',
       texte: 'RDC fini ±0,00' + (ngf0 !== undefined ? ' = ' + ngf(0) : '') + (egout !== null ? ' – égout ' + niveauRelatif(egout) : '') + (fait.length ? ' – faîtage ' + niveauRelatif(fait[0]!) : '') },
     ...(fait.length > 1 ? [{ pastille: (page: PagePdf, x: number, y: number) => page.polygone([[X(x + 6.5), Y(y + 4.2)], [X(x + 8.3), Y(y + 1.8)], [X(x + 4.7), Y(y + 1.8)]], { fond: '#FFFFFF', trait: ENCRE, ep: 0.4 }),

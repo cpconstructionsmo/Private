@@ -253,7 +253,8 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     plot.cadastre
       ? ['Fond de plan : ', 'plan cadastral (' + plot.cadastre.source + ', ' + plot.cadastre.date + '), calé sur la limite de propriété' + (plot.cadastre.ecart !== undefined ? ' (écart moyen ' + metres(plot.cadastre.ecart) + ' m)' : '') + '. Limites cadastrales hors terrain d’assiette non garanties ; limite de propriété à confirmer sur le plan de bornage du géomètre-expert.']
       : ['Fond de plan : ', 'limite de propriété tracée dans le Designer' + (plot.reference ? ' (' + plot.reference + ')' : '') + ', à confirmer sur le plan de bornage du géomètre-expert ; fond cadastral ' + A_PRECISER + ' (à importer dans le panneau de la parcelle).'],
-    ['Altitudes : ', (plot.spotHeights?.length ? 'points cotés relevés' : 'terrain non relevé') + (plot.groundFloorNgf !== undefined ? ' ; RDC fini ±0,00 = ' + plot.groundFloorNgf.toFixed(2).replace('.', ',') + ' NGF.' : ' ; altitude NGF du RDC ' + A_PRECISER + '.')],
+    ['Altitudes : ', (plot.spotHeights?.length ? 'points cotés relevés' : 'terrain non relevé') + (plot.groundFloorNgf !== undefined ? ' ; RDC fini ±0,00 = ' + plot.groundFloorNgf.toFixed(2).replace('.', ',') + ' NGF' : ' ; altitude NGF du RDC ' + A_PRECISER)
+      + (plot.finishedGround !== undefined ? ' ; TF : terrain fini aux abords à ' + niveauRelatif(plot.finishedGround) + (plot.groundFloorNgf !== undefined ? ' (' + (plot.groundFloorNgf + plot.finishedGround / 1000).toFixed(2).replace('.', ',') + ')' : '') + '.' : '.')],
     ['Cotes d’implantation : ', 'prises au nu extérieur des murs, au point le plus proche de chaque limite.'],
   ];
   const lignesNotes = notes.flatMap(n => couper(n.join(''), (PANNEAU - 6) * PT, 6.4));
@@ -279,6 +280,7 @@ function listesMasse(page: PagePdf, projet: Project, x: number, y0: number, l: n
       ['Référence cadastrale', plot.reference ?? '[à compléter]', !plot.reference],
       ['Voie', plot.streetName ?? (plot.street.length ? '[nom à compléter]' : '[côté sur voie à indiquer]'), !plot.streetName],
       ['±0,00 (sol fini RDC)', plot.groundFloorNgf !== undefined ? f2(plot.groundFloorNgf) + ' NGF' : '[NGF à compléter]', plot.groundFloorNgf === undefined],
+      ['Terrain fini (abords)', plot.finishedGround !== undefined ? niveauRelatif(plot.finishedGround) + (plot.groundFloorNgf !== undefined ? ' (' + f2(plot.groundFloorNgf + plot.finishedGround / 1000) + ' NGF)' : '') : '[à préciser]', plot.finishedGround === undefined],
       ['Terrain naturel', Z.length ? (Z.length > 1 ? f2(Math.min(...Z)) + ' à ' + f2(Math.max(...Z)) : f2(Z[0]!)) + ' NGF (' + Z.length + ' pt' + (Z.length > 1 ? 's' : '') + ')' : '[non relevé]', !Z.length],
       ...(tnMaison !== null && plot.groundFloorNgf !== undefined ? [['±0,00 au-dessus du TN (centre)', ((plot.groundFloorNgf - tnMaison) >= 0 ? '+' : '') + f2(plot.groundFloorNgf - tnMaison) + ' m'] as [string, string]] : []),
     ]],

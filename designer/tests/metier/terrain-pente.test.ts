@@ -61,3 +61,22 @@ describe('terrain en pente', () => {
     expect((Object.values(f.objects).find(o => o.type === 'plot') as Plot).spotHeights).toHaveLength(5);
   });
 });
+
+describe('terrain fini aux abords', () => {
+  it('se saisit sur la parcelle (refusé hors de −3 m / +0,5 m, null le retire) ; façades, coupes et plan de masse le disent', () => {
+    const P = maisonEnPente(101.0), f = P.buildings[0]!.floors[0]!, id = Object.values(f.objects).find(o => o.type === 'plot')!.id, a = acteur();
+    const h0 = nouvelHistorique(P);
+    expect(executer(h0, 'x', [{ type: 'modifierParcelle', id, terrainFini: -4_000 }], a).ok).toBe(false);
+    const h1 = ok(executer(h0, 'TF', [{ type: 'modifierParcelle', id, terrainFini: -150 }], a));
+    const t = Object.values(h1.projet.buildings[0]!.floors[0]!.objects).find((o): o is Plot => o.type === 'plot')!;
+    expect(t.finishedGround).toBe(-150);
+    const opts = { niveaux: [f.id], cotation: false, mobilier: false, indice: 'A', date: '07/10/2026' };
+    const txt = textes(texte(planchesPdf(h1.projet, { ...opts, facades: true, coupe: true, masse: true })));
+    for (const x of ['TF -0,15', 'abords de la construction : -0,15 (100,85)', 'Terrain fini (TF) aux abords \x96 -0,15 (100,85 NGF)', 'Terrain fini aux abords \xE0 -0,15, raccord\xE9 au terrain naturel', 'TF : terrain fini aux abords \xE0 -0,15 (100,85)'])
+      expect(txt, x).toContain(x);
+    /* sans terrain fini : « à préciser » */
+    const h2 = ok(executer(h1, 'Sans TF', [{ type: 'modifierParcelle', id, terrainFini: null }], a));
+    expect(Object.values(h2.projet.buildings[0]!.floors[0]!.objects).find((o): o is Plot => o.type === 'plot')!.finishedGround).toBeUndefined();
+    expect(textes(texte(planchesPdf(h2.projet, { ...opts, facades: true })))).toContain('abords dessin\xE9s au niveau du sol fini \x96 [\xE0 pr\xE9ciser]');
+  });
+});
