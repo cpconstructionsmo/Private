@@ -307,6 +307,24 @@ try {
   await p.click('aside button:has-text("Placer")');
   assert.match(await p.textContent('aside'), /Côté 1 : [\d,]+ m — recul 5,00 m/, 'parcelle placée à 5 m du côté 1');
   if (process.env.CAPTURE_PARCELLE) await p.screenshot({ path: process.env.CAPTURE_PARCELLE });
+  /* le fond cadastral (GeoJSON fictif en Lambert 93, tourné de 20°) : calé sur la limite d'après la référence, il donne le nord ; un « annuler » le retire */
+  await p.fill('aside label:has-text("Référence cadastrale") input', 'ZZ n° 1'); await p.keyboard.press('Tab');
+  await p.waitForFunction(() => Object.values(window.cpDesigner.projet().buildings[0].floors[0].objects).find(o => o.type === 'plot')?.reference === 'ZZ n° 1');
+  const lim = (await objets()).find(o => o.type === 'plot').contour, th = -20 * Math.PI / 180;
+  const l93 = q => [400000 + (q.x * Math.cos(th) - q.y * Math.sin(th)) / 1000, 6700000 + (q.x * Math.sin(th) + q.y * Math.cos(th)) / 1000];
+  const anneau = P => [[...P, P[0]].map(l93)];
+  const geo = { type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: { section: 'ZZ', numero: '1' }, geometry: { type: 'Polygon', coordinates: anneau(lim) } },
+    { type: 'Feature', properties: { section: 'ZZ', numero: '2' }, geometry: { type: 'Polygon', coordinates: anneau([lim[1], { x: lim[1].x + 15000, y: lim[1].y }, { x: lim[2].x + 15000, y: lim[2].y }, lim[2]]) } }] };
+  const [fcc] = await Promise.all([p.waitForEvent('filechooser'), p.click('aside button:has-text("Importer (GeoJSON)")')]);
+  await fcc.setFiles({ name: 'cadastre-parcelles.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(geo)) });
+  await p.waitForSelector('.voile select[name=n]'); await p.click('.voile button.prim');
+  await p.waitForFunction(() => !!Object.values(window.cpDesigner.projet().buildings[0].floors[0].objects).find(o => o.type === 'plot')?.cadastre);
+  const pcad = (await objets()).find(o => o.type === 'plot');
+  assert.ok(pcad.cadastre.parcelles.length === 2 && pcad.cadastre.ecart < 20 && Math.abs(pcad.north - 20 * Math.PI / 180) < 1e-3, 'fond cadastral calé : ' + JSON.stringify([pcad.cadastre.ecart, pcad.north]));
+  assert.match(await p.textContent('aside'), /2 parcelles, 0 bâtiment[\s\S]*écart moyen 0,00 m/, 'état du fond cadastral au panneau');
+  await p.keyboard.press('Control+z');
+  assert.ok(!(await objets()).find(o => o.type === 'plot').cadastre, 'un « annuler » retire le fond cadastral');
   /* un point coté du terrain naturel (outil N) : un clic, son altitude NGF ; un « annuler » le retire */
   await p.keyboard.press('Escape');
   await p.keyboard.press('n');
@@ -692,7 +710,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, lucarne, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, lucarne, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

@@ -47,6 +47,37 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
   const Pm = (p: Point): [number, number] => [x0 + (p.x - B.xmin) / ech, y0 + (B.ymax - p.y) / ech];
   const Pp = (p: Point): [number, number] => { const [a, b] = Pm(p); return [X(a), Y(b)] };
 
+  /* le fond cadastral, dans la zone du dessin seulement : les parcelles voisines au trait gris et leur référence,
+     le bâti existant hachuré ; le terrain du projet n'y est pas redessiné (sa limite tracée le remplace) */
+  const fc = plot.cadastre;
+  if (fc) {
+    const R: [number, number][] = [[X(ZONE_DESSIN.x + 1), Y(ZONE_DESSIN.y + 1)], [X(zone.x + zone.l + 6), Y(ZONE_DESSIN.y + 1)], [X(zone.x + zone.l + 6), Y(ZONE_DESSIN.y + ZONE_DESSIN.h - 14)], [X(ZONE_DESSIN.x + 1), Y(ZONE_DESSIN.y + ZONE_DESSIN.h - 14)]];
+    page.decouper(R);
+    for (const b of fc.batiments) {
+      const Q = b.map(Pp);
+      page.polygone(Q, { fond: '#E4E4E4' });
+      page.decouper(Q);
+      const xs = Q.map(q => q[0]), ys = Q.map(q => q[1]), h = Math.max(...ys) - Math.min(...ys);
+      for (let x = Math.min(...xs) - h; x < Math.max(...xs); x += 2.2) page.trait(x, Math.min(...ys), x + h, Math.max(...ys), 0.25, '#9A9A9A');
+      page.restaurer();
+      page.polygone(Q, { trait: '#7A7A7A', ep: 0.35 });
+    }
+    for (const c of fc.parcelles) if (!c.terrain) page.polygone(c.contour.map(Pp), { trait: '#8F8F8F', ep: 0.35 });
+    /* la référence au milieu de la partie visible de chaque parcelle voisine, si elle est assez grande
+       (une voisine coupée par le cadre garde sa référence dans ce qu'on en voit) */
+    const vus = new Set<string>(), cadre = { x0: ZONE_DESSIN.x + 4, x1: zone.x + zone.l, y0: ZONE_DESSIN.y + 4, y1: ZONE_DESSIN.y + ZONE_DESSIN.h - 18 };
+    for (const c of fc.parcelles) {
+      if (c.terrain || vus.has(c.reference)) continue;
+      const V = dansRectangle(c.contour.map(q => { const [x, y] = Pm(q); return { x, y } }), cadre);
+      if (V.length < 3) continue;
+      const xs = V.map(q => q.x), ys = V.map(q => q.y);
+      if (Math.max(...xs) - Math.min(...xs) < 14 || Math.max(...ys) - Math.min(...ys) < 6) continue;
+      const { x: cx, y: cy } = centroide(V);
+      vus.add(c.reference);
+      texte(page, c.reference, cx, cy, 6.5, { italique: true, aligne: 'centre', couleur: '#8A8A8A' });
+    }
+    page.restaurer();
+  }
   /* la voie, le long de l'alignement */
   for (const v of voies) {
     page.polygone([Pp(v.a), Pp(v.b), Pp({ x: v.b.x + v.n.x * 6_000, y: v.b.y + v.n.y * 6_000 }), Pp({ x: v.a.x + v.n.x * 6_000, y: v.a.y + v.n.y * 6_000 })], { fond: VOIE });
@@ -98,14 +129,32 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     }
   } else for (const q of E) page.polygone(q.contour.map(Pp), { fond: '#A9AEB4', trait: ENCRE, ep: 0.8 });
   for (const q of E) page.polygone(q.contour.map(Pp), { trait: ENCRE, ep: 0.6, tirets: [1.6, 1] });
-  /* le niveau du RDC, encadré au milieu de la maison */
+  /* l'encombrement de la maison (nu extérieur des murs), en longueur et en largeur, coté hors de la toiture,
+     du côté du terrain où il y a le plus de place : deux cotes lisibles plutôt que chaque redent sous le toit */
   if (E.length) {
-    const [cx, cy] = Pm(centroide(E[0]!.contour));
-    const t1 = 'Niveau RDC fini', t2 = '±0,00' + (plot.groundFloorNgf !== undefined ? ' = ' + plot.groundFloorNgf.toFixed(2).replace('.', ',') : ' (NGF ' + A_PRECISER + ')');
-    const l = Math.max(Page.largeur(t1, 7, { gras: true }), Page.largeur(t2, 7)) / PT + 4;
-    page.cadre(X(cx - l / 2), Y(cy + 4.5), l * PT, 9 * PT, { ep: 0.4, couleur: ENCRE, fond: '#FFFFFF' });
-    texte(page, t1, cx, cy - 0.6, 7, { gras: true, aligne: 'centre', couleur: '#111111' });
-    texte(page, t2, cx, cy + 3, 7, { aligne: 'centre', couleur: plot.groundFloorNgf !== undefined ? '#111111' : ROUGE_MANQUE });
+    const A = E.flatMap(q => q.contour), C0 = E[0]!.contour;
+    let u = { x: 1, y: 0 }, Lmax = 0;
+    C0.forEach((a, i) => { const b = C0[(i + 1) % C0.length]!, L = Math.hypot(b.x - a.x, b.y - a.y); if (L > Lmax) { Lmax = L; u = { x: (b.x - a.x) / L, y: (b.y - a.y) / L } } });
+    const v = { x: -u.y, y: u.x }, pu = (q: Point) => q.x * u.x + q.y * u.y, pv = (q: Point) => q.x * v.x + q.y * v.y;
+    const ext = (P: readonly Point[], f: (q: Point) => number) => [Math.min(...P.map(f)), Math.max(...P.map(f))] as const;
+    const toit = [...A, ...toits.flatMap(tt => tt.egout)];
+    for (const [axe, autre, fa, fo] of [[u, v, pu, pv], [v, u, pv, pu]] as const) {
+      const [a0, a1] = ext(A, fa), [t0, t1] = ext(toit, fo), [l0, l1] = ext(plot.contour, fo);
+      if (a1 - a0 < 2_000) continue;
+      /* le côté le plus dégagé jusqu'à la limite */
+      const haut = l1 - t1 >= t0 - l0, o = haut ? t1 + 4 * ech : t0 - 4 * ech, depart = (k: number) => { const P = A.filter(q => Math.abs(fa(q) - k) < 1); return haut ? Math.max(...P.map(fo)) : Math.min(...P.map(fo)) };
+      const pt = (ka: number, ko: number): Point => ({ x: axe.x * ka + autre.x * ko, y: axe.y * ka + autre.y * ko });
+      const [ax, ay] = Pm(pt(a0, o)), [bx, by] = Pm(pt(a1, o));
+      page.trait(X(ax), Y(ay), X(bx), Y(by), 0.3, '#333333');
+      for (const [k, x, y] of [[a0, ax, ay], [a1, bx, by]] as const) {
+        const [dx, dy] = Pm(pt(k, depart(k) + (haut ? 1.2 : -1.2) * ech)), [fx, fy] = Pm(pt(k, o + (haut ? 1.2 : -1.2) * ech));
+        page.trait(X(dx), Y(dy), X(fx), Y(fy), 0.2, '#555555');
+        page.trait(X(x - 0.7), Y(y + 0.7), X(x + 0.7), Y(y - 0.7), 0.45, '#333333');
+      }
+      let ang = Math.atan2(-(by - ay), bx - ax) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+      const r = ang * Math.PI / 180;
+      page.texte(metres(a1 - a0), X((ax + bx) / 2 - Math.sin(r) * 0.9), Y((ay + by) / 2 - Math.cos(r) * 0.9), 6.5, { gras: true, aligne: 'centre', angle: ang, couleur: '#222222' });
+    }
   }
   /* la limite, ses côtés cotés en rouge, ses bornes */
   page.polygone(plot.contour.map(Pp), { trait: ENCRE, ep: 1.4 });
@@ -123,6 +172,15 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     const [px, py] = Pm(s.point);
     page.trait(X(px - 0.9), Y(py - 0.9), X(px + 0.9), Y(py + 0.9), 0.5, ENCRE); page.trait(X(px - 0.9), Y(py + 0.9), X(px + 0.9), Y(py - 0.9), 0.5, ENCRE);
     texte(page, 'TN ' + s.ngf.toFixed(2).replace('.', ','), px + 1.6, py - 1.4, 6, { couleur: '#222222' });
+  }
+  /* le niveau du RDC, encadré au milieu de la maison, par-dessus les points cotés du terrain qu'elle recouvre */
+  if (E.length) {
+    const [cx, cy] = Pm(centroide(E[0]!.contour));
+    const t1 = 'Niveau RDC fini', t2 = '±0,00' + (plot.groundFloorNgf !== undefined ? ' = ' + plot.groundFloorNgf.toFixed(2).replace('.', ',') : ' (NGF ' + A_PRECISER + ')');
+    const l = Math.max(Page.largeur(t1, 7, { gras: true }), Page.largeur(t2, 7)) / PT + 4;
+    page.cadre(X(cx - l / 2), Y(cy + 4.5), l * PT, 9 * PT, { ep: 0.4, couleur: ENCRE, fond: '#FFFFFF' });
+    texte(page, t1, cx, cy - 0.6, 7, { gras: true, aligne: 'centre', couleur: '#111111' });
+    texte(page, t2, cx, cy + 3, 7, { aligne: 'centre', couleur: plot.groundFloorNgf !== undefined ? '#111111' : ROUGE_MANQUE });
   }
   /* les reculs, en rouge : de la maison au point le plus proche de chaque limite */
   for (const r of R) {
@@ -153,6 +211,8 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
   const L: LigneLegende[] = [
     { pastille: pastilleTrait(ENCRE, 1.4), texte: 'Limite de propriété' },
     { pastille: (pg, x, y) => { pg.cercle(X(x + 3.5), Y(y + 1.5), 1.3 * PT, { trait: ROUGE, ep: 0.5, fond: '#FFFFFF' }) }, texte: 'Borne' },
+    ...(plot.cadastre ? [{ pastille: pastilleTrait('#8F8F8F', 0.35), texte: 'Limite cadastrale (non garantie)' },
+      ...(plot.cadastre.batiments.length ? [{ pastille: pastille('#E4E4E4', { hachures: '#9A9A9A', trait: '#7A7A7A' }), texte: 'Bâti existant (cadastre)' }] : [])] : []),
     ...(toits.length ? [{ pastille: pastille('#9EA4AA'), texte: 'Toiture projetée' + (toits[0] && niveaux.flatMap(f => Object.values(f.objects)).find(x => x.type === 'roof') ? '' : '') }] : []),
     { pastille: pastille('#FFFFFF', { tirets: false, trait: ENCRE }), texte: 'Emprise au sol (nu extérieur des murs, en tirets)' },
     { pastille: pastille(PELOUSE), texte: 'Terrain (pelouse en pleine terre)' },
@@ -190,7 +250,9 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
   py += 5;
   /* les notes */
   const notes = [
-    ['Fond de plan : ', 'limite de propriété tracée dans le Designer' + (plot.reference ? ' (' + plot.reference + ')' : '') + ', à confirmer sur le plan de bornage du géomètre-expert.'],
+    plot.cadastre
+      ? ['Fond de plan : ', 'plan cadastral (' + plot.cadastre.source + ', ' + plot.cadastre.date + '), calé sur la limite de propriété' + (plot.cadastre.ecart !== undefined ? ' (écart moyen ' + metres(plot.cadastre.ecart) + ' m)' : '') + '. Limites cadastrales hors terrain d’assiette non garanties ; limite de propriété à confirmer sur le plan de bornage du géomètre-expert.']
+      : ['Fond de plan : ', 'limite de propriété tracée dans le Designer' + (plot.reference ? ' (' + plot.reference + ')' : '') + ', à confirmer sur le plan de bornage du géomètre-expert ; fond cadastral ' + A_PRECISER + ' (à importer dans le panneau de la parcelle).'],
     ['Altitudes : ', (plot.spotHeights?.length ? 'points cotés relevés' : 'terrain non relevé') + (plot.groundFloorNgf !== undefined ? ' ; RDC fini ±0,00 = ' + plot.groundFloorNgf.toFixed(2).replace('.', ',') + ' NGF.' : ' ; altitude NGF du RDC ' + A_PRECISER + '.')],
     ['Cotes d’implantation : ', 'prises au nu extérieur des murs, au point le plus proche de chaque limite.'],
   ];
@@ -278,4 +340,25 @@ function assombrir(c: string, k: number): string {
   if (!m) return c;
   const v = parseInt(m[1]!, 16), f = (x: number) => Math.round(x * k).toString(16).padStart(2, '0');
   return '#' + f(v >> 16 & 255) + f(v >> 8 & 255) + f(v & 255);
+}
+
+/** un polygone découpé à un rectangle (Sutherland-Hodgman) : la partie qu'on en voit sur la feuille */
+function dansRectangle(P: Point[], r: { x0: number; x1: number; y0: number; y1: number }): Point[] {
+  const bords: [(p: Point) => boolean, (a: Point, b: Point) => Point][] = [
+    [p => p.x >= r.x0, (a, b) => ({ x: r.x0, y: a.y + (b.y - a.y) * (r.x0 - a.x) / (b.x - a.x) })],
+    [p => p.x <= r.x1, (a, b) => ({ x: r.x1, y: a.y + (b.y - a.y) * (r.x1 - a.x) / (b.x - a.x) })],
+    [p => p.y >= r.y0, (a, b) => ({ x: a.x + (b.x - a.x) * (r.y0 - a.y) / (b.y - a.y), y: r.y0 })],
+    [p => p.y <= r.y1, (a, b) => ({ x: a.x + (b.x - a.x) * (r.y1 - a.y) / (b.y - a.y), y: r.y1 })],
+  ];
+  let Q = P;
+  for (const [dedans, coupe] of bords) {
+    const out: Point[] = [];
+    Q.forEach((b, i) => {
+      const a = Q[(i + Q.length - 1) % Q.length]!;
+      if (dedans(b)) { if (!dedans(a)) out.push(coupe(a, b)); out.push(b) } else if (dedans(a)) out.push(coupe(a, b));
+    });
+    Q = out;
+    if (!Q.length) break;
+  }
+  return Q;
 }

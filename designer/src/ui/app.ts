@@ -9,7 +9,7 @@ import type { Beam, BuildingObject, Column, Dormer, Floor, Foundation, Underlay,
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, type CadastreLu, type MurDroit } from '../building';
 import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -1556,6 +1556,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('Nord (° depuis le haut du plan, sens inverse des aiguilles)', Math.round(o.north * 1800 / Math.PI) / 10, v => mod('Direction du nord', { nord: ent(v) * Math.PI / 180 }), 'number'),
           champ('Altitude NGF du ±0,00 (m)', o.groundFloorNgf ?? '', v => mod('Altitude du RDC', { altitudeRdc: String(v).trim() ? ent(v) : null }), 'number'),
           ...pointsCotes(o),
+          ...fondCadastralPanneau(o),
           titre('Côtés et reculs (mesurés)'));
         o.contour.forEach((_, i) => {
           const r = R[i];
@@ -2198,6 +2199,80 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     out.push(ligne(bouton('Coter le terrain (outil N)', () => choisir('altitude'))),
       bloc('Les altitudes du terrain naturel relevées par le géomètre : la coupe (PCMI 3) en tire le profil du terrain, le plan de masse les reporte. Elles suivent la parcelle quand on l’implante.'));
     return out;
+  }
+  /** le fond cadastral, dans l'inspecteur de la parcelle : son état, l'import d'un GeoJSON, le téléchargement, le retrait */
+  function fondCadastralPanneau(o: Plot): HTMLElement[] {
+    const c = o.cadastre;
+    const out: HTMLElement[] = [titre('Fond cadastral')];
+    if (c) out.push(bloc(c.parcelles.length + ' parcelle' + (c.parcelles.length > 1 ? 's' : '') + ', ' + c.batiments.length + ' bâtiment' + (c.batiments.length > 1 ? 's' : '') + ' · ' + esc(c.source) + ' (' + esc(c.date) + ')'
+      + (c.ecart !== undefined ? '<br>Calé sur la limite : écart moyen <b>' + m(c.ecart) + '</b>' : '')));
+    out.push(ligne(bouton('Importer (GeoJSON)…', () => importerCadastre(o)), bouton('Télécharger…', () => telechargerCadastre(o))));
+    if (c) out.push(ligne(bouton('Retirer le fond cadastral', () => faire('Retirer le fond cadastral', [{ type: 'modifierParcelle', id: o.id, cadastre: null }]), 'dang')));
+    out.push(bloc('Les parcelles voisines et le bâti existant du plan cadastral (cadastre.data.gouv.fr), calés sur la limite d’après la référence cadastrale. Ils vont au plan de masse (PCMI 2) et suivent la parcelle quand on l’implante. Le cadastre n’est pas un plan de géomètre : ses limites ne sont pas garanties.'));
+    return out;
+  }
+  /** caler un cadastre lu sur la parcelle, et le garder (avec le nord qu'il donne, si on le veut) */
+  async function poserCadastre(o: Plot, lu: CadastreLu, source: string) {
+    if (!o.reference?.trim()) { toast('Renseignez d’abord la référence cadastrale de la parcelle (ex. : ZB n° 237) : c’est elle qui cale le fond', true); return }
+    const T = parcellesDeReference(o.reference, lu.parcelles);
+    if (!T.length) { toast('La parcelle « ' + o.reference + ' » n’est pas dans ce cadastre (' + lu.parcelles.length + ' parcelles lues) : vérifiez la référence ou la commune', true); return }
+    const d = new Date(), date = String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear();
+    let f;
+    try { f = fondCadastral(o.contour, lu, T, source, date) } catch (e) { toast(String((e as Error)?.message ?? e), true); return }
+    const deg = Math.round(f.rotation * 1800 / Math.PI) / 10;
+    const r = await dialogue('Fond cadastral — ' + T.map(p => p.reference).join(', '), [
+      { cle: 'n', libelle: 'Nord du plan', valeur: 'cadastre', options: { cadastre: 'Prendre le nord du cadastre (' + String(deg).replace('.', ',') + '°)', garder: 'Garder le nord actuel (' + String(Math.round(o.north * 1800 / Math.PI) / 10).replace('.', ',') + '°)' } },
+    ]);
+    if (!r) return;
+    if (!faire('Fond cadastral', [{ type: 'modifierParcelle', id: o.id, cadastre: f.cadastre, ...(r['n'] === 'cadastre' ? { nord: f.rotation } : {}) }])) return;
+    const e = f.cadastre.ecart ?? 0;
+    toast('Fond cadastral calé : ' + f.cadastre.parcelles.length + ' parcelles, ' + f.cadastre.batiments.length + ' bâtiments ; écart moyen ' + m(e) + ' avec la limite tracée.'
+      + (e > 1_000 ? ' C’est beaucoup : vérifiez la limite (plan du géomètre) et la référence cadastrale.' : ''), e > 1_000);
+  }
+  /** le texte d'un fichier, décompressé s'il est en .gz (les fichiers de cadastre.data.gouv.fr) */
+  async function texteFichier(f: Blob, nom: string): Promise<string> {
+    if (!/\.gz$/i.test(nom)) return f.text();
+    return new Response(f.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  }
+  /** un ou deux GeoJSON du cadastre (parcelles, et bâtiments) choisis sur l'appareil */
+  function importerCadastre(o: Plot) {
+    const i = document.createElement('input'); i.type = 'file'; i.multiple = true; i.accept = '.json,.geojson,.gz,application/json,application/geo+json,application/gzip';
+    i.onchange = async () => {
+      const F = [...(i.files ?? [])];
+      if (!F.length) return;
+      const lu: CadastreLu = { parcelles: [], batiments: [], lambert: true };
+      try {
+        for (const f of F) {
+          const genre = /b[aâ]timent/i.test(f.name) ? 'batiments' as const : /parcelle/i.test(f.name) ? 'parcelles' as const : undefined;
+          const x = lireCadastreGeoJSON(JSON.parse(await texteFichier(f, f.name)), genre);
+          lu.parcelles.push(...x.parcelles); lu.batiments.push(...x.batiments);
+        }
+      } catch (e) { toast('Fichier illisible : ' + String((e as Error)?.message ?? e), true); return }
+      await poserCadastre(o, lu, 'cadastre (' + F.map(f => f.name).join(', ') + ')');
+    };
+    i.click();
+  }
+  /** le cadastre d'une commune, téléchargé sur cadastre.data.gouv.fr (données Etalab, mises à jour chaque trimestre) */
+  async function telechargerCadastre(o: Plot) {
+    const r = await dialogue('Télécharger le cadastre de la commune', [{ cle: 'c', libelle: 'Code INSEE de la commune (5 caractères, ex. : 85194 ; ce n’est pas le code postal)', valeur: '' }]);
+    if (!r) return;
+    const insee = String(r['c'] ?? '').trim().toUpperCase();
+    if (!/^(\d{5}|2[AB]\d{3})$/.test(insee)) { toast('Code INSEE illisible : 5 caractères, par exemple 85194', true); return }
+    const base = 'https://cadastre.data.gouv.fr/bundler/cadastre-etalab/communes/' + insee + '/geojson/';
+    toast('Téléchargement du cadastre de la commune ' + insee + '…');
+    const lu: CadastreLu = { parcelles: [], batiments: [], lambert: true };
+    try {
+      for (const genre of ['parcelles', 'batiments'] as const) {
+        const rep = await fetch(base + genre);
+        if (!rep.ok) throw new Error('réponse ' + rep.status + ' pour les ' + genre);
+        const x = lireCadastreGeoJSON(await rep.json(), genre);
+        lu.parcelles.push(...x.parcelles); lu.batiments.push(...x.batiments);
+      }
+    } catch (e) {
+      toast('Téléchargement impossible (' + String((e as Error)?.message ?? e) + '). Récupérez les fichiers « parcelles » et « batiments » de la commune sur cadastre.data.gouv.fr (rubrique Données), puis « Importer (GeoJSON)… ».', true);
+      return;
+    }
+    await poserCadastre(o, lu, 'cadastre.data.gouv.fr, commune ' + insee);
   }
   /** un point coté posé d'un clic (outil N) : son altitude se demande aussitôt */
   async function poserPointCote(point: Point) {

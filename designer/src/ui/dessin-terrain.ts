@@ -105,9 +105,26 @@ export function dessinerArbre(ctx: CanvasRenderingContext2D, cam: Camera, o: Tre
   if (o.state === 'felled') { ctx.beginPath(); ctx.moveTo(e.x - r, e.y - r); ctx.lineTo(e.x + r, e.y + r); ctx.moveTo(e.x + r, e.y - r); ctx.lineTo(e.x - r, e.y + r); ctx.stroke() }
 }
 
+/** le fond cadastral calé : le bâti existant grisé, les limites des parcelles au trait fin, sous tout le reste */
+function dessinerCadastre(ctx: CanvasRenderingContext2D, cam: Camera, t: Plot): void {
+  const c = t.cadastre;
+  if (!c) return;
+  ctx.save();
+  ctx.lineWidth = 1; ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(150,150,150,0.25)'; ctx.strokeStyle = 'rgba(110,110,110,0.7)';
+  for (const A of c.batiments) { ligne(ctx, cam, A, true); ctx.fill(); ctx.stroke() }
+  ctx.strokeStyle = 'rgba(120,120,120,0.55)';
+  for (const p of c.parcelles) if (!p.terrain) { ligne(ctx, cam, p.contour, true); ctx.stroke() }
+  /* la parcelle du projet selon le cadastre, en tirets : l'écart avec la limite tracée se voit */
+  ctx.setLineDash([4, 3]); ctx.strokeStyle = 'rgba(90,90,90,0.8)';
+  for (const p of c.parcelles) if (p.terrain) { ligne(ctx, cam, p.contour, true); ctx.stroke() }
+  ctx.restore();
+}
+
 /** tout le terrain d'un niveau (celui qui porte la parcelle) : courbes, plateformes et talus, réseaux, équipements, arbres */
 export function dessinerTerrain(ctx: CanvasRenderingContext2D, cam: Camera, f: Floor, t: Plot | null, o: OptionsTerrain = {}): void {
   const ch = (id: string) => !!o.choisis?.has(id);
+  if (t) dessinerCadastre(ctx, cam, t);
   if (t && o.courbes) dessinerCourbes(ctx, cam, t, o.courbes);
   for (const x of Object.values(f.objects)) if (x.type === 'platform') dessinerPlateforme(ctx, cam, t, x, ch(x.id));
   for (const x of Object.values(f.objects)) if (x.type === 'tree') dessinerArbre(ctx, cam, x, ch(x.id));
