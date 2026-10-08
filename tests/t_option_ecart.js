@@ -3,12 +3,12 @@
    initiale (un poste du chiffrage, ou un montant saisi) pour ne compter que
    l'écart ; la rétrocession se pose dans le prix de cet écart, sans se
    compter deux fois ; les honoraires CP se règlent option par option (lot
-   par lot), à part du prix, et rejoignent la marge une fois l'option
-   incluse. Une option sans ces réglages garde l'ancien calcul. Prospect
+   par lot), entrent dans le prix annoncé de l'option, et rejoignent la
+   marge une fois l'option incluse. Une option sans ces réglages garde l'ancien calcul. Prospect
    fictif. */
 const {charger,texteInst,norm,verif}=require('./harness');
 const React=require('react');const TR=require('react-test-renderer');
-const M=charger(['optionDetail','optionMontant','optionRetro','optionHonoraires','prospectCoutHT','prospectMargeHT',
+const M=charger(['optionDetail','optionMontant','optionRetro','optionHonoraires','optionPrix','prospectCoutHT','prospectMargeHT',
   'prospectPrixHT','prospectPostesRetro','prospectHonoOptionsHT','impactOption','PostesChiffrage','RecapChiffrage',
   'genererChiffrageInterneDocx','genererDossierDocx','lireDocumentLignes','EMPTY']);
 const {chk,fin}=verif();
@@ -64,6 +64,8 @@ const fuji={id:'o1',libelle:'MENUISERIES INTÉRIEURES',montant:3011,retroPct:10,
   const o={...fuji,honoPct:8,incluse:true};
   const p={...base,optionsChiffrage:[o]};
   chk(M.optionHonoraires(o,undefined,p)===63.2,'8 % d’honoraires sur une option de 790 : 63,20');
+  chk(M.optionPrix(o,undefined,p)===853.2&&M.optionMontant(o,undefined,p)===790,'le prix annoncé de l’option les comprend : 853,20 (dont 790 de travaux)');
+  chk(M.optionPrix(fuji,undefined,p)===790,'sans honoraires propres, le prix annoncé reste le montant (790)');
   chk(M.prospectHonoOptionsHT(p)===63.2,'comptés dans les honoraires sur options incluses');
   chk(M.prospectMargeHT(p)===10293.2,'la marge : 10 % des postes (10 230) + 63,20 — l’option ne porte pas en plus le taux du projet');
   chk(M.prospectPrixHT(p)===113383.2,'le prix HT suit : 103 090 + 10 293,20');
@@ -107,8 +109,10 @@ const fuji={id:'o1',libelle:'MENUISERIES INTÉRIEURES',montant:3011,retroPct:10,
   TR.act(()=>{choix().props.onChange({target:{value:''}})});
   TR.act(()=>{tr.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Taux d’honoraires de l’option')[0].props.onChange({target:{value:'8'}})});
   chk(L[0].honoPct==='8','les honoraires de l’option se saisissent sur elle');
-  chk(/soit 67,20 € HT, à part du prix de l’option/.test(t()),'8 % de 840 : 67,20, à part du prix');
-  chk(/honoraires CP sur options : 67 € HT, à part/.test(t()),'le total des options les rappelle');
+  chk(/soit 67,20 € HT, compris dans le prix de l’option/.test(t()),'8 % de 840 : 67,20, compris dans le prix');
+  chk(/Montant de l’option\s*840,00 €\s*\+ Honoraires CP 8 %\s*67,20 €\s*Prix de l’option, honoraires compris\s*907,20 € HT/.test(t()),
+    'le détail : montant 840 + honoraires 67,20 = prix de l’option 907,20');
+  chk(/Total 907 € HT/.test(t())&&/honoraires CP compris : 67 € HT/.test(t()),'le total des options est honoraires compris, et le dit');
   chk(!!hono,'champ d’honoraires présent');
   TR.act(()=>{tr.unmount()});
 }
@@ -123,13 +127,14 @@ const fuji={id:'o1',libelle:'MENUISERIES INTÉRIEURES',montant:3011,retroPct:10,
   const interne=await lire(await M.genererChiffrageInterneDocx(p));
   chk(/prestation choisie 3 011,00 € − prestation initiale « MENUISERIES INTÉRIEURES » \(poste du chiffrage\) 2 300,00 € = écart 711,00 €/.test(interne),
     'le chiffrage interne détaille le calcul de l’option');
-  chk(/rétrocession comprise dans le prix 79,00 € ; prix de l’option 790,00 € HT/.test(interne),'avec la rétrocession et le prix');
+  chk(/rétrocession comprise dans le prix 79,00 €/.test(interne),'avec la rétrocession');
   chk(/Honoraires CP/.test(interne)&&/63,20 € \(8 %\)/.test(interne)&&/taux du projet/.test(interne),'une colonne d’honoraires CP, option par option');
+  chk(/honoraires CP 63,20 € ; prix de l’option 853,20 € HT/.test(interne)&&/Prix HT/.test(interne),'et le prix de l’option honoraires compris');
   chk(/dont honoraires CP sur les options incluses/.test(interne),'et leur part dans le bilan');
   const client=await lire(await M.genererDossierDocx(p,{}));
   const opts=client.split('Options proposées')[1]||'';
-  chk(/plus-value sur la prestation prévue/.test(opts)&&/790,00 €/.test(opts),'le dossier client montre l’écart (790), présenté en plus-value sur la prestation prévue');
-  chk(/Honoraires HT/.test(opts)&&/63,20 €/.test(opts),'avec les honoraires de l’option à part');
+  chk(/plus-value sur la prestation prévue/.test(opts)&&/853,20 €/.test(opts),'le dossier client montre l’option à 853,20, honoraires compris, en plus-value sur la prestation prévue');
+  chk(!/Honoraires HT/.test(opts)&&!/63,20/.test(opts)&&/comprend les honoraires de maîtrise d’œuvre/.test(opts),'un seul montant par option : les honoraires y sont compris, et la note le dit');
   chk(!/Rétro/.test(opts)&&!/2 300/.test(opts),'sans rien d’interne : ni rétrocession, ni prix de la prestation initiale');
   fin();
 })().catch(e=>{console.error('ERREUR NON CAPTURÉE',e);process.exitCode=1});
