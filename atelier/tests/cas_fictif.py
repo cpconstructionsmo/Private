@@ -166,6 +166,8 @@ def ecrire_pdf_aplats(chemin: str, echelle=75):
 # de 12 × 9 m dessinée, tournée de 10°, son angle sud-ouest en (8 ; 6)
 TERRAIN = [(0, 0), (30, 0), (28, 26), (2, 24)]
 MAISON_ANGLE, MAISON_POS = 10.0, (8.0, 6.0)
+# la rose du nord dessinée à côté du terrain : un cercle, une flèche, la lettre « N » ; le nord à 60° de l'axe x
+NORD_ANGLE, NORD_CENTRE = 60.0, (36.0, 20.0)
 
 
 def ecrire_terrain_pdf(chemin: str, echelle=200, avec_maison=True):
@@ -187,6 +189,16 @@ def ecrire_terrain_pdf(chemin: str, echelle=200, avec_maison=True):
         page.insert_text(P((x, y)), f"TN {z}", fontsize=6)
     page.insert_text(P((12, -3)), "Rue d'Essai", fontsize=8)
     page.insert_text(P((14, 10)), "±0,00 = 50,10", fontsize=6)
+    a, (cx, cy) = _m.radians(NORD_ANGLE), NORD_CENTRE
+    u = (_m.cos(a), _m.sin(a)); v = (-u[1], u[0])
+    sh = page.new_shape()
+    sh.draw_circle(P((cx, cy)), 2 * k)
+    sh.finish(color=(0, 0, 0), width=0.6, fill=(1, 1, 1))
+    sh.draw_polyline([P((cx + u[0] * 1.8, cy + u[1] * 1.8)), P((cx - u[0] * 1.1 + v[0] * 0.8, cy - u[1] * 1.1 + v[1] * 0.8)),
+                      P((cx - u[0] * 1.1 - v[0] * 0.8, cy - u[1] * 1.1 - v[1] * 0.8))])
+    sh.finish(color=(0, 0, 0), width=0.4, fill=(0, 0, 0), closePath=True)
+    sh.commit()
+    page.insert_text(P((cx + u[0] * 3.2 - 0.3, cy + u[1] * 3.2 - 0.4)), "N", fontsize=8)
     page.insert_text((80, 800), f"PLAN DE MASSE  Echelle 1/{echelle}", fontsize=9)
     if avec_maison:
         m = affinity.translate(affinity.rotate(box(0, 0, 12, 9), MAISON_ANGLE, origin=(0, 0)), *MAISON_POS)

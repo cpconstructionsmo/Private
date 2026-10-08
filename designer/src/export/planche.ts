@@ -129,19 +129,35 @@ function pageNotice(doc: DocumentPdf, projet: Project, o: OptionsPlanche): void 
   page.texte('CONSTRUCTION D’UNE MAISON INDIVIDUELLE', X(cx), Y(yN), 10, { italique: true, aligne: 'centre', couleur: '#111111' });
   page.texte('Brouillon établi par le Designer à partir du projet : à relire et compléter (« ' + A_COMPLETER + ' ») avant le dépôt.', X(cx), Y(yN + 3.6), 6, { italique: true, aligne: 'centre', couleur: '#C5563A' });
   /* deux colonnes ; le titre dans un encadré orangé en tête de la première */
-  const col = (x1 - x0 - 10) / 2, corps = 8, pas = 3.9;
+  const col = (x1 - x0 - 10) / 2;
   const yT = yN + 9;
   page.cadre(X(x0), Y(yT + 8), col * PT, 8 * PT, { ep: 0, fond: '#E8B98A' });
   page.texte('Notice décrivant le terrain et présentant le projet', X(x0 + col / 2), Y(yT + 5.4), 10, { gras: true, aligne: 'centre', couleur: '#111111' });
   page.texte('(article R.431-8 du code de l’urbanisme, à vérifier sur Légifrance)', X(x0 + col / 2), Y(yT + 11.5), 6.5, { aligne: 'centre', couleur: '#333333' });
-  let c = 0, y = yT + 18;
-  const bas = 287;
-  for (const r of notice(projet)) {
-    const L = r.paragraphes.map(p => couper(p, (col - 4) * PT, corps));
-    const h = 7 + L.reduce((s, l) => s + l.length * pas + 1.6, 0);
-    if (y + Math.min(h, 30) > bas && c === 0) { c = 1; y = yT }
+  const bas = 287, N = notice(projet);
+  /* les rubriques réparties sur les deux colonnes, à peu près à parts égales (comme aux dossiers du cabinet) : on passe à
+     la seconde quand la première a sa moitié du texte, ou plus de place ; le corps, le plus grand (9,5 à 7 pt) où tout
+     tient : une notice courte remplit la page, une longue se resserre */
+  const disposer = (corps: number) => {
+    const pas = corps * 0.49;
+    const rubriques = N.map(r => { const L = r.paragraphes.map(p => couper(p, (col - 4) * PT, corps)); return { r, L, h: 8.5 + L.reduce((s, l) => s + l.length * pas + 1.6, 0) } });
+    const moitie = (18 + rubriques.reduce((s, x) => s + x.h, 0)) / 2;
+    let c = 0, y = yT + 18, fin = 0;
+    const places = rubriques.map(x => {
+      if (c === 0 && y > yT + 18 && (y + Math.min(x.h, 30) > bas || y - yT + x.h / 2 > moitie)) { c = 1; y = yT }
+      const p = { ...x, c, y };
+      y += x.h; fin = Math.max(fin, y);
+      return p;
+    });
+    return { corps, pas, places, tient: fin <= bas };
+  };
+  const D2 = [9.5, 9, 8.5, 8, 7.5, 7].map(disposer).find(d => d.tient) ?? disposer(7);
+  const { corps, pas } = D2;
+  let y = 0;
+  for (const { r, L, c, y: y0 } of D2.places) {
+    y = y0;
     const x = x0 + c * (col + 10);
-    page.texte(r.titre.replace(/^\d+\.\s*/, ''), X(x), Y(y), 8.5, { gras: true, couleur: '#111111' }); y += 5.5;
+    page.texte(r.titre.replace(/^\d+\.\s*/, ''), X(x), Y(y), corps + 0.5, { gras: true, couleur: '#111111' }); y += 5.5;
     for (const l of L) {
       l.forEach((t, k) => {
         if (y > bas) return;

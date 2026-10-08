@@ -60,7 +60,9 @@ l'arrêter.
 7. **Terrain** : importer le plan du terrain (plan de division, extrait
    cadastral exporté, ancien plan de masse ; PDF vectoriel ou DXF). La
    limite est le contour dont les côtés correspondent aux cotes écrites ;
-   l'alignement, les altitudes TN et le nom de la voie sont lus. Si la
+   l'alignement, les altitudes TN, le nom de la voie, l'altitude du RDC
+   fini écrite (« ±0,00 = 50,30 ») et le nord dessiné (flèche ou rose avec
+   la lettre « N », à vérifier ⚠️) sont lus. Si la
    maison y est déjà dessinée, l'implantation est lue ; sinon, la placer
    parallèle à un côté, à une distance donnée de deux côtés. Les reculs
    sont **mesurés**.

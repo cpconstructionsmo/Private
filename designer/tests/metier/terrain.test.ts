@@ -144,18 +144,21 @@ describe('plan de masse : PDF et import', () => {
     expect(r.rapport.avertissements.some(a => /pas implantée/.test(a))).toBe(true);
   });
 
-  it('l’atelier passe aussi les altitudes lues, le ±0,00, les parcelles, les règles du PLU et le dossier (cases vides seulement)', () => {
+  it('l’atelier passe aussi les altitudes lues, le ±0,00, le nord, les parcelles, les règles du PLU et le dossier (cases vides seulement)', () => {
     const m = lireModeleAtelier(JSON.parse(fixture));
     const v = (valeur: unknown, statut: 'confirme' | 'hypothese' | 'impossible' = 'confirme') => ({ valeur, statut });
     m.terrain = { limites: [[0, 0], [30, 0], [30, 20], [0, 20], [0, 0]], alignement: [0], nom_voie: 'rue fictive', source: 'terrain_fictif.pdf', implantation: { angle: 90, dx: 12, dy: 4 },
-      tn: [{ x: 0, y: 0, z: 49.8, source: '« TN 49,80 »' }, { x: 30, y: 20, z: 50.4 }], altitude_rdc: v(50.1) };
+      tn: [{ x: 0, y: 0, z: 49.8, source: '« TN 49,80 »' }, { x: 30, y: 20, z: 50.4 }], altitude_rdc: v(50.1), nord: v(120, 'hypothese') };
     Object.assign(m, { parcelles: ['ZZ 12', 'ZZ 13'], maitre_ouvrage: 'M. et Mme Fictifs', adresse: '1 rue fictive\n00000 Villefictive', chauffage: 'Pompe à chaleur',
       zone_sismique: v('2 (faible)'), surface_terrain: v(600), modifications: [{ date: '01/10/2026', objet: 'Permis de construire' }],
       zone_plu: 'secteur UGc du PLUi fictif', regles: [{ cle: 'emprise_max', valeur: 35, article: 'UG 9' }, { cle: 'recul_alignement', valeur: 5, article: 'UG 6.1' }, { cle: 'hauteur_egout_max', valeur: 7 }] });
-    const { commandes } = commandesImport(m, 'n', generateurSequentiel('m'), { dossier: { chauffage: 'déjà saisi' } });
+    const { commandes, rapport } = commandesImport(m, 'n', generateurSequentiel('m'), { dossier: { chauffage: 'déjà saisi' } });
+    expect(rapport.avertissements.some(a => /Nord lu sur la flèche/.test(a))).toBe(true);
     const c = commandes.find(x => x.type === 'creerParcelle');
     if (c?.type !== 'creerParcelle') throw new Error('pas de parcelle');
     expect(c.altitudeRdc).toBe(50.1);
+    /* le nord à 120° de l'axe x du terrain, terrain tourné de -90° vers le RDC : à 60° à droite du haut du plan, à vérifier */
+    expect(c.nord).toBeCloseTo(-Math.PI / 3, 5);
     expect(c.reference).toBe('ZZ n°12 et 13');
     expect(c.altitudesTerrain!.map(x => x.ngf)).toEqual([49.8, 50.4]);
     expect(c.altitudesTerrain![0]!.point.x).toBeCloseTo(-4_000, 6);            // même passage au repère du RDC que la limite

@@ -7,7 +7,7 @@
    n'est inventé. Le texte est à relire, et l'atelier reste l'outil de la
    notice définitive. */
 import type { Opening, Project, Roof } from '../model/types';
-import { parcelleDuProjet, reculs, empriseAuSol, aireEmprise, surfaceTerrain, bilanAmenagements, altitudeTerrain } from '../building/terrain';
+import { parcelleDuProjet, reculs, empriseAuSol, aireEmprise, surfaceTerrain, bilanAmenagements, altitudeTerrain, accesDepuisLaVoie } from '../building/terrain';
 import { controlePlu, surfacesDuTerrain } from '../building/plu';
 import { fondationsDuProjet, SOUBASSEMENTS } from '../building/fondations';
 import { metreTerrain, NOMS_RESEAUX } from '../building/terrassement';
@@ -133,7 +133,9 @@ export function notice(p: Project): RubriqueNotice[] {
   abords.push('Espaces libres et plantations : ' + [SF ? 'pleine terre ' + m2(SF.pleineTerre) + ', soit ' + pc(SF.pleineTerre, SF.terrain) + ' du terrain' : '', vert ? 'espaces verts tracés ' + m2(vert) : '', ...arbres].filter(Boolean).join(' ; ')
     + (SF || arbres.length ? ' ; essences ' + A_COMPLETER : A_COMPLETER) + '.');
   const places = t?.plot.plu?.stationnementPrevu;
-  abords.push('Accès et stationnement : ' + ([...all, ...sta].length ? liste([...all, ...sta]) : A_COMPLETER)
+  /* les accès mesurés là où l'allée ou le stationnement arrivent sur la voie */
+  const acc = accesDepuisLaVoie(p).map(x => 'accès depuis la voie de ' + m(x.largeur));
+  abords.push('Accès et stationnement : ' + ([...acc, ...all, ...sta].length ? liste([...acc, ...all, ...sta]) : A_COMPLETER)
     + (places !== undefined ? ' ; ' + places + (places > 1 ? ' places de stationnement prévues' : ' place de stationnement prévue') : '')
     + (objets.some(o => o.type === 'room' && o.usage === 'garage') ? ' ; un garage est prévu dans la construction' : '') + '.');
   /* les réseaux tracés au plan de masse : leur longueur, et l'équipement posé à un de leurs bouts (puisard, regard, coffret) */
