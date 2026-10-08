@@ -286,11 +286,13 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
   const parement = mursDroits(f).find(w => w.role === 'exterior' && w.finish)?.finish;
   const habille = parement ? { finition: parement } : {};
   for (const t of r.toitures) {
-    for (const p of t.pans) plaques.push({ dessus: p.contour.map(q => ({ ...q, z: p.plan.a * q.x + p.plan.b * q.y + p.plan.c })), decalage: { x: 0, y: 0, z: -EPAISSEUR_COUVERTURE }, matiere: m, objet: roof.id, niveau: f.id });
+    /* l'épaisseur de la toiture (charpente et couverture) : au moins le talon, pour qu'elle repose sur l'arase */
+    const ep = Math.max(EPAISSEUR_COUVERTURE, t.talon);
+    for (const p of t.pans) plaques.push({ dessus: p.contour.map(q => ({ ...q, z: p.plan.a * q.x + p.plan.b * q.y + p.plan.c })), decalage: { x: 0, y: 0, z: -ep }, matiere: m, objet: roof.id, niveau: f.id });
     /* un pignon s'arrête sous la couverture (sinon son chant et le dessus du toit se disputent le même plan) */
     for (const g of t.pignons) {
       const z0 = Math.min(...g.points.map(q => q.z));
-      const dessus = g.points.map(q => (q.z > z0 + 1 ? { ...q, z: Math.max(z0, q.z - EPAISSEUR_COUVERTURE) } : q));
+      const dessus = g.points.map(q => (q.z > z0 + 1 ? { ...q, z: Math.max(z0, q.z - ep) } : q));
       plaques.push({ dessus, decalage: { ...g.vers, z: 0 }, matiere: 'mur', objet: roof.id, niveau: f.id, ...habille });
     }
     if (t.terrasse) {
@@ -331,7 +333,7 @@ export const EAUX_3D = { gouttiere: 120, descente: 80, rangSaillie: 70, rangHaut
 function egoutEtEaux(projet: Project, f: Floor, prismes: Prisme[]): void {
   const E = eauxPluviales(f), T = toitureDuNiveau(f);
   if (!E || !T?.ok) return;
-  const r = E.roof, G = EAUX_3D, zE = T.toitures[0]!.egoutZ, zMur = T.toitures[0]!.hautMurs;
+  const r = E.roof, G = EAUX_3D, zE = T.toitures[0]!.egoutZ, zMur = T.toitures[0]!.hautMurs + T.toitures[0]!.talon;
   const sol = Math.min(...projet.buildings.flatMap(b => b.floors).map(x => x.elevation));
   const egout = T.toitures.flatMap(t => t.egout.map((a, i) => ({ a, b: t.egout[(i + 1) % t.egout.length]!, anneau: t.egout })));
   /* la normale d'un égout vers le dehors */
@@ -348,7 +350,7 @@ function egoutEtEaux(projet: Project, f: Floor, prismes: Prisme[]): void {
     /* la génoise : sous l'égout, contre le mur (le nu est à « débord » en retrait de l'égout), un gradin par rang */
     const rangs = r.eavesFinish?.startsWith('genoise') ? Number(r.eavesFinish.slice(-1)) : 0;
     /* le rang du haut passe sous la sous-face du toit, là où il s'avance le plus (sinon il percerait la couverture) */
-    const zG = zMur - rangs * G.rangSaillie * Math.tan((r.pitch * Math.PI) / 180) - EPAISSEUR_COUVERTURE;
+    const zG = zMur - rangs * G.rangSaillie * Math.tan((r.pitch * Math.PI) / 180) - Math.max(EPAISSEUR_COUVERTURE, T.toitures[0]!.talon);
     /* l'égout déborde aussi aux bouts : chaque gradin est raccourci jusqu'au nu des murs d'angle, plus sa saillie */
     const u = normaliser(soustraire(l.b, l.a));
     for (let k = 0; k < rangs; k++) {

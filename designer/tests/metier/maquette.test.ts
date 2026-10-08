@@ -107,7 +107,7 @@ describe('maquette 3D', () => {
 describe('maquette 3D : la toiture', () => {
   it('croupes : 4 plaques de tuiles sous le faîtage ; deux pans : 2 pans et 2 pignons ; « sans toiture » : rien', () => {
     let { h, a, n } = maison(false);
-    h = ok(executer(h, 'Toiture', [{ type: 'creerToiture', niveau: n, genre: 'hip', pente: 45, debord: 500, couverture: 'tile' }], a));
+    h = ok(executer(h, 'Toiture', [{ type: 'creerToiture', niveau: n, genre: 'hip', pente: 45, debord: 500, couverture: 'tile', talon: 0 }], a));
     const M = maquette(h.projet);
     expect(M.plaques).toHaveLength(4);
     expect(M.plaques.every(p => p.matiere === 'tuile' && p.decalage.z === -200)).toBe(true);
