@@ -156,13 +156,44 @@ des pans en pointillé.
 
 **Mobilier** (outil B ; `src/catalogue/mobilier.ts`, `src/building/mobilier.ts`) :
 une quarantaine de meubles et équipements courants (séjour, chambre,
-cuisine, salle de bains, WC et buanderie, aire de rotation Ø 1,50 m), sans
+cuisine, salle de bains, WC et buanderie, place de stationnement au
+garage, aire de rotation Ø 1,50 m), sans
 marque ni prix. Approché d'un mur, un meuble s'y plaque dos contre la face
 et se tourne vers la pièce ; près d'un angle, il glisse jusqu'au mur
 voisin (Alt : pose libre ; T : quart de tour). On le tire pour le déplacer,
 l'inspecteur règle ses cotes et son orientation, « Dupliquer » en pose un
 autre. Même description pour le plan (symbole) et la 3D (volumes). Le
 mobilier ne change ni les murs ni les surfaces.
+
+**Meubler les pièces** (Produit › « Meubler les pièces », ou la palette ;
+`src/building/ameublement.ts`) : d'un clic, chaque pièce vide du niveau
+reçoit le mobilier de son usage, comme aux plans des dossiers du cabinet.
+- Chambre : un lit double (160, sinon 140, sinon un lit de 90), tête contre
+  un mur plein et loin de la porte, avec ses chevets ; une armoire s'il n'y
+  a pas de placard.
+- Pièce de vie (et cuisine) : une cuisine en ligne (évier sous la fenêtre si
+  possible, réfrigérateur en bout), l'îlot dans une grande pièce, le canapé
+  face au meuble TV avec sa table basse, la table et ses chaises.
+- Salle de bains : baignoire ; salle d'eau : douche (et le WC à partir de
+  4,5 m²) ; la vasque.
+- WC : la cuvette au fond, un lave-mains s'il reste un mur.
+- Cellier ou buanderie : lave-linge et sèche-linge côte à côte.
+- Garage : la place de stationnement (2,50 × 5,00 m, en tirets), dans l'axe
+  de la porte de garage.
+
+Règles de pose :
+- tout reste dans la pièce, sans chevauchement ;
+- le passage devant chaque porte reste libre : la largeur du battant s'il
+  ouvre dans la pièce, 70 cm sinon ;
+- rien de plus haut que l'allège devant une fenêtre ;
+- chaque meuble garde son dégagement d'usage.
+
+Une pièce qui a déjà un meuble (hors placard) n'est pas touchée. Ce qui ne
+tient pas est signalé, jamais forcé. Le tout est une seule action (Ctrl+Z
+retire tout), et chaque meuble se règle ensuite à la main.
+
+Au dossier de permis, le choix « Avec le mobilier » de l'export s'applique
+aussi aux plans des niveaux.
 
 **Copier, coller** (`src/engine/presse-papiers.ts`) : plusieurs objets se
 choisissent ensemble (Maj + clic, cadre tiré dans le vide, Ctrl+A) ;

@@ -9,7 +9,7 @@ import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, U
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, type CadastreLu, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, type CadastreLu, type MurDroit } from '../building';
 import { aireSignee, boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -1880,14 +1880,31 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   /** le mobilier : une catégorie par pièce ; un meuble choisi se pose d'un clic (ou glissé), contre le mur proche */
   function bibliothequeMobilier() {
     const choisi = outils.meuble.id;
-    const ICONES: Record<string, string> = { sejour: 'produit', chambre: 'lit', cuisine: 'cuisine', salle_de_bains: 'bain', wc_buanderie: 'wc', accessibilite: 'pmr' };
+    const ICONES: Record<string, string> = { sejour: 'produit', chambre: 'lit', cuisine: 'cuisine', salle_de_bains: 'bain', wc_buanderie: 'wc', garage: 'garage', accessibilite: 'pmr' };
     rendreCatalogue([
       ...Object.entries(FAMILLES_MEUBLES).map(([fam, nom]) => ({ cle: 'meu-' + fam, libelle: nom, icone: ICONES[fam] ?? 'produit', tuiles: () => MODELES_MEUBLES.filter(m => m.famille === fam).map(m => ({
         id: m.id, libelle: m.libelle, dessin: symboleMeuble(m), titre: m.libelle + ' — ' + texteCote(m.largeur) + ' × ' + texteCote(m.profondeur) + ' m', choisi: m.id === choisi, glisser: 'cp-meuble:' + m.id,
         choisir: () => { outils.reglages.modeleMeuble = m.id; if (outils.outil !== 'mobilier') choisir('mobilier'); $<HTMLElement>('.aide').textContent = 'Cliquez pour poser : ' + m.libelle + ' (T : tourner)' },
       })) })),
+      { cle: 'meubler', libelle: 'Meubler les pièces', icone: 'produit', action: meublerPieces },
       { cle: 'escalier', libelle: 'Escalier', icone: 'escalier', action: () => choisir('escalier') },
     ]);
+  }
+  /** meubler d'un coup les pièces vides du niveau, selon leur usage (building/ameublement.ts) :
+      une proposition, posée en une seule action — Ctrl+Z la retire toute */
+  function meublerPieces() {
+    const A = meublerNiveau(niveau()), n = niveau().id;
+    const manques = A.pieces.flatMap(p => p.manques.map(m => p.nom + ' : ' + m));
+    if (!A.meubles.length) {
+      toast(manques.length ? 'Rien à poser — ' + manques.join(' · ') : 'Aucune pièce vide à meubler sur ce niveau : une pièce déjà meublée n’est pas touchée, une pièce sans usage (circulation, dressing) non plus');
+      return;
+    }
+    const pieces = new Set(A.meubles.map(m => m.piece)).size;
+    if (faire('Meubler les pièces', A.meubles.map(m => ({ type: 'creerMeuble', niveau: n, modele: { id: m.modele.id, label: m.modele.libelle }, position: m.position, rotation: m.rotation,
+      largeur: m.modele.largeur, profondeur: m.modele.profondeur, hauteur: m.modele.hauteur })))) {
+      toast(A.meubles.length + ' meubles posés dans ' + pieces + ' pièce' + (pieces > 1 ? 's' : '') + ' — une proposition, à ajuster ; Ctrl+Z les retire tous'
+        + (manques.length ? ' · Place manquante : ' + manques.join(' · ') : ''));
+    }
   }
   /** l'outil Ouverture : le modèle choisi (le catalogue est à gauche) */
   function panneauOuverture() {
@@ -2703,7 +2720,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       const { dossierPc } = await import('../export/planche');
       const sig = await signature();
       const { octets, pieces } = dossierPc(h.projet, { ...sig, indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'),
-        ...(r['mo']?.trim() ? { maitreOuvrage: r['mo'] } : {}), ...(perspective && r['per'] !== 'non' ? { perspective } : {}), ...piecesDossier, ...(r['adr']?.trim() ? { adresseTerrain: r['adr'] } : {}), ...(r['ech'] && r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}) });
+        ...(r['mo']?.trim() ? { maitreOuvrage: r['mo'] } : {}), ...(r['mob'] === 'oui' ? { mobilier: true } : {}), ...(perspective && r['per'] !== 'non' ? { perspective } : {}), ...piecesDossier, ...(r['adr']?.trim() ? { adresseTerrain: r['adr'] } : {}), ...(r['ech'] && r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}) });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([octets], { type: 'application/pdf' }));
       a.download = (h.projet.name || 'projet') + ' - dossier PC.pdf';
@@ -2768,6 +2785,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Ajouter un niveau', faire: () => void ajouterNiveau() }, { libelle: 'Importer un fond (PDF, image)', faire: importerFond },
     { libelle: 'Importer le RDC lu par l’atelier (modele.json)', faire: importerAtelier },
     ...MODELES_OUVERTURES.map(m => ({ libelle: 'Poser : ' + m.libelle, faire: () => { outils.reglages.modeleOuverture = m.id; choisir('ouverture') } })),
+    { libelle: 'Meubler les pièces vides (selon leur usage)', faire: meublerPieces },
     ...MODELES_MEUBLES.map(m => ({ libelle: 'Meubler : ' + m.libelle, faire: () => { outils.reglages.modeleMeuble = m.id; choisir('mobilier') } })),
     { libelle: 'Marquer un jalon (APS V1, PC…)', visible: () => !!enr.marquerJalon, faire: async () => { const r = await dialogue('Jalon', [{ cle: 'n', libelle: 'Nom du jalon', valeur: 'APS V1' }]); if (r && enr.marquerJalon) { await enr.marquerJalon(r['n']!); toast('Jalon « ' + r['n'] + ' » : il partira avec le prochain enregistrement') } } },
     { libelle: 'Exporter les plans en PDF (A3)', faire: () => void exporterPdf() },

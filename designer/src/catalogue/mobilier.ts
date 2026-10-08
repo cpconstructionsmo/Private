@@ -10,13 +10,13 @@ import type { Mm } from '../model/types';
 
 export type Forme = 'boite' | 'lit' | 'canape' | 'fauteuil' | 'table' | 'table_ronde' | 'chaise' | 'armoire' | 'placard' | 'commode' | 'bureau'
   | 'meuble_tv' | 'meuble_bas' | 'evier' | 'plaque' | 'refrigerateur' | 'lave_vaisselle' | 'colonne' | 'ilot'
-  | 'wc' | 'lavabo' | 'vasque_double' | 'douche' | 'baignoire' | 'lave_linge' | 'chauffe_eau' | 'aire_rotation';
+  | 'wc' | 'lavabo' | 'vasque_double' | 'douche' | 'baignoire' | 'lave_linge' | 'chauffe_eau' | 'aire_rotation' | 'stationnement';
 
-export type FamilleMeuble = 'sejour' | 'chambre' | 'cuisine' | 'salle_de_bains' | 'wc_buanderie' | 'accessibilite';
+export type FamilleMeuble = 'sejour' | 'chambre' | 'cuisine' | 'salle_de_bains' | 'wc_buanderie' | 'garage' | 'accessibilite';
 
 export const FAMILLES_MEUBLES: Record<FamilleMeuble, string> = {
   sejour: 'Séjour, repas', chambre: 'Chambre, bureau', cuisine: 'Cuisine', salle_de_bains: 'Salle de bains',
-  wc_buanderie: 'WC, buanderie, technique', accessibilite: 'Accessibilité',
+  wc_buanderie: 'WC, buanderie, technique', garage: 'Garage', accessibilite: 'Accessibilité',
 };
 
 export interface ModeleMeuble { id: string; famille: FamilleMeuble; libelle: string; forme: Forme; largeur: Mm; profondeur: Mm; hauteur: Mm }
@@ -69,6 +69,8 @@ export const MODELES_MEUBLES: readonly ModeleMeuble[] = [
   m('lave-linge', 'wc_buanderie', 'Lave-linge', 'lave_linge', 600, 600, 850),
   m('seche-linge', 'wc_buanderie', 'Sèche-linge', 'lave_linge', 600, 600, 850),
   m('chauffe-eau', 'wc_buanderie', 'Chauffe-eau 200 L', 'chauffe_eau', 600, 600, 1_500),
+  /* la place de la voiture, comme aux plans des dossiers : un rectangle en tirets et ses diagonales, sans volume */
+  m('place-voiture', 'garage', 'Place de stationnement 2,50 × 5,00', 'stationnement', 2_500, 5_000, 0),
   m('aire-rotation', 'accessibilite', 'Aire de rotation Ø 150', 'aire_rotation', 1_500, 1_500, 0),
 ];
 

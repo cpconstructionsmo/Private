@@ -21,3 +21,4 @@ export * from './eaux-pluviales';
 export * from './lucarnes';
 export * from './cadastre';
 export * from './plu';
+export * from './ameublement';
