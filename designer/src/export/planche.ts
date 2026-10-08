@@ -14,7 +14,7 @@ import { surfacesReglementaires, type Surfaces } from '../building/surfaces';
 import { DocumentPdf, largeurTexte, type PagePdf } from './pdf';
 import { notice, A_COMPLETER } from './notice';
 import { lignesDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
-import { avecLogo, colonne, lieuDuProjetDe, titreDessin, texte, GRIS_TEXTE, type Signature, sigleRE2020, couper as couperF, CABINET_PAR_DEFAUT, type Cabinet, type ImageDossier } from './feuille';
+import { avecLogo, colonne, lieuDuProjetDe, titreDessin, texte, GRIS_TEXTE, type Signature, sigleRE2020, couper as couperF, CABINET_PAR_DEFAUT, mentionCabinet, type Cabinet, type ImageDossier } from './feuille';
 import { plancheFacades } from './planche-facades';
 import { plancheMasse } from './planche-masse';
 import { plancheCoupes } from './planche-coupes';
@@ -341,7 +341,7 @@ function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: 
   /* en Times, comme les dossiers du cabinet */
   page.texte('PLAN DE PERMIS DE CONSTRUIRE', X(cx), Y(118), 19, { police: 'serif', gras: true, aligne: 'centre', souligne: true, couleur: '#111111' });
   page.texte('PLANS - COUPES - FAÇADES', X(cx), Y(129), 11, { police: 'serif', aligne: 'centre', couleur: '#111111' });
-  couperTimes(C.mention ?? '', 170 * PT, 7.5).forEach((l, i) => page.texte(l, X(cx), Y(136 + i * 3.8), 7.5, { police: 'serif', aligne: 'centre', couleur: '#111111' }));
+  couperTimes(mentionCabinet(C), 170 * PT, 7.5).forEach((l, i) => page.texte(l, X(cx), Y(136 + i * 3.8), 7.5, { police: 'serif', aligne: 'centre', couleur: '#111111' }));
   /* couverture, chauffage, divers */
   boite(L0, 151, L1 - L0, 40);
   page.trait(X(L0 + 42), Y(151), X(L0 + 42), Y(191), 0.6);

@@ -186,6 +186,7 @@ def ecrire_terrain_pdf(chemin: str, echelle=200, avec_maison=True):
     for (x, y), z in (((1, 1), "49,80"), ((29, 1), "49,95"), ((27, 25), "50,40"), ((3, 23), "50,20")):
         page.insert_text(P((x, y)), f"TN {z}", fontsize=6)
     page.insert_text(P((12, -3)), "Rue d'Essai", fontsize=8)
+    page.insert_text(P((14, 10)), "±0,00 = 50,10", fontsize=6)
     page.insert_text((80, 800), f"PLAN DE MASSE  Echelle 1/{echelle}", fontsize=9)
     if avec_maison:
         m = affinity.translate(affinity.rotate(box(0, 0, 12, 9), MAISON_ANGLE, origin=(0, 0)), *MAISON_POS)

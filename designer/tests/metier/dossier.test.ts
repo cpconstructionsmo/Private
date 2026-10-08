@@ -4,7 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel } from '../../src/model';
 import { executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
-import { dossierPc } from '../../src/export/planche';
+import { dossierPc, CABINET_PAR_DEFAUT } from '../../src/export/planche';
+import { mentionCabinet } from '../../src/export/feuille';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 1) + (t += 1000)).toISOString(), id: generateurSequentiel('o') } };
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join(' ; ')); return r.historique };
@@ -13,6 +14,8 @@ const R = (x0: number, y0: number, x1: number, y1: number) => [{ x: x0, y: y0 },
 /** un JPEG fictif de 8 × 8 pixels (deux bandes de couleur), pour la page de perspective */
 export const JPEG = Uint8Array.from(atob('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAAIAAgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDx74Tf8xX/ALZf+z0UUV8Pn/8AyMqvy/8ASUftPB//ACI8P/29/wClyP/Z'), c => c.charCodeAt(0));
 const texte = (u: Uint8Array) => Array.from(u, c => String.fromCharCode(c)).join('');
+/** les textes d'un PDF, mis bout à bout (une phrase coupée en lignes se retrouve entière) */
+const textes = (s: string) => [...s.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map(m => m[1]!.replace(/\\(.)/g, '$1')).join(' ');
 
 function maison(parcelle: boolean) {
   const a = acteur(), p = creerProjet({ nom: 'Maison fictive', id: generateurSequentiel('p') });
@@ -90,6 +93,11 @@ describe('dossier de permis de construire', () => {
     /* le logo : une seule image dans le document, posée sur chaque page (garde et planches) */
     expect(s.match(/\/Subtype \/Image /g)).toHaveLength(1);
     expect(s.match(/\/Im1 Do/g)!.length).toBeGreaterThanOrEqual(7);
+    /* la mention de propriété, au nom de la société, sans texte de loi non vérifié */
+    const garde = textes(texte(dossierPc(h.projet, { indice: 'B', date: '04/10/2026', cabinet: { ...CABINET_PAR_DEFAUT, societe: 'Cabinet Fictif' } }).octets));
+    expect(garde).toContain('propri\xE9t\xE9 exclusive de la soci\xE9t\xE9 Cabinet Fictif. Il est interdit');
+    expect(garde).not.toMatch(/1992|\{soci/);
+    expect(mentionCabinet({ societe: 'Fictif', mention: 'Plans de la société {Société} .' })).toBe('Plans de la société Fictif.');
     /* effacer un champ (chaîne vide) ; annuler rend les informations d'avant */
     h = ok(executer(h, 'Effacer', [{ type: 'modifierDossier', champs: { chauffage: '', surfaceTerrain: null } }], a));
     expect(h.projet.dossier?.chauffage).toBeUndefined();

@@ -143,4 +143,30 @@ describe('plan de masse : PDF et import', () => {
     const r = commandesImport(m, 'n', generateurSequentiel('m'));
     expect(r.rapport.avertissements.some(a => /pas implantée/.test(a))).toBe(true);
   });
+
+  it('l’atelier passe aussi les altitudes lues, le ±0,00, les parcelles, les règles du PLU et le dossier (cases vides seulement)', () => {
+    const m = lireModeleAtelier(JSON.parse(fixture));
+    const v = (valeur: unknown, statut: 'confirme' | 'hypothese' | 'impossible' = 'confirme') => ({ valeur, statut });
+    m.terrain = { limites: [[0, 0], [30, 0], [30, 20], [0, 20], [0, 0]], alignement: [0], nom_voie: 'rue fictive', source: 'terrain_fictif.pdf', implantation: { angle: 90, dx: 12, dy: 4 },
+      tn: [{ x: 0, y: 0, z: 49.8, source: '« TN 49,80 »' }, { x: 30, y: 20, z: 50.4 }], altitude_rdc: v(50.1) };
+    Object.assign(m, { parcelles: ['ZZ 12', 'ZZ 13'], maitre_ouvrage: 'M. et Mme Fictifs', adresse: '1 rue fictive\n00000 Villefictive', chauffage: 'Pompe à chaleur',
+      zone_sismique: v('2 (faible)'), surface_terrain: v(600), modifications: [{ date: '01/10/2026', objet: 'Permis de construire' }],
+      zone_plu: 'secteur UGc du PLUi fictif', regles: [{ cle: 'emprise_max', valeur: 35, article: 'UG 9' }, { cle: 'recul_alignement', valeur: 5, article: 'UG 6.1' }, { cle: 'hauteur_egout_max', valeur: 7 }] });
+    const { commandes } = commandesImport(m, 'n', generateurSequentiel('m'), { dossier: { chauffage: 'déjà saisi' } });
+    const c = commandes.find(x => x.type === 'creerParcelle');
+    if (c?.type !== 'creerParcelle') throw new Error('pas de parcelle');
+    expect(c.altitudeRdc).toBe(50.1);
+    expect(c.reference).toBe('ZZ n°12 et 13');
+    expect(c.altitudesTerrain!.map(x => x.ngf)).toEqual([49.8, 50.4]);
+    expect(c.altitudesTerrain![0]!.point.x).toBeCloseTo(-4_000, 6);            // même passage au repère du RDC que la limite
+    expect(c.plu).toEqual({ empriseMax: 35, reculVoieMin: 5_000, egoutMax: 7_000, zone: 'UGc', source: 'secteur UGc du PLUi fictif – art. UG 9, UG 6.1' });
+    const d = commandes.find(x => x.type === 'modifierDossier');
+    if (d?.type !== 'modifierDossier') throw new Error('pas de dossier');
+    expect(d.champs).toEqual({ maitreOuvrage: 'M. et Mme Fictifs', lieuConstruction: '1 rue fictive\n00000 Villefictive', surfaceTerrain: 600, zoneSismique: '2 (faible)',
+      modifications: [{ date: '01/10/2026', objet: 'Permis de construire' }] });               // le chauffage déjà saisi n'est pas écrasé
+    /* le projet a déjà sa parcelle : le terrain de l'atelier n'est pas repris, c'est dit */
+    const r = commandesImport(m, 'n', generateurSequentiel('m'), { parcelle: true });
+    expect(r.commandes.some(x => x.type === 'creerParcelle')).toBe(false);
+    expect(r.rapport.avertissements.some(a => /déjà sa parcelle/.test(a))).toBe(true);
+  });
 });

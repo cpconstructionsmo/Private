@@ -39,11 +39,18 @@ export interface Cabinet {
   dessinateur?: string;
   /** les métiers, une ligne chacun (page de garde) */
   activites?: string;
-  /** la mention de propriété des plans (page de garde) */
+  /** la mention de propriété des plans (page de garde) ; « {société} » y devient le nom de la société */
   mention?: string;
 }
+/* la mention ne cite aucun texte de loi : une référence se vérifie sur Légifrance avant d'être imprimée,
+   et le cabinet peut l'ajouter lui-même (réglages du cabinet) */
 export const CABINET_PAR_DEFAUT: Cabinet = { societe: 'CP Constructions', activites: 'Construction\nRénovation\nExtension',
-  mention: 'Ces plans sont la propriété exclusive de la société. Il est interdit de les communiquer ou d’en faire usage sans son autorisation (loi du 11/03/1992).' };
+  mention: 'Ces plans sont la propriété exclusive de la société {société}. Il est interdit de les communiquer ou d’en faire usage sans son autorisation.' };
+
+/** la mention de propriété, au nom de la société du cabinet */
+export function mentionCabinet(C: Cabinet): string {
+  return (C.mention ?? '').replace(/\{soci[ée]t[ée]\}/gi, C.societe.trim()).replace(/\s+([.,])/g, '$1').trim();
+}
 
 /** les lignes d'un texte coupé à une largeur (points) */
 export function couper(t: string, largeur: number, corps: number, o: StyleTexte = {}): string[] {
