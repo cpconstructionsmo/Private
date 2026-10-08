@@ -50,6 +50,7 @@ export function boiteDessin(f: Floor, mobilier = true): { xmin: number; ymin: nu
   for (const o of Object.values(f.objects)) {
     if (mobilier && o.type === 'furniture') P.push(...emprise(o));
     if (o.type === 'landscape' && o.kind === 'terrace') P.push(...o.points);
+    if (o.type === 'canopy') P.push(...o.contour);
   }
   if (!P.length) for (const w of mursDroits(f)) P.push(w.axis.a, w.axis.b);
   if (!P.length) return null;
@@ -294,6 +295,7 @@ function legendeDuPlan(f: Floor, coupes: boolean): LigneLegende[] {
   if (isolant) L.push({ pastille: pastille('#F6ECD6', { zigzag: '#8B7B5B' }), texte: 'Doublage isolant' });
   if (W.some(w => w.role === 'partition')) L.push({ pastille: pastille('#A9A9A9'), texte: 'Cloison de distribution' });
   if (Object.values(f.objects).some(o => o.type === 'furniture' && formeDe(o) === 'placard')) L.push({ pastille: pastille('#FFFFFF', { tirets: true }), texte: 'Placard' });
+  if (Object.values(f.objects).some(o => o.type === 'canopy')) L.push({ pastille: pastille('#FFFFFF', { tirets: true }), texte: 'Couvert (porche, auvent : sous la toiture)' });
   if (coupes) L.push({ pastille: (page, x, y) => { page.trait(X(x), Y(y + 1.5), X(x + 7), Y(y + 1.5), 0.5, BRIQUE, [3, 1, 0.6, 1]); page.cadre(X(x), Y(y + 2.1), 2 * PT, 1.2 * PT, { ep: 0, fond: BRIQUE }) }, texte: 'Plan de coupe (voir PCMI 3)' });
   const vr = Object.values(f.objects).filter(o => o.type === 'opening' && (o.shutter === 'roller_motorized' || o.shutter === 'roller_manual'));
   if (vr.length) L.push({ pastille: (page, x, y) => texte(page, 'VR', x + 1, y + 2.6, 6.5, { couleur: GRIS_TEXTE }), texte: 'VR : volet roulant' + (vr.every(o => o.type === 'opening' && o.shutter === 'roller_motorized') ? ' motorisé' : '') });

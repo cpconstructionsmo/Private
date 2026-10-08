@@ -680,6 +680,20 @@ try {
   await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
   assert.equal((await luc()).length, 0, 'deux « annuler » retirent la lucarne');
   await videClic();
+  /* un porche tracé contre la façade sud : la toiture le couvre ; son inspecteur ; « annuler » le retire */
+  await p.click('.sous button[data-s=couverts]');
+  await p.click('.ruban .o-couvert');
+  await p.keyboard.press('f'); await p.click('.bzoomm');
+  for (const [x, y] of [[1000, -200], [4000, -200], [4000, -1200], [1000, -1200], [1000, -200]]) await clic(x, y);
+  const cv = async () => (await objets()).filter(o => o.type === 'canopy');
+  assert.deepEqual((await cv()).map(o => [o.name, o.supported, o.contour.length]), [['Porche couvert', true, 4]], 'porche tracé');
+  assert.ok(await p.evaluate(() => { const f = window.cpDesigner.projet().buildings[0].floors[0]; return Object.values(f.objects).some(o => o.type === 'canopy') }), 'porche au projet');
+  await p.keyboard.press('Escape');
+  await clic(2500, -800);
+  assert.match(await p.textContent('aside'), /Porche couvert[\s\S]*Soutenu[\s\S]*toiture du niveau le couvre/, 'inspecteur du porche');
+  await p.keyboard.press('Control+z');
+  assert.equal((await cv()).length, 0, '« annuler » retire le porche');
+  await videClic();
   /* l'égout et les gouttières : une génoise d'un clic, une descente posée sur l'égout (accrochée), retirée d'un clic, rendue par « annuler » */
   await p.click('.sous button[data-s=eaux]');
   await p.click('.ruban .egout-genoise_2');
@@ -710,7 +724,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, lucarne, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, lucarne, porche couvert, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

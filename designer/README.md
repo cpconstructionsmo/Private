@@ -585,6 +585,17 @@ plan de toiture, en 3D, aux façades et au métré (nombre par genre,
 couverture, façades et jouées, fenêtres). Le pan n'est pas percé sous la
 lucarne : charpente et chevêtre restent à étudier.
 
+**Porche et auvent** (Toit › Porche et auvent ; objet « canopy ») : un
+couvert accolé à la maison (porche, auvent, préau) se trace sommet par
+sommet contre les murs (ou côté par côté en tapant les longueurs). La
+toiture du niveau le couvre comme les murs (contours réunis, aux façades,
+aux coupes, en 3D et au plan de toiture) ; soutenu (poteaux, consoles :
+réglé à l'inspecteur), il compte dans l'emprise au sol, sinon non. Au
+plan : contour en tirets et nom, ligne de légende. L'atelier lit les
+couverts écrits sur le plan du RDC (« Porche couvert » dans un contour en
+tirets) : ils reviennent à l'import, leur soutien « à vérifier ». Les
+poteaux se posent avec l'outil Poteau.
+
 **Égout et gouttières** (Toit › Égout et gouttières ;
 `src/building/eaux-pluviales.ts`) : les lignes du toit se déduisent des pans
 calculés — égout (à l'altitude de l'égout), rive (pignon, haut d'un pan),

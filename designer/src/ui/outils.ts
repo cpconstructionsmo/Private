@@ -26,7 +26,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente' | 'lucarne';
+export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente' | 'lucarne' | 'couvert';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -133,7 +133,7 @@ type Prise =
   | { genre: 'parcelle'; id: string; depart: Point; contour: Point[] }
   | { genre: 'amenagement'; id: string; depart: Point; points: Point[] }
   /** un objet du terrain (plateforme, réseau, équipement, arbre) : il se déplace d'un bloc */
-  | { genre: 'terrain'; id: string; objet: 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam'; depart: Point; points: Point[] };
+  | { genre: 'terrain'; id: string; objet: 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' | 'canopy'; depart: Point; points: Point[] };
 
 const AIDES: Record<NomOutil, string> = {
   selection: 'Cliquer pour choisir ; tirer une extrémité, un mur ou une ouverture pour la déplacer',
@@ -158,6 +158,7 @@ const AIDES: Record<NomOutil, string> = {
   poutre: 'Poutre : cliquer le départ puis l’arrivée (Maj : 45°) ; elle passe sous le plafond, sa retombée se règle au ruban',
   profil: 'Profil en long du terrain : cliquer le départ puis l’arrivée du trait ; le profil s’affiche au panneau',
   pointdevue: 'Point de prise de vue d’une photographie du dossier : cliquer l’appareil, puis le point visé (Maj : 45°)',
+  couvert: 'Couvert (porche, auvent, préau) : cliquer chaque sommet, contre la maison — ou taper la longueur ; revenir au premier point ou Entrée pour le fermer. La toiture le couvre',
   lucarne: 'Lucarne : cliquer sur un pan de la toiture, au pied de sa façade (vue du niveau qui la porte) ; elle monte dans la pente',
   fenetretoit: 'Fenêtre de toit : cliquer sur un pan de la toiture (vue du niveau qui la porte) pour y poser un châssis de 78 × 98 cm',
   altitude: 'Point coté du terrain : cliquer où le géomètre a relevé une altitude, puis la saisir (NGF, en mètres)',
@@ -244,10 +245,10 @@ export class Outils {
   /** un sommet de plus pour la limite ; fermée (retour au premier point), elle devient la parcelle */
   private sommetTrace(p: Point, rayon: Mm): Effet {
     const S = this.sommetsTrace;
-    if (S.length >= 3 && distance(p, S[0]!) <= Math.max(rayon, EPS_COINCIDENCE) && this.outil !== 'reseau') return this.outil === 'amenagement' ? this.finirAmenagement(true) : this.outil === 'plateforme' ? this.finirTerrain() : this.fermerParcelle();
+    if (S.length >= 3 && distance(p, S[0]!) <= Math.max(rayon, EPS_COINCIDENCE) && this.outil !== 'reseau') return this.outil === 'amenagement' ? this.finirAmenagement(true) : this.outil === 'plateforme' ? this.finirTerrain() : this.outil === 'couvert' ? this.finirCouvert() : this.fermerParcelle();
     if (S.length && distance(p, S[S.length - 1]!) < 100) return {};
     S.push(p); this.depart = p; this.vise = null;
-    return { aide: S.length < 3 ? 'Sommet suivant — ou tapez la longueur du côté' : 'Sommet suivant ; revenir au premier point ou Entrée pour fermer la limite' };
+    return { aide: S.length < 3 ? 'Sommet suivant — ou tapez la longueur du côté' : 'Sommet suivant ; revenir au premier point ou Entrée pour fermer ' + (this.outil === 'parcelle' ? 'la limite' : 'le contour') };
   }
   /** l'aspect posé (le premier du genre si l'identifiant ne lui va pas) */
   get finitionAmenagement() {
@@ -285,6 +286,14 @@ export class Outils {
     const cmd: Commande = { type: 'creerAmenagement', niveau: bas?.id ?? c.niveau, genre: g, points: S.map(q => ({ ...q })), ferme: surface || ferme, finition: fin.id, hauteur: fin.hauteur };
     this.annulerGeste();
     return { commandes: { titre: GENRES_AMENAGEMENT[g].libelle, liste: [cmd] }, apercu: [], aide: AIDES.amenagement };
+  }
+  /** finir un couvert (fermé, trois sommets au moins), sur le niveau affiché : sa toiture le couvrira */
+  private finirCouvert(): Effet {
+    const c = this.contexte(), S = this.sommetsTrace;
+    if (S.length < 3) return { aide: 'Trois sommets au moins' };
+    const cmd: Commande = { type: 'creerCouvert', niveau: c.niveau, contour: S.map(q => ({ ...q })), nom: 'Porche couvert', soutenu: true };
+    this.annulerGeste();
+    return { commandes: { titre: 'Couvert', liste: [cmd] }, apercu: [], aide: AIDES.couvert };
   }
   /** finir une plateforme (fermée, trois sommets au moins) ou un réseau (deux points au moins) */
   private finirTerrain(): Effet {
@@ -440,7 +449,7 @@ export class Outils {
           const dx = Math.round(g.point.x - p.depart.x), dy = Math.round(g.point.y - p.depart.y), P = p.points.map(q => ({ x: q.x + dx, y: q.y + dy }));
           this.dernier = p.objet === 'platform' ? { type: 'modifierPlateforme', id: p.id, contour: P } : p.objet === 'network' ? { type: 'modifierReseau', id: p.id, points: P }
             : p.objet === 'network_item' ? { type: 'modifierEquipement', id: p.id, position: P[0]! } : p.objet === 'column' ? { type: 'modifierPoteau', id: p.id, position: P[0]! }
-            : p.objet === 'beam' ? { type: 'modifierPoutre', id: p.id, a: P[0]!, b: P[1]! } : { type: 'modifierArbre', id: p.id, position: P[0]! };
+            : p.objet === 'beam' ? { type: 'modifierPoutre', id: p.id, a: P[0]!, b: P[1]! } : p.objet === 'canopy' ? { type: 'modifierCouvert', id: p.id, contour: P } : { type: 'modifierArbre', id: p.id, position: P[0]! };
           return { apercu: [this.dernier] };
         }
         if (p.genre === 'parcelle') {
@@ -525,6 +534,7 @@ export class Outils {
       case 'parcelle':
       case 'amenagement':
       case 'plateforme':
+      case 'couvert':
       case 'reseau': {
         const a = this.accrocher(g, this.depart);
         if (this.sommetsTrace.length) this.vise = a.point;
@@ -630,6 +640,7 @@ export class Outils {
         else if (o?.type === 'dormer') this.prise = { genre: 'lucarne', id: o.id, depart: g.point, centre: { ...o.center } };
         else if (o?.type === 'landscape') this.prise = { genre: 'amenagement', id: o.id, depart: g.point, points: o.points.map(q => ({ ...q })) };
         else if (o?.type === 'platform') this.prise = { genre: 'terrain', id: o.id, objet: 'platform', depart: g.point, points: o.contour.map(q => ({ ...q })) };
+        else if (o?.type === 'canopy') this.prise = { genre: 'terrain', id: o.id, objet: 'canopy', depart: g.point, points: o.contour.map(q => ({ ...q })) };
         else if (o?.type === 'network') this.prise = { genre: 'terrain', id: o.id, objet: 'network', depart: g.point, points: o.points.map(q => ({ ...q })) };
         else if (o?.type === 'column') this.prise = { genre: 'terrain', id: o.id, objet: 'column', depart: g.point, points: [{ ...o.position }] };
         else if (o?.type === 'beam') this.prise = { genre: 'terrain', id: o.id, objet: 'beam', depart: g.point, points: [{ ...o.a }, { ...o.b }] };
@@ -676,6 +687,7 @@ export class Outils {
       }
       case 'amenagement':
       case 'plateforme':
+      case 'couvert':
       case 'reseau':
         return this.sommetTrace(this.accrocher(g, this.depart).point, g.rayon);
       case 'equipement': {
@@ -809,13 +821,13 @@ export class Outils {
       const sx = v.x < d.x ? -1 : 1, sy = v.y < d.y ? -1 : 1;
       return this.poserRectangle({ x: arrondi(d.x + sx * s.largeur), y: arrondi(d.y + sy * s.profondeur) });
     }
-    if (!['mur', 'refend', 'cloison', 'fictive', 'parcelle', 'amenagement', 'plateforme', 'reseau'].includes(this.outil)) return {};
+    if (!['mur', 'refend', 'cloison', 'fictive', 'parcelle', 'amenagement', 'plateforme', 'couvert', 'reseau'].includes(this.outil)) return {};
     if (s.genre !== 'longueur') return { aide: 'Tapez une longueur (4,50), ou 4,50<90 pour un angle' };
     let u: Point;
     if (s.angle !== undefined) { const r = s.angle * Math.PI / 180; u = { x: Math.cos(r), y: Math.sin(r) } }
     else { const v = this.vise, L = v ? distance(v, d) : 0; u = v && L > EPS_COINCIDENCE ? { x: (v.x - d.x) / L, y: (v.y - d.y) / L } : { x: 1, y: 0 } }
     const fin = { x: arrondi(d.x + u.x * s.longueur), y: arrondi(d.y + u.y * s.longueur) };
-    return ['parcelle', 'amenagement', 'plateforme', 'reseau'].includes(this.outil) ? this.sommetTrace(fin, 1) : this.poserMur(fin);
+    return ['parcelle', 'amenagement', 'plateforme', 'couvert', 'reseau'].includes(this.outil) ? this.sommetTrace(fin, 1) : this.poserMur(fin);
   }
 
   relacher(g: Geste): Effet {
@@ -830,7 +842,7 @@ export class Outils {
     }
     this.prise = null; this.bouge = false; this.dernier = null;
     if (!dernier) return { apercu: [] };
-    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'pointdevue' ? 'Déplacer un point de vue' : p.genre === 'fenetretoit' ? 'Déplacer une fenêtre de toit' : p.genre === 'lucarne' ? 'Déplacer une lucarne' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : p.genre === 'terrain' ? 'Déplacer : ' + ({ platform: 'plateforme', network: 'réseau', network_item: 'équipement', tree: 'arbre', column: 'poteau', beam: 'poutre' } as const)[p.objet] : 'Déplacer une ouverture';
+    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'pointdevue' ? 'Déplacer un point de vue' : p.genre === 'fenetretoit' ? 'Déplacer une fenêtre de toit' : p.genre === 'lucarne' ? 'Déplacer une lucarne' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : p.genre === 'terrain' ? 'Déplacer : ' + ({ platform: 'plateforme', network: 'réseau', network_item: 'équipement', tree: 'arbre', column: 'poteau', beam: 'poutre', canopy: 'couvert' } as const)[p.objet] : 'Déplacer une ouverture';
     return { apercu: [], commandes: { titre, liste: [dernier] } };
   }
 
@@ -839,6 +851,7 @@ export class Outils {
     if (k === 'Enter' && this.outil === 'parcelle' && this.sommetsTrace.length >= 3) return this.fermerParcelle();
     if (k === 'Enter' && this.outil === 'amenagement' && this.sommetsTrace.length >= 2) return this.finirAmenagement(false);
     if (k === 'Enter' && (this.outil === 'plateforme' || this.outil === 'reseau') && this.sommetsTrace.length >= 2) return this.finirTerrain();
+    if (k === 'Enter' && this.outil === 'couvert' && this.sommetsTrace.length >= 3) return this.finirCouvert();
     const enCours = this.traceEnCours;
     this.annulerGeste();
     if (k === 'Escape' && !enCours && this.outil !== 'selection') { this.outil = 'selection'; return { apercu: [], aide: AIDES.selection, fini: true } }

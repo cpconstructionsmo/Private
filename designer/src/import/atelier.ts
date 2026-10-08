@@ -37,7 +37,9 @@ export interface ValeurAtelier { valeur?: unknown; unite?: string; statut: 'conf
 export interface MurAtelier { id: string; polygone: PointM[]; trous?: PointM[][]; epaisseur: number; exterieur: boolean; porteur?: ValeurAtelier }
 export interface OuvertureAtelier { id: string; type: string; position: PointM; largeur: ValeurAtelier; hauteur: ValeurAtelier; allege: ValeurAtelier; exterieure?: boolean; origine?: string }
 export interface PieceAtelier { id: string; nom: string; usage: string; polygone: PointM[]; surface_calculee: number; surface_lue?: ValeurAtelier | null; humide?: boolean; exclue_habitable?: boolean; motif_exclusion?: string }
-export interface NiveauAtelier { nom?: string; murs: MurAtelier[]; ouvertures: OuvertureAtelier[]; pieces: PieceAtelier[] }
+/** un couvert lu par l'atelier (porche, auvent : un nom écrit dans un contour en tirets accolé à la maison) */
+export interface CouvertAtelier { nom: string; polygone: PointM[]; compte_emprise?: ValeurAtelier }
+export interface NiveauAtelier { nom?: string; murs: MurAtelier[]; ouvertures: OuvertureAtelier[]; pieces: PieceAtelier[]; couverts?: CouvertAtelier[] }
 export interface TerrainAtelier { limites?: PointM[]; alignement?: number[]; nom_voie?: string; source?: string; implantation?: { angle: number; dx: number; dy: number } | null;
   /** les altitudes du terrain naturel lues sur le plan (repère du terrain, m ; z en NGF) ; l'altitude du ±0,00 si le plan l'écrit */
   tn?: { x: number; y: number; z: number; source?: string }[]; altitude_rdc?: ValeurAtelier | null;
@@ -506,6 +508,15 @@ export function commandesImport(modele: ModeleAtelier, niveau: string, id: () =>
       type: 'creerPiece', niveau, point: pointInterieur(anneau), nom: p.nom, usage, humide: !!p.humide,
       origine: { label, document: fichier, statut: p.usage === 'autre' ? 'to_check' : 'confirmed', meta },
     });
+  }
+  /* les couverts (porche, auvent) : la toiture les couvrira ; soutenus (poteau écrit ou supposé par l'atelier), à vérifier */
+  for (const cv of n.couverts ?? []) {
+    const anneau = cv.polygone.map(enMm), ferme = anneau.length > 3 && distance(anneau[0]!, anneau[anneau.length - 1]!) < 1;
+    const contour = ferme ? anneau.slice(0, -1) : anneau;
+    if (contour.length < 3) continue;
+    const soutenu = cv.compte_emprise?.valeur !== false;
+    commandes.push({ type: 'creerCouvert', niveau, contour, nom: cv.nom || 'Couvert', soutenu,
+      origine: { label, document: fichier, statut: cv.compte_emprise?.statut === 'confirme' ? 'confirmed' : 'to_check', meta: { atelier: { couvert: cv.nom }, ...(cv.compte_emprise?.source ? { soutien: texteSource(cv.compte_emprise) } : {}) } } });
   }
   /* le terrain lu par l'atelier : sa limite revient dans le repère du RDC (l'implantation de l'atelier
      va du RDC au terrain : rotation puis translation ; on fait le chemin inverse) */

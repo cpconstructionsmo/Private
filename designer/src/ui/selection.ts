@@ -17,7 +17,7 @@ import { sectionPoteau } from '../building/structure';
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
-  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' | 'dormer' | 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' };
+  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' | 'dormer' | 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' | 'canopy' };
 
 /** viser : « escaliers » donne l'emprise des escaliers du niveau (calculée par l'appelant, qui connaît la hauteur à franchir) */
 export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: { id: string; emprise: Point[] }[] = []): Cible | null {
@@ -63,6 +63,8 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
     (a.type === 'furniture' ? a.width * a.depth : 0) - (b.type === 'furniture' ? b.width * b.depth : 0));
   if (meubles[0]) return { genre: 'objet', id: meubles[0].id, type: 'furniture' };
   for (const e of escaliers) if (positionDansAnneau(p, e.emprise) !== 'dehors') return { genre: 'objet', id: e.id, type: 'stair' };
+  /* un couvert (porche, auvent) : dans son contour */
+  for (const o of Object.values(f.objects)) if (o.type === 'canopy' && positionDansAnneau(p, o.contour) !== 'dehors') return { genre: 'objet', id: o.id, type: 'canopy' };
   /* un aménagement extérieur : près d'une clôture, ou dans une surface (la plus petite d'abord) */
   const L = Object.values(f.objects).flatMap(o => (o.type === 'landscape' ? [o] : []));
   for (const o of L) if (o.kind === 'fence' && o.points.some((a, i) => (i < o.points.length - 1 || o.closed) && distancePointSegment(p, { a, b: o.points[(i + 1) % o.points.length]! }) <= rayon / 2)) return { genre: 'objet', id: o.id, type: 'landscape' };
@@ -99,7 +101,7 @@ export function dansCadre(f: Floor, p: Point, q: Point): string[] {
     else if ((o.type === 'network_item' || o.type === 'tree' || o.type === 'column') && dedans(o.position)) out.push(o.id);
     else if (o.type === 'beam' && dedans(o.a) && dedans(o.b)) out.push(o.id);
     else if (o.type === 'network' && o.points.every(dedans)) out.push(o.id);
-    else if (o.type === 'platform' && o.contour.every(dedans)) out.push(o.id);
+    else if ((o.type === 'platform' || o.type === 'canopy') && o.contour.every(dedans)) out.push(o.id);
   }
   return out;
 }
