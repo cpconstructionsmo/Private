@@ -69,6 +69,7 @@ const I: Record<string, string> = {
   lucarne_gable: '<path d="M2 20l10-9 10 9"/><path d="M8 15.5V11l4-4 4 4v4.5"/><path d="M10.5 13h3v3h-3z"/>',
   lucarne_hip: '<path d="M2 20l10-9 10 9"/><path d="M8 15.5V11.5h8v4"/><path d="M8 11.5l2-3h4l2 3"/><path d="M10.5 13h3v2.5h-3z"/>',
   lucarne_shed: '<path d="M2 20l10-9 10 9"/><path d="M8 15.5V10.5l9 2v3"/><path d="M10 12.5h3v2.5h-3z"/>',
+  couvert: '<path d="M2 11l10-7 10 7"/><path d="M5 10v10h6v-7"/><path d="M11 13h9"/><path d="M19 13v7"/><path d="M14 20h7" stroke-dasharray="2 2"/>',
   descente: '<path d="M3 6h14l2 2"/><path d="M15 8v13"/><path d="M19 8v13"/><path d="M3 6v2h12"/>',
   genoise: '<path d="M2 6h20"/><path d="M4 9a2 2 0 0 0 4 0m2 0a2 2 0 0 0 4 0m2 0a2 2 0 0 0 4 0"/><path d="M5 13a2 2 0 0 0 4 0m2 0a2 2 0 0 0 4 0"/><path d="M3 18h18v3H3z"/>',
   trappe: '<path d="M5 5h14v14H5z"/><path d="M5 5l14 14M19 5L5 19"/>',

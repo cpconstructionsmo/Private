@@ -403,7 +403,17 @@ export interface Foundation extends BaseObject {
   hatches: Point[];
 }
 
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree | Column | Beam | Foundation | Dormer;
+/** un couvert accolé à la maison (porche, auvent, préau) : hors des murs, la toiture du niveau le couvre comme les murs.
+ *  Soutenu (poteaux, consoles), il compte dans l'emprise au sol ; il n'a ni surface de plancher ni surface habitable */
+export interface Canopy extends BaseObject {
+  type: 'canopy';
+  /** « Porche couvert », « Auvent » */
+  name: string;
+  contour: Point[];
+  supported: boolean;
+}
+
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree | Column | Beam | Foundation | Dormer | Canopy;
 
 export interface Floor {
   id: string;

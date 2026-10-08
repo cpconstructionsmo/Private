@@ -15,7 +15,7 @@
 import { cadastreInvalide, deplacerCadastre } from '../building/cadastre';
 import { teinteOuvrageInvalide } from '../catalogue/menuiseries';
 import { reglesPluInvalides } from '../building/plu';
-import type { Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu } from '../model/types';
+import type { Canopy, Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -135,6 +135,9 @@ export type Commande =
   | { type: 'creerEquipement'; niveau: string; genre: NetworkItem['kind']; position: Point; nom?: string }
   | { type: 'modifierEquipement'; id: string; genre?: NetworkItem['kind']; position?: Point; nom?: string | null }
   | { type: 'creerArbre'; niveau: string; position: Point; diametre: Mm; etat: Tree['state'] }
+  /** un couvert (porche, auvent) accolé à la maison : la toiture le couvre ; soutenu, il compte dans l'emprise */
+  | { type: 'creerCouvert'; niveau: string; contour: Point[]; nom?: string; soutenu?: boolean; origine?: Origine }
+  | { type: 'modifierCouvert'; id: string; contour?: Point[]; nom?: string; soutenu?: boolean }
   | { type: 'creerPoteau'; niveau: string; position: Point; largeur: Mm; profondeur: Mm; rotation?: number; matiere: Column['material'] }
   | { type: 'modifierPoteau'; id: string; position?: Point; largeur?: Mm; profondeur?: Mm; rotation?: number; matiere?: Column['material'] }
   | { type: 'creerPoutre'; niveau: string; a: Point; b: Point; largeur: Mm; retombee: Mm; matiere: Beam['material'] }
@@ -980,6 +983,26 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.position) { avant['position'] = o!.position; apres['position'] = { ...position } }
       if (cmd.diametre !== undefined) { avant['diameter'] = o!.diameter; apres['diameter'] = diametre }
       if (cmd.etat !== undefined) { avant['state'] = o!.state; apres['state'] = etat }
+      if (!Object.keys(apres).length) return accepte([]);
+      return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
+    }
+    case 'creerCouvert': case 'modifierCouvert': {
+      const t = cmd.type === 'modifierCouvert' ? trouverObjet(p, cmd.id) : null;
+      if (cmd.type === 'modifierCouvert' && (!t || t.objet.type !== 'canopy')) return refus('couvert introuvable');
+      if (cmd.type === 'creerCouvert' && !trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const o = t?.objet as Canopy | undefined;
+      const contour = cmd.contour ?? o!.contour, nom = (cmd.nom ?? o?.name ?? 'Porche couvert').trim(), soutenu = cmd.soutenu ?? o?.supported ?? true;
+      if (contour.length < 3 || contour.length > 64 || !contour.every(ptFini)) return refus('contour du couvert invalide');
+      if (Math.abs(aireSignee(contour)) < 250_000) return refus('couvert trop petit (moins de 0,25 m²)');
+      if (!nom || nom.length > 60) return refus('nom du couvert : 1 à 60 caractères');
+      if (cmd.type === 'creerCouvert') {
+        const n: Canopy = { id: c.id(), type: 'canopy', floorId: cmd.niveau, ...provenance(c, cmd.origine), revision: c.revision, name: nom, contour: contour.map(q => ({ x: q.x, y: q.y })), supported: !!soutenu };
+        return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: n }]);
+      }
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.contour) { avant['contour'] = o!.contour; apres['contour'] = contour.map(q => ({ x: q.x, y: q.y })) }
+      if (cmd.nom !== undefined && nom !== o!.name) { avant['name'] = o!.name; apres['name'] = nom }
+      if (cmd.soutenu !== undefined && soutenu !== o!.supported) { avant['supported'] = o!.supported; apres['supported'] = soutenu }
       if (!Object.keys(apres).length) return accepte([]);
       return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
     }

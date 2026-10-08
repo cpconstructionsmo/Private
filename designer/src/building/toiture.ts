@@ -28,7 +28,7 @@
 import type { Floor, Mm, Point, Roof } from '../model/types';
 import { planDuNiveau } from './plan';
 import { mursDroits } from './murs';
-import { difference, union } from '../geometry/booleen';
+import { difference, intersection, union } from '../geometry/booleen';
 import { aire, aireSignee, type Anneau, type Polygone } from '../geometry/polygon';
 import { positionDansAnneau } from '../geometry/predicats';
 import { decalerPolyligne } from '../geometry/decalage';
@@ -85,7 +85,13 @@ function calculer(f: Floor, r: Roof): ResultatToiture {
   const hautMurs = f.elevation + (ext.length ? Math.max(...ext.map(w => w.baseOffset + w.height)) : f.height);
   const epaisseur = ext.length ? Math.max(...ext.map(w => w.thickness)) : 200;
   const toitures: Toiture[] = [];
-  for (const m of plan.maconnerie) {
+  /* les couverts accolés (porche, auvent) : la toiture les couvre comme les murs ; un couvert seul, loin de la maison,
+     n'a pas de toit à lui (il n'est réuni qu'aux contours qu'il touche) */
+  const couverts = Object.values(f.objects).flatMap(o => (o.type === 'canopy' ? [{ contour: o.contour }] : []));
+  const contours = couverts.length
+    ? union([...plan.maconnerie.map(m => ({ contour: m.contour })), ...couverts]).filter(q => plan.maconnerie.some(m => intersection([q], [{ contour: m.contour }]).some(x => aire(x) > 1))).map(q => ({ contour: q.contour }))
+    : plan.maconnerie;
+  for (const m of contours) {
     const t = r.kind === 'flat' ? terrasse(m.contour, r, hautMurs) : enPente(m.contour, r, hautMurs, epaisseur);
     if (typeof t === 'string') return { ok: false, raison: t };
     toitures.push(t);

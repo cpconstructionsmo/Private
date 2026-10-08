@@ -2,7 +2,8 @@
    le plan de masse (PCMI 2). Tout se MESURE, rien n'est recopié :
 
    - l'emprise au sol : la projection de la maçonnerie de tous les niveaux
-     (contours extérieurs réunis) ; les débords de toit n'y sont pas comptés ;
+     (contours extérieurs réunis) et des couverts soutenus (porche, auvent
+     sur poteaux) ; les débords de toit n'y sont pas comptés ;
    - les reculs : la plus courte distance de cette emprise à chaque côté de
      la limite, avec les deux points qui la donnent (pour la coter) ;
    - la surface du terrain : celle de la limite tracée.
@@ -30,6 +31,8 @@ export function parcelleDuProjet(p: Project): { plot: Plot; niveau: Floor } | nu
 export function empriseAuSol(p: Project): Polygone[] {
   const P: Polygone[] = [];
   for (const b of p.buildings) for (const f of b.floors) for (const m of planDuNiveau(f).maconnerie) P.push({ contour: m.contour });
+  /* un couvert soutenu (porche, auvent sur poteaux) compte dans l'emprise : seuls les débords non soutenus en sont exclus */
+  for (const b of p.buildings) for (const f of b.floors) for (const o of Object.values(f.objects)) if (o.type === 'canopy' && o.supported) P.push({ contour: o.contour });
   return P.length ? union(P).map(q => ({ contour: q.contour })) : [];
 }
 

@@ -53,7 +53,9 @@ export function lignesDeToiture(t: Toiture): LigneToiture[] {
     const j = t.pans.findIndex((Q, n) => n !== i && surAnneau(m, Q.contour));
     if (j < 0) { L.push({ genre: 'rive', a: A, b: B }); return }
     if (j < i) return;
-    if (Math.abs(A.z - B.z) <= EPS) { L.push({ genre: 'faitage', a: A, b: B }); return }
+    /* un faîtage de quelques millimètres (là où arêtier et noue se croisent presque, au coin rentrant d'un contour
+       un peu de travers) n'en est pas un : il ne se dessine ni ne se cote */
+    if (Math.abs(A.z - B.z) <= EPS) { if (distance(a, b) >= 20) L.push({ genre: 'faitage', a: A, b: B }); return }
     /* un pas dans le pan i : le toit y est le plan i ; plus bas que le plan voisin : les pans s'écartent (arêtier) */
     const L0 = distance(a, b), n = { x: -(b.y - a.y) / L0 * 50, y: (b.x - a.x) / L0 * 50 };
     const q = positionDansAnneau({ x: m.x + n.x, y: m.y + n.y }, P.contour) === 'dedans' ? { x: m.x + n.x, y: m.y + n.y } : { x: m.x - n.x, y: m.y - n.y };

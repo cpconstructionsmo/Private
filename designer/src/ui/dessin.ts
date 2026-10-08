@@ -2,7 +2,7 @@
    lit le plan dérivé (planDuNiveau), les cotes (dessinCote) et la caméra.
    Ordre : grille, fond calé, niveau du dessous en fantôme, pièces,
    maçonnerie, ouvertures, cotes, contraintes, sélection, accrochage. */
-import type { Floor, Furniture, Opening, Point, Room, Underlay } from '../model/types';
+import type { Canopy, Floor, Furniture, Opening, Point, Room, Underlay } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
 import { decalagesFaces, mursDroits, mursFictifs, type MurDroit } from '../building/murs';
 import { couchesDuNiveau, type BandeCouche } from '../building/couches';
@@ -153,6 +153,8 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   for (const e of s.escaliers ?? []) escalier(ctx, cam, e.geo, estChoisi(e.id));
   /* les semelles, sous les murs : on en voit les débords de part et d'autre */
   if (s.fondations) semelles(ctx, cam, s.fondations);
+  /* les couverts (porche, auvent), sous les murs : leurs bords libres en tirets, leur nom */
+  for (const o of Object.values(s.niveau.objects)) if (o.type === 'canopy') couvert(ctx, cam, o, estChoisi(o.id), !!s.dossier);
   /* maçonnerie (ouvertures découpées) */
   /* la maçonnerie : blanche, hachurée à 45°, cernée de noir (les murs composés se dessinent ensuite couche à couche) */
   ctx.fillStyle = s.dossier ? DOSSIER.maconnerie : COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
@@ -482,6 +484,18 @@ function largeurEtiquetteDossier(ctx: CanvasRenderingContext2D, z: { piece?: Roo
   return Math.max(ctx.measureText(nom).width, ctx.measureText('SH : ' + m2(z.aire)).width * 0.85) + 6;
 }
 /** « debout » : le sens choisi par la place de l'étiquette ; à défaut, debout dans une pièce plus étroite que le nom */
+/** un couvert : son contour en tirets (les bords contre la maison passent sous les murs), son nom au milieu */
+function couvert(ctx: CanvasRenderingContext2D, cam: Camera, o: Canopy, choisi: boolean, dossier: boolean): void {
+  const P = o.contour.map(q => versEcran(cam, q));
+  ctx.beginPath(); P.forEach((e, i) => (i ? ctx.lineTo(e.x, e.y) : ctx.moveTo(e.x, e.y))); ctx.closePath();
+  if (!dossier) { ctx.fillStyle = choisi ? 'rgba(0,150,160,0.12)' : 'rgba(150,140,120,0.10)'; ctx.fill() }
+  ctx.strokeStyle = choisi ? COULEURS.accent : COULEURS.encre; ctx.lineWidth = choisi ? 1.8 : 1; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+  const c = centroide(o.contour), e = versEcran(cam, c);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = dossier ? '#333333' : COULEURS.encre;
+  ctx.font = 'italic ' + (dossier ? '10.5px Helvetica, ' : '11px system-ui, ') + 'sans-serif';
+  ctx.fillText(o.name, e.x, e.y);
+}
+
 function etiquetteDossier(ctx: CanvasRenderingContext2D, cam: Camera, z: { piece?: Room | null; aire: number; polygone: Polygone }, e: { x: number; y: number }, debout?: boolean): void {
   const nom = z.piece ? z.piece.name : 'À nommer';
   const annexe = !!z.piece && (z.piece.usage === 'garage' || !!z.piece.excludedFromHabitable?.value);

@@ -5,12 +5,12 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { Beam, BuildingObject, Column, Dormer, Floor, Foundation, Underlay, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
+import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, Underlay, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
 import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, type CadastreLu, type MurDroit } from '../building';
-import { boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
+import { aireSignee, boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
 import { dessiner, NOMS_ACCROCHE, type Scene } from './dessin';
@@ -893,6 +893,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'poteau', icone: 'poteau', libelle: 'Poteau', touche: '' }, { nom: 'poutre', icone: 'poutre', libelle: 'Poutre', touche: '' },
     { nom: 'trappe', icone: 'trappe', libelle: 'Trappe de visite', touche: '' }, { nom: 'descente', icone: 'descente', libelle: 'Descente d’eaux pluviales', touche: '' },
     { nom: 'lucarne', icone: 'lucarne_gable', libelle: 'Lucarne', touche: '' },
+    { nom: 'couvert', icone: 'couvert', libelle: 'Couvert (porche, auvent)', touche: '' },
     { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.filter(o => o.touche).map(o => [o.touche.toLowerCase(), o.nom]));
@@ -901,7 +902,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     mur: ['trace', 'murs'], refend: ['trace', 'murs'], cloison: ['trace', 'murs'], fictive: ['trace', 'murs'], rectangle: ['trace', 'murs'],
     piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
     ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
-    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'], descente: ['toit', 'eaux'], lucarne: ['toit', 'lucarnes'],
+    plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'], descente: ['toit', 'eaux'], lucarne: ['toit', 'lucarnes'], couvert: ['toit', 'couverts'],
     mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
   };
   function choisir(o: NomOutil) {
@@ -918,7 +919,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const place = PLACE_OUTIL[o];
     if (place && !offertIci(o)) { onglet = place[0]; sousOnglets[place[0]] = place[1] }
     if (o !== 'piece') typePiece = null;
-    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre' || o === 'poteau' || o === 'poutre' || o === 'trappe' || o === 'descente' || o === 'lucarne') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
+    choixMur = null; if (o === 'ouverture' || o === 'mobilier' || o === 'escalier' || o === 'coupe' || o === 'parcelle' || o === 'amenagement' || o === 'pointdevue' || o === 'fenetretoit' || o === 'plateforme' || o === 'reseau' || o === 'equipement' || o === 'arbre' || o === 'poteau' || o === 'poutre' || o === 'trappe' || o === 'descente' || o === 'lucarne' || o === 'couvert') selection = null; effet(outils.choisir(o)); barreOutils(); panneaux() }
   /** l'outil est-il une tuile du sous-onglet ouvert ? */
   const offertIci = (o: NomOutil) => !!sousCourant().tuiles?.().some(t => !!t.classe?.split(' ').includes('o-' + o));
 
@@ -991,6 +992,12 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         libelle: LUCARNES[g].replace(/ \(.*/, ''), icone: 'lucarne_' + g, classe: 'o-lucarne luc-' + g, titre: LUCARNES[g] + ' : cliquez sur un pan, au pied de sa façade',
         faire: () => { outils.reglages.genreLucarne = g; choisir('lucarne') }, actif: () => outils.outil === 'lucarne' && outils.reglages.genreLucarne === g })),
         panneau: () => sectionToiture(niveauToit()) },
+      { id: 'couverts', libelle: 'Porche et auvent', icone: 'couvert', tuiles: () => [outil('couvert', 'Porche, auvent')],
+        panneau: () => {
+          const C = niveaux().flatMap(f => Object.values(f.objects)).filter((o): o is Canopy => o.type === 'canopy');
+          aside.append(titre('Porche et auvent'), bloc('Un couvert accolé à la maison (porche, auvent, préau) : tracez-le contre les murs ; la toiture du niveau le couvre, et soutenu (poteaux, consoles) il compte dans l’emprise au sol. Posez ses poteaux avec l’outil Poteau (Tracé › Structure).'),
+            ...(C.length ? [bloc(C.map(o => o.name + ' : ' + m2(Math.abs(aireSignee(o.contour))) + (o.supported ? ', soutenu' : ', non soutenu')).join(' ; ') + '.')] : []));
+        } },
       { id: 'eaux', libelle: 'Égout et gouttières', icone: 'descente', entrer: () => { const f = niveauToit(); if (f.id !== niveauId) { niveauId = f.id; selection = null; apres() } },
         tuiles: () => [outil('descente', 'Descente EP'),
           ...(['genoise_1', 'genoise_2', 'genoise_3'] as const).map(g => ({ libelle: FINITIONS_EGOUT[g], icone: 'genoise', classe: 'egout-' + g, titre: 'Égout en génoise (tuiles canal en encorbellement)',
@@ -1299,7 +1306,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const TYPES: Record<string, [string, string]> = { wall: ['murs', 'Mur'], opening: ['ouvrant', 'Ouvrant'], room: ['piece', 'Pièce'], dimension: ['cote', 'Cote'], underlay: ['fond', 'Fond'],
       furniture: ['produit', 'Produit'], stair: ['escalier', 'Escalier'], section: ['coupe', 'Coupe'], roof_window: ['fenetre_toit', 'Fenêtre de toit'], dormer: ['lucarne_gable', 'Lucarne'], viewpoint: ['point_de_vue', 'Point de vue'],
       landscape: ['exterieur', 'Aménagement'], plot: ['parcelle', 'Terrain'], constraint: ['equerre', 'Contrainte'], roof: ['toit', 'Toit'],
-      platform: ['plateforme', 'Plateforme'], network: ['reseau', 'Réseau'], network_item: ['regard', 'Équipement'], tree: ['arbre', 'Arbre'], column: ['poteau', 'Poteau'], beam: ['poutre', 'Poutre'] };
+      platform: ['plateforme', 'Plateforme'], network: ['reseau', 'Réseau'], network_item: ['regard', 'Équipement'], tree: ['arbre', 'Arbre'], column: ['poteau', 'Poteau'], beam: ['poutre', 'Poutre'], canopy: ['couvert', 'Couvert'] };
     const [ic, lib] = en3D ? ['vue3d', 'Vue 3D'] : groupe.length ? ['tout', 'Sélection'] : o ? TYPES[o.type] ?? ['trace', 'Objet']
       : outils.outil === 'ouverture' ? ['ouvrant', 'Ouvrant'] : outils.outil === 'mobilier' ? ['produit', 'Produit'] : outils.outil === 'escalier' ? ['escalier', 'Escalier']
       : outils.outil === 'amenagement' ? ['exterieur', 'Extérieur'] : S.panneau ? [S.icone, S.libelle] : ['niveaux', 'Niveau'];
@@ -1635,6 +1642,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           champ('État', o.state, v => mod('État de l’arbre', { etat: v as Tree['state'] }), 'text', ETATS_ARBRES),
           champ('Diamètre de la couronne (m)', (o.diameter / 1000).toFixed(1), v => mod('Couronne', { diametre: mm(v) }), 'number'),
           bloc('Tirez-le pour le déplacer. Le formulaire du permis demande de montrer au plan de masse les plantations conservées, supprimées ou créées.'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
+      case 'canopy': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierCouvert' }>>) => faire(t, [{ type: 'modifierCouvert', id: o.id, ...c }]);
+        A.append(titre(o.name),
+          champ('Nom', o.name, v => mod('Nom du couvert', { nom: v }), 'text'),
+          champ('Soutenu', o.supported ? 'oui' : 'non', v => mod('Soutien du couvert', { soutenu: v === 'oui' }), 'text', { oui: 'Oui (poteaux, consoles) : dans l’emprise', non: 'Non : débord, hors emprise' }),
+          bloc('Surface ' + m2(Math.abs(aireSignee(o.contour))) + '. La toiture du niveau le couvre comme les murs ; posez ses poteaux avec l’outil Poteau. Tirez-le pour le déplacer.'),
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
