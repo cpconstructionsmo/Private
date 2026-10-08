@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-07 · Prospects : une coche « Parti à la concurrence » archive le prospect';
+const VERSION='2026-10-08 · Options du prospect : prestation initiale déduite, rétrocession dans l’écart, honoraires CP par option';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1290,19 +1290,86 @@ const posteMontantMajore=(x,majTarifs)=>Math.round((+(x&&x.montant)||0)
    qu'on enlève — et se compte en négatif une fois cochée « Déduire du
    marché », comme une option se compte une fois cochée « Inclure ». */
 const optionSigne=x=>(x&&x.moinsValue)?-1:1;
-const optionMontant=(x,majTarifs)=>optionSigne(x)*posteMontantMajore(x,majTarifs);
+const saisi=v=>v!==undefined&&v!==null&&v!=='';
+/* ---------- une option qui remplace une prestation déjà chiffrée ----------
+   Des portes « FUJI » au lieu des portes de base : l'option ne coûte au
+   client que ce qu'elle ajoute, le prix de la prestation choisie moins
+   celui de la prestation initiale — un poste du chiffrage, suivi s'il
+   change, ou un montant saisi quand elle n'en est qu'une partie. La
+   rétrocession se pose alors dans le prix de cet écart, et de lui seul :
+   l'artisan garde son écart, la rétrocession vient en plus. On part donc
+   des prix de l'artisan, sans la rétrocession déjà relevée dans les prix
+   unitaires d'un quantitatif ou tirée d'un prix de base — sinon elle se
+   compterait deux fois. Une option sans prestation initiale garde
+   exactement l'ancien calcul. */
+const posteMontantArtisan=x=>{
+  if(!x)return 0;
+  const lignes=x.quantitatif&&x.quantitatif.lignes, a=+x.retroPctApplique||0;
+  if(lignes&&lignes.length&&a>0&&a<100)
+    return quantitatifNet(lignes.map(l=>estArticle(l)?{...l,pu:Math.round((+l.pu||0)*(1-a/100)*100)/100}:l),remisePct(x));
+  if(!(lignes&&lignes.length)&&+x.prixBase>0&&+x.retroPct>0)return +x.prixBase;
+  return +x.montant||0;
+};
+const optionAvecInitiale=x=>!!(x&&!x.moinsValue&&x.initiale
+  &&(x.initiale.type==='poste'?!!x.initiale.posteId:saisi(x.initiale.montant)));
+/* la prestation initiale : un poste disparu depuis ne se devine pas — il
+   ne déduit plus rien, et l'éditeur le signale */
+const optionInitiale=(x,majTarifs,p)=>{
+  const i=(x&&x.initiale)||{};
+  if(i.type==='poste'){
+    const po=((p&&p.postes)||[]).find(y=>y.id===i.posteId);
+    return po?{libelle:majCorps(po.libelle||'')||'poste sans libellé',poste:true,
+      montant:posteMontantMajore({libelle:po.libelle,montant:posteMontantArtisan(po)},majTarifs)}
+      :{libelle:'',poste:true,perdu:true,montant:0};
+  }
+  /* un montant saisi est un prix d'artisan, comme celui de la prestation
+     choisie : la majoration du corps d'état s'applique aux deux */
+  return {libelle:String(i.libelle||'').trim(),poste:false,
+    montant:posteMontantMajore({libelle:x.libelle,montant:+i.montant||0},majTarifs)};
+};
+const optionDetail=(x,majTarifs,p)=>{
+  const choisi=posteMontantMajore({libelle:x&&x.libelle,montant:posteMontantArtisan(x)},majTarifs);
+  const initiale=optionInitiale(x,majTarifs,p);
+  const ecart=Math.round((choisi-initiale.montant)*100)/100;
+  const prix=saisi(x&&x.retroMontant)?Math.round((ecart+(+x.retroMontant||0))*100)/100
+    :Math.round(prixAvecRetro(ecart,x&&x.retroPct)*100)/100;
+  return {choisi,initiale,ecart,prix,retro:Math.round((prix-ecart)*100)/100};
+};
+const optionMontant=(x,majTarifs,p)=>optionAvecInitiale(x)?optionDetail(x,majTarifs,p).prix
+  :optionSigne(x)*posteMontantMajore(x,majTarifs);
+const optionRetro=(x,majTarifs,p)=>optionAvecInitiale(x)?optionDetail(x,majTarifs,p).retro
+  :optionSigne(x)*posteRetro(x,majTarifs);
 const optionsInclues=p=>((p&&p.optionsChiffrage)||[]).filter(x=>x.incluse);
 const prospectPostesHT=(p,majTarifs)=>((p&&p.postes)||[]).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0)
-  +optionsInclues(p).reduce((s,x)=>s+optionMontant(x,majTarifs),0);
-const prospectOptionsHT=(p,majTarifs)=>((p&&p.optionsChiffrage)||[]).reduce((s,x)=>s+optionMontant(x,majTarifs),0);
+  +optionsInclues(p).reduce((s,x)=>s+optionMontant(x,majTarifs,p),0);
+const prospectOptionsHT=(p,majTarifs)=>((p&&p.optionsChiffrage)||[]).reduce((s,x)=>s+optionMontant(x,majTarifs,p),0);
 const prospectCoutHT=(p,majTarifs)=>{
   const d=prospectPostesHT(p,majTarifs);
   return d||+((p&&p.coutHT))||0;
 };
+/* ---------- honoraires CP sur les options, lot par lot ----------
+   Chaque option est un corps d'état : ses honoraires se règlent sur elle
+   (un taux, ou un forfait qui le remplace), à part de son prix. Ce sont
+   des honoraires de CP : une fois l'option incluse, ils rejoignent la marge
+   du maître d'œuvre, et l'option sort de l'assiette du taux de marge du
+   projet pour ne pas porter deux fois des honoraires. Une option sans
+   honoraires propres garde l'ancienne règle : le taux du projet s'y
+   applique comme au reste du coût. */
+const optionAHonoraires=x=>!!x&&(saisi(x.honoPct)||saisi(x.honoMontant));
+const optionHonoraires=(x,majTarifs,p)=>!optionAHonoraires(x)?0
+  :saisi(x.honoMontant)?Math.round((+x.honoMontant||0)*100)/100
+  :Math.round(optionMontant(x,majTarifs,p)*(+x.honoPct||0))/100;
+const prospectHonoOptionsHT=(p,majTarifs)=>Math.round(optionsInclues(p).filter(optionAHonoraires)
+  .reduce((s,x)=>s+optionHonoraires(x,majTarifs,p),0)*100)/100;
 const prospectMargeHT=(p,majTarifs)=>{
   if(!p)return 0;
-  if(p.margeMontant!==undefined&&p.margeMontant!==null&&p.margeMontant!=='')return +p.margeMontant||0;
-  return Math.round(prospectCoutHT(p,majTarifs)*(+p.margePct||0))/100;
+  const propres=optionsInclues(p).filter(optionAHonoraires);
+  const hono=prospectHonoOptionsHT(p,majTarifs);
+  if(p.margeMontant!==undefined&&p.margeMontant!==null&&p.margeMontant!=='')
+    return propres.length?Math.round(((+p.margeMontant||0)+hono)*100)/100:+p.margeMontant||0;
+  const assiette=prospectCoutHT(p,majTarifs)-propres.reduce((s,x)=>s+optionMontant(x,majTarifs,p),0);
+  const marge=Math.round(assiette*(+p.margePct||0))/100;
+  return propres.length?Math.round((marge+hono)*100)/100:marge;
 };
 const prospectPrixHT=(p,majTarifs)=>Math.round((prospectCoutHT(p,majTarifs)+prospectMargeHT(p,majTarifs))*100)/100;
 const prospectTva=p=>{const v=p&&p.tva;return (v===undefined||v===null||v==='')?20:(+v||0)};
@@ -1373,7 +1440,7 @@ const prixAvecRetro=(base,pct)=>{
   return Math.round(b/(1-p/100)*100)/100;
 };
 const prospectPostesRetro=(p,majTarifs)=>Math.round((((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x,majTarifs),0)
-  +optionsInclues(p).reduce((s,x)=>s+optionSigne(x)*posteRetro(x,majTarifs),0))*100)/100;
+  +optionsInclues(p).reduce((s,x)=>s+optionRetro(x,majTarifs,p),0))*100)/100;
 const prospectRetro=(p,majTarifs)=>{
   if(!p)return 0;
   const parPoste=prospectPostesRetro(p,majTarifs);
@@ -3338,15 +3405,27 @@ function dossierDocumentXml(p,px,com,majTarifs){
   const opts=(p.optionsChiffrage||[]).filter(x=>(x.libelle||'').trim());
   /* les moins-values (prestations retirées) se lisent avec leur signe moins, dans le même tableau */
   const avecMV=opts.some(x=>x.moinsValue), seulementMV=opts.length>0&&opts.every(x=>x.moinsValue);
+  /* une option qui remplace une prestation prévue se lit comme un écart ;
+     ses honoraires de maîtrise d'œuvre, à part de son prix, ont leur colonne */
+  const avecEcart=opts.some(optionAvecInitiale), avecHono=opts.some(optionAHonoraires);
+  const designation=x=>majCorps(x.libelle)+(x.moinsValue?' (moins-value)'
+    :optionAvecInitiale(x)?(optionMontant(x,majTarifs,p)<0?' (moins-value':' (plus-value')+' sur la prestation prévue)':'');
+  const statut=x=>x.moinsValue?(x.incluse?'Déduite':'Proposée'):(x.incluse?'Incluse':'En option');
   const p3b=opts.length?[
     titre(seulementMV?'4.  Moins-values proposées':avecMV?'4.  Options et moins-values proposées':'4.  Options proposées'),
     par(avecMV?'Prestations ajoutées (options) ou retirées (moins-values), à retenir ou non selon votre choix :'
       :'Prestations complémentaires proposées, à retenir ou non selon votre choix :',{sz:18,ap:100}),
-    tbl([6200,2400,1800],[tr([entC(6200,'Désignation'),entC(2400,'Montant HT','right'),entC(1800,'Statut','right')])]
-      .concat(opts.map(x=>tr([celC(6200,majCorps(x.libelle)+(x.moinsValue?' (moins-value)':''),'left'),celC(2400,eurDoc(optionMontant(x,majTarifs)),'right'),
-        celC(1800,x.moinsValue?(x.incluse?'Déduite':'Proposée'):(x.incluse?'Incluse':'En option'),'right')])))),
+    avecHono
+      ?tbl([5000,1900,1800,1700],[tr([entC(5000,'Désignation'),entC(1900,'Montant HT','right'),entC(1800,'Honoraires HT','right'),entC(1700,'Statut','right')])]
+        .concat(opts.map(x=>tr([celC(5000,designation(x),'left'),celC(1900,eurDoc(optionMontant(x,majTarifs,p)),'right'),
+          celC(1800,optionAHonoraires(x)?eurDoc(optionHonoraires(x,majTarifs,p)):'—','right'),celC(1700,statut(x),'right')]))))
+      :tbl([6200,2400,1800],[tr([entC(6200,'Désignation'),entC(2400,'Montant HT','right'),entC(1800,'Statut','right')])]
+        .concat(opts.map(x=>tr([celC(6200,designation(x),'left'),celC(2400,eurDoc(optionMontant(x,majTarifs,p)),'right'),
+          celC(1800,statut(x),'right')])))),
     par((seulementMV?'':'Une option « incluse » est déjà comptée dans le coût prévisionnel des travaux ci-dessus ; une option « en option » ne l’est pas encore.')
-      +(avecMV?(seulementMV?'':' ')+'Une moins-value « déduite » est déjà retirée du coût prévisionnel ci-dessus ; une moins-value « proposée » ne l’est pas encore.':''),
+      +(avecMV?(seulementMV?'':' ')+'Une moins-value « déduite » est déjà retirée du coût prévisionnel ci-dessus ; une moins-value « proposée » ne l’est pas encore.':'')
+      +(avecEcart?' Une plus-value sur la prestation prévue est la différence entre la prestation proposée et celle déjà comprise dans le projet.':'')
+      +(avecHono?' Les honoraires de maîtrise d’œuvre d’une option s’ajoutent à son montant ; une fois l’option incluse, ils sont compris dans le montant des honoraires indiqué au point 2.':''),
       {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
   ].join(''):'';
 
@@ -5051,10 +5130,25 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
   const options=(p.optionsChiffrage||[]).filter(x=>(x.libelle||'').trim()||+x.montant);
   const pOptions=options.length?[
     titre('Options de chiffrage'),
-    table([4200,2000,1200,1400,1600],['Option','Montant HT','Inclus','Rétro %','Rétrocédé'],
-      options.map(x=>[(x.libelle?majCorps(x.libelle):'(sans libellé)')+(x.moinsValue?' (moins-value)':'')+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
-        eurDoc(optionMontant(x,majTarifs)),x.moinsValue?(x.incluse?'Déduite':'Non'):(x.incluse?'Oui':'Non'),
-        retroTauxAffiche(x),eurDoc(optionSigne(x)*posteRetro(x,majTarifs))])),
+    options.some(optionAHonoraires)
+      ?table([3400,1700,1000,1100,1500,1700],['Option','Montant HT','Inclus','Rétro %','Rétrocédé','Honoraires CP'],
+        options.map(x=>[(x.libelle?majCorps(x.libelle):'(sans libellé)')+(x.moinsValue?' (moins-value)':'')+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
+          eurDoc(optionMontant(x,majTarifs,p)),x.moinsValue?(x.incluse?'Déduite':'Non'):(x.incluse?'Oui':'Non'),
+          retroTauxAffiche(x),eurDoc(optionRetro(x,majTarifs,p)),
+          optionAHonoraires(x)?eurDoc(optionHonoraires(x,majTarifs,p))+(saisi(x.honoMontant)?' (forfait)':' ('+nb2(x.honoPct)+' %)'):'taux du projet']))
+      :table([4200,2000,1200,1400,1600],['Option','Montant HT','Inclus','Rétro %','Rétrocédé'],
+        options.map(x=>[(x.libelle?majCorps(x.libelle):'(sans libellé)')+(x.moinsValue?' (moins-value)':'')+(majorationPourCorps(majTarifs,x.libelle)?' (majoré)':''),
+          eurDoc(optionMontant(x,majTarifs,p)),x.moinsValue?(x.incluse?'Déduite':'Non'):(x.incluse?'Oui':'Non'),
+          retroTauxAffiche(x),eurDoc(optionRetro(x,majTarifs,p))])),
+    /* le calcul d'une option qui remplace une prestation : à vérifier ligne à ligne */
+    options.filter(optionAvecInitiale).map(x=>{
+      const d=optionDetail(x,majTarifs,p);
+      return par((x.libelle?majCorps(x.libelle):'Option')+' : prestation choisie '+eurDoc(d.choisi)
+        +' − prestation initiale '+(d.initiale.perdu?'(poste supprimé du chiffrage : rien n’est déduit)'
+          :(d.initiale.libelle?'« '+d.initiale.libelle+' »'+(d.initiale.poste?' (poste du chiffrage) ':' '):'')+eurDoc(d.initiale.montant))
+        +' = écart '+eurDoc(d.ecart)+(d.retro?' ; rétrocession comprise dans le prix '+eurDoc(d.retro):'')
+        +' ; prix de l’option '+eurDoc(d.prix)+' HT.',{sz:16,c:DOC_GRIS,jc:'both',av:60,ap:0});
+    }).join(''),
     options.map(detailQuantitatif).join(''),
   ].join(''):'';
 
@@ -5068,6 +5162,8 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
       tr([celC(6200,'Prix de revient (coût des travaux, sous-traitants)','left'),celC(4200,eurDoc(cout)+' HT','right')]),
       tr([celC(6200,'Marge maîtrise d’œuvre','left'),
         celC(4200,eurDoc(marge)+' HT'+(cout?' ('+nb2(Math.round(marge/cout*1000)/10)+' %)':''),'right')]),
+      ...(prospectHonoOptionsHT(p,majTarifs)?[tr([celC(6200,'   dont honoraires CP sur les options incluses','left'),
+        celC(4200,eurDoc(prospectHonoOptionsHT(p,majTarifs))+' HT','right')])]:[]),
       tr([celC(6200,'Prix de vente HT (au client)','left'),celC(4200,eurDoc(ht)+' HT','right')]),
       tr([celC(6200,'Coefficient de vente','left'),celC(4200,coef?nb2(coef):'—','right')]),
       tr([celC(6200,'TVA '+tva+' %','left'),celC(4200,eurDoc(Math.round((ttc-ht)*100)/100),'right')]),
@@ -22139,13 +22235,33 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
   const setPoste=(id,fn)=>onChange(L.map(x=>x.id===id?(typeof fn==='function'?fn(x):fn):x));
   const dl=options?'pcorpsopt':'pcorps';
   const majTarifs=data&&data.majorationsCorps;
-  const total=L.reduce((s,x)=>s+(options?optionMontant(x,majTarifs):posteMontantMajore(x,majTarifs)),0);
-  const totalInclues=L.filter(x=>x.incluse).reduce((s,x)=>s+optionMontant(x,majTarifs),0);
-  const totalMV=options?L.filter(x=>x.moinsValue).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0):0;
   /* l'impact d'une option sur la marge se lit sur le projet tel qu'il est
      réellement en train de se saisir — les autres options, pas encore
      enregistrées via onChange, comptent donc telles qu'affichées ici. */
   const pLive=p&&options?{...p,optionsChiffrage:L}:p;
+  const total=L.reduce((s,x)=>s+(options?optionMontant(x,majTarifs,pLive):posteMontantMajore(x,majTarifs)),0);
+  const totalInclues=L.filter(x=>x.incluse).reduce((s,x)=>s+optionMontant(x,majTarifs,pLive),0);
+  const totalMV=options?L.filter(x=>x.moinsValue).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0):0;
+  const totalHono=options?L.filter(optionAHonoraires).reduce((s,x)=>s+optionHonoraires(x,majTarifs,pLive),0):0;
+  const postesBase=((p&&p.postes)||[]).filter(y=>(y.libelle||'').trim()||+y.montant);
+  /* choisir une prestation initiale ramène d'abord l'option au prix de
+     l'artisan : la rétrocession se posera sur l'écart, pas sur le prix
+     complet déjà relevé (sans quoi elle se compterait deux fois). C'est
+     l'inverse exact du relèvement automatique, rien de saisi ne se perd. */
+  const choisirInitiale=(id,v)=>setPoste(id,prev=>{
+    const initiale=v===''?null:v==='__montant'
+      ?{type:'montant',montant:(prev.initiale&&prev.initiale.type==='montant')?prev.initiale.montant:'',libelle:(prev.initiale&&prev.initiale.libelle)||''}
+      :{type:'poste',posteId:v};
+    let next={...prev,initiale};
+    if(initiale&&!optionAvecInitiale(prev)){
+      const lignes=prev.quantitatif&&prev.quantitatif.lignes, a=+prev.retroPctApplique||0;
+      if(lignes&&lignes.length&&a>0&&a<100){
+        const base=lignes.map(l=>estArticle(l)?{...l,pu:Math.round((+l.pu||0)*(1-a/100)*100)/100}:l);
+        next={...next,quantitatif:{...prev.quantitatif,lignes:base},montant:quantitatifNet(base,remisePct(prev)),retroPctApplique:0};
+      }else if(!(lignes&&lignes.length)&&+prev.prixBase>0&&+prev.retroPct>0)next={...next,montant:+prev.prixBase};
+    }
+    return next;
+  });
   /* un pourcentage propre à ce poste, distinct de la majoration par corps
      d'état (réglée une fois pour toutes dans PRIX, pour tous les prospects) :
      celui-ci se pose au coup par coup, et s'applique une bonne fois pour
@@ -22230,7 +22346,7 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
       {options&&<label className="row xs" style={{gap:6,alignItems:'center',marginTop:4,paddingLeft:2,cursor:'pointer'}}>
         <input type="checkbox" checked={!!x.incluse} onChange={e=>set(x.id,{incluse:e.target.checked})}/>
         <span className="mut">{x.moinsValue?'Déduire du marché':'Inclure dans le marché'}</span>
-        {x.moinsValue&&+x.montant>0&&<span className="b" style={{color:TERRA}}>{eur(optionMontant(x,majTarifs))} HT</span>}
+        {x.moinsValue&&+x.montant>0&&<span className="b" style={{color:TERRA}}>{eur(optionMontant(x,majTarifs,pLive))} HT</span>}
       </label>}
       {options&&pLive&&!!x.montant&&(()=>{const im=impactOption(pLive,x,majTarifs);return im.coutHT!==0&&
         <div className="xs mut" style={{marginTop:3,paddingLeft:2,lineHeight:1.5}}>
@@ -22240,11 +22356,38 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
               +' → '+im.coefficientAvec.toLocaleString('fr-FR',{minimumFractionDigits:3})
             :''}
         </div>})()}
+      {/* une option qui remplace une prestation déjà chiffrée ne coûte que
+          l'écart entre les deux : la prestation initiale se choisit parmi les
+          postes du chiffrage (suivie s'il change) ou se saisit */}
+      {options&&!x.moinsValue&&<div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:4,paddingLeft:2,flexWrap:'wrap'}}>
+        <span>Prestation initiale à déduire</span>
+        <select className="in" style={{width:'auto',maxWidth:280,flex:'0 1 auto',fontSize:12,padding:'4px 6px'}} aria-label="Prestation initiale à déduire"
+          value={!x.initiale?'':x.initiale.type==='montant'?'__montant':(x.initiale.posteId||'')}
+          onChange={e=>choisirInitiale(x.id,e.target.value)}>
+          <option value="">aucune — l’option compte en entier</option>
+          {postesBase.map(po=><option key={po.id} value={po.id}>{(majCorps(po.libelle)||'Poste sans libellé')+' — '
+            +eur(posteMontantMajore({libelle:po.libelle,montant:posteMontantArtisan(po)},majTarifs))+' HT'}</option>)}
+          {x.initiale&&x.initiale.type==='poste'&&x.initiale.posteId&&!postesBase.some(po=>po.id===x.initiale.posteId)
+            &&<option value={x.initiale.posteId}>poste supprimé du chiffrage</option>}
+          <option value="__montant">un montant saisi (une partie d’un poste)…</option>
+        </select>
+        {x.initiale&&x.initiale.type==='montant'&&<React.Fragment>
+          <input className="in" style={{width:90,flex:'0 0 auto'}} type="number" step="0.01" placeholder="€ HT"
+            aria-label="Montant de la prestation initiale" value={saisi(x.initiale.montant)?x.initiale.montant:''}
+            onChange={e=>set(x.id,{initiale:{...x.initiale,montant:e.target.value}})}/>
+          <input className="in" style={{flex:'1 1 120px',minWidth:0}} placeholder="Libellé (facultatif)"
+            aria-label="Libellé de la prestation initiale" value={x.initiale.libelle||''}
+            onChange={e=>set(x.id,{initiale:{...x.initiale,libelle:e.target.value}})}/>
+        </React.Fragment>}
+      </div>}
       <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2,flexWrap:'wrap'}}>
         <span>Rétrocession</span>
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.retroPct||''}
           placeholder="%" onChange={e=>set(x.id,{retroPct:e.target.value})}
           onBlur={()=>{
+            /* avec une prestation initiale, la rétrocession se calcule sur
+               l'écart : les prix de l'artisan restent tels quels */
+            if(options&&optionAvecInitiale(x))return;
             if(x.quantitatif&&(x.quantitatif.lignes||[]).some(estArticle))appliquerRetroLignes(x.id);
             else if(+x.prixBase>0)appliquerPrixBase(x.id);
           }}/>
@@ -22252,9 +22395,24 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
         <input className="in" style={{width:80,flex:'0 0 auto'}} type="number" step="1" value={x.retroMontant||''}
           placeholder="€ forfait" onChange={e=>set(x.id,{retroMontant:e.target.value})}/>
         <span>€ forfait, qui remplace le taux</span>
-        {+x.montant>0&&(+x.retroPct>0||!!x.retroMontant)&&<span className="b">— soit {eur(posteRetro(x,majTarifs))}</span>}
+        {options&&optionAvecInitiale(x)
+          ?((+x.retroPct>0||saisi(x.retroMontant))&&<span className="b">— soit {eurDoc(optionDetail(x,majTarifs,pLive).retro)}, comprise dans le prix de l’option</span>)
+          :(+x.montant>0&&(+x.retroPct>0||!!x.retroMontant)&&<span className="b">— soit {eur(posteRetro(x,majTarifs))}</span>)}
       </div>
-      {+x.retroPct>0&&(x.quantitatif&&(x.quantitatif.lignes||[]).some(estArticle)
+      {options&&optionAvecInitiale(x)&&(()=>{const d=optionDetail(x,majTarifs,pLive);
+        return <div className="xs" data-option-ecart={x.id} style={{marginTop:4,marginLeft:2,padding:'6px 8px',borderRadius:6,maxWidth:520,
+          background:'#F4F1EB',borderLeft:'3px solid '+NAVY,lineHeight:1.6}}>
+          <div className="sp"><span className="mut">Prestation choisie (prix de l’artisan)</span><span>{eurDoc(d.choisi)}</span></div>
+          <div className="sp"><span className="mut">− Prestation initiale{d.initiale.libelle?' : '+d.initiale.libelle:''}</span>
+            <span>{d.initiale.perdu?'—':'− '+eurDoc(d.initiale.montant)}</span></div>
+          {d.initiale.perdu&&<div style={{color:TERRA}}>Ce poste n’existe plus dans le chiffrage : rien n’est déduit. Choisissez de nouveau la prestation initiale.</div>}
+          <div className="sp"><span className="mut">= Écart</span><span>{eurDoc(d.ecart)}</span></div>
+          {d.retro!==0&&<div className="sp"><span className="mut">+ Rétrocession {saisi(x.retroMontant)?'(forfait)':nb2(x.retroPct)+' %'} comprise dans le prix</span>
+            <span>{eurDoc(d.retro)}</span></div>}
+          <div className="sp b" style={{color:NAVY}}><span>Prix de l’option</span><span>{eurDoc(d.prix)} HT</span></div>
+          {d.prix<0&&<div className="mut">La prestation choisie coûte moins que la prestation initiale : l’option est une moins-value.</div>}
+        </div>})()}
+      {+x.retroPct>0&&!(options&&optionAvecInitiale(x))&&(x.quantitatif&&(x.quantitatif.lignes||[]).some(estArticle)
         ?<div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2,flexWrap:'wrap'}}>
           <span>{(+x.retroPctApplique||0)===(+x.retroPct||0)
             ?'Prix unitaires du quantitatif relevés de '+nb2(x.retroPct)+' % — la rétrocession laisse le prix de l’artisan intact.'
@@ -22266,6 +22424,20 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
             placeholder="€ HT" onChange={e=>set(x.id,{prixBase:e.target.value})} onBlur={()=>appliquerPrixBase(x.id)}/>
           {+x.prixBase>0&&<span>→ prix de vente avec {nb2(x.retroPct)} % de rétrocession, posé automatiquement : <b>{eur(prixAvecRetro(x.prixBase,x.retroPct))}</b></span>}
         </div>)}
+      {/* les honoraires de CP sur l'option, propres à ce lot, à part de son prix */}
+      {options&&<div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2,flexWrap:'wrap'}}>
+        <span>Honoraires CP sur cette option</span>
+        <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={saisi(x.honoPct)?x.honoPct:''}
+          placeholder="%" aria-label="Taux d’honoraires de l’option" onChange={e=>set(x.id,{honoPct:e.target.value})}/>
+        <span>% — ou</span>
+        <input className="in" style={{width:80,flex:'0 0 auto'}} type="number" step="1" value={saisi(x.honoMontant)?x.honoMontant:''}
+          placeholder="€ forfait" aria-label="Forfait d’honoraires de l’option" onChange={e=>set(x.id,{honoMontant:e.target.value})}/>
+        <span>€ forfait</span>
+        {optionAHonoraires(x)
+          ?<span className="b">— soit {eurDoc(optionHonoraires(x,majTarifs,pLive))} HT, à part du prix de l’option</span>
+          :<span>— vide : {p&&saisi(p.margeMontant)?'rien de plus (marge du projet fixée en €)'
+            :'le taux de marge du projet'+(p&&+p.margePct?' ('+nb2(p.margePct)+' %)':'')+' s’applique'}</span>}
+      </div>}
       <div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2}}>
         <span>Augmentation des prix unitaires</span>
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.majPct||''}
@@ -22289,6 +22461,7 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
       {L.length>0&&<span className="xs b">Total {eur(total)} HT</span>}
       {options&&L.length>0&&<span className="xs mut">dont {eur(totalInclues)} HT inclus au marché</span>}
       {options&&totalMV>0&&<span className="xs mut">moins-values : {eur(-totalMV)} HT</span>}
+      {options&&totalHono!==0&&<span className="xs mut">honoraires CP sur options : {eur(totalHono)} HT, à part</span>}
     </div>
   </Fld>;
 }
@@ -22755,7 +22928,8 @@ function RecapChiffrage({p,interne,majTarifs}){
   return <div className="card" style={{marginTop:4,marginBottom:12,background:'#F4F1EB',borderLeft:'3px solid '+NAVY}}>
     <div className="g2 xs">
       <div><div className="mut">Coût des travaux</div><div className="b">{eur(cout)} HT</div></div>
-      <div><div className="mut">Marge maîtrise d’œuvre</div><div className="b">{eur(marge)} HT{cout?' · '+Math.round(marge/cout*1000)/10+' %':''}</div></div>
+      <div><div className="mut">Marge maîtrise d’œuvre</div><div className="b">{eur(marge)} HT{cout?' · '+Math.round(marge/cout*1000)/10+' %':''}</div>
+        {prospectHonoOptionsHT(p,majTarifs)!==0&&<div className="mut">dont {eur(prospectHonoOptionsHT(p,majTarifs))} d’honoraires CP sur les options incluses</div>}</div>
     </div>
     <div className="sp" style={{marginTop:10,paddingTop:10,borderTop:'1px solid '+RULE,alignItems:'flex-end'}}>
       <span className="xs mut">Prix de la maison</span>
