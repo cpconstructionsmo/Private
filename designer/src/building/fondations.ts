@@ -76,6 +76,15 @@ export function fondationsDuProjet(p: Project): { fondation: Foundation; niveau:
   return null;
 }
 
+/** le corps des murs portés par une semelle (en plan) : le soubassement, sous le plancher, en a l'épaisseur */
+export function corpsSurSemelles(f: Floor): Point[][] {
+  return mursDroits(f).filter(murSurSemelle).map(w => {
+    const n = normaleGauche(normaliser(soustraire(w.axis.b, w.axis.a))), d = decalagesFaces(w);
+    const face = (o: Mm, p: Point) => ajouter(p, multiplier(n, o));
+    return [face(d.droite, w.axis.a), face(d.droite, w.axis.b), face(d.gauche, w.axis.b), face(d.gauche, w.axis.a)];
+  });
+}
+
 /** le plan de fondations d'un niveau (null : il n'a pas de fondations) */
 export function planFondations(f: Floor): PlanFondations | null {
   const fd = Object.values(f.objects).find((o): o is Foundation => o.type === 'foundation');

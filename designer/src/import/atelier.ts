@@ -23,7 +23,7 @@
    cote manquante (hauteur d'une fenêtre…) prend la valeur courante CP,
    marquée « à vérifier » : jamais présentée comme lue. Ce qui ne se
    convertit pas (poteau, morceau trop court) est signalé dans le rapport. */
-import type { Mm, Opening, Point, Qualified, RoomUsage, SourceRef, SourceStatus } from '../model/types';
+import type { InfosDossier, Mm, Opening, Point, Qualified, ReglesPlu, RoomUsage, SourceRef, SourceStatus } from '../model/types';
 import type { Commande, Origine } from '../engine/commandes';
 import { positionDansAnneau } from '../geometry/predicats';
 import { aireSignee, centroide, type Anneau } from '../geometry/polygon';
@@ -38,8 +38,15 @@ export interface MurAtelier { id: string; polygone: PointM[]; trous?: PointM[][]
 export interface OuvertureAtelier { id: string; type: string; position: PointM; largeur: ValeurAtelier; hauteur: ValeurAtelier; allege: ValeurAtelier; exterieure?: boolean; origine?: string }
 export interface PieceAtelier { id: string; nom: string; usage: string; polygone: PointM[]; surface_calculee: number; surface_lue?: ValeurAtelier | null; humide?: boolean; exclue_habitable?: boolean; motif_exclusion?: string }
 export interface NiveauAtelier { nom?: string; murs: MurAtelier[]; ouvertures: OuvertureAtelier[]; pieces: PieceAtelier[] }
-export interface TerrainAtelier { limites?: PointM[]; alignement?: number[]; nom_voie?: string; source?: string; implantation?: { angle: number; dx: number; dy: number } | null }
-export interface ModeleAtelier { id?: string; nom?: string; schema_version?: number; batiment: { niveaux: NiveauAtelier[] }; source_rdc?: { fichier?: string; segments?: [PointM, PointM][] }; terrain?: TerrainAtelier; parcelles?: unknown[] }
+export interface TerrainAtelier { limites?: PointM[]; alignement?: number[]; nom_voie?: string; source?: string; implantation?: { angle: number; dx: number; dy: number } | null;
+  /** les altitudes du terrain naturel lues sur le plan (repère du terrain, m ; z en NGF) ; l'altitude du ±0,00 si le plan l'écrit */
+  tn?: { x: number; y: number; z: number; source?: string }[]; altitude_rdc?: ValeurAtelier | null }
+/** une règle du PLU saisie dans l'atelier, avec son article (recul_alignement, recul_limites, emprise_max, hauteur_egout_max, hauteur_faitage_max) */
+export interface RegleAtelier { cle: string; valeur: number; article?: string; note?: string }
+export interface ModeleAtelier { id?: string; nom?: string; schema_version?: number; batiment: { niveaux: NiveauAtelier[] }; source_rdc?: { fichier?: string; segments?: [PointM, PointM][] }; terrain?: TerrainAtelier;
+  /** ce que l'atelier tient du dossier (page de garde, cartouches) */
+  parcelles?: unknown[]; maitre_ouvrage?: string; adresse_maitre_ouvrage?: string; adresse?: string; surface_terrain?: ValeurAtelier; zone_sismique?: ValeurAtelier;
+  chauffage?: string; divers?: string; modifications?: { date: string; objet: string }[]; zone_plu?: string; regles?: RegleAtelier[] }
 
 /** vérifier qu'un JSON est bien un modèle de l'atelier (et pas autre chose) */
 export function lireModeleAtelier(brut: unknown): ModeleAtelier {
@@ -380,7 +387,60 @@ export interface RapportImport {
  * Les commandes qui posent le RDC lu par l'atelier sur un niveau (vide) du
  * Designer : une seule transaction, donc un seul « annuler ».
  */
-export function commandesImport(modele: ModeleAtelier, niveau: string, id: () => string): { commandes: Commande[]; rapport: RapportImport } {
+/** « ZB n°237 et 238 » : les parcelles de l'atelier, réunies par section quand elles en ont une seule */
+export function referencesParcelles(P: unknown[] | undefined): string {
+  const L = (P ?? []).filter((x): x is string => typeof x === 'string' && !!x.trim()).map(x => x.trim());
+  const lues = L.map(x => /^([A-Z0-9]{1,3})\s*(?:n°|n\s|no\s)?\s*0*(\d+)$/i.exec(x));
+  if (L.length && lues.every(Boolean) && new Set(lues.map(m => m![1]!.toUpperCase())).size === 1)
+    return lues[0]![1]!.toUpperCase() + ' n°' + lues.map(m => m![2]).join(lues.length === 2 ? ' et ' : ', ');
+  return L.join(' ; ');
+}
+
+/** les règles du PLU saisies dans l'atelier (mètres, %), dans le repère du Designer (mm, %) */
+export function reglesDeLAtelier(m: ModeleAtelier): ReglesPlu {
+  const R: Record<string, number | string> = {};
+  const CLES: Record<string, [keyof ReglesPlu, number]> = {
+    recul_alignement: ['reculVoieMin', MM], recul_limites: ['reculLimitesMin', MM], emprise_max: ['empriseMax', 1],
+    hauteur_egout_max: ['egoutMax', MM], hauteur_faitage_max: ['faitageMax', MM],
+  };
+  const articles: string[] = [];
+  for (const r of m.regles ?? []) {
+    const c = CLES[r.cle];
+    if (!c || typeof r.valeur !== 'number' || !Number.isFinite(r.valeur)) continue;
+    R[c[0]] = Math.round(r.valeur * c[1] * 1000) / 1000;
+    if (r.article?.trim()) articles.push(r.article.trim());
+  }
+  const zp = m.zone_plu?.trim();
+  if (zp) {
+    const z = /\b(?:secteur|zone)\s+([A-Z0-9]{1,5}[a-z]{0,3})\b/i.exec(zp);
+    if (z) R['zone'] = z[1]!;
+  }
+  const source = [zp, articles.length ? 'art. ' + [...new Set(articles)].join(', ') : ''].filter(Boolean).join(' – ');
+  if (source && Object.keys(R).length) R['source'] = source.slice(0, 300);
+  return R as ReglesPlu;
+}
+
+/** les informations du dossier tenues par l'atelier, pour les seules cases encore vides du Designer */
+export function dossierDeLAtelier(m: ModeleAtelier, existant: InfosDossier = {}): Extract<Commande, { type: 'modifierDossier' }>['champs'] {
+  const C: Record<string, unknown> = {};
+  const poser = (k: keyof InfosDossier, v: unknown) => { if (v !== undefined && v !== null && v !== '' && existant[k] === undefined) C[k] = v };
+  const texte = (v?: string) => v?.trim() || undefined;
+  poser('maitreOuvrage', texte(m.maitre_ouvrage));
+  poser('adresseMaitreOuvrage', texte(m.adresse_maitre_ouvrage));
+  poser('lieuConstruction', texte(m.adresse));
+  /* la surface déclarée (acte, plan de division) : seulement si l'atelier la tient d'un document */
+  if (m.surface_terrain?.statut === 'confirme' && typeof m.surface_terrain.valeur === 'number' && m.surface_terrain.valeur > 0) poser('surfaceTerrain', m.surface_terrain.valeur);
+  if (m.zone_sismique && m.zone_sismique.statut !== 'impossible' && m.zone_sismique.valeur !== undefined && m.zone_sismique.valeur !== null) poser('zoneSismique', String(m.zone_sismique.valeur));
+  poser('chauffage', texte(m.chauffage));
+  poser('divers', texte(m.divers));
+  const mods = (m.modifications ?? []).filter(x => x && typeof x.date === 'string' && typeof x.objet === 'string' && (x.date.trim() || x.objet.trim()));
+  if (mods.length) poser('modifications', mods.map(x => ({ date: x.date.trim(), objet: x.objet.trim() })));
+  return C as Extract<Commande, { type: 'modifierDossier' }>['champs'];
+}
+
+/** o.dossier : les informations du dossier déjà saisies dans le Designer (l'import ne les écrase jamais) ;
+    o.parcelle : le projet a déjà sa parcelle (le terrain de l'atelier n'est pas repris, c'est dit) */
+export function commandesImport(modele: ModeleAtelier, niveau: string, id: () => string, o: { dossier?: InfosDossier; parcelle?: boolean } = {}): { commandes: Commande[]; rapport: RapportImport } {
   const n = modele.batiment.niveaux[0]!;
   const fichier = modele.source_rdc?.fichier || 'plan du RDC';
   const label = 'Import atelier : ' + fichier;
@@ -448,18 +508,27 @@ export function commandesImport(modele: ModeleAtelier, niveau: string, id: () =>
   /* le terrain lu par l'atelier : sa limite revient dans le repère du RDC (l'implantation de l'atelier
      va du RDC au terrain : rotation puis translation ; on fait le chemin inverse) */
   const T = modele.terrain, L = T?.limites ?? [];
-  if (L.length >= 4) {
+  if (L.length >= 4 && o.parcelle) avertissements.push('Terrain lu par l’atelier non repris : le projet a déjà sa parcelle (à modifier dans son inspecteur)');
+  else if (L.length >= 4) {
     const ferme = L.length > 3 && L[0]![0] === L[L.length - 1]![0] && L[0]![1] === L[L.length - 1]![1];
     const S = ferme ? L.slice(0, -1) : L, imp = T!.implantation;
     if (!imp) avertissements.push('Terrain lu par l’atelier, mais la maison n’y est pas implantée : placez la parcelle (inspecteur de la parcelle, « Implanter la maison »)');
     const a = -((imp?.angle ?? 0) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
-    const contour = S.map(([x, y]) => { const u = x - (imp?.dx ?? 0), v = y - (imp?.dy ?? 0); return { x: arrondi((u * c - v * sn) * MM), y: arrondi((u * sn + v * c) * MM) } });
-    const source = T!.source || 'plan du terrain';
+    const versRdc = ([x, y]: [number, number]): Point => { const u = x - (imp?.dx ?? 0), v = y - (imp?.dy ?? 0); return { x: arrondi((u * c - v * sn) * MM), y: arrondi((u * sn + v * c) * MM) } };
+    const contour = S.map(versRdc), source = T!.source || 'plan du terrain';
+    /* les altitudes du terrain naturel lues sur le plan, et celle du ±0,00 s'il l'écrit : reprises telles quelles */
+    const tn = (T!.tn ?? []).filter(q => [q.x, q.y, q.z].every(Number.isFinite)).map(q => ({ point: versRdc([q.x, q.y]), ngf: q.z }));
+    const zRdc = T!.altitude_rdc && T!.altitude_rdc.statut !== 'impossible' && typeof T!.altitude_rdc.valeur === 'number' ? T!.altitude_rdc.valeur : undefined;
+    const reference = referencesParcelles(modele.parcelles), plu = reglesDeLAtelier(modele);
     commandes.push({
       type: 'creerParcelle', niveau, contour, voies: (T!.alignement ?? []).filter(i => i >= 0 && i < contour.length), ...(T!.nom_voie ? { nomVoie: T!.nom_voie } : {}),
+      ...(reference ? { reference } : {}), ...(tn.length ? { altitudesTerrain: tn } : {}), ...(zRdc !== undefined ? { altitudeRdc: zRdc } : {}), ...(Object.keys(plu).length ? { plu } : {}),
       origine: { label: 'Import atelier : ' + source, document: source, statut: imp ? 'derived' : 'to_check', meta: { atelier: { implantation: imp ?? null } } },
     });
   }
+  /* le dossier (maître d'ouvrage, adresses, zone sismique, chauffage, modifications) : les cases vides seulement */
+  const champs = dossierDeLAtelier(modele, o.dossier ?? {});
+  if (Object.keys(champs).length) commandes.push({ type: 'modifierDossier', champs });
   return {
     commandes,
     rapport: { fichier, murs: murs.length, ouvertures: nOuv, pieces: n.pieces.length, avertissements, surfacesAtelier: n.pieces.map(p => ({ nom: p.nom, m2: p.surface_calculee })) },

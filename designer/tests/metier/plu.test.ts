@@ -41,6 +41,15 @@ describe('règles du PLU', () => {
     expect(S.nonImpermeabilisees / 1e6).toBeCloseTo(600 - 83.64 - 25, 2);
   });
 
+  it('une allée tracée tout autour de la maison ne compte que sa bande : la maison n’y est pas comptée deux fois', () => {
+    const { h, a, n } = maison();
+    const h1 = ok(executer(h, 'Allée', [{ type: 'creerAmenagement', niveau: n, genre: 'path', points: R(-1_000, -1_000, 11_000, 9_000), finition: 'allee-gravillons', hauteur: 0 }], a));
+    const S = surfacesDuTerrain(h1.projet)!;
+    /* 12 × 10 m moins la maçonnerie 10,2 × 8,2 m, plus l'allée de 20 m² déjà tracée */
+    expect(S.permeables / 1e6).toBeCloseTo(120 - 83.64 + 20, 2);
+    expect(S.pleineTerre / 1e6).toBeCloseTo(600 - 120 - 45 + 0, 1);
+  });
+
   it('chaque règle saisie, confrontée au projet ; ce qui manque reste à vérifier ; rien de saisi, rien de contrôlé', () => {
     const { h, a, id } = maison();
     expect(controlePlu(h.projet)!.regles).toEqual([]);
@@ -67,6 +76,19 @@ describe('règles du PLU', () => {
     expect(parcelleDuProjet(p)!.plot.plu).toEqual({ zone: 'UGc', empriseMax: 35 });
     const h2 = ok(executer(nouvelHistorique(p), 'x', [{ type: 'modifierParcelle', id, plu: null }], a));
     expect(parcelleDuProjet(h2.projet)!.plot.plu).toBeUndefined();
+  });
+
+  it('au plan de masse : la feuille tournée pour que la voie soit en bas (le nom de la rue écrit droit), le nord tourné avec', () => {
+    const a = acteur(), p = creerProjet({ nom: 'Maison fictive', id: generateurSequentiel('p') });
+    const n = p.buildings[0]!.floors[0]!.id;
+    /* une parcelle tournée de 20° autour de la maison : sa voie (côté 0) est en biais dans le repère du plan */
+    const t = 20 * Math.PI / 180, c = { x: 5_000, y: 4_000 };
+    const tourne = (q: { x: number; y: number }) => ({ x: Math.round(c.x + (q.x - c.x) * Math.cos(t) - (q.y - c.y) * Math.sin(t)), y: Math.round(c.y + (q.x - c.x) * Math.sin(t) + (q.y - c.y) * Math.cos(t)) });
+    const h = ok(executer(nouvelHistorique(p), 'Maison', [M(n, 0, 0, 10_000, 0), M(n, 10_000, 0, 10_000, 8_000), M(n, 10_000, 8_000, 0, 8_000), M(n, 0, 8_000, 0, 0),
+      { type: 'creerParcelle', niveau: n, contour: R(-8_000, -8_000, 18_000, 16_000).map(tourne), voies: [0], nomVoie: 'rue des Essais' }], a));
+    const s = texte(planchesPdf(h.projet, { niveaux: [n], cotation: true, mobilier: false, indice: 'A', date: '07/10/2026', masse: true }));
+    expect(s).toMatch(/Td \(\x97 rue des Essais \x97\) Tj/);
+    expect(s).not.toMatch(/Tm \(\x97 rue des Essais \x97\) Tj/);
   });
 
   it('au plan de masse : la zone, « 14 % (max. 10 %) », ce qui n’est pas tenu ; sans règles, la note le demande', () => {

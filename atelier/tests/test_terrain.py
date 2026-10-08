@@ -42,6 +42,7 @@ def test_lecture_du_terrain(tmp_path):
     assert t.alignement == [next(i for i, c in enumerate(t.cotes) if abs(c["mesuree"] - 30) < 0.05)]
     assert t.nom_voie == "Rue d'Essai"
     assert sorted(p.z for p in t.tn) == [49.8, 49.95, 50.2, 50.4]
+    assert t.altitude_rdc is not None and t.altitude_rdc.valeur == 50.10        # « ±0,00 = 50,10 » écrit sur le plan
     assert len(extras["emprises"]) == 1
 
 

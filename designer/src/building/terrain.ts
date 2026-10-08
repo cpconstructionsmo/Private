@@ -12,8 +12,8 @@
    parallèle à la maison. Une seule commande modifie alors un seul objet. */
 import type { Floor, Landscape, Mm, Plot, Point, Project, Viewpoint } from '../model/types';
 import { planDuNiveau } from './plan';
-import { union } from '../geometry/booleen';
-import { aireSignee, centroide, type Polygone } from '../geometry/polygon';
+import { difference, union } from '../geometry/booleen';
+import { aire, aireSignee, centroide, type Polygone } from '../geometry/polygon';
 import { distancePointSegment, projeterSurSegment } from '../geometry/segment';
 import { distance, tourner } from '../geometry/vecteur';
 import { positionDansAnneau } from '../geometry/predicats';
@@ -106,14 +106,22 @@ export function orienterParcelle(t: Plot, i: number, E: Polygone[]): { contour: 
 
 export interface BilanAmenagement { id: string; genre: Landscape['kind']; finition: string; /** surface (mm²) ou longueur (mm) */ mesure: number }
 
-/** chaque aménagement du projet et sa mesure : surface (terrasse, allée, stationnement, espace vert) ou longueur (clôture) */
+/** chaque aménagement du projet et sa mesure : surface (terrasse, allée, stationnement, espace vert) ou longueur (clôture).
+ *  Une surface ne compte pas ce que la maison couvre : une allée tracée tout autour de la maison (bande de gravier
+ *  en pied de façade) ne mesure que la bande, sans quoi l'emprise serait comptée deux fois au bilan du terrain */
 export function bilanAmenagements(p: Project): BilanAmenagement[] {
   const out: BilanAmenagement[] = [];
+  let E: Polygone[] | null = null;
   for (const b of p.buildings) for (const f of b.floors) for (const o of Object.values(f.objects)) {
     if (o.type !== 'landscape') continue;
     const n = o.closed ? o.points.length : o.points.length - 1;
     let L = 0; for (let i = 0; i < n; i++) L += distance(o.points[i]!, o.points[(i + 1) % o.points.length]!);
-    out.push({ id: o.id, genre: o.kind, finition: o.finish, mesure: o.kind === 'fence' ? L : Math.abs(aireSignee(o.points)) });
+    let S = 0;
+    if (o.kind !== 'fence' && o.points.length >= 3) {
+      E ??= empriseAuSol(p);
+      S = E.length ? difference([{ contour: o.points }], E).reduce((s, q) => s + aire(q), 0) : Math.abs(aireSignee(o.points));
+    }
+    out.push({ id: o.id, genre: o.kind, finition: o.finish, mesure: o.kind === 'fence' ? L : S });
   }
   return out;
 }

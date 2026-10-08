@@ -240,6 +240,7 @@ class Terrain(BaseModel):
     surface: Valeur = Field(default_factory=lambda: impossible("surface du terrain", "m²"))
     implantation: Optional[Implantation] = None
     nom_voie: str = ""
+    altitude_rdc: Optional[Valeur] = None   # altitude NGF du ±0,00 (RDC fini), si le plan l'écrit (« ±0,00 = 50,30 »)
 
 
 class Regle(BaseModel):

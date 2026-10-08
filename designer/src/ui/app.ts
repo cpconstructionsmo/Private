@@ -442,6 +442,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
   async function reglerCabinet() {
     const C = reglagesCabinet();
+    const { CABINET_PAR_DEFAUT } = await import('../export/planche');
     const r = await dialogue('Cabinet (réglé sur cet appareil)', [
       { cle: 'societe', libelle: 'Société', valeur: C.societe ?? 'CP Constructions' },
       { cle: 'adresse', libelle: 'Adresse (une ligne par ligne)', valeur: C.adresse ?? '', lignes: 2 },
@@ -449,10 +450,13 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'email', libelle: 'E-mail', valeur: C.email ?? '' },
       { cle: 'siren', libelle: 'SIREN', valeur: C.siren ?? '' },
       { cle: 'tva', libelle: 'N° de TVA', valeur: C.tva ?? '' },
-      { cle: 'dessinateur', libelle: 'Dessiné par', valeur: C.dessinateur ?? '' }]);
+      { cle: 'dessinateur', libelle: 'Dessiné par', valeur: C.dessinateur ?? '' },
+      { cle: 'mention', libelle: 'Mention de propriété (page de garde ; « {société} » devient le nom de la société)', valeur: C.mention ?? CABINET_PAR_DEFAUT.mention ?? '', lignes: 3 }]);
     if (!r) return;
     const c: Record<string, string> = {};
     for (const [k, v] of Object.entries(r)) if (v.trim()) c[k] = v.trim();
+    /* la mention laissée telle quelle n'est pas gardée : le modèle livré reste la référence */
+    if (c.mention === CABINET_PAR_DEFAUT.mention) delete c.mention;
     try { localStorage.setItem('cpDesigner:cabinet', JSON.stringify(c)); toast('Cabinet réglé sur cet appareil') } catch { toast('Réglages impossibles à garder sur cet appareil (navigation privée ?)', true) }
     panneaux();
   }
@@ -2535,7 +2539,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       let modele;
       try { modele = lireModeleAtelier(JSON.parse(await fichier.text())) }
       catch (e) { toast('Import impossible : ' + String((e as Error)?.message ?? e), true); return }
-      const { commandes, rapport } = commandesImport(modele, niveauId, () => ulid());
+      const { commandes, rapport } = commandesImport(modele, niveauId, () => ulid(), { dossier: h.projet.dossier ?? {}, parcelle: !!parcelleDuProjet(h.projet) });
       if (!faire('Import du RDC (atelier : ' + rapport.fichier + ')', commandes)) return;
       /* le tracé du plan source, en fond calé et verrouillé : on voit d'un coup d'œil si les murs collent */
       const traits = traitsSource(modele);

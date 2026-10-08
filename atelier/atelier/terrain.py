@@ -29,6 +29,7 @@ from .modele import PointTN, Terrain, confirme, hypothese
 
 RE_LONGUEUR = re.compile(r"(?<![\d,.])(\d{1,3}[,.]\d{2})(?![\d,.])")
 RE_TN = re.compile(r"\bTN\s*:?\s*(\d{1,4}[,.]\d{1,3})", re.I)
+RE_RDC = re.compile(r"±\s*0[,.]00\s*=\s*(\d{1,4}[,.]\d{1,3})")
 RE_VOIE = re.compile(r"\b(rue|avenue|boulevard|chemin|route|impasse|all[ée]e|place|voie|alignement|RD\s?\d+|RN\s?\d+)\b", re.I)
 
 
@@ -135,8 +136,16 @@ def _analyser(polys, textes, source: str, notes: list[str]):
     if rues:
         t_, _ = min(rues, key=lambda v: limite.distance(v[1]))
         nom_voie = re.sub(r"^[\s—–-]+|[\s—–-]+$", "", t_)
+    # l'altitude du RDC fini, si le plan l'écrit (« Niveau RDC fini ±0,00 = 50,30 ») : lue, jamais supposée
+    altitude_rdc = None
+    lues = sorted({float(m.group(1).replace(",", ".")) for t, _ in textes for m in [RE_RDC.search(t)] if m})
+    if len(lues) == 1:
+        altitude_rdc = confirme(lues[0], "m NGF", document=source, calcul="« ±0,00 = … » lu sur le plan")
+        notes.append(f"Altitude du RDC fini lue sur le plan : ±0,00 = {nombre_fr(lues[0])} NGF.")
+    elif len(lues) > 1:
+        notes.append("⚠️ Plusieurs altitudes « ±0,00 = … » sur le plan (" + ", ".join(nombre_fr(v) for v in lues) + ") : à saisir.")
     terrain = Terrain(limites=[(round(x, 3), round(y, 3)) for x, y in limite.exterior.coords],
-                      source=source, cotes=cc, alignement=alignement, tn=tn, nom_voie=nom_voie,
+                      source=source, cotes=cc, alignement=alignement, tn=tn, nom_voie=nom_voie, altitude_rdc=altitude_rdc,
                       surface=confirme(round(limite.area, 2), "m²", document=source,
                                        calcul="surface du contour de la limite de propriété"))
     return terrain, {"emprises": emprises, "textes": textes}, notes

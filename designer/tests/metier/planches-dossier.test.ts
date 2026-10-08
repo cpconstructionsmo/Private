@@ -77,4 +77,28 @@ describe('planches au modèle des dossiers du cabinet', () => {
     /* le Times gras a ses propres largeurs (plus étroites que l'Helvetica gras) */
     expect(largeurTexte('Permis', true, 'serif')).toBeLessThan(largeurTexte('Permis', true));
   });
+
+  it('le vide sanitaire à la coupe : semelles et soubassements coupés, le vide sous le plancher ; rien sans fondations', () => {
+    const { h, n, a } = maison();
+    const o = { niveaux: [], cotation: true, mobilier: false, indice: 'A', date: '07/10/2026', coupe: true };
+    expect(texte(planchesPdf(h.projet, o))).not.toContain('(Vide sanitaire)');
+    const h1 = ok(executer(h, 'Fondations', [{ type: 'creerFondations', niveau: n, genre: 'crawl_space' }], a));
+    const s = texte(planchesPdf(h1.projet, o));
+    expect(s).toContain('(Vide sanitaire)');
+    expect(s).toContain('Plancher du RDC sur vide sanitaire');
+    /* sur terre-plein : les semelles, pas de vide */
+    const h2 = ok(executer(h, 'Fondations', [{ type: 'creerFondations', niveau: n, genre: 'slab_on_grade' }], a));
+    expect(texte(planchesPdf(h2.projet, o))).not.toContain('(Vide sanitaire)');
+  });
+
+  it('les prises de vue vont au plan de masse : le plan du niveau ne les dessine pas et garde son échelle', () => {
+    const { h, n, a } = maison();
+    const o = { niveaux: [n], cotation: true, mobilier: false, indice: 'A', date: '07/10/2026' };
+    const echelle = (u: Uint8Array) => /\(\xC9chelle 1\/(\d+)\)/.exec(texte(u))?.[1];
+    const avant = echelle(planchesPdf(h.projet, o));
+    const h1 = ok(executer(h, 'Vue', [{ type: 'creerPointDeVue', niveau: n, a: { x: 40_000, y: -30_000 }, b: { x: 6_000, y: 4_500 }, piece: 'PCMI 7' }], a));
+    const s = planchesPdf(h1.projet, o);
+    expect(echelle(s)).toBe(avant);
+    expect(texte(s)).not.toContain('PCMI 7');
+  });
 });

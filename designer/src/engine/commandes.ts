@@ -123,7 +123,7 @@ export type Commande =
   | { type: 'modifierLucarne'; id: string; genre?: Dormer['kind']; centre?: Point; largeur?: Mm; hauteur?: Mm; pente?: number; fenetreLargeur?: Mm; fenetreHauteur?: Mm }
   | { type: 'modifierPointDeVue'; id: string; a?: Point; b?: Point; piece?: Viewpoint['piece'] }
   /** la parcelle (une par projet) ; « nomVoie », « reference » vides : effacés */
-  | { type: 'creerParcelle'; niveau: string; contour: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number; origine?: Origine;
+  | { type: 'creerParcelle'; niveau: string; contour: Point[]; voies?: number[]; nomVoie?: string; reference?: string; nord?: number; altitudeRdc?: number; origine?: Origine; plu?: ReglesPlu;
       /** le relevé, d'emblée (plan du géomètre) */
       altitudesTerrain?: { point: Point; ngf: number }[] }
   /** un aménagement extérieur (clôture, terrasse, allée, stationnement, espace vert) */
@@ -1090,7 +1090,8 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
     case 'creerParcelle': {
       if (!trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
       if (p.buildings.flatMap(b => b.floors).some(f => Object.values(f.objects).some(o => o.type === 'plot'))) return refus('le projet a déjà une parcelle : modifiez-la');
-      const e = parcelleInvalide(cmd.contour, cmd.voies ?? [], cmd.nord ?? 0, cmd.altitudeRdc) ?? (cmd.altitudesTerrain?.length ? altitudesInvalides(cmd.altitudesTerrain) : null);
+      const e = parcelleInvalide(cmd.contour, cmd.voies ?? [], cmd.nord ?? 0, cmd.altitudeRdc) ?? (cmd.altitudesTerrain?.length ? altitudesInvalides(cmd.altitudesTerrain) : null)
+        ?? (cmd.plu ? reglesPluInvalides(cmd.plu) : null);
       if (e) return refus(e);
       const t: Plot = {
         id: c.id(), type: 'plot', floorId: cmd.niveau, ...provenance(c, cmd.origine), revision: c.revision,
@@ -1098,6 +1099,7 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         ...(cmd.nomVoie?.trim() ? { streetName: cmd.nomVoie.trim() } : {}), ...(cmd.reference?.trim() ? { reference: cmd.reference.trim() } : {}),
         ...(cmd.altitudeRdc !== undefined ? { groundFloorNgf: cmd.altitudeRdc } : {}),
         ...(cmd.altitudesTerrain?.length ? { spotHeights: cmd.altitudesTerrain.map(x => ({ point: { ...x.point }, ngf: x.ngf })) } : {}),
+        ...(cmd.plu && Object.keys(cmd.plu).length ? { plu: { ...cmd.plu } } : {}),
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: t }]);
     }
