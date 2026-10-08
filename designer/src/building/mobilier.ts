@@ -46,7 +46,7 @@ export function traits(forme: Forme, w: Mm, d: Mm): Trait[] {
     case 'chaise': return [R(-x, -y + 60, x, y), L(-x, -y + 30, x, -y + 30)];
     case 'armoire': return [tout, L(-x, y - 60, x, y - 60), L(-x + 60, 0, x - 60, 0, true)];
     /* le placard des plans : son emprise et ses diagonales en tirets (le « PL » s'écrit au milieu, voir ui/dessin.ts) */
-    case 'placard': return [R(-x, -y, x, y, true), L(-x, -y, x, y, true), L(-x, y, x, -y, true)];
+    case 'placard': case 'stationnement': return [R(-x, -y, x, y, true), L(-x, -y, x, y, true), L(-x, y, x, -y, true)];
     case 'commode': case 'meuble_tv': return [tout, L(-x, y - 40, x, y - 40)];
     case 'meuble_bas': return [tout, L(-x, y - 30, x, y - 30)];
     case 'evier': return [tout, R(-x + 60, -y + 90, -60, y - 80), R(60, -y + 90, x - 60, y - 80), E(0, -y + 50, 25, 25)];
@@ -91,7 +91,7 @@ export function blocs(forme: Forme, w: Mm, d: Mm, h: Mm): Bloc[] {
     case 'douche': return [B(-x, -y, x, y, 0, 40, 'sanitaire'), B(-x, y - 10, 0, y, 40, h, 'vitrage')];
     case 'baignoire': return [B(-x, -y, x, y, 0, h, 'sanitaire')];
     case 'chauffe_eau': return [B(-x, -y, x, y, 0, h, 'electromenager', true)];
-    case 'aire_rotation': return [];
+    case 'aire_rotation': case 'stationnement': return [];
     case 'armoire': case 'placard': case 'commode': case 'meuble_tv': case 'boite': return [B(-x, -y, x, y, 0, h, 'meuble')];
   }
 }

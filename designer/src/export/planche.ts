@@ -227,6 +227,8 @@ function reperagePrisesDeVue(page: PagePdf, projet: Project, code: string, x: nu
 export interface OptionsDossier {
   indice: string; date: string; maitreOuvrage?: string; adresseTerrain?: string; echelle?: number;
   cabinet?: Cabinet; logo?: ImageDossier;
+  /** le mobilier sur les plans des niveaux (comme aux plans des dossiers du cabinet) ; absent : sans */
+  mobilier?: boolean;
   /** une vue 3D gardée dans le Designer, pour la page de perspective */
   perspective?: ImageDossier;
   /** PCMI 1 : l'extrait de carte fourni (Géoportail, cadastre…) ; sa légende dit la source et l'échelle */
@@ -255,7 +257,7 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   const doc = new DocumentPdf();
   const garde = doc.page(A3.l * PT, A3.h * PT);
   const niveaux = projet.buildings.flatMap(b => b.floors).sort((a, b) => a.elevation - b.elevation);
-  const o: OptionsPlanche = avecLogo(doc, { niveaux: niveaux.map(f => f.id), cotation: true, mobilier: false, indice: d.indice, date: d.date, dossier: true, coupe: true, ...(d.echelle ? { echelle: d.echelle } : {}),
+  const o: OptionsPlanche = avecLogo(doc, { niveaux: niveaux.map(f => f.id), cotation: true, mobilier: !!d.mobilier, indice: d.indice, date: d.date, dossier: true, coupe: true, ...(d.echelle ? { echelle: d.echelle } : {}),
     ...(d.cabinet ? { cabinet: d.cabinet } : {}), ...(d.logo ? { logo: d.logo } : {}), ...(d.maitreOuvrage?.trim() ? { maitreOuvrage: d.maitreOuvrage } : {}) });
   const debut = () => doc.nombre + 1;
   const t = parcelleDuProjet(projet);

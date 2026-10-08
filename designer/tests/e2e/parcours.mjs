@@ -523,6 +523,16 @@ try {
   assert.ok((await p.evaluate(() => window.cpDesigner.vue3d()))?.maillages > 40, 'toujours en 3D');
   await p.keyboard.press('Escape');
   assert.equal(await p.evaluate(() => window.cpDesigner.vue3d()), null, 'retour au plan');
+  /* meubler d'un clic les pièces importées (Produit › Meubler les pièces), chacune selon son usage ; un « annuler » retire tout */
+  await p.click('nav.onglets button[data-o=produit]');
+  await p.click('.catalogue .cat[data-cat=meubler]');
+  await p.waitForSelector('.toast:has-text("meubles posés dans 5 pièces")', { timeout: 10_000 });
+  const meubles = (await objets()).filter(o => o.type === 'furniture');
+  assert.ok(meubles.length >= 15 && ['place-voiture', 'refrigerateur', 'vasque-double'].every(id => meubles.some(o => o.catalogRef.id === id))
+    && meubles.filter(o => /^lit-1[46]0$/.test(o.catalogRef.id)).length === 2, 'pièces meublées : ' + meubles.map(o => o.catalogRef.id).join(', '));
+  await p.keyboard.press('Control+z');
+  assert.equal((await objets()).filter(o => o.type === 'furniture').length, 0, 'un « annuler » retire tout le mobilier posé');
+  await p.click('nav.onglets button[data-o=trace]');
 
   /* l'import s'annule d'un coup (la peinture, le parement des façades, la toiture, le fond, puis le plan) */
   await videClic();
@@ -730,7 +740,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, pièces meublées d’un clic, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */
