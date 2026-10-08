@@ -22,7 +22,7 @@ function maison(extra: (n: string) => Commande[] = () => []): { h: Historique; a
   let h = ok(executer(nouvelHistorique(p), 'Murs', [...quatre(n), ...extra(n)], a));
   const sud = mursDroits(h.projet.buildings[0]!.floors[0]!).find(w => w.axis.a.y === 0 && w.axis.b.y === 0)!;
   h = ok(executer(h, 'Garnir', [{ type: 'creerOuverture', mur: sud.id, position: 3_000, largeur: 1_200, hauteur: 1_250, allege: 900, genre: 'window' },
-    { type: 'creerToiture', niveau: n, genre: 'hip', pente: 45, debord: 500, couverture: 'tile' }], a));
+    { type: 'creerToiture', niveau: n, genre: 'hip', pente: 45, debord: 500, couverture: 'tile', talon: 0 }], a));
   return { h, a, n };
 }
 const largeur = (P: { u: number }[]) => Math.max(...P.map(q => q.u)) - Math.min(...P.map(q => q.u));

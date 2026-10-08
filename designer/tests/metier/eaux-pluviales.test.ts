@@ -13,7 +13,7 @@ const T = Math.tan((35 * Math.PI) / 180);
 function maison(genre: Roof['kind'], contour: [number, number][] = [[0, 0], [10_000, 0], [10_000, 8_000], [0, 8_000]]) {
   const a = acteur(), p = creerProjet({ nom: 'Fictif', id: generateurSequentiel('p') }), n = p.buildings[0]!.floors[0]!.id;
   const murs: Commande[] = contour.map(([x, y], i) => { const [u, v] = contour[(i + 1) % contour.length]!; return { type: 'creerMur', niveau: n, a: { x, y }, b: { x: u, y: v }, epaisseur: 200, hauteur: 2_500, role: 'exterior' } });
-  const h = ok(executer(nouvelHistorique(p), 'Maison', [...murs, { type: 'creerToiture', niveau: n, genre, pente: 35, debord: 500, couverture: 'tile' }], a));
+  const h = ok(executer(nouvelHistorique(p), 'Maison', [...murs, { type: 'creerToiture', niveau: n, genre, pente: 35, debord: 500, couverture: 'tile', talon: 0 }], a));
   const f = () => h.projet.buildings[0]!.floors[0]!;
   const roof = Object.values(f().objects).find(o => o.type === 'roof')!;
   return { h, a, roof };

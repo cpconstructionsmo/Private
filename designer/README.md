@@ -140,13 +140,17 @@ faîtages et pignons se calculent depuis le contour des murs et le suivent.
 surfaces sur les mêmes plans), deux pans à pignons (sur un rectangle ; sur
 un plan en L, T, U, chaque bout d'aile devient un pignon et les noues se
 forment dans les angles rentrants), un pan sur un plan rectangulaire,
-toit-terrasse avec acrotère. Le toit passe par le haut des
-murs au nu extérieur — un mur extérieur tracé sans hauteur monte à l'arase,
-hauteur sous plafond + 35 cm (2,85 m pour 2,50 m, mur en parpaing courant ;
-sous un étage, jusqu'à son plancher), et la hauteur des murs extérieurs se
-règle d'un coup au panneau de la toiture ; débord proposé : 20 cm. Égout,
-faîtage et surface de couverture sont
-annoncés (indicatifs : la charpente n'est pas étudiée). Un plan qui ne
+toit-terrasse avec acrotère. Un mur extérieur tracé sans hauteur monte à
+l'arase, hauteur sous plafond + 20 cm (2,70 m pour 2,50 m, comme aux
+dossiers du cabinet ; sous un étage, jusqu'à son plancher), et la hauteur
+des murs extérieurs se règle d'un coup au panneau de la toiture. Le dessus
+du toit passe au talon de la charpente au-dessus de l'arase, au nu
+extérieur des murs : 25 cm par défaut (charpente, liteaux, couverture),
+réglable par toiture de 0 à 80 cm ; pour 2,70 m d'arase, 20 cm de débord à
+35°, l'égout est à 2,81 m. Les pignons montent jusqu'au dessous du toit.
+Débord proposé : 20 cm. Égout, faîtage et surface de couverture sont
+annoncés (indicatifs : la charpente n'est pas étudiée, le talon est à
+confirmer par le charpentier). Un plan qui ne
 convient pas est refusé avec sa raison. En plan : égout en tirets, lignes
 des pans en pointillé.
 

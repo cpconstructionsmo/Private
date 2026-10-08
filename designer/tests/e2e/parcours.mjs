@@ -659,13 +659,19 @@ try {
   await p.click('.ruban .toit-gable');
   assert.deepEqual((await objets()).filter(o => o.type === 'roof').map(o => o.kind), ['gable'], 'toit deux pans posé d’un clic');
   assert.match(await p.textContent('aside'), /Toiture — RDC/);
-  /* les murs extérieurs tracés montent à l'arase (2,85 m) ; leur hauteur se règle d'un coup au panneau de la toiture */
+  /* les murs extérieurs tracés montent à l'arase (2,70 m) ; leur hauteur se règle d'un coup au panneau de la toiture */
   const hauteurMurs = p.locator('aside label:has-text("Hauteur des murs extérieurs") input');
-  assert.equal(await hauteurMurs.inputValue(), '2.85', 'murs extérieurs à l’arase');
-  await hauteurMurs.fill('2.70'); await hauteurMurs.press('Tab');
-  assert.ok((await objets()).filter(o => o.type === 'wall' && o.role === 'exterior').every(w => w.height === 2_700), 'hauteur des murs extérieurs réglée');
+  assert.equal(await hauteurMurs.inputValue(), '2.70', 'murs extérieurs à l’arase');
+  await hauteurMurs.fill('2.85'); await hauteurMurs.press('Tab');
+  assert.ok((await objets()).filter(o => o.type === 'wall' && o.role === 'exterior').every(w => w.height === 2_850), 'hauteur des murs extérieurs réglée');
   await p.keyboard.press('Control+z');
-  assert.ok((await objets()).filter(o => o.type === 'wall' && o.role === 'exterior').every(w => w.height === 2_850), 'un seul « annuler » la rend');
+  assert.ok((await objets()).filter(o => o.type === 'wall' && o.role === 'exterior').every(w => w.height === 2_700), 'un seul « annuler » la rend');
+  /* le talon de la charpente : 25 cm par défaut, réglé au panneau (l'égout monte d'autant) */
+  const talon = p.locator('aside label:has-text("Talon de charpente") input');
+  assert.equal(await talon.inputValue(), '25', 'talon par défaut');
+  await talon.fill('30'); await talon.press('Tab');
+  assert.equal((await objets()).find(o => o.type === 'roof').heel, 300, 'talon réglé');
+  await p.keyboard.press('Control+z');
   /* une lucarne jacobine posée d'un clic sur le pan sud (au pied de sa façade), réglée à l'inspecteur, retirée par « annuler » */
   await p.click('.sous button[data-s=lucarnes]');
   await p.click('.ruban .luc-gable');
@@ -724,7 +730,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, lucarne, porche couvert, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

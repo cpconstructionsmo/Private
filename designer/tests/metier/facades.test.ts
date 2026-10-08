@@ -19,7 +19,7 @@ function maison(): Project {
   let h = ok(executer(nouvelHistorique(p), 'Murs', [M(n, 0, 0, 10_000, 0), M(n, 10_000, 0, 10_000, 8_000), M(n, 10_000, 8_000, 0, 8_000), M(n, 0, 8_000, 0, 0)], a));
   const sud = mursDroits(h.projet.buildings[0]!.floors[0]!).find(w => w.axis.a.y === 0 && w.axis.b.y === 0)!;
   h = ok(executer(h, 'Garnir', [{ type: 'creerOuverture', mur: sud.id, position: 3_000, largeur: 1_200, hauteur: 1_250, allege: 900, genre: 'window' },
-    { type: 'creerToiture', niveau: n, genre: 'hip', pente: 45, debord: 500, couverture: 'tile' }], a));
+    { type: 'creerToiture', niveau: n, genre: 'hip', pente: 45, debord: 500, couverture: 'tile', talon: 0 }], a));
   return h.projet;
 }
 

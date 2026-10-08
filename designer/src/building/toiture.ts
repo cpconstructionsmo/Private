@@ -56,11 +56,19 @@ export interface Toiture {
   terrasse?: { dalle: Anneau; acrotere: Polygone[]; z0: Mm; z1: Mm; zAcrotere: Mm };
   /** haut des murs au nu extérieur, altitude de l'égout, du faîtage (mm, depuis le ±0,00) */
   hautMurs: Mm; egoutZ: Mm; faitage: Mm;
+  /** le talon : de l'arase au-dessus de la couverture, au droit du nu extérieur des murs (toit en pente) */
+  talon: Mm;
   /** surface de couverture (rampante), mm² */
   surfaceCouverture: number;
 }
 
 export type ResultatToiture = { ok: true; toitures: Toiture[] } | { ok: false; raison: string };
+
+/** le talon d'une toiture en pente quand le projet n'en dit rien : la charpente (fermettes, sablière), les liteaux et
+ *  la couverture posés sur l'arase font passer le dessus du toit environ 25 cm au-dessus du mur, au droit de son nu
+ *  extérieur (ordre de grandeur des dossiers du cabinet, à confirmer par le charpentier ; réglable par toiture) */
+export const TALON_TOITURE: Mm = 250;
+export const talonDe = (r: Roof): Mm => (r.kind === 'flat' ? 0 : r.heel ?? TALON_TOITURE);
 
 /** dimensions dessinées d'un toit-terrasse (ordres de grandeur pour la vue, pas une étude) */
 export const TERRASSE = { dalle: 250, acrotere: 400, epaisseurAcrotere: 200 } as const;
@@ -92,7 +100,7 @@ function calculer(f: Floor, r: Roof): ResultatToiture {
     ? union([...plan.maconnerie.map(m => ({ contour: m.contour })), ...couverts]).filter(q => plan.maconnerie.some(m => intersection([q], [{ contour: m.contour }]).some(x => aire(x) > 1))).map(q => ({ contour: q.contour }))
     : plan.maconnerie;
   for (const m of contours) {
-    const t = r.kind === 'flat' ? terrasse(m.contour, r, hautMurs) : enPente(m.contour, r, hautMurs, epaisseur);
+    const t = r.kind === 'flat' ? terrasse(m.contour, r, hautMurs) : enPente(m.contour, r, hautMurs, epaisseur, talonDe(r));
     if (typeof t === 'string') return { ok: false, raison: t };
     toitures.push(t);
   }
@@ -249,7 +257,9 @@ function croupes(E: Point[], pignon?: readonly boolean[]): { bord: Bord; contour
   return pans;
 }
 
-function enPente(contour: Anneau, r: Roof, hautMurs: Mm, epaisseur: Mm): Toiture | string {
+function enPente(contour: Anneau, r: Roof, hautMurs: Mm, epaisseur: Mm, talon: Mm): Toiture | string {
+  /* le dessus du toit au droit du nu extérieur des murs : l'arase plus le talon de la charpente */
+  const zMur = hautMurs + talon;
   const th = anglePrincipal(contour);
   const W = redresser(contour.map(p => tourner(p, -th)));             // nu extérieur des murs, repère du toit
   if (typeof W === 'string') return W;
@@ -261,8 +271,8 @@ function enPente(contour: Anneau, r: Roof, hautMurs: Mm, epaisseur: Mm): Toiture
   let pans: { contour: Anneau; a: number; b: number; c: number }[] = [];
   const pignons: { points: Point3[]; vers: Point }[] = [];
   const plans = (P: { bord: Bord; contour: Anneau }[]) => P.map(({ bord: e, contour: c }) => (e.horiz
-    ? { contour: c, a: 0, b: t * e.n.y, c: hautMurs + t * (-e.n.y * e.a.y - ov) }
-    : { contour: c, a: t * e.n.x, b: 0, c: hautMurs + t * (-e.n.x * e.a.x - ov) }));
+    ? { contour: c, a: 0, b: t * e.n.y, c: zMur + t * (-e.n.y * e.a.y - ov) }
+    : { contour: c, a: t * e.n.x, b: 0, c: zMur + t * (-e.n.x * e.a.x - ov) }));
   if (r.kind === 'hip') pans = plans(croupes(E));
   else if (r.kind === 'gable' && E.length !== 4) {
     /* deux pans sur un plan en L, T, U… : les bouts d'aile sont des pignons */
@@ -274,7 +284,7 @@ function enPente(contour: Anneau, r: Roof, hautMurs: Mm, epaisseur: Mm): Toiture
     /* chaque mur pignon : du haut des murs jusqu'au toit, profil suivi aux changements de pan */
     bords(W).forEach((w, j) => {
       if (!pg[j]) return;
-      const zToit = (p: Point) => hautMurs + t * (distanceEgout(p, BE, pg) - ov);
+      const zToit = (p: Point) => zMur + t * (distanceEgout(p, BE, pg) - ov);
       const ts = new Set([0, 1]);
       const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y;
       for (const pan of pans) pan.contour.forEach((q, i) => {
@@ -294,34 +304,37 @@ function enPente(contour: Anneau, r: Roof, hautMurs: Mm, epaisseur: Mm): Toiture
     const longX = X1 - X0 >= Y1 - Y0, selonX = (r.ridge ?? 'long') === 'long' ? longX : !longX;
     const rect = (a: number, b: number, c: number, d: number): Anneau => [{ x: a, y: c }, { x: b, y: c }, { x: b, y: d }, { x: a, y: d }];
     const P3 = (x: number, y: number, z: number): Point3 => ({ x, y, z });
+    /* un angle de pignon au dessous du toit : seulement s'il y a un talon (sinon c'est l'angle du mur) */
+    const haussé = (q: Point3): Point3[] => (talon > 0 ? [q] : []);
     if (r.kind === 'gable') {
       if (selonX) {
-        const ym = (Y0 + Y1) / 2, h = hautMurs + t * (ym - y0);
-        pans = [{ contour: rect(X0, X1, Y0, ym), a: 0, b: t, c: hautMurs + t * (-Y0 - ov) }, { contour: rect(X0, X1, ym, Y1), a: 0, b: -t, c: hautMurs + t * (Y1 - ov) }];
-        pignons.push({ points: [P3(x0, y0, hautMurs), P3(x0, y1, hautMurs), P3(x0, ym, h)], vers: { x: epaisseur, y: 0 } },
-          { points: [P3(x1, y1, hautMurs), P3(x1, y0, hautMurs), P3(x1, ym, h)], vers: { x: -epaisseur, y: 0 } });
+        const ym = (Y0 + Y1) / 2, h = zMur + t * (ym - y0);
+        pans = [{ contour: rect(X0, X1, Y0, ym), a: 0, b: t, c: zMur + t * (-Y0 - ov) }, { contour: rect(X0, X1, ym, Y1), a: 0, b: -t, c: zMur + t * (Y1 - ov) }];
+        /* le pignon monte jusqu'au dessous du toit : aux angles, l'arase plus le talon */
+        pignons.push({ points: [P3(x0, y0, hautMurs), P3(x0, y1, hautMurs), ...haussé(P3(x0, y1, zMur)), P3(x0, ym, h), ...haussé(P3(x0, y0, zMur))], vers: { x: epaisseur, y: 0 } },
+          { points: [P3(x1, y1, hautMurs), P3(x1, y0, hautMurs), ...haussé(P3(x1, y0, zMur)), P3(x1, ym, h), ...haussé(P3(x1, y1, zMur))], vers: { x: -epaisseur, y: 0 } });
       } else {
-        const xm = (X0 + X1) / 2, h = hautMurs + t * (xm - x0);
-        pans = [{ contour: rect(X0, xm, Y0, Y1), a: t, b: 0, c: hautMurs + t * (-X0 - ov) }, { contour: rect(xm, X1, Y0, Y1), a: -t, b: 0, c: hautMurs + t * (X1 - ov) }];
-        pignons.push({ points: [P3(x1, y0, hautMurs), P3(x0, y0, hautMurs), P3(xm, y0, h)], vers: { x: 0, y: epaisseur } },
-          { points: [P3(x0, y1, hautMurs), P3(x1, y1, hautMurs), P3(xm, y1, h)], vers: { x: 0, y: -epaisseur } });
+        const xm = (X0 + X1) / 2, h = zMur + t * (xm - x0);
+        pans = [{ contour: rect(X0, xm, Y0, Y1), a: t, b: 0, c: zMur + t * (-X0 - ov) }, { contour: rect(xm, X1, Y0, Y1), a: -t, b: 0, c: zMur + t * (X1 - ov) }];
+        pignons.push({ points: [P3(x1, y0, hautMurs), P3(x0, y0, hautMurs), ...haussé(P3(x0, y0, zMur)), P3(xm, y0, h), ...haussé(P3(x1, y0, zMur))], vers: { x: 0, y: epaisseur } },
+          { points: [P3(x0, y1, hautMurs), P3(x1, y1, hautMurs), ...haussé(P3(x1, y1, zMur)), P3(xm, y1, h), ...haussé(P3(x0, y1, zMur))], vers: { x: 0, y: -epaisseur } });
       }
     } else {
       /* un pan : l'égout bas d'un côté (ou de l'autre si « inversé »), le haut de l'autre */
       const inv = !!r.flip;
       if (selonX) {
-        const b = inv ? -t : t, c = inv ? hautMurs + t * (Y1 - ov) : hautMurs + t * (-Y0 - ov);
+        const b = inv ? -t : t, c = inv ? zMur + t * (Y1 - ov) : zMur + t * (-Y0 - ov);
         pans = [{ contour: rect(X0, X1, Y0, Y1), a: 0, b, c }];
         const z = (y: number) => b * y + c, yh = inv ? y0 : y1, yb = inv ? y1 : y0, sens = inv ? 1 : -1;
-        pignons.push({ points: [P3(x0, yb, hautMurs), P3(x0, yh, hautMurs), P3(x0, yh, z(yh))], vers: { x: epaisseur, y: 0 } },
-          { points: [P3(x1, yh, hautMurs), P3(x1, yb, hautMurs), P3(x1, yh, z(yh))], vers: { x: -epaisseur, y: 0 } },
+        pignons.push({ points: [P3(x0, yb, hautMurs), P3(x0, yh, hautMurs), P3(x0, yh, z(yh)), ...haussé(P3(x0, yb, zMur))], vers: { x: epaisseur, y: 0 } },
+          { points: [P3(x1, yh, hautMurs), P3(x1, yb, hautMurs), ...haussé(P3(x1, yb, zMur)), P3(x1, yh, z(yh))], vers: { x: -epaisseur, y: 0 } },
           { points: [P3(x0, yh, hautMurs), P3(x1, yh, hautMurs), P3(x1, yh, z(yh)), P3(x0, yh, z(yh))], vers: { x: 0, y: sens * epaisseur } });
       } else {
-        const a = inv ? -t : t, c = inv ? hautMurs + t * (X1 - ov) : hautMurs + t * (-X0 - ov);
+        const a = inv ? -t : t, c = inv ? zMur + t * (X1 - ov) : zMur + t * (-X0 - ov);
         pans = [{ contour: rect(X0, X1, Y0, Y1), a, b: 0, c }];
         const z = (x: number) => a * x + c, xh = inv ? x0 : x1, xb = inv ? x1 : x0, sens = inv ? 1 : -1;
-        pignons.push({ points: [P3(xb, y0, hautMurs), P3(xh, y0, hautMurs), P3(xh, y0, z(xh))], vers: { x: 0, y: epaisseur } },
-          { points: [P3(xh, y1, hautMurs), P3(xb, y1, hautMurs), P3(xh, y1, z(xh))], vers: { x: 0, y: -epaisseur } },
+        pignons.push({ points: [P3(xb, y0, hautMurs), P3(xh, y0, hautMurs), P3(xh, y0, z(xh)), ...haussé(P3(xb, y0, zMur))], vers: { x: 0, y: epaisseur } },
+          { points: [P3(xh, y1, hautMurs), P3(xb, y1, hautMurs), ...haussé(P3(xb, y1, zMur)), P3(xh, y1, z(xh))], vers: { x: 0, y: -epaisseur } },
           { points: [P3(xh, y0, hautMurs), P3(xh, y1, hautMurs), P3(xh, y1, z(xh)), P3(xh, y0, z(xh))], vers: { x: sens * epaisseur, y: 0 } });
       }
     }
@@ -333,7 +346,7 @@ function enPente(contour: Anneau, r: Roof, hautMurs: Mm, epaisseur: Mm): Toiture
   return {
     genre: r.kind, egout: E.map(q => tourner(q, th)), pans: out,
     pignons: pignons.map(g => ({ points: g.points.map(q => ({ ...tourner(q, th), z: q.z })), vers: tourner(g.vers, th) })),
-    hautMurs, egoutZ: hautMurs - t * ov, faitage: Math.max(...zs),
+    hautMurs, egoutZ: zMur - t * ov, faitage: Math.max(...zs), talon,
     surfaceCouverture: pans.reduce((s, p) => s + aire({ contour: p.contour }), 0) / Math.cos(r.pitch * Math.PI / 180),
   };
 }
@@ -344,6 +357,6 @@ function terrasse(contour: Anneau, r: Roof, hautMurs: Mm): Toiture {
   const acrotere = difference([{ contour: E }], [{ contour: decalerPolyligne(E, TERRASSE.epaisseurAcrotere, true) }]);
   return {
     genre: 'flat', egout: E, pans: [], pignons: [], terrasse: { dalle: E, acrotere, z0: hautMurs, z1, zAcrotere: z1 + TERRASSE.acrotere },
-    hautMurs, egoutZ: z1, faitage: z1 + TERRASSE.acrotere, surfaceCouverture: aire({ contour: E }),
+    hautMurs, egoutZ: z1, faitage: z1 + TERRASSE.acrotere, talon: 0, surfaceCouverture: aire({ contour: E }),
   };
 }

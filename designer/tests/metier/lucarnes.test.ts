@@ -17,7 +17,7 @@ function maison() {
   const a = acteur(), p = creerProjet({ nom: 'Fictif', id: generateurSequentiel('p') }), n = p.buildings[0]!.floors[0]!.id;
   const C: [number, number][] = [[0, 0], [10_000, 0], [10_000, 8_000], [0, 8_000]];
   const murs: Commande[] = C.map(([x, y], i) => { const [u, v] = C[(i + 1) % 4]!; return { type: 'creerMur', niveau: n, a: { x, y }, b: { x: u, y: v }, epaisseur: 200, hauteur: 2_500, role: 'exterior' } });
-  const h = ok(executer(nouvelHistorique(p), 'Maison', [...murs, { type: 'creerToiture', niveau: n, genre: 'gable', pente: 35, debord: 200, couverture: 'tile' }], a));
+  const h = ok(executer(nouvelHistorique(p), 'Maison', [...murs, { type: 'creerToiture', niveau: n, genre: 'gable', pente: 35, debord: 200, couverture: 'tile', talon: 0 }], a));
   return { h, a, n, f: () => h.projet.buildings[0]!.floors[0]! };
 }
 const lucarne = (h: Historique) => lucarnesDuNiveau(h.projet.buildings[0]!.floors[0]!)[0]!;

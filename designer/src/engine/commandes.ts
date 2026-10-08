@@ -102,9 +102,11 @@ export type Commande =
   | { type: 'calerFond'; id: string; image: [Point, Point]; plan?: [Point, Point]; distance?: Mm }
   | { type: 'modifierFond'; id: string; verrouille?: boolean; opacite?: number }
   /** la toiture d'un niveau (une seule) : ses choix ; la géométrie se calcule */
-  | { type: 'creerToiture'; niveau: string; genre: Roof['kind']; pente: number; debord: Mm; couverture: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean }
+  | { type: 'creerToiture'; niveau: string; genre: Roof['kind']; pente: number; debord: Mm; couverture: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean; talon?: Mm }
   /** egout, gouttiere, matiereGouttiere : null efface le choix ; descentes : la liste entière (elle remplace la précédente) */
   | { type: 'modifierToiture'; id: string; genre?: Roof['kind']; pente?: number; debord?: Mm; couverture?: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean;
+      /** le talon de la charpente (mm, de 0 à 80 cm) */
+      talon?: Mm;
       egout?: Roof['eavesFinish'] | null; gouttiere?: Roof['gutter'] | null; matiereGouttiere?: Roof['gutterMaterial'] | null; descentes?: Point[] }
   /** un meuble ou un équipement de la bibliothèque, posé sur un niveau */
   | { type: 'creerMeuble'; niveau: string; modele: Furniture['catalogRef']; position: Point; rotation: number; largeur: Mm; profondeur: Mm; hauteur: Mm }
@@ -340,9 +342,10 @@ function lucarneInvalide(f: Floor, o: Pick<Dormer, 'kind' | 'center' | 'width' |
   return g.ok ? null : g.raison;
 }
 
-/** l'arase d'un mur extérieur au-dessus de la hauteur sous plafond (plafond, isolant, entraits ou fermettes) :
- *  2,50 m sous plafond donnent 2,85 m de mur, hauteur courante d'un mur en parpaing de plain-pied (à confirmer au projet) */
-export const REHAUSSE_ARASE: Mm = 350;
+/** l'arase d'un mur extérieur au-dessus de la hauteur sous plafond (plafond suspendu sous l'entrait des fermettes) :
+ *  2,50 m sous plafond donnent 2,70 m de mur, comme aux dossiers du cabinet (à confirmer au projet). La charpente et la
+ *  couverture posées dessus sont le talon de la toiture (building/toiture.ts) : l'égout se lit au-dessus */
+export const REHAUSSE_ARASE: Mm = 200;
 
 /** la hauteur d'un mur extérieur tracé sans hauteur : jusqu'à l'arase (hauteur sous plafond + REHAUSSE_ARASE),
  *  sans dépasser le plancher du niveau du dessus s'il y en a un (ses propres murs prennent la suite) */
@@ -747,10 +750,11 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (Object.values(n.floor.objects).some(o => o.type === 'roof')) return refus('ce niveau a déjà une toiture : modifiez-la');
       const e = toitureInvalide(cmd.genre, cmd.pente, cmd.debord);
       if (e) return refus(e);
+      if (cmd.talon !== undefined && !(Number.isFinite(cmd.talon) && cmd.talon >= 0 && cmd.talon <= 800)) return refus('talon de charpente : de 0 à 80 cm');
       const r: Roof = {
         id: c.id(), type: 'roof', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision,
         kind: cmd.genre, pitch: cmd.pente, overhang: cmd.debord, covering: cmd.couverture,
-        ...(cmd.faitage ? { ridge: cmd.faitage } : {}), ...(cmd.inverse ? { flip: true } : {}),
+        ...(cmd.faitage ? { ridge: cmd.faitage } : {}), ...(cmd.inverse ? { flip: true } : {}), ...(cmd.talon !== undefined ? { heel: cmd.talon } : {}),
       };
       return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: r }]);
     }
@@ -1181,6 +1185,7 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (cmd.egout !== undefined && cmd.egout !== null && !['rafters', 'boxed', 'genoise_1', 'genoise_2', 'genoise_3'].includes(cmd.egout)) return refus('finition d’égout inconnue');
       if (cmd.gouttiere !== undefined && cmd.gouttiere !== null && !['half_round', 'ogee', 'box', 'none'].includes(cmd.gouttiere)) return refus('gouttière inconnue');
       if (cmd.matiereGouttiere !== undefined && cmd.matiereGouttiere !== null && !['zinc', 'pvc', 'aluminium', 'copper'].includes(cmd.matiereGouttiere)) return refus('matière de gouttière inconnue');
+      if (cmd.talon !== undefined && !(Number.isFinite(cmd.talon) && cmd.talon >= 0 && cmd.talon <= 800)) return refus('talon de charpente : de 0 à 80 cm');
       if (cmd.descentes) {
         if (cmd.descentes.length > 30 || !cmd.descentes.every(ptFini)) return refus('descentes invalides');
         /* une descente part de l'égout : à 30 cm près de son contour */
@@ -1188,7 +1193,7 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         if (toit?.ok && cmd.descentes.some(q => !toit.toitures.some(x => x.egout.some((a, i) => distancePointSegment(q, { a, b: x.egout[(i + 1) % x.egout.length]! }) <= 300))))
           return refus('une descente se place sur l’égout de la toiture');
       }
-      const champs = { genre: 'kind', pente: 'pitch', debord: 'overhang', couverture: 'covering', faitage: 'ridge', inverse: 'flip', egout: 'eavesFinish', gouttiere: 'gutter', matiereGouttiere: 'gutterMaterial' } as const;
+      const champs = { genre: 'kind', pente: 'pitch', debord: 'overhang', couverture: 'covering', faitage: 'ridge', inverse: 'flip', talon: 'heel', egout: 'eavesFinish', gouttiere: 'gutter', matiereGouttiere: 'gutterMaterial' } as const;
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
         if (cmd[k] === undefined) continue;
         avant[champs[k]] = r[champs[k]]; apres[champs[k]] = cmd[k];

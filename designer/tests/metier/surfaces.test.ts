@@ -44,7 +44,7 @@ describe('surfaces réglementaires', () => {
     const et = h2.projet.buildings[0]!.floors.find(f => f.name === 'Combles')!.id;
     /* combles : murs de 1,00 m, deux pans à 40° */
     h2 = ok(executer(h2, 'x', [...quatre(et, 10_000, 8_000, 1_000), { type: 'creerEscalier', niveau: n, genre: 'straight', position: { x: 1_000, y: 1_000 }, rotation: 0, largeur: 900 },
-      { type: 'creerToiture', niveau: et, genre: 'gable', pente: 40, debord: 400, couverture: 'tile' }], a));
+      { type: 'creerToiture', niveau: et, genre: 'gable', pente: 40, debord: 400, couverture: 'tile', talon: 0 }], a));
     const s = surfacesReglementaires(h2.projet), c = s.niveaux[1]!;
     expect(c.tremies).toBeGreaterThan(0.9e6);
     expect(c.basses).toBeGreaterThan(10e6);

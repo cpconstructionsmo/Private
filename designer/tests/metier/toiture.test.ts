@@ -19,11 +19,15 @@ const contour = (n: string, P: [number, number][]): Commande[] => P.map((p, i) =
 const RECT: [number, number][] = [[0, 0], [10_000, 0], [10_000, 8_000], [0, 8_000]];
 const EN_L: [number, number][] = [[0, 0], [10_000, 0], [10_000, 5_000], [6_000, 5_000], [6_000, 8_000], [0, 8_000]];
 
-function maison(P: [number, number][], toit: Partial<Extract<Commande, { type: 'creerToiture' }>> = {}) {
+type ChoixToit = Partial<Omit<Extract<Commande, { type: 'creerToiture' }>, 'talon'>> & { talon?: number | undefined };
+function maison(P: [number, number][], toit: ChoixToit = {}) {
   const a = acteur(), p = creerProjet({ nom: 'Maison fictive', id: generateurSequentiel('p') });
   const n = rdc(p).id;
   let h = ok(executer(nouvelHistorique(p), 'Murs', contour(n, P), a));
-  h = ok(executer(h, 'Toiture', [{ type: 'creerToiture', niveau: n, genre: 'hip', pente: 45, debord: 500, couverture: 'tile', ...toit }], a));
+  /* talon nul : le toit passe par le haut des murs, comme dans l'atelier dont les valeurs servent de référence ;
+     « talon: undefined » : celui par défaut */
+  const { talon, ...reste } = toit, t = 'talon' in toit ? (talon === undefined ? {} : { talon }) : { talon: 0 };
+  h = ok(executer(h, 'Toiture', [{ type: 'creerToiture', niveau: n, genre: 'hip', pente: 45, debord: 500, couverture: 'tile', ...t, ...reste }], a));
   return { h, a, n };
 }
 const toiture = (h: Historique): Toiture => { const r = toitureDuNiveau(rdc(h.projet)); if (!r?.ok) throw new Error(r ? r.raison : 'pas de toiture'); return r.toitures[0]! };
@@ -70,6 +74,29 @@ describe('toiture à croupes', () => {
     const r = toitureDuNiveau(rdc(h.projet));
     expect(r?.ok).toBe(false);
     if (r && !r.ok) expect(r.raison).toMatch(/non orthogonal/);
+  });
+});
+
+describe('le talon de la charpente', () => {
+  it('par défaut 25 cm : le toit passe au-dessus de l’arase d’autant, égout et faîtage montent ; réglable, refusé au-delà de 80 cm', () => {
+    const { h, a } = maison(RECT, { talon: undefined });
+    const t = toiture(h), r = Object.values(rdc(h.projet).objects).find((o): o is Roof => o.type === 'roof')!;
+    expect(r.heel).toBeUndefined();
+    expect(t.talon).toBe(toitureExports.TALON_TOITURE);
+    expect(t.hautMurs).toBe(3_000);
+    expect(t.egoutZ).toBeCloseTo(2_500 + 250, 6);
+    expect(t.faitage).toBeCloseTo(7_000 + 250, 6);
+    expect(executer(h, 'x', [{ type: 'modifierToiture', id: r.id, talon: 900 }], a).ok).toBe(false);
+    const h1 = ok(executer(h, 'Talon', [{ type: 'modifierToiture', id: r.id, talon: 0 }], a));
+    expect(toiture(h1).egoutZ).toBeCloseTo(2_500, 6);
+  });
+
+  it('deux pans : le pignon monte jusqu’au dessous du toit, aux angles l’arase plus le talon', () => {
+    const t = toiture(maison(RECT, { genre: 'gable', talon: 300 }).h);
+    for (const g of t.pignons) {
+      expect(Math.min(...g.points.map(q => q.z))).toBeCloseTo(3_000, 6);
+      expect(g.points.filter(q => Math.abs(q.z - 3_300) < 1e-6)).toHaveLength(2);
+    }
   });
 });
 

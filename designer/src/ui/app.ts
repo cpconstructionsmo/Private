@@ -9,7 +9,7 @@ import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, U
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, type CadastreLu, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, type CadastreLu, type MurDroit } from '../building';
 import { aireSignee, boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -1861,6 +1861,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         faire('Hauteur des murs extérieurs', ext.map(w => ({ type: 'modifierMur' as const, id: w.id, hauteur: x })));
       }, 'number'));
     }
+    /* le talon : la charpente et la couverture posées sur l'arase, au droit du mur ; l'égout et le faîtage montent d'autant */
+    if (r.kind !== 'flat') A.append(champ('Talon de charpente (cm)', Math.round(talonDe(r) / 10), v => { const x = Math.round(Number(String(v).replace(',', '.')) * 10); if (!(x >= 0 && x <= 800)) { toast('Talon de 0 à 80 cm', true); return } mod('Talon de charpente', { talon: x }) }, 'number'));
     A.append(champ('Débord (m)', (r.overhang / 1000).toFixed(2), v => mod('Débord', { debord: mm(v) }), 'number'),
       champ('Couverture', r.covering, v => mod('Couverture', { couverture: v as Roof['covering'] }), 'text', COUVERTURES));
     if (r.kind === 'gable' || r.kind === 'shed') A.append(champ(r.kind === 'gable' ? 'Faîtage' : 'Égout bas et haut', r.ridge ?? 'long', v => mod('Sens de la toiture', { faitage: v as 'long' | 'short' }), 'text', { long: 'Le long du grand côté', short: 'Le long du petit côté' }));
@@ -1870,7 +1872,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     else if (t?.ok) {
       const egout = Math.min(...t.toitures.map(x => x.egoutZ)), faitage = Math.max(...t.toitures.map(x => x.faitage)), surf = t.toitures.reduce((s, x) => s + x.surfaceCouverture, 0);
       A.append(bloc((r.kind === 'flat' ? 'Dalle à ' + m(egout) + ' · acrotère à ' + m(faitage) : 'Égout à ' + m(egout) + ' · faîtage à <b>' + m(faitage) + '</b>') + ' (depuis le ±0,00)<br>Couverture : ' + m2(surf)
-        + '<br><span class="note">Hauteurs indicatives, au nu extérieur du haut des murs : charpente, isolation et épaisseurs réelles ne sont pas étudiées ici (à vérifier avant le PC).</span>'));
+        + '<br><span class="note">Hauteurs indicatives : le dessus du toit passe au talon au-dessus de l’arase, au nu extérieur des murs ; charpente et épaisseurs réelles à confirmer par le charpentier avant le PC.</span>'));
     }
     A.append(ligne(bouton('Retirer la toiture', () => supprimer(r.id), 'dang')));
   }

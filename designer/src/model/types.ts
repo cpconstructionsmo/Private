@@ -176,6 +176,9 @@ export interface Roof extends BaseObject {
   ridge?: 'long' | 'short';
   /** un pan : l'égout bas passe de l'autre côté */
   flip?: boolean;
+  /** le talon : de l'arase au-dessus de la couverture, au droit du nu extérieur des murs (charpente, liteaux,
+   *  couverture) ; absent : TALON_TOITURE (25 cm) */
+  heel?: Mm;
   /* L'égout et les eaux pluviales (facultatifs : un projet qui ne les a pas reste valable) */
   /** la finition de l'égout : chevrons apparents, caisson (sous-face habillée), génoise d'un à trois rangs */
   eavesFinish?: 'rafters' | 'boxed' | 'genoise_1' | 'genoise_2' | 'genoise_3';
