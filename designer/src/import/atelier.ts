@@ -514,9 +514,8 @@ export function commandesImport(modele: ModeleAtelier, niveau: string, id: () =>
     const S = ferme ? L.slice(0, -1) : L, imp = T!.implantation;
     if (!imp) avertissements.push('Terrain lu par l’atelier, mais la maison n’y est pas implantée : placez la parcelle (inspecteur de la parcelle, « Implanter la maison »)');
     const a = -((imp?.angle ?? 0) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
-    const contour = S.map(([x, y]) => { const u = x - (imp?.dx ?? 0), v = y - (imp?.dy ?? 0); return { x: arrondi((u * c - v * sn) * MM), y: arrondi((u * sn + v * c) * MM) } });
-    const source = T!.source || 'plan du terrain';
     const versRdc = ([x, y]: [number, number]): Point => { const u = x - (imp?.dx ?? 0), v = y - (imp?.dy ?? 0); return { x: arrondi((u * c - v * sn) * MM), y: arrondi((u * sn + v * c) * MM) } };
+    const contour = S.map(versRdc), source = T!.source || 'plan du terrain';
     /* les altitudes du terrain naturel lues sur le plan, et celle du ±0,00 s'il l'écrit : reprises telles quelles */
     const tn = (T!.tn ?? []).filter(q => [q.x, q.y, q.z].every(Number.isFinite)).map(q => ({ point: versRdc([q.x, q.y]), ngf: q.z }));
     const zRdc = T!.altitude_rdc && T!.altitude_rdc.statut !== 'impossible' && typeof T!.altitude_rdc.valeur === 'number' ? T!.altitude_rdc.valeur : undefined;

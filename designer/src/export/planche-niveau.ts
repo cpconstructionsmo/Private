@@ -33,9 +33,11 @@ export interface OptionsNiveau extends Signature {
   presentation?: boolean | undefined;
 }
 
-const SUR_LE_TERRAIN = new Set<BuildingObject['type']>(['platform', 'network', 'network_item', 'tree']);
+const SUR_LE_TERRAIN = new Set<BuildingObject['type']>(['platform', 'network', 'network_item', 'tree', 'viewpoint']);
 /** la première chaîne de cotes, à cette distance du mur (mm de papier), puis une tous les ECART */
 const PREMIERE = 10, ECART = 8;
+/** le pas des lignes du tableau des surfaces (mm) : serré comme aux dossiers du cabinet, il tient dans le creux d'un plan en L */
+const PAS_TABLEAU = 4.5;
 
 /** le nom d'un niveau dans un titre : « rez-de-chaussée » pour le RDC */
 export const nomDuNiveau = (f: Floor) => (/^rdc$/i.test(f.name.trim()) ? 'rez-de-chaussée' : f.name);
@@ -131,7 +133,7 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   const lignesFondations = PF ? lignesDesFondations(PF) : [];
   const tab = fondations
     ? { l: 76, h: hauteurTableau(lignesFondations.length, { titre: true }) + 4 + Math.min(10, PF!.alertes.length + 2) * 3.4 }
-    : pieces.length ? { l: colonnesTableau.reduce((s, c) => s + c.largeur, 0), h: hauteurTableau(pieces.length, { total: true, titre: true }) + notes.length * 4.2 + (notes.length ? 2 : 0) } : null;
+    : pieces.length ? { l: colonnesTableau.reduce((s, c) => s + c.largeur, 0), h: hauteurTableau(pieces.length, { total: true, titre: true, pas: PAS_TABLEAU }) + notes.length * 3.6 + (notes.length ? 2 : 0) } : null;
   const L = fondations ? legendeFondations() : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0);
   const legs = L.length ? [1, 2, 3].filter(k => k <= L.length).map(k => ({ ...tailleLegende('LÉGENDE', L, k), k })) : [];
 
@@ -252,8 +254,8 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
         : pieces.map(p => [p.nom, p.sh ? (p.sh / 1e6).toFixed(2).replace('.', ',') : '', p.sa ? (p.sa / 1e6).toFixed(2).replace('.', ',') : '']);
       const tsh = pieces.reduce((s, p) => s + p.sh, 0), tsa = pieces.reduce((s, p) => s + p.sa, 0);
       const total = o.presentation ? ['Total (m²)', '', ((tsh + tsa) / 1e6).toFixed(2).replace('.', ',')] : ['Total (m²)', (tsh / 1e6).toFixed(2).replace('.', ','), tsa ? (tsa / 1e6).toFixed(2).replace('.', ',') : ''];
-      const h = tableau(page, x, y, colonnesTableau, lignes, { total, titre: (o.presentation ? 'SOLS ET SURFACES – ' : 'TABLEAU DES SURFACES – ') + f.name.toUpperCase() });
-      notes.forEach((t, i) => texte(page, t, x, y + h + 5 + i * 4.2, 7.5, { couleur: GRIS_TEXTE }));
+      const h = tableau(page, x, y, colonnesTableau, lignes, { total, corps: 7.2, pas: PAS_TABLEAU, titre: (o.presentation ? 'SOLS ET SURFACES – ' : 'TABLEAU DES SURFACES – ') + f.name.toUpperCase() });
+      notes.forEach((t, i) => texte(page, t, x, y + h + 4.5 + i * 3.6, 7, { couleur: GRIS_TEXTE }));
     }
   }
   if (leg && places.leg) legende(page, places.leg.x, places.leg.y, 'LÉGENDE', L, 7.5, 4.4, leg.k);

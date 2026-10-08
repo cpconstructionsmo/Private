@@ -9,21 +9,25 @@
    « Surfaces et règles » et les notes sur le fond de plan.
    Tout se déduit de la parcelle et du projet : ce qui manque est écrit. */
 import type { Point, Project, Landscape, ReglesPlu } from '../model/types';
-import { controlePlu, surfacesDuTerrain, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, pointsDeVue, champDeVue, surfacesReglementaires, toitureDuNiveau, lignesDeToiture, NOMS_RESEAUX, bilanAmenagements, metreTerrain, altitudeTerrain } from '../building';
+import { controlePlu, surfacesDuTerrain, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, pointsDeVue, DEMI_CHAMP, placeEtiquette, surfacesReglementaires, toitureDuNiveau, lignesDeToiture, NOMS_RESEAUX, bilanAmenagements, metreTerrain, altitudeTerrain } from '../building';
 import { GENRES_AMENAGEMENT } from '../catalogue/amenagements';
 import { finitionAmenagement } from '../catalogue/amenagements';
 import { NOMS_EQUIPEMENTS } from '../ui/dessin-terrain';
 import { centroide } from '../geometry/polygon';
+import { positionDansAnneau } from '../geometry/predicats';
 import type { PagePdf, DocumentPdf } from './pdf';
 import { PagePdf as Page } from './pdf';
 import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, colonne, nouvelleFeuille, texte, metres, niveauRelatif, nordFleche, echelleGraphique, largeurEchelle, legende, tailleLegende, pastille, pastilleTrait,
   tableau, couper, enM2, A_PRECISER, ROUGE_MANQUE, type Signature, type LigneLegende } from './feuille';
 import { grisDuPan, faitagesReunis } from './planche-toiture';
 
-export interface OptionsMasse extends Signature { echelle?: number | undefined; dossier?: boolean | undefined }
+export interface OptionsMasse extends Signature { echelle?: number | undefined; dossier?: boolean | undefined;
+  /** « voie » (par défaut) : la feuille tournée pour que la voie soit en bas, comme sur les plans de masse du cabinet ;
+   *  « maison » : le repère du plan (murs d'équerre avec la feuille) */
+  orientation?: 'voie' | 'maison' | undefined }
 
 const ECHELLES_MASSE = [100, 200, 250, 500, 1_000, 2_000] as const;
-const ROUGE = '#C0392B', PELOUSE = '#E3EBD3', VOIE = '#E1E1E1', GRAVIER = '#EFECE0', VERT = '#3F7A3A';
+const BRUN_TF = '#8B4A2B', ROUGE = '#C0392B', PELOUSE = '#E3EBD3', VOIE = '#E1E1E1', GRAVIER = '#EFECE0', VERT = '#3F7A3A';
 
 export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse): void {
   const t = parcelleDuProjet(projet);
@@ -34,18 +38,34 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
   const amenagements = niveaux.flatMap(f => Object.values(f.objects)).filter((x): x is Landscape => x.type === 'landscape');
   const terrain = Object.values(t.niveau.objects);
   const toits = niveaux.flatMap(f => { const r = toitureDuNiveau(f); return r?.ok ? r.toitures : [] });
+  const voies = plot.street.map(i => { const a = plot.contour[i]!, b = plot.contour[(i + 1) % plot.contour.length]!, L = Math.hypot(b.x - a.x, b.y - a.y) || 1, n = dehors(plot.contour, a, b); return { a, b, n, L } });
+  /* la feuille tournée pour que la plus longue des voies soit en bas, sa limite horizontale (le nord tourne avec) :
+     c'est ainsi qu'on lit un plan de masse, la rue devant soi ; le modèle, lui, ne bouge pas */
+  const vp = [...voies].sort((p, q) => q.L - p.L)[0];
+  let rot = vp && (o.orientation ?? 'voie') === 'voie' ? -Math.PI / 2 - Math.atan2(vp.n.y, vp.n.x) : 0;
+  rot = Math.atan2(Math.sin(rot), Math.cos(rot));
+  const centre = centroide(plot.contour), cr = Math.cos(rot), sr = Math.sin(rot);
+  const vue = (p: Point): Point => ({ x: centre.x + (p.x - centre.x) * cr - (p.y - centre.y) * sr, y: centre.y + (p.x - centre.x) * sr + (p.y - centre.y) * cr });
+  const rendre = (q: Point): Point => ({ x: centre.x + (q.x - centre.x) * cr + (q.y - centre.y) * sr, y: centre.y - (q.x - centre.x) * sr + (q.y - centre.y) * cr });
   /* la boîte : la parcelle, la voie (6 m devant l'alignement), les débords, les prises de vue */
   const P0: Point[] = [...plot.contour, ...toits.flatMap(x => x.egout)];
   const PV = pointsDeVue(projet);
-  for (const v of PV) { const c = champDeVue(v); P0.push(v.a, c.gauche, c.droite) }
-  const voies = plot.street.map(i => { const a = plot.contour[i]!, b = plot.contour[(i + 1) % plot.contour.length]!, L = Math.hypot(b.x - a.x, b.y - a.y) || 1, n = dehors(plot.contour, a, b); return { a, b, n, L } });
   for (const v of voies) P0.push({ x: v.a.x + v.n.x * 6_000, y: v.a.y + v.n.y * 6_000 }, { x: v.b.x + v.n.x * 6_000, y: v.b.y + v.n.y * 6_000 });
-  const B = { xmin: Math.min(...P0.map(p => p.x)), xmax: Math.max(...P0.map(p => p.x)), ymin: Math.min(...P0.map(p => p.y)), ymax: Math.max(...P0.map(p => p.y)) };
+  const Bv = (Q: Point[]) => { const V = Q.map(vue); return { xmin: Math.min(...V.map(p => p.x)), xmax: Math.max(...V.map(p => p.x)), ymin: Math.min(...V.map(p => p.y)), ymax: Math.max(...V.map(p => p.y)) } };
   const PANNEAU = 112, zone = { x: ZONE_DESSIN.x + 6, y: ZONE_DESSIN.y + 6, l: ZONE_DESSIN.l - PANNEAU - 16, h: ZONE_DESSIN.h - 26 };
-  const ech = o.echelle ?? (ECHELLES_MASSE.find(e => (B.xmax - B.xmin) / e + 24 <= zone.l && (B.ymax - B.ymin) / e + 24 <= zone.h) ?? ECHELLES_MASSE[ECHELLES_MASSE.length - 1]!);
+  /* l'échelle d'abord (les symboles des prises de vue ont une taille fixe sur la feuille), puis la boîte qui les compte */
+  const B0 = Bv(P0);
+  const ech = o.echelle ?? (ECHELLES_MASSE.find(e => (B0.xmax - B0.xmin) / e + 24 <= zone.l && (B0.ymax - B0.ymin) / e + 24 <= zone.h) ?? ECHELLES_MASSE[ECHELLES_MASSE.length - 1]!);
+  const cones = PV.map(v => ({ v, ...symboleVue(v, 9 * ech) }));
+  for (const c of cones) P0.push(c.v.a, c.gauche, c.droite);
+  const B = Bv(P0);
   const x0 = zone.x + (zone.l - (B.xmax - B.xmin) / ech) / 2, y0 = zone.y + (zone.h - (B.ymax - B.ymin) / ech) / 2;
-  const Pm = (p: Point): [number, number] => [x0 + (p.x - B.xmin) / ech, y0 + (B.ymax - p.y) / ech];
+  const Pm = (p: Point): [number, number] => { const q = vue(p); return [x0 + (q.x - B.xmin) / ech, y0 + (B.ymax - q.y) / ech] };
   const Pp = (p: Point): [number, number] => { const [a, b] = Pm(p); return [X(a), Y(b)] };
+  /** un point de la feuille (mm) dans le repère tourné de la vue */
+  const versVue = (px: number, py: number): Point => ({ x: (px - x0) * ech + B.xmin, y: B.ymax - (py - y0) * ech });
+  /** l'angle (degrés, lisible : jamais la tête en bas) d'un texte posé le long de a → b sur la feuille */
+  const angleFeuille = (a: Point, b: Point) => { const [ax, ay] = Pm(a), [bx, by] = Pm(b); let g = Math.atan2(-(by - ay), bx - ax) * 180 / Math.PI; if (g > 90.5) g -= 180; if (g < -89.5) g += 180; return Math.round(g * 10) / 10 || 0 };
 
   /* le fond cadastral, dans la zone du dessin seulement : les parcelles voisines au trait gris et leur référence,
      le bâti existant hachuré ; le terrain du projet n'y est pas redessiné (sa limite tracée le remplace) */
@@ -83,8 +103,7 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     page.polygone([Pp(v.a), Pp(v.b), Pp({ x: v.b.x + v.n.x * 6_000, y: v.b.y + v.n.y * 6_000 }), Pp({ x: v.a.x + v.n.x * 6_000, y: v.a.y + v.n.y * 6_000 })], { fond: VOIE });
     if (plot.streetName) {
       const m = { x: (v.a.x + v.b.x) / 2 + v.n.x * 3_200, y: (v.a.y + v.b.y) / 2 + v.n.y * 3_200 }, [mx, my] = Pp(m);
-      let ang = Math.atan2(v.b.y - v.a.y, v.b.x - v.a.x) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
-      page.texte('— ' + plot.streetName + ' —', mx, my, 8, { gras: true, italique: true, aligne: 'centre', angle: ang, couleur: '#555555' });
+      page.texte('— ' + plot.streetName + ' —', mx, my, 8, { gras: true, italique: true, aligne: 'centre', angle: angleFeuille(v.a, v.b), couleur: '#555555' });
     }
   }
   /* la parcelle */
@@ -96,9 +115,11 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     const gravier = /gravier|gravillon|stabilis/i.test(f?.libelle ?? '') || a.kind === 'path' || a.kind === 'parking';
     page.polygone(Q, { fond: a.kind === 'green' ? '#D8E6C4' : a.kind === 'terrace' ? (f?.couleur ?? '#D9C3A0') : gravier ? GRAVIER : (f?.couleur ?? GRAVIER), trait: '#8A8A8A', ep: 0.3 });
     if (gravier && a.kind !== 'terrace') pointille(page, Q);
-    const [cx, cy] = Pm(centroide(a.points));
-    const lib = a.kind === 'green' ? 'Pelouse' : a.kind === 'parking' ? 'Stationnement' : a.kind === 'path' ? (f?.libelle ?? 'Allée') : a.kind === 'terrace' ? 'Terrasse' : '';
-    if (lib) texte(page, lib, cx, cy, 6.5, { italique: true, aligne: 'centre', couleur: a.kind === 'green' ? VERT : GRIS_TEXTE });
+    const lib = a.kind === 'green' ? 'Pelouse' : a.kind === 'parking' ? 'Stationnement' : a.kind === 'path' ? 'Allée' + (f ? ' (' + f.libelle.toLowerCase() + ')' : '') : a.kind === 'terrace' ? 'Terrasse' : '';
+    /* le nom dans la partie visible de l'aménagement : une allée tout autour de la maison a son centre sous le toit */
+    const demi = { l: (Page.largeur(lib, 6.5, { italique: true }) / PT / 2 + 0.6) * ech, h: 1.8 * ech };
+    const [cx, cy] = Pm(rendre(placeEtiquette(a.points.map(vue), [...E.map(q => q.contour.map(vue)), ...toits.map(tt => tt.egout.map(vue))], vue(centroide(a.points)), demi)));
+    if (lib) texte(page, lib, cx, cy + 0.8, 6.5, { italique: true, aligne: 'centre', couleur: a.kind === 'green' ? VERT : GRIS_TEXTE });
   }
   /* les réseaux et leurs équipements */
   for (const x of terrain) {
@@ -114,6 +135,7 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     texte(page, x.state === 'existing' ? 'Arbre existant' : x.state === 'planted' ? 'Arbre de haute tige' : 'Arbre à abattre', px, py + r + 3, 5.6, { italique: true, aligne: 'centre', couleur: VERT });
   }
   /* la maison vue de dessus : sa toiture (ou son emprise), ses faîtages, l'emprise au nu des murs en tirets */
+  const cotesFaitage: Point[][] = [];
   if (toits.length) for (const tt of toits) {
     for (const pan of tt.pans) page.polygone(pan.contour.map(Pp), { fond: assombrir(grisDuPan(pan.plan.a, pan.plan.b), 0.78), trait: '#2A2A2A', ep: 0.3 });
     if (tt.terrasse) page.polygone(tt.terrasse.dalle.map(Pp), { fond: '#B9BEC3', trait: ENCRE, ep: 0.6 });
@@ -125,7 +147,9 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
       if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 6) continue;
       let ang = Math.atan2(-(b[1] - a[1]), b[0] - a[0]) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
       const r = ang * Math.PI / 180;
-      page.texte('Faîtage ' + niveauRelatif(l.a.z), X(m[0] + Math.sin(r) * 2.2), Y(m[1] + Math.cos(r) * 2.2), 5.8, { aligne: 'centre', angle: ang, couleur: '#1E1E1E' });
+      const tx = m[0] + Math.sin(r) * 2.2, ty = m[1] + Math.cos(r) * 2.2, txt = 'Faîtage ' + niveauRelatif(l.a.z), dl = Page.largeur(txt, 5.8) / PT / 2;
+      page.texte(txt, X(tx), Y(ty), 5.8, { aligne: 'centre', angle: ang, couleur: '#1E1E1E' });
+      cotesFaitage.push([[-dl, -2.2], [dl, -2.2], [dl, 0.8], [-dl, 0.8]].map(([u, w]) => versVue(tx + u! * Math.cos(r) + w! * Math.sin(r), ty - u! * Math.sin(r) + w! * Math.cos(r))));
     }
   } else for (const q of E) page.polygone(q.contour.map(Pp), { fond: '#A9AEB4', trait: ENCRE, ep: 0.8 });
   for (const q of E) page.polygone(q.contour.map(Pp), { trait: ENCRE, ep: 0.6, tirets: [1.6, 1] });
@@ -160,9 +184,8 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
   page.polygone(plot.contour.map(Pp), { trait: ENCRE, ep: 1.4 });
   plot.contour.forEach((a, i) => {
     const b = plot.contour[(i + 1) % plot.contour.length]!, n = dehors(plot.contour, a, b), m = { x: (a.x + b.x) / 2 + n.x * 3.6 * ech, y: (a.y + b.y) / 2 + n.y * 3.6 * ech };
-    let ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
     const [mx, my] = Pp(m);
-    page.texte(metres(Math.hypot(b.x - a.x, b.y - a.y)), mx, my - 2.5, 8, { gras: true, aligne: 'centre', angle: ang, couleur: ROUGE });
+    page.texte(metres(Math.hypot(b.x - a.x, b.y - a.y)), mx, my - 2.5, 8, { gras: true, aligne: 'centre', angle: angleFeuille(a, b), couleur: ROUGE });
     const [bx, by] = Pm(a);
     page.cercle(X(bx), Y(by), 1.3 * PT, { trait: ROUGE, ep: 0.5, fond: '#FFFFFF' });
     page.trait(X(bx - 0.8), Y(by - 0.8), X(bx + 0.8), Y(by + 0.8), 0.4, ROUGE); page.trait(X(bx - 0.8), Y(by + 0.8), X(bx + 0.8), Y(by - 0.8), 0.4, ROUGE);
@@ -173,14 +196,48 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     page.trait(X(px - 0.9), Y(py - 0.9), X(px + 0.9), Y(py + 0.9), 0.5, ENCRE); page.trait(X(px - 0.9), Y(py + 0.9), X(px + 0.9), Y(py - 0.9), 0.5, ENCRE);
     texte(page, 'TN ' + s.ngf.toFixed(2).replace('.', ','), px + 1.6, py - 1.4, 6, { couleur: '#222222' });
   }
-  /* le niveau du RDC, encadré au milieu de la maison, par-dessus les points cotés du terrain qu'elle recouvre */
+  /* le niveau du RDC, encadré au milieu de la maison, par-dessus les points cotés du terrain qu'elle recouvre ;
+     à côté des cotes de faîtage plutôt que dessus */
   if (E.length) {
-    const [cx, cy] = Pm(centroide(E[0]!.contour));
     const t1 = 'Niveau RDC fini', t2 = '±0,00' + (plot.groundFloorNgf !== undefined ? ' = ' + plot.groundFloorNgf.toFixed(2).replace('.', ',') : ' (NGF ' + A_PRECISER + ')');
     const l = Math.max(Page.largeur(t1, 7, { gras: true }), Page.largeur(t2, 7)) / PT + 4;
+    const [cx, cy] = Pm(rendre(placeEtiquette(E[0]!.contour.map(vue), cotesFaitage, vue(centroide(E[0]!.contour)), { l: (l / 2 + 0.5) * ech, h: 5 * ech })));
     page.cadre(X(cx - l / 2), Y(cy + 4.5), l * PT, 9 * PT, { ep: 0.4, couleur: ENCRE, fond: '#FFFFFF' });
     texte(page, t1, cx, cy - 0.6, 7, { gras: true, aligne: 'centre', couleur: '#111111' });
     texte(page, t2, cx, cy + 3, 7, { aligne: 'centre', couleur: plot.groundFloorNgf !== undefined ? '#111111' : ROUGE_MANQUE });
+  }
+  /* le terrain fini (TF) au pied des trois plus longues façades, juste hors du toit, en brun comme sur les dossiers du cabinet */
+  if (plot.finishedGround !== undefined && E.length) {
+    const C = E[0]!.contour, tf = 'TF ' + (plot.groundFloorNgf !== undefined ? (plot.groundFloorNgf + plot.finishedGround / 1000).toFixed(2).replace('.', ',') : niveauRelatif(plot.finishedGround));
+    const cotes = C.map((a, i) => ({ a, b: C[(i + 1) % C.length]! })).sort((p, q) => Math.hypot(q.b.x - q.a.x, q.b.y - q.a.y) - Math.hypot(p.b.x - p.a.x, p.b.y - p.a.y)).slice(0, 3);
+    for (const { a, b } of cotes) {
+      const n = dehors(C, a, b), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      let d = 0;
+      while (d < 3_000 && toits.some(tt => positionDansAnneau({ x: m.x + n.x * d, y: m.y + n.y * d }, tt.egout) !== 'dehors')) d += 100;
+      const q = { x: m.x + n.x * (d + 2.2 * ech), y: m.y + n.y * (d + 2.2 * ech) };
+      if (positionDansAnneau(q, plot.contour) !== 'dedans') continue;
+      const [qx, qy] = Pp(q);
+      page.texte(tf, qx, qy - 2, 6.5, { gras: true, aligne: 'centre', angle: angleFeuille(a, b), couleur: BRUN_TF });
+    }
+  }
+  /* la parcelle nommée dans sa partie libre (référence et surface, en vert), et la pelouse : là où rien d'autre n'est dessiné */
+  {
+    const obst: Point[][] = [...toits.map(tt => tt.egout.map(vue)), ...E.map(q => q.contour.map(vue)), ...amenagements.filter(a => a.kind !== 'fence').map(a => a.points.map(vue)),
+      ...terrain.flatMap(x => x.type === 'tree' ? [[{ x: x.position.x - x.diameter / 2, y: x.position.y - x.diameter / 2 - 4 * ech }, { x: x.position.x + x.diameter / 2, y: x.position.y + x.diameter / 2 }].map(vue)] : []),
+      ...(plot.spotHeights ?? []).map(z => [vue(z.point), vue({ x: z.point.x + 12 * ech, y: z.point.y - 3 * ech })])];
+    const Cv = plot.contour.map(vue), c0 = centroide(Cv), Bc = { y1: Math.max(...Cv.map(q => q.y)) };
+    const t1 = plot.reference?.trim() ?? '', t2 = enM2(S);
+    if (t1) {
+      const l = Math.max(Page.largeur(t1, 7.5, { gras: true }), Page.largeur(t2, 7.5)) / PT;
+      const pl = placeEtiquette(Cv, obst, { x: c0.x, y: (c0.y + Bc.y1) / 2 }, { l: (l / 2 + 1.5) * ech, h: 4 * ech });
+      const [x, y] = Pm(rendre(pl));
+      texte(page, t1, x, y - 0.6, 7.5, { gras: true, aligne: 'centre', couleur: VERT });
+      texte(page, t2, x, y + 3.2, 7.5, { aligne: 'centre', couleur: VERT });
+      obst.push([{ x: pl.x - (l / 2 + 2) * ech, y: pl.y - 5 * ech }, { x: pl.x + (l / 2 + 2) * ech, y: pl.y + 5 * ech }]);
+    }
+    const lp = Page.largeur('Pelouse', 7, { italique: true }) / PT;
+    const pp = placeEtiquette(Cv, obst, { x: c0.x, y: (c0.y + Bc.y1) / 2 }, { l: (lp / 2 + 3) * ech, h: 3 * ech });
+    if (positionDansAnneau(pp, Cv) === 'dedans') { const [x, y] = Pm(rendre(pp)); texte(page, 'Pelouse', x, y + 1, 7, { italique: true, aligne: 'centre', couleur: VERT }) }
   }
   /* les reculs, en rouge : de la maison au point le plus proche de chaque limite */
   for (const r of R) {
@@ -193,16 +250,18 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     const r2 = ang * Math.PI / 180;
     page.texte(metres(r.distance), X((a[0] + b[0]) / 2 - Math.sin(r2) * 1.2), Y((a[1] + b[1]) / 2 - Math.cos(r2) * 1.2), 7.5, { gras: true, aligne: 'centre', angle: ang, couleur: ROUGE });
   }
-  /* les prises de vue photographiques */
-  for (const v of PV) {
-    const c = champDeVue(v), Q = [Pp(v.a), Pp(c.gauche), Pp(c.droite)];
-    page.polygone(Q, { fond: '#B9BEC2', trait: '#555555', ep: 0.4 });
-    const [px, py] = Pm(v.a);
+  /* les prises de vue photographiques : un cône de 9 mm sur la feuille, tourné vers ce qu'on photographie (comme sur
+     les dossiers du cabinet ; le champ entier couvrirait la maison), et son nom derrière l'appareil */
+  for (const { v, gauche, droite } of cones) {
+    page.polygone([Pp(v.a), Pp(gauche), Pp(droite)], { fond: '#B9BEC2', trait: '#555555', ep: 0.4 });
+    const [px, py] = Pm(v.a), [qx, qy] = Pm(v.b), L = Math.hypot(qx - px, qy - py) || 1;
     page.cercle(X(px), Y(py), 0.7 * PT, { fond: '#333333' });
-    texte(page, 'Ph ' + v.piece.replace('PCMI ', 'PCMI '), px + 2, py + 3.2, 6.5, { gras: true, couleur: '#333333' });
+    const nom = 'Ph ' + v.piece, l = Page.largeur(nom, 6.5, { gras: true }) / PT;
+    const ex = px - (qx - px) / L * (2.5 + l / 2), ey = py - (qy - py) / L * 3.2;
+    texte(page, nom, ex, ey + 1, 6.5, { gras: true, aligne: 'centre', couleur: '#333333' });
   }
   /* le nord, l'échelle */
-  nordFleche(page, zone.x + zone.l - 8, zone.y + 9, plot.north);
+  nordFleche(page, zone.x + zone.l - 8, zone.y + 9, plot.north + rot);
   echelleGraphique(page, ech, zone.x + zone.l - largeurEchelle(ech) - 4, zone.y + zone.h + 6);
 
   /* ---------- à droite : la légende, les surfaces et règles, les notes ---------- */
@@ -230,14 +289,15 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
   /* surfaces et règles */
   const SR = surfacesReglementaires(projet), H = toits.length ? { egout: Math.min(...toits.map(x => x.egoutZ)), faitage: Math.max(...toits.map(x => x.faitage)) } : null;
   const pc = (v: number) => (S ? Math.round(v / S * 100) + ' %' : '');
-  const mesure = (k: Landscape['kind']) => amenagements.filter(a => a.kind === k).reduce((s, a) => s + Math.abs(aireAnneau(a.points)), 0);
+  /* les surfaces du bilan du terrain (building) : ce que la maison couvre n'y compte qu'une fois */
+  const Am = bilanAmenagements(projet), mesure = (k: Landscape['kind']) => Am.filter(a => a.genre === k).reduce((s, a) => s + a.mesure, 0);
+  const SF = surfacesDuTerrain(projet);
   const graves = mesure('path') + mesure('parking'), terrasse = mesure('terrace');
-  const pleine = Math.max(0, S - em - graves - terrasse);
+  const pleine = SF?.pleineTerre ?? Math.max(0, S - em - graves - terrasse);
   /* les règles du PLU saisies sur la parcelle, en regard des mesures (building/plu.ts) : « 24 % (max. 35 %) », en rouge si elles ne
      sont pas tenues ; sans règles, la note le dit */
   const CP = controlePlu(projet), regle = (k: keyof ReglesPlu) => CP?.regles.find(r => r.cle === k);
   const lim = (k: keyof ReglesPlu) => { const r = regle(k); return r ? ' (' + r.limite + ')' : '' };
-  const SF = surfacesDuTerrain(projet);
   const lignes: { l: string[]; k?: (keyof ReglesPlu)[] }[] = [
     { l: ['Terrain' + (plot.reference ? ' (' + plot.reference + ')' : ''), enM2(S), ''] },
     { l: ['Emprise au sol', enM2(em), pc(em) + lim('empriseMax')], k: ['empriseMax'] },
@@ -352,7 +412,12 @@ function pointille(page: PagePdf, Q: [number, number][]): void {
   page.restaurer();
 }
 
-const aireAnneau = (P: readonly Point[]) => P.reduce((s, a, i) => { const b = P[(i + 1) % P.length]!; return s + a.x * b.y - b.x * a.y }, 0) / 2;
+/** le symbole d'une prise de vue : un cône de longueur L (mm) depuis l'appareil, ouvert du champ de l'appareil */
+function symboleVue(v: { a: Point; b: Point }, L: number): { gauche: Point; droite: Point } {
+  const t = Math.atan2(v.b.y - v.a.y, v.b.x - v.a.x), k = L / Math.cos(DEMI_CHAMP);
+  const bord = (s: number) => ({ x: v.a.x + k * Math.cos(t + s * DEMI_CHAMP), y: v.a.y + k * Math.sin(t + s * DEMI_CHAMP) });
+  return { gauche: bord(1), droite: bord(-1) };
+}
 
 function assombrir(c: string, k: number): string {
   const m = /^#([0-9a-f]{6})$/i.exec(c);

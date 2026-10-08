@@ -206,11 +206,18 @@ cabinet (`src/export/feuille.ts` et un module par planche) :
   toiture vue au-delà, pièces traversées, niveaux et altitudes NGF,
   limites de propriété, terrain fini aux abords (vert), comble blanc avec
   le plafond et son isolant (composition du plafond du niveau) et
-  « Comble perdu » ; légende, notes, repérage. Sans trait tracé, deux
+  « Comble perdu », fondations du projet (semelles et soubassements
+  coupés, vide sanitaire blanc sous le plancher) ; repères de niveau dans
+  le terrain entre la limite et la maison quand ils y tiennent (la coupe
+  y gagne une échelle) ; légende, notes, repérage. Sans trait tracé, deux
   coupes se placent d'elles-mêmes : en travers (A) et en long (B) ;
-- le plan de masse (`planche-masse.ts`) : parcelle verte aux côtés cotés,
+- le plan de masse (`planche-masse.ts`) : la feuille tournée pour que la
+  voie soit en bas (le modèle ne bouge pas, le nord tourne avec), parcelle
+  verte aux côtés cotés, sa référence et sa surface dans sa partie libre,
   bornes, voie, toiture vue de dessus, emprise en tirets, aménagements,
-  arbres, réseaux, prises de vue, reculs en rouge ; légende, « Surfaces et
+  arbres, réseaux, prises de vue (un cône de 9 mm vers ce qu'on
+  photographie), terrain fini « TF » au pied des façades, reculs en
+  rouge ; légende, « Surfaces et
   règles », notes, puis les listes (terrain, reculs, aménagements,
   terrassement, réseaux, plantations, prises de vue). Le PDF est écrit sans bibliothèque et en vectoriel : le plan y
 est dessiné par le même code qu'à l'écran, sur une « toile PDF ».
@@ -265,8 +272,12 @@ le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Une vue 3D
 « Garder cette vue pour le dossier ») y entre en page « Vue 3D », image JPEG
 intégrée au PDF ; l'insertion dans le site (PCMI 6) se compose aussi dans la
 3D (voir « Dossier de permis »). Le terrain
-lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation)
-revient avec l'import du RDC.
+lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation,
+points du terrain naturel, altitude du ±0,00 écrite au plan, références
+cadastrales, règles du PLU de la zone) revient avec l'import du RDC, ainsi
+que les informations du dossier (maître de l'ouvrage, adresses, zone
+sismique, chauffage…) dans les cases encore vides seulement ; un projet
+qui a déjà sa parcelle la garde (un avertissement le dit).
 
 **Terrain fini et règles du PLU** (panneau de la parcelle) : le terrain
 fini aux abords (cm par rapport au ±0,00) va aux façades, aux coupes et
@@ -277,7 +288,9 @@ au faîtage, reculs sur voie et sur limites) sont confrontées au projet
 (`src/building/plu.ts`) : ✅ / ⛔ / ❓ au panneau, « 24 % (max. 35 %) » au
 tableau « Surfaces et règles » du plan de masse, en rouge si elles ne
 sont pas tenues. Seuls les gravillons et les dalles engazonnées comptent
-« non imperméabilisés » à côté de la pleine terre ; une mesure qui manque
+« non imperméabilisés » à côté de la pleine terre ; une allée tracée tout
+autour de la maison ne compte que sa bande (ce que la maison couvre n'est
+pas compté deux fois) ; une mesure qui manque
 (places prévues, coefficient des revêtements perméables, terrain naturel
 pour les hauteurs) laisse la règle « à vérifier ».
 
@@ -345,7 +358,11 @@ dates et modifications, lieu de construction, cadastre, surface du
 terrain ; à droite le tableau des surfaces pièce par pièce, S.H et S.A,
 le résumé du projet — emprise, surface de plancher, surface habitable,
 surface vitrée — et le sommaire des pièces), puis PCMI 2 (plan de masse), PCMI 3 (coupes), PCMI 4
-(brouillon de notice), PCMI 5 (façades, plan de toiture) et les plans des
+(brouillon de notice : terrain, implantation et règles du PLU saisies,
+adaptation au terrain — ±0,00, terrain fini, terrain naturel sous la
+maison, soubassement —, matériaux, couverture et zinguerie, espaces
+libres et arbres, stationnement, réseaux tracés au plan de masse ; le
+reste « [à compléter] »), PCMI 5 (façades, plan de toiture) et les plans des
 niveaux, chaque cartouche portant sa pièce. Les pièces images sont fournies
 par l'utilisateur, jamais inventées :
 - PCMI 1 (extrait de carte : Géoportail, cadastre…) et PCMI 7 et 8
@@ -360,7 +377,7 @@ Ces images restent sur l'appareil le temps de la séance (ni enregistrées
 dans le projet, ni partagées). Les **points de prise de vue** (outil I :
 l'appareil, puis le point visé), eux, sont des objets du projet : chacun
 porte sa pièce (PCMI 6, 7 ou 8 ; la première libre par défaut) et figure au
-plan de masse (cône de 50°, flèche, pièce, liste « Prises de vue ») comme
+plan de masse seulement (cône de 50°, pièce, liste « Prises de vue ») comme
 le demande le formulaire ; la page de la photographie le dit alors
 « reporté ». Une pièce non fournie est listée « à
 joindre » ; ce qui n'est pas connu (point de vue, échelle) s'écrit
@@ -372,7 +389,9 @@ références cadastrales et surface du terrain — à défaut celles de la
 parcelle tracée —, zone sismique, couverture, chauffage, divers,
 modifications « jj/mm/aaaa — objet ») sont enregistrées avec le projet
 (commande `modifierDossier`, annulable). Le **cabinet** (« Cabinet » :
-société, adresse, téléphone, e-mail, SIREN, TVA, dessinateur) est réglé
+société, adresse, téléphone, e-mail, SIREN, TVA, dessinateur, mention de
+propriété de la page de garde, où « {société} » devient le nom de la
+société ; la mention livrée ne cite aucun texte de loi) est réglé
 sur l'appareil (`localStorage`, clé `cpDesigner:cabinet`), comme les
 réglages de l'atelier : ces coordonnées ne vont ni dans le projet ni dans
 le dépôt. Le logo est celui du site (`assets/logo.png`), mis en JPEG au

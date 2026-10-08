@@ -7,12 +7,13 @@
    limites de propriété en tirets bleus et les distances jusqu'à elles ;
    dessous, la légende, les notes et le repérage des coupes sur la parcelle.
    Tout se déduit de la maquette (vue3d/coupe.ts) et de la parcelle. */
-import type { Floor, Point, Project } from '../model/types';
+import type { Floor, Foundation, Point, Project } from '../model/types';
 import { compositionPlancher, MATIERES_PLANCHER } from '../catalogue/planchers';
-import { planDuNiveau, toitureDuNiveau, parcelleDuProjet, profilTerrain, empriseAuSol, fondationsDuProjet, SOUBASSEMENTS } from '../building';
-import { maquette, type Matiere } from '../vue3d/maquette';
+import { planDuNiveau, toitureDuNiveau, parcelleDuProjet, profilTerrain, empriseAuSol, fondationsDuProjet, planFondations, corpsSurSemelles, SOUBASSEMENTS } from '../building';
+import { maquette, EPAISSEUR_PLANCHER, type Matiere } from '../vue3d/maquette';
 import { coupe, traitsDeCoupe, type Coupe, type LigneDeCoupe } from '../vue3d/coupe';
 import { segmentsDans } from '../geometry/hachures';
+import type { Polygone } from '../geometry/polygon';
 import type { PagePdf, DocumentPdf } from './pdf';
 import { PagePdf as Page } from './pdf';
 import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, BRIQUE, colonne, nouvelleFeuille, texte, metres, niveauRelatif, titreDessin, legende, tailleLegende, pastille, pastilleTrait,
@@ -37,6 +38,8 @@ interface CoupeVue {
   /** l'étendue dessinée (u) et les altitudes */
   u0: number; u1: number; zmin: number; zmax: number;
   pieces: { nom: string; u: number; z: number; l: number }[];
+  /** les fondations au droit de la coupe (u) : semelles, soubassements, et ce qui les place (mm, depuis le ±0,00) */
+  fond: { genre: Foundation['kind']; semelles: [number, number][]; soubassements: [number, number][]; fondFouille: number; hauteurSemelle: number; vide: number } | null;
 }
 
 function preparer(projet: Project, l: LigneDeCoupe): CoupeVue | null {
@@ -65,8 +68,19 @@ function preparer(projet: Project, l: LigneDeCoupe): CoupeVue | null {
       if (Math.abs(b - a) > 900) pieces.push({ nom: z.piece.name, u: (a + b) / 2, z: f.elevation + 1_050, l: Math.abs(b - a) });
     }
   }
+  /* les fondations (plan de fondations) : semelles et corps des murs porteurs coupés ; le fond de fouille à la profondeur
+     d'assise sous le terrain fini aux abords (à défaut, le terrain naturel le plus bas sous la maison, ou le ±0,00) */
+  const F = fondationsDuProjet(projet), PF = F ? planFondations(F.niveau) : null;
+  const coupeU = (q: Polygone) => fusionner(segmentsDans(enPlan(u0), enPlan(u1), q).map(([a, b]) => [uDe(a), uDe(b)].sort((x, y) => x - y) as [number, number]));
+  let fond: CoupeVue['fond'] = null;
+  if (PF && maison.length) {
+    const zt0 = tn ? Math.min(...tn.filter(q => maison.some(([a, b]) => q.u >= a - 500 && q.u <= b + 500)).map(q => q.z), 0) : 0;
+    const zRef = parc?.finishedGround ?? (Number.isFinite(zt0) ? zt0 : 0);
+    fond = { genre: PF.fondation.kind, semelles: fusionner([...PF.emprise, ...PF.isolees.map(q => ({ contour: q.contour }))].flatMap(coupeU)), soubassements: fusionner(corpsSurSemelles(F!.niveau).map(contour => coupeU({ contour })).flat()),
+      fondFouille: Math.min(zRef, 0) - PF.assise, hauteurSemelle: PF.fondation.footingHeight, vide: PF.fondation.crawlHeight };
+  }
   const zt = tn?.map(q => q.z) ?? [];
-  return { l, C, tn, limites: lim, maison, u0, u1, zmin: Math.min(C.boite.zmin, 0, ...zt) - 1_000, zmax: C.boite.zmax, pieces };
+  return { l, C, tn, limites: lim, maison, u0, u1, zmin: fond?.semelles.length ? Math.min(Math.min(C.boite.zmin, 0, ...zt) - 600, fond.fondFouille - 300) : Math.min(C.boite.zmin, 0, ...zt) - 1_000, zmax: C.boite.zmax, pieces, fond };
 }
 
 export function plancheCoupes(doc: DocumentPdf, projet: Project, o: OptionsCoupes, lignes: LigneDeCoupe[]): void {
@@ -78,8 +92,8 @@ export function plancheCoupes(doc: DocumentPdf, projet: Project, o: OptionsCoupe
     return;
   }
   /* deux coupes par feuille ; la même échelle pour toutes */
-  const Z = { x: ZONE_DESSIN.x + 4, y: ZONE_DESSIN.y + 4, l: ZONE_DESSIN.l - 8, h: ZONE_DESSIN.h - 8 }, BAS = 62, COTES = 32;
-  const largeur = (v: CoupeVue, e: number) => (v.u1 - v.u0) / e + 2 * COTES;
+  const Z = { x: ZONE_DESSIN.x + 4, y: ZONE_DESSIN.y + 4, l: ZONE_DESSIN.l - 8, h: ZONE_DESSIN.h - 8 }, BAS = 62;
+  const largeur = (v: CoupeVue, e: number) => { const m = marges(v, e); return (v.u1 - v.u0) / e + m.g + m.d };
   const hauteur = (v: CoupeVue, e: number) => (v.zmax - v.zmin) / e + 30;
   const parFeuille = (e: number) => (V.length > 1 && V.slice(0, 2).reduce((s, v) => s + hauteur(v, e), 0) <= Z.h - BAS ? 2 : 1);
   const tient = (e: number) => V.every(v => largeur(v, e) <= Z.l) && Math.max(...V.map(v => hauteur(v, e))) <= Z.h - BAS;
@@ -92,16 +106,24 @@ export function plancheCoupes(doc: DocumentPdf, projet: Project, o: OptionsCoupe
     const page = nouvelleFeuille(doc), lot = V.slice(i, i + n);
     const H = lot.reduce((s, v) => s + hauteur(v, ech), 0), ecart = (Z.h - BAS - H) / (lot.length + 1);
     let y = Z.y + ecart;
-    for (const v of lot) { dessinerCoupe(page, projet, v, Z.x + (Z.l - largeur(v, ech)) / 2, y, ech); y += hauteur(v, ech) + ecart }
+    for (const v of lot) { dessinerCoupe(page, projet, v, Z.x + (Z.l - largeur(v, ech)) / 2, y, ech, marges(v, ech)); y += hauteur(v, ech) + ecart }
     basDePage(page, projet, V, Z.x, Z.y + Z.h - BAS + 4, Z.l);
     colonne(page, projet, o, 'Coupes', 'sur terrain', 'PCMI 3', ech);
   }
 }
 
 /** une coupe : (x0, y0) le coin haut-gauche de sa place */
-function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, y0: number, e: number): void {
-  const COTES = 32, ySol = y0 + 4 + v.zmax / e;
-  const Pm = (u: number, z: number): [number, number] => [x0 + COTES + (u - v.u0) / e, ySol - z / e];
+/* les repères de niveau (cote relative et NGF) : de part et d'autre de la coupe, ou, comme aux dossiers du cabinet,
+   dans le terrain entre la limite et la maison quand il y a la place — la coupe y gagne une échelle */
+const COTES = 32, REPERE_G = 38, REPERE_D = 46;
+function marges(v: CoupeVue, e: number): { g: number; d: number; dedansG: boolean; dedansD: boolean } {
+  const b = v.C.boite, dedansG = !!b && (b.umin - v.u0) / e >= REPERE_G, dedansD = !!b && (v.u1 - b.umax) / e >= REPERE_D;
+  return { g: dedansG ? 4 : COTES, d: dedansD ? 4 : COTES, dedansG, dedansD };
+}
+
+function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, y0: number, e: number, M: ReturnType<typeof marges>): void {
+  const ySol = y0 + 4 + v.zmax / e;
+  const Pm = (u: number, z: number): [number, number] => [x0 + M.g + (u - v.u0) / e, ySol - z / e];
   const P = (u: number, z: number): [number, number] => { const [a, b] = Pm(u, z); return [X(a), Y(b)] };
   const ngf0 = parcelleDuProjet(projet)?.plot.groundFloorNgf, ngf = (z: number) => (ngf0! + z / 1000).toFixed(2).replace('.', ',');
   /* le terrain : le sol en place sous le terrain naturel (ou le ±0,00), en beige pointillé */
@@ -111,6 +133,31 @@ function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, 
   page.decouper(fond);
   for (let k = 0; k < 900; k++) { const u = v.u0 + ((k * 7919) % 1000) / 1000 * (v.u1 - v.u0), z = v.zmin + ((k * 104729) % 997) / 997 * (Math.max(...sol.map(q => q.z)) - v.zmin); const [px, py] = P(u, z); page.cadre(px, py, 0.5, 0.5, { ep: 0, fond: TERRE_POINTS }) }
   page.restaurer();
+  /* les fondations coupées : le vide sanitaire en blanc sous le plancher, entre les soubassements ; les semelles au fond de
+     fouille et les soubassements jusqu'au plancher, hachurés comme la maçonnerie */
+  const hachurer = (Q: [number, number][], u0h: number, z0h: number, u1h: number, z1h: number) => {
+    page.polygone(Q, { fond: '#DCDCDC' });
+    page.decouper(Q);
+    const [a0, b0] = Pm(u0h, z0h), [a1, b1] = Pm(u1h, z1h);
+    for (let t = a0 - (b0 - b1); t < a1; t += 1.1) page.trait(X(t), Y(b0), X(t + (b0 - b1)), Y(b1), 0.25, '#4A4A4A');
+    page.restaurer();
+    page.polygone(Q, { trait: ENCRE, ep: 0.5 });
+  };
+  const F = v.fond, sousPlancher = -EPAISSEUR_PLANCHER;
+  if (F) {
+    const S = F.soubassements;
+    if (F.genre === 'crawl_space') for (let i = 0; i + 1 < S.length; i++) {
+      const a = S[i]![1], b = S[i + 1]![0];
+      if (b - a < 300 || !v.maison.some(([m0, m1]) => a >= m0 - 1 && b <= m1 + 1)) continue;
+      const z0 = sousPlancher - F.vide;
+      page.polygone([P(a, z0), P(b, z0), P(b, sousPlancher), P(a, sousPlancher)], { fond: '#FFFFFF', trait: '#6A6A6A', ep: 0.3 });
+      const [x, y] = Pm((a + b) / 2, (z0 + sousPlancher) / 2);
+      if ((b - a) / e > 24) texte(page, 'Vide sanitaire', x, y + 1, 6, { gras: true, aligne: 'centre', couleur: '#3A3A3A' });
+    }
+    const zs = F.fondFouille, zh = zs + F.hauteurSemelle;
+    for (const [a, b] of F.semelles) hachurer([P(a, zs), P(b, zs), P(b, zh), P(a, zh)], a, zs, b, zh);
+    for (const [a, b] of S) hachurer([P(a, zh), P(b, zh), P(b, sousPlancher), P(a, sousPlancher)], a, zh, b, sousPlancher);
+  }
   /* ce qu'on voit au-delà : la couverture dans sa teinte, le reste en blanc au trait */
   for (const f of v.C.vues) {
     if (COUVERTURES.has(f.matiere) || ['vitrage', 'menuiserie', 'appui', 'porte', 'garage'].includes(f.matiere)) peindre(page, f, P, e, 0);
@@ -146,8 +193,6 @@ function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, 
     const zTn = (u: number) => { if (!v.tn) return 0; const k = v.tn.findIndex(q => q.u >= u); if (k <= 0) return v.tn[Math.max(0, k)]!.z; const p = v.tn[k - 1]!, q = v.tn[k]!; return p.z + (q.z - p.z) * (u - p.u) / ((q.u - p.u) || 1) };
     const ga = Math.max(v.u0, a - 1_500), gb = Math.min(v.u1, b + 1_500);
     page.ligne([P(ga, zTn(ga)), P(a, tf), P(b, tf), P(gb, zTn(gb))], 0.8, TF);
-    const [x, y] = Pm(a, tf);
-    texte(page, 'TF ' + niveauRelatif(tf) + (ngf0 !== undefined ? ' (' + ngf(tf) + ')' : ''), x - 1, y - 1.3, 5.8, { aligne: 'droite', couleur: TF });
   }
   /* le nom des pièces traversées ; « Comble perdu » sous une toiture en pente */
   /* sur un fond blanc : le nom reste lisible devant une baie vue au-delà */
@@ -175,8 +220,11 @@ function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, 
   gauche.push([0, 'Niveau fini RDC']);
   const autres = v.C.coupees.filter(c => COUVERTURES.has(c.matiere)).map(c => Math.max(...c.points.map(q => q.z)));
   if (autres.length && t && Math.max(...autres) < t.faitage - 100) droite.unshift([Math.max(...autres), 'Faîtage']);
+  /* le terrain fini aux abords : un repère à droite, comme le sol du garage aux dossiers du cabinet */
+  if (tf !== undefined && v.maison.length) droite.push([tf, 'TF abords']);
   const repere = (z: number, lib: string, cote: 'g' | 'd') => {
-    const [, y] = Pm(0, z), xa = cote === 'g' ? x0 - 2 : x0 + COTES + (v.u1 - v.u0) / e + 3, xt = xa + (cote === 'g' ? 28 : 2);
+    const [, y] = Pm(0, z);
+    const xa = cote === 'g' ? (M.dedansG ? Pm(v.C.boite!.umin, 0)[0] - 35 : x0 - 2) : (M.dedansD ? Pm(v.C.boite!.umax, 0)[0] + 2 : x0 + M.g + (v.u1 - v.u0) / e + 3), xt = xa + (cote === 'g' ? 28 : 2);
     page.trait(X(xa + (cote === 'g' ? 20 : 0)), Y(y), X(xa + (cote === 'g' ? 33 : 13)), Y(y), 0.4, ENCRE);
     const xm = cote === 'g' ? xa + 28 : xa + 5;
     page.polygone([[X(xm), Y(y)], [X(xm + 1.7), Y(y - 2.3)], [X(xm - 1.7), Y(y - 2.3)]], { fond: '#FFFFFF', trait: ENCRE, ep: 0.4 });
@@ -199,7 +247,14 @@ function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, 
   }
   /* le titre de la coupe */
   const sens = orientation(v.l.regard, parcelleDuProjet(projet)?.plot.north ?? 0);
-  titreDessin(page, 'COUPE ' + v.l.nom + '–' + v.l.nom, 'Coupe sur terrain – regard vers le ' + sens + ' – échelle 1/' + e, x0 + COTES - 8, ycote + 9, 11);
+  titreDessin(page, 'COUPE ' + v.l.nom + '–' + v.l.nom, 'Coupe sur terrain – regard vers le ' + sens + ' – échelle 1/' + e, x0 + Math.max(M.g - 8, 0), ycote + 9, 11);
+}
+
+/** des intervalles réunis (ceux qui se touchent ou se recouvrent n'en font qu'un), dans l'ordre */
+function fusionner(I: [number, number][]): [number, number][] {
+  const out: [number, number][] = [];
+  for (const [a, b] of [...I].sort((p, q) => p[0] - q[0])) { const d = out[out.length - 1]; if (d && a <= d[1] + 1) d[1] = Math.max(d[1], b); else out.push([a, b]) }
+  return out;
 }
 
 /** le niveau qui porte la toiture en pente, et la hauteur de son plafond (relative au ±0,00) */

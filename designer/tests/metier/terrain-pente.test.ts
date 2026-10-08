@@ -72,7 +72,7 @@ describe('terrain fini aux abords', () => {
     expect(t.finishedGround).toBe(-150);
     const opts = { niveaux: [f.id], cotation: false, mobilier: false, indice: 'A', date: '07/10/2026' };
     const txt = textes(texte(planchesPdf(h1.projet, { ...opts, facades: true, coupe: true, masse: true })));
-    for (const x of ['TF -0,15', 'abords de la construction : -0,15 (100,85)', 'Terrain fini (TF) aux abords \x96 -0,15 (100,85 NGF)', 'Terrain fini aux abords \xE0 -0,15, raccord\xE9 au terrain naturel', 'TF : terrain fini aux abords \xE0 -0,15 (100,85)'])
+    for (const x of ['TF abords -0,15  (100,85 NGF)', 'TF 100,85', 'abords de la construction : -0,15 (100,85)', 'Terrain fini (TF) aux abords \x96 -0,15 (100,85 NGF)', 'Terrain fini aux abords \xE0 -0,15, raccord\xE9 au terrain naturel', 'TF : terrain fini aux abords \xE0 -0,15 (100,85)'])
       expect(txt, x).toContain(x);
     /* sans terrain fini : « à préciser » */
     const h2 = ok(executer(h1, 'Sans TF', [{ type: 'modifierParcelle', id, terrainFini: null }], a));

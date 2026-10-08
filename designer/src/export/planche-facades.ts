@@ -79,8 +79,9 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
       const n = NORMALES[c], ext = niveaux.flatMap(f => mursDroits(f).flatMap(w => [w.axis.a, w.axis.b]));
       const avant = Math.max(...ext.map(p => p.x * n.x + p.y * n.y)) + 500;
       tn = [];
+      /* jusqu'à 60 cm au-delà du débord, comme le terrain fini : la façade voisine sur la planche garde ses niveaux */
       for (let k = 0; k <= 40; k++) {
-        const uu = B.umin - 1_500 + (B.umax - B.umin + 3_000) * k / 40;
+        const uu = B.umin - 600 + (B.umax - B.umin + 1_200) * k / 40;
         /* le point du plan vu en uu, au pied de la façade */
         const p = c === 'sud' ? { x: uu, y: -avant } : c === 'nord' ? { x: -uu, y: avant } : c === 'est' ? { x: avant, y: uu } : { x: -avant, y: -uu };
         const z = altitudeTerrain(t.plot, p);
@@ -122,7 +123,8 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
   const y3 = y;
   dessinerFacade(page, b1!, Z.x, y3, ech, egout, ngf0, tf);
   const libre = hPanneaux(ech) > y3 - Z.y + 2 ? Z.l - PANNEAU - 6 : Z.l;
-  dessinerFacade(page, b2!, Z.x + Math.max(largeur(b1!, ech) + 6, Math.min((libre - 6) / 2 + 3, libre - largeur(b2!, ech))), y3, ech, egout, ngf0, tf);
+  /* la seconde au milieu de la place libre, mais à 14 mm au moins de la première (son terrain dépasse du débord) */
+  dessinerFacade(page, b2!, Z.x + Math.max(largeur(b1!, ech) + 6, Math.min(Math.max((libre - 6) / 2 + 3, largeur(b1!, ech) + 14), libre - largeur(b2!, ech))), y3, ech, egout, ngf0, tf);
 
   /* les encadrés, à droite des deux premières façades */
   const px = Z.x + Z.l - PANNEAU;
@@ -157,8 +159,8 @@ function dessinerFacade(page: PagePdf, v: FacadeVue, x0: number, y0: number, e: 
   }
   /* le terrain fini (vert) à son niveau aux abords (au ±0,00 s'il n'est pas saisi), le terrain naturel relevé en tirets */
   const [g0] = Pm(v.umin - 600, 0), [g1] = Pm(v.umax + 600, 0), yTf = ySol - (tf ?? 0) / e;
+  /* sa valeur est à l'encadré « Niveaux » (comme aux dossiers du cabinet) : une étiquette ici gênerait la façade voisine */
   page.trait(X(g0), Y(yTf), X(g1), Y(yTf), 0.9, TF);
-  if (tf !== undefined) texte(page, 'TF ' + niveauRelatif(tf), g1, yTf - 1.2, 6, { aligne: 'droite', couleur: TF });
   if (v.tn) page.ligne(v.tn.map(q => P(q.u, q.z)), 0.5, TN, [2.2, 1.6]);
   /* les niveaux, à gauche : égout, sol fini, terrain naturel */
   const nv = (z: number, t: string, sous: string, plein: boolean, gras = true) => {
@@ -181,7 +183,7 @@ function dessinerFacade(page: PagePdf, v: FacadeVue, x0: number, y0: number, e: 
     texte(page, niveauRelatif(f.z), fx, fy - 4.2, haut ? 7.5 : 6.5, { gras: haut, aligne: 'centre', couleur: haut ? '#222222' : GRIS_TEXTE });
   }
   /* sous chaque baie : sa largeur × hauteur, et l'allège ; un trait pointillé les relie */
-  const zbas = Math.min(v.zmin, -200), yl = ySol - zbas / e + 5.5;
+  const zbas = Math.min(v.zmin, -200), yl = ySol - zbas / e + 4.5;
   const pris: [number, number][] = [];
   for (const b of [...v.baies].sort((a, c) => a.u - c.u)) {
     const [bx, by] = Pm(b.u, b.z);
@@ -199,13 +201,13 @@ function dessinerFacade(page: PagePdf, v: FacadeVue, x0: number, y0: number, e: 
   for (const x of [a, b]) { page.trait(X(x - 1), Y(yc + 1), X(x + 1), Y(yc - 1), 0.5, ENCRE); page.trait(X(x), Y(yc - 2.5), X(x), Y(yc + 1.2), 0.25, ENCRE) }
   texte(page, metres(v.mur[1] - v.mur[0]), (a + b) / 2, yc - 1.2, 7.5, { gras: true, aligne: 'centre', couleur: '#222222' });
   /* le titre de la façade */
-  const yt = yc + 6.5;
+  const yt = yc + 6;
   texte(page, v.nom, x0 + 1, yt, 11, { gras: true, couleur: '#222222' });
   texte(page, v.sous + 'échelle 1/' + e, x0 + 3 + PagePdf.largeur(v.nom, 11, { gras: true }) / PT, yt, 7, { couleur: GRIS_TEXTE });
 }
 
 /** la place à gauche de chaque façade (cotes de niveau), au-dessus (faîtages) et dessous (baies, longueur, titre) : mm */
-const GAUCHE = 17, HAUT = 7, BAS = 21.5;
+const GAUCHE = 17, HAUT = 6, BAS = 20;
 
 /** le haut du toit vu en u : la plus haute des faces de couverture qui passent par cette verticale */
 function silhouette(v: FacadeVue, u: number): number {
