@@ -6,7 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel, type Project, type ReglesPlu } from '../../src/model';
 import { executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
-import { controlePlu, parcelleDuProjet, surfacesDuTerrain } from '../../src/building';
+import { accesDepuisLaVoie, controlePlu, parcelleDuProjet, surfacesDuTerrain } from '../../src/building';
+import { notice } from '../../src/export/notice';
 import { planchesPdf } from '../../src/export/planche';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 1) + (t += 1000)).toISOString(), id: generateurSequentiel('o') } };
@@ -39,6 +40,15 @@ describe('règles du PLU', () => {
     expect(S.permeables / 1e6).toBeCloseTo(20, 3);
     expect(S.pleineTerre / 1e6).toBeCloseTo(600 - 83.64 - 45, 2);
     expect(S.nonImpermeabilisees / 1e6).toBeCloseTo(600 - 83.64 - 25, 2);
+  });
+
+  it('les accès : là où l’allée et le stationnement arrivent sur la voie, leur largeur ; cotés au plan de masse, dits à la notice', () => {
+    const { h, n } = maison();
+    expect(accesDepuisLaVoie(h.projet).map(x => Math.round(x.largeur))).toEqual([2_000, 5_000]);
+    const s = texte(planchesPdf(h.projet, { niveaux: [n], cotation: true, mobilier: false, indice: 'A', date: '07/10/2026', masse: true }));
+    for (const t of ['(Acc\xE8s)', '(Acc\xE8s depuis la voie \\(c\xF4t\xE9 1\\))', '(Acc\xE8s depuis la voie \\(largeur cot\xE9e\\))', '(Alignement \\(limite sur la voie\\))', '(5,00)'])
+      expect(s, t).toContain(t);
+    expect(notice(h.projet).flatMap(r => r.paragraphes).join(' ')).toContain('Accès et stationnement : accès depuis la voie de 2,00 m, accès depuis la voie de 5,00 m');
   });
 
   it('une allée tracée tout autour de la maison ne compte que sa bande : la maison n’y est pas comptée deux fois', () => {

@@ -17,6 +17,7 @@ import { aire, aireSignee, centroide, type Polygone } from '../geometry/polygon'
 import { distancePointSegment, projeterSurSegment } from '../geometry/segment';
 import { distance, tourner } from '../geometry/vecteur';
 import { positionDansAnneau } from '../geometry/predicats';
+import { segmentsDans } from '../geometry/hachures';
 import { barycentre, delaunay, type Triangle } from '../geometry/triangulation';
 
 /** la parcelle du projet, et le niveau qui la porte (null : pas de parcelle) */
@@ -122,6 +123,40 @@ export function bilanAmenagements(p: Project): BilanAmenagement[] {
       S = E.length ? difference([{ contour: o.points }], E).reduce((s, q) => s + aire(q), 0) : Math.abs(aireSignee(o.points));
     }
     out.push({ id: o.id, genre: o.kind, finition: o.finish, mesure: o.kind === 'fence' ? L : S });
+  }
+  return out;
+}
+
+/** un accès depuis la voie : le morceau d'un côté sur voie que touche une allée ou un stationnement (au moins 2 m) */
+export interface Acces { cote: number; a: Point; b: Point; largeur: Mm }
+
+/** les accès du terrain : là où une allée ou un stationnement tracés arrivent sur la limite le long de la voie (à 30 cm près) ;
+ *  ils se mesurent, rien n'est supposé de leur statut (existant, à créer) */
+export function accesDepuisLaVoie(p: Project): Acces[] {
+  const t = parcelleDuProjet(p);
+  if (!t) return [];
+  const C = t.plot.contour, s = Math.sign(C.reduce((x, q, i) => { const r = C[(i + 1) % C.length]!; return x + q.x * r.y - r.x * q.y }, 0)) || 1;
+  const surfaces = p.buildings.flatMap(b => b.floors).flatMap(f => Object.values(f.objects)).filter((o): o is Landscape => o.type === 'landscape' && (o.kind === 'path' || o.kind === 'parking') && o.points.length >= 3);
+  if (!surfaces.length) return [];
+  const zone = union(surfaces.map(o => ({ contour: o.points })));
+  const out: Acces[] = [];
+  for (const i of t.plot.street) {
+    const a = C[i]!, b = C[(i + 1) % C.length]!, L = distance(a, b);
+    if (L < 1) continue;
+    /* le côté, glissé vers l'intérieur du terrain : au ras de la limite d'abord (la largeur vraie d'une allée tracée jusqu'à
+       elle, même si elle s'évase), puis jusqu'à 30 cm (une allée arrêtée un peu avant la limite) */
+    const morceaux = (d: number): [number, number][] => {
+      const n = { x: -s * (b.y - a.y) / L * d, y: s * (b.x - a.x) / L * d }, a2 = { x: a.x + n.x, y: a.y + n.y }, b2 = { x: b.x + n.x, y: b.y + n.y };
+      const I = zone.flatMap(q => segmentsDans(a2, b2, q)).map(([u, v]) => [distance(a2, u), distance(a2, v)].sort((x, y) => x - y) as [number, number]).sort((x, y) => x[0] - y[0]);
+      const R: [number, number][] = [];
+      for (const [u, v] of I) { const e = R[R.length - 1]; if (e && u <= e[1] + 50) e[1] = Math.max(e[1], v); else R.push([u, v]) }
+      return R.filter(([u, v]) => v - u >= 2_000);
+    };
+    const R = [20, 100, 300].map(morceaux).find(x => x.length) ?? [];
+    for (const [u, v] of R) {
+      const at = (k: number) => ({ x: a.x + (b.x - a.x) * k / L, y: a.y + (b.y - a.y) * k / L });
+      out.push({ cote: i, a: at(u), b: at(v), largeur: v - u });
+    }
   }
   return out;
 }

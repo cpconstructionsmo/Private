@@ -9,7 +9,7 @@
    « Surfaces et règles » et les notes sur le fond de plan.
    Tout se déduit de la parcelle et du projet : ce qui manque est écrit. */
 import type { Point, Project, Landscape, ReglesPlu } from '../model/types';
-import { controlePlu, surfacesDuTerrain, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, pointsDeVue, DEMI_CHAMP, placeEtiquette, surfacesReglementaires, toitureDuNiveau, lignesDeToiture, NOMS_RESEAUX, bilanAmenagements, metreTerrain, altitudeTerrain } from '../building';
+import { controlePlu, surfacesDuTerrain, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, maisonDansParcelle, pointsDeVue, DEMI_CHAMP, placeEtiquette, accesDepuisLaVoie, surfacesReglementaires, toitureDuNiveau, lignesDeToiture, NOMS_RESEAUX, bilanAmenagements, metreTerrain, altitudeTerrain } from '../building';
 import { GENRES_AMENAGEMENT } from '../catalogue/amenagements';
 import { finitionAmenagement } from '../catalogue/amenagements';
 import { NOMS_EQUIPEMENTS } from '../ui/dessin-terrain';
@@ -98,11 +98,18 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     }
     page.restaurer();
   }
-  /* la voie, le long de l'alignement */
+  /* la voie, le long de l'alignement (une bordure en tirets) ; son nom au milieu de la plus longue partie sans accès */
+  const acces = accesDepuisLaVoie(projet);
   for (const v of voies) {
     page.polygone([Pp(v.a), Pp(v.b), Pp({ x: v.b.x + v.n.x * 6_000, y: v.b.y + v.n.y * 6_000 }), Pp({ x: v.a.x + v.n.x * 6_000, y: v.a.y + v.n.y * 6_000 })], { fond: VOIE });
+    const o = 0.9 * ech;
+    page.ligne([Pp({ x: v.a.x + v.n.x * o, y: v.a.y + v.n.y * o }), Pp({ x: v.b.x + v.n.x * o, y: v.b.y + v.n.y * o })], 1.6, '#6A6A6A', [4, 1.4]);
     if (plot.streetName) {
-      const m = { x: (v.a.x + v.b.x) / 2 + v.n.x * 3_200, y: (v.a.y + v.b.y) / 2 + v.n.y * 3_200 }, [mx, my] = Pp(m);
+      const k = (q: Point) => ((q.x - v.a.x) * (v.b.x - v.a.x) + (q.y - v.a.y) * (v.b.y - v.a.y)) / v.L;
+      const pris = acces.filter(x => plot.contour[x.cote] === v.a).map(x => [k(x.a) - 1_500, k(x.b) + 1_500].sort((p, q) => p - q) as [number, number]).sort((p, q) => p[0] - q[0]);
+      let libre: [number, number] = [0, v.L], debut = 0;
+      for (const [u, w] of [...pris, [v.L, v.L] as [number, number]]) { if (u - debut > libre[1] - libre[0]) libre = [debut, u]; debut = Math.max(debut, w) }
+      const km = (libre[0] + libre[1]) / 2, m = { x: v.a.x + (v.b.x - v.a.x) * km / v.L + v.n.x * 3_200, y: v.a.y + (v.b.y - v.a.y) * km / v.L + v.n.y * 3_200 }, [mx, my] = Pp(m);
       page.texte('— ' + plot.streetName + ' —', mx, my, 8, { gras: true, italique: true, aligne: 'centre', angle: angleFeuille(v.a, v.b), couleur: '#555555' });
     }
   }
@@ -190,6 +197,26 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     page.cercle(X(bx), Y(by), 1.3 * PT, { trait: ROUGE, ep: 0.5, fond: '#FFFFFF' });
     page.trait(X(bx - 0.8), Y(by - 0.8), X(bx + 0.8), Y(by + 0.8), 0.4, ROUGE); page.trait(X(bx - 0.8), Y(by + 0.8), X(bx + 0.8), Y(by - 0.8), 0.4, ROUGE);
   });
+  /* les accès depuis la voie : leur largeur cotée dans la voie, une flèche qui entre sur le terrain */
+  for (const x of acces) {
+    const a = plot.contour[x.cote]!, b = plot.contour[(x.cote + 1) % plot.contour.length]!, n = dehors(plot.contour, a, b);
+    const d = 2.6 * ech, A = { x: x.a.x + n.x * d, y: x.a.y + n.y * d }, B = { x: x.b.x + n.x * d, y: x.b.y + n.y * d };
+    page.trait(...Pp(A), ...Pp(B), 0.35, ENCRE);
+    for (const q of [x.a, x.b]) {
+      const [qx, qy] = Pm({ x: q.x + n.x * d, y: q.y + n.y * d });
+      page.trait(...Pp({ x: q.x + n.x * 0.4 * ech, y: q.y + n.y * 0.4 * ech }), ...Pp({ x: q.x + n.x * (d + 1.2 * ech), y: q.y + n.y * (d + 1.2 * ech) }), 0.2, '#555555');
+      page.trait(X(qx - 0.7), Y(qy + 0.7), X(qx + 0.7), Y(qy - 0.7), 0.45, ENCRE);
+    }
+    const m = { x: (x.a.x + x.b.x) / 2, y: (x.a.y + x.b.y) / 2 }, g = angleFeuille(a, b), r = g * Math.PI / 180;
+    const [cx, cy] = Pm({ x: m.x + n.x * d, y: m.y + n.y * d });
+    page.texte(metres(x.largeur), X(cx - Math.sin(r) * 0.9), Y(cy - Math.cos(r) * 0.9), 7, { gras: true, aligne: 'centre', angle: g, couleur: '#222222' });
+    /* la flèche, de la voie vers le terrain, et son nom au pied */
+    const [t0x, t0y] = Pm({ x: m.x + n.x * 5.4 * ech, y: m.y + n.y * 5.4 * ech }), [t1x, t1y] = Pm({ x: m.x + n.x * 3.6 * ech, y: m.y + n.y * 3.6 * ech });
+    const L = Math.hypot(t1x - t0x, t1y - t0y) || 1, ux = (t1x - t0x) / L, uy = (t1y - t0y) / L;
+    page.trait(X(t0x), Y(t0y), X(t1x), Y(t1y), 0.6, ENCRE);
+    page.polygone([[X(t1x), Y(t1y)], [X(t1x - ux * 1.6 - uy * 0.8), Y(t1y - uy * 1.6 + ux * 0.8)], [X(t1x - ux * 1.6 + uy * 0.8), Y(t1y - uy * 1.6 - ux * 0.8)]], { fond: ENCRE });
+    texte(page, 'Accès', t0x - ux * 2.2, t0y - uy * 2.2 + 1, 6.5, { gras: true, aligne: 'centre', couleur: '#222222' });
+  }
   /* les altitudes du terrain naturel */
   for (const s of plot.spotHeights ?? []) {
     const [px, py] = Pm(s.point);
@@ -281,6 +308,8 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     ...((plot.spotHeights?.length ?? 0) ? [{ pastille: (pg: PagePdf, x: number, y: number) => { pg.trait(X(x + 2.6), Y(y + 0.6), X(x + 4.4), Y(y + 2.4), 0.5, ENCRE); pg.trait(X(x + 2.6), Y(y + 2.4), X(x + 4.4), Y(y + 0.6), 0.5, ENCRE) }, texte: 'Altitude du terrain naturel (TN, NGF)' }] : []),
     ...(PV.length ? [{ pastille: (pg: PagePdf, x: number, y: number) => pg.polygone([[X(x), Y(y + 1.5)], [X(x + 7), Y(y)], [X(x + 7), Y(y + 3)]], { fond: '#B9BEC2', trait: '#555555', ep: 0.4 }), texte: 'Prise de vue photographique (PCMI 6, 7, 8)' }] : []),
     { pastille: pastilleTrait(ROUGE, 0.5), texte: 'Recul mesuré (maison – limite)' },
+    ...(voies.length ? [{ pastille: pastilleTrait('#6A6A6A', 1.6, [4, 1.4]), texte: 'Alignement (limite sur la voie)' }] : []),
+    ...(acces.length ? [{ pastille: (pg: PagePdf, x: number, y: number) => { pg.trait(X(x + 3.5), Y(y + 3), X(x + 3.5), Y(y + 0.6), 0.6, ENCRE); pg.polygone([[X(x + 3.5), Y(y)], [X(x + 2.7), Y(y + 1.6)], [X(x + 4.3), Y(y + 1.6)]], { fond: ENCRE }) }, texte: 'Accès depuis la voie (largeur cotée)' }] : []),
   ];
   const tl = tailleLegende('LÉGENDE', L), hl = tl.h + 6;
   page.cadre(X(px), Y(py + hl), PANNEAU * PT, hl * PT, { ep: 0.5, couleur: ENCRE, fond: '#FFFFFF' });
@@ -356,6 +385,7 @@ function listesMasse(page: PagePdf, projet: Project, x: number, y0: number, l: n
     ['TERRAIN', [
       ['Référence cadastrale', plot.reference ?? '[à compléter]', !plot.reference],
       ['Voie', plot.streetName ?? (plot.street.length ? '[nom à compléter]' : '[côté sur voie à indiquer]'), !plot.streetName],
+      ...accesDepuisLaVoie(projet).map(x => ['Accès depuis la voie (côté ' + (x.cote + 1) + ')', metres(x.largeur) + ' m'] as [string, string]),
       ['±0,00 (sol fini RDC)', plot.groundFloorNgf !== undefined ? f2(plot.groundFloorNgf) + ' NGF' : '[NGF à compléter]', plot.groundFloorNgf === undefined],
       ['Terrain fini (abords)', plot.finishedGround !== undefined ? niveauRelatif(plot.finishedGround) + (plot.groundFloorNgf !== undefined ? ' (' + f2(plot.groundFloorNgf + plot.finishedGround / 1000) + ' NGF)' : '') : '[à préciser]', plot.finishedGround === undefined],
       ['Terrain naturel', Z.length ? (Z.length > 1 ? f2(Math.min(...Z)) + ' à ' + f2(Math.max(...Z)) : f2(Z[0]!)) + ' NGF (' + Z.length + ' pt' + (Z.length > 1 ? 's' : '') + ')' : '[non relevé]', !Z.length],

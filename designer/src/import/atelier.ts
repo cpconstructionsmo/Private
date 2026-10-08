@@ -40,7 +40,9 @@ export interface PieceAtelier { id: string; nom: string; usage: string; polygone
 export interface NiveauAtelier { nom?: string; murs: MurAtelier[]; ouvertures: OuvertureAtelier[]; pieces: PieceAtelier[] }
 export interface TerrainAtelier { limites?: PointM[]; alignement?: number[]; nom_voie?: string; source?: string; implantation?: { angle: number; dx: number; dy: number } | null;
   /** les altitudes du terrain naturel lues sur le plan (repère du terrain, m ; z en NGF) ; l'altitude du ±0,00 si le plan l'écrit */
-  tn?: { x: number; y: number; z: number; source?: string }[]; altitude_rdc?: ValeurAtelier | null }
+  tn?: { x: number; y: number; z: number; source?: string }[]; altitude_rdc?: ValeurAtelier | null;
+  /** la direction du nord lue sur la flèche du plan (degrés, sens trigonométrique depuis l'axe x du terrain) */
+  nord?: ValeurAtelier | null }
 /** une règle du PLU saisie dans l'atelier, avec son article (recul_alignement, recul_limites, emprise_max, hauteur_egout_max, hauteur_faitage_max) */
 export interface RegleAtelier { cle: string; valeur: number; article?: string; note?: string }
 export interface ModeleAtelier { id?: string; nom?: string; schema_version?: number; batiment: { niveaux: NiveauAtelier[] }; source_rdc?: { fichier?: string; segments?: [PointM, PointM][] }; terrain?: TerrainAtelier;
@@ -519,10 +521,14 @@ export function commandesImport(modele: ModeleAtelier, niveau: string, id: () =>
     /* les altitudes du terrain naturel lues sur le plan, et celle du ±0,00 s'il l'écrit : reprises telles quelles */
     const tn = (T!.tn ?? []).filter(q => [q.x, q.y, q.z].every(Number.isFinite)).map(q => ({ point: versRdc([q.x, q.y]), ngf: q.z }));
     const zRdc = T!.altitude_rdc && T!.altitude_rdc.statut !== 'impossible' && typeof T!.altitude_rdc.valeur === 'number' ? T!.altitude_rdc.valeur : undefined;
+    /* le nord lu sur la flèche du plan : sa direction tourne avec le terrain, puis se compte depuis le haut du plan */
+    const dirNord = T!.nord && T!.nord.statut !== 'impossible' && typeof T!.nord.valeur === 'number' ? T!.nord.valeur : undefined;
+    const nord = dirNord !== undefined ? Math.round(Math.atan2(Math.sin((dirNord - 90) * Math.PI / 180 + a), Math.cos((dirNord - 90) * Math.PI / 180 + a)) * 1e6) / 1e6 : undefined;
+    if (nord !== undefined) avertissements.push('Nord lu sur la flèche du plan du terrain : à vérifier dans l’inspecteur de la parcelle');
     const reference = referencesParcelles(modele.parcelles), plu = reglesDeLAtelier(modele);
     commandes.push({
       type: 'creerParcelle', niveau, contour, voies: (T!.alignement ?? []).filter(i => i >= 0 && i < contour.length), ...(T!.nom_voie ? { nomVoie: T!.nom_voie } : {}),
-      ...(reference ? { reference } : {}), ...(tn.length ? { altitudesTerrain: tn } : {}), ...(zRdc !== undefined ? { altitudeRdc: zRdc } : {}), ...(Object.keys(plu).length ? { plu } : {}),
+      ...(reference ? { reference } : {}), ...(nord !== undefined ? { nord } : {}), ...(tn.length ? { altitudesTerrain: tn } : {}), ...(zRdc !== undefined ? { altitudeRdc: zRdc } : {}), ...(Object.keys(plu).length ? { plu } : {}),
       origine: { label: 'Import atelier : ' + source, document: source, statut: imp ? 'derived' : 'to_check', meta: { atelier: { implantation: imp ?? null } } },
     });
   }

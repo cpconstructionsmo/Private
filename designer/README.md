@@ -217,7 +217,9 @@ cabinet (`src/export/feuille.ts` et un module par planche) :
   bornes, voie, toiture vue de dessus, emprise en tirets, aménagements,
   arbres, réseaux, prises de vue (un cône de 9 mm vers ce qu'on
   photographie), terrain fini « TF » au pied des façades, reculs en
-  rouge ; légende, « Surfaces et
+  rouge, bordure d'alignement en tirets, accès coté là où l'allée ou le
+  stationnement arrivent sur la voie (mesuré, sans rien supposer de son
+  statut) ; légende, « Surfaces et
   règles », notes, puis les listes (terrain, reculs, aménagements,
   terrassement, réseaux, plantations, prises de vue). Le PDF est écrit sans bibliothèque et en vectoriel : le plan y
 est dessiné par le même code qu'à l'écran, sur une « toile PDF ».
@@ -273,7 +275,8 @@ le tableau du terrain ; ce qui manque s'écrit « [à compléter] ». Une vue 3D
 intégrée au PDF ; l'insertion dans le site (PCMI 6) se compose aussi dans la
 3D (voir « Dossier de permis »). Le terrain
 lu par l'atelier (limite, côtés sur voie, nom de la voie, implantation,
-points du terrain naturel, altitude du ±0,00 écrite au plan, références
+points du terrain naturel, altitude du ±0,00 écrite au plan, nord lu sur
+la flèche du plan (à vérifier), références
 cadastrales, règles du PLU de la zone) revient avec l'import du RDC, ainsi
 que les informations du dossier (maître de l'ouvrage, adresses, zone
 sismique, chauffage…) dans les cases encore vides seulement ; un projet
@@ -358,10 +361,11 @@ dates et modifications, lieu de construction, cadastre, surface du
 terrain ; à droite le tableau des surfaces pièce par pièce, S.H et S.A,
 le résumé du projet — emprise, surface de plancher, surface habitable,
 surface vitrée — et le sommaire des pièces), puis PCMI 2 (plan de masse), PCMI 3 (coupes), PCMI 4
-(brouillon de notice : terrain, implantation et règles du PLU saisies,
+(brouillon de notice, en deux colonnes équilibrées, au plus grand corps
+qui tient : terrain, implantation et règles du PLU saisies,
 adaptation au terrain — ±0,00, terrain fini, terrain naturel sous la
 maison, soubassement —, matériaux, couverture et zinguerie, espaces
-libres et arbres, stationnement, réseaux tracés au plan de masse ; le
+libres et arbres, accès et stationnement, réseaux tracés au plan de masse ; le
 reste « [à compléter] »), PCMI 5 (façades, plan de toiture) et les plans des
 niveaux, chaque cartouche portant sa pièce. Les pièces images sont fournies
 par l'utilisateur, jamais inventées :

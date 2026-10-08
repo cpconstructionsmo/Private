@@ -241,6 +241,7 @@ class Terrain(BaseModel):
     implantation: Optional[Implantation] = None
     nom_voie: str = ""
     altitude_rdc: Optional[Valeur] = None   # altitude NGF du ±0,00 (RDC fini), si le plan l'écrit (« ±0,00 = 50,30 »)
+    nord: Optional[Valeur] = None           # direction du nord dessinée (degrés, sens trigonométrique depuis l'axe x du plan)
 
 
 class Regle(BaseModel):

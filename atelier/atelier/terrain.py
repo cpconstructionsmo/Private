@@ -144,11 +144,41 @@ def _analyser(polys, textes, source: str, notes: list[str]):
         notes.append(f"Altitude du RDC fini lue sur le plan : ±0,00 = {nombre_fr(lues[0])} NGF.")
     elif len(lues) > 1:
         notes.append("⚠️ Plusieurs altitudes « ±0,00 = … » sur le plan (" + ", ".join(nombre_fr(v) for v in lues) + ") : à saisir.")
+    nord = _nord(polys, textes, source, notes)
     terrain = Terrain(limites=[(round(x, 3), round(y, 3)) for x, y in limite.exterior.coords],
-                      source=source, cotes=cc, alignement=alignement, tn=tn, nom_voie=nom_voie, altitude_rdc=altitude_rdc,
+                      source=source, cotes=cc, alignement=alignement, tn=tn, nom_voie=nom_voie, altitude_rdc=altitude_rdc, nord=nord,
                       surface=confirme(round(limite.area, 2), "m²", document=source,
                                        calcul="surface du contour de la limite de propriété"))
     return terrain, {"emprises": emprises, "textes": textes}, notes
+
+
+def _nord(polys, textes, source: str, notes: list[str]):
+    """La direction du nord, si le plan dessine une flèche ou une rose avec la lettre « N » : du centre du
+    symbole (le plus grand petit contour fermé près de la lettre : le cercle, sinon la flèche) vers sa pointe
+    (le sommet le plus éloigné du centre), à défaut vers la lettre. Une lecture du dessin, donc à vérifier."""
+    lettres = [Point(x, y) for t, (x, y) in textes if re.fullmatch(r"N(ord)?", t.strip(), re.I)]
+    lus = []
+    for p in lettres:
+        proches = [q for q in polys if q.geom_type == "Polygon" and 0.05 < q.area < 60 and q.distance(p) < 3]
+        if not proches:
+            continue
+        rose = max(proches, key=lambda q: q.area)
+        c = rose.centroid
+        r = max(math.dist((c.x, c.y), v) for v in rose.exterior.coords)
+        # la pointe : parmi les sommets des contours dans la rose (la flèche), le plus loin du centre, du côté de la lettre
+        vers_lettre = math.atan2(p.y - c.y, p.x - c.x)
+        sommets = [v for q in proches if q is not rose and rose.buffer(0.05 * r).contains(q) for v in q.exterior.coords]
+        sommets = [v for v in sommets if abs(math.remainder(math.atan2(v[1] - c.y, v[0] - c.x) - vers_lettre, math.tau)) < math.radians(60)]
+        cible = max(sommets, key=lambda v: math.dist((c.x, c.y), v)) if sommets else (p.x, p.y)
+        lus.append(math.degrees(math.atan2(cible[1] - c.y, cible[0] - c.x)))
+    if len(lus) == 1 or (lus and max(abs(math.remainder(a - lus[0], 360)) for a in lus) < 5):
+        a = round(lus[0], 1)
+        notes.append(f"Nord lu sur la flèche du plan : {nombre_fr(a)}° depuis l'axe horizontal (à vérifier).")
+        return hypothese(a, "°", consequence="orientation des façades et du plan de masse",
+                         document=source, calcul="flèche du nord dessinée : du centre du symbole vers sa pointe")
+    if len(lus) > 1:
+        notes.append("⚠️ Plusieurs flèches du nord sur le plan, de sens différents : nord à saisir.")
+    return None
 
 
 RE_ECH = re.compile(r"[ÉE]chelle\s*:?\s*1\s*/\s*\d{2,4}", re.I)
