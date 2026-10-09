@@ -401,7 +401,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   let perspective: ImageDossier | null = null;
   /* les autres pièces images du dossier (PCMI 1, 6, 7, 8), gardées de même le temps de la séance : photos du
      terrain et extraits de carte ne sont ni enregistrés dans le projet, ni partagés */
-  const piecesDossier: { situation?: ImageDossier; insertion?: ImageDossier; photoProche?: ImageDossier; photoLointaine?: ImageDossier } = {};
+  const piecesDossier: { situation?: ImageDossier; situationAerienne?: ImageDossier; insertion?: ImageDossier; photoProche?: ImageDossier; photoLointaine?: ImageDossier } = {};
   /** la photographie du terrain posée derrière la maquette 3D, pour composer l'insertion (PCMI 6) */
   let photoSite: ImageBitmap | null = null;
   /** une image choisie par l'utilisateur (JPEG, PNG…), décodée par le navigateur ; rien si le choix est abandonné */
@@ -426,7 +426,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     return { jpeg: new Uint8Array(await b.arrayBuffer()), largeur: c.width, hauteur: c.height, ...(legende?.trim() ? { legende: legende.trim() } : {}) };
   }
   /** une pièce image du dossier (PCMI 1, 7, 8) : l'image, puis ce qu'on en dit (source et échelle, point de vue) */
-  async function importerPiece(cle: 'situation' | 'photoProche' | 'photoLointaine', titreDialogue: string, invite: string) {
+  async function importerPiece(cle: 'situation' | 'situationAerienne' | 'photoProche' | 'photoLointaine', titreDialogue: string, invite: string) {
     const c = await choisirImage();
     if (!c) return;
     const r = await dialogue(titreDialogue, [{ cle: 'leg', libelle: invite, valeur: piecesDossier[cle]?.legende ?? '' }]);
@@ -2293,7 +2293,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       + (c.ecart !== undefined ? '<br>Calé sur la limite : écart moyen <b>' + m(c.ecart) + '</b>' : '')));
     out.push(ligne(bouton('Importer (GeoJSON)…', () => importerCadastre(o)), bouton('Télécharger…', () => telechargerCadastre(o))));
     if (c) out.push(ligne(bouton('Retirer le fond cadastral', () => faire('Retirer le fond cadastral', [{ type: 'modifierParcelle', id: o.id, cadastre: null }]), 'dang')));
-    out.push(bloc('Les parcelles voisines et le bâti existant du plan cadastral (cadastre.data.gouv.fr), calés sur la limite d’après la référence cadastrale. Ils vont au plan de masse (PCMI 2) et suivent la parcelle quand on l’implante. Le cadastre n’est pas un plan de géomètre : ses limites ne sont pas garanties.'));
+    out.push(bloc('Les parcelles voisines et le bâti existant du plan cadastral (cadastre.data.gouv.fr), calés sur la limite d’après la référence cadastrale. Ils vont au plan de masse (PCMI 2) et au plan cadastral du plan de situation (PCMI 1), et suivent la parcelle quand on l’implante. Le cadastre n’est pas un plan de géomètre : ses limites ne sont pas garanties.'));
     return out;
   }
   /** caler un cadastre lu sur la parcelle, et le garder (avec le nord qu'il donne, si on le veut) */
@@ -2382,12 +2382,18 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     A.append(titre('Dossier de permis : pièces fournies'));
     const etat = (code: string, nom: string, v: ImageDossier | null | undefined, sinon: string) =>
       bloc('<b>' + code + '</b> ' + nom + ' : ' + (v ? '✓ ' + v.largeur + ' × ' + v.hauteur + ' px' + (v.legende ? ' — ' + esc(v.legende) : '') : '<span class="note">' + sinon + '</span>'));
-    const piece = (cle: 'situation' | 'photoProche' | 'photoLointaine', code: string, nom: string, invite: string, classe: string) => {
+    const piece = (cle: 'situation' | 'situationAerienne' | 'photoProche' | 'photoLointaine', code: string, nom: string, invite: string, classe: string) => {
       A.append(etat(code, nom, piecesDossier[cle], 'à joindre'),
         ligne(bouton(piecesDossier[cle] ? 'Remplacer…' : 'Importer…', () => void importerPiece(cle, code + ' — ' + nom, invite), classe),
           ...(piecesDossier[cle] ? [bouton('Retirer', () => { delete piecesDossier[cle]; panneaux() })] : [])));
     };
     piece('situation', 'PCMI 1', 'Plan de situation', 'Source et échelle de l’extrait (ex. : Géoportail, 1/5 000)', 'bpcmi1');
+    piece('situationAerienne', 'PCMI 1', 'Vue aérienne (facultative)', 'Source et échelle (ex. : Géoportail, photographies aériennes, 1/2 500)', 'bpcmi1b');
+    {
+      const t = parcelleDuProjet(h.projet);
+      A.append(bloc('<b>PCMI 1</b> Plan cadastral : ' + (t?.plot.cadastre ? '✓ dessiné d’après le cadastre importé (' + esc(t.plot.cadastre.source) + ')'
+        : '<span class="note">cliquez sur la parcelle, puis « Fond cadastral » : Importer ou Télécharger ; il se dessine à droite de la planche</span>')));
+    }
     A.append(etat('PCMI 6', 'Insertion', piecesDossier.insertion, 'à composer dans la vue 3D (photo du terrain)'));
     piece('photoProche', 'PCMI 7', 'Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)', 'bpcmi7');
     piece('photoLointaine', 'PCMI 8', 'Environnement lointain', 'Point et angle de prise de vue', 'bpcmi8');
