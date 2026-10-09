@@ -9,7 +9,7 @@ import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, U
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, type CadastreLu, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, decorParDefaut, type CadastreLu, type MurDroit } from '../building';
 import { aireSignee, boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -35,7 +35,7 @@ import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenage
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
 import type { Cabinet, ImageDossier } from '../export/planche';
-import type { InfosDossier, ReglesPlu } from '../model/types';
+import type { FinishZone, InfosDossier, ReglesPlu } from '../model/types';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
 import { traits } from '../building/mobilier';
@@ -58,6 +58,8 @@ const CONTRAINTES: Record<string, string> = { horizontal: 'Horizontal', vertical
 
 const m = (mm: number) => (mm / 1000).toFixed(2).replace('.', ',') + ' m';
 const OPTIONS_PAREMENTS: Record<string, string> = { '': 'Sans (maçonnerie)', ...Object.fromEntries(PAREMENTS.map(m => [m.id, m.libelle])) };
+/** le parement d'un décor de façade : toujours un parement (sans, ce ne serait plus un décor) */
+const OPTIONS_DECORS: Record<string, string> = Object.fromEntries(PAREMENTS.map(m => [m.id, m.libelle]));
 const OPTIONS_SOLS: Record<string, string> = { '': 'Non précisé', ...Object.fromEntries(SOLS.map(m => [m.id, m.libelle])) };
 const OPTIONS_PEINTURES: Record<string, string> = { '': 'Non précisé', ...Object.fromEntries(PEINTURES.map(m => [m.id, m.libelle])) };
 const m2 = (v: number) => mm2EnM2(v).toFixed(2).replace('.', ',') + ' m²';
@@ -188,6 +190,7 @@ const CSS = `
 .cpd aside .couches-mur{display:flex;flex-direction:column;gap:3px;margin:6px 0}
 .cpd aside .couches-mur div{display:flex;align-items:center;gap:8px;font-size:12px}
 .cpd aside .couches-mur i{display:inline-block;width:16px;height:12px;border:1px solid #111}
+.cpd aside .decor-facade{border-left:3px solid #CFC7B6;padding-left:8px;margin:6px 0 10px}
 .cpd aside .apercu-coupe svg{background:#fff;border-radius:3px}
 .cpd aside .schema-hauteur{display:flex;gap:14px;align-items:flex-start}
 .cpd footer{display:none}
@@ -1372,9 +1375,31 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         A.append(champ('Épaisseur (cm)', w.thickness / 10, v => faire('Épaisseur', [{ type: 'modifierMur', id: w.id, epaisseur: ent(v) * 10 }]), 'number'),
           champ('Hauteur (m)', (w.height / 1000).toFixed(2), v => faire('Hauteur', [{ type: 'modifierMur', id: w.id, hauteur: mm(v) }]), 'number'),
           champ('Tracé', w.justification, v => faire('Justification', [{ type: 'modifierMur', id: w.id, justification: v as Wall['justification'] }]), 'text', JUSTIFS));
-        if (w.role === 'exterior') A.append(
-          champ('Parement extérieur', w.finish ?? '', v => faire('Parement', [{ type: 'modifierMur', id: w.id, finition: v || null }]), 'text', OPTIONS_PAREMENTS),
-          ligne(bouton('Ce parement sur toutes les façades', () => parementPartout(w.finish ?? null))));
+        if (w.role === 'exterior') {
+          A.append(
+            champ('Parement extérieur', w.finish ?? '', v => faire('Parement', [{ type: 'modifierMur', id: w.id, finition: v || null }]), 'text', OPTIONS_PAREMENTS),
+            ligne(bouton('Ce parement sur toutes les façades', () => parementPartout(w.finish ?? null))));
+          /* les décors : un autre parement sur une partie de la façade (la pierre autour de l'entrée) */
+          const Z = w.finishZones ?? [];
+          const decors = (N: FinishZone[], lib: string) => faire(lib, [{ type: 'modifierMur', id: w.id, decors: N }]);
+          A.append(titre('Décors de cette façade'));
+          Z.forEach((z, i) => {
+            const maj = (q: Partial<FinishZone>) => decors(Z.map((y, j) => (j === i ? { ...y, ...q } : y)), 'Décor');
+            const c = document.createElement('div'); c.className = 'decor-facade';
+            c.append(champ('Nom (légende des façades)', z.label ?? '', v => maj({ label: v })),
+              champ('Parement', z.finish, v => maj({ finish: v }), 'text', OPTIONS_DECORS),
+              champ('Du point (m depuis le début du mur)', (z.from / 1000).toFixed(2), v => maj({ from: mm(v) }), 'number'),
+              champ('Au point (m)', (z.to / 1000).toFixed(2), v => maj({ to: mm(v) }), 'number'),
+              ligne(bouton('Retirer ce décor', () => decors(Z.filter((_, j) => j !== i), 'Retirer un décor'), 'dang')));
+            A.append(c);
+          });
+          A.append(ligne(bouton('+ Décor sur une partie du mur', () => {
+            const z = decorParDefaut(f, w);
+            if (!z) { toast('Plus de place libre sur ce mur pour un décor.'); return }
+            decors([...Z, z], 'Ajouter un décor');
+          })), bloc('Un autre parement sur une partie de la façade, sur toute sa hauteur : le décor en pierre autour de l’entrée, par exemple. '
+            + 'Le début du mur est son premier point tracé ; la partie habillée se voit teintée au plan. Les façades du permis la dessinent et la nomment dans leur légende, la notice la cite.', 'note'));
+        }
         /* règle 5 : jamais « porteur » confirmé sans document */
         A.append(bloc('⚠️ Porteur : <b>' + (w.loadBearing.value ? 'oui' : 'non') + '</b> — à contrôler' + (w.loadBearing.missing ? ' (manque : ' + esc(w.loadBearing.missing) + ')' : ''), 'alerte'));
         A.append(titre('Contraintes'));

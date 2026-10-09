@@ -14,7 +14,7 @@ import type { Floor, Point, Project, Roof } from '../model/types';
 import { toitureDuNiveau, baiesExterieures, lignesDeToiture, parcelleDuProjet, altitudeTerrain, mursDroits, GOUTTIERES, MATIERES_GOUTTIERE, type Cote4 } from '../building';
 import { maquette, COUVERTURES, type Matiere } from '../vue3d/maquette';
 import { facade, type CoteFacade, type Facade, type FaceProjetee } from '../vue3d/facades';
-import { materiau } from '../catalogue/materiaux';
+import { materiau, type Materiau } from '../catalogue/materiaux';
 import { choixOuvrage, teinteMenuiserie, type OuvrageMenuiserie } from '../catalogue/menuiseries';
 import { PagePdf, type DocumentPdf } from './pdf';
 import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, colonne, nouvelleFeuille, texte, metres, niveauRelatif, echelleGraphique, encadre, orientation, couper, A_PRECISER, ROUGE_MANQUE, type Signature } from './feuille';
@@ -325,6 +325,20 @@ function assombrir(c: string, k: number): string {
   return '#' + f(v >> 16 & 255) + f(v >> 8 & 255) + f(v & 255);
 }
 
+/** le motif d'un parement dans sa pastille (13 × 6,5 mm) : rangs de pierres ou de briques aux joints décalés, lames */
+function motifPastille(m: Materiau): ((page: PagePdf, x: number, y: number) => void) | undefined {
+  if (!m.pas || m.motif === 'uni') return undefined;
+  const joint = assombrir(m.couleur, 0.72);
+  return (page, x, y) => {
+    if (m.motif === 'lames_v') { for (let k = 1; k < 6; k++) page.trait(X(x + k * 13 / 6), Y(y), X(x + k * 13 / 6), Y(y + 6.5), 0.25, joint); return }
+    const rangs = m.motif === 'lames_h' ? 4 : 3, h = 6.5 / rangs;
+    for (let k = 1; k < rangs; k++) page.trait(X(x), Y(y + k * h), X(x + 13), Y(y + k * h), 0.25, joint);
+    if (m.motif === 'lames_h') return;
+    const pas = m.motif === 'briques' ? 3.2 : 4.4;
+    for (let k = 0; k < rangs; k++) for (let u = x + (k % 2 ? pas / 2 : pas); u < x + 13 - 0.5; u += pas) page.trait(X(u), Y(y + k * h), X(u), Y(y + (k + 1) * h), 0.25, joint);
+  };
+}
+
 interface Panneau { titre: string; hauteur: (e: number) => number; dessiner: (page: PagePdf, x: number, y: number, e: number) => void }
 
 /** les deux encadrés de la planche : matériaux et teintes ; niveaux et lecture */
@@ -344,15 +358,27 @@ function contenuPanneaux(projet: Project, niveauxToit: Floor[], egout: number | 
     L.push({ pastille: sw(cv.fond, (page, x, y) => { for (let k = 1; k < 6; k++) page.trait(X(x), Y(y + k * 1.1), X(x + 13), Y(y + k * 1.1), 0.25, cv.rang) }),
       titre: 'Couverture', texte: (D.couverture?.trim() || COUVERTURES_FR[roof.covering]) + (roof.kind !== 'flat' ? ', pente ' + roof.pitch + '°' : '') });
   }
-  const parements = new Map<string, { couleur: string; longueur: number }>();
+  const parements = new Map<string, { m: Materiau; longueur: number }>();
+  /* les décors (un autre parement sur une partie d'une façade), à part : chacun sous son nom */
+  const decors = new Map<string, { m: Materiau; titre: string }>();
   let sansParement = false;
   for (const f of niveaux) for (const w of mursDroits(f)) if (w.role === 'exterior') {
     const m = materiau(w.finish), l = Math.hypot(w.axis.b.x - w.axis.a.x, w.axis.b.y - w.axis.a.y);
-    if (m) { const k = parements.get(m.libelle) ?? { couleur: m.couleur, longueur: 0 }; k.longueur += l; parements.set(m.libelle, k) } else sansParement = true;
+    let pris = 0;
+    for (const z of w.finishZones ?? []) {
+      const mz = materiau(z.finish), lz = Math.max(0, Math.min(l, z.to) - Math.max(0, z.from));
+      if (!mz || !lz) continue;
+      pris += lz;
+      const titre = z.label?.trim() || 'Façades (partie)';
+      decors.set(titre + '|' + mz.id, { m: mz, titre });
+    }
+    if (l - pris <= 1) continue;
+    if (m) { const k = parements.get(m.libelle) ?? { m, longueur: 0 }; k.longueur += l - pris; parements.set(m.libelle, k) } else sansParement = true;
   }
   const P = [...parements].sort((a, b) => b[1].longueur - a[1].longueur);
-  P.forEach(([lib, k], i) => L.push({ pastille: sw(k.couleur), titre: i === 0 ? 'Façades' : 'Façades (partie)', texte: lib }));
+  P.forEach(([lib, k], i) => L.push({ pastille: sw(k.m.couleur, motifPastille(k.m)), titre: i === 0 ? 'Façades' : 'Façades (partie)', texte: lib }));
   if (sansParement) L.push({ pastille: sw(ENDUIT_DEFAUT), titre: P.length ? 'Autres façades' : 'Façades', texte: 'parement ' + A_PRECISER, manque: true });
+  for (const { m, titre } of decors.values()) L.push({ pastille: sw(m.couleur, motifPastille(m)), titre, texte: m.libelle });
   const ouv = niveaux.flatMap(f => Object.values(f.objects)).filter(x => x.type === 'opening');
   const volets = ouv.some(x => x.type === 'opening' && (x.shutter === 'roller_motorized' || x.shutter === 'roller_manual'));
   /* menuiseries, porte d'entrée, porte de garage : le matériau et la teinte choisis (informations du dossier), ou ce qui manque */

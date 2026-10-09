@@ -6,7 +6,7 @@
    essences, accord des concessionnaires…) s'écrit « [à compléter] » : rien
    n'est inventé. Le texte est à relire, et l'atelier reste l'outil de la
    notice définitive. */
-import type { Opening, Project, Roof } from '../model/types';
+import type { Opening, Project, Roof, Wall } from '../model/types';
 import { parcelleDuProjet, reculs, empriseAuSol, aireEmprise, surfaceTerrain, bilanAmenagements, altitudeTerrain, accesDepuisLaVoie } from '../building/terrain';
 import { controlePlu, surfacesDuTerrain } from '../building/plu';
 import { fondationsDuProjet, SOUBASSEMENTS } from '../building/fondations';
@@ -96,8 +96,20 @@ export function notice(p: Project): RubriqueNotice[] {
 
   /* 3. matériaux et couleurs */
   const materiaux: string[] = [];
-  const parements = [...new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' ? [materiau(o.finish)?.libelle ?? ''] : [])))];
+  /* le parement de chaque façade, hors de ses décors (un mur tout entier habillé de décors n'en dit pas) */
+  const couvert = (o: Wall): boolean => {
+    if (!('a' in o.axis)) return false;
+    const L = Math.hypot(o.axis.b.x - o.axis.a.x, o.axis.b.y - o.axis.a.y);
+    return L - (o.finishZones ?? []).reduce((s, z) => s + Math.max(0, Math.min(L, z.to) - Math.max(0, z.from)), 0) <= 1;
+  };
+  const parements = [...new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' && !couvert(o) ? [materiau(o.finish)?.libelle ?? ''] : [])))];
   materiaux.push('Façades : ' + (parements.filter(Boolean).length ? liste(parements.filter(Boolean).map(x => x.toLowerCase())) + (parements.includes('') ? ' ; autres murs : ' + A_COMPLETER : '') : A_COMPLETER) + '.');
+  /* les décors : « décoration de l'entrée en enduit imitation pierre » */
+  const decors = [...new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' ? (o.finishZones ?? []).flatMap(z => {
+    const m = materiau(z.finish);
+    return m ? [(z.label?.trim() ? z.label.trim().replace(/^./, c => c.toLowerCase()) + ' en ' : 'partie de façade en ') + m.libelle.toLowerCase()] : [];
+  }) : [])))];
+  if (decors.length) materiaux.push('Décors : ' + liste(decors) + '.');
   /* les menuiseries extérieures : les ouvertures des murs de façade (les portes intérieures n'ont rien à faire au permis) */
   const ouv = new Map<Opening['kind'], number>(), facade = new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' ? [o.id] : [])));
   for (const o of objets) if (o.type === 'opening' && facade.has(o.hostWallId)) ouv.set(o.kind, (ouv.get(o.kind) ?? 0) + 1);

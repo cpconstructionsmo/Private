@@ -8,7 +8,8 @@
      ne garde que l'allège (sous l'appui) et le linteau (au-dessus).
    - Un mur de façade qui a un parement (enduit, bardage…) porte, sur sa
      face extérieure, une peau de cette matière (EPAISSEUR_PAREMENT) prise
-     dans son épaisseur ; le sol d'une pièce prend son revêtement.
+     dans son épaisseur ; un décor (finishZones) en habille une partie d'un
+     autre parement. Le sol d'une pièce prend son revêtement.
    - Une pièce peinte porte, contre ses murs, une fine peau de sa teinte
      (EPAISSEUR_PEINTURE), du sol au haut des murs, ouverte aux portes et
      fenêtres (allège et linteau restent peints).
@@ -170,10 +171,22 @@ function murs(f: Floor, prismes: Prisme[], teintes: Teintes = {}): void {
     const O = ouvertures.filter(o => o.hostWallId === w.id);
     const mur: Polygone[] = [{ contour: C }];
     const bandes = O.map(o => bande(w, o.offset - o.width / 2, o.offset + o.width / 2));
-    /* un parement : la peau du côté extérieur ; le reste du mur garde sa matière */
-    const peau = w.finish && w.role === 'exterior' ? peauExterieure(w, exterieurs) : null;
+    /* un parement : la peau du côté extérieur ; le reste du mur garde sa matière. Un décor (un autre
+       parement sur une partie de la façade) prend sa part de la peau ; un décor qui touche un bout du
+       mur va jusqu'à l'onglet de l'angle */
+    const decors = w.role === 'exterior' ? (w.finishZones ?? []) : [];
+    const peau = (w.finish || decors.length) && w.role === 'exterior' ? peauExterieure(w, exterieurs) : null;
+    const habits: { P: Polygone[]; fin: string }[] = [];
+    if (peau) {
+      const Lw = Math.hypot(w.axis.b.x - w.axis.a.x, w.axis.b.y - w.axis.a.y), M = 4 * w.thickness + 1_000;
+      const B = decors.map(z => bande(w, z.from <= 1 ? -M : z.from, z.to >= Lw - 1 ? Lw + M : z.to));
+      decors.forEach((z, i) => habits.push({ P: intersection([peau], [B[i]!]), fin: z.finish }));
+      if (w.finish) habits.push({ P: B.length ? difference([peau], B) : [peau], fin: w.finish });
+    }
+    const habille = habits.flatMap(x => x.P);
     const poser = (P: Polygone[], a: number, b: number) => {
-      const parts = peau ? [...difference(P, [peau]).map(q => ({ q, m: matiere, fin: undefined })), ...intersection(P, [peau]).map(q => ({ q, m: 'parement' as Matiere, fin: w.finish }))]
+      const parts = habille.length ? [...difference(P, habille).map(q => ({ q, m: matiere, fin: undefined as string | undefined })),
+        ...habits.flatMap(x => intersection(P, x.P).map(q => ({ q, m: 'parement' as Matiere, fin: x.fin as string | undefined })))]
         : P.map(q => ({ q, m: matiere, fin: undefined }));
       for (const { q, m, fin } of parts) prismes.push({ contour: q.contour, ...(q.trous?.length ? { trous: q.trous } : {}), z0: a, z1: b, matiere: m, objet: w.id, niveau: f.id, ...(fin ? { finition: fin } : {}) });
     };
