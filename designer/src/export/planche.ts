@@ -17,6 +17,7 @@ import { lignesDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import { avecLogo, colonne, lieuDuProjetDe, titreDessin, texte, GRIS_TEXTE, type Signature, sigleRE2020, couper as couperF, CABINET_PAR_DEFAUT, mentionCabinet, type Cabinet, type ImageDossier } from './feuille';
 import { plancheFacades } from './planche-facades';
 import { plancheMasse } from './planche-masse';
+import { plancheSituation } from './planche-situation';
 import { plancheCoupes } from './planche-coupes';
 import { plancheToiture, toituresDuProjet } from './planche-toiture';
 import { plancheNiveau, ECHELLES, surfacesParPiece, surfaceVitree } from './planche-niveau';
@@ -233,6 +234,8 @@ export interface OptionsDossier {
   perspective?: ImageDossier;
   /** PCMI 1 : l'extrait de carte fourni (Géoportail, cadastre…) ; sa légende dit la source et l'échelle */
   situation?: ImageDossier;
+  /** PCMI 1 : la vue aérienne fournie (facultative), sous l'extrait de carte */
+  situationAerienne?: ImageDossier;
   /** PCMI 6 : le photomontage composé dans la 3D (maquette posée sur une photographie du terrain) */
   insertion?: ImageDossier;
   /** PCMI 7 et 8 : les photographies de l'environnement proche et lointain ; leur légende dit le point de vue */
@@ -261,8 +264,11 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
     ...(d.cabinet ? { cabinet: d.cabinet } : {}), ...(d.logo ? { logo: d.logo } : {}), ...(d.maitreOuvrage?.trim() ? { maitreOuvrage: d.maitreOuvrage } : {}) });
   const debut = () => doc.nombre + 1;
   const t = parcelleDuProjet(projet);
-  const pSituation = d.situation ? debut() : null;
-  if (d.situation) pageImage(doc, projet, o, 'Plan de situation du terrain', 'PCMI 1 — Plan de situation', d.situation, [
+  /* PCMI 1 : avec le cadastre importé (ou une vue aérienne), la planche du cabinet (extraits à gauche, plan
+     cadastral à droite) ; avec le seul extrait de carte, la page d'image */
+  const fc = t?.plot.cadastre, pSituation = d.situation || d.situationAerienne || fc ? debut() : null;
+  if (fc || d.situationAerienne) plancheSituation(doc, projet, o, d.situation, d.situationAerienne);
+  else if (d.situation) pageImage(doc, projet, o, 'Plan de situation du terrain', 'PCMI 1 — Plan de situation', d.situation, [
     'Extrait de carte fourni pour le dossier' + (d.situation.legende?.trim() ? ' : ' + d.situation.legende.trim() : ' (source et échelle : ' + A_COMPLETER + ')') + '.',
     'Le terrain doit y être repéré, avec l’échelle et la direction du nord : à vérifier sur l’extrait avant le dépôt.',
   ]);
@@ -304,7 +310,10 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   for (const f of niveaux) planche(doc, projet, f, o, lignes);
   const noteVue = (code: string) => (PV.some(x => x.piece === code) && t ? 'point de vue reporté au PCMI 2' : 'point de vue à reporter au PCMI 2');
   const pieces: PieceDossier[] = [
-    { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: pSituation, ...(pSituation ? { note: 'extrait de carte fourni : échelle et nord à vérifier' } : { note: 'à joindre (extrait de carte, échelle et nord)' }) },
+    { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: pSituation,
+      note: !pSituation ? 'à joindre (extrait de carte, échelle et nord)'
+        : d.situation ? (fc ? 'extrait de carte fourni et plan cadastral (cadastre importé) : à vérifier' : 'extrait de carte fourni : échelle et nord à vérifier')
+          : 'plan cadastral du cadastre importé ; extrait de carte (1/5 000 à 1/25 000) à joindre' },
     { code: 'PCMI 2', intitule: 'Plan de masse des constructions', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
     { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe },
     { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: pNotice, note: 'brouillon à relire et compléter' },

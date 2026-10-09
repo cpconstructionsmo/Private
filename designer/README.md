@@ -404,10 +404,20 @@ libres et arbres, accès et stationnement, réseaux tracés au plan de masse ; l
 reste « [à compléter] »), PCMI 5 (façades, plan de toiture) et les plans des
 niveaux, chaque cartouche portant sa pièce. Les pièces images sont fournies
 par l'utilisateur, jamais inventées :
-- PCMI 1 (extrait de carte : Géoportail, cadastre…) et PCMI 7 et 8
-  (photographies de l'environnement proche et lointain) s'importent dans
-  le panneau du niveau (« Dossier de permis : pièces fournies »), avec ce
-  qu'on en dit (source et échelle, point de vue) ;
+- PCMI 1 (extrait de carte : Géoportail…, et une vue aérienne facultative)
+  et PCMI 7 et 8 (photographies de l'environnement proche et lointain)
+  s'importent dans le panneau du niveau (« Dossier de permis : pièces
+  fournies »), avec ce qu'on en dit (source et échelle, point de vue) ;
+- le PCMI 1 suit la planche du cabinet (`src/export/planche-situation.ts`) :
+  - à gauche, les extraits fournis ;
+  - à droite, le plan cadastral du terrain, dessiné d'après le cadastre
+    importé au plan de masse : nord en haut, parcelles du terrain en rouge
+    cerclées de tirets bleus, parcelles voisines et leur numéro, bâti
+    existant en jaune, échelle (1/500 à 1/5 000), source et réserve
+    « limites non garanties » ;
+  - avec le cadastre et sans extrait, la planche se compose et réclame
+    l'extrait de carte en rouge ;
+  - avec l'extrait seul, la page d'image d'avant ;
 - PCMI 6 (insertion) se compose dans la 3D : « Photo du terrain… » pose la
   photographie derrière la maquette (cadrée sans déformation, sol
   transparent qui garde les ombres), la focale se règle, on tourne la vue

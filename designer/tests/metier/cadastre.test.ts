@@ -1,13 +1,13 @@
 /* Le fond cadastral du plan de masse : la projection Lambert 93, la lecture
    d'un GeoJSON du cadastre (fictif), le calage sur la limite de propriété
    (rotation retrouvée, écart dit), la commande (validée, retirée, déplacée
-   avec la parcelle) et la planche PCMI 2 (parcelles voisines, bâti,
-   légende, note « non garanties »). */
+   avec la parcelle), la planche PCMI 2 (parcelles voisines, bâti,
+   légende, note « non garanties ») et le plan cadastral du PCMI 1. */
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel, type Plot, type Point, type Project } from '../../src/model';
 import { annuler, executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
 import { fondCadastral, lireCadastreGeoJSON, parcelleDuProjet, parcellesDeReference, referenceParcelle, versLambert93 } from '../../src/building';
-import { planchesPdf } from '../../src/export/planche';
+import { planchesPdf, dossierPc } from '../../src/export/planche';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 1) + (t += 1000)).toISOString(), id: generateurSequentiel('o') } };
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join(' ; ')); return r.historique };
@@ -122,5 +122,37 @@ describe('fond cadastral : commande et planche', () => {
     const s = texte(planchesPdf(h1.projet, { niveaux: [n], cotation: true, mobilier: false, indice: 'A', date: '07/10/2026', masse: true }));
     for (const t of ['(ZZ n\xB0 13)', '(Limite cadastrale \\(non garantie\\))', '(B\xE2ti existant \\(cadastre\\))', 'plan cadastral \\(cadastre fictif, 07/10/2026\\)', 'non garanties'])
       expect(s, t).toContain(t);
+  });
+});
+
+describe('PCMI 1 : plan de situation', () => {
+  /* un JPEG fictif de 8 × 8 px (un aplat gris) */
+  const JPEG = Uint8Array.from(atob('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wAALCAAIAAgBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAA//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AN//Z'), c => c.charCodeAt(0));
+  const img = (legende: string) => ({ jpeg: JPEG, largeur: 8, hauteur: 8, legende });
+  const avecFond = () => {
+    const { h, a } = maison(), id = plot(h.projet).id, L = lu();
+    const f = fondCadastral(LIMITE, L, parcellesDeReference('ZZ 12', L.parcelles), 'cadastre fictif', '07/10/2026');
+    return ok(executer(h, 'Fond', [{ type: 'modifierParcelle', id, cadastre: f.cadastre, nord: f.rotation }], a)).projet;
+  };
+
+  it('avec le cadastre importé : le plan cadastral du terrain (numéros, source, réserve), les extraits fournis à gauche', () => {
+    const p = avecFond();
+    const { octets, pieces } = dossierPc(p, { indice: 'A', date: '09/10/2026', situation: img('Géoportail, 1/5 000'), situationAerienne: img('Géoportail, photographies aériennes') });
+    const s = texte(octets);
+    for (const t of ['(PLAN CADASTRAL)', '(12)', '(13)', '(VUE A\xC9RIENNE)', '(G\xE9oportail, 1/5 000)', '(G\xE9oportail, photographies a\xE9riennes)', 'cadastre fictif, du 07/10/2026', 'licence ouverte Etalab', 'non garanties'])
+      expect(s, t).toContain(t);
+    expect(pieces.find(x => x.code === 'PCMI 1')).toMatchObject({ page: 2, note: 'extrait de carte fourni et plan cadastral (cadastre importé) : à vérifier' });
+  });
+
+  it('le cadastre seul : la page se compose, l’extrait de carte y est réclamé ; rien du tout : pas de page', () => {
+    const { pieces, octets } = dossierPc(avecFond(), { indice: 'A', date: '09/10/2026' });
+    expect(pieces.find(x => x.code === 'PCMI 1')).toMatchObject({ page: 2, note: 'plan cadastral du cadastre importé ; extrait de carte (1/5 000 à 1/25 000) à joindre' });
+    expect(texte(octets)).toContain('(EXTRAIT DE CARTE \xC0 JOINDRE)');
+    const vide = dossierPc(maison().h.projet, { indice: 'A', date: '09/10/2026' }).pieces.find(x => x.code === 'PCMI 1');
+    expect(vide).toMatchObject({ page: null, note: 'à joindre (extrait de carte, échelle et nord)' });
+    /* l'extrait seul, sans cadastre : la page d'image d'avant */
+    const seul = dossierPc(maison().h.projet, { indice: 'A', date: '09/10/2026', situation: img('Géoportail, 1/5 000') });
+    expect(seul.pieces.find(x => x.code === 'PCMI 1')).toMatchObject({ page: 2, note: 'extrait de carte fourni : échelle et nord à vérifier' });
+    expect(texte(seul.octets)).not.toContain('(PLAN CADASTRAL)');
   });
 });
