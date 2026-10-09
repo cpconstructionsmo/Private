@@ -611,7 +611,8 @@ try {
   if (process.env.CAPTURE_DOSSIER) await writeFile(process.env.CAPTURE_DOSSIER, await readFile(await dl6.path()));
   for (const t of ['(Lieu-dit Le Fictif)', '(812 m\xB2)', '(Pompe \xE0 chaleur air / eau)', '(PERMIS DE CONSTRUIRE)', '(C. Fictif)', '(PCMI 6 \x97 INSERTION DU PROJET DANS SON ENVIRONNEMENT)', '(PCMI 7 \x97 PHOTOGRAPHIE DE L\x92ENVIRONNEMENT PROCHE)', '(depuis la rue, vers le nord)', '(depuis la rue, face \xE0 l\x92entr\xE9e)'])
     assert.ok(dossier6.includes(t), 'dossier : ' + t);
-  assert.equal(dossier6.match(/\/Subtype \/Image /g)?.length, 2, 'deux images dans le dossier (insertion et photographie)');
+  assert.equal(dossier6.match(/\/Subtype \/Image /g)?.length, 3, 'trois images dans le dossier (vue aérienne, insertion et photographie)');
+  assert.ok(dossier6.includes('(VUE A\xC9RIENNE)') && dossier6.includes('(G\xE9oportail, photographies a\xE9riennes)'), 'PCMI 1 : la vue aérienne et sa légende');
   /* le plan de présentation : sols en couleur à l'écran (préférence de l'appareil), puis en PDF pour le client */
   /* onglet Indications → Couleurs de pièces */
   await p.click('nav.onglets button[data-o=indications]'); await p.click('.sous button[data-s=couleurs]');
