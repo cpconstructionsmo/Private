@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-08 · Options du prospect : honoraires CP compris dans le prix de l’option';
+const VERSION='2026-10-09 · Options du prospect : rétrocession dans les prix unitaires, comme au chiffrage par poste';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1296,44 +1296,49 @@ const saisi=v=>v!==undefined&&v!==null&&v!=='';
    client que ce qu'elle ajoute, le prix de la prestation choisie moins
    celui de la prestation initiale — un poste du chiffrage, suivi s'il
    change, ou un montant saisi quand elle n'en est qu'une partie. La
-   rétrocession se pose alors dans le prix de cet écart, et de lui seul :
-   l'artisan garde son écart, la rétrocession vient en plus. On part donc
-   des prix de l'artisan, sans la rétrocession déjà relevée dans les prix
-   unitaires d'un quantitatif ou tirée d'un prix de base — sinon elle se
-   compterait deux fois. Une option sans prestation initiale garde
+   rétrocession y entre comme dans le chiffrage par poste : les prix
+   unitaires du quantitatif de l'option (ou son prix de base) sont relevés
+   du taux, et l'on retire la prestation initiale au prix où le chiffrage
+   la compte. L'écart est donc entre deux prix de vente, rétrocession
+   comprise de part et d'autre. Une option sans prestation initiale garde
    exactement l'ancien calcul. */
-const posteMontantArtisan=x=>{
+/* le prix de vente d'une option, rétrocession comprise comme dans le chiffrage par poste — y compris quand le
+   taux vient d'être changé et que les prix unitaires n'ont pas encore été relevés (le champ pas encore quitté) :
+   mêmes calculs, ligne par ligne, que le relèvement automatique */
+const posteMontantVente=x=>{
   if(!x)return 0;
-  const lignes=x.quantitatif&&x.quantitatif.lignes, a=+x.retroPctApplique||0;
-  if(lignes&&lignes.length&&a>0&&a<100)
-    return quantitatifNet(lignes.map(l=>estArticle(l)?{...l,pu:Math.round((+l.pu||0)*(1-a/100)*100)/100}:l),remisePct(x));
-  if(!(lignes&&lignes.length)&&+x.prixBase>0&&+x.retroPct>0)return +x.prixBase;
+  const r=+x.retroPct||0, lignes=x.quantitatif&&x.quantitatif.lignes, a=+x.retroPctApplique||0;
+  if(lignes&&lignes.length&&a!==r){
+    const pu=l=>{const b=(a>0&&a<100)?Math.round((+l.pu||0)*(1-a/100)*100)/100:(+l.pu||0);return r>0&&r<100?prixAvecRetro(b,r):b};
+    return quantitatifNet(lignes.map(l=>estArticle(l)?{...l,pu:pu(l)}:l),remisePct(x));
+  }
+  if(!(lignes&&lignes.length)&&+x.prixBase>0&&r>0)return prixAvecRetro(x.prixBase,r);
   return +x.montant||0;
 };
 const optionAvecInitiale=x=>!!(x&&!x.moinsValue&&x.initiale
   &&(x.initiale.type==='poste'?!!x.initiale.posteId:saisi(x.initiale.montant)));
-/* la prestation initiale : un poste disparu depuis ne se devine pas — il
-   ne déduit plus rien, et l'éditeur le signale */
+/* la prestation initiale, au prix où le chiffrage la compte : un poste au montant retenu (rétrocession et
+   majoration comprises) ; un montant saisi, prix d'artisan relevé de la rétrocession de l'option. Un poste
+   disparu depuis ne se devine pas — il ne déduit plus rien, et l'éditeur le signale */
 const optionInitiale=(x,majTarifs,p)=>{
   const i=(x&&x.initiale)||{};
   if(i.type==='poste'){
     const po=((p&&p.postes)||[]).find(y=>y.id===i.posteId);
-    return po?{libelle:majCorps(po.libelle||'')||'poste sans libellé',poste:true,
-      montant:posteMontantMajore({libelle:po.libelle,montant:posteMontantArtisan(po)},majTarifs)}
+    return po?{libelle:majCorps(po.libelle||'')||'poste sans libellé',poste:true,montant:posteMontantMajore(po,majTarifs)}
       :{libelle:'',poste:true,perdu:true,montant:0};
   }
-  /* un montant saisi est un prix d'artisan, comme celui de la prestation
-     choisie : la majoration du corps d'état s'applique aux deux */
+  const r=+x.retroPct||0, m=+i.montant||0;
   return {libelle:String(i.libelle||'').trim(),poste:false,
-    montant:posteMontantMajore({libelle:x.libelle,montant:+i.montant||0},majTarifs)};
+    montant:posteMontantMajore({libelle:x.libelle,montant:r>0&&r<100?prixAvecRetro(m,r):m},majTarifs)};
 };
+/* le détail : la prestation choisie et l'initiale (prix de vente), le prix de l'option, et sa rétrocession —
+   le taux sur ce prix, ou le forfait, comme pour un poste */
 const optionDetail=(x,majTarifs,p)=>{
-  const choisi=posteMontantMajore({libelle:x&&x.libelle,montant:posteMontantArtisan(x)},majTarifs);
+  const choisi=posteMontantMajore({libelle:x&&x.libelle,montant:posteMontantVente(x)},majTarifs);
   const initiale=optionInitiale(x,majTarifs,p);
-  const ecart=Math.round((choisi-initiale.montant)*100)/100;
-  const prix=saisi(x&&x.retroMontant)?Math.round((ecart+(+x.retroMontant||0))*100)/100
-    :Math.round(prixAvecRetro(ecart,x&&x.retroPct)*100)/100;
-  return {choisi,initiale,ecart,prix,retro:Math.round((prix-ecart)*100)/100};
+  const prix=Math.round((choisi-initiale.montant)*100)/100;
+  const retro=saisi(x&&x.retroMontant)?Math.round((+x.retroMontant||0)*100)/100:Math.round(prix*(+(x&&x.retroPct)||0))/100;
+  return {choisi,initiale,prix,retro};
 };
 const optionMontant=(x,majTarifs,p)=>optionAvecInitiale(x)?optionDetail(x,majTarifs,p).prix
   :optionSigne(x)*posteMontantMajore(x,majTarifs);
@@ -5144,10 +5149,11 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
     /* le calcul d'une option qui remplace une prestation : à vérifier ligne à ligne */
     options.filter(optionAvecInitiale).map(x=>{
       const d=optionDetail(x,majTarifs,p);
-      return par((x.libelle?majCorps(x.libelle):'Option')+' : prestation choisie '+eurDoc(d.choisi)
+      const r=+x.retroPct>0&&!saisi(x.retroMontant);
+      return par((x.libelle?majCorps(x.libelle):'Option')+' : prestation choisie'+(r?' (rétrocession '+nb2(x.retroPct)+' % comprise)':'')+' '+eurDoc(d.choisi)
         +' − prestation initiale '+(d.initiale.perdu?'(poste supprimé du chiffrage : rien n’est déduit)'
           :(d.initiale.libelle?'« '+d.initiale.libelle+' »'+(d.initiale.poste?' (poste du chiffrage) ':' '):'')+eurDoc(d.initiale.montant))
-        +' = écart '+eurDoc(d.ecart)+(d.retro?' ; rétrocession comprise dans le prix '+eurDoc(d.retro):'')
+        +' = '+eurDoc(d.prix)+(d.retro?' (dont rétrocession '+eurDoc(d.retro)+')':'')
         +(optionAHonoraires(x)?' ; honoraires CP '+eurDoc(optionHonoraires(x,majTarifs,p)):'')
         +' ; prix de l’option '+eurDoc(optionPrix(x,majTarifs,p))+' HT.',{sz:16,c:DOC_GRIS,jc:'both',av:60,ap:0});
     }).join(''),
@@ -22246,24 +22252,11 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
   const totalMV=options?L.filter(x=>x.moinsValue).reduce((s,x)=>s+posteMontantMajore(x,majTarifs),0):0;
   const totalHono=options?L.filter(optionAHonoraires).reduce((s,x)=>s+optionHonoraires(x,majTarifs,pLive),0):0;
   const postesBase=((p&&p.postes)||[]).filter(y=>(y.libelle||'').trim()||+y.montant);
-  /* choisir une prestation initiale ramène d'abord l'option au prix de
-     l'artisan : la rétrocession se posera sur l'écart, pas sur le prix
-     complet déjà relevé (sans quoi elle se compterait deux fois). C'est
-     l'inverse exact du relèvement automatique, rien de saisi ne se perd. */
-  const choisirInitiale=(id,v)=>setPoste(id,prev=>{
-    const initiale=v===''?null:v==='__montant'
-      ?{type:'montant',montant:(prev.initiale&&prev.initiale.type==='montant')?prev.initiale.montant:'',libelle:(prev.initiale&&prev.initiale.libelle)||''}
-      :{type:'poste',posteId:v};
-    let next={...prev,initiale};
-    if(initiale&&!optionAvecInitiale(prev)){
-      const lignes=prev.quantitatif&&prev.quantitatif.lignes, a=+prev.retroPctApplique||0;
-      if(lignes&&lignes.length&&a>0&&a<100){
-        const base=lignes.map(l=>estArticle(l)?{...l,pu:Math.round((+l.pu||0)*(1-a/100)*100)/100}:l);
-        next={...next,quantitatif:{...prev.quantitatif,lignes:base},montant:quantitatifNet(base,remisePct(prev)),retroPctApplique:0};
-      }else if(!(lignes&&lignes.length)&&+prev.prixBase>0&&+prev.retroPct>0)next={...next,montant:+prev.prixBase};
-    }
-    return next;
-  });
+  /* la prestation initiale d'une option : un poste du chiffrage, ou un montant saisi ; ni les prix unitaires ni
+     la rétrocession de l'option n'en sont touchés */
+  const choisirInitiale=(id,v)=>setPoste(id,prev=>({...prev,initiale:v===''?null:v==='__montant'
+    ?{type:'montant',montant:(prev.initiale&&prev.initiale.type==='montant')?prev.initiale.montant:'',libelle:(prev.initiale&&prev.initiale.libelle)||''}
+    :{type:'poste',posteId:v}}));
   /* un pourcentage propre à ce poste, distinct de la majoration par corps
      d'état (réglée une fois pour toutes dans PRIX, pour tous les prospects) :
      celui-ci se pose au coup par coup, et s'applique une bonne fois pour
@@ -22368,7 +22361,7 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
           onChange={e=>choisirInitiale(x.id,e.target.value)}>
           <option value="">aucune — l’option compte en entier</option>
           {postesBase.map(po=><option key={po.id} value={po.id}>{(majCorps(po.libelle)||'Poste sans libellé')+' — '
-            +eur(posteMontantMajore({libelle:po.libelle,montant:posteMontantArtisan(po)},majTarifs))+' HT'}</option>)}
+            +eur(posteMontantMajore(po,majTarifs))+' HT'}</option>)}
           {x.initiale&&x.initiale.type==='poste'&&x.initiale.posteId&&!postesBase.some(po=>po.id===x.initiale.posteId)
             &&<option value={x.initiale.posteId}>poste supprimé du chiffrage</option>}
           <option value="__montant">un montant saisi (une partie d’un poste)…</option>
@@ -22387,9 +22380,6 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
         <input className="in" style={{width:60,flex:'0 0 auto'}} type="number" step="0.1" value={x.retroPct||''}
           placeholder="%" onChange={e=>set(x.id,{retroPct:e.target.value})}
           onBlur={()=>{
-            /* avec une prestation initiale, la rétrocession se calcule sur
-               l'écart : les prix de l'artisan restent tels quels */
-            if(options&&optionAvecInitiale(x))return;
             if(x.quantitatif&&(x.quantitatif.lignes||[]).some(estArticle))appliquerRetroLignes(x.id);
             else if(+x.prixBase>0)appliquerPrixBase(x.id);
           }}/>
@@ -22398,10 +22388,10 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
           placeholder="€ forfait" onChange={e=>set(x.id,{retroMontant:e.target.value})}/>
         <span>€ forfait, qui remplace le taux</span>
         {options&&optionAvecInitiale(x)
-          ?((+x.retroPct>0||saisi(x.retroMontant))&&<span className="b">— soit {eurDoc(optionDetail(x,majTarifs,pLive).retro)}, comprise dans le prix de l’option</span>)
+          ?((+x.retroPct>0||saisi(x.retroMontant))&&<span className="b">— soit {eurDoc(optionDetail(x,majTarifs,pLive).retro)} sur le prix de l’option</span>)
           :(+x.montant>0&&(+x.retroPct>0||!!x.retroMontant)&&<span className="b">— soit {eur(posteRetro(x,majTarifs))}</span>)}
       </div>
-      {+x.retroPct>0&&!(options&&optionAvecInitiale(x))&&(x.quantitatif&&(x.quantitatif.lignes||[]).some(estArticle)
+      {+x.retroPct>0&&(x.quantitatif&&(x.quantitatif.lignes||[]).some(estArticle)
         ?<div className="row xs mut" style={{gap:6,alignItems:'center',marginTop:3,paddingLeft:2,flexWrap:'wrap'}}>
           <span>{(+x.retroPctApplique||0)===(+x.retroPct||0)
             ?'Prix unitaires du quantitatif relevés de '+nb2(x.retroPct)+' % — la rétrocession laisse le prix de l’artisan intact.'
@@ -22434,13 +22424,11 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
         return <div className="xs" data-option-prix={x.id} style={{marginTop:4,marginLeft:2,padding:'6px 8px',borderRadius:6,maxWidth:520,
           background:'#F4F1EB',borderLeft:'3px solid '+NAVY,lineHeight:1.6}}>
           {ini?<React.Fragment>
-            <div className="sp"><span className="mut">Prestation choisie (prix de l’artisan)</span><span>{eurDoc(d.choisi)}</span></div>
-            <div className="sp"><span className="mut">− Prestation initiale{d.initiale.libelle?' : '+d.initiale.libelle:''}</span>
+            <div className="sp"><span className="mut">Prestation choisie {+x.retroPct>0?'(rétrocession '+nb2(x.retroPct)+' % comprise)':'(sans rétrocession)'}</span><span>{eurDoc(d.choisi)}</span></div>
+            <div className="sp"><span className="mut">− Prestation initiale{d.initiale.libelle?' : '+d.initiale.libelle:''}{d.initiale.poste?' (au chiffrage)':''}</span>
               <span>{d.initiale.perdu?'—':'− '+eurDoc(d.initiale.montant)}</span></div>
             {d.initiale.perdu&&<div style={{color:TERRA}}>Ce poste n’existe plus dans le chiffrage : rien n’est déduit. Choisissez de nouveau la prestation initiale.</div>}
-            <div className="sp"><span className="mut">= Écart</span><span>{eurDoc(d.ecart)}</span></div>
-            {d.retro!==0&&<div className="sp"><span className="mut">+ Rétrocession {saisi(x.retroMontant)?'(forfait)':nb2(x.retroPct)+' %'} comprise dans le prix</span>
-              <span>{eurDoc(d.retro)}</span></div>}
+            <div className="sp"><span className="mut">= Montant de l’option{d.retro?' (dont rétrocession '+eurDoc(d.retro)+')':''}</span><span>{eurDoc(d.prix)}</span></div>
           </React.Fragment>
           :<div className="sp"><span className="mut">Montant de l’option</span><span>{eurDoc(optionMontant(x,majTarifs,pLive))}</span></div>}
           {hono&&<div className="sp"><span className="mut">+ Honoraires CP {saisi(x.honoMontant)?'(forfait)':nb2(x.honoPct)+' %'}</span>
