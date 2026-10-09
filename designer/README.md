@@ -368,6 +368,19 @@ prise dans l'épaisseur du mur, sur la face qui donne dehors (l'intérieur
 garde sa teinte), avec son motif (lames, briques, carreaux, parquet) ; les
 façades du PDF prennent ses teintes et listent les matériaux (parements et
 couverture) ; la coupe tranche la peau avec le mur.
+Un **décor** habille une partie d'une façade d'un autre parement, sur toute
+la hauteur du mur : l'enduit imitation pierre autour de l'entrée des
+dossiers du cabinet (`src/building/decors.ts`, `Wall.finishZones`). Dans
+l'inspecteur d'un mur extérieur, « + Décor sur une partie du mur » le
+propose autour de la porte d'entrée (1 m de part et d'autre, nommé
+« Décoration de l'entrée »), sinon au tiers du milieu, toujours dans une
+partie libre ; son nom, son parement et ses bornes (en mètres depuis le
+début du mur) se règlent, « Retirer ce décor » l'enlève. Huit décors au plus
+par mur, 10 cm au moins chacun, sans se chevaucher ; une cloison n'en reçoit
+pas. Le plan le teinte (hors dossier) ; la 3D l'habille ; les façades du
+permis le dessinent avec son motif et le nomment dans la légende des
+matériaux (« Décoration de l'entrée — Enduit imitation pierre »), après le
+parement des façades ; la notice le cite (« Décors : … »).
 Les murs intérieurs se peignent pièce par pièce (peintures, faïence) ou
 pour tout le niveau : une peau de 3 mm contre les faces des murs de la
 pièce, du sol au haut des murs, ouverte aux portes et fenêtres (allège et

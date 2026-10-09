@@ -15,7 +15,7 @@
 import { cadastreInvalide, deplacerCadastre } from '../building/cadastre';
 import { teinteOuvrageInvalide } from '../catalogue/menuiseries';
 import { reglesPluInvalides } from '../building/plu';
-import type { Canopy, Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu } from '../model/types';
+import type { Canopy, Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu, FinishZone } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -74,7 +74,9 @@ export type Commande =
   | { type: 'creerMur'; niveau: string; a: Point; b: Point; epaisseur: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; id?: string; origine?: Origine; porteur?: Qualified<boolean>; composition?: string }
   | { type: 'deplacerMur'; id: string; a?: Point; b?: Point }
   /** composition : une autre composition (épaisseur et rôle suivent) ; null : « sur mesure ». Une épaisseur donnée seule rend le mur « sur mesure » */
-  | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; finition?: string | null; composition?: string | null }
+  | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; finition?: string | null; composition?: string | null;
+      /** les parties de la façade habillées d'un autre parement (toutes, elles remplacent les précédentes) ; null ou [] : aucune */
+      decors?: FinishZone[] | null }
   | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing']; origine?: Origine; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
   /** volet : null l'efface */
   | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing']; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef']; volet?: Opening['shutter'] | null }
@@ -271,6 +273,23 @@ const matiereValide = (id: string): boolean => /^[a-z0-9-]{1,60}$/.test(id);
 
 const vantauxValides = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 4;
 
+/** au plus 8 décors par mur */
+const DECORS_MAX = 8;
+/** les décors d'un mur de longueur L : dans le mur, 10 cm au moins chacun, un parement connu, sans se chevaucher */
+function decorsInvalides(Z: FinishZone[], L: Mm): string | null {
+  if (Z.length > DECORS_MAX) return 'au plus ' + DECORS_MAX + ' décors par mur';
+  for (const z of Z) {
+    if (!fini(z.from, z.to)) return 'position du décor invalide';
+    if (z.from < -1 || z.to > L + 1) return 'le décor sort du mur';
+    if (z.to - z.from < 100) return 'un décor fait au moins 10 cm';
+    if (typeof z.finish !== 'string' || !matiereValide(z.finish)) return 'parement du décor inconnu';
+    if (z.label !== undefined && (typeof z.label !== 'string' || z.label.length > 80)) return 'nom du décor : 80 caractères au plus';
+  }
+  const T = [...Z].sort((a, b) => a.from - b.from);
+  for (let i = 1; i < T.length; i++) if (T[i]!.from < T[i - 1]!.to - 1) return 'deux décors se chevauchent';
+  return null;
+}
+
 /** une ouverture tient-elle dans son mur ? (position = milieu de l'ouverture, depuis l'origine du mur) */
 function horsDuMur(position: Mm, largeur: Mm, longueur: Mm): string | null {
   if (largeur <= 0) return 'la largeur doit être positive';
@@ -438,6 +457,17 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         if (roleFinal === 'virtual' && ouverturesDe(p, w.id).length) return refus('ce mur porte des ouvertures : une cloison fictive n’en reçoit pas');
         if (cmd.hauteur !== undefined && !(cmd.hauteur > 0)) return refus('la hauteur doit être positive');
         if (cmd.finition !== undefined && cmd.finition !== null && !matiereValide(cmd.finition)) return refus('parement inconnu');
+        if (cmd.decors !== undefined) {
+          const Z = cmd.decors ?? [];
+          if (Z.length && roleFinal !== 'exterior') return refus('un décor se pose sur un mur de façade');
+          const e = decorsInvalides(Z, longueurMur(w));
+          if (e) return refus(e);
+          /* rangés le long du mur, au millimètre, ramenés dans le mur ; un nom vide n'est pas gardé */
+          const L = longueurMur(w);
+          const N = [...Z].sort((a, b) => a.from - b.from).map(z => ({ from: Math.max(0, Math.round(z.from)), to: Math.min(Math.round(L), Math.round(z.to)), finish: z.finish,
+            ...(z.label?.trim() ? { label: z.label.trim() } : {}) }));
+          avant['finishZones'] = w.finishZones ?? null; apres['finishZones'] = N.length ? N : null;
+        }
         for (const k of ['hauteur', 'justification', 'finition'] as const) {
           if (cmd[k] === undefined || (k === 'justification' && roleFinal === 'virtual')) continue;
           const champ = ({ hauteur: 'height', justification: 'justification', finition: 'finish' } as const)[k];

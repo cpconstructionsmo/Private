@@ -27,6 +27,8 @@ export const PAREMENTS: readonly Materiau[] = [
   x('bardage-bois-grise', 'bardage', 'Bardage bois grisé (lames verticales)', '#8F8C85', 'lames_v', 140),
   x('bardage-composite-anthracite', 'bardage', 'Bardage composite anthracite', '#3F4348', 'lames_h', 140),
   x('pierre-parement', 'pierre', 'Parement pierre', '#C9B99D', 'pierres', 300),
+  /* l'enduit sculpté en pierres des décors d'entrée : des pierres plus petites, plus grises que le parement */
+  x('enduit-imitation-pierre', 'enduit', 'Enduit imitation pierre', '#CFC7B6', 'pierres', 200),
   x('brique-rouge', 'brique', 'Brique rouge', '#A65B3F', 'briques', 75),
 ];
 

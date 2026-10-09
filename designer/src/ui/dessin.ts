@@ -201,6 +201,22 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.setLineDash([6, 4]);
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
   }
+  /* les décors des façades (hors dossier : le permis les montre en façade, pas en plan) : la partie
+     du mur habillée, teintée de son parement et cernée de tirets, pour la voir en la réglant */
+  if (!s.dossier) for (const w of mursDroits(s.niveau)) {
+    if (w.role !== 'exterior' || !w.finishZones?.length) continue;
+    const L = Math.hypot(w.axis.b.x - w.axis.a.x, w.axis.b.y - w.axis.a.y), u = { x: (w.axis.b.x - w.axis.a.x) / L, y: (w.axis.b.y - w.axis.a.y) / L };
+    const n = { x: -u.y, y: u.x }, F = decalagesFaces(w);
+    const P = (t: number, k: number) => E({ x: w.axis.a.x + u.x * t + n.x * k, y: w.axis.a.y + u.y * t + n.y * k });
+    for (const z of w.finishZones) {
+      const t0 = Math.max(0, z.from), t1 = Math.min(L, z.to);
+      if (t1 <= t0) continue;
+      const Q = [P(t0, F.droite), P(t1, F.droite), P(t1, F.gauche), P(t0, F.gauche)];
+      ctx.beginPath(); Q.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath();
+      ctx.globalAlpha = 0.75; ctx.fillStyle = materiau(z.finish)?.couleur ?? COULEURS.gris; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = estChoisi(w.id) ? COULEURS.accent : COULEURS.encre; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
   /* ouvertures */
   const murs = new Map(mursDroits(s.niveau).map(w => [w.id, w]));
   for (const o of Object.values(s.niveau.objects)) {

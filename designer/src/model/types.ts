@@ -77,7 +77,15 @@ export interface Wall extends BaseObject {
   compositionRef?: string;
   /** le parement de sa face extérieure (catalogue/materiaux.ts), pour un mur de façade */
   finish?: string;
+  /** des parties de cette face habillées d'un autre parement (un décor en pierre autour de l'entrée) ;
+   *  facultatif, comme les champs de la bibliothèque d'ouvertures : un projet qui ne l'a pas reste valable */
+  finishZones?: FinishZone[];
 }
+
+/** une partie de la face extérieure d'un mur de façade, de « from » à « to » le long de l'axe depuis
+ *  son origine a (mm), sur toute la hauteur du mur, habillée du parement « finish » ; « label » la
+ *  nomme dans la légende des façades (« Décoration de l'entrée ») */
+export interface FinishZone { from: Mm; to: Mm; finish: string; label?: string }
 
 export interface Opening extends BaseObject {
   type: 'opening';
