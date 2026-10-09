@@ -252,7 +252,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-09 · Options du prospect : rétrocession dans les prix unitaires, comme au chiffrage par poste';
+const VERSION='2026-10-09 · Marchés : rétrocession ajoutée au prix de l’artisan, invisible sur le marché';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1448,6 +1448,32 @@ const prixAvecRetro=(base,pct)=>{
   if(!b||p<=0||p>=100)return b;
   return Math.round(b/(1-p/100)*100)/100;
 };
+/* ---------- la rétrocession d'un lot, ajoutée au prix de l'artisan ----------
+   Sur un marché de travaux, la rétrocession se pose dans les prix unitaires :
+   chacun est relevé du taux (prix de l'artisan / (1 − taux)), si bien que
+   l'entreprise, qui reverse ce taux sur ce qu'elle facture, garde son prix.
+   Le marché remis au client ne montre que ces prix relevés : aucune ligne
+   de rétrocession. On repart toujours du prix de l'artisan (le taux déjà
+   appliqué se défait d'abord), donc changer de taux ne s'accumule jamais ;
+   un lot sans quantitatif garde son prix de base à part. Un marché signé
+   n'est jamais touché : son prix ne change plus que par avenant. */
+const marcheSigne=m=>['signe','encours','receptionne'].includes(m&&m.statut);
+function releverMarche(m,taux){
+  const c=Math.max(0,Math.min(99,+taux||0)), a=+(m&&m.retroPctApplique)||0;
+  const lignes=m&&m.quantitatif&&m.quantitatif.lignes;
+  if(lignes&&lignes.some(estArticle)){
+    if(a===c)return {};
+    const L=lignes.map(l=>{
+      if(!estArticle(l))return l;
+      const b=a>0&&a<100?Math.round((+l.pu||0)*(1-a/100)*100)/100:(+l.pu||0);
+      return {...l,pu:c>0?prixAvecRetro(b,c):b};
+    });
+    return {quantitatif:{...m.quantitatif,lignes:L},montantHT:quantitatifNet(L,remisePct(m)),retroPctApplique:c};
+  }
+  const base=+(m&&m.prixBase)>0?+m.prixBase:(a>0&&a<100?Math.round((+(m&&m.montantHT)||0)*(1-a/100)*100)/100:+(m&&m.montantHT)||0);
+  if(!base)return {};
+  return {prixBase:base,montantHT:c>0?prixAvecRetro(base,c):base,retroPctApplique:c};
+}
 const prospectPostesRetro=(p,majTarifs)=>Math.round((((p&&p.postes)||[]).reduce((s,x)=>s+posteRetro(x,majTarifs),0)
   +optionsInclues(p).reduce((s,x)=>s+optionRetro(x,majTarifs,p),0))*100)/100;
 const prospectRetro=(p,majTarifs)=>{
@@ -8356,12 +8382,16 @@ function Quantitatif({data,f,setF,save,champ}){
   const [verse,setVerse]=useState('');
   const B=data.bordereaux||[];
   const q=f.quantitatif;
+  /* un bordereau donne les prix de l'artisan : si une rétrocession a déjà
+     relevé les prix de ce lot, ses articles sont relevés du même taux en
+     arrivant, sans quoi le quantitatif mêlerait des prix des deux sortes */
+  const releverPu=(pu,p)=>{const a=+(p&&p.retroPctApplique)||0;return a>0&&a<100?prixAvecRetro(+pu||0,a):pu};
   /* les bordereaux de l'artisan retenu d'abord : ce sont ses prix à lui */
   const dispo=f.artisanId?[...B.filter(b=>bordPourArtisan(b,f.artisanId)),...B.filter(b=>!bordPourArtisan(b,f.artisanId))]:B;
   const poser=id=>{
     const b=B.find(x=>x.id===id);if(!b)return;
     setF(p=>({...p,quantitatif:{bordereauId:b.id,nom:b.nom,
-      lignes:(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:arrondiPu(a.pu,b.aleasPct),qt:''}))},
+      lignes:(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:releverPu(arrondiPu(a.pu,b.aleasPct),p),qt:''}))},
       [champMontant]:0,
       /* la rétrocession suggérée du bordereau ne s'impose que sur un poste de
          chiffrage encore vierge de la sienne — elle reste ensuite ajustable
@@ -8389,7 +8419,9 @@ function Quantitatif({data,f,setF,save,champ}){
   });
   const retirerLigne=id=>setF(p=>recale(p,p.quantitatif.lignes.filter(l=>l.id!==id)));
   const ordonner=(de,vers)=>setF(p=>recale(p,deplacer(p.quantitatif.lignes,de,vers)));
-  const retirer=()=>setF(p=>({...p,quantitatif:undefined}));
+  /* sur un lot, un prix de base gardé d'avant le quantitatif ne vaut plus :
+     le prix de l'artisan se déduira du montant restant */
+  const retirer=()=>setF(p=>({...p,quantitatif:undefined,...(champMontant==='montantHT'?{prixBase:undefined}:{})}));
   /* un second corps d'état sur le même marché : plutôt qu'un marché par lot,
      ce qui multiplie les contrats à faire signer pour une même entreprise,
      on ajoute les articles d'un autre bordereau à la suite, sous un intertitre
@@ -8399,7 +8431,7 @@ function Quantitatif({data,f,setF,save,champ}){
     const nouvelles=[{id:uid(),type:'titre',libelle:b.nom},
       ...(b.articles||[]).map(a=>({id:uid(),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:arrondiPu(a.pu,b.aleasPct),qt:''}))];
     setF(p=>{
-      const r=recale(p,[...(p.quantitatif.lignes||[]),...nouvelles]);
+      const r=recale(p,[...(p.quantitatif.lignes||[]),...nouvelles.map(l=>l.type==='titre'?l:{...l,pu:releverPu(l.pu,p)})]);
       /* le corps d'état du lot suit ce qu'on y ajoute : « Gros œuvre » ne dit plus
          tout une fois la couverture posée dessus — on complète plutôt que de laisser
          l'intitulé mentir sur ce que couvre réellement le marché. */
@@ -8919,6 +8951,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     });
   };
   const [avenantTravail,setAvenantTravail]=useState('');
+  /* le taux de rétrocession tel qu'il était en entrant dans le champ : on ne relève les prix que s'il a changé */
+  const retroAvant=useRef(null);
   const redigerAvenant=async av=>{
     setAvenantTravail(av.id);
     try{
@@ -9026,7 +9060,13 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       <Fld label="ARTISAN"><select className="in" value={f.artisanId} onChange={e=>setF({...f,artisanId:e.target.value})}><option value="">— non attribué —</option>{data.artisans.map(a=><option key={a.id} value={a.id}>{a.nom} ({majCorps(a.corps)})</option>)}</select></Fld>
       <div className="g2">
         <Fld label="MONTANT MARCHÉ HT (€)"><input className="in" type="number" value={f.montantHT} disabled={!!f.quantitatif}
-          onChange={e=>setF({...f,montantHT:e.target.value})} style={f.quantitatif?{background:'#F2EFE9'}:null}/></Fld>
+          onChange={e=>{
+            /* un montant relevé d'une rétrocession, retouché à la main : c'est le
+               nouveau prix du marché, et le prix de base de l'artisan s'en déduit,
+               pour qu'un changement de taux reparte du bon prix */
+            const v=e.target.value, a=+f.retroPctApplique||0;
+            setF(a>0&&a<100?{...f,montantHT:v,prixBase:+v>0?Math.round(+v*(1-a/100)*100)/100:''}:{...f,montantHT:v});
+          }} style={f.quantitatif?{background:'#F2EFE9'}:null}/></Fld>
         <Fld label="TVA DE CE LOT (%)">
           <input className="in" type="number" step="0.1" placeholder={'Chantier : '+tvaRate(ch)+' %'} value={f.tva===undefined||f.tva===null?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/>
         </Fld>
@@ -9037,6 +9077,39 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           :<span>Laissez la TVA vide pour appliquer le taux du chantier ({tvaRate(ch)} %). Saisissez <b>0</b> pour un artisan en franchise de TVA ou en autoliquidation. </span>}
         {f.montantHT>0&&<span>— soit <b>{eur(marcheTTC({montantHT:+f.montantHT,tva:f.tva},ch))}</b> TTC.</span>}
       </div>
+      {/* la rétrocession, ajoutée au prix de l'artisan dans les prix unitaires : rien n'en paraît sur le marché */}
+      {(()=>{
+        const signe=marcheSigne(f), a=+f.retroPctApplique||0, t=+f.retroPct||0;
+        const appliquer=()=>{if(signe)return;const patch=releverMarche(f,f.retroPct);if(Object.keys(patch).length)setF(p=>({...p,...patch}))};
+        const artisan=a>0?Math.round((+f.montantHT||0)*(1-a/100)*100)/100:+f.montantHT||0;
+        return <Fld label="RÉTROCESSION — INTERNE, LE CLIENT NE LA VOIT PAS">
+          <div className="row xs" style={{gap:6,alignItems:'center',flexWrap:'wrap'}}>
+            <input className="in" type="number" step="0.5" min="0" max="99" placeholder="%" aria-label="Taux de rétrocession du lot"
+              style={{width:80,flex:'0 0 auto'}} value={f.retroPct===undefined||f.retroPct===null?'':f.retroPct}
+              onFocus={()=>{retroAvant.current=String(f.retroPct===undefined||f.retroPct===null?'':f.retroPct)}}
+              onChange={e=>setF({...f,retroPct:e.target.value===''?'':+e.target.value})}
+              onBlur={()=>{if(retroAvant.current!==String(f.retroPct===undefined||f.retroPct===null?'':f.retroPct))appliquer()}}/>
+            <span className="mut">% ajoutés au prix de base de l’artisan</span>
+            {!f.quantitatif&&!signe&&<React.Fragment>
+              <span className="mut">— prix de base</span>
+              <input className="in" type="number" step="0.01" placeholder="€ HT" aria-label="Prix de base de l’artisan"
+                style={{width:110,flex:'0 0 auto'}} value={f.prixBase||''} onChange={e=>setF({...f,prixBase:e.target.value===''?'':+e.target.value})}
+                onBlur={appliquer}/>
+              <span className="mut">€ HT</span>
+            </React.Fragment>}
+          </div>
+          <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+            {signe&&t!==a
+              ?<span style={{color:AMBER}}>Marché signé : ses prix ne changent plus (un avenant s’impose) — le taux ne vaut que pour la convention de rétrocession, sur le montant signé.</span>
+              :a>0&&a===t
+                ?<span>Prix {f.quantitatif?'unitaires ':''}relevés de {nb2(a)} % : l’entreprise garde son prix (<b>{eurc(artisan)}</b> HT) et reverse <b>{eurc(retroMontant(f))}</b> HT de rétrocession.
+                  Le marché ne montre que les prix relevés — aucune ligne de rétrocession.</span>
+                :t>0
+                  ?<span>Quittez le champ après l’avoir changé pour ajouter {nb2(t)} % au prix de base de l’artisan — {!signe&&<button type="button" className="btn gh s" onClick={appliquer}>Ajouter au prix de l’artisan</button>}
+                    {' '}Sans cela, le taux se prend sur le prix du marché (convention de rétrocession).</span>
+                  :<span>Par exemple 20 % : le prix de l’artisan est relevé (prix / 0,80) dans les prix unitaires, et il reverse la rétrocession ; le client ne voit que le prix relevé.</span>}
+          </div>
+        </Fld>})()}
       <Quantitatif data={data} f={f} setF={setF} save={save}/>
       <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{STATUTS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
       <Fld label="DATE DE SIGNATURE"><input className="in" type="date" value={f.dateSignature} onChange={e=>setF({...f,dateSignature:e.target.value})}/></Fld>
