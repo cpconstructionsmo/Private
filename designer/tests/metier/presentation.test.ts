@@ -6,6 +6,7 @@ import { creerProjet, generateurSequentiel } from '../../src/model';
 import { executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
 import { MODELES_MAISONS } from '../../src/catalogue/modeles-maisons';
 import { planchesPdf } from '../../src/export/planche';
+import { JPEG } from './dossier.test';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 1) + (t += 1000)).toISOString(), id: generateurSequentiel('o') } };
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join(' ; ')); return r.historique };
@@ -38,5 +39,24 @@ describe('plan de présentation', () => {
     /* les motifs des sols : des centaines de traits (le plan technique a les siens : hachures de la maçonnerie, cotes) */
     const traits = (s: string) => (s.match(/ l\b/g) ?? []).length;
     expect(traits(pres)).toBeGreaterThan(1_000);
+    /* le style du client : murs pleins anthracite (#3B3F45) et ombre portée (#D5D7DA) ; le plan technique garde les siens */
+    expect(pres).toContain(rvb('#3B3F45'));
+    expect(pres).toContain(rvb('#D5D7DA'));
+    expect(tech).not.toContain(rvb('#3B3F45'));
+    /* les deux cotes d'encombrement (13,20 m sur 9,20 m, au nu extérieur), sans les chaînes des baies */
+    const textes = (x: string) => [...x.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map(m => m[1]!);
+    const T = textes(pres);
+    expect(T).toContain('13,20');
+    expect(T).toContain('9,20');
+    expect(T.filter(t => /^\d+,\d\d$/.test(t)).length).toBeLessThan(textes(tech).filter(t => /^\d+,\d\d$/.test(t)).length / 3);
+  });
+
+  it('la vue 3D gardée finit les plans de présentation, sur sa page', () => {
+    const P = maisonMeublee(), f = P.buildings[0]!.floors[0]!;
+    const o = { niveaux: [f.id], cotation: false, mobilier: true, indice: 'A', date: '05/10/2026', presentation: true };
+    const sans = texte(planchesPdf(P, o)), avec = texte(planchesPdf(P, { ...o, perspective: { jpeg: JPEG, largeur: 8, hauteur: 8 } }));
+    expect(avec).toContain('(VUE 3D DU PROJET)');
+    expect(avec).toContain('/Count 2');
+    expect(sans).toContain('/Count 1');
   });
 });

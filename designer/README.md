@@ -537,7 +537,11 @@ chaque pièce à la couleur de son sol, avec son motif vu de dessus
 l'origine du plan pour se suivre d'une pièce à l'autre), le mobilier, sans
 chaînes de cotes ; la colonne « Sols et surfaces » dit le sol de chaque
 pièce (ou « sol à choisir »). Les traits du motif sont coupés au contour
-de la pièce par un calcul pur (`src/geometry/hachures.ts`).
+de la pièce par un calcul pur (`src/geometry/hachures.ts`). Imprimé, il
+prend le style d'un plan commercial : murs pleins anthracite (ni hachures
+ni couches), ombre portée légère en bas à droite de la maison, et les deux
+cotes d'encombrement (en bas et à gauche). La vue 3D gardée (Studio) finit
+le PDF sur sa page, pour que le client ait le plan et sa maison ensemble.
 
 **Interface à onglets** (`src/ui/app.ts`, icônes `src/ui/icones.ts`) : en haut,
 les onglets Tracé, Ouvrant, Toit, Extérieur, Produit, Revêtement, Studio,

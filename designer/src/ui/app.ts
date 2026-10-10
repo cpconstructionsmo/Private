@@ -2920,7 +2920,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'ind', libelle: 'Indice', valeur: 'A' },
       { cle: 'mo', libelle: 'Maître d’ouvrage (dossier)', valeur: h.projet.dossier?.maitreOuvrage ?? '' },
       { cle: 'adr', libelle: 'Adresse du terrain (dossier)', valeur: '' },
-      ...(perspective ? [{ cle: 'per', libelle: 'Vue 3D (dossier)', valeur: 'oui', options: { oui: 'Ajouter la vue 3D gardée', non: 'Sans' } }] : [])]);
+      ...(perspective ? [{ cle: 'per', libelle: 'Vue 3D (dossier, présentation)', valeur: 'oui', options: { oui: 'Ajouter la vue 3D gardée', non: 'Sans' } }] : [])]);
     if (!r) return;
     if (r['doc'] === 'dossier' || r['doc'] === 'dp') { await exporterDossier(r, r['doc'] === 'dp' ? 'DP' : 'PC'); return }
     /* les plans d'exécution : le jeu du maçon, quels que soient les choix des planches */
@@ -2933,6 +2933,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui' && r['pre'] !== 'presentation', mobilier: r['mob'] === 'oui' || r['pre'] === 'presentation',
           ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui', fondations: r['fon'] === 'oui', attentes: r['att'] === 'oui' }),
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
+        /* les plans de présentation du client finissent sur la vue 3D gardée */
+        ...(r['pre'] === 'presentation' && !exe && perspective && r['per'] !== 'non' ? { perspective } : {}),
       });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([u], { type: 'application/pdf' }));
