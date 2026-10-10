@@ -24,3 +24,4 @@ export * from './plu';
 export * from './ameublement';
 export * from './decors';
 export * from './etats';
+export * from './plomberie';

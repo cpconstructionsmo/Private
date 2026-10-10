@@ -7,7 +7,7 @@
    Repère de la mise en page : millimètres depuis le haut-gauche de la
    feuille (comme on la lit) ; la page PDF est en points depuis le bas. */
 import type { Floor, Project, Roof } from '../model/types';
-import { emprise, fondationsDuProjet, aDesExistants, projetExistant } from '../building';
+import { emprise, fondationsDuProjet, aDesExistants, projetExistant, attentesSanitaires } from '../building';
 import { nord } from '../ui/dessin';
 import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, pointsDeVue, champDeVue } from '../building/terrain';
 import { surfacesReglementaires, type Surfaces } from '../building/surfaces';
@@ -56,6 +56,8 @@ export interface OptionsPlanche extends Signature {
   presentation?: boolean;
   /** ajouter le plan de fondations, s'il y a des fondations */
   fondations?: boolean;
+  /** ajouter le plan des attentes sanitaires (plombier) de chaque niveau choisi qui porte des appareils */
+  attentes?: boolean;
   /** le cabinet (colonne CP, page de garde) : réglages de l'appareil, jamais dans le dépôt */
   cabinet?: Cabinet;
   /** le logo du cabinet (JPEG), en tête de la colonne ; absent : le nom de la société */
@@ -97,10 +99,13 @@ export function planchesPdf(projet: Project, o0: OptionsPlanche): Uint8Array<Arr
   for (const f of F) planche(doc, projet, f, o, lignes);
   const FD = o.fondations ? fondationsDuProjet(projet) : null;
   if (FD) planche(doc, projet, FD.niveau, { ...o, mobilier: false }, [], true);
+  /* le plan du plombier : les niveaux qui portent des appareils sanitaires */
+  const FA = o.attentes ? F.filter(f => attentesSanitaires(f).length) : [];
+  for (const f of FA) plancheNiveau(doc, projet, f, { ...o, mobilier: false, presentation: false }, [], false, true);
   if (o.facades) plancheFacades(doc, projet, o);
   if (o.toiture) plancheToiture(doc, projet, o);
   if (o.coupe) plancheCoupes(doc, projet, o, lignes);
-  if (!F.length && !FD && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet)) && !(o.toiture && toituresDuProjet(projet).length)) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
+  if (!F.length && !FD && !FA.length && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet)) && !(o.toiture && toituresDuProjet(projet).length)) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
   return doc.octets((projet.name || 'Projet') + ' — plans');
 }
 
@@ -344,13 +349,16 @@ function composerDossier(projet: Project, d: OptionsDossier, formalite: Formalit
   if (d.planDivision) pageDocumentFourni(doc, projet, o, d.planDivision, 'Plan', 'parcellaire', 'PCMI 1', 'Plan de division du géomètre-expert');
   const pMasse = t ? debut() : null;
   if (t) plancheMasse(doc, projet, o);
-  const lignes = lignesDeCoupe(projet), pCoupe = debut();
-  plancheCoupes(doc, projet, o, lignes);
+  /* une rénovation, une extension (ADR-0007) : les coupes de l'existant (aux mêmes traits), puis celles du projet */
+  const travaux = aDesExistants(projet), lignes = lignesDeCoupe(projet), pCoupeExistante = travaux ? debut() : null;
+  if (travaux) plancheCoupes(doc, projetExistant(projet), { ...o, etat: 'existant' }, lignes);
+  const pCoupe = debut();
+  plancheCoupes(doc, projet, travaux ? { ...o, etat: 'projete' } : o, lignes);
   /* la notice est le PCMI 4 du permis ; en déclaration préalable, elle n'est pas au bordereau et passe en complément */
   const pNotice = dp ? null : debut();
   if (!dp) pageNotice(doc, projet, o);
-  /* une rénovation, une extension (ADR-0007) : les façades de l'existant, puis celles du projet */
-  const travaux = aDesExistants(projet), pFacadesExistantes = travaux ? debut() : null;
+  /* puis les façades de l'existant, et celles du projet */
+  const pFacadesExistantes = travaux ? debut() : null;
   if (travaux) plancheFacades(doc, projetExistant(projet), { ...o, etat: 'existant' });
   const pFacades = debut();
   plancheFacades(doc, projet, travaux ? { ...o, etat: 'projete' } : o);
@@ -400,12 +408,13 @@ function composerDossier(projet: Project, d: OptionsDossier, formalite: Formalit
         : 'plan cadastral du cadastre importé ; extrait de carte (1/5 000 à 1/25 000) à joindre')
       + (pDivision ? ' ; plan de division du géomètre : page ' + pDivision : ''),
   };
+  const coupes = pCoupeExistante ? 'état existant : page ' + pCoupeExistante + ', état projeté : page ' + pCoupe + ' ; ' : '';
   const facades = (pFacadesExistantes ? 'état existant : page ' + pFacadesExistantes + ', état projeté : page ' + pFacades + ' ; ' : '') + (aToit ? 'plan de toiture : page ' + pToit : 'toiture à définir (panneau 3D)');
   const complementaire = pVues ? [{ code: C('PCMI 7 / 8'), intitule: 'Photographies : planche complémentaire', page: pVues, note: vues.length + ' vue' + (vues.length > 1 ? 's' : '') + ' complémentaire' + (vues.length > 1 ? 's' : '') }] : [];
   const pieces: PieceDossier[] = dp ? [
     { code: 'DP1', intitule: 'Plan de situation du terrain', ...situation },
     { code: 'DP2', intitule: 'Plan de masse des constructions à édifier ou à modifier', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
-    { code: 'DP3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe, note: 'demandé si le projet modifie le profil du terrain' },
+    { code: 'DP3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupeExistante ?? pCoupe, note: coupes + 'demandé si le projet modifie le profil du terrain' },
     { code: 'DP4', intitule: 'Plans des façades et des toitures', page: pFacadesExistantes ?? pFacades, note: facades },
     { code: 'DP5', intitule: 'Représentation de l’aspect extérieur', page: pAspect,
       note: pAspect ? 'vue 3D gardée dans le Designer' : 'à joindre si le projet modifie l’aspect extérieur (une vue 3D gardée peut y servir)' },
@@ -418,7 +427,7 @@ function composerDossier(projet: Project, d: OptionsDossier, formalite: Formalit
   ] : [
     { code: 'PCMI 1', intitule: 'Plan de situation du terrain', ...situation },
     { code: 'PCMI 2', intitule: 'Plan de masse des constructions', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
-    { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe },
+    { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupeExistante ?? pCoupe, ...(pCoupeExistante ? { note: coupes.replace(/ ; $/, '') } : {}) },
     { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: pNotice, note: 'brouillon à relire et compléter' },
     { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacadesExistantes ?? pFacades, note: facades },
     { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: pInsertion,

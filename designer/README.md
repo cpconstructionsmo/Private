@@ -425,6 +425,8 @@ de la toiture : type (un pan contre la maison, terrasse…), pente, couverture,
 côté de l'égout bas ; sans réglage, les mêmes que l'existant. Le dossier de
 permis compose alors deux planches PCMI 5 : les façades de l'état existant
 (la maison d'avant, ses baies, sa toiture), puis celles de l'état projeté ;
+de même au PCMI 3, les coupes de l'état existant, aux mêmes traits que celles
+du projet ;
 la légende des matériaux dit la couverture de l'extension, le sommaire
 renvoie aux deux pages. Au plan de masse, la maison existante (plus claire)
 se distingue de l'extension, chacune à sa légende.
@@ -757,6 +759,15 @@ vides, puis hors-tout) ; les **réservations** (`reservationsFondations`) y
 sont repérées R1, R2… là où un réseau tracé au terrain traverse une semelle
 (fourreau à prévoir au coulage), et listées au tableau avec le diamètre
 saisi au réseau, sinon « Ø à préciser ».
+**Plan du plombier** (PDF : « Plan du plombier », ou dans les plans
+d'exécution ; `src/building/plomberie.ts`) : les attentes sanitaires se
+déduisent des appareils posés au plan — WC, lavabo, vasque, douche,
+baignoire, évier, lave-vaisselle, lave-linge, chauffe-eau (un sèche-linge
+n'en a pas) : au dos de chaque appareil, ses réseaux (EF, EC, EU, EV) en
+pastilles de couleur et son repère S1, S2… ; le tableau dit l'appareil, sa
+pièce, ses attentes et le diamètre usuel de l'évacuation (Ø 100 au WC,
+Ø 40 ailleurs, Ø 32 à 40 au lavabo), à confirmer par le plombier avec les
+hauteurs d'attente. Déplacer un appareil déplace son attente.
 
 **Fenêtres de toit** (outil H ; `src/building/fenetres-toit.ts`) : un
 châssis posé sur un pan de la toiture du niveau qui la porte (le Designer

@@ -8,7 +8,7 @@
    (ui/dessin.ts) sur une toile PDF : vectoriel. */
 import type { BuildingObject, Floor, Point, Project } from '../model/types';
 import { planDuNiveau, cotationExterieure, cotationFondations, cotesInterieures, baiesExterieures, mursDroits, mursDemolis, ouvertureBatie, emprise, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau,
-  planFondations, reservationsFondations, NOMS_RESEAUX, SOUBASSEMENTS, surfacesReglementaires, surfacesDesPieces, partiesBasses, parcelleDuProjet, type ChaineCotes, type Cote4, type PlanFondations, type Reservation } from '../building';
+  planFondations, reservationsFondations, NOMS_RESEAUX, attentesSanitaires, besoinSanitaire, NOMS_RESEAUX_SANITAIRES, SOUBASSEMENTS, surfacesReglementaires, surfacesDesPieces, partiesBasses, parcelleDuProjet, type ChaineCotes, type Cote4, type PlanFondations, type Reservation, type AttenteSanitaire } from '../building';
 import { dessiner, ETATS, type Scene } from '../ui/dessin';
 import { ToilePdf } from './toile-pdf';
 import { PagePdf, type DocumentPdf } from './pdf';
@@ -85,23 +85,29 @@ export function surfaceVitree(projet: Project, f?: Floor): number {
 
 const enCm = (mm: number) => (mm / 10).toLocaleString('fr-FR', { maximumFractionDigits: 1 });
 
-/** la planche d'un niveau ; « fondations » : son plan de fondations (semelles, trappes ; ni mobilier, ni escalier) */
-export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsNiveau, traits: LigneDeCoupe[], fondations = false): void {
+/** la planche d'un niveau ; « fondations » : son plan de fondations (semelles, trappes ; ni mobilier, ni escalier) ;
+    « attentes » : le plan du plombier (les appareils sanitaires seuls, leurs attentes d'eau et d'évacuation) */
+export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: OptionsNiveau, traits: LigneDeCoupe[], fondations = false, attentes = false): void {
   const page = nouvelleFeuille(doc);
   /* le plan d'un niveau montre le bâtiment : le terrain et les abords vont au plan de masse ; seule la terrasse, accolée, reste */
   const garde = (x: BuildingObject) => (fondations
     /* au plan de fondations, ni baies (la semelle filante passe dessous) ni noms de pièces : les murs à fonder et les semelles */
     ? ['column', 'foundation', 'dimension'].includes(x.type) || (x.type === 'wall' && (x.role === 'exterior' || x.role === 'bearing_interior' || (x.role === 'partition' && x.loadBearing.value)))
+    /* au plan du plombier, des meubles seuls les appareils sanitaires */
+    : attentes ? (x.type !== 'furniture' || !!besoinSanitaire(x)) && !SUR_LE_TERRAIN.has(x.type) && x.type !== 'roof' && x.type !== 'dormer' && x.type !== 'roof_window' && x.type !== 'landscape'
     : (o.mobilier || x.type !== 'furniture') && !SUR_LE_TERRAIN.has(x.type) && x.type !== 'roof' && x.type !== 'dormer' && x.type !== 'roof_window' && !(x.type === 'landscape' && x.kind !== 'terrace'));
   const niveau: Floor = { ...f, objects: Object.fromEntries(Object.entries(f.objects).filter(([, x]) => garde(x))) };
   const plan = planDuNiveau(niveau), PF = fondations ? planFondations(f) : null;          // les semelles et les trappes, d'après le niveau entier (pièces comprises)
-  let B = boiteDessin(niveau, o.mobilier && !fondations);
+  let B = boiteDessin(niveau, (o.mobilier || attentes) && !fondations);
+  /* les attentes sanitaires du niveau (building/plomberie.ts), au dos de chaque appareil */
+  const AT = attentes ? attentesSanitaires(f) : [];
   if (B && PF) for (const q of [...PF.emprise.flatMap(x => x.contour), ...PF.isolees.flatMap(x => x.contour)])
     B = { xmin: Math.min(B.xmin, q.x), ymin: Math.min(B.ymin, q.y), xmax: Math.max(B.xmax, q.x), ymax: Math.max(B.ymax, q.y) };
   const titreSous = (ech: number) => {
     const ngf = parcelleDuProjet(projet)?.plot.groundFloorNgf;
     const n0 = 'Niveau fini ' + f.name + ' ' + (f.elevation ? (f.elevation > 0 ? '+' : '−') + metres(Math.abs(f.elevation)) : '±0,00') + (ngf !== undefined ? ' = ' + (ngf + f.elevation / 1000).toFixed(2).replace('.', ',') + ' NGF' : '');
     return fondations ? n0 + ' – semelles sous le niveau – échelle 1/' + ech
+      : attentes ? n0 + ' – attentes d’eau et d’évacuation des appareils posés au plan – échelle 1/' + ech
       : o.presentation ? 'Plan de présentation : ' + f.name + ' – sols et surfaces des pièces – échelle 1/' + ech
         : n0 + ' – cotes en mètres – ouvertures : largeur × hauteur, all. = hauteur d’allège';
   };
@@ -128,7 +134,7 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   const pieces = piecesDuNiveau(projet, f);
   const S = surfacesReglementaires(projet), SN = S.niveaux.find(x => x.niveau === f.id);
   const bas = [...projet.buildings.flatMap(b => b.floors)].sort((a, b) => a.elevation - b.elevation)[0];
-  const notes = fondations || o.presentation ? [] : [
+  const notes = fondations || attentes || o.presentation ? [] : [
     ...(SN ? ['Surface de plancher (S.P.) : ' + enM2(SN.surfacePlancher)] : []),
     ...(bas?.id === f.id && S.emprise ? ['Emprise au sol : ' + enM2(S.emprise)] : []),
     'Surface vitrée : ' + enM2(surfaceVitree(projet, f)),
@@ -141,10 +147,14 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   const lignesFondations = PF ? lignesDesFondations(PF, RS) : [];
   /* les notes « À valider » sous le tableau, coupées à sa largeur : leur place se compte ligne à ligne */
   const notesFondations = PF ? ['Dimensions proposées, à remplacer par celles de l’étude de sol (G2) et du bureau d’études.', ...PF.alertes.map(a => '• ' + a)].flatMap(t => couper(t, 76 * PT, 6.5)).slice(0, 9) : [];
+  /* le tableau du plombier : chaque appareil, sa pièce, ses attentes et son évacuation ; les notes dessous */
+  const lignesAttentes = AT.map(a => [a.repere, a.appareil + (a.piece ? ' (' + a.piece + ')' : ''), a.reseaux.join(' + '), a.evacuation]);
+  const notesAttentes = attentes ? ['Positions d’après les appareils posés au plan (le dos de l’appareil, côté mur). Hauteurs d’attente et diamètres : usuels, à confirmer par le plombier selon les fiches des appareils.'].flatMap(t => couper(t, 104 * PT, 6.5)) : [];
   const tab = fondations
     ? { l: 76, h: hauteurTableau(lignesFondations.length, { titre: true }) + 5 + 3.6 + notesFondations.length * 3.4 }
+    : attentes ? (AT.length ? { l: 104, h: hauteurTableau(lignesAttentes.length, { titre: true }) + 5 + notesAttentes.length * 3.4 } : null)
     : pieces.length ? { l: colonnesTableau.reduce((s, c) => s + c.largeur, 0), h: hauteurTableau(pieces.length, { total: true, titre: true, pas: PAS_TABLEAU }) + notes.length * 3.6 + (notes.length ? 2 : 0) } : null;
-  const L = fondations ? legendeFondations(RS.length > 0) : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0, o.formalite, partiesBasses(projet, f).length > 0);
+  const L = fondations ? legendeFondations(RS.length > 0) : attentes ? legendeAttentes(AT) : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0, o.formalite, partiesBasses(projet, f).length > 0);
   const legs = L.length ? [1, 2, 3].filter(k => k <= L.length).map(k => ({ ...tailleLegende('LÉGENDE', L, k), k })) : [];
 
   /* la plus grande échelle normalisée où le plan, ses cotes et ses encadrés tiennent */
@@ -248,6 +258,12 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
     page.trait(X(cx - 1), Y(cy), X(cx + 1), Y(cy), 0.4, BRIQUE);
     texte(page, r.repere, cx + 2, cy - 1.8, 6.5, { gras: true, couleur: BRIQUE });
   }
+  /* les attentes sanitaires : une pastille par réseau au dos de l'appareil (EF bleu, EC rouge, EU/EV brun), et son repère */
+  for (const a of AT) {
+    const [cx, cy] = P(a.point), n = a.reseaux.length;
+    a.reseaux.forEach((r, i) => page.cercle(X(cx + (i - (n - 1) / 2) * 2.1), Y(cy), 0.85 * PT, { fond: NOMS_RESEAUX_SANITAIRES[r].couleur, trait: '#FFFFFF', ep: 0.3 }));
+    texte(page, a.repere, cx, cy - 2, 6.2, { gras: true, aligne: 'centre', couleur: '#1F3F5F' });
+  }
   /* « VR » devant chaque baie à volet roulant, dehors */
   if (!o.presentation && !fondations) for (const b of baiesExterieures(niveau)) if (b.ouverture.shutter === 'roller_motorized' || b.ouverture.shutter === 'roller_manual') {
     const [cx, cy] = P(b.centre), d = b.epaisseur / 2 / ech + 4.2;
@@ -261,7 +277,11 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   /* les encadrés */
   if (tab && places.tab) {
     const { x, y } = places.tab;
-    if (fondations) {
+    if (attentes) {
+      const h = tableau(page, x, y, [{ titre: 'Repère', largeur: 13 }, { titre: 'Appareil (pièce)', largeur: 47 }, { titre: 'Attentes', largeur: 22 }, { titre: 'Évacuation', largeur: 22 }], lignesAttentes, { titre: 'ATTENTES SANITAIRES – ' + nomDuNiveau(f).toUpperCase() });
+      let yy = y + h + 5;
+      for (const t of notesAttentes) { texte(page, t, x, yy, 6.5, { couleur: GRIS_TEXTE }); yy += 3.4 }
+    } else if (fondations) {
       const h = tableau(page, x, y, [{ titre: 'Fondations', largeur: 44 }, { titre: SOUBASSEMENTS[PF!.fondation.kind], largeur: 32, aligne: 'droite' }], lignesFondations, { titre: 'FONDATIONS – ' + nomDuNiveau(f).toUpperCase() });
       let yy = y + h + 5;
       texte(page, 'À VALIDER', x, yy, 7.5, { gras: true, couleur: '#C5563A' }); yy += 3.6;
@@ -280,8 +300,8 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   if (places.nord) nordFleche(page, places.nord.x + 8, places.nord.y + 9, parcelleDuProjet(projet)?.plot.north ?? 0);
   if (places.ech) echelleGraphique(page, ech, places.ech.x, places.ech.y + 4);
 
-  titrePlanche(page, fondations ? 'PLAN DE FONDATIONS' : o.presentation ? 'PLAN DE PRÉSENTATION – ' + nomDuNiveau(f).toUpperCase() : titreDuNiveau(f), titreSous(ech));
-  colonne(page, projet, o, fondations ? 'Plan de fondations' : o.presentation ? 'Plan de présentation' : 'Plan du', nomDuNiveau(f), fondations ? 'Fondations' : 'Plan ' + f.name, ech);
+  titrePlanche(page, fondations ? 'PLAN DE FONDATIONS' : attentes ? 'PLAN DES ATTENTES SANITAIRES – ' + nomDuNiveau(f).toUpperCase() : o.presentation ? 'PLAN DE PRÉSENTATION – ' + nomDuNiveau(f).toUpperCase() : titreDuNiveau(f), titreSous(ech));
+  colonne(page, projet, o, fondations ? 'Plan de fondations' : attentes ? 'Attentes sanitaires' : o.presentation ? 'Plan de présentation' : 'Plan du', nomDuNiveau(f), fondations ? 'Fondations' : attentes ? 'Plomberie ' + f.name : 'Plan ' + f.name, ech);
 }
 
 /** les lignes du tableau des fondations */
@@ -294,6 +314,11 @@ function lignesDesFondations(P: PlanFondations, RS: readonly Reservation[] = [])
     ...(fd.kind === 'crawl_space' ? [['Vide sanitaire', cm(fd.crawlHeight)], ['Trappes de visite', String(P.trappes.length)]] : []),
     ...RS.map(r => [r.repere + ' – réservation ' + NOMS_RESEAUX[r.reseau].code, r.spec ?? 'Ø à préciser']),
   ];
+}
+/** la légende du plan du plombier : les réseaux présents */
+function legendeAttentes(AT: readonly AttenteSanitaire[]): LigneLegende[] {
+  const R = (['EF', 'EC', 'EU', 'EV'] as const).filter(r => AT.some(a => a.reseaux.includes(r)));
+  return R.map(r => ({ pastille: (page: PagePdf, x: number, y: number) => page.cercle(X(x + 3.5), Y(y + 1.5), 1.1 * PT, { fond: NOMS_RESEAUX_SANITAIRES[r].couleur }), texte: r + ' : ' + NOMS_RESEAUX_SANITAIRES[r].libelle }));
 }
 function legendeFondations(reservations = false): LigneLegende[] {
   return [
