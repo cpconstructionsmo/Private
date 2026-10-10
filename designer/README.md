@@ -416,7 +416,19 @@ côté de l'égout bas ; sans réglage, les mêmes que l'existant. Le dossier de
 permis compose alors deux planches PCMI 5 : les façades de l'état existant
 (la maison d'avant, ses baies, sa toiture), puis celles de l'état projeté ;
 la légende des matériaux dit la couverture de l'extension, le sommaire
-renvoie aux deux pages.
+renvoie aux deux pages. Au plan de masse, la maison existante (plus claire)
+se distingue de l'extension, chacune à sa légende.
+**Dossier de déclaration préalable** (onglet Dossier, « Déclaration
+préalable », ou PDF → Composer ; `dossierDp`) : les mêmes planches que le
+permis, numérotées d'après le bordereau de la déclaration (maison
+individuelle) — situation DP1, plan de masse DP2, coupe DP3 (demandée si le
+profil du terrain change), façades et toitures DP4 (existantes puis
+projetées), aspect extérieur DP5 (la vue 3D gardée), insertion DP6,
+photographies DP7 et DP8 ; la notice et les plans des niveaux suivent en
+complément. Les colonnes, légendes et renvois disent les codes DP
+(`codePiece`). Page de garde « Plan de déclaration préalable » ; si la
+surface créée appelle un permis (formalité indicative), elle le signale en
+rouge. Le bordereau du formulaire en vigueur reste à vérifier au dépôt.
 
 **Modèles de maisons** (projet vide : panneau du niveau ou palette ;
 `src/catalogue/modeles-maisons.ts`) : plain-pied 3 chambres (13 × 9 m),

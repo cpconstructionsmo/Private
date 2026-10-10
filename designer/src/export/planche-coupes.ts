@@ -17,7 +17,7 @@ import type { Polygone } from '../geometry/polygon';
 import type { PagePdf, DocumentPdf } from './pdf';
 import { PagePdf as Page } from './pdf';
 import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, BRIQUE, colonne, nouvelleFeuille, texte, metres, niveauRelatif, titreDessin, legende, tailleLegende, pastille, pastilleTrait,
-  couper, nordFleche, orientation, A_PRECISER, type Signature, type LigneLegende } from './feuille';
+  couper, nordFleche, orientation, A_PRECISER, codePiece, type Signature, type LigneLegende, type Formalite } from './feuille';
 import { ECHELLES } from './planche-niveau';
 import { peindre } from './planche-facades';
 
@@ -107,7 +107,7 @@ export function plancheCoupes(doc: DocumentPdf, projet: Project, o: OptionsCoupe
     const H = lot.reduce((s, v) => s + hauteur(v, ech), 0), ecart = (Z.h - BAS - H) / (lot.length + 1);
     let y = Z.y + ecart;
     for (const v of lot) { dessinerCoupe(page, projet, v, Z.x + (Z.l - largeur(v, ech)) / 2, y, ech, marges(v, ech)); y += hauteur(v, ech) + ecart }
-    basDePage(page, projet, V, Z.x, Z.y + Z.h - BAS + 4, Z.l);
+    basDePage(page, projet, V, Z.x, Z.y + Z.h - BAS + 4, Z.l, o.formalite);
     colonne(page, projet, o, 'Coupes', 'sur terrain', 'PCMI 3', ech);
   }
 }
@@ -309,7 +309,7 @@ function dessinerComble(page: PagePdf, projet: Project, v: CoupeVue, P: (u: numb
 }
 
 /** le bas de la feuille : la légende, les notes, le repérage des coupes */
-function basDePage(page: PagePdf, projet: Project, V: CoupeVue[], x: number, y: number, l: number): void {
+function basDePage(page: PagePdf, projet: Project, V: CoupeVue[], x: number, y: number, l: number, formalite?: Formalite): void {
   const parc = parcelleDuProjet(projet)?.plot, ngf0 = parc?.groundFloorNgf, releve = V.some(v => v.tn);
   const L: LigneLegende[] = [
     { pastille: pastilleTrait('#2A2A2A', 0.6), texte: 'Terrain naturel (TN)' + (releve ? ' – relevé du plan de masse, altitudes NGF' : ' – non relevé : ±0,00 supposé') },
@@ -332,7 +332,7 @@ function basDePage(page: PagePdf, projet: Project, V: CoupeVue[], x: number, y: 
   const roof = projet.buildings.flatMap(b => b.floors).flatMap(f => Object.values(f.objects)).find(o => o.type === 'roof');
   const notes = [
     'Niveau fini du rez-de-chaussée ±0,00' + (ngf0 !== undefined ? ' = ' + ngf0.toFixed(2).replace('.', ',') + ' NGF' : ' (altitude NGF à préciser)') + '. Cotes de niveau exprimées par rapport au RDC fini' + (ngf0 !== undefined ? ', altitudes NGF entre parenthèses.' : '.'),
-    releve ? 'Le terrain naturel est tracé à partir des ' + (parc?.spotHeights?.length ?? 0) + ' points cotés relevés reportés sur le plan de masse (PCMI 2), interpolés le long des plans de coupe. ' + (parc?.finishedGround !== undefined ? 'Terrain fini aux abords à ' + niveauRelatif(parc.finishedGround) + ', raccordé au terrain naturel au-delà' : 'Terrain fini supposé égal au terrain naturel hors de la maison') + ' : déblais et remblais ' + A_PRECISER + '.'
+    releve ? 'Le terrain naturel est tracé à partir des ' + (parc?.spotHeights?.length ?? 0) + ' points cotés relevés reportés sur le plan de masse (' + codePiece('PCMI 2', formalite) + '), interpolés le long des plans de coupe. ' + (parc?.finishedGround !== undefined ? 'Terrain fini aux abords à ' + niveauRelatif(parc.finishedGround) + ', raccordé au terrain naturel au-delà' : 'Terrain fini supposé égal au terrain naturel hors de la maison') + ' : déblais et remblais ' + A_PRECISER + '.'
       : parc?.spotHeights?.length ? 'Points cotés relevés, mais l’altitude NGF du ±0,00 n’est pas renseignée (parcelle) : terrain non placé.'
         : 'Le terrain naturel n’est pas relevé : il est supposé au niveau du sol fini (à reporter du plan topographique, outil N).',
     (fd ? 'Plancher du RDC sur ' + SOUBASSEMENTS[fd.kind].toLowerCase() + ' ; ' : '') + (t && roof?.type === 'roof' ? 'égout de toiture à ' + niveauRelatif(t.egoutZ) + ' ; pente ' + roof.pitch + '°.' : ''),

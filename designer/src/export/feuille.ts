@@ -403,7 +403,23 @@ export interface Signature {
   logoNom?: string | undefined;
   /** le maître d'ouvrage dit à l'export (sinon celui des informations du dossier) */
   maitreOuvrage?: string | undefined;
+  /** le dossier composé : permis de construire (pièces PCMI, par défaut) ou déclaration préalable (pièces DP) */
+  formalite?: Formalite | undefined;
 }
+
+/** la formalité d'un dossier : permis de construire ou déclaration préalable */
+export type Formalite = 'PC' | 'DP';
+
+/* Les planches nomment leur pièce dans les codes du permis (PCMI) ; une déclaration préalable les renumérote
+   d'après le bordereau de son formulaire (maison individuelle) : les façades et toitures y sont la DP4, et la
+   notice n'y est pas une pièce (elle reste en complément). Le bordereau en vigueur reste à vérifier au dépôt. */
+const CODES_DP: Record<string, string> = {
+  'PCMI 1': 'DP1', 'PCMI 2': 'DP2', 'PCMI 3': 'DP3', 'PCMI 4': 'Notice', 'PCMI 5': 'DP4',
+  'PCMI 6': 'DP6', 'PCMI 7': 'DP7', 'PCMI 8': 'DP8', 'PCMI 7 / 8': 'DP7 / DP8',
+};
+
+/** le code d'une pièce dans la formalité du dossier (« PCMI 5 » devient « DP4 » en déclaration préalable) */
+export const codePiece = (code: string, formalite?: Formalite) => (formalite === 'DP' ? CODES_DP[code] ?? code : code);
 
 /** le logo du cabinet, posé une fois dans le document */
 export function avecLogo<T extends Signature>(doc: DocumentPdf, o: T): T {
@@ -414,7 +430,7 @@ export function avecLogo<T extends Signature>(doc: DocumentPdf, o: T): T {
 export function colonne(page: PagePdf, projet: Project, s: Signature, titre: string, sous: string | undefined, feuille: string, echelle: number): void {
   const t = parcelleDuProjet(projet), D = projet.dossier ?? {};
   cadreEtColonne(page, {
-    titre, ...(sous ? { sous } : {}), feuille, indice: s.indice, date: s.date, echelle,
+    titre, ...(sous ? { sous } : {}), feuille: codePiece(feuille, s.formalite), indice: s.indice, date: s.date, echelle,
     maitreOuvrage: s.maitreOuvrage?.trim() || D.maitreOuvrage, zoneSismique: D.zoneSismique,
     lieu: lieuDuProjetDe(projet, t ? { reference: t.plot.reference, surface: surfaceTerrain(t.plot) / 1e6 } : null),
     cabinet: s.cabinet ?? CABINET_PAR_DEFAUT,
