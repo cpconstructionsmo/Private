@@ -431,6 +431,16 @@ par l'utilisateur, jamais inventées :
   - avec le cadastre et sans extrait, la planche se compose et réclame
     l'extrait de carte en rouge ;
   - avec l'extrait seul, la page d'image d'avant ;
+- le plan de division (ou parcellaire) du géomètre-expert, facultatif, s'importe
+  en image ou en PDF (la page choisie) : il suit la situation, reproduit tel
+  quel sur toute la feuille avec la colonne CP « Plan parcellaire — PCMI 1 »,
+  une ligne dessous dit d'où il vient (cabinet, n° de dossier, date ; à
+  défaut « [à compléter] ») ; rien n'y est redessiné ;
+- des vues complémentaires du terrain (quatre au plus, chacune avec son point
+  de vue) font une planche « Photographies — planche complémentaire »
+  (PCMI 7 / 8) après les photographies : les vues en grille, titrées « VUE
+  COMPLÉMENTAIRE », et dans la dernière case le repérage des prises de vue
+  sur la parcelle ; le sommaire de la page de garde la cite ;
 - PCMI 6 (insertion) se compose dans la 3D : « Photo du terrain… » pose la
   photographie derrière la maquette (cadrée sans déformation, sol
   transparent qui garde les ombres), la focale se règle, on tourne la vue

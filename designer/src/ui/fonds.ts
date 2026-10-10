@@ -71,6 +71,23 @@ export async function imageDuFond(cle: string, page = 1, stock = new FichiersInd
   return { image: canvas, largeur: v1.width, hauteur: v1.height };
 }
 
+/** l'image d'un fichier choisi (image, ou une page d'un PDF rendue à « cote » pixels sur son grand côté),
+    pour une pièce fournie du dossier — le plan de division du géomètre arrive souvent en PDF */
+export async function imageDuFichier(f: File, page = 1, cote = 2_400): Promise<{ image: ImageBitmap | HTMLCanvasElement; largeur: number; hauteur: number }> {
+  if (!estPdf(f.type, f.name)) { const image = await createImageBitmap(f); return { image, largeur: image.width, hauteur: image.height } }
+  const pdfjs = await chargerPdfjs();
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await f.arrayBuffer()) }).promise;
+  const p = await doc.getPage(Math.min(Math.max(1, page), doc.numPages));
+  const v1 = p.getViewport({ scale: 1 }), v = p.getViewport({ scale: Math.min(6, cote / Math.max(v1.width, v1.height)) });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(v.width); canvas.height = Math.ceil(v.height);
+  const ctx = canvas.getContext('2d')!;
+  /* un PDF sans fond : du blanc dessous, sinon le JPEG le noircit */
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await p.render({ canvas, canvasContext: ctx, viewport: v }).promise;
+  return { image: canvas, largeur: canvas.width, hauteur: canvas.height };
+}
+
 /** le nombre de pages d'un PDF (1 pour une image) */
 export async function nombrePages(f: File): Promise<number> {
   if (!estPdf(f.type, f.name)) return 1;

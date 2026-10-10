@@ -18,7 +18,7 @@ import { Outils, OUVERTURES, type Effet, type Geste, type NomOutil } from './out
 import { dessinCote, texteCote } from './cotes';
 import { ouvrirSession, type Enregistreur } from './session';
 import { commandesImport, comparerSurfaces, lireModeleAtelier, traitsSource } from '../import/atelier';
-import { imageDuFond, importerFichier, nombrePages, traitsDuFond, type ImageFond } from './fonds';
+import { imageDuFond, imageDuFichier, importerFichier, nombrePages, traitsDuFond, type ImageFond } from './fonds';
 import { AimantFond } from '../building/accrochage';
 import { imageVersPlan } from '../building/fond';
 import type { Trait } from '../import/traits-fond';
@@ -35,6 +35,7 @@ import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenage
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
 import type { Vue3D } from './vue3d';
 import type { Cabinet, ImageDossier } from '../export/planche';
+import { VUES_COMPLEMENTAIRES_MAX } from '../export/pieces-fournies';
 import type { FinishZone, InfosDossier, ReglesPlu } from '../model/types';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
@@ -404,7 +405,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   let perspective: ImageDossier | null = null;
   /* les autres pièces images du dossier (PCMI 1, 6, 7, 8), gardées de même le temps de la séance : photos du
      terrain et extraits de carte ne sont ni enregistrés dans le projet, ni partagés */
-  const piecesDossier: { situation?: ImageDossier; situationAerienne?: ImageDossier; insertion?: ImageDossier; photoProche?: ImageDossier; photoLointaine?: ImageDossier } = {};
+  const piecesDossier: { situation?: ImageDossier; situationAerienne?: ImageDossier; insertion?: ImageDossier; photoProche?: ImageDossier; photoLointaine?: ImageDossier;
+    planDivision?: ImageDossier; vuesComplementaires?: ImageDossier[] } = {};
   /** la photographie du terrain posée derrière la maquette 3D, pour composer l'insertion (PCMI 6) */
   let photoSite: ImageBitmap | null = null;
   /** une image choisie par l'utilisateur (JPEG, PNG…), décodée par le navigateur ; rien si le choix est abandonné */
@@ -420,7 +422,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     });
   }
   /** l'image en JPEG pour le PDF, ramenée à 2 400 px de côté au plus (un A3 à 200 dpi environ) */
-  async function enJpeg(image: ImageBitmap, legende?: string): Promise<ImageDossier> {
+  async function enJpeg(image: ImageBitmap | HTMLCanvasElement, legende?: string): Promise<ImageDossier> {
     const k = Math.min(1, 2_400 / Math.max(image.width, image.height));
     const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(image.width * k)); c.height = Math.max(1, Math.round(image.height * k));
     c.getContext('2d')!.drawImage(image, 0, 0, c.width, c.height);
@@ -435,6 +437,36 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const r = await dialogue(titreDialogue, [{ cle: 'leg', libelle: invite, valeur: piecesDossier[cle]?.legende ?? '' }]);
     if (!r) return;
     try { piecesDossier[cle] = await enJpeg(c.image, r['leg']); toast(c.nom + ' : gardée pour le dossier de permis'); panneaux() }
+    catch (e) { toast('Image impossible à garder : ' + String((e as Error)?.message ?? e), true) }
+  }
+  /** le plan de division du géomètre-expert (PCMI 1), en image ou en PDF (la page choisie), reproduit tel quel */
+  function importerPlanDivision() {
+    const i = document.createElement('input'); i.type = 'file'; i.accept = 'application/pdf,image/*';
+    i.onchange = async () => {
+      const f = i.files?.[0];
+      if (!f) return;
+      try {
+        const pages = await nombrePages(f);
+        const r = await dialogue('PCMI 1 — Plan de division du géomètre', [
+          ...(pages > 1 ? [{ cle: 'p', libelle: 'Page du PDF (1 à ' + pages + ')', valeur: '1' }] : []),
+          { cle: 'leg', libelle: 'D’où il vient (ex. : géomètre-expert, dossier n°, date)', valeur: piecesDossier.planDivision?.legende ?? '' }]);
+        if (!r) return;
+        const { image } = await imageDuFichier(f, Math.min(pages, Math.max(1, Math.round(ent(r['p'] ?? '1')) || 1)));
+        piecesDossier.planDivision = await enJpeg(image, r['leg']);
+        toast(f.name + ' : plan de division gardé pour le dossier de permis'); panneaux();
+      } catch (e) { toast('Document illisible : ' + f.name + ' (' + String((e as Error)?.message ?? e) + ')', true) }
+    };
+    i.click();
+  }
+  /** une vue complémentaire du terrain (planche PCMI 7 / 8), avec son point de vue */
+  async function ajouterVueComplementaire() {
+    const V = piecesDossier.vuesComplementaires ?? [];
+    if (V.length >= VUES_COMPLEMENTAIRES_MAX) { toast('La planche complémentaire porte ' + VUES_COMPLEMENTAIRES_MAX + ' vues au plus.', true); return }
+    const c = await choisirImage();
+    if (!c) return;
+    const r = await dialogue('PCMI 7 / 8 — Vue complémentaire', [{ cle: 'leg', libelle: 'Point et angle de prise de vue (ex. : prise de vue n°3, depuis le fond du terrain, vers la rue)', valeur: '' }]);
+    if (!r) return;
+    try { piecesDossier.vuesComplementaires = [...V, await enJpeg(c.image, r['leg'])]; toast(c.nom + ' : vue complémentaire gardée pour le dossier de permis'); panneaux() }
     catch (e) { toast('Image impossible à garder : ' + String((e as Error)?.message ?? e), true) }
   }
   /* le cabinet qui signe les planches (colonne CP, page de garde) : réglé sur cet appareil, comme les
@@ -1062,7 +1094,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         action('Cabinet', 'atelier', () => void reglerCabinet(), 'Société, coordonnées et dessinateur (réglés sur cet appareil)'),
         action('PCMI 1 situation', 'image', () => void importerPiece('situation', 'PCMI 1 — Plan de situation', 'Source et échelle de l’extrait (ex. : Géoportail, 1/5 000)')),
         action('PCMI 7 proche', 'photo', () => void importerPiece('photoProche', 'PCMI 7 — Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)')),
-        action('PCMI 8 lointain', 'photo', () => void importerPiece('photoLointaine', 'PCMI 8 — Environnement lointain', 'Point et angle de prise de vue'))],
+        action('PCMI 8 lointain', 'photo', () => void importerPiece('photoLointaine', 'PCMI 8 — Environnement lointain', 'Point et angle de prise de vue')),
+        action('Plan de division', 'image', () => importerPlanDivision(), 'Le plan du géomètre-expert (image ou PDF), reproduit tel quel au PCMI 1'),
+        action('Vue complémentaire', 'photo', () => void ajouterVueComplementaire(), 'Une vue de plus du terrain, sur la planche complémentaire PCMI 7 / 8')],
         panneau: () => sectionPieces() },
     ] },
   ];
@@ -2419,12 +2453,22 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       A.append(bloc('<b>PCMI 1</b> Plan cadastral : ' + (t?.plot.cadastre ? '✓ dessiné d’après le cadastre importé (' + esc(t.plot.cadastre.source) + ')'
         : '<span class="note">cliquez sur la parcelle, puis « Fond cadastral » : Importer ou Télécharger ; il se dessine à droite de la planche</span>')));
     }
+    A.append(etat('PCMI 1', 'Plan de division du géomètre (facultatif)', piecesDossier.planDivision, 'à joindre s’il y en a un (image ou PDF)'),
+      ligne(bouton(piecesDossier.planDivision ? 'Remplacer…' : 'Importer…', () => importerPlanDivision(), 'bdivision'),
+        ...(piecesDossier.planDivision ? [bouton('Retirer', () => { delete piecesDossier.planDivision; panneaux() })] : [])));
     A.append(etat('PCMI 6', 'Insertion', piecesDossier.insertion, 'à composer dans la vue 3D (photo du terrain)'));
     piece('photoProche', 'PCMI 7', 'Environnement proche', 'Point et angle de prise de vue (ex. : depuis la rue, vers le nord)', 'bpcmi7');
     piece('photoLointaine', 'PCMI 8', 'Environnement lointain', 'Point et angle de prise de vue', 'bpcmi8');
+    {
+      const V = piecesDossier.vuesComplementaires ?? [];
+      A.append(bloc('<b>PCMI 7 / 8</b> Vues complémentaires (planche) : ' + (V.length ? V.length + ' / ' + VUES_COMPLEMENTAIRES_MAX : '<span class="note">aucune (facultatives)</span>')));
+      V.forEach((v, i) => A.append(ligne(bloc((i + 1) + '. ' + v.largeur + ' × ' + v.hauteur + ' px' + (v.legende ? ' — ' + esc(v.legende) : ' — <span class="note">point de vue à compléter</span>')),
+        bouton('Retirer', () => { piecesDossier.vuesComplementaires = V.filter((_, j) => j !== i); panneaux() }))));
+      if (V.length < VUES_COMPLEMENTAIRES_MAX) A.append(ligne(bouton('+ Vue complémentaire…', () => void ajouterVueComplementaire(), 'bvuecompl')));
+    }
     const PV = pointsDeVue(h.projet);
     A.append(bloc('Points de prise de vue au plan de masse (outil I) : ' + (PV.length ? PV.map(v => v.piece).join(', ') : '<span class="note">aucun</span>')));
-    A.append(bloc('Extrait de carte (Géoportail, cadastre) et photographies : à fournir, le Designer ne les invente pas. Gardés sur cet appareil le temps de la séance (ni enregistrés dans le projet, ni partagés), ils vont au dossier de permis (PDF → Composer).'));
+    A.append(bloc('Extrait de carte (Géoportail, cadastre), plan de division du géomètre et photographies : à fournir, le Designer ne les invente pas. Gardés sur cet appareil le temps de la séance (ni enregistrés dans le projet, ni partagés), ils vont au dossier de permis (PDF → Composer).'));
 
   }
   /** les surfaces du niveau (entre murs), puis réglementaires (projet) */

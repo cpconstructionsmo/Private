@@ -76,6 +76,32 @@ describe('dossier de permis de construire', () => {
     expect(s.match(/\[\xE0 compl\xE9ter\]/g)!.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('le plan de division du géomètre suit la situation, reproduit tel quel ; les vues complémentaires font une planche PCMI 7 / 8 (quatre au plus)', () => {
+    const img = (legende?: string) => ({ jpeg: JPEG, largeur: 8, hauteur: 8, ...(legende ? { legende } : {}) });
+    const { octets, pieces } = dossierPc(maison(true), { indice: 'A', date: '10/10/2026', situation: img('Géoportail, 1/5 000'), photoProche: img('depuis la rue'),
+      planDivision: img('Géomètre fictif, dossier 00000, 01/01/2026'), vuesComplementaires: [img('prise de vue n°2, depuis la rue'), img(), img('prise de vue n°4'), img('n°5'), img('n°6')] });
+    const s = texte(octets), T = textes(s);
+    /* garde, situation, division, masse, coupe, notice, façades, toiture, proche, vues complémentaires, RDC */
+    expect(s).toContain('/Count 11');
+    expect(pieces.map(p => [p.code, p.page])).toEqual([['PCMI 1', 2], ['PCMI 2', 4], ['PCMI 3', 5], ['PCMI 4', 6], ['PCMI 5', 7], ['PCMI 6', null], ['PCMI 7', 9], ['PCMI 8', null], ['PCMI 7 / 8', 10], ['—', 11]]);
+    expect(pieces.find(p => p.code === 'PCMI 1')!.note).toMatch(/ ; plan de division du géomètre : page 3$/);
+    expect(pieces.find(p => p.code === 'PCMI 7 / 8')!.note).toBe('4 vues complémentaires');
+    /* situation, division, photo proche et quatre vues (la cinquième n'a pas de place) */
+    expect(s.match(/\/Subtype \/Image /g)).toHaveLength(7);
+    expect(T).toContain('Plan de division du géomètre-expert, reproduit tel quel \x97 Géomètre fictif, dossier 00000, 01/01/2026.');
+    expect(T).toContain('PHOTOGRAPHIES planche compl\xE9mentaire');
+    expect(T).toContain('PLAN parcellaire');
+    expect(T.match(/VUE COMPL\xC9MENTAIRE/g)).toHaveLength(4);
+    expect(T).toContain('prise de vue n\xB02, depuis la rue');
+    expect(T).toContain('Point et angle de prise de vue : [\xE0 compl\xE9ter]');
+    expect(T).not.toContain('n\xB06');
+    expect(T).toContain('Rep\xE9rage des prises de vue');
+    /* sans document fourni : ni page ni ligne de plus */
+    const sans = dossierPc(maison(true), { indice: 'A', date: '10/10/2026', vuesComplementaires: [] });
+    expect(sans.pieces.some(p => p.code === 'PCMI 7 / 8')).toBe(false);
+    expect(texte(sans.octets)).toContain('/Count 7');
+  });
+
   it('les informations du dossier (commande modifierDossier) vont à la page de garde et à la colonne CP ; le cabinet et son logo signent chaque planche', () => {
     const p0 = maison(true), a = acteur();
     let h = ok(executer(nouvelHistorique(p0), 'Infos', [{ type: 'modifierDossier', champs: { maitreOuvrage: 'M. et Mme Fictifs', lieuConstruction: 'Lieu-dit Le Fictif\n00000 Villefictive',
