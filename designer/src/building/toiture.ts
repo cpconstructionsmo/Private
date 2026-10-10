@@ -21,6 +21,11 @@
    - Un pan : sur un plan rectangulaire.
    - Toit-terrasse : une dalle et son acrotère.
 
+   Une extension (ADR-0007) : quand un niveau a des murs existants fermant
+   une maison et des murs neufs, l'existant garde sa toiture et l'extension
+   (le contour extérieur moins celui de l'existant) a la sienne, avec ses
+   réglages (Roof.extension : un pan contre la maison, une terrasse…).
+
    Le toit passe par le haut des murs au nu extérieur ; le débord descend
    donc sous ce niveau, jusqu'à l'égout. Un plan non orthogonal (croupes)
    ou non rectangulaire (deux pans, un pan) est refusé avec sa raison :
@@ -60,6 +65,10 @@ export interface Toiture {
   talon: Mm;
   /** surface de couverture (rampante), mm² */
   surfaceCouverture: number;
+  /** sa couverture, quand elle n'est pas celle de la toiture du niveau (une extension) */
+  couverture?: Roof['covering'];
+  /** la toiture de l'extension (ADR-0007), à côté de celle de l'existant */
+  extension?: boolean;
 }
 
 export type ResultatToiture = { ok: true; toitures: Toiture[] } | { ok: false; raison: string };
@@ -99,6 +108,28 @@ function calculer(f: Floor, r: Roof): ResultatToiture {
   const contours = couverts.length
     ? union([...plan.maconnerie.map(m => ({ contour: m.contour })), ...couverts]).filter(q => plan.maconnerie.some(m => intersection([q], [{ contour: m.contour }]).some(x => aire(x) > 1))).map(q => ({ contour: q.contour }))
     : plan.maconnerie;
+  /* une extension : l'existant (des murs existants qui ferment une maison) garde sa toiture, le reste a la sienne */
+  const W = mursDroits(f), ex = W.filter(w => w.phase === 'existing');
+  const maison = ex.length && ex.length < W.length
+    ? union(plan.murs.filter(m => ex.some(w => w.id === m.id)).map(m => ({ contour: m.contour }))).filter(p => p.trous?.length).map(p => ({ contour: p.contour }))
+    : [];
+  if (maison.length) {
+    const haut = (L: typeof W) => f.elevation + (L.length ? Math.max(...L.map(w => w.baseOffset + w.height)) : f.height);
+    const rx: Roof = { ...r, kind: r.extension?.kind ?? r.kind, pitch: r.extension?.pitch ?? r.pitch, overhang: r.extension?.overhang ?? r.overhang,
+      covering: r.extension?.covering ?? r.covering, ...((r.extension?.flip ?? r.flip) !== undefined ? { flip: (r.extension?.flip ?? r.flip)! } : {}) };
+    const ajout = difference(contours.map(c => ({ contour: c.contour })), maison).filter(p => aire(p) > 1e6);
+    const exE = ex.filter(w => w.role === 'exterior'), exN = W.filter(w => !w.phase && w.role === 'exterior');
+    const poser = (P: Polygone[], R: Roof, hm: Mm, quoi: string, ext: boolean): string | null => {
+      for (const m of P) {
+        const t = R.kind === 'flat' ? terrasse(m.contour, R, hm) : enPente(m.contour, R, hm, epaisseur, talonDe(R));
+        if (typeof t === 'string') return quoi + ' : ' + t;
+        toitures.push({ ...t, ...(R.covering !== r.covering ? { couverture: R.covering } : {}), ...(ext ? { extension: true } : {}) });
+      }
+      return null;
+    };
+    const e = poser(maison, r, haut(exE.length ? exE : ex), 'toiture de l’existant', false) ?? poser(ajout, rx, haut(exN.length ? exN : W.filter(w => !w.phase)), 'toiture de l’extension', true);
+    return e ? { ok: false, raison: e } : { ok: true, toitures };
+  }
   for (const m of contours) {
     const t = r.kind === 'flat' ? terrasse(m.contour, r, hautMurs) : enPente(m.contour, r, hautMurs, epaisseur, talonDe(r));
     if (typeof t === 'string') return { ok: false, raison: t };

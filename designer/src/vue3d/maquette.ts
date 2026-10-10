@@ -294,13 +294,14 @@ function escaliers(projet: Project, f: Floor, prismes: Prisme[]): void {
 function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
   const r = toitureDuNiveau(f), roof = Object.values(f.objects).find((o): o is Roof => o.type === 'roof');
   if (!r?.ok || !roof) return;
-  const m = COUVERTURES[roof.covering];
+  /* la couverture de la toiture, ou celle de l'extension (ADR-0007) */
+  const m0 = COUVERTURES[roof.covering];
   /* pignons et lucarnes prennent le parement des façades du niveau (celui du premier mur extérieur qui en a un) */
   const parement = mursDroits(f).find(w => w.role === 'exterior' && w.finish)?.finish;
   const habille = parement ? { finition: parement } : {};
   for (const t of r.toitures) {
     /* l'épaisseur de la toiture (charpente et couverture) : au moins le talon, pour qu'elle repose sur l'arase */
-    const ep = Math.max(EPAISSEUR_COUVERTURE, t.talon);
+    const ep = Math.max(EPAISSEUR_COUVERTURE, t.talon), m = t.couverture ? COUVERTURES[t.couverture] : m0;
     for (const p of t.pans) plaques.push({ dessus: p.contour.map(q => ({ ...q, z: p.plan.a * q.x + p.plan.b * q.y + p.plan.c })), decalage: { x: 0, y: 0, z: -ep }, matiere: m, objet: roof.id, niveau: f.id });
     /* un pignon s'arrête sous la couverture (sinon son chant et le dessus du toit se disputent le même plan) */
     for (const g of t.pignons) {
@@ -319,7 +320,7 @@ function toiture(f: Floor, prismes: Prisme[], plaques: Plaque[]): void {
     /* posée sur son pan : les vues (façades, coupes) la rangent juste devant lui, comme une fenêtre de toit */
     const E = 150, mt = geo.montee, tr = geo.travers, support = geo.pan.contour.map(q => ({ ...q, z: geo.pan.plan.a * q.x + geo.pan.plan.b * q.y + geo.pan.plan.c }));
     const base = { objet: o.id, niveau: f.id, support };
-    for (const T of geo.toits) plaques.push({ dessus: T, decalage: { x: 0, y: 0, z: -EPAISSEUR_COUVERTURE / 2 }, matiere: m, ...base });
+    for (const T of geo.toits) plaques.push({ dessus: T, decalage: { x: 0, y: 0, z: -EPAISSEUR_COUVERTURE / 2 }, matiere: m0, ...base });
     plaques.push({ dessus: geo.facade, decalage: { x: mt.x * E, y: mt.y * E, z: 0 }, matiere: 'mur', ...base, ...habille });
     geo.joues.forEach((J, i) => { const s = i === 0 ? 1 : -1; plaques.push({ dessus: J, decalage: { x: tr.x * E * s, y: tr.y * E * s, z: 0 }, matiere: 'mur', ...base, ...habille }) });
     plaques.push({ dessus: geo.fenetre.map(q => ({ x: q.x - mt.x * 30, y: q.y - mt.y * 30, z: q.z })), decalage: { x: mt.x * 25, y: mt.y * 25, z: 0 }, matiere: 'vitrage', ...base });

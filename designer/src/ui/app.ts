@@ -1931,6 +1931,19 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       champ('Couverture', r.covering, v => mod('Couverture', { couverture: v as Roof['covering'] }), 'text', COUVERTURES));
     if (r.kind === 'gable' || r.kind === 'shed') A.append(champ(r.kind === 'gable' ? 'Faîtage' : 'Égout bas et haut', r.ridge ?? 'long', v => mod('Sens de la toiture', { faitage: v as 'long' | 'short' }), 'text', { long: 'Le long du grand côté', short: 'Le long du petit côté' }));
     if (r.kind === 'shed') A.append(champ('Inverser (bas de l’autre côté)', r.flip ? 1 : 0, v => mod('Inverser la pente', { inverse: !!v }), 'checkbox'));
+    /* une extension (ADR-0007) : des murs existants ferment la maison, d'autres sont neufs — l'extension a sa toiture */
+    const W = mursDroits(f);
+    if (W.some(w => w.phase === 'existing') && W.some(w => !w.phase)) {
+      const x = r.extension ?? { kind: r.kind, pitch: r.pitch };
+      const modX = (t: string, c: Partial<NonNullable<Roof['extension']>>) => mod(t, { extension: { ...x, ...c } });
+      A.append(titre('Toiture de l’extension'),
+        bloc('L’existant garde la toiture ci-dessus ; l’extension (hors des murs existants) a la sienne' + (r.extension ? '.' : ' — pour l’instant, les mêmes réglages.'), 'note'),
+        champ('Type', x.kind, v => modX('Toiture de l’extension', { kind: v as Roof['kind'], ...(v === 'flat' ? { covering: 'gravel' as const } : {}) }), 'text', TOITURES));
+      if (x.kind !== 'flat') A.append(champ('Pente (°)', x.pitch, v => modX('Pente de l’extension', { pitch: ent(v) }), 'number'));
+      A.append(champ('Couverture', x.covering ?? r.covering, v => modX('Couverture de l’extension', { covering: v as Roof['covering'] }), 'text', COUVERTURES));
+      if (x.kind === 'shed') A.append(champ('Inverser (bas de l’autre côté)', x.flip ? 1 : 0, v => modX('Inverser la pente de l’extension', { flip: !!v }), 'checkbox'));
+      if (r.extension) A.append(ligne(bouton('Mêmes réglages que l’existant', () => mod('Toiture de l’extension', { extension: null }))));
+    }
     const t = toitureDuNiveau(f);
     if (t && !t.ok) A.append(bloc('⚠️ ' + esc(t.raison), 'alerte'));
     else if (t?.ok) {

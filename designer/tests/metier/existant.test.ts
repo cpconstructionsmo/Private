@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel, type Floor, type Project } from '../../src/model';
 import { annuler, executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
-import { mursDroits, mursDemolis, planDuNiveau, niveauExistant, aDesExistants, surfacesReglementaires, metreProjet, murSurSemelle, type MurDroit } from '../../src/building';
+import { mursDroits, mursDemolis, planDuNiveau, niveauExistant, aDesExistants, surfacesReglementaires, metreProjet, murSurSemelle, toitureDuNiveau, projetExistant, type MurDroit } from '../../src/building';
 import { maquette } from '../../src/vue3d/maquette';
 import { notice } from '../../src/export/notice';
 import { dossierPc } from '../../src/export/planche';
@@ -153,5 +153,49 @@ describe('rénovation et extension : existant, démoli, projeté', () => {
     const N = notice(h.projet).flatMap(r => r.paragraphes).join(' ');
     expect(N).toMatch(/Le projet transforme une construction existante \(surface de plancher existante 76,44 m², emprise au sol [\d,]+ m²\), avec la démolition de 1 mur ; il crée 22,04 m² de surface de plancher/);
     expect(N).toMatch(/Formalité indicative : .*déclaration préalable/);
+  });
+
+  it('la toiture : l’existant garde la sienne, l’extension a la sienne (ses réglages, ou les mêmes)', () => {
+    const { h: h0, n, a } = travaux();
+    let h = ok(executer(h0, 'Toit', [{ type: 'creerToiture', niveau: n, genre: 'hip', pente: 35, debord: 300, couverture: 'slate' }], a));
+    const T = toitureDuNiveau(rdc(h.projet))!;
+    expect(T.ok).toBe(true);
+    if (!T.ok) return;
+    /* deux toitures : la maison (10,2 × 8,2 m au nu extérieur) et l'extension, chacune à croupes */
+    expect(T.toitures).toHaveLength(2);
+    expect(T.toitures.filter(t => t.extension)).toHaveLength(1);
+    expect(T.toitures.every(t => t.genre === 'hip')).toBe(true);
+    /* l'extension en appentis de 15°, en zinc, contre la maison */
+    const roof = Object.values(rdc(h.projet).objects).find(o => o.type === 'roof')!;
+    h = ok(executer(h, 'Extension', [{ type: 'modifierToiture', id: roof.id, extension: { kind: 'shed', pitch: 15, covering: 'zinc' } }], a));
+    const T2 = toitureDuNiveau(rdc(h.projet))!;
+    if (!T2.ok) throw new Error(T2.raison);
+    const ext = T2.toitures.find(t => t.extension)!, maison = T2.toitures.find(t => !t.extension)!;
+    expect([ext.genre, ext.couverture, maison.genre, maison.couverture ?? null]).toEqual(['shed', 'zinc', 'hip', null]);
+    expect(maquette(h.projet).plaques.some(p => p.matiere === 'zinc') && maquette(h.projet).plaques.some(p => p.matiere === 'ardoise')).toBe(true);
+    /* refus : une pente hors limites, une couverture inconnue ; null rend les mêmes réglages */
+    expect(executer(h, 'x', [{ type: 'modifierToiture', id: roof.id, extension: { kind: 'shed', pitch: 90 } }], a).ok).toBe(false);
+    expect(executer(h, 'x', [{ type: 'modifierToiture', id: roof.id, extension: { kind: 'shed', pitch: 15, covering: 'paille' as never } }], a).ok).toBe(false);
+    const h3 = ok(executer(h, 'Mêmes', [{ type: 'modifierToiture', id: roof.id, extension: null }], a));
+    const T3 = toitureDuNiveau(rdc(h3.projet))!;
+    expect(T3.ok && T3.toitures.find(t => t.extension)!.genre).toBe('hip');
+    /* l'état existant : une seule toiture, sur la maison d'avant */
+    const TE = toitureDuNiveau(rdc(projetExistant(h.projet)))!;
+    expect(TE.ok && TE.toitures.length === 1 && !TE.toitures[0]!.extension).toBe(true);
+  });
+
+  it('le dossier : façades de l’état existant, puis de l’état projeté ; le sommaire renvoie aux deux', () => {
+    const { h: h0, n, a } = travaux('UB');
+    const h = ok(executer(h0, 'Toit', [{ type: 'creerToiture', niveau: n, genre: 'hip', pente: 35, debord: 300, couverture: 'slate' }], a));
+    const { octets, pieces } = dossierPc(h.projet, { indice: 'A', date: '10/10/2026' });
+    const T = textes(texte(octets));
+    expect(T).toMatch(/FA\xC7ADE [A-Z\-]+ \x96 \xC9TAT EXISTANT/);
+    expect(T).toMatch(/FA\xC7ADE [A-Z\-]+ \x96 \xC9TAT PROJET\xC9/);
+    expect(T).toContain('FA\xC7ADES \xE9tat existant');
+    const p5 = pieces.find(p => p.code === 'PCMI 5')!;
+    expect(p5.note).toMatch(/^état existant : page (\d+), état projeté : page (\d+) ; plan de toiture : page \d+$/);
+    const [, e, pj] = /page (\d+), état projeté : page (\d+)/.exec(p5.note!)!;
+    expect(Number(pj)).toBe(Number(e) + 1);
+    expect(p5.page).toBe(Number(e));
   });
 });

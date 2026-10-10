@@ -408,6 +408,15 @@ les murs ni les baies existants. Les fondations ne vont que sous les murs
 neufs. Une baie existante est dans un mur existant ; un mur ne repasse pas
 au projet avec des baies existantes ; un mur à démolir ne reçoit pas de
 nouvelle baie.
+Toiture : quand des murs existants ferment la maison et que d'autres sont
+neufs, l'existant garde sa toiture et l'extension (le contour extérieur moins
+celui de la maison) a la sienne — « Toiture de l'extension » dans le panneau
+de la toiture : type (un pan contre la maison, terrasse…), pente, couverture,
+côté de l'égout bas ; sans réglage, les mêmes que l'existant. Le dossier de
+permis compose alors deux planches PCMI 5 : les façades de l'état existant
+(la maison d'avant, ses baies, sa toiture), puis celles de l'état projeté ;
+la légende des matériaux dit la couverture de l'extension, le sommaire
+renvoie aux deux pages.
 
 **Modèles de maisons** (projet vide : panneau du niveau ou palette ;
 `src/catalogue/modeles-maisons.ts`) : plain-pied 3 chambres (13 × 9 m),

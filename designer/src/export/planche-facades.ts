@@ -20,7 +20,9 @@ import { PagePdf, type DocumentPdf } from './pdf';
 import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, colonne, nouvelleFeuille, texte, metres, niveauRelatif, echelleGraphique, encadre, orientation, couper, A_PRECISER, ROUGE_MANQUE, type Signature } from './feuille';
 import { ECHELLES } from './planche-niveau';
 
-export interface OptionsFacades extends Signature { echelle?: number | undefined; dossier?: boolean | undefined }
+export interface OptionsFacades extends Signature { echelle?: number | undefined; dossier?: boolean | undefined;
+  /** une rénovation, une extension (ADR-0007) : les façades de l'état existant (le projet passé à projetExistant), ou du projet */
+  etat?: 'existant' | 'projete' | undefined }
 
 /* les teintes des façades des dossiers */
 const TEINTES_COUVERTURE: Partial<Record<Matiere, { fond: string; rang: string }>> = {
@@ -89,7 +91,7 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
       }
       if (tn.length < 2) tn = null;
     }
-    const nom = 'FAÇADE ' + orientation(NORMALES[c], nordPlan).toUpperCase();
+    const nom = 'FAÇADE ' + orientation(NORMALES[c], nordPlan).toUpperCase() + (o.etat === 'existant' ? ' – ÉTAT EXISTANT' : o.etat === 'projete' ? ' – ÉTAT PROJETÉ' : '');
     const sous = (surRue(c) ? 'sur rue' + (t?.plot.streetName ? ' ' + (/^(rue|avenue|chemin|route|impasse|allée|place|boulevard)\b/i.test(t.plot.streetName) ? 'de la ' : '') + t.plot.streetName : '') + ' – ' : '');
     const zt = tn?.map(q => q.z) ?? [];
     return { cote: c, nom, sous, F, umin: B.umin, umax: B.umax, mur: [murs.length ? Math.min(...murs) : B.umin, murs.length ? Math.max(...murs) : B.umax] as [number, number],
@@ -135,7 +137,7 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
     p.dessiner(page, px + 4, yy, ech);
     py += h + 6;
   }
-  colonne(page, projet, o, 'Façades', 'et toitures', o.dossier ? 'PCMI 5' : 'Façades', ech);
+  colonne(page, projet, o, 'Façades', o.etat === 'existant' ? 'état existant' : o.etat === 'projete' ? 'état projeté' : 'et toitures', o.dossier ? 'PCMI 5' : 'Façades', ech);
 }
 
 /** une façade dessinée : (x0, y0) le coin haut-gauche de sa case */
@@ -357,6 +359,13 @@ function contenuPanneaux(projet: Project, niveauxToit: Floor[], egout: number | 
     const cv = TEINTES_COUVERTURE[COUVERTURES[roof.covering]] ?? { fond: '#CCCCCC', rang: '#AAAAAA' };
     L.push({ pastille: sw(cv.fond, (page, x, y) => { for (let k = 1; k < 6; k++) page.trait(X(x), Y(y + k * 1.1), X(x + 13), Y(y + k * 1.1), 0.25, cv.rang) }),
       titre: 'Couverture', texte: (D.couverture?.trim() || COUVERTURES_FR[roof.covering]) + (roof.kind !== 'flat' ? ', pente ' + roof.pitch + '°' : '') });
+    /* une extension (ADR-0007) : sa toiture à elle, quand ses réglages diffèrent */
+    const x = roof.extension, aExtension = niveauxToit.some(f => { const t = toitureDuNiveau(f); return !!t?.ok && t.toitures.some(y => y.extension) });
+    if (x && aExtension) {
+      const cx = TEINTES_COUVERTURE[COUVERTURES[x.covering ?? roof.covering]] ?? cv;
+      L.push({ pastille: sw(cx.fond, (page, px, py) => { for (let k = 1; k < 6; k++) page.trait(X(px), Y(py + k * 1.1), X(px + 13), Y(py + k * 1.1), 0.25, cx.rang) }),
+        titre: 'Couverture de l’extension', texte: COUVERTURES_FR[x.covering ?? roof.covering] + (x.kind !== 'flat' ? ', pente ' + x.pitch + '°' : '') + (x.kind === 'shed' ? ', un pan' : x.kind === 'flat' ? ', toit-terrasse' : '') });
+    }
   }
   const parements = new Map<string, { m: Materiau; longueur: number }>();
   /* les décors (un autre parement sur une partie d'une façade), à part : chacun sous son nom */
