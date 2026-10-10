@@ -173,7 +173,12 @@ et se tourne vers la pièce ; près d'un angle, il glisse jusqu'au mur
 voisin (Alt : pose libre ; T : quart de tour). On le tire pour le déplacer,
 l'inspecteur règle ses cotes et son orientation, « Dupliquer » en pose un
 autre. Même description pour le plan (symbole) et la 3D (volumes). Le
-mobilier ne change ni les murs ni les surfaces.
+mobilier ne change ni les murs ni les surfaces. En 3D, des blocs assez
+détaillés pour qu'un meuble se reconnaisse : sommier sur pieds, matelas,
+couette et un oreiller par place d'un lit ; assises et dossiers d'un
+canapé, coussin par coussin ; portes, tiroirs et poignées séparés d'un
+joint ; baignoire creuse, robinetterie, colonne de douche, hublot du
+lave-linge, four vitré de la colonne.
 
 **Meubler les pièces** (Produit › « Meubler les pièces », ou la palette ;
 `src/building/ameublement.ts`) : d'un clic, chaque pièce vide du niveau

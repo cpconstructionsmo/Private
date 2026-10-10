@@ -36,6 +36,21 @@ describe('catalogue de mobilier', () => {
     }
     expect(modeleMeuble('lit-160')).toMatchObject({ forme: 'lit', largeur: 1_600, profondeur: 2_000 });
   });
+
+  it('en 3D, un meuble se reconnaît : oreillers d’un lit double, baignoire creuse, hublot du lave-linge, robinet de l’évier', () => {
+    const v = (id: string) => { const m = modeleMeuble(id)!; return blocs(m.forme, m.largeur, m.profondeur, m.hauteur) };
+    /* deux oreillers (linge posé sur le matelas, à la tête) pour un lit de 160, un pour un lit de 90 */
+    const oreillers = (id: string) => { const m = modeleMeuble(id)!; return v(id).filter(b => b.matiere === 'linge' && b.z0 >= m.hauteur - 1).length };
+    expect(oreillers('lit-160')).toBe(2);
+    expect(oreillers(MODELES_MEUBLES.find(m => m.forme === 'lit' && m.largeur < 1_200)!.id)).toBe(1);
+    /* la baignoire : un fond bas et quatre rebords à pleine hauteur, rien au milieu au-dessus du fond */
+    const b = modeleMeuble('baignoire-170')!, B = v('baignoire-170').filter(x => x.matiere === 'sanitaire');
+    expect(B.filter(x => x.z1 === b.hauteur)).toHaveLength(4);
+    expect(B.some(x => x.z0 === 0 && x.z1 < b.hauteur / 2)).toBe(true);
+    expect(B.some(x => x.z1 === b.hauteur && x.x0 < -100 && x.x1 > 100 && x.y0 < -100 && x.y1 > 100)).toBe(false);
+    expect(v('lave-linge').some(x => x.matiere === 'vitrage' && x.y1 === modeleMeuble('lave-linge')!.profondeur / 2)).toBe(true);
+    expect(v('evier').filter(x => x.matiere === 'inox').length).toBeGreaterThanOrEqual(3);
+  });
 });
 
 describe('pose du mobilier', () => {
