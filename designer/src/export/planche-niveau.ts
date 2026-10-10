@@ -120,7 +120,10 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   const Bx = B;
   const cotes = o.cotation && !o.presentation;
   /* un plan de fondations se cote sur ses semelles (bords, largeurs, hors-tout), pas sur les baies */
-  const CH: ChaineCotes[] = !cotes ? [] : PF ? cotationFondations(PF.emprise, 1) : cotationExterieure(niveau, 1);
+  /* le plan de présentation garde les deux cotes d'encombrement (en bas et à gauche) : le client lit la taille de sa maison */
+  const CH: ChaineCotes[] = PF ? (cotes ? cotationFondations(PF.emprise, 1) : [])
+    : cotes ? cotationExterieure(niveau, 1)
+      : o.presentation ? cotationExterieure(niveau, 1).filter(c => c.genre === 'hors_tout' && (c.cote === 'bas' || c.cote === 'gauche')).map(c => ({ ...c, rang: 0 })) : [];
   const nb = (c: Cote4) => CH.filter(x => x.cote === c).length;
   /* les repères de coupe se posent au-delà des cotes, dans le blanc de la feuille : ils ne comptent pas dans la place du plan */
   const marge = (c: Cote4) => (nb(c) ? PREMIERE + ECART * (nb(c) - 1) + 4 : 6);
@@ -270,7 +273,7 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
     texte(page, 'VR', cx + b.sortie.x * d, cy - b.sortie.y * d + 1, 6.5, { aligne: 'centre', couleur: GRIS_TEXTE });
   }
   /* les chaînes de cotes */
-  if (cotes) chainesDeCotes(page, niveau, CH, P, { x0, y0, W, H });
+  if (CH.length) chainesDeCotes(page, niveau, CH, P, { x0, y0, W, H });
   /* les traits de coupe : leurs bouts en brique (trait fort, flèche du regard, lettre), le trait mixte hors du bâtiment */
   if (!fondations) for (const l of traits) repereCoupe(page, l, P, Ppt, plan.maconnerie, rectangleCoupes(x0, y0, W, H, marge, zone));
 

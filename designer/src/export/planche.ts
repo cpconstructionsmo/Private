@@ -58,6 +58,8 @@ export interface OptionsPlanche extends Signature {
   fondations?: boolean;
   /** ajouter le plan des attentes sanitaires (plombier) de chaque niveau choisi qui porte des appareils */
   attentes?: boolean;
+  /** une vue 3D gardée, en dernière page (avec les plans de présentation, pour le client) */
+  perspective?: ImageDossier;
   /** le cabinet (colonne CP, page de garde) : réglages de l'appareil, jamais dans le dépôt */
   cabinet?: Cabinet;
   /** le logo du cabinet (JPEG), en tête de la colonne ; absent : le nom de la société */
@@ -105,7 +107,11 @@ export function planchesPdf(projet: Project, o0: OptionsPlanche): Uint8Array<Arr
   if (o.facades) plancheFacades(doc, projet, o);
   if (o.toiture) plancheToiture(doc, projet, o);
   if (o.coupe) plancheCoupes(doc, projet, o, lignes);
-  if (!F.length && !FD && !FA.length && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet)) && !(o.toiture && toituresDuProjet(projet).length)) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
+  if (o.perspective) pageImage(doc, projet, o, 'Vue 3D du projet', 'Vue 3D', o.perspective, [
+    'Vue 3D calculée depuis le plan : volumes, matériaux, sols et mobilier tels qu’ils sont choisis au projet.',
+    'Teintes et matériaux indicatifs à l’écran et à l’impression : se référer aux échantillons et aux nuanciers des fabricants.',
+  ]);
+  if (!F.length && !FD && !FA.length && !o.perspective && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet)) && !(o.toiture && toituresDuProjet(projet).length)) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
   return doc.octets((projet.name || 'Projet') + ' — plans');
 }
 

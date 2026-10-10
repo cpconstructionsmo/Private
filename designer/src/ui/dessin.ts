@@ -175,6 +175,15 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   }
 
   const plan = planDuNiveau(s.niveau);
+  /* le plan de présentation imprimé (pour le client) : murs pleins anthracite, sans hachures ni couches, et une ombre portée
+     légère en bas à droite de la maison, pour que le plan se détache de la feuille */
+  const vitrine = !!s.presentation && !!s.impression;
+  if (vitrine) {
+    const d = Math.max(2, 220 * cam.echelle);
+    ctx.save(); ctx.translate(d, d); ctx.fillStyle = PRESENTATION.ombre;
+    for (const p of plan.maconnerie) { chemin(ctx, cam, { contour: p.contour }); ctx.fill() }
+    ctx.restore();
+  }
   /* pièces ; en présentation, à la couleur de leur sol, avec son motif */
   for (const z of plan.zones) {
     const sol = s.presentation && z.piece ? materiau(z.piece.floorFinish) : undefined;
@@ -211,9 +220,10 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   for (const o of Object.values(s.niveau.objects)) if (o.type === 'canopy') couvert(ctx, cam, o, estChoisi(o.id), !!s.dossier);
   /* maçonnerie (ouvertures découpées) */
   /* la maçonnerie : blanche, hachurée à 45°, cernée de noir (les murs composés se dessinent ensuite couche à couche) */
-  ctx.fillStyle = s.dossier ? DOSSIER.maconnerie : COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
+  ctx.fillStyle = vitrine ? PRESENTATION.mur : s.dossier ? DOSSIER.maconnerie : COULEURS.mur; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
   for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.fill('evenodd') }
-  if (plan.maconnerieOuverte.length) {
+  if (vitrine) { ctx.strokeStyle = PRESENTATION.mur; ctx.lineWidth = 0.8; for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.stroke() } }
+  else if (plan.maconnerieOuverte.length) {
     ctx.save();
     ctx.beginPath();
     for (const p of plan.maconnerieOuverte) for (const a of [p.contour, ...(p.trous ?? [])] as Anneau[]) { a.forEach((pt, i) => { const e = E(pt); if (i) ctx.lineTo(e.x, e.y); else ctx.moveTo(e.x, e.y) }); ctx.closePath() }
@@ -236,7 +246,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* les murs composés : chaque couche à sa place (enduit dehors, isolant, plâtre), cernée d'un trait fin — sauf
      les murs existants : ils sont déjà là, on ne dessine pas leur composition */
   const existants = new Set(mursDroits(s.niveau).filter(w => w.phase === 'existing').map(w => w.id));
-  const C = couchesDuNiveau(s.niveau).filter(b => !existants.has(b.mur));
+  const C = vitrine ? [] : couchesDuNiveau(s.niveau).filter(b => !existants.has(b.mur));
   if (C.length) {
     const genres = new Map(mursDroits(s.niveau).map(w => [w.id, compositionMur(w.compositionRef)?.genre]));
     for (const b of C) couche(ctx, cam, b, s.dossier ? (genres.get(b.mur) === 'cloison' ? 'cloison' : 'dossier') : null);
@@ -548,6 +558,9 @@ function meuble(ctx: CanvasRenderingContext2D, cam: Camera, o: Furniture, sel: b
     ctx.fillText('PL', c.x, c.y);
   }
 }
+
+/* les teintes du plan de présentation imprimé : murs anthracite, ombre portée */
+export const PRESENTATION = { mur: '#3B3F45', ombre: '#D5D7DA' } as const;
 
 /* les teintes du style des dossiers du cabinet */
 export const DOSSIER = { maconnerie: '#DCDCDC', hachures: '#4A4A4A', pasHachures: 3.3, cloison: '#A9A9A9', isolant: '#F6ECD6', ondulation: '#8B7B5B' } as const;
