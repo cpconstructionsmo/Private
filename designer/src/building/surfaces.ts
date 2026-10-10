@@ -96,21 +96,54 @@ function regionHaute(f: Floor): Polygone[] | null {
   return union(pans.map(p => auDessus(p.contour, (x, y) => p.plan.a * x + p.plan.b * y + p.plan.c, z)).filter(A => A.length >= 3).map(contour => ({ contour })));
 }
 
-export function surfacesNiveau(projet: Project, f: Floor): SurfacesNiveau {
+/** ce que comptent les surfaces d'un niveau : l'intérieur au nu des murs de façade, les trémies, la partie haute sous
+    la toiture (null : pas de toiture en pente portée par ce niveau) ; gardé par niveau, objet immuable (ADR-0005) */
+interface BaseNiveau { plan: ReturnType<typeof planDuNiveau>; interieur: Polygone[]; T: Polygone[]; haute: Polygone[] | null }
+const BASES = new WeakMap<Project, WeakMap<Floor, BaseNiveau>>();
+function baseDuNiveau(projet: Project, f: Floor): BaseNiveau {
+  let parProjet = BASES.get(projet);
+  if (!parProjet) BASES.set(projet, parProjet = new WeakMap());
+  const deja = parProjet.get(f);
+  if (deja) return deja;
   const plan = planDuNiveau(f);
   const dehors = plan.maconnerie.map(m => ({ contour: m.contour }));
   const facades = plan.murs.filter(m => { const w = f.objects[m.id]; return w?.type === 'wall' && w.role === 'exterior' }).map(m => ({ contour: m.contour }));
   const interieur: Polygone[] = dehors.length ? (facades.length ? difference(union(dehors), union(facades)) : union(dehors)) : [];
   const T = tremiesDuNiveau(projet, f).map(t => ({ contour: t.contour }));
+  const b = { plan, interieur, T, haute: regionHaute(f) };
+  parProjet.set(f, b);
+  return b;
+}
+
+/** la surface comptée d'une partie d'un niveau : trémies retirées, et seulement ce qui a au moins 1,80 m sous la toiture */
+function compter(b: BaseNiveau, P: Polygone[]): number {
+  const Q = b.T.length ? difference(P, b.T) : P;
+  return aire(b.haute ? intersection(Q, b.haute) : Q);
+}
+
+/** les parties d'un niveau de moins de 1,80 m sous la toiture (combles) : le plan les hache, les surfaces les déduisent */
+export function partiesBasses(projet: Project, f: Floor): Polygone[] {
+  const b = baseDuNiveau(projet, f);
+  return b.haute && b.interieur.length ? difference(b.interieur, b.haute) : [];
+}
+
+/** la surface comptée de chaque pièce d'un niveau (par identifiant de pièce, mm²) : trémie et parties de moins de 1,80 m
+    sous la toiture déduites — la surface que disent l'étiquette de la pièce et les tableaux, comme la surface habitable */
+export function surfacesDesPieces(projet: Project, f: Floor): Map<string, number> {
+  const b = baseDuNiveau(projet, f), R = new Map<string, number>();
+  for (const z of b.plan.zones) if (z.piece) R.set(z.piece.id, compter(b, [z.polygone]));
+  return R;
+}
+
+export function surfacesNiveau(projet: Project, f: Floor): SurfacesNiveau {
+  const b = baseDuNiveau(projet, f), { plan, interieur, T, haute } = b;
   const tremies = T.length && interieur.length ? aire(intersection(interieur, T)) : 0;
-  const haute = regionHaute(f);
   const sansTremies = T.length ? difference(interieur, T) : interieur;
   const basses = haute ? aire(difference(sansTremies, haute)) : 0;
-  const compte = (P: Polygone[]) => { const Q = T.length ? difference(P, T) : P; return aire(haute ? intersection(Q, haute) : Q) };
   const garages: { nom: string; aire: number }[] = [], exclues: { nom: string; aire: number }[] = [];
   let habitable = 0;
   for (const z of plan.zones) {
-    const a = compte([z.polygone]);
+    const a = compter(b, [z.polygone]);
     if (z.piece?.usage === 'garage') { garages.push({ nom: z.piece.name, aire: a }); exclues.push({ nom: z.piece.name + ' (garage)', aire: a }); continue }
     if (z.piece?.excludedFromHabitable?.value) { exclues.push({ nom: z.piece.name + ' (' + (z.piece.excludedFromHabitable.reason || 'exclue') + ')', aire: a }); continue }
     habitable += a;

@@ -19,7 +19,9 @@ import type { Maquette, Matiere } from './maquette';
 export type CoteFacade = 'sud' | 'est' | 'nord' | 'ouest';
 export const FACADES: Record<CoteFacade, string> = { sud: 'Façade sud (bas du plan)', est: 'Façade est (droite du plan)', nord: 'Façade nord (haut du plan)', ouest: 'Façade ouest (gauche du plan)' };
 
-export interface FaceProjetee { points: { u: Mm; z: Mm }[]; profondeur: Mm; matiere: Matiere; finition?: string }
+export interface FaceProjetee { points: { u: Mm; z: Mm }[]; profondeur: Mm; matiere: Matiere; finition?: string;
+  /** en coupe, le dessous d'une plaque vu de l'intérieur (un pan d'au-delà, vu sous la couverture) : ni tuile ni ardoise */
+  dessous?: boolean }
 export interface Facade { cote: CoteFacade; faces: FaceProjetee[]; boite: { umin: Mm; umax: Mm; zmin: Mm; zmax: Mm } | null }
 
 /** ce qu'on voit d'une façade : ni les cloisons, ni le mobilier, ni les sols (derrière les murs) */
@@ -59,13 +61,13 @@ function audela(P: PointVu[]): PointVu[] {
 export function projeter(m: Maquette, v: Vue, caches: ReadonlySet<Matiere>, coupe = false): Pick<Facade, 'faces' | 'boite'> {
   const faces: FaceProjetee[] = [];
   /* rang : un côté de mur par son milieu (l'onglet d'un angle passe ainsi derrière la façade), un pan par son point le plus proche */
-  const ajouter = (points: PointVu[], rang: 'milieu' | 'proche' | number, matiere: Matiere, ecart = 0, finition?: string) => {
+  const ajouter = (points: PointVu[], rang: 'milieu' | 'proche' | number, matiere: Matiere, ecart = 0, finition?: string, dessous = false) => {
     const P = coupe ? audela(points) : points;
     if (P.length < 3) return;
     /* un rang chiffré : la profondeur imposée (une plaque posée sur une autre se range juste devant elle) */
     const prof = P.map(q => q.p), profondeur = (typeof rang === 'number' ? rang : rang === 'milieu' ? (Math.min(...prof) + Math.max(...prof)) / 2 : Math.min(...prof)) + ecart;
     const Q = P.map(q => ({ u: q.u, z: q.z }));
-    if (Math.abs(aireSigneeUZ(Q)) > 1) faces.push({ points: Q, profondeur, matiere, ...(finition ? { finition } : {}) });          // vue de chant : rien à dessiner
+    if (Math.abs(aireSigneeUZ(Q)) > 1) faces.push({ points: Q, profondeur, matiere, ...(finition ? { finition } : {}), ...(dessous ? { dessous } : {}) });          // vue de chant : rien à dessiner
   };
   const vu = (q: Point, z: number): PointVu => ({ u: v.u(q), p: v.prof(q), z });
   for (const p of m.prismes) {
@@ -80,16 +82,32 @@ export function projeter(m: Maquette, v: Vue, caches: ReadonlySet<Matiere>, coup
     if (caches.has(p.matiere)) continue;
     const H = p.dessus, B = H.map(q => ({ x: q.x + p.decalage.x, y: q.y + p.decalage.y, z: q.z + p.decalage.z }));
     const rang: 'proche' | number = p.support ? Math.min(...p.support.map(q => v.prof(q))) - 1 : 'proche';
-    ajouter(B.map(q => vu(q, q.z)), rang, p.matiere, 1, p.finition);
+    /* en coupe, un pan qui monte vers l'observateur se voit par-dessous (de l'intérieur) : son dessus ne se dessine pas, et
+       son dessous n'est pas de la couverture ; en façade, on voit toujours le dessus */
+    const dessous = coupe && voitDessous(H, v);
+    ajouter(B.map(q => vu(q, q.z)), rang, p.matiere, 1, p.finition, dessous);
     H.forEach((a, i) => {
       const b = H[(i + 1) % H.length]!, a2 = B[i]!, b2 = B[(i + 1) % H.length]!;
       ajouter([vu(a, a.z), vu(b, b.z), vu(b2, b2.z), vu(a2, a2.z)], rang, p.matiere, 0, p.finition);
     });
-    ajouter(H.map(q => vu(q, q.z)), typeof rang === 'number' ? rang - 0.5 : rang, p.matiere, 0, p.finition);
+    if (!dessous) ajouter(H.map(q => vu(q, q.z)), typeof rang === 'number' ? rang - 0.5 : rang, p.matiere, 0, p.finition);
   }
   /* du plus loin au plus près ; à profondeur égale, la toiture après les murs */
   faces.sort((a, b) => b.profondeur - a.profondeur);
   return { faces, boite: boiteUZ(faces.flatMap(f => f.points)) };
+}
+
+/** le dessus d'une plaque (sa normale tournée vers le haut) regarde-t-il à l'opposé de l'observateur ? */
+function voitDessous(H: readonly { x: number; y: number; z: number }[], v: Vue): boolean {
+  const n = { x: 0, y: 0, z: 0 };
+  H.forEach((a, i) => {
+    const b = H[(i + 1) % H.length]!;
+    n.x += (a.y - b.y) * (a.z + b.z); n.y += (a.z - b.z) * (a.x + b.x); n.z += (a.x - b.x) * (a.y + b.y);
+  });
+  if (n.z < 0) { n.x = -n.x; n.y = -n.y; n.z = -n.z }
+  /* la composante horizontale de la normale, le long du regard : positive, le dessus fuit l'observateur */
+  const dp = v.prof({ x: n.x, y: n.y }) - v.prof({ x: 0, y: 0 });
+  return n.z > 1e-9 && dp > 1e-6 * Math.hypot(n.x, n.y, n.z);
 }
 
 /** la boîte (u, z) de points vus */

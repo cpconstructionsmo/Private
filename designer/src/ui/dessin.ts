@@ -64,6 +64,11 @@ export interface Scene {
   /** le style des dossiers du cabinet (planches imprimées) : pièces blanches, maçonnerie grise hachurée, doublage
       isolant crème ondulé, cloisons grises pleines, étiquettes « SH : 12,91 m² », portes en trait plein */
   dossier?: boolean;
+  /** la surface comptée de chaque pièce (par identifiant ; building/surfaces.ts) : sous les combles, sans ce qui a moins
+      de 1,80 m ; absente, l'étiquette dit la surface au sol */
+  surfacesPieces?: ReadonlyMap<string, number>;
+  /** sous les combles, les parties de moins de 1,80 m de hauteur : hachurées, cernées de la limite des 1,80 m en tirets */
+  basses?: Polygone[];
   /** plusieurs objets choisis ensemble, et le cadre de sélection en cours */
   groupe?: ReadonlySet<string>;
   cadre?: [Point, Point] | null;
@@ -183,6 +188,16 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
         ctx.stroke();
       }
     }
+  }
+  /* sous les combles, ce qui a moins de 1,80 m de hauteur (non compté) : gris clair hachuré, la limite des 1,80 m en tirets */
+  for (const b of s.basses ?? []) {
+    ctx.save();
+    chemin(ctx, cam, b); ctx.fillStyle = '#F3F3F3'; ctx.fill('evenodd'); ctx.clip('evenodd');
+    const P = b.contour.map(E), x0 = Math.min(...P.map(q => q.x)), x1 = Math.max(...P.map(q => q.x)), y0 = Math.min(...P.map(q => q.y)), y1 = Math.max(...P.map(q => q.y));
+    ctx.strokeStyle = '#C4C4C4'; ctx.lineWidth = 0.5; ctx.beginPath();
+    for (let t = x0 - (y1 - y0); t < x1; t += 7) { ctx.moveTo(t, y1); ctx.lineTo(t + (y1 - y0), y0) }
+    ctx.stroke(); ctx.restore();
+    ctx.strokeStyle = '#555555'; ctx.lineWidth = 0.8; ctx.setLineDash([6, 3]); chemin(ctx, cam, b); ctx.stroke(); ctx.setLineDash([]);
   }
   /* mobilier, sous les murs */
   const estChoisi = (id: string) => id === s.selection || !!s.groupe?.has(id);
@@ -311,12 +326,13 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
       const d = dimensionsPiece(z.polygone.contour), trois = !!d && d.profondeur * cam.echelle > 60;      // la ligne des dimensions, si elle s'écrit
       ctx.fillStyle = 'rgba(255,255,255,.82)'; ctx.fillRect(e.x - l / 2, e.y - 18, l, trois ? 48 : 34);
     }
-    if (s.dossier) { etiquetteDossier(ctx, cam, z, e, debout); continue }
+    const zc = z.piece && s.surfacesPieces?.has(z.piece.id) ? { ...z, aire: s.surfacesPieces.get(z.piece.id)! } : z;
+    if (s.dossier) { etiquetteDossier(ctx, cam, zc, e, debout); continue }
     ctx.fillStyle = z.piece ? COULEURS.texte : COULEURS.accent;
     ctx.font = '600 12px system-ui, sans-serif';
     ctx.fillText(z.piece ? z.piece.name : 'À nommer', e.x, e.y - 8);
     ctx.font = '11px system-ui, sans-serif'; ctx.fillStyle = COULEURS.gris;
-    ctx.fillText('S : ' + m2(z.aire), e.x, e.y + 8);
+    ctx.fillText('S : ' + m2(zc.aire), e.x, e.y + 8);
     const d = dimensionsPiece(z.polygone.contour);
     if (d && d.profondeur * cam.echelle > 60) ctx.fillText(texteCote(d.largeur) + ' × ' + texteCote(d.profondeur), e.x, e.y + 22);
   }

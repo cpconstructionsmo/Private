@@ -762,6 +762,15 @@ moins de 1,80 m sous la toiture ; surface habitable ; articles cités « à
 vérifier ». Au-delà de 150 m² de surface de plancher, le recours à un
 architecte est obligatoire : le dossier ne se produit pas (alerte dès
 140 m²).
+Combles aménagés, étage sous la toiture : chaque pièce ne compte que ce qui
+a au moins 1,80 m (`surfacesDesPieces`, trémie déduite) — son étiquette, le
+tableau de la planche et celui de la page de garde tombent ainsi juste avec
+la surface habitable. Le plan du niveau (éditeur et planche) hache les
+parties plus basses (`partiesBasses`), cernées de la limite des 1,80 m en
+tirets ; la coupe marque la hauteur de 1,80 m sur ces parties, et
+« Comble perdu » ne s'écrit qu'au-dessus du plafond ; une coupe le long du
+faîtage montre le pan d'au-delà par-dessous, sans ses tuiles. Les façades
+repèrent le sol fini de chaque étage (« Combles fini +2,70 »).
 
 **Notice (brouillon PCMI 4)** (`src/export/notice.ts`) : les rubriques de la
 notice écrites à partir de ce qui est mesuré ou choisi (terrain, reculs,

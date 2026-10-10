@@ -51,6 +51,8 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
   const toits = niveaux.flatMap(f => { const r = toitureDuNiveau(f); return r?.ok ? r.toitures.map(x => ({ f, t: x })) : [] });
   const egout = toits.length ? Math.min(...toits.map(x => x.t.egoutZ)) : null;
   const ngf0 = t?.plot.groundFloorNgf, tf = t?.plot.finishedGround;
+  /* les étages (un R+1, des combles aménagés) : leur sol fini se repère aux façades, comme le RDC */
+  const etages = niveauxEtages(projet);
   /* la façade sur la voie (si la parcelle le dit) : celle dont la normale va vers le milieu du côté sur voie */
   const voie = t && t.plot.street.length ? (() => {
     const C = t.plot.contour, i = t.plot.street[0]!, a = C[i]!, b = C[(i + 1) % C.length]!;
@@ -121,12 +123,12 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
 
   /* les façades */
   let y = Z.y + ecart(ech) / 2;
-  for (const v of [h1!, h2!]) { dessinerFacade(page, v, Z.x, y, ech, egout, ngf0, tf); y += hauteur(v, ech) + ecart(ech) }
+  for (const v of [h1!, h2!]) { dessinerFacade(page, v, Z.x, y, ech, egout, ngf0, tf, etages); y += hauteur(v, ech) + ecart(ech) }
   const y3 = y;
-  dessinerFacade(page, b1!, Z.x, y3, ech, egout, ngf0, tf);
+  dessinerFacade(page, b1!, Z.x, y3, ech, egout, ngf0, tf, etages);
   const libre = hPanneaux(ech) > y3 - Z.y + 2 ? Z.l - PANNEAU - 6 : Z.l;
   /* la seconde au milieu de la place libre, mais à 14 mm au moins de la première (son terrain dépasse du débord) */
-  dessinerFacade(page, b2!, Z.x + Math.max(largeur(b1!, ech) + 6, Math.min(Math.max((libre - 6) / 2 + 3, largeur(b1!, ech) + 14), libre - largeur(b2!, ech))), y3, ech, egout, ngf0, tf);
+  dessinerFacade(page, b2!, Z.x + Math.max(largeur(b1!, ech) + 6, Math.min(Math.max((libre - 6) / 2 + 3, largeur(b1!, ech) + 14), libre - largeur(b2!, ech))), y3, ech, egout, ngf0, tf, etages);
 
   /* les encadrés, à droite des deux premières façades */
   const px = Z.x + Z.l - PANNEAU;
@@ -141,7 +143,12 @@ export function plancheFacades(doc: DocumentPdf, projet: Project, o: OptionsFaca
 }
 
 /** une façade dessinée : (x0, y0) le coin haut-gauche de sa case */
-function dessinerFacade(page: PagePdf, v: FacadeVue, x0: number, y0: number, e: number, egout: number | null, ngf0: number | undefined, tf?: number): void {
+/** les niveaux au-dessus du RDC qui portent des murs, du plus bas au plus haut */
+function niveauxEtages(projet: Project): Floor[] {
+  return projet.buildings.flatMap(b => b.floors).filter(f => f.elevation > 0 && mursDroits(f).length).sort((a, b) => a.elevation - b.elevation);
+}
+
+function dessinerFacade(page: PagePdf, v: FacadeVue, x0: number, y0: number, e: number, egout: number | null, ngf0: number | undefined, tf?: number, etages: readonly Floor[] = []): void {
   const xl = x0 + GAUCHE, ySol = y0 + HAUT + v.zmax / e;
   const P = (u: number, z: number): [number, number] => [X(xl + (u - v.umin) / e), Y(ySol - z / e)];
   const Pm = (u: number, z: number): [number, number] => [xl + (u - v.umin) / e, ySol - z / e];
@@ -174,6 +181,8 @@ function dessinerFacade(page: PagePdf, v: FacadeVue, x0: number, y0: number, e: 
   };
   if (egout !== null) nv(egout, niveauRelatif(egout), 'égout', true);
   nv(0, '±0,00', 'RDC fini' + (ngf0 !== undefined ? ' ' + ngf0.toFixed(2).replace('.', ',') : ''), true);
+  /* le sol fini des étages, en creux ; trop près de l'égout, il ne se lit qu'à l'encadré « Niveaux » */
+  for (const f of etages) if (egout === null || Math.abs(f.elevation - egout) / e > 6.5) nv(f.elevation, niveauRelatif(f.elevation), f.name + ' fini', false);
   if (v.tn) { const q = v.tn[0]!; texte(page, 'TN ' + niveauRelatif(q.z), x0 + GAUCHE - 8, ySol - q.z / e + 4.6, 6, { aligne: 'droite', couleur: TN }); const r = v.tn[v.tn.length - 1]!; const [rx, ry] = Pm(r.u, r.z); texte(page, niveauRelatif(r.z), rx, ry + 3.4, 6, { aligne: 'droite', couleur: TN }) }
   /* les faîtages, au-dessus : le plus haut plein, les autres creux */
   const zmax = Math.max(...v.faitages.map(f => f.z), -Infinity);
@@ -434,7 +443,7 @@ function contenuPanneaux(projet: Project, niveauxToit: Floor[], egout: number | 
     { pastille: (page, x, y) => page.trait(X(x + 1), Y(y + 3), X(x + 12), Y(y + 3), 0.9, TF), titre: 'TF – terrain fini',
       texte: tf !== undefined ? 'abords de la construction : ' + niveauRelatif(tf) + (ngf0 !== undefined ? ' (' + ngf(tf) + ')' : '') : 'abords dessinés au niveau du sol fini – ' + A_PRECISER },
     { pastille: (page, x, y) => page.polygone([[X(x + 6.5), Y(y + 4.2)], [X(x + 8.3), Y(y + 1.8)], [X(x + 4.7), Y(y + 1.8)]], { fond: ENCRE }), titre: 'Niveaux réglementaires',
-      texte: 'RDC fini ±0,00' + (ngf0 !== undefined ? ' = ' + ngf(0) : '') + (egout !== null ? ' – égout ' + niveauRelatif(egout) : '') + (fait.length ? ' – faîtage ' + niveauRelatif(fait[0]!) : '') },
+      texte: 'RDC fini ±0,00' + (ngf0 !== undefined ? ' = ' + ngf(0) : '') + niveauxEtages(projet).map(f => ' – ' + f.name + ' fini ' + niveauRelatif(f.elevation)).join('') + (egout !== null ? ' – égout ' + niveauRelatif(egout) : '') + (fait.length ? ' – faîtage ' + niveauRelatif(fait[0]!) : '') },
     ...(fait.length > 1 ? [{ pastille: (page: PagePdf, x: number, y: number) => page.polygone([[X(x + 6.5), Y(y + 4.2)], [X(x + 8.3), Y(y + 1.8)], [X(x + 4.7), Y(y + 1.8)]], { fond: '#FFFFFF', trait: ENCRE, ep: 0.4 }),
       titre: 'Autres faîtages', texte: fait.slice(1, 5).map(niveauRelatif).join(' – ') + (fait.length > 5 ? '…' : '') + ' (par rapport au RDC fini)' }] : []),
     { pastille: (page, x, y) => texte(page, 'Baies', x, y + 3.6, 7.5, { gras: true, couleur: '#222222' }), titre: '', texte: 'largeur × hauteur (m) ; allège = hauteur de l’appui par rapport au RDC fini' },
