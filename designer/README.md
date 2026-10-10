@@ -387,6 +387,28 @@ pièce, du sol au haut des murs, ouverte aux portes et fenêtres (allège et
 linteau restent peints) ; elle se voit en 3D et pendant la visite, ni en
 façade ni en coupe.
 
+**Rénovation et extension** (ADR-0007 ; `src/building/etats.ts`) : un mur,
+une baie portent leur état — existant conservé, existant à démolir (une
+baie : à boucher ou déposer), ou à construire (le projet, sans état). Dans
+le panneau du niveau, « Tout le niveau existant » passe d'un coup une maison
+relevée ou importée en existant ; ensuite, dans l'inspecteur (« État »),
+chaque mur ou baie à démolir ; ce qu'on trace après est le projet (une baie
+neuve dans un mur existant est un percement). Le plan dessine l'existant
+en gris plein, le démoli en tirets sur fond jaune pâle, une baie à boucher
+barrée de tirets ; la légende des planches le dit. Le projet ignore le
+démoli (pièces, 3D, façades, coupes, toiture) ; l'état existant se dérive
+(les murs et baies d'avant les travaux). Surfaces : existantes, créées
+(projet − existant), et la formalité indicative — déclaration préalable
+jusqu'à 20 m² créés, 40 m² en zone urbaine du PLU (zone saisie à la
+parcelle) sauf si le total dépasse alors 150 m², permis au-delà ; articles
+« à vérifier ». Page de garde (S.P et emprise existantes / créées) et
+notice le disent. Le métré ne compte que les travaux : lot Démolition (murs
+à démolir), bouchements de baies, percements dans les murs existants ; ni
+les murs ni les baies existants. Les fondations ne vont que sous les murs
+neufs. Une baie existante est dans un mur existant ; un mur ne repasse pas
+au projet avec des baies existantes ; un mur à démolir ne reçoit pas de
+nouvelle baie.
+
 **Modèles de maisons** (projet vide : panneau du niveau ou palette ;
 `src/catalogue/modeles-maisons.ts`) : plain-pied 3 chambres (13 × 9 m),
 plain-pied en L avec garage, maison à étage (9 × 8 m, R+1, escalier). Des

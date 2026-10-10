@@ -61,6 +61,11 @@ export interface BaseObject {
 
 export interface Arc { center: Point; radius: Mm; start: Radian; end: Radian; ccw: boolean }
 
+/** l'état d'un ouvrage dans une rénovation ou une extension (ADR-0007) : « existing » existe et reste,
+ *  « demolished » existe et sera démoli (une baie : bouchée ou déposée) ; absent : à construire (le projet).
+ *  Facultatif : un projet de construction neuve n'en a pas, et reste valable tel quel. */
+export type PhaseOuvrage = 'existing' | 'demolished';
+
 export interface Wall extends BaseObject {
   type: 'wall';
   axis: { a: Point; b: Point } | { arc: Arc };
@@ -80,6 +85,8 @@ export interface Wall extends BaseObject {
   /** des parties de cette face habillées d'un autre parement (un décor en pierre autour de l'entrée) ;
    *  facultatif, comme les champs de la bibliothèque d'ouvertures : un projet qui ne l'a pas reste valable */
   finishZones?: FinishZone[];
+  /** existant (conservé ou à démolir) ; absent : à construire */
+  phase?: PhaseOuvrage;
 }
 
 /** une partie de la face extérieure d'un mur de façade, de « from » à « to » le long de l'axe depuis
@@ -109,6 +116,8 @@ export interface Opening extends BaseObject {
   catalogRef?: { id: string; label: string };
   /** son volet : roulant (motorisé ou manuel, coffre intégré), ou battants ; absent : pas de volet dit */
   shutter?: 'roller_motorized' | 'roller_manual' | 'hinged';
+  /** existante (conservée, ou à boucher / déposer) ; absente : percement ou baie du projet */
+  phase?: PhaseOuvrage;
 }
 
 export type RoomUsage = 'living' | 'bedroom' | 'kitchen' | 'bathroom' | 'wc' | 'circulation'

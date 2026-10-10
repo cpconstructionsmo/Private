@@ -553,6 +553,23 @@ try {
   await p.keyboard.press('Control+z');
   assert.ok(!(await objets()).find(o => o.id === murEntree.id).finishZones, 'un « annuler » retire le décor');
   await videClic();
+  /* rénovation : tout le niveau existant (panneau du niveau), puis un mur à démolir (inspecteur, « État ») ; deux « annuler » rendent le projet */
+  await p.waitForSelector('aside button:has-text("Tout le niveau existant")', { timeout: 10_000 });
+  await p.click('aside button:has-text("Tout le niveau existant")');
+  O = await objets();
+  assert.ok(O.filter(o => o.type === 'wall' && o.role !== 'virtual').every(o => o.phase === 'existing') && O.filter(o => o.type === 'opening').every(o => o.phase === 'existing'), 'tout le niveau existant');
+  {
+    const { a, b } = murEntree.axis, L = Math.hypot(b.x - a.x, b.y - a.y), ouv = O.filter(x => x.type === 'opening' && x.hostWallId === murEntree.id);
+    let t = 300;
+    while (t < L - 300 && ouv.some(x => Math.abs(x.offset - t) < x.width / 2 + 150)) t += 100;
+    await clic(a.x + (b.x - a.x) * t / L, a.y + (b.y - a.y) * t / L);
+  }
+  await p.selectOption('aside label:has-text("État (rénovation, extension)") select', 'demolished');
+  assert.equal((await objets()).find(o => o.id === murEntree.id).phase, 'demolished', 'le mur de l’entrée est à démolir');
+  assert.match(await p.textContent('aside'), /État \(rénovation, extension\)/, 'le mur à démolir reste choisi');
+  await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
+  assert.ok((await objets()).filter(o => o.type === 'wall').every(o => !o.phase), 'deux « annuler » : tout redevient projet');
+  await videClic();
 
   /* l'import s'annule d'un coup (la peinture, le parement des façades, la toiture, le fond, puis le plan) */
   await videClic();
@@ -781,7 +798,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, vue aérienne, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, pièces meublées d’un clic, décor de façade (pierre à l’entrée), plan de division du géomètre et vues complémentaires, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, vue aérienne, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, pièces meublées d’un clic, décor de façade (pierre à l’entrée), rénovation (niveau existant, mur à démolir), plan de division du géomètre et vues complémentaires, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

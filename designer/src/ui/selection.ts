@@ -6,7 +6,7 @@ import { fenetresDeToit } from '../building/fenetres-toit';
 import { lucarnesDuNiveau } from '../building/lucarnes';
 import type { Floor, Mm, Point } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
-import { mursDroits, mursFictifs } from '../building/murs';
+import { mursDemolis, mursDroits, mursFictifs } from '../building/murs';
 import { positionDansAnneau } from '../geometry/predicats';
 import { aireSignee } from '../geometry/polygon';
 import { distancePointSegment } from '../geometry/segment';
@@ -55,6 +55,8 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
   for (const c of plan.murs) if (positionDansAnneau(p, c.contour) !== 'dehors') return { genre: 'objet', id: c.id, type: 'wall' };
   /* une cloison fictive : près de son trait */
   for (const v of mursFictifs(f)) if (distancePointSegment(p, v.axis) <= rayon / 2) return { genre: 'objet', id: v.id, type: 'wall' };
+  /* un mur à démolir (hors du plan bâti) : dans son épaisseur, ou près de son axe */
+  for (const v of mursDemolis(f)) if (distancePointSegment(p, v.axis) <= Math.max(v.thickness / 2, rayon / 2)) return { genre: 'objet', id: v.id, type: 'wall' };
   /* la structure : un poteau (sa section), une poutre (près de son axe) */
   for (const o of Object.values(f.objects)) if (o.type === 'column' && positionDansAnneau(p, sectionPoteau(o)) !== 'dehors') return { genre: 'objet', id: o.id, type: 'column' };
   for (const o of Object.values(f.objects)) if (o.type === 'beam' && distancePointSegment(p, { a: o.a, b: o.b }) <= Math.max(o.width / 2, rayon / 2)) return { genre: 'objet', id: o.id, type: 'beam' };
@@ -90,7 +92,7 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
 export function dansCadre(f: Floor, p: Point, q: Point): string[] {
   const x0 = Math.min(p.x, q.x), x1 = Math.max(p.x, q.x), y0 = Math.min(p.y, q.y), y1 = Math.max(p.y, q.y);
   const dedans = (a: Point) => a.x >= x0 && a.x <= x1 && a.y >= y0 && a.y <= y1;
-  const murs = new Set([...mursDroits(f), ...mursFictifs(f)].filter(w => dedans(w.axis.a) && dedans(w.axis.b)).map(w => w.id));
+  const murs = new Set([...mursDroits(f), ...mursFictifs(f), ...mursDemolis(f)].filter(w => dedans(w.axis.a) && dedans(w.axis.b)).map(w => w.id));
   const parId = new Map(mursDroits(f).map(w => [w.id, w]));
   const out: string[] = [...murs];
   for (const o of Object.values(f.objects)) {

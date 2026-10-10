@@ -7,9 +7,9 @@
    l'échelle graphique. Le plan est dessiné par le code de l'écran
    (ui/dessin.ts) sur une toile PDF : vectoriel. */
 import type { BuildingObject, Floor, Point, Project } from '../model/types';
-import { planDuNiveau, cotationExterieure, cotesInterieures, baiesExterieures, mursDroits, emprise, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau,
+import { planDuNiveau, cotationExterieure, cotesInterieures, baiesExterieures, mursDroits, mursDemolis, ouvertureBatie, emprise, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau,
   planFondations, SOUBASSEMENTS, surfacesReglementaires, parcelleDuProjet, type ChaineCotes, type Cote4, type PlanFondations } from '../building';
-import { dessiner, type Scene } from '../ui/dessin';
+import { dessiner, ETATS, type Scene } from '../ui/dessin';
 import { ToilePdf } from './toile-pdf';
 import { PagePdf, type DocumentPdf } from './pdf';
 import type { Camera } from '../ui/camera';
@@ -75,7 +75,7 @@ export function surfaceVitree(projet: Project, f?: Floor): number {
   let s = 0;
   for (const n of f ? [f] : projet.buildings.flatMap(b => b.floors)) {
     const ext = new Set(mursDroits(n).filter(w => w.role === 'exterior').map(w => w.id));
-    for (const o of Object.values(n.objects)) if (o.type === 'opening' && ext.has(o.hostWallId) && (o.kind === 'window' || o.kind === 'french_window' || o.kind === 'bay')) s += o.width * o.height;
+    for (const o of Object.values(n.objects)) if (o.type === 'opening' && ouvertureBatie(o) && ext.has(o.hostWallId) && (o.kind === 'window' || o.kind === 'french_window' || o.kind === 'bay')) s += o.width * o.height;
   }
   return s;
 }
@@ -289,15 +289,22 @@ function legendeFondations(): LigneLegende[] {
 function legendeDuPlan(f: Floor, coupes: boolean): LigneLegende[] {
   const W = mursDroits(f), L: LigneLegende[] = [];
   const ext = W.filter(w => w.role === 'exterior'), ep = [...new Set(ext.map(w => Math.round(w.thickness / 10)))].sort((a, b) => b - a);
-  if (W.some(w => w.role !== 'partition' || compositionMur(w.compositionRef)?.genre !== 'cloison'))
-    L.push({ pastille: pastille('#DCDCDC', { hachures: '#4A4A4A' }), texte: 'Maçonnerie' + (ep.length ? ' (murs extérieurs, ép. totale ' + ep.join(' ; ') + ' cm)' : '') });
+  /* une rénovation, une extension (ADR-0007) : l'existant conservé, le démoli, les baies à boucher ; le reste est à construire */
+  const existant = W.some(w => w.phase === 'existing'), demoli = mursDemolis(f).length > 0;
+  const bouchees = Object.values(f.objects).some(o => o.type === 'opening' && !ouvertureBatie(o) && W.some(w => w.id === o.hostWallId));
+  const neuf = W.filter(w => w.phase !== 'existing');
+  if (neuf.some(w => w.role !== 'partition' || compositionMur(w.compositionRef)?.genre !== 'cloison'))
+    L.push({ pastille: pastille('#DCDCDC', { hachures: '#4A4A4A' }), texte: 'Maçonnerie' + (existant || demoli ? ' à construire' : '') + (ep.length ? ' (murs extérieurs, ép. totale ' + ep.join(' ; ') + ' cm)' : '') });
+  if (existant) L.push({ pastille: pastille(ETATS.existant, { trait: ETATS.existantTrait }), texte: 'Existant conservé' });
+  if (demoli) L.push({ pastille: pastille(ETATS.demoli, { tirets: true }), texte: 'Existant à démolir' });
+  if (bouchees) L.push({ pastille: pastille('#FFFFFF', { tirets: true }), texte: 'Baie existante à boucher' });
   const isolant = W.some(w => compositionMur(w.compositionRef)?.couches.some(c => MATIERES_COUCHES[c.matiere].motif === 'isolant') && compositionMur(w.compositionRef)?.genre !== 'cloison');
   if (isolant) L.push({ pastille: pastille('#F6ECD6', { zigzag: '#8B7B5B' }), texte: 'Doublage isolant' });
   if (W.some(w => w.role === 'partition')) L.push({ pastille: pastille('#A9A9A9'), texte: 'Cloison de distribution' });
   if (Object.values(f.objects).some(o => o.type === 'furniture' && formeDe(o) === 'placard')) L.push({ pastille: pastille('#FFFFFF', { tirets: true }), texte: 'Placard' });
   if (Object.values(f.objects).some(o => o.type === 'canopy')) L.push({ pastille: pastille('#FFFFFF', { tirets: true }), texte: 'Couvert (porche, auvent : sous la toiture)' });
   if (coupes) L.push({ pastille: (page, x, y) => { page.trait(X(x), Y(y + 1.5), X(x + 7), Y(y + 1.5), 0.5, BRIQUE, [3, 1, 0.6, 1]); page.cadre(X(x), Y(y + 2.1), 2 * PT, 1.2 * PT, { ep: 0, fond: BRIQUE }) }, texte: 'Plan de coupe (voir PCMI 3)' });
-  const vr = Object.values(f.objects).filter(o => o.type === 'opening' && (o.shutter === 'roller_motorized' || o.shutter === 'roller_manual'));
+  const vr = Object.values(f.objects).filter(o => o.type === 'opening' && ouvertureBatie(o) && (o.shutter === 'roller_motorized' || o.shutter === 'roller_manual'));
   if (vr.length) L.push({ pastille: (page, x, y) => texte(page, 'VR', x + 1, y + 2.6, 6.5, { couleur: GRIS_TEXTE }), texte: 'VR : volet roulant' + (vr.every(o => o.type === 'opening' && o.shutter === 'roller_motorized') ? ' motorisé' : '') });
   return L;
 }

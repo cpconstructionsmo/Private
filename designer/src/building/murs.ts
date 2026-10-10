@@ -28,7 +28,7 @@
    Un bout qui, par ce point, se croiserait lui-même (des murs minces qui se
    rejoignent dans l'épaisseur d'un mur épais : ils le chevauchent déjà, il
    n'y a pas de vide) garde son simple trait. */
-import type { Floor, Mm, Point, Wall } from '../model/types';
+import type { Floor, Mm, Opening, Point, Wall } from '../model/types';
 import { EPS_COINCIDENCE } from '../geometry/tolerance';
 import { distancePointSegment, intersectionDroites, intersectionSegments, projeterSurDroite } from '../geometry/segment';
 import { ajouter, distance, multiplier, normaleGauche, normaliser, scalaire, soustraire, vectoriel } from '../geometry/vecteur';
@@ -186,9 +186,17 @@ function simple(A: readonly Point[]): boolean {
   return true;
 }
 
-/** les murs droits bâtis d'un niveau — les cloisons fictives (sans matière) n'en sont pas : voir mursFictifs */
+/** les murs droits bâtis d'un niveau (le projet) — les cloisons fictives (sans matière) n'en sont pas : voir
+    mursFictifs ; les murs à démolir non plus : voir mursDemolis (ADR-0007) */
 export const mursDroits = (f: Floor): MurDroit[] =>
-  Object.values(f.objects).filter((o): o is MurDroit => o.type === 'wall' && estDroit(o) && o.role !== 'virtual');
+  Object.values(f.objects).filter((o): o is MurDroit => o.type === 'wall' && estDroit(o) && o.role !== 'virtual' && o.phase !== 'demolished');
+
+/** les murs existants à démolir : dessinés au plan (en tirets), hors de tout le reste (pièces, 3D, façades, métré) */
+export const mursDemolis = (f: Floor): MurDroit[] =>
+  Object.values(f.objects).filter((o): o is MurDroit => o.type === 'wall' && estDroit(o) && o.role !== 'virtual' && o.phase === 'demolished');
+
+/** une baie du projet : ni bouchée ni déposée (une baie existante à supprimer ne perce plus son mur) */
+export const ouvertureBatie = (o: Opening): boolean => o.phase !== 'demolished';
 
 /** les cloisons fictives d'un niveau : des limites de pièces, sans matière */
 export const mursFictifs = (f: Floor): MurDroit[] =>

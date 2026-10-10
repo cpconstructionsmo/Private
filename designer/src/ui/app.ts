@@ -36,7 +36,7 @@ import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe
 import type { Vue3D } from './vue3d';
 import type { Cabinet, ImageDossier } from '../export/planche';
 import { VUES_COMPLEMENTAIRES_MAX } from '../export/pieces-fournies';
-import type { FinishZone, InfosDossier, ReglesPlu } from '../model/types';
+import type { FinishZone, InfosDossier, PhaseOuvrage, ReglesPlu } from '../model/types';
 import { FAMILLES, MANOEUVRES, MODELES_OUVERTURES, manoeuvreDe, modeleOuverture, type ModeleOuverture } from '../catalogue/ouvertures';
 import { FAMILLES_MEUBLES, MODELES_MEUBLES, type ModeleMeuble } from '../catalogue/mobilier';
 import { traits } from '../building/mobilier';
@@ -59,6 +59,9 @@ const CONTRAINTES: Record<string, string> = { horizontal: 'Horizontal', vertical
 
 const m = (mm: number) => (mm / 1000).toFixed(2).replace('.', ',') + ' m';
 const OPTIONS_PAREMENTS: Record<string, string> = { '': 'Sans (maçonnerie)', ...Object.fromEntries(PAREMENTS.map(m => [m.id, m.libelle])) };
+/** l'état d'un mur, d'une baie dans une rénovation ou une extension (ADR-0007) ; vide : à construire */
+const ETATS_MUR: Record<string, string> = { '': 'À construire (projet)', existing: 'Existant conservé', demolished: 'Existant à démolir' };
+const ETATS_BAIE: Record<string, string> = { '': 'À créer (projet ou percement)', existing: 'Existante conservée', demolished: 'Existante à boucher ou déposer' };
 /** le parement d'un décor de façade : toujours un parement (sans, ce ne serait plus un décor) */
 const OPTIONS_DECORS: Record<string, string> = Object.fromEntries(PAREMENTS.map(m => [m.id, m.libelle]));
 const OPTIONS_SOLS: Record<string, string> = { '': 'Non précisé', ...Object.fromEntries(SOLS.map(m => [m.id, m.libelle])) };
@@ -1394,6 +1397,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         A.append(titre(ROLES[w.role]),
           champ('Longueur (m)', (L / 1000).toFixed(3), v => longueurMur(w, mm(v)), 'number'),
           champ('Type', w.role, v => faire('Type de mur', [{ type: 'modifierMur', id: w.id, role: v as Wall['role'] }]), 'text', ROLES));
+        if (w.role !== 'virtual') A.append(champ('État (rénovation, extension)', w.phase ?? '', v => faire('État du mur', [{ type: 'modifierMur', id: w.id, phase: (v || null) as PhaseOuvrage | null }]), 'text', ETATS_MUR));
         if (w.role === 'virtual') {
           A.append(bloc('Une limite de pièce sans mur (cuisine ouverte sur le séjour, par exemple) : elle sépare les surfaces au plan, sans matière — ni 3D, ni ouverture, ni cote.'),
             titre('Objet'), provenance(w), ligne(bouton('Supprimer', () => supprimer(w.id), 'dang')));
@@ -1467,6 +1471,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
             if (m) mod('Modèle : ' + m.libelle, { genre: m.genre, largeur: m.largeur, hauteur: m.hauteur, allege: m.allege, vantaux: m.vantaux, manoeuvre: m.manoeuvre, modele: { id: m.id, label: m.libelle } });
           }, 'text', modeles),
           champ('Genre', op.kind, v => mod('Genre', { genre: v as Opening['kind'] }), 'text', genres),
+          champ('État (rénovation, extension)', op.phase ?? '', v => mod('État de la baie', { phase: (v || null) as PhaseOuvrage | null }), 'text', ETATS_BAIE),
           champ('Vantaux', mo.vantaux, v => mod('Vantaux', { vantaux: Number(v) }), 'text', { 1: '1', 2: '2', 3: '3', 4: '4' }),
           champ('Manœuvre', mo.manoeuvre, v => mod('Manœuvre', { manoeuvre: v as NonNullable<Opening['operation']> }), 'text', MANOEUVRES),
           /* le volet : « VR » devant la baie sur le plan, et dans la légende */
@@ -2429,6 +2434,27 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     faire('Point coté du terrain', [{ type: 'modifierParcelle', id: t.plot.id, altitudesTerrain: [...(t.plot.spotHeights ?? []), { point: { x: Math.round(point.x), y: Math.round(point.y) }, ngf: z }] }]);
   }
 
+  /** une rénovation, une extension (ADR-0007) : passer d'un coup les murs et baies du niveau en existant (une maison
+      relevée ou importée), ou les rendre au projet ; ensuite, mur par mur, ce qui est à démolir et ce qui est neuf */
+  function sectionExistant(f: Floor) {
+    const A = aside, M = Object.values(f.objects).filter((o): o is Wall => o.type === 'wall' && o.role !== 'virtual');
+    const O = Object.values(f.objects).filter((o): o is Opening => o.type === 'opening');
+    const nE = M.filter(w => w.phase === 'existing').length, nD = M.filter(w => w.phase === 'demolished').length;
+    A.append(titre('Existant (rénovation, extension)'),
+      bloc(nE || nD ? nE + ' mur' + (nE > 1 ? 's' : '') + ' existant' + (nE > 1 ? 's' : '') + ' conservé' + (nE > 1 ? 's' : '') + ', ' + nD + ' à démolir ; le reste est à construire.'
+        : 'Une maison existante : relevez-la (ou importez-la), puis « Tout le niveau existant ». Ensuite, choisissez chaque mur ou baie à démolir ; ce que vous tracez après est le projet.', 'note'),
+      ligne(bouton('Tout le niveau existant', () => {
+        const c: Commande[] = [...M.filter(w => !w.phase).map((w): Commande => ({ type: 'modifierMur', id: w.id, phase: 'existing' })),
+          ...O.filter(o => !o.phase && M.some(w => w.id === o.hostWallId)).map((o): Commande => ({ type: 'modifierOuverture', id: o.id, phase: 'existing' }))];
+        if (!c.length) { toast('Tout est déjà existant sur ce niveau.'); return }
+        if (faire('Niveau existant', c)) toast(c.length + ' mur' + (c.length > 1 ? 's' : '') + ' et baie' + (c.length > 1 ? 's' : '') + ' passés en existant ; un « annuler » les rend au projet.');
+      }), ...(nE || nD ? [bouton('Tout rendre au projet', () => {
+        const c: Commande[] = [...O.filter(o => o.phase).map((o): Commande => ({ type: 'modifierOuverture', id: o.id, phase: null })),
+          ...M.filter(w => w.phase).map((w): Commande => ({ type: 'modifierMur', id: w.id, phase: null }))];
+        if (confirm('Rendre au projet tous les murs et baies existants de ce niveau (ceux à démolir compris) ? « Annuler » le défait.')) faire('Niveau à construire', c);
+      })] : [])));
+  }
+
   /** les pièces images du dossier de permis : ce que le Designer ne dessine pas, fourni par l'utilisateur */
   function sectionPieces() {
     const A = aside;
@@ -2489,6 +2515,15 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           + (N && (N.garages.length || N.tremies || N.basses) ? '<br><span class="note">Déduit sur ce niveau : ' + [N.garages.length ? 'garage ' + m2(N.garages.reduce((s, g) => s + g.aire, 0)) : '', N.tremies ? 'trémie ' + m2(N.tremies) : '', N.basses ? 'moins de 1,80 m ' + m2(N.basses) : ''].filter(Boolean).join(', ') + '</span>' : '')
           + '<br><span class="note">Au nu intérieur des façades ; ' + esc(REFERENCES.surfacePlancher) + '.</span>'),
         bloc((S.seuil.etat === 'ok' ? '' : '⚠️ ') + esc(S.seuil.message), S.seuil.etat === 'ok' ? 'note' : 'alerte'));
+      /* une rénovation, une extension : l'existant, ce que les travaux créent, la formalité indicative */
+      if (S.travaux) {
+        const T = S.travaux;
+        A.append(titre('Existant et travaux'),
+          bloc('Existant : surface de plancher ' + m2(T.existant.surfacePlancher) + ', emprise au sol ' + m2(T.existant.emprise)
+            + '<br>Créé par les travaux : surface de plancher <b>' + m2(T.creee.surfacePlancher) + '</b>, emprise au sol <b>' + m2(T.creee.emprise) + '</b>'
+            + '<br>Après travaux : surface de plancher ' + m2(S.surfacePlancher) + ', emprise au sol ' + m2(S.emprise)),
+          bloc((T.formalite.genre === 'PC' ? '⚠️ ' : '') + 'Formalité indicative — ' + esc(T.formalite.message), T.formalite.genre === 'PC' ? 'alerte' : 'note'));
+      }
     } else A.append(bloc('Aucun espace clos.'));
     if (plan.baies.length) A.append(titre('Baies'), bloc(plan.baies.length + ' ouverture(s), dont ' + plan.baies.filter(b => b.exterieure).length + ' extérieure(s) — ' + m2(plan.baies.filter(b => b.exterieure).reduce((s, b) => s + b.surface, 0)) + ' de baies extérieures'));
 
@@ -2554,6 +2589,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     }
 
     sectionToiture(f);
+    sectionExistant(f);
 
     A.append(titre('Fonds (plan PDF, image)'));
     for (const u of Object.values(f.objects)) if (u.type === 'underlay') {

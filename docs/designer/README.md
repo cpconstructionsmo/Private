@@ -13,6 +13,7 @@ entier sur GitHub Pages. Seules les décisions techniques sont versionnées ici.
 | [0004](ADR-0004-atelier.md) | L'atelier Python est gardé, devient importeur, puis converge vers le Designer | Acceptée — 2026-10-01 |
 | [0005](ADR-0005-commandes.md) | Toute modification est une commande qui produit un ChangeSet, dès la Phase 1 | Acceptée — 2026-10-01 |
 | [0006](ADR-0006-vue-3d.md) | Vue 3D : maquette dérivée du plan (moteur pur testé), affichée par three.js chargé à la demande | Acceptée — 2026-10-02 |
+| [0007](ADR-0007-existant-projete.md) | Rénovation, extension : l'état (existant, à démolir) est saisi sur les murs et baies ; le modèle est l'état projeté, l'état existant se dérive | Acceptée — 2026-10-10 |
 
 Une nouvelle décision, ou une demande qui contredirait l'une d'elles ou les
 7 règles de la spécification, fait l'objet d'un nouvel ADR — jamais d'une

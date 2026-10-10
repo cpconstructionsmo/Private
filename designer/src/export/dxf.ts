@@ -16,7 +16,7 @@
    DXF R12. Rien n'est recopié : tout se dérive du modèle, comme le plan. */
 import type { Floor, Opening, Point, Project } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
-import { mursDroits } from '../building/murs';
+import { mursDroits, ouvertureBatie } from '../building/murs';
 import { cotationExterieure } from '../building/cotation';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
 import { emprise } from '../building/mobilier';
@@ -55,7 +55,7 @@ class Ecrivain {
 /** le DXF d'un niveau (texte ; voir dxfOctets pour l'enregistrer) */
 export function dxfNiveau(projet: Project, f: Floor): string {
   const w = new Ecrivain(), plan = planDuNiveau(f), M = mursDroits(f), parId = new Map(M.map(m => [m.id, m]));
-  const ouvertures = Object.values(f.objects).filter((o): o is Opening => o.type === 'opening' && parId.has(o.hostWallId));
+  const ouvertures = Object.values(f.objects).filter((o): o is Opening => o.type === 'opening' && ouvertureBatie(o) && parId.has(o.hostWallId));
   /* l'en-tête et les calques */
   w.g(0, 'SECTION').g(2, 'HEADER').g(9, '$ACADVER').g(1, 'AC1009').g(9, '$DWGCODEPAGE').g(3, 'ANSI_1252').g(0, 'ENDSEC');
   w.g(0, 'SECTION').g(2, 'TABLES').g(0, 'TABLE').g(2, 'LAYER').g(70, Object.keys(CALQUES).length);

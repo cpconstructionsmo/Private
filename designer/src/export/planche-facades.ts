@@ -11,7 +11,7 @@
    dessiné à la main. Ce que le projet ne dit pas (teinte des menuiseries,
    terrain fini) s'écrit « à préciser ». */
 import type { Floor, Point, Project, Roof } from '../model/types';
-import { toitureDuNiveau, baiesExterieures, lignesDeToiture, parcelleDuProjet, altitudeTerrain, mursDroits, GOUTTIERES, MATIERES_GOUTTIERE, type Cote4 } from '../building';
+import { toitureDuNiveau, baiesExterieures, lignesDeToiture, parcelleDuProjet, altitudeTerrain, mursDroits, ouvertureBatie, GOUTTIERES, MATIERES_GOUTTIERE, type Cote4 } from '../building';
 import { maquette, COUVERTURES, type Matiere } from '../vue3d/maquette';
 import { facade, type CoteFacade, type Facade, type FaceProjetee } from '../vue3d/facades';
 import { materiau, type Materiau } from '../catalogue/materiaux';
@@ -379,7 +379,8 @@ function contenuPanneaux(projet: Project, niveauxToit: Floor[], egout: number | 
   P.forEach(([lib, k], i) => L.push({ pastille: sw(k.m.couleur, motifPastille(k.m)), titre: i === 0 ? 'Façades' : 'Façades (partie)', texte: lib }));
   if (sansParement) L.push({ pastille: sw(ENDUIT_DEFAUT), titre: P.length ? 'Autres façades' : 'Façades', texte: 'parement ' + A_PRECISER, manque: true });
   for (const { m, titre } of decors.values()) L.push({ pastille: sw(m.couleur, motifPastille(m)), titre, texte: m.libelle });
-  const ouv = niveaux.flatMap(f => Object.values(f.objects)).filter(x => x.type === 'opening');
+  /* les baies du projet : celles des murs bâtis, ni bouchées ni déposées */
+  const ouv = niveaux.flatMap(f => { const M = new Set(mursDroits(f).map(w => w.id)); return Object.values(f.objects).filter(x => x.type === 'opening' && ouvertureBatie(x) && M.has(x.hostWallId)) });
   const volets = ouv.some(x => x.type === 'opening' && (x.shutter === 'roller_motorized' || x.shutter === 'roller_manual'));
   /* menuiseries, porte d'entrée, porte de garage : le matériau et la teinte choisis (informations du dossier), ou ce qui manque */
   const decrit = (q: OuvrageMenuiserie, genre: 'e' | 'es') => {
@@ -429,7 +430,7 @@ function contenuPanneaux(projet: Project, niveauxToit: Floor[], egout: number | 
       titre: 'Autres faîtages', texte: fait.slice(1, 5).map(niveauRelatif).join(' – ') + (fait.length > 5 ? '…' : '') + ' (par rapport au RDC fini)' }] : []),
     { pastille: (page, x, y) => texte(page, 'Baies', x, y + 3.6, 7.5, { gras: true, couleur: '#222222' }), titre: '', texte: 'largeur × hauteur (m) ; allège = hauteur de l’appui par rapport au RDC fini' },
   ];
-  const surfBaies = niveaux.flatMap(f => Object.values(f.objects)).reduce((s, x) => s + (x.type === 'opening' && x.kind !== 'garage_door' && mursDroits(niveaux.find(f => f.objects[x.hostWallId])!).some(w => w.id === x.hostWallId && w.role === 'exterior') ? x.width * x.height : 0), 0);
+  const surfBaies = niveaux.flatMap(f => Object.values(f.objects)).reduce((s, x) => s + (x.type === 'opening' && ouvertureBatie(x) && x.kind !== 'garage_door' && mursDroits(niveaux.find(f => f.objects[x.hostWallId])!).some(w => w.id === x.hostWallId && w.role === 'exterior') ? x.width * x.height : 0), 0);
   const lecture: Panneau = {
     titre: 'NIVEAUX ET LECTURE DES FAÇADES', hauteur: () => 14 + lignes.length * 9.5 + 24,
     dessiner: (page, x, y, e) => {

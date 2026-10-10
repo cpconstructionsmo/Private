@@ -10,13 +10,20 @@
    - au-delà de 150 m² de surface de plancher, recours obligatoire à un
      architecte : le dossier ne se produit pas au nom de CP Constructions.
 
+   Une rénovation, une extension (ADR-0007) : la surface de plancher et
+   l'emprise de l'existant (avant travaux), celles du projet, et la
+   différence — ce que les travaux créent ; elle donne la formalité
+   indicative : déclaration préalable jusqu'à 20 m² créés (40 m² en zone
+   urbaine du PLU, sauf si le total dépasse alors 150 m²), permis au-delà.
+
    Les articles cités sont à vérifier au texte en vigueur sur Légifrance
    (règle de l'atelier) : ils s'affichent « à vérifier ». */
 import type { Floor, Project } from '../model/types';
 import { planDuNiveau } from './plan';
 import { tremiesDuNiveau } from './escalier';
 import { toitureDuNiveau } from './toiture';
-import { empriseAuSol, aireEmprise } from './terrain';
+import { empriseAuSol, aireEmprise, parcelleDuProjet } from './terrain';
+import { aDesExistants, projetExistant } from './etats';
 import { difference, intersection, union } from '../geometry/booleen';
 import { aireSignee, type Anneau, type Polygone } from '../geometry/polygon';
 
@@ -24,7 +31,11 @@ export const REFERENCES = {
   surfacePlancher: 'art. R.111-22 du code de l’urbanisme (rédaction en vigueur à vérifier)',
   surfaceHabitable: 'art. R.156-1 du code de la construction et de l’habitation (rédaction en vigueur à vérifier)',
   seuilArchitecte: 'art. R.431-2 du code de l’urbanisme (rédaction en vigueur à vérifier)',
+  formaliteExtension: 'art. R.421-14 et R.421-17 du code de l’urbanisme (rédaction en vigueur à vérifier)',
 } as const;
+
+/** les seuils de surface créée d'une extension (m²) : déclaration préalable jusqu'à 20 m², 40 m² en zone urbaine du PLU */
+export const SEUIL_DP = 20, SEUIL_DP_ZONE_U = 40;
 
 export const SEUIL_ARCHITECTE = 150;
 export const ALERTE_ARCHITECTE = 140;
@@ -50,6 +61,15 @@ export interface Surfaces {
   niveaux: SurfacesNiveau[];
   surfacePlancher: number; habitable: number; emprise: number;
   seuil: { etat: 'ok' | 'alerte' | 'bloquant'; message: string };
+  /** une rénovation ou une extension : l'existant, ce que les travaux créent, la formalité indicative */
+  travaux?: Travaux;
+}
+
+export interface Travaux {
+  existant: { surfacePlancher: number; emprise: number };
+  /** projet − existant (mm²), jamais négatif ; une démolition nette se lit dans « existant » */
+  creee: { surfacePlancher: number; emprise: number };
+  formalite: { genre: 'DP' | 'PC' | 'aucune'; message: string };
 }
 
 const aire = (P: Polygone[]): number => P.reduce((s, q) => s + Math.abs(aireSignee(q.contour)) - (q.trous ?? []).reduce((t, r) => t + Math.abs(aireSignee(r)), 0), 0);
@@ -108,5 +128,28 @@ export function surfacesReglementaires(projet: Project): Surfaces {
     : s >= ALERTE_ARCHITECTE
       ? { etat: 'alerte', message: 'Surface de plancher ' + m2(sdp) + ' m² : à moins de ' + (SEUIL_ARCHITECTE - s).toFixed(2).replace('.', ',') + ' m² du seuil de ' + SEUIL_ARCHITECTE + ' m² (' + REFERENCES.seuilArchitecte + ').' }
       : { etat: 'ok', message: 'Surface de plancher ' + m2(sdp) + ' m², sous le seuil de ' + SEUIL_ARCHITECTE + ' m².' };
-  return { niveaux, surfacePlancher: sdp, habitable: niveaux.reduce((t, n) => t + n.habitable, 0), emprise: aireEmprise(empriseAuSol(projet)), seuil };
+  const emprise = aireEmprise(empriseAuSol(projet));
+  return { niveaux, surfacePlancher: sdp, habitable: niveaux.reduce((t, n) => t + n.habitable, 0), emprise, seuil,
+    ...(aDesExistants(projet) ? { travaux: travauxDuProjet(projet, sdp, emprise) } : {}) };
+}
+
+/** l'existant avant travaux, ce que les travaux créent, et la formalité qui s'en déduit (indicative, à vérifier) */
+function travauxDuProjet(projet: Project, sdp: number, emprise: number): Travaux {
+  const E = projetExistant(projet);
+  const sdpE = E.buildings.flatMap(b => b.floors).reduce((s, f) => s + surfacesNiveau(E, f).surfacePlancher, 0);
+  const empE = aireEmprise(empriseAuSol(E));
+  const creee = { surfacePlancher: Math.max(0, sdp - sdpE), emprise: Math.max(0, emprise - empE) };
+  const c = Math.max(creee.surfacePlancher, creee.emprise) / 1e6, total = sdp / 1e6;
+  const zone = parcelleDuProjet(projet)?.plot.plu?.zone?.trim();
+  const urbaine = zone ? /^U/i.test(zone) : null;
+  /* en zone urbaine, 40 m² ; mais au-delà de 20 m², si le total dépasse 150 m², le permis s'impose (recours à l'architecte) */
+  const seuil = urbaine ? (total > SEUIL_ARCHITECTE ? SEUIL_DP : SEUIL_DP_ZONE_U) : SEUIL_DP;
+  const zoneDite = zone ? 'zone ' + zone + (urbaine ? ' (urbaine)' : '') : 'zone du PLU à préciser (en zone urbaine, le seuil est de ' + SEUIL_DP_ZONE_U + ' m²)';
+  const cree = 'Surface créée ' + m2(Math.max(creee.surfacePlancher, creee.emprise)) + ' m² (surface de plancher ' + m2(creee.surfacePlancher) + ' m², emprise au sol ' + m2(creee.emprise) + ' m²)';
+  const formalite: Travaux['formalite'] = c <= 5
+    ? { genre: 'aucune', message: cree + ' : pas de formalité pour la surface ; une modification de l’aspect extérieur (baies, façades) relève de la déclaration préalable — ' + REFERENCES.formaliteExtension + '.' }
+    : c <= seuil
+      ? { genre: 'DP', message: cree + ' : déclaration préalable (jusqu’à ' + seuil + ' m², ' + zoneDite + ') — ' + REFERENCES.formaliteExtension + '.' }
+      : { genre: 'PC', message: cree + ' : permis de construire (au-delà de ' + seuil + ' m², ' + zoneDite + (urbaine && total > SEUIL_ARCHITECTE ? ', total après travaux au-delà de ' + SEUIL_ARCHITECTE + ' m²' : '') + ') — ' + REFERENCES.formaliteExtension + '.' };
+  return { existant: { surfacePlancher: sdpE, emprise: empE }, creee, formalite };
 }

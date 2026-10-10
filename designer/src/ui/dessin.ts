@@ -4,9 +4,9 @@
    maçonnerie, ouvertures, cotes, contraintes, sélection, accrochage. */
 import type { Canopy, Floor, Furniture, Opening, Point, Room, Underlay } from '../model/types';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
-import { decalagesFaces, mursDroits, mursFictifs, type MurDroit } from '../building/murs';
+import { contoursMurs, decalagesFaces, mursDemolis, mursDroits, mursFictifs, ouvertureBatie, type MurDroit } from '../building/murs';
 import { couchesDuNiveau, type BandeCouche } from '../building/couches';
-import { intersection } from '../geometry/booleen';
+import { intersection, union } from '../geometry/booleen';
 import { dessinerTerrain } from './dessin-terrain';
 import { MATIERES_COUCHES, compositionMur } from '../catalogue/murs';
 import type { Accroche } from '../building/accrochage';
@@ -84,6 +84,45 @@ export interface Scene {
   /** les eaux pluviales de la toiture du niveau : ses descentes ; « gouttieres » : l'égout qui les porte, marqué */
   eaux?: EauxPluviales | null;
   gouttieres?: boolean;
+}
+
+/** les teintes d'une rénovation, d'une extension (ADR-0007), au plan comme à la légende des planches */
+export const ETATS = { existant: '#CFCCC6', existantTrait: '#5A5A5A', demoli: '#F6E7B0', demoliTrait: '#B07D12' } as const;
+
+/** l'existant conservé en gris plein (ni hachures ni couches : il est déjà là) ; le démoli en tirets sur fond
+    jaune pâle ; une baie existante à boucher, en tirets dans son mur (le mur, lui, est redevenu plein) */
+function existantEtDemoli(ctx: CanvasRenderingContext2D, cam: Camera, f: Floor, existants: ReadonlySet<string>, dossier: boolean): void {
+  const plan = planDuNiveau(f);
+  if (existants.size) {
+    /* réunis d'abord : les onglets des angles ne se dessinent pas dans le gris */
+    const P = intersection(union(plan.murs.filter(m => existants.has(m.id)).map(m => ({ contour: m.contour }))), plan.maconnerieOuverte);
+    ctx.fillStyle = ETATS.existant;
+    for (const p of P) { chemin(ctx, cam, p); ctx.fill('evenodd') }
+    ctx.strokeStyle = ETATS.existantTrait; ctx.lineWidth = dossier ? 1 : 1.1;
+    for (const p of P) { chemin(ctx, cam, p); ctx.stroke() }
+  }
+  const D = mursDemolis(f);
+  if (D.length) {
+    ctx.save(); ctx.setLineDash([6, 4]);
+    for (const m of contoursMurs(D)) {
+      chemin(ctx, cam, { contour: m.contour });
+      ctx.fillStyle = ETATS.demoli; ctx.fill(); ctx.strokeStyle = ETATS.demoliTrait; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+    ctx.restore();
+  }
+  const murs = new Map(mursDroits(f).map(w => [w.id, w]));
+  for (const o of Object.values(f.objects)) {
+    if (o.type !== 'opening' || ouvertureBatie(o)) continue;
+    const w = murs.get(o.hostWallId);
+    if (!w) continue;
+    const R = geometrieOuverture(w, o).rectangle;
+    ctx.save(); ctx.setLineDash([4, 3]); ctx.strokeStyle = ETATS.demoliTrait; ctx.lineWidth = 1.2;
+    chemin(ctx, cam, { contour: R }); ctx.stroke();
+    /* la croix du bouchage, d'un coin à l'autre */
+    const E = R.map(q => versEcran(cam, q));
+    ctx.beginPath(); ctx.moveTo(E[0]!.x, E[0]!.y); ctx.lineTo(E[2]!.x, E[2]!.y); ctx.moveTo(E[1]!.x, E[1]!.y); ctx.lineTo(E[3]!.x, E[3]!.y); ctx.stroke();
+    ctx.restore();
+  }
 }
 
 /** une teinte assombrie (k < 1), opaque : les joints se voient pareil à l'écran et sur le papier */
@@ -179,14 +218,17 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillStyle = DOSSIER.cloison; ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1;
     for (const m of plan.murs) if (cloisons.has(m.id)) for (const p of intersection([{ contour: m.contour }], plan.maconnerieOuverte)) { chemin(ctx, cam, p); ctx.fill('evenodd'); ctx.stroke() }
   }
-  /* les murs composés : chaque couche à sa place (enduit dehors, isolant, plâtre), cernée d'un trait fin */
-  const C = couchesDuNiveau(s.niveau);
+  /* les murs composés : chaque couche à sa place (enduit dehors, isolant, plâtre), cernée d'un trait fin — sauf
+     les murs existants : ils sont déjà là, on ne dessine pas leur composition */
+  const existants = new Set(mursDroits(s.niveau).filter(w => w.phase === 'existing').map(w => w.id));
+  const C = couchesDuNiveau(s.niveau).filter(b => !existants.has(b.mur));
   if (C.length) {
     const genres = new Map(mursDroits(s.niveau).map(w => [w.id, compositionMur(w.compositionRef)?.genre]));
     for (const b of C) couche(ctx, cam, b, s.dossier ? (genres.get(b.mur) === 'cloison' ? 'cloison' : 'dossier') : null);
     ctx.strokeStyle = COULEURS.encre; ctx.lineWidth = 1.1;
     for (const p of plan.maconnerieOuverte) { chemin(ctx, cam, p); ctx.stroke() }
   }
+  existantEtDemoli(ctx, cam, s.niveau, existants, !!s.dossier);
   if (s.fondations) trappes(ctx, cam, s.fondations);
   /* les cloisons fictives : un trait mixte, sans matière */
   for (const v of mursFictifs(s.niveau)) {
@@ -220,7 +262,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
   /* ouvertures */
   const murs = new Map(mursDroits(s.niveau).map(w => [w.id, w]));
   for (const o of Object.values(s.niveau.objects)) {
-    if (o.type !== 'opening') continue;
+    if (o.type !== 'opening' || !ouvertureBatie(o)) continue;
     const w = murs.get(o.hostWallId);
     /* sens inconnu (plan importé) : la porte s'ouvre côté pièce, jamais vers l'extérieur */
     const b = plan.baies.find(x => x.id === o.id);

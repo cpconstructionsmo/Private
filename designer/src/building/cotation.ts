@@ -6,7 +6,7 @@
    et ne peut jamais être fausse. */
 import type { Floor, Mm, Opening, Point } from '../model/types';
 import { planDuNiveau } from './plan';
-import { decalagesFaces, mursDroits, type MurDroit } from './murs';
+import { decalagesFaces, mursDroits, ouvertureBatie, type MurDroit } from './murs';
 import type { Anneau } from '../geometry/polygon';
 import { ajouter, distance, multiplier, normaleGauche, normaliser, scalaire, soustraire } from '../geometry/vecteur';
 import { distancePointSegment } from '../geometry/segment';
@@ -255,7 +255,7 @@ export function placeOuverture(f: Floor, id: string): PlaceOuverture | null {
   /* les arrêts : les murs qui aboutissent sur cette face, et les autres ouvertures du mur */
   const arrets = [tmin, tmax];
   for (const m of plan.murs) if (m.id !== mur.id) for (const p of m.contour) if (surFace(p)) { const x = t(p); if (x > tmin && x < tmax) arrets.push(x) }
-  for (const x of Object.values(f.objects)) if (x.type === 'opening' && x.id !== id && x.hostWallId === mur.id) arrets.push(x.offset - x.width / 2, x.offset + x.width / 2);
+  for (const x of Object.values(f.objects)) if (x.type === 'opening' && ouvertureBatie(x) && x.id !== id && x.hostWallId === mur.id) arrets.push(x.offset - x.width / 2, x.offset + x.width / 2);
   const debut = o.offset - o.width / 2, fin = o.offset + o.width / 2;
   const arretAvant = Math.max(...arrets.filter(x => x <= debut + EPS_SUR_FACE), tmin);
   const arretApres = Math.min(...arrets.filter(x => x >= fin - EPS_SUR_FACE), tmax);
