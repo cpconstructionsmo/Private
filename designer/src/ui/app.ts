@@ -1093,6 +1093,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { id: 'plans', libelle: 'Plans', icone: 'pdf', tuiles: () => [action('Plans en PDF', 'pdf', () => void exporterPdf()), action('Plans en DXF', 'dxf', () => void exporterDxf()), action('Projet (JSON)', 'json', exporter)] },
       { id: 'metre', libelle: 'Métré', icone: 'metre', tuiles: () => [action('Métré (CSV)', 'tableau', exporterMetre, 'Le métré par lot, à ouvrir dans un tableur', 'b-metre')], panneau: () => panneauMetreProjet() },
       { id: 'permis', libelle: 'Dossier de permis', icone: 'permis', tuiles: () => [action('Dossier PC complet', 'permis', () => void exporterPdf('dossier')),
+        action('Déclaration préalable', 'permis', () => void exporterPdf('dp'), 'Le dossier de déclaration préalable (DP1 à DP8) : extension, travaux sur l’existant', 'b-dp'),
         action('Informations', 'notice', () => void informationsDossier(), 'Maître d’ouvrage, lieu, cadastre, chauffage, modifications…'),
         action('Cabinet', 'atelier', () => void reglerCabinet(), 'Société, coordonnées et dessinateur (réglés sur cet appareil)'),
         action('PCMI 1 situation', 'image', () => void importerPiece('situation', 'PCMI 1 — Plan de situation', 'Source et échelle de l’extrait (ex. : Géoportail, 1/5 000)')),
@@ -2478,6 +2479,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ligne(bouton('Compléter…', () => void informationsDossier(), 'prim binfos'), bouton('Cabinet…', () => void reglerCabinet(), 'bcabinet')),
       bloc('Les informations vont à la page de garde et à la colonne de chaque planche (ce qui manque s’écrit « [à préciser] ») ; elles sont enregistrées avec le projet. Le cabinet (société, SIREN, dessinateur…) est réglé sur cet appareil.'));
     A.append(titre('Dossier de permis : pièces fournies'));
+    /* une extension, des travaux sur l'existant : la formalité indicative, et les mêmes pièces sous leur code de déclaration */
+    const T = surfacesReglementaires(h.projet).travaux;
+    if (T) A.append(bloc('Formalité indicative : ' + (T.formalite.genre === 'DP' ? 'déclaration préalable' : T.formalite.genre === 'PC' ? 'permis de construire' : 'aucune') + ' (tableau des surfaces). En déclaration préalable, ces pièces deviennent DP1 (situation), DP2 (masse), DP3 (coupe), DP4 (façades et toitures), DP6 (insertion), DP7 et DP8 (photographies) ; la vue 3D gardée sert de DP5.', 'note'));
     const etat = (code: string, nom: string, v: ImageDossier | null | undefined, sinon: string) =>
       bloc('<b>' + code + '</b> ' + nom + ' : ' + (v ? '✓ ' + v.largeur + ' × ' + v.hauteur + ' px' + (v.legende ? ' — ' + esc(v.legende) : '') : '<span class="note">' + sinon + '</span>'));
     const piece = (cle: 'situation' | 'situationAerienne' | 'photoProche' | 'photoLointaine', code: string, nom: string, invite: string, classe: string) => {
@@ -2838,16 +2842,16 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       toast(F.length > 1 ? F.length + ' fichiers DXF enregistrés' : 'DXF enregistré : ' + (h.projet.name || 'projet') + ' - ' + F[0]!.name + '.dxf');
     } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
   }
-  /** le dossier de permis complet, en un PDF numéroté (export/planche.ts, dossierPc) */
-  async function exporterDossier(r: Record<string, string>) {
+  /** le dossier de permis complet, ou de déclaration préalable, en un PDF numéroté (export/planche.ts, dossierPc, dossierDp) */
+  async function exporterDossier(r: Record<string, string>, formalite: 'PC' | 'DP' = 'PC') {
     try {
-      const { dossierPc } = await import('../export/planche');
+      const { dossierPc, dossierDp } = await import('../export/planche');
       const sig = await signature();
-      const { octets, pieces } = dossierPc(h.projet, { ...sig, indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'),
+      const { octets, pieces } = (formalite === 'DP' ? dossierDp : dossierPc)(h.projet, { ...sig, indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'),
         ...(r['mo']?.trim() ? { maitreOuvrage: r['mo'] } : {}), ...(r['mob'] === 'oui' ? { mobilier: true } : {}), ...(perspective && r['per'] !== 'non' ? { perspective } : {}), ...piecesDossier, ...(r['adr']?.trim() ? { adresseTerrain: r['adr'] } : {}), ...(r['ech'] && r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}) });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([octets], { type: 'application/pdf' }));
-      a.download = (h.projet.name || 'projet') + ' - dossier PC.pdf';
+      a.download = (h.projet.name || 'projet') + (formalite === 'DP' ? ' - dossier DP.pdf' : ' - dossier PC.pdf');
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
       const manque = pieces.filter(p => p.page === null).map(p => p.code);
@@ -2855,9 +2859,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
   }
   /** les plans en PDF (A3, à l'échelle, cotés, cartouche) : chargé à la demande */
-  async function exporterPdf(doc: 'planches' | 'dossier' = 'planches') {
+  async function exporterPdf(doc: 'planches' | 'dossier' | 'dp' = 'planches') {
     const r = await dialogue('Exporter en PDF (A3)', [
-      { cle: 'doc', libelle: 'Composer', valeur: doc, options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)' } },
+      { cle: 'doc', libelle: 'Composer', valeur: doc, options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)', dp: 'Le dossier de déclaration préalable (garde et sommaire, DP1 à DP8 selon les pièces fournies, notice et plans en complément)' } },
       { cle: 'pre', libelle: 'Plans', valeur: 'technique', options: { technique: 'Plans techniques (cotés)', presentation: 'Plans de présentation pour le client (sols en couleur, mobilier, sans cotes)' } },
       { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (une page chacun)' } },
       { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
@@ -2873,7 +2877,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { cle: 'adr', libelle: 'Adresse du terrain (dossier)', valeur: '' },
       ...(perspective ? [{ cle: 'per', libelle: 'Vue 3D (dossier)', valeur: 'oui', options: { oui: 'Ajouter la vue 3D gardée', non: 'Sans' } }] : [])]);
     if (!r) return;
-    if (r['doc'] === 'dossier') { await exporterDossier(r); return }
+    if (r['doc'] === 'dossier' || r['doc'] === 'dp') { await exporterDossier(r, r['doc'] === 'dp' ? 'DP' : 'PC'); return }
     try {
       const { planchesPdf } = await import('../export/planche');
       const sig = await signature();

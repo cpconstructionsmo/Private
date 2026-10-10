@@ -567,6 +567,14 @@ try {
   await p.selectOption('aside label:has-text("État (rénovation, extension)") select', 'demolished');
   assert.equal((await objets()).find(o => o.id === murEntree.id).phase, 'demolished', 'le mur de l’entrée est à démolir');
   assert.match(await p.textContent('aside'), /État \(rénovation, extension\)/, 'le mur à démolir reste choisi');
+  /* le dossier de déclaration préalable, du dialogue des PDF : les pièces sous leur code DP */
+  await p.click('header button.bpdf');
+  await p.waitForSelector('.voile h2:has-text("Exporter en PDF")');
+  await p.selectOption('.voile label:has-text("Composer") select', 'dp');
+  const [dlDp] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
+  const pdfDp = (await readFile(await dlDp.path())).toString('latin1');
+  assert.ok(pdfDp.includes('(PLAN DE D\xC9CLARATION PR\xC9ALABLE)') && pdfDp.includes('(DP4)') && !pdfDp.includes('(PCMI 5)'), 'dossier de déclaration préalable');
+  assert.match(dlDp.suggestedFilename(), /dossier DP\.pdf$/);
   await p.keyboard.press('Control+z'); await p.keyboard.press('Control+z');
   assert.ok((await objets()).filter(o => o.type === 'wall').every(o => !o.phase), 'deux « annuler » : tout redevient projet');
   await videClic();
@@ -798,7 +806,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, vue aérienne, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, pièces meublées d’un clic, décor de façade (pierre à l’entrée), rénovation (niveau existant, mur à démolir), plan de division du géomètre et vues complémentaires, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, vue aérienne, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, pièces meublées d’un clic, décor de façade (pierre à l’entrée), rénovation (niveau existant, mur à démolir, dossier de déclaration préalable), plan de division du géomètre et vues complémentaires, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

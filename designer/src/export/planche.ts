@@ -14,7 +14,7 @@ import { surfacesReglementaires, type Surfaces } from '../building/surfaces';
 import { DocumentPdf, largeurTexte, type PagePdf } from './pdf';
 import { notice, A_COMPLETER } from './notice';
 import { lignesDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
-import { avecLogo, colonne, lieuDuProjetDe, titreDessin, texte, GRIS_TEXTE, type Signature, sigleRE2020, couper as couperF, CABINET_PAR_DEFAUT, mentionCabinet, type Cabinet, type ImageDossier } from './feuille';
+import { avecLogo, colonne, lieuDuProjetDe, titreDessin, texte, GRIS_TEXTE, type Signature, type Formalite, codePiece, sigleRE2020, couper as couperF, CABINET_PAR_DEFAUT, mentionCabinet, type Cabinet, type ImageDossier } from './feuille';
 import { plancheFacades } from './planche-facades';
 import { plancheMasse } from './planche-masse';
 import { plancheSituation } from './planche-situation';
@@ -129,14 +129,16 @@ function pageNotice(doc: DocumentPdf, projet: Project, o: OptionsPlanche): void 
   const adr = (D.lieuConstruction ?? '').split('\n').map(l => l.trim()).filter(Boolean);
   adr.forEach((l, k) => page.texte(l, X(cx), Y(21.5 + k * 4.2), 8.5, { aligne: 'centre', couleur: '#111111' }));
   const yN = 21.5 + adr.length * 4.2 + 1.5;
-  page.texte('CONSTRUCTION D’UNE MAISON INDIVIDUELLE', X(cx), Y(yN), 10, { italique: true, aligne: 'centre', couleur: '#111111' });
+  /* une rénovation, une extension (ADR-0007) : des travaux sur la maison existante, non une construction */
+  page.texte(aDesExistants(projet) ? 'TRAVAUX SUR UNE MAISON INDIVIDUELLE EXISTANTE' : 'CONSTRUCTION D’UNE MAISON INDIVIDUELLE', X(cx), Y(yN), 10, { italique: true, aligne: 'centre', couleur: '#111111' });
   page.texte('Brouillon établi par le Designer à partir du projet : à relire et compléter (« ' + A_COMPLETER + ' ») avant le dépôt.', X(cx), Y(yN + 3.6), 6, { italique: true, aligne: 'centre', couleur: '#C5563A' });
   /* deux colonnes ; le titre dans un encadré orangé en tête de la première */
   const col = (x1 - x0 - 10) / 2;
   const yT = yN + 9;
   page.cadre(X(x0), Y(yT + 8), col * PT, 8 * PT, { ep: 0, fond: '#E8B98A' });
   page.texte('Notice décrivant le terrain et présentant le projet', X(x0 + col / 2), Y(yT + 5.4), 10, { gras: true, aligne: 'centre', couleur: '#111111' });
-  page.texte('(article R.431-8 du code de l’urbanisme, à vérifier sur Légifrance)', X(x0 + col / 2), Y(yT + 11.5), 6.5, { aligne: 'centre', couleur: '#333333' });
+  /* en déclaration préalable, la notice n'est pas une pièce du bordereau : elle accompagne le dossier */
+  page.texte(o.formalite === 'DP' ? '(complément au dossier de déclaration préalable, facultatif)' : '(article R.431-8 du code de l’urbanisme, à vérifier sur Légifrance)', X(x0 + col / 2), Y(yT + 11.5), 6.5, { aligne: 'centre', couleur: '#333333' });
   const bas = 287, N = notice(projet);
   /* les rubriques réparties sur les deux colonnes, à peu près à parts égales (comme aux dossiers du cabinet) : on passe à
      la seconde quand la première a sa moitié du texte, ou plus de place ; le corps, le plus grand (9,5 à 7 pt) où tout
@@ -184,14 +186,14 @@ function pageNotice(doc: DocumentPdf, projet: Project, o: OptionsPlanche): void 
 function pageImage(doc: DocumentPdf, projet: Project, o: OptionsPlanche, entete: string, titre: string, v: ImageDossier, notes: string[]): void {
   const page = doc.page(A3.l * PT, A3.h * PT), nom = doc.imageJpeg(v.jpeg, v.largeur, v.hauteur);
   const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
-  const m = /^(PCMI \d(?: \/ \d)?) — (.*)$/.exec(titre), code = m ? m[1]! : '', intitule = (m ? m[2]! : titre).replace(/\s*\(.*\)\s*$/, '');
+  const m = /^(PCMI \d(?: \/ \d)?|DP\d) — (.*)$/.exec(titre), code = m ? m[1]! : '', intitule = (m ? m[2]! : titre).replace(/\s*\(.*\)\s*$/, '');
   /* l'image aussi grande que possible au-dessus de la bande des notes (sans la déformer) */
   const BANDE = 58, L = 345, H = 287 - 12 - BANDE - 14, k = Math.min(L / v.largeur, H / v.hauteur), l = v.largeur * k, h = v.hauteur * k;
   const x0 = 10 + (L - l) / 2, y0 = 10;
   page.image(nom, X(x0), Y(y0 + h), l * PT, h * PT);
   page.cadre(X(x0), Y(y0 + h), l * PT, h * PT, { ep: 0.5, couleur: '#222222' });
   /* sa légende : la pièce et l'intitulé, puis ce qu'en dit l'utilisateur (point de vue, source) */
-  titreDessin(page, ((code ? code + ' — ' : '') + entete).toUpperCase(), '', x0, y0 + h + 6, 9);
+  titreDessin(page, ((code ? codePiece(code, o.formalite) + ' — ' : '') + entete).toUpperCase(), '', x0, y0 + h + 6, 9);
   const leg = v.legende?.trim();
   if (leg) texte(page, leg, x0 + 2.4, y0 + h + 10, 7, { couleur: GRIS_TEXTE });
   /* la bande du bas : les notes, puis le repérage des prises de vue sur la parcelle */
@@ -302,13 +304,30 @@ export interface PieceDossier { code: string; intitule: string; page: number | n
  * planche numérotée « n / N ». Une pièce qui manque est listée « à joindre » : rien n'est inventé.
  */
 export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Array<ArrayBuffer>; pieces: PieceDossier[] } {
+  return composerDossier(projet, d, 'PC');
+}
+
+/**
+ * Le dossier de déclaration préalable (maison individuelle : une extension, des travaux sur l'existant) : les
+ * mêmes planches, numérotées d'après le bordereau de la déclaration — situation (DP1), plan de masse (DP2),
+ * coupe (DP3), façades et toitures, existantes puis projetées (DP4), aspect extérieur (DP5 : la vue 3D gardée),
+ * insertion (DP6), photographies (DP7, DP8) ; la notice et les plans des niveaux suivent, en complément. Le
+ * bordereau du formulaire en vigueur reste à vérifier au dépôt ; une pièce qui manque est « à joindre ».
+ */
+export function dossierDp(projet: Project, d: OptionsDossier): { octets: Uint8Array<ArrayBuffer>; pieces: PieceDossier[] } {
+  return composerDossier(projet, d, 'DP');
+}
+
+/** le dossier d'une formalité : les planches sont les mêmes, l'ordre et les codes des pièces suivent son formulaire */
+function composerDossier(projet: Project, d: OptionsDossier, formalite: Formalite): { octets: Uint8Array<ArrayBuffer>; pieces: PieceDossier[] } {
   /* au-delà de 150 m² de surface de plancher, le dossier ne se produit pas au nom de CP Constructions (règle de l'atelier) */
   const S = surfacesReglementaires(projet);
   if (S.seuil.etat === 'bloquant') throw new Error(S.seuil.message);
+  const dp = formalite === 'DP', C = (code: string) => codePiece(code, formalite);
   const doc = new DocumentPdf();
   const garde = doc.page(A3.l * PT, A3.h * PT);
   const niveaux = projet.buildings.flatMap(b => b.floors).sort((a, b) => a.elevation - b.elevation);
-  const o: OptionsPlanche = avecLogo(doc, { niveaux: niveaux.map(f => f.id), cotation: true, mobilier: !!d.mobilier, indice: d.indice, date: d.date, dossier: true, coupe: true, ...(d.echelle ? { echelle: d.echelle } : {}),
+  const o: OptionsPlanche = avecLogo(doc, { niveaux: niveaux.map(f => f.id), cotation: true, mobilier: !!d.mobilier, indice: d.indice, date: d.date, dossier: true, coupe: true, formalite, ...(d.echelle ? { echelle: d.echelle } : {}),
     ...(d.cabinet ? { cabinet: d.cabinet } : {}), ...(d.logo ? { logo: d.logo } : {}), ...(d.maitreOuvrage?.trim() ? { maitreOuvrage: d.maitreOuvrage } : {}) });
   const debut = () => doc.nombre + 1;
   const t = parcelleDuProjet(projet);
@@ -327,8 +346,9 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   if (t) plancheMasse(doc, projet, o);
   const lignes = lignesDeCoupe(projet), pCoupe = debut();
   plancheCoupes(doc, projet, o, lignes);
-  const pNotice = debut();
-  pageNotice(doc, projet, o);
+  /* la notice est le PCMI 4 du permis ; en déclaration préalable, elle n'est pas au bordereau et passe en complément */
+  const pNotice = dp ? null : debut();
+  if (!dp) pageNotice(doc, projet, o);
   /* une rénovation, une extension (ADR-0007) : les façades de l'existant, puis celles du projet */
   const travaux = aDesExistants(projet), pFacadesExistantes = travaux ? debut() : null;
   if (travaux) plancheFacades(doc, projetExistant(projet), { ...o, etat: 'existant' });
@@ -339,16 +359,22 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   /* le point de prise de vue d'une photographie : reporté au plan de masse s'il y est tracé (outil I), sinon à reporter */
   const PV = pointsDeVue(projet);
   const priseDeVue = (code: string, v: ImageDossier) => PV.some(x => x.piece === code) && t
-    ? 'Point et angle de prise de vue reportés sur le plan de masse (PCMI 2' + (pMasse ? ', page ' + pMasse : '') + ')' + (v.legende?.trim() ? ' : ' + v.legende.trim() : '') + '.'
-    : 'Point et angle de prise de vue à reporter sur le plan de masse (PCMI 2)' + (v.legende?.trim() ? ' : ' + v.legende.trim() : ' : ' + A_COMPLETER) + '.';
+    ? 'Point et angle de prise de vue reportés sur le plan de masse (' + C('PCMI 2') + (pMasse ? ', page ' + pMasse : '') + ')' + (v.legende?.trim() ? ' : ' + v.legende.trim() : '') + '.'
+    : 'Point et angle de prise de vue à reporter sur le plan de masse (' + C('PCMI 2') + ')' + (v.legende?.trim() ? ' : ' + v.legende.trim() : ' : ' + A_COMPLETER) + '.';
+  /* en déclaration préalable, la vue 3D gardée représente l'aspect extérieur du projet (DP5), avant l'insertion */
+  const pAspect = dp && d.perspective ? debut() : null;
+  if (dp && d.perspective) pageImage(doc, projet, o, 'Aspect extérieur du projet', 'DP5 — Aspect extérieur', d.perspective, [
+    'Vue 3D calculée depuis le plan (matériaux et toiture du projet) : elle montre la construction telle qu’elle sera après les travaux.',
+    travaux ? 'Les modifications se lisent en regard des façades de l’état existant (DP4, page ' + pFacadesExistantes + ').' : 'Les façades et la toiture du projet sont à la DP4 (page ' + pFacades + ').',
+  ]);
   const pInsertion = d.insertion ? debut() : null;
   if (d.insertion) pageImage(doc, projet, o, 'Insertion du projet dans son environnement', 'PCMI 6 — Insertion', d.insertion, [
     'Photomontage : la maquette 3D du projet (calculée depuis le plan, avec ses matériaux et sa toiture) posée sur une photographie du terrain, cadrée à la main dans le Designer.',
     'La concordance du point de vue et de la focale avec la photographie est à vérifier à l’œil.',
     priseDeVue('PCMI 6', d.insertion),
   ]);
-  const pVue = d.perspective ? debut() : null;
-  if (d.perspective) pageImage(doc, projet, o, 'Vue 3D du projet', 'Vue 3D (complément au PCMI 6)', d.perspective, [
+  const pVue = !dp && d.perspective ? debut() : null;
+  if (!dp && d.perspective) pageImage(doc, projet, o, 'Vue 3D du projet', 'Vue 3D (complément au PCMI 6)', d.perspective, [
     'Vue 3D calculée depuis le plan (matériaux et toiture du projet).',
     pInsertion ? 'L’insertion dans le site (PCMI 6) est page ' + pInsertion + '.' : 'Pour le PCMI 6, le projet reste à insérer dans une photographie de son environnement (photomontage) : à joindre.',
   ]);
@@ -362,37 +388,56 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   if (d.photoLointaine) photo('PCMI 8', 'lointain', d.photoLointaine);
   const vues = (d.vuesComplementaires ?? []).slice(0, VUES_COMPLEMENTAIRES_MAX), pVues = vues.length ? debut() : null;
   if (vues.length) plancheVuesComplementaires(doc, projet, o, vues);
+  const pComplement = dp ? debut() : null;
+  if (dp) pageNotice(doc, projet, o);
   const pPlans = debut();
   for (const f of niveaux) planche(doc, projet, f, o, lignes);
-  const noteVue = (code: string) => (PV.some(x => x.piece === code) && t ? 'point de vue reporté au PCMI 2' : 'point de vue à reporter au PCMI 2');
-  const pieces: PieceDossier[] = [
-    { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: pSituation ?? pDivision,
-      note: (!pSituation ? 'à joindre (extrait de carte, échelle et nord)'
-        : d.situation ? (fc ? 'extrait de carte fourni et plan cadastral (cadastre importé) : à vérifier' : 'extrait de carte fourni : échelle et nord à vérifier')
-          : 'plan cadastral du cadastre importé ; extrait de carte (1/5 000 à 1/25 000) à joindre')
-        + (pDivision ? ' ; plan de division du géomètre : page ' + pDivision : '') },
+  const noteVue = (code: string) => (PV.some(x => x.piece === code) && t ? 'point de vue reporté au ' + C('PCMI 2') : 'point de vue à reporter au ' + C('PCMI 2'));
+  const situation = {
+    page: pSituation ?? pDivision,
+    note: (!pSituation ? 'à joindre (extrait de carte, échelle et nord)'
+      : d.situation ? (fc ? 'extrait de carte fourni et plan cadastral (cadastre importé) : à vérifier' : 'extrait de carte fourni : échelle et nord à vérifier')
+        : 'plan cadastral du cadastre importé ; extrait de carte (1/5 000 à 1/25 000) à joindre')
+      + (pDivision ? ' ; plan de division du géomètre : page ' + pDivision : ''),
+  };
+  const facades = (pFacadesExistantes ? 'état existant : page ' + pFacadesExistantes + ', état projeté : page ' + pFacades + ' ; ' : '') + (aToit ? 'plan de toiture : page ' + pToit : 'toiture à définir (panneau 3D)');
+  const complementaire = pVues ? [{ code: C('PCMI 7 / 8'), intitule: 'Photographies : planche complémentaire', page: pVues, note: vues.length + ' vue' + (vues.length > 1 ? 's' : '') + ' complémentaire' + (vues.length > 1 ? 's' : '') }] : [];
+  const pieces: PieceDossier[] = dp ? [
+    { code: 'DP1', intitule: 'Plan de situation du terrain', ...situation },
+    { code: 'DP2', intitule: 'Plan de masse des constructions à édifier ou à modifier', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
+    { code: 'DP3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe, note: 'demandé si le projet modifie le profil du terrain' },
+    { code: 'DP4', intitule: 'Plans des façades et des toitures', page: pFacadesExistantes ?? pFacades, note: facades },
+    { code: 'DP5', intitule: 'Représentation de l’aspect extérieur', page: pAspect,
+      note: pAspect ? 'vue 3D gardée dans le Designer' : 'à joindre si le projet modifie l’aspect extérieur (une vue 3D gardée peut y servir)' },
+    { code: 'DP6', intitule: 'Document graphique d’insertion', page: pInsertion, note: pInsertion ? 'photomontage composé dans le Designer' : 'à joindre (photomontage)' },
+    { code: 'DP7', intitule: 'Photographie de l’environnement proche', page: pProche, note: pProche ? noteVue('PCMI 7') : 'à joindre' },
+    { code: 'DP8', intitule: 'Photographie du paysage lointain', page: pLointaine, note: pLointaine ? noteVue('PCMI 8') : 'à joindre' },
+    ...complementaire,
+    { code: '—', intitule: 'Notice descriptive (complément)', page: pComplement, note: 'brouillon à relire et compléter' },
+    { code: '—', intitule: 'Plans des niveaux (complément)', page: pPlans },
+  ] : [
+    { code: 'PCMI 1', intitule: 'Plan de situation du terrain', ...situation },
     { code: 'PCMI 2', intitule: 'Plan de masse des constructions', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
     { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe },
     { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: pNotice, note: 'brouillon à relire et compléter' },
-    { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacadesExistantes ?? pFacades,
-      note: (pFacadesExistantes ? 'état existant : page ' + pFacadesExistantes + ', état projeté : page ' + pFacades + ' ; ' : '') + (aToit ? 'plan de toiture : page ' + pToit : 'toiture à définir (panneau 3D)') },
+    { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacadesExistantes ?? pFacades, note: facades },
     { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: pInsertion,
       note: (pInsertion ? 'photomontage composé dans le Designer' : 'à joindre (photomontage)') + (pVue ? ' ; vue 3D du projet : page ' + pVue : '') },
     { code: 'PCMI 7', intitule: 'Photographie de l’environnement proche', page: pProche, note: pProche ? noteVue('PCMI 7') : 'à joindre' },
     { code: 'PCMI 8', intitule: 'Photographie de l’environnement lointain', page: pLointaine, note: pLointaine ? noteVue('PCMI 8') : 'à joindre' },
-    ...(pVues ? [{ code: 'PCMI 7 / 8', intitule: 'Photographies : planche complémentaire', page: pVues, note: vues.length + ' vue' + (vues.length > 1 ? 's' : '') + ' complémentaire' + (vues.length > 1 ? 's' : '') }] : []),
+    ...complementaire,
     { code: '—', intitule: 'Plans des niveaux (complément)', page: pPlans },
   ];
-  pageDeGarde(garde, projet, d, pieces, t ? { terrain: surfaceTerrain(t.plot), emprise: aireEmprise(empriseAuSol(projet)), reference: t.plot.reference } : null, S, o.logoNom);
+  pageDeGarde(garde, projet, d, pieces, t ? { terrain: surfaceTerrain(t.plot), emprise: aireEmprise(empriseAuSol(projet)), reference: t.plot.reference } : null, S, o.logoNom, formalite);
   /* chaque page numérotée, en bas à droite de la feuille */
   const N = doc.nombre;
   for (let i = 0; i < N; i++) doc.pageNo(i).texte((i + 1) + ' / ' + N, (410 - 2) * PT, (A3.h - 291.5) * PT, 7.5, { aligne: 'droite', couleur: '#6E7B84' });
-  return { octets: doc.octets((projet.name || 'Projet') + ' — dossier de permis de construire'), pieces };
+  return { octets: doc.octets((projet.name || 'Projet') + (dp ? ' — dossier de déclaration préalable' : ' — dossier de permis de construire')), pieces };
 }
 
 /** la page de garde, sur le modèle des dossiers du cabinet : à gauche la société, le maître d'ouvrage, le titre, les choix
     techniques, l'historique des modifications, le lieu ; à droite le tableau des surfaces, le résumé du projet, les pièces */
-function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: PieceDossier[], terrain: { terrain: number; emprise: number; reference?: string | undefined } | null, S: Surfaces, logoNom?: string): void {
+function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: PieceDossier[], terrain: { terrain: number; emprise: number; reference?: string | undefined } | null, S: Surfaces, logoNom?: string, formalite: Formalite = 'PC'): void {
   const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
   const C = d.cabinet ?? CABINET_PAR_DEFAUT, D = projet.dossier ?? {}, AC = '[à compléter]', ROUGE = '#C5563A';
   const boite = (x: number, y: number, l: number, h: number, fond?: string) => page.cadre(X(x), Y(y + h), l * PT, h * PT, { ep: 1, couleur: '#111111', ...(fond ? { fond } : {}) });
@@ -425,7 +470,7 @@ function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: 
   /* le titre */
   boite(L0, 97, L1 - L0, 52, '#BDBDBD');
   /* en Times, comme les dossiers du cabinet */
-  page.texte('PLAN DE PERMIS DE CONSTRUIRE', X(cx), Y(118), 19, { police: 'serif', gras: true, aligne: 'centre', souligne: true, couleur: '#111111' });
+  page.texte(formalite === 'DP' ? 'PLAN DE DÉCLARATION PRÉALABLE' : 'PLAN DE PERMIS DE CONSTRUIRE', X(cx), Y(118), 19, { police: 'serif', gras: true, aligne: 'centre', souligne: true, couleur: '#111111' });
   page.texte('PLANS - COUPES - FAÇADES', X(cx), Y(129), 11, { police: 'serif', aligne: 'centre', couleur: '#111111' });
   couperTimes(mentionCabinet(C), 170 * PT, 7.5).forEach((l, i) => page.texte(l, X(cx), Y(136 + i * 3.8), 7.5, { police: 'serif', aligne: 'centre', couleur: '#111111' }));
   /* couverture, chauffage, divers */
@@ -444,7 +489,7 @@ function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: 
   });
   /* dates et modifications */
   boite(L0, 193, L1 - L0, 56);
-  const M = D.modifications?.length ? D.modifications : [{ date: d.date, objet: 'PERMIS DE CONSTRUIRE — indice ' + (d.indice || 'A') }];
+  const M = D.modifications?.length ? D.modifications : [{ date: d.date, objet: (formalite === 'DP' ? 'DÉCLARATION PRÉALABLE' : 'PERMIS DE CONSTRUIRE') + ' — indice ' + (d.indice || 'A') }];
   const ty = 197, th = 8.6, tl = L0 + 5, tr = L1 - 5, tm = tl + 52;
   page.cadre(X(tl), Y(ty + th * 6), (tr - tl) * PT, th * 6 * PT, { ep: 0.6 });
   page.trait(X(tm), Y(ty), X(tm), Y(ty + th * 6), 0.6);
@@ -513,4 +558,7 @@ function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: 
     t(p.page !== null ? 'page ' + p.page : (p.note?.startsWith('à joindre') ? 'à joindre' : '—'), x1, y, 7.5, { aligne: 'droite', gras: p.page !== null, ...(p.page === null ? { couleur: ROUGE } : {}) });
   }
   if (S.seuil.etat !== 'ok') t(S.seuil.message, x0, 285, 6.5, { couleur: ROUGE });
+  /* le bordereau de la déclaration préalable : celui du formulaire en vigueur fait foi */
+  else if (formalite === 'DP' && S.travaux?.formalite.genre === 'PC') t('Attention : d’après la surface créée, la formalité indicative est le permis de construire (à vérifier).', x0, 285, 6.5, { couleur: ROUGE });
+  else if (formalite === 'DP') t('Numérotation des pièces d’après le bordereau de la déclaration préalable (maison individuelle) : à vérifier sur le formulaire en vigueur.', x0, 285, 6.5, { couleur: GRIS_ETIQ });
 }

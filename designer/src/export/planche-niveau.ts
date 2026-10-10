@@ -20,7 +20,7 @@ import { materiau } from '../catalogue/materiaux';
 import { segmentsDans } from '../geometry/hachures';
 import type { Polygone } from '../geometry/polygon';
 import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, BRIQUE, Occupation, colonne, nouvelleFeuille, titrePlanche, tableau, hauteurTableau, legende, tailleLegende,
-  pastille, pastilleTrait, nordFleche, echelleGraphique, largeurEchelle, texte, metres, enM2, couper, type Signature, type LigneLegende } from './feuille';
+  pastille, pastilleTrait, nordFleche, echelleGraphique, largeurEchelle, texte, metres, enM2, couper, codePiece, type Signature, type LigneLegende, type Formalite } from './feuille';
 
 /** les échelles d'un plan de maison, de la plus grande à la plus petite (1/n) */
 export const ECHELLES = [50, 75, 100, 125, 150, 200, 250, 500, 1_000] as const;
@@ -135,7 +135,7 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   const tab = fondations
     ? { l: 76, h: hauteurTableau(lignesFondations.length, { titre: true }) + 4 + Math.min(10, PF!.alertes.length + 2) * 3.4 }
     : pieces.length ? { l: colonnesTableau.reduce((s, c) => s + c.largeur, 0), h: hauteurTableau(pieces.length, { total: true, titre: true, pas: PAS_TABLEAU }) + notes.length * 3.6 + (notes.length ? 2 : 0) } : null;
-  const L = fondations ? legendeFondations() : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0);
+  const L = fondations ? legendeFondations() : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0, o.formalite);
   const legs = L.length ? [1, 2, 3].filter(k => k <= L.length).map(k => ({ ...tailleLegende('LÉGENDE', L, k), k })) : [];
 
   /* la plus grande échelle normalisée où le plan, ses cotes et ses encadrés tiennent */
@@ -286,7 +286,7 @@ function legendeFondations(): LigneLegende[] {
 }
 
 /** la légende d'un plan de niveau : ce qui y est dessiné, rien de plus */
-function legendeDuPlan(f: Floor, coupes: boolean): LigneLegende[] {
+function legendeDuPlan(f: Floor, coupes: boolean, formalite?: Formalite): LigneLegende[] {
   const W = mursDroits(f), L: LigneLegende[] = [];
   const ext = W.filter(w => w.role === 'exterior'), ep = [...new Set(ext.map(w => Math.round(w.thickness / 10)))].sort((a, b) => b - a);
   /* une rénovation, une extension (ADR-0007) : l'existant conservé, le démoli, les baies à boucher ; le reste est à construire */
@@ -303,7 +303,7 @@ function legendeDuPlan(f: Floor, coupes: boolean): LigneLegende[] {
   if (W.some(w => w.role === 'partition')) L.push({ pastille: pastille('#A9A9A9'), texte: 'Cloison de distribution' });
   if (Object.values(f.objects).some(o => o.type === 'furniture' && formeDe(o) === 'placard')) L.push({ pastille: pastille('#FFFFFF', { tirets: true }), texte: 'Placard' });
   if (Object.values(f.objects).some(o => o.type === 'canopy')) L.push({ pastille: pastille('#FFFFFF', { tirets: true }), texte: 'Couvert (porche, auvent : sous la toiture)' });
-  if (coupes) L.push({ pastille: (page, x, y) => { page.trait(X(x), Y(y + 1.5), X(x + 7), Y(y + 1.5), 0.5, BRIQUE, [3, 1, 0.6, 1]); page.cadre(X(x), Y(y + 2.1), 2 * PT, 1.2 * PT, { ep: 0, fond: BRIQUE }) }, texte: 'Plan de coupe (voir PCMI 3)' });
+  if (coupes) L.push({ pastille: (page, x, y) => { page.trait(X(x), Y(y + 1.5), X(x + 7), Y(y + 1.5), 0.5, BRIQUE, [3, 1, 0.6, 1]); page.cadre(X(x), Y(y + 2.1), 2 * PT, 1.2 * PT, { ep: 0, fond: BRIQUE }) }, texte: 'Plan de coupe (voir ' + codePiece('PCMI 3', formalite) + ')' });
   const vr = Object.values(f.objects).filter(o => o.type === 'opening' && ouvertureBatie(o) && (o.shutter === 'roller_motorized' || o.shutter === 'roller_manual'));
   if (vr.length) L.push({ pastille: (page, x, y) => texte(page, 'VR', x + 1, y + 2.6, 6.5, { couleur: GRIS_TEXTE }), texte: 'VR : volet roulant' + (vr.every(o => o.type === 'opening' && o.shutter === 'roller_motorized') ? ' motorisé' : '') });
   return L;

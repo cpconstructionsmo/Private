@@ -4,14 +4,16 @@
    mur est, et une extension de 4 × 6 m s'y accole. Les commandes posent et
    refusent les états ; le projet ignore ce qui est démoli (pièces, 3D,
    métré, fondations) ; les surfaces disent l'existant, le créé et la
-   formalité ; les planches légendent l'existant et le démoli. Maison fictive. */
+   formalité ; les planches légendent l'existant et le démoli ; le dossier de
+   déclaration préalable reprend les planches sous les codes DP. Maison fictive. */
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel, type Floor, type Project } from '../../src/model';
 import { annuler, executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
 import { mursDroits, mursDemolis, planDuNiveau, niveauExistant, aDesExistants, surfacesReglementaires, metreProjet, murSurSemelle, toitureDuNiveau, projetExistant, type MurDroit } from '../../src/building';
 import { maquette } from '../../src/vue3d/maquette';
 import { notice } from '../../src/export/notice';
-import { dossierPc } from '../../src/export/planche';
+import { dossierPc, dossierDp } from '../../src/export/planche';
+import { JPEG } from './dossier.test';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 1) + (t += 1000)).toISOString(), id: generateurSequentiel('o') } };
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join(' ; ')); return r.historique };
@@ -197,5 +199,45 @@ describe('rénovation et extension : existant, démoli, projeté', () => {
     const [, e, pj] = /page (\d+), état projeté : page (\d+)/.exec(p5.note!)!;
     expect(Number(pj)).toBe(Number(e) + 1);
     expect(p5.page).toBe(Number(e));
+  });
+  it('la déclaration préalable : les mêmes planches sous les codes DP1 à DP8, la notice et les plans en complément', () => {
+    const { h: h0, n, a } = travaux('UB');
+    const h = ok(executer(h0, 'Toit', [{ type: 'creerToiture', niveau: n, genre: 'hip', pente: 35, debord: 300, couverture: 'slate' }], a));
+    const vue = { jpeg: JPEG, largeur: 8, hauteur: 8 };
+    const { octets, pieces } = dossierDp(h.projet, { indice: 'A', date: '10/10/2026', perspective: vue });
+    const T = textes(texte(octets));
+    /* le bordereau de la déclaration, dans son ordre ; les compléments à la fin */
+    expect(pieces.map(p => p.code)).toEqual(['DP1', 'DP2', 'DP3', 'DP4', 'DP5', 'DP6', 'DP7', 'DP8', '\u2014', '\u2014']);
+    expect(pieces.slice(-2).map(p => p.intitule)).toEqual(['Notice descriptive (complément)', 'Plans des niveaux (complément)']);
+    const p = (code: string) => pieces.find(x => x.code === code)!;
+    /* la DP4 : façades existantes puis projetées, puis la toiture ; la DP5 : la vue 3D, juste après */
+    expect(p('DP4').note).toMatch(/^état existant : page (\d+), état projeté : page (\d+) ; plan de toiture : page (\d+)$/);
+    const toit = Number(/plan de toiture : page (\d+)/.exec(p('DP4').note!)![1]);
+    expect(p('DP5').page).toBe(toit + 1);
+    expect(p('DP6').page).toBeNull();
+    expect(p('DP3').note).toMatch(/profil du terrain/);
+    /* la notice suit les pièces du bordereau, avant les plans des niveaux */
+    expect(pieces.at(-2)!.page).toBe(p('DP5').page! + 1);
+    /* les planches portent leur code de déclaration ; aucun code du permis ne reste */
+    expect(T).toContain('PLAN DE D\xC9CLARATION PR\xC9ALABLE');
+    expect(T).toContain('D\xC9CLARATION PR\xC9ALABLE \x97 INDICE A');
+    expect(T).toContain('DP5 \x97 ASPECT EXT\xC9RIEUR DU PROJET');
+    expect(T).toContain('(compl\xE9ment au dossier de d\xE9claration pr\xE9alable, facultatif)');
+    expect(T).toContain('TRAVAUX SUR UNE MAISON INDIVIDUELLE EXISTANTE');
+    for (const c of ['DP2', 'DP3', 'DP4']) expect(T, c).toContain(c);
+    /* le plan de masse (DP2) distingue la maison existante de l'extension */
+    expect(T).toContain('Construction existante conserv\xE9e (toiture)');
+    expect(T).toContain('Extension projet\xE9e (toiture)');
+    expect(T).not.toMatch(/PCMI/);
+    /* le dossier de permis du même projet garde ses codes et son ordre */
+    const pc = dossierPc(h.projet, { indice: 'A', date: '10/10/2026', perspective: vue }).pieces;
+    expect(pc.map(x => x.code)).toEqual(['PCMI 1', 'PCMI 2', 'PCMI 3', 'PCMI 4', 'PCMI 5', 'PCMI 6', 'PCMI 7', 'PCMI 8', '\u2014']);
+  });
+
+  it('la déclaration préalable prévient quand la surface créée appelle un permis', () => {
+    const { h } = travaux();
+    const T = textes(texte(dossierDp(h.projet, { indice: 'A', date: '10/10/2026' }).octets));
+    expect(T).toContain('la formalit\xE9 indicative est le permis de construire');
+    expect(textes(texte(dossierDp(travaux('UB').h.projet, { indice: 'A', date: '10/10/2026' }).octets))).toContain('bordereau de la d\xE9claration pr\xE9alable');
   });
 });

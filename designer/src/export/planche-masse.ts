@@ -18,7 +18,7 @@ import { positionDansAnneau } from '../geometry/predicats';
 import type { PagePdf, DocumentPdf } from './pdf';
 import { PagePdf as Page } from './pdf';
 import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, colonne, nouvelleFeuille, texte, metres, niveauRelatif, nordFleche, echelleGraphique, largeurEchelle, legende, tailleLegende, pastille, pastilleTrait,
-  tableau, couper, enM2, A_PRECISER, ROUGE_MANQUE, type Signature, type LigneLegende } from './feuille';
+  tableau, couper, enM2, A_PRECISER, ROUGE_MANQUE, codePiece, type Signature, type LigneLegende, type Formalite } from './feuille';
 import { grisDuPan, faitagesReunis } from './planche-toiture';
 
 export interface OptionsMasse extends Signature { echelle?: number | undefined; dossier?: boolean | undefined;
@@ -27,7 +27,7 @@ export interface OptionsMasse extends Signature { echelle?: number | undefined; 
   orientation?: 'voie' | 'maison' | undefined }
 
 const ECHELLES_MASSE = [100, 200, 250, 500, 1_000, 2_000] as const;
-const BRUN_TF = '#8B4A2B', ROUGE = '#C0392B', PELOUSE = '#E3EBD3', VOIE = '#E1E1E1', GRAVIER = '#EFECE0', VERT = '#3F7A3A';
+const BRUN_TF = '#8B4A2B', ROUGE = '#C0392B', PELOUSE = '#E3EBD3', VOIE = '#E1E1E1', GRAVIER = '#EFECE0', VERT = '#3F7A3A', GRIS_EXISTANT = '#D4D4D4';
 
 export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse): void {
   const t = parcelleDuProjet(projet);
@@ -143,8 +143,10 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
   }
   /* la maison vue de dessus : sa toiture (ou son emprise), ses faîtages, l'emprise au nu des murs en tirets */
   const cotesFaitage: Point[][] = [];
+  /* une extension (ADR-0007) : la maison existante, qui garde son toit, se distingue de ce qui se construit (plus clair) */
+  const extension = toits.some(tt => tt.extension);
   if (toits.length) for (const tt of toits) {
-    for (const pan of tt.pans) page.polygone(pan.contour.map(Pp), { fond: assombrir(grisDuPan(pan.plan.a, pan.plan.b), 0.78), trait: '#2A2A2A', ep: 0.3 });
+    for (const pan of tt.pans) page.polygone(pan.contour.map(Pp), { fond: extension && !tt.extension ? GRIS_EXISTANT : assombrir(grisDuPan(pan.plan.a, pan.plan.b), 0.78), trait: '#2A2A2A', ep: 0.3 });
     if (tt.terrasse) page.polygone(tt.terrasse.dalle.map(Pp), { fond: '#B9BEC3', trait: ENCRE, ep: 0.6 });
     const LT = lignesDeToiture(tt);
     for (const l of LT) if (l.genre === 'faitage' || l.genre === 'aretier') page.trait(...Pp(l.a), ...Pp(l.b), l.genre === 'faitage' ? 0.8 : 0.4, '#1E1E1E');
@@ -299,14 +301,15 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
     { pastille: (pg, x, y) => { pg.cercle(X(x + 3.5), Y(y + 1.5), 1.3 * PT, { trait: ROUGE, ep: 0.5, fond: '#FFFFFF' }) }, texte: 'Borne' },
     ...(plot.cadastre ? [{ pastille: pastilleTrait('#8F8F8F', 0.35), texte: 'Limite cadastrale (non garantie)' },
       ...(plot.cadastre.batiments.length ? [{ pastille: pastille('#E4E4E4', { hachures: '#9A9A9A', trait: '#7A7A7A' }), texte: 'Bâti existant (cadastre)' }] : [])] : []),
-    ...(toits.length ? [{ pastille: pastille('#9EA4AA'), texte: 'Toiture projetée' + (toits[0] && niveaux.flatMap(f => Object.values(f.objects)).find(x => x.type === 'roof') ? '' : '') }] : []),
+    ...(extension ? [{ pastille: pastille(GRIS_EXISTANT), texte: 'Construction existante conservée (toiture)' }, { pastille: pastille('#9EA4AA'), texte: 'Extension projetée (toiture)' }]
+      : toits.length ? [{ pastille: pastille('#9EA4AA'), texte: 'Toiture projetée' }] : []),
     { pastille: pastille('#FFFFFF', { tirets: false, trait: ENCRE }), texte: 'Emprise au sol (nu extérieur des murs, en tirets)' },
     { pastille: pastille(PELOUSE), texte: 'Terrain (pelouse en pleine terre)' },
     ...(amenagements.some(a => a.kind === 'path' || a.kind === 'parking') ? [{ pastille: (pg: PagePdf, x: number, y: number) => { pastille(GRAVIER)(pg, x, y); pointille(pg, [[X(x), Y(y)], [X(x + 7), Y(y)], [X(x + 7), Y(y + 3)], [X(x), Y(y + 3)]]) }, texte: 'Allée / stationnement gravillonnés' }] : []),
     ...(terrain.some(x => x.type === 'tree') ? [{ pastille: (pg: PagePdf, x: number, y: number) => pg.cercle(X(x + 3.5), Y(y + 1.5), 1.6 * PT, { fond: '#C9DDB0', trait: VERT, ep: 0.5 }), texte: 'Arbre' }] : []),
     ...[...new Set(terrain.filter(x => x.type === 'network').map(x => x.type === 'network' ? x.kind : 'eu'))].map(k => ({ pastille: pastilleTrait(NOMS_RESEAUX[k].couleur, 0.6, [2, 1.2]), texte: NOMS_RESEAUX[k].code + ' – ' + NOMS_RESEAUX[k].libelle })),
     ...((plot.spotHeights?.length ?? 0) ? [{ pastille: (pg: PagePdf, x: number, y: number) => { pg.trait(X(x + 2.6), Y(y + 0.6), X(x + 4.4), Y(y + 2.4), 0.5, ENCRE); pg.trait(X(x + 2.6), Y(y + 2.4), X(x + 4.4), Y(y + 0.6), 0.5, ENCRE) }, texte: 'Altitude du terrain naturel (TN, NGF)' }] : []),
-    ...(PV.length ? [{ pastille: (pg: PagePdf, x: number, y: number) => pg.polygone([[X(x), Y(y + 1.5)], [X(x + 7), Y(y)], [X(x + 7), Y(y + 3)]], { fond: '#B9BEC2', trait: '#555555', ep: 0.4 }), texte: 'Prise de vue photographique (PCMI 6, 7, 8)' }] : []),
+    ...(PV.length ? [{ pastille: (pg: PagePdf, x: number, y: number) => pg.polygone([[X(x), Y(y + 1.5)], [X(x + 7), Y(y)], [X(x + 7), Y(y + 3)]], { fond: '#B9BEC2', trait: '#555555', ep: 0.4 }), texte: 'Prise de vue photographique (' + (o.formalite === 'DP' ? 'DP6, DP7, DP8' : 'PCMI 6, 7, 8') + ')' }] : []),
     { pastille: pastilleTrait(ROUGE, 0.5), texte: 'Recul mesuré (maison – limite)' },
     ...(voies.length ? [{ pastille: pastilleTrait('#6A6A6A', 1.6, [4, 1.4]), texte: 'Alignement (limite sur la voie)' }] : []),
     ...(acces.length ? [{ pastille: (pg: PagePdf, x: number, y: number) => { pg.trait(X(x + 3.5), Y(y + 3), X(x + 3.5), Y(y + 0.6), 0.6, ENCRE); pg.polygone([[X(x + 3.5), Y(y)], [X(x + 2.7), Y(y + 1.6)], [X(x + 4.3), Y(y + 1.6)]], { fond: ENCRE }) }, texte: 'Accès depuis la voie (largeur cotée)' }] : []),
@@ -368,12 +371,12 @@ export function plancheMasse(doc: DocumentPdf, projet: Project, o: OptionsMasse)
   page.cadre(X(px), Y(py + hn), PANNEAU * PT, hn * PT, { ep: 0.5, couleur: ENCRE, fond: '#FFFFFF' });
   lignesNotes.forEach((l, i) => texte(page, l, px + 3, py + 4.5 + i * 3.2, 6.4, { couleur: l.includes(A_PRECISER) ? ROUGE_MANQUE : '#222222' }));
   /* sous les notes, ce que le plan dit en chiffres : terrain, reculs, aménagements, terrassement, réseaux, plantations, prises de vue */
-  listesMasse(page, projet, px, py + hn + 5, PANNEAU, 288);
+  listesMasse(page, projet, px, py + hn + 5, PANNEAU, 288, o.formalite);
   colonne(page, projet, o, 'Plan de masse', 'sur fond cadastral', 'PCMI 2', ech);
 }
 
 /** les listes du plan de masse, rubrique par rubrique, tant qu'il reste de la place (jusqu'à « bas ») */
-function listesMasse(page: PagePdf, projet: Project, x: number, y0: number, l: number, bas: number): void {
+function listesMasse(page: PagePdf, projet: Project, x: number, y0: number, l: number, bas: number, formalite?: Formalite): void {
   const t = parcelleDuProjet(projet);
   if (!t) return;
   const plot = t.plot, E = empriseAuSol(projet), R = reculs(plot, E), S = surfaceTerrain(plot);
@@ -409,7 +412,7 @@ function listesMasse(page: PagePdf, projet: Project, x: number, y0: number, l: n
       ...(Mt.arbres.aPlanter ? [['Arbres à planter', String(Mt.arbres.aPlanter)] as [string, string]] : []),
       ...(Mt.arbres.aAbattre ? [['Arbres à abattre', String(Mt.arbres.aAbattre)] as [string, string]] : []),
     ]] as [string, [string, string][]]] : []),
-    ...(PV.length ? [['PRISES DE VUE', PV.map(v => [v.piece + ' — ' + ({ 'PCMI 6': 'insertion', 'PCMI 7': 'environnement proche', 'PCMI 8': 'environnement lointain' } as Record<string, string>)[v.piece]!, 'reportée'] as [string, string])]] as [string, [string, string][]][] : []),
+    ...(PV.length ? [['PRISES DE VUE', PV.map(v => [codePiece(v.piece, formalite) + ' — ' + ({ 'PCMI 6': 'insertion', 'PCMI 7': 'environnement proche', 'PCMI 8': 'environnement lointain' } as Record<string, string>)[v.piece]!, 'reportée'] as [string, string])]] as [string, [string, string][]][] : []),
   ];
   let y = y0;
   for (const [titre, lignes] of rubriques) {
