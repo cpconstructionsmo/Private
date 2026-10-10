@@ -204,7 +204,13 @@ export interface Roof extends BaseObject {
   gutterMaterial?: 'zinc' | 'pvc' | 'aluminium' | 'copper';
   /** les descentes d'eaux pluviales : leur point sur l'égout, en plan */
   downpipes?: Point[];
+  /** une extension (ADR-0007) : l'existant garde la toiture ci-dessus, l'extension a la sienne — ces réglages-ci,
+   *  sinon les mêmes que l'existant ; facultatif */
+  extension?: ToitureExtension;
 }
+
+/** la toiture d'une extension : son type, sa pente, et au besoin son débord, sa couverture, le côté de son égout bas */
+export interface ToitureExtension { kind: Roof['kind']; pitch: number; overhang?: Mm; covering?: Roof['covering']; flip?: boolean }
 
 /** un meuble ou un équipement posé (lit, évier, WC…) : il meuble le plan et
  *  la 3D, il ne change ni les murs ni les surfaces */

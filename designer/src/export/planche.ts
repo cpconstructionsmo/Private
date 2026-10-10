@@ -7,7 +7,7 @@
    Repère de la mise en page : millimètres depuis le haut-gauche de la
    feuille (comme on la lit) ; la page PDF est en points depuis le bas. */
 import type { Floor, Project, Roof } from '../model/types';
-import { emprise, fondationsDuProjet } from '../building';
+import { emprise, fondationsDuProjet, aDesExistants, projetExistant } from '../building';
 import { nord } from '../ui/dessin';
 import { parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, pointsDeVue, champDeVue } from '../building/terrain';
 import { surfacesReglementaires, type Surfaces } from '../building/surfaces';
@@ -329,8 +329,11 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   plancheCoupes(doc, projet, o, lignes);
   const pNotice = debut();
   pageNotice(doc, projet, o);
+  /* une rénovation, une extension (ADR-0007) : les façades de l'existant, puis celles du projet */
+  const travaux = aDesExistants(projet), pFacadesExistantes = travaux ? debut() : null;
+  if (travaux) plancheFacades(doc, projetExistant(projet), { ...o, etat: 'existant' });
   const pFacades = debut();
-  plancheFacades(doc, projet, o);
+  plancheFacades(doc, projet, travaux ? { ...o, etat: 'projete' } : o);
   const aToit = toituresDuProjet(projet).length > 0, pToit = aToit ? debut() : null;
   if (aToit) plancheToiture(doc, projet, o);
   /* le point de prise de vue d'une photographie : reporté au plan de masse s'il y est tracé (outil I), sinon à reporter */
@@ -371,7 +374,8 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
     { code: 'PCMI 2', intitule: 'Plan de masse des constructions', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
     { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe },
     { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: pNotice, note: 'brouillon à relire et compléter' },
-    { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacades, ...(aToit ? { note: 'plan de toiture : page ' + pToit } : { note: 'toiture à définir (panneau 3D)' }) },
+    { code: 'PCMI 5', intitule: 'Plans des façades et des toitures', page: pFacadesExistantes ?? pFacades,
+      note: (pFacadesExistantes ? 'état existant : page ' + pFacadesExistantes + ', état projeté : page ' + pFacades + ' ; ' : '') + (aToit ? 'plan de toiture : page ' + pToit : 'toiture à définir (panneau 3D)') },
     { code: 'PCMI 6', intitule: 'Document graphique d’insertion', page: pInsertion,
       note: (pInsertion ? 'photomontage composé dans le Designer' : 'à joindre (photomontage)') + (pVue ? ' ; vue 3D du projet : page ' + pVue : '') },
     { code: 'PCMI 7', intitule: 'Photographie de l’environnement proche', page: pProche, note: pProche ? noteVue('PCMI 7') : 'à joindre' },

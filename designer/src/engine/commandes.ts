@@ -15,7 +15,7 @@
 import { cadastreInvalide, deplacerCadastre } from '../building/cadastre';
 import { teinteOuvrageInvalide } from '../catalogue/menuiseries';
 import { reglesPluInvalides } from '../building/plu';
-import type { Canopy, Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu, FinishZone, PhaseOuvrage } from '../model/types';
+import type { Canopy, Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu, FinishZone, PhaseOuvrage, ToitureExtension } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -113,7 +113,9 @@ export type Commande =
   | { type: 'modifierToiture'; id: string; genre?: Roof['kind']; pente?: number; debord?: Mm; couverture?: Roof['covering']; faitage?: Roof['ridge']; inverse?: boolean;
       /** le talon de la charpente (mm, de 0 à 80 cm) */
       talon?: Mm;
-      egout?: Roof['eavesFinish'] | null; gouttiere?: Roof['gutter'] | null; matiereGouttiere?: Roof['gutterMaterial'] | null; descentes?: Point[] }
+      egout?: Roof['eavesFinish'] | null; gouttiere?: Roof['gutter'] | null; matiereGouttiere?: Roof['gutterMaterial'] | null; descentes?: Point[];
+      /** la toiture d'une extension (ADR-0007) ; null : les mêmes réglages que l'existant */
+      extension?: ToitureExtension | null }
   /** un meuble ou un équipement de la bibliothèque, posé sur un niveau */
   | { type: 'creerMeuble'; niveau: string; modele: Furniture['catalogRef']; position: Point; rotation: number; largeur: Mm; profondeur: Mm; hauteur: Mm }
   | { type: 'modifierMeuble'; id: string; position?: Point; rotation?: number; largeur?: Mm; profondeur?: Mm; hauteur?: Mm }
@@ -1241,6 +1243,13 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         if (toit?.ok && cmd.descentes.some(q => !toit.toitures.some(x => x.egout.some((a, i) => distancePointSegment(q, { a, b: x.egout[(i + 1) % x.egout.length]! }) <= 300))))
           return refus('une descente se place sur l’égout de la toiture');
       }
+      if (cmd.extension) {
+        const x = cmd.extension, ex = toitureInvalide(x.kind, x.pitch, x.overhang ?? r.overhang);
+        if (ex) return refus('toiture de l’extension : ' + ex);
+        if (x.covering !== undefined && !['tile', 'slate', 'zinc', 'steel', 'green', 'gravel'].includes(x.covering)) return refus('toiture de l’extension : couverture inconnue');
+        avant['extension'] = r.extension ?? null;
+        apres['extension'] = { kind: x.kind, pitch: x.pitch, ...(x.overhang !== undefined ? { overhang: x.overhang } : {}), ...(x.covering ? { covering: x.covering } : {}), ...(x.flip !== undefined ? { flip: !!x.flip } : {}) };
+      } else if (cmd.extension === null) { avant['extension'] = r.extension ?? null; apres['extension'] = null }
       const champs = { genre: 'kind', pente: 'pitch', debord: 'overhang', couverture: 'covering', faitage: 'ridge', inverse: 'flip', talon: 'heel', egout: 'eavesFinish', gouttiere: 'gutter', matiereGouttiere: 'gutterMaterial' } as const;
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
         if (cmd[k] === undefined) continue;
