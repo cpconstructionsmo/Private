@@ -139,8 +139,10 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   /* les réservations : là où un réseau tracé traverse une semelle (fourreau à prévoir au coulage) */
   const RS = PF ? reservationsFondations(projet, PF) : [];
   const lignesFondations = PF ? lignesDesFondations(PF, RS) : [];
+  /* les notes « À valider » sous le tableau, coupées à sa largeur : leur place se compte ligne à ligne */
+  const notesFondations = PF ? ['Dimensions proposées, à remplacer par celles de l’étude de sol (G2) et du bureau d’études.', ...PF.alertes.map(a => '• ' + a)].flatMap(t => couper(t, 76 * PT, 6.5)).slice(0, 9) : [];
   const tab = fondations
-    ? { l: 76, h: hauteurTableau(lignesFondations.length, { titre: true }) + 4 + Math.min(10, PF!.alertes.length + 2) * 3.4 }
+    ? { l: 76, h: hauteurTableau(lignesFondations.length, { titre: true }) + 5 + 3.6 + notesFondations.length * 3.4 }
     : pieces.length ? { l: colonnesTableau.reduce((s, c) => s + c.largeur, 0), h: hauteurTableau(pieces.length, { total: true, titre: true, pas: PAS_TABLEAU }) + notes.length * 3.6 + (notes.length ? 2 : 0) } : null;
   const L = fondations ? legendeFondations(RS.length > 0) : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0, o.formalite, partiesBasses(projet, f).length > 0);
   const legs = L.length ? [1, 2, 3].filter(k => k <= L.length).map(k => ({ ...tailleLegende('LÉGENDE', L, k), k })) : [];
@@ -263,8 +265,7 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
       const h = tableau(page, x, y, [{ titre: 'Fondations', largeur: 44 }, { titre: SOUBASSEMENTS[PF!.fondation.kind], largeur: 32, aligne: 'droite' }], lignesFondations, { titre: 'FONDATIONS – ' + nomDuNiveau(f).toUpperCase() });
       let yy = y + h + 5;
       texte(page, 'À VALIDER', x, yy, 7.5, { gras: true, couleur: '#C5563A' }); yy += 3.6;
-      for (const t of ['Dimensions proposées, à remplacer par celles de l’étude de sol (G2) et du bureau d’études.', ...PF!.alertes.map(a => '• ' + a)].flatMap(t => couper(t, 76 * PT, 6.5)).slice(0, 9))
-        { texte(page, t, x, yy, 6.5, { couleur: GRIS_TEXTE }); yy += 3.4 }
+      for (const t of notesFondations) { texte(page, t, x, yy, 6.5, { couleur: GRIS_TEXTE }); yy += 3.4 }
     } else {
       const lignes = o.presentation
         ? planDuNiveau(niveau).zones.filter(z => z.piece).map(z => [z.piece!.name, materiau(z.piece!.floorFinish)?.libelle ?? 'à choisir', (z.aire / 1e6).toFixed(2).replace('.', ',')])
