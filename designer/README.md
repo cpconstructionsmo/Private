@@ -132,6 +132,16 @@ Les fenêtres ont leur menuiserie (dormant, un ouvrant par vantail, montant
 central) et, en façade, leur appui ; portes et portes de garage, leur
 dormant. Pignons et lucarnes prennent le parement des façades ; les arbres
 ont une couronne arrondie et feuillue.
+**Ensoleillement et images** (panneau de la 3D ; `src/vue3d/soleil.ts`) : la
+lumière d'atelier (soleil au sud-est, façades sud éclairées) ou le soleil
+d'une date (21 mars, 21 juin, 23 septembre, 21 décembre) à une heure
+solaire, à la latitude du terrain (47° par défaut, le milieu de la France,
+à préciser), orienté par le nord de la parcelle : hauteur et azimut dits au
+panneau, avec le lever et le coucher ; un soleil bas est plus chaud, sous
+l'horizon il s'éteint. Des ombres d'illustration (formules usuelles, à un
+degré près), pas une étude réglementaire ; réglé le temps de la séance.
+« Image HD » recalcule la vue courante en grand (3 000 px par défaut,
+jusqu'à 4 096) pour les images du client.
 
 **Toiture** (`src/building/toiture.ts`, panneau du niveau ou de la 3D) : le
 modèle ne garde que les choix (type, pente, débord, couverture) ; pans,

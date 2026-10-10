@@ -22,6 +22,11 @@ export interface Vue3D {
   /** une photographie du terrain derrière la maquette (insertion, PCMI 6), cadrée sans déformation ; null : la retirer.
       Le sol devient transparent : seules les ombres de la maison s'y posent */
   photo(image: ImageBitmap | HTMLImageElement | HTMLCanvasElement | null): void;
+  /** le soleil venu de cette direction (repère du plan, vecteur vers le soleil : vue3d/soleil.ts) ; null : la position par
+      défaut (au sud-est, assez bas). Sous l'horizon, il s'éteint : reste la lumière du ciel */
+  soleil(direction: { x: number; y: number; z: number } | null): void;
+  /** une image PNG plus grande que l'écran (pour le client) : la vue courante, recalculée à cette largeur (pixels) */
+  imageHD(largeur: number): Promise<{ png: Blob; largeur: number; hauteur: number }>;
   /** le champ de vision vertical de la caméra (°), pour s'accorder à la focale de la photographie */
   focale(degres?: number): number;
   stats(): { maillages: number; triangles: number };
@@ -182,7 +187,7 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     for (const t of texturees) { t.m.map = R ? t.carte : null; t.m.bumpMap = R ? t.relief : null; t.m.bumpScale = 1.5; t.m.color.set(R ? '#FFFFFF' : t.couleur); t.m.needsUpdate = true }
     solPlein.map = R ? herbe.carte : null; solPlein.bumpMap = R ? herbe.relief : null; solPlein.color.set(R ? '#FFFFFF' : '#DCE3D3'); solPlein.needsUpdate = true;
     scene.environment = R ? environnement : null; scene.environmentIntensity = 0.25;
-    hemi.intensity = R ? 0.3 : 0.8; soleil.intensity = R ? 3.4 : 2.4;
+    hemi.intensity = R ? 0.3 : 0.8; soleil.intensity = (R ? 3.4 : 2.4) * eclat;
     aretes.visible = !R;
     const photo = scene.background instanceof THREE.Texture;
     ciel.visible = R && !photo; scene.fog = R && !photo ? brume : null;
@@ -358,6 +363,26 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     cadrerFond();
     peindre();
   }
+  /* le soleil : par défaut au sud-est, assez bas — la vue de départ (depuis le sud-ouest) voit les façades sud éclairées
+     et l'ombre portée de la maison s'allonger sur l'herbe, à gauche ; ou venu de la direction donnée (date, heure, nord) */
+  let astre: { x: number; y: number; z: number } | null = null, eclat = 1;
+  function placerSoleil() {
+    if (!boite) return;
+    const c = new THREE.Vector3((boite.xmin + boite.xmax) / 2000, 0, -(boite.ymin + boite.ymax) / 2000);
+    const R = Math.max(boite.xmax - boite.xmin, boite.ymax - boite.ymin, 5_000) / 1000;
+    /* repère de la scène : x à droite du plan, y vers le haut, z vers le bas du plan */
+    const d = astre ? new THREE.Vector3(astre.x, Math.max(astre.z, 0.02), -astre.y).normalize().multiplyScalar(R * 1.9) : new THREE.Vector3(R * 1.1, R * 1.25, R * 0.9);
+    soleil.position.copy(c).add(d); soleil.target.position.copy(c);
+    (u['sunPosition']!.value as InstanceType<typeof THREE.Vector3>).copy(d.clone().normalize());
+    const s = soleil.shadow.camera;
+    s.left = -R * 2; s.right = R * 2; s.top = R * 2; s.bottom = -R * 2; s.near = 0.1; s.far = R * 8; s.updateProjectionMatrix();
+    /* sous l'horizon, la nuit tombe : le soleil s'éteint ; au ras de l'horizon, il faiblit */
+    eclat = astre ? Math.max(0, Math.min(1, astre.z / 0.12)) : 1;
+    soleil.intensity = (mode === 'realiste' ? 3.4 : 2.4) * eclat;
+    /* un soleil bas est plus chaud (matin, soir) : du blanc à midi vers l'orangé près de l'horizon */
+    soleil.color.set('#FFFFFF');
+    if (astre) soleil.color.lerp(new THREE.Color('#FFB46E'), Math.max(0, Math.min(1, 1 - astre.z / 0.45)) * 0.75);
+  }
   const observateur = new ResizeObserver(taille);
   observateur.observe(conteneur);
 
@@ -385,16 +410,7 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
       terrain = preparerVisite(m); derniere = m; poserPlafonds();
       /* en visite, le marcheur reste où il est ; ses pieds suivent le sol s'il a changé */
       if (enVisite && marcheur) { marcheur = { ...marcheur, pied: solSous(terrain, marcheur, marcheur.pied) }; placerCamera() }
-      if (boite) {
-        /* le soleil au sud-est, assez bas : la vue de départ (depuis le sud-ouest) voit les façades sud éclairées
-           et l'ombre portée de la maison s'allonger sur l'herbe, à gauche */
-        const c = new THREE.Vector3((boite.xmin + boite.xmax) / 2000, 0, -(boite.ymin + boite.ymax) / 2000);
-        const R = Math.max(boite.xmax - boite.xmin, boite.ymax - boite.ymin, 5_000) / 1000;
-        soleil.position.set(c.x + R * 1.1, R * 1.25, c.z + R * 0.9); soleil.target.position.copy(c);
-        (u['sunPosition']!.value as InstanceType<typeof THREE.Vector3>).copy(soleil.position.clone().sub(c).normalize());
-        const s = soleil.shadow.camera;
-        s.left = -R * 2; s.right = R * 2; s.top = R * 2; s.bottom = -R * 2; s.near = 0.1; s.far = R * 8; s.updateProjectionMatrix();
-      }
+      placerSoleil();
       if (enVisite) return;
       if (premiere) vue.cadrer(); else peindre();
     },
@@ -431,6 +447,22 @@ export async function creerVue3D(conteneur: HTMLElement): Promise<Vue3D> {
     enVisite: () => enVisite,
     marcheur: () => (enVisite ? marcheur : null),
     image() { peindre(); return new Promise((res, rej) => rendu.domElement.toBlob(b => (b ? res(b) : rej(new Error('image vide'))), 'image/png')) },
+    soleil(direction) {
+      if (direction === astre || (direction && astre && direction.x === astre.x && direction.y === astre.y && direction.z === astre.z)) return;
+      astre = direction; placerSoleil(); peindre();
+    },
+    async imageHD(largeur) {
+      /* la vue recalculée plus grande, le même cadrage (même rapport), puis l'écran rendu à sa taille */
+      const l0 = conteneur.clientWidth || 800, h0 = conteneur.clientHeight || 600, k = Math.max(1, Math.min(4_096, Math.round(largeur)) / l0);
+      const ratio = rendu.getPixelRatio();
+      rendu.setPixelRatio(1); rendu.setSize(Math.round(l0 * k), Math.round(h0 * k), false); composeur.setPixelRatio(1); composeur.setSize(Math.round(l0 * k), Math.round(h0 * k));
+      ombresAngles.setSize(Math.round(l0 * k), Math.round(h0 * k));
+      try {
+        peindre();
+        const c = rendu.domElement, png = await new Promise<Blob>((res, rej) => c.toBlob(b => (b ? res(b) : rej(new Error('image vide'))), 'image/png'));
+        return { png, largeur: c.width, hauteur: c.height };
+      } finally { rendu.setPixelRatio(ratio); composeur.setPixelRatio(ratio); taille() }
+    },
     imageJpeg() {
       peindre();
       const c = rendu.domElement;
