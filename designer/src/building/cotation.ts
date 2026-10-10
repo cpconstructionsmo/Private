@@ -98,6 +98,29 @@ export function cotationExterieure(f: Floor, ecart: Mm = 700): ChaineCotes[] {
   return chaines;
 }
 
+/**
+ * La cotation d'un plan de fondations (plan d'exécution) : de chaque côté, les bords des semelles — extérieurs et
+ * intérieurs, d'où leurs largeurs et les vides entre elles —, puis leur hors-tout. Les baies n'y figurent pas : la
+ * semelle filante passe dessous. « emprise » : l'union des semelles, telle qu'on la coule (fondations.ts).
+ */
+export function cotationFondations(emprise: readonly { contour: readonly Point[]; trous?: readonly (readonly Point[])[] | undefined }[], ecart: Mm = 700): ChaineCotes[] {
+  const S = emprise.flatMap(p => [p.contour, ...(p.trous ?? [])]).flat();
+  if (S.length < 3) return [];
+  const B = { xmin: Math.min(...S.map(p => p.x)), xmax: Math.max(...S.map(p => p.x)), ymin: Math.min(...S.map(p => p.y)), ymax: Math.max(...S.map(p => p.y)) };
+  const chaines: ChaineCotes[] = [];
+  for (const c of ['bas', 'haut', 'gauche', 'droite'] as const) {
+    const h = horizontal(c), min = h ? B.xmin : B.ymin, max = h ? B.xmax : B.ymax;
+    const bord = c === 'bas' ? B.ymin : c === 'haut' ? B.ymax : c === 'gauche' ? B.xmin : B.xmax;
+    const signe = c === 'bas' || c === 'gauche' ? -1 : 1;
+    const L: Omit<ChaineCotes, 'rang' | 'ligne'>[] = [];
+    const d = reunir(S.map(p => (h ? p.x : p.y)));
+    if (d.length > 2) L.push({ cote: c, genre: 'decroches', reperes: d });
+    L.push({ cote: c, genre: 'hors_tout', reperes: reunir([min, max]) });
+    L.forEach((x, rang) => chaines.push({ ...x, rang, ligne: bord + signe * ecart * (rang + 1) }));
+  }
+  return chaines;
+}
+
 /** les quatre coins d'une pièce rectangulaire (null sinon) ; les sommets
     alignés (là où une cloison arrive sur un mur) ne comptent pas */
 export function rectangleDe(contour: Anneau): [Point, Point, Point, Point] | null {

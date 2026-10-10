@@ -1,11 +1,13 @@
 /* Les fondations : semelles filantes sous les murs porteurs (pas sous les
    cloisons), semelles isolées sous les poteaux, assise au plus bas du hors
-   gel et du bon sol, trappes de visite du vide sanitaire, métré. Maison
-   fictive de 10 × 8 m, un refend à 6 m, résultats à la main. */
+   gel et du bon sol, trappes de visite du vide sanitaire, métré ; le plan
+   d'exécution : cotes des semelles, réservations au passage des réseaux.
+   Maison fictive de 10 × 8 m, un refend à 6 m, résultats à la main. */
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel, type Foundation } from '../../src/model';
 import { annuler, executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
-import { metreProjet, planFondations, type LigneMetre } from '../../src/building';
+import { metreProjet, planFondations, cotationFondations, reservationsFondations, type LigneMetre } from '../../src/building';
+import { planchesPdf } from '../../src/export/planche';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 6) + (t += 1000)).toISOString(), id: generateurSequentiel('f') } };
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join()); return r.historique };
@@ -99,5 +101,39 @@ describe('fondations', () => {
     expect(ligne(T, 'Dallage sur terre-plein')).toBeDefined();
     expect(ligne(T, 'Murs de soubassement (terre-plein, hauteur 55 cm)')!.quantite).toBeCloseTo(43.5 * 0.55, 6);
     expect(ligne(T, 'Trappes de visite')).toBeUndefined();
+  });
+});
+
+describe('plan de fondations (exécution)', () => {
+  const texte = (u: Uint8Array) => Array.from(u, c => String.fromCharCode(c)).join('');
+  const textes = (x: string) => [...x.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map(m => m[1]!.replace(/\\(.)/g, '$1')).join(' ');
+
+  it('se cote sur les semelles : bords extérieurs et intérieurs (largeurs, vides), puis hors-tout ; pas sous la cloison', () => {
+    const { h } = maison();
+    const C = cotationFondations(plan(h).emprise);
+    const bas = C.filter(c => c.cote === 'bas');
+    /* semelles de 50 cm centrées sous les murs de façade (x = 0 et 10 m) et sous le refend (x = 6 m) */
+    expect(bas.find(c => c.genre === 'decroches')!.reperes.map(Math.round)).toEqual([-250, 250, 5_750, 6_250, 9_750, 10_250]);
+    expect(bas.find(c => c.genre === 'hors_tout')!.reperes.map(Math.round)).toEqual([-250, 10_250]);
+    /* à gauche : la cloison à y = 4 m n'a pas de semelle, rien ne s'y cote */
+    expect(C.find(c => c.cote === 'gauche' && c.genre === 'decroches')!.reperes.map(Math.round)).toEqual([-250, 250, 7_750, 8_250]);
+  });
+
+  it('réservations : chaque traversée d’une semelle par un réseau, repérée de haut en bas', () => {
+    const { h: h0, a, n } = maison();
+    const h = ok(executer(h0, 'Réseaux', [
+      { type: 'creerReseau', niveau: n, genre: 'eu', points: [{ x: 3_000, y: -5_000 }, { x: 3_000, y: 2_000 }], spec: 'PVC Ø 100' },
+      { type: 'creerReseau', niveau: n, genre: 'elec', points: [{ x: 13_000, y: 4_000 }, { x: 8_000, y: 4_000 }] },
+    ], a));
+    const R = reservationsFondations(h.projet, plan(h));
+    expect(R.map(r => [r.repere, r.reseau, Math.round(r.point.x), Math.round(r.point.y), Math.round(r.longueur), r.spec ?? null])).toEqual([
+      ['R1', 'elec', 10_000, 4_000, 500, null],
+      ['R2', 'eu', 3_000, 0, 500, 'PVC Ø 100'],
+    ]);
+    /* la planche : les cotes des semelles, les repères et leur liste, sans pièce ni baie */
+    const T = textes(texte(planchesPdf(h.projet, { niveaux: [], cotation: true, mobilier: false, indice: 'A', date: '06/10/2026', fondations: true })));
+    for (const t of ['10,50', '5,50', '3,50', 'R1 \x96 r\xE9servation \xC9LEC', 'R2 \x96 r\xE9servation EU', 'PVC \xD8 100', '\xD8 \xE0 pr\xE9ciser', 'R : r\xE9servation (fourreau dans la semelle, au passage d\x92un r\xE9seau)'])
+      expect(T, t).toContain(t);
+    expect(T).not.toContain('S\xE9jour');
   });
 });

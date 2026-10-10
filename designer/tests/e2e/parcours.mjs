@@ -429,6 +429,14 @@ try {
   const [csvM] = await Promise.all([p.waitForEvent('download'), p.click('.ruban .b-metre')]);
   assert.match(csvM.suggestedFilename(), /metre\.csv$/);
   if (process.env.CAPTURE_METRE) await p.screenshot({ path: process.env.CAPTURE_METRE });
+  /* les plans d'exécution du gros œuvre, du dialogue des PDF : le plan de fondations coté en tête */
+  await p.click('header button.bpdf');
+  await p.waitForSelector('.voile h2:has-text("Exporter en PDF")');
+  await p.selectOption('.voile label:has-text("Composer") select', 'execution');
+  const [dlExe] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
+  const exe = (await readFile(await dlExe.path())).toString('latin1');
+  assert.ok(exe.includes('(PLAN DE FONDATIONS)') && exe.includes('(Semelles filantes)'), 'plans d’exécution : fondations cotées');
+  assert.match(dlExe.suggestedFilename(), /plans d-execution\.pdf$/);
   await p.click('nav.onglets button[data-o=trace]'); await p.click('.sous button[data-s=murs]');
   await p.keyboard.press('Escape');
   await p.keyboard.press('f');
@@ -489,6 +497,23 @@ try {
   /* garder cette vue pour le dossier de permis (un JPEG de la vue) */
   await p.click('aside button.bpersp');
   await p.waitForSelector('aside button.bpersp:has-text("Vue gardée")', { timeout: 10_000 });
+  /* l'ensoleillement : le soleil d'un soir de juin, la course dite au panneau ; puis l'image HD du client, à la largeur choisie */
+  await p.selectOption('aside label:has-text("Soleil") select', 'date');
+  await p.waitForSelector('aside label:has-text("Heure solaire") input');
+  await p.fill('aside label:has-text("Heure solaire") input', '18');
+  await p.press('aside label:has-text("Heure solaire") input', 'Enter');
+  await p.waitForFunction(() => /Soleil à \d+° au-dessus de l’horizon, azimut 2\d\d°/.test(document.querySelector('aside')?.textContent ?? ''), null, { timeout: 10_000 });
+  if (process.env.CAPTURE_SOLEIL) await p.screenshot({ path: process.env.CAPTURE_SOLEIL });
+  /* une largeur réduite : Chromium sans carte graphique calcule lentement */
+  await p.fill('aside label:has-text("Largeur de l’image HD") input', '1200');
+  await p.press('aside label:has-text("Largeur de l’image HD") input', 'Enter');
+  await p.waitForFunction(() => /1\s200 px/.test(document.querySelector('aside button.bimagehd')?.textContent ?? ''));
+  const [dlHd] = await Promise.all([p.waitForEvent('download', { timeout: 90_000 }), p.click('aside button.bimagehd', { timeout: 90_000 })]);
+  const hd = await readFile(await dlHd.path());
+  assert.equal(hd.subarray(1, 4).toString('latin1'), 'PNG', 'image HD en PNG');
+  assert.ok(Math.abs(hd.readUInt32BE(16) - 1_200) <= 2, 'image HD de 1 200 px de large (' + hd.readUInt32BE(16) + ')');
+  assert.match(dlHd.suggestedFilename(), /3D HD\.png$/);
+  await p.selectOption('aside label:has-text("Soleil") select', 'atelier');
   /* et une peinture dans toutes les pièces du niveau */
   await p.selectOption('aside label:has-text("Murs intérieurs") select', 'peinture-vert-sauge');
   const pieces = (await objets()).filter(o => o.type === 'room');
@@ -806,7 +831,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, vue aérienne, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, pièces meublées d’un clic, décor de façade (pierre à l’entrée), rénovation (niveau existant, mur à démolir, dossier de déclaration préalable), plan de division du géomètre et vues complémentaires, métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, vue aérienne, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite, plans d’exécution), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, pièces meublées d’un clic, décor de façade (pierre à l’entrée), ensoleillement et image HD, rénovation (niveau existant, mur à démolir, dossier de déclaration préalable), plan de division du géomètre et vues complémentaires, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */

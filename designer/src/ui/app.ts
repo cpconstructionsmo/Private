@@ -33,6 +33,7 @@ import { geometrieFenetreToit, TAILLES_FENETRE_TOIT } from '../building/fenetres
 import { geometrieLucarne, LUCARNES } from '../building/lucarnes';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 import { coupe, ligneDe, traitsDeCoupe, type LigneDeCoupe } from '../vue3d/coupe';
+import { positionSoleil, directionSoleil, leverCoucher, LATITUDE_PAR_DEFAUT, JOURS_REMARQUABLES, type Ensoleillement } from '../vue3d/soleil';
 import type { Vue3D } from './vue3d';
 import type { Cabinet, ImageDossier } from '../export/planche';
 import { VUES_COMPLEMENTAIRES_MAX } from '../export/pieces-fournies';
@@ -342,7 +343,14 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   /* ---------- vue 3D ---------- */
   const maquetteAffichee = () => maquette(h.projet, niveaux3D === 'jusqua' ? niveauId : undefined, { toiture: toit3D });
   /* « vue maquette » : murs coupés à 1,20 m au-dessus du sol du niveau affiché, comme une maison de poupée */
-  function appliquerCoupe() { vue3d?.couper(coupe3D ? niveau().elevation + 1_200 : null) }
+  function appliquerCoupe() { vue3d?.couper(coupe3D ? niveau().elevation + 1_200 : null); appliquerSoleil() }
+  /* l'ensoleillement de la 3D (images du client) : date, heure solaire, latitude, le nord de la parcelle ; gardé le temps
+     de la séance (rien n'est enregistré dans le projet) ; null : la lumière d'atelier, au sud-est */
+  let ensoleillement: Ensoleillement | null = null;
+  function appliquerSoleil() {
+    if (!vue3d) return;
+    vue3d.soleil(ensoleillement ? directionSoleil(positionSoleil(ensoleillement), parcelleDuProjet(h.projet)?.plot.north ?? 0) : null);
+  }
   /* le plan et la 3D se partagent l'écran : l'un au centre, l'autre en aperçu (à droite) ; ⇄ ou la touche 3 les permutent */
   let camPlan: Camera | null = null;
   /** la taille du plan à l'écran, relue aussitôt qu'un onglet ouvre ou ferme le catalogue (un clic qui suit tombe juste) */
@@ -1080,7 +1088,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { id: 'studio', libelle: 'Studio', icone: 'studio', sous: [
       { id: 'vue3d', libelle: 'Vue 3D', icone: 'vue3d', entrer: () => void basculer3D(true), tuiles: () => [
         action('Recadrer', 'vue3d', () => vue3d?.cadrer()), action('Visite', 'visite', () => { void basculer3D(true).then(() => visite(true)) }, 'À hauteur d’homme (V)'),
-        action('Image PNG', 'image', () => void imagePNG()), action('Garder pour le dossier', 'permis', () => void garderPerspective(), 'La vue ira au dossier de permis')] },
+        action('Image PNG', 'image', () => void imagePNG()), action('Image HD', 'image', () => void imageHD(), 'L’image pour le client, en grand (3 000 pixels de large par défaut)'), action('Garder pour le dossier', 'permis', () => void garderPerspective(), 'La vue ira au dossier de permis')] },
       { id: 'insertion', libelle: 'Insertion (PCMI 6)', icone: 'photo', entrer: () => void basculer3D(true), tuiles: () => [
         action('Photo du terrain', 'photo', () => { void basculer3D(true).then(() => poserPhotoSite()) }), action('Garder pour le PCMI 6', 'permis', () => void garderInsertion())] },
     ] },
@@ -1853,6 +1861,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ligne(bouton('Recadrer', () => vue3d?.cadrer()), bouton('Image PNG', () => void imagePNG()), bouton('Retour au plan', () => void basculer3D(false), 'prim')),
       ligne(bouton(perspective ? '✓ Vue gardée pour le dossier (la remplacer)' : 'Garder cette vue pour le dossier', () => void garderPerspective(), 'bpersp')),
       bloc('La 3D se calcule à partir du plan : chaque modification s’y voit aussitôt. Hauteurs des murs, appuis et hauteurs des ouvertures : ceux de l’inspecteur.'));
+    sectionSoleil();
     /* l'insertion dans le site (PCMI 6) : la maquette sur une photographie du terrain, accordée à la main */
     aside.append(titre('Insertion dans le site (PCMI 6)'));
     if (!photoSite) aside.append(ligne(bouton('Photo du terrain…', () => void poserPhotoSite(), 'bphoto')),
@@ -1864,6 +1873,40 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         bouton('Retirer la photo', () => { photoSite = null; vue3d?.photo(null); panneaux() })));
     sectionMateriaux(niveau());
     sectionToiture(niveau());
+  }
+
+  /** l'ensoleillement de la 3D et l'image HD du client */
+  function sectionSoleil() {
+    const e = ensoleillement, t = parcelleDuProjet(h.projet);
+    const JOURS: Record<string, string> = { mars: '21 mars (équinoxe)', juin: '21 juin (solstice d’été)', septembre: '23 septembre (équinoxe)', decembre: '21 décembre (solstice d’hiver)' };
+    const jourDe = (j: number) => (Object.entries(JOURS_REMARQUABLES).find(([, v]) => v === j)?.[0] ?? 'juin');
+    const regler = (x: Partial<Ensoleillement> | null) => { ensoleillement = x === null ? null : { ...(ensoleillement ?? { jour: JOURS_REMARQUABLES.juin, heure: 16, latitude: LATITUDE_PAR_DEFAUT }), ...x }; appliquerSoleil(); panneaux() };
+    aside.append(titre('Ensoleillement et images'),
+      champ('Soleil', e ? 'date' : 'atelier', v => regler(v === 'date' ? {} : null), 'text', { atelier: 'Lumière d’atelier (au sud-est, façades sud éclairées)', date: 'À une date et une heure' }));
+    if (e) {
+      const p = positionSoleil(e), lc = leverCoucher(e.jour, e.latitude), deg = (r: number) => Math.round(r * 180 / Math.PI);
+      const hFr = (x: number) => { const m = Math.round(x * 60); return Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') };
+      aside.append(
+        champ('Jour', jourDe(e.jour), v => regler({ jour: JOURS_REMARQUABLES[v as keyof typeof JOURS_REMARQUABLES] }), 'text', JOURS),
+        champ('Heure solaire (12 : le soleil au sud)', e.heure, v => { const x = Number(v.replace(',', '.')); if (Number.isFinite(x)) regler({ heure: Math.min(22, Math.max(2, x)) }) }, 'number'),
+        champ('Latitude du terrain (°)', e.latitude, v => { const x = Number(v.replace(',', '.')); if (Number.isFinite(x) && Math.abs(x) <= 66) regler({ latitude: x }) }, 'number'),
+        bloc((p.hauteur > 0 ? 'Soleil à ' + deg(p.hauteur) + '° au-dessus de l’horizon, azimut ' + deg(p.azimut) + '° (depuis le nord, vers l’est)' : 'Le soleil est couché : seule la lumière du ciel éclaire')
+          + (lc ? ' · lever ' + hFr(lc.lever) + ', coucher ' + hFr(lc.coucher) + ' (heures solaires ; l’heure légale d’été a environ 2 h de plus)' : '')
+          + '<br><span class="note">' + (t ? 'Nord : celui de la parcelle.' : 'Sans parcelle, le nord est en haut du plan.') + (e.latitude === LATITUDE_PAR_DEFAUT ? ' Latitude par défaut : le milieu de la France, à préciser.' : '') + ' Pour des ombres d’illustration, pas pour une étude réglementaire.</span>'));
+    }
+    aside.append(champ('Largeur de l’image HD (pixels)', largeurHD, v => { const x = Math.round(Number(v.replace(/\s/g, ''))); if (x >= 400 && x <= 4_096) largeurHD = x; panneaux() }, 'number'),
+      ligne(bouton('Image HD pour le client (' + largeurHD.toLocaleString('fr-FR') + ' px)', () => void imageHD(), 'bimagehd')),
+      bloc('<span class="note">La vue courante recalculée en grand (ombres et textures comprises) : 3 000 px pour une impression A4, davantage pour un panneau. Quelques secondes de calcul.</span>'));
+  }
+  let largeurHD = 3_000;
+  async function imageHD() {
+    if (!vue3d) return;
+    try {
+      const i = await vue3d.imageHD(largeurHD);
+      const a = document.createElement('a'); a.href = URL.createObjectURL(i.png); a.download = (h.projet.name || 'projet') + ' - 3D HD.png'; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      toast('Image enregistrée : ' + i.largeur + ' × ' + i.hauteur + ' px');
+    } catch (e) { toast('Image impossible : ' + String((e as Error)?.message ?? e), true) }
   }
 
   /** l'outil Aménagement : le genre (clôture, terrasse…) et l'aspect de ce qu'on trace */
@@ -2860,9 +2903,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
   }
   /** les plans en PDF (A3, à l'échelle, cotés, cartouche) : chargé à la demande */
-  async function exporterPdf(doc: 'planches' | 'dossier' | 'dp' = 'planches') {
+  async function exporterPdf(doc: 'planches' | 'dossier' | 'dp' | 'execution' = 'planches') {
     const r = await dialogue('Exporter en PDF (A3)', [
-      { cle: 'doc', libelle: 'Composer', valeur: doc, options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)', dp: 'Le dossier de déclaration préalable (garde et sommaire, DP1 à DP8 selon les pièces fournies, notice et plans en complément)' } },
+      { cle: 'doc', libelle: 'Composer', valeur: doc, options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)', dp: 'Le dossier de déclaration préalable (garde et sommaire, DP1 à DP8 selon les pièces fournies, notice et plans en complément)', execution: 'Les plans d’exécution du gros œuvre (fondations cotées et réservations, tous les niveaux cotés sans mobilier, coupes)' } },
       { cle: 'pre', libelle: 'Plans', valeur: 'technique', options: { technique: 'Plans techniques (cotés)', presentation: 'Plans de présentation pour le client (sols en couleur, mobilier, sans cotes)' } },
       { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (une page chacun)' } },
       { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
@@ -2879,17 +2922,20 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ...(perspective ? [{ cle: 'per', libelle: 'Vue 3D (dossier)', valeur: 'oui', options: { oui: 'Ajouter la vue 3D gardée', non: 'Sans' } }] : [])]);
     if (!r) return;
     if (r['doc'] === 'dossier' || r['doc'] === 'dp') { await exporterDossier(r, r['doc'] === 'dp' ? 'DP' : 'PC'); return }
+    /* les plans d'exécution : le jeu du maçon, quels que soient les choix des planches */
+    const exe = r['doc'] === 'execution';
     try {
       const { planchesPdf } = await import('../export/planche');
       const sig = await signature();
       const u = planchesPdf(h.projet, { ...sig,
-        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui' && r['pre'] !== 'presentation', mobilier: r['mob'] === 'oui' || r['pre'] === 'presentation',
-        ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui', fondations: r['fon'] === 'oui',
+        ...(exe ? { niveaux: niveaux().map(f => f.id), cotation: true, mobilier: false, facades: false, coupe: true, masse: false, toiture: true, fondations: true } : {
+          niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui' && r['pre'] !== 'presentation', mobilier: r['mob'] === 'oui' || r['pre'] === 'presentation',
+          ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui', fondations: r['fon'] === 'oui' }),
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
       });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([u], { type: 'application/pdf' }));
-      a.download = (h.projet.name || 'projet') + (r['pre'] === 'presentation' ? ' - plans de presentation' : ' - plans A3') + (r['niv'] === 'tous' ? '' : ' - ' + niveau().name) + '.pdf';
+      a.download = (h.projet.name || 'projet') + (exe ? ' - plans d-execution.pdf' : (r['pre'] === 'presentation' ? ' - plans de presentation' : ' - plans A3') + (r['niv'] === 'tous' ? '' : ' - ' + niveau().name) + '.pdf');
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
       toast('PDF enregistré : ' + a.download);
