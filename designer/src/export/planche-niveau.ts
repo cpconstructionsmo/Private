@@ -7,8 +7,8 @@
    l'échelle graphique. Le plan est dessiné par le code de l'écran
    (ui/dessin.ts) sur une toile PDF : vectoriel. */
 import type { BuildingObject, Floor, Point, Project } from '../model/types';
-import { planDuNiveau, cotationExterieure, cotesInterieures, baiesExterieures, mursDroits, mursDemolis, ouvertureBatie, emprise, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau,
-  planFondations, SOUBASSEMENTS, surfacesReglementaires, surfacesDesPieces, partiesBasses, parcelleDuProjet, type ChaineCotes, type Cote4, type PlanFondations } from '../building';
+import { planDuNiveau, cotationExterieure, cotationFondations, cotesInterieures, baiesExterieures, mursDroits, mursDemolis, ouvertureBatie, emprise, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau,
+  planFondations, reservationsFondations, NOMS_RESEAUX, SOUBASSEMENTS, surfacesReglementaires, surfacesDesPieces, partiesBasses, parcelleDuProjet, type ChaineCotes, type Cote4, type PlanFondations, type Reservation } from '../building';
 import { dessiner, ETATS, type Scene } from '../ui/dessin';
 import { ToilePdf } from './toile-pdf';
 import { PagePdf, type DocumentPdf } from './pdf';
@@ -90,10 +90,11 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   const page = nouvelleFeuille(doc);
   /* le plan d'un niveau montre le bâtiment : le terrain et les abords vont au plan de masse ; seule la terrasse, accolée, reste */
   const garde = (x: BuildingObject) => (fondations
-    ? ['wall', 'opening', 'room', 'column', 'foundation', 'dimension'].includes(x.type)
+    /* au plan de fondations, ni baies (la semelle filante passe dessous) ni noms de pièces : les murs à fonder et les semelles */
+    ? ['column', 'foundation', 'dimension'].includes(x.type) || (x.type === 'wall' && (x.role === 'exterior' || x.role === 'bearing_interior' || (x.role === 'partition' && x.loadBearing.value)))
     : (o.mobilier || x.type !== 'furniture') && !SUR_LE_TERRAIN.has(x.type) && x.type !== 'roof' && x.type !== 'dormer' && x.type !== 'roof_window' && !(x.type === 'landscape' && x.kind !== 'terrace'));
   const niveau: Floor = { ...f, objects: Object.fromEntries(Object.entries(f.objects).filter(([, x]) => garde(x))) };
-  const plan = planDuNiveau(niveau), PF = fondations ? planFondations(niveau) : null;
+  const plan = planDuNiveau(niveau), PF = fondations ? planFondations(f) : null;          // les semelles et les trappes, d'après le niveau entier (pièces comprises)
   let B = boiteDessin(niveau, o.mobilier && !fondations);
   if (B && PF) for (const q of [...PF.emprise.flatMap(x => x.contour), ...PF.isolees.flatMap(x => x.contour)])
     B = { xmin: Math.min(B.xmin, q.x), ymin: Math.min(B.ymin, q.y), xmax: Math.max(B.xmax, q.x), ymax: Math.max(B.ymax, q.y) };
@@ -112,7 +113,8 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   }
   const Bx = B;
   const cotes = o.cotation && !o.presentation;
-  const CH: ChaineCotes[] = cotes ? cotationExterieure(niveau, 1) : [];
+  /* un plan de fondations se cote sur ses semelles (bords, largeurs, hors-tout), pas sur les baies */
+  const CH: ChaineCotes[] = !cotes ? [] : PF ? cotationFondations(PF.emprise, 1) : cotationExterieure(niveau, 1);
   const nb = (c: Cote4) => CH.filter(x => x.cote === c).length;
   /* les repères de coupe se posent au-delà des cotes, dans le blanc de la feuille : ils ne comptent pas dans la place du plan */
   const marge = (c: Cote4) => (nb(c) ? PREMIERE + ECART * (nb(c) - 1) + 4 : 6);
@@ -134,11 +136,13 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   const colonnesTableau = o.presentation
     ? [{ titre: 'Pièce', largeur: 36 }, { titre: 'Sol', largeur: 34 }, { titre: 'Surface', largeur: 18, aligne: 'droite' as const }]
     : [{ titre: 'Pièce', largeur: 40 }, { titre: 'S. hab.', largeur: 17, aligne: 'droite' as const }, { titre: 'S. annexe', largeur: 19, aligne: 'droite' as const }];
-  const lignesFondations = PF ? lignesDesFondations(PF) : [];
+  /* les réservations : là où un réseau tracé traverse une semelle (fourreau à prévoir au coulage) */
+  const RS = PF ? reservationsFondations(projet, PF) : [];
+  const lignesFondations = PF ? lignesDesFondations(PF, RS) : [];
   const tab = fondations
     ? { l: 76, h: hauteurTableau(lignesFondations.length, { titre: true }) + 4 + Math.min(10, PF!.alertes.length + 2) * 3.4 }
     : pieces.length ? { l: colonnesTableau.reduce((s, c) => s + c.largeur, 0), h: hauteurTableau(pieces.length, { total: true, titre: true, pas: PAS_TABLEAU }) + notes.length * 3.6 + (notes.length ? 2 : 0) } : null;
-  const L = fondations ? legendeFondations() : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0, o.formalite, partiesBasses(projet, f).length > 0);
+  const L = fondations ? legendeFondations(RS.length > 0) : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0, o.formalite, partiesBasses(projet, f).length > 0);
   const legs = L.length ? [1, 2, 3].filter(k => k <= L.length).map(k => ({ ...tailleLegende('LÉGENDE', L, k), k })) : [];
 
   /* la plus grande échelle normalisée où le plan, ses cotes et ses encadrés tiennent */
@@ -235,6 +239,13 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   dessiner(toile as unknown as CanvasRenderingContext2D, cam, scene);
   toile.restore();
 
+  /* les réservations des fondations : un repère cerclé de brique au passage de chaque réseau */
+  for (const r of RS) {
+    const [cx, cy] = P(r.point);
+    page.cercle(X(cx), Y(cy), 1.4 * PT, { fond: '#FFFFFF', trait: BRIQUE, ep: 0.6 });
+    page.trait(X(cx - 1), Y(cy), X(cx + 1), Y(cy), 0.4, BRIQUE);
+    texte(page, r.repere, cx + 2, cy - 1.8, 6.5, { gras: true, couleur: BRIQUE });
+  }
   /* « VR » devant chaque baie à volet roulant, dehors */
   if (!o.presentation && !fondations) for (const b of baiesExterieures(niveau)) if (b.ouverture.shutter === 'roller_motorized' || b.ouverture.shutter === 'roller_manual') {
     const [cx, cy] = P(b.centre), d = b.epaisseur / 2 / ech + 4.2;
@@ -273,20 +284,23 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
 }
 
 /** les lignes du tableau des fondations */
-function lignesDesFondations(P: PlanFondations): string[][] {
+function lignesDesFondations(P: PlanFondations, RS: readonly Reservation[] = []): string[][] {
   const fd = P.fondation, mm = (v: number) => metres(v) + ' m', cm = (v: number) => enCm(v) + ' cm';
   return [
     ['Semelles filantes', cm(fd.footingWidth) + ' × ' + cm(fd.footingHeight)], ['Longueur', mm(P.longueur)],
     ...(P.isolees.length ? [['Semelles isolées', P.isolees.length + ' × ' + enCm(fd.padSize) + ' × ' + enCm(fd.padSize) + ' cm']] : []),
     ['Hors gel', mm(fd.frostDepth)], ['Bon sol (étude G2)', fd.bearingDepth === undefined ? 'à préciser' : mm(fd.bearingDepth)], ['Assise sous le terrain', mm(P.assise)],
     ...(fd.kind === 'crawl_space' ? [['Vide sanitaire', cm(fd.crawlHeight)], ['Trappes de visite', String(P.trappes.length)]] : []),
+    ...RS.map(r => [r.repere + ' – réservation ' + NOMS_RESEAUX[r.reseau].code, r.spec ?? 'Ø à préciser']),
   ];
 }
-function legendeFondations(): LigneLegende[] {
+function legendeFondations(reservations = false): LigneLegende[] {
   return [
     { pastille: pastille('#DCDCDC', { hachures: '#4A4A4A' }), texte: 'Maçonnerie (murs porteurs)' },
     { pastille: pastille('#C9D0D6'), texte: 'Semelle (sous le sol)' },
     { pastille: pastille('#FFFFFF'), texte: 'TV : trappe de visite' },
+    ...(reservations ? [{ pastille: (page: PagePdf, x: number, y: number) => { page.cercle(X(x + 3.5), Y(y + 1.5), 1.4 * PT, { fond: '#FFFFFF', trait: BRIQUE, ep: 0.5 }); page.trait(X(x + 2.5), Y(y + 1.5), X(x + 4.5), Y(y + 1.5), 0.4, BRIQUE) },
+      texte: 'R : réservation (fourreau dans la semelle, au passage d’un réseau)' }] : []),
   ];
 }
 

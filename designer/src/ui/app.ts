@@ -2903,9 +2903,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
   }
   /** les plans en PDF (A3, à l'échelle, cotés, cartouche) : chargé à la demande */
-  async function exporterPdf(doc: 'planches' | 'dossier' | 'dp' = 'planches') {
+  async function exporterPdf(doc: 'planches' | 'dossier' | 'dp' | 'execution' = 'planches') {
     const r = await dialogue('Exporter en PDF (A3)', [
-      { cle: 'doc', libelle: 'Composer', valeur: doc, options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)', dp: 'Le dossier de déclaration préalable (garde et sommaire, DP1 à DP8 selon les pièces fournies, notice et plans en complément)' } },
+      { cle: 'doc', libelle: 'Composer', valeur: doc, options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)', dp: 'Le dossier de déclaration préalable (garde et sommaire, DP1 à DP8 selon les pièces fournies, notice et plans en complément)', execution: 'Les plans d’exécution du gros œuvre (fondations cotées et réservations, tous les niveaux cotés sans mobilier, coupes)' } },
       { cle: 'pre', libelle: 'Plans', valeur: 'technique', options: { technique: 'Plans techniques (cotés)', presentation: 'Plans de présentation pour le client (sols en couleur, mobilier, sans cotes)' } },
       { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (une page chacun)' } },
       { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
@@ -2922,17 +2922,20 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ...(perspective ? [{ cle: 'per', libelle: 'Vue 3D (dossier)', valeur: 'oui', options: { oui: 'Ajouter la vue 3D gardée', non: 'Sans' } }] : [])]);
     if (!r) return;
     if (r['doc'] === 'dossier' || r['doc'] === 'dp') { await exporterDossier(r, r['doc'] === 'dp' ? 'DP' : 'PC'); return }
+    /* les plans d'exécution : le jeu du maçon, quels que soient les choix des planches */
+    const exe = r['doc'] === 'execution';
     try {
       const { planchesPdf } = await import('../export/planche');
       const sig = await signature();
       const u = planchesPdf(h.projet, { ...sig,
-        niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui' && r['pre'] !== 'presentation', mobilier: r['mob'] === 'oui' || r['pre'] === 'presentation',
-        ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui', fondations: r['fon'] === 'oui',
+        ...(exe ? { niveaux: niveaux().map(f => f.id), cotation: true, mobilier: false, facades: false, coupe: true, masse: false, toiture: true, fondations: true } : {
+          niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui' && r['pre'] !== 'presentation', mobilier: r['mob'] === 'oui' || r['pre'] === 'presentation',
+          ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui', fondations: r['fon'] === 'oui' }),
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
       });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([u], { type: 'application/pdf' }));
-      a.download = (h.projet.name || 'projet') + (r['pre'] === 'presentation' ? ' - plans de presentation' : ' - plans A3') + (r['niv'] === 'tous' ? '' : ' - ' + niveau().name) + '.pdf';
+      a.download = (h.projet.name || 'projet') + (exe ? ' - plans d-execution.pdf' : (r['pre'] === 'presentation' ? ' - plans de presentation' : ' - plans A3') + (r['niv'] === 'tous' ? '' : ' - ' + niveau().name) + '.pdf');
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
       toast('PDF enregistré : ' + a.download);

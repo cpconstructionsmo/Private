@@ -305,6 +305,8 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
       return [mur, ...portes];
     }) : [])];
   for (const z of plan.zones) {
+    /* au plan de fondations imprimé, les pièces ne sont pas nommées : pas d'étiquette « À nommer » */
+    if (s.fondations && !z.piece) continue;
     const voulue = z.piece && positionDansAnneau(z.piece.seed, z.polygone.contour) === 'dedans' ? z.piece.seed : centroide(z.polygone.contour);
     ctx.font = '600 12px system-ui, sans-serif';
     const lpx = Math.max(ctx.measureText(z.piece ? z.piece.name : 'À nommer').width, 70) / 2 + 4;

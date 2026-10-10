@@ -19,7 +19,7 @@
 
    Tout cela relève de l'étude de sol et du bureau d'études : on le dit
    (alertes, statut « be_validation »), on ne l'invente pas. */
-import type { Floor, Foundation, Mm, Point, Project } from '../model/types';
+import type { Floor, Foundation, Mm, Network, Point, Project } from '../model/types';
 import { aire, type Polygone } from '../geometry/polygon';
 import { union, intersection } from '../geometry/booleen';
 import { ajouter, distance, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
@@ -27,6 +27,7 @@ import { positionDansAnneau } from '../geometry/predicats';
 import { decalagesFaces, mursDroits, type MurDroit } from './murs';
 import { planDuNiveau } from './plan';
 import { sectionPoteau } from './structure';
+import { segmentsDans } from '../geometry/hachures';
 
 /** une trappe de visite : 60 × 60 cm */
 export const COTE_TRAPPE: Mm = 600;
@@ -132,4 +133,36 @@ export function trappeProche(fd: Foundation, q: Point, rayon: Mm): number {
   let k = -1, d = rayon;
   fd.hatches.forEach((c, i) => { const e = distance(c, q); if (e <= d) { d = e; k = i } });
   return k;
+}
+
+/** une réservation à prévoir dans les fondations : là où un réseau traverse une semelle (fourreau, passage de gaine) */
+export interface Reservation {
+  /** « R1 », « R2 »… dans l'ordre du plan */
+  repere: string;
+  reseau: Network['kind'];
+  /** matériau et diamètre du réseau, s'ils sont saisis */
+  spec?: string;
+  /** le milieu de la traversée, et sa longueur (l'épaisseur traversée, mm) */
+  point: Point;
+  longueur: Mm;
+}
+
+/**
+ * Les réservations des fondations : chaque traversée d'une semelle par un réseau tracé (eaux usées, pluviales, eau,
+ * électricité, télécom, gaz) — sous un vide sanitaire comme sous un dallage, le réseau passe la semelle dans un
+ * fourreau à prévoir au coulage. Le diamètre est celui saisi au réseau ; sinon, à préciser au plan.
+ */
+export function reservationsFondations(projet: Project, P: PlanFondations): Reservation[] {
+  const R: Omit<Reservation, 'repere'>[] = [];
+  const reseaux = projet.buildings.flatMap(b => b.floors).flatMap(f => Object.values(f.objects)).filter((o): o is Network => o.type === 'network');
+  for (const n of reseaux) for (let i = 0; i + 1 < n.points.length; i++) {
+    const a = n.points[i]!, b = n.points[i + 1]!;
+    for (const q of P.emprise) for (const [s, t] of segmentsDans(a, b, q)) {
+      const longueur = distance(s, t);
+      if (longueur < 20) continue;
+      R.push({ reseau: n.kind, ...(n.spec?.trim() ? { spec: n.spec.trim() } : {}), point: { x: (s.x + t.x) / 2, y: (s.y + t.y) / 2 }, longueur });
+    }
+  }
+  /* numérotées dans l'ordre de lecture du plan : de haut en bas, puis de gauche à droite */
+  return R.sort((u, v) => v.point.y - u.point.y || u.point.x - v.point.x).map((r, i) => ({ repere: 'R' + (i + 1), ...r }));
 }

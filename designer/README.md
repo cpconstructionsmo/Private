@@ -747,6 +747,16 @@ quantités au métré. Les valeurs proposées (semelles 50 × 25 cm, hors gel
 0,80 m, vide sanitaire 0,60 m, semelles isolées 80 × 80 × 30 cm) sont des
 ordres de grandeur, à remplacer par ceux de l'étude de sol et du bureau
 d'études.
+**Plans d'exécution** (PDF → Composer « Les plans d'exécution du gros
+œuvre ») : le plan de fondations, tous les niveaux cotés sans mobilier, la
+toiture et les coupes, en un PDF. Le plan de fondations s'y lit comme un
+plan de maçon : les murs à fonder seuls (ni cloisons, ni baies — la semelle
+passe sous les seuils —, ni noms de pièces), coté sur les semelles
+(`cotationFondations` : bords extérieurs et intérieurs, d'où largeurs et
+vides, puis hors-tout) ; les **réservations** (`reservationsFondations`) y
+sont repérées R1, R2… là où un réseau tracé au terrain traverse une semelle
+(fourreau à prévoir au coulage), et listées au tableau avec le diamètre
+saisi au réseau, sinon « Ø à préciser ».
 
 **Fenêtres de toit** (outil H ; `src/building/fenetres-toit.ts`) : un
 châssis posé sur un pan de la toiture du niveau qui la porte (le Designer
