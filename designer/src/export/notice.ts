@@ -15,6 +15,7 @@ import { GOUTTIERES, MATIERES_GOUTTIERE } from '../building/eaux-pluviales';
 import { distance } from '../geometry/vecteur';
 import { surfacesReglementaires } from '../building/surfaces';
 import { toitureDuNiveau } from '../building/toiture';
+import { ouvertureBatie } from '../building/murs';
 import { materiau } from '../catalogue/materiaux';
 import { choixOuvrage, teinteMenuiserie, type OuvrageMenuiserie } from '../catalogue/menuiseries';
 import { GENRES_AMENAGEMENT, finitionAmenagement } from '../catalogue/amenagements';
@@ -65,6 +66,13 @@ export function notice(p: Project): RubriqueNotice[] {
   } else implantation.push('Implantation sur le terrain : ' + A_COMPLETER + '.');
   implantation.push('La maison comprend ' + (niveaux.length === 1 ? 'un niveau (' + niveaux[0]!.name + ')' : niveaux.length + ' niveaux (' + liste(niveaux.map(f => f.name)) + ')')
     + ' ; surface de plancher ' + m2(S.surfacePlancher) + ', surface habitable ' + m2(S.habitable) + '.');
+  /* une rénovation, une extension (ADR-0007) : l'existant, ce qui est démoli, ce que les travaux créent */
+  if (S.travaux) {
+    const T = S.travaux, demolis = objets.filter(o => o.type === 'wall' && o.phase === 'demolished').length;
+    implantation.push('Le projet transforme une construction existante (surface de plancher existante ' + m2(T.existant.surfacePlancher) + ', emprise au sol ' + m2(T.existant.emprise) + ')'
+      + (demolis ? ', avec la démolition de ' + demolis + ' mur' + (demolis > 1 ? 's' : '') : '') + ' ; il crée ' + m2(T.creee.surfacePlancher) + ' de surface de plancher et ' + m2(T.creee.emprise) + ' d’emprise au sol.');
+    implantation.push('Formalité indicative : ' + T.formalite.message);
+  }
   /* le terrain naturel sous la maison (points cotés interpolés aux angles de l'emprise), s'il est relevé et placé */
   const ngf0 = t?.plot.groundFloorNgf, tf = t?.plot.finishedGround;
   const tnSous = t && ngf0 !== undefined && Z.length ? E.flatMap(q => q.contour).map(q => altitudeTerrain(t.plot, q)).filter((z): z is number => z !== null) : [];
@@ -102,17 +110,17 @@ export function notice(p: Project): RubriqueNotice[] {
     const L = Math.hypot(o.axis.b.x - o.axis.a.x, o.axis.b.y - o.axis.a.y);
     return L - (o.finishZones ?? []).reduce((s, z) => s + Math.max(0, Math.min(L, z.to) - Math.max(0, z.from)), 0) <= 1;
   };
-  const parements = [...new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' && !couvert(o) ? [materiau(o.finish)?.libelle ?? ''] : [])))];
+  const parements = [...new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' && o.phase !== 'demolished' && !couvert(o) ? [materiau(o.finish)?.libelle ?? ''] : [])))];
   materiaux.push('Façades : ' + (parements.filter(Boolean).length ? liste(parements.filter(Boolean).map(x => x.toLowerCase())) + (parements.includes('') ? ' ; autres murs : ' + A_COMPLETER : '') : A_COMPLETER) + '.');
   /* les décors : « décoration de l'entrée en enduit imitation pierre » */
-  const decors = [...new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' ? (o.finishZones ?? []).flatMap(z => {
+  const decors = [...new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' && o.phase !== 'demolished' ? (o.finishZones ?? []).flatMap(z => {
     const m = materiau(z.finish);
     return m ? [(z.label?.trim() ? z.label.trim().replace(/^./, c => c.toLowerCase()) + ' en ' : 'partie de façade en ') + m.libelle.toLowerCase()] : [];
   }) : [])))];
   if (decors.length) materiaux.push('Décors : ' + liste(decors) + '.');
   /* les menuiseries extérieures : les ouvertures des murs de façade (les portes intérieures n'ont rien à faire au permis) */
-  const ouv = new Map<Opening['kind'], number>(), facade = new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' ? [o.id] : [])));
-  for (const o of objets) if (o.type === 'opening' && facade.has(o.hostWallId)) ouv.set(o.kind, (ouv.get(o.kind) ?? 0) + 1);
+  const ouv = new Map<Opening['kind'], number>(), facade = new Set(objets.flatMap(o => (o.type === 'wall' && o.role === 'exterior' && o.phase !== 'demolished' ? [o.id] : [])));
+  for (const o of objets) if (o.type === 'opening' && ouvertureBatie(o) && facade.has(o.hostWallId)) ouv.set(o.kind, (ouv.get(o.kind) ?? 0) + 1);
   const ouvs = [...ouv].filter(([k]) => k !== 'void').map(([k, n]) => n + ' ' + OUV[k][n > 1 ? 1 : 0]);
   const ft = objets.filter(o => o.type === 'roof_window').length;
   if (ft) ouvs.push(ft + (ft > 1 ? ' fenêtres de toit' : ' fenêtre de toit'));

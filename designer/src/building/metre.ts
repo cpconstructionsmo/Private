@@ -17,13 +17,17 @@
    - POTEAUX et POUTRES : nombre, longueur, volume ;
    - les FONDATIONS (building/fondations.ts) : fouilles, semelles filantes et
      isolées, soubassement, trappes ; toutes à valider par l'étude de sol ;
-   - le TERRAIN (building/terrassement.ts) : déblai, remblai, réseaux.
+   - le TERRAIN (building/terrassement.ts) : déblai, remblai, réseaux ;
+   - une RÉNOVATION, une EXTENSION (ADR-0007) : seuls les travaux comptent —
+     un mur, une baie existants ne se comptent pas ; un mur à démolir va au
+     lot Démolition, une baie existante à boucher au Gros œuvre, une baie
+     neuve dans un mur existant y compte un percement.
 
    Ce qui relève d'une hypothèse d'usage le dit (« à confirmer ») ; ce qui ne
    se mesure pas encore est « à préciser ». Rien n'est inventé. */
 import type { Floor, Opening, Project } from '../model/types';
 import { planDuNiveau } from './plan';
-import { mursDroits } from './murs';
+import { mursDemolis, mursDroits } from './murs';
 import { toitureDuNiveau } from './toiture';
 import { fenetresDeToit } from './fenetres-toit';
 import { lucarnesDuNiveau, LUCARNES } from './lucarnes';
@@ -52,7 +56,7 @@ export interface LigneMetre {
   pieces?: boolean;
 }
 
-export const LOTS = ['Terrassement et VRD', 'Gros œuvre', 'Charpente et couverture', 'Menuiseries extérieures', 'Menuiseries intérieures',
+export const LOTS = ['Démolition', 'Terrassement et VRD', 'Gros œuvre', 'Charpente et couverture', 'Menuiseries extérieures', 'Menuiseries intérieures',
   'Plâtrerie et isolation', 'Revêtements de sol', 'Faïence', 'Peinture', 'Équipements'] as const;
 
 /** linteau : la baie plus un appui de 20 cm de chaque côté (usage courant, à confirmer selon l'étude) */
@@ -104,8 +108,16 @@ function metreNiveau(p: Project, f: Floor, ajouter: (l: LigneMetre) => void): vo
   const plan = planDuNiveau(f), M = mursDroits(f), objets = Object.values(f.objects), n = ' — ' + f.name;
   const hsp = f.height;
 
-  /* ---------- murs, par composition ---------- */
+  /* ---------- démolitions : les murs existants à démolir ---------- */
+  for (const w of mursDemolis(f)) {
+    const L = distance(w.axis.a, w.axis.b), nom = (ROLES[w.role] ?? 'Murs') + ' existants à démolir';
+    ajouter({ lot: 'Démolition', libelle: nom + ' (surface)', quantite: m2(L * w.height), unite: 'm²', detail: 'à l’axe, baies comprises' });
+    ajouter({ lot: 'Démolition', libelle: nom + ' (longueur à l’axe)', quantite: ml(L), unite: 'ml' });
+  }
+
+  /* ---------- murs, par composition (les murs existants sont déjà là) ---------- */
   for (const w of M) {
+    if (w.phase === 'existing') continue;
     const lot = w.role === 'partition' ? 'Plâtrerie et isolation' : 'Gros œuvre';
     const k = compositionMur(w.compositionRef), L = distance(w.axis.a, w.axis.b);
     const baies = plan.baies.filter(b => b.mur === w.id).reduce((s, b) => s + b.surface, 0);
@@ -123,6 +135,16 @@ function metreNiveau(p: Project, f: Floor, ajouter: (l: LigneMetre) => void): vo
     if (o.type !== 'opening') continue;
     const w = parId.get(o.hostWallId);
     if (!w) continue;
+    /* une baie existante conservée n'est pas à fournir ; une baie existante supprimée se bouche */
+    if (o.phase === 'existing') continue;
+    if (o.phase === 'demolished') {
+      if (w.role !== 'partition') ajouter({ lot: 'Gros œuvre', libelle: 'Bouchement de baies existantes', quantite: m2(o.width * o.height), unite: 'm²', detail: 'maçonnerie de remplissage : à confirmer' });
+      else ajouter({ lot: 'Plâtrerie et isolation', libelle: 'Bouchement de baies existantes (cloisons)', quantite: m2(o.width * o.height), unite: 'm²' });
+      continue;
+    }
+    /* une baie neuve dans un mur existant : un percement */
+    if (w.phase === 'existing') ajouter({ lot: w.role === 'partition' ? 'Plâtrerie et isolation' : 'Gros œuvre', libelle: 'Percements de baies dans des murs existants', quantite: 1, unite: 'u',
+      ...(w.role === 'partition' ? {} : { detail: 'reprise en sous-œuvre et linteau : à confirmer selon l’étude' }) });
     const ext = w.role === 'exterior', lot = ext ? 'Menuiseries extérieures' : 'Menuiseries intérieures';
     /* le libellé du modèle porte déjà ses dimensions (« Fenêtre 2 vantaux 120 × 125 ») : on ne les répète pas, sauf si on les a changées */
     const dims = cm(o.width) + ' × ' + cm(o.height), lib = o.catalogRef?.label;

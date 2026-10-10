@@ -18,7 +18,7 @@ import { aire, perimetre, type Anneau, type Polygone } from '../geometry/polygon
 import { unionSoudee, difference } from '../geometry/booleen';
 import { positionDansAnneau } from '../geometry/predicats';
 import { ajouter, distance, multiplier, normaleGauche, normaliser, soustraire } from '../geometry/vecteur';
-import { contoursMurs, decalagesFaces, mursDroits, mursFictifs, type ContourMur, type MurDroit } from './murs';
+import { contoursMurs, decalagesFaces, mursDroits, mursFictifs, ouvertureBatie, type ContourMur, type MurDroit } from './murs';
 import { EPAISSEUR_FICTIVE } from '../geometry/tolerance';
 
 export interface Zone {
@@ -114,7 +114,9 @@ function calculer(f: Floor): PlanNiveau {
   const baies: BaieMetree[] = [];
   const decoupes: Anneau[] = [];
   for (const o of Object.values(f.objects)) {
-    if (o.type !== 'opening') continue;
+    if (o.type !== 'opening' || !ouvertureBatie(o)) continue;
+    /* une baie d'un mur à démolir part avec lui : ce n'est pas une orpheline */
+    if (!parId.has(o.hostWallId) && f.objects[o.hostWallId]?.type === 'wall') continue;
     const w = parId.get(o.hostWallId);
     if (!w) { alertes.push({ genre: 'ouverture_orpheline', ouverture: o.id, message: 'Ouverture sans mur porteur sur ce niveau' }); continue }
     const g = geometrieOuverture(w, o);

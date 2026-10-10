@@ -55,7 +55,8 @@ export interface PlanFondations {
 }
 
 /** un mur porte-t-il une semelle filante ? */
-export const murSurSemelle = (w: MurDroit): boolean => w.role === 'exterior' || w.role === 'bearing_interior' || (w.role === 'partition' && w.loadBearing.value);
+/** un mur à fonder : porteur, et à construire (un mur existant a déjà ses fondations : ADR-0007) */
+export const murSurSemelle = (w: MurDroit): boolean => w.phase !== 'existing' && (w.role === 'exterior' || w.role === 'bearing_interior' || (w.role === 'partition' && w.loadBearing.value));
 
 /** la semelle d'un mur : un rectangle centré sous le corps du mur, prolongé d'une demi-largeur à chaque bout */
 function semelleSous(w: MurDroit, largeur: Mm): SemelleFilante {

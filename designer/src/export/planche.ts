@@ -494,6 +494,11 @@ function pageDeGarde(page: PagePdf, projet: Project, d: OptionsDossier, pieces: 
   ligne('Surface de plancher « S.P » (m²)', '', v(S.surfacePlancher) || '0,00');
   ligne('Surface habitable (m²)', '', v(S.habitable) || '0,00');
   ligne('Surface vitrée (m²)', '', (v(vit) || '0,00') + pct(vit, S.habitable));
+  /* une rénovation, une extension : l'existant et ce que les travaux créent (ADR-0007) */
+  if (S.travaux) {
+    ligne('S.P existante / créée (m²)', '', (v(S.travaux.existant.surfacePlancher) || '0,00') + ' / ' + (v(S.travaux.creee.surfacePlancher) || '0,00'));
+    ligne('Emprise existante / créée (m²)', '', (v(S.travaux.existant.emprise) || '0,00') + ' / ' + (v(S.travaux.creee.emprise) || '0,00'));
+  }
   /* les pièces du dossier, en bas à droite */
   y += 8;
   t('PIÈCES DU DOSSIER', x0, y, 9.5, { gras: true, couleur: '#2C4A5E' }); y += 2;

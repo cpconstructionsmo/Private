@@ -15,7 +15,7 @@
 import { cadastreInvalide, deplacerCadastre } from '../building/cadastre';
 import { teinteOuvrageInvalide } from '../catalogue/menuiseries';
 import { reglesPluInvalides } from '../building/plu';
-import type { Canopy, Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu, FinishZone } from '../model/types';
+import type { Canopy, Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu, FinishZone, PhaseOuvrage } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -76,10 +76,14 @@ export type Commande =
   /** composition : une autre composition (épaisseur et rôle suivent) ; null : « sur mesure ». Une épaisseur donnée seule rend le mur « sur mesure » */
   | { type: 'modifierMur'; id: string; epaisseur?: Mm; hauteur?: Mm; role?: Wall['role']; justification?: Wall['justification']; finition?: string | null; composition?: string | null;
       /** les parties de la façade habillées d'un autre parement (toutes, elles remplacent les précédentes) ; null ou [] : aucune */
-      decors?: FinishZone[] | null }
+      decors?: FinishZone[] | null;
+      /** existant (conservé ou à démolir) ; null : à construire (ADR-0007) */
+      phase?: PhaseOuvrage | null }
   | { type: 'creerOuverture'; mur: string; position: Mm; largeur: Mm; hauteur: Mm; allege?: Mm; genre: Opening['kind']; sens?: Opening['swing']; origine?: Origine; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef'] }
   /** volet : null l'efface */
-  | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing']; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef']; volet?: Opening['shutter'] | null }
+  | { type: 'modifierOuverture'; id: string; position?: Mm; largeur?: Mm; hauteur?: Mm; allege?: Mm; genre?: Opening['kind']; sens?: Opening['swing']; vantaux?: number; manoeuvre?: Opening['operation']; modele?: Opening['catalogRef']; volet?: Opening['shutter'] | null;
+      /** existante (conservée, ou à boucher / déposer) ; null : percement ou baie du projet (ADR-0007) */
+      phase?: PhaseOuvrage | null }
   | { type: 'creerPiece'; niveau: string; point: Point; nom: string; usage: RoomUsage; humide?: boolean; origine?: Origine }
   | { type: 'modifierPiece'; id: string; nom?: string; usage?: RoomUsage; humide?: boolean; point?: Point; sol?: string | null; murs?: string | null }
   | { type: 'supprimer'; id: string }
@@ -272,6 +276,7 @@ function deplacementRigide(avant: Point[], apres: Point[]): ((p: Point) => Point
 const matiereValide = (id: string): boolean => /^[a-z0-9-]{1,60}$/.test(id);
 
 const vantauxValides = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 4;
+const PHASES = new Set<PhaseOuvrage>(['existing', 'demolished']);
 
 /** au plus 8 décors par mur */
 const DECORS_MAX = 8;
@@ -457,6 +462,13 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
         if (roleFinal === 'virtual' && ouverturesDe(p, w.id).length) return refus('ce mur porte des ouvertures : une cloison fictive n’en reçoit pas');
         if (cmd.hauteur !== undefined && !(cmd.hauteur > 0)) return refus('la hauteur doit être positive');
         if (cmd.finition !== undefined && cmd.finition !== null && !matiereValide(cmd.finition)) return refus('parement inconnu');
+        if (cmd.phase !== undefined && (cmd.phase ?? null) !== (w.phase ?? null)) {
+          if (cmd.phase !== null && !PHASES.has(cmd.phase)) return refus('état inconnu');
+          if (cmd.phase !== null && roleFinal === 'virtual') return refus('une cloison fictive n’a pas d’état : elle n’a pas de matière');
+          /* une baie existante est dans un mur existant : le mur ne repasse pas au projet avant elles */
+          if (cmd.phase === null && ouverturesDe(p, w.id).some(x => !!x.o.phase)) return refus('ce mur porte des baies existantes : repassez-les d’abord au projet');
+          avant['phase'] = w.phase ?? null; apres['phase'] = cmd.phase;
+        }
         if (cmd.decors !== undefined) {
           const Z = cmd.decors ?? [];
           if (Z.length && roleFinal !== 'exterior') return refus('un décor se pose sur un mur de façade');
@@ -480,6 +492,7 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       const t = trouverObjet(p, cmd.mur);
       if (!t || t.objet.type !== 'wall') return refus('mur hôte introuvable');
       if (t.objet.role === 'virtual') return refus('une cloison fictive ne reçoit pas d’ouverture : elle n’a pas de matière');
+      if (t.objet.phase === 'demolished') return refus('ce mur est à démolir : il ne reçoit pas de nouvelle baie');
       if (!fini(cmd.position, cmd.largeur, cmd.hauteur)) return refus('dimensions invalides');
       const e = horsDuMur(cmd.position, cmd.largeur, longueurMur(t.objet));
       if (e) return refus(e);
@@ -507,6 +520,11 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       const avant: Record<string, unknown> = { revision: o.revision, sourceRefs: o.sourceRefs };
       const apres: Record<string, unknown> = { revision: c.revision, sourceRefs: [...o.sourceRefs, source(c, 'Modification')] };
       if (cmd.volet !== undefined && cmd.volet !== null && !VOLETS.has(cmd.volet)) return refus('volet inconnu');
+      if (cmd.phase !== undefined && (cmd.phase ?? null) !== (o.phase ?? null)) {
+        if (cmd.phase !== null && !PHASES.has(cmd.phase)) return refus('état inconnu');
+        if (cmd.phase !== null && !mur.objet.phase) return refus('une baie existante est dans un mur existant : passez d’abord le mur en existant');
+        avant['phase'] = o.phase ?? null; apres['phase'] = cmd.phase;
+      }
       const champs = { position: 'offset', largeur: 'width', hauteur: 'height', allege: 'sill', genre: 'kind', sens: 'swing', vantaux: 'leaves', manoeuvre: 'operation', modele: 'catalogRef', volet: 'shutter' } as const;
       for (const k of Object.keys(champs) as (keyof typeof champs)[]) {
         if (cmd[k] === undefined) continue;

@@ -34,7 +34,7 @@ import { blocs, formeDe, versPlan } from '../building/mobilier';
 import { finitionAmenagement } from '../catalogue/amenagements';
 import { choixOuvrage, type OuvrageMenuiserie } from '../catalogue/menuiseries';
 import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../building/escalier';
-import { decalagesFaces, mursDroits, type MurDroit } from '../building/murs';
+import { decalagesFaces, mursDroits, ouvertureBatie, type MurDroit } from '../building/murs';
 import { parcelleDuProjet } from '../building/terrain';
 import { sectionPoteau, empriseDePoutre } from '../building/structure';
 import { plateformesDuProjet, reliefTerrain } from '../building/terrassement';
@@ -163,7 +163,7 @@ function murs(f: Floor, prismes: Prisme[], teintes: Teintes = {}): void {
   const plan = planDuNiveau(f), contours = new Map(plan.murs.map(m => [m.id, m.contour]));
   /* le dehors du niveau : hors des contours extérieurs de sa maçonnerie */
   const exterieurs = plan.maconnerie.map(m => m.contour);
-  const ouvertures = Object.values(f.objects).filter((o): o is Opening => o.type === 'opening');
+  const ouvertures = Object.values(f.objects).filter((o): o is Opening => o.type === 'opening' && ouvertureBatie(o));
   for (const w of mursDroits(f)) {
     const C = contours.get(w.id);
     if (!C) continue;
@@ -243,7 +243,7 @@ function peintures(f: Floor, prismes: Prisme[]): void {
   const haut = Math.max(0, ...W.map(w => w.baseOffset + w.height));
   if (!haut) return;
   const parId = new Map(W.map(w => [w.id, w]));
-  const ouv = Object.values(f.objects).filter((o): o is Opening => o.type === 'opening' && parId.has(o.hostWallId)).map(o => {
+  const ouv = Object.values(f.objects).filter((o): o is Opening => o.type === 'opening' && ouvertureBatie(o) && parId.has(o.hostWallId)).map(o => {
     const w = parId.get(o.hostWallId)!, u = normaliser(soustraire(w.axis.b, w.axis.a)), n = normaleGauche(u), F = decalagesFaces(w);
     const P = (t: Mm, k: Mm) => ajouter(ajouter(w.axis.a, multiplier(u, t)), multiplier(n, k));
     const t0 = o.offset - o.width / 2, t1 = o.offset + o.width / 2, k0 = F.droite - 50, k1 = F.gauche + 50;

@@ -23,3 +23,4 @@ export * from './cadastre';
 export * from './plu';
 export * from './ameublement';
 export * from './decors';
+export * from './etats';
