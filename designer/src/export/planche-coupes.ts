@@ -9,7 +9,7 @@
    Tout se déduit de la maquette (vue3d/coupe.ts) et de la parcelle. */
 import type { Floor, Foundation, Point, Project } from '../model/types';
 import { compositionPlancher, MATIERES_PLANCHER } from '../catalogue/planchers';
-import { planDuNiveau, toitureDuNiveau, parcelleDuProjet, profilTerrain, empriseAuSol, fondationsDuProjet, planFondations, corpsSurSemelles, SOUBASSEMENTS } from '../building';
+import { planDuNiveau, toitureDuNiveau, parcelleDuProjet, profilTerrain, empriseAuSol, fondationsDuProjet, planFondations, corpsSurSemelles, SOUBASSEMENTS, partiesBasses, HAUTEUR_MINI } from '../building';
 import { maquette, EPAISSEUR_PLANCHER, type Matiere } from '../vue3d/maquette';
 import { coupe, traitsDeCoupe, type Coupe, type LigneDeCoupe } from '../vue3d/coupe';
 import { segmentsDans } from '../geometry/hachures';
@@ -40,6 +40,8 @@ interface CoupeVue {
   pieces: { nom: string; u: number; z: number; l: number }[];
   /** les fondations au droit de la coupe (u) : semelles, soubassements, et ce qui les place (mm, depuis le ±0,00) */
   fond: { genre: Foundation['kind']; semelles: [number, number][]; soubassements: [number, number][]; fondFouille: number; hauteurSemelle: number; vide: number } | null;
+  /** sous les combles, les parties de moins de 1,80 m traversées (u), à la hauteur de 1,80 m au-dessus de leur sol */
+  basses: { z: number; u: [number, number][] }[];
 }
 
 function preparer(projet: Project, l: LigneDeCoupe): CoupeVue | null {
@@ -80,7 +82,9 @@ function preparer(projet: Project, l: LigneDeCoupe): CoupeVue | null {
       fondFouille: Math.min(zRef, 0) - PF.assise, hauteurSemelle: PF.fondation.footingHeight, vide: PF.fondation.crawlHeight };
   }
   const zt = tn?.map(q => q.z) ?? [];
-  return { l, C, tn, limites: lim, maison, u0, u1, zmin: fond?.semelles.length ? Math.min(Math.min(C.boite.zmin, 0, ...zt) - 600, fond.fondFouille - 300) : Math.min(C.boite.zmin, 0, ...zt) - 1_000, zmax: C.boite.zmax, pieces, fond };
+  /* les parties basses des combles (building/surfaces.ts) : la coupe montre où l'on passe sous 1,80 m */
+  const basses = projet.buildings.flatMap(b => b.floors).map(f => ({ z: f.elevation + HAUTEUR_MINI, u: fusionner(partiesBasses(projet, f).flatMap(coupeU)).filter(([a, b]) => b - a > 150) })).filter(x => x.u.length);
+  return { l, C, tn, limites: lim, maison, u0, u1, basses, zmin: fond?.semelles.length ? Math.min(Math.min(C.boite.zmin, 0, ...zt) - 600, fond.fondFouille - 300) : Math.min(C.boite.zmin, 0, ...zt) - 1_000, zmax: C.boite.zmax, pieces, fond };
 }
 
 export function plancheCoupes(doc: DocumentPdf, projet: Project, o: OptionsCoupes, lignes: LigneDeCoupe[]): void {
@@ -160,7 +164,7 @@ function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, 
   }
   /* ce qu'on voit au-delà : la couverture dans sa teinte, le reste en blanc au trait */
   for (const f of v.C.vues) {
-    if (COUVERTURES.has(f.matiere) || ['vitrage', 'menuiserie', 'appui', 'porte', 'garage'].includes(f.matiere)) peindre(page, f, P, e, 0);
+    if (!f.dessous && (COUVERTURES.has(f.matiere) || ['vitrage', 'menuiserie', 'appui', 'porte', 'garage'].includes(f.matiere))) peindre(page, f, P, e, 0);
     else page.polygone(f.points.map(q => P(q.u, q.z)), { fond: '#FFFFFF', trait: '#3A3A3A', ep: 0.25 });
   }
   /* le comble, comme aux dossiers du cabinet : blanc entre le plafond et les pans coupés (l'ardoise des pans d'au-delà ne
@@ -202,10 +206,21 @@ function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, 
     texte(page, p.nom, x, y, c, { gras: true, aligne: 'centre', couleur: '#222222' });
   }
   const toits = projet.buildings.flatMap(b => b.floors).flatMap(f => { const r = toitureDuNiveau(f); return r?.ok ? r.toitures : [] });
-  if (toits.length && toits.some(t => !t.terrasse) && v.maison.length) {
-    const a = Math.min(...v.maison.map(m => m[0])), b = Math.max(...v.maison.map(m => m[1])), t = toits[0]!;
-    const [x, y] = Pm((a + b) / 2, t.hautMurs + (t.faitage - t.hautMurs) * 0.28);
-    texte(page, 'Comble perdu', x, y, 6.5, { italique: true, aligne: 'centre', couleur: '#3A3A3A' });
+  /* « Comble perdu » au-dessus du plafond du niveau sous la toiture : sous des combles aménagés, il n'y en a qu'au-dessus
+     de leur plafond, s'il reste de la place */
+  const NC = niveauSousComble(projet);
+  if (toits.length && toits.some(t => !t.terrasse) && v.maison.length && NC) {
+    const a = Math.min(...v.maison.map(m => m[0])), b = Math.max(...v.maison.map(m => m[1])), t = toits[0]!, zb = Math.max(t.hautMurs, NC.zPlafond);
+    if (t.faitage - zb > 800) {
+      const [x, y] = Pm((a + b) / 2, zb + (t.faitage - zb) * 0.28);
+      texte(page, 'Comble perdu', x, y, 6.5, { italique: true, aligne: 'centre', couleur: '#3A3A3A' });
+    }
+  }
+  /* sous les combles, la hauteur de 1,80 m : en tirets sur les parties plus basses, non comptées dans les surfaces */
+  for (const bz of v.basses) for (const [a, b] of bz.u) {
+    page.trait(...P(a, bz.z), ...P(b, bz.z), 0.4, '#555555', [1.6, 0.9]);
+    const [x, y] = Pm((a + b) / 2, bz.z);
+    if ((b - a) / e > 9) texte(page, '1,80', x, y - 0.9, 5.5, { aligne: 'centre', couleur: '#555555' });
   }
   /* les limites de propriété */
   for (const u of v.limites) {
@@ -322,6 +337,7 @@ function basDePage(page: PagePdf, projet: Project, V: CoupeVue[], x: number, y: 
       return iso ? [{ pastille: pastille(MATIERES_PLANCHER[iso.matiere].couleur, { trait: '#B89B55' }), texte: 'Isolant des combles : ' + MATIERES_PLANCHER[iso.matiere].libelle.toLowerCase() + ' ' + Math.round(iso.epaisseur / 10) + ' cm (' + comp!.libelle.toLowerCase() + ')' }] : [];
     })(),
     ...(V.some(v => v.limites.length) ? [{ pastille: pastilleTrait(LIMITE, 0.6, [2.4, 1.6]), texte: 'Limite de propriété' }] : []),
+    ...(V.some(v => v.basses.length) ? [{ pastille: pastilleTrait('#555555', 0.4, [1.6, 0.9]), texte: 'Hauteur de 1,80 m sous la toiture (au-dessous : non comptée)' }] : []),
     { pastille: (pg: PagePdf, px: number, py: number) => { pg.trait(X(px), Y(py + 2.5), X(px + 7), Y(py + 2.5), 0.4, ENCRE); pg.polygone([[X(px + 3.5), Y(py + 2.5)], [X(px + 5.2), Y(py + 0.2)], [X(px + 1.8), Y(py + 0.2)]], { fond: '#FFFFFF', trait: ENCRE, ep: 0.4 }) }, texte: 'Repère de niveau (cote / RDC fini et altitude NGF)' },
   ];
   legende(page, x, y, 'LÉGENDE', L, 7, 4.1);

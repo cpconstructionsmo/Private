@@ -9,7 +9,7 @@ import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, U
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, decorParDefaut, type CadastreLu, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, decorParDefaut, surfacesDesPieces, partiesBasses, type CadastreLu, type MurDroit } from '../building';
 import { aireSignee, boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -628,7 +628,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       parcelle: (() => { const t = parcelleDuProjet(p); return t && t.niveau.id === f.id ? { plot: t.plot, reculs: reculs(t.plot, empriseAuSol(p)) } : null })(),
       parcelleEnCours: outils.parcelleEnCours, courbes: courbes || null, profil: onglet === 'exterieur' ? profilTrait : null,
       coupes: traitsDeCoupe(p).map(({ id, niveau: n, ...l }) => (n === f.id ? { ...l, id } : l)),
-      ...(toit?.ok ? { toitures: toit.toitures } : {}),
+      /* sous une toiture, les surfaces comptées des pièces et les parties de moins de 1,80 m (gardées par projet et niveau) */
+      ...(toit?.ok ? { toitures: toit.toitures, surfacesPieces: surfacesDesPieces(p, f), basses: partiesBasses(p, f) } : {}),
       /* le plan de fondations se montre dans son sous-onglet */
       fondations: onglet === 'trace' && sousOnglets['trace'] === 'fondations' ? planFondations(f) : null,
       eaux: eauxPluviales(f), gouttieres: onglet === 'toit' && sousOnglets['toit'] === 'eaux',

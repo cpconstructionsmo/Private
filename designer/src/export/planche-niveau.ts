@@ -8,7 +8,7 @@
    (ui/dessin.ts) sur une toile PDF : vectoriel. */
 import type { BuildingObject, Floor, Point, Project } from '../model/types';
 import { planDuNiveau, cotationExterieure, cotesInterieures, baiesExterieures, mursDroits, mursDemolis, ouvertureBatie, emprise, geometrieEscalier, hauteurAFranchir, tremiesDuNiveau,
-  planFondations, SOUBASSEMENTS, surfacesReglementaires, parcelleDuProjet, type ChaineCotes, type Cote4, type PlanFondations } from '../building';
+  planFondations, SOUBASSEMENTS, surfacesReglementaires, surfacesDesPieces, partiesBasses, parcelleDuProjet, type ChaineCotes, type Cote4, type PlanFondations } from '../building';
 import { dessiner, ETATS, type Scene } from '../ui/dessin';
 import { ToilePdf } from './toile-pdf';
 import { PagePdf, type DocumentPdf } from './pdf';
@@ -59,14 +59,17 @@ export function boiteDessin(f: Floor, mobilier = true): { xmin: number; ymin: nu
 
 /** les surfaces de chaque pièce, par niveau : habitable (S.H) ou annexe (S.A : garage, pièce exclue) ; mm² */
 export function surfacesParPiece(projet: Project): { niveau: string; pieces: { nom: string; sh: number; sa: number }[] }[] {
-  return projet.buildings.flatMap(b => b.floors).sort((a, b) => a.elevation - b.elevation).map(f => ({ niveau: f.name, pieces: piecesDuNiveau(f) })).filter(x => x.pieces.length);
+  return projet.buildings.flatMap(b => b.floors).sort((a, b) => a.elevation - b.elevation).map(f => ({ niveau: f.name, pieces: piecesDuNiveau(projet, f) })).filter(x => x.pieces.length);
 }
 /** l'ordre des pièces d'un tableau de surfaces : séjour, cuisine, chambres, rangements, eau, circulations, annexes */
 const ORDRE_USAGES = ['living', 'kitchen', 'bedroom', 'storage', 'bathroom', 'wc', 'circulation', 'technical', 'other', 'garage'];
-function piecesDuNiveau(f: Floor): { nom: string; sh: number; sa: number }[] {
+/* la surface d'une pièce : celle que comptent les surfaces réglementaires (trémie et parties de moins de 1,80 m sous
+   la toiture déduites), pour que le tableau d'un étage sous combles tombe juste avec la surface habitable */
+function piecesDuNiveau(projet: Project, f: Floor): { nom: string; sh: number; sa: number }[] {
+  const A = surfacesDesPieces(projet, f);
   return planDuNiveau(f).zones.filter(z => z.piece).map(z => {
-    const r = z.piece!, annexe = r.usage === 'garage' || !!r.excludedFromHabitable?.value;
-    return { nom: r.name, sh: annexe ? 0 : z.aire, sa: annexe ? z.aire : 0, rang: (annexe ? 100 : 0) + ORDRE_USAGES.indexOf(r.usage) };
+    const r = z.piece!, annexe = r.usage === 'garage' || !!r.excludedFromHabitable?.value, a = A.get(r.id) ?? z.aire;
+    return { nom: r.name, sh: annexe ? 0 : a, sa: annexe ? a : 0, rang: (annexe ? 100 : 0) + ORDRE_USAGES.indexOf(r.usage) };
   }).sort((a, b) => a.rang - b.rang || a.nom.localeCompare(b.nom, 'fr', { numeric: true })).map(({ nom, sh, sa }) => ({ nom, sh, sa }));
 }
 
@@ -120,7 +123,7 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   const tient = (e: number) => Bw / e + marge('gauche') + marge('droite') <= zone.l && Bh / e + marge('haut') + marge('bas') <= zone.h;
 
   /* ce qui se pose dans les vides : le tableau des surfaces (ou des fondations), la légende, le nord, l'échelle */
-  const pieces = piecesDuNiveau(niveau);
+  const pieces = piecesDuNiveau(projet, f);
   const S = surfacesReglementaires(projet), SN = S.niveaux.find(x => x.niveau === f.id);
   const bas = [...projet.buildings.flatMap(b => b.floors)].sort((a, b) => a.elevation - b.elevation)[0];
   const notes = fondations || o.presentation ? [] : [
@@ -135,7 +138,7 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
   const tab = fondations
     ? { l: 76, h: hauteurTableau(lignesFondations.length, { titre: true }) + 4 + Math.min(10, PF!.alertes.length + 2) * 3.4 }
     : pieces.length ? { l: colonnesTableau.reduce((s, c) => s + c.largeur, 0), h: hauteurTableau(pieces.length, { total: true, titre: true, pas: PAS_TABLEAU }) + notes.length * 3.6 + (notes.length ? 2 : 0) } : null;
-  const L = fondations ? legendeFondations() : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0, o.formalite);
+  const L = fondations ? legendeFondations() : o.presentation ? [] : legendeDuPlan(niveau, traits.length > 0, o.formalite, partiesBasses(projet, f).length > 0);
   const legs = L.length ? [1, 2, 3].filter(k => k <= L.length).map(k => ({ ...tailleLegende('LÉGENDE', L, k), k })) : [];
 
   /* la plus grande échelle normalisée où le plan, ses cotes et ses encadrés tiennent */
@@ -225,6 +228,8 @@ export function plancheNiveau(doc: DocumentPdf, projet: Project, f: Floor, o: Op
     tremies: fondations ? [] : tremiesDuNiveau(projet, f), coupes: [], ...(o.presentation ? { presentation: true } : {}),
     ...(cotes && !fondations ? { cotesInterieures: cotesInterieures(niveau, 5 * ech) } : {}),
     ...(PF ? { fondations: PF } : {}),
+    /* sous les combles : les surfaces comptées des pièces, et les parties de moins de 1,80 m, hachurées */
+    ...(fondations ? {} : { surfacesPieces: surfacesDesPieces(projet, f), basses: partiesBasses(projet, f) }),
   };
   toile.save(); toile.beginPath(); toile.rect(0, 0, ZD.l * PT, ZD.h * PT); toile.clip();
   dessiner(toile as unknown as CanvasRenderingContext2D, cam, scene);
@@ -286,7 +291,7 @@ function legendeFondations(): LigneLegende[] {
 }
 
 /** la légende d'un plan de niveau : ce qui y est dessiné, rien de plus */
-function legendeDuPlan(f: Floor, coupes: boolean, formalite?: Formalite): LigneLegende[] {
+function legendeDuPlan(f: Floor, coupes: boolean, formalite?: Formalite, basses = false): LigneLegende[] {
   const W = mursDroits(f), L: LigneLegende[] = [];
   const ext = W.filter(w => w.role === 'exterior'), ep = [...new Set(ext.map(w => Math.round(w.thickness / 10)))].sort((a, b) => b - a);
   /* une rénovation, une extension (ADR-0007) : l'existant conservé, le démoli, les baies à boucher ; le reste est à construire */
@@ -303,6 +308,8 @@ function legendeDuPlan(f: Floor, coupes: boolean, formalite?: Formalite): LigneL
   if (W.some(w => w.role === 'partition')) L.push({ pastille: pastille('#A9A9A9'), texte: 'Cloison de distribution' });
   if (Object.values(f.objects).some(o => o.type === 'furniture' && formeDe(o) === 'placard')) L.push({ pastille: pastille('#FFFFFF', { tirets: true }), texte: 'Placard' });
   if (Object.values(f.objects).some(o => o.type === 'canopy')) L.push({ pastille: pastille('#FFFFFF', { tirets: true }), texte: 'Couvert (porche, auvent : sous la toiture)' });
+  if (basses) L.push({ pastille: (page, x, y) => { pastille('#F3F3F3', { hachures: '#C4C4C4', trait: '#F3F3F3' })(page, x, y); page.trait(X(x), Y(y), X(x + 7), Y(y), 0.5, '#555555', [1.6, 0.9]) },
+    texte: 'Hauteur inférieure à 1,80 m sous la toiture (non comptée) ; en tirets, la limite des 1,80 m' });
   if (coupes) L.push({ pastille: (page, x, y) => { page.trait(X(x), Y(y + 1.5), X(x + 7), Y(y + 1.5), 0.5, BRIQUE, [3, 1, 0.6, 1]); page.cadre(X(x), Y(y + 2.1), 2 * PT, 1.2 * PT, { ep: 0, fond: BRIQUE }) }, texte: 'Plan de coupe (voir ' + codePiece('PCMI 3', formalite) + ')' });
   const vr = Object.values(f.objects).filter(o => o.type === 'opening' && ouvertureBatie(o) && (o.shutter === 'roller_motorized' || o.shutter === 'roller_manual'));
   if (vr.length) L.push({ pastille: (page, x, y) => texte(page, 'VR', x + 1, y + 2.6, 6.5, { couleur: GRIS_TEXTE }), texte: 'VR : volet roulant' + (vr.every(o => o.type === 'opening' && o.shutter === 'roller_motorized') ? ' motorisé' : '') });
