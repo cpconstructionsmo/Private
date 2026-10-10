@@ -21,10 +21,12 @@ import { plancheSituation } from './planche-situation';
 import { plancheCoupes } from './planche-coupes';
 import { plancheToiture, toituresDuProjet } from './planche-toiture';
 import { plancheNiveau, ECHELLES, surfacesParPiece, surfaceVitree } from './planche-niveau';
+import { VUES_COMPLEMENTAIRES_MAX } from './pieces-fournies';
 
 export type { Cabinet, ImageDossier } from './feuille';
 export { CABINET_PAR_DEFAUT } from './feuille';
 export { boiteDessin, surfacesParPiece, surfaceVitree } from './planche-niveau';
+export { VUES_COMPLEMENTAIRES_MAX } from './pieces-fournies';
 
 export const PT = 72 / 25.4;                       // points par millimètre
 export const A3 = { l: 420, h: 297 } as const;      // à l'italienne, mm
@@ -223,6 +225,45 @@ function reperagePrisesDeVue(page: PagePdf, projet: Project, code: string, x: nu
   }
 }
 
+/** le document d'un tiers (le plan de division du géomètre-expert), reproduit tel quel : toute la zone de dessin,
+    sans rien y ajouter, la colonne CP à droite ; une ligne dessous dit d'où il vient (rien n'est redessiné) */
+function pageDocumentFourni(doc: DocumentPdf, projet: Project, o: OptionsPlanche, v: ImageDossier, colTitre: string, colSous: string, code: string, quoi: string): void {
+  const page = doc.page(A3.l * PT, A3.h * PT), nom = doc.imageJpeg(v.jpeg, v.largeur, v.hauteur);
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  const L = 345, H = 287 - 10 - 12, k = Math.min(L / v.largeur, H / v.hauteur), l = v.largeur * k, h = v.hauteur * k;
+  const x0 = 10 + (L - l) / 2, y0 = 10 + (H - h) / 2;
+  page.image(nom, X(x0), Y(y0 + h), l * PT, h * PT);
+  page.cadre(X(x0), Y(y0 + h), l * PT, h * PT, { ep: 0.4, couleur: '#9A9A9A' });
+  const src = v.legende?.trim();
+  texte(page, quoi + ', reproduit tel quel — ' + (src ? src : 'source et date : ' + A_COMPLETER) + '.', x0, Math.min(283, y0 + h + 6), 7, { couleur: src ? GRIS_TEXTE : '#C5563A' });
+  colonne(page, projet, o, colTitre, colSous, code, 0);
+}
+
+
+/** la planche complémentaire des photographies (PCMI 7 / 8) : les vues en grille, chacune titrée « VUE COMPLÉMENTAIRE »
+    et suivie de son point de vue, la dernière case pour le repérage des prises de vue sur la parcelle */
+function plancheVuesComplementaires(doc: DocumentPdf, projet: Project, o: OptionsPlanche, vues: readonly ImageDossier[]): void {
+  const page = doc.page(A3.l * PT, A3.h * PT);
+  const X = (x: number) => x * PT, Y = (y: number) => (A3.h - y) * PT;
+  const V = vues.slice(0, VUES_COMPLEMENTAIRES_MAX), avecReperage = !!parcelleDuProjet(projet), n = V.length + (avecReperage ? 1 : 0);
+  /* la grille : une rangée pour deux cases, deux rangées au-delà ; trois colonnes pour cinq cases */
+  const rangs = n <= 2 ? 1 : 2, cols = Math.ceil(n / rangs), ecartX = 8, ecartY = 6, LEG = 13;
+  const lc = (345 - (cols - 1) * ecartX) / cols, hc = (277 - (rangs - 1) * ecartY) / rangs;
+  const cellule = (i: number) => ({ x: 10 + (i % cols) * (lc + ecartX), y: 10 + Math.floor(i / cols) * (hc + ecartY) });
+  V.forEach((v, i) => {
+    const c = cellule(i), nom = doc.imageJpeg(v.jpeg, v.largeur, v.hauteur);
+    const k = Math.min(lc / v.largeur, (hc - LEG) / v.hauteur), l = v.largeur * k, h = v.hauteur * k;
+    page.image(nom, X(c.x), Y(c.y + h), l * PT, h * PT);
+    page.cadre(X(c.x), Y(c.y + h), l * PT, h * PT, { ep: 0.5, couleur: '#222222' });
+    const leg = v.legende?.trim();
+    titreDessin(page, 'VUE COMPLÉMENTAIRE', '', c.x, c.y + h + 5, 8.5);
+    for (const [j, s] of couperF(leg || 'Point et angle de prise de vue : ' + A_COMPLETER, (l - 4) * PT, 6.5).slice(0, 2).entries())
+      texte(page, s, c.x + 2.4, c.y + h + 8.8 + j * 3.2, 6.5, { couleur: leg ? GRIS_TEXTE : '#C5563A' });
+  });
+  if (avecReperage) { const c = cellule(V.length); reperagePrisesDeVue(page, projet, 'PCMI 7 / 8', c.x, c.y, lc, hc - LEG) }
+  colonne(page, projet, o, 'Photographies', 'planche complémentaire', 'PCMI 7 / 8', 0);
+}
+
 /* ---------- le dossier de permis de construire, en un PDF ---------- */
 
 export interface OptionsDossier {
@@ -241,6 +282,12 @@ export interface OptionsDossier {
   /** PCMI 7 et 8 : les photographies de l'environnement proche et lointain ; leur légende dit le point de vue */
   photoProche?: ImageDossier;
   photoLointaine?: ImageDossier;
+  /** PCMI 1 : le plan de division (ou parcellaire) du géomètre-expert, fourni et reproduit tel quel ; sa légende dit
+   *  d'où il vient (cabinet, n° de dossier, date) */
+  planDivision?: ImageDossier;
+  /** PCMI 7 / 8 : les vues complémentaires du terrain (au plus VUES_COMPLEMENTAIRES_MAX), sur une planche ; chaque
+   *  légende dit le point de vue */
+  vuesComplementaires?: ImageDossier[];
 }
 
 /** les pièces du dossier, dans l'ordre du formulaire ; « page » : null quand le Designer ne la produit pas */
@@ -250,7 +297,8 @@ export interface PieceDossier { code: string; intitule: string; page: number | n
  * Le dossier de permis (maison individuelle) en un seul PDF A3 : une page de garde avec le sommaire, puis
  * la situation (PCMI 1, si l'extrait de carte est fourni), le plan de masse (PCMI 2), les coupes (PCMI 3),
  * la notice (PCMI 4), les façades et la toiture (PCMI 5), l'insertion (PCMI 6, si le photomontage est
- * composé), les photographies (PCMI 7 et 8, si elles sont fournies) et les plans des niveaux ; chaque
+ * composé), les photographies (PCMI 7 et 8, et leur planche complémentaire, si elles sont fournies) et
+ * les plans des niveaux ; le plan de division du géomètre, s'il est fourni, suit la situation ; chaque
  * planche numérotée « n / N ». Une pièce qui manque est listée « à joindre » : rien n'est inventé.
  */
 export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Array<ArrayBuffer>; pieces: PieceDossier[] } {
@@ -272,6 +320,9 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
     'Extrait de carte fourni pour le dossier' + (d.situation.legende?.trim() ? ' : ' + d.situation.legende.trim() : ' (source et échelle : ' + A_COMPLETER + ')') + '.',
     'Le terrain doit y être repéré, avec l’échelle et la direction du nord : à vérifier sur l’extrait avant le dépôt.',
   ]);
+  /* le plan de division du géomètre, juste après la situation (comme aux dossiers du cabinet) : un document fourni, jamais redessiné */
+  const pDivision = d.planDivision ? debut() : null;
+  if (d.planDivision) pageDocumentFourni(doc, projet, o, d.planDivision, 'Plan', 'parcellaire', 'PCMI 1', 'Plan de division du géomètre-expert');
   const pMasse = t ? debut() : null;
   if (t) plancheMasse(doc, projet, o);
   const lignes = lignesDeCoupe(projet), pCoupe = debut();
@@ -306,14 +357,17 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
   if (d.photoProche) photo('PCMI 7', 'proche', d.photoProche);
   const pLointaine = d.photoLointaine ? debut() : null;
   if (d.photoLointaine) photo('PCMI 8', 'lointain', d.photoLointaine);
+  const vues = (d.vuesComplementaires ?? []).slice(0, VUES_COMPLEMENTAIRES_MAX), pVues = vues.length ? debut() : null;
+  if (vues.length) plancheVuesComplementaires(doc, projet, o, vues);
   const pPlans = debut();
   for (const f of niveaux) planche(doc, projet, f, o, lignes);
   const noteVue = (code: string) => (PV.some(x => x.piece === code) && t ? 'point de vue reporté au PCMI 2' : 'point de vue à reporter au PCMI 2');
   const pieces: PieceDossier[] = [
-    { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: pSituation,
-      note: !pSituation ? 'à joindre (extrait de carte, échelle et nord)'
+    { code: 'PCMI 1', intitule: 'Plan de situation du terrain', page: pSituation ?? pDivision,
+      note: (!pSituation ? 'à joindre (extrait de carte, échelle et nord)'
         : d.situation ? (fc ? 'extrait de carte fourni et plan cadastral (cadastre importé) : à vérifier' : 'extrait de carte fourni : échelle et nord à vérifier')
-          : 'plan cadastral du cadastre importé ; extrait de carte (1/5 000 à 1/25 000) à joindre' },
+          : 'plan cadastral du cadastre importé ; extrait de carte (1/5 000 à 1/25 000) à joindre')
+        + (pDivision ? ' ; plan de division du géomètre : page ' + pDivision : '') },
     { code: 'PCMI 2', intitule: 'Plan de masse des constructions', page: pMasse, ...(t ? {} : { note: 'parcelle à tracer (outil L)' }) },
     { code: 'PCMI 3', intitule: 'Plan en coupe du terrain et de la construction', page: pCoupe },
     { code: 'PCMI 4', intitule: 'Notice décrivant le terrain et le projet', page: pNotice, note: 'brouillon à relire et compléter' },
@@ -322,6 +376,7 @@ export function dossierPc(projet: Project, d: OptionsDossier): { octets: Uint8Ar
       note: (pInsertion ? 'photomontage composé dans le Designer' : 'à joindre (photomontage)') + (pVue ? ' ; vue 3D du projet : page ' + pVue : '') },
     { code: 'PCMI 7', intitule: 'Photographie de l’environnement proche', page: pProche, note: pProche ? noteVue('PCMI 7') : 'à joindre' },
     { code: 'PCMI 8', intitule: 'Photographie de l’environnement lointain', page: pLointaine, note: pLointaine ? noteVue('PCMI 8') : 'à joindre' },
+    ...(pVues ? [{ code: 'PCMI 7 / 8', intitule: 'Photographies : planche complémentaire', page: pVues, note: vues.length + ' vue' + (vues.length > 1 ? 's' : '') + ' complémentaire' + (vues.length > 1 ? 's' : '') }] : []),
     { code: '—', intitule: 'Plans des niveaux (complément)', page: pPlans },
   ];
   pageDeGarde(garde, projet, d, pieces, t ? { terrain: surfaceTerrain(t.plot), emprise: aireEmprise(empriseAuSol(projet)), reference: t.plot.reference } : null, S, o.logoNom);

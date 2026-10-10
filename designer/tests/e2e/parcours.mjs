@@ -612,6 +612,17 @@ try {
   await p.click('.voile button.prim');
   await p.waitForFunction(() => /PCMI 1 Vue aérienne \(facultative\) : ✓ 640 × 400 px — Géoportail, photographies aériennes/.test(document.querySelector('aside').textContent));
   assert.match(await p.textContent('aside'), /PCMI 1 Plan cadastral : cliquez sur la parcelle/, 'plan cadastral : le cadastre est à importer');
+  /* le plan de division du géomètre (PCMI 1, reproduit tel quel) et une vue complémentaire (planche PCMI 7 / 8) */
+  const [fcd] = await Promise.all([p.waitForEvent('filechooser'), p.click('aside button.bdivision')]);
+  await fcd.setFiles({ name: 'division.png', mimeType: 'image/png', buffer: imageFictive });
+  await p.fill('.voile input[name=leg]', 'Géomètre fictif, dossier 00000');
+  await p.click('.voile button.prim');
+  await p.waitForFunction(() => /Plan de division du géomètre \(facultatif\) : ✓ 640 × 400 px — Géomètre fictif/.test(document.querySelector('aside').textContent));
+  const [fcv] = await Promise.all([p.waitForEvent('filechooser'), p.click('aside button.bvuecompl')]);
+  await fcv.setFiles({ name: 'vue.png', mimeType: 'image/png', buffer: imageFictive });
+  await p.fill('.voile input[name=leg]', 'prise de vue n°3, depuis le fond du terrain');
+  await p.click('.voile button.prim');
+  await p.waitForFunction(() => /Vues complémentaires \(planche\) : 1 \/ 4/.test(document.querySelector('aside').textContent));
   await p.keyboard.press('3');
   await p.waitForFunction(() => (window.cpDesigner.vue3d()?.maillages ?? 0) > 0, null, { timeout: 20_000 });
   const [fcs] = await Promise.all([p.waitForEvent('filechooser'), p.click('aside button.bphoto')]);
@@ -631,7 +642,9 @@ try {
   if (process.env.CAPTURE_DOSSIER) await writeFile(process.env.CAPTURE_DOSSIER, await readFile(await dl6.path()));
   for (const t of ['(Lieu-dit Le Fictif)', '(812 m\xB2)', '(Pompe \xE0 chaleur air / eau)', '(PERMIS DE CONSTRUIRE)', '(C. Fictif)', '(PCMI 6 \x97 INSERTION DU PROJET DANS SON ENVIRONNEMENT)', '(PCMI 7 \x97 PHOTOGRAPHIE DE L\x92ENVIRONNEMENT PROCHE)', '(depuis la rue, vers le nord)', '(depuis la rue, face \xE0 l\x92entr\xE9e)'])
     assert.ok(dossier6.includes(t), 'dossier : ' + t);
-  assert.equal(dossier6.match(/\/Subtype \/Image /g)?.length, 3, 'trois images dans le dossier (vue aérienne, insertion et photographie)');
+  assert.equal(dossier6.match(/\/Subtype \/Image /g)?.length, 5, 'cinq images dans le dossier (vue aérienne, plan de division, insertion, photographie, vue complémentaire)');
+  assert.ok(dossier6.includes('Plan de division du g\xE9om\xE8tre-expert, reproduit tel quel') && dossier6.includes('(VUE COMPL\xC9MENTAIRE)') && dossier6.includes('(prise de vue n\xB03, depuis le fond du terrain)'),
+    'PCMI 1 : le plan de division ; PCMI 7 / 8 : la vue complémentaire et son point de vue');
   assert.ok(dossier6.includes('(VUE A\xC9RIENNE)') && dossier6.includes('(G\xE9oportail, photographies a\xE9riennes)'), 'PCMI 1 : la vue aérienne et sa légende');
   /* le plan de présentation : sols en couleur à l'écran (préférence de l'appareil), puis en PDF pour le client */
   /* onglet Indications → Couleurs de pièces */
@@ -768,7 +781,7 @@ try {
   assert.match(p2.url(), /[?&]_=\d+/, 'rechargé une fois sans cache');
   assert.match(await p2.textContent('#cpd-diagnostic'), /fichier introuvable : index-.*\.js[\s\S]*Navigateur :/);
   await p2.close();
-  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, vue aérienne, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, pièces meublées d’un clic, décor de façade (pierre à l’entrée), métré du projet (CSV), diagnostic au démarrage');
+  console.log('✓ parcours CP Designer dans Chromium : dessin, déplacement, annuler, équerre des murs, onglets (murs composés, cloison fictive, plafond du niveau, types de pièces, tableau des surfaces, toit, nuancier), fond image et PDF, rechargement, palette, tracé rapide (rectangle et longueurs tapés, porte placée par sa distance), bibliothèque d’ouvertures (glisser-déposer, changement de modèle), mobilier (posé contre un mur, glissé), copier-coller, export PDF (plan, façades, coupe, dossier de permis), export DXF, escalier, trait de coupe tracé, import de l’atelier, toiture, vue 3D (rendu réaliste ou maquette), matériaux (façades, peinture), visite à hauteur d’homme, modèle de maison, vue gardée pour le dossier, informations du dossier et cabinet, pièces du dossier (photographie, vue aérienne, insertion sur photo), point de prise de vue, plan de présentation, fenêtre de toit, point coté du terrain, fond cadastral, aimant sur le fond, terrain (plateforme, réseau, arbre, métré, plan du géomètre en DXF, profil en long, courbes de niveau), poteau et poutre, fondations (vide sanitaire, trappe de visite), génoise et descente d’eaux pluviales, talon de charpente, lucarne, porche couvert, pièces meublées d’un clic, décor de façade (pierre à l’entrée), plan de division du géomètre et vues complémentaires, métré du projet (CSV), diagnostic au démarrage');
 } catch (e) {
   echec = e;
   /* une capture de l'écran au moment de l'échec, pour comprendre (CAPTURE_ECHEC=chemin.png) */
