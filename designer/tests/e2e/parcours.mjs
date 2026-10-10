@@ -555,6 +555,15 @@ try {
   const meubles = (await objets()).filter(o => o.type === 'furniture');
   assert.ok(meubles.length >= 15 && ['place-voiture', 'refrigerateur', 'vasque-double'].every(id => meubles.some(o => o.catalogRef.id === id))
     && meubles.filter(o => /^lit-1[46]0$/.test(o.catalogRef.id)).length === 2, 'pièces meublées : ' + meubles.map(o => o.catalogRef.id).join(', '));
+  /* (contrôle à l'œil, facultatif) les pièces meublées en 3D, murs coupés */
+  if (process.env.CAPTURE_MEUBLES) {
+    await p.keyboard.press('3'); await p.waitForFunction(() => window.cpDesigner.vue3d()?.maillages > 40);
+    await p.click('nav.onglets button[data-o=studio]');
+    await p.check('aside label:has-text("Vue maquette") input'); await p.waitForTimeout(800);
+    await p.screenshot({ path: process.env.CAPTURE_MEUBLES });
+    await p.uncheck('aside label:has-text("Vue maquette") input');
+    await p.keyboard.press('Escape'); await p.click('nav.onglets button[data-o=produit]');
+  }
   await p.keyboard.press('Control+z');
   assert.equal((await objets()).filter(o => o.type === 'furniture').length, 0, 'un « annuler » retire tout le mobilier posé');
   await p.click('nav.onglets button[data-o=trace]');

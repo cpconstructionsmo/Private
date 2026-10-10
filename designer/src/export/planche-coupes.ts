@@ -21,7 +21,9 @@ import { PT, X, Y, ZONE_DESSIN, ENCRE, GRIS_TEXTE, BRIQUE, colonne, nouvelleFeui
 import { ECHELLES } from './planche-niveau';
 import { peindre } from './planche-facades';
 
-export interface OptionsCoupes extends Signature { echelle?: number | undefined; dossier?: boolean | undefined }
+export interface OptionsCoupes extends Signature { echelle?: number | undefined; dossier?: boolean | undefined;
+  /** une rénovation, une extension (ADR-0007) : la planche de l'état existant ou de l'état projeté, titrée comme telle */
+  etat?: 'existant' | 'projete' | undefined }
 
 const TERRE = '#EDE5D8', TERRE_POINTS = '#CDBFA9', TN = '#7A3E2E', TF = '#3F7A3A', LIMITE = '#2C5B8A';
 const COUVERTURES: ReadonlySet<Matiere> = new Set(['tuile', 'ardoise', 'zinc', 'bac_acier', 'vegetalise', 'gravillons']);
@@ -110,9 +112,9 @@ export function plancheCoupes(doc: DocumentPdf, projet: Project, o: OptionsCoupe
     const page = nouvelleFeuille(doc), lot = V.slice(i, i + n);
     const H = lot.reduce((s, v) => s + hauteur(v, ech), 0), ecart = (Z.h - BAS - H) / (lot.length + 1);
     let y = Z.y + ecart;
-    for (const v of lot) { dessinerCoupe(page, projet, v, Z.x + (Z.l - largeur(v, ech)) / 2, y, ech, marges(v, ech)); y += hauteur(v, ech) + ecart }
+    for (const v of lot) { dessinerCoupe(page, projet, v, Z.x + (Z.l - largeur(v, ech)) / 2, y, ech, marges(v, ech), o.etat); y += hauteur(v, ech) + ecart }
     basDePage(page, projet, V, Z.x, Z.y + Z.h - BAS + 4, Z.l, o.formalite);
-    colonne(page, projet, o, 'Coupes', 'sur terrain', 'PCMI 3', ech);
+    colonne(page, projet, o, 'Coupes', o.etat === 'existant' ? 'état existant' : o.etat === 'projete' ? 'état projeté' : 'sur terrain', 'PCMI 3', ech);
   }
 }
 
@@ -125,7 +127,7 @@ function marges(v: CoupeVue, e: number): { g: number; d: number; dedansG: boolea
   return { g: dedansG ? 4 : COTES, d: dedansD ? 4 : COTES, dedansG, dedansD };
 }
 
-function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, y0: number, e: number, M: ReturnType<typeof marges>): void {
+function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, y0: number, e: number, M: ReturnType<typeof marges>, etat?: 'existant' | 'projete'): void {
   const ySol = y0 + 4 + v.zmax / e;
   const Pm = (u: number, z: number): [number, number] => [x0 + M.g + (u - v.u0) / e, ySol - z / e];
   const P = (u: number, z: number): [number, number] => { const [a, b] = Pm(u, z); return [X(a), Y(b)] };
@@ -262,7 +264,7 @@ function dessinerCoupe(page: PagePdf, projet: Project, v: CoupeVue, x0: number, 
   }
   /* le titre de la coupe */
   const sens = orientation(v.l.regard, parcelleDuProjet(projet)?.plot.north ?? 0);
-  titreDessin(page, 'COUPE ' + v.l.nom + '–' + v.l.nom, 'Coupe sur terrain – regard vers le ' + sens + ' – échelle 1/' + e, x0 + Math.max(M.g - 8, 0), ycote + 9, 11);
+  titreDessin(page, 'COUPE ' + v.l.nom + '–' + v.l.nom + (etat === 'existant' ? ' – ÉTAT EXISTANT' : etat === 'projete' ? ' – ÉTAT PROJETÉ' : ''), 'Coupe sur terrain – regard vers le ' + sens + ' – échelle 1/' + e, x0 + Math.max(M.g - 8, 0), ycote + 9, 11);
 }
 
 /** des intervalles réunis (ceux qui se touchent ou se recouvrent n'en font qu'un), dans l'ordre */

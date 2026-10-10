@@ -9,7 +9,7 @@ import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, U
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, decorParDefaut, surfacesDesPieces, partiesBasses, type CadastreLu, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, decorParDefaut, surfacesDesPieces, partiesBasses, attentesSanitaires, type CadastreLu, type MurDroit } from '../building';
 import { aireSignee, boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -2905,7 +2905,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   /** les plans en PDF (A3, à l'échelle, cotés, cartouche) : chargé à la demande */
   async function exporterPdf(doc: 'planches' | 'dossier' | 'dp' | 'execution' = 'planches') {
     const r = await dialogue('Exporter en PDF (A3)', [
-      { cle: 'doc', libelle: 'Composer', valeur: doc, options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)', dp: 'Le dossier de déclaration préalable (garde et sommaire, DP1 à DP8 selon les pièces fournies, notice et plans en complément)', execution: 'Les plans d’exécution du gros œuvre (fondations cotées et réservations, tous les niveaux cotés sans mobilier, coupes)' } },
+      { cle: 'doc', libelle: 'Composer', valeur: doc, options: { planches: 'Les planches choisies ci-dessous', dossier: 'Le dossier de permis complet (garde et sommaire, PCMI 1 à 8 selon les pièces fournies, plans des niveaux)', dp: 'Le dossier de déclaration préalable (garde et sommaire, DP1 à DP8 selon les pièces fournies, notice et plans en complément)', execution: 'Les plans d’exécution (fondations cotées et réservations, tous les niveaux cotés sans mobilier, attentes sanitaires, coupes)' } },
       { cle: 'pre', libelle: 'Plans', valeur: 'technique', options: { technique: 'Plans techniques (cotés)', presentation: 'Plans de présentation pour le client (sols en couleur, mobilier, sans cotes)' } },
       { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (une page chacun)' } },
       { cle: 'ech', libelle: 'Échelle', valeur: 'auto', options: { auto: 'La plus grande qui tient', 50: '1/50', 75: '1/75', 100: '1/100', 200: '1/200' } },
@@ -2914,6 +2914,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       ...(parcelleDuProjet(h.projet) ? [{ cle: 'mas', libelle: 'Plan de masse', valeur: 'oui', options: { oui: 'Ajouter le plan de masse (PCMI 2) : parcelle, reculs, emprise', non: 'Sans' } }] : []),
       ...(niveaux().some(f => Object.values(f.objects).some(x => x.type === 'roof')) ? [{ cle: 'toi', libelle: 'Plan de toiture', valeur: 'oui', options: { oui: 'Ajouter le plan de toiture (pans, pentes, faîtage)', non: 'Sans' } }] : []),
       ...(fondationsDuProjet(h.projet) ? [{ cle: 'fon', libelle: 'Plan de fondations', valeur: 'oui', options: { oui: 'Ajouter le plan de fondations (semelles, assise, trappes)', non: 'Sans' } }] : []),
+      ...(niveaux().some(f => attentesSanitaires(f).length) ? [{ cle: 'att', libelle: 'Plan du plombier', valeur: 'non', options: { oui: 'Ajouter le plan des attentes sanitaires (eau froide, chaude, évacuations des appareils posés)', non: 'Sans' } }] : []),
       { cle: 'fac', libelle: 'Façades', valeur: 'oui', options: { oui: 'Ajouter la planche des quatre façades', non: 'Sans' } },
       { cle: 'cou', libelle: 'Coupes', valeur: 'oui', options: { oui: traitsDeCoupe(h.projet).length ? 'Ajouter les coupes ' + traitsDeCoupe(h.projet).map(l => l.nom + '-' + l.nom).join(', ') + ' (et leurs traits sur les plans)' : 'Ajouter une coupe A-A placée d’elle-même (ou tracez-la : outil K)', non: 'Sans' } },
       { cle: 'ind', libelle: 'Indice', valeur: 'A' },
@@ -2928,9 +2929,9 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       const { planchesPdf } = await import('../export/planche');
       const sig = await signature();
       const u = planchesPdf(h.projet, { ...sig,
-        ...(exe ? { niveaux: niveaux().map(f => f.id), cotation: true, mobilier: false, facades: false, coupe: true, masse: false, toiture: true, fondations: true } : {
+        ...(exe ? { niveaux: niveaux().map(f => f.id), cotation: true, mobilier: false, facades: false, coupe: true, masse: false, toiture: true, fondations: true, attentes: true } : {
           niveaux: r['niv'] === 'tous' ? niveaux().map(f => f.id) : [niveauId], cotation: r['cot'] === 'oui' && r['pre'] !== 'presentation', mobilier: r['mob'] === 'oui' || r['pre'] === 'presentation',
-          ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui', fondations: r['fon'] === 'oui' }),
+          ...(r['pre'] === 'presentation' ? { presentation: true } : {}), facades: r['fac'] === 'oui', coupe: r['cou'] === 'oui', masse: r['mas'] === 'oui', toiture: r['toi'] === 'oui', fondations: r['fon'] === 'oui', attentes: r['att'] === 'oui' }),
         indice: (r['ind'] ?? 'A').trim() || 'A', date: new Date().toLocaleDateString('fr-FR'), ...(r['ech'] !== 'auto' ? { echelle: Number(r['ech']) } : {}),
       });
       const a = document.createElement('a');

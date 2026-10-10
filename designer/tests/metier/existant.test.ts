@@ -186,7 +186,7 @@ describe('rénovation et extension : existant, démoli, projeté', () => {
     expect(TE.ok && TE.toitures.length === 1 && !TE.toitures[0]!.extension).toBe(true);
   });
 
-  it('le dossier : façades de l’état existant, puis de l’état projeté ; le sommaire renvoie aux deux', () => {
+  it('le dossier : coupes et façades de l’état existant, puis de l’état projeté ; le sommaire renvoie aux deux', () => {
     const { h: h0, n, a } = travaux('UB');
     const h = ok(executer(h0, 'Toit', [{ type: 'creerToiture', niveau: n, genre: 'hip', pente: 35, debord: 300, couverture: 'slate' }], a));
     const { octets, pieces } = dossierPc(h.projet, { indice: 'A', date: '10/10/2026' });
@@ -194,6 +194,12 @@ describe('rénovation et extension : existant, démoli, projeté', () => {
     expect(T).toMatch(/FA\xC7ADE [A-Z\-]+ \x96 \xC9TAT EXISTANT/);
     expect(T).toMatch(/FA\xC7ADE [A-Z\-]+ \x96 \xC9TAT PROJET\xC9/);
     expect(T).toContain('FA\xC7ADES \xE9tat existant');
+    /* les coupes aussi : l'existant (aux mêmes traits), puis le projet ; le PCMI 3 renvoie aux deux */
+    expect(T).toMatch(/COUPE [A-Z]\x96[A-Z] \x96 \xC9TAT EXISTANT/);
+    expect(T).toMatch(/COUPE [A-Z]\x96[A-Z] \x96 \xC9TAT PROJET\xC9/);
+    const p3 = pieces.find(p => p.code === 'PCMI 3')!;
+    expect(p3.note).toMatch(/^état existant : page (\d+), état projeté : page (\d+)$/);
+    expect(p3.page).toBe(Number(/page (\d+),/.exec(p3.note!)![1]));
     const p5 = pieces.find(p => p.code === 'PCMI 5')!;
     expect(p5.note).toMatch(/^état existant : page (\d+), état projeté : page (\d+) ; plan de toiture : page \d+$/);
     const [, e, pj] = /page (\d+), état projeté : page (\d+)/.exec(p5.note!)!;
