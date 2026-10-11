@@ -11,6 +11,11 @@
    MOBILIER            l'encombrement des meubles
    TOITURE             l'égout (débord) au-dessus du niveau
    PARCELLE, AMENAGEMENTS   sur le niveau qui les porte
+   ATTENTES            les attentes sanitaires des appareils (S1 EF+EC+EU…)
+
+   Le plan de fondations a son propre DXF (dxfFondations) : les murs à fonder,
+   les semelles telles qu'on les coule, leurs cotes, les réservations et les
+   trappes de visite.
 
    Le texte passe en Windows-1252 (accents du français), comme l'attend un
    DXF R12. Rien n'est recopié : tout se dérive du modèle, comme le plan. */
@@ -22,12 +27,18 @@ import { geometrieEscalier, hauteurAFranchir, tremiesDuNiveau } from '../buildin
 import { emprise } from '../building/mobilier';
 import { toitureDuNiveau } from '../building/toiture';
 import { fenetresDeToit } from '../building/fenetres-toit';
+import { planFondations, reservationsFondations, type PlanFondations } from '../building/fondations';
+import { attentesSanitaires } from '../building/plomberie';
+import { NOMS_RESEAUX } from '../building/terrassement';
+import { cotationFondations, type ChaineCotes } from '../building/cotation';
 import { difference } from '../geometry/booleen';
 import { centroide, type Anneau } from '../geometry/polygon';
 
 export const CALQUES: Record<string, number> = {
-  MURS: 7, CLOISONS: 8, OUVERTURES: 4, PIECES: 3, COTES: 1, ESCALIERS: 6, TREMIES: 6, MOBILIER: 9, TOITURE: 5, PARCELLE: 3, AMENAGEMENTS: 2,
+  MURS: 7, CLOISONS: 8, OUVERTURES: 4, PIECES: 3, COTES: 1, ESCALIERS: 6, TREMIES: 6, MOBILIER: 9, TOITURE: 5, PARCELLE: 3, AMENAGEMENTS: 2, ATTENTES: 5,
 };
+/** les calques du plan de fondations */
+export const CALQUES_FONDATIONS: Record<string, number> = { MURS: 7, SEMELLES: 8, COTES: 1, RESERVATIONS: 1, TRAPPES: 4 };
 
 const n = (v: number) => (Math.round(v * 1000) / 1000).toString();
 const mm2 = (v: number) => (v / 1e6).toFixed(2).replace('.', ',') + ' m²';
@@ -52,16 +63,35 @@ class Ecrivain {
   }
 }
 
+/** l'en-tête (R12, Windows-1252), la table des calques, et l'ouverture de la section des entités */
+function entete(w: Ecrivain, calques: Record<string, number>): void {
+  w.g(0, 'SECTION').g(2, 'HEADER').g(9, '$ACADVER').g(1, 'AC1009').g(9, '$DWGCODEPAGE').g(3, 'ANSI_1252').g(0, 'ENDSEC');
+  w.g(0, 'SECTION').g(2, 'TABLES').g(0, 'TABLE').g(2, 'LAYER').g(70, Object.keys(calques).length);
+  for (const [c, couleur] of Object.entries(calques)) w.g(0, 'LAYER').g(2, c).g(70, 0).g(62, couleur).g(6, 'CONTINUOUS');
+  w.g(0, 'ENDTAB').g(0, 'ENDSEC');
+  w.g(0, 'SECTION').g(2, 'ENTITIES');
+}
+
+/** des chaînes de cotes : la ligne, un trait à chaque repère, la valeur (m) de chaque intervalle */
+function chaines(w: Ecrivain, CH: readonly ChaineCotes[]): void {
+  for (const ch of CH) {
+    const R = ch.reperes, h = ch.cote === 'bas' || ch.cote === 'haut';
+    if (R.length < 2) continue;
+    const P = (t: number, d = 0): Point => (h ? { x: t, y: ch.ligne + d } : { x: ch.ligne + d, y: t });
+    w.ligne('COTES', P(R[0]!), P(R[R.length - 1]!));
+    for (const t of R) w.ligne('COTES', P(t, -100), P(t, 100));
+    for (let i = 1; i < R.length; i++) w.texte('COTES', P((R[i - 1]! + R[i]!) / 2, 130), 120, ((R[i]! - R[i - 1]!) / 1000).toFixed(2).replace('.', ','), true, h ? 0 : 90);
+  }
+}
+
+/** un petit cercle (polyligne à 16 côtés), pour un repère */
+const cercle = (c: Point, r: number): Point[] => Array.from({ length: 16 }, (_, i) => ({ x: c.x + r * Math.cos(i * Math.PI / 8), y: c.y + r * Math.sin(i * Math.PI / 8) }));
+
 /** le DXF d'un niveau (texte ; voir dxfOctets pour l'enregistrer) */
 export function dxfNiveau(projet: Project, f: Floor): string {
   const w = new Ecrivain(), plan = planDuNiveau(f), M = mursDroits(f), parId = new Map(M.map(m => [m.id, m]));
   const ouvertures = Object.values(f.objects).filter((o): o is Opening => o.type === 'opening' && ouvertureBatie(o) && parId.has(o.hostWallId));
-  /* l'en-tête et les calques */
-  w.g(0, 'SECTION').g(2, 'HEADER').g(9, '$ACADVER').g(1, 'AC1009').g(9, '$DWGCODEPAGE').g(3, 'ANSI_1252').g(0, 'ENDSEC');
-  w.g(0, 'SECTION').g(2, 'TABLES').g(0, 'TABLE').g(2, 'LAYER').g(70, Object.keys(CALQUES).length);
-  for (const [c, couleur] of Object.entries(CALQUES)) w.g(0, 'LAYER').g(2, c).g(70, 0).g(62, couleur).g(6, 'CONTINUOUS');
-  w.g(0, 'ENDTAB').g(0, 'ENDSEC');
-  w.g(0, 'SECTION').g(2, 'ENTITIES');
+  entete(w, CALQUES);
 
   /* les murs, ouverts au droit de leurs baies */
   for (const m of plan.murs) {
@@ -89,15 +119,8 @@ export function dxfNiveau(projet: Project, f: Floor): string {
     w.texte('PIECES', { x: c.x, y: c.y + 120 }, 200, z.piece?.name ?? 'À nommer');
     w.texte('PIECES', { x: c.x, y: c.y - 180 }, 150, mm2(z.aire));
   }
-  /* les chaînes de cotes extérieures : la ligne, un trait à chaque repère, la valeur de chaque intervalle */
-  for (const ch of cotationExterieure(f, 700)) {
-    const R = ch.reperes, h = ch.cote === 'bas' || ch.cote === 'haut';
-    if (R.length < 2) continue;
-    const P = (t: number, d = 0): Point => (h ? { x: t, y: ch.ligne + d } : { x: ch.ligne + d, y: t });
-    w.ligne('COTES', P(R[0]!), P(R[R.length - 1]!));
-    for (const t of R) w.ligne('COTES', P(t, -100), P(t, 100));
-    for (let i = 1; i < R.length; i++) w.texte('COTES', P((R[i - 1]! + R[i]!) / 2, 130), 120, ((R[i]! - R[i - 1]!) / 1000).toFixed(2).replace('.', ','), true, h ? 0 : 90);
-  }
+  /* les chaînes de cotes extérieures */
+  chaines(w, cotationExterieure(f, 700));
   /* escaliers et trémies */
   for (const o of Object.values(f.objects)) {
     if (o.type === 'stair') for (const mk of geometrieEscalier(o, hauteurAFranchir(projet, f)).marches) w.polyligne('ESCALIERS', mk.contour);
@@ -109,6 +132,35 @@ export function dxfNiveau(projet: Project, f: Floor): string {
   const toit = toitureDuNiveau(f);
   if (toit?.ok) for (const t of toit.toitures) w.polyligne('TOITURE', t.egout as Anneau);
   for (const { geo } of fenetresDeToit(f)) { w.polyligne('TOITURE', geo.plan); w.ligne('TOITURE', geo.plan[0]!, geo.plan[2]!); w.ligne('TOITURE', geo.plan[1]!, geo.plan[3]!) }
+  /* les attentes sanitaires (building/plomberie.ts) : un repère cerclé au dos de chaque appareil, ses réseaux */
+  for (const a of attentesSanitaires(f)) {
+    w.polyligne('ATTENTES', cercle(a.point, 60));
+    w.texte('ATTENTES', { x: a.point.x, y: a.point.y + 140 }, 100, a.repere + ' ' + a.reseaux.join('+') + ' ' + a.evacuation);
+  }
+
+  w.g(0, 'ENDSEC').g(0, 'EOF');
+  return w.L.join('\r\n') + '\r\n';
+}
+
+/**
+ * Le DXF du plan de fondations (null : pas de fondations sur ce niveau) — pour le bureau d'études et le maçon : les murs
+ * à fonder, les semelles telles qu'on les coule (filantes réunies, isolées), leurs cotes (bords, largeurs, hors-tout),
+ * les réservations au passage des réseaux (R1…) et les trappes de visite.
+ */
+export function dxfFondations(projet: Project, f: Floor, P: PlanFondations | null = planFondations(f)): string | null {
+  if (!P) return null;
+  const w = new Ecrivain(), plan = planDuNiveau(f);
+  entete(w, CALQUES_FONDATIONS);
+  const aFonder = new Set(mursDroits(f).filter(m => m.role === 'exterior' || m.role === 'bearing_interior' || (m.role === 'partition' && m.loadBearing.value)).map(m => m.id));
+  for (const m of plan.murs) if (aFonder.has(m.id)) w.polyligne('MURS', m.contour);
+  for (const q of P.emprise) { w.polyligne('SEMELLES', q.contour); for (const t of q.trous ?? []) w.polyligne('SEMELLES', t) }
+  for (const q of P.isolees) w.polyligne('SEMELLES', q.contour);
+  chaines(w, cotationFondations(P.emprise, 700));
+  for (const r of reservationsFondations(projet, P)) {
+    w.polyligne('RESERVATIONS', cercle(r.point, 80));
+    w.texte('RESERVATIONS', { x: r.point.x + 260, y: r.point.y + 160 }, 110, r.repere + ' ' + NOMS_RESEAUX[r.reseau].code + ' ' + (r.spec ?? 'Ø à préciser'), false);
+  }
+  for (const t of P.trappes) { w.polyligne('TRAPPES', t.contour); w.texte('TRAPPES', t.centre, 120, 'TV') }
 
   w.g(0, 'ENDSEC').g(0, 'EOF');
   return w.L.join('\r\n') + '\r\n';

@@ -8,6 +8,7 @@ import { creerProjet, generateurSequentiel, type Foundation } from '../../src/mo
 import { annuler, executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
 import { metreProjet, planFondations, cotationFondations, reservationsFondations, type LigneMetre } from '../../src/building';
 import { planchesPdf } from '../../src/export/planche';
+import { dxfFondations, CALQUES_FONDATIONS } from '../../src/export/dxf';
 
 const acteur = (): Acteur => { let t = 0; return { par: 'CP', maintenant: () => new Date(Date.UTC(2026, 9, 6) + (t += 1000)).toISOString(), id: generateurSequentiel('f') } };
 const ok = (r: ReturnType<typeof executer>): Historique => { if (!r.ok) throw new Error(r.erreurs.join()); return r.historique };
@@ -135,5 +136,13 @@ describe('plan de fondations (exécution)', () => {
     for (const t of ['10,50', '5,50', '3,50', 'R1 \x96 r\xE9servation \xC9LEC', 'R2 \x96 r\xE9servation EU', 'PVC \xD8 100', '\xD8 \xE0 pr\xE9ciser', 'R : r\xE9servation (fourreau dans la semelle, au passage d\x92un r\xE9seau)'])
       expect(T, t).toContain(t);
     expect(T).not.toContain('S\xE9jour');
+    /* le DXF du plan de fondations : ses calques, les semelles (le contour et ses vides), les cotes, les réservations */
+    const D = dxfFondations(h.projet, h.projet.buildings[0]!.floors[0]!)!;
+    for (const c of Object.keys(CALQUES_FONDATIONS)) expect(D, c).toMatch(new RegExp('\\r\\nLAYER\\r\\n2\\r\\n' + c + '\\r\\n'));
+    expect((D.match(/\r\nSEMELLES\r\n66\r\n1/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    for (const t of ['10,50', '5,50', 'R1 ÉLEC Ø à préciser', 'R2 EU PVC Ø 100']) expect(D, t).toContain(t);
+    expect(D.trimEnd().endsWith('EOF')).toBe(true);
+    /* sans fondations, pas de DXF */
+    expect(dxfFondations(h.projet, h.projet.buildings[0]!.floors[0]!, null)).toBeNull();
   });
 });

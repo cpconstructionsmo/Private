@@ -2871,19 +2871,25 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   /** les plans en DXF : un fichier par niveau (R12, mm, un calque par famille) */
   async function exporterDxf() {
     const r = await dialogue('Exporter en DXF', [
-      { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (un fichier chacun)' } }]);
+      { cle: 'niv', libelle: 'Niveaux', valeur: 'courant', options: { courant: 'Ce niveau (' + niveau().name + ')', tous: 'Tous les niveaux (un fichier chacun)' } },
+      ...(fondationsDuProjet(h.projet) ? [{ cle: 'fon', libelle: 'Plan de fondations', valeur: 'oui', options: { oui: 'Aussi le plan de fondations (semelles cotées, réservations, trappes)', non: 'Sans' } }] : [])]);
     if (!r) return;
     try {
-      const { dxfNiveau, dxfOctets } = await import('../export/dxf');
+      const { dxfNiveau, dxfFondations, dxfOctets } = await import('../export/dxf');
       const F = r['niv'] === 'tous' ? niveaux() : [niveau()];
-      for (const f of F) {
+      const enregistrer = (texte: string, nom: string) => {
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([dxfOctets(dxfNiveau(h.projet, f))], { type: 'application/dxf' }));
-        a.download = (h.projet.name || 'projet') + ' - ' + f.name + '.dxf';
+        a.href = URL.createObjectURL(new Blob([dxfOctets(texte)], { type: 'application/dxf' }));
+        a.download = (h.projet.name || 'projet') + ' - ' + nom + '.dxf';
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-      }
-      toast(F.length > 1 ? F.length + ' fichiers DXF enregistrés' : 'DXF enregistré : ' + (h.projet.name || 'projet') + ' - ' + F[0]!.name + '.dxf');
+      };
+      for (const f of F) enregistrer(dxfNiveau(h.projet, f), f.name);
+      /* le plan de fondations, sur son propre DXF */
+      const FD = r['fon'] === 'oui' ? fondationsDuProjet(h.projet) : null, txt = FD ? dxfFondations(h.projet, FD.niveau) : null;
+      if (txt) enregistrer(txt, 'fondations');
+      const nb = F.length + (txt ? 1 : 0);
+      toast(nb > 1 ? nb + ' fichiers DXF enregistrés' + (txt ? ' (plan de fondations compris)' : '') : 'DXF enregistré : ' + (h.projet.name || 'projet') + ' - ' + F[0]!.name + '.dxf');
     } catch (e) { toast('Export impossible : ' + String((e as Error)?.message ?? e), true) }
   }
   /** le dossier de permis complet, ou de déclaration préalable, en un PDF numéroté (export/planche.ts, dossierPc, dossierDp) */
