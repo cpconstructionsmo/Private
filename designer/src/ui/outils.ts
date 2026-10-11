@@ -26,7 +26,7 @@ import { poserMeuble } from '../building/mobilier';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente' | 'lucarne' | 'couvert';
+export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente' | 'lucarne' | 'couvert' | 'mesure';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -135,6 +135,13 @@ type Prise =
   /** un objet du terrain (plateforme, réseau, équipement, arbre) : il se déplace d'un bloc */
   | { genre: 'terrain'; id: string; objet: 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' | 'canopy'; depart: Point; points: Point[] };
 
+/** une mesure en clair : sa longueur, et ses écarts en x et en y s'ils diffèrent d'elle */
+export function texteMesure(m: { longueur: Mm; dx: Mm; dy: Mm }): string {
+  /* arrondi au centimètre comme les cotes (ui/cotes.ts) : la pastille du plan et l'aide disent le même chiffre */
+  const v = (x: Mm) => (Math.round(x / 10) / 100).toFixed(2).replace('.', ',') + ' m';
+  return 'Longueur ' + v(m.longueur) + (m.dx > 1 && m.dy > 1 ? ' · en x ' + v(m.dx) + ' · en y ' + v(m.dy) : '');
+}
+
 const AIDES: Record<NomOutil, string> = {
   selection: 'Cliquer pour choisir ; tirer une extrémité, un mur ou une ouverture pour la déplacer',
   mur: 'Cliquer le départ puis chaque angle (aimanté à l’équerre ; Q : libre) — ou taper la longueur (4,50) puis Entrée ; 4,50<90 : longueur et angle ; Échap pour finir ; Maj : 45°',
@@ -164,6 +171,7 @@ const AIDES: Record<NomOutil, string> = {
   altitude: 'Point coté du terrain : cliquer où le géomètre a relevé une altitude, puis la saisir (NGF, en mètres)',
   piece: 'Cliquer dans un espace clos pour le nommer',
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
+  mesure: 'Mesurer : cliquer le premier point, puis le second (accrochés aux murs ; Alt : sans accrochage ; Maj : à 45°) — rien n’est ajouté au plan',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
 };
 
@@ -220,6 +228,8 @@ export class Outils {
   private vise: Point | null = null;
   /** les sommets de la limite de parcelle en cours de tracé */
   private sommetsTrace: Point[] = [];
+  /** la mesure en cours (outil Mesurer) : du premier point au point visé, ou figée au second clic ; rien n'est enregistré */
+  private mesureAB: { a: Point; b: Point; figee: boolean } | null = null;
 
   constructor(private readonly contexte: () => Contexte) {}
 
@@ -235,9 +245,16 @@ export class Outils {
   /** un point accroché (le collage s'en sert pour poser un groupe sur un angle) */
   pointAccroche(g: Geste): Accroche { return this.accrocher(g) }
 
-  get traceEnCours(): boolean { return this.depart !== null || this.prise !== null || this.ancres.length > 0 || this.clicsFond.length > 0 }
+  /* une mesure affichée compte : le premier Échap l'efface, le second rend la sélection */
+  get traceEnCours(): boolean { return this.depart !== null || this.prise !== null || this.ancres.length > 0 || this.clicsFond.length > 0 || this.mesureAB !== null }
 
-  private annulerGeste(): void { this.sommetsTrace = []; this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
+  private annulerGeste(): void { this.mesureAB = null; this.sommetsTrace = []; this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
+
+  /** la mesure en cours ou figée : ses deux points, sa longueur et ses écarts en x et en y (mm) */
+  get mesure(): { a: Point; b: Point; longueur: Mm; dx: Mm; dy: Mm; figee: boolean } | null {
+    const m = this.mesureAB;
+    return m ? { ...m, longueur: distance(m.a, m.b), dx: Math.abs(m.b.x - m.a.x), dy: Math.abs(m.b.y - m.a.y) } : null;
+  }
 
   /** la limite en cours de tracé, jusqu'au dernier point visé (pour la dessiner) */
   get parcelleEnCours(): Point[] { return this.sommetsTrace.length ? [...this.sommetsTrace, ...(this.vise ? [this.vise] : [])] : [] }
@@ -432,6 +449,11 @@ export class Outils {
   bouger(g: Geste): Effet {
     const c = this.contexte();
     switch (this.outil) {
+      case 'mesure': {
+        const m = this.mesureAB, a = this.accrocher(g, m && !m.figee ? m.a : null);
+        if (m && !m.figee) m.b = a.point;
+        return { accroche: a, ...(m && !m.figee ? { aide: texteMesure(this.mesure!) } : {}) };
+      }
       case 'selection': {
         if (!this.prise) return { accroche: null };
         const p = this.prise;
@@ -620,6 +642,13 @@ export class Outils {
     const c = this.contexte(), f = this.niveau();
     if (!f) return {};
     switch (this.outil) {
+      case 'mesure': {
+        /* premier clic : le départ ; second : la mesure se fige (elle reste affichée) ; un troisième en commence une autre */
+        const m = this.mesureAB, p = this.accrocher(g, m && !m.figee ? m.a : null).point;
+        if (m && !m.figee) { m.b = p; m.figee = true; return { aide: texteMesure(this.mesure!) + ' — cliquer pour une autre mesure' } }
+        this.mesureAB = { a: p, b: p, figee: false };
+        return { aide: 'Second point de la mesure' };
+      }
       case 'selection': {
         const cible = viser(f, g.point, g.rayon, true, this.escaliers());
         this.bouge = false; this.dernier = null;

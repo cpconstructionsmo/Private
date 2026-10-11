@@ -641,6 +641,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       /* le plan de fondations se montre dans son sous-onglet */
       fondations: onglet === 'trace' && sousOnglets['trace'] === 'fondations' ? planFondations(f) : null,
       eaux: eauxPluviales(f), gouttieres: onglet === 'toit' && sousOnglets['toit'] === 'eaux',
+      mesure: outils.outil === 'mesure' ? outils.mesure : null,
       ...(cotation && !en3D ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)), cotesInterieures: cotesInterieures(f, pixelsEnMm(cam, 22)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
   }
@@ -942,6 +943,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'lucarne', icone: 'lucarne_gable', libelle: 'Lucarne', touche: '' },
     { nom: 'couvert', icone: 'couvert', libelle: 'Couvert (porche, auvent)', touche: '' },
     { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
+    { nom: 'mesure', icone: 'cote', libelle: 'Mesurer (sans rien ajouter au plan)', touche: '' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.filter(o => o.touche).map(o => [o.touche.toLowerCase(), o.nom]));
   /** l'onglet et le sous-onglet où vit chaque outil : choisir l'outil (au clavier) y mène */
@@ -950,7 +952,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
     ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
     plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'], descente: ['toit', 'eaux'], lucarne: ['toit', 'lucarnes'], couvert: ['toit', 'couverts'],
-    mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
+    mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], mesure: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
   };
   function choisir(o: NomOutil) {
     if (en3D) void basculer3D(false);
@@ -1093,7 +1095,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         action('Photo du terrain', 'photo', () => { void basculer3D(true).then(() => poserPhotoSite()) }), action('Garder pour le PCMI 6', 'permis', () => void garderInsertion())] },
     ] },
     { id: 'indications', libelle: 'Indications', icone: 'indications', sous: [
-      { id: 'cotes', libelle: 'Cotes', icone: 'cote', tuiles: () => [outil('cote'), { libelle: 'Cotation automatique', icone: 'cote', faire: () => basculerCotation(), actif: () => cotation }] },
+      { id: 'cotes', libelle: 'Cotes', icone: 'cote', tuiles: () => [outil('cote'), outil('mesure', 'Mesurer'), { libelle: 'Cotation automatique', icone: 'cote', faire: () => basculerCotation(), actif: () => cotation }] },
       { id: 'coupes', libelle: 'Coupes', icone: 'coupe', tuiles: () => [outil('coupe'), action('PDF des coupes', 'pdf', () => void exporterCoupes())] },
       { id: 'couleurs', libelle: 'Couleurs de pièces', icone: 'couleurs', tuiles: () => [{ libelle: 'Sols en couleur', icone: 'couleurs', faire: () => basculerSols(), actif: () => solsCouleur }, outil('piece', 'Nommer une pièce')] },
       { id: 'surfaces', libelle: 'Tableaux de surfaces', icone: 'tableau', panneau: f => panneauSurfaces(f) },
