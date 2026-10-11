@@ -109,6 +109,20 @@ try {
   assert.equal(await p.locator('.ruban .tuile-outil.o-mesure.actif').count(), 0, 'deux Échap : retour à la sélection');
   await p.click('nav.onglets button[data-o=trace]');
 
+  /* Couper un mur (Tracé › Murs) : le mur du haut, à 6 m ; puis, à l'inspecteur, le refaire d'un seul tenant */
+  const mursHaut = async () => (await objets()).filter(o => o.type === 'wall' && o.axis.a.y === 8000 && o.axis.b.y === 8000).map(o => [o.axis.a.x, o.axis.b.x]).sort((x, y) => x[0] - y[0]);
+  await p.click('.sous button[data-s=murs]');
+  await p.click('.ruban .tuile-outil.o-couper');
+  if (process.env.CAPTURE_COUPER) { const e = await ecran(6000, 8000); await p.mouse.move(e.x, e.y, { steps: 3 }); await p.screenshot({ path: process.env.CAPTURE_COUPER }) }
+  await clic(6000, 8000);
+  assert.deepEqual(await mursHaut(), [[6000, 0], [10000, 6000]], 'le mur du haut coupé à 6 m');
+  await p.keyboard.press('Escape');
+  await clic(8000, 8000);
+  if (process.env.CAPTURE_COUPER) await p.screenshot({ path: process.env.CAPTURE_COUPER.replace('.png', '-inspecteur.png') });
+  await p.click('aside button:has-text("Fusionner avec le mur aligné")');
+  assert.deepEqual(await mursHaut(), [[10000, 0]], 'refait d’un seul tenant');
+  await videClic();
+
   /* l'équerre : un mur tracé de travers tombe à 90° ; Q la coupe ; « Mettre d'équerre » redresse après coup */
   await p.keyboard.press('m'); await clic(5000, 5000); await clic(9000, 5150); await p.keyboard.press('Escape');
   await p.keyboard.press('q');

@@ -25,3 +25,4 @@ export * from './ameublement';
 export * from './decors';
 export * from './etats';
 export * from './plomberie';
+export * from './couper-murs';

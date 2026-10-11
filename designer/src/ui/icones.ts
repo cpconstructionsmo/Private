@@ -28,6 +28,9 @@ const I: Record<string, string> = {
   cloison_fictive: '<path d="M3 12h3m3 0h2m3 0h3m3 0h3" stroke-dasharray="0"/><path d="M3 9v6m18-6v6"/>',
   rectangle: '<path d="M4 6h16v12H4z"/><path d="M6.5 8.5h11v7h-11z"/>',
   equerre: '<path d="M5 3v16h16"/><path d="M5 13h6v6"/>',
+  /* couper un mur (des ciseaux sur un mur), fusionner deux murs alignés (deux bouts qui se rejoignent) */
+  couper_mur: '<path d="M2 15h8m4 0h8M2 19h8m4 0h8"/><circle cx="8" cy="6" r="2.2"/><circle cx="16" cy="6" r="2.2"/><path d="M9.6 7.6L12 12l2.4-4.4M12 12v9"/>',
+  fusionner_murs: '<path d="M2 9h8v6H2m20-6h-8v6h8"/><path d="M6 4l4 3m8-3l-4 3M12 3v4"/>',
   piece: '<path d="M4 20V8l8-5 8 5v12z"/><path d="M10 20v-6h4v6"/>',
   cote: '<path d="M3 12h18"/><path d="M3 8v8m18-8v8"/><path d="M6 10l-3 2 3 2m12-4l3 2-3 2"/>',
   coupe: '<path d="M4 4l16 16"/><path d="M4 4v5m0-5h5m11 16v-5m0 5h-5"/>',

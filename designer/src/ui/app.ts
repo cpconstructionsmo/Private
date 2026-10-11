@@ -9,7 +9,7 @@ import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, U
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
-import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, decorParDefaut, surfacesDesPieces, partiesBasses, attentesSanitaires, type CadastreLu, type MurDroit } from '../building';
+import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, decorParDefaut, surfacesDesPieces, partiesBasses, attentesSanitaires, voisinsFusionnables, type CadastreLu, type MurDroit } from '../building';
 import { aireSignee, boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
 import { cadrer, glisser, pixelsEnMm, versEcran, versMonde, zoomer, type Camera } from './camera';
@@ -641,7 +641,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       /* le plan de fondations se montre dans son sous-onglet */
       fondations: onglet === 'trace' && sousOnglets['trace'] === 'fondations' ? planFondations(f) : null,
       eaux: eauxPluviales(f), gouttieres: onglet === 'toit' && sousOnglets['toit'] === 'eaux',
-      mesure: outils.outil === 'mesure' ? outils.mesure : null,
+      mesure: outils.outil === 'mesure' ? outils.mesure : null, coupure: outils.outil === 'couper' ? outils.coupure : null,
       ...(cotation && !en3D ? { cotation: cotationExterieure(f, pixelsEnMm(cam, 24)), cotesInterieures: cotesInterieures(f, pixelsEnMm(cam, 22)) } : {}), places }, dpr);
     $<HTMLElement>('.acc').textContent = accroche && accroche.genre !== 'libre' ? 'Accroché : ' + NOMS_ACCROCHE[accroche.genre] : '';
   }
@@ -944,11 +944,12 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'couvert', icone: 'couvert', libelle: 'Couvert (porche, auvent)', touche: '' },
     { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
     { nom: 'mesure', icone: 'cote', libelle: 'Mesurer (sans rien ajouter au plan)', touche: '' },
+    { nom: 'couper', icone: 'couper_mur', libelle: 'Couper un mur en deux', touche: '' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.filter(o => o.touche).map(o => [o.touche.toLowerCase(), o.nom]));
   /** l'onglet et le sous-onglet où vit chaque outil : choisir l'outil (au clavier) y mène */
   const PLACE_OUTIL: Partial<Record<NomOutil, [string, string]>> = {
-    mur: ['trace', 'murs'], refend: ['trace', 'murs'], cloison: ['trace', 'murs'], fictive: ['trace', 'murs'], rectangle: ['trace', 'murs'],
+    mur: ['trace', 'murs'], refend: ['trace', 'murs'], couper: ['trace', 'murs'], cloison: ['trace', 'murs'], fictive: ['trace', 'murs'], rectangle: ['trace', 'murs'],
     piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
     ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
     plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'], descente: ['toit', 'eaux'], lucarne: ['toit', 'lucarnes'], couvert: ['toit', 'couverts'],
@@ -1003,7 +1004,8 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         }, 'Deux points du fond dont vous connaissez la distance'),
         action('Plan de l’atelier', 'atelier', importerAtelier, 'Le RDC lu par l’atelier (modele.json)')], panneau: f => panneauTerrain(f) },
       { id: 'murs', libelle: 'Murs', icone: 'murs', tuiles: () => [outil('mur', 'Mur extérieur'), outil('refend', 'Mur intérieur'), outil('cloison'), outil('fictive'),
-        outil('rectangle', 'Rectangle de murs'), action('Mettre d’équerre', 'equerre', () => mettreDEquerre(), 'Redresser à 90° les murs presque d’équerre du niveau')],
+        outil('rectangle', 'Rectangle de murs'), action('Mettre d’équerre', 'equerre', () => mettreDEquerre(), 'Redresser à 90° les murs presque d’équerre du niveau'),
+        outil('couper', 'Couper un mur'), action('Fusionner', 'fusionner_murs', () => fusionnerChoisis(), 'Fusionner les murs choisis alignés bout à bout (même type, même épaisseur, même état)')],
         options: () => optionsMurs() },
       { id: 'pieces', libelle: 'Types de pièces', icone: 'pieces', tuiles: () => [
         ...TYPES_PIECES.map(t => ({ libelle: t.libelle, icone: t.icone, faire: () => choisirTypePiece(t.libelle), actif: () => outils.outil === 'piece' && typePiece === t.libelle, titre: 'Cliquez dans un espace clos pour en faire : ' + t.libelle })),
@@ -1271,6 +1273,27 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (faire('Mettre d’équerre', [{ type: 'equerrerMurs', niveau: niveauId, ...(murs ? { murs } : {}) }]))
       toast(n + ' mur' + (n > 1 ? 's redressés' : ' redressé') + ' à l’équerre' + (e.orientation ? ' (repère tourné de ' + (e.orientation * 180 / Math.PI).toFixed(1).replace('.', ',') + '°)' : '') + ' — Ctrl+Z pour revenir');
   }
+  /** fusionner, de proche en proche, les murs cités alignés bout à bout : chaque chaîne devient son premier mur (une
+      transaction, un Ctrl+Z). Le voisin d'un mur déjà fusionné touche désormais le bout du mur qui l'a repris */
+  function fusionnerAlignes(ids: string[]) {
+    const f = niveau(), reste = new Set(ids), paires: [string, string][] = [];
+    for (const r of ids) {
+      if (!reste.delete(r)) continue;
+      for (const file = [r]; file.length;) for (const v of voisinsFusionnables(f, file.shift()!)) if (reste.delete(v)) { paires.push([r, v]); file.push(v) }
+    }
+    if (!paires.length) { toast('Aucun mur aligné bout à bout à fusionner parmi ceux choisis (même type, épaisseur, hauteur et état)', true); return }
+    const chaines = new Set(paires.map(x => x[0]));
+    if (faire('Fusionner des murs alignés', paires.map(x => ({ type: 'fusionnerMurs', ids: x })))) {
+      selection = chaines.size === 1 ? [...chaines][0]! : null; groupe = []; panneaux();
+      toast(paires.length + chaines.size + ' murs fusionnés en ' + chaines.size + ' — Ctrl+Z pour revenir');
+    }
+  }
+  /** la tuile « Fusionner » : les murs choisis, ou le mur choisi et ses voisins alignés */
+  function fusionnerChoisis() {
+    const W = choisis().filter(id => niveau().objects[id]?.type === 'wall');
+    if (!W.length) { toast('Choisissez les murs à fusionner (ou un mur : il reprend ses voisins alignés)', true); return }
+    fusionnerAlignes(W.length === 1 ? [W[0]!, ...voisinsFusionnables(niveau(), W[0]!)] : W);
+  }
   function basculerGrille() { outils.reglages.grille = outils.reglages.grille ? 0 : 100; toast(outils.reglages.grille ? 'Grille d’accrochage : 10 cm' : 'Grille d’accrochage coupée'); panneaux() }
   function cadrerTout() {
     const pts: Point[] = [];
@@ -1468,6 +1491,12 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
         A.append(ligne(ct('horizontal'), ct('vertical'), ct('length'), ct('angle'), deux('parallel'), deux('perpendicular')));
         A.append(titre('Équerre'), ligne(bouton('Mettre ce mur d’équerre', () => mettreDEquerre([w.id])), bouton('Tout le niveau', () => mettreDEquerre())),
           bloc('Redresse à 90° les murs qui en sont à moins de ' + Math.round(ANGLE_EQUERRE * 180 / Math.PI) + '° ; les angles restent fermés, les cloisons suivent.', 'note'));
+        /* couper (une partie existante, l'autre neuve ; un bout d'un autre type) ; fusionner avec les murs alignés bout à bout */
+        const V = voisinsFusionnables(f, w.id);
+        A.append(titre('Couper ou fusionner'), ligne(bouton('Couper au milieu', () => faire('Couper le mur', [{ type: 'couperMur', id: w.id, position: Math.round(L / 2) }])),
+          bouton('Couper à l’endroit voulu…', () => choisir('couper')),
+          ...(V.length ? [bouton(V.length > 1 ? 'Fusionner avec les ' + V.length + ' murs alignés' : 'Fusionner avec le mur aligné', () => fusionnerAlignes([w.id, ...V]))] : [])),
+          bloc('Les ouvertures et les décors suivent leur partie. Deux murs alignés bout à bout, de même type, épaisseur, hauteur et état, se fusionnent en un seul.', 'note'));
         A.append(titre('Objet'), provenance(w), ligne(bouton('Supprimer', () => supprimer(w.id), 'dang')));
         break;
       }
@@ -2963,6 +2992,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { libelle: 'Tout voir', touche: 'F', faire: cadrerTout }, { libelle: 'Grille d’accrochage oui / non', touche: 'G', faire: basculerGrille },
     { libelle: 'Équerre du tracé des murs oui / non', touche: 'Q', faire: () => basculerEquerre() },
     { libelle: 'Mettre d’équerre les murs du niveau', faire: () => mettreDEquerre() },
+    { libelle: 'Fusionner les murs alignés choisis', faire: () => fusionnerChoisis() },
     { libelle: 'Cotation automatique oui / non', faire: () => basculerCotation() },
     { libelle: 'Copier la sélection', touche: 'Ctrl+C', faire: () => void copierChoix() }, { libelle: 'Coller', touche: 'Ctrl+V', faire: commencerCollage },
     { libelle: 'Dupliquer la sélection', touche: 'Ctrl+D', faire: dupliquerChoix }, { libelle: 'Tout choisir sur ce niveau', touche: 'Ctrl+A', faire: () => choisirGroupe(Object.values(niveau().objects).filter(o => o.type !== 'underlay' && o.type !== 'roof' && o.type !== 'foundation' && o.type !== 'constraint').map(o => o.id)) },

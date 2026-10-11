@@ -23,10 +23,11 @@ import { dansCadre, viser } from './selection';
 import { MODELES_OUVERTURES, modeleOuverture } from '../catalogue/ouvertures';
 import { MODELES_MEUBLES, modeleMeuble } from '../catalogue/mobilier';
 import { poserMeuble } from '../building/mobilier';
+import { planCoupure, texteCoupure } from '../building/couper-murs';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente' | 'lucarne' | 'couvert' | 'mesure';
+export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente' | 'lucarne' | 'couvert' | 'mesure' | 'couper';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -173,6 +174,7 @@ const AIDES: Record<NomOutil, string> = {
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
   mesure: 'Mesurer : cliquer le premier point, puis le second (accrochés aux murs ; Alt : sans accrochage ; Maj : à 45°) — rien n’est ajouté au plan',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
+  couper: 'Couper un mur : cliquer l’endroit de la coupure (accroché au milieu, aux cloisons qui y aboutissent ; Alt : libre) — ses ouvertures et ses décors suivent leur partie',
 };
 
 /** bloquer une direction à 45° près, depuis un point */
@@ -230,6 +232,8 @@ export class Outils {
   private sommetsTrace: Point[] = [];
   /** la mesure en cours (outil Mesurer) : du premier point au point visé, ou figée au second clic ; rien n'est enregistré */
   private mesureAB: { a: Point; b: Point; figee: boolean } | null = null;
+  /** la coupure visée (outil Couper) : le mur, la position le long de son axe, et le trait à dessiner en travers */
+  private coupeVisee: { mur: string; position: Mm; trait: [Point, Point] } | null = null;
 
   constructor(private readonly contexte: () => Contexte) {}
 
@@ -248,12 +252,31 @@ export class Outils {
   /* une mesure affichée compte : le premier Échap l'efface, le second rend la sélection */
   get traceEnCours(): boolean { return this.depart !== null || this.prise !== null || this.ancres.length > 0 || this.clicsFond.length > 0 || this.mesureAB !== null }
 
-  private annulerGeste(): void { this.mesureAB = null; this.sommetsTrace = []; this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
+  private annulerGeste(): void { this.mesureAB = null; this.coupeVisee = null; this.sommetsTrace = []; this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
 
   /** la mesure en cours ou figée : ses deux points, sa longueur et ses écarts en x et en y (mm) */
   get mesure(): { a: Point; b: Point; longueur: Mm; dx: Mm; dy: Mm; figee: boolean } | null {
     const m = this.mesureAB;
     return m ? { ...m, longueur: distance(m.a, m.b), dx: Math.abs(m.b.x - m.a.x), dy: Math.abs(m.b.y - m.a.y) } : null;
+  }
+
+  /** le trait de la coupure visée, en travers du mur (outil Couper) */
+  get coupure(): [Point, Point] | null { return this.coupeVisee?.trait ?? null }
+
+  /** la coupure sous le curseur : le mur droit le plus proche (à son épaisseur près), le point accroché ramené sur son axe,
+      au millimètre ; avec la raison d'un refus (coupure dans une baie…) ou les longueurs des deux parties */
+  private viserCoupure(g: Geste): { mur: string; position: Mm; trait: [Point, Point]; point: Point; texte: string; possible: boolean } | null {
+    const f = this.niveau();
+    if (!f) return null;
+    const ac = this.accrocher(g);
+    const w = mursDroits(f).map(m => ({ m, d: distancePointSegment(ac.point, m.axis) })).filter(x => x.d <= x.m.thickness / 2 + g.rayon).sort((x, y) => x.d - y.d)[0]?.m;
+    if (!w) return null;
+    const L = distance(w.axis.a, w.axis.b), position = Math.round(Math.min(1, Math.max(0, projeterSurDroite(ac.point, w.axis).t)) * L);
+    const k = planCoupure(f, w.id, position, '·');
+    const u = { x: (w.axis.b.x - w.axis.a.x) / L, y: (w.axis.b.y - w.axis.a.y) / L }, P = { x: w.axis.a.x + u.x * position, y: w.axis.a.y + u.y * position };
+    const e = w.thickness / 2 + Math.max(60, g.rayon / 2);
+    const trait: [Point, Point] = [{ x: P.x + u.y * e, y: P.y - u.x * e }, { x: P.x - u.y * e, y: P.y + u.x * e }];
+    return typeof k === 'string' ? { mur: w.id, position, trait, point: P, texte: '⛔ ' + k, possible: false } : { mur: w.id, position, trait, point: P, texte: 'Couper ici : ' + texteCoupure(k), possible: true };
   }
 
   /** la limite en cours de tracé, jusqu'au dernier point visé (pour la dessiner) */
@@ -449,6 +472,11 @@ export class Outils {
   bouger(g: Geste): Effet {
     const c = this.contexte();
     switch (this.outil) {
+      case 'couper': {
+        const v = this.viserCoupure(g);
+        this.coupeVisee = v?.possible ? { mur: v.mur, position: v.position, trait: v.trait } : null;
+        return { accroche: v ? { point: v.point, genre: 'libre' } : null, aide: v ? v.texte : AIDES.couper };
+      }
       case 'mesure': {
         const m = this.mesureAB, a = this.accrocher(g, m && !m.figee ? m.a : null);
         if (m && !m.figee) m.b = a.point;
@@ -642,6 +670,13 @@ export class Outils {
     const c = this.contexte(), f = this.niveau();
     if (!f) return {};
     switch (this.outil) {
+      case 'couper': {
+        /* le moteur dit la raison d'un refus (une baie à l'endroit de la coupure…) : on lui envoie la commande */
+        const v = this.viserCoupure(g);
+        if (!v) return { aide: 'Aucun mur ici : cliquez sur le mur à couper' };
+        this.coupeVisee = null;
+        return { commandes: { titre: 'Couper le mur', liste: [{ type: 'couperMur', id: v.mur, position: v.position }] } };
+      }
       case 'mesure': {
         /* premier clic : le départ ; second : la mesure se fige (elle reste affichée) ; un troisième en commence une autre */
         const m = this.mesureAB, p = this.accrocher(g, m && !m.figee ? m.a : null).point;
