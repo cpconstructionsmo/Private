@@ -103,7 +103,14 @@ de plans de maisons) :
   Elle se coupe dans les réglages (choix propre à l'appareil) ;
 - une ouverture choisie (ou en cours de pose) montre ses distances aux murs
   ou ouvertures voisins, côté pièce, en rouge ; l'inspecteur les règle
-  (« Distance à gauche : 1,50 m »).
+  (« Distance à gauche : 1,50 m ») ;
+- outil **Mesurer** (Indications › Cotes, à côté de Cote) : deux clics,
+  accrochés aux murs comme au tracé (face, extrémité, perpendiculaire ;
+  Alt : libres ; Maj : à 45°), et la distance se lit dans une pastille sur
+  le plan et dans la barre du bas, avec ses écarts en x et en y quand le
+  trait est de biais. Rien n'est ajouté au plan ni à l'historique ; la
+  mesure reste affichée jusqu'au clic suivant, Échap l'efface, un second
+  Échap rend la sélection (`tests/metier/mesure.test.ts`).
 
 **Bibliothèque d'ouvertures** (`src/catalogue/ouvertures.ts`) : outil
 Ouverture (O), le panneau de droite montre les modèles courants par famille

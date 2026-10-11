@@ -98,6 +98,17 @@ try {
   O = await objets();
   assert.equal(O.find(o => o.role === 'partition').axis.a.x, 4000, 'annuler');
 
+  /* Mesurer (Indications › Cotes) : d'une face intérieure à l'autre, 9,80 m ; rien n'est ajouté au plan ; Échap, Échap */
+  await p.click('nav.onglets button[data-o=indications]'); await p.click('.sous button[data-s=cotes]');
+  await p.click('.ruban .tuile-outil.o-mesure');
+  await clic(130, 6000); await clic(9870, 6000);
+  assert.match(await p.textContent('.aide'), /Longueur 9,80 m — cliquer pour une autre mesure/, 'la mesure se lit');
+  assert.equal((await objets()).length, O.length, 'mesurer n’ajoute rien au plan');
+  if (process.env.CAPTURE_MESURE) { await clic(1000, 1000); { const e = await ecran(3500, 5500); await p.mouse.move(e.x, e.y, { steps: 3 }) } await p.screenshot({ path: process.env.CAPTURE_MESURE }) }
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  assert.equal(await p.locator('.ruban .tuile-outil.o-mesure.actif').count(), 0, 'deux Échap : retour à la sélection');
+  await p.click('nav.onglets button[data-o=trace]');
+
   /* l'équerre : un mur tracé de travers tombe à 90° ; Q la coupe ; « Mettre d'équerre » redresse après coup */
   await p.keyboard.press('m'); await clic(5000, 5000); await clic(9000, 5150); await p.keyboard.press('Escape');
   await p.keyboard.press('q');

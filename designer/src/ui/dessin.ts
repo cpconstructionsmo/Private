@@ -89,6 +89,8 @@ export interface Scene {
   /** les eaux pluviales de la toiture du niveau : ses descentes ; « gouttieres » : l'égout qui les porte, marqué */
   eaux?: EauxPluviales | null;
   gouttieres?: boolean;
+  /** la mesure de l'outil Mesurer (rien du plan : un trait de chantier, le temps de lire la distance) */
+  mesure?: { a: Point; b: Point; longueur: number; dx: number; dy: number } | null;
 }
 
 /** les teintes d'une rénovation, d'une extension (ADR-0007), au plan comme à la légende des planches */
@@ -478,6 +480,7 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
     ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.setLineDash([]);
   }
+  if (s.mesure && s.mesure.longueur > 1) mesurer(ctx, cam, s.mesure);
   /* extrémités tirables */
   if (s.sommets) {
     ctx.fillStyle = '#fff'; ctx.strokeStyle = COULEURS.accent; ctx.lineWidth = 1.2;
@@ -499,6 +502,24 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillStyle = COULEURS.encre; ctx.fillRect(e.x + 14, e.y + 10, l, 20);
     ctx.fillStyle = '#fff'; ctx.fillText(s.etiquette.texte, e.x + 19, e.y + 20);
   }
+}
+
+/** la mesure de l'outil Mesurer : le trait en tirets, ses deux bouts, et sa longueur dans une pastille au milieu ;
+    de biais, l'équerre de ses écarts en x et en y en pointillés fins (on lit d'un coup la diagonale et ses deux côtés) */
+function mesurer(ctx: CanvasRenderingContext2D, cam: Camera, m: NonNullable<Scene['mesure']>): void {
+  const A = versEcran(cam, m.a), B = versEcran(cam, m.b), C = versEcran(cam, { x: m.b.x, y: m.a.y });
+  if (m.dx > 1 && m.dy > 1) {
+    ctx.strokeStyle = COULEURS.gris; ctx.lineWidth = 0.8; ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(C.x, C.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+  }
+  ctx.strokeStyle = COULEURS.accent; ctx.fillStyle = COULEURS.accent; ctx.lineWidth = 1.6; ctx.setLineDash([8, 4]);
+  ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke(); ctx.setLineDash([]);
+  for (const e of [A, B]) { ctx.beginPath(); ctx.arc(e.x, e.y, 3.2, 0, 2 * Math.PI); ctx.fill() }
+  const t = texteCote(m.longueur) + ' m', x = (A.x + B.x) / 2, y = (A.y + B.y) / 2;
+  ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const l = ctx.measureText(t).width + 12;
+  ctx.fillRect(x - l / 2, y - 10, l, 20);
+  ctx.fillStyle = '#fff'; ctx.fillText(t, x, y);
 }
 
 /** une ligne de cote d'un point à un autre, ses traits obliques et ses valeurs */
