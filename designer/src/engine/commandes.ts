@@ -31,6 +31,7 @@ import { geometrieLucarne, LUCARNE_PAR_DEFAUT } from '../building/lucarnes';
 import { distancePointSegment } from '../geometry/segment';
 import { equerrer } from '../building/equerre';
 import { mursDroits, mursFictifs } from '../building/murs';
+import { planCoupure, planFusion } from '../building/couper-murs';
 import { appliquerTout, type Operation } from './operations';
 
 export interface Contexte {
@@ -95,6 +96,10 @@ export type Commande =
   | { type: 'deplacerSommet'; niveau: string; de: Point; vers: Point }
   /** redresser à l'équerre les murs presque d'équerre (ceux qu'on cite, ou tout le niveau) — voir building/equerre.ts */
   | { type: 'equerrerMurs'; niveau: string; murs?: string[] }
+  /** couper un mur à « position » (mm le long de l'axe, depuis son origine a) : il garde la première partie, la seconde est un mur neuf */
+  | { type: 'couperMur'; id: string; position: Mm }
+  /** fusionner le second mur dans le premier (alignés bout à bout, de mêmes caractéristiques) */
+  | { type: 'fusionnerMurs'; ids: [string, string] }
   | { type: 'ajouterContrainte'; niveau: string; genre: Constraint['kind']; murs: string[]; valeur?: number }
   | { type: 'modifierContrainte'; id: string; valeur: number }
   | { type: 'creerCote'; niveau: string; refs: [ObjectAnchor, ObjectAnchor]; motrice?: boolean; decalage?: Mm }
@@ -651,6 +656,53 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!e.equerres.length) return refus('aucun mur presque d’équerre (à moins de ' + Math.round(ANGLE_EQUERRE * 180 / Math.PI) + '°) : rien à redresser');
       if (!e.epingles.length) return refus('les murs sont déjà d’équerre');
       return ajuster(p, cmd.niveau, [], e.epingles, c, e.redresses);
+    }
+    case 'couperMur': {
+      const t = trouverObjet(p, cmd.id);
+      if (!t || t.objet.type !== 'wall') return refus('mur introuvable');
+      const w = t.objet, f = trouverNiveau(p, t.niveauId)!.floor;
+      if (!('a' in w.axis)) return refus('mur courbe : coupure à venir');
+      const id2 = c.id(), k = planCoupure(f, w.id, cmd.position, id2);
+      if (typeof k === 'string') return refus(k);
+      /* la première partie garde l'identifiant (ses ouvertures, contraintes et cotes du départ ne bougent pas) ; la seconde
+         reprend tout du mur (type, composition, hauteur, état, porteur) sauf son axe et ses zones de parement */
+      const { finishZones: _z, ...base } = w;
+      const w2: Wall = { ...structuredClone(base), id: id2, axis: { a: { ...k.point }, b: { ...w.axis.b } }, revision: c.revision,
+        sourceRefs: [...w.sourceRefs, source(c, 'Coupé en deux')], ...(k.zones[1].length ? { finishZones: k.zones[1] } : {}) };
+      const ops: Operation[] = [
+        modifier(t.niveauId, w, { axis: w.axis, finishZones: w.finishZones }, { axis: { a: { ...w.axis.a }, b: { ...k.point } }, finishZones: k.zones[0].length ? k.zones[0] : undefined }, c, 'Coupé en deux'),
+        { type: 'objet.ajouter', niveau: t.niveauId, objet: w2 },
+      ];
+      for (const o of k.ouvertures) {
+        const op = f.objects[o.id] as Opening;
+        ops.push(modifier(t.niveauId, op, { hostWallId: op.hostWallId, offset: op.offset }, { hostWallId: id2, offset: o.offset }, c, 'Mur coupé'));
+      }
+      for (const d of k.cotes) { const D = f.objects[d.id] as Dimension; ops.push(modifier(t.niveauId, D, { refs: D.refs }, { refs: d.refs }, c, 'Mur coupé')) }
+      return accepte(ops);
+    }
+    case 'fusionnerMurs': {
+      const t = trouverObjet(p, cmd.ids[0]), u = trouverObjet(p, cmd.ids[1]);
+      if (!t || t.objet.type !== 'wall' || !u || u.objet.type !== 'wall') return refus('mur introuvable');
+      if (t.niveauId !== u.niveauId) return refus('les deux murs ne sont pas sur le même niveau');
+      const A = t.objet, B = u.objet, f = trouverNiveau(p, t.niveauId)!.floor, n = t.niveauId;
+      const k = planFusion(f, A.id, B.id);
+      if (typeof k === 'string') return refus(k);
+      const ops: Operation[] = [];
+      for (const o of k.ouvertures) {
+        const op = f.objects[o.id] as Opening;
+        const avant: Record<string, unknown> = { hostWallId: op.hostWallId, offset: op.offset }, apres: Record<string, unknown> = { hostWallId: A.id, offset: o.offset };
+        if (o.swing && (o.swing.side !== op.swing?.side || o.swing.inward !== op.swing?.inward)) { avant['swing'] = op.swing; apres['swing'] = o.swing }
+        if (op.hostWallId !== A.id || Math.abs(op.offset - o.offset) > EPS_COINCIDENCE || 'swing' in apres) ops.push(modifier(n, op, avant, apres, c, 'Murs fusionnés'));
+      }
+      for (const d of k.cotes) { const D = f.objects[d.id] as Dimension; ops.push(modifier(n, D, { refs: D.refs }, { refs: d.refs }, c, 'Murs fusionnés')) }
+      for (const r of k.reportees) {
+        const K = f.objects[r.id] as Constraint;
+        ops.push(modifier(n, K, { walls: K.walls, value: K.value }, { walls: r.walls, value: r.value }, c, 'Murs fusionnés'));
+      }
+      for (const id of k.retirees) ops.push({ type: 'objet.retirer', niveau: n, objet: f.objects[id]! });
+      ops.push(modifier(n, A, { axis: A.axis, finishZones: A.finishZones }, { axis: k.axe, finishZones: k.zones.length ? k.zones : undefined }, c, 'Fusionné avec un mur aligné'));
+      ops.push({ type: 'objet.retirer', niveau: n, objet: B });
+      return accepte(ops);
     }
     case 'ajouterContrainte': {
       const n = trouverNiveau(p, cmd.niveau);

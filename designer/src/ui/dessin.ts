@@ -91,6 +91,8 @@ export interface Scene {
   gouttieres?: boolean;
   /** la mesure de l'outil Mesurer (rien du plan : un trait de chantier, le temps de lire la distance) */
   mesure?: { a: Point; b: Point; longueur: number; dx: number; dy: number } | null;
+  /** la coupure visée de l'outil Couper : un trait en travers du mur */
+  coupure?: [Point, Point] | null;
 }
 
 /** les teintes d'une rénovation, d'une extension (ADR-0007), au plan comme à la légende des planches */
@@ -481,6 +483,11 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y)); ctx.setLineDash([]);
   }
   if (s.mesure && s.mesure.longueur > 1) mesurer(ctx, cam, s.mesure);
+  if (s.coupure) {
+    const [p, q] = s.coupure.map(x => E(x)) as [{ x: number; y: number }, { x: number; y: number }];
+    ctx.strokeStyle = COULEURS.accent; ctx.lineWidth = 2.4; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+  }
   /* extrémités tirables */
   if (s.sommets) {
     ctx.fillStyle = '#fff'; ctx.strokeStyle = COULEURS.accent; ctx.lineWidth = 1.2;

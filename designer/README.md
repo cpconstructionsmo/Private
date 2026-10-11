@@ -110,7 +110,25 @@ de plans de maisons) :
   le plan et dans la barre du bas, avec ses écarts en x et en y quand le
   trait est de biais. Rien n'est ajouté au plan ni à l'historique ; la
   mesure reste affichée jusqu'au clic suivant, Échap l'efface, un second
-  Échap rend la sélection (`tests/metier/mesure.test.ts`).
+  Échap rend la sélection (`tests/metier/mesure.test.ts`) ;
+- **couper un mur** (Tracé › Murs, outil Couper un mur ; ou « Couper au
+  milieu » à l'inspecteur) : un clic sur le mur, accroché au milieu ou à une
+  cloison qui y aboutit ; le survol dit les deux longueurs, ou pourquoi on
+  ne peut pas couper là. La première partie garde le mur (ses contraintes,
+  ses cotes du départ), la seconde reprend tout le reste (type, composition,
+  hauteur, état, porteur) ; ouvertures et décors suivent leur partie, une
+  cote au bout suit la seconde. Refus, avec la raison : coupure dans une
+  baie, contrainte de longueur, cote au milieu du mur. Utile pour une
+  extension (une partie existante, l'autre neuve) ou un bout de mur d'un
+  autre type ;
+- **fusionner** deux murs alignés bout à bout, de même type, épaisseur,
+  hauteur, parement, état et qualification « porteur » (inspecteur :
+  « Fusionner avec le mur aligné » ; tuile Fusionner pour les murs
+  choisis) : un mur tracé à rebours se retourne (ses portes gardent leur
+  battant), les décors coupés se rejoignent, les contraintes passent au mur
+  gardé. Couper puis fusionner rend le mur d'origine ; un Ctrl+Z annule
+  l'un ou l'autre (`src/building/couper-murs.ts`,
+  `tests/metier/couper-murs.test.ts`).
 
 **Bibliothèque d'ouvertures** (`src/catalogue/ouvertures.ts`) : outil
 Ouverture (O), le panneau de droite montre les modèles courants par famille
