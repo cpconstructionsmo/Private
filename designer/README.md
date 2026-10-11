@@ -458,8 +458,13 @@ DXF R12 en millimètres (le plus largement lu), dans le repère du plan, un
 calque par famille : MURS et CLOISONS (ouverts au droit des baies),
 OUVERTURES (tableau, vitrage ou vantail, repère « F 120×125 all. 90 »),
 PIECES (nom, surface), COTES (chaînes extérieures), ESCALIERS, TREMIES,
-MOBILIER, TOITURE (égout), PARCELLE, AMENAGEMENTS ; texte en Windows-1252.
-Relu sans erreur par ezdxf (la bibliothèque DXF de l'atelier).
+MOBILIER, TOITURE (égout), PARCELLE, AMENAGEMENTS, ATTENTES (repère, réseaux
+et évacuation de chaque appareil sanitaire) ; texte en Windows-1252. Relu
+sans erreur par ezdxf (la bibliothèque DXF de l'atelier). Avec des
+fondations, le dialogue propose aussi le DXF du plan de fondations
+(`dxfFondations`) : MURS (les murs à fonder), SEMELLES (filantes réunies,
+isolées), COTES (bords des semelles, largeurs, hors-tout), RESERVATIONS
+(R1… avec leur diamètre) et TRAPPES.
 
 **Dossier de permis** (PDF → « Composer : le dossier de permis complet ») :
 un seul PDF A3 numéroté « n / N » — page de garde sur le modèle des
@@ -688,6 +693,9 @@ de constructeur ; quantités seulement, **sans prix** :
 - **pièces** : sol (avec son revêtement), plinthes (portes déduites), murs
   à peindre (périmètre × hauteur sous plafond, baies déduites), plafonds ;
   une pièce humide signale sa faïence et son étanchéité « à préciser » ;
+- **plomberie sanitaire** : les attentes des appareils posés (eau froide,
+  eau chaude, évacuations par diamètre usuel, eaux vannes du WC), d'après
+  le plan du plombier, diamètres à confirmer ;
 - **toiture** : couverture (surface rampante), faîtage, arêtiers, noues,
   rives (en vraie grandeur), génoise ou caisson, gouttières (longueur
   d'égout, pignons exclus), descentes posées (surface en plan desservie),

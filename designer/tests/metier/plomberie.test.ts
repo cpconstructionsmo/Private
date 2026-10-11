@@ -5,7 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import { creerProjet, generateurSequentiel } from '../../src/model';
 import { executer, nouvelHistorique, type Acteur, type Commande, type Historique } from '../../src/engine';
-import { attentesSanitaires } from '../../src/building';
+import { attentesSanitaires, metreProjet } from '../../src/building';
+import { dxfNiveau } from '../../src/export/dxf';
 import { modeleMeuble } from '../../src/catalogue/mobilier';
 import { planchesPdf } from '../../src/export/planche';
 
@@ -61,5 +62,15 @@ describe('attentes sanitaires (plan du plombier)', () => {
       'Douche 90 \xD7 90 (Salle d\x92eau)', 'EF : Eau froide', 'EC : Eau chaude', 'EU : Eaux us\xE9es (\xE9vacuation)', 'EV : Eaux vannes (WC)'])
       expect(T, t).toContain(t);
     expect(T).toContain('\xE0 confirmer par le plombier');
+  });
+
+  it('le métré compte les attentes (lot Plomberie sanitaire) ; le DXF du niveau les porte', () => {
+    const L = metreProjet(p).filter(l => l.lot === 'Plomberie sanitaire'), q = (t: string) => L.find(l => l.libelle === t)?.quantite;
+    /* EF : douche, lavabo, WC, évier, lave-linge ; EC : douche, lavabo, évier */
+    expect([q('Attentes eau froide'), q('Attentes eau chaude')]).toEqual([5, 3]);
+    expect([q('Évacuations Ø 40'), q('Évacuations Ø 32 à 40'), q('Évacuations Ø 100 (eaux vannes)')]).toEqual([3, 1, 1]);
+    const D = dxfNiveau(p, f);
+    expect(D).toMatch(/\r\nLAYER\r\n2\r\nATTENTES\r\n/);
+    expect(D).toContain('S3 EF+EV Ø 100');
   });
 });

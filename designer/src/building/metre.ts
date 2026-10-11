@@ -34,6 +34,7 @@ import { lucarnesDuNiveau, LUCARNES } from './lucarnes';
 import { eauxPluviales, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, NOMS_LIGNES } from './eaux-pluviales';
 import { planFondations, SOUBASSEMENTS } from './fondations';
 import { metreTerrain, NOMS_RESEAUX } from './terrassement';
+import { attentesSanitaires } from './plomberie';
 import { compositionMur } from '../catalogue/murs';
 import { modeleMeuble, type FamilleMeuble } from '../catalogue/mobilier';
 import { compositionPlancher } from '../catalogue/planchers';
@@ -57,7 +58,7 @@ export interface LigneMetre {
 }
 
 export const LOTS = ['Démolition', 'Terrassement et VRD', 'Gros œuvre', 'Charpente et couverture', 'Menuiseries extérieures', 'Menuiseries intérieures',
-  'Plâtrerie et isolation', 'Revêtements de sol', 'Faïence', 'Peinture', 'Équipements'] as const;
+  'Plâtrerie et isolation', 'Plomberie sanitaire', 'Revêtements de sol', 'Faïence', 'Peinture', 'Équipements'] as const;
 
 /** linteau : la baie plus un appui de 20 cm de chaque côté (usage courant, à confirmer selon l'étude) */
 export const APPUI_LINTEAU = 200;
@@ -258,6 +259,14 @@ function metreNiveau(p: Project, f: Floor, ajouter: (l: LigneMetre) => void): vo
       const fam = modeleMeuble(o.catalogRef.id)?.famille;
       if (fam && FAMILLES_EQUIPEMENTS.has(fam)) ajouter({ lot: 'Équipements', libelle: o.catalogRef.label, quantite: 1, unite: 'u', detail: 'posé au plan' });
     }
+  }
+  /* ---------- plomberie : les attentes des appareils posés (building/plomberie.ts) ---------- */
+  for (const a of attentesSanitaires(f)) {
+    const d = 'd’après les appareils posés au plan';
+    if (a.reseaux.includes('EF')) ajouter({ lot: 'Plomberie sanitaire', libelle: 'Attentes eau froide', quantite: 1, unite: 'u', detail: d });
+    if (a.reseaux.includes('EC')) ajouter({ lot: 'Plomberie sanitaire', libelle: 'Attentes eau chaude', quantite: 1, unite: 'u', detail: d });
+    if (a.reseaux.includes('EU') || a.reseaux.includes('EV'))
+      ajouter({ lot: 'Plomberie sanitaire', libelle: 'Évacuations ' + a.evacuation + (a.reseaux.includes('EV') ? ' (eaux vannes)' : ''), quantite: 1, unite: 'u', detail: 'diamètre usuel, à confirmer par le plombier' });
   }
 }
 
