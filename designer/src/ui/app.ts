@@ -5,7 +5,7 @@
    une commande refusée l'est par le moteur, et la raison s'affiche telle
    quelle. Un aperçu (pendant un tracé ou un glissement) joue les commandes
    sur une copie, sans rien enregistrer. */
-import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, Underlay, Mm, Network, NetworkItem, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
+import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, Underlay, Mm, Network, NetworkItem, Note, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
 import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
@@ -44,6 +44,8 @@ import { traits } from '../building/mobilier';
 import { icone } from './icones';
 import { lirePlanGeometre, lirePointsTexte } from '../import/geometre';
 import { NOMS_EQUIPEMENTS, ETATS_ARBRES } from './dessin-terrain';
+/** les tailles d'une annotation (Note.size ; vide : normale) */
+const TAILLES_NOTE: Record<string, string> = { '': 'Normale', small: 'Petite', large: 'Grande (en gras)' };
 import { MATIERES_PLANCHER, compositionPlancher, compositionsPlancher, epaisseurPlancher, type CompositionPlancher } from '../catalogue/planchers';
 import { COMPOSITION_PAR_DEFAUT, MATIERES_COUCHES, compositionMur, compositionsDu, epaisseurComposition, genreDuRole, type CompositionMur } from '../catalogue/murs';
 
@@ -730,6 +732,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       }
     }
     if (e.demande?.genre === 'nomPiece') nommerPiece(e.demande.niveau, e.demande.point);
+    if (e.demande?.genre === 'texteNote') void ecrireNote(e.demande.niveau, e.demande.point);
     if (e.demande?.genre === 'pointCote') void poserPointCote(e.demande.point);
     if (e.demande?.genre === 'distanceFond') calerParDistance(e.demande.id, e.demande.image);
     if (e.fini) barreOutils();
@@ -945,6 +948,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     { nom: 'piece', icone: 'piece', libelle: 'Pièce', touche: 'P' }, { nom: 'cote', icone: 'cote', libelle: 'Cote', touche: 'D' },
     { nom: 'mesure', icone: 'cote', libelle: 'Mesurer (sans rien ajouter au plan)', touche: '' },
     { nom: 'couper', icone: 'couper_mur', libelle: 'Couper un mur en deux', touche: '' },
+    { nom: 'note', icone: 'note', libelle: 'Annotation (texte et flèche de rappel)', touche: '' },
   ];
   const TOUCHES: Record<string, NomOutil> = Object.fromEntries(OUTILS.filter(o => o.touche).map(o => [o.touche.toLowerCase(), o.nom]));
   /** l'onglet et le sous-onglet où vit chaque outil : choisir l'outil (au clavier) y mène */
@@ -953,7 +957,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     piece: ['trace', 'pieces'], parcelle: ['trace', 'terrain'], altitude: ['trace', 'terrain'], escalier: ['trace', 'niveaux'],
     ouverture: ['ouvrant', 'ouvrant'], fenetretoit: ['toit', 'fenetres'], amenagement: ['exterieur', 'amenagements'], pointdevue: ['exterieur', 'vues'],
     plateforme: ['exterieur', 'terrassement'], reseau: ['exterieur', 'reseaux'], equipement: ['exterieur', 'equipements'], arbre: ['exterieur', 'vegetation'], profil: ['exterieur', 'terrain'], poteau: ['trace', 'structure'], poutre: ['trace', 'structure'], trappe: ['trace', 'fondations'], descente: ['toit', 'eaux'], lucarne: ['toit', 'lucarnes'], couvert: ['toit', 'couverts'],
-    mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], mesure: ['indications', 'cotes'], coupe: ['indications', 'coupes'],
+    mobilier: ['produit', 'mobilier'], cote: ['indications', 'cotes'], mesure: ['indications', 'cotes'], note: ['indications', 'textes'], coupe: ['indications', 'coupes'],
   };
   function choisir(o: NomOutil) {
     if (en3D) void basculer3D(false);
@@ -1101,6 +1105,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
       { id: 'coupes', libelle: 'Coupes', icone: 'coupe', tuiles: () => [outil('coupe'), action('PDF des coupes', 'pdf', () => void exporterCoupes())] },
       { id: 'couleurs', libelle: 'Couleurs de pièces', icone: 'couleurs', tuiles: () => [{ libelle: 'Sols en couleur', icone: 'couleurs', faire: () => basculerSols(), actif: () => solsCouleur }, outil('piece', 'Nommer une pièce')] },
       { id: 'surfaces', libelle: 'Tableaux de surfaces', icone: 'tableau', panneau: f => panneauSurfaces(f) },
+      { id: 'textes', libelle: 'Annotations', icone: 'note', tuiles: () => [outil('note', 'Texte')] },
     ] },
     { id: 'dossier', libelle: 'Dossier', icone: 'dossier', sous: [
       { id: 'plans', libelle: 'Plans', icone: 'pdf', tuiles: () => [action('Plans en PDF', 'pdf', () => void exporterPdf()), action('Plans en DXF', 'dxf', () => void exporterDxf()), action('Projet (JSON)', 'json', exporter)] },
@@ -1381,7 +1386,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     const TYPES: Record<string, [string, string]> = { wall: ['murs', 'Mur'], opening: ['ouvrant', 'Ouvrant'], room: ['piece', 'Pièce'], dimension: ['cote', 'Cote'], underlay: ['fond', 'Fond'],
       furniture: ['produit', 'Produit'], stair: ['escalier', 'Escalier'], section: ['coupe', 'Coupe'], roof_window: ['fenetre_toit', 'Fenêtre de toit'], dormer: ['lucarne_gable', 'Lucarne'], viewpoint: ['point_de_vue', 'Point de vue'],
       landscape: ['exterieur', 'Aménagement'], plot: ['parcelle', 'Terrain'], constraint: ['equerre', 'Contrainte'], roof: ['toit', 'Toit'],
-      platform: ['plateforme', 'Plateforme'], network: ['reseau', 'Réseau'], network_item: ['regard', 'Équipement'], tree: ['arbre', 'Arbre'], column: ['poteau', 'Poteau'], beam: ['poutre', 'Poutre'], canopy: ['couvert', 'Couvert'] };
+      platform: ['plateforme', 'Plateforme'], network: ['reseau', 'Réseau'], network_item: ['regard', 'Équipement'], tree: ['arbre', 'Arbre'], column: ['poteau', 'Poteau'], beam: ['poutre', 'Poutre'], canopy: ['couvert', 'Couvert'], note: ['note', 'Annotation'] };
     const [ic, lib] = en3D ? ['vue3d', 'Vue 3D'] : groupe.length ? ['tout', 'Sélection'] : o ? TYPES[o.type] ?? ['trace', 'Objet']
       : outils.outil === 'ouverture' ? ['ouvrant', 'Ouvrant'] : outils.outil === 'mobilier' ? ['produit', 'Produit'] : outils.outil === 'escalier' ? ['escalier', 'Escalier']
       : outils.outil === 'amenagement' ? ['exterieur', 'Extérieur'] : S.panneau ? [S.icone, S.libelle] : ['niveaux', 'Niveau'];
@@ -1750,6 +1755,21 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
           titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
         break;
       }
+      case 'note': {
+        const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierNote' }>>) => faire(t, [{ type: 'modifierNote', id: o.id, ...c }]);
+        A.append(titre('Annotation'), bloc(esc(o.text).replace(/\n/g, '<br>')),
+          ligne(bouton('Modifier le texte…', () => void (async () => {
+            const r = await dialogue('Annotation', [{ cle: 'texte', libelle: 'Texte (quatre lignes au plus)', valeur: o.text, lignes: 4 }]);
+            if (r && r['texte']!.trim()) mod('Texte de l’annotation', { texte: r['texte']! });
+          })())),
+          champ('Taille du texte', o.size ?? '', v => mod('Taille de l’annotation', { taille: (v || null) as Note['size'] | null }), 'text', TAILLES_NOTE),
+          titre('Flèche de rappel'),
+          ligne(bouton(o.target ? 'Déplacer la pointe…' : 'Ajouter une flèche…', () => { effet(outils.placerFleche(o.id)); barreOutils() }),
+            ...(o.target ? [bouton('Retirer la flèche', () => mod('Retirer la flèche', { cible: null }))] : [])),
+          bloc('Tirez le texte pour le déplacer : la pointe de la flèche reste sur ce qu’elle désigne. L’annotation s’imprime avec le plan du niveau et passe au DXF (calque ANNOTATIONS).', 'note'),
+          titre('Objet'), provenance(o), ligne(bouton('Supprimer', () => supprimer(o.id), 'dang')));
+        break;
+      }
       case 'canopy': {
         const mod = (t: string, c: Partial<Extract<Commande, { type: 'modifierCouvert' }>>) => faire(t, [{ type: 'modifierCouvert', id: o.id, ...c }]);
         A.append(titre(o.name),
@@ -2095,7 +2115,7 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
 
   /** plusieurs objets choisis : ce qu'ils sont, et ce qu'on peut en faire ensemble */
   function panneauGroupe(f: Floor) {
-    const types: Record<string, string> = { wall: 'mur', opening: 'ouverture', room: 'pièce', furniture: 'meuble', dimension: 'cote' };
+    const types: Record<string, string> = { wall: 'mur', opening: 'ouverture', room: 'pièce', furniture: 'meuble', dimension: 'cote', note: 'annotation' };
     const n = new Map<string, number>();
     for (const id of groupe) { const t = f.objects[id]?.type ?? ''; n.set(t, (n.get(t) ?? 0) + 1) }
     aside.append(titre(groupe.length + ' objets choisis'),
@@ -2833,6 +2853,16 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
     if (t) { faire('Pièce ' + t.libelle, [{ type: 'creerPiece', niveau: niv, point, nom: nomLibre(t.libelle), usage: t.usage, humide: !!t.humide }]); return }
     const r = await dialogue('Nommer la pièce', [{ cle: 'nom', libelle: 'Nom', valeur: '' }, { cle: 'usage', libelle: 'Usage', valeur: 'living', options: USAGES }]);
     if (r && r['nom']!.trim()) faire('Pièce ' + r['nom'], [{ type: 'creerPiece', niveau: niv, point, nom: r['nom']!, usage: r['usage'] as RoomUsage }]);
+  }
+  /** le texte d'une annotation posée au point cliqué ; avec une flèche, sa pointe se pose au clic suivant */
+  async function ecrireNote(niv: string, point: Point) {
+    const r = await dialogue('Annotation', [{ cle: 'texte', libelle: 'Texte (quatre lignes au plus)', valeur: '', lignes: 3 },
+      { cle: 'taille', libelle: 'Taille du texte', valeur: '', options: TAILLES_NOTE },
+      { cle: 'fleche', libelle: 'Flèche de rappel', valeur: 'non', options: { non: 'Sans', oui: 'Avec : cliquez ensuite le point désigné' } }]);
+    if (!r || !r['texte']!.trim()) return;
+    const taille = (r['taille'] || undefined) as Note['size'] | undefined;
+    if (r['fleche'] === 'oui') { effet(outils.attendreFleche(niv, point, r['texte']!, taille)); return }
+    faire('Annotation', [{ type: 'creerNote', niveau: niv, position: point, texte: r['texte']!, ...(taille ? { taille } : {}) }]);
   }
   async function calerParDistance(id: string, image: [Point, Point]) {
     const r = await dialogue('Caler le fond', [{ cle: 'd', libelle: 'Distance réelle entre les deux points (m)', valeur: '' }]);

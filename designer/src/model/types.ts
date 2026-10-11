@@ -439,7 +439,20 @@ export interface Canopy extends BaseObject {
   supported: boolean;
 }
 
-export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree | Column | Beam | Foundation | Dormer | Canopy;
+/** une annotation du plan : un texte libre (une à quatre lignes) posé où l'on veut, avec une flèche de rappel facultative
+ *  vers ce qu'il désigne (« Regard EP », « Mur conservé », « Accès chantier ») ; il s'imprime avec le plan du niveau */
+export interface Note extends BaseObject {
+  type: 'note';
+  /** le milieu du texte */
+  position: Point;
+  text: string;
+  /** la pointe de la flèche de rappel ; absente : pas de flèche */
+  target?: Point;
+  /** la taille du texte : petite, grande ; absente : normale */
+  size?: 'small' | 'large';
+}
+
+export type BuildingObject = Wall | Opening | Room | Dimension | Constraint | Underlay | Roof | Furniture | Stair | SectionLine | Plot | Landscape | Viewpoint | RoofWindow | Platform | Network | NetworkItem | Tree | Column | Beam | Foundation | Dormer | Canopy | Note;
 
 export interface Floor {
   id: string;

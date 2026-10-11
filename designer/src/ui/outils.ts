@@ -4,7 +4,7 @@
    enregistrées), une sélection, une question à poser. Ils ne touchent ni
    au DOM ni au modèle : l'application exécute les commandes (et peut donc
    les refuser), les tests rejouent des gestes sans navigateur. */
-import type { Beam, Column, Dormer, Floor, Mm, Network, NetworkItem, ObjectAnchor, Opening, Point, Project, Tree, Wall } from '../model/types';
+import type { Beam, Column, Dormer, Floor, Mm, Network, NetworkItem, Note, ObjectAnchor, Opening, Point, Project, Tree, Wall } from '../model/types';
 import type { Commande } from '../engine/commandes';
 import { trouverNiveau } from '../model/projet';
 import { accrochageDuNiveau, type Accroche, type AimantFond } from '../building/accrochage';
@@ -27,7 +27,7 @@ import { planCoupure, texteCoupure } from '../building/couper-murs';
 import { geometrieEscalier, hauteurAFranchir } from '../building/escalier';
 import { GENRES_AMENAGEMENT, finitionAmenagement, finitionsDe, type GenreAmenagement } from '../catalogue/amenagements';
 
-export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente' | 'lucarne' | 'couvert' | 'mesure' | 'couper';
+export type NomOutil = 'selection' | 'mur' | 'refend' | 'cloison' | 'fictive' | 'rectangle' | 'ouverture' | 'mobilier' | 'escalier' | 'coupe' | 'parcelle' | 'amenagement' | 'pointdevue' | 'fenetretoit' | 'altitude' | 'piece' | 'cote' | 'caler' | 'plateforme' | 'reseau' | 'equipement' | 'arbre' | 'profil' | 'poteau' | 'poutre' | 'trappe' | 'descente' | 'lucarne' | 'couvert' | 'mesure' | 'couper' | 'note';
 
 export interface Reglages {
   epaisseurMur: Mm;
@@ -95,6 +95,8 @@ export interface Geste {
 
 export type Demande =
   | { genre: 'nomPiece'; niveau: string; point: Point }
+  /** le texte d'une annotation posée à ce point */
+  | { genre: 'texteNote'; niveau: string; point: Point }
   | { genre: 'pointCote'; point: Point }
   | { genre: 'distanceFond'; id: string; image: [Point, Point] };
 
@@ -134,7 +136,7 @@ type Prise =
   | { genre: 'parcelle'; id: string; depart: Point; contour: Point[] }
   | { genre: 'amenagement'; id: string; depart: Point; points: Point[] }
   /** un objet du terrain (plateforme, réseau, équipement, arbre) : il se déplace d'un bloc */
-  | { genre: 'terrain'; id: string; objet: 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' | 'canopy'; depart: Point; points: Point[] };
+  | { genre: 'terrain'; id: string; objet: 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' | 'canopy' | 'note'; depart: Point; points: Point[] };
 
 /** une mesure en clair : sa longueur, et ses écarts en x et en y s'ils diffèrent d'elle */
 export function texteMesure(m: { longueur: Mm; dx: Mm; dy: Mm }): string {
@@ -174,6 +176,7 @@ const AIDES: Record<NomOutil, string> = {
   cote: 'Cliquer deux murs (ou deux extrémités) à coter',
   mesure: 'Mesurer : cliquer le premier point, puis le second (accrochés aux murs ; Alt : sans accrochage ; Maj : à 45°) — rien n’est ajouté au plan',
   caler: 'Cliquer deux points du fond dont vous connaissez la distance réelle',
+  note: 'Annotation : cliquer où écrire le texte (une flèche de rappel peut désigner ensuite un point du plan)',
   couper: 'Couper un mur : cliquer l’endroit de la coupure (accroché au milieu, aux cloisons qui y aboutissent ; Alt : libre) — ses ouvertures et ses décors suivent leur partie',
 };
 
@@ -234,6 +237,9 @@ export class Outils {
   private mesureAB: { a: Point; b: Point; figee: boolean } | null = null;
   /** la coupure visée (outil Couper) : le mur, la position le long de son axe, et le trait à dessiner en travers */
   private coupeVisee: { mur: string; position: Mm; trait: [Point, Point] } | null = null;
+  /** l'annotation écrite qui attend la pointe de sa flèche ; ou l'annotation existante dont on place la flèche */
+  private noteEnAttente: { niveau: string; position: Point; texte: string; taille?: Note['size'] } | null = null;
+  private flechePour: string | null = null;
 
   constructor(private readonly contexte: () => Contexte) {}
 
@@ -250,14 +256,30 @@ export class Outils {
   pointAccroche(g: Geste): Accroche { return this.accrocher(g) }
 
   /* une mesure affichée compte : le premier Échap l'efface, le second rend la sélection */
-  get traceEnCours(): boolean { return this.depart !== null || this.prise !== null || this.ancres.length > 0 || this.clicsFond.length > 0 || this.mesureAB !== null }
+  get traceEnCours(): boolean { return this.depart !== null || this.prise !== null || this.ancres.length > 0 || this.clicsFond.length > 0 || this.mesureAB !== null || this.flechePour !== null }
 
-  private annulerGeste(): void { this.mesureAB = null; this.coupeVisee = null; this.sommetsTrace = []; this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
+  private annulerGeste(): void { this.mesureAB = null; this.coupeVisee = null; this.noteEnAttente = null; this.flechePour = null; this.sommetsTrace = []; this.depart = null; this.premier = null; this.prise = null; this.bouge = false; this.dernier = null; this.ancres = []; this.clicsFond = []; this.vise = null }
 
   /** la mesure en cours ou figée : ses deux points, sa longueur et ses écarts en x et en y (mm) */
   get mesure(): { a: Point; b: Point; longueur: Mm; dx: Mm; dy: Mm; figee: boolean } | null {
     const m = this.mesureAB;
     return m ? { ...m, longueur: distance(m.a, m.b), dx: Math.abs(m.b.x - m.a.x), dy: Math.abs(m.b.y - m.a.y) } : null;
+  }
+
+  /** l'annotation tout juste écrite : sa flèche se pose au clic suivant (Échap : sans flèche) */
+  attendreFleche(niveau: string, position: Point, texte: string, taille?: Note['size']): Effet {
+    this.outil = 'note'; this.noteEnAttente = { niveau, position, texte, ...(taille ? { taille } : {}) };
+    return { aide: 'Cliquez le point que l’annotation désigne (Échap : sans flèche)' };
+  }
+  /** placer (ou déplacer) la flèche d'une annotation existante : au clic suivant */
+  placerFleche(id: string): Effet {
+    this.annulerGeste(); this.outil = 'note'; this.flechePour = id;
+    return { aide: 'Cliquez le point que l’annotation désigne (Échap pour renoncer)' };
+  }
+  /** l'aperçu de la flèche en attente, jusqu'au point visé */
+  private apercuFleche(p: Point): Commande[] {
+    if (this.noteEnAttente) { const n = this.noteEnAttente; return [{ type: 'creerNote', niveau: n.niveau, position: n.position, texte: n.texte, cible: p, ...(n.taille ? { taille: n.taille } : {}) }] }
+    return this.flechePour ? [{ type: 'modifierNote', id: this.flechePour, cible: p }] : [];
   }
 
   /** le trait de la coupure visée, en travers du mur (outil Couper) */
@@ -472,6 +494,10 @@ export class Outils {
   bouger(g: Geste): Effet {
     const c = this.contexte();
     switch (this.outil) {
+      case 'note': {
+        const a = this.accrocher(g);
+        return { accroche: a, apercu: this.apercuFleche(a.point) };
+      }
       case 'couper': {
         const v = this.viserCoupure(g);
         this.coupeVisee = v?.possible ? { mur: v.mur, position: v.position, trait: v.trait } : null;
@@ -499,7 +525,9 @@ export class Outils {
           const dx = Math.round(g.point.x - p.depart.x), dy = Math.round(g.point.y - p.depart.y), P = p.points.map(q => ({ x: q.x + dx, y: q.y + dy }));
           this.dernier = p.objet === 'platform' ? { type: 'modifierPlateforme', id: p.id, contour: P } : p.objet === 'network' ? { type: 'modifierReseau', id: p.id, points: P }
             : p.objet === 'network_item' ? { type: 'modifierEquipement', id: p.id, position: P[0]! } : p.objet === 'column' ? { type: 'modifierPoteau', id: p.id, position: P[0]! }
-            : p.objet === 'beam' ? { type: 'modifierPoutre', id: p.id, a: P[0]!, b: P[1]! } : p.objet === 'canopy' ? { type: 'modifierCouvert', id: p.id, contour: P } : { type: 'modifierArbre', id: p.id, position: P[0]! };
+            : p.objet === 'beam' ? { type: 'modifierPoutre', id: p.id, a: P[0]!, b: P[1]! } : p.objet === 'canopy' ? { type: 'modifierCouvert', id: p.id, contour: P }
+            /* une annotation se déplace sans sa flèche : la pointe reste sur ce qu'elle désigne */
+            : p.objet === 'note' ? { type: 'modifierNote', id: p.id, position: P[0]! } : { type: 'modifierArbre', id: p.id, position: P[0]! };
           return { apercu: [this.dernier] };
         }
         if (p.genre === 'parcelle') {
@@ -670,6 +698,19 @@ export class Outils {
     const c = this.contexte(), f = this.niveau();
     if (!f) return {};
     switch (this.outil) {
+      case 'note': {
+        const p = this.accrocher(g).point;
+        if (this.noteEnAttente) {
+          const L = this.apercuFleche(p); this.noteEnAttente = null;
+          return { commandes: { titre: 'Annotation', liste: L }, apercu: [] };
+        }
+        if (this.flechePour) {
+          const id = this.flechePour, L = this.apercuFleche(p);
+          this.flechePour = null; this.outil = 'selection';
+          return { commandes: { titre: 'Flèche de l’annotation', liste: L }, apercu: [], selection: id, aide: AIDES.selection, fini: true };
+        }
+        return { demande: { genre: 'texteNote', niveau: f.id, point: p } };
+      }
       case 'couper': {
         /* le moteur dit la raison d'un refus (une baie à l'endroit de la coupure…) : on lui envoie la commande */
         const v = this.viserCoupure(g);
@@ -708,6 +749,7 @@ export class Outils {
         else if (o?.type === 'network') this.prise = { genre: 'terrain', id: o.id, objet: 'network', depart: g.point, points: o.points.map(q => ({ ...q })) };
         else if (o?.type === 'column') this.prise = { genre: 'terrain', id: o.id, objet: 'column', depart: g.point, points: [{ ...o.position }] };
         else if (o?.type === 'beam') this.prise = { genre: 'terrain', id: o.id, objet: 'beam', depart: g.point, points: [{ ...o.a }, { ...o.b }] };
+        else if (o?.type === 'note') this.prise = { genre: 'terrain', id: o.id, objet: 'note', depart: g.point, points: [{ ...o.position }] };
         else if (o?.type === 'network_item' || o?.type === 'tree') this.prise = { genre: 'terrain', id: o.id, objet: o.type, depart: g.point, points: [{ ...o.position }] };
         else if (o?.type === 'plot') this.prise = { genre: 'parcelle', id: o.id, depart: g.point, contour: o.contour.map(q => ({ ...q })) };
         else if (o?.type === 'furniture') this.prise = { genre: 'meuble', id: o.id, depart: g.point, decalage: { x: g.point.x - o.position.x, y: g.point.y - o.position.y }, largeur: o.width, profondeur: o.depth, rotation: o.rotation };
@@ -906,7 +948,7 @@ export class Outils {
     }
     this.prise = null; this.bouge = false; this.dernier = null;
     if (!dernier) return { apercu: [] };
-    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'pointdevue' ? 'Déplacer un point de vue' : p.genre === 'fenetretoit' ? 'Déplacer une fenêtre de toit' : p.genre === 'lucarne' ? 'Déplacer une lucarne' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : p.genre === 'terrain' ? 'Déplacer : ' + ({ platform: 'plateforme', network: 'réseau', network_item: 'équipement', tree: 'arbre', column: 'poteau', beam: 'poutre', canopy: 'couvert' } as const)[p.objet] : 'Déplacer une ouverture';
+    const titre = p.genre === 'sommet' ? 'Déplacer une extrémité' : p.genre === 'mur' ? 'Déplacer un mur' : p.genre === 'meuble' ? 'Déplacer un meuble' : p.genre === 'escalier' ? 'Déplacer un escalier' : p.genre === 'coupe' ? 'Déplacer un trait de coupe' : p.genre === 'pointdevue' ? 'Déplacer un point de vue' : p.genre === 'fenetretoit' ? 'Déplacer une fenêtre de toit' : p.genre === 'lucarne' ? 'Déplacer une lucarne' : p.genre === 'parcelle' ? 'Déplacer la parcelle' : p.genre === 'amenagement' ? 'Déplacer un aménagement' : p.genre === 'terrain' ? 'Déplacer : ' + ({ platform: 'plateforme', network: 'réseau', network_item: 'équipement', tree: 'arbre', column: 'poteau', beam: 'poutre', canopy: 'couvert', note: 'annotation' } as const)[p.objet] : 'Déplacer une ouverture';
     return { apercu: [], commandes: { titre, liste: [dernier] } };
   }
 
@@ -916,6 +958,11 @@ export class Outils {
     if (k === 'Enter' && this.outil === 'amenagement' && this.sommetsTrace.length >= 2) return this.finirAmenagement(false);
     if (k === 'Enter' && (this.outil === 'plateforme' || this.outil === 'reseau') && this.sommetsTrace.length >= 2) return this.finirTerrain();
     if (k === 'Enter' && this.outil === 'couvert' && this.sommetsTrace.length >= 3) return this.finirCouvert();
+    /* une annotation écrite qui attendait sa flèche n'est pas perdue : Échap (ou Entrée) la pose sans flèche */
+    if (this.noteEnAttente) {
+      const n = this.noteEnAttente; this.noteEnAttente = null;
+      return { commandes: { titre: 'Annotation', liste: [{ type: 'creerNote', niveau: n.niveau, position: n.position, texte: n.texte, ...(n.taille ? { taille: n.taille } : {}) }] }, apercu: [], aide: 'Annotation posée sans flèche' };
+    }
     const enCours = this.traceEnCours;
     this.annulerGeste();
     if (k === 'Escape' && !enCours && this.outil !== 'selection') { this.outil = 'selection'; return { apercu: [], aide: AIDES.selection, fini: true } }

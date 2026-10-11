@@ -128,7 +128,17 @@ de plans de maisons) :
   battant), les décors coupés se rejoignent, les contraintes passent au mur
   gardé. Couper puis fusionner rend le mur d'origine ; un Ctrl+Z annule
   l'un ou l'autre (`src/building/couper-murs.ts`,
-  `tests/metier/couper-murs.test.ts`).
+  `tests/metier/couper-murs.test.ts`) ;
+- **annotations** (Indications › Annotations, outil Texte) : un clic où
+  écrire, le texte (une à quatre lignes, petite, normale ou grande taille),
+  et, si on le veut, une flèche de rappel dont la pointe se pose au clic
+  suivant (Échap : la note sans flèche, rien n'est perdu). Le texte garde
+  sa taille à tous les zooms, sur un fond blanc qui le détache des
+  hachures ; on le tire pour le déplacer (la pointe reste sur ce qu'elle
+  désigne), l'inspecteur change le texte, la taille, place ou retire la
+  flèche. Les annotations s'impriment avec le plan du niveau (pas au plan de
+  fondations), passent au DXF (calque ANNOTATIONS) et se copient avec le
+  groupe (`src/building/notes.ts`, `tests/metier/annotations.test.ts`).
 
 **Bibliothèque d'ouvertures** (`src/catalogue/ouvertures.ts`) : outil
 Ouverture (O), le panneau de droite montre les modèles courants par famille

@@ -51,6 +51,8 @@ export function boiteDessin(f: Floor, mobilier = true): { xmin: number; ymin: nu
     if (mobilier && o.type === 'furniture') P.push(...emprise(o));
     if (o.type === 'landscape' && o.kind === 'terrace') P.push(...o.points);
     if (o.type === 'canopy') P.push(...o.contour);
+    /* une annotation posée à côté de la maison reste dans le cadre (son texte déborde un peu de son milieu) */
+    if (o.type === 'note') P.push(o.position, ...(o.target ? [o.target] : []));
   }
   if (!P.length) for (const w of mursDroits(f)) P.push(w.axis.a, w.axis.b);
   if (!P.length) return null;
