@@ -15,7 +15,7 @@
 import { cadastreInvalide, deplacerCadastre } from '../building/cadastre';
 import { teinteOuvrageInvalide } from '../catalogue/menuiseries';
 import { reglesPluInvalides } from '../building/plu';
-import type { Canopy, Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu, FinishZone, PhaseOuvrage, ToitureExtension } from '../model/types';
+import type { Canopy, Constraint, Dimension, Furniture, Mm, ObjectAnchor, Opening, Point, Project, Qualified, Landscape, Plot, Roof, SectionLine, Stair, Room, RoomUsage, SourceRef, SourceStatus, Underlay, Viewpoint, RoofWindow, Floor, Wall, Platform, Network, NetworkItem, Tree, Column, Beam, Foundation, Dormer, InfosDossier, TeinteOuvrage, ReglesPlu, FinishZone, PhaseOuvrage, ToitureExtension, Note } from '../model/types';
 import { trouverNiveau, trouverObjet } from '../model/projet';
 import type { GenerateurId } from '../model/ids';
 import { angleDe, distance, soustraire } from '../geometry/vecteur';
@@ -96,6 +96,9 @@ export type Commande =
   | { type: 'deplacerSommet'; niveau: string; de: Point; vers: Point }
   /** redresser à l'équerre les murs presque d'équerre (ceux qu'on cite, ou tout le niveau) — voir building/equerre.ts */
   | { type: 'equerrerMurs'; niveau: string; murs?: string[] }
+  /** une annotation du plan ; « cible » : la pointe de sa flèche de rappel (null : la retirer) */
+  | { type: 'creerNote'; niveau: string; position: Point; texte: string; cible?: Point; taille?: Note['size'] }
+  | { type: 'modifierNote'; id: string; position?: Point; texte?: string; cible?: Point | null; taille?: Note['size'] | null }
   /** couper un mur à « position » (mm le long de l'axe, depuis son origine a) : il garde la première partie, la seconde est un mur neuf */
   | { type: 'couperMur'; id: string; position: Mm }
   /** fusionner le second mur dans le premier (alignés bout à bout, de mêmes caractéristiques) */
@@ -403,6 +406,15 @@ function fondationsInvalides(v: { largeur: Mm; hauteur: Mm; horsGel: Mm; bonSol?
   return null;
 }
 
+/** une annotation lisible : un texte d'une à quatre lignes (200 caractères au plus), des points finis */
+function noteInvalide(texte: string, position: Point, cible: Point | null | undefined): string | null {
+  if (!texte) return 'une annotation a un texte';
+  if (texte.length > 200) return 'annotation trop longue (200 caractères au plus)';
+  if (texte.split('\n').length > 4) return 'une annotation tient en quatre lignes au plus';
+  if (!ptFini(position) || (cible && !ptFini(cible))) return 'position invalide';
+  return null;
+}
+
 const VOLETS = new Set<string>(['roller_motorized', 'roller_manual', 'hinged']);
 const CHAMPS_DOSSIER = new Set(['maitreOuvrage', 'adresseMaitreOuvrage', 'lieuConstruction', 'referencesCadastrales', 'surfaceTerrain', 'couverture', 'chauffage', 'divers', 'zoneSismique', 'modifications', 'menuiseries', 'porteEntree', 'porteGarage']);
 
@@ -656,6 +668,28 @@ export function traduire(p: Project, cmd: Commande, c: Contexte): Resultat {
       if (!e.equerres.length) return refus('aucun mur presque d’équerre (à moins de ' + Math.round(ANGLE_EQUERRE * 180 / Math.PI) + '°) : rien à redresser');
       if (!e.epingles.length) return refus('les murs sont déjà d’équerre');
       return ajuster(p, cmd.niveau, [], e.epingles, c, e.redresses);
+    }
+    case 'creerNote': case 'modifierNote': {
+      const t = cmd.type === 'modifierNote' ? trouverObjet(p, cmd.id) : null;
+      if (cmd.type === 'modifierNote' && (!t || t.objet.type !== 'note')) return refus('annotation introuvable');
+      if (cmd.type === 'creerNote' && !trouverNiveau(p, cmd.niveau)) return refus('niveau introuvable');
+      const o = t?.objet as Note | undefined;
+      const texte = cmd.texte !== undefined ? cmd.texte.replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean).join('\n') : o!.text;
+      const e = noteInvalide(texte, cmd.position ?? o!.position, cmd.cible);
+      if (e) return refus(e);
+      if (cmd.taille !== undefined && cmd.taille !== null && !['small', 'large'].includes(cmd.taille)) return refus('taille de texte inconnue');
+      if (cmd.type === 'creerNote') {
+        const n: Note = { id: c.id(), type: 'note', floorId: cmd.niveau, ...provenance(c, undefined), revision: c.revision, position: { ...cmd.position }, text: texte,
+          ...(cmd.cible ? { target: { ...cmd.cible } } : {}), ...(cmd.taille ? { size: cmd.taille } : {}) };
+        return accepte([{ type: 'objet.ajouter', niveau: cmd.niveau, objet: n }]);
+      }
+      const avant: Record<string, unknown> = {}, apres: Record<string, unknown> = {};
+      if (cmd.position) { avant['position'] = o!.position; apres['position'] = { ...cmd.position } }
+      if (cmd.texte !== undefined) { avant['text'] = o!.text; apres['text'] = texte }
+      if (cmd.cible !== undefined) { avant['target'] = o!.target; apres['target'] = cmd.cible ? { ...cmd.cible } : undefined }
+      if (cmd.taille !== undefined) { avant['size'] = o!.size; apres['size'] = cmd.taille ?? undefined }
+      if (!Object.keys(apres).length) return refus('rien à faire');
+      return accepte([modifier(t!.niveauId, o!, avant, apres, c)]);
     }
     case 'couperMur': {
       const t = trouverObjet(p, cmd.id);

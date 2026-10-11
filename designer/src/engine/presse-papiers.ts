@@ -8,7 +8,8 @@
    s'il était dessiné à la main.
 
    Ce qui se copie : les objets choisis ; avec un mur, ses ouvertures ; les
-   cotes et contraintes dont tous les murs sont copiés. Une ouverture sans
+   cotes et contraintes dont tous les murs sont copiés ; les annotations
+   (leur flèche suit). Une ouverture sans
    son mur, un fond ou une toiture ne se copient pas (ils n'ont de sens
    qu'en place). */
 import type { BuildingObject, Constraint, Floor, Furniture, ObjectAnchor, Opening, Point, Room, Wall } from '../model/types';
@@ -23,7 +24,7 @@ export interface PressePapiers {
 /** où et comment coller : l'ancre va en « origine », après miroir puis quarts de tour */
 export interface Placement { origine: Point; quarts?: number; miroirX?: boolean; miroirY?: boolean }
 
-const copiable = (o: BuildingObject): boolean => o.type === 'wall' || o.type === 'opening' || o.type === 'room' || o.type === 'furniture' || o.type === 'dimension' || o.type === 'constraint';
+const copiable = (o: BuildingObject): boolean => o.type === 'wall' || o.type === 'opening' || o.type === 'room' || o.type === 'furniture' || o.type === 'dimension' || o.type === 'constraint' || o.type === 'note';
 
 /** copier des objets d'un niveau (null : rien de copiable) */
 export function copier(f: Floor, ids: readonly string[]): PressePapiers | null {
@@ -47,6 +48,7 @@ export function copier(f: Floor, ids: readonly string[]): PressePapiers | null {
     if (o.type === 'wall' && 'a' in o.axis) pts.push(o.axis.a, o.axis.b);
     else if (o.type === 'room') pts.push(o.seed);
     else if (o.type === 'furniture') pts.push(o.position);
+    else if (o.type === 'note') pts.push(o.position, ...(o.target ? [o.target] : []));
   }
   if (!pts.length) return null;
   return { objets, ancre: { x: Math.min(...pts.map(p => p.x)), y: Math.min(...pts.map(p => p.y)) } };
@@ -105,6 +107,9 @@ export function commandesColler(pp: PressePapiers, niveau: string, pl: Placement
       if (murs.some(w => !w)) continue;
       const genre = q % 2 && (k.kind === 'horizontal' || k.kind === 'vertical') ? (k.kind === 'horizontal' ? 'vertical' : 'horizontal') : k.kind;
       cmds.push({ type: 'ajouterContrainte', niveau, genre, murs, ...(k.value !== undefined ? { valeur: k.kind === 'angle' ? angle(k.value) : k.value } : {}) });
+    } else if (o.type === 'note') {
+      /* le texte reste droit (lisible) ; sa place et la pointe de sa flèche suivent le groupe */
+      cmds.push({ type: 'creerNote', niveau, position: T(o.position), texte: o.text, ...(o.target ? { cible: T(o.target) } : {}), ...(o.size ? { taille: o.size } : {}) });
     }
   }
   return cmds;

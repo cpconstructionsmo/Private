@@ -29,6 +29,8 @@ const I: Record<string, string> = {
   rectangle: '<path d="M4 6h16v12H4z"/><path d="M6.5 8.5h11v7h-11z"/>',
   equerre: '<path d="M5 3v16h16"/><path d="M5 13h6v6"/>',
   /* couper un mur (des ciseaux sur un mur), fusionner deux murs alignés (deux bouts qui se rejoignent) */
+  /* une annotation : un texte dans son cadre, une flèche de rappel */
+  note: '<path d="M3 4h12v8H3z"/><path d="M6 7h6M6 9.5h4"/><path d="M13 12l6 7"/><path d="M19 19l-.4-3.4M19 19l-3.3-.9"/>',
   couper_mur: '<path d="M2 15h8m4 0h8M2 19h8m4 0h8"/><circle cx="8" cy="6" r="2.2"/><circle cx="16" cy="6" r="2.2"/><path d="M9.6 7.6L12 12l2.4-4.4M12 12v9"/>',
   fusionner_murs: '<path d="M2 9h8v6H2m20-6h-8v6h8"/><path d="M6 4l4 3m8-3l-4 3M12 3v4"/>',
   piece: '<path d="M4 20V8l8-5 8 5v12z"/><path d="M10 20v-6h4v6"/>',

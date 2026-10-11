@@ -12,6 +12,7 @@
    TOITURE             l'égout (débord) au-dessus du niveau
    PARCELLE, AMENAGEMENTS   sur le niveau qui les porte
    ATTENTES            les attentes sanitaires des appareils (S1 EF+EC+EU…)
+   ANNOTATIONS         les textes posés sur le plan et leurs flèches de rappel
 
    Le plan de fondations a son propre DXF (dxfFondations) : les murs à fonder,
    les semelles telles qu'on les coule, leurs cotes, les réservations et les
@@ -29,13 +30,14 @@ import { toitureDuNiveau } from '../building/toiture';
 import { fenetresDeToit } from '../building/fenetres-toit';
 import { planFondations, reservationsFondations, type PlanFondations } from '../building/fondations';
 import { attentesSanitaires } from '../building/plomberie';
+import { departFleche, lignesNote } from '../building/notes';
 import { NOMS_RESEAUX } from '../building/terrassement';
 import { cotationFondations, type ChaineCotes } from '../building/cotation';
 import { difference } from '../geometry/booleen';
 import { centroide, type Anneau } from '../geometry/polygon';
 
 export const CALQUES: Record<string, number> = {
-  MURS: 7, CLOISONS: 8, OUVERTURES: 4, PIECES: 3, COTES: 1, ESCALIERS: 6, TREMIES: 6, MOBILIER: 9, TOITURE: 5, PARCELLE: 3, AMENAGEMENTS: 2, ATTENTES: 5,
+  MURS: 7, CLOISONS: 8, OUVERTURES: 4, PIECES: 3, COTES: 1, ESCALIERS: 6, TREMIES: 6, MOBILIER: 9, TOITURE: 5, PARCELLE: 3, AMENAGEMENTS: 2, ATTENTES: 5, ANNOTATIONS: 2,
 };
 /** les calques du plan de fondations */
 export const CALQUES_FONDATIONS: Record<string, number> = { MURS: 7, SEMELLES: 8, COTES: 1, RESERVATIONS: 1, TRAPPES: 4 };
@@ -136,6 +138,21 @@ export function dxfNiveau(projet: Project, f: Floor): string {
   for (const a of attentesSanitaires(f)) {
     w.polyligne('ATTENTES', cercle(a.point, 60));
     w.texte('ATTENTES', { x: a.point.x, y: a.point.y + 140 }, 100, a.repere + ' ' + a.reseaux.join('+') + ' ' + a.evacuation);
+  }
+  /* les annotations : en DXF, le texte a une hauteur du plan (15 cm la normale : 1,5 mm au 1/100) ; une ligne par ligne,
+     centrées sur le milieu ; la flèche part du bord de la boîte estimée, pointe ouverte */
+  for (const o of Object.values(f.objects)) {
+    if (o.type !== 'note') continue;
+    const h = o.size === 'small' ? 120 : o.size === 'large' ? 200 : 150, L = lignesNote(o), pas = h * 1.4;
+    L.forEach((t, i) => w.texte('ANNOTATIONS', { x: o.position.x, y: o.position.y + ((L.length - 1) / 2 - i) * pas }, h, t));
+    if (!o.target) continue;
+    const l = Math.max(...L.map(t => t.length)) * h * 0.5 + h, H = L.length * pas / 2 + h / 2;
+    const D = departFleche({ xmin: o.position.x - l, xmax: o.position.x + l, ymin: o.position.y - H, ymax: o.position.y + H }, o.target);
+    const d = Math.hypot(o.target.x - D.x, o.target.y - D.y);
+    if (d < 1) continue;
+    const ux = (o.target.x - D.x) / d, uy = (o.target.y - D.y) / d, k = Math.min(d / 3, h);
+    w.ligne('ANNOTATIONS', D, o.target);
+    for (const s of [1, -1]) w.ligne('ANNOTATIONS', o.target, { x: o.target.x - ux * k - s * uy * k / 3, y: o.target.y - uy * k + s * ux * k / 3 });
   }
 
   w.g(0, 'ENDSEC').g(0, 'EOF');

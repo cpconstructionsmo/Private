@@ -1,5 +1,5 @@
 /* Viser : qu'y a-t-il sous le curseur ? Dans l'ordre : une extrémité de
-   mur (pour la tirer), un trait de coupe, la limite de parcelle, une ouverture, une cote, un mur,
+   mur (pour la tirer), une annotation (son texte ou la pointe de sa flèche), un trait de coupe, la limite de parcelle, une ouverture, une cote, un mur,
    un meuble, une pièce ; puis ce qui est au terrain (équipements, réseaux,
    plateformes, arbres). */
 import { fenetresDeToit } from '../building/fenetres-toit';
@@ -14,10 +14,14 @@ import { distance } from '../geometry/vecteur';
 import { dessinCote } from './cotes';
 import { dansMeuble, emprise } from '../building/mobilier';
 import { sectionPoteau } from '../building/structure';
+import { boiteNote } from '../building/notes';
+
+/** le rayon de capture que passe l'éditeur : 10 pixels (app.ts) ; d'où les millimètres d'un pixel, pour la boîte d'un texte */
+const PIXELS_DU_RAYON = 10;
 
 export type Cible =
   | { genre: 'sommet'; point: Point; murs: string[] }
-  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' | 'dormer' | 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' | 'canopy' };
+  | { genre: 'objet'; id: string; type: 'wall' | 'opening' | 'dimension' | 'room' | 'furniture' | 'stair' | 'section' | 'plot' | 'landscape' | 'viewpoint' | 'roof_window' | 'dormer' | 'platform' | 'network' | 'network_item' | 'tree' | 'column' | 'beam' | 'canopy' | 'note' };
 
 /** viser : « escaliers » donne l'emprise des escaliers du niveau (calculée par l'appelant, qui connaît la hauteur à franchir) */
 export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: { id: string; emprise: Point[] }[] = []): Cible | null {
@@ -32,6 +36,12 @@ export function viser(f: Floor, p: Point, rayon: Mm, sommets = true, escaliers: 
       const s = meilleur.point;
       return { genre: 'sommet', point: { ...s }, murs: M.filter(w => distance(w.axis.a, s) <= 0.01 || distance(w.axis.b, s) <= 0.01).map(w => w.id) };
     }
+  }
+  /* une annotation : son texte, ou la pointe de sa flèche (posées par-dessus le plan, elles passent devant) */
+  for (const o of Object.values(f.objects)) {
+    if (o.type !== 'note') continue;
+    const b = boiteNote(o, rayon / PIXELS_DU_RAYON);
+    if ((p.x >= b.xmin && p.x <= b.xmax && p.y >= b.ymin && p.y <= b.ymax) || (o.target && distance(o.target, p) <= rayon)) return { genre: 'objet', id: o.id, type: 'note' };
   }
   /* un trait de coupe (ceux de ce niveau : il y a été tracé) : à quelques pixels du trait */
   for (const o of Object.values(f.objects)) if (o.type === 'section' && distancePointSegment(p, { a: o.a, b: o.b }) <= rayon / 2) return { genre: 'objet', id: o.id, type: 'section' };
@@ -100,7 +110,7 @@ export function dansCadre(f: Floor, p: Point, q: Point): string[] {
     else if (o.type === 'room' && dedans(o.seed)) out.push(o.id);
     else if (o.type === 'furniture' && emprise(o).every(dedans)) out.push(o.id);
     else if (o.type === 'dimension' && o.refs.every(r => murs.has(r.objectId))) out.push(o.id);
-    else if ((o.type === 'network_item' || o.type === 'tree' || o.type === 'column') && dedans(o.position)) out.push(o.id);
+    else if ((o.type === 'network_item' || o.type === 'tree' || o.type === 'column' || o.type === 'note') && dedans(o.position)) out.push(o.id);
     else if (o.type === 'beam' && dedans(o.a) && dedans(o.b)) out.push(o.id);
     else if (o.type === 'network' && o.points.every(dedans)) out.push(o.id);
     else if ((o.type === 'platform' || o.type === 'canopy') && o.contour.every(dedans)) out.push(o.id);

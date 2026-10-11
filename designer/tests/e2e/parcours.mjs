@@ -123,6 +123,23 @@ try {
   assert.deepEqual(await mursHaut(), [[10000, 0]], 'refait d’un seul tenant');
   await videClic();
 
+  /* Annotation (Indications › Annotations) : le texte, puis la pointe de sa flèche ; un Ctrl+Z la retire */
+  await p.click('nav.onglets button[data-o=indications]'); await p.click('.sous button[data-s=textes]');
+  await p.click('.ruban .tuile-outil.o-note');
+  await clic(7000, 6000);
+  await p.fill('.voile textarea[name=texte]', 'Placard à prévoir');
+  await p.selectOption('.voile select[name=fleche]', 'oui');
+  await p.click('.voile button.prim');
+  await clic(9000, 7000);
+  const notes = async () => (await objets()).filter(o => o.type === 'note').map(o => [o.text, o.position, o.target]);
+  assert.deepEqual(await notes(), [['Placard à prévoir', { x: 7000, y: 6000 }, { x: 9000, y: 7000 }]], 'l’annotation et sa flèche');
+  await p.keyboard.press('Escape');
+  if (process.env.CAPTURE_NOTE) { await clic(7000, 6000); await p.screenshot({ path: process.env.CAPTURE_NOTE }) }
+  await videClic();
+  await p.keyboard.press('Control+z');
+  assert.deepEqual(await notes(), [], 'Ctrl+Z la retire');
+  await p.click('nav.onglets button[data-o=trace]');
+
   /* l'équerre : un mur tracé de travers tombe à 90° ; Q la coupe ; « Mettre d'équerre » redresse après coup */
   await p.keyboard.press('m'); await clic(5000, 5000); await clic(9000, 5150); await p.keyboard.press('Escape');
   await p.keyboard.press('q');

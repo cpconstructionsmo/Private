@@ -2,7 +2,8 @@
    lit le plan dérivé (planDuNiveau), les cotes (dessinCote) et la caméra.
    Ordre : grille, fond calé, niveau du dessous en fantôme, pièces,
    maçonnerie, ouvertures, cotes, contraintes, sélection, accrochage. */
-import type { Canopy, Floor, Furniture, Opening, Point, Room, Underlay } from '../model/types';
+import type { Canopy, Floor, Furniture, Note, Opening, Point, Room, Underlay } from '../model/types';
+import { INTERLIGNE_NOTE, MARGE_NOTE, corpsNote, departFleche, lignesNote } from '../building/notes';
 import { planDuNiveau, geometrieOuverture } from '../building/plan';
 import { contoursMurs, decalagesFaces, mursDemolis, mursDroits, mursFictifs, ouvertureBatie, type MurDroit } from '../building/murs';
 import { couchesDuNiveau, type BandeCouche } from '../building/couches';
@@ -459,6 +460,9 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillStyle = COULEURS.vert; ctx.fillText(t, e.x, e.y);
   }
 
+  /* les annotations, par-dessus le plan */
+  for (const o of Object.values(s.niveau.objects)) if (o.type === 'note') annotation(ctx, cam, o, o.id === s.selection || !!s.groupe?.has(o.id), !!s.impression);
+
   /* sélection */
   const sel = s.selection ? s.niveau.objects[s.selection] : undefined;
   ctx.strokeStyle = COULEURS.accent; ctx.lineWidth = 2;
@@ -509,6 +513,29 @@ export function dessiner(ctx: CanvasRenderingContext2D, cam: Camera, s: Scene, d
     ctx.fillStyle = COULEURS.encre; ctx.fillRect(e.x + 14, e.y + 10, l, 20);
     ctx.fillStyle = '#fff'; ctx.fillText(s.etiquette.texte, e.x + 19, e.y + 20);
   }
+}
+
+/** une annotation : son texte sur un fond blanc (il se détache des hachures), et sa flèche de rappel du bord de ce fond
+    jusqu'au point désigné, pointe pleine. Le texte garde sa taille à tous les zooms, comme le nom des pièces */
+function annotation(ctx: CanvasRenderingContext2D, cam: Camera, n: Note, choisi: boolean, impression: boolean): void {
+  const c = corpsNote(n), L = lignesNote(n), e = versEcran(cam, n.position), lh = c * INTERLIGNE_NOTE;
+  ctx.font = (n.size === 'large' ? '700 ' : '600 ') + c + 'px ' + (impression ? 'Helvetica, ' : 'system-ui, ') + 'sans-serif';
+  const l = Math.max(...L.map(t => ctx.measureText(t).width)) + 2 * MARGE_NOTE, h = L.length * lh + 2 * MARGE_NOTE;
+  const B = { xmin: e.x - l / 2, xmax: e.x + l / 2, ymin: e.y - h / 2, ymax: e.y + h / 2 };
+  const encre = choisi ? COULEURS.accent : impression ? '#1A1A1A' : COULEURS.encre;
+  if (n.target) {
+    const T = versEcran(cam, n.target), D = departFleche(B, T), d = Math.hypot(T.x - D.x, T.y - D.y);
+    if (d > 1) {
+      const ux = (T.x - D.x) / d, uy = (T.y - D.y) / d, k = 7, w = 2.6;
+      ctx.strokeStyle = encre; ctx.fillStyle = encre; ctx.lineWidth = choisi ? 1.6 : 1; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(D.x, D.y); ctx.lineTo(T.x - ux * k, T.y - uy * k); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(T.x, T.y); ctx.lineTo(T.x - ux * k - uy * w, T.y - uy * k + ux * w); ctx.lineTo(T.x - ux * k + uy * w, T.y - uy * k - ux * w); ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.fillStyle = impression ? '#FFFFFF' : 'rgba(255,255,255,0.88)'; ctx.fillRect(B.xmin, B.ymin, l, h);
+  if (choisi || !impression) { ctx.strokeStyle = choisi ? COULEURS.accent : '#C9CED3'; ctx.lineWidth = choisi ? 1.4 : 0.8; ctx.setLineDash([]); ctx.strokeRect(B.xmin, B.ymin, l, h) }
+  ctx.fillStyle = encre; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  L.forEach((t, i) => ctx.fillText(t, e.x, B.ymin + MARGE_NOTE + lh * (i + 0.5)));
 }
 
 /** la mesure de l'outil Mesurer : le trait en tirets, ses deux bouts, et sa longueur dans une pastille au milieu ;
