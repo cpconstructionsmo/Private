@@ -21,6 +21,7 @@ import { plancheSituation } from './planche-situation';
 import { plancheCoupes } from './planche-coupes';
 import { plancheToiture, toituresDuProjet } from './planche-toiture';
 import { plancheNiveau, ECHELLES, surfacesParPiece, surfaceVitree } from './planche-niveau';
+import { plancheMenuiseries } from './planche-menuiseries';
 import { VUES_COMPLEMENTAIRES_MAX } from './pieces-fournies';
 
 export type { Cabinet, ImageDossier } from './feuille';
@@ -58,6 +59,8 @@ export interface OptionsPlanche extends Signature {
   fondations?: boolean;
   /** ajouter le plan des attentes sanitaires (plombier) de chaque niveau choisi qui porte des appareils */
   attentes?: boolean;
+  /** ajouter le tableau des menuiseries des niveaux choisis (pour le menuisier) */
+  menuiseries?: boolean;
   /** une vue 3D gardée, en dernière page (avec les plans de présentation, pour le client) */
   perspective?: ImageDossier;
   /** le cabinet (colonne CP, page de garde) : réglages de l'appareil, jamais dans le dépôt */
@@ -104,6 +107,7 @@ export function planchesPdf(projet: Project, o0: OptionsPlanche): Uint8Array<Arr
   /* le plan du plombier : les niveaux qui portent des appareils sanitaires */
   const FA = o.attentes ? F.filter(f => attentesSanitaires(f).length) : [];
   for (const f of FA) plancheNiveau(doc, projet, f, { ...o, mobilier: false, presentation: false }, [], false, true);
+  const PM = o.menuiseries ? plancheMenuiseries(doc, projet, o, o.niveaux) : 0;
   if (o.facades) plancheFacades(doc, projet, o);
   if (o.toiture) plancheToiture(doc, projet, o);
   if (o.coupe) plancheCoupes(doc, projet, o, lignes);
@@ -111,10 +115,16 @@ export function planchesPdf(projet: Project, o0: OptionsPlanche): Uint8Array<Arr
     'Vue 3D calculée depuis le plan : volumes, matériaux, sols et mobilier tels qu’ils sont choisis au projet.',
     'Teintes et matériaux indicatifs à l’écran et à l’impression : se référer aux échantillons et aux nuanciers des fabricants.',
   ]);
-  if (!F.length && !FD && !FA.length && !o.perspective && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet)) && !(o.toiture && toituresDuProjet(projet).length)) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
+  if (!F.length && !FD && !FA.length && !PM && !o.perspective && !o.facades && !o.coupe && !(o.masse && parcelleDuProjet(projet)) && !(o.toiture && toituresDuProjet(projet).length)) doc.page(A3.l * PT, A3.h * PT).texte('Aucun niveau choisi.', 40, 400, 12);
   return doc.octets((projet.name || 'Projet') + ' — plans');
 }
 
+/** le tableau des menuiseries seul (pour le menuisier), tous niveaux confondus */
+export function menuiseriesPdf(projet: Project, o0: Signature): Uint8Array<ArrayBuffer> {
+  const doc = new DocumentPdf(), o = avecLogo(doc, o0);
+  if (!plancheMenuiseries(doc, projet, o)) doc.page(A3.l * PT, A3.h * PT).texte('Aucune menuiserie au projet.', 40, 400, 12);
+  return doc.octets((projet.name || 'Projet') + ' — tableau des menuiseries');
+}
 
 /* ---------- la notice (PCMI 4), brouillon ---------- */
 

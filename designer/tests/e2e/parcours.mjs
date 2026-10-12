@@ -482,6 +482,11 @@ try {
   assert.match(metreP, /Métré du projet[\s\S]*Fouilles en rigole[\s\S]*Gros œuvre[\s\S]*Murs extérieurs[\s\S]*Semelles filantes 50 × 25 cm[\s\S]*Plancher bas sur vide sanitaire[\s\S]*Poteaux béton 20 × 20 cm[\s\S]*Menuiseries/, 'métré du projet par lot, fondations comprises');
   const [csvM] = await Promise.all([p.waitForEvent('download'), p.click('.ruban .b-metre')]);
   assert.match(csvM.suggestedFilename(), /metre\.csv$/);
+  /* le tableau des menuiseries, pour le menuisier : en CSV, une ligne par repère */
+  const [csvMen] = await Promise.all([p.waitForEvent('download'), p.click('.ruban .b-men-csv')]);
+  const men = (await readFile(await csvMen.path())).toString('utf8');
+  assert.match(csvMen.suggestedFilename(), /menuiseries\.csv$/);
+  assert.ok(men.includes('"Repère";"Extérieure";"Désignation"') && /\n"(F|PF|B|PE)1";"oui"/.test(men), 'tableau des menuiseries : ' + men.slice(0, 200));
   if (process.env.CAPTURE_METRE) await p.screenshot({ path: process.env.CAPTURE_METRE });
   /* les plans d'exécution du gros œuvre, du dialogue des PDF : le plan de fondations coté en tête */
   await p.click('header button.bpdf');
@@ -490,6 +495,7 @@ try {
   const [dlExe] = await Promise.all([p.waitForEvent('download'), p.click('.voile button.prim')]);
   const exe = (await readFile(await dlExe.path())).toString('latin1');
   assert.ok(exe.includes('(PLAN DE FONDATIONS)') && exe.includes('(Semelles filantes)'), 'plans d’exécution : fondations cotées');
+  assert.ok(exe.includes('(TABLEAU DES MENUISERIES)'), 'plans d’exécution : le tableau des menuiseries');
   assert.match(dlExe.suggestedFilename(), /plans d-execution\.pdf$/);
   await p.click('nav.onglets button[data-o=trace]'); await p.click('.sous button[data-s=murs]');
   await p.keyboard.press('Escape');

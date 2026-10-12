@@ -27,3 +27,4 @@ export * from './etats';
 export * from './plomberie';
 export * from './couper-murs';
 export * from './notes';
+export * from './tableau-menuiseries';
