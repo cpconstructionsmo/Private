@@ -233,6 +233,9 @@
     .feuille-doc tr{break-inside:avoid;page-break-inside:avoid}
     .feuille-doc .eviter{break-inside:avoid;page-break-inside:avoid}
   }
+  /* un lot soldé (onglet Marchés) : grisé, il revient en clair au survol ou dès qu'on y travaille */
+  tr.lot-solde{opacity:.5;transition:opacity .15s}
+  tr.lot-solde:hover,tr.lot-solde:focus-within{opacity:1}
 </style>
 </head>
 <body>
@@ -252,7 +255,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-10 · Formulaires : saisie non enregistrée gardée sur l’appareil et proposée après un rechargement';
+const VERSION='2026-10-12 · Marchés : les lots soldés (entièrement facturés) sont grisés, avec une pastille « soldé »';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -7505,6 +7508,10 @@ function FicheEntreprise({a}){
   </div>;
 }
 
+/* la pastille d'un lot (ou d'un achat) soldé, à côté du nom de l'entreprise */
+const Solde=()=><span className="xs" title="Entièrement facturé"
+  style={{color:GREEN,border:'1px solid '+GREEN,borderRadius:10,padding:'0 7px',lineHeight:'18px',whiteSpace:'nowrap',flex:'0 0 auto'}}>✓ soldé</span>;
+
 /* la colonne de droite : chaque facture avec son numéro, sa date, son montant
    et ce qui reste dû après elle. Le « + » ouvre son justificatif. */
 function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa}){
@@ -8438,6 +8445,12 @@ function Fiche({data,ch,save,back,reprise,ongletInitial}){
 
 /* ---------------- MARCHÉS ---------------- */
 const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
+/* un engagement soldé : tout le montant est facturé (au centime près) — la même règle que
+   « soldé » / « dépassement » sous la colonne des factures. Un lot soldé, c'est une entreprise
+   qui a fini et transmis sa dernière facture : l'onglet Marchés le grise. Sans montant ou sans
+   facture, rien n'est soldé */
+const engagementSolde=(montant,factures)=>(+montant||0)>0&&(factures||[]).length>0&&facturesTotal(factures)>=(+montant||0)-0.005;
+const marcheSolde=m=>engagementSolde(m.montantHT,m.factures);
 
 /* ---------- chiffrage d'un lot depuis un bordereau de prix ----------
    Le principe du serveur d'Hexaom : on ne retape pas un montant, on saisit des
@@ -9425,7 +9438,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   return <div>
     {envoi&&<div className="xs" style={{color:NAVY,marginBottom:8}}>Envoi de « {envoi} » sur le Drive…</div>}
     <div className="sp" style={{marginBottom:12,flexWrap:'wrap',gap:8}}>
-      <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}</span>
+      <span className="xs mut">{ms.length} lot{ms.length>1?'s':''} — facturé {eur(fac)} / {eur(eng)}
+        {ms.some(marcheSolde)&&<span style={{color:GREEN}}> · {ms.filter(marcheSolde).length} soldé{ms.filter(marcheSolde).length>1?'s':''}</span>}</span>
       <div className="row" style={{gap:8,flexWrap:'wrap'}}>
         <button className="btn gh s" onClick={()=>{setShowLire(!showLire);setShowImport(false);setShowFact(false)}}>Lire des contrats</button>
         <button className="btn gh s" onClick={()=>{setShowFact(!showFact);setShowLire(false);setShowImport(false)}}>Lire des factures</button>
@@ -9451,18 +9465,20 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           {ms.map((m,i)=>{
             const st=STATUTS.find(x=>x.id===m.statut);
             const art=data.artisans.find(a=>a.id===m.artisanId);
-            const kE='m-ent:'+m.id, kD='m-doc:'+m.id;
+            const kE='m-ent:'+m.id, kD='m-doc:'+m.id, solde=marcheSolde(m);
             return <React.Fragment key={m.id}>
-              <tr ref={glisseLots.attacher(i)}
+              <tr ref={glisseLots.attacher(i)} className={solde?'lot-solde':undefined}
+                title={solde?'Lot soldé : le marché est entièrement facturé':undefined}
                 style={{borderBottom:'1px solid '+RULE,verticalAlign:'top',
-                  background:glisseLots.pris===i?'#EFECE6':'transparent'}}>
+                  background:glisseLots.pris===i?'#EFECE6':(solde?'#ECEAE5':'transparent')}}>
                 {/* à gauche l'entreprise et son corps de métier */}
                 <td style={{padding:'8px 4px'}}>
                   <div className="row" style={{gap:6,alignItems:'flex-start'}}>
                     <Poignee onPointerDown={e=>glisseLots.saisir(i,e)} titre={'Déplacer le lot '+m.lot}/>
                     <button onClick={()=>setOuv(ouv===kE?'':kE)} className="b"
-                      style={{textAlign:'left',background:'none',border:'none',padding:0,color:NAVY,cursor:'pointer',flex:1,minWidth:0}}>
+                      style={{textAlign:'left',background:'none',border:'none',padding:0,color:solde?MUTED:NAVY,cursor:'pointer',flex:1,minWidth:0}}>
                       {nom(m.artisanId)}</button>
+                    {solde&&<Solde/>}
                     <Plus actif={ouv===kE} titre="Voir l’entreprise" onClick={()=>setOuv(ouv===kE?'':kE)}/>
                   </div>
                   <div className="mut" style={{marginTop:2}}>{m.lot}</div>
@@ -9526,14 +9542,16 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           <tbody>
             {cmds.map(c=>{
               const kE='c-ent:'+c.id, kD='c-doc:'+c.id, dv=c.devis||[];
-              const stc=CMD_ST.find(x=>x.id===c.statut);
+              const stc=CMD_ST.find(x=>x.id===c.statut), solde=engagementSolde(c.montant,c.factures);
               return <React.Fragment key={c.id}>
-                <tr style={{borderBottom:'1px solid '+RULE,verticalAlign:'top'}}>
+                <tr className={solde?'lot-solde':undefined} title={solde?'Achat soldé : la commande est entièrement facturée':undefined}
+                  style={{borderBottom:'1px solid '+RULE,verticalAlign:'top',background:solde?'#ECEAE5':'transparent'}}>
                   <td style={{padding:'8px 4px'}}>
                     <div className="row" style={{gap:6,alignItems:'flex-start'}}>
                       <button onClick={()=>setOuv(ouv===kE?'':kE)} className="b"
-                        style={{textAlign:'left',background:'none',border:'none',padding:0,color:NAVY,cursor:'pointer',flex:1}}>
+                        style={{textAlign:'left',background:'none',border:'none',padding:0,color:solde?MUTED:NAVY,cursor:'pointer',flex:1}}>
                         {c.fournisseur||'Fournisseur non précisé'}</button>
+                      {solde&&<Solde/>}
                       <Plus actif={ouv===kE} titre="Voir la commande" onClick={()=>setOuv(ouv===kE?'':kE)}/>
                     </div>
                     <div className="mut" style={{marginTop:2}}>{c.designation}</div>
