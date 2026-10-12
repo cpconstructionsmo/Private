@@ -8,7 +8,7 @@
 import type { Beam, BuildingObject, Canopy, Column, Dormer, Floor, Foundation, Underlay, Mm, Network, NetworkItem, Note, Opening, Plot, Point, Project, Roof, RoomUsage, Stair, Tree, Viewpoint, Wall } from '../model/types';
 import { ulid, canonique } from '../model';
 import { trouverNiveau } from '../model/projet';
-import { annulerEnregistre, commandesColler, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type PressePapiers } from '../engine';
+import { annulerEnregistre, commandesColler, commandesNiveauDessus, commandesSupprimer, copier, executer, nouvelHistorique, peutAnnuler, peutRetablir, resumePressePapiers, retablirEnregistre, type Acteur, type Commande, type Historique, type MursRepris, type PressePapiers } from '../engine';
 import { planDuNiveau, mursDroits, geometrieOuverture, cotationExterieure, cotesInterieures, placeOuverture, positionPour, toitureDuNiveau, talonDe, geometrieEscalier, hauteurAFranchir, niveauDArrivee, tremiesDuNiveau, parcelleDuProjet, empriseAuSol, aireEmprise, surfaceTerrain, reculs, placerParcelle, orienterParcelle, maisonDansParcelle, bilanAmenagements, surfacesReglementaires, REFERENCES, pointsDeVue, metreTerrain, cubature, longueurReseau, altitudePlateforme, NOMS_RESEAUX, profilEnLong, plateformesDuProjet, metreProjet, metreCsv, MATIERES_STRUCTURE, planFondations, fondationsDuProjet, SOUBASSEMENTS, eauxPluviales, NOMS_LIGNES, FINITIONS_EGOUT, GOUTTIERES, MATIERES_GOUTTIERE, lireCadastreGeoJSON, parcellesDeReference, fondCadastral, controlePlu, meublerNiveau, decorParDefaut, surfacesDesPieces, partiesBasses, attentesSanitaires, voisinsFusionnables, type CadastreLu, type MurDroit } from '../building';
 import { aireSignee, boite as boiteAnneau, mm2EnM2 } from '../geometry/polygon';
 import { distance, normaliser, soustraire } from '../geometry/vecteur';
@@ -2748,14 +2748,21 @@ export async function demarrer(racine: HTMLElement): Promise<void> {
   }
   async function ajouterNiveau() {
     const L = niveaux(), haut = L[L.length - 1]!;
+    /* un niveau sur des murs : on peut reprendre ceux de façade (ou tous) à la même place, dans la même transaction */
+    const aDesMurs = Object.values(haut.objects).some(o => o.type === 'wall');
     const r = await dialogue('Ajouter un niveau', [
       { cle: 'nom', libelle: 'Nom', valeur: L.length === 1 ? 'Étage' : 'Niveau ' + (L.length) },
       { cle: 'alt', libelle: 'Altitude du sol fini (m)', valeur: ((haut.elevation + haut.height + 250) / 1000).toFixed(2) },
-      { cle: 'h', libelle: 'Hauteur sous plafond (m)', valeur: '2,50' }]);
+      { cle: 'h', libelle: 'Hauteur sous plafond (m)', valeur: '2,50' },
+      ...(aDesMurs ? [{ cle: 'murs', libelle: 'Murs du niveau du dessous', valeur: 'aucun', options: {
+        aucun: 'Aucun : un niveau vide', exterieurs: 'Reprendre les murs extérieurs (à l’aplomb)', tous: 'Reprendre tous les murs (extérieurs, refends, cloisons)' } }] : [])]);
     if (!r) return;
-    const avant = new Set(h.projet.buildings[0]!.floors.map(f => f.id));
-    if (faire('Ajouter un niveau', [{ type: 'ajouterNiveau', batiment: h.projet.buildings[0]!.id, nom: r['nom']!, altitude: mm(r['alt']!), hauteur: mm(r['h']!) }])) {
-      niveauId = h.projet.buildings[0]!.floors.find(f => !avant.has(f.id))!.id; selection = null; apres();
+    const idNiveau = ulid(), quoi = (r['murs'] || 'aucun') as MursRepris;
+    const k = commandesNiveauDessus(h.projet, { batiment: h.projet.buildings[0]!.id, nom: r['nom']!, altitude: mm(r['alt']!), hauteur: mm(r['h']!), murs: quoi }, idNiveau, () => ulid());
+    if (faire('Ajouter un niveau', k.commandes)) {
+      niveauId = idNiveau; selection = null; apres();
+      if (quoi !== 'aucun') toast((k.repris ? k.repris + ' mur' + (k.repris > 1 ? 's' : '') + ' repris' : 'Aucun mur repris') + ' du niveau « ' + (k.dessous?.name ?? '') + ' », à la même place'
+        + (k.courbes ? ' (' + k.courbes + ' mur' + (k.courbes > 1 ? 's' : '') + ' courbe' + (k.courbes > 1 ? 's' : '') + ' à redessiner)' : '') + ' — ouvertures et pièces à poser ; Ctrl+Z pour revenir', !!k.courbes);
     }
   }
   function importerFond() {
