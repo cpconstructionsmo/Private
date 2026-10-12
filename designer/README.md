@@ -138,7 +138,16 @@ de plans de maisons) :
   désigne), l'inspecteur change le texte, la taille, place ou retire la
   flèche. Les annotations s'impriment avec le plan du niveau (pas au plan de
   fondations), passent au DXF (calque ANNOTATIONS) et se copient avec le
-  groupe (`src/building/notes.ts`, `tests/metier/annotations.test.ts`).
+  groupe (`src/building/notes.ts`, `tests/metier/annotations.test.ts`) ;
+- **ajouter un niveau en reprenant les murs du dessous** (Tracé › Niveaux,
+  « Ajouter un niveau ») : aucun (niveau vide, comme avant), les murs
+  extérieurs, ou tous les murs, remontés à l'aplomb dans la même
+  transaction que le niveau — même axe, épaisseur, tracé, composition,
+  parement et qualification « porteur » ; à la hauteur du nouveau niveau.
+  Ne montent pas : ouvertures, pièces, décors de façade, état existant,
+  murs à démolir (et les murs courbes, signalés). L'étage repris forme un
+  espace clos, prêt à nommer ; un Ctrl+Z retire le tout
+  (`src/engine/niveau-dessus.ts`, `tests/metier/niveau-dessus.test.ts`).
 
 **Bibliothèque d'ouvertures** (`src/catalogue/ouvertures.ts`) : outil
 Ouverture (O), le panneau de droite montre les modèles courants par famille

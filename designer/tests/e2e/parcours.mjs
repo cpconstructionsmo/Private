@@ -140,6 +140,18 @@ try {
   assert.deepEqual(await notes(), [], 'Ctrl+Z la retire');
   await p.click('nav.onglets button[data-o=trace]');
 
+  /* Ajouter un niveau en reprenant les murs extérieurs du RDC (Tracé › Niveaux) ; un Ctrl+Z retire le tout */
+  await p.click('.sous button[data-s=niveaux]');
+  await p.click('.ruban .tuile-outil:has-text("Ajouter un niveau")');
+  await p.selectOption('.voile select[name=murs]', 'exterieurs');
+  await p.click('.voile button.prim');
+  const etageRepris = await p.evaluate(() => { const F = window.cpDesigner.projet().buildings[0].floors; return F.length === 2 ? Object.values(F[1].objects).filter(o => o.type === 'wall').map(o => o.role) : null });
+  assert.deepEqual(etageRepris, ['exterior', 'exterior', 'exterior', 'exterior'], 'l’étage reprend les quatre murs extérieurs du RDC');
+  assert.equal(await p.evaluate(() => document.querySelector('select.niveaux')?.selectedOptions[0]?.textContent), 'Étage', 'on passe au nouveau niveau');
+  await p.keyboard.press('Control+z');
+  assert.equal(await p.evaluate(() => window.cpDesigner.projet().buildings[0].floors.length), 1, 'Ctrl+Z retire le niveau et ses murs');
+  await p.click('.sous button[data-s=murs]');
+
   /* l'équerre : un mur tracé de travers tombe à 90° ; Q la coupe ; « Mettre d'équerre » redresse après coup */
   await p.keyboard.press('m'); await clic(5000, 5000); await clic(9000, 5150); await p.keyboard.press('Escape');
   await p.keyboard.press('q');
