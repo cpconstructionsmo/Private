@@ -829,6 +829,21 @@ pastilles de couleur et son repère S1, S2… ; le tableau dit l'appareil, sa
 pièce, ses attentes et le diamètre usuel de l'évacuation (Ø 100 au WC,
 Ø 40 ailleurs, Ø 32 à 40 au lavabo), à confirmer par le plombier avec les
 hauteurs d'attente. Déplacer un appareil déplace son attente.
+**Tableau des menuiseries** (Dossier › Métré : « Menuiseries (PDF) » ou
+« (CSV) » ; option du dialogue PDF ; dans les plans d'exécution ;
+`src/building/tableau-menuiseries.ts`, `src/export/planche-menuiseries.ts`) :
+ce qu'on remet au menuisier. Les baies semblables (même modèle, dimensions,
+allège, manœuvre, sens, volet, teinte) sous un repère — F fenêtre, PF
+porte-fenêtre, B baie, PE porte extérieure, PG porte de garage, P porte
+intérieure —, numéroté dans l'ordre de lecture du plan, avec sa quantité et
+ses emplacements (niveau, pièce, façade d'après le nord de la parcelle). Le
+sens d'une porte à un vantail se dit « poussant droit / gauche » (paumelles
+à droite / à gauche quand on la pousse), celui d'une baie extérieure « vers
+l'intérieur / l'extérieur » ; la teinte vient des informations du dossier,
+« [à préciser] » sinon. Ni baies existantes conservées ou bouchées, ni
+passages. Dimensions du tableau de la baie : à reprendre sur place avant
+fabrication. Planche A3 au cartouche CP, une page de plus si le tableau ne
+tient pas (`tests/metier/tableau-menuiseries.test.ts`).
 
 **Fenêtres de toit** (outil H ; `src/building/fenetres-toit.ts`) : un
 châssis posé sur un pan de la toiture du niveau qui la porte (le Designer
