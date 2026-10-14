@@ -255,7 +255,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-12 · Marchés : les lots soldés (entièrement facturés) sont grisés, avec une pastille « soldé »';
+const VERSION='2026-10-14 · PRIX : un devis de menuiseries importé garde profilé, gamme, teinte, vitrage et volet dans le libellé ; le repère A, B… n’est plus pris pour un code';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -6306,33 +6306,76 @@ const estMontantDevis=s=>/^[\d ]+,\d{2}\s*€?$/.test(nettoyerMontantDevis(s).tr
    dimensions, elles, se lisent soit sur la même rangée (largeur puis
    hauteur), soit sur la ligne juste en dessous (« Largeur 900 mm »,
    « Haut 2150 mm x Larg 900 mm ») selon le gabarit du devis */
+function rangeeDevis(line){
+  const f=String(line||'').replace(/ /g,' ').trim().split(/\s{2,}/).filter(Boolean);
+  if(f.length<4)return null;
+  if(!/^\d+([.,]\d+)?$/.test(f[f.length-1]))return null;
+  const totalRaw=f[f.length-2], puRaw=f[f.length-3];
+  if(!estMontantDevis(totalRaw)||!estMontantDevis(puRaw))return null;
+  if(!/^\d{1,4}$/.test(f[f.length-4]))return null;
+  return {reste:f.slice(0,f.length-4),pu:montantDevis(puRaw)};
+}
+/* sous la rangée, un devis de menuiseries détaille ce qui fait le prix :
+   profilé, gamme, finition ou teinte, vitrage, volet et sa motorisation.
+   Sans eux, deux fenêtres de même taille — l'une en PVC blanc, l'autre en
+   aluminium filmé avec volet motorisé — se confondraient dans le bordereau
+   et la seconde écraserait le prix de la première. On lit le bloc jusqu'à
+   l'article suivant ; la teinte écrite après le volet est celle de son
+   tablier, pas celle de la menuiserie, et le côté du moteur (D. / G.) ne
+   change pas le prix. */
+function caracteristiquesDevis(lignes,i0){
+  const c={};
+  const val=(m)=>m&&m[1]&&m[1].trim();
+  let voletVu=false;
+  for(let i=i0+1;i<Math.min((lignes||[]).length,i0+41);i++){
+    const line=String(lignes[i]||'').replace(/ /g,' ').trim();
+    if(rangeeDevis(line)||/^(Repère|Désignation)\b/.test(line)||/^Dont\s+[ée]co/i.test(line))break;
+    const seg=line.split(/\s{2,}/).map(s=>s.replace(/^\.\s*/,'').trim()).filter(Boolean);
+    for(let k=0;k<seg.length;k++){
+      const s=seg[k];
+      let m;
+      if((m=s.match(/^Profil[ée]\s*:\s*([^:\s].*)$/))&&!c.profil){
+        c.profil=val(m);
+        if(seg[k+1]&&!seg[k+1].includes(':'))c.profil+=' '+seg[++k];
+      }
+      else if((m=s.match(/^Gamme\b\s*:?\s*([^:\s].*)$/))&&!c.gamme)c.gamme=val(m);
+      else if((m=s.match(/^Finition\b\s*:?\s*([^:\s].*)$/))&&!c.finition)c.finition=val(m);
+      else if((m=s.match(/^Couleur(?:\s+ext[ée]rieure)?\s*:\s*([^:\s].*)$/))&&!c.teinte&&!voletVu)c.teinte=val(m);
+      else if((m=s.match(/^Vitrage\s*:\s*([^:\s].*)$/))&&!c.vitrage)c.vitrage=val(m);
+      else if((m=s.match(/^Volet\s*:\s*([^:\s].*)$/))){voletVu=true;if(!c.volet)c.volet=val(m).replace(/\s+[DG]\.?$/,'')}
+      else if(/^Tablier\b/.test(s))voletVu=true;
+      else if((m=s.match(/^Moteur\s+([^(]+)/))&&!c.moteur&&!voletVu)c.moteur=val(m);
+      else if(/grille d['’]a[ée]ration/i.test(s))c.grille=true;
+    }
+  }
+  return [c.profil,c.gamme&&'gamme '+c.gamme,c.finition&&'finition '+c.finition,
+    c.teinte&&'teinte '+c.teinte,c.vitrage&&'vitrage '+c.vitrage,c.volet&&'volet : '+c.volet,
+    c.moteur&&'moteur '+c.moteur,c.grille&&'usinage pour grille d’aération'].filter(Boolean).join(', ');
+}
+/* le repère (A, B…) n'est que l'étiquette de la baie dans ce devis-là : il
+   ne sert pas de code, sans quoi la fenêtre « A » d'un devis suivant
+   écraserait celle-ci. Une dimension nulle (« 0 0 », accessoire sans
+   mesure) ne se recopie pas. */
 function analyseDevisFournisseur(lignes){
   const out=[];
   for(let i=0;i<(lignes||[]).length;i++){
-    const line=String(lignes[i]).replace(/ /g,' ');
-    if(!line.trim())continue;
-    let f=line.trim().split(/\s{2,}/).filter(Boolean);
-    if(f.length<4)continue;
-    const last=f[f.length-1];
-    if(!/^\d+([.,]\d+)?$/.test(last))continue;
-    const totalRaw=f[f.length-2], puRaw=f[f.length-3];
-    if(!estMontantDevis(totalRaw)||!estMontantDevis(puRaw))continue;
-    const qtyRaw=f[f.length-4];
-    if(!/^\d{1,4}$/.test(qtyRaw))continue;
-    let reste=f.slice(0,f.length-4);
+    const r=rangeeDevis(lignes[i]);
+    if(!r)continue;
+    const reste=r.reste.slice();
     let dims=[];
-    while(reste.length&&/^\d{2,4}$/.test(reste[reste.length-1])&&dims.length<2)dims.unshift(reste.pop());
-    let code='';
-    if(reste.length&&/^[A-Z]$/.test(reste[0]))code=reste.shift();
+    while(reste.length&&/^(\d{2,4}|0)$/.test(reste[reste.length-1])&&dims.length<2)dims.unshift(reste.pop());
+    if(reste.length&&/^[A-Z]$/.test(reste[0]))reste.shift();
     let libelle=reste.join(' ').trim();
     if(!libelle)continue;
-    if(dims.length===2)libelle+=' '+dims[0]+'x'+dims[1];
+    if(dims.length===2&&dims.some(d=>+d>0))libelle+=' '+dims[0]+'x'+dims[1];
     if(!dims.length){
       const suite=String(lignes[i+1]||'').trim();
       if(/^(?:Haut\s+\d+\s*mm\s*x\s*Larg\s+\d+\s*mm|Largeur\s+\d+\s*mm|Hauteur\s+\d+\s*mm)$/i.test(suite))
         libelle+=' — '+suite;
     }
-    out.push({code,libelle,unite:'U',pu:montantDevis(puRaw)});
+    const carac=caracteristiquesDevis(lignes,i);
+    if(carac)libelle+=' — '+carac;
+    out.push({code:'',libelle,unite:'U',pu:r.pu});
   }
   return out;
 }
