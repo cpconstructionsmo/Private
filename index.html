@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-14 · Fiche chantier : encart « Budget et avenants » (contrat initial, avenants AV-001 validés, budget actualisé et disponible)';
+const VERSION='2026-10-14 · Budget et avenants : le contrat initial se ventile tout seul (marchés, commandes de matériaux, honoraires du contrat de MOE)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1229,6 +1229,34 @@ const contratVentilation=ch=>{
   const etat=!postes.length?'vide':manque.length?'incomplet':ecart!==0?'incoherent':'ok';
   return {postes,tot,total,manque,ecart,etat};
 };
+/* la même ventilation, reprise d'office de ce qui est enregistré — marchés
+   de travaux, commandes de matériaux, honoraires du contrat de maîtrise
+   d'œuvre —, chacun à ses propres taux de TVA. Les avenants déjà reportés
+   dans un marché ou dans les honoraires en sont retirés : ils se lisent à
+   part, sous « Avenants validés », et ne comptent pas deux fois. Ce que le
+   contrat n'a pas encore engagé fait la différence avec son total. */
+const contratDepuisEngagements=(ch,ms,cs)=>{
+  const co=coutOperation(ch,ms,cs);
+  const rep={ht:0,tva:0}, repH={ht:0,tva:0};
+  for(const a of ((ch&&ch.avenantsClient)||[])){
+    if(avStatut(a)!=='valide')continue;
+    for(const l of (a.lignes||[]))if(l.reporteLe){const x=avLigneCalc(l,ch);rep.ht+=x.ht;rep.tva+=x.tva}
+    if(a.hono&&a.hono.reporteLe){const h=avCalc(a,ch).hono;repH.ht+=h.ht;repH.tva+=h.tva}
+  }
+  const poste=(id,libelle,ht,tva)=>({id,type:id,libelle,ht,tva,ttc:ht+tva});
+  const nM=(ms||[]).length, nC=(cs||[]).length;
+  const postes=[
+    poste('travaux','Travaux artisans ('+nM+' marché'+(nM>1?'s':'')+')',centimes(co.travHT)-rep.ht,centimes(co.travTVA)-rep.tva),
+    poste('materiaux','Matériaux commandés ('+nC+' commande'+(nC>1?'s':'')+')',centimes(co.matHT),centimes(co.matTVA)),
+    poste('honoraires','Honoraires de maîtrise d’œuvre',centimes(co.honoHT)-repH.ht,centimes(co.honoTVA)-repH.tva),
+  ];
+  const tot={ht:0,tva:0,ttc:0};
+  for(const p of postes){tot.ht+=p.ht;tot.tva+=p.tva;tot.ttc+=p.ttc}
+  const total=centimes(budgetClient(ch));
+  return {postes,tot,total,reste:total-tot.ttc,avenantsRetires:rep.ht!==0||repH.ht!==0};
+};
+/* la ventilation se reprend des engagements, sauf si on l'a choisie à la main */
+const contratManuel=ch=>!!(ch&&ch.contratInitial&&ch.contratInitial.mode==='manuel');
 /* AV-001, AV-002… : un numéro de plus que le plus grand du chantier */
 const avenantNumeroClient=ch=>{
   const n=((ch&&ch.avenantsClient)||[]).map(a=>+String((a&&a.numero)||'').replace(/\D/g,'')||0);
@@ -8688,8 +8716,8 @@ function VentilationContrat({ch,v,setV,onSave,onCancel}){
   return <div className="card" style={{marginTop:10,marginBottom:0}}>
     <div className="lbl">VENTILATION DU CONTRAT INITIAL ({eurc(budgetClient(ch))} TTC)</div>
     <div className="xs mut" style={{lineHeight:1.5,marginBottom:8}}>
-      Recopiez la répartition écrite au contrat de maîtrise d'œuvre. Rien n'est déduit des marchés signés depuis :
-      ce sont des engagements, pas le contrat.</div>
+      À utiliser quand le contrat de maîtrise d'œuvre écrit une autre répartition : elle remplace alors la reprise des
+      marchés, commandes et honoraires, jusqu'à « Reprendre les marchés, commandes et honoraires ».</div>
     {P.map(p=><div key={p.id} className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:6}}>
       <select className="in" aria-label="Poste" style={{flex:'0 1 200px'}} value={p.type} onChange={e=>maj(p.id,{type:e.target.value})}>
         {Object.entries(CONTRAT_POSTES).map(([k,l])=><option key={k} value={k}>{l}</option>)}
@@ -8721,6 +8749,7 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
   const [ventil,setVentil]=useState(null);
   const brouillon=useBrouillon('avenants-'+ch.id,edit,setEdit,x=>'Avenant '+(x.numero||'')+(x.objet?' — '+x.objet:''));
   const B=bilanBudget(ch,ms,cmds), S=B.S, co=B.co, V=contratVentilation(ch);
+  const manuel=contratManuel(ch), E=contratDepuisEngagements(ch,ms,cmds);
   const bc=budgetClient(ch), manque=posteManquants(ch,ms,cmds);
   /* le TTC des honoraires peut dépasser le HT alors que le chantier est à 0 % :
      ce sont les factures déjà émises sous leur propre taux. On le dit ici, là où
@@ -8802,8 +8831,10 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
   const enregistrerVentilation=()=>{
     const postes=(ventil.postes||[]).filter(p=>tauxSaisi(p.ht)||(p.libelle||'').trim())
       .map(p=>({...p,ht:tauxSaisi(p.ht)?+p.ht:'',taux:tauxSaisi(p.taux)?+p.taux:''}));
-    majCh(c=>({...c,contratInitial:{...(c.contratInitial||{}),postes}}));setVentil(null);
+    majCh(c=>({...c,contratInitial:{...(c.contratInitial||{}),postes,mode:'manuel'}}));setVentil(null);
   };
+  /* retour à la reprise des engagements : la saisie à la main reste gardée */
+  const reprendreEngagements=()=>majCh(c=>({...c,contratInitial:{...(c.contratInitial||{}),mode:'auto'}}));
 
   const ligneMontants=(ht,tva,ttc,opts)=><React.Fragment>
     <td style={{...avCell,...((opts&&opts.st)||{})}} className={opts&&opts.b?'b':''}>{ht}</td>
@@ -8816,9 +8847,13 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
     ?liste.map(p=><tr key={p.id}><td style={{padding:'5px 4px 5px 12px'}}>{liste.length>1||p.libelle!==CONTRAT_POSTES[p.type]?p.libelle:libelle}
         <span className="mut"> (TVA {p.taux} %)</span></td>{ligneMontants(eurCts(p.ht),eurCts(p.tva),eurCts(p.ttc))}</tr>)
     :[<tr key={libelle}><td style={{padding:'5px 4px 5px 12px'}}>{libelle}</td>{aRenseigner}</tr>];
-  const htInitial=V.etat==='ok'?V.tot.ht:null;
+  const htInitial=manuel&&V.etat==='ok'?V.tot.ht:null;
+  const tiret=<span className="mut">—</span>;
   const enAttente=L.filter(a=>['brouillon','a_valider'].includes(avStatut(a)));
-  const nonReportes=L.filter(a=>avStatut(a)==='valide'&&(avLignesAReporter(a).length||(avCalc(a,ch).hono.ht!==0&&!(a.hono&&a.hono.reporteLe))));
+  /* validé mais pas encore dans les engagements : une prestation non
+     reportée (rattachée à un marché ou pas encore), des honoraires non ajoutés */
+  const nonReportes=L.filter(a=>{if(avStatut(a)!=='valide')return false;const c=avCalc(a,ch);
+    return (a.lignes||[]).some(l=>!l.reporteLe&&avLigneCalc(l,ch).ht!==0)||(c.hono.ht!==0&&!(a.hono&&a.hono.reporteLe))});
 
   return <div className="budget-av" style={{marginTop:12,padding:'10px 12px',border:'1px solid '+RULE,borderRadius:10,background:'rgba(44,74,94,.045)'}}>
     {brouillon.bandeau}
@@ -8851,11 +8886,11 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
       Simulation, si {S.attente.n>1?'les '+S.attente.n+' avenants':'l’avenant'} en attente ({eurCtsSigne(S.attente.ttc)} TTC) {S.attente.n>1?'étaient validés':'était validé'} :
       budget {eurCts(B.simulation.actualise)} TTC, {B.simulation.disponible>=0?'disponible '+eurCts(B.simulation.disponible):'dépassement '+eurCts(-B.simulation.disponible)} TTC.
       Hors budget tant qu'ils ne sont pas validés.</div>}
-    <div className="g3 xs" style={{marginTop:10}}>
+    {manuel&&<div className="g3 xs" style={{marginTop:10}}>
       <div><div className="mut">Marchés de travaux</div><div className="b">{eur(co.travTTC)}</div><div className="mut">{eur(co.travHT)} HT · {ms.length} lot{ms.length>1?'s':''}</div></div>
       <div><div className="mut">Matériaux commandés</div><div className="b">{eur(co.matTTC)}</div><div className="mut">{eur(co.matHT)} HT · {cmds.length} commande{cmds.length>1?'s':''}</div></div>
       <div><div className="mut">Honoraires MOE</div><div className="b">{eur(co.honoTTC)}</div><div className="mut">{eur(co.honoHT)} HT</div></div>
-    </div>
+    </div>}
     {!!honoDiv.length&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       Honoraires : {eur(co.honoTVA)} de TVA s'ajoutent au HT parce que {honoDivN} facture{honoDivN>1?'s ont été enregistrées':' a été enregistrée'} à
       {' '}{honoDiv.map(t=>t+' %').join(' et ')} alors que les honoraires de ce chantier sont à {honoTva(ch)} %.
@@ -8863,7 +8898,8 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
     </div>}
     {!!nonReportes.length&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       {nonReportes.map(a=>a.numero).join(', ')} : validé{nonReportes.length>1?'s':''}, pas encore reporté{nonReportes.length>1?'s':''} dans les marchés ou
-      les honoraires — le total engagé ne {nonReportes.length>1?'les':'le'} compte pas encore. Dépliez l'avenant pour le reporter.</div>}
+      les honoraires — le total engagé ne {nonReportes.length>1?'les':'le'} compte pas encore. Dépliez l'avenant pour rattacher ses prestations à leur marché
+      et les reporter.</div>}
     {!!anciens.length&&!!bc&&<div className="xs" style={{marginTop:8,padding:'8px 10px',borderLeft:'3px solid '+AMBER,background:'#FBF3E2',borderRadius:6,lineHeight:1.5}}>
       {anciens.length} avenant{anciens.length>1?'s':''} de lot ({eurc(anciens.reduce((s,o)=>s+ancienTTC(o),0))} TTC), ajouté{anciens.length>1?'s':''} au budget
       avant cette version, {anciens.length>1?'sont compris':'est compris'} dans le contrat initial affiché.
@@ -8876,29 +8912,47 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
           <th style={{padding:'6px 4px'}}>Poste</th><th style={avCell}>Montant HT</th><th style={avCell}>TVA en €</th><th style={avCell}>Montant TTC</th>
         </tr></thead>
         <tbody>
-          <tr><td colSpan={4} className="lbl" style={{padding:'8px 4px 2px'}}>CONTRAT INITIAL</td></tr>
-          {posteLignes(travauxC,CONTRAT_POSTES.travaux)}
-          {posteLignes(honoC,'Honoraires de maîtrise d’œuvre')}
-          {autresC.map(p=><tr key={p.id}><td style={{padding:'5px 4px 5px 12px'}}>{p.libelle}<span className="mut"> (TVA {p.taux} %)</span></td>
-            {ligneMontants(eurCts(p.ht),eurCts(p.tva),eurCts(p.ttc))}</tr>)}
-          <tr style={{borderTop:'1px solid '+RULE}}><td style={{padding:'6px 4px'}} className="b">Total du contrat initial</td>
-            {ligneMontants(htInitial===null?ARENSEIGNER:eurCts(htInitial),htInitial===null?ARENSEIGNER:eurCts(V.tot.tva),bc?eurCts(V.total):ARENSEIGNER,{b:true})}</tr>
+          {manuel?<React.Fragment>
+            <tr><td colSpan={4} className="lbl" style={{padding:'8px 4px 2px'}}>CONTRAT INITIAL — VENTILATION SAISIE</td></tr>
+            {posteLignes(travauxC,CONTRAT_POSTES.travaux)}
+            {posteLignes(honoC,'Honoraires de maîtrise d’œuvre')}
+            {autresC.map(p=><tr key={p.id}><td style={{padding:'5px 4px 5px 12px'}}>{p.libelle}<span className="mut"> (TVA {p.taux} %)</span></td>
+              {ligneMontants(eurCts(p.ht),eurCts(p.tva),eurCts(p.ttc))}</tr>)}
+            <tr style={{borderTop:'1px solid '+RULE}}><td style={{padding:'6px 4px'}} className="b">Total du contrat initial</td>
+              {ligneMontants(htInitial===null?ARENSEIGNER:eurCts(htInitial),htInitial===null?ARENSEIGNER:eurCts(V.tot.tva),bc?eurCts(V.total):ARENSEIGNER,{b:true})}</tr>
+          </React.Fragment>
+          :<React.Fragment>
+            <tr><td colSpan={4} className="lbl" style={{padding:'8px 4px 2px'}}>CONTRAT INITIAL — MARCHÉS, COMMANDES ET HONORAIRES ENREGISTRÉS</td></tr>
+            {E.postes.map(p=><tr key={p.id}><td style={{padding:'5px 4px 5px 12px'}}>{p.libelle}</td>{ligneMontants(eurCts(p.ht),eurCts(p.tva),eurCts(p.ttc))}</tr>)}
+            <tr style={{borderTop:'1px solid '+RULE}}><td style={{padding:'6px 4px'}}>Engagé au titre du contrat
+              {E.avenantsRetires&&<span className="mut"> (avenants reportés retirés)</span>}</td>
+              {ligneMontants(eurCts(E.tot.ht),eurCts(E.tot.tva),eurCts(E.tot.ttc))}</tr>
+            {!!bc&&<tr><td style={{padding:'5px 4px'}}>{E.reste>=0?'Reste à engager sur le contrat':'Engagé au-delà du contrat'}</td>
+              {ligneMontants(tiret,tiret,<span style={{color:E.reste<0?TERRA:GREEN}}>{eurCts(Math.abs(E.reste))}</span>)}</tr>}
+            <tr style={{borderTop:'1px solid '+RULE}}><td style={{padding:'6px 4px'}} className="b">Total du contrat initial</td>
+              {ligneMontants(tiret,tiret,bc?eurCts(E.total):ARENSEIGNER,{b:true})}</tr>
+          </React.Fragment>}
           <tr><td colSpan={4} className="lbl" style={{padding:'10px 4px 2px'}}>AVENANTS VALIDÉS ({S.valide.n})</td></tr>
           <tr><td style={{padding:'5px 4px 5px 12px'}}>Travaux artisans</td>{ligneMontants(eurCtsSigne(S.valide.travHT)||'0,00 €',eurCtsSigne(S.valide.travTVA)||'0,00 €',eurCtsSigne(S.valide.travTTC)||'0,00 €')}</tr>
           <tr><td style={{padding:'5px 4px 5px 12px'}}>Honoraires de maîtrise d’œuvre</td>{ligneMontants(eurCtsSigne(S.valide.honoHT)||'0,00 €',eurCtsSigne(S.valide.honoTVA)||'0,00 €',eurCtsSigne(S.valide.honoTTC)||'0,00 €')}</tr>
           <tr style={{borderTop:'2px solid '+RULE}}><td style={{padding:'8px 4px',color:NAVY}} className="b">Total contractuel actualisé</td>
-            {ligneMontants(htInitial===null?ARENSEIGNER:eurCts(htInitial+S.valide.ht),htInitial===null?ARENSEIGNER:eurCts(V.tot.tva+S.valide.tva),
+            {ligneMontants(htInitial===null?(manuel?ARENSEIGNER:tiret):eurCts(htInitial+S.valide.ht),htInitial===null?(manuel?ARENSEIGNER:tiret):eurCts(V.tot.tva+S.valide.tva),
               bc?eurCts(B.actualise):ARENSEIGNER,{b:true,st:{color:NAVY}})}</tr>
         </tbody>
       </table>
     </div>
-    {!!bc&&V.etat!=='ok'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:V.etat==='incoherent'?TERRA:AMBER}}>
+    {!!bc&&!manuel&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+      Repris tels qu'enregistrés : chaque marché, chaque commande et les honoraires à leur propre taux de TVA. Le total HT du contrat n'est pas connu :
+      la part encore à engager n'a pas de taux.</div>}
+    {!!bc&&manuel&&V.etat!=='ok'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:V.etat==='incoherent'?TERRA:AMBER}}>
       {V.etat==='incoherent'
         ?'La ventilation saisie ('+eurCts(V.tot.ttc)+' TTC) ne retombe pas sur le contrat initial ('+eurCts(V.total)+' TTC) : écart de '+eurCtsSigne(V.ecart)+'.'
         :'Ventilation du contrat à renseigner'+(V.manque.length?' : il manque '+V.manque.join(' et ')+'.':'.')}
     </div>}
-    {!!bc&&!ventil&&<button className="btn gh s" style={{marginTop:6}} onClick={ouvrirVentilation}>
-      {V.postes.length?'Modifier la ventilation du contrat':'Renseigner la ventilation du contrat'}</button>}
+    {!!bc&&!ventil&&<div className="row" style={{gap:8,flexWrap:'wrap',marginTop:6}}>
+      <button className="btn gh s" onClick={ouvrirVentilation}>{manuel?'Modifier la ventilation du contrat':'Saisir la ventilation à la main'}</button>
+      {manuel&&<button className="btn gh s" onClick={reprendreEngagements}>Reprendre les marchés, commandes et honoraires</button>}
+    </div>}
     {ventil&&<VentilationContrat ch={ch} v={ventil} setV={setVentil} onSave={enregistrerVentilation} onCancel={()=>setVentil(null)}/>}
 
     {edit&&<EditeurAvenant data={data} ch={ch} ms={ms} a={edit} setA={setEdit} onSave={enregistrer} onCancel={()=>setEdit(null)}/>}
