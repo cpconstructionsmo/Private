@@ -8760,7 +8760,9 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
     const num=L.some(a=>a.id!==e.id&&a.numero===e.numero)?avenantNumeroClient(ch):e.numero;
     const {journal,...sans}=e;
     const change=!avant||JSON.stringify({...avant,journal:undefined})!==JSON.stringify({...sans,journal:undefined});
-    const pret=avJournal({...e,numero:num},avant?'Modification':'Enregistrement');
+    const modifie=avant?avJournal({...e,numero:num},'Modification'):{...e,numero:num};
+    /* un passage « à valider » fait depuis le formulaire s'inscrit aussi à l'historique */
+    const pret=avant&&avStatut(avant)!==avStatut(e)?avenantChangerStatut(modifie,avStatut(e)):modifie;
     const final=change?pret:e;
     majCh(c=>({...c,avenantsClient:avant?(c.avenantsClient||[]).map(a=>a.id===e.id?final:a):[...(c.avenantsClient||[]),final]}));
     setEdit(null);setOuvert(e.id);
