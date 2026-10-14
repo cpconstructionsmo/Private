@@ -5,7 +5,7 @@
    centimes, TVA ligne par ligne. Données fictives. */
 const {charger,texteInst,norm,verif}=require('./harness');
 const React=require('react');const TR=require('react-test-renderer');
-const M=charger(['Fiche','Honoraires','EMPTY','avCalc','avLigneCalc','avenantsSynthese','budgetActualise','bilanBudget','contratVentilation',
+const M=charger(['Fiche','Honoraires','EMPTY','avCalc','avLigneCalc','avenantsSynthese','budgetActualise','bilanBudget','contratVentilation','contratDepuisEngagements',
   'avenantNumeroClient','nouvelAvenantClient','avenantDupliquer','avenantCorrectif','avenantModifiable','avenantValidable',
   'avenantValider','avenantChangerStatut','reporterAvenantMarches','avLignesAReporter','honoAmount','coutOperation','centimes']);
 const {chk,fin}=verif();
@@ -84,6 +84,13 @@ chk(d3.marches.find(m=>m.id==='m1').montantHT===102000,'un second report ne doub
 const B2=M.bilanBudget(ch2,d2.marches.filter(m=>m.chantierId==='c1'),[]);
 chk(B2.engage===B.engage+240000,'engagé : + 2 400,00 € TTC une seule fois');
 chk(B2.actualise===18264000&&B2.disponible===B2.actualise-B2.engage,'budget disponible recalculé sans double comptage');
+/* la ventilation reprise des engagements retire l'avenant reporté : il se lit à part */
+let E0=M.contratDepuisEngagements(ch,MS,[]), E1=M.contratDepuisEngagements(ch2,d2.marches.filter(m=>m.chantierId==='c1'),[]);
+chk(E0.postes[0].ht===12000000&&E0.postes[0].tva===2200000&&E0.postes[2].ttc===2400000&&E0.reste===1400000,
+  'ventilation reprise : travaux 120 000 HT + 22 000 TVA (20 % et 10 %), honoraires 24 000 TTC, reste 14 000 à engager');
+chk(E1.postes[0].ht===12000000&&E1.avenantsRetires&&E1.reste===1400000,'après report, le contrat initial ne compte pas l’avenant (marché 122 000 − 2 000)');
+const E2=M.contratDepuisEngagements(CH,MS,[{id:'k',chantierId:'c1',montant:1000,tva:20}]);
+chk(E2.postes[1].ht===100000&&E2.postes[1].ttc===120000&&E2.tot.ttc===16720000,'les commandes de matériaux y entrent, à leur taux');
 
 /* 8. honoraires : comptés dans les honoraires du chantier une fois ajoutés, pas avant */
 chk(M.honoAmount(ch2)===20000,'honoraires de l’avenant pas encore ajoutés : honoraires du chantier inchangés');
@@ -120,24 +127,31 @@ let t=texte(tr);
 chk(/Contrat initial : 180 000,00 € TTC/.test(t)&&/Avenants validés : 0,00 € TTC/.test(t)&&/Budget actualisé : 180 000,00 € TTC/.test(t),'ligne de synthèse');
 chk(/Total engagé : 166 000,00 € TTC/.test(t)&&/Budget disponible : 14 000,00 € TTC/.test(t),'engagé et budget disponible');
 chk(!/Marge/.test(t),'le mot « Marge » a disparu');
-chk(/Travaux artisansÀ renseigner/.test(t)&&/Total du contrat initialÀ renseignerÀ renseigner180 000,00 €/.test(t),'tableau : ventilation « À renseigner », total du contrat');
+chk(/Travaux artisans \(2 marchés\)120 000,00 €22 000,00 €142 000,00 €/.test(t)&&/Matériaux commandés \(0 commande\)0,00 €0,00 €0,00 €/.test(t)
+  &&/Honoraires de maîtrise d’œuvre20 000,00 €4 000,00 €24 000,00 €/.test(t),'tableau : contrat repris des marchés, commandes et honoraires');
+chk(/Engagé au titre du contrat140 000,00 €26 000,00 €166 000,00 €/.test(t)&&/Reste à engager sur le contrat——14 000,00 €/.test(t)
+  &&/Total du contrat initial——180 000,00 €/.test(t),'sous-total engagé, reste à engager, total du contrat');
+chk(!/À renseigner/.test(t),'plus rien « à renseigner » : tout est repris');
 
 const bouton=re=>tr.root.findAll(n=>n.type==='button'&&re.test(norm(texteInst(n))))[0];
 const champ=(pred)=>tr.root.findAll(n=>n.type==='input'&&pred(n.props))[0];
 const choix=(label)=>tr.root.findAll(n=>n.type==='select'&&n.props['aria-label']===label)[0];
 
 /* la ventilation du contrat se recopie du contrat, à la main */
-TR.act(()=>bouton(/Renseigner la ventilation du contrat/).props.onClick());
+TR.act(()=>bouton(/Saisir la ventilation à la main/).props.onClick());
 let hts=tr.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Montant HT');
 chk(hts.length===2,'ventilation : travaux et honoraires proposés, vides');
 TR.act(()=>hts[0].props.onChange({target:{value:'130000'}}));
 TR.act(()=>bouton(/Reprendre les honoraires de la fiche/).props.onClick());
 TR.act(()=>bouton(/^Enregistrer$/).props.onClick());
 t=texte(tr);
-chk(etat.v.chantiers[0].contratInitial.postes.length===2,'ventilation enregistrée sur le chantier');
+chk(etat.v.chantiers[0].contratInitial.postes.length===2&&etat.v.chantiers[0].contratInitial.mode==='manuel','ventilation saisie à la main, enregistrée sur le chantier');
 chk(/Travaux artisans \(TVA 20 %\)130 000,00 €26 000,00 €156 000,00 €/.test(t)&&/Total du contrat initial150 000,00 €30 000,00 €180 000,00 €/.test(t),
   'tableau : la ventilation retombe sur le contrat (150 000 HT + 30 000 TVA)');
 chk(!/Ventilation du contrat à renseigner/.test(t),'plus d’alerte de ventilation');
+TR.act(()=>bouton(/Reprendre les marchés, commandes et honoraires/).props.onClick());
+chk(etat.v.chantiers[0].contratInitial.mode==='auto'&&etat.v.chantiers[0].contratInitial.postes.length===2
+  &&/Engagé au titre du contrat/.test(texte(tr)),'retour à la reprise automatique ; la saisie à la main reste gardée');
 TR.act(()=>tr.unmount());
 etat={v:{...M.EMPTY,chantiers:[CH],artisans:ART,marches:MS,commandes:[]}};tr=rendre(etat,'c1');
 
@@ -195,6 +209,13 @@ chk(cv.budgetClientTTC===180000&&cv.avenantsClient.length===1&&cv.avenantsClient
 chk(M.budgetActualise(cv)===180180&&cv.avenantsClient[0].lignes[0].reporteLe==='2026-05-03','budget actualisé inchangé ; la ligne est déjà reportée (date d’origine)');
 chk(etat.v.marches[0].montantHT===100150&&etat.v.marches[0].avenants[0].avenantClientId===cv.avenantsClient[0].id,'le marché n’est pas retouché ; le lien est gardé');
 chk(!/avenant de lot \(/.test(texte(tr)),'plus de signalement ensuite');
+TR.act(()=>tr.unmount());
+
+/* un avenant validé dont la prestation n'a pas encore de marché est signalé lui aussi */
+etat={v:{...M.EMPTY,chantiers:[{...CH,avenantsClient:[valide(M.nouvelAvenantClient(CH,{objet:'Sans marché',
+  lignes:[ligne({lot:'Zinguerie',designation:'Gouttières',qte:1,puHT:1000,taux:20})],hono:{mode:'aucun'}}))]}],artisans:ART,marches:MS,commandes:[]}};
+tr=rendre(etat,'c1');
+chk(/AV-001 : validé, pas encore reporté/.test(texte(tr)),'prestation validée sans marché : signalée comme hors du total engagé');
 TR.act(()=>tr.unmount());
 
 /* dépassement de budget, en rouge */

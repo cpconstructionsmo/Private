@@ -39,7 +39,10 @@ qu'on ait à les redire.
   client (`ch.avenantsClient`, AV-001…) l'actualisent une fois validés
   (`budgetActualise`, `bilanBudget`, calculs en centimes). Le total engagé
   ne suit que marchés, commandes et honoraires : une prestation n'y entre
-  qu'une fois reportée dans son marché (`reporterAvenantMarches`). Tests :
+  qu'une fois reportée dans son marché (`reporterAvenantMarches`). La
+  ventilation du contrat se reprend des marchés, commandes et honoraires
+  (`contratDepuisEngagements`, avenants reportés retirés), sauf saisie à
+  la main (`contratInitial.mode==='manuel'`). Tests :
   `t_budget_avenants.js`, `budget_avenants_navigateur.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
