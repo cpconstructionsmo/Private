@@ -9087,7 +9087,8 @@ function Fiche({data,ch,save,back,reprise,ongletInitial}){
       </div>
       {!!remiseHonoHT(edit)&&<div className="xs mut" style={{marginTop:-6,marginBottom:12,lineHeight:1.6}}>
         Honoraires bruts {eur(honoBrutHT(edit))} — remise {remiseHonoTexte(edit)}
-        {edit.remiseHonoType==='%'?' ('+eur(remiseHonoHT(edit))+')':''} ={' '}
+        {edit.remiseHonoType==='%'?' ('+eur(remiseHonoHT(edit))+')':''}
+        {honoAvenantsHT(edit)?' + avenants '+eur(honoAvenantsHT(edit)):''} ={' '}
         <b>{eur(honoAmount(edit))} HT</b> à facturer.
       </div>}
       <Fld label="TVA SUR LES HONORAIRES (%)">
@@ -19500,6 +19501,15 @@ function Honoraires({data,ch,save}){
       <Stat l={"Reste à facturer TTC"} v={reste>0?eur(resteTTC):'soldé'} c={reste>0?TERRA:GREEN}/>
       <Stat l="Reste à facturer HT" v={reste>0?eur(reste):'soldé'} c={reste>0?INK:GREEN}/>
     </div>
+    {/* les honoraires des avenants client validés, une fois ajoutés : ils
+        font partie des honoraires dus, il faut pouvoir dire d'où ils viennent */}
+    {!!honoAvenantsHT(ch)&&<div className="card" style={{marginTop:8,borderLeft:'3px solid '+NAVY}}>
+      <div className="xs" style={{lineHeight:1.6}}>
+        Honoraires d'avenants compris dans les totaux : <b>{(honoAvenantsHT(ch)<0?'− ':'+ ')+eurc(Math.abs(honoAvenantsHT(ch)))} HT</b>
+        {' '}({(ch.avenantsClient||[]).filter(a=>avStatut(a)==='valide'&&a.hono&&a.hono.reporteLe).map(a=>a.numero).join(', ')}
+        {' '}— encart « Budget et avenants » de la fiche).
+      </div>
+    </div>}
     {/* la remise se lit ici, sur le montant qu'elle diminue : sans cela le
         total afficherait un chiffre plus bas que le devis, sans qu'on sache pourquoi */}
     {!!remiseHonoHT(ch)&&<div className="card" style={{marginTop:8,borderLeft:'3px solid '+GREEN}}>
@@ -19508,7 +19518,8 @@ function Honoraires({data,ch,save}){
         <span className="pill" style={{background:GREEN+'1A',color:GREEN}}>− {remiseHonoTexte(ch)}</span>
       </div>
       <div className="xs mut" style={{lineHeight:1.6}}>
-        Honoraires bruts {eur(honoBrutHT(ch))} HT — remise {eur(remiseHonoHT(ch))} = <b>{eur(honoAmount(ch))} HT</b>.
+        Honoraires bruts {eur(honoBrutHT(ch))} HT — remise {eur(remiseHonoHT(ch))}
+        {honoAvenantsHT(ch)?' + avenants '+eur(honoAvenantsHT(ch)):''} = <b>{eur(honoAmount(ch))} HT</b>.
         {ch.remiseHonoMotif?' Motif : '+ch.remiseHonoMotif+'.':''}
         {' '}Elle se règle dans la fiche du chantier, et vaut pour tous les totaux.
       </div>

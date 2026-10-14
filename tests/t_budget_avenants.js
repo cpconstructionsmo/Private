@@ -5,7 +5,7 @@
    centimes, TVA ligne par ligne. Données fictives. */
 const {charger,texteInst,norm,verif}=require('./harness');
 const React=require('react');const TR=require('react-test-renderer');
-const M=charger(['Fiche','EMPTY','avCalc','avLigneCalc','avenantsSynthese','budgetActualise','bilanBudget','contratVentilation',
+const M=charger(['Fiche','Honoraires','EMPTY','avCalc','avLigneCalc','avenantsSynthese','budgetActualise','bilanBudget','contratVentilation',
   'avenantNumeroClient','nouvelAvenantClient','avenantDupliquer','avenantCorrectif','avenantModifiable','avenantValidable',
   'avenantValider','avenantChangerStatut','reporterAvenantMarches','avLignesAReporter','honoAmount','coutOperation','centimes']);
 const {chk,fin}=verif();
@@ -89,6 +89,11 @@ chk(B2.actualise===18264000&&B2.disponible===B2.actualise-B2.engage,'budget disp
 chk(M.honoAmount(ch2)===20000,'honoraires de l’avenant pas encore ajoutés : honoraires du chantier inchangés');
 const ch3={...ch2,avenantsClient:ch2.avenantsClient.map(a=>({...a,hono:{...a.hono,reporteLe:'2026-10-02'}}))};
 chk(M.honoAmount(ch3)===20200,'ajoutés : 20 000 + 200 € HT, une fois');
+{
+  let h;TR.act(()=>{h=TR.create(React.createElement(M.Honoraires,{data:{...M.EMPTY,chantiers:[ch3]},ch:ch3,save(){}}))});
+  chk(/Honoraires d'avenants compris dans les totaux : \+ 200,00 € HT \(AV-001/.test(norm(texteInst(h.toJSON()))),'onglet Honoraires : la part des avenants est dite');
+  TR.act(()=>h.unmount());
+}
 
 /* 9. ventilation du contrat : à renseigner, cohérente, ou incohérente */
 let V=M.contratVentilation(CH);
