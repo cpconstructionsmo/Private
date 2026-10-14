@@ -2,7 +2,9 @@
    montant du marché lui-même — sauf à ce que l'utilisateur pense à modifier
    le marché à la main, puis à cliquer Enregistrer, ce qui a été oublié deux
    fois de suite. Le bouton doit maintenant faire les deux à la fois, tout
-   de suite, sans étape supplémentaire à retenir. */
+   de suite, sans étape supplémentaire à retenir. Le contrat initial, lui,
+   ne bouge plus : l'avenant devient un avenant client validé (AV-…), qui
+   actualise le budget du chantier. */
 const RACINE=require('path').resolve(__dirname,'..');
 const fs=require('fs');const babel=require('@babel/standalone');const React=require('react');
 const TR=require('react-test-renderer');
@@ -22,7 +24,7 @@ global.supabase={createClient:()=>({auth:{getSession:()=>Promise.resolve({data:{
 global.ReactDOM={createRoot:()=>({render(){}})};
 global.alert=()=>{};global.confirm=()=>true;
 const mod=new Function('React','ReactDOM','supabase','window','location','history','sessionStorage','localStorage','indexedDB','document','fetch','crypto','TextEncoder','TextDecoder','alert','confirm',
-  code+'\n;return {Marches,EMPTY};');
+  code+'\n;return {Marches,EMPTY,budgetActualise,avCalc};');
 const M=mod(React,global.ReactDOM,global.supabase,global.window,global.location,global.history,global.sessionStorage,global.localStorage,global.indexedDB,global.document,global.fetch,global.crypto,global.TextEncoder,global.TextDecoder,global.alert,global.confirm);
 const texteInst=n=>typeof n==='string'?n:(!n||!n.children?'':n.children.map(texteInst).join(''));
 const norm=s=>s.normalize('NFC').replace(/[   ]/g,' ');
@@ -56,8 +58,15 @@ const boutonAppliquer=btn(tr,/au budget client et au marché/);
 chk(!!boutonAppliquer,'le bouton propose désormais d’ajouter au budget ET au marché en une fois ('+impactTTC+' € TTC attendus)');
 TR.act(()=>{boutonAppliquer.props.onClick()});
 
-chk(data.chantiers[0].budgetClientTTC===183246+impactTTC,
-  'le budget client a bien grandi de l’impact TTC de l’avenant ('+data.chantiers[0].budgetClientTTC+')');
+chk(data.chantiers[0].budgetClientTTC===183246,
+  'le contrat initial ne bouge pas ('+data.chantiers[0].budgetClientTTC+')');
+const avc=(data.chantiers[0].avenantsClient||[])[0];
+chk(!!avc&&avc.statut==='valide'&&avc.numero==='AV-001'&&avc.lignes.length===1&&avc.lignes[0].marcheId==='m1'&&!!avc.lignes[0].reporteLe,
+  'l’avenant de lot devient l’avenant client validé AV-001, rattaché au marché et déjà reporté');
+chk(M.budgetActualise(data.chantiers[0])===183246+impactTTC,
+  'le budget actualisé a bien grandi de l’impact TTC de l’avenant ('+M.budgetActualise(data.chantiers[0])+')');
+chk(data.marches[0].avenants[0].avenantClientId===avc.id&&(data.marches[0].avenantsClientReportes||[]).length===1,
+  'le lien est gardé des deux côtés : avenant de lot et trace du report dans le marché');
 chk(data.marches[0].montantHT===10254+150,
   'le montant du marché a grandi du même coup, de l’impact HT (150 €), sans étape séparée ('+data.marches[0].montantHT+')');
 chk(!!data.marches[0].avenants[0].budgetAppliqueLe,

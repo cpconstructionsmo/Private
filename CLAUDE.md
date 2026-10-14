@@ -34,6 +34,13 @@ qu'on ait à les redire.
   `elecPlanMaison` rassemble la maison pour le quantitatif et le contrôle.
   Modèles de disposition CP : `elecBiblio.dispositions`, repère « porte en
   bas ». Tests : `t_elec_niveaux.js`.
+- **Budget et avenants** (fiche chantier, `BudgetAvenants`) : `budgetClientTTC`
+  est le contrat initial, la référence ; il ne bouge plus. Les avenants
+  client (`ch.avenantsClient`, AV-001…) l'actualisent une fois validés
+  (`budgetActualise`, `bilanBudget`, calculs en centimes). Le total engagé
+  ne suit que marchés, commandes et honoraires : une prestation n'y entre
+  qu'une fois reportée dans son marché (`reporterAvenantMarches`). Tests :
+  `t_budget_avenants.js`, `budget_avenants_navigateur.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR
