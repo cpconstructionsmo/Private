@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-19 · Drive : fichiers de plus de 5 Mo envoyés en session reprenable ; chaque refus de Google dit sa raison';
+const VERSION='2026-10-19 · Facture visée : une pièce illisible sur le Drive est nommée, et la facture peut partir sans elle';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -6110,7 +6110,7 @@ const DRIVE_RACINES_ANCIENNES=['CP Constructions Chantier','CP Constructions'];
    propose de se reconnecter. Un dossier introuvable (404 : supprimé, ou créé
    depuis un autre compte Google) fait oublier les dossiers retenus : l'envoi
    suivant les retrouve ou les recrée. */
-async function driveErreur(r,quoi){
+async function driveErreur(r,quoi,objet){
   let raison='',message='';
   try{const j=await r.json();const e=(j&&j.error)||{};message=String(e.message||'');
     raison=String(((e.errors||[])[0]||{}).reason||e.status||'')}catch(x){}
@@ -6121,6 +6121,11 @@ async function driveErreur(r,quoi){
   if(/storageQuotaExceeded/i.test(raison+' '+message))
     return new Error('le Drive de ce compte Google est plein : libérez de la place (ou augmentez le stockage), puis réessayez');
   if(r.status===429||/rateLimitExceeded/i.test(raison))return new Error('Google limite momentanément les envois : réessayez dans une minute');
+  /* un fichier à relire (pièce jointe d'un mail) : introuvable, ou déposé
+     depuis un autre compte Google — l'accès « drive.file » ne voit que les
+     fichiers que ce compte a lui-même déposés par l'application */
+  if(r.status===404&&objet==='fichier')
+    return new Error('fichier introuvable sur le Drive, ou illisible avec ce compte Google (déposé depuis un autre compte ?)');
   if(r.status===404){driveOublierDossiers();
     return new Error('le dossier du chantier est introuvable sur le Drive (supprimé, ou créé depuis un autre compte Google) ; il sera retrouvé ou recréé : réessayez l’envoi')}
   if(r.status===413)return new Error('le fichier est trop volumineux pour le Drive');
@@ -6637,7 +6642,7 @@ const driveIdDepuisLien=lien=>{
 async function driveFichierBytes(token,fileId){
   const r=await fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?alt=media',
     {headers:{Authorization:'Bearer '+token}});
-  if(!r.ok)throw new Error('Téléchargement depuis le Drive impossible');
+  if(!r.ok)throw await driveErreur(r,'Lecture du fichier sur le Drive impossible','fichier');
   return new Uint8Array(await r.arrayBuffer());
 }
 /* le type d'une pièce jointe, d'après son nom. Un PDF annoncé comme tel
@@ -8181,40 +8186,63 @@ const factureTTC=(f,marche,ch)=>{
   const tva=marche?marcheTva(marche,ch):tvaRate(ch);
   return Math.round(ht*(1+tva/100)*100)/100;
 };
+/* le message au client, selon les pièces qui partent vraiment */
+const corpsFactureVisee=(f,art,marche,ch,lot,avec)=>'Bonjour,\n\nNous avons contrôlé la facture'+(f.numero?' n° '+f.numero:'')+' de '+(art.nom||'l’entreprise')
+  +', d’un montant de '+eurDoc(factureTTC(f,marche,ch))+' TTC'+(lot?' pour le lot '+lot:'')+'.'
+  +'\n\nNous y apposons notre visa : cette facture est donc payable dès à présent.'
+  +(avec.rib
+    ?'\n\nVous trouverez ci-joint la facture visée ainsi que le relevé d’identité bancaire de l’entreprise pour son règlement.'
+    :'\n\nVous trouverez ci-joint la facture visée, à régler sur le relevé d’identité bancaire de l’entreprise déjà en votre possession.')
+  +(avec.att?'\n\nVous trouverez également son attestation d’assurance décennale en cours de validité.':'')
+  +'\n\nCordialement,';
 function ViserFacture({f,ch,art,data,lot,marche}){
   const [mail,setMail]=useState(null);
   const expediteur=((data&&data.expediteurMail)||'').trim();
+  const nomArt=art.nom||'entreprise';
+  /* les pièces qui partent : celles déposées, moins celles qu'on a choisi
+     d'écarter parce qu'elles ne se lisent pas sur le Drive */
+  const avecPieces=sans=>({rib:!!art.lienRib&&!(sans||[]).includes('rib'),att:!!art.lienAttestation&&!(sans||[]).includes('att')});
   /* le mail va au client : le montant qu'il règle (TTC), sans rappeler le
      nom du chantier — c'est le sien */
   const ouvrirMail=()=>{
-    setMail({etat:'apercu',compte:'',signature:true,
+    setMail({etat:'apercu',compte:'',signature:true,sans:[],
       destinataire:ch.emailClient,
       sujet:'Facture visée'+(f.numero?' n° '+f.numero:'')+' — '+(art.nom||lot||''),
-      corps:'Bonjour,\n\nNous avons contrôlé la facture'+(f.numero?' n° '+f.numero:'')+' de '+(art.nom||'l’entreprise')
-        +', d’un montant de '+eurDoc(factureTTC(f,marche,ch))+' TTC'+(lot?' pour le lot '+lot:'')+'.'
-        +'\n\nNous y apposons notre visa : cette facture est donc payable dès à présent.'
-        +(art.lienRib
-          ?'\n\nVous trouverez ci-joint la facture visée ainsi que le relevé d’identité bancaire de l’entreprise pour son règlement.'
-          :'\n\nVous trouverez ci-joint la facture visée, à régler sur le relevé d’identité bancaire de l’entreprise déjà en votre possession.')
-        +(art.lienAttestation?'\n\nVous trouverez également son attestation d’assurance décennale en cours de validité.':'')
-        +'\n\nCordialement,',
+      corps:corpsFactureVisee(f,art,marche,ch,lot,avecPieces([])),
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
   };
+  /* écarter les pièces illisibles et revenir au message : s'il n'a pas été
+     retouché, il est réécrit pour ne plus les annoncer ; sinon, à relire */
+  const envoyerSans=()=>{
+    const sans=[...(mail.sans||[]),...(mail.illisibles||[]).map(x=>x.cle)];
+    const intact=mail.corps===corpsFactureVisee(f,art,marche,ch,lot,avecPieces(mail.sans));
+    setMail({...mail,etat:'apercu',sans,illisibles:null,
+      corps:intact?corpsFactureVisee(f,art,marche,ch,lot,avecPieces(sans)):mail.corps,relire:!intact});
+  };
   const envoyer=async()=>{
+    const sans=mail.sans||[];
     setMail(p=>({...p,etat:'envoi'}));
     try{
       const token=await getDriveToken();
-      const pieces=[];
-      const idFac=driveIdDepuisLien(f.lien);
-      if(idFac)pieces.push({nom:'Facture'+(f.numero?' '+f.numero:'')+' — '+(art.nom||'entreprise')+'.pdf',
-        type:'application/pdf',data:await driveFichierBytes(token,idFac)});
-      const idRib=driveIdDepuisLien(art.lienRib);
-      if(idRib)pieces.push({nom:'RIB — '+(art.nom||'entreprise')+'.pdf',
-        type:'application/pdf',data:await driveFichierBytes(token,idRib)});
-      const idAtt=driveIdDepuisLien(art.lienAttestation);
-      if(idAtt)pieces.push({nom:'Attestation décennale — '+(art.nom||'entreprise')+'.pdf',
-        type:'application/pdf',data:await driveFichierBytes(token,idAtt)});
+      const pieces=[], illisibles=[];
+      /* chaque pièce se relit sur le Drive ; une qui ne se lit pas est nommée,
+         au lieu d'un « téléchargement impossible » qui ne dit pas laquelle */
+      const joindre=async(cle,lien,nom)=>{
+        const id=driveIdDepuisLien(lien);
+        if(!id||sans.includes(cle))return;
+        try{pieces.push({nom,type:'application/pdf',data:await driveFichierBytes(token,id)})}
+        catch(e){
+          if(e&&e.error==='auth_required')throw e;
+          if(cle==='facture')throw new Error('la facture elle-même ne se lit pas sur le Drive : '+((e&&e.message)||e)
+            +'. Remplacez-la (« Remplacer », juste au-dessus), puis réessayez');
+          illisibles.push({cle,nom,raison:(e&&e.message)||String(e)});
+        }
+      };
+      await joindre('facture',f.lien,'Facture'+(f.numero?' '+f.numero:'')+' — '+nomArt+'.pdf');
+      await joindre('rib',art.lienRib,'RIB — '+nomArt+'.pdf');
+      await joindre('att',art.lienAttestation,'Attestation décennale — '+nomArt+'.pdf');
+      if(illisibles.length){setMail(p=>({...p,etat:'illisible',illisibles}));return}
       /* signé : la signature professionnelle et son logo ; sinon le nom seul */
       const signe=mail.signature?mailSigne(mail.corps,await signatureLogo())
         :{corps:String(mail.corps).replace(/\s+$/,'')+'\n'+SIGNATAIRE_MAIL};
@@ -8259,14 +8287,32 @@ function ViserFacture({f,ch,art,data,lot,marche}){
           dangerouslySetInnerHTML={{__html:signatureHtml(true,SIGNATURE_PRO.logo)}}/>
         :<div className="xs mut" style={{marginBottom:8}}>Signé simplement : {SIGNATAIRE_MAIL}.</div>}
       <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Pièces jointes : la facture
-        {art.lienRib?' et le RIB de '+(art.nom||'l’entreprise'):' — sans le RIB de '+(art.nom||'l’entreprise')+', non déposé'}
-        {art.lienAttestation?', ainsi que son attestation d’assurance décennale':''}.</div>
+        {avecPieces(mail.sans).rib?' et le RIB de '+(art.nom||'l’entreprise'):' — sans le RIB de '+(art.nom||'l’entreprise')
+          +(art.lienRib?', illisible sur le Drive':', non déposé')}
+        {avecPieces(mail.sans).att?', ainsi que son attestation d’assurance décennale'
+          :art.lienAttestation?', sans son attestation décennale, illisible sur le Drive':''}.</div>
+      {mail.relire&&<div className="xs" style={{marginBottom:8,color:AMBER,lineHeight:1.5}}>
+        Relisez le message : il annonce peut-être une pièce qui ne part plus.</div>}
       <div className="row" style={{gap:8}}>
         <button className="btn acc s" onClick={envoyer}>Envoyer</button>
         <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
       </div>
     </div>}
     {mail&&mail.etat==='envoi'&&<div className="xs mut" style={{marginTop:6}}>Envoi en cours…</div>}
+    {mail&&mail.etat==='illisible'&&<div className="card" style={{padding:10,marginTop:6}}>
+      <div className="xs" style={{color:TERRA,lineHeight:1.5}}>
+        {mail.illisibles.length>1?'Ces pièces ne se lisent pas':'Cette pièce ne se lit pas'} sur le Drive avec le compte Google connecté :
+        {mail.illisibles.map(x=><div key={x.cle}>• <b>{x.nom}</b> — {x.raison}</div>)}
+      </div>
+      <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+        Le plus souvent, la pièce a été déposée depuis un autre compte Google. Pour la joindre, déposez-la de nouveau sur la fiche
+        de {art.nom||'l’entreprise'} (onglet ARTISANS). Sinon, la facture peut partir sans elle : le message sera ajusté.</div>
+      <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
+        <button className="btn acc s" onClick={envoyerSans}>{mail.illisibles.length>1?'Envoyer sans ces pièces':'Envoyer sans cette pièce'}</button>
+        <button className="btn gh s" onClick={()=>setMail({...mail,etat:'apercu',illisibles:null})}>Revenir au message</button>
+        <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+      </div>
+    </div>}
     {mail&&mail.etat==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
       ✓ Facture visée envoyée à {mail.destinataire}.
       <button className="btn gh s" style={{marginLeft:10}} onClick={()=>setMail(null)}>Fermer</button></div>}

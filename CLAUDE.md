@@ -122,7 +122,10 @@ qu'on ait à les redire.
 - **Envoi sur le Drive** : `uploadToDrive` envoie en une requête jusqu'à
   5 Mo, au-delà par session reprenable ; tout refus de Google passe par
   `driveErreur` (reconnexion, Drive plein, accès non coché, dossier
-  introuvable…). Tests : `t_drive_envoi.js`.
+  introuvable…). Relire un fichier (`driveFichierBytes`) : l'accès
+  `drive.file` ne voit que les fichiers déposés par l'application avec ce
+  compte ; une pièce illisible est nommée (facture visée : envoi possible
+  sans elle). Tests : `t_drive_envoi.js`, `t_viser_illisible.js`.
 
 ## Livrer une modification
 
