@@ -5,7 +5,7 @@
    centimes, TVA ligne par ligne. Données fictives. */
 const {charger,texteInst,norm,verif}=require('./harness');
 const React=require('react');const TR=require('react-test-renderer');
-const M=charger(['Fiche','Honoraires','EMPTY','avCalc','avLigneCalc','avenantsSynthese','budgetActualise','bilanBudget','contratVentilation','contratDepuisEngagements',
+const M=charger(['Fiche','Honoraires','EMPTY','avenantClientDonnees','genererAvenantClientDocx','zipEntree','lignesDocumentXml','avCalc','avLigneCalc','avenantsSynthese','budgetActualise','bilanBudget','contratVentilation','contratDepuisEngagements',
   'avenantNumeroClient','nouvelAvenantClient','avenantDupliquer','avenantCorrectif','avenantModifiable','avenantValidable',
   'avenantValider','avenantChangerStatut','reporterAvenantMarches','avLignesAReporter','honoAmount','coutOperation','centimes']);
 const {chk,fin}=verif();
@@ -225,4 +225,42 @@ chk(/Dépassement de budget : 16 000,00 € TTC/.test(t)&&!/Budget disponible :/
 const dep=tr.root.findAll(n=>n.type==='span'&&/^Dépassement de budget/.test(norm(texteInst(n))))[0];
 chk(dep&&dep.props.style&&dep.props.style.color==='#C5563A','… affiché en rouge (terracotta)');
 TR.act(()=>tr.unmount());
-fin();
+
+/* l'avenant à faire signer : un Word au nom du client, déposé sur le Drive */
+(async()=>{
+  const CHD={...CH,client:'M. et Mme Exemple',adresseClient:'1 rue du Test — 61000 Ville',tvaHono:0,docs:{contrat_moe:{date:'2026-03-02',fait:true}}};
+  const DATA={...M.EMPTY,chantiers:[CHD],artisans:ART,marches:MS,commandes:[]};
+  const avd=M.nouvelAvenantClient(CHD,{objet:'Plomberie — sanitaire',lignes:[
+    ligne({id:'d1',marcheId:'m2',designation:'Adoucisseur',qte:1,unite:'U',puHT:1500,taux:20}),
+    ligne({id:'d2',marcheId:'m2',designation:'Robinet extérieur',qte:1,unite:'U',puHT:84.66,taux:20}),
+    ligne({id:'d3',marcheId:'m1',designation:'Cloison du cellier',qte:1,unite:'U',puHT:400,taux:10,sens:-1})],
+    hono:{mode:'pourcentage',pct:10,taux:0,exclues:[]}});
+  const d=M.avenantClientDonnees(CHD,avd,DATA);
+  chk(d.total.ttc===1901.59-440+118.47&&d.budgetAvant===180000&&d.budgetApres===180000+d.total.ttc,
+    'données de l’avenant : les montants de l’écran (prestations, honoraires, budget avant et après)');
+  const o=await M.genererAvenantClientDocx(d);
+  const ab=o.buffer.slice(o.byteOffset,o.byteOffset+o.byteLength);
+  const tx=norm(String(M.lignesDocumentXml(new TextDecoder().decode(await M.zipEntree(ab,'word/document.xml')))));
+  chk(/AVENANT\nPlomberie — sanitaire\nN° AV-001/.test(tx)&&/au contrat de maîtrise d’œuvre du 02\/03\/2026/.test(tx),'Word : titre, objet, numéro, contrat de MOE');
+  chk(/M\. et Mme Exemple/.test(tx)&&/1 rue du Test/.test(tx)&&/CP CONSTRUCTIONS/.test(tx)&&/Commune fictive/.test(tx),'Word : maître de l’ouvrage, maître d’œuvre, adresse des travaux');
+  chk(/à la suite de la mise au point technique/.test(tx),'Word : motif par défaut, la mise au point technique');
+  chk(/Électricité\nÉlectricien fictif\nAdoucisseur/.test(tx)&&/Moins-value — Cloison du cellier/.test(tx)&&/− 400,00 €/.test(tx),'Word : lot, entreprise, plus- et moins-values');
+  chk(/TVA 20 % sur \+ 1 584,66 € H\.T\.\n\+ 316,93 €/.test(tx)&&/TVA 10 % sur − 400,00 € H\.T\.\n− 40,00 €/.test(tx),'Word : TVA à chacun de ses taux');
+  chk(/10 % de \+ 1 184,66 € H\.T\. de prestations\n\+ 118,47 €/.test(tx)&&!/TVA 0 % sur les honoraires/.test(tx)&&/sans TVA \(taux de 0 %\)/.test(tx),'Word : honoraires au pourcentage, sans TVA');
+  chk(/INCIDENCE DU PRÉSENT AVENANT T\.T\.C\.\n\+ 1 580,06 €/.test(tx)&&/NOUVEAU BUDGET DE L’OPÉRATION T\.T\.C\.\n181 580,06 €/.test(tx),'Word : incidence et nouveau budget');
+  chk(/Article 6 — Exécution par les entreprises/.test(tx)&&/« Lu et approuvé — bon pour accord »/.test(tx),'Word : conditions et signatures');
+
+  /* à l'écran : le bouton rédige, dépose sur le Drive et joint le document */
+  const et={v:{...DATA,chantiers:[{...CHD,avenantsClient:[{...avd,statut:'a_valider'}]}]}};
+  let tr2;const el=()=>React.createElement(M.Fiche,{data:et.v,ch:et.v.chantiers[0],save:n=>{et.v=n;TR.act(()=>tr2.update(el()))},back(){}});
+  TR.act(()=>{tr2=TR.create(el())});
+  const bt=re=>tr2.root.findAll(n=>n.type==='button'&&re.test(norm(texteInst(n))))[0];
+  TR.act(()=>bt(/^Consulter$/).props.onClick());
+  await TR.act(async()=>{await bt(/Rédiger l’avenant à signer \(Word\)/).props.onClick()});
+  const pj=et.v.chantiers[0].avenantsClient[0].pieces;
+  chk(pj.length===1&&pj[0].genere&&/^Avenant AV-001 — Plomberie — sanitaire — Maison fictive\.docx$/.test(pj[0].nom)&&/drive\.google\.com/.test(pj[0].lien),
+    'à l’écran : l’avenant rédigé est déposé sur le Drive et joint ('+(pj[0]&&pj[0].nom)+')');
+  chk(!!bt(/Régénérer l’avenant à signer/),'le bouton propose ensuite de le régénérer');
+  TR.act(()=>tr2.unmount());
+  fin();
+})().catch(e=>{console.error(e);process.exitCode=1});
