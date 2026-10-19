@@ -42,7 +42,9 @@ qu'on ait à les redire.
   qu'une fois reportée dans son marché (`reporterAvenantMarches`). La
   ventilation du contrat se reprend des marchés, commandes et honoraires
   (`contratDepuisEngagements`, avenants reportés retirés), sauf saisie à
-  la main (`contratInitial.mode==='manuel'`). Tests :
+  la main (`contratInitial.mode==='manuel'`). L'avenant à faire signer au
+  client est un Word (`avenantClientDonnees`, `genererAvenantClientDocx`),
+  déposé dans le dossier « Avenants » du Drive. Tests :
   `t_budget_avenants.js`, `budget_avenants_navigateur.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du

@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-14 · Budget et avenants : le contrat initial se ventile tout seul (marchés, commandes de matériaux, honoraires du contrat de MOE)';
+const VERSION='2026-10-19 · Budget et avenants : « Rédiger l’avenant à signer » — Word au nom du client (prestations, honoraires, nouveau budget, conditions)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3543,6 +3543,216 @@ async function genererAvenantDocx(d){
   let logo=null;
   try{logo=await logoDocx()}catch(e){/* sans logo, l’avenant reste valable */}
   return fabriquerDocx(avenantDocumentXml(d,logo),'Avenant n° '+(d.numero||'')+' — '+(d.lot||''),logo);
+}
+
+/* ---------- l'avenant client (AV-001…), à faire signer ----------
+   Le même esprit que l'avenant au marché de travaux, mais à l'échelle du
+   chantier : plusieurs lots et plusieurs entreprises dans un seul document,
+   les honoraires de maîtrise d'œuvre qui s'y rattachent, et l'incidence sur
+   le budget de l'opération annoncé au contrat de maîtrise d'œuvre. Le client
+   le signe avant toute exécution ; les marchés des entreprises sont ensuite
+   modifiés en conséquence. Les montants viennent d'avCalc : ceux de l'écran. */
+const avenantClientDonnees=(ch,a,data)=>{
+  const c=avCalc(a,ch);
+  const ms=((data&&data.marches)||[]).filter(m=>m.chantierId===ch.id);
+  const nomArt=id=>((((data&&data.artisans)||[]).find(x=>x.id===id))||{}).nom||'';
+  const lignes=(a.lignes||[]).map(l=>{
+    const x=avLigneCalc(l,ch), m=ms.find(y=>y.id===l.marcheId);
+    return {lot:(m&&m.lot)||l.lot||'',entreprise:nomArt(l.artisanId||(m&&m.artisanId)),designation:l.designation||'',
+      qte:Math.abs(+l.qte||0),unite:l.unite||'',puHT:Math.abs(+l.puHT||0),sens:avSens(l),taux:x.taux,ht:x.ht/100};
+  });
+  const parTaux=new Map();
+  for(const x of c.lignes){const v=parTaux.get(x.taux)||{taux:x.taux,ht:0,tva:0};v.ht+=x.ht;v.tva+=x.tva;parTaux.set(x.taux,v)}
+  /* le budget avant cet avenant : le contrat initial et les autres avenants validés */
+  const autres=((ch&&ch.avenantsClient)||[]).filter(x=>x.id!==a.id&&avStatut(x)==='valide').reduce((s,x)=>s+avCalc(x,ch).total.ttc,0);
+  const avant=centimes(budgetClient(ch))+autres;
+  const contrat=((ch&&ch.docs)||{}).contrat_moe;
+  const e=v=>v/100;
+  return {numero:a.numero||'',date:fd(a.date||today()),objet:a.objet||'',description:a.description||'',motif:a.motif||'',
+    incidenceDelai:a.incidenceDelai||'',client:ch.client||'',clientAdresse:ch.adresseClient||'',clientTel:ch.telClient||'',
+    chantierAdresse:ch.adresse||'',chantierNom:ch.nom||'',contratDate:contrat&&contrat.date?fd(contrat.date):'',
+    lignes,tvaParTaux:[...parTaux.values()].sort((p,q)=>q.taux-p.taux).map(v=>({taux:v.taux,ht:e(v.ht),tva:e(v.tva)})),
+    trav:{ht:e(c.trav.ht),tva:e(c.trav.tva),ttc:e(c.trav.ttc)},
+    hono:{mode:c.hono.mode,pct:c.hono.pct,assiette:e(c.hono.assiette),taux:c.hono.taux,ht:e(c.hono.ht),tva:e(c.hono.tva),ttc:e(c.hono.ttc)},
+    total:{ht:e(c.total.ht),tva:e(c.total.tva),ttc:e(c.total.ttc)},
+    avecBudget:!!budgetClient(ch),budgetAvant:e(avant),budgetApres:e(avant+c.total.ttc)};
+};
+const pctDoc=n=>(+n||0).toLocaleString('fr-FR',{maximumFractionDigits:2});
+
+function enteteAvenantClient(d,px){
+  return tbl([4200,6200],[tr([
+    tc(4200,par([logoXml(px)],{ap:0}),{bords:tcB({h:false,g:false,b:false,d:false}),v:'top',mg:0}),
+    tc(6200,[
+      par('AVENANT',{b:true,sz:30,c:DOC_TERRA,sp:20,jc:'right',ap:40}),
+      par(d.objet||'Prestations ajoutées ou supprimées',{b:true,sz:22,c:DOC_BRUN,jc:'right',ap:40,filet:DOC_TERRA}),
+      par('N° '+(d.numero||'')+' — du '+(d.date||''),{sz:19,c:DOC_GRIS,jc:'right',ap:0}),
+      par('au contrat de maîtrise d’œuvre'+(d.contratDate?' du '+d.contratDate:'')+' et au budget de l’opération',
+        {sz:16,i:true,c:DOC_GRIS,jc:'right',ap:0}),
+    ].join(''),{bords:tcB({h:false,g:false,b:false,d:false}),v:'bottom',mg:0}),
+  ])],{});
+}
+
+/* le maître de l'ouvrage, qui signe, et le maître d'œuvre, qui propose */
+function partiesAvenantClient(d){
+  const bloc=(titre,lignes)=>[
+    par(titre,{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60}),
+  ].concat(lignes.filter(Boolean).map(l=>par(l[1]?l[0]+' : '+l[1]:l[0],{sz:19,c:DOC_ENCRE,ap:30}))).join('');
+  const cadre=tcB({c:DOC_BRUN,sz:4,t:4,bs:4});
+  return tbl([5200,5200],[tr([
+    tc(5200,bloc('Le maître de l’ouvrage',[[d.client||'',''],d.clientAdresse?['Demeurant',d.clientAdresse]:null,
+      d.clientTel?['Téléphone',d.clientTel]:null]),{bords:cadre,fond:DOC_SABLE,v:'top',mg:140}),
+    tc(5200,bloc('Le maître d’œuvre',[[CP.nom+' — '+CP.forme,''],['Siège',CP.adresse],['SIRET',CP.siret],
+      ['Assurance RC professionnelle',CP.rcProAssureur+' — contrat '+CP.rcProContrat]]),{bords:cadre,fond:DOC_SABLE,v:'top',mg:140}),
+  ])],{});
+}
+
+/* le tableau des prestations, lot par lot, puis la TVA à chacun de ses taux */
+function lignesAvenantClient(d){
+  const G=[2500,3600,700,600,1450,1550];
+  const B=(h,b)=>'<w:tcBorders><w:top '+(h?bord(DOC_BRUN,8):'w:val="nil"')+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+    +'<w:bottom '+(b?bord(DOC_BRUN,8):'w:val="nil"')+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>';
+  const ent=(l,t,jc)=>tc(l,par(t,{b:true,sz:16,c:DOC_TERRA,sp:16,caps:true,jc:jc,ap:0}),{fond:DOC_SABLE,bords:B(true,true),mg:90});
+  const rows=[tr([ent(G[0],'Lot — entreprise'),ent(G[1],'Prestation'),ent(G[2],'Qté','right'),ent(G[3],'U','center'),
+    ent(G[4],'PU H.T.','right'),ent(G[5],'Montant H.T.','right')])];
+  const cel=(l,contenu)=>tc(l,contenu,{bords:B(false,false),mg:90,v:'top'});
+  d.lignes.forEach(l=>rows.push(tr([
+    cel(G[0],par(l.lot||'—',{sz:17,ap:0})+(l.entreprise?par(l.entreprise,{sz:15,c:DOC_GRIS,ap:0}):'')),
+    cel(G[1],par((l.sens===-1?'Moins-value — ':'')+(l.designation||''),{sz:17,ap:0})),
+    cel(G[2],par(pctDoc(l.qte),{sz:17,jc:'right',ap:0})),
+    cel(G[3],par(l.unite||'',{sz:17,jc:'center',ap:0})),
+    cel(G[4],par(eurDoc(l.puHT),{sz:17,jc:'right',ap:0})),
+    cel(G[5],par(signeDoc(l.ht),{sz:17,jc:'right',ap:0})),
+  ])));
+  const pied=(t,v,fort)=>tr([
+    tc(G[0]+G[1]+G[2]+G[3]+G[4],par(t,{b:true,sz:fort?18:17,c:fort?DOC_TERRA:DOC_ENCRE,jc:'right',ap:0}),
+      {fusion:5,fond:DOC_SABLE,mg:90,bords:B(true,true)}),
+    tc(G[5],par(v,{b:true,sz:fort?18:17,c:fort?DOC_TERRA:DOC_ENCRE,jc:'right',ap:0}),{fond:DOC_SABLE,mg:90,bords:B(true,true)}),
+  ]);
+  rows.push(pied('TOTAL DES PRESTATIONS H.T.',signeDoc(d.trav.ht)));
+  d.tvaParTaux.forEach(t=>rows.push(pied('TVA '+pctDoc(t.taux)+' % sur '+signeDoc(t.ht)+' H.T.',signeDoc(t.tva))));
+  rows.push(pied('TOTAL DES PRESTATIONS T.T.C.',signeDoc(d.trav.ttc),true));
+  return tbl(G,rows,{});
+}
+
+/* les honoraires, l'incidence de l'avenant et le budget de l'opération */
+function montantsAvenantClient(d){
+  const lig=(l,v,fort)=>tr([
+    tc(7400,par(l,{sz:fort?21:19,b:!!fort,c:fort?DOC_ENCRE:DOC_GRIS,ap:0}),{bords:tcB({h:fort?8:false,g:false,b:false,d:false,c:DOC_BRUN}),mg:120}),
+    tc(3000,par(v,{sz:fort?23:19,b:true,c:fort?DOC_TERRA:DOC_ENCRE,jc:'right',ap:0}),{bords:tcB({h:fort?8:false,g:false,b:false,d:false,c:DOC_BRUN}),mg:120}),
+  ]);
+  const h=d.hono, L=[lig('Prestations T.T.C.',signeDoc(d.trav.ttc))];
+  if(h.mode!=='aucun'){
+    L.push(lig('Honoraires de maîtrise d’œuvre H.T.'+(h.mode==='pourcentage'?' — '+pctDoc(h.pct)+' % de '+signeDoc(h.assiette)+' H.T. de prestations':' — forfait'),signeDoc(h.ht)));
+    if(h.taux)L.push(lig('TVA '+pctDoc(h.taux)+' % sur les honoraires',signeDoc(h.tva)));
+    L.push(lig('Honoraires de maîtrise d’œuvre T.T.C.',signeDoc(h.ttc)));
+  }
+  L.push(lig('INCIDENCE DU PRÉSENT AVENANT T.T.C.',signeDoc(d.total.ttc),true));
+  if(d.avecBudget){
+    L.push(lig('Budget de l’opération avant le présent avenant T.T.C.',eurDoc(d.budgetAvant)));
+    L.push(lig('NOUVEAU BUDGET DE L’OPÉRATION T.T.C.',eurDoc(d.budgetApres),true));
+  }
+  return tbl([7400,3000],L,{});
+}
+
+/* les clauses : celles de l'avenant au marché, à l'échelle du chantier.
+   Elles ne remplacent pas la relecture d'un avocat avant tout usage. */
+function clausesAvenantClient(d){
+  const contrat='contrat de maîtrise d’œuvre'+(d.contratDate?' du '+d.contratDate:'');
+  const h=d.hono;
+  const T=[
+    ['Objet de l’avenant',[
+      'Le présent avenant a pour objet d’ajouter ou de supprimer les prestations décrites ci-avant, '
+        +(d.motif?'pour le motif suivant : '+d.motif+', ':'à la suite de la mise au point technique intervenue avant le démarrage des travaux, ')
+        +'et d’en arrêter l’incidence sur le budget de l’opération défini au '+contrat+'.',
+      d.description?('Précisions : '+d.description):'',
+    ].filter(Boolean)],
+    ['Prestations ajoutées ou supprimées',[
+      'Les prestations sont décrites au tableau ci-avant, lot par lot, avec l’entreprise qui les exécute, leur quantité, '
+        +'leur prix unitaire et leur incidence chiffrée, positive ou négative.',
+      'Ce chiffrage est ferme et non révisable ; il ne préjuge d’aucune autre modification, laquelle ferait, '
+        +'le cas échéant, l’objet d’un avenant distinct.',
+    ]],
+    ['Incidence financière',[
+      'Les montants s’entendent hors taxes ; la TVA est appliquée, ligne par ligne, au taux indiqué, en vigueur à la date de facturation.',
+      d.avecBudget?('Le budget de l’opération est porté de '+eurDoc(d.budgetAvant)+' T.T.C. à '+eurDoc(d.budgetApres)+' T.T.C.')
+        :'L’incidence du présent avenant s’ajoute au budget de l’opération.',
+    ]],
+    ['Honoraires de maîtrise d’œuvre',[
+      h.ht!==0
+        ?('Les honoraires prévus au '+contrat+' sont modifiés de '+signeDoc(h.ht)+' H.T.'
+          +(h.mode==='pourcentage'?', soit '+pctDoc(h.pct)+' % du montant H.T. des prestations ci-avant':', au forfait')
+          +(h.taux?', TVA de '+pctDoc(h.taux)+' % en sus, soit '+signeDoc(h.ttc)+' T.T.C.':', sans TVA (taux de 0 %).')
+          +' Ils sont facturés selon les modalités de ce contrat.')
+        :'Le présent avenant est sans incidence sur les honoraires prévus au '+contrat+'.',
+    ]],
+    ['Délai d’exécution',[
+      d.incidenceDelai?('Le présent avenant a l’incidence suivante sur le délai d’exécution des travaux : '+d.incidenceDelai+'.')
+        :'Le présent avenant est sans incidence sur le délai d’exécution des travaux, sauf disposition contraire arrêtée entre les parties.',
+    ]],
+    ['Exécution par les entreprises',[
+      'Les prestations sont exécutées par les entreprises titulaires des lots concernés. Le présent avenant donne lieu, '
+        +'préalablement à toute exécution, à la modification des marchés de travaux correspondants ou à l’établissement '
+        +'de nouveaux marchés, dans les conditions prévues à leur article « Prix ».',
+    ]],
+    ['Maintien des autres clauses',[
+      'Toutes les clauses et conditions du '+contrat+' et des marchés de travaux, non modifiées par le présent avenant, '
+        +'demeurent applicables sans changement, notamment celles relatives aux assurances, aux garanties légales, '
+        +'aux pénalités de retard et à la réception des travaux.',
+    ]],
+    ['Accord du maître de l’ouvrage',[
+      'Le maître de l’ouvrage reconnaît avoir été informé, avant toute exécution des prestations objet du présent avenant, '
+        +'de leur nature, des lots et des entreprises concernés, et de leur incidence chiffrée sur le budget de l’opération, '
+        +'et donne son accord exprès sur les modalités décrites ci-avant.',
+    ]],
+    ['Rôle du maître d’œuvre',[
+      CP.nom+', maître d’œuvre du maître de l’ouvrage, établit et propose le présent avenant dans le cadre de sa '
+        +'mission de direction et de suivi de l’exécution des travaux. Elle n’est pas partie aux marchés de travaux '
+        +'en qualité d’entrepreneur et n’encourt aucune responsabilité au titre de l’exécution des prestations '
+        +'décrites ci-dessus, laquelle incombe exclusivement aux entreprises désignées.',
+    ]],
+    ['Litiges',[
+      'Les parties s’efforceront de régler amiablement tout différend né du présent avenant. À défaut d’accord, '
+        +'le litige sera porté devant la juridiction compétente du lieu d’exécution des travaux.',
+    ]],
+  ];
+  const out=[par('CONDITIONS DE L’AVENANT',{b:true,sz:24,c:DOC_TERRA,sp:20,caps:true,ap:120,filet:DOC_TERRA})];
+  T.forEach(([titre,paras],i)=>{
+    out.push(par('Article '+(i+1)+' — '+titre,{b:true,sz:19,c:DOC_BRUN,av:120,ap:50}));
+    paras.forEach(p=>out.push(par(p,{sz:17,jc:'both',ap:60})));
+  });
+  out.push(vide(120));
+  out.push(par('Fait à '+(d.lieuSignature||'Valframbert')+', le '+(d.date||'')+', en deux exemplaires originaux — '
+    +'un pour le maître de l’ouvrage, un pour le maître d’œuvre.',{sz:17,i:true,c:DOC_GRIS,ap:160}));
+  return out.join('');
+}
+
+function avenantClientDocumentXml(d,px){
+  const corps=[
+    enteteAvenantClient(d,px), vide(200),
+    partiesAvenantClient(d), vide(200),
+    chantierMarche(d), vide(200),
+    par('Objet de l’avenant',{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,ap:60}),
+    par('Le présent avenant ajoute ou supprime les prestations décrites ci-après'
+      +(d.motif?', pour le motif suivant : '+d.motif:', à la suite de la mise au point technique intervenue avant le démarrage des travaux')
+      +', et en arrête l’incidence sur le budget de l’opération.',{sz:18,jc:'both',ap:140}),
+    lignesAvenantClient(d), vide(200),
+    montantsAvenantClient(d), vide(200),
+    par('Le présent avenant ne vaut que complété des conditions figurant en page suivante, dont le maître de '
+      +'l’ouvrage reconnaît avoir pris connaissance.',{sz:16,i:true,c:DOC_GRIS,jc:'both',ap:0}),
+    sautPage,
+    clausesAvenantClient(d), vide(120),
+    signaturesAvenant(d),
+  ].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+async function genererAvenantClientDocx(d){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, l’avenant reste valable */}
+  return fabriquerDocx(avenantClientDocumentXml(d,logo),'Avenant '+(d.numero||'')+(d.objet?' — '+d.objet:''),logo);
 }
 
 /* ---------- dossier de présentation au client ----------
@@ -8489,8 +8699,10 @@ function EditeurAvenant({data,ch,ms,a,setA,onSave,onCancel}){
     <Fld label="OBJET"><input className="in" value={a.objet||''} placeholder="Ex. Prise extérieure supplémentaire, suppression du cellier"
       onChange={e=>setA({...a,objet:e.target.value})}/></Fld>
     <Fld label="DESCRIPTION"><textarea className="in" rows="2" value={a.description||''} onChange={e=>setA({...a,description:e.target.value})}/></Fld>
-    <Fld label="MOTIF DE LA MODIFICATION"><input className="in" value={a.motif||''} placeholder="Demande du client, aléa technique, mise au point…"
+    <Fld label="MOTIF DE LA MODIFICATION"><input className="in" value={a.motif||''} placeholder="Laissez vide : « à la suite de la mise au point technique »"
       onChange={e=>setA({...a,motif:e.target.value})}/></Fld>
+    <Fld label="INCIDENCE SUR LE DÉLAI D'EXÉCUTION (FACULTATIF)"><input className="in" value={a.incidenceDelai||''} placeholder="Laissez vide : sans incidence"
+      onChange={e=>setA({...a,incidenceDelai:e.target.value})}/></Fld>
 
     <div className="lbl">PRESTATIONS ARTISANS</div>
     <div className="xs mut" style={{lineHeight:1.5,marginBottom:6}}>
@@ -8590,7 +8802,7 @@ function EditeurAvenant({data,ch,ms,a,setA,onSave,onCancel}){
 
 /* le détail d'un avenant, déplié sous sa ligne : HT, TVA et TTC ligne par
    ligne, puis les gestes que permet son statut */
-function DetailAvenant({data,ch,ms,a,L,on,valid,setValid}){
+function DetailAvenant({data,ch,ms,a,L,on,valid,setValid,redaction}){
   const c=avCalc(a,ch), st=avStatut(a);
   const parLigne=new Map(c.lignes.map(x=>[x.id,x]));
   const nomArt=id=>((data.artisans||[]).find(x=>x.id===id)||{}).nom||'';
@@ -8649,6 +8861,16 @@ function DetailAvenant({data,ch,ms,a,L,on,valid,setValid}){
         </tbody>
       </table>
     </div>
+    {st!=='refuse'&&<div style={{marginTop:8,padding:'8px 10px',border:'1px solid '+RULE,borderRadius:8,background:'#fff'}}>
+      <div className="row" style={{gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <button className="btn acc s" disabled={redaction===a.id||!avenantValidable({...a,statut:'brouillon'},ch)}
+          style={{opacity:redaction===a.id||!avenantValidable({...a,statut:'brouillon'},ch)?.5:1}} onClick={()=>on.rediger(a)}>
+          {redaction===a.id?'Rédaction…':(a.pieces||[]).some(p=>p.genere)?'Régénérer l’avenant à signer':'Rédiger l’avenant à signer (Word)'}</button>
+        <span className="mut">Document au nom du client, à signer avant toute exécution : prestations, honoraires, nouveau budget,
+          conditions. Il rejoint le dossier « Avenants » du Drive.</span>
+      </div>
+      {st!=='valide'&&<div className="mut" style={{marginTop:4}}>Une fois signé : joignez la version signée ci-dessous, puis « Enregistrer la validation ».</div>}
+    </div>}
     <div style={{marginTop:6}}>
       <FichiersDrive ch={ch} dossier="Avenants" fichiers={a.pieces} onChange={v=>on.pieces(a,v)}
         label="Joindre un document (devis, avenant signé, justificatif)"/>
@@ -8747,6 +8969,7 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
   const [ouvert,setOuvert]=useState('');
   const [valid,setValid]=useState(null);
   const [ventil,setVentil]=useState(null);
+  const [redaction,setRedaction]=useState('');
   const brouillon=useBrouillon('avenants-'+ch.id,edit,setEdit,x=>'Avenant '+(x.numero||'')+(x.objet?' — '+x.objet:''));
   const B=bilanBudget(ch,ms,cmds), S=B.S, co=B.co, V=contratVentilation(ch);
   const manuel=contratManuel(ch), E=contratDepuisEngagements(ch,ms,cmds);
@@ -8808,6 +9031,29 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
       majAv(a.id,x=>avenantValidable(x,ch)?avenantValider(x,valid):x);setValid(null);
     },
     pieces:(a,v)=>majAv(a.id,x=>({...x,pieces:v})),
+    /* l'avenant à faire signer : rédigé d'après l'écran, déposé dans le
+       dossier « Avenants » du Drive et joint à l'avenant. Sans Drive
+       connecté, il se télécharge sur l'appareil plutôt que de se perdre. */
+    rediger:async a=>{
+      setRedaction(a.id);
+      try{
+        const octets=await genererAvenantClientDocx(avenantClientDonnees(ch,a,data));
+        const nom=('Avenant '+a.numero+(a.objet?' — '+a.objet:'')+' — '+(ch.nom||'')).replace(/[\\/:*?"<>|]/g,'-')+'.docx';
+        const type='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        let lien='';
+        try{
+          const token=await getDriveToken();
+          const folderId=await driveSousDossier(token,ch.id,ch.nom,'Avenants');
+          lien=(await uploadToDrive(new File([octets],nom,{type}),folderId)).webViewLink;
+        }catch(e){
+          if(!(e&&e.error==='auth_required'))throw e;
+          telechargerOctets(octets,nom,type);
+          alert('Google Drive n’est pas connecté : l’avenant est téléchargé sur cet appareil. Connectez le Drive pour qu’il rejoigne le dossier du chantier.');
+        }
+        if(lien)majAv(a.id,x=>avJournal({...x,pieces:[...(x.pieces||[]),{id:uid(),nom,lien,genere:true,le:today()}]},'Avenant à signer rédigé'));
+      }catch(e){alert('Rédaction de l’avenant impossible — '+((e&&(e.error||e.message))||String(e)))}
+      setRedaction('');
+    },
     rattacher:(a,ligneId,marcheId)=>{
       const m=ms.find(x=>x.id===marcheId);if(!m)return;
       majAv(a.id,x=>avJournal({...x,lignes:(x.lignes||[]).map(l=>l.id===ligneId&&!l.reporteLe
@@ -8988,7 +9234,7 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
                   </td>
                 </tr>
                 {deplie&&<tr style={{borderBottom:'1px solid '+RULE,background:'rgba(44,74,94,.03)'}}><td colSpan={8}>
-                  <DetailAvenant data={data} ch={ch} ms={ms} a={a} L={L} on={on} valid={valid} setValid={setValid}/>
+                  <DetailAvenant data={data} ch={ch} ms={ms} a={a} L={L} on={on} valid={valid} setValid={setValid} redaction={redaction}/>
                 </td></tr>}
               </React.Fragment>;
             })}
