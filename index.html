@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-19 · Artisans : « Vérifier les pièces sur le Drive » liste les attestations et RIB illisibles, à redéposer sur place';
+const VERSION='2026-10-19 · Budget et avenants : « Passer les honoraires à 20 % de TVA » en un clic (factures déjà émises inchangées)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -9267,6 +9267,20 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
         ?avJournal({...x,hono:{...(x.hono||{}),reporteLe:today()}},'Honoraires ajoutés aux honoraires du chantier'):x);
     },
   };
+  /* la TVA des honoraires du chantier passe à 20 % ; les factures
+     d'honoraires déjà enregistrées gardent le taux sous lequel elles ont été
+     émises — figé sur chacune, pour qu'aucune ne change de montant TTC */
+  const passerHonoTva=()=>{
+    const fs=(ch.honoFactures||[]).filter(f=>!tauxSaisi(f&&f.tva));
+    const ttc=co.honoTTC+(honoResteHT(ch)*AV_HONO_TVA/100);
+    if(!confirm('Passer la TVA des honoraires de ce chantier de 0 % à '+AV_HONO_TVA+' % ?\n\nHonoraires : '+eur(co.honoHT)+' HT = '
+      +eur(ttc)+' TTC (au lieu de '+eur(co.honoTTC)+').'
+      +(fs.length?'\n'+fs.length+' facture'+(fs.length>1?'s':'')+' d’honoraires déjà enregistrée'+(fs.length>1?'s gardent leur':' garde son')
+        +' taux de '+honoTva(ch)+' % (modifiable dans l’onglet Honoraires).':'')
+      +'\n\nCe réglage se retrouve dans « Modifier » › TVA sur les honoraires.'))return;
+    majCh(c=>({...c,tvaHono:AV_HONO_TVA,
+      honoFactures:(c.honoFactures||[]).map(f=>tauxSaisi(f&&f.tva)?f:{...f,tva:honoTva(c)})}));
+  };
   const ouvrirVentilation=()=>{
     const P=((ch.contratInitial&&ch.contratInitial.postes)||[]).map(p=>({...p}));
     setVentil({postes:P.length?P:[{id:uid(),type:'travaux',libelle:'',ht:'',taux:tvaRate(ch)},
@@ -9341,11 +9355,12 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
       {' '}<b>Onglet Honoraires</b> pour corriger le taux de ces factures.
     </div>}
     {/* des honoraires sans TVA font un total engagé trop bas d'un cinquième
-        de leur montant : on le dit, sans rien changer à la fiche */}
+        de leur montant : on le dit, et l'on propose de corriger d'un geste —
+        jamais sans le demander */}
     {honoTva(ch)===0&&honoResteHT(ch)>0&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       Les honoraires de ce chantier sont réglés sans TVA (0 %) : {eur(co.honoHT)} HT = {eur(co.honoTTC)} TTC. Si la maîtrise d'œuvre
-      facture la TVA à {AV_HONO_TVA} %, corrigez « TVA sur les honoraires » via « Modifier » (en haut de la fiche) : le total engagé passera
-      à {eurCts(B.engage+tvaCentimes(centimes(honoResteHT(ch)),AV_HONO_TVA))} TTC.
+      facture la TVA à {AV_HONO_TVA} %, le total engagé passera à {eurCts(B.engage+tvaCentimes(centimes(honoResteHT(ch)),AV_HONO_TVA))} TTC.
+      <div><button className="btn gh s" style={{marginTop:6}} onClick={passerHonoTva}>Passer les honoraires à {AV_HONO_TVA} % de TVA</button></div>
     </div>}
     {!!nonReportes.length&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       {nonReportes.map(a=>a.numero).join(', ')} : validé{nonReportes.length>1?'s':''}, pas encore reporté{nonReportes.length>1?'s':''} dans les marchés ou
