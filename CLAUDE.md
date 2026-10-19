@@ -44,7 +44,11 @@ qu'on ait à les redire.
   (`contratDepuisEngagements`, avenants reportés retirés), sauf saisie à
   la main (`contratInitial.mode==='manuel'`). L'avenant à faire signer au
   client est un Word (`avenantClientDonnees`, `genererAvenantClientDocx`),
-  déposé dans le dossier « Avenants » du Drive. Tests :
+  déposé dans le dossier « Avenants » du Drive. Honoraires d'un nouvel
+  avenant : 10 % du HT des artisans, TVA 20 % (`AV_HONO_PCT`,
+  `AV_HONO_TVA`). Un avenant, même validé, se supprime
+  (`supprimerAvenantClient` défait ses reports ; son numéro ne resert
+  pas). Tests :
   `t_budget_avenants.js`, `budget_avenants_navigateur.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
