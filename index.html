@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-19 · Avenants : honoraires de 10 % du HT artisans et TVA 20 % par défaut ; un avenant validé peut être supprimé';
+const VERSION='2026-10-19 · Drive : fichiers de plus de 5 Mo envoyés en session reprenable ; chaque refus de Google dit sa raison';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -6102,9 +6102,36 @@ const driveDepuisEcranAccueil=()=>{
 const DRIVE_RACINE='CRM CP';
 const DRIVE_RACINES_ANCIENNES=['CP Constructions Chantier','CP Constructions'];
 
+/* ---------- les refus du Drive, dits clairement ----------
+   « upload Drive échoué » ne disait rien : ni s'il fallait se reconnecter, ni
+   si le Drive était plein, ni si le fichier était trop lourd. On lit la
+   réponse de Google et l'on dit quoi faire. Un jeton refusé (401), ou délivré
+   sans l'accès au Drive (case décochée à la connexion), est effacé : l'écran
+   propose de se reconnecter. Un dossier introuvable (404 : supprimé, ou créé
+   depuis un autre compte Google) fait oublier les dossiers retenus : l'envoi
+   suivant les retrouve ou les recrée. */
+async function driveErreur(r,quoi){
+  let raison='',message='';
+  try{const j=await r.json();const e=(j&&j.error)||{};message=String(e.message||'');
+    raison=String(((e.errors||[])[0]||{}).reason||e.status||'')}catch(x){}
+  const oublierJeton=()=>{jetonEfface('driveToken');jetonEfface('driveTokenExpiry')};
+  if(r.status===401){oublierJeton();return {error:'auth_required',expire:true}}
+  if(/insufficient.*(scope|permission)|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(raison+' '+message)){oublierJeton();
+    return new Error('la connexion Google n’a pas donné l’accès au Drive : reconnectez-vous et cochez l’accès à Google Drive')}
+  if(/storageQuotaExceeded/i.test(raison+' '+message))
+    return new Error('le Drive de ce compte Google est plein : libérez de la place (ou augmentez le stockage), puis réessayez');
+  if(r.status===429||/rateLimitExceeded/i.test(raison))return new Error('Google limite momentanément les envois : réessayez dans une minute');
+  if(r.status===404){driveOublierDossiers();
+    return new Error('le dossier du chantier est introuvable sur le Drive (supprimé, ou créé depuis un autre compte Google) ; il sera retrouvé ou recréé : réessayez l’envoi')}
+  if(r.status===413)return new Error('le fichier est trop volumineux pour le Drive');
+  if(r.status===403)return new Error('Google refuse l’écriture avec ce compte'+(message?' (« '+message+' »)':'')+' — vérifiez le compte connecté');
+  return new Error((quoi||'Google a refusé l’envoi')+' (code '+r.status+(message?' : '+message:'')+')');
+}
+
 async function driveChercherDossier(token,nom){
   const q=encodeURIComponent("name='"+String(nom).replace(/'/g,"\\'")+"' and mimeType='application/vnd.google-apps.folder' and trashed=false");
   const r=await fetch('https://www.googleapis.com/drive/v3/files?q='+q,{headers:{Authorization:'Bearer '+token}});
+  if(!r.ok)throw await driveErreur(r,'Recherche du dossier sur le Drive impossible');
   const j=await r.json();
   return (j.files&&j.files.length)?j.files[0].id:'';
 }
@@ -6118,6 +6145,7 @@ async function driveFolder(token){
       headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
       body:JSON.stringify({name:DRIVE_RACINE,mimeType:'application/vnd.google-apps.folder'}),
     });
+    if(!c.ok)throw await driveErreur(c,'Création du dossier « '+DRIVE_RACINE+' » impossible');
     id=(await c.json()).id;
   }
   driveFolderId=id;
@@ -6167,6 +6195,9 @@ async function driveFindOrCreateSubfolder(token,parentId,name){
   const safeName=name.replace(/'/g,"\\'");
   const q=encodeURIComponent(`name='${safeName}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${parentId}' in parents`);
   const r=await fetch('https://www.googleapis.com/drive/v3/files?q='+q,{headers:{Authorization:'Bearer '+token}});
+  /* une recherche refusée ne vaut pas « absent » : sans ce contrôle, on
+     créait un dossier en double, ou l'on n'en obtenait aucun */
+  if(!r.ok)throw await driveErreur(r,'Recherche du dossier « '+name+' » impossible');
   const j=await r.json();
   if(j.files&&j.files.length)return j.files[0].id;
   const c=await fetch('https://www.googleapis.com/drive/v3/files',{
@@ -6174,6 +6205,7 @@ async function driveFindOrCreateSubfolder(token,parentId,name){
     headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
     body:JSON.stringify({name,mimeType:'application/vnd.google-apps.folder',parents:[parentId]}),
   });
+  if(!c.ok)throw await driveErreur(c,'Création du dossier « '+name+' » impossible');
   return(await c.json()).id;
 }
 
@@ -6369,16 +6401,36 @@ async function drivePartagePublic(fileId){
   return true;
 }
 
+/* au-delà de 5 Mo, Google refuse l'envoi en une seule requête — et un scan
+   de facture pris au téléphone dépasse vite ce seuil. On passe alors par
+   l'envoi « reprenable » : une requête ouvre la session, une seconde porte
+   le fichier. */
+const DRIVE_ENVOI_SIMPLE_MAX=5*1024*1024;
 async function uploadToDrive(file,folderId){
   const token=await getDriveToken();
   const parent=folderId||await driveFolder(token);
+  const meta={name:file.name,parents:[parent]};
+  if((+file.size||0)>DRIVE_ENVOI_SIMPLE_MAX){
+    const type=file.type||'application/octet-stream';
+    const o=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink',{
+      method:'POST',body:JSON.stringify(meta),
+      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json; charset=UTF-8',
+        'X-Upload-Content-Type':type,'X-Upload-Content-Length':String(file.size)},
+    });
+    if(!o.ok)throw await driveErreur(o);
+    const session=o.headers&&o.headers.get&&o.headers.get('Location');
+    if(!session)throw new Error('Google n’a pas ouvert la session d’envoi : réessayez');
+    const r=await fetch(session,{method:'PUT',headers:{'Content-Type':type},body:file});
+    if(!r.ok)throw await driveErreur(r);
+    return r.json();
+  }
   const form=new FormData();
-  form.append('metadata',new Blob([JSON.stringify({name:file.name,parents:[parent]})],{type:'application/json'}));
+  form.append('metadata',new Blob([JSON.stringify(meta)],{type:'application/json'}));
   form.append('file',file);
   const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',{
     method:'POST',headers:{Authorization:'Bearer '+token},body:form,
   });
-  if(!r.ok)throw new Error('upload Drive échoué');
+  if(!r.ok)throw await driveErreur(r);
   return r.json();
 }
 
