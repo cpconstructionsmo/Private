@@ -5,7 +5,7 @@
    centimes, TVA ligne par ligne. Données fictives. */
 const {charger,texteInst,norm,verif}=require('./harness');
 const React=require('react');const TR=require('react-test-renderer');
-const M=charger(['Fiche','Honoraires','EMPTY','avenantClientDonnees','genererAvenantClientDocx','zipEntree','lignesDocumentXml','avCalc','avLigneCalc','avenantsSynthese','budgetActualise','bilanBudget','contratVentilation','contratDepuisEngagements',
+const M=charger(['Fiche','Honoraires','EMPTY','supprimerAvenantClient','avenantDepuisLot','avenantClientDonnees','genererAvenantClientDocx','zipEntree','lignesDocumentXml','avCalc','avLigneCalc','avenantsSynthese','budgetActualise','bilanBudget','contratVentilation','contratDepuisEngagements',
   'avenantNumeroClient','nouvelAvenantClient','avenantDupliquer','avenantCorrectif','avenantModifiable','avenantValidable',
   'avenantValider','avenantChangerStatut','reporterAvenantMarches','avLignesAReporter','honoAmount','coutOperation','centimes']);
 const {chk,fin}=verif();
@@ -164,14 +164,15 @@ TR.act(()=>champ(p=>p['aria-label']==='Quantité').props.onChange({target:{value
 TR.act(()=>champ(p=>p['aria-label']==='Prix unitaire HT').props.onChange({target:{value:'50'}}));
 t=texte(tr);
 chk(/TVA 10 %/.test(t),'le taux de TVA suit le marché choisi (10 %)');
-chk(/Total de l'avenant TTC = prestations \+ 220,00 € \+ honoraires 0,00 €\+ 220,00 €/.test(t),'total de l’avenant en direct : 200 HT + 20 TVA, sans honoraires');
+chk(/Honoraires : \+ 20,00 € HT \+ \+ 4,00 € TVA \(20 %\) = \+ 24,00 € TTC/.test(t),'par défaut : honoraires de 10 % du prix HT des artisans, TVA de la maîtrise d’œuvre à 20 %');
+chk(/Total de l'avenant TTC = prestations \+ 220,00 € \+ honoraires \+ 24,00 €\+ 244,00 €/.test(t),'total de l’avenant en direct : 200 HT + 20 TVA, honoraires 20 HT + 4 TVA');
 TR.act(()=>bouton(/^Enregistrer$/).props.onClick());
 let av=etat.v.chantiers[0].avenantsClient;
 chk(av.length===1&&av[0].numero==='AV-001'&&av[0].lignes[0].marcheId==='m2','enregistré dans les données du chantier (AV-001, rattaché à l’électricité)');
 t=texte(tr);
 chk(/AV-001/.test(t)&&/Plus-value fictive/.test(t)&&/Brouillon/.test(t),'une ligne par avenant : numéro, objet, statut');
-chk(/Cumul en attente : \+ 220,00 € TTC/.test(t)&&/Budget actualisé : 180 000,00 € TTC/.test(t),'en attente : hors budget');
-chk(/Simulation/.test(t)&&/budget 180 220,00 € TTC/.test(t),'la simulation est affichée à part');
+chk(/Cumul en attente : \+ 244,00 € TTC/.test(t)&&/Budget actualisé : 180 000,00 € TTC/.test(t),'en attente : hors budget');
+chk(/Simulation/.test(t)&&/budget 180 244,00 € TTC/.test(t),'la simulation est affichée à part');
 TR.act(()=>bouton(/^Enregistrer la validation$/).props.onClick());
 TR.act(()=>champ(p=>/Avenant signé, courriel/.test(p.placeholder||'')).props.onChange({target:{value:'Courriel du client'}}));
 chk(/pas une signature électronique|n'est pas une signature électronique|Ce n'est pas une\s*signature électronique/.test(texte(tr)),'la validation ne se présente pas comme une signature électronique');
@@ -179,20 +180,33 @@ TR.act(()=>bouton(/^Valider AV-001/).props.onClick());
 av=etat.v.chantiers[0].avenantsClient;
 chk(av[0].statut==='valide'&&av[0].accord.reference==='Courriel du client','validation enregistrée avec sa référence');
 t=texte(tr);
-chk(/Avenants validés : \+ 220,00 € TTC/.test(t)&&/Budget actualisé : 180 220,00 € TTC/.test(t),'le budget actualisé suit la validation');
-chk(/Budget disponible : 14 220,00 € TTC/.test(t),'le budget disponible aussi (rien n’est encore reporté au marché)');
+chk(/Avenants validés : \+ 244,00 € TTC/.test(t)&&/Budget actualisé : 180 244,00 € TTC/.test(t),'le budget actualisé suit la validation');
+chk(/Budget disponible : 14 244,00 € TTC/.test(t),'le budget disponible aussi (rien n’est encore reporté au marché)');
+chk(av[0].hono.taux===20,'à la validation, le taux des honoraires est figé (20 %)');
 chk(/pas encore reporté/.test(t),'l’avenant validé non reporté est signalé');
 TR.act(()=>bouton(/^Reporter dans les marchés$/).props.onClick());
 chk(etat.v.marches.find(m=>m.id==='m2').montantHT===20200,'report : le marché d’électricité passe à 20 200 € HT');
 t=texte(tr);
-chk(/Total engagé : 166 220,00 € TTC/.test(t)&&/Budget disponible : 14 000,00 € TTC/.test(t),'après report : engagé + 220 TTC, une fois');
+chk(/Total engagé : 166 220,00 € TTC/.test(t)&&/Budget disponible : 14 024,00 € TTC/.test(t),'après report : engagé + 220 TTC, une fois');
 chk(!bouton(/^Reporter dans les marchés$/),'plus de bouton de report une fois fait');
-chk(!bouton(/^Supprimer$/)&&!!bouton(/^Avenant correctif$/),'validé : ni modification ni suppression, un correctif');
+TR.act(()=>bouton(/^Ajouter aux honoraires du chantier$/).props.onClick());
+t=texte(tr);
+chk(/Total engagé : 166 244,00 € TTC/.test(t)&&/Budget disponible : 14 000,00 € TTC/.test(t),'honoraires ajoutés : engagé + 24 TTC (20 HT + 20 %)');
+chk(tr.root.findAll(n=>n.type==='button'&&/^Modifier$/.test(norm(texteInst(n)))).length===1&&!!bouton(/^Avenant correctif$/)&&!!bouton(/^Supprimer$/),'validé : plus de modification ; un correctif, ou la suppression');
 
 /* rechargement : les données relues donnent le même écran */
 TR.act(()=>tr.unmount());
 etat={v:rt(etat.v)};tr=rendre(etat,'c1');t=texte(tr);
-chk(/AV-001/.test(t)&&/Budget actualisé : 180 220,00 € TTC/.test(t)&&/Validé/.test(t),'après rechargement, l’avenant et le budget sont retrouvés');
+chk(/AV-001/.test(t)&&/Budget actualisé : 180 244,00 € TTC/.test(t)&&/Validé/.test(t),'après rechargement, l’avenant et le budget sont retrouvés');
+
+/* supprimer l'avenant validé : budget, marché et honoraires reviennent, le numéro ne resservira pas */
+TR.act(()=>bouton(/^Supprimer$/).props.onClick());
+t=texte(tr);
+chk(!(etat.v.chantiers[0].avenantsClient||[]).length&&etat.v.marches.find(m=>m.id==='m2').montantHT===20000
+  &&!(etat.v.marches.find(m=>m.id==='m2').avenantsClientReportes||[]).length,'supprimé : le marché d’électricité revient à 20 000 € HT, sans trace');
+chk(/Budget actualisé : 180 000,00 € TTC/.test(t)&&/Total engagé : 166 000,00 € TTC/.test(t)&&/Budget disponible : 14 000,00 € TTC/.test(t),
+  'budget, engagé et disponible reviennent à leur état d’avant l’avenant');
+chk(M.avenantNumeroClient(etat.v.chantiers[0])==='AV-002','le numéro AV-001 ne resservira pas');
 TR.act(()=>tr.unmount());
 
 /* un avenant de lot ajouté au budget avant cette version : le montant saisi
@@ -216,6 +230,43 @@ etat={v:{...M.EMPTY,chantiers:[{...CH,avenantsClient:[valide(M.nouvelAvenantClie
   lignes:[ligne({lot:'Zinguerie',designation:'Gouttières',qte:1,puHT:1000,taux:20})],hono:{mode:'aucun'}}))]}],artisans:ART,marches:MS,commandes:[]}};
 tr=rendre(etat,'c1');
 chk(/AV-001 : validé, pas encore reporté/.test(texte(tr)),'prestation validée sans marché : signalée comme hors du total engagé');
+TR.act(()=>tr.unmount());
+
+/* honoraires d'un avenant : 10 % du HT des artisans et TVA à 20 % par défaut */
+{
+  const n=M.nouvelAvenantClient({...CH,tvaHono:0});
+  chk(n.hono.mode==='pourcentage'&&n.hono.pct===10&&n.hono.taux===20,'nouvel avenant : honoraires à 10 %, TVA 20 %, même si la fiche est à 0 %');
+  const vieux={...M.nouvelAvenantClient(CH),lignes:[ligne({qte:1,puHT:1000,taux:20})],hono:{mode:'pourcentage',pct:10,taux:'',exclues:[]}};
+  const chz={...CH,tvaHono:0};
+  chk(M.avCalc(vieux,chz).hono.ttc===12000,'brouillon sans taux saisi : la TVA des honoraires est de 20 % (100 HT → 120 TTC)');
+  chk(M.avCalc({...vieux,statut:'valide'},chz).hono.ttc===10000,'avenant déjà validé sans taux saisi : il garde le taux qui l’a fait valider');
+  /* l'avenant venu d'un lot ne chiffre que les travaux */
+  const lot=M.avenantDepuisLot(CH,MS[0],{id:'x',numero:'1',lignes:[{id:'q',libelle:'Tranchée',qt:1,pu:100,signe:1}],dateSignature:'2026-10-01'});
+  chk(lot.hono.mode==='aucun'&&M.avCalc(lot,CH).total.ttc===12000,'avenant de lot : pas d’honoraires, 100 HT → 120 TTC');
+}
+/* supprimer l'avenant venu d'un lot : le marché revient, l'avenant de lot redevient à intégrer */
+{
+  const AVL2={id:'al',numero:'2',lignes:[{id:'q',libelle:'Regard',qt:2,unite:'u',pu:50,signe:1}],dateSignature:'2026-10-01',budgetAppliqueLe:'2026-10-02'};
+  const cl=M.avenantDepuisLot(CH,MS[0],AVL2);
+  const trace=cl.lignes.map(l=>({avenantId:cl.id,numero:cl.numero,ligneId:l.id,ht:100,le:'2026-10-02'}));
+  let d={...M.EMPTY,chantiers:[{...CH,avenantsClient:[cl]}],artisans:ART,commandes:[],
+    marches:[{...MS[0],montantHT:100100,avenants:[{...AVL2,avenantClientId:cl.id}],avenantsClientReportes:trace},MS[1]]};
+  d=M.supprimerAvenantClient(d,'c1',cl.id);
+  const m1=d.marches.find(m=>m.id==='m1');
+  chk(m1.montantHT===100000&&!m1.avenantsClientReportes.length&&m1.avenants[0].budgetAppliqueLe===''&&m1.avenants[0].avenantClientId==='',
+    'avenant de lot : marché ramené à 100 000 € HT, avenant de lot de nouveau « à intégrer »');
+  chk(M.avenantNumeroClient(d.chantiers[0])==='AV-002','validé puis supprimé : son numéro ne resservira pas');
+  /* un brouillon jamais rédigé libère son numéro */
+  const br=M.nouvelAvenantClient(CH);
+  const d2=M.supprimerAvenantClient({...M.EMPTY,chantiers:[{...CH,avenantsClient:[br]}],marches:MS,artisans:ART,commandes:[]},'c1',br.id);
+  chk(M.avenantNumeroClient(d2.chantiers[0])==='AV-001','brouillon supprimé : son numéro se réemploie');
+}
+/* des honoraires sans TVA : signalés, rien n'est changé */
+etat={v:{...M.EMPTY,chantiers:[{...CH,tvaHono:0}],artisans:ART,marches:MS,commandes:[]}};
+tr=rendre(etat,'c1');t=texte(tr);
+chk(/Les honoraires de ce chantier sont réglés sans TVA \(0 %\) : 20 000 € HT = 20 000 € TTC/.test(t)&&/le total engagé passera à 166 000,00 € TTC/.test(t),
+  'honoraires de la fiche sans TVA : alerte, avec le total engagé qu’on aurait à 20 %');
+chk(etat.v.chantiers[0].tvaHono===0,'… sans toucher à la fiche');
 TR.act(()=>tr.unmount());
 
 /* dépassement de budget, en rouge */

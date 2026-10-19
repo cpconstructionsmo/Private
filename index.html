@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-19 · Budget et avenants : « Rédiger l’avenant à signer » — Word au nom du client (prestations, honoraires, nouveau budget, conditions)';
+const VERSION='2026-10-19 · Avenants : honoraires de 10 % du HT artisans et TVA 20 % par défaut ; un avenant validé peut être supprimé';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1161,11 +1161,16 @@ const avLigneCalc=(l,ch)=>{
 /* les honoraires d'un avenant : aucun, un forfait HT, ou un pourcentage
    d'une assiette de travaux HT — les lignes de l'avenant, sauf celles que
    l'on en exclut. Jamais d'honoraires sur les honoraires : l'assiette ne
-   compte que les prestations. Aucun taux n'est imposé. */
+   compte que les prestations. Un nouvel avenant part de la règle de CP
+   Constructions — 10 % du prix HT des artisans, TVA de la maîtrise
+   d'œuvre à 20 % —, et l'une comme l'autre se changent avenant par
+   avenant. Un avenant pas encore validé dont le taux n'a jamais été saisi
+   prend ces 20 % ; un avenant validé garde le taux qui l'a fait valider. */
+const AV_HONO_PCT=10, AV_HONO_TVA=20;
 const avHonoCalc=(a,ch,lignes)=>{
   const h=(a&&a.hono)||{};
   const mode=h.mode==='forfait'||h.mode==='pourcentage'?h.mode:'aucun';
-  const taux=tauxSaisi(h.taux)?+h.taux:honoTva(ch);
+  const taux=tauxSaisi(h.taux)?+h.taux:(['valide','refuse'].includes(avStatut(a))?honoTva(ch):AV_HONO_TVA);
   const ex=new Set(h.exclues||[]);
   const dans=(lignes||[]).filter(x=>!ex.has(x.id));
   const assiette=dans.reduce((s,x)=>s+x.ht,0);
@@ -1257,16 +1262,18 @@ const contratDepuisEngagements=(ch,ms,cs)=>{
 };
 /* la ventilation se reprend des engagements, sauf si on l'a choisie à la main */
 const contratManuel=ch=>!!(ch&&ch.contratInitial&&ch.contratInitial.mode==='manuel');
-/* AV-001, AV-002… : un numéro de plus que le plus grand du chantier */
+/* AV-001, AV-002… : un numéro de plus que le plus grand du chantier — y
+   compris celui d'un avenant supprimé après avoir été validé ou rédigé :
+   un document signé peut le porter, il ne resservira pas */
 const avenantNumeroClient=ch=>{
   const n=((ch&&ch.avenantsClient)||[]).map(a=>+String((a&&a.numero)||'').replace(/\D/g,'')||0);
-  return 'AV-'+String(Math.max(0,...n)+1).padStart(3,'0');
+  return 'AV-'+String(Math.max(0,...n,+((ch&&ch.avenantsNumeroMax)||0))+1).padStart(3,'0');
 };
 const avJournal=(a,quoi)=>({...a,journal:[...((a&&a.journal)||[]),{le:new Date().toISOString(),quoi}]});
 const avLigneVide=ch=>({id:uid(),marcheId:'',lot:'',artisanId:'',designation:'',qte:1,unite:'',puHT:'',taux:tvaRate(ch),sens:1});
 const nouvelAvenantClient=(ch,champs)=>avJournal({id:uid(),numero:avenantNumeroClient(ch),date:today(),
   objet:'',description:'',motif:'',statut:'brouillon',accord:{date:'',reference:''},pieces:[],
-  lignes:[avLigneVide(ch)],hono:{mode:'aucun',taux:'',pct:'',forfaitHT:'',sens:1,exclues:[]},
+  lignes:[avLigneVide(ch)],hono:{mode:'pourcentage',taux:AV_HONO_TVA,pct:AV_HONO_PCT,forfaitHT:'',sens:1,exclues:[]},
   ...(champs||{})},(champs&&champs.journalCreation)||'Création');
 /* dupliquer : un nouveau brouillon, mêmes prestations, sans accord ni report */
 const avenantDupliquer=(ch,a)=>{
@@ -1289,7 +1296,9 @@ const avenantValidable=(a,ch)=>{
 /* enregistrer l'accord du client, obtenu par ailleurs (avenant signé,
    courriel…) : ce n'est pas une signature électronique */
 const avenantValider=(a,accord)=>avJournal({...a,statut:'valide',valideLe:today(),
-  accord:{date:accord.date,reference:(accord.reference||'').trim()}},
+  accord:{date:accord.date,reference:(accord.reference||'').trim()},
+  /* le taux des honoraires, figé tel qu'il a été montré au client */
+  hono:{...((a&&a.hono)||{}),taux:tauxSaisi(a&&a.hono&&a.hono.taux)?a.hono.taux:AV_HONO_TVA}},
   'Validation enregistrée — accord du client du '+fd(accord.date)+(accord.reference&&accord.reference.trim()?' ('+accord.reference.trim()+')':''));
 const avenantChangerStatut=(a,statut)=>avJournal({...a,statut},
   statut==='a_valider'?'Soumis à validation':statut==='refuse'?'Refusé par le client':statut==='brouillon'?'Repassé en brouillon':AV_STATUTS[statut]);
@@ -1325,6 +1334,45 @@ const reporterAvenantMarches=(data,chId,avId)=>{
         'Reporté dans les marchés ('+[...ids].length+' ligne'+([...ids].length>1?'s':'')+')'))}),
   };
 };
+/* supprimer un avenant, même validé — à la demande, après confirmation.
+   Ce qu'il avait reporté dans les marchés en est retiré, d'après la trace
+   gardée par chaque marché ; ses honoraires sortent d'eux-mêmes de ceux du
+   chantier. Un avenant de lot qui l'avait produit redevient « signé, à
+   intégrer » si son montant a pu être retiré du marché ; sinon il reste
+   marqué, pour ne pas être compté deux fois. Le numéro d'un avenant validé
+   ou rédigé n'est jamais réattribué. */
+const avSuppressionBilan=(data,ch,a)=>{
+  const traces=((data&&data.marches)||[]).filter(m=>m.chantierId===ch.id)
+    .map(m=>({m,R:(m.avenantsClientReportes||[]).filter(x=>x.avenantId===a.id)})).filter(o=>o.R.length)
+    .map(({m,R})=>({marche:m,ht:R.reduce((s,x)=>s+centimes(x.ht),0)/100,ids:new Set(R.map(x=>x.ligneId))}));
+  const tracees=new Set(traces.flatMap(t=>[...t.ids]));
+  const sansTrace=((a&&a.lignes)||[]).filter(l=>l.reporteLe&&!tracees.has(l.id));
+  return {traces,sansTrace,hono:!!(a&&a.hono&&a.hono.reporteLe)&&avCalc(a,ch).hono.ht!==0};
+};
+const supprimerAvenantClient=(data,chId,avId)=>{
+  const ch=(data.chantiers||[]).find(c=>c.id===chId);
+  const a=ch&&(ch.avenantsClient||[]).find(x=>x.id===avId);
+  if(!a)return data;
+  const {traces,sansTrace}=avSuppressionBilan(data,ch,a);
+  const retire=new Map(traces.map(t=>[t.marche.id,t.ht]));
+  const garder=avStatut(a)!=='brouillon'||(a.pieces||[]).some(p=>p.genere);
+  const n=+String(a.numero||'').replace(/\D/g,'')||0;
+  return {...data,
+    marches:(data.marches||[]).map(m=>{
+      if(m.chantierId!==chId)return m;
+      let m2=m;
+      if(retire.has(m.id))m2={...m2,montantHT:(centimes(m.montantHT)-centimes(retire.get(m.id)))/100,
+        avenantsClientReportes:(m.avenantsClientReportes||[]).filter(x=>x.avenantId!==a.id)};
+      if((m.avenants||[]).some(x=>x.avenantClientId===a.id))
+        m2={...m2,avenants:m2.avenants.map(x=>x.avenantClientId!==a.id?x
+          :retire.has(m.id)?{...x,budgetAppliqueLe:'',avenantClientId:''}:{...x,avenantClientSupprime:a.numero})};
+      return m2;
+    }),
+    chantiers:(data.chantiers||[]).map(c=>c.id!==chId?c:{...c,
+      avenantsClient:(c.avenantsClient||[]).filter(x=>x.id!==avId),
+      ...(garder?{avenantsNumeroMax:Math.max(+c.avenantsNumeroMax||0,n)}:{})}),
+  };
+};
 /* les honoraires d'un avenant validé ne comptent dans les honoraires du
    chantier (et donc dans le total engagé et le reste à facturer) qu'une
    fois reportés, à la demande — une seule fois */
@@ -1342,6 +1390,8 @@ const avenantDepuisLot=(ch,m,av,reporteLe)=>{
       designation:l.libelle||'',qte:Math.abs(+l.qt||0),unite:l.unite||'',puHT:Math.abs(+l.pu||0),taux,
       sens:l.signe===-1?-1:1,reporteLe:le,reporteSur:m.id})),
     origine:{marcheId:m.id,avenantLotId:av.id},
+    /* l'avenant de lot ne chiffre que les travaux : pas d'honoraires */
+    hono:{mode:'aucun',taux:'',pct:'',forfaitHT:'',sens:1,exclues:[]},
     pieces:av.lien?[{id:uid(),nom:'Avenant n° '+(av.numero||'')+' — '+(m.lot||''),lien:av.lien}]:[],
     journalCreation:'Création depuis l’avenant n° '+(av.numero||'')+' du lot '+(m.lot||'')});
   return avenantValider(a,{date:av.dateSignature||today(),reference:'Avenant n° '+(av.numero||'')+' signé — '+(m.lot||'')});
@@ -8761,7 +8811,7 @@ function EditeurAvenant({data,ch,ms,a,setA,onSave,onCancel}){
         <option value="pourcentage">Pourcentage d'une assiette de travaux HT</option>
       </select>
       {c.hono.mode!=='aucun'&&<input className="in" aria-label="TVA des honoraires" type="number" min="0" step="0.1" style={{flex:'0 1 120px'}}
-        placeholder={'TVA '+honoTva(ch)+' %'} value={tauxSaisi(h.taux)?h.taux:''} onChange={e=>majH({taux:e.target.value})}/>}
+        placeholder={'TVA '+AV_HONO_TVA+' %'} value={tauxSaisi(h.taux)?h.taux:''} onChange={e=>majH({taux:e.target.value})}/>}
     </div>
     {c.hono.mode==='forfait'&&<div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center',marginTop:6}}>
       <select className="in" aria-label="Sens des honoraires" style={{flex:'0 0 150px'}} value={avSens(h)===-1?'-1':'1'} onChange={e=>majH({sens:+e.target.value})}>
@@ -8905,7 +8955,7 @@ function DetailAvenant({data,ch,ms,a,L,on,valid,setValid,redaction}){
         style={{opacity:avenantValidable(a,ch)?1:.5}} onClick={()=>setValid({id:a.id,date:today(),reference:''})}>Enregistrer la validation</button>}
       {st==='valide'&&<button className="btn gh s" onClick={()=>on.correctif(a)}>Avenant correctif</button>}
       <button className="btn gh s" onClick={()=>on.dupliquer(a)}>Dupliquer</button>
-      {st==='brouillon'&&<button className="btn dg s" onClick={()=>on.supprimer(a)}>Supprimer</button>}
+      <button className="btn dg s" onClick={()=>on.supprimer(a)}>Supprimer</button>
     </div>
     {['brouillon','a_valider'].includes(st)&&!avenantValidable(a,ch)&&<div className="mut" style={{marginTop:4}}>
       Pour valider, il faut au moins une prestation chiffrée ou des honoraires.</div>}
@@ -8985,7 +9035,7 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
   const ajouterAv=a=>majCh(c=>({...c,avenantsClient:[...(c.avenantsClient||[]),a]}));
   /* les avenants de lot ajoutés au budget avant cette version : ils ont
      grossi le montant saisi comme contrat initial */
-  const anciens=ms.flatMap(m=>(m.avenants||[]).filter(x=>x.budgetAppliqueLe&&!x.avenantClientId).map(x=>({m,x})));
+  const anciens=ms.flatMap(m=>(m.avenants||[]).filter(x=>x.budgetAppliqueLe&&!x.avenantClientId&&!x.avenantClientSupprime).map(x=>({m,x})));
   const ancienTTC=({m,x})=>Math.round(avenantMontantHT(x)*(1+marcheTva(m,ch)/100)*100)/100;
   const separerAnciens=()=>{
     const total=anciens.reduce((s,o)=>s+ancienTTC(o),0);
@@ -9023,8 +9073,26 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
     modifier:a=>{setEdit(JSON.parse(JSON.stringify(a)));setOuvert('')},
     dupliquer:a=>{const n=avenantDupliquer(ch,a);ajouterAv(n);setEdit(n);setOuvert('')},
     correctif:a=>{const n=avenantCorrectif(ch,a);ajouterAv(n);setEdit(n);setOuvert('')},
-    supprimer:a=>{if(avenantModifiable(a)&&confirm('Supprimer le brouillon '+a.numero+' ?'))
-      majCh(c=>({...c,avenantsClient:(c.avenantsClient||[]).filter(x=>x.id!==a.id)}))},
+    /* tout avenant se supprime ; un avenant validé dit d'abord ce que sa
+       suppression défait — budget, marchés, honoraires */
+    supprimer:a=>{
+      const st=avStatut(a), c=avCalc(a,ch);
+      let msg='Supprimer '+(st==='brouillon'?'le brouillon ':'l’avenant ')+a.numero+(a.objet?' — '+a.objet:'')+' ?';
+      if(st==='valide'){
+        const b=avSuppressionBilan(data,ch,a);
+        msg='Supprimer l’avenant validé '+a.numero+(a.objet?' — '+a.objet:'')+' ('+eurCtsSigne(c.total.ttc)+' TTC) ?'
+          +'\n\nLe budget actualisé passe de '+eurCts(B.actualise)+' à '+eurCts(B.actualise-c.total.ttc)+' TTC.'
+          +(b.traces.length?'\nLe montant HT des marchés est diminué de ce que l’avenant y avait reporté : '
+            +b.traces.map(t=>(t.marche.lot||'lot')+' − '+eurc(t.ht)).join(', ')+'.':'')
+          +(b.sansTrace.length?'\n'+b.sansTrace.length+' prestation(s) reportée(s) sans trace dans leur marché : corrigez ce montant à la main si besoin.':'')
+          +(b.hono?'\nSes honoraires sortent des honoraires du chantier.':'')
+          +'\n\nSi le client a signé cet avenant, un avenant correctif garde mieux la trace. La suppression est définitive.';
+      }
+      if(!confirm(msg))return;
+      if(edit&&edit.id===a.id)setEdit(null);
+      if(ouvert===a.id)setOuvert('');
+      save(supprimerAvenantClient(data,ch.id,a.id));
+    },
     statut:(a,st)=>majAv(a.id,x=>['brouillon','a_valider'].includes(avStatut(x))?avenantChangerStatut(x,st):x),
     valider:a=>{
       if(!valid||!valid.date)return;
@@ -9142,6 +9210,13 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
       {' '}{honoDiv.map(t=>t+' %').join(' et ')} alors que les honoraires de ce chantier sont à {honoTva(ch)} %.
       {' '}<b>Onglet Honoraires</b> pour corriger le taux de ces factures.
     </div>}
+    {/* des honoraires sans TVA font un total engagé trop bas d'un cinquième
+        de leur montant : on le dit, sans rien changer à la fiche */}
+    {honoTva(ch)===0&&honoResteHT(ch)>0&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
+      Les honoraires de ce chantier sont réglés sans TVA (0 %) : {eur(co.honoHT)} HT = {eur(co.honoTTC)} TTC. Si la maîtrise d'œuvre
+      facture la TVA à {AV_HONO_TVA} %, corrigez « TVA sur les honoraires » via « Modifier » (en haut de la fiche) : le total engagé passera
+      à {eurCts(B.engage+tvaCentimes(centimes(honoResteHT(ch)),AV_HONO_TVA))} TTC.
+    </div>}
     {!!nonReportes.length&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       {nonReportes.map(a=>a.numero).join(', ')} : validé{nonReportes.length>1?'s':''}, pas encore reporté{nonReportes.length>1?'s':''} dans les marchés ou
       les honoraires — le total engagé ne {nonReportes.length>1?'les':'le'} compte pas encore. Dépliez l'avenant pour rattacher ses prestations à leur marché
@@ -9230,7 +9305,7 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
                     <button className="xs" style={{color:TERRA,background:'none',border:'none',padding:'0 6px 0 0'}} onClick={()=>setOuvert(deplie?'':a.id)}>{deplie?'Masquer':'Consulter'}</button>
                     {st==='brouillon'&&<button className="xs" style={{color:TERRA,background:'none',border:'none',padding:'0 6px'}} onClick={()=>on.modifier(a)}>Modifier</button>}
                     <button className="xs" style={{color:TERRA,background:'none',border:'none',padding:'0 6px'}} onClick={()=>on.dupliquer(a)}>Dupliquer</button>
-                    {st==='brouillon'&&<button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 6px'}} onClick={()=>on.supprimer(a)}>Supprimer</button>}
+                    <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 6px'}} onClick={()=>on.supprimer(a)}>Supprimer</button>
                   </td>
                 </tr>
                 {deplie&&<tr style={{borderBottom:'1px solid '+RULE,background:'rgba(44,74,94,.03)'}}><td colSpan={8}>
