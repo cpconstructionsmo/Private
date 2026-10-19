@@ -268,6 +268,15 @@ chk(/Les honoraires de ce chantier sont réglés sans TVA \(0 %\) : 20 000 € H
   'honoraires de la fiche sans TVA : alerte, avec le total engagé qu’on aurait à 20 %');
 chk(etat.v.chantiers[0].tvaHono===0,'… sans toucher à la fiche');
 TR.act(()=>tr.unmount());
+/* le bouton passe à 20 % ; une facture déjà émise garde son taux de 0 % */
+etat={v:{...M.EMPTY,chantiers:[{...CH,tvaHono:0,honoFactures:[{id:'h1',montant:5000,date:'2026-09-01'}]}],artisans:ART,marches:MS,commandes:[]}};
+tr=rendre(etat,'c1');
+TR.act(()=>tr.root.findAll(n=>n.type==='button'&&/Passer les honoraires à 20 % de TVA/.test(norm(texteInst(n))))[0].props.onClick());
+const chh=etat.v.chantiers[0];
+chk(chh.tvaHono===20&&chh.honoFactures[0].tva===0,'passé à 20 % ; la facture déjà émise garde son taux de 0 %');
+t=texte(tr);
+chk(/Total engagé : 165 000,00 € TTC/.test(t)&&!/réglés sans TVA/.test(t),'honoraires : 5 000 facturés à 0 % + 15 000 restants à 20 % ; l’alerte disparaît');
+TR.act(()=>tr.unmount());
 
 /* dépassement de budget, en rouge */
 etat={v:{...M.EMPTY,chantiers:[{...CH,budgetClientTTC:150000}],artisans:ART,marches:MS,commandes:[]}};
