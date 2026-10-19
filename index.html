@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-19 · Facture visée : une pièce illisible sur le Drive est nommée, et la facture peut partir sans elle';
+const VERSION='2026-10-19 · Artisans : « Vérifier les pièces sur le Drive » liste les attestations et RIB illisibles, à redéposer sur place';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -6645,6 +6645,38 @@ async function driveFichierBytes(token,fileId){
   if(!r.ok)throw await driveErreur(r,'Lecture du fichier sur le Drive impossible','fichier');
   return new Uint8Array(await r.arrayBuffer());
 }
+/* une pièce se lit-elle avec le compte connecté ? On ne demande que sa fiche
+   (nom, corbeille) : la vérification d'un carnet entier reste légère */
+async function driveFichierLisible(token,fileId){
+  const r=await fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(fileId)+'?fields=id,name,trashed',
+    {headers:{Authorization:'Bearer '+token}});
+  if(!r.ok)throw await driveErreur(r,'Lecture de la pièce sur le Drive impossible','fichier');
+  const j=await r.json();
+  if(j&&j.trashed)throw new Error('fichier à la corbeille du Drive');
+  return (j&&j.name)||'';
+}
+/* les pièces du carnet d'artisans que le mail d'une facture visée relit :
+   attestation décennale et RIB. Chacune est dite lisible, illisible (avec
+   la raison) ou hors Drive (un lien collé vers un autre site, non vérifié). */
+const PIECES_ARTISAN=[['att','lienAttestation','Attestation décennale'],['rib','lienRib','RIB']];
+async function verifierPiecesArtisans(artisans,token,progres){
+  const L=[];
+  for(const a of (artisans||[]))for(const [cle,champ,libelle] of PIECES_ARTISAN)
+    if(a&&a[champ])L.push({artisanId:a.id,nom:a.nom||'',cle,champ,libelle,lien:a[champ]});
+  let fait=0;
+  for(const x of L){
+    const id=driveIdDepuisLien(x.lien);
+    if(!id)x.etat='hors_drive';
+    else try{await driveFichierLisible(token,id);x.etat='ok'}
+    catch(e){
+      if(e&&e.error==='auth_required')throw e;
+      x.etat='illisible';x.raison=(e&&e.message)||String(e);
+    }
+    if(progres)progres(++fait,L.length);
+  }
+  return L;
+}
+
 /* le type d'une pièce jointe, d'après son nom. Un PDF annoncé comme tel
    s'ouvre d'un geste sur le téléphone de l'artisan ; sous un type générique,
    il faut d'abord l'enregistrer puis chercher avec quoi l'ouvrir. */
@@ -20705,6 +20737,71 @@ function ComptesRendus({data,ch,save}){
 }
 
 /* ---------------- ARTISANS ---------------- */
+/* ---------- vérifier les pièces du carnet sur le Drive ----------
+   Une attestation ou un RIB déposé depuis un autre compte Google ne se relit
+   pas avec le compte connecté : on ne le découvrait qu'au moment d'envoyer
+   une facture visée. La vérification les liste toutes d'un coup, et chacune
+   se redépose sur place — le lien de la fiche est alors remplacé. */
+function VerifPiecesDrive({data,save}){
+  const [v,setV]=useState(null);
+  const lancer=async()=>{
+    setV({etat:'travail',fait:0,total:0});
+    try{
+      const token=await getDriveToken();
+      const compte=await driveCompteConnecte().catch(()=>'');
+      const L=await verifierPiecesArtisans(data.artisans,token,(fait,total)=>setV(p=>({...p,fait,total})));
+      setV({etat:'fini',compte,L});
+    }catch(e){
+      setV({etat:'erreur',msg:e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton en bas d'une fiche artisan), puis relancez la vérification."
+        :'Vérification impossible — '+((e&&(e.error||e.message))||String(e))});
+    }
+  };
+  const redeposer=async(x,file)=>{
+    /* la ligne se retrouve par l'artisan et la pièce : l'objet, lui, est
+       recopié à chaque mise à jour de l'état */
+    const meme=y=>y.artisanId===x.artisanId&&y.cle===x.cle;
+    setV(p=>({...p,L:p.L.map(y=>meme(y)?{...y,envoi:true}:y)}));
+    try{
+      const token=await getDriveToken();
+      const dossier=x.cle==='att'?await driveAttestationsFolder(token):await driveRibFolder(token);
+      const {webViewLink}=await uploadToDrive(file,dossier);
+      save({...data,artisans:data.artisans.map(a=>a.id===x.artisanId?{...a,[x.champ]:webViewLink}:a)});
+      setV(p=>({...p,L:p.L.map(y=>meme(y)?{...y,envoi:false,etat:'ok',lien:webViewLink,redepose:true}:y)}));
+    }catch(e){
+      setV(p=>({...p,L:p.L.map(y=>meme(y)?{...y,envoi:false,raison:e&&e.error==='auth_required'
+        ?"connexion Google expirée : reconnectez-vous, puis redéposez":'redépôt impossible — '+((e&&(e.error||e.message))||String(e))}:y)}));
+    }
+  };
+  const L=(v&&v.L)||[];
+  const ill=L.filter(x=>x.etat==='illisible'), ok=L.filter(x=>x.etat==='ok'), hors=L.filter(x=>x.etat==='hors_drive');
+  return <div className="card" style={{marginBottom:12,padding:'10px 12px'}}>
+    <div className="sp" style={{alignItems:'center',gap:8,flexWrap:'wrap'}}>
+      <span className="xs" style={{lineHeight:1.5,flex:'1 1 260px'}}>Attestations et RIB : se lisent-ils sur le Drive avec le compte Google connecté ?
+        Une pièce illisible ne peut pas partir avec une facture visée.</span>
+      <button className="btn gh s" disabled={v&&v.etat==='travail'} onClick={lancer}>
+        {v&&v.etat==='travail'?'Vérification… '+(v.total?v.fait+' / '+v.total:''):'Vérifier les pièces sur le Drive'}</button>
+    </div>
+    {v&&v.etat==='erreur'&&<div className="xs" style={{color:TERRA,marginTop:8,lineHeight:1.5}}>{v.msg}</div>}
+    {v&&v.etat==='fini'&&<div className="xs" style={{marginTop:8,lineHeight:1.5}}>
+      <div>{L.length} pièce{L.length>1?'s':''} vérifiée{L.length>1?'s':''}{v.compte?' avec le compte '+v.compte:''} :
+        {' '}<b style={{color:GREEN}}>{ok.length} lisible{ok.length>1?'s':''}</b>,
+        {' '}<b style={{color:ill.length?TERRA:GREEN}}>{ill.length} illisible{ill.length>1?'s':''}</b>
+        {hors.length?', '+hors.length+' hors Drive (lien vers un autre site, non vérifié)':''}.</div>
+      {!!ill.length&&<div className="mut" style={{marginTop:4}}>Redéposez chaque pièce illisible avec le compte connecté : ouvrez-la (votre navigateur
+        y a peut-être encore accès), enregistrez le PDF, puis « Redéposer ». Le lien de la fiche est remplacé.</div>}
+      {L.filter(x=>x.etat==='illisible'||x.redepose).map(x=><div key={x.artisanId+x.cle} className="row"
+        style={{gap:8,alignItems:'center',flexWrap:'wrap',padding:'6px 0',borderTop:'1px solid '+RULE,marginTop:4}}>
+        <span style={{flex:'1 1 220px'}}><b>{x.nom}</b> — {x.libelle}
+          {x.etat==='ok'?<span style={{color:GREEN}}> · ✓ redéposé</span>:<span style={{color:TERRA}}> · {x.raison}</span>}</span>
+        {x.etat!=='ok'&&<a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir</a>}
+        {x.etat!=='ok'&&<label className="btn gh s" style={{whiteSpace:'nowrap'}}>{x.envoi?'Envoi…':'Redéposer'}
+          <input type="file" aria-label={'Redéposer '+x.libelle+' '+x.nom} accept={DOC_ACCEPT+',image/*'} style={{display:'none'}} disabled={!!x.envoi}
+            onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)redeposer(x,file)}}/></label>}
+      </div>)}
+    </div>}
+  </div>;
+}
+
 function Artisans({data,save,cible}){
   const [f,setF]=useState(()=>cible?(data.artisans||[]).find(a=>a.id===cible)||null:null);
   const brouillon=useBrouillon('artisans',f,setF,x=>'Artisan '+(x.nom||'sans nom'));
@@ -20812,6 +20909,7 @@ function Artisans({data,save,cible}){
     <H2 action={<button className="btn acc s" onClick={()=>{setLecture(null);setF({nom:'',corps:'',tel:'',email:'',adresse:'',siret:'',activites:'',assureur:'',numPolice:'',decennaleFin:'',lienAttestation:'',lienRib:''})}}>+ Artisan</button>}>ARTISANS ({data.artisans.length})</H2>
     {al.length>0&&<div className="xs" style={{background:'#F6E2DC',color:'#8A2E14',borderLeft:'3px solid '+TERRA,padding:8,marginBottom:12}}>
       {al.length} artisan{al.length>1?'s':''} sans décennale valide. Ne pas signer de marché avant régularisation.</div>}
+    {data.artisans.some(a=>a.lienAttestation||a.lienRib)&&<VerifPiecesDrive data={data} save={save}/>}
     {brouillon.bandeau}
     {f&&!f.id&&formulaire}
     {!data.artisans.length&&!f&&<Empty>Aucun artisan. Constituez votre carnet d'adresses.</Empty>}

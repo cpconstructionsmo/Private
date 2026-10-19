@@ -125,7 +125,10 @@ qu'on ait à les redire.
   introuvable…). Relire un fichier (`driveFichierBytes`) : l'accès
   `drive.file` ne voit que les fichiers déposés par l'application avec ce
   compte ; une pièce illisible est nommée (facture visée : envoi possible
-  sans elle). Tests : `t_drive_envoi.js`, `t_viser_illisible.js`.
+  sans elle). ARTISANS › « Vérifier les pièces sur le Drive »
+  (`verifierPiecesArtisans`, `VerifPiecesDrive`) liste d'un coup les
+  attestations et RIB illisibles, à redéposer sur place. Tests :
+  `t_drive_envoi.js`, `t_viser_illisible.js`, `t_verif_pieces.js`.
 
 ## Livrer une modification
 
