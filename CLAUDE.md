@@ -119,6 +119,10 @@ qu'on ait à les redire.
   (etag) ; les heures sont envoyées en `Europe/Paris`.
 - Les anciens rendez-vous (`data.rendezvous`) restent lisibles ; un
   rendez-vous transféré porte `google:{calId,eventId}`.
+- **Envoi sur le Drive** : `uploadToDrive` envoie en une requête jusqu'à
+  5 Mo, au-delà par session reprenable ; tout refus de Google passe par
+  `driveErreur` (reconnexion, Drive plein, accès non coché, dossier
+  introuvable…). Tests : `t_drive_envoi.js`.
 
 ## Livrer une modification
 

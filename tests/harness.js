@@ -35,6 +35,9 @@ function charger(noms,opts){
     return {ok:true,status:200,json:async()=>({id:'fid'+global.__driveAppels.length,webViewLink:'https://drive.google.com/file/d/fid'+global.__driveAppels.length+'/view',files:[]}),
       arrayBuffer:async()=>new ArrayBuffer(8),text:async()=>''};
   };
+  /* un test peut répondre lui-même à certaines adresses (un refus du Drive,
+     par exemple) et laisser les autres au faux Drive ci-dessus */
+  if(opts.fetch){const base=global.fetch;global.fetch=(url,init)=>opts.fetch(String(url),init,base)}
   global.window={navigator:{},matchMedia:()=>({matches:false}),location:{origin:'https://x',pathname:'/',hash:'',search:''},crypto:require('crypto').webcrypto,open(){}};
   global.crypto=require('crypto').webcrypto;global.TextEncoder=require('util').TextEncoder;global.TextDecoder=require('util').TextDecoder;
   global.Blob=require('buffer').Blob;global.File=require('buffer').File;
