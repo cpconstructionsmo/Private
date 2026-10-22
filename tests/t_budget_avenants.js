@@ -277,6 +277,35 @@ chk(chh.tvaHono===20&&chh.honoFactures[0].tva===0,'passé à 20 % ; la facture d
 t=texte(tr);
 chk(/Total engagé : 165 000,00 € TTC/.test(t)&&!/réglés sans TVA/.test(t),'honoraires : 5 000 facturés à 0 % + 15 000 restants à 20 % ; l’alerte disparaît');
 TR.act(()=>tr.unmount());
+/* la maîtrise d'œuvre est toujours à 20 % : un chantier de rénovation à 10 %
+   n'entraîne pas ses honoraires, factures sans taux propre comprises */
+{
+  const ch10={...CH,tva:10,honoFactures:[{id:'h1',montant:5000,date:'2026-09-01'}]};
+  const co=M.coutOperation(ch10,MS,[]);
+  chk(Math.abs(co.honoTTC-24000)<0.01,'chantier à 10 %, aucun taux d’honoraires saisi : 20 000 HT → 24 000 TTC (facture émise comprise)');
+  chk(M.bilanBudget(ch10,MS,[]).engage===16600000,'total engagé inchangé par le taux des travaux : 166 000,00 € TTC');
+  etat={v:{...M.EMPTY,chantiers:[ch10],artisans:ART,marches:MS,commandes:[]}};
+  tr=rendre(etat,'c1');
+  chk(!/Les honoraires de ce chantier sont réglés/.test(texte(tr)),'pas d’alerte : le taux par défaut est celui de la maîtrise d’œuvre');
+  TR.act(()=>tr.unmount());
+}
+/* un taux de 10 % saisi sur la fiche est gardé, mais signalé */
+etat={v:{...M.EMPTY,chantiers:[{...CH,tvaHono:10}],artisans:ART,marches:MS,commandes:[]}};
+tr=rendre(etat,'c1');t=texte(tr);
+chk(/réglés à 10 % de TVA : 20 000 € HT = 22 000 € TTC/.test(t)&&/La maîtrise d'œuvre est à 20 % : le total engagé passera à 166 000,00 € TTC/.test(t)
+  &&!!bouton(/Passer les honoraires à 20 % de TVA/),'honoraires saisis à 10 % : alerte et bouton');
+chk(etat.v.chantiers[0].tvaHono===10,'… sans toucher à la fiche');
+TR.act(()=>tr.unmount());
+/* dans l'avenant : le champ dit ce qu'il est, et un autre taux que 20 % se signale */
+etat={v:{...M.EMPTY,chantiers:[CH],artisans:ART,marches:MS,commandes:[]}};
+tr=rendre(etat,'c1');
+TR.act(()=>bouton(/\+ Ajouter un avenant/).props.onClick());
+chk(/% de TVA/.test(texte(tr))&&!/Remettre 20 %/.test(texte(tr)),'honoraires de l’avenant : « % de TVA » à côté du taux, 20 % sans alerte');
+TR.act(()=>champ(p=>p['aria-label']==='TVA des honoraires').props.onChange({target:{value:'10'}}));
+chk(/Honoraires à 10 % de TVA : la maîtrise d'œuvre est à 20 %/.test(texte(tr)),'taux changé à 10 % : signalé');
+TR.act(()=>bouton(/Remettre 20 %/).props.onClick());
+chk(champ(p=>p['aria-label']==='TVA des honoraires').props.value===20&&!/Remettre 20 %/.test(texte(tr)),'« Remettre 20 % » : le taux revient, l’alerte part');
+TR.act(()=>tr.unmount());
 
 /* dépassement de budget, en rouge */
 etat={v:{...M.EMPTY,chantiers:[{...CH,budgetClientTTC:150000}],artisans:ART,marches:MS,commandes:[]}};

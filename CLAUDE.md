@@ -46,7 +46,10 @@ qu'on ait à les redire.
   client est un Word (`avenantClientDonnees`, `genererAvenantClientDocx`),
   déposé dans le dossier « Avenants » du Drive. Honoraires d'un nouvel
   avenant : 10 % du HT des artisans, TVA 20 % (`AV_HONO_PCT`,
-  `AV_HONO_TVA`). Un avenant, même validé, se supprime
+  `AV_HONO_TVA`). La maîtrise d'œuvre facture toujours à 20 % de TVA
+  (`HONO_TVA_DEFAUT`), même quand les travaux sont à 10 % : sans taux saisi,
+  honoraires, factures d'honoraires et avenants prennent 20 % ; un autre
+  taux saisi est gardé mais signalé, avec un bouton pour repasser à 20 %. Un avenant, même validé, se supprime
   (`supprimerAvenantClient` défait ses reports ; son numéro ne resert
   pas). Tests :
   `t_budget_avenants.js`, `budget_avenants_navigateur.js`.

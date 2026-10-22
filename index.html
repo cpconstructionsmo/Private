@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-19 · Budget et avenants : « Passer les honoraires à 20 % de TVA » en un clic (factures déjà émises inchangées)';
+const VERSION='2026-10-22 · Honoraires de maîtrise d’œuvre à 20 % de TVA par défaut, même sur un chantier à 10 % ; tout autre taux est signalé';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1057,10 +1057,17 @@ const travauxHTot=ms=>ms.reduce((s,m)=>s+(m.montantHT||0),0);
 /* la TVA se règle aussi par commande : un escalier peut être facturé à 10 % en
    rénovation quand le reste du chantier est à 20 %. Sans taux propre, la commande
    suit celui du chantier. 0 est une valeur valide, pas une absence. */
-/* les honoraires de maîtrise d'œuvre ne relèvent pas forcément du taux des
-   travaux : franchise en base côté MOE, ou taux normal quand le chantier est
-   à 10 %. Chaque facture d'honoraires peut elle-même porter le sien. */
-const honoTva=ch=>(ch&&ch.tvaHono!==undefined&&ch.tvaHono!==null&&ch.tvaHono!=='')?+ch.tvaHono:tvaRate(ch);
+/* les honoraires de maîtrise d'œuvre ne suivent pas le taux des travaux : la
+   maîtrise d'œuvre les facture toujours à 20 % de TVA, même quand le chantier
+   est à 10 % en rénovation — c'est le taux par défaut. Un taux saisi sur la
+   fiche reste prioritaire (il se signale), et chaque facture d'honoraires
+   peut porter le sien. */
+const HONO_TVA_DEFAUT=20;
+const honoTva=ch=>(ch&&ch.tvaHono!==undefined&&ch.tvaHono!==null&&ch.tvaHono!=='')?+ch.tvaHono:HONO_TVA_DEFAUT;
+/* l'ancienne règle (les honoraires suivaient le taux du chantier) : elle ne
+   sert plus qu'à garder leur montant aux avenants validés avant que leur
+   taux ne soit figé à la validation */
+const honoTvaAvant=ch=>(ch&&ch.tvaHono!==undefined&&ch.tvaHono!==null&&ch.tvaHono!=='')?+ch.tvaHono:tvaRate(ch);
 const honoTTCm=(ht,ch)=>(ht||0)*(1+honoTva(ch)/100);
 const honoFactTva=(f,ch)=>(f&&f.tva!==undefined&&f.tva!==null&&f.tva!=='')?+f.tva:honoTva(ch);
 /* Ce que la maîtrise d'œuvre aura coûté au client se compose : les factures déjà
@@ -1166,11 +1173,11 @@ const avLigneCalc=(l,ch)=>{
    d'œuvre à 20 % —, et l'une comme l'autre se changent avenant par
    avenant. Un avenant pas encore validé dont le taux n'a jamais été saisi
    prend ces 20 % ; un avenant validé garde le taux qui l'a fait valider. */
-const AV_HONO_PCT=10, AV_HONO_TVA=20;
+const AV_HONO_PCT=10, AV_HONO_TVA=HONO_TVA_DEFAUT;
 const avHonoCalc=(a,ch,lignes)=>{
   const h=(a&&a.hono)||{};
   const mode=h.mode==='forfait'||h.mode==='pourcentage'?h.mode:'aucun';
-  const taux=tauxSaisi(h.taux)?+h.taux:(['valide','refuse'].includes(avStatut(a))?honoTva(ch):AV_HONO_TVA);
+  const taux=tauxSaisi(h.taux)?+h.taux:(['valide','refuse'].includes(avStatut(a))?honoTvaAvant(ch):AV_HONO_TVA);
   const ex=new Set(h.exclues||[]);
   const dans=(lignes||[]).filter(x=>!ex.has(x.id));
   const assiette=dans.reduce((s,x)=>s+x.ht,0);
@@ -8940,9 +8947,14 @@ function EditeurAvenant({data,ch,ms,a,setA,onSave,onCancel}){
         <option value="forfait">Forfait HT saisi</option>
         <option value="pourcentage">Pourcentage d'une assiette de travaux HT</option>
       </select>
-      {c.hono.mode!=='aucun'&&<input className="in" aria-label="TVA des honoraires" type="number" min="0" step="0.1" style={{flex:'0 1 120px'}}
-        placeholder={'TVA '+AV_HONO_TVA+' %'} value={tauxSaisi(h.taux)?h.taux:''} onChange={e=>majH({taux:e.target.value})}/>}
+      {c.hono.mode!=='aucun'&&<input className="in" aria-label="TVA des honoraires" type="number" min="0" step="0.1" style={{flex:'0 1 90px'}}
+        placeholder={String(AV_HONO_TVA)} value={tauxSaisi(h.taux)?h.taux:''} onChange={e=>majH({taux:e.target.value})}/>}
+      {c.hono.mode!=='aucun'&&<span className="xs mut">% de TVA</span>}
     </div>
+    {/* un taux autre que 20 % se garde (saisi exprès), mais ne passe pas inaperçu */}
+    {c.hono.mode!=='aucun'&&c.hono.taux!==AV_HONO_TVA&&<div className="xs" style={{marginTop:4,color:AMBER}}>
+      Honoraires à {c.hono.taux} % de TVA : la maîtrise d'œuvre est à {AV_HONO_TVA} %.{' '}
+      <button className="btn gh s" onClick={()=>majH({taux:AV_HONO_TVA})}>Remettre {AV_HONO_TVA} %</button></div>}
     {c.hono.mode==='forfait'&&<div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center',marginTop:6}}>
       <select className="in" aria-label="Sens des honoraires" style={{flex:'0 0 150px'}} value={avSens(h)===-1?'-1':'1'} onChange={e=>majH({sens:+e.target.value})}>
         <option value="1">+ Supplément</option><option value="-1">− Réduction</option>
@@ -9272,8 +9284,8 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
      émises — figé sur chacune, pour qu'aucune ne change de montant TTC */
   const passerHonoTva=()=>{
     const fs=(ch.honoFactures||[]).filter(f=>!tauxSaisi(f&&f.tva));
-    const ttc=co.honoTTC+(honoResteHT(ch)*AV_HONO_TVA/100);
-    if(!confirm('Passer la TVA des honoraires de ce chantier de 0 % à '+AV_HONO_TVA+' % ?\n\nHonoraires : '+eur(co.honoHT)+' HT = '
+    const ttc=co.honoTTC+(honoResteHT(ch)*(AV_HONO_TVA-honoTva(ch))/100);
+    if(!confirm('Passer la TVA des honoraires de ce chantier de '+honoTva(ch)+' % à '+AV_HONO_TVA+' % ?\n\nHonoraires : '+eur(co.honoHT)+' HT = '
       +eur(ttc)+' TTC (au lieu de '+eur(co.honoTTC)+').'
       +(fs.length?'\n'+fs.length+' facture'+(fs.length>1?'s':'')+' d’honoraires déjà enregistrée'+(fs.length>1?'s gardent leur':' garde son')
         +' taux de '+honoTva(ch)+' % (modifiable dans l’onglet Honoraires).':'')
@@ -9354,12 +9366,13 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
       {' '}{honoDiv.map(t=>t+' %').join(' et ')} alors que les honoraires de ce chantier sont à {honoTva(ch)} %.
       {' '}<b>Onglet Honoraires</b> pour corriger le taux de ces factures.
     </div>}
-    {/* des honoraires sans TVA font un total engagé trop bas d'un cinquième
-        de leur montant : on le dit, et l'on propose de corriger d'un geste —
-        jamais sans le demander */}
-    {honoTva(ch)===0&&honoResteHT(ch)>0&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
-      Les honoraires de ce chantier sont réglés sans TVA (0 %) : {eur(co.honoHT)} HT = {eur(co.honoTTC)} TTC. Si la maîtrise d'œuvre
-      facture la TVA à {AV_HONO_TVA} %, le total engagé passera à {eurCts(B.engage+tvaCentimes(centimes(honoResteHT(ch)),AV_HONO_TVA))} TTC.
+    {/* des honoraires saisis à un autre taux que 20 % (0 %, ou 10 % comme les
+        travaux) faussent le total engagé : on le dit, et l'on propose de
+        corriger d'un geste — jamais sans le demander */}
+    {honoTva(ch)!==HONO_TVA_DEFAUT&&honoResteHT(ch)>0&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
+      Les honoraires de ce chantier sont réglés {honoTva(ch)===0?'sans TVA (0 %)':'à '+honoTva(ch)+' % de TVA'} : {eur(co.honoHT)} HT = {eur(co.honoTTC)} TTC.
+      La maîtrise d'œuvre est à {HONO_TVA_DEFAUT} % : le total engagé passera
+      à {eurCts(B.engage+tvaCentimes(centimes(honoResteHT(ch)),HONO_TVA_DEFAUT-honoTva(ch)))} TTC.
       <div><button className="btn gh s" style={{marginTop:6}} onClick={passerHonoTva}>Passer les honoraires à {AV_HONO_TVA} % de TVA</button></div>
     </div>}
     {!!nonReportes.length&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
@@ -9614,11 +9627,11 @@ function Fiche({data,ch,save,back,reprise,ongletInitial}){
         <b>{eur(honoAmount(edit))} HT</b> à facturer.
       </div>}
       <Fld label="TVA SUR LES HONORAIRES (%)">
-        <input className="in" type="number" step="0.1" placeholder={'Chantier : '+tvaRate(edit)+' %'}
+        <input className="in" type="number" step="0.1" placeholder={'Maîtrise d’œuvre : '+HONO_TVA_DEFAUT+' %'}
           value={edit.tvaHono===undefined||edit.tvaHono===null?'':edit.tvaHono} onChange={e=>setEdit({...edit,tvaHono:e.target.value})}/>
         <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
-          Laissez vide pour suivre le taux du chantier ({tvaRate(edit)} %). Saisissez <b>0</b> si vous êtes en franchise en base,
-          ou <b>20</b> quand les travaux sont à taux réduit mais pas la maîtrise d'œuvre.
+          Laissez vide : les honoraires de maîtrise d'œuvre sont à {HONO_TVA_DEFAUT} %, même quand les travaux sont à taux réduit.
+          Ne saisissez un autre taux que s'il est vraiment différent.
         </div>
       </Fld>
       <div className="g2">
