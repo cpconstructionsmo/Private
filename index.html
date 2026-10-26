@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-22 · Honoraires de maîtrise d’œuvre à 20 % de TVA par défaut, même sur un chantier à 10 % ; tout autre taux est signalé';
+const VERSION='2026-10-26 · Marché de travaux en 3 exemplaires (client avec l’attestation décennale en annexe, entreprise, CP Constructions)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2276,7 +2276,7 @@ function controlerMarche(m,artisan,ch){
     if(!String(artisan.numPolice||'').trim())alerte('Le numéro de police décennale de l’entreprise n’est pas renseigné.');
     if(!String(artisan.siret||'').trim())alerte('Le SIRET de l’entreprise n’est pas renseigné.');
     if(!String(artisan.adresse||'').trim())alerte('L’adresse du siège de l’entreprise n’est pas renseignée.');
-    if(!artisan.lienAttestation)alerte('L’attestation de décennale n’est pas déposée : elle doit être annexée au marché.');
+    if(!artisan.lienAttestation)alerte('L’attestation de décennale n’est pas déposée : elle doit être annexée au marché (l’exemplaire du client sortirait sans elle).');
   }
   if(ch&&!String(ch.adresseClient||'').trim())
     alerte('L’adresse du domicile du client n’est pas renseignée : le marché portera son nom sans son adresse.');
@@ -2886,6 +2886,9 @@ function enteteMarche(d,px){
       par('MARCHÉ DE TRAVAUX',{b:true,sz:32,c:DOC_TERRA,sp:24,jc:'right',ap:40}),
       par(d.lot||'',{b:true,sz:22,c:DOC_BRUN,jc:'right',ap:40,filet:DOC_TERRA}),
       par('N° '+(d.numero||'')+' — du '+(d.date||''),{sz:19,c:DOC_GRIS,jc:'right',ap:0}),
+      /* à qui revient cet original : il se lit en tête de la première page et
+         de celle du quantitatif */
+      d.exemplaire?par(d.exemplaire,{b:true,sz:17,c:DOC_TERRA,sp:20,caps:true,jc:'right',av:60,ap:0}):'',
     ].join(''),{bords:tcB({h:false,g:false,b:false,d:false}),v:'bottom',mg:0}),
   ])],{});
 }
@@ -3136,6 +3139,116 @@ function clausesMarche(d){
   return out.join('');
 }
 
+/* ---------- les trois exemplaires originaux ----------
+   Le marché se signe en trois originaux (la dernière clause le dit) : un
+   pour le client, un pour l'entreprise, un pour CP Constructions. Ils
+   sortent ensemble, chacun marqué à son destinataire. Celui du client porte
+   en annexe l'attestation décennale de l'entreprise : c'est lui qui devra
+   pouvoir la produire si un sinistre survient. */
+const MARCHE_EXEMPLAIRES=[
+  {cle:'client',fichier:'exemplaire client',libelle:'client',titre:'Exemplaire du maître de l’ouvrage',attestation:true},
+  {cle:'entreprise',fichier:'exemplaire entreprise',libelle:'entreprise',titre:'Exemplaire de l’entreprise'},
+  {cle:'moe',fichier:'exemplaire CP Constructions',libelle:'CP Constructions',titre:'Exemplaire du maître d’œuvre — '+CP.nom},
+];
+/* une attestation compte une ou deux pages : au-delà, c'est un autre
+   document déposé à sa place, qu'on n'imprime pas en entier */
+const ATTESTATION_PAGES_MAX=4;
+/* largeur et hauteur d'une image JPEG ou PNG, lues dans son en-tête : de quoi
+   la poser dans le Word sans la déformer. null pour tout autre format. */
+const dimensionsImage=b=>{
+  if(!b||b.length<24)return null;
+  if(b[0]===0x89&&b[1]===0x50&&b[2]===0x4E&&b[3]===0x47){
+    const v=(i)=>((b[i]<<24)>>>0)+(b[i+1]<<16)+(b[i+2]<<8)+b[i+3];
+    return {ext:'png',w:v(16),h:v(20)};
+  }
+  if(b[0]===0xFF&&b[1]===0xD8){
+    let i=2;
+    while(i+9<b.length){
+      if(b[i]!==0xFF){i++;continue}
+      const mk=b[i+1];
+      if(mk===0xFF){i++;continue}
+      /* les marqueurs SOF (C0 à CF, sauf C4, C8 et CC) portent les dimensions */
+      if(mk>=0xC0&&mk<=0xCF&&mk!==0xC4&&mk!==0xC8&&mk!==0xCC)
+        return {ext:'jpeg',h:(b[i+5]<<8)+b[i+6],w:(b[i+7]<<8)+b[i+8]};
+      if(mk===0xD8||mk===0x01||(mk>=0xD0&&mk<=0xD7)){i+=2;continue}
+      i+=2+((b[i+2]<<8)+b[i+3]);
+    }
+  }
+  return null;
+};
+const estPdf=b=>!!b&&b.length>4&&b[0]===0x25&&b[1]===0x50&&b[2]===0x44&&b[3]===0x46;
+/* l'attestation en images, une par page : une photo (JPEG, PNG) passe telle
+   quelle, un PDF se rend page à page — environ 200 points par pouce sur la
+   largeur d'une feuille A4, assez pour relire un numéro de police imprimé. */
+async function attestationEnImages(octets){
+  const b=new Uint8Array(octets);
+  const dim=dimensionsImage(b);
+  if(dim&&dim.w&&dim.h)return {pages:[{data:b,ext:dim.ext,w:dim.w,h:dim.h}],total:1};
+  if(!estPdf(b))throw new Error('format non pris en charge (l’attestation doit être un PDF, un JPEG ou un PNG)');
+  if(typeof pdfjsLib==='undefined')throw new Error('Lecteur PDF non chargé — vérifiez votre connexion.');
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  /* une copie : pdf.js cède le tampon qu'on lui passe à son worker */
+  const doc=await pdfjsLib.getDocument({data:b.slice()}).promise;
+  const pages=[];
+  for(let n=1;n<=Math.min(doc.numPages,ATTESTATION_PAGES_MAX);n++){
+    const page=await doc.getPage(n);
+    const base=page.getViewport({scale:1});
+    const vp=page.getViewport({scale:1654/base.width});
+    const cv=document.createElement('canvas');
+    cv.width=Math.round(vp.width); cv.height=Math.round(vp.height);
+    const ctx=cv.getContext('2d');
+    /* le PDF est transparent : sans fond blanc, la page sortirait noire en JPEG */
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,cv.width,cv.height);
+    await page.render({canvasContext:ctx,viewport:vp}).promise;
+    const jpeg=await new Promise(res=>cv.toBlob(res,'image/jpeg',0.9));
+    if(!jpeg)throw new Error('la page '+n+' de l’attestation n’a pas pu être convertie en image');
+    pages.push({data:new Uint8Array(await jpeg.arrayBuffer()),ext:'jpeg',w:cv.width,h:cv.height});
+  }
+  return {pages,total:doc.numPages};
+}
+/* l'attestation de l'entreprise, reprise du Drive pour l'exemplaire du
+   client. Ce qui l'empêche (pas déposée, lien hors Drive, illisible avec ce
+   compte Google, format inconnu) est rendu comme une raison, pas comme une
+   erreur : les trois exemplaires sortent quand même, et l'écran le dit. */
+async function attestationPourMarche(token,artisan){
+  const lien=artisan&&artisan.lienAttestation;
+  if(!lien)return {pages:[],raison:'aucune attestation n’est déposée sur la fiche de l’entreprise'};
+  const id=driveIdDepuisLien(lien);
+  if(!/drive\.google\.com|docs\.google\.com/.test(lien)||!id)
+    return {pages:[],raison:'le lien de l’attestation ne mène pas au Drive : elle n’a pas pu être reprise'};
+  try{
+    const r=await attestationEnImages(await driveFichierBytes(token,id));
+    return {pages:r.pages,total:r.total,raison:''};
+  }catch(e){
+    if(e&&e.error==='auth_required')throw e;
+    return {pages:[],raison:(e&&e.message)||String(e)};
+  }
+}
+/* l'annexe : l'attestation page après page, à la largeur utile de la feuille,
+   chacune sur sa page. La première partage la sienne avec le titre. */
+function annexeAttestationXml(d){
+  const P=d.attestation||[];
+  if(!P.length)return '';
+  const EMU=635, larg=10206*EMU;
+  const pose=(p,i)=>{
+    const hMax=(i===0?12600:14600)*EMU;
+    let w=larg, h=Math.round(larg*p.h/p.w);
+    if(h>hMax){w=Math.round(hMax*p.w/p.h);h=hMax}
+    return par([photoXml('rId'+(20+i),100+i,'Attestation décennale '+(i+1),w,h)],{jc:'center',ap:0,ln:240});
+  };
+  const qui=[d.entreprise||'',d.compagnie||'',d.decennale?'police '+d.decennale:'',
+    d.decennaleFin?'valable jusqu’au '+d.decennaleFin:''].filter(Boolean).join(' — ');
+  return [sautPage,
+    par('Annexe — Attestation d’assurance décennale',{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,ap:40,filet:DOC_TERRA}),
+    par(qui,{sz:17,c:DOC_BRUN,ap:30}),
+    par('Copie de l’attestation déposée par l’entreprise, annexée au marché n° '+(d.numero||'')+' — lot « '+(d.lot||'')+' ».',
+      {sz:16,i:true,c:DOC_GRIS,ap:120}),
+    ...P.map((p,i)=>(i?sautPage:'')+pose(p,i)),
+  ].join('');
+}
+const nomFichierMarche=(numero,lot,entreprise,ex)=>'Marché '+numero+' — '+(lot||'lot')+' — '+(entreprise||'entreprise')
+  +(ex?' — '+ex.fichier:'')+'.docx';
+
 /* ---------- le document complet ---------- */
 function marcheDocumentXml(d,px){
   const corps=[
@@ -3156,6 +3269,7 @@ function marcheDocumentXml(d,px){
     sautPage,
     clausesMarche(d), vide(120),
     signaturesMarche(d),
+    annexeAttestationXml(d),
   ].join('');
   return DOC_ENTETE_XML+'<w:body>'+corps
     +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
@@ -3407,7 +3521,11 @@ async function genererMarcheDocx(d){
   let qrPlan=null;
   try{qrPlan=qrPourDocument(d.planExeUrl)}catch(e){/* sans plan déposé, ou QR indisponible : le marché reste valable */}
   const xml=marcheDocumentXml({...d,qr,qrPlan},logo);
-  return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||''),logo,qr,qrPlan);
+  /* les pages de l'attestation annexée (exemplaire du client) : une image
+     chacune, rId20 et suivants, hors de la plage du logo et des QR */
+  const extra=(d.attestation||[]).map((p,i)=>({id:'rId'+(20+i),nom:'attestation-'+(i+1)+'.'+p.ext,data:p.data}));
+  return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||'')+(d.exemplaire?' — '+d.exemplaire:''),
+    logo,qr,qrPlan,extra.length?extra:undefined);
 }
 
 /* ---------- avenant au marché de travaux ----------
@@ -10097,6 +10215,10 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
      marché, il n'est ni copié ni stocké. Le document produit part sur le Drive
      du chantier et son lien se pose sur le lot. */
   const [sortie,setSortie]=useState(null);
+  /* l'issue d'une sortie ne vaut que pour son lot : ouvrir un autre lot (ou
+     rouvrir celui-ci) repart d'un écran neutre, sans les liens d'un autre */
+  const lotOuvert=f?(f.id||'nouveau'):'';
+  useEffect(()=>{setSortie(null)},[lotOuvert]);
   const numeroSuivant=()=>{
     const n=data.marches.filter(m=>m.chantierId===ch.id)
       .map(m=>+String(m.numeroMarche||'').replace(/\D/g,'')||0);
@@ -10106,10 +10228,11 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
      « l'envoyer par mail » — regénérer le même document plutôt que de le
      retélécharger du Drive garantit que la pièce jointe suit exactement le
      lot tel qu'il est saisi à l'instant, même si le fichier déposé date d'avant. */
-  const construireMarcheDoc=(a,numero)=>{
+  const construireMarcheDoc=(a,numero,ex,attestation)=>{
     const ht=+f.montantHT||0, tx=marcheTva(f,ch), r=remisePct(f);
     const brut=f.quantitatif?quantitatifHT(f.quantitatif.lignes):ht;
     return genererMarcheDocx({
+      exemplaire:ex?ex.titre:'', attestation:attestation||null,
       lot:f.lot, lotDetail:(f.quantitatif&&f.quantitatif.nom)||f.lot,
       numero, date:fd(f.dateSignature||today()),
       entreprise:a.nom||'', adresse:a.adresse||'', siret:a.siret||'',
@@ -10134,19 +10257,29 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     setSortie({etat:'travail'});
     try{
       const numero=f.numeroMarche||numeroSuivant();
-      const doc=await construireMarcheDoc(a,numero);
-      const nomFichier='Marché '+numero+' — '+(f.lot||'lot')+' — '+(a.nom||'entreprise')+'.docx';
-      const fichier=new File([doc],nomFichier,
-        {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
       const token=await getDriveToken();
+      /* l'attestation se reprend une fois, pour le seul exemplaire du client */
+      const att=await attestationPourMarche(token,a);
       const folderId=await driveMarchesFolder(token,ch.id,ch.nom);
-      const{webViewLink}=await uploadToDrive(fichier,folderId);
-      setF(p=>({...p,contratLien:webViewLink,numeroMarche:numero}));
-      setSortie({etat:'ok',nom:nomFichier,lien:webViewLink,numero,pb});
+      const liens={}, noms={};
+      for(const ex of MARCHE_EXEMPLAIRES){
+        const doc=await construireMarcheDoc(a,numero,ex,ex.attestation?att.pages:null);
+        const nomFichier=nomFichierMarche(numero,f.lot,a.nom,ex);
+        const fichier=new File([doc],nomFichier,
+          {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+        liens[ex.cle]=(await uploadToDrive(fichier,folderId)).webViewLink;
+        noms[ex.cle]=nomFichier;
+      }
+      /* le lien du lot reste « le contrat » : celui de CP Constructions, que
+         l'on ouvre depuis l'application ; les deux autres se gardent à côté */
+      const exemplaires={le:today(),client:liens.client,entreprise:liens.entreprise,moe:liens.moe,
+        attestation:att.pages.length>0};
+      setF(p=>({...p,contratLien:liens.moe,numeroMarche:numero,exemplaires}));
+      setSortie({etat:'ok',numero,liens,noms,att:{n:att.pages.length,total:att.total||0,raison:att.raison},pb});
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
       setSortie({etat:'erreur',msg:
-        c==='auth_required'?"Le marché a été rédigé, mais Google Drive n'est pas connecté (bouton ci-dessous) — reconnectez-le puis relancez.":
+        c==='auth_required'?"Google Drive n'est pas connecté (bouton ci-dessous) : les exemplaires n'ont pas été déposés — reconnectez-le puis relancez.":
         "Sortie impossible — "+c});
     }
   };
@@ -10500,6 +10633,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           <div className="xs mut" style={{lineHeight:1.5}}>
             Le contrat est rédigé ici, avec vos couleurs, ses clauses, l'adresse des travaux
             et le quantitatif du lot, puis déposé dans Drive › Marchés. Aucun modèle à fournir.
+            Il sort en trois exemplaires : client (avec l'attestation décennale de l'entreprise
+            en annexe), entreprise et CP Constructions.
           </div>
           {/* ce qui manque se dit avant, pas après signature */}
           {pb.length>0&&<div style={{marginTop:8,padding:'8px 10px',borderRadius:8,
@@ -10512,17 +10647,30 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
             <button className={'btn s '+(stop?'gh':'acc')} disabled={stop||(sortie&&sortie.etat==='travail')}
               style={{whiteSpace:'nowrap',opacity:stop?.5:1}} onClick={sortirMarche}>
-              {sortie&&sortie.etat==='travail'?'Rédaction…':'Rédiger le marché et l’envoyer sur le Drive'}</button>
+              {sortie&&sortie.etat==='travail'?'Rédaction des 3 exemplaires…':'Rédiger le marché (3 exemplaires) et l’envoyer sur le Drive'}</button>
             <input className="in" style={{padding:'4px 8px',fontSize:12,width:110}} placeholder="N° du marché"
               aria-label="Numéro du marché" value={f.numeroMarche||''} onChange={e=>setF({...f,numeroMarche:e.target.value})}/>
           </div>
           {!chiffre&&!stop&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
             Ce lot n'est pas chiffré : le marché sortira avec son contrat et ses totaux, sans détail d'articles.</div>}
           {sortie&&sortie.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
-            Marché n° {sortie.numero} rédigé et déposé sur le Drive.{' '}
-            <a href={sortie.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir le document</a>
-            <div className="mut" style={{marginTop:2,wordBreak:'break-word'}}>{sortie.nom}</div>
+            Marché n° {sortie.numero} rédigé en 3 exemplaires et déposé sur le Drive :
+            {MARCHE_EXEMPLAIRES.map(ex=><div key={ex.cle} style={{marginTop:2,wordBreak:'break-word'}}>
+              <a href={sortie.liens[ex.cle]} target="_blank" rel="noreferrer" style={{color:TERRA}}>Exemplaire {ex.libelle}</a>
+              {ex.attestation&&sortie.att.n>0&&<span className="mut"> — avec l’attestation décennale ({sortie.att.n} page{sortie.att.n>1?'s':''})</span>}
+              <span className="mut"> · {sortie.noms[ex.cle]}</span></div>)}
+            {/* l'exemplaire du client sans son attestation ne passe pas inaperçu */}
+            {!sortie.att.n&&<div style={{marginTop:6,padding:'6px 10px',borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,color:INK}}>
+              L’exemplaire client est sorti <b>sans l’attestation décennale</b> : {sortie.att.raison}.
+              Déposez-la sur la fiche de l’entreprise (onglet ARTISANS), puis ressortez le marché.</div>}
+            {sortie.att.n>0&&sortie.att.total>sortie.att.n&&<div style={{marginTop:4,color:AMBER}}>
+              L’attestation déposée compte {sortie.att.total} pages : seules les {sortie.att.n} premières sont annexées — vérifiez que c’est bien la bonne pièce.</div>}
             <div className="mut" style={{marginTop:2}}>À relire avant signature.</div></div>}
+          {f.exemplaires&&!(sortie&&sortie.etat==='ok')&&<div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>
+            Exemplaires sortis le {fd(f.exemplaires.le)} :{' '}
+            {MARCHE_EXEMPLAIRES.filter(ex=>f.exemplaires[ex.cle]).map((ex,i)=><span key={ex.cle}>{i?' · ':''}
+              <a href={f.exemplaires[ex.cle]} target="_blank" rel="noreferrer" style={{color:TERRA}}>{ex.libelle}</a></span>)}
+            {!f.exemplaires.attestation&&<span style={{color:AMBER}}> — l’exemplaire client n’a pas l’attestation décennale</span>}</div>}
           {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
         </Fld>;
       })()}
