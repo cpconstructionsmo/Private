@@ -53,6 +53,15 @@ qu'on ait à les redire.
   (`supprimerAvenantClient` défait ses reports ; son numéro ne resert
   pas). Tests :
   `t_budget_avenants.js`, `budget_avenants_navigateur.js`.
+- **Marché de travaux** (Marchés › lot › « Rédiger le marché ») : il sort
+  en trois exemplaires Word (`MARCHE_EXEMPLAIRES` : client, entreprise,
+  CP Constructions), marqués en tête de page. Celui du client annexe
+  l'attestation décennale de l'entreprise, reprise du Drive
+  (`attestationPourMarche` ; un PDF est rendu page à page par pdf.js, 4 pages
+  au plus). Sans attestation lisible, les trois sortent quand même et
+  l'écran dit pourquoi. Le lien du lot (`contratLien`) est l'exemplaire
+  CP Constructions ; `exemplaires` garde les trois. Tests :
+  `t_marche_exemplaires.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR
