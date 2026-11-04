@@ -61,7 +61,13 @@ qu'on ait à les redire.
   au plus). Sans attestation lisible, les trois sortent quand même et
   l'écran dit pourquoi. Le lien du lot (`contratLien`) est l'exemplaire
   CP Constructions ; `exemplaires` garde les trois. Tests :
-  `t_marche_exemplaires.js`.
+  `t_marche_exemplaires.js`. Le marché revenu signé se dépose dans la
+  section « Marché signé par l'entreprise » de la fiche du lot (aussi
+  depuis la liste des lots et le tableau de bord) : chaque fichier part
+  sur le Drive › Marché travaux signé, renommé d'après le lot
+  (`nomMarcheSigne`), et s'ajoute à `m.signes` (`ajouterMarcheSigne`) ;
+  le lot passe « signé », `contratLien` devient le dernier signé et le
+  contrat remplacé se garde (`contratRedige`). Tests : `t_marche_signe.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR

@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-10-26 · Marché de travaux en 3 exemplaires (client avec l’attestation décennale en annexe, entreprise, CP Constructions)';
+const VERSION='2026-11-04 · Marchés : section « Marché signé par l’entreprise » (dépôt direct sur le Drive, plusieurs fichiers, glisser-déposer)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3248,6 +3248,40 @@ function annexeAttestationXml(d){
 }
 const nomFichierMarche=(numero,lot,entreprise,ex)=>'Marché '+numero+' — '+(lot||'lot')+' — '+(entreprise||'entreprise')
   +(ex?' — '+ex.fichier:'')+'.docx';
+
+/* ---------- le marché revenu signé ----------
+   Chaque fichier déposé (un scan par exemplaire, ou par page) s'ajoute à la
+   liste du lot et part sur le Drive › Marché travaux signé ; le lot passe
+   « Marché signé » s'il n'en était pas encore là. Le contrat du lot devient
+   le dernier marché signé — c'est lui qu'on ouvre désormais ; le contrat
+   qu'il remplace se garde à part (contratRedige), jamais perdu. */
+const marcheSignes=m=>((m&&m.signes)||[]).filter(Boolean);
+const STATUTS_AVANT_SIGNATURE=['consulter','devis'];
+const ajouterMarcheSigne=(m,doc)=>{
+  const avant=marcheSignes(m);
+  const patch={signes:[...avant,doc],contratLien:doc.lien};
+  if(m.contratLien&&!m.contratRedige&&!avant.some(s=>s.lien===m.contratLien))patch.contratRedige=m.contratLien;
+  if(!m.statut||STATUTS_AVANT_SIGNATURE.includes(m.statut))patch.statut='signe';
+  return patch;
+};
+/* retirer un fichier déposé par erreur : il quitte la liste (pas le Drive),
+   et le contrat du lot revient au précédent. Le statut ne recule pas : il
+   se change à la main s'il le faut. */
+const retirerMarcheSigne=(m,id)=>{
+  const signes=marcheSignes(m).filter(s=>s.id!==id);
+  const retire=marcheSignes(m).find(s=>s.id===id);
+  const patch={signes};
+  if(retire&&m.contratLien===retire.lien)
+    patch.contratLien=signes.length?signes[signes.length-1].lien:(m.contratRedige||'');
+  return patch;
+};
+/* le nom sous lequel il est rangé sur le Drive : on le retrouve parmi les
+   autres sans l'ouvrir, quel que soit le nom du scan d'origine */
+const nomMarcheSigne=(m,entreprise,nomOrigine,rang)=>{
+  const ext=(String(nomOrigine||'').match(/\.[A-Za-z0-9]{2,5}$/)||[''])[0].toLowerCase();
+  return 'Marché '+((m&&m.numeroMarche)?m.numeroMarche+' — ':'')+((m&&m.lot)||'lot')+' — '+(entreprise||'entreprise')
+    +' — signé'+(rang>1?' ('+rang+')':'')+ext;
+};
 
 /* ---------- le document complet ---------- */
 function marcheDocumentXml(d,px){
@@ -10380,7 +10414,55 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const majMarche=(id,patch)=>save({...data,marches:data.marches.map(m=>m.id===id?{...m,...patch}:m)});
   const majCmd=(id,patch)=>save({...data,commandes:data.commandes.map(c=>c.id===id?{...c,...patch}:c)});
   const majCh=patch=>save({...data,chantiers:data.chantiers.map(c=>c.id===ch.id?{...c,...patch}:c)});
-  const joindreContrat=(id,file)=>envoyer(file,'Marché travaux signé',lien=>majMarche(id,{contratLien:lien,statut:'signe'}));
+  /* le marché signé déposé depuis la liste des lots : rangé comme depuis la
+     fiche du lot, dans la même liste, sous le même nom */
+  const joindreContrat=(id,file)=>{
+    const m=data.marches.find(x=>x.id===id)||{};
+    const a=data.artisans.find(x=>x.id===m.artisanId);
+    const nom=nomMarcheSigne(m,a&&a.nom,file.name,marcheSignes(m).length+1);
+    return envoyer(new File([file],nom,{type:file.type}),'Marché travaux signé',
+      lien=>majMarche(id,ajouterMarcheSigne(m,{id:uid(),nom,lien,le:today()})));
+  };
+  /* ---------- le marché revenu signé, déposé depuis la fiche du lot ----------
+     Un ou plusieurs fichiers, choisis ou glissés : chacun part aussitôt sur le
+     Drive. Le lot déjà enregistré l'est tout de suite — un « Annuler » sur
+     le formulaire ne fait pas oublier un fichier qui est déjà sur le Drive. */
+  const [depotSigne,setDepotSigne]=useState(null);
+  const [survolSigne,setSurvolSigne]=useState(false);
+  const lotDepot=f?(f.id||'nouveau'):'';
+  useEffect(()=>{setDepotSigne(null)},[lotDepot]);
+  const deposerSignes=async liste=>{
+    const files=[...(liste||[])];
+    if(!files.length||!f)return;
+    const a=data.artisans.find(x=>x.id===f.artisanId);
+    setDepotSigne({etat:'envoi',n:files.length});
+    let cur=f;const patch={};const noms=[];let erreur='';
+    for(const file of files){
+      const nom=nomMarcheSigne(cur,a&&a.nom,file.name,marcheSignes(cur).length+1);
+      try{
+        const lien=await versDrive(new File([file],nom,{type:file.type}),'Marché travaux signé');
+        const p=ajouterMarcheSigne(cur,{id:uid(),nom,lien,le:today()});
+        Object.assign(patch,p);cur={...cur,...p};noms.push(nom);
+      }catch(e){
+        const c=String((e&&(e.error||e.message))||e);
+        erreur=c==='auth_required'?"Google Drive n'est pas connecté (bouton en bas de l'onglet) : connectez-le, puis redéposez."
+          :'« '+file.name+' » n’a pas pu partir sur le Drive — '+c;
+        break;
+      }
+    }
+    if(noms.length){
+      setF(p=>({...p,...patch}));
+      if(f.id)majMarche(f.id,patch);
+    }
+    setDepotSigne({etat:erreur?'erreur':'ok',noms,msg:erreur,signe:patch.statut==='signe'});
+  };
+  const retirerSigne=id=>{
+    const s=marcheSignes(f).find(x=>x.id===id);
+    if(!s||!confirm('Retirer « '+s.nom+' » de ce lot ?\n\nLe fichier reste sur le Drive ; il n’est plus rattaché au marché.'))return;
+    const patch=retirerMarcheSigne(f,id);
+    setF(p=>({...p,...patch}));
+    if(f.id)majMarche(f.id,patch);
+  };
   const joindreFactureMarche=(id,fid,file)=>envoyer(file,'Factures',lien=>{
     const m=data.marches.find(x=>x.id===id)||{};
     majMarche(id,{factures:(m.factures||[]).map(x=>x.id===fid?{...x,lien}:x)});
@@ -10646,7 +10728,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           </div>}
           <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
             <button className={'btn s '+(stop?'gh':'acc')} disabled={stop||(sortie&&sortie.etat==='travail')}
-              style={{whiteSpace:'nowrap',opacity:stop?.5:1}} onClick={sortirMarche}>
+              style={{whiteSpace:'normal',maxWidth:'100%',textAlign:'left',lineHeight:1.3,opacity:stop?.5:1}} onClick={sortirMarche}>
               {sortie&&sortie.etat==='travail'?'Rédaction des 3 exemplaires…':'Rédiger le marché (3 exemplaires) et l’envoyer sur le Drive'}</button>
             <input className="in" style={{padding:'4px 8px',fontSize:12,width:110}} placeholder="N° du marché"
               aria-label="Numéro du marché" value={f.numeroMarche||''} onChange={e=>setF({...f,numeroMarche:e.target.value})}/>
@@ -10740,6 +10822,46 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
               <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
             </div>
           </div>}
+        </Fld>;
+      })()}
+      {(()=>{
+        const signes=marcheSignes(f);
+        const enCours=depotSigne&&depotSigne.etat==='envoi';
+        return <Fld label={'MARCHÉ SIGNÉ PAR L’ENTREPRISE'+(signes.length?' ('+signes.length+')':'')}>
+          <div className="xs mut" style={{lineHeight:1.5}}>
+            Déposez ici le marché revenu signé (PDF ou photo, un ou plusieurs fichiers) : il part aussitôt sur
+            le Drive › {ch.nom} › Marché travaux signé, et le lot passe « Marché signé ».
+          </div>
+          {signes.map(s=><div key={s.id} className="row xs" style={{gap:10,alignItems:'center',flexWrap:'wrap',marginTop:6}}>
+            {/* la coche reste collée au nom quand la ligne se replie sur téléphone */}
+            <span style={{flex:'0 1 auto',minWidth:0,wordBreak:'break-word'}}><span style={{color:GREEN}}>✓ </span>
+              <a href={s.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{s.nom}</a></span>
+            <span className="mut">déposé le {fd(s.le)}</span>
+            <button className="btn gh s" aria-label={'Retirer '+s.nom} onClick={()=>retirerSigne(s.id)}>Retirer</button>
+          </div>)}
+          {/* glisser le scan sur la zone, ou cliquer pour le choisir */}
+          <label aria-label="Déposer le marché signé"
+            onDragOver={e=>{e.preventDefault();if(!survolSigne)setSurvolSigne(true)}}
+            onDragLeave={()=>setSurvolSigne(false)}
+            onDrop={e=>{e.preventDefault();setSurvolSigne(false);if(!enCours)deposerSignes(e.dataTransfer&&e.dataTransfer.files)}}
+            style={{display:'block',marginTop:8,padding:'14px 12px',borderRadius:8,textAlign:'center',cursor:enCours?'wait':'pointer',
+              border:'2px dashed '+(survolSigne?TERRA:RULE),background:survolSigne?'#FBEFEA':'transparent'}}>
+            <div className="xs b" style={{color:NAVY}}>
+              {enCours?'Envoi sur le Drive… ('+depotSigne.n+' fichier'+(depotSigne.n>1?'s':'')+')'
+                :signes.length?'+ Ajouter un fichier signé':'Déposer le marché signé'}</div>
+            <div className="xs mut" style={{marginTop:2}}>Glissez le fichier ici, ou cliquez pour le choisir</div>
+            <input type="file" multiple accept={PIECES_ACCEPT} style={{display:'none'}} disabled={enCours}
+              onChange={e=>{const l=[...e.target.files];e.target.value='';deposerSignes(l)}}/>
+          </label>
+          {depotSigne&&depotSigne.etat!=='envoi'&&!!depotSigne.noms.length&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+            {depotSigne.noms.length>1?depotSigne.noms.length+' fichiers déposés':'Déposé'} sur le Drive
+            {depotSigne.signe?' — le lot passe « Marché signé »':''}{f.id?'.':' : enregistrez le lot pour le garder.'}</div>}
+          {depotSigne&&depotSigne.etat==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>{depotSigne.msg}</div>}
+          {!!signes.length&&!f.dateSignature&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+            La date de signature n’est pas renseignée : indiquez-la plus haut (DATE DE SIGNATURE).</div>}
+          {f.contratRedige&&<div className="xs mut" style={{marginTop:6}}>
+            Le contrat du lot est maintenant le marché signé. Le contrat rédigé avant signature reste ici :{' '}
+            <a href={f.contratRedige} target="_blank" rel="noreferrer" style={{color:TERRA}}>ouvrir</a>.</div>}
         </Fld>;
       })()}
       {f.id&&<Fld label="AVENANTS">
@@ -10946,10 +11068,19 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
               {ouv===kE&&<Volet cols={3}><FicheEntreprise a={art}/></Volet>}
               {ouv===kD&&<Volet cols={3}>
                 <div className="lbl">MARCHÉ DE TRAVAUX SIGNÉ</div>
-                {m.contratLien
+                {marcheSignes(m).length
+                  ?<div className="xs" style={{marginTop:4}}>
+                    {marcheSignes(m).map(s=><div key={s.id} className="row" style={{gap:10,alignItems:'center',flexWrap:'wrap',marginTop:2}}>
+                      <span style={{color:GREEN}}>✓</span>
+                      <a href={s.lien} target="_blank" rel="noreferrer" style={{color:TERRA,wordBreak:'break-word'}}>{s.nom}</a>
+                      <span className="mut">déposé le {fd(s.le)}</span></div>)}
+                    <label style={{color:NAVY,cursor:'pointer',display:'inline-block',marginTop:4}}>+ Ajouter un fichier signé
+                      <input type="file" accept={PIECES_ACCEPT} style={{display:'none'}}
+                        onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)joindreContrat(m.id,x)}}/></label></div>
+                  :m.contratLien
                   ?<div className="row xs" style={{gap:12,alignItems:'center',flexWrap:'wrap',marginTop:4}}><Transmis/>
                     <a href={m.contratLien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir le marché</a>
-                    <label style={{color:NAVY,cursor:'pointer'}}>Remplacer
+                    <label style={{color:NAVY,cursor:'pointer'}}>Déposer le marché signé
                       <input type="file" accept={PIECES_ACCEPT} style={{display:'none'}}
                         onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)joindreContrat(m.id,x)}}/></label></div>
                   :<label className="xs" style={{color:NAVY,cursor:'pointer',display:'block',marginTop:4}}>
@@ -22978,8 +23109,12 @@ function RelanceMarche({ch,m,a,majMarche}){
     try{
       const token=await getDriveToken();
       const folderId=await driveSousDossier(token,ch.id,ch.nom,'Marché travaux signé');
-      const{webViewLink}=await uploadToDrive(file,folderId);
-      majMarche(m.id,{contratLien:webViewLink,statut:'signe'});
+      const nom=nomMarcheSigne(m,a&&a.nom,file.name,marcheSignes(m).length+1);
+      const{webViewLink}=await uploadToDrive(new File([file],nom,{type:file.type}),folderId);
+      /* rangé comme depuis la fiche du lot ; le statut passe « signé »
+         même si le lot attendait à un autre stade : c'est ce qui le sort
+         de la liste des relances */
+      majMarche(m.id,{...ajouterMarcheSigne(m,{id:uid(),nom,lien:webViewLink,le:today()}),statut:'signe'});
     }catch(e){
       setEnvoi('');
       alert(e&&e.error==='auth_required'?"Connectez d'abord Google Drive (bouton en bas de l'onglet)."
