@@ -10728,7 +10728,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           </div>}
           <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
             <button className={'btn s '+(stop?'gh':'acc')} disabled={stop||(sortie&&sortie.etat==='travail')}
-              style={{whiteSpace:'nowrap',opacity:stop?.5:1}} onClick={sortirMarche}>
+              style={{whiteSpace:'normal',maxWidth:'100%',textAlign:'left',lineHeight:1.3,opacity:stop?.5:1}} onClick={sortirMarche}>
               {sortie&&sortie.etat==='travail'?'Rédaction des 3 exemplaires…':'Rédiger le marché (3 exemplaires) et l’envoyer sur le Drive'}</button>
             <input className="in" style={{padding:'4px 8px',fontSize:12,width:110}} placeholder="N° du marché"
               aria-label="Numéro du marché" value={f.numeroMarche||''} onChange={e=>setF({...f,numeroMarche:e.target.value})}/>
