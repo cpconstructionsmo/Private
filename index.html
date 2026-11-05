@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-05 · Marchés : envoyer à l’artisan le marché signé, avec le plan d’exécution';
+const VERSION='2026-11-05 · Achats de matériaux : envoyer au client la facture d’un achat (date d’envoi gardée)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -8295,7 +8295,7 @@ const Solde=()=><span className="xs" title="Entièrement facturé"
 
 /* la colonne de droite : chaque facture avec son numéro, sa date, son montant
    et ce qui reste dû après elle. Le « + » ouvre son justificatif. */
-function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa}){
+function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiClient}){
   const L=liste||[];
   const total=facturesTotal(L), reste=(engage||0)-total;
   /* une facture lue automatiquement (Lire des factures) peut mal reprendre
@@ -8316,6 +8316,7 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa}){
           <Plus actif={ouv===k} titre="Voir le justificatif" onClick={()=>{setOuv(ouv===k?'':k);setEdit(null)}}/>
         </div>
         <div className="mut" style={{fontSize:11}}>
+          {f.envoyeeClientLe&&<span style={{color:GREEN}} title={'Envoyée au client le '+fd(f.envoyeeClientLe)}>envoyée au client · </span>}
           {f.numero?f.numero+' · ':''}{f.date?fd(f.date):'date à saisir'}
           {/* le reste après chaque facture n'a de sens qu'à partir de la deuxième :
               sur une facture unique il répéterait le reste à facturer du bas */}
@@ -8341,7 +8342,7 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa}){
                 <button className="btn gh s" onClick={()=>setEdit(null)}>Annuler</button>
               </div>
             </div>
-            :<button className="btn gh s" style={{marginBottom:8}}
+            :<button className="btn gh s" style={{marginBottom:8,whiteSpace:'normal',maxWidth:'100%',textAlign:'left',lineHeight:1.3}}
               onClick={()=>setEdit({fid:f.id,montant:f.montant,date:f.date,numero:f.numero})}>
               Corriger le montant, la date ou le numéro</button>)}
           {f.lien
@@ -8355,6 +8356,9 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa}){
                 onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label>}
           {f.lien&&visa&&visa.artisan&&<div style={{marginTop:8}}>
             <ViserFacture f={f} ch={visa.ch} art={visa.artisan} lot={visa.lot} data={visa.data} marche={visa.marche}/>
+          </div>}
+          {f.lien&&envoiClient&&<div style={{marginTop:8}}>
+            <EnvoyerFactureAchat f={f} ch={envoiClient.ch} cmd={envoiClient.cmd} data={envoiClient.data} onEnvoyee={envoiClient.onEnvoyee}/>
           </div>}
         </div>}
       </div>;
@@ -8517,6 +8521,111 @@ function ViserFacture({f,ch,art,data,lot,marche}){
         <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
       </div>
     </div>}
+  </div>;
+}
+
+/* ---------- transmettre au client la facture d'un achat de matériaux ----------
+   Les matériaux achetés en direct se facturent comme un lot : la facture du
+   fournisseur, une fois déposée, se transmet au client depuis son volet. Le
+   message ne dit que ce que l'on sait — fournisseur, numéro, montant, objet
+   de l'achat — et se relit avant de partir ; la date d'envoi se garde sur la
+   facture, pour savoir ce que le client a déjà reçu. */
+const corpsFactureAchat=(f,cmd,ch)=>'Bonjour,\n\nVeuillez trouver ci-joint la facture'+(f.numero?' n° '+f.numero:'')
+  +' de '+((cmd&&cmd.fournisseur)||'notre fournisseur')+', d’un montant de '+eurDoc(factureTTC(f,cmd,ch))+' TTC'
+  +(cmd&&cmd.designation?', pour l’achat « '+cmd.designation+' »':'')+'.'
+  +'\n\nJe reste à votre disposition pour toute question.'
+  +'\n\nCordialement,';
+/* le nom de la pièce jointe, avec la bonne extension : une facture déposée
+   en photo part en photo, pas sous un faux « .pdf » */
+const nomFactureAchat=(f,cmd,octets)=>{
+  const d=dimensionsImage(octets);
+  return 'Facture'+(f.numero?' '+f.numero:'')+' — '+((cmd&&cmd.fournisseur)||'fournisseur')
+    +(d?'.'+(d.ext==='jpeg'?'jpg':d.ext):'.pdf');
+};
+function EnvoyerFactureAchat({f,ch,cmd,data,onEnvoyee}){
+  const [mail,setMail]=useState(null);
+  const expediteur=((data&&data.expediteurMail)||'').trim();
+  const ouvrirMail=()=>{
+    setMail({etat:'apercu',compte:'',signature:true,destinataire:ch.emailClient,
+      sujet:'Facture'+(f.numero?' n° '+f.numero:'')+' — '+((cmd&&cmd.fournisseur)||'achat de matériaux'),
+      corps:corpsFactureAchat(f,cmd,ch)});
+    getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
+  };
+  const envoyer=async()=>{
+    setMail(p=>({...p,etat:'envoi'}));
+    try{
+      const token=await getDriveToken();
+      let octets;
+      try{octets=await driveFichierBytes(token,driveIdDepuisLien(f.lien))}
+      catch(e){
+        if(e&&e.error==='auth_required')throw e;
+        throw new Error('la facture ne se lit pas sur le Drive : '+((e&&e.message)||e)
+          +'. Remplacez-la (« Remplacer », juste au-dessus), puis réessayez');
+      }
+      const nom=nomFactureAchat(f,cmd,octets);
+      const signe=mail.signature?mailSigne(mail.corps,await signatureLogo())
+        :{corps:String(mail.corps).replace(/\s+$/,'')+'\n'+SIGNATAIRE_MAIL};
+      await gmailEnvoyer(token,{destinataire:mail.destinataire,bcc:expediteur||null,sujet:mail.sujet,...signe,
+        pieces:[{nom,type:typeFichier(nom),data:octets}],expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
+      if(onEnvoyee)onEnvoyee(f.id);
+      setMail(p=>({...p,etat:'ok'}));
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setMail(p=>({...p,etat:'erreur',msg:
+        c==='auth_required'?"Google n'est pas connecté (bouton en bas de l'onglet) — connectez-le, avec l'autorisation d'envoi de mail, puis relancez.":
+        /too large|size|quota/i.test(c)?"La facture dépasse la limite de la messagerie (25 Mo).":
+        "Envoi impossible — "+c}));
+    }
+  };
+  if(!ch.emailClient)return <div className="xs mut" style={{lineHeight:1.5}}>
+    Aucun e-mail enregistré pour {ch.client||'ce client'} — ajoutez-le dans la fiche du chantier pour pouvoir lui transmettre la facture.</div>;
+  /* l'aperçu s'ouvre par-dessus l'écran : dans la colonne des factures, il
+     serait écrasé sur un téléphone et pousserait la page de côté */
+  const fermer=()=>{if(!mail||mail.etat!=='envoi')setMail(null)};
+  return <div>
+    <div className="row" style={{gap:8,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn gh s" onClick={ouvrirMail} disabled={!!mail}>{f.envoyeeClientLe?'Renvoyer au client':'Envoyer au client'}</button>
+      {f.envoyeeClientLe&&<span className="xs" style={{color:GREEN}}>✓ envoyée au client le {fd(f.envoyeeClientLe)}</span>}
+    </div>
+    {mail&&<PtrModale titre={'Facture'+(f.numero?' n° '+f.numero:'')+' — envoi au client'} onFermer={fermer}>
+    {mail.etat==='apercu'&&<div style={{textAlign:'left'}}>
+      {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
+        borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+        Le mail partira de <b>{mail.compte}</b>, le compte Google connecté. Pour qu’il parte
+        d’une adresse cpconstructions.fr, renseignez-la dans RÉGLAGES › Adresse d’expédition.</div>}
+      <Fld label="EXPÉDITEUR">
+        <div className="xs">{expediteur||mail.compte||'le compte Google connecté'}
+          {expediteur&&mail.compte&&<span className="mut"> · via {mail.compte}</span>}</div>
+      </Fld>
+      <Fld label="DESTINATAIRE"><div className="xs">{mail.destinataire}</div></Fld>
+      {expediteur&&<Fld label="EN COPIE CACHÉE"><div className="xs">{expediteur}</div></Fld>}
+      <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
+      <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
+      <label className="xs row" style={{gap:6,alignItems:'center',marginBottom:6}}>
+        <input type="checkbox" checked={!!mail.signature} onChange={e=>setMail({...mail,signature:e.target.checked})}/>
+        Ajouter ma signature professionnelle (avec le logo)</label>
+      {mail.signature
+        ?<div className="signature-apercu" style={{border:'1px solid '+RULE,borderRadius:8,padding:'8px 10px',marginBottom:8,background:'#fff'}}
+          dangerouslySetInnerHTML={{__html:signatureHtml(true,SIGNATURE_PRO.logo)}}/>
+        :<div className="xs mut" style={{marginBottom:8}}>Signé simplement : {SIGNATAIRE_MAIL}.</div>}
+      <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>Pièce jointe : la facture, reprise du Drive au moment de l’envoi.</div>
+      <div className="row" style={{gap:8}}>
+        <button className="btn acc s" onClick={envoyer}>Envoyer</button>
+        <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+      </div>
+    </div>}
+    {mail.etat==='envoi'&&<div className="xs mut">Envoi en cours…</div>}
+    {mail.etat==='ok'&&<div className="xs" style={{color:GREEN,lineHeight:1.5,textAlign:'left'}}>
+      ✓ Facture envoyée à {mail.destinataire}.
+      <button className="btn gh s" style={{marginLeft:10}} onClick={()=>setMail(null)}>Terminer</button></div>}
+    {mail.etat==='erreur'&&<div style={{textAlign:'left'}}>
+      <div className="xs" style={{color:TERRA,lineHeight:1.5,marginBottom:8}}>{mail.msg}</div>
+      <div className="row" style={{gap:8}}>
+        <button className="btn gh s" onClick={envoyer}>Réessayer</button>
+        <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
+      </div>
+    </div>}
+    </PtrModale>}
   </div>;
 }
 
@@ -10511,6 +10620,11 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     const c=data.commandes.find(x=>x.id===id)||{};
     majCmd(id,{factures:(c.factures||[]).map(x=>x.id===fid?{...x,lien}:x)});
   });
+  /* la facture d'achat transmise au client : la date se garde sur elle */
+  const marquerFactureCmdEnvoyee=(id,fid)=>{
+    const c=data.commandes.find(x=>x.id===id)||{};
+    majCmd(id,{factures:(c.factures||[]).map(x=>x.id===fid?{...x,envoyeeClientLe:today()}:x)});
+  };
   const joindreFactureHono=(fid,file)=>envoyer(file,'Honoraires',lien=>
     majCh({honoFactures:(ch.honoFactures||[]).map(x=>x.id===fid?{...x,lien}:x)}));
   /* une facture lue automatiquement peut se tromper de montant, de date ou
@@ -11218,7 +11332,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                   <td style={{padding:'8px 4px'}}>
                     <ColFactures liste={c.factures} engage={+c.montant||0} ouv={ouv} setOuv={setOuv}
                       cle={'c-fac:'+c.id} onLien={(fid,file)=>joindreFactureCmd(c.id,fid,file)}
-                      onCorriger={(fid,patch)=>corrigerFactureCmd(c.id,fid,patch)}/>
+                      onCorriger={(fid,patch)=>corrigerFactureCmd(c.id,fid,patch)}
+                      envoiClient={{ch,cmd:c,data,onEnvoyee:fid=>marquerFactureCmdEnvoyee(c.id,fid)}}/>
                   </td>
                 </tr>
                 {ouv===kE&&<Volet cols={3}>
