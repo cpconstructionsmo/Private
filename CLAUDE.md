@@ -72,6 +72,12 @@ qu'on ait à les redire.
   fichiers signés repris du Drive tels quels, avec les plans d'exécution
   cochés d'office (`PIECES_MAIL_SIGNE`) ; la date est gardée
   (`mailSigneLe`). Tests : `t_marche_signe_mail.js`.
+- **Factures d'achat de matériaux** (Marchés › Achats de matériaux) : une
+  facture déposée se transmet au client depuis son volet (« Envoyer au
+  client », `EnvoyerFactureAchat`) : aperçu à relire, facture reprise du
+  Drive avec sa vraie extension ; la date se garde sur la facture
+  (`envoyeeClientLe`). Les factures des marchés, elles, se visent
+  (`ViserFacture`). Tests : `t_facture_achat_client.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR
