@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-04 · Marchés : section « Marché signé par l’entreprise » (dépôt direct sur le Drive, plusieurs fichiers, glisser-déposer)';
+const VERSION='2026-11-05 · Marchés : envoyer à l’artisan le marché signé, avec le plan d’exécution';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -476,6 +476,9 @@ const piecesAJoindre=ch=>{
 /* ce qu'un artisan attend avec son marché : le plan du permis et les plans
    d'exécution. Le reste se coche à la main, au cas par cas. */
 const PIECES_MAIL_DEFAUT=['plans_pc','plans_exe'];
+/* le marché revenu signé, lui, part avec les plans d'exécution seulement :
+   le permis, l'artisan l'a déjà reçu avec le marché à signer */
+const PIECES_MAIL_SIGNE=['plans_exe'];
 
 /* La navigation. Neuf entrées ne tiennent pas en bas d'un iPhone : les trois
    dernières passent sous « PLUS », qui les déplie au-dessus de la barre. */
@@ -10328,43 +10331,76 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
      messagerie doit connaître comme une de ses adresses d'envoi vérifiées. */
   const expediteur=(data.expediteurMail||'').trim();
   const [mail,setMail]=useState(null);
-  const ouvrirMail=()=>{
+  /* un aperçu de mail ne vaut, lui aussi, que pour le lot où il a été ouvert */
+  useEffect(()=>{setMail(null)},[lotOuvert]);
+  /* Deux envois : le marché à signer (rédigé ici, converti en PDF) ou, une
+     fois revenu, le marché signé tel qu'il a été déposé — chaque fichier
+     repris du Drive —, accompagné d'office des plans d'exécution. */
+  const ouvrirMail=signe=>{
     const a=data.artisans.find(x=>x.id===f.artisanId)||null;
     if(!a||!a.email)return;
+    const avecSigne=signe===true&&marcheSignes(f).length>0;
     const dispo=piecesAJoindre(ch);
-    const cochees=dispo.filter(p=>PIECES_MAIL_DEFAUT.indexOf(p.doc)>=0).map(p=>p.cle);
-    const nommees=dispo.filter(p=>cochees.indexOf(p.cle)>=0).map(p=>p.piece.toLowerCase());
+    const defaut=avecSigne?PIECES_MAIL_SIGNE:PIECES_MAIL_DEFAUT;
+    const cochees=dispo.filter(p=>defaut.indexOf(p.doc)>=0).map(p=>p.cle);
+    /* « les plans d'exécution », pas « plans d'exécution » : l'article se met
+       devant les pièces au pluriel ; les autres gardent leur intitulé */
+    const nommees=dispo.filter(p=>cochees.indexOf(p.cle)>=0).map(p=>p.piece.toLowerCase())
+      .map(l=>/^plans\b/.test(l)?'les '+l:l);
     const liste=[...new Set(nommees)];
+    const joint=liste.length?' ainsi que '+(liste.length>1?liste.slice(0,-1).join(', ')+' et '+liste.slice(-1):liste[0]):'';
+    const lieu=' pour le chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.';
     setMail({
-      etat:'apercu', compte:'',
+      etat:'apercu', compte:'', signe:avecSigne,
+      signes:avecSigne?marcheSignes(f).map(s=>s.id):[],
       destinataire:a.email,
-      sujet:'Marché '+(f.numeroMarche?'n° '+f.numeroMarche+' ':'')+'— '+(f.lot||'lot')+' — '+(ch.nom||''),
-      corps:'Bonjour,\n\nVeuillez trouver ci-joint le marché de travaux'
-        +(liste.length?' ainsi que '+(liste.length>1?liste.slice(0,-1).join(', ')+' et '+liste.slice(-1):liste[0]):'')
-        +' pour le chantier '+(ch.nom||'')+(ch.adresse?' ('+ch.adresse+')':'')+'.'
-        +'\n\nMerci de me retourner le marché signé, et de me signaler toute réserve avant le démarrage.'
-        +'\n\nCordialement,\n'+SIGNATAIRE_MAIL,
+      sujet:(avecSigne?'Marché signé ':'Marché ')+(f.numeroMarche?'n° '+f.numeroMarche+' ':'')+'— '+(f.lot||'lot')+' — '+(ch.nom||''),
+      corps:avecSigne
+        ?'Bonjour,\n\nVeuillez trouver ci-joint votre marché de travaux signé'+joint+lieu
+          +'\n\nMerci de le conserver avec vos documents de chantier, et de me signaler toute réserve avant le démarrage.'
+          +'\n\nCordialement,\n'+SIGNATAIRE_MAIL
+        :'Bonjour,\n\nVeuillez trouver ci-joint le marché de travaux'+joint+lieu
+          +'\n\nMerci de me retourner le marché signé, et de me signaler toute réserve avant le démarrage.'
+          +'\n\nCordialement,\n'+SIGNATAIRE_MAIL,
       dispo, cochees,
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
   };
   const cocherPiece=cle=>setMail(p=>({...p,
     cochees:p.cochees.indexOf(cle)>=0?p.cochees.filter(x=>x!==cle):[...p.cochees,cle]}));
+  const cocherSigne=id=>setMail(p=>({...p,
+    signes:p.signes.indexOf(id)>=0?p.signes.filter(x=>x!==id):[...p.signes,id]}));
   const envoyerMail=async()=>{
     setMail(p=>({...p,etat:'envoi'}));
     try{
       const a=data.artisans.find(x=>x.id===f.artisanId)||null;
       const token=await getDriveToken();
       const numero=f.numeroMarche||numeroSuivant();
-      const docMarche=await construireMarcheDoc(a,numero);
-      /* le marché part figé : converti en PDF, il ne peut plus être retouché
-         par celui qui le reçoit */
-      const nomMarche='Marché '+numero+' — '+(f.lot||'lot');
-      let pdfMarche;
-      try{pdfMarche=await driveDocxEnPdf(token,docMarche,nomMarche)}
-      catch(x){throw new Error('Le marché n’a pas pu être converti en PDF — '
-        +((x&&(x.error||x.message))||String(x)))}
-      const pieces=[{nom:nomMarche+'.pdf',type:typeFichier('x.pdf'),data:pdfMarche}];
+      const pieces=[];
+      if(mail.signe){
+        /* le marché signé part tel qu'il a été déposé : chaque fichier coché,
+           repris du Drive ; celui qui ne se lit pas est nommé */
+        for(const s of marcheSignes(f).filter(x=>mail.signes.indexOf(x.id)>=0)){
+          let octets;
+          try{octets=await driveFichierBytes(token,driveIdDepuisLien(s.lien))}
+          catch(x){
+            if(x&&x.error==='auth_required')throw x;
+            throw new Error('« '+s.nom+' » ne se lit pas sur le Drive ('+((x&&x.message)||String(x))
+              +'). Redéposez-le dans la section « Marché signé par l’entreprise », puis réessayez.');
+          }
+          pieces.push({nom:s.nom,type:typeFichier(s.nom),data:octets});
+        }
+      }else{
+        const docMarche=await construireMarcheDoc(a,numero);
+        /* le marché part figé : converti en PDF, il ne peut plus être retouché
+           par celui qui le reçoit */
+        const nomMarche='Marché '+numero+' — '+(f.lot||'lot');
+        let pdfMarche;
+        try{pdfMarche=await driveDocxEnPdf(token,docMarche,nomMarche)}
+        catch(x){throw new Error('Le marché n’a pas pu être converti en PDF — '
+          +((x&&(x.error||x.message))||String(x)))}
+        pieces.push({nom:nomMarche+'.pdf',type:typeFichier('x.pdf'),data:pdfMarche});
+      }
       for(const p of mail.dispo.filter(x=>mail.cochees.indexOf(x.cle)>=0)){
         const id=driveIdDepuisLien(p.lien);
         if(!id)continue;
@@ -10379,7 +10415,11 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       await gmailEnvoyer(token,{destinataire:mail.destinataire,
         sujet:mail.sujet,corps:mail.corps,pieces,
         expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
-      setF(p=>({...p,numeroMarche:numero,mailArtisanLe:today()}));
+      if(mail.signe){
+        /* gardé tout de suite, comme le dépôt du marché signé lui-même */
+        setF(p=>({...p,mailSigneLe:today()}));
+        if(f.id)majMarche(f.id,{mailSigneLe:today()});
+      }else setF(p=>({...p,numeroMarche:numero,mailArtisanLe:today()}));
       setMail(p=>({...p,etat:'ok'}));
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
@@ -10764,15 +10804,26 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
             {a?'Cette entreprise n’a pas d’e-mail enregistré — ajoutez-en un sur sa fiche (onglet ARTISANS) pour pouvoir lui envoyer le marché.'
               :'Aucune entreprise n’est attribuée à ce lot.'}</div>
         </Fld>;
-        return <Fld label="ENVOYER À L'ARTISAN PAR MAIL">
+        const nSignes=marcheSignes(f).length;
+        const sansPlanExe=!joignables.some(p=>PIECES_MAIL_SIGNE.indexOf(p.doc)>=0);
+        return <div id="mail-artisan"><Fld label="ENVOYER À L'ARTISAN PAR MAIL">
           {!mail&&<div>
             <div className="xs mut" style={{lineHeight:1.5,marginBottom:8}}>
-              Le marché part en pièce jointe à {a.email}, accompagné des pièces du chantier que vous
-              cochez — les plans du permis et les plans d’exécution sont proposés d’office
-              {joignables.length?'':'. Aucune pièce n’est encore déposée dans l’onglet PIÈCES'}.
+              {nSignes>0
+                ?<>Le marché revenu signé (section ci-dessous) part en pièce jointe à {a.email}, avec les plans
+                  d’exécution proposés d’office{sansPlanExe?' — aucun n’est encore déposé dans l’onglet PIÈCES':''}.
+                  Le marché à signer peut aussi être renvoyé. </>
+                :<>Le marché part en pièce jointe à {a.email}, accompagné des pièces du chantier que vous
+                  cochez — les plans du permis et les plans d’exécution sont proposés d’office
+                  {joignables.length?'':'. Aucune pièce n’est encore déposée dans l’onglet PIÈCES'}. </>}
               Un aperçu s’ouvre d’abord : rien ne part sans que vous ayez cliqué « Envoyer ».
             </div>
-            <button className="btn gh s" onClick={ouvrirMail}>Préparer l’envoi</button>
+            {nSignes>0
+              ?<div className="row" style={{gap:8,flexWrap:'wrap'}}>
+                <button className="btn acc s" onClick={()=>ouvrirMail(true)}>Envoyer le marché signé</button>
+                <button className="btn gh s" onClick={()=>ouvrirMail(false)}>Renvoyer le marché à signer</button></div>
+              :<button className="btn gh s" onClick={()=>ouvrirMail(false)}>Préparer l’envoi</button>}
+            {f.mailSigneLe&&<div className="xs mut" style={{marginTop:6}}>Marché signé envoyé à l’artisan le {fd(f.mailSigneLe)}.</div>}
           </div>}
           {mail&&mail.etat==='apercu'&&<div>
             {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
@@ -10786,12 +10837,26 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
             <Fld label="DESTINATAIRE"><div className="xs">{mail.destinataire}</div></Fld>
             <Fld label="OBJET"><input className="in" value={mail.sujet} onChange={e=>setMail({...mail,sujet:e.target.value})}/></Fld>
             <Fld label="MESSAGE"><textarea className="in" rows="7" value={mail.corps} onChange={e=>setMail({...mail,corps:e.target.value})}/></Fld>
-            <Fld label={'PIÈCES JOINTES ('+(mail.cochees.length+1)+')'}>
-              <div className="xs" style={{marginBottom:6,display:'flex',gap:6,alignItems:'center'}}>
+            <Fld label={'PIÈCES JOINTES ('+(mail.cochees.length+(mail.signe?mail.signes.length:1))+')'}>
+              {!mail.signe&&<div className="xs" style={{marginBottom:6,display:'flex',gap:6,alignItems:'center'}}>
                 <span style={{width:14,textAlign:'center',color:GREEN}}>✓</span>
                 <span>Marché — {f.lot||'lot'}.pdf</span>
                 <span className="mut">toujours joint, en PDF</span>
-              </div>
+              </div>}
+              {/* le marché signé : chaque fichier déposé, coché d'office */}
+              {mail.signe&&marcheSignes(f).map(s=>{const on=mail.signes.indexOf(s.id)>=0;
+                return <label key={s.id} className="xs" style={{display:'flex',gap:6,alignItems:'flex-start',
+                  marginBottom:4,cursor:'pointer',lineHeight:1.45}}>
+                  <input type="checkbox" checked={on} onChange={()=>cocherSigne(s.id)} style={{marginTop:2}}
+                    aria-label={'Joindre '+s.nom}/>
+                  <span style={{flex:1,minWidth:0,wordBreak:'break-word'}}>{s.nom}
+                    <span className="mut"> — marché signé</span></span>
+                </label>})}
+              {mail.signe&&!mail.signes.length&&<div className="xs" style={{color:TERRA,marginBottom:6}}>
+                Cochez au moins un fichier du marché signé.</div>}
+              {mail.signe&&!mail.dispo.some(p=>PIECES_MAIL_SIGNE.indexOf(p.doc)>=0)&&<div className="xs"
+                style={{marginBottom:6,padding:'6px 10px',borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+                Aucun plan d’exécution n’est déposé dans l’onglet PIÈCES du chantier : déposez-le là-bas pour pouvoir le joindre.</div>}
               {!mail.dispo.length&&<div className="xs mut" style={{lineHeight:1.5}}>
                 Aucune autre pièce disponible : déposez les plans dans l’onglet PIÈCES du chantier
                 pour pouvoir les joindre.</div>}
@@ -10807,7 +10872,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                 Le total doit rester sous 25 Mo.</div>
             </Fld>
             <div className="row" style={{gap:8}}>
-              <button className="btn acc s" onClick={envoyerMail}>Envoyer</button>
+              <button className="btn acc s" disabled={mail.signe&&!mail.signes.length} onClick={envoyerMail}>Envoyer</button>
               <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
             </div>
           </div>}
@@ -10822,7 +10887,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
               <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
             </div>
           </div>}
-        </Fld>;
+        </Fld></div>;
       })()}
       {(()=>{
         const signes=marcheSignes(f);
@@ -10862,6 +10927,21 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           {f.contratRedige&&<div className="xs mut" style={{marginTop:6}}>
             Le contrat du lot est maintenant le marché signé. Le contrat rédigé avant signature reste ici :{' '}
             <a href={f.contratRedige} target="_blank" rel="noreferrer" style={{color:TERRA}}>ouvrir</a>.</div>}
+          {/* le renvoyer à l'artisan, avec ses plans d'exécution : l'aperçu
+              s'ouvre dans la section du mail, juste au-dessus */}
+          {!!signes.length&&(()=>{
+            const a=data.artisans.find(x=>x.id===f.artisanId);
+            if(!a)return null;
+            if(!a.email)return <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+              Ajoutez un e-mail sur la fiche de l’entreprise (onglet ARTISANS) pour lui envoyer le marché signé.</div>;
+            return <div className="row" style={{gap:8,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
+              <button className="btn acc s" style={{whiteSpace:'normal',maxWidth:'100%',textAlign:'left',lineHeight:1.3}} onClick={()=>{ouvrirMail(true);
+                setTimeout(()=>{const el=document.getElementById('mail-artisan');
+                  if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'start'})},60)}}>
+                Envoyer le marché signé à l’artisan (avec le plan d’exécution)</button>
+              {f.mailSigneLe&&<span className="xs mut">envoyé le {fd(f.mailSigneLe)}</span>}
+            </div>;
+          })()}
         </Fld>;
       })()}
       {f.id&&<Fld label="AVENANTS">

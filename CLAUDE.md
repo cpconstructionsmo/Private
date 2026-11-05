@@ -68,6 +68,10 @@ qu'on ait à les redire.
   (`nomMarcheSigne`), et s'ajoute à `m.signes` (`ajouterMarcheSigne`) ;
   le lot passe « signé », `contratLien` devient le dernier signé et le
   contrat remplacé se garde (`contratRedige`). Tests : `t_marche_signe.js`.
+  Il se renvoie à l'artisan par mail (« Envoyer le marché signé ») : les
+  fichiers signés repris du Drive tels quels, avec les plans d'exécution
+  cochés d'office (`PIECES_MAIL_SIGNE`) ; la date est gardée
+  (`mailSigneLe`). Tests : `t_marche_signe_mail.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR
