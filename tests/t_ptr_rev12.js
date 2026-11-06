@@ -14,5 +14,5 @@ chk(/PLACOSTYL de 100 mm/.test(c.texte)&&/portes à galandage/.test(c.texte)&&c.
 chk(/cloison PLACOSTYL de 100 mm/.test(g.texte),'les portes à galandage renvoient à la cloison Placostyl de 100 mm');
 chk(!['pr_cloisons_separation_volumes_non_chauffes','pr_cloisons_100mm','pr_portes_interieures_galandage'].some(id=>{const p=b.prestations.find(x=>x.id===id);return M.ptrAlertesPrestation(p,b).some(a=>/faute|accent|colle|dim:|espaces|unite/.test(a.cle))}),'textes sans faute signalée');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r11))});
-chk(m.seedRev===22&&V(m,'var_cloisons_separation_volumes_non_chauffes_a').texte===u.texte&&V(m,'var_cloisons_separation_volumes_non_chauffes_a').pieces.length===1&&V(m,'var_cloisons_100mm_a').texte===c.texte,'bibliothèque de révision 11 : textes, photos et fiche reçus');
+chk(m.seedRev===23&&V(m,'var_cloisons_separation_volumes_non_chauffes_a').texte===u.texte&&V(m,'var_cloisons_separation_volumes_non_chauffes_a').pieces.length===1&&V(m,'var_cloisons_100mm_a').texte===c.texte,'bibliothèque de révision 11 : textes, photos et fiche reçus');
 fin();

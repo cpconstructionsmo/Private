@@ -22,7 +22,7 @@ function save(d){data=d;TR.act(()=>{tr.update(monter())})}
 TR.act(()=>{tr=TR.create(monter())});
 TR.act(()=>{btn(tr,/Ouvrir la bibliothèque/).props.onClick()});
 chk(/BIBLIOTHÈQUE DES PRESTATIONS/.test(txt(tr)),'la bibliothèque s’ouvre depuis DONNÉES');
-chk(/15 catégories · 61 prestations/.test(txt(tr)),'elle contient les 15 catégories et 61 prestations du modèle');
+chk(/15 catégories · 65 prestations/.test(txt(tr)),'elle contient les 15 catégories et 65 prestations du modèle');
 chk(/vérifications? recommandées?/.test(txt(tr)),'les vérifications recommandées issues de l’import sont annoncées');
 
 /* recherche : « implantation » */

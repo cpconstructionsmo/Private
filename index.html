@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-06 · Factures : relier deux saisies d’une même facture, un fichier pour toutes ses parts, la visa dit pourquoi elle attend';
+const VERSION='2026-11-07 · Programme technique : rapprochement avec le chiffrage vendu, type d’ouvrage ERP de 5e catégorie (révision 23)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4704,10 +4704,11 @@ function ptrDocumentXml(p,px,majTarifs){
 }
 /* la synthèse financière du PTR, recalculée depuis le chiffrage du prospect —
    partagée par l'ancien générateur et par le module programme technique */
-function ptrSyntheseXml(p,majTarifs,nomClients){
+function ptrSyntheseXml(p,majTarifs,nomClients,typeOuvrage){
   const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
   const sousTitre=t=>par(t,{b:true,sz:19,c:DOC_BRUN,av:140,ap:60});
-  const texte=t=>par(t,{sz:17,jc:'both',ap:80});
+  /* un ERP n'a pas de « logement » à rendre habitable */
+  const texte=t=>par(ptrTexteSelonOuvrage(t,typeOuvrage),{sz:17,jc:'both',ap:80});
   const coutHT=prospectCoutHT(p,majTarifs), tva=prospectTva(p),
     coutTTC=Math.round(coutHT*(1+tva/100)*100)/100;
   const honoTTC=honoDossierTTC(p,majTarifs);
@@ -4741,7 +4742,7 @@ function ptrSyntheseXml(p,majTarifs,nomClients){
 
   return [
     titre(PTR_SYNTHESE.titre),
-    PTR_SYNTHESE.notes.map(n=>par(n,{sz:15,i:true,c:DOC_GRIS,jc:'both',ap:100})).join(''),
+    PTR_SYNTHESE.notes.map(n=>par(ptrTexteSelonOuvrage(n,typeOuvrage),{sz:15,i:true,c:DOC_GRIS,jc:'both',ap:100})).join(''),
     vide(120),
     sousTitre(PTR_SYNTHESE.blocA.titre),
     texte(PTR_SYNTHESE.blocA.description),
@@ -4846,7 +4847,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=22;
+const PTR_SEED_REV=23;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -4912,6 +4913,12 @@ PTR_SEED_DATES[21]=PTR_SEED_DATE_21;
    décorative verte 29,5 x 59,5, baguettes d'angle, SPEC (proposition B) */
 const PTR_SEED_DATE_22='2026-09-27T21:00:00.000Z';
 PTR_SEED_DATES[22]=PTR_SEED_DATE_22;
+/* révision 23 : établissement recevant du public de 5e catégorie — alarme
+   incendie, éclairage de sécurité, grilles de transfert acoustiques et
+   dossier ERP, en prestations optionnelles (un programme de maison ne les
+   inclut pas ; le type d'ouvrage « ERP » les propose) */
+const PTR_SEED_DATE_23='2026-11-07T09:00:00.000Z';
+PTR_SEED_DATES[23]=PTR_SEED_DATE_23;
 /* propositions dont le texte a été réécrit après la révision 4 */
 const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a'],11:['var_cloisons_72mm_a','var_doublage_a'],12:['var_cloisons_separation_volumes_non_chauffes_a','var_cloisons_100mm_a','var_portes_interieures_galandage_a'],13:['var_bandes_joints_plaque_platre_a'],14:['var_portes_interieures_a','var_portes_interieures_galandage_a'],15:['var_isolation_thermique_plafond_a'],16:['var_ventilation_mecanique_controlee_a','var_electricite_a'],17:['var_prises_courant_a','var_points_lumineux_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
@@ -4968,6 +4975,25 @@ const ptrPieceAsset=(fichier,nom)=>({id:'pj_'+ptrIdFichier(fichier),src:'asset',
    la catégorie : juste après « apres ») ; « optionnelle » : non incluse
    d'office dans un nouveau programme */
 const PTR_PRESTATIONS_AJOUTEES=[
+  /* ERP de 5e catégorie : le matériel tel qu'il se vend, sans règle
+     réglementaire inscrite ici — type, nombre et implantation définitifs
+     relèvent de la notice de sécurité et de l'avis du bureau de contrôle */
+  {rev:23,apres:'options_electriques',id:'erp_alarme_incendie',titre:'ÉQUIPEMENT D’ALARME INCENDIE (ERP)',
+    optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
+    nom:'Alarme de type 4, déclencheur manuel et diffuseurs',
+    texte:'Équipement d’alarme incendie de **type 4** pour établissement recevant du public de 5e catégorie (type à confirmer selon le classement de l’établissement et l’avis du bureau de contrôle) :\n- déclencheur manuel placé près de la sortie ;\n- diffuseurs sonores d’alarme dans les locaux : [à préciser] ;\n- diffuseur sonore et lumineux dans le sanitaire accessible aux personnes à mobilité réduite, raccordé à l’alarme.\nNombre et implantation définitifs suivant plans et notice de sécurité.'},
+  {rev:23,apres:'options_electriques',id:'erp_eclairage_securite',titre:'ÉCLAIRAGE DE SÉCURITÉ (ERP)',
+    optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
+    nom:'Blocs autonomes d’éclairage de sécurité (BAES)',
+    texte:'Blocs autonomes d’éclairage de sécurité (BAES) d’évacuation, implantés suivant plans : [à préciser].\nBalisage des issues et des cheminements d’évacuation. Nombre et implantation définitifs suivant la notice de sécurité et l’avis du bureau de contrôle.'},
+  {rev:23,apres:'ventilation_mecanique_controlee',id:'erp_grilles_transfert',titre:'GRILLES DE TRANSFERT ACOUSTIQUES',
+    optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
+    nom:'Grilles de transfert d’air acoustiques',
+    texte:'Grilles de transfert d’air acoustiques posées dans les cloisons ou les portes des locaux : [à préciser].\nElles permettent la circulation de l’air vers les bouches d’extraction sans dégrader l’isolation acoustique entre les locaux. Dimensions et implantation suivant l’étude de ventilation.'},
+  {rev:23,apres:'permeabilite_attestations_dpe',id:'erp_dossier',titre:'DOSSIER ERP',
+    optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
+    nom:'Dossier ERP de 5e catégorie (sécurité et accessibilité)',
+    texte:'Établissement du dossier propre à l’établissement recevant du public de 5e catégorie, joint à la demande de permis de construire : notice de sécurité incendie et notice d’accessibilité aux personnes handicapées, avec les plans correspondants.\nDélai d’instruction indicatif : [à préciser].'},
   {rev:20,apres:'douche',id:'baignoire',titre:'BAIGNOIRE',
     optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
     nom:'Jacob Delafon Corvette, tablier à carreler',marque:'Jacob Delafon',reference:'Corvette 160 x 70 cm — E60903 (ou équivalent)',url:'https://www.jacobdelafon.fr',
@@ -5256,6 +5282,34 @@ const ptrMajDisponible=(l,biblio)=>{
   return v.titre!==l.titre||v.texte!==l.texte||ids(v.photos)!==ids(l.photos)||ids(v.pieces)!==ids(l.pieces)?v:null;
 };
 const ptrMentions=b=>({...PTR_MENTIONS_DEFAUT,...((b&&b.mentions)||{})});
+/* ---------- type d'ouvrage : maison ou établissement recevant du public ----------
+   Le modèle est écrit pour une maison. Un local recevant du public (ERP de
+   5e catégorie) se décrit avec le même programme, mais ses textes ne
+   doivent plus parler de garage ni de chambres, et il lui faut ses
+   équipements propres (alarme, éclairage de sécurité…), proposés d'un
+   geste. Rien n'est réécrit sans qu'on le demande : on signale. */
+const PTR_TYPES_OUVRAGE=[{id:'maison',l:'Maison individuelle'},{id:'erp5',l:'ERP de 5e catégorie'}];
+const ptrTypeOuvrage=prog=>(prog&&prog.typeOuvrage)==='erp5'?'erp5':'maison';
+const PTR_PRESTATIONS_ERP=['pr_erp_alarme_incendie','pr_erp_eclairage_securite','pr_erp_grilles_transfert','pr_erp_dossier'];
+const PTR_MOTS_LOGEMENT=['garage','maison','habitation','logement','chambre','chambres','séjour','salon','baignoire','dressing'];
+const ptrMotsLogement=l=>{
+  const t=deaccent([l&&l.titre,l&&l.texte].join(' ')).toLowerCase();
+  return [...new Set(PTR_MOTS_LOGEMENT.filter(m=>new RegExp('\\b'+deaccent(m)+'\\b').test(t)).map(m=>m.replace(/s$/,'')))];
+};
+/* les lignes incluses d'un programme d'ERP qui parlent encore d'un logement */
+const ptrAlertesUsage=prog=>ptrTypeOuvrage(prog)!=='erp5'?[]
+  :(prog.lignes||[]).filter(l=>l.incluse).map(l=>({ligneId:l.id,titre:l.titre||l.nom,mots:ptrMotsLogement(l)})).filter(x=>x.mots.length);
+/* la page de garde et la synthèse d'un ERP : « bâtiment », pas « maison » —
+   sauf si les mentions ont été réécrites dans la bibliothèque */
+const ptrMentionsPour=(b,prog)=>{
+  const M=ptrMentions(b);
+  if(ptrTypeOuvrage(prog)!=='erp5')return M;
+  return {...M,
+    sousTitre:M.sousTitre===PTR_MENTIONS_DEFAUT.sousTitre?'Établissement recevant du public — 5e catégorie':M.sousTitre,
+    re2020:String(M.re2020||'').replace('Votre maison a été conçue et sera construite','Votre bâtiment a été conçu et sera construit')};
+};
+const ptrTexteSelonOuvrage=(t,type)=>type==='erp5'
+  ?String(t||'').replace(/l[’']habitabilité complète du logement/g,'l’usage complet du bâtiment'):t;
 const ptrVariantesActives=pr=>((pr&&pr.variantes)||[]).filter(v=>!v.archivee);
 const ptrVarianteDefaut=pr=>{const L=ptrVariantesActives(pr);return L.find(v=>v.parDefaut)||L[0]||null};
 
@@ -5367,6 +5421,300 @@ function ptrNouveauProgramme(biblio,cible,source,autre){
   return {...base,categories,lignes};
 }
 const ptrLignesTriees=(prog,categorieId)=>(prog.lignes||[]).filter(l=>l.categorieId===categorieId);
+/* inclure des prestations de la bibliothèque : la ligne déjà là est cochée,
+   sinon elle s'ajoute après les prestations qui la précèdent dans la
+   bibliothèque — et sa catégorie, si le programme ne l'a pas */
+function ptrInclurePrestations(prog,biblio,ids){
+  let lignes=(prog.lignes||[]).slice(), categories=(prog.categories||[]).slice();
+  const ordreDe=id=>{const p=biblio.prestations.find(x=>x.id===id);return p?(+p.ordre||0):1e9};
+  (ids||[]).forEach(id=>{
+    const pr=biblio.prestations.find(p=>p.id===id);
+    if(!pr)return;
+    const i=lignes.findIndex(l=>l.prestationId===id);
+    if(i>=0){lignes[i]={...lignes[i],incluse:true};return}
+    if(!categories.some(c=>c.id===pr.categorieId)){
+      const bc=biblio.categories.find(c=>c.id===pr.categorieId);
+      if(!bc)return;
+      categories=[...categories,{id:bc.id,nom:bc.nom,ordre:categories.length}];
+    }
+    const l={...ptrLigneDepuis(pr,ptrVarianteDefaut(pr)),incluse:true};
+    let apres=-1;
+    lignes.forEach((x,j)=>{if(x.categorieId===pr.categorieId&&(!x.prestationId||ordreDe(x.prestationId)<=(+pr.ordre||0)))apres=j});
+    if(apres<0)apres=lignes.map(x=>x.categorieId).lastIndexOf(pr.categorieId);
+    lignes.splice(apres<0?lignes.length:apres+1,0,l);
+  });
+  return {...prog,categories,lignes};
+}
+
+/* ---------- rapprochement avec la vente ----------
+   Le chiffrage remis au client (PDF ou Word) porte, dans sa notice, ce qui a
+   été vendu : une puce par ouvrage. On en lit les puces, on met chacune en
+   face des lignes du programme, et l'on montre ce qui diffère — couleur,
+   épaisseur, marque, fiche jointe d'un autre fabricant, poste vendu absent
+   ou poste du programme que la vente ne cite pas — avec l'action qu'on
+   propose. Rien ne change dans le programme sans un clic. */
+const venteNorme=s=>deaccent(String(s||'')).toLowerCase().replace(/[’]/g,"'");
+/* les puces de la notice : après son titre, avant le coût prévisionnel et
+   la mission de maîtrise d'œuvre ; « (envisagé) » retiré */
+const venteLignes=txt=>{
+  let t=String(txt||'').replace(/[​‌‍﻿]/g,'');
+  const deb=t.search(/NOTICE\s+(de\s+|DE\s+)?PR[ÉE]SENTATION|NOTICE\s+TECHNIQUE/i);
+  if(deb>=0)t=t.slice(deb);
+  const fin=t.search(/Co[ûu]t\s+pr[ée]visionnel|MISSION\s+DE\s+MA[IÎ]TRISE\s+D.(Œ|OE|O)UVRE\s+CONFI/i);
+  if(fin>0)t=t.slice(0,fin);
+  const puces=/[•●▪◦]/.test(t);
+  const morceaux=puces?t.split(/[•●▪◦]/).slice(1):t.split(/\n+/);
+  return morceaux.map(x=>x.replace(/\s+/g,' ').replace(/\(\s*envisag[ée]e?\s*\)/gi,'').replace(/\s+([,.;:)])/g,'$1')
+      .trim().replace(/[,;.]\s*$/,'').trim())
+    .filter(x=>x.length>=6&&!/^(\d+\.\s*)?NOTICE\b/i.test(x)&&!/^les [ée]l[ée]ments techniques/i.test(x));
+};
+/* chaque ouvrage vendu se reconnaît à ses mots ; il renvoie aux prestations
+   de la bibliothèque qui le décrivent. Les expressions portent sur le texte
+   sans accents ni majuscules. */
+const PTR_VENTE_THEMES=[
+  {id:'vrd',re:/\bvrd\b|raccordements?\b|reseaux/,prs:['pr_raccordements_reseaux_publics','pr_assainissement_vrd']},
+  {id:'ep',re:/puisard|eaux pluviales|\bep\b/,prs:['pr_eaux_pluviales']},
+  {id:'terrassement',re:/terrassement|remblai/,prs:['pr_terrassements']},
+  {id:'terres',re:/\bterres\b/,prs:['pr_terres_excedentaires']},
+  {id:'enrobe',re:/enrobe|regard|grille fonte|stationnement|parking/,prs:[],categorie:'cat_preparation_du_terrain',titre:'ENROBÉ ET REGARD'},
+  {id:'vs',re:/vide sanitaire|cour anglaise/,prs:['pr_vide_sanitaire']},
+  {id:'fondations',re:/fondation/,prs:['pr_fondations']},
+  {id:'murs',re:/maconnerie|parpaing|brique|\bblocs?\b/,prs:['pr_murs']},
+  {id:'plancher',re:/plancher|rupteur|hourdis/,prs:['pr_planchers']},
+  {id:'doublage',re:/doublage|isolation interieure|optima/,prs:['pr_doublage']},
+  {id:'combles',re:/combles|souffle/,prs:['pr_isolation_thermique_plafond']},
+  {id:'gouttieres',re:/gouttiere|descentes?\b/,prs:['pr_gouttieres_tuyaux_descente']},
+  {id:'charpente',re:/charpente|fermette/,prs:['pr_charpente']},
+  {id:'couverture',re:/couverture|\btuiles?\b|ardoise|bac acier/,prs:['pr_couverture']},
+  {id:'ecran',re:/ecran (de )?(sous[- ])?toiture|ecran respirant/,prs:['pr_ecran_sous_toiture']},
+  {id:'coulissant',re:/coulissant|baies? vitree/,prs:['pr_coulissant']},
+  {id:'menuiseries',re:/menuiseries?(?! int)|fenetres?|chassis|oscillo/,prs:['pr_chassis_fenetres_francaise']},
+  {id:'volets',re:/\bvolets?\b/,prs:['pr_volets_roulants']},
+  {id:'domotique',re:/domotique|tahoma/,prs:['pr_domotique']},
+  {id:'porte_entree',re:/porte d'entree/,prs:['pr_porte_entree']},
+  {id:'porte_garage',re:/porte de garage/,prs:['pr_porte_garage']},
+  {id:'chauffage',re:/pompe a chaleur|chauffage|\bpac\b/,prs:['pr_pompe_a_chaleur','pr_plancher_chauffant']},
+  {id:'portes_int',re:/portes? interieures?/,prs:['pr_portes_interieures','pr_portes_interieures_galandage']},
+  {id:'cloisons',re:/cloisons?/,prs:['pr_cloisons_72mm','pr_cloisons_100mm']},
+  {id:'puisage',re:/puisage/,prs:['pr_divers_plomberie']},
+  {id:'alarme',re:/alarme|declencheur|diffuseur/,prs:['pr_erp_alarme_incendie']},
+  {id:'baes',re:/eclairage de securite|\bbaes\b|bloc autonome/,prs:['pr_erp_eclairage_securite']},
+  {id:'transfert',re:/grilles? de transfert/,prs:['pr_erp_grilles_transfert']},
+  {id:'prises',re:/\bprises?\b/,prs:['pr_prises_courant']},
+  {id:'lumiere',re:/va-et-vient|\bspots?\b|plafonnier|points? lumineux|eclairage exterieur/,prs:['pr_points_lumineux']},
+  {id:'vmc',re:/\bvmc\b|ventilation mecanique/,prs:['pr_ventilation_mecanique_controlee']},
+  {id:'erp',re:/dossier erp|\berp\b|recevant du public/,prs:['pr_erp_dossier']},
+  {id:'attestations',re:/re ?2020|etude thermique|bbio|infiltrom|permeabilite|\bdpe\b|diagnostic de performance|attestation|achevement|conformite/,prs:['pr_permeabilite_attestations_dpe']},
+  {id:'douche',re:/douche/,prs:['pr_douche','pr_colonne_douche']},
+  {id:'lavabo',re:/lavabo|vasque/,prs:['pr_lavabo_meuble_vasque']},
+  {id:'wc',re:/\bwc\b/,prs:['pr_wc']},
+  {id:'baignoire',re:/baignoire/,prs:['pr_baignoire']},
+  {id:'evier',re:/evier/,prs:['pr_evier']},
+  {id:'seche_serviettes',re:/seche-serviettes?|seche serviettes?/,prs:['pr_seche_serviette_electrique']},
+  {id:'sols',re:/carrelage|revetements? de sols?|parquet/,prs:['pr_revetements_sols']},
+  {id:'faience',re:/faience/,prs:['pr_revetements_muraux']},
+  {id:'peinture',re:/peinture/,prs:['pr_peintures']},
+  /* la mission du maître d'œuvre n'est pas un ouvrage du programme */
+  {id:'mission',re:/permis de construire|esquisse|avant-projet|consultation des entreprises|suivi et coordination/,prs:[],mission:true},
+];
+/* le fragment d'une puce qui parle de chaque ouvrage : « Charpente 35°,
+   couverture en tuiles Monier » ne compare pas Monier à la charpente */
+const venteFragments=texte=>{
+  const n=venteNorme(texte);
+  const morceaux=n.split(/[,;]|\s\+\s|\.\s/).map(x=>x.trim()).filter(Boolean);
+  const par={};let dernier=null;
+  morceaux.forEach(m=>{
+    let meilleur=null,pos=1e9;
+    PTR_VENTE_THEMES.forEach(th=>{const r=m.search(th.re);if(r>=0&&r<pos){pos=r;meilleur=th.id}});
+    const cle=meilleur||dernier;
+    if(cle){par[cle]=(par[cle]?par[cle]+', ':'')+m;dernier=cle}
+  });
+  return par;
+};
+/* ce qui se compare : mesures, couleurs, marques */
+const VENTE_COULEURS=[['blanc',/\bblanc(he)?s?\b|\bral ?(9016|9010|9003)\b/],['anthracite',/anthracite|\bral ?7016\b/],
+  ['gris',/\bgris\b|\bral ?70(35|39|30)\b/],['noir',/\bnoire?s?\b|\bral ?9005\b/],['sable',/\bsable\b/],['beige',/\bbeige\b/],
+  ['ivoire',/ivoire|\bral ?1015\b/],['sombre',/\bsombres?\b|\bfoncee?s?\b/],['bois',/\bchene\b|\bbois\b/]];
+const VENTE_COMPAT={anthracite:['gris','sombre','noir'],gris:['anthracite','sombre'],noir:['sombre','anthracite'],sombre:['noir','anthracite','gris']};
+const VENTE_MARQUES=[['Chapuzet',/chapuzet/],['Placostil',/placostil|placostyl/],['Optima',/optima/],['TaHoma',/tahoma/],['Somfy',/somfy/],
+  ['Bel’M',/\bbel ?'? ?m\b/],['Abscisse',/abscisse/],['Monier',/monier/],['Nobilée',/nobile/],['Aldes',/\baldes\b/],['T.One',/\bt[ .-]?one\b/],
+  ['Atlantic',/atlantic/],['Daikin',/daikin/],['Edilians',/edilians/],['Fuji',/\bfuji\b/],['Menuiseries d’Olt',/menuiseries d'olt|\bd'olt\b/],
+  ['Veka',/\bveka\b/],['Reynaers',/reynaers/],['Emaplast',/emaplast/],['Knauf',/knauf/],['Isover',/isover/],['Alkern',/alkern/],
+  ['Hörmann',/hormann/],['Schneider',/schneider/],['Odace',/odace/],['Rockwool',/rockwool/],['Biobric',/biobric/],['Jacob Delafon',/jacob delafon/],
+  ['Acquabella',/acquabella/],['Grohe',/grohe/],['Geberit',/geberit/],['Velux',/velux/],['Legrand',/legrand/],['Hager',/hager/]];
+const venteMesures=n=>{
+  /* épaisseurs, longueurs, surfaces, pentes, puissances ; pas les quantités,
+     qui restent « selon plans » */
+  const L=[];const re=/(\d+(?:[.,]\d+)?)\s?(mm|cm|m2|m²|ml|°|kw)(?![a-z])/g;let m;
+  while((m=re.exec(n)))L.push({v:+m[1].replace(',','.'),u:m[2].replace('m²','m2'),t:m[0]});
+  return L;
+};
+const venteCouleurs=n=>VENTE_COULEURS.filter(([,re])=>re.test(n)).map(([c])=>c);
+const venteMarques=n=>VENTE_MARQUES.filter(([,re])=>re.test(n)).map(([m])=>m);
+/* le texte d'une ligne (ou d'une proposition) tel qu'on le compare */
+const venteTexteLigne=l=>venteNorme([l.titre,l.nom,l.texte,l.marque,l.reference].filter(Boolean).join(' \n '));
+/* les écarts entre un fragment vendu et une ligne (ou une proposition) */
+function venteEcarts(frag,l){
+  const P=venteTexteLigne(l), E=[];
+  /* mesures : une épaisseur vendue que le programme ne dit pas, ou un titre
+     qui en annonce une autre (« DOUBLAGE – 140 mm » pour 120 mm vendus) */
+  const titre=venteNorme(l.titre||l.nom);
+  const mP=venteMesures(P), mT=venteMesures(titre);
+  venteMesures(frag).forEach(m=>{
+    const memes=mP.filter(x=>x.u===m.u);
+    const ok=memes.some(x=>Math.abs(x.v-m.v)<0.01);
+    const autreTitre=mT.filter(x=>x.u===m.u&&Math.abs(x.v-m.v)>=0.01);
+    if(!ok)E.push({type:'mesure',msg:'Vendu : '+m.t+(memes.length?' — le programme dit : '+[...new Set(memes.map(x=>x.t))].join(', '):' — le programme ne le précise pas')});
+    else if(autreTitre.length)E.push({type:'mesure',msg:'Vendu : '+m.t+' — le titre de la ligne annonce : '+autreTitre.map(x=>x.t).join(', ')});
+  });
+  /* couleurs : une teinte du programme que la vente ne connaît pas (sauf
+     « au choix »), ou aucune teinte vendue dans le programme */
+  const cS=venteCouleurs(frag), cP=venteCouleurs(P);
+  if(cS.length){
+    const accepte=c=>cS.indexOf(c)>=0||cS.some(s=>(VENTE_COMPAT[s]||[]).indexOf(c)>=0);
+    const enTrop=cP.filter(c=>!accepte(c)&&c!=='bois');
+    if(!cP.length)E.push({type:'couleur',msg:'Teinte vendue : '+cS.join(', ')+' — le programme ne la précise pas'});
+    else if(!cP.some(accepte)||(enTrop.length&&!/au choix/.test(P)))
+      E.push({type:'couleur',msg:'Teinte vendue : '+cS.join(', ')+' — le programme dit : '+cP.join(', ')});
+  }
+  /* marques : celle qui a été vendue doit se lire dans le programme */
+  const bS=venteMarques(frag), bP=venteMarques(P);
+  bS.filter(b=>bP.indexOf(b)<0).forEach(b=>E.push({type:'marque',
+    msg:'Marque vendue : '+b+(bP.length?' — le programme cite : '+bP.join(', '):' — absente du programme')}));
+  /* une fiche jointe d'un autre fabricant que celui du texte */
+  (l.pieces||[]).forEach(x=>{
+    const bX=venteMarques(venteNorme(x.nom));
+    const etrangere=bX.filter(b=>bP.indexOf(b)<0&&bS.indexOf(b)<0);
+    if(etrangere.length)E.push({type:'fiche',msg:'Fiche jointe « '+x.nom+' » : '+etrangere.join(', ')+', une autre marque que celle du texte'});
+  });
+  return E;
+}
+/* ce qu'une ligne a de commun avec la vente : de quoi choisir la meilleure */
+const venteScore=(frag,l)=>{
+  const P=venteTexteLigne(l);
+  const mots=s=>new Set(s.split(/[^a-z0-9]+/).filter(w=>w.length>=4));
+  const a=mots(frag), b=mots(P);let commun=0;a.forEach(w=>{if(b.has(w))commun++});
+  return venteMarques(frag).filter(m=>venteMarques(P).indexOf(m)>=0).length*3
+    +venteMesures(frag).filter(m=>venteMesures(P).some(x=>x.u===m.u&&Math.abs(x.v-m.v)<0.01)).length*2
+    +commun/4-venteEcarts(frag,l).length;
+};
+/* le rapprochement complet : écarts, postes vendus absents, postes du
+   programme que la vente ne cite pas, mission du maître d'œuvre à part */
+function ptrRapprochement(prog,biblio,lignesVente,ignores){
+  const ign=new Set(ignores||[]);
+  const L=(prog&&prog.lignes)||[];
+  const paires=[], absents=[], mission=[], inconnus=[];
+  const citees=new Set();
+  (lignesVente||[]).forEach((texte,iv)=>{
+    const frags=venteFragments(texte);
+    const themes=PTR_VENTE_THEMES.filter(th=>frags[th.id]);
+    if(!themes.length){inconnus.push({iv,texte,cle:'inconnu:'+venteNorme(texte)});return}
+    themes.forEach(th=>{
+      const frag=frags[th.id];
+      if(th.mission){mission.push({iv,texte,frag});return}
+      const cands=L.filter(l=>(l.prestationId&&th.prs.indexOf(l.prestationId)>=0)||(!l.prestationId&&th.re.test(venteNorme(l.titre||l.nom))));
+      const cleBase=th.id+':'+venteNorme(frag);
+      if(!cands.length){
+        const pr=th.prs.map(id=>biblio&&biblio.prestations.find(p=>p.id===id)).find(Boolean);
+        const k='absent:'+cleBase;
+        if(!ign.has(k))absents.push({iv,texte,frag,theme:th,prestationId:pr?pr.id:null,
+          categorieId:pr?pr.categorieId:(th.categorie||''),titre:pr?pr.nom:(th.titre||''),cle:k});
+        return;
+      }
+      const tri=cands.map(l=>({l,s:venteScore(frag,l)})).sort((x,y)=>y.s-x.s);
+      const incluses=tri.filter(x=>x.l.incluse);
+      const choisie=(incluses[0]||tri[0]).l;
+      cands.filter(l=>l.incluse).forEach(l=>citees.add(l.id));
+      const actions=[];
+      /* une autre ligne du même ouvrage colle mieux à la vente */
+      if(tri[0].l.id!==choisie.id&&tri[0].s>((incluses[0]||{}).s||-1e9)+0.5)
+        actions.push({type:'echanger',inclureId:tri[0].l.id,exclureId:choisie.incluse?choisie.id:null,
+          libelle:'Inclure « '+(tri[0].l.titre||tri[0].l.nom)+' »'+(choisie.incluse?' à la place de « '+(choisie.titre||choisie.nom)+' »':'')});
+      if(!choisie.incluse)actions.push({type:'inclure',ligneId:choisie.id,libelle:'Inclure « '+(choisie.titre||choisie.nom)+' »'});
+      const ecarts=venteEcarts(frag,choisie);
+      /* une proposition de la bibliothèque qui dit ce qui a été vendu */
+      const pr=choisie.prestationId&&biblio?biblio.prestations.find(p=>p.id===choisie.prestationId):null;
+      if(pr&&ecarts.length){
+        const vs=ptrVariantesActives(pr).filter(v=>v.id!==choisie.varianteId)
+          .map(v=>({v,e:venteEcarts(frag,{...v,pieces:v.pieces}).length,s:venteScore(frag,{...v,nom:pr.nom})}))
+          .filter(x=>x.e<ecarts.length).sort((a,b)=>a.e-b.e||b.s-a.s);
+        if(vs[0])actions.push({type:'variante',ligneId:choisie.id,varianteId:vs[0].v.id,
+          libelle:'Passer à la proposition « '+vs[0].v.nom+' »',reste:vs[0].e});
+      }
+      paires.push({iv,texte,frag,theme:th,ligne:choisie,ecarts,actions});
+    });
+  });
+  /* une ligne citée par plusieurs puces (l'alarme : déclencheur, diffuseurs,
+     WC PMR) ne fait qu'une carte : ses ventes, ses écarts, ses actions */
+  const groupes=new Map();
+  paires.forEach(p=>{
+    const g=groupes.get(p.ligne.id)||{ligne:p.ligne,ventes:[],ecarts:[],actions:[]};
+    if(g.ventes.indexOf(p.texte)<0)g.ventes.push(p.texte);
+    p.ecarts.forEach(e=>{if(!g.ecarts.some(x=>x.msg===e.msg))g.ecarts.push(e)});
+    p.actions.forEach(a=>{if(!g.actions.some(x=>x.libelle===a.libelle))g.actions.push(a)});
+    groupes.set(p.ligne.id,g);
+  });
+  const G=[...groupes.values()].map(g=>({...g,cle:'ecart:'+g.ligne.id+':'+venteNorme(g.ecarts.map(e=>e.msg).join('|')+g.actions.map(a=>a.type).join('|'))}));
+  /* incluses au programme, citées par aucune puce : à confirmer — sauf ce
+     que toute construction comporte (implantation, plafonds, garantie…),
+     qu'une notice de vente ne détaille jamais */
+  const nonVendues=L.filter(l=>l.incluse&&!citees.has(l.id)&&PTR_VENTE_GENERIQUES.indexOf(l.prestationId)<0&&!ign.has('nonvendue:'+l.id))
+    .map(l=>({ligne:l,cle:'nonvendue:'+l.id}));
+  return {groupes:G,ecarts:G.filter(g=>(g.ecarts.length||g.actions.length)&&!ign.has(g.cle)),
+    conformes:G.filter(g=>!g.ecarts.length&&!g.actions.length),absents,nonVendues,mission,inconnus,
+    erp:(lignesVente||[]).some(t=>/\berp\b|recevant du public/.test(venteNorme(t)))};
+}
+const PTR_VENTE_GENERIQUES=['pr_preparation_terrain','pr_implantation','pr_chemin_acces_chantier','pr_pointes_pignons',
+  'pr_seuils_porte_appuis_fenetre','pr_revetements_exterieurs','pr_debords_toits','pr_vitrerie','pr_plafonds',
+  'pr_bandes_joints_plaque_platre','pr_isolation_thermique_sol','pr_electricite','pr_options_electriques','pr_plomberie',
+  'pr_nettoyage_interieur','pr_consommation','pr_garantie','pr_assainissement_vrd','pr_eaux_pluviales','pr_raccordements_reseaux_publics'];
+/* le chiffrage remis au client : un Word se lit paragraphe par paragraphe
+   (la lecture habituelle le met à plat), un PDF tel quel */
+async function lireChiffrageVente(file){
+  const nom=(file.name||'').toLowerCase(), type=file.type||'';
+  if(/\.docx$/.test(nom)||/wordprocessingml/.test(type)){
+    try{const x=await zipEntree(await file.arrayBuffer(),'word/document.xml');
+      return {lignes:venteLignes(lignesDocumentXml(new TextDecoder('utf-8').decode(x)))}}
+    catch(e){return {lignes:[],motif:'fichier Word illisible'}}
+  }
+  const r=await lireDocument(file);
+  return r.txt?{lignes:venteLignes(r.txt)}:{lignes:[],motif:r.motif};
+}
+/* appliquer une action proposée : toujours sur demande, ligne par ligne */
+function ptrAppliquerVente(prog,biblio,a,vente){
+  const majL=(id,f)=>({...prog,lignes:(prog.lignes||[]).map(l=>l.id===id?f(l):l)});
+  if(a.type==='inclure')return majL(a.ligneId,l=>({...l,incluse:true}));
+  if(a.type==='exclure')return majL(a.ligneId,l=>({...l,incluse:false}));
+  if(a.type==='echanger'){
+    const p=majL(a.inclureId,l=>({...l,incluse:true}));
+    return a.exclureId?{...p,lignes:p.lignes.map(l=>l.id===a.exclureId?{...l,incluse:false}:l)}:p;
+  }
+  if(a.type==='variante'){
+    const l=(prog.lignes||[]).find(x=>x.id===a.ligneId);
+    const pr=l&&biblio.prestations.find(p=>p.id===l.prestationId);
+    const v=pr&&(pr.variantes||[]).find(x=>x.id===a.varianteId);
+    return v?majL(a.ligneId,x=>({...x,...ptrSnapshotVariante(v,pr)})):prog;
+  }
+  if(a.type==='ajouter'&&vente){
+    if(vente.prestationId)return ptrInclurePrestations(prog,biblio,[vente.prestationId]);
+    const cat=a.categorieId||vente.categorieId;
+    if(!cat)return prog;
+    let categories=prog.categories||[];
+    if(!categories.some(c=>c.id===cat)){
+      const bc=biblio.categories.find(c=>c.id===cat);
+      if(!bc)return prog;
+      categories=[...categories,{id:bc.id,nom:bc.nom,ordre:categories.length}];
+    }
+    /* le texte vendu, tel quel : à compléter dans la ligne */
+    const titre=(vente.titre||vente.texte.split(/\s+/).slice(0,5).join(' ')).toUpperCase();
+    const l={...ptrLigneManuelle(cat,titre),texte:vente.texte.charAt(0).toUpperCase()+vente.texte.slice(1)+'.'};
+    const lignes=(prog.lignes||[]).slice();
+    const j=lignes.map(x=>x.categorieId).lastIndexOf(cat);
+    lignes.splice(j<0?lignes.length:j+1,0,l);
+    return {...prog,categories,lignes};
+  }
+  return prog;
+}
 const ptrConfiguree=l=>!l.incluse||(String(l.texte||'').trim()!==''&&(l.lotMO||l.horsCoord));
 function ptrStats(prog){
   const L=prog.lignes||[], inc=L.filter(l=>l.incluse);
@@ -5403,6 +5751,9 @@ function ptrControles(prog,projet){
   R.push({cle:'adresse',ok:!!String(projet.adresseChantier||'').trim(),msg:'Adresse du projet renseignée'});
   const inc=(prog.lignes||[]).filter(l=>l.incluse);
   R.push({cle:'lignes',ok:inc.length>0,msg:'Au moins une prestation incluse'});
+  /* un ERP : les textes qui parlent encore d'un logement, ligne par ligne */
+  ptrAlertesUsage(prog).forEach(a=>R.push({cle:'usage:'+a.ligneId,ok:false,ligneId:a.ligneId,
+    msg:'« '+a.titre+' » parle de '+a.mots.join(', ')+' : l’ouvrage est un ERP'}));
   (prog.lignes||[]).forEach(l=>{
     if(l.obligatoire&&!l.incluse)R.push({cle:'oblig:'+l.id,ok:false,ligneId:l.id,msg:'« '+(l.titre||l.nom)+' » est obligatoire mais non incluse'});
     if(!l.incluse)return;
@@ -5532,7 +5883,7 @@ function ptrPiedXml(projet,prog){
 /* ---------- le document Word du programme ---------- */
 const PTR_LARG={desig:6900,mo:900,hors:1000,montant:1400};
 function ptrProgrammeDocumentXml(prog,projet,biblio,ctx,majTarifs){
-  const M=ptrMentions(biblio);
+  const M=ptrMentionsPour(biblio,prog);
   const L=PTR_LARG, total=L.desig+L.mo+L.hors+L.montant;
   const bordure=tcB({c:DOC_BRUN,sz:4});
   const sansBord=tcB({h:false,g:false,b:false,d:false});
@@ -5617,7 +5968,7 @@ function ptrProgrammeDocumentXml(prog,projet,biblio,ctx,majTarifs){
 
   const syntheseOk=projet.p&&prog.options&&prog.options.synthese!==false&&prospectPrixTTC(projet.p,majTarifs)>0;
   const corps=[garde,sautPage,tableau,
-    syntheseOk?sautPage+ptrSyntheseXml(projet.p,majTarifs,projet.client):''].join('');
+    syntheseOk?sautPage+ptrSyntheseXml(projet.p,majTarifs,projet.client,ptrTypeOuvrage(prog)):''].join('');
   return DOC_ENTETE_XML+'<w:body>'+corps
     +'<w:sectPr><w:headerReference w:type="default" r:id="rId50"/><w:footerReference w:type="default" r:id="rId51"/>'
     +'<w:pgSz w:w="11906" w:h="16838"/>'
@@ -26174,7 +26525,7 @@ function PtrCadrage({ph,onValide,onFermer}){
 
 /* ---------- l'aperçu : le document tel qu'il sortira, à l'écran ---------- */
 function PtrApercu({prog,projet,biblio,data,onFermer,onPdfExact,pdfBusy}){
-  const M=ptrMentions(biblio);
+  const M=ptrMentionsPour(biblio,prog);
   const feuille={background:'#fff',maxWidth:794,margin:'0 auto 18px',padding:'40px 44px',boxShadow:'0 2px 10px rgba(0,0,0,.12)',
     fontFamily:'Cambria, Georgia, serif',color:'#262626'};
   const cats=(prog.categories||[]).filter(c=>ptrLignesTriees(prog,c.id).some(l=>l.incluse));
@@ -26386,6 +26737,121 @@ function PtrLigne({l,index,nb,prog,biblio,data,cible,fige,maj,onBouger,onDupliqu
   </div>;
 }
 
+/* ---------- le rapprochement avec la vente, à l'écran ----------
+   Le chiffrage remis au client se dépose ici ; ses puces restent gardées
+   avec le programme, pour revenir au rapprochement à tout moment. Chaque
+   action se valide d'un clic ; « Ignorer » retire une remarque qu'on a
+   jugée sans objet. */
+function PtrVente({prog,biblio,fige,majProg,allerA,onFermer}){
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState('');
+  const [voirConformes,setVoirConformes]=useState(false);
+  const [cats,setCats]=useState({});
+  const vente=prog.vente||null;
+  const R=vente?ptrRapprochement(prog,biblio,vente.lignes,prog.venteIgnores):null;
+  const importer=async file=>{
+    setBusy(true);setErr('');
+    try{
+      const r=await lireChiffrageVente(file);
+      if(!r.lignes.length)setErr(r.motif?'Lecture impossible — '+r.motif+'.'
+        :'Aucune ligne de notice trouvée dans ce document : le rapprochement lit les puces « • » de la notice technique du chiffrage.');
+      else majProg(x=>({...x,vente:{nom:file.name,le:today(),lignes:r.lignes},venteIgnores:[]}),{statut:false});
+    }catch(e){setErr('Lecture impossible — '+((e&&e.message)||String(e)))}
+    setBusy(false);
+  };
+  const appliquer=(a,v)=>{
+    if(a.type==='variante'){
+      const l=(prog.lignes||[]).find(x=>x.id===a.ligneId);
+      if(l&&l.modifie&&!confirm('Le texte de « '+(l.titre||l.nom)+' » a été modifié pour ce projet.\n\nLe remplacer par la proposition de la bibliothèque ?'))return;
+    }
+    if(a.type==='exclure'&&!confirm('Exclure « '+a.titre+' » du programme ?\n\nLa ligne reste dans le programme, décochée : elle se réinclut d’un clic.'))return;
+    majProg(x=>ptrAppliquerVente(x,biblio,a,v));
+  };
+  const ignorer=cle=>majProg(x=>({...x,venteIgnores:[...(x.venteIgnores||[]),cle]}),{statut:false});
+  const voir=id=>{allerA(id)};
+  const carte={padding:'10px 12px',marginBottom:8,borderRadius:8,border:'1px solid '+RULE,background:'#fff'};
+  const titreSection=(t,n,c)=><div className="b sm" style={{color:c||NAVY,margin:'16px 0 8px'}}>{t} ({n})</div>;
+  const nomCat=id=>{const c=(prog.categories||[]).find(x=>x.id===id)||biblio.categories.find(x=>x.id===id);return c?c.nom:''};
+  return <PtrModale titre="Rapprochement avec la vente" large onFermer={onFermer}>
+    <div className="xs mut" style={{lineHeight:1.6}}>
+      Déposez le chiffrage remis au client (PDF ou Word) : chaque puce de sa notice technique est mise en face des
+      prestations du programme. Les écarts — teinte, épaisseur, marque, fiche d’un autre fabricant, poste vendu absent —
+      sont proposés à la correction ; rien ne change sans votre clic.</div>
+    <div className="row" style={{gap:10,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
+      {!fige&&<label className="btn acc s" style={{cursor:busy?'wait':'pointer'}}>
+        {busy?'Lecture…':vente?'Remplacer le chiffrage':'Déposer le chiffrage vendu (PDF ou Word)'}
+        <input type="file" accept={DOC_ACCEPT} style={{display:'none'}} disabled={busy}
+          onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importer(f)}}/></label>}
+      {vente&&<span className="xs">Chiffrage « {vente.nom} » lu le {fd(vente.le)} — {vente.lignes.length} ligne{vente.lignes.length>1?'s':''} vendue{vente.lignes.length>1?'s':''}.</span>}
+    </div>
+    {err&&<div className="xs" style={{color:TERRA,marginTop:8,lineHeight:1.5}}>{err}</div>}
+    {R&&<div>
+      {R.erp&&ptrTypeOuvrage(prog)!=='erp5'&&<div className="xs" style={{marginTop:12,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+        La vente décrit un établissement recevant du public, et le programme est celui d’une maison.
+        {!fige&&<button className="btn s" style={{marginLeft:8}} onClick={()=>majProg(x=>({...x,typeOuvrage:'erp5'}),{statut:false})}>Passer le type d’ouvrage en ERP</button>}
+      </div>}
+      <div className="xs b" style={{marginTop:12,color:NAVY}}>
+        {R.ecarts.length} ligne{R.ecarts.length>1?'s':''} à revoir · {R.absents.length+R.inconnus.length} poste{R.absents.length+R.inconnus.length>1?'s':''} vendu{R.absents.length+R.inconnus.length>1?'s':''} absent{R.absents.length+R.inconnus.length>1?'s':''} · {R.nonVendues.length} à confirmer · {R.conformes.length} conforme{R.conformes.length>1?'s':''}</div>
+
+      {R.ecarts.length>0&&titreSection('À revoir',R.ecarts.length,TERRA)}
+      {R.ecarts.map(g=><div key={g.cle} style={carte}>
+        <div className="xs" style={{lineHeight:1.5}}>{g.ventes.map((v,i)=><div key={i}><span className="mut">Vendu :</span> {v}</div>)}</div>
+        <div className="xs" style={{marginTop:4}}><span className="mut">Programme :</span> <b>{g.ligne.titre||g.ligne.nom}</b>
+          {!g.ligne.incluse&&<span className="pill" style={{marginLeft:6,background:MUTED+'1A',color:MUTED}}>non incluse</span>}</div>
+        {g.ecarts.map((e,i)=><div key={i} className="xs" style={{color:AMBER,marginTop:3,lineHeight:1.5}}>· {e.msg}</div>)}
+        <div className="row" style={{gap:6,flexWrap:'wrap',marginTop:8}}>
+          {!fige&&g.actions.map((a,i)=><button key={i} className="btn acc s" style={{whiteSpace:'normal',textAlign:'left'}} onClick={()=>appliquer(a)}>{a.libelle}</button>)}
+          <button className="btn gh s" onClick={()=>voir(g.ligne.id)}>Voir la ligne</button>
+          {!fige&&<button className="btn gh s" onClick={()=>ignorer(g.cle)}>Ignorer</button>}
+        </div>
+      </div>)}
+
+      {(R.absents.length+R.inconnus.length)>0&&titreSection('Vendu, absent du programme',R.absents.length+R.inconnus.length,TERRA)}
+      {[...R.absents,...R.inconnus.map(x=>({...x,frag:x.texte,categorieId:'',titre:''}))].map(a=>{
+        const cat=cats[a.cle]||a.categorieId;
+        return <div key={a.cle} style={carte}>
+          <div className="xs" style={{lineHeight:1.5}}><span className="mut">Vendu :</span> {a.texte}</div>
+          <div className="row" style={{gap:6,flexWrap:'wrap',alignItems:'center',marginTop:8}}>
+            {!fige&&a.prestationId&&<button className="btn acc s" style={{whiteSpace:'normal',textAlign:'left'}}
+              onClick={()=>appliquer({type:'ajouter'},a)}>Ajouter « {a.titre} » de la bibliothèque</button>}
+            {!fige&&!a.prestationId&&<>
+              <select className="in" aria-label="Catégorie du poste vendu" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={cat}
+                onChange={e=>setCats(c=>({...c,[a.cle]:e.target.value}))}>
+                <option value="">— catégorie —</option>
+                {(prog.categories||[]).map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}</select>
+              <button className="btn acc s" disabled={!cat} onClick={()=>appliquer({type:'ajouter',categorieId:cat},a)}>
+                Ajouter avec le texte vendu{cat?' dans '+nomCat(cat):''}</button></>}
+            {!fige&&<button className="btn gh s" onClick={()=>ignorer(a.cle)}>Ignorer</button>}
+          </div>
+        </div>;
+      })}
+
+      {R.nonVendues.length>0&&titreSection('Au programme, non cité dans la vente — à confirmer',R.nonVendues.length,AMBER)}
+      {R.nonVendues.length>0&&<div className="xs mut" style={{marginTop:-4,marginBottom:6,lineHeight:1.5}}>
+        La notice ne les cite pas : gardez ce qui fait partie du projet, excluez le reste (un garage pour un local sans garage, par exemple).</div>}
+      {R.nonVendues.map(x=><div key={x.cle} className="sp xs" style={{...carte,gap:8,alignItems:'center',flexWrap:'wrap'}}>
+        <b>{x.ligne.titre||x.ligne.nom}</b>
+        <span className="row" style={{gap:6,flexWrap:'wrap'}}>
+          {!fige&&<button className="btn gh s" onClick={()=>appliquer({type:'exclure',ligneId:x.ligne.id,titre:x.ligne.titre||x.ligne.nom})}>Exclure du programme</button>}
+          <button className="btn gh s" onClick={()=>voir(x.ligne.id)}>Voir</button>
+          {!fige&&<button className="btn gh s" onClick={()=>ignorer(x.cle)}>Garder</button>}
+        </span>
+      </div>)}
+
+      {R.conformes.length>0&&<div style={{marginTop:14}}>
+        <button className="btn gh s" onClick={()=>setVoirConformes(!voirConformes)}>
+          {voirConformes?'Masquer':'Voir'} les {R.conformes.length} ligne{R.conformes.length>1?'s':''} conforme{R.conformes.length>1?'s':''} à la vente</button>
+        {voirConformes&&<div className="xs" style={{marginTop:6,lineHeight:1.6}}>
+          {R.conformes.map(g=><div key={g.ligne.id} style={{color:GREEN}}>✓ {g.ligne.titre||g.ligne.nom}</div>)}</div>}
+      </div>}
+      {R.mission.length>0&&<div className="xs mut" style={{marginTop:12,lineHeight:1.5}}>
+        Mission de maîtrise d’œuvre, hors programme : {R.mission.map(m=>m.texte).join(' ; ')}.</div>}
+      {!R.ecarts.length&&!R.absents.length&&!R.inconnus.length&&!R.nonVendues.length&&<div className="xs" style={{color:GREEN,marginTop:12}}>
+        ✓ Le programme correspond à la vente.</div>}
+    </div>}
+  </PtrModale>;
+}
+
 /* ---------- l'éditeur du programme technique d'un projet ---------- */
 function ProgrammeTechnique({data,save,cible,onFermer}){
   const dataRef=useRef(data);dataRef.current=data;
@@ -26479,6 +26945,11 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
   const ajouterDepuisBiblio=(c,prId)=>{const pr=biblio.prestations.find(p=>p.id===prId);if(!pr)return;
     majProg(x=>({...x,lignes:[...x.lignes,{...ptrLigneDepuis(pr,ptrVarianteDefaut(pr)),categorieId:c.id,incluse:true}]}))};
   const ajouterManuelle=c=>majProg(x=>({...x,lignes:[...x.lignes,ptrLigneManuelle(c.id,'Nouvelle prestation')]}));
+  /* les équipements d'un ERP : inclus s'ils sont déjà au programme, ajoutés
+     à leur place dans leur catégorie sinon */
+  const erpManquantes=PTR_PRESTATIONS_ERP.map(id=>biblio.prestations.find(p=>p.id===id)).filter(Boolean)
+    .filter(pr=>!(prog.lignes||[]).some(l=>l.prestationId===pr.id&&l.incluse));
+  const ajouterErp=()=>majProg(x=>ptrInclurePrestations(x,biblio,erpManquantes.map(p=>p.id)));
   /* reprendre, sur demande, les textes corrigés de la bibliothèque — jamais
      pour une ligne retouchée spécialement pour ce projet */
   const aMettreAJour=fige?[]:(prog.lignes||[]).filter(l=>!l.modifie&&ptrMajDisponible(l,biblio));
@@ -26639,6 +27110,10 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
 
   const controles=ptrControles(prog,projet);
   const anomalies=controles.filter(c=>!c.ok);
+  /* ce que le rapprochement avec la vente laisse à revoir, pour le bouton */
+  const aRevoirVente=(()=>{if(!prog.vente)return 0;
+    const R=ptrRapprochement(prog,biblio,prog.vente.lignes,prog.venteIgnores);
+    return R.ecarts.length+R.absents.length+R.inconnus.length})();
   const allerA=id=>{const l=prog.lignes.find(x=>x.id===id);if(!l)return;
     setQ('');setOuverts(o=>({...o,[l.categorieId]:true}));setModale(null);
     setTimeout(()=>{try{const el=document.getElementById('ptr-l-'+id);if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'})}catch(e){}},80)};
@@ -26673,6 +27148,26 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
           {stats.configurees} / {stats.incluses} prestations configurées</span>
         <span className="xs mut">({stats.total-stats.incluses} non incluse{stats.total-stats.incluses>1?'s':''})</span>
       </div>
+      <div className="row" style={{gap:10,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
+        <span className="xs mut">Type d’ouvrage</span>
+        <select className="in" aria-label="Type d’ouvrage" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={ptrTypeOuvrage(prog)} disabled={fige}
+          onChange={e=>majProg(x=>({...x,typeOuvrage:e.target.value}),{statut:false})}>
+          {PTR_TYPES_OUVRAGE.map(t=><option key={t.id} value={t.id}>{t.l}</option>)}</select>
+      </div>
+      {ptrTypeOuvrage(prog)==='erp5'&&(erpManquantes.length>0||ptrAlertesUsage(prog).length>0)&&<div className="xs"
+        style={{marginTop:10,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.6}}>
+        {erpManquantes.length>0&&<div>
+          Établissement recevant du public : {erpManquantes.length>1?'ces équipements ne sont':'cet équipement n’est'} pas encore au programme —
+          {' '}{erpManquantes.map(p=>p.nom.toLowerCase().replace(/\s*\(erp\)$/,'').replace(/\berp\b/,'ERP')).join(', ')}.
+          {!fige&&<button className="btn s" style={{marginLeft:8,whiteSpace:'normal',textAlign:'left'}} onClick={ajouterErp}>
+            Ajouter {erpManquantes.length>1?'les '+erpManquantes.length+' prestations ERP':'la prestation ERP'}</button>}
+        </div>}
+        {ptrAlertesUsage(prog).length>0&&<div style={{marginTop:erpManquantes.length?8:0}}>
+          <b style={{color:AMBER}}>{ptrAlertesUsage(prog).length} prestation{ptrAlertesUsage(prog).length>1?'s parlent':' parle'} encore d’un logement :</b>
+          {ptrAlertesUsage(prog).map(a=><div key={a.ligneId}>· {a.titre} — « {a.mots.join(' », « ')} »
+            <button className="btn gh s" style={{marginLeft:6}} onClick={()=>allerA(a.ligneId)}>Voir</button></div>)}
+        </div>}
+      </div>}
       {fige&&<div className="xs" style={{marginTop:10,padding:'8px 10px',borderRadius:8,background:'#EEF4F0',lineHeight:1.5}}>
         Version {prog.version} {prog.statut==='archive'?'archivée':'validée'}{prog.valideLe?' le '+fd(prog.valideLe.slice(0,10)):''} — figée.
         {prog.statut!=='archive'&&<button className="btn s" style={{marginLeft:8}} onClick={nouvelleVersion}>Créer la version {(prog.version||1)+1} pour modifier</button>}
@@ -26686,6 +27181,8 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
         <button className="btn s" style={{marginLeft:8}} onClick={mettreAJourDepuisBiblio}>Mettre à jour</button>
       </div>}
       <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12}}>
+        <button className="btn gh s" onClick={()=>setModale({type:'vente'})}>
+          Rapprocher avec la vente{aRevoirVente?<span style={{color:TERRA}}> ({aRevoirVente})</span>:''}</button>
         <button className="btn gh s" onClick={()=>setModale({type:'apercu'})}>Aperçu du programme</button>
         <button className="btn gh s" onClick={()=>setModale({type:'controles'})}>
           Contrôler {anomalies.length?<span style={{color:TERRA}}>({anomalies.length})</span>:'✓'}</button>
@@ -26787,6 +27284,8 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
       onFermer={()=>setModale(null)}
       onBiblio={(f,choix)=>{versBiblio(ligneModale,f,choix);setModale(null)}}/>}
     {modale&&modale.type==='comparer'&&prModale&&<PtrComparer pr={prModale} ligne={ligneModale} onFermer={()=>setModale(null)}/>}
+    {modale&&modale.type==='vente'&&<PtrVente prog={prog} biblio={biblio} fige={fige} majProg={majProg} allerA={allerA}
+      onFermer={()=>setModale(null)}/>}
     {modale&&modale.type==='cadrage'&&ligneModale&&<PtrCadrage ph={(ligneModale.photos||[]).find(x=>x.id===modale.ph.id)||modale.ph}
       onFermer={()=>setModale(null)}
       onValide={m=>{majLigne(ligneModale.id,{photos:(ligneModale.photos||[]).map(x=>x.id===modale.ph.id?{...x,...m}:x),modifie:true});setModale(null)}}/>}

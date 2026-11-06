@@ -20,5 +20,5 @@ chk(!vs.some(v=>/€|\bLB7444\b|900 x 1350|chambre/.test(v.texte)),'ni prix, ni 
 chk(!ids.some(i=>{const p=b.prestations.find(x=>x.id==='pr_'+i);return M.ptrAlertesPrestation(p,b).some(a=>/faute|accent|colle|dim:|espaces|unite/.test(a.cle))}),'textes sans faute signalée');
 chk(vs.flatMap(v=>v.photos).every(ph=>fs.existsSync(RACINE+'/assets/ptr/'+ph.fichier)),'photos présentes');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r9))});
-chk(m.seedRev===22&&ids.every(i=>{const v=V(m,i,'var_'+i+'_b');return v&&!v.parDefaut}),'bibliothèque de révision 9 : les 5 propositions sont ajoutées');
+chk(m.seedRev===23&&ids.every(i=>{const v=V(m,i,'var_'+i+'_b');return v&&!v.parDefaut}),'bibliothèque de révision 9 : les 5 propositions sont ajoutées');
 fin();
