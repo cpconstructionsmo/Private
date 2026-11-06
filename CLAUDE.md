@@ -85,7 +85,11 @@ qu'on ait à les redire.
   seule facture (même numéro, date, fichier), une part par lot, reconnue
   par `repartition.id` ; total HT et TTC lu gardés avec les parts. La
   visa et l'envoi au client disent le total et les lots
-  (`repartitionPourMail`). Tests : `t_facture_repartie.js`.
+  (`repartitionPourMail`). La même facture saisie à part sur deux lots
+  (même numéro, même date : `facturesJumelles`) se relie en un clic
+  (`relierFactures`) ; le fichier déposé sur une part vaut pour toutes
+  (`poserLienFacture`). Sans fichier, le volet dit que la visa l'attend.
+  Tests : `t_facture_repartie.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR
