@@ -14,5 +14,5 @@ chk(v.photos[0].fichier==='atlantic_hygrocosy_bc_flex.jpeg'&&v.pieces.length===1
 chk([...v.photos,...v.pieces,...e.photos,...e.pieces].every(x=>fs.existsSync(RACINE+'/assets/ptr/'+x.fichier)),'fichiers présents');
 chk(!['pr_ventilation_mecanique_controlee','pr_electricite'].some(id=>{const p=b.prestations.find(x=>x.id===id);return M.ptrAlertesPrestation(p,b).some(a=>/faute|accent|colle|dim:|espaces|unite/.test(a.cle))}),'textes sans faute signalée');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r15))});
-chk(m.seedRev===22&&V(m,'var_ventilation_mecanique_controlee_a').texte===v.texte&&V(m,'var_electricite_a').texte===e.texte&&V(m,'var_electricite_a').pieces.length===1,'bibliothèque de révision 15 : textes, photos et fiches reçus');
+chk(m.seedRev===23&&V(m,'var_ventilation_mecanique_controlee_a').texte===v.texte&&V(m,'var_electricite_a').texte===e.texte&&V(m,'var_electricite_a').pieces.length===1,'bibliothèque de révision 15 : textes, photos et fiches reçus');
 fin();

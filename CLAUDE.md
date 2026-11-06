@@ -251,6 +251,27 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
     (recadrées). Les constantes qui les utilisent doivent être déclarées
     *après* `ptrPhotoAsset` et `ptrPieceAsset`.
 
+- **Rapprochement avec la vente** (éditeur du programme › « Rapprocher avec
+  la vente », `PtrVente`) : le chiffrage remis au client (PDF ou Word,
+  `lireChiffrageVente`) est lu puce par puce dans sa notice
+  (`venteLignes`, « (envisagé) » retiré) et gardé avec le programme
+  (`prog.vente`). Chaque puce est rattachée à ses prestations par des mots
+  (`PTR_VENTE_THEMES`, fragment par ouvrage : `venteFragments`) ;
+  `ptrRapprochement` donne les écarts (mesures, teintes, marques, fiche
+  jointe d'un autre fabricant : `venteEcarts`), les postes vendus absents,
+  ceux que la vente ne cite pas (hors `PTR_VENTE_GENERIQUES`) et la mission
+  du maître d'œuvre à part. Les actions (`ptrAppliquerVente` : autre
+  proposition, inclure, ajouter avec le texte vendu, exclure) ne
+  s'appliquent qu'au clic ; « Ignorer » se garde (`prog.venteIgnores`).
+  Tests : `t_ptr_vente.js` (chiffrage fictif).
+- **Type d'ouvrage** (`prog.typeOuvrage` : `maison` ou `erp5`) : en ERP,
+  page de garde et synthèse parlent de « bâtiment » (`ptrMentionsPour`,
+  `ptrTexteSelonOuvrage`), les lignes qui parlent encore de garage, de
+  chambres ou de maison sont signalées (`ptrAlertesUsage`, aussi dans le
+  contrôle avant export), et les prestations ERP de la révision 23
+  (`PTR_PRESTATIONS_ERP`, optionnelles) s'ajoutent d'un clic
+  (`ptrInclurePrestations`).
+
 ### Ajouter une révision N (N = révision actuelle + 1)
 
 1. Vérifiez que `tests/fixtures/biblio_rev<N-1>.json.gz` existe. Sinon,
