@@ -78,6 +78,14 @@ qu'on ait à les redire.
   Drive avec sa vraie extension ; la date se garde sur la facture
   (`envoyeeClientLe`). Les factures des marchés, elles, se visent
   (`ViserFacture`). Tests : `t_facture_achat_client.js`.
+- **Facture répartie sur plusieurs lots** (une entreprise qui facture
+  charpente et couverture ensemble) : rangée sur un lot pour son total,
+  puis « Répartir sur plusieurs lots » depuis son volet
+  (`RepartitionFacture`, `repartirFacture`, `defaireRepartition`). Une
+  seule facture (même numéro, date, fichier), une part par lot, reconnue
+  par `repartition.id` ; total HT et TTC lu gardés avec les parts. La
+  visa et l'envoi au client disent le total et les lots
+  (`repartitionPourMail`). Tests : `t_facture_repartie.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR
