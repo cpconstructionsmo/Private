@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-05 · Achats de matériaux : envoyer au client la facture d’un achat (date d’envoi gardée)';
+const VERSION='2026-11-06 · Marchés : répartir une facture sur plusieurs lots (charpente + couverture d’une même entreprise)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -8295,7 +8295,161 @@ const Solde=()=><span className="xs" title="Entièrement facturé"
 
 /* la colonne de droite : chaque facture avec son numéro, sa date, son montant
    et ce qui reste dû après elle. Le « + » ouvre son justificatif. */
-function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiClient}){
+/* ---------- une facture répartie sur plusieurs lots ----------
+   Une entreprise qui tient deux lots (charpente et couverture, par exemple)
+   peut les facturer sur une seule facture. Elle reste une seule facture —
+   même numéro, même date, même fichier sur le Drive —, mais chaque lot n'en
+   porte que sa part : ses montants facturés et ses restes à facturer restent
+   justes. Les parts se reconnaissent à leur repartition.id ; leur somme est
+   le total HT de la facture, gardé avec elles (et le TTC lu dessus, s'il
+   l'a été : c'est lui que le client règle). */
+const REP_LISTES={marche:'marches',commande:'commandes'};
+const partsRepartition=(data,rid)=>{
+  if(!rid||!data)return [];
+  const out=[];
+  for(const type of ['marche','commande'])
+    for(const x of (data[REP_LISTES[type]]||[]))
+      for(const f of ((x&&x.factures)||[]))
+        if(f&&f.repartition&&f.repartition.id===rid)out.push({type,id:x.id,ligne:x,f});
+  return out;
+};
+const repartirFacture=(data,src,fid,parts)=>{
+  const ligne=(data[REP_LISTES[src.type]]||[]).find(x=>x.id===src.id);
+  const f=ligne&&(ligne.factures||[]).find(x=>x.id===fid);
+  if(!f)throw new Error('facture introuvable');
+  if(f.repartition)throw new Error('cette facture est déjà répartie');
+  const P=(parts||[]).map(p=>({...p,montant:Math.round((+p.montant||0)*100)/100}));
+  if(P.length<2)throw new Error('il faut au moins deux lots');
+  if(!P.some(p=>p.type===src.type&&p.id===src.id))throw new Error('le lot de départ doit garder sa part');
+  if(new Set(P.map(p=>p.type+':'+p.id)).size!==P.length)throw new Error('un même lot est choisi deux fois');
+  if(P.some(p=>!(p.montant>0)))throw new Error('chaque part doit avoir un montant');
+  if(P.reduce((s,p)=>s+centimes(p.montant),0)!==centimes(+f.montant||0))
+    throw new Error('les parts doivent faire le total de la facture');
+  const rep={id:uid(),totalHT:+f.montant||0,...(f.montantTTC?{totalTTC:+f.montantTTC}:{})};
+  let d={...data};
+  for(const p of P){
+    const cle=REP_LISTES[p.type];
+    d={...d,[cle]:(d[cle]||[]).map(x=>{
+      if(x.id!==p.id)return x;
+      const factures=p.type===src.type&&p.id===src.id
+        /* la part gardée : son TTC lu valait pour toute la facture, il passe au total */
+        ?(x.factures||[]).map(y=>{if(y.id!==fid)return y;const {montantTTC,...r}=y;return {...r,montant:p.montant,repartition:rep}})
+        :[...(x.factures||[]),{id:uid(),montant:p.montant,date:f.date||'',numero:f.numero||'',lien:f.lien||'',repartition:rep}];
+      return {...x,factures,facture:facturesTotal(factures)};
+    })};
+  }
+  return d;
+};
+/* défaire : la facture revient entière sur le lot d'où l'on défait, les
+   autres parts disparaissent de leurs lots */
+const defaireRepartition=(data,src,fid)=>{
+  const ligne=(data[REP_LISTES[src.type]]||[]).find(x=>x.id===src.id);
+  const f=ligne&&(ligne.factures||[]).find(x=>x.id===fid);
+  if(!f||!f.repartition)return data;
+  const rep=f.repartition;
+  let d={...data};
+  for(const type of ['marche','commande']){
+    const cle=REP_LISTES[type];
+    d={...d,[cle]:(d[cle]||[]).map(x=>{
+      const avant=x.factures||[];
+      if(!avant.some(y=>y&&y.repartition&&y.repartition.id===rep.id))return x;
+      const factures=avant.flatMap(y=>{
+        if(!y||!y.repartition||y.repartition.id!==rep.id)return [y];
+        if(type===src.type&&x.id===src.id&&y.id===fid){
+          const {repartition,...r}=y;
+          return [{...r,montant:rep.totalHT,...(rep.totalTTC?{montantTTC:rep.totalTTC}:{})}];
+        }
+        return [];
+      });
+      return {...x,factures,facture:facturesTotal(factures)};
+    })};
+  }
+  return d;
+};
+/* le montant que le client règle pour toute la facture, et les lots qu'elle
+   couvre — c'est ce que disent les mails qui la transmettent */
+const repartitionPourMail=(data,f,ch)=>{
+  const P=f&&f.repartition?partsRepartition(data,f.repartition.id):[];
+  if(P.length<2)return null;
+  const ttc=f.repartition.totalTTC
+    ||Math.round(P.reduce((s,p)=>s+factureTTC(p.f,p.ligne,ch),0)*100)/100;
+  return {ttc,lots:P.map(p=>p.type==='marche'?(p.ligne.lot||'lot'):(p.ligne.designation||'achat'))};
+};
+const etListe=L=>L.length>1?L.slice(0,-1).join(', ')+' et '+L[L.length-1]:(L[0]||'');
+
+function RepartitionFacture({f,data,src,cibles,save}){
+  const [ed,setEd]=useState(null);
+  if(f.repartition){
+    const P=partsRepartition(data,f.repartition.id);
+    const somme=P.reduce((s,p)=>s+centimes(+p.f.montant||0),0);
+    const titre=p=>{const c=cibles.find(x=>x.type===p.type&&x.id===p.id);return c?c.titre:(p.ligne.lot||p.ligne.designation||'lot')};
+    return <div className="xs" style={{marginTop:8,lineHeight:1.5}}>
+      <div className="b" style={{color:NAVY}}>Facture répartie sur {P.length} lots — total {eur(f.repartition.totalHT)} HT</div>
+      {P.map(p=><div key={p.type+p.id+p.f.id} className="mut">· {titre(p)} : {eur(p.f.montant)} HT
+        {p.type===src.type&&p.id===src.id&&p.f.id===f.id?' (ce lot)':''}</div>)}
+      {somme!==centimes(f.repartition.totalHT)&&<div style={{color:TERRA}}>
+        Les parts ({eurCts(somme)}) ne font plus le total de la facture : corrigez-les, ou défaites la répartition.</div>}
+      <button className="btn gh s" style={{marginTop:6,whiteSpace:'normal',textAlign:'left'}} onClick={()=>{
+        if(!confirm('Défaire la répartition ?\n\nLa facture revient entière ('+eur(f.repartition.totalHT)+' HT) sur ce lot, et ses parts quittent les autres lots.'))return;
+        save(defaireRepartition(data,src,f.id));
+      }}>Défaire la répartition</button>
+    </div>;
+  }
+  const autres=cibles.filter(c=>!(c.type===src.type&&c.id===src.id));
+  if(!autres.length)return null;
+  if(!ed)return <button className="btn gh s" style={{marginTop:8,whiteSpace:'normal',textAlign:'left'}}
+    onClick={()=>setEd({ici:'',lignes:[{cle:'',montant:''}],err:''})}>Répartir sur plusieurs lots</button>;
+  const total=centimes(+f.montant||0);
+  const autresCts=ed.lignes.reduce((s,l)=>s+centimes(+l.montant||0),0);
+  /* la part de ce lot se déduit des autres, sauf si on l'a saisie */
+  const ici=ed.ici!==''?centimes(+ed.ici||0):total-autresCts;
+  const reste=total-ici-autresCts;
+  const maj=(i,patch)=>setEd(e=>({...e,err:'',lignes:e.lignes.map((l,j)=>j===i?{...l,...patch}:l)}));
+  const valider=()=>{
+    const parts=[{type:src.type,id:src.id,montant:ici/100},...ed.lignes.map(l=>{
+      const c=autres.find(x=>x.type+':'+x.id===l.cle);
+      return c?{type:c.type,id:c.id,montant:+l.montant||0}:null;
+    }).filter(Boolean)];
+    try{save(repartirFacture(data,src,f.id,parts));setEd(null)}
+    catch(e){setEd(x=>({...x,err:(e&&e.message)||String(e)}))}
+  };
+  const pret=reste===0&&ici>0&&ed.lignes.every(l=>l.cle&&+l.montant>0);
+  /* par-dessus l'écran : dans la colonne des factures, il serait écrasé sur un téléphone */
+  return <PtrModale titre={'Répartir la facture'+(f.numero?' n° '+f.numero:'')} onFermer={()=>setEd(null)}>
+  <div className="xs" style={{textAlign:'left'}}>
+    <div className="b" style={{color:NAVY,marginBottom:4}}>Répartir cette facture ({eur(f.montant)} HT) sur plusieurs lots</div>
+    <div className="mut" style={{marginBottom:6,lineHeight:1.5}}>Même numéro, même date, même fichier : chaque lot n'en porte que sa part.</div>
+    <div className="row" style={{gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:6}}>
+      <span style={{flex:'1 1 160px'}}>Ce lot</span>
+      <input className="in" type="number" step="0.01" aria-label="Part de ce lot" style={{flex:'0 1 120px'}}
+        value={ed.ici!==''?ed.ici:(ici/100).toFixed(2)} onChange={e=>setEd({...ed,ici:e.target.value,err:''})}/>
+      <span className="mut">€ HT</span>
+    </div>
+    {ed.lignes.map((l,i)=><div key={i} className="row" style={{gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:6}}>
+      <select className="in" aria-label="Autre lot" style={{flex:'1 1 160px'}} value={l.cle} onChange={e=>maj(i,{cle:e.target.value})}>
+        <option value="">— choisir un lot —</option>
+        {autres.map(c=><option key={c.type+':'+c.id} value={c.type+':'+c.id}
+          disabled={ed.lignes.some((x,j)=>j!==i&&x.cle===c.type+':'+c.id)}>{c.titre}</option>)}
+      </select>
+      <input className="in" type="number" step="0.01" aria-label="Part de l’autre lot" style={{flex:'0 1 120px'}}
+        value={l.montant} onChange={e=>maj(i,{montant:e.target.value})}/>
+      <span className="mut">€ HT</span>
+      {ed.lignes.length>1&&<button className="btn gh s" onClick={()=>setEd(e=>({...e,lignes:e.lignes.filter((x,j)=>j!==i)}))}>✕</button>}
+    </div>)}
+    {ed.lignes.length<autres.length&&<button className="btn gh s" style={{marginBottom:6}}
+      onClick={()=>setEd(e=>({...e,lignes:[...e.lignes,{cle:'',montant:''}]}))}>+ Un autre lot</button>}
+    <div style={{color:reste===0?GREEN:TERRA,marginBottom:6}}>
+      {reste===0?'Le total de la facture est réparti.':(reste>0?'Reste à répartir : ':'Réparti en trop : ')+(reste===0?'':eurCts(Math.abs(reste)))}</div>
+    {ed.err&&<div style={{color:TERRA,marginBottom:6}}>{ed.err}</div>}
+    <div className="row" style={{gap:8}}>
+      <button className="btn acc s" disabled={!pret} onClick={valider}>Répartir</button>
+      <button className="btn gh s" onClick={()=>setEd(null)}>Annuler</button>
+    </div>
+  </div>
+  </PtrModale>;
+}
+
+function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiClient,repartir}){
   const L=liste||[];
   const total=facturesTotal(L), reste=(engage||0)-total;
   /* une facture lue automatiquement (Lire des factures) peut mal reprendre
@@ -8317,6 +8471,7 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
         </div>
         <div className="mut" style={{fontSize:11}}>
           {f.envoyeeClientLe&&<span style={{color:GREEN}} title={'Envoyée au client le '+fd(f.envoyeeClientLe)}>envoyée au client · </span>}
+          {f.repartition&&<span style={{color:NAVY}} title={'Part d’une facture de '+eur(f.repartition.totalHT)+' HT répartie sur plusieurs lots'}>part · </span>}
           {f.numero?f.numero+' · ':''}{f.date?fd(f.date):'date à saisir'}
           {/* le reste après chaque facture n'a de sens qu'à partir de la deuxième :
               sur une facture unique il répéterait le reste à facturer du bas */}
@@ -8360,6 +8515,8 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
           {f.lien&&envoiClient&&<div style={{marginTop:8}}>
             <EnvoyerFactureAchat f={f} ch={envoiClient.ch} cmd={envoiClient.cmd} data={envoiClient.data} onEnvoyee={envoiClient.onEnvoyee}/>
           </div>}
+          {repartir&&(+f.montant>0||f.repartition)&&<RepartitionFacture f={f} data={repartir.data} src={repartir.src}
+            cibles={repartir.cibles} save={repartir.save}/>}
         </div>}
       </div>;
     })}
@@ -8385,8 +8542,9 @@ const factureTTC=(f,marche,ch)=>{
   return Math.round(ht*(1+tva/100)*100)/100;
 };
 /* le message au client, selon les pièces qui partent vraiment */
-const corpsFactureVisee=(f,art,marche,ch,lot,avec)=>'Bonjour,\n\nNous avons contrôlé la facture'+(f.numero?' n° '+f.numero:'')+' de '+(art.nom||'l’entreprise')
-  +', d’un montant de '+eurDoc(factureTTC(f,marche,ch))+' TTC'+(lot?' pour le lot '+lot:'')+'.'
+const corpsFactureVisee=(f,art,marche,ch,lot,avec,rep)=>'Bonjour,\n\nNous avons contrôlé la facture'+(f.numero?' n° '+f.numero:'')+' de '+(art.nom||'l’entreprise')
+  +(rep?', d’un montant de '+eurDoc(rep.ttc)+' TTC pour les lots '+etListe(rep.lots)
+    :', d’un montant de '+eurDoc(factureTTC(f,marche,ch))+' TTC'+(lot?' pour le lot '+lot:''))+'.'
   +'\n\nNous y apposons notre visa : cette facture est donc payable dès à présent.'
   +(avec.rib
     ?'\n\nVous trouverez ci-joint la facture visée ainsi que le relevé d’identité bancaire de l’entreprise pour son règlement.'
@@ -8400,13 +8558,15 @@ function ViserFacture({f,ch,art,data,lot,marche}){
   /* les pièces qui partent : celles déposées, moins celles qu'on a choisi
      d'écarter parce qu'elles ne se lisent pas sur le Drive */
   const avecPieces=sans=>({rib:!!art.lienRib&&!(sans||[]).includes('rib'),att:!!art.lienAttestation&&!(sans||[]).includes('att')});
+  /* une facture répartie sur plusieurs lots se vise une fois, pour son total */
+  const repMail=repartitionPourMail(data,f,ch);
   /* le mail va au client : le montant qu'il règle (TTC), sans rappeler le
      nom du chantier — c'est le sien */
   const ouvrirMail=()=>{
     setMail({etat:'apercu',compte:'',signature:true,sans:[],
       destinataire:ch.emailClient,
       sujet:'Facture visée'+(f.numero?' n° '+f.numero:'')+' — '+(art.nom||lot||''),
-      corps:corpsFactureVisee(f,art,marche,ch,lot,avecPieces([])),
+      corps:corpsFactureVisee(f,art,marche,ch,lot,avecPieces([]),repMail),
     });
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
   };
@@ -8414,9 +8574,9 @@ function ViserFacture({f,ch,art,data,lot,marche}){
      retouché, il est réécrit pour ne plus les annoncer ; sinon, à relire */
   const envoyerSans=()=>{
     const sans=[...(mail.sans||[]),...(mail.illisibles||[]).map(x=>x.cle)];
-    const intact=mail.corps===corpsFactureVisee(f,art,marche,ch,lot,avecPieces(mail.sans));
+    const intact=mail.corps===corpsFactureVisee(f,art,marche,ch,lot,avecPieces(mail.sans),repMail);
     setMail({...mail,etat:'apercu',sans,illisibles:null,
-      corps:intact?corpsFactureVisee(f,art,marche,ch,lot,avecPieces(sans)):mail.corps,relire:!intact});
+      corps:intact?corpsFactureVisee(f,art,marche,ch,lot,avecPieces(sans),repMail):mail.corps,relire:!intact});
   };
   const envoyer=async()=>{
     const sans=mail.sans||[];
@@ -8462,7 +8622,7 @@ function ViserFacture({f,ch,art,data,lot,marche}){
     {!art.lienRib&&<div className="xs mut" style={{marginBottom:6,lineHeight:1.5}}>
       Le RIB de {art.nom||'l’entreprise'} n’est pas déposé sur sa fiche (onglet ARTISANS) — la facture visée peut
       quand même partir sans lui, si le client dispose déjà de ce RIB.</div>}
-    {!mail&&<button className="btn gh s" onClick={ouvrirMail}>Viser et envoyer au client</button>}
+    {!mail&&<button className="btn gh s" style={{whiteSpace:'normal',maxWidth:'100%',textAlign:'left',lineHeight:1.3}} onClick={ouvrirMail}>Viser et envoyer au client</button>}
     {mail&&mail.etat==='apercu'&&<div className="card" style={{padding:10,marginTop:6}}>
       {!expediteur&&!!mail.compte&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
         borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
@@ -8530,9 +8690,10 @@ function ViserFacture({f,ch,art,data,lot,marche}){
    message ne dit que ce que l'on sait — fournisseur, numéro, montant, objet
    de l'achat — et se relit avant de partir ; la date d'envoi se garde sur la
    facture, pour savoir ce que le client a déjà reçu. */
-const corpsFactureAchat=(f,cmd,ch)=>'Bonjour,\n\nVeuillez trouver ci-joint la facture'+(f.numero?' n° '+f.numero:'')
-  +' de '+((cmd&&cmd.fournisseur)||'notre fournisseur')+', d’un montant de '+eurDoc(factureTTC(f,cmd,ch))+' TTC'
-  +(cmd&&cmd.designation?', pour l’achat « '+cmd.designation+' »':'')+'.'
+const corpsFactureAchat=(f,cmd,ch,rep)=>'Bonjour,\n\nVeuillez trouver ci-joint la facture'+(f.numero?' n° '+f.numero:'')
+  +' de '+((cmd&&cmd.fournisseur)||'notre fournisseur')+', d’un montant de '+eurDoc(rep?rep.ttc:factureTTC(f,cmd,ch))+' TTC'
+  +(rep?', pour les achats '+etListe(rep.lots.map(l=>'« '+l+' »'))
+    :cmd&&cmd.designation?', pour l’achat « '+cmd.designation+' »':'')+'.'
   +'\n\nJe reste à votre disposition pour toute question.'
   +'\n\nCordialement,';
 /* le nom de la pièce jointe, avec la bonne extension : une facture déposée
@@ -8548,7 +8709,7 @@ function EnvoyerFactureAchat({f,ch,cmd,data,onEnvoyee}){
   const ouvrirMail=()=>{
     setMail({etat:'apercu',compte:'',signature:true,destinataire:ch.emailClient,
       sujet:'Facture'+(f.numero?' n° '+f.numero:'')+' — '+((cmd&&cmd.fournisseur)||'achat de matériaux'),
-      corps:corpsFactureAchat(f,cmd,ch)});
+      corps:corpsFactureAchat(f,cmd,ch,repartitionPourMail(data,f,ch))});
     getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
   };
   const envoyer=async()=>{
@@ -10355,6 +10516,12 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     }
   };
   const nom=id=>{const a=data.artisans.find(x=>x.id===id);return a?a.nom:'Non attribué'};
+  /* les lots et achats du chantier sur lesquels une facture peut se répartir —
+     ceux de la même entreprise d'abord : c'est le cas qui se présente */
+  const ciblesRepartition=artisanId=>[
+    ...ms.map(m=>({type:'marche',id:m.id,titre:(m.lot||'Lot')+' — '+nom(m.artisanId),art:m.artisanId})),
+    ...cmds.map(c=>({type:'commande',id:c.id,titre:(c.designation||'Achat de matériaux')+' — '+(c.fournisseur||'fournisseur'),art:''})),
+  ].sort((a,b)=>(artisanId&&b.art===artisanId?1:0)-(artisanId&&a.art===artisanId?1:0));
 
   /* ---------- sortie du marché de travaux ----------
      Le modèle reste votre fichier : vous le désignez au moment de sortir le
@@ -11165,6 +11332,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       <Fld label={"FACTURES — total "+eur(facturesTotal(f.factures))}>
         {(f.factures||[]).map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
           <input className="in" type="number" placeholder="Montant €" value={x.montant} onChange={e=>updFacture(x.id,{montant:e.target.value})} style={{flex:'1 1 90px'}}/>
+          {x.repartition&&<span className="xs" style={{color:NAVY,whiteSpace:'nowrap'}} title={'Part d’une facture de '+eur(x.repartition.totalHT)+' HT répartie sur plusieurs lots'}>part</span>}
           <input className="in" type="date" value={x.date} onChange={e=>updFacture(x.id,{date:e.target.value})} style={{flex:'1 1 120px'}}/>
           {x.lien
             ?<span className="row" style={{gap:6,alignItems:'center',whiteSpace:'nowrap'}}><Transmis/>
@@ -11255,7 +11423,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                   <ColFactures liste={m.factures} engage={+m.montantHT||0} ouv={ouv} setOuv={setOuv}
                     cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}
                     onCorriger={(fid,patch)=>corrigerFactureMarche(m.id,fid,patch)}
-                    visa={{ch,artisan:art,lot:m.lot,data,marche:m}}/>
+                    visa={{ch,artisan:art,lot:m.lot,data,marche:m}}
+                    repartir={{data,save,src:{type:'marche',id:m.id},cibles:ciblesRepartition(m.artisanId)}}/>
                 </td>
               </tr>
               {f&&f.id===m.id&&<Volet cols={3}>{formulaireLot}</Volet>}
@@ -11333,7 +11502,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                     <ColFactures liste={c.factures} engage={+c.montant||0} ouv={ouv} setOuv={setOuv}
                       cle={'c-fac:'+c.id} onLien={(fid,file)=>joindreFactureCmd(c.id,fid,file)}
                       onCorriger={(fid,patch)=>corrigerFactureCmd(c.id,fid,patch)}
-                      envoiClient={{ch,cmd:c,data,onEnvoyee:fid=>marquerFactureCmdEnvoyee(c.id,fid)}}/>
+                      envoiClient={{ch,cmd:c,data,onEnvoyee:fid=>marquerFactureCmdEnvoyee(c.id,fid)}}
+                      repartir={{data,save,src:{type:'commande',id:c.id},cibles:ciblesRepartition('')}}/>
                   </td>
                 </tr>
                 {ouv===kE&&<Volet cols={3}>
@@ -11888,7 +12058,9 @@ function LireFactures({data,ch,save,close}){
           Choisissez les factures en PDF : le montant, la date, le numéro et le taux de TVA sont lus,
           et chaque facture est rattachée d'après l'entreprise ou le fournisseur qui l'émet — marché de travaux
           comme achat de matériaux. PDF ou Word (.docx).
-          <b> Rien n'est enregistré avant votre validation.</b>
+          <b> Rien n'est enregistré avant votre validation.</b> Une facture qui couvre plusieurs lots
+          (charpente et couverture, par exemple) : rangez-la sur l'un d'eux pour son total, puis
+          « Répartir sur plusieurs lots » depuis son « + ».
         </div>
         <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des factures (PDF ou Word)'}
           <input type="file" accept={DOC_ACCEPT} multiple style={{display:'none'}} disabled={!!busy}
