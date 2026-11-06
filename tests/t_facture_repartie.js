@@ -53,6 +53,7 @@ const btn=re=>tr.root.findAll(n=>n.type==='button').find(n=>re.test(norm(texteIn
 const ev={stopPropagation(){},preventDefault(){}};
 const justif=i=>tr.root.findAll(n=>n.type==='button'&&n.props['aria-label']==='Voir le justificatif')[i];
 
+(async()=>{
 TR.act(()=>{justif(0).props.onClick(ev)});
 TR.act(()=>{btn(/^Répartir sur plusieurs lots$/).props.onClick()});
 chk(/Répartir cette facture \(24 419 € HT\) sur plusieurs lots/.test(t()),'le formulaire s’ouvre, avec le total de la facture');
@@ -90,10 +91,36 @@ chk(data.marches.find(m=>m.id==='m1').factures[0].montant===24419&&!data.marches
   'défait : la facture revient entière sur la charpente');
 TR.act(()=>tr.unmount());
 
-/* 3. un lot seul sur son chantier : rien à répartir */
+/* 3. la même facture saisie à part sur les deux lots, sans fichier : on dit
+   pourquoi la visa n'est pas proposée, on propose de relier les deux saisies,
+   et un seul fichier importé sert aux deux lots */
+data={...base(),marches:[{...CHARP,factures:[{id:'g1',montant:11139,numero:'00002301',date:'2026-11-04',lien:''}]},
+  {...COUV,factures:[{id:'g2',montant:13280,numero:'00002301',date:'2026-11-04',lien:''}]},AUTRE]};
+TR.act(()=>{tr=TR.create(React.createElement(M.Marches,props()))});
+TR.act(()=>{justif(1).props.onClick(ev)});
+chk(/Le fichier de cette facture n’est pas déposé : importez-le pour pouvoir la viser et l’envoyer au client/.test(t())&&!btn(/Viser et envoyer au client/),
+  'sans fichier : la visa n’est pas proposée, et on dit pourquoi');
+chk(/Même numéro \(00002301\) et même date que la facture de 11 139 € HT sur CHARPENTE — EURL Charpente Fictive/.test(t()),'les deux saisies de la même facture se reconnaissent');
+TR.act(()=>{btn(/C’est la même facture : les relier/).props.onClick()});
+const g1=data.marches.find(m=>m.id==='m1').factures[0], g2=data.marches.find(m=>m.id==='m2').factures[0];
+chk(g1.repartition&&g2.repartition&&g1.repartition.id===g2.repartition.id&&g1.repartition.totalHT===24419&&g1.montant===11139&&g2.montant===13280,
+  'reliées : une facture de 24 419 € HT, chaque lot garde sa part');
+chk(/Facture répartie sur 2 lots — total 24 419 € HT/.test(t())&&/\(il servira à tous les lots de la facture\)/.test(t()),'le volet le dit ; un seul fichier servira aux deux lots');
+const imp=tr.root.findAll(n=>n.type==='input'&&n.props.type==='file').find(n=>/Importer la facture/.test(norm(texteInst(n.parent))));
+await TR.act(async()=>{await imp.props.onChange({target:{files:[new File([Buffer.from('%PDF')],'facture.pdf',{type:'application/pdf'})],value:''}})});
+const h1=data.marches.find(m=>m.id==='m1').factures[0], h2=data.marches.find(m=>m.id==='m2').factures[0];
+chk(!!h1.lien&&h1.lien===h2.lien,'importée une fois, depuis la couverture : le fichier se pose sur les deux parts');
+TR.act(()=>{justif(0).props.onClick(ev)});
+TR.act(()=>{btn(/Viser et envoyer au client/).props.onClick()});
+chk(/d’un montant de 29 302,80 € TTC pour les lots CHARPENTE et COUVERTURE\./.test(norm(tr.root.findAll(n=>n.type==='textarea')[0].props.value)),
+  'depuis la charpente aussi : visa pour le total (24 419 € HT → 29 302,80 € TTC) et les deux lots');
+TR.act(()=>tr.unmount());
+
+/* 4. un lot seul sur son chantier : rien à répartir */
 data={...base(),marches:[CHARP]};
 TR.act(()=>{tr=TR.create(React.createElement(M.Marches,props()))});
 TR.act(()=>{justif(0).props.onClick(ev)});
 chk(!btn(/^Répartir sur plusieurs lots$/),'un seul lot : pas de répartition proposée');
 TR.act(()=>tr.unmount());
 fin();
+})().catch(e=>{console.error(e);process.exitCode=1});

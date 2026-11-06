@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-06 · Marchés : répartir une facture sur plusieurs lots (charpente + couverture d’une même entreprise)';
+const VERSION='2026-11-06 · Factures : relier deux saisies d’une même facture, un fichier pour toutes ses parts, la visa dit pourquoi elle attend';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -8366,6 +8366,70 @@ const defaireRepartition=(data,src,fid)=>{
   }
   return d;
 };
+/* la même facture saisie à part sur deux lots (même numéro, même date),
+   avant que la répartition n'existe ou sans passer par elle : on la
+   retrouve pour proposer de relier les deux saisies */
+const facturesJumelles=(data,src,f)=>{
+  const num=String((f&&f.numero)||'').trim();
+  if(!num||!f.date)return [];
+  const ligne=(data[REP_LISTES[src.type]]||[]).find(x=>x.id===src.id);
+  const chId=ligne&&ligne.chantierId;
+  const rid=f.repartition&&f.repartition.id;
+  const out=[];
+  for(const type of ['marche','commande'])
+    for(const x of (data[REP_LISTES[type]]||[])){
+      if(!x||x.chantierId!==chId)continue;
+      for(const g of (x.factures||[])){
+        if(!g||(type===src.type&&x.id===src.id&&g.id===f.id))continue;
+        if(rid&&g.repartition&&g.repartition.id===rid)continue;
+        if(String(g.numero||'').trim()===num&&g.date===f.date)out.push({type,id:x.id,ligne:x,f:g});
+      }
+    }
+  return out;
+};
+/* relier deux saisies : elles deviennent les parts d'une seule facture,
+   dont le total est leur somme ; un fichier déposé sur l'une sert aux autres */
+const relierFactures=(data,a,b)=>{
+  const trouve=r=>{const x=(data[REP_LISTES[r.type]]||[]).find(y=>y.id===r.id);return x&&(x.factures||[]).find(y=>y.id===r.fid)};
+  const fa=trouve(a), fb=trouve(b);
+  if(!fa||!fb)throw new Error('facture introuvable');
+  const ids=new Set([fa.repartition&&fa.repartition.id,fb.repartition&&fb.repartition.id].filter(Boolean));
+  const rid=[...ids][0]||uid();
+  const dedans=(type,x,y)=>(type===a.type&&x.id===a.id&&y.id===a.fid)||(type===b.type&&x.id===b.id&&y.id===b.fid)
+    ||!!(y.repartition&&ids.has(y.repartition.id));
+  let total=0, lien='';
+  for(const type of ['marche','commande'])
+    for(const x of (data[REP_LISTES[type]]||[]))
+      for(const y of ((x&&x.factures)||[]))
+        if(y&&dedans(type,x,y)){total+=centimes(+y.montant||0);if(!lien&&y.lien)lien=y.lien}
+  const rep={id:rid,totalHT:total/100};
+  let d={...data};
+  for(const type of ['marche','commande']){
+    const cle=REP_LISTES[type];
+    d={...d,[cle]:(d[cle]||[]).map(x=>{
+      if(!(x.factures||[]).some(y=>y&&dedans(type,x,y)))return x;
+      const factures=x.factures.map(y=>y&&dedans(type,x,y)?{...y,repartition:rep,lien:y.lien||lien}:y);
+      return {...x,factures,facture:facturesTotal(factures)};
+    })};
+  }
+  return d;
+};
+/* le fichier d'une facture répartie vaut pour toutes ses parts */
+const poserLienFacture=(data,type,id,fid,lien)=>{
+  const x=(data[REP_LISTES[type]]||[]).find(y=>y.id===id);
+  const f=x&&(x.factures||[]).find(y=>y.id===fid);
+  const rid=f&&f.repartition&&f.repartition.id;
+  let d={...data};
+  for(const t of ['marche','commande']){
+    const cle=REP_LISTES[t];
+    d={...d,[cle]:(d[cle]||[]).map(l=>{
+      const vise=y=>y&&((t===type&&l.id===id&&y.id===fid)||(rid&&y.repartition&&y.repartition.id===rid));
+      if(!(l.factures||[]).some(vise))return l;
+      return {...l,factures:l.factures.map(y=>vise(y)?{...y,lien}:y)};
+    })};
+  }
+  return d;
+};
 /* le montant que le client règle pour toute la facture, et les lots qu'elle
    couvre — c'est ce que disent les mails qui la transmettent */
 const repartitionPourMail=(data,f,ch)=>{
@@ -8379,6 +8443,16 @@ const etListe=L=>L.length>1?L.slice(0,-1).join(', ')+' et '+L[L.length-1]:(L[0]|
 
 function RepartitionFacture({f,data,src,cibles,save}){
   const [ed,setEd]=useState(null);
+  const jumelles=facturesJumelles(data,src,f);
+  const titreDe=p=>{const c=cibles.find(x=>x.type===p.type&&x.id===p.id);return c?c.titre:(p.ligne.lot||p.ligne.designation||'lot')};
+  const relier=jumelles.length?<div className="xs" style={{marginTop:8,padding:'6px 10px',borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+    {jumelles.map(j=><div key={j.type+j.id+j.f.id} style={{marginBottom:4}}>
+      Même numéro ({f.numero}) et même date que la facture de {eur(j.f.montant)} HT sur {titreDe(j)} : si c’est la même facture, reliez-les —
+      elle se visera une fois, pour son total, et un seul fichier servira aux deux lots.
+      <div><button className="btn gh s" style={{marginTop:4,whiteSpace:'normal',textAlign:'left'}}
+        onClick={()=>save(relierFactures(data,{...src,fid:f.id},{type:j.type,id:j.id,fid:j.f.id}))}>C’est la même facture : les relier</button></div>
+    </div>)}
+  </div>:null;
   if(f.repartition){
     const P=partsRepartition(data,f.repartition.id);
     const somme=P.reduce((s,p)=>s+centimes(+p.f.montant||0),0);
@@ -8389,6 +8463,7 @@ function RepartitionFacture({f,data,src,cibles,save}){
         {p.type===src.type&&p.id===src.id&&p.f.id===f.id?' (ce lot)':''}</div>)}
       {somme!==centimes(f.repartition.totalHT)&&<div style={{color:TERRA}}>
         Les parts ({eurCts(somme)}) ne font plus le total de la facture : corrigez-les, ou défaites la répartition.</div>}
+      {relier}
       <button className="btn gh s" style={{marginTop:6,whiteSpace:'normal',textAlign:'left'}} onClick={()=>{
         if(!confirm('Défaire la répartition ?\n\nLa facture revient entière ('+eur(f.repartition.totalHT)+' HT) sur ce lot, et ses parts quittent les autres lots.'))return;
         save(defaireRepartition(data,src,f.id));
@@ -8396,9 +8471,9 @@ function RepartitionFacture({f,data,src,cibles,save}){
     </div>;
   }
   const autres=cibles.filter(c=>!(c.type===src.type&&c.id===src.id));
-  if(!autres.length)return null;
-  if(!ed)return <button className="btn gh s" style={{marginTop:8,whiteSpace:'normal',textAlign:'left'}}
-    onClick={()=>setEd({ici:'',lignes:[{cle:'',montant:''}],err:''})}>Répartir sur plusieurs lots</button>;
+  if(!autres.length)return relier;
+  if(!ed)return <div>{relier}<button className="btn gh s" style={{marginTop:8,whiteSpace:'normal',textAlign:'left'}}
+    onClick={()=>setEd({ici:'',lignes:[{cle:'',montant:''}],err:''})}>Répartir sur plusieurs lots</button></div>;
   const total=centimes(+f.montant||0);
   const autresCts=ed.lignes.reduce((s,l)=>s+centimes(+l.montant||0),0);
   /* la part de ce lot se déduit des autres, sauf si on l'a saisie */
@@ -8506,9 +8581,14 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
               <label style={{color:NAVY,cursor:'pointer'}}>Remplacer
                 <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
                   onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label></div>
-            :<label className="xs" style={{color:NAVY,cursor:'pointer'}}>Importer la facture — elle part sur le Drive
-              <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
-                onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label>}
+            :<div>
+              <label className="xs" style={{color:NAVY,cursor:'pointer'}}>Importer la facture — elle part sur le Drive
+                <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
+                  onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label>
+              {(visa&&visa.artisan||envoiClient)&&<div className="xs" style={{marginTop:4,color:AMBER,lineHeight:1.5}}>
+                Le fichier de cette facture n’est pas déposé : importez-le pour pouvoir {visa&&visa.artisan?'la viser et l’envoyer':'l’envoyer'} au client
+                {f.repartition?' (il servira à tous les lots de la facture)':''}.</div>}
+            </div>}
           {f.lien&&visa&&visa.artisan&&<div style={{marginTop:8}}>
             <ViserFacture f={f} ch={visa.ch} art={visa.artisan} lot={visa.lot} data={visa.data} marche={visa.marche}/>
           </div>}
@@ -10779,14 +10859,10 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     setF(p=>({...p,...patch}));
     if(f.id)majMarche(f.id,patch);
   };
-  const joindreFactureMarche=(id,fid,file)=>envoyer(file,'Factures',lien=>{
-    const m=data.marches.find(x=>x.id===id)||{};
-    majMarche(id,{factures:(m.factures||[]).map(x=>x.id===fid?{...x,lien}:x)});
-  });
-  const joindreFactureCmd=(id,fid,file)=>envoyer(file,'Factures',lien=>{
-    const c=data.commandes.find(x=>x.id===id)||{};
-    majCmd(id,{factures:(c.factures||[]).map(x=>x.id===fid?{...x,lien}:x)});
-  });
+  /* une facture répartie sur plusieurs lots n'a qu'un fichier : posé sur
+     l'une de ses parts, il se pose sur toutes */
+  const joindreFactureMarche=(id,fid,file)=>envoyer(file,'Factures',lien=>save(poserLienFacture(data,'marche',id,fid,lien)));
+  const joindreFactureCmd=(id,fid,file)=>envoyer(file,'Factures',lien=>save(poserLienFacture(data,'commande',id,fid,lien)));
   /* la facture d'achat transmise au client : la date se garde sur elle */
   const marquerFactureCmdEnvoyee=(id,fid)=>{
     const c=data.commandes.find(x=>x.id===id)||{};
