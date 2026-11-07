@@ -32,7 +32,7 @@ chk(IDS.every(id=>{const l=prog.lignes.find(x=>x.prestationId===id);return l&&!l
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r22))});
 const mo=cat=>m.prestations.filter(p=>p.categorieId===cat).sort((x,y)=>x.ordre-y.ordre).map(p=>p.id);
 const mel=mo('cat_electricite');
-chk(m.seedRev===23&&IDS.every(id=>m.prestations.some(p=>p.id===id))&&mel.indexOf('pr_erp_alarme_incendie')===mel.indexOf('pr_options_electriques')+1
+chk(m.seedRev===24&&IDS.every(id=>m.prestations.some(p=>p.id===id))&&mel.indexOf('pr_erp_alarme_incendie')===mel.indexOf('pr_options_electriques')+1
   &&mel.indexOf('pr_erp_grilles_transfert')===mel.indexOf('pr_ventilation_mecanique_controlee')+1,'révision 22 : les quatre prestations ERP arrivent à leur place');
 chk(m.prestations.length===r22.prestations.length+4,'rien d’autre n’est ajouté ni retiré');
 fin();

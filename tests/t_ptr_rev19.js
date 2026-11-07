@@ -15,5 +15,5 @@ const al=M.ptrAlertesPrestation(pr,b).filter(x=>/faute|accent|colle|dim:|espaces
 chk(!al.length,'texte sans faute signalée'+(al.length?' — '+al.map(x=>x.msg).join(' | '):''));
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r18))});
 const pm=m.prestations.find(p=>p.id==='pr_douche');
-chk(m.seedRev===23&&pm.variantes.some(v=>v.id==='var_douche_b'&&!v.parDefaut)&&pm.variantes[0].parDefaut&&pm.variantes[0].texte===a.texte,'bibliothèque de révision 18 : Compact ajouté en B, Flight reste par défaut et inchangé');
+chk(m.seedRev===24&&pm.variantes.some(v=>v.id==='var_douche_b'&&!v.parDefaut)&&pm.variantes[0].parDefaut&&pm.variantes[0].texte===a.texte,'bibliothèque de révision 18 : Compact ajouté en B, Flight reste par défaut et inchangé');
 fin();
