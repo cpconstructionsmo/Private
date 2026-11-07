@@ -32,6 +32,6 @@ chk(lb&&!lb.incluse,'nouveau programme : ligne baignoire présente, non incluse 
 /* migration depuis la révision 19 */
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r19))});
 const mb=m.prestations.find(p=>p.id==='pr_baignoire'), md=m.prestations.find(p=>p.id==='pr_douche'), mc=m.prestations.find(p=>p.id==='pr_colonne_douche');
-chk(m.seedRev===23&&mb&&mb.ordre>md.ordre&&mb.ordre<mc.ordre,'révision 19 : baignoire ajoutée entre douche et colonne');
+chk(m.seedRev===24&&mb&&mb.ordre>md.ordre&&mb.ordre<mc.ordre,'révision 19 : baignoire ajoutée entre douche et colonne');
 chk(mc.variantes.map(v=>v.id).join()==='var_colonne_douche_a,var_colonne_douche_b,var_colonne_douche_c'&&mc.variantes[0].parDefaut&&mc.variantes[0].texte===a.texte,'révision 19 : B et C ajoutées, A inchangée et par défaut');
 fin();

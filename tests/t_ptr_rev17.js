@@ -16,7 +16,7 @@ chk(/MULTIMAT NO AIR EASYFIX/.test(pl.texte)&&/670527/.test(pl.texte)&&/10 spots
 chk([...pc.pieces,...pl.pieces,...pl.photos].every(x=>fs.existsSync(RACINE+'/assets/ptr/'+x.fichier)),'fichiers présents');
 chk(!['pr_prises_courant','pr_points_lumineux'].some(id=>{const p=b.prestations.find(x=>x.id===id);return M.ptrAlertesPrestation(p,b).some(a=>/faute|accent|colle|dim:|espaces|unite/.test(a.cle))}),'textes sans faute signalée');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r16))});
-chk(m.seedRev===23&&V(m,'var_prises_courant_a').pieces.length===1&&V(m,'var_points_lumineux_a').texte===pl.texte,'bibliothèque de révision 16 : fiches et textes reçus');
+chk(m.seedRev===24&&V(m,'var_prises_courant_a').pieces.length===1&&V(m,'var_points_lumineux_a').texte===pl.texte,'bibliothèque de révision 16 : fiches et textes reçus');
 /* liste des fiches : celles de la prestation d'abord, sans doublon */
 const f=M.ptrFichesBibliotheque(b,'pr_prises_courant',[]);
 const cles=f.map(x=>x.fichier);

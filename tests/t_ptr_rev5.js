@@ -13,7 +13,7 @@ chk(/monophasée 230 volts/.test(el.texte)&&/grade 2TV\./.test(el.texte)&&!/220|
 chk(/DTU 59\.1 « peinture »/.test(bj.texte)&&!/59\.10/.test(bj.texte),'bandes : DTU 59.1');
 chk(el.version>=4&&bj.version>=4,'les deux propositions montent de version (v4 ou plus)');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r4))});
-chk(m.seedRev===23&&V(m,'var_electricite_a').texte===el.texte&&V(m,'var_bandes_joints_plaque_platre_a').texte===bj.texte,'bibliothèque de révision 4 non retouchée : corrections reçues');
+chk(m.seedRev===24&&V(m,'var_electricite_a').texte===el.texte&&V(m,'var_bandes_joints_plaque_platre_a').texte===bj.texte,'bibliothèque de révision 4 non retouchée : corrections reçues');
 const perso=JSON.parse(JSON.stringify(r4));const pe=V(perso,'var_electricite_a');pe.texte='Électricité — texte CP.';pe.version=4;pe.modifieLe='x';
 chk(V(M.ptrBiblio({...M.EMPTY,ptrBiblio:perso}),'var_electricite_a').texte==='Électricité — texte CP.','texte réécrit par l’utilisateur : inchangé');
 const prog=M.ptrNouveauProgramme(r4,{prospectId:'p'},'modele');
