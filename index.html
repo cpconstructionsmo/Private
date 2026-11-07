@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-07 · Programme technique : rapprochement avec le chiffrage vendu, type d’ouvrage ERP de 5e catégorie (révision 23)';
+const VERSION='2026-11-07 · Programme technique : création depuis le chiffrage vendu, toutes les propositions du rapprochement d’un clic';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5479,7 +5479,8 @@ const PTR_VENTE_THEMES=[
   {id:'enrobe',re:/enrobe|regard|grille fonte|stationnement|parking/,prs:[],categorie:'cat_preparation_du_terrain',titre:'ENROBÉ ET REGARD'},
   {id:'vs',re:/vide sanitaire|cour anglaise/,prs:['pr_vide_sanitaire']},
   {id:'fondations',re:/fondation/,prs:['pr_fondations']},
-  {id:'murs',re:/maconnerie|parpaing|brique|\bblocs?\b/,prs:['pr_murs']},
+  /* « bloc autonome » : l'éclairage de sécurité, pas la maçonnerie */
+  {id:'murs',re:/maconnerie|parpaing|brique|\bblocs?\b(?! autonome)/,prs:['pr_murs']},
   {id:'plancher',re:/plancher|rupteur|hourdis/,prs:['pr_planchers']},
   {id:'doublage',re:/doublage|isolation interieure|optima/,prs:['pr_doublage']},
   {id:'combles',re:/combles|souffle/,prs:['pr_isolation_thermique_plafond']},
@@ -5714,6 +5715,38 @@ function ptrAppliquerVente(prog,biblio,a,vente){
     return {...prog,categories,lignes};
   }
   return prog;
+}
+/* « Appliquer toutes les propositions » : les actions proposées, l'une après
+   l'autre, le rapprochement refait entre deux — une ligne échangée change ce
+   qui reste à proposer. Ce qu'on ne fait pas d'office : remplacer le texte
+   d'une ligne retouchée pour le projet (elle est nommée, à revoir à la main),
+   exclure une ligne « à confirmer », ranger une puce que rien ne reconnaît. */
+function ptrAppliquerToutVente(prog,biblio){
+  const vente=prog&&prog.vente;
+  const compte={inclure:0,echanger:0,variante:0,ajouter:0};
+  if(!vente)return {prog,n:0,compte,gardees:[]};
+  let p=prog, n=0;
+  const essayees=new Set(), gardees=[];
+  const tenter=(cle,a,v)=>{
+    if(essayees.has(cle))return false;
+    essayees.add(cle);
+    const suivant=ptrAppliquerVente(p,biblio,a,v);
+    if(suivant===p)return false;
+    p=suivant;n++;compte[a.type]=(compte[a.type]||0)+1;
+    return true;
+  };
+  for(let tour=0;tour<300;tour++){
+    const R=ptrRapprochement(p,biblio,vente.lignes,p.venteIgnores);
+    const fait=R.ecarts.some(g=>g.actions.some(a=>{
+      if(a.type==='variante'){
+        const l=(p.lignes||[]).find(x=>x.id===a.ligneId);
+        if(l&&l.modifie){const t=l.titre||l.nom;if(gardees.indexOf(t)<0)gardees.push(t);return false}
+      }
+      return tenter([a.type,a.ligneId||a.inclureId,a.varianteId||a.exclureId||''].join(':'),a,null);
+    }))||R.absents.some(a=>(a.prestationId||a.categorieId)&&tenter('ajouter:'+a.cle,{type:'ajouter',categorieId:a.categorieId},a));
+    if(!fait)break;
+  }
+  return {prog:p,n,compte,gardees};
 }
 const ptrConfiguree=l=>!l.incluse||(String(l.texte||'').trim()!==''&&(l.lotMO||l.horsCoord));
 function ptrStats(prog){
@@ -26750,7 +26783,7 @@ function PtrVente({prog,biblio,fige,majProg,allerA,onFermer}){
   const vente=prog.vente||null;
   const R=vente?ptrRapprochement(prog,biblio,vente.lignes,prog.venteIgnores):null;
   const importer=async file=>{
-    setBusy(true);setErr('');
+    setBusy(true);setErr('');setBilanTout(null);
     try{
       const r=await lireChiffrageVente(file);
       if(!r.lignes.length)setErr(r.motif?'Lecture impossible — '+r.motif+'.'
@@ -26768,6 +26801,24 @@ function PtrVente({prog,biblio,fige,majProg,allerA,onFermer}){
     majProg(x=>ptrAppliquerVente(x,biblio,a,v));
   };
   const ignorer=cle=>majProg(x=>({...x,venteIgnores:[...(x.venteIgnores||[]),cle]}),{statut:false});
+  /* tout d'un coup, après avoir dit ce qui va changer : c'est encore votre
+     clic qui valide, mais pas trente fois de suite */
+  const [bilanTout,setBilanTout]=useState(null);
+  const nPropositions=R?R.ecarts.filter(g=>g.actions.length).length+R.absents.filter(a=>a.prestationId||a.categorieId).length:0;
+  const toutAppliquer=()=>{
+    const r=ptrAppliquerToutVente(prog,biblio), c=r.compte;
+    const pl=(n,s,p)=>n+' '+(n>1?p:s);
+    const detail=[c.inclure&&pl(c.inclure,'ligne vendue incluse','lignes vendues incluses'),
+      c.echanger&&pl(c.echanger,'ligne remplacée par une autre qui colle mieux à la vente','lignes remplacées par d’autres qui collent mieux à la vente'),
+      c.variante&&pl(c.variante,'proposition de la bibliothèque à la place du texte par défaut','propositions de la bibliothèque à la place du texte par défaut'),
+      c.ajouter&&pl(c.ajouter,'poste vendu ajouté','postes vendus ajoutés')].filter(Boolean);
+    if(!r.n){setBilanTout({n:0,gardees:r.gardees});return}
+    if(!confirm('Appliquer les propositions du rapprochement ?\n\n'+detail.map(x=>'· '+x).join('\n')
+      +(r.gardees.length?'\n\nTexte retouché pour ce projet, gardé tel quel : '+r.gardees.join(', ')+'.':'')
+      +'\n\nLes lignes « à confirmer » ne sont pas exclues : elles restent à trancher une à une.'))return;
+    majProg(()=>r.prog);
+    setBilanTout({n:r.n,detail,gardees:r.gardees});
+  };
   const voir=id=>{allerA(id)};
   const carte={padding:'10px 12px',marginBottom:8,borderRadius:8,border:'1px solid '+RULE,background:'#fff'};
   const titreSection=(t,n,c)=><div className="b sm" style={{color:c||NAVY,margin:'16px 0 8px'}}>{t} ({n})</div>;
@@ -26792,6 +26843,15 @@ function PtrVente({prog,biblio,fige,majProg,allerA,onFermer}){
       </div>}
       <div className="xs b" style={{marginTop:12,color:NAVY}}>
         {R.ecarts.length} ligne{R.ecarts.length>1?'s':''} à revoir · {R.absents.length+R.inconnus.length} poste{R.absents.length+R.inconnus.length>1?'s':''} vendu{R.absents.length+R.inconnus.length>1?'s':''} absent{R.absents.length+R.inconnus.length>1?'s':''} · {R.nonVendues.length} à confirmer · {R.conformes.length} conforme{R.conformes.length>1?'s':''}</div>
+      {!fige&&nPropositions>0&&<div style={{marginTop:10}}>
+        <button className="btn acc s" style={{whiteSpace:'normal',maxWidth:'100%'}} onClick={toutAppliquer}>Appliquer toutes les propositions</button>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Inclure ce qui a été vendu, prendre la proposition de la bibliothèque qui le dit,
+          ajouter les postes vendus absents. Les lignes à confirmer et les textes retouchés pour le projet ne changent pas.</div>
+      </div>}
+      {bilanTout&&<div className="xs" style={{marginTop:10,padding:'8px 10px',borderRadius:8,background:bilanTout.n?'#EAF3EC':'#FBF3E2',lineHeight:1.5}}>
+        {bilanTout.n?<span style={{color:GREEN}}>✓ {bilanTout.detail.join(' · ')}.</span>:'Aucune proposition ne s’applique d’office : le reste se tranche ligne par ligne.'}
+        {bilanTout.gardees.length>0&&<div style={{color:AMBER}}>Texte retouché pour ce projet, gardé tel quel — à revoir à la main : {bilanTout.gardees.join(', ')}.</div>}
+      </div>}
 
       {R.ecarts.length>0&&titreSection('À revoir',R.ecarts.length,TERRA)}
       {R.ecarts.map(g=><div key={g.cle} style={carte}>
@@ -26890,11 +26950,38 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
       const pg=ptrNouveauProgramme(biblio,cible,creation.source,autre);
       enregistrer({...dataRef.current,programmes:[...(dataRef.current.programmes||[]),pg]});
     };
+    /* depuis le chiffrage vendu : le modèle, mis aussitôt en face de la
+       vente. Le type d'ouvrage suit ce qui a été vendu (un ERP se dit dans
+       la notice) ; tout le reste se propose, rien ne change sans un clic. */
+    const creerDepuisVente=async file=>{
+      setCreation(c=>({...c,busy:true,err:''}));
+      let r;
+      try{r=await lireChiffrageVente(file)}catch(e){r={lignes:[],motif:(e&&e.message)||String(e)}}
+      if(!r.lignes.length){
+        setCreation(c=>({...c,busy:false,err:r.motif?'Lecture impossible — '+r.motif+'.'
+          :'Aucune ligne de notice trouvée dans « '+file.name+' » : la création lit les puces « • » de la notice technique du chiffrage.'}));
+        return;
+      }
+      let pg={...ptrNouveauProgramme(biblio,cible,'vente'),vente:{nom:file.name,le:today(),lignes:r.lignes},venteIgnores:[]};
+      pg.source={...pg.source,fichier:file.name};
+      /* un document dont aucune ligne ne parle d'un ouvrage n'est pas un
+         chiffrage : on le dit plutôt que de créer un programme à vide */
+      const R=ptrRapprochement(pg,biblio,r.lignes,[]);
+      if(!R.groupes.length&&!R.absents.length&&!R.mission.length){
+        setCreation(c=>({...c,busy:false,err:'Aucun ouvrage reconnu dans « '+file.name+' » : la création lit les puces « • » de la notice technique du chiffrage remis au client.'}));
+        return;
+      }
+      if(R.erp)pg={...pg,typeOuvrage:'erp5'};
+      enregistrer({...dataRef.current,programmes:[...(dataRef.current.programmes||[]),pg]});
+      setCreation(c=>({...c,busy:false,err:''}));
+      setModale({type:'vente'});
+    };
     return <div>
       {onFermer&&<button className="btn gh s" onClick={onFermer}>← Retour</button>}
       <div className="card" style={{marginTop:12,borderLeft:'3px solid '+NAVY}}>
         <div className="h2" style={{fontSize:16,marginBottom:10}}>Créer le programme technique</div>
         {[['modele',PTR_MODELE_NOM,'Toutes les prestations de la bibliothèque, avec leur proposition par défaut — il ne reste qu’à ajuster les particularités.'],
+          ['vente','Depuis le chiffrage vendu','Le modèle CP Constructions, mis aussitôt en face du chiffrage remis au client (PDF ou Word) : type d’ouvrage repris de la vente (ERP compris), puis chaque écart proposé à la correction.'],
           ['vierge','Programme vierge','Les catégories seules : les prestations s’ajoutent une à une depuis la bibliothèque.'],
           ['copie','Copie d’un programme précédent','Reprend les choix et les textes d’un autre projet, dans un document entièrement indépendant.']].map(([id,l,t])=>
           <label key={id} className="row" style={{gap:10,alignItems:'flex-start',marginBottom:10,cursor:'pointer'}}>
@@ -26906,7 +26993,13 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
             <option value="">—</option>{autres.map(pg=><option key={pg.id} value={pg.id}>{nomDe(pg)}</option>)}</select>
           {!autres.length&&<div className="xs mut" style={{marginTop:4}}>Aucun autre programme pour l’instant.</div>}
         </Fld>}
-        <button className="btn acc" disabled={creation.source==='copie'&&!creation.depuis} onClick={creer}>Créer le programme technique</button>
+        {creation.source==='vente'
+          ?<label className="btn acc" style={{cursor:creation.busy?'wait':'pointer',whiteSpace:'normal',maxWidth:'100%'}}>
+            {creation.busy?'Lecture du chiffrage…':'Déposer le chiffrage vendu (PDF ou Word)'}
+            <input type="file" accept={DOC_ACCEPT} style={{display:'none'}} disabled={!!creation.busy}
+              onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)creerDepuisVente(f)}}/></label>
+          :<button className="btn acc" disabled={creation.source==='copie'&&!creation.depuis} onClick={creer}>Créer le programme technique</button>}
+        {creation.err&&<div className="xs" style={{color:TERRA,marginTop:8,lineHeight:1.5}}>{creation.err}</div>}
       </div>
     </div>;
   }
