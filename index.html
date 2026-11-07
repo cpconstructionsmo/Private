@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-07 · Programme technique : couverture en tuiles minérales Monier Nobilée (proposition C, révision 24)';
+const VERSION='2026-11-07 · Programme technique : couverture standard en ardoises fibres-ciment Cedral Kergoat (révision 25)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2781,7 +2781,7 @@ const PTR_CATALOGUE=[
   {id:"charpente",groupe:"LA TOITURE",titre:"LA CHARPENTE",texte:"Pente de la toiture : 35°.\nFermettes industrielles en sapin, type combles perdus (entraxe d'environ 60 cm), y compris accessoires, étrésillons et contreventement. L'ensemble de la charpente reçoit un traitement insecticide et fongicide.",images:[{fichier:"image17.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"debords_toits",groupe:"LA TOITURE",titre:"DÉBORDS DE TOITS",texte:"Débords de toit d'une largeur d'environ 20 cm, constitués par les fermettes et habillés en sous-face d'une plaque en PVC blanc.\nPositionnement selon plans et façades.",images:[{fichier:"image18.jpeg",w:584,h:390},{fichier:"image19.jpeg",w:584,h:390}],defaut:"MO"},
   {id:"ecran_sous_toiture",groupe:"LA TOITURE",titre:"ÉCRAN DE SOUS-TOITURE",texte:"Écran de sous-toiture HPV (hautement perméable à la vapeur d'eau) avec contre-liteaunage, type SPIRTECH de Monier ou équivalent.",images:[{fichier:"image20.jpeg",w:390,h:520},{fichier:"image21.jpeg",w:390,h:520}],defaut:"MO"},
-  {id:"couverture",groupe:"LA TOITURE",titre:"COUVERTURE",texte:"Couverture en ardoises artificielles en fibres-ciment imitant l'ardoise naturelle, format 40 x 24 cm, type Orléane. Ce format courant est posé avec un recouvrement adapté à la pente afin de garantir l'étanchéité.",images:[{fichier:"image22.jpeg",w:520,h:390}],defaut:"MO"},
+  {id:"couverture",groupe:"LA TOITURE",titre:"COUVERTURE",texte:"Couverture en ardoises artificielles en fibres-ciment CEDRAL **KERGOAT** ou équivalent, coloris anthracite : l’aspect d’une couverture traditionnelle en ardoise naturelle avec la régularité d’un produit manufacturé.\n- ardoise de type NT conforme à la norme NF EN 492, fabriquée en France à partir de ciment, de cellulose et de fibres de synthèse ;\n- format 40 x 24 cm à bords droits épaufrés, épaisseur 3,8 mm, finition lisse ou relief (aspect schiste) au choix ;\n- incombustible : classement au feu A2-s1, d0.\nPose traditionnelle au crochet sur liteaux, conformément au DTU 40.13 « Couverture en ardoises en fibres-ciment » : pente minimale et recouvrement adaptés à la pente du rampant, à sa longueur et à la zone climatique du chantier, afin de garantir l’étanchéité. En présence d’un écran de sous-toiture, contre-lattage pour ménager une lame d’air sous les ardoises ; ventilation de la couverture à l’égout et au faîtage.\nAccessoires de la gamme : faîtières demi-rondes ou angulaires et leurs abouts, faîtières d’aération ; crochets conformes au DTU, de nuance adaptée à l’exposition du chantier.\nGarantie du fabricant : 15 ans sur le produit et la couleur.\nCaractéristiques détaillées suivant documentation jointe au présent programme.",images:[{fichier:"image22.jpeg",w:520,h:390}],defaut:"MO"},
   {id:"gouttieres_tuyaux_descente",groupe:"LA TOITURE",titre:"GOUTTIÈRES – TUYAUX DE DESCENTE",texte:"Gouttières en aluminium de forme corniche, profilées en continu sur le chantier (sans raccord), type G300 de DAL'ALU ou équivalent : épaisseur 6/10e, développé 300 mm, section 90 cm², y compris crochets, naissances, angles et fonds de gouttière.\nDescentes en aluminium avec coudes et colliers de fixation.\nComposants conformes aux normes NF EN 573-3, NF EN 1396, NF EN 612 et NF P 36-201.\nTeinte au choix : gris anthracite, sable ou cuivre, dans le nuancier du fabricant.",images:[],defaut:"MO"},
   {id:"porte_entree",groupe:"MENUISERIES EXTÉRIEURES",titre:"PORTE D'ENTRÉE – RAL 7016",texte:"Porte d'entrée en acier de 170 x 215, type « DREAM », avec châssis latéral fixe, de marque Bel'm ou similaire – Ud = 0,75 W/m².K.\nBarre de tirage ronde ton inox de 1 800 mm.",images:[{fichier:"image23.png",w:436,h:452}],defaut:"MO"},
   {id:"chassis_fenetres_francaise",groupe:"MENUISERIES EXTÉRIEURES",titre:"CHÂSSIS ET FENÊTRES OUVRANT À LA FRANÇAISE",texte:"Menuiseries en PVC à ouvrants à la française, grand vitrage ; quantités et dimensions selon plans.\nOscillo-battant intégré sur les menuiseries à un vantail.\nCouleur extérieure : gris RAL 7016.\nCouleur intérieure : gris RAL 7016.",images:[{fichier:"image24.jpeg",w:520,h:390}],defaut:"MO"},
@@ -4847,7 +4847,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=24;
+const PTR_SEED_REV=25;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -4923,8 +4923,13 @@ PTR_SEED_DATES[23]=PTR_SEED_DATE_23;
    suivant plans (proposition C), photos et fiche produit du fabricant */
 const PTR_SEED_DATE_24='2026-11-07T11:00:00.000Z';
 PTR_SEED_DATES[24]=PTR_SEED_DATE_24;
+/* révision 25 : la couverture standard décrit l'ardoise fibres-ciment
+   CEDRAL Kergoat (et non plus « type Orléane »), photos et documentation
+   du fabricant */
+const PTR_SEED_DATE_25='2026-11-07T13:00:00.000Z';
+PTR_SEED_DATES[25]=PTR_SEED_DATE_25;
 /* propositions dont le texte a été réécrit après la révision 4 */
-const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a'],11:['var_cloisons_72mm_a','var_doublage_a'],12:['var_cloisons_separation_volumes_non_chauffes_a','var_cloisons_100mm_a','var_portes_interieures_galandage_a'],13:['var_bandes_joints_plaque_platre_a'],14:['var_portes_interieures_a','var_portes_interieures_galandage_a'],15:['var_isolation_thermique_plafond_a'],16:['var_ventilation_mecanique_controlee_a','var_electricite_a'],17:['var_prises_courant_a','var_points_lumineux_a']};
+const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a'],11:['var_cloisons_72mm_a','var_doublage_a'],12:['var_cloisons_separation_volumes_non_chauffes_a','var_cloisons_100mm_a','var_portes_interieures_galandage_a'],13:['var_bandes_joints_plaque_platre_a'],14:['var_portes_interieures_a','var_portes_interieures_galandage_a'],15:['var_isolation_thermique_plafond_a'],16:['var_ventilation_mecanique_controlee_a','var_electricite_a'],17:['var_prises_courant_a','var_points_lumineux_a'],25:['var_couverture_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
    rectifiés B60. Pour chaque proposition dont le texte a changé, les
    empreintes des textes livrés auparavant : une bibliothèque enregistrée
@@ -4938,7 +4943,7 @@ const PTR_TEXTES_ANCIENS={
   var_planchers_a:['iv4o3k','1plrszm'],var_planchers_b:['fg90hg'],var_murs_a:['h89oci','106jpvz'],var_pointes_pignons_a:['p0nfzh','qltjb3'],
   var_pointes_pignons_b:['1736yvq'],var_seuils_porte_appuis_fenetre_a:['3l6uxd','1y3mugw','2htkdn'],var_revetements_exterieurs_a:['wwst9q','1r0dpjj'],
   var_charpente_a:['1uzgv0i','608cua'],var_debords_toits_a:['1edn4zx','1g4ibag'],var_ecran_sous_toiture_a:['1uiinn1','1s1q0v7'],
-  var_couverture_a:['7lvssw'],var_gouttieres_tuyaux_descente_a:['pu7zi3','1cea0bq'],var_porte_entree_a:['19hba3s','1hax9pk'],
+  var_couverture_a:['7lvssw','1uxmrgl'],var_gouttieres_tuyaux_descente_a:['pu7zi3','1cea0bq'],var_porte_entree_a:['19hba3s','1hax9pk'],
   var_chassis_fenetres_francaise_a:['1u32ocs'],var_coulissant_a:['3c6v4e'],var_vitrerie_a:['1izyyqu'],var_volets_roulants_a:['cus9ae','1s3a8gz'],
   var_domotique_a:['cjndgj','4nsl49'],var_plafonds_a:['1hfks3d','1fbdef5'],var_doublage_a:['9omws7','zfblvb','ytkxyx'],var_cloisons_72mm_a:['oxzvjj','ppxmzz','1ooq8i1'],
   var_cloisons_100mm_a:['js7lv7','1kg71q5','1cqyeu0'],var_cloisons_separation_volumes_non_chauffes_a:['1pa1sq5','u4ag2a','anj1kw'],
@@ -5032,6 +5037,10 @@ const ptrDimsPhoto=ph=>{
 const ptrRevPrestation=id=>{const a=PTR_PRESTATIONS_AJOUTEES.find(x=>'pr_'+x.id===id);return a?a.rev:1};
 /* compléments de la proposition standard (A) : fiche produit et photo */
 const PTR_COMPLEMENTS_A={
+  couverture:{marque:'Cedral (Etex)',reference:'Kergoat 40 x 24 — anthracite, bords épaufrés (ou équivalent)',
+    url:'https://www.cedral.world/fr-fr/toiture/ardoises-fibres-ciment/kergoat/',
+    photosAvant:[ptrPhotoAsset('kergoat_ardoise.jpeg',700,700),ptrPhotoAsset('kergoat_toiture.jpeg',1000,667)],
+    pieces:[ptrPieceAsset('docs/Cedral_Kergoat.pdf','Documentation Cedral — Ardoise Kergoat.pdf')]},
   prises_courant:{marque:'Schneider Electric',reference:'Odace — prise 2P+T S920052 (ou équivalent)',url:'https://www.se.com/fr',
     photosAvant:[ptrPhotoAsset('schneider_odace_prise.jpeg',369,369)],
     pieces:[ptrPieceAsset('docs/Schneider_Odace_S920052.pdf','Fiche produit Schneider — Odace prise S920052.pdf')]},
@@ -5549,7 +5558,7 @@ const VENTE_COULEURS=[['blanc',/\bblanc(he)?s?\b|\bral ?(9016|9010|9003)\b/],['a
   ['ivoire',/ivoire|\bral ?1015\b/],['sombre',/\bsombres?\b|\bfoncee?s?\b/],['bois',/\bchene\b|\bbois\b/]];
 const VENTE_COMPAT={anthracite:['gris','sombre','noir'],gris:['anthracite','sombre'],noir:['sombre','anthracite'],sombre:['noir','anthracite','gris']};
 const VENTE_MARQUES=[['Chapuzet',/chapuzet/],['Placostil',/placostil|placostyl/],['Optima',/optima/],['TaHoma',/tahoma/],['Somfy',/somfy/],
-  ['Bel’M',/\bbel ?'? ?m\b/],['Abscisse',/abscisse/],['Monier',/monier/],['Nobilée',/nobile/],['Aldes',/\baldes\b/],['T.One',/\bt[ .-]?one\b/],
+  ['Bel’M',/\bbel ?'? ?m\b/],['Abscisse',/abscisse/],['Monier',/monier/],['Nobilée',/nobile/],['Cedral',/cedral/],['Kergoat',/kergoat/],['Aldes',/\baldes\b/],['T.One',/\bt[ .-]?one\b/],
   ['Atlantic',/atlantic/],['Daikin',/daikin/],['Edilians',/edilians/],['Fuji',/\bfuji\b/],['Menuiseries d’Olt',/menuiseries d'olt|\bd'olt\b/],
   ['Veka',/\bveka\b/],['Reynaers',/reynaers/],['Emaplast',/emaplast/],['Knauf',/knauf/],['Isover',/isover/],['Alkern',/alkern/],
   ['Hörmann',/hormann/],['Schneider',/schneider/],['Odace',/odace/],['Rockwool',/rockwool/],['Biobric',/biobric/],['Jacob Delafon',/jacob delafon/],
