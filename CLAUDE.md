@@ -263,7 +263,13 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
   du maître d'œuvre à part. Les actions (`ptrAppliquerVente` : autre
   proposition, inclure, ajouter avec le texte vendu, exclure) ne
   s'appliquent qu'au clic ; « Ignorer » se garde (`prog.venteIgnores`).
-  Tests : `t_ptr_vente.js` (chiffrage fictif).
+  « Appliquer toutes les propositions » (`ptrAppliquerToutVente`) les
+  enchaîne après avoir dit ce qui change : jamais d'exclusion d'office, ni
+  de texte retouché remplacé (il est nommé). Un programme se crée aussi
+  « Depuis le chiffrage vendu » : le modèle, la vente gardée, le type
+  d'ouvrage repris (ERP), le rapprochement ouvert aussitôt ; un document
+  sans ouvrage reconnu ne crée rien. Tests : `t_ptr_vente.js`,
+  `t_ptr_depuis_vente.js` (chiffrages fictifs).
 - **Type d'ouvrage** (`prog.typeOuvrage` : `maison` ou `erp5`) : en ERP,
   page de garde et synthèse parlent de « bâtiment » (`ptrMentionsPour`,
   `ptrTexteSelonOuvrage`), les lignes qui parlent encore de garage, de

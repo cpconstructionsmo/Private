@@ -99,7 +99,7 @@ TR.act(()=>{tr.unmount()});
 data={...data,prospects:[...data.prospects,{id:'pC',nom:'Maison Leroy',client:'Leroy',commune:'Sées'}]};
 cible={prospectId:'pC',chantierId:null};
 TR.act(()=>{tr=TR.create(monter())});
-TR.act(()=>{tr.root.findAll(n=>n.type==='input'&&n.props.type==='radio')[2].props.onChange()});
+TR.act(()=>{tr.root.findAll(n=>n.type==='input'&&n.props.type==='radio').find(n=>/Copie d’un programme précédent/.test(texteInst(n.parent))).props.onChange()});
 TR.act(()=>{tr.root.findAll(n=>n.type==='select')[0].props.onChange({target:{value:prog.id}})});
 TR.act(()=>{btn(tr,/^Créer le programme technique$/).props.onClick()});
 const progC=M.ptrProgrammePour(data,cible);
