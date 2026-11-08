@@ -16,7 +16,7 @@ chk(s.pieces.length===2&&s.pieces.every(p=>fs.existsSync(RACINE+'/assets/ptr/'+p
 chk(s.photos.length===1&&s.version===4,'la photo d’origine reste, version 4');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r5))});
 const sm=V(m,'var_seuils_porte_appuis_fenetre_a');
-chk(m.seedRev===25&&sm.texte===s.texte&&sm.pieces.length===2&&sm.marque==='PBM / Celtys','bibliothèque de révision 5 : texte, fiches et marque reçus');
+chk(m.seedRev===26&&sm.texte===s.texte&&sm.pieces.length===2&&sm.marque==='PBM / Celtys','bibliothèque de révision 5 : texte, fiches et marque reçus');
 /* le programme Moualid : ligne retouchée pour le projet (MSEA retiré à la main) */
 let data={...M.EMPTY,prospects:[{id:'p1',nom:'Maison Moualid',client:'Moualid',commune:'Valframbert'}],ptrBiblio:JSON.parse(JSON.stringify(r5))};
 const prog=M.ptrNouveauProgramme(r5,{prospectId:'p1'},'modele');

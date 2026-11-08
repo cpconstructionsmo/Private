@@ -30,7 +30,7 @@ chk(!minuscules.length,'« Maître d’Œuvre » et « Maître de l’Ouvrage »
 const bib3=JSON.parse(JSON.stringify(r3));
 const m3=M.ptrBiblio({...M.EMPTY,ptrBiblio:bib3});
 const diff=b.prestations.flatMap(p=>p.variantes).filter(v=>{const w=V(m3,v.id);return w&&w.texte!==v.texte}).map(v=>v.id);
-chk(m3.seedRev===25&&!diff.length,'révision 3 → 25 : tous les textes non retouchés reçoivent la nouvelle rédaction'+(diff.length?' — restent : '+diff.join(', '):''));
+chk(m3.seedRev===26&&!diff.length,'révision 3 → 26 : tous les textes non retouchés reçoivent la nouvelle rédaction'+(diff.length?' — restent : '+diff.join(', '):''));
 
 /* 3) révision 3 retouchée : photos des murs changées (texte intact),
       implantation réécrite par l'utilisateur */

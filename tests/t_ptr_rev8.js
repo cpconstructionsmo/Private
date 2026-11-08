@@ -15,5 +15,5 @@ const pr=b.prestations.find(p=>p.id==='pr_gouttieres_tuyaux_descente');
 chk(!M.ptrAlertesPrestation(pr,b).some(a=>/faute|accent|colle|dim:|espaces|unite/.test(a.cle)),'texte sans faute signalée');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r7))});
 const gm=V(m,'var_gouttieres_tuyaux_descente_a');
-chk(m.seedRev===25&&gm.texte===g.texte&&gm.photos.length===1&&gm.pieces.length===1&&gm.marque==='DAL’ALU','bibliothèque de révision 7 : texte, photo, fiche et marque reçus');
+chk(m.seedRev===26&&gm.texte===g.texte&&gm.photos.length===1&&gm.pieces.length===1&&gm.marque==='DAL’ALU','bibliothèque de révision 7 : texte, photo, fiche et marque reçus');
 fin();

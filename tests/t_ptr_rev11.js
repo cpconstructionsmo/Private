@@ -15,5 +15,5 @@ chk(c.photos[0].fichier==='knauf_cloison_72_48.jpeg'&&d.photos[0].fichier==='iso
 chk([...c.photos,...c.pieces,...d.photos,...d.pieces].every(x=>fs.existsSync(RACINE+'/assets/ptr/'+x.fichier)),'fichiers présents');
 chk(!['pr_cloisons_72mm','pr_doublage'].some(id=>{const p=b.prestations.find(x=>x.id===id);return M.ptrAlertesPrestation(p,b).some(a=>/faute|accent|colle|dim:|espaces|unite/.test(a.cle))}),'textes sans faute signalée');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r10))});
-chk(m.seedRev===25&&V(m,'var_cloisons_72mm_a').texte===c.texte&&V(m,'var_doublage_a').pieces.length===1&&V(m,'var_doublage_a').photos[0].fichier==='isover_optima_murs.jpeg','bibliothèque de révision 10 : textes, schémas et fiches reçus');
+chk(m.seedRev===26&&V(m,'var_cloisons_72mm_a').texte===c.texte&&V(m,'var_doublage_a').pieces.length===1&&V(m,'var_doublage_a').photos[0].fichier==='isover_optima_murs.jpeg','bibliothèque de révision 10 : textes, schémas et fiches reçus');
 fin();
