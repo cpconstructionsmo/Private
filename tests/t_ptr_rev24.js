@@ -23,8 +23,8 @@ chk(!al.length,'sans faute signalée '+al.join(' | '));
 /* migration depuis la révision 23 */
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r23))});
 const pm=m.prestations.find(p=>p.id==='pr_couverture');
-chk(m.seedRev===26&&pm.variantes.map(v=>v.id).join()==='var_couverture_a,var_couverture_b,var_couverture_c'&&pm.variantes[0].parDefaut,'révision 23 : C ajoutée, A par défaut');
-chk(m.prestations.length===r23.prestations.length,'aucune prestation ajoutée ni retirée');
+chk(m.seedRev===27&&pm.variantes.map(v=>v.id).join()==='var_couverture_a,var_couverture_b,var_couverture_c'&&pm.variantes[0].parDefaut,'révision 23 : C ajoutée, A par défaut');
+chk(m.prestations.length===r23.prestations.length+7,'aucune autre prestation ajoutée ni retirée (+7 de la révision 27)');
 /* une vente « tuiles minérales Monier Nobilée » trouve maintenant sa proposition */
 const L=M.venteLignes('1. NOTICE TECHNIQUE • Charpente 35°, couverture en tuiles minérales Monier Nobilée teinte sombre (envisagé) Coût prévisionnel : 1 €');
 const prog={...M.ptrNouveauProgramme(b,{prospectId:'p'},'vente'),vente:{nom:'x',le:'2026-11-07',lignes:L}};

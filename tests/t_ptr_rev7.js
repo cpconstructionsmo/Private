@@ -21,7 +21,7 @@ const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:vieille});
 const pm=m.prestations.find(p=>p.id==='pr_enduit_decoratif_pierre');
 const maxOrdre=Math.max(...vieille.prestations.filter(p=>p.categorieId==='cat_maconnerie').map(p=>p.ordre));
 const revExt=vieille.prestations.find(p=>p.id==='pr_revetements_exterieurs');
-chk(m.seedRev===26&&!!pm&&pm.ordre===revExt.ordre+0.5,'bibliothèque de révision 6 : l’option est ajoutée juste après les revêtements extérieurs');
+chk(m.seedRev===27&&!!pm&&pm.ordre===revExt.ordre+0.5,'bibliothèque de révision 6 : l’option est ajoutée juste après les revêtements extérieurs');
 const supprimee=M.ptrBiblio({...M.EMPTY,ptrBiblio:{...JSON.parse(JSON.stringify(m)),seedRev:7,prestations:m.prestations.filter(p=>p.id!=='pr_enduit_decoratif_pierre')}});
 chk(!supprimee.prestations.some(p=>p.id==='pr_enduit_decoratif_pierre'),'supprimée par l’utilisateur, elle ne revient pas');
 /* nouveau programme : l'option est là, non incluse */

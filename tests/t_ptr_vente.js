@@ -129,7 +129,7 @@ chk(['pr_erp_alarme_incendie','pr_erp_eclairage_securite','pr_erp_grilles_transf
   /* le type d'ouvrage, depuis l'éditeur */
   chk(/Établissement recevant du public : ces équipements ne sont pas encore au programme/.test(t())&&/parlent encore d’un logement/.test(t()),
     'ERP : équipements manquants et textes de logement signalés');
-  TR.act(()=>{btn(/^Ajouter les \d prestations ERP$/).props.onClick()});
+  TR.act(()=>{btn(/^Ajouter les \d+ prestations ERP$/).props.onClick()});
   pg=M.ptrProgrammePour(data,cible);
   chk(['pr_erp_alarme_incendie','pr_erp_eclairage_securite','pr_erp_grilles_transfert','pr_erp_dossier'].every(id=>pg.lignes.some(l=>l.prestationId===id&&l.incluse)),
     'un clic : les prestations ERP sont au programme');

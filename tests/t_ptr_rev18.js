@@ -13,5 +13,5 @@ chk(e.photos.length===2&&e.pieces.length===1&&[...e.photos,...e.pieces].every(x=
 chk(!M.ptrAlertesPrestation(pr,b).some(x=>/faute|accent|colle|dim:|espaces|unite/.test(x.cle)),'texte sans faute signalée');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r17))});
 const pm=m.prestations.find(p=>p.id==='pr_lavabo_meuble_vasque');
-chk(m.seedRev===26&&pm.variantes.some(v=>v.id==='var_lavabo_meuble_vasque_b'&&!v.parDefaut)&&pm.variantes[0].parDefaut,'bibliothèque de révision 17 : Elyps 2 ajouté en B, Concerto reste par défaut');
+chk(m.seedRev===27&&pm.variantes.some(v=>v.id==='var_lavabo_meuble_vasque_b'&&!v.parDefaut)&&pm.variantes[0].parDefaut,'bibliothèque de révision 17 : Elyps 2 ajouté en B, Concerto reste par défaut');
 fin();

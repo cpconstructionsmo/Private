@@ -27,9 +27,9 @@ const fautes=IDS.flatMap(id=>M.ptrAlertesPrestation(pr(id),b).filter(x=>/faute|a
 chk(!fautes.length,'sans faute signalée '+fautes.join(' | '));
 /* migration depuis la révision 25 */
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r25))});
-chk(m.seedRev===26&&IDS.every(id=>{const p=m.prestations.find(x=>x.id==='pr_'+id);return p.variantes.some(v=>v.id==='var_'+id+'_c'&&!v.parDefaut)&&p.variantes[0].parDefaut}),
+chk(m.seedRev===27&&IDS.every(id=>{const p=m.prestations.find(x=>x.id==='pr_'+id);return p.variantes.some(v=>v.id==='var_'+id+'_c'&&!v.parDefaut)&&p.variantes[0].parDefaut}),
   'révision 25 : les quatre propositions C arrivent, sans devenir par défaut');
-chk(m.prestations.length===r25.prestations.length,'aucune prestation ajoutée ni retirée');
+chk(m.prestations.length===r25.prestations.length+7,'aucune autre prestation ajoutée ni retirée (+7 de la révision 27)');
 /* une vente « menuiseries PVC blanc » trouve maintenant les propositions blanches */
 const L=M.venteLignes('1. NOTICE TECHNIQUE • Menuiseries PVC RAL blanc (envisagé) • Volets roulants électriques monobloc PVC RAL blanc (envisagé) Coût prévisionnel : 1 €');
 const prog={...M.ptrNouveauProgramme(b,{prospectId:'p'},'vente'),vente:{nom:'x',le:'2026-11-08',lignes:L}};

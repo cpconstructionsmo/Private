@@ -25,7 +25,7 @@ chk(!al.length,'sans faute signalée '+al.join(' | '));
 /* migration depuis la révision 24 */
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r24))});
 const am=m.prestations.find(p=>p.id==='pr_couverture').variantes[0];
-chk(m.seedRev===26&&am.texte===a.texte&&am.marque==='Cedral (Etex)'&&am.photos[0].fichier==='kergoat_ardoise.jpeg'
+chk(m.seedRev===27&&am.texte===a.texte&&am.marque==='Cedral (Etex)'&&am.photos[0].fichier==='kergoat_ardoise.jpeg'
   &&am.photos.some(x=>x.fichier==='image22.jpeg')&&am.pieces.length===1,'révision 24 : texte remplacé, photos et documentation ajoutées');
 /* un texte retouché par l'utilisateur n'est pas remplacé */
 const r=JSON.parse(JSON.stringify(r24));
