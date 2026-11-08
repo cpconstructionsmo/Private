@@ -30,6 +30,10 @@ chk(/vérification initiale des installations électriques/.test(T.erp_verificat
   &&/registre de sécurité/.test(T.erp_verifications),'contrôles avant ouverture : électricité, accessibilité, registres');
 chk(IDS.every(id=>/notice|contrôleur|bureau de contrôle|\[à (préciser|confirmer)/.test(T[id])),'tout renvoie aux notices, au contrôleur ou reste à préciser');
 chk(!IDS.some(id=>/€|prix|article|R\. ?\d|L\. ?\d|arrêté|\d+ ?(lux|N\b|cm|m²)/i.test(T[id])),'aucun prix, aucun article ni seuil réglementaire chiffré');
+/* « chambre de tirage » n'est pas une chambre de logement */
+const MU=charger(['ptrMotsLogement']);
+chk(!MU.ptrMotsLogement({titre:'RACCORDEMENTS',texte:'Grillage avertisseur et chambre de tirage si nécessaire.'}).length
+  &&MU.ptrMotsLogement({titre:'X',texte:'Une chambre de 12 m².'}).join()==='chambre','« chambre de tirage » n’est pas signalé, une chambre l’est');
 const fautes=P.flatMap(pr=>M.ptrAlertesPrestation(pr,b).filter(x=>/faute|accent|colle|dim:|espaces|unite/.test(x.cle)).map(x=>x.msg));
 chk(!fautes.length,'sans faute signalée '+fautes.join(' | '));
 /* nouveau programme de maison : présentes, non incluses */
