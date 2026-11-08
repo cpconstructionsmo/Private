@@ -241,6 +241,12 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
     `PTR_SEED_NOUVELLES[n]`.
   - Ajouter une prestation : `PTR_PRESTATIONS_AJOUTEES` (`apres`,
     `optionnelle`).
+  - Changer la proposition par défaut d'une prestation :
+    `PTR_DEFAUTS_REVISIONS[n]` (une bibliothèque enregistrée ne la prend
+    que si son défaut est resté la A ; jamais une proposition archivée).
+    Révision 28 : volets à coffre monobloc (C), vitrerie (B), TaHoma (B).
+  - Ajouter des photos à une proposition déjà livrée :
+    `PTR_PHOTOS_AJOUTEES[n]` (ajoutées à la suite, rien n'est retiré).
 - **Règles de rédaction**
   - **Aucun prix** dans la bibliothèque. Dimensions « selon plans ».
     Surfaces et quantités propres à un projet : `[à préciser]` (une alerte

@@ -14,5 +14,5 @@ chk(p.photos.length===3&&p.photos[0].fichier==='fuji_frene_blanc.jpeg'&&p.pieces
 chk([...p.photos,...p.pieces,...g.photos].every(x=>fs.existsSync(RACINE+'/assets/ptr/'+x.fichier)),'fichiers présents');
 chk(!['pr_portes_interieures','pr_portes_interieures_galandage'].some(id=>{const x=b.prestations.find(q=>q.id===id);return M.ptrAlertesPrestation(x,b).some(a=>/faute|accent|colle|dim:|espaces|unite/.test(a.cle))}),'textes sans faute signalée');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r13))});
-chk(m.seedRev===27&&V(m,'var_portes_interieures_a').texte===p.texte&&V(m,'var_portes_interieures_galandage_a').texte===g.texte&&V(m,'var_portes_interieures_galandage_a').pieces.length===1,'bibliothèque de révision 13 : textes, photos et fiche reçus');
+chk(m.seedRev===28&&V(m,'var_portes_interieures_a').texte===p.texte&&V(m,'var_portes_interieures_galandage_a').texte===g.texte&&V(m,'var_portes_interieures_galandage_a').pieces.length===1,'bibliothèque de révision 13 : textes, photos et fiche reçus');
 fin();

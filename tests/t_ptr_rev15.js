@@ -15,5 +15,5 @@ chk([...a.photos,...a.pieces,...r.photos,...r.pieces].every(x=>fs.existsSync(RAC
 const pr=b.prestations.find(p=>p.id==='pr_isolation_thermique_plafond');
 chk(!M.ptrAlertesPrestation(pr,b).some(x=>/faute|accent|colle|dim:|espaces|unite/.test(x.cle)),'textes sans faute signalée');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r14))});
-chk(m.seedRev===27&&V(m,'var_isolation_thermique_plafond_a').texte===a.texte&&V(m,'var_isolation_thermique_plafond_a').pieces.length===1&&!!V(m,'var_isolation_thermique_plafond_b'),'bibliothèque de révision 14 : standard complété, proposition B ajoutée');
+chk(m.seedRev===28&&V(m,'var_isolation_thermique_plafond_a').texte===a.texte&&V(m,'var_isolation_thermique_plafond_a').pieces.length===1&&!!V(m,'var_isolation_thermique_plafond_b'),'bibliothèque de révision 14 : standard complété, proposition B ajoutée');
 fin();
