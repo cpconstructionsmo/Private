@@ -18,7 +18,7 @@ const r2=JSON.parse(JSON.stringify(b));r2.seedRev=2;
 r2.prestations.find(p=>p.id==='pr_planchers').variantes=r2.prestations.find(p=>p.id==='pr_planchers').variantes.filter(v=>v.id!=='var_planchers_b');
 const mA=r2.prestations.find(p=>p.id==='pr_murs').variantes[0];mA.texte='Murs — texte CP.';mA.version=3;mA.modifieLe='2026-09-26T13:00:00.000Z';
 const bm=M.ptrBiblio({...M.EMPTY,ptrBiblio:r2});
-chk(bm.seedRev===26&&bm.prestations.find(p=>p.id==='pr_planchers').variantes.some(v=>v.id==='var_planchers_b'&&!v.parDefaut),'révision 2 → 3 : la proposition hourdis isolants est ajoutée');
+chk(bm.seedRev===27&&bm.prestations.find(p=>p.id==='pr_planchers').variantes.some(v=>v.id==='var_planchers_b'&&!v.parDefaut),'révision 2 → 3 : la proposition hourdis isolants est ajoutée');
 chk(bm.prestations.find(p=>p.id==='pr_murs').variantes[0].texte==='Murs — texte CP.','les retouches de l’utilisateur restent intactes');
 chk(bm.prestations.find(p=>p.id==='pr_murs').variantes.filter(v=>v.id==='var_murs_b').length===1,'les propositions de la révision 2 ne sont pas dupliquées');
 

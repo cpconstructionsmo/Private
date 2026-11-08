@@ -274,9 +274,20 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
   page de garde et synthèse parlent de « bâtiment » (`ptrMentionsPour`,
   `ptrTexteSelonOuvrage`), les lignes qui parlent encore de garage, de
   chambres ou de maison sont signalées (`ptrAlertesUsage`, aussi dans le
-  contrôle avant export), et les prestations ERP de la révision 23
-  (`PTR_PRESTATIONS_ERP`, optionnelles) s'ajoutent d'un clic
-  (`ptrInclurePrestations`).
+  contrôle avant export), et les prestations ERP (`PTR_PRESTATIONS_ERP`,
+  optionnelles) s'ajoutent d'un clic (`ptrInclurePrestations`) : alarme,
+  éclairage de sécurité, grilles de transfert, dossier (révision 23) ;
+  dispositions électriques, extincteurs et consignes, portes et repères
+  accessibles, sanitaire accessible, réaction au feu, stationnement et
+  cheminement accessibles, contrôles avant ouverture (révision 27). Aucun
+  article ni seuil réglementaire chiffré : tout renvoie aux notices de
+  sécurité et d'accessibilité et au contrôleur technique. Tests :
+  `t_ptr_rev23.js`, `t_ptr_rev27.js`.
+- **Photos d'une proposition** (ligne du programme) : reprend les photos
+  d'une proposition de la bibliothèque sans toucher au texte écrit pour le
+  projet. Des photos ajoutées après coup à une proposition livrée
+  (`PTR_PHOTOS_AJOUTEES`) arrivent à la suite, sans rien retirer. Tests :
+  `t_ptr_photos_ligne.js`.
 
 ### Ajouter une révision N (N = révision actuelle + 1)
 

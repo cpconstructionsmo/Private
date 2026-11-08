@@ -22,10 +22,10 @@ TR.act(()=>{tr=TR.create(monter())});
 chk(/Créer le programme technique/.test(txt(tr)),'sans programme, l’écran propose de le créer');
 TR.act(()=>{btn(tr,/^Créer le programme technique$/).props.onClick()});
 let prog=M.ptrProgrammePour(data,cible);
-chk(!!prog&&prog.lignes.length===65&&prog.lignes.filter(l=>l.incluse).length===59,'le modèle Maison neuve préremplit 65 prestations, dont les options enduit pierre, baignoire et ERP non incluses ('+(prog&&prog.lignes.length)+')');
+chk(!!prog&&prog.lignes.length===72&&prog.lignes.filter(l=>l.incluse).length===59,'le modèle Maison neuve préremplit 72 prestations, dont les options enduit pierre, baignoire et ERP non incluses ('+(prog&&prog.lignes.length)+')');
 chk(prog.categories.length===15,'15 catégories reprises du modèle papier');
 chk(!data.ptrBiblio,'la bibliothèque initiale n’est pas encore écrite en base (aucune retouche)');
-chk(/59 \/ 59 prestations configurées/.test(txt(tr))&&/\(6 non incluses\)/.test(txt(tr)),'l’indicateur annonce 59 / 59 prestations configurées (6 non incluses)');
+chk(/59 \/ 59 prestations configurées/.test(txt(tr))&&/\(13 non incluses\)/.test(txt(tr)),'l’indicateur annonce 59 / 59 prestations configurées (13 non incluses)');
 
 /* 2) ouvrir la catégorie chauffage et choisir Aldes T.One */
 const ouvrirCat=re=>{const tete=tr.root.findAll(n=>n.type==='div'&&n.props.onClick&&n.props.style&&n.props.style.background==='#F4F1EB'&&re.test(norm(texteInst(n))));
