@@ -289,6 +289,16 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
   article ni seuil réglementaire chiffré : tout renvoie aux notices de
   sécurité et d'accessibilité et au contrôleur technique. Tests :
   `t_ptr_rev23.js`, `t_ptr_rev27.js`.
+- **Importer un programme préparé** (création ou éditeur du programme,
+  fichier `.json` au format `cp-ptr`, `ptrLireImport`,
+  `ptrImporterProgramme`) : un programme complet préparé hors de
+  l'application (par exemple d'après le chiffrage vendu) se charge d'un
+  clic, rattaché au dossier ouvert (jamais à celui du fichier). Le contenu
+  en place passe dans l'historique des versions ; un programme validé ne
+  se remplace pas ; un fichier incomplet ne touche à rien. C'est ainsi
+  qu'un programme se remplit pour un dossier sans écrire en base : le
+  fichier, préparé hors dépôt, est remis à l'utilisateur. Tests :
+  `t_ptr_import.js`.
 - **Photos d'une proposition** (ligne du programme) : reprend les photos
   d'une proposition de la bibliothèque sans toucher au texte écrit pour le
   projet. Des photos ajoutées après coup à une proposition livrée

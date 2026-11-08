@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-08 · Programme technique : volets à coffre monobloc, vitrerie à isolation renforcée et box TaHoma en propositions standard (révision 28)';
+const VERSION='2026-11-08 · Programme technique : importer un programme préparé (fichier .json), « chambre de tirage » n’est plus signalée en ERP';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5410,8 +5410,11 @@ const ptrTypeOuvrage=prog=>(prog&&prog.typeOuvrage)==='erp5'?'erp5':'maison';
 const PTR_PRESTATIONS_ERP=['pr_erp_alarme_incendie','pr_erp_eclairage_securite','pr_erp_electricite','pr_erp_extincteurs','pr_erp_grilles_transfert',
   'pr_erp_portes_accessibles','pr_erp_sanitaire_accessible','pr_erp_reaction_feu','pr_erp_exterieurs_accessibles','pr_erp_dossier','pr_erp_verifications'];
 const PTR_MOTS_LOGEMENT=['garage','maison','habitation','logement','chambre','chambres','séjour','salon','baignoire','dressing'];
+/* « chambre de tirage » (regard de réseaux) n'est pas une pièce d'un
+   logement : elle ne doit pas signaler une ligne de raccordements */
+const PTR_EXPRESSIONS_NEUTRES=[/\bchambres? de tirage\b/g];
 const ptrMotsLogement=l=>{
-  const t=deaccent([l&&l.titre,l&&l.texte].join(' ')).toLowerCase();
+  const t=PTR_EXPRESSIONS_NEUTRES.reduce((x,re)=>x.replace(re,' '),deaccent([l&&l.titre,l&&l.texte].join(' ')).toLowerCase());
   return [...new Set(PTR_MOTS_LOGEMENT.filter(m=>new RegExp('\\b'+deaccent(m)+'\\b').test(t)).map(m=>m.replace(/s$/,'')))];
 };
 /* les lignes incluses d'un programme d'ERP qui parlent encore d'un logement */
@@ -5865,6 +5868,39 @@ function ptrAppliquerToutVente(prog,biblio){
     if(!fait)break;
   }
   return {prog:p,n,compte,gardees};
+}
+/* ---------- programme préparé hors de l'application ----------
+   Un programme complet peut être préparé ailleurs (par exemple d'après le
+   chiffrage vendu) et remis sous forme de fichier : il se charge d'un clic
+   dans le dossier. Le fichier ne décide jamais du dossier auquel il se
+   rattache ni de la référence du programme ; le contenu déjà saisi n'est
+   jamais perdu : il passe dans l'historique des versions. */
+const PTR_FORMAT_IMPORT='cp-ptr';
+function ptrLireImport(texte){
+  let o;
+  try{o=JSON.parse(String(texte||''))}catch(e){return {erreur:'ce fichier n’est pas un programme technique (JSON illisible)'}}
+  const p=o&&o.format===PTR_FORMAT_IMPORT?o.programme:o;
+  if(!p||typeof p!=='object'||!Array.isArray(p.categories)||!Array.isArray(p.lignes))
+    return {erreur:'ce fichier ne contient ni catégories ni lignes de programme technique'};
+  const cats=new Set(p.categories.map(c=>c&&c.id).filter(Boolean));
+  if(!p.lignes.length)return {erreur:'le programme du fichier ne contient aucune ligne'};
+  const fautive=p.lignes.find(l=>!l||!l.id||!cats.has(l.categorieId)||!String(l.titre||l.nom||'').trim()||typeof (l.texte||'')!=='string');
+  if(fautive)return {erreur:'ligne incomplète dans le fichier'+(fautive&&(fautive.titre||fautive.nom)?' (« '+(fautive.titre||fautive.nom)+' »)':'')+' : identifiant, catégorie, titre et texte sont nécessaires'};
+  if(new Set(p.lignes.map(l=>l.id)).size!==p.lignes.length)return {erreur:'deux lignes du fichier portent le même identifiant'};
+  return {programme:p,nom:(o&&o.nom)||''};
+}
+/* le programme du fichier, rattaché au dossier : création, ou remplacement
+   du contenu avec la version en cours gardée dans l'historique */
+function ptrImporterProgramme(existant,importe,biblio,cible,fichier,t){
+  const contenu={categories:ptrCopie(importe.categories),lignes:ptrCopie(importe.lignes),
+    typeOuvrage:importe.typeOuvrage||'maison',options:{...(importe.options||{synthese:true,annexes:true})},
+    ...(importe.vente?{vente:ptrCopie(importe.vente),venteIgnores:ptrCopie(importe.venteIgnores||[])}:{})};
+  const source={type:'import',fichier:fichier||'',le:t};
+  if(!existant)return {...ptrNouveauProgramme(biblio,cible,'import'),...contenu,source,creeLe:t,modifieLe:t};
+  const garde=(existant.versions||[]).some(v=>v.numero===existant.version)?existant.versions
+    :[...(existant.versions||[]),{numero:existant.version,date:t,statut:existant.statut,reference:existant.reference||'',
+      categories:ptrCopie(existant.categories),lignes:ptrCopie(existant.lignes)}];
+  return {...existant,...contenu,source,version:(existant.version||1)+1,statut:'brouillon',fige:false,versions:garde,modifieLe:t};
 }
 const ptrConfiguree=l=>!l.incluse||(String(l.texte||'').trim()!==''&&(l.lotMO||l.horsCoord));
 function ptrStats(prog){
@@ -27059,6 +27095,7 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
   const [exp,setExp]=useState(null);
   const [nouvelleCat,setNouvelleCat]=useState('');
   const [creation,setCreation]=useState({source:'modele',depuis:''});
+  const [importMsg,setImportMsg]=useState(null);
   const minuteurSauve=useRef(null);
   const enregistrer=d=>{dataRef.current=d;save(d);setSauve('encours');
     if(minuteurSauve.current)clearTimeout(minuteurSauve.current);
@@ -27075,6 +27112,28 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
     enregistrer(nd);
   };
   const majLigne=(id,patch)=>majProg(x=>({...x,lignes:x.lignes.map(l=>l.id===id?{...l,...patch}:l)}));
+  /* un programme préparé hors de l'application (fichier .json) : il crée le
+     programme du dossier, ou remplace son contenu — la version en cours
+     reste dans l'historique, rien n'est perdu */
+  const importerFichier=async file=>{
+    setImportMsg(null);
+    let texte='';
+    try{texte=await file.text()}catch(e){setImportMsg({err:'Lecture impossible — '+((e&&e.message)||String(e))+'.'});return}
+    const r=ptrLireImport(texte);
+    if(r.erreur){setImportMsg({err:'Import impossible : '+r.erreur+'.'});return}
+    const d=dataRef.current, ex=ptrProgrammePour(d,cible), t=ptrMaintenant();
+    if(ex&&ex.fige){setImportMsg({err:'Ce programme est validé (figé) : créez d’abord une nouvelle version pour le modifier.'});return}
+    if(ex&&!confirm('Remplacer le contenu du programme technique par celui de « '+file.name+' » ('+r.programme.lignes.length+' lignes) ?\n\n'
+      +'La version '+(ex.version||1)+' actuelle est gardée dans l’historique des versions : elle reste consultable et exportable.'))return;
+    const pg=ptrImporterProgramme(ex,r.programme,biblio,cible,file.name,t);
+    enregistrer({...d,programmes:ex?(d.programmes||[]).map(x=>x.id===ex.id?pg:x):[...(d.programmes||[]),pg]});
+    setImportMsg({ok:'Programme « '+file.name+' » chargé : '+pg.lignes.filter(l=>l.incluse).length+' prestations incluses'
+      +(ex?' ; la version '+(ex.version||1)+' précédente est dans l’historique.':'.')});
+  };
+  const champImport=(libelle,cls)=><label className={cls} style={{cursor:'pointer',whiteSpace:'normal',maxWidth:'100%'}}>{libelle}
+    <input type="file" accept=".json,application/json" style={{display:'none'}}
+      onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)importerFichier(f)}}/></label>;
+  const messageImport=importMsg&&<div className="xs" style={{marginTop:8,lineHeight:1.5,color:importMsg.err?TERRA:GREEN}}>{importMsg.err||('✓ '+importMsg.ok)}</div>;
 
   if(!prog){
     const autres=(data.programmes||[]);
@@ -27135,6 +27194,9 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
               onChange={e=>{const f=e.target.files[0];e.target.value='';if(f)creerDepuisVente(f)}}/></label>
           :<button className="btn acc" disabled={creation.source==='copie'&&!creation.depuis} onClick={creer}>Créer le programme technique</button>}
         {creation.err&&<div className="xs" style={{color:TERRA,marginTop:8,lineHeight:1.5}}>{creation.err}</div>}
+        <div className="xs mut" style={{marginTop:14,lineHeight:1.5}}>Un programme déjà préparé (fichier .json remis par CP Constructions) ?
+          {' '}{champImport('Importer un programme préparé','btn gh s')}</div>
+        {messageImport}
       </div>
     </div>;
   }
@@ -27411,6 +27473,7 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
       <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12}}>
         <button className="btn gh s" onClick={()=>setModale({type:'vente'})}>
           Rapprocher avec la vente{aRevoirVente?<span style={{color:TERRA}}> ({aRevoirVente})</span>:''}</button>
+        {!fige&&champImport('Importer un programme préparé','btn gh s')}
         <button className="btn gh s" onClick={()=>setModale({type:'apercu'})}>Aperçu du programme</button>
         <button className="btn gh s" onClick={()=>setModale({type:'controles'})}>
           Contrôler {anomalies.length?<span style={{color:TERRA}}>({anomalies.length})</span>:'✓'}</button>
@@ -27419,6 +27482,7 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
         <button className="btn gh s" disabled={exp&&exp.etat==='travail'} onClick={()=>exporter('xlsx')}>Exporter Excel</button>
         <button className="btn gh s" disabled={exp&&exp.etat==='travail'} onClick={()=>exporter('zip')}>Dossier ZIP</button>
       </div>
+      {messageImport}
       <div className="row xs" style={{gap:14,flexWrap:'wrap',marginTop:10}}>
         <label className="row" style={{gap:6,alignItems:'center'}}><input type="checkbox" disabled={fige}
           checked={!prog.options||prog.options.synthese!==false} onChange={e=>majProg(x=>({...x,options:{...(x.options||{}),synthese:e.target.checked}}),{statut:false})}/>
