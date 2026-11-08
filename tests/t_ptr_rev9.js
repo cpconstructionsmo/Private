@@ -18,7 +18,7 @@ chk(fich.length===6&&fich.every(x=>fs.existsSync(RACINE+'/assets/ptr/'+x.fichier
 chk(![pe,pg].some(p=>M.ptrAlertesPrestation(p,b).some(a=>/faute|accent|colle|dim:|espaces|unite/.test(a.cle))),'textes sans faute signalée');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r8))});
 const om=M.ptrPrestationsDe(m,'cat_menuiseries_exterieures').map(p=>p.id);
-chk(m.seedRev===27&&om[om.indexOf('pr_porte_entree')+1]==='pr_porte_garage'&&m.prestations.find(p=>p.id==='pr_porte_entree').variantes.some(v=>v.id==='var_porte_entree_b'&&!v.parDefaut),'bibliothèque de révision 8 : porte de garage ajoutée après la porte d’entrée, Bel’M en proposition B');
+chk(m.seedRev===28&&om[om.indexOf('pr_porte_entree')+1]==='pr_porte_garage'&&m.prestations.find(p=>p.id==='pr_porte_entree').variantes.some(v=>v.id==='var_porte_entree_b'&&!v.parDefaut),'bibliothèque de révision 8 : porte de garage ajoutée après la porte d’entrée, Bel’M en proposition B');
 const prog=M.ptrNouveauProgramme(b,{prospectId:'p'},'modele');
 chk(prog.lignes.some(l=>l.prestationId==='pr_porte_garage'&&l.incluse),'un nouveau programme comprend la porte de garage');
 fin();

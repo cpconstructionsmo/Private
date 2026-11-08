@@ -17,5 +17,5 @@ const al=M.ptrAlertesPrestation(pr,b).filter(x=>/faute|accent|colle|dim:|espaces
 chk(!al.length,'sans faute signalée '+al.join(' | '));
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r21))});
 const pm=m.prestations.find(p=>p.id==='pr_revetements_muraux');
-chk(m.seedRev===27&&pm.variantes.map(v=>v.id).join()==='var_revetements_muraux_a,var_revetements_muraux_b'&&pm.variantes[0].parDefaut,'révision 21 : B ajoutée, A par défaut');
+chk(m.seedRev===28&&pm.variantes.map(v=>v.id).join()==='var_revetements_muraux_a,var_revetements_muraux_b'&&pm.variantes[0].parDefaut,'révision 21 : B ajoutée, A par défaut');
 fin();
