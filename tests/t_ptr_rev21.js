@@ -16,5 +16,5 @@ const al=M.ptrAlertesPrestation(pr,b).filter(x=>/faute|accent|colle|dim:|espaces
 chk(!al.length,'sans faute signalée '+al.join(' | '));
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r20))});
 const pm=m.prestations.find(p=>p.id==='pr_revetements_sols');
-chk(m.seedRev===25&&pm.variantes.map(v=>v.id).join()==='var_revetements_sols_a,var_revetements_sols_b,var_revetements_sols_c'&&pm.variantes[0].parDefaut,'révision 20 : C ajoutée sans toucher A et B');
+chk(m.seedRev===26&&pm.variantes.map(v=>v.id).join()==='var_revetements_sols_a,var_revetements_sols_b,var_revetements_sols_c'&&pm.variantes[0].parDefaut,'révision 20 : C ajoutée sans toucher A et B');
 fin();

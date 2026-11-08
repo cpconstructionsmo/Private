@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-07 · Programme technique : couverture standard en ardoises fibres-ciment Cedral Kergoat (révision 25)';
+const VERSION='2026-11-08 · Programme technique : menuiseries EMAPLAST en blanc, porte Bel’M avec partie latérale, photos d’une proposition sans changer le texte (révision 26)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4847,7 +4847,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=25;
+const PTR_SEED_REV=26;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -4928,6 +4928,12 @@ PTR_SEED_DATES[24]=PTR_SEED_DATE_24;
    du fabricant */
 const PTR_SEED_DATE_25='2026-11-07T13:00:00.000Z';
 PTR_SEED_DATES[25]=PTR_SEED_DATE_25;
+/* révision 26 : menuiseries EMAPLAST en blanc (propositions C) — châssis
+   PVC VEKA EMA-SOFT 70 à dormant de 140 mm, coulissant aluminium REYNAERS
+   blanc, volets monobloc PVC blancs SOMFY io, porte Bel'M Abscisse Evo
+   avec partie latérale vitrée ; photos des fabricants */
+const PTR_SEED_DATE_26='2026-11-08T09:00:00.000Z';
+PTR_SEED_DATES[26]=PTR_SEED_DATE_26;
 /* propositions dont le texte a été réécrit après la révision 4 */
 const PTR_TEXTES_REVISIONS={5:PTR_TEXTES_REV5,6:['var_seuils_porte_appuis_fenetre_a'],8:['var_gouttieres_tuyaux_descente_a'],11:['var_cloisons_72mm_a','var_doublage_a'],12:['var_cloisons_separation_volumes_non_chauffes_a','var_cloisons_100mm_a','var_portes_interieures_galandage_a'],13:['var_bandes_joints_plaque_platre_a'],14:['var_portes_interieures_a','var_portes_interieures_galandage_a'],15:['var_isolation_thermique_plafond_a'],16:['var_ventilation_mecanique_controlee_a','var_electricite_a'],17:['var_prises_courant_a','var_points_lumineux_a'],25:['var_couverture_a']};
 /* révision 4 : textes réécrits (syntaxe) et murs standard en blocs béton
@@ -4973,7 +4979,12 @@ const PTR_SEED_NOUVELLES={
   21:['var_revetements_sols_c'],
   22:['var_revetements_muraux_b'],
   24:['var_couverture_c'],
+  26:['var_chassis_fenetres_francaise_c','var_coulissant_c','var_volets_roulants_c','var_porte_entree_c'],
 };
+/* photos ajoutées après coup à des propositions déjà livrées : la
+   migration les ajoute à la suite de celles de la bibliothèque enregistrée,
+   sans rien retirer ni remplacer (révision 26 : vitrerie et box TaHoma) */
+const PTR_PHOTOS_AJOUTEES={26:['var_vitrerie_b','var_domotique_b']};
 const ptrRevNaissance=id=>{for(const r in PTR_SEED_NOUVELLES)if(PTR_SEED_NOUVELLES[r].indexOf(id)>=0)return +r;return 1};
 /* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
    constantes précèdent dans le fichier */
@@ -5088,6 +5099,23 @@ const PTR_COMPLEMENTS_A={
 };
 /* troisièmes propositions (C) du modèle, par identifiant du catalogue */
 const PTR_PROPOSITIONS_3={
+  chassis_fenetres_francaise:{nom:'EMAPLAST — PVC VEKA EMA-SOFT 70 blanc (dormant 140 mm)',marque:'EMAPLAST / VEKA',
+    reference:'EMA-SOFT 70 — finition blanc, dormant large 140 mm',url:'https://www.emaplast.fr/produits/fenetres-et-baies-coulissantes-pvc/',
+    photos:[ptrPhotoAsset('emaplast_fenetre_pvc_blanche.jpeg',580,580)],
+    texte:'Menuiseries en PVC VEKA, gamme **EMA-SOFT 70** ou équivalent, fabriquées sur mesure par EMAPLAST (Parné-sur-Roc), finition PVC blanc, ouvrant à la française ; quantités et dimensions selon plans :\n- fenêtres 2 vantaux oscillo-battantes et portes-fenêtres 2 vantaux : [à préciser] ;\n- portes-fenêtres : crémone sur le semi-fixe, seuil aluminium de 20 mm à rupture de pont thermique, sans poignée extérieure ;\n- dormant large de 140 mm, adapté au doublage ;\n- mortaise pour grille d’aération, suivant l’étude de ventilation ;\n- double vitrage à isolation renforcée 4/20/4 argon (voir vitrerie) ;\n- performances : Uw = 1,2 à 1,3 W/m².K selon dimensions, affaiblissement acoustique 30 dB(A).\nCertification NF-CSTBat : classement air A4, eau E7B, vent VA2 ; label Acotherm AC2 Th11 selon vitrages.'},
+  coulissant:{nom:'EMAPLAST — aluminium REYNAERS Patio-Mono blanc',marque:'EMAPLAST / REYNAERS',
+    reference:'Patio-Mono — blanc RAL 9016, dormant 140 mm',url:'https://www.emaplast.fr/produits/fenetres-et-baies-coulissantes-alu/',
+    photos:[ptrPhotoAsset('emaplast_coulissant_blanc.jpeg',880,630),ptrPhotoAsset('emaplast_coulissant_blanc_exterieur.jpeg',1200,900)],
+    texte:'Baies coulissantes 2 vantaux en aluminium à rupture de pont thermique REYNAERS, gamme **Patio-Mono** ou équivalent, fabriquées sur mesure par EMAPLAST ; positionnement et dimensions selon plans :\n- finition blanc RAL 9016 mat ;\n- dormant de 140 mm ; seuil encastré de 40 mm sur les baies toute hauteur ;\n- fermeture 4 points à crochets au-delà de 1,95 m de hauteur, 2 points en dessous ; poignée Saréna déportée ;\n- mortaise pour grille d’aération, suivant l’étude de ventilation ;\n- double vitrage à isolation renforcée 4/20/4 argon (voir vitrerie) ;\n- performances : Uw = 1,7 à 2,0 W/m².K selon dimensions.'},
+  volets_roulants:{nom:'Électriques, coffre monobloc PVC blanc (SOMFY io)',marque:'SOMFY / EMAPLAST',
+    reference:'Moteur radio io — coffre monobloc, lames PVC 44 mm',
+    photos:[ptrPhotoAsset('emaplast_volet_monobloc_blanc.jpeg',750,1000)],
+    texte:'Volets roulants électriques intégrés aux menuiseries, fournis par EMAPLAST, sur les ouvertures indiquées aux plans :\n- coffre monobloc standard, intégré à la menuiserie, blanc ;\n- tablier à lames PVC de 44 mm, blanc ;\n- motorisation radio SOMFY io ou équivalent, compatible avec la box domotique (commande centralisée et à distance).'},
+  porte_entree:{nom:'Bel’M Abscisse Evo avec partie latérale vitrée',marque:'Bel’M',
+    reference:'Abscisse Evo — gamme Acier 48, 1 vantail + fixe latéral',url:'https://www.belm.fr/produits/abscisse-evo',
+    photos:[ptrPhotoAsset('belm_abscisse_evo.jpeg',365,813),ptrPhotoAsset('belm_abscisse_evo_laterale.jpeg',1100,985)],
+    pieces:[ptrPieceAsset('docs/BelM_Abscisse_Evo.pdf','Fiche produit Bel’M — Abscisse Evo.pdf')],
+    texte:'Porte d’entrée en acier BEL’M, modèle **ABSCISSE EVO** ou équivalent, gamme Acier 48 (ouvrant de 48 mm), dormant aluminium, fabrication française :\n- 1 vantail avec partie latérale fixe vitrée côté serrure ; dimensions et sens d’ouverture selon plans ;\n- couleur gris RAL 7016 texturé à l’extérieur, blanc à l’intérieur ;\n- pose en applique, dormant pour isolation de 140 mm ;\n- seuil aluminium de 20 mm, accessible aux personnes à mobilité réduite ;\n- vitrage du vantail : double vitrage de classe P2A affleurant, sablé ; partie fixe : double vitrage feuilleté P2A, sablé ;\n- poignée rosace ton inox sur les 2 faces, serrure automatique 2 pênes et 2 crochets, barillet standard 3 clés.\nPerformance thermique du vantail : Ud = 1,4 W/m².K selon la norme NF EN 14351-1.\nGarantie brillance et couleur : 15 ans.'},
   couverture:{nom:'Tuile minérale MONIER Nobilée',marque:'Monier (BMI)',
     reference:'Nobilée — tuile béton grand moule aspect plat, 33 x 42 cm (ou équivalent)',
     url:'https://www.bmigroup.com/fr/tuiles-beton/grand-moule-aspect-plat-beton/nobilee/',
@@ -5128,11 +5156,13 @@ const PTR_PROPOSITIONS_2={
     photos:[ptrPhotoAsset('image25.jpeg',390,520)],
     texte:'Baies coulissantes 2 vantaux en aluminium à rupture de pont thermique REYNAERS, gamme **Patio-Mono**, fabriquées sur mesure par EMAPLAST ; positionnement et dimensions selon plans :\n- dormant de 160 mm ; seuil encastré sur les baies toute hauteur ;\n- finition blanc RAL 9016 à l’intérieur, gris RAL 7016 finition sablée à l’extérieur ;\n- fermeture 2 points à crochets, 4 points au-delà de 1,95 m de hauteur ; poignée Saréna déportée ;\n- double vitrage à isolation renforcée, phonique sur les baies toute hauteur (voir vitrerie) ;\n- performances : Uw = 1,5 W/m².K pour les baies toute hauteur, 1,87 à 1,96 W/m².K pour les châssis bas.\nCertification NF-CSTBat : classement air A4, eau E7B, vent VA2.'},
   vitrerie:{nom:'EMAPLAST — isolation renforcée',
+    photos:[ptrPhotoAsset('emaplast_double_vitrage_itr.jpeg',559,246)],
     texte:'Double vitrage à isolation renforcée, lame d’argon et intercalaire warm edge TGI noir (Ug = 1,1 à 1,2 W/m².K) :\n- 4/20/4 argon sur les fenêtres et les coulissants ;\n- 4/18/6 phonique (34 dB(A)) sur les baies coulissantes toute hauteur ;\n- verre feuilleté 44.2 sur la porte-fenêtre de service et le châssis des WC ;\n- verre granité (translucide) sur les châssis des salles de bains et des WC.'},
   volets_roulants:{nom:'Électriques, coffre demi-linteau (SOMFY io)',marque:'SOMFY / GEMAPLAST',reference:'Moteur radio io — coffre IRYS 1/2 linteau',
     photos:[ptrPhotoAsset('image14.jpeg',520,390)],
     texte:'Volets roulants électriques intégrés aux menuiseries, fournis par EMAPLAST, sur les ouvertures indiquées aux plans :\n- coffre demi-linteau GEMAPLAST IRYS, posé sur la menuiserie et engagé à mi-hauteur dans le linteau ;\n- tablier à lames aluminium double paroi de 43 mm, gris RAL 7016 ;\n- motorisation radio SOMFY io, compatible avec la box domotique (commande centralisée et à distance).'},
   domotique:{nom:'Box SOMFY TaHoma Switch (volets radio io)',marque:'SOMFY',reference:'TaHoma Switch',url:'https://www.somfy.fr',
+    photos:[ptrPhotoAsset('somfy_tahoma_switch.jpeg',900,698)],
     texte:'Box SOMFY TAHOMA SWITCH associée aux moteurs radio io des volets roulants :\n- commande centralisée des volets, scénarios et programmation horaire ;\n- pilotage à distance depuis un smartphone ou une tablette (application TaHoma) ;\n- gestion du chauffage compatible, selon équipement retenu.'},
   porte_entree:{nom:'Bel’M Abscisse Evo (acier 48)',marque:'Bel’M',reference:'Abscisse Evo — gamme Acier 48',url:'https://www.belm.fr',
     photos:[ptrPhotoAsset('belm_abscisse_evo.jpeg',365,813),ptrPhotoAsset('belm_coupe_acier48.jpeg',405,525)],
@@ -5245,6 +5275,13 @@ function ptrMigrerBiblio(b){
           version:Math.max((v.version||1)+1,sv.version||1),modifieLe:PTR_SEED_DATES[PTR_SEED_REV]};
       }
       return v;
+    }).map(v=>{
+      const sv=sp.variantes.find(x=>x.id===v.id);
+      const due=Object.keys(PTR_PHOTOS_AJOUTEES).some(r=>+r>(b.seedRev||1)&&PTR_PHOTOS_AJOUTEES[r].indexOf(v.id)>=0);
+      if(!sv||!due)return v;
+      const deja=(v.photos||[]).map(z=>z.id);
+      const ajout=(sv.photos||[]).filter(z=>deja.indexOf(z.id)<0);
+      return ajout.length?{...v,photos:[...(v.photos||[]),...ptrCopie(ajout)]}:v;
     });
     sp.variantes.forEach(sv=>{if(ptrRevNaissance(sv.id)>(b.seedRev||1)&&!variantes.some(v=>v.id===sv.id))
       variantes.push({...ptrCopie(sv),parDefaut:false})});
@@ -26675,6 +26712,17 @@ function PtrLigne({l,index,nb,prog,biblio,data,cible,fige,maj,onBouger,onDupliqu
     catch(e){setErr(ptrMessageErreur(e))}setBusy('')};
   const photos=l.photos||[];
   const majPhotos=L=>maj({photos:L,modifie:true});
+  /* les photos d'une proposition de la bibliothèque, sans son texte : pour
+     une ligne dont le texte a été écrit pour le projet et qu'on ne veut pas
+     perdre en changeant de proposition */
+  const memesPhotos=v=>(v.photos||[]).map(x=>x.id).join('|')===photos.map(x=>x.id).join('|');
+  const photosBiblio=d?[]:variantes.filter(v=>(v.photos||[]).length&&!memesPhotos(v));
+  const prendrePhotos=id=>{
+    const v=variantes.find(x=>x.id===id);if(!v)return;
+    if(photos.length&&!confirm('Remplacer '+(photos.length>1?'les '+photos.length+' photos':'la photo')+' de cette ligne par '
+      +(v.photos.length>1?'les '+v.photos.length+' photos':'celle')+' de « '+v.nom+' » ?\n\nLe texte de la ligne ne change pas.'))return;
+    majPhotos(ptrCopie(v.photos));
+  };
   const valeurSelect=l.varianteId&&variantes.some(v=>v.id===l.varianteId)?l.varianteId:'__projet';
   const bouton={background:'none',border:'none',padding:'0 4px',color:MUTED,cursor:'pointer',fontSize:13};
   return <div id={'ptr-l-'+l.id} {...(d?{}:ptrCible('ligne:'+l.categorieId,l.id,onBouger))}
@@ -26731,8 +26779,8 @@ function PtrLigne({l,index,nb,prog,biblio,data,cible,fige,maj,onBouger,onDupliqu
       </div>
       {l.modifie&&l.varianteId&&!d&&<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
         Modifiée uniquement pour ce projet — la bibliothèque n’est pas touchée.
-        {vLib&&<button className="btn gh s" style={{marginLeft:8}} onClick={revenir}>Revenir au texte de la bibliothèque</button>}
-        <button className="btn gh s" style={{marginLeft:8}} onClick={()=>onVersBiblio(l)}>Enregistrer aussi comme nouvelle proposition dans la bibliothèque</button>
+        {vLib&&<button className="btn gh s" style={{marginLeft:8,whiteSpace:'normal',maxWidth:'100%',textAlign:'left'}} onClick={revenir}>Revenir au texte de la bibliothèque</button>}
+        <button className="btn gh s" style={{marginLeft:8,whiteSpace:'normal',maxWidth:'100%',textAlign:'left'}} onClick={()=>onVersBiblio(l)}>Enregistrer aussi comme nouvelle proposition dans la bibliothèque</button>
       </div>}
       <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'flex-end',marginTop:10}}>
         {photos.map((ph,i)=><div key={ph.id} {...(d?{}:{...ptrPoignee('photo:'+l.id,ph.id),...ptrCible('photo:'+l.id,ph.id,(de,vers)=>{
@@ -26749,6 +26797,12 @@ function PtrLigne({l,index,nb,prog,biblio,data,cible,fige,maj,onBouger,onDupliqu
         {!d&&<label className="btn gh s" style={{alignSelf:'center'}}>{busy==='photos'?'Envoi…':'+ Photo'}
           <input type="file" accept="image/*" multiple style={{display:'none'}} disabled={!!busy}
             onChange={e=>{const L=[...e.target.files];e.target.value='';if(L.length)ajouterPhotos(L)}}/></label>}
+        {photosBiblio.length>0&&<select className="in" style={{width:'auto',maxWidth:320,fontSize:13,padding:'6px 8px',alignSelf:'center'}} value=""
+          aria-label="Photos d’une proposition de la bibliothèque" title="Reprendre les photos d’une proposition de la bibliothèque, sans changer le texte"
+          onChange={e=>prendrePhotos(e.target.value)}>
+          <option value="">Photos d’une proposition…</option>
+          {photosBiblio.map(v=><option key={v.id} value={v.id}>Proposition {ptrLettre(variantes.indexOf(v))} — {v.nom} ({v.photos.length})</option>)}
+        </select>}
       </div>
       {(l.pieces||[]).length>0&&<div className="xs" style={{marginTop:8}}>
         {(l.pieces||[]).map(x=><div key={x.id} className="row" style={{gap:6}}>📎

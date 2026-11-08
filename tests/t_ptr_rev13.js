@@ -16,5 +16,5 @@ chk(!M.ptrAlertesPrestation(pr,b).some(a=>/faute|accent|colle|dim:|espaces|unite
 chk(!fs.readdirSync(RACINE+'/assets/ptr/docs').some(f=>/stevia|sevevent|comptes|actes/i.test(f)),'aucun document sans rapport (comptes sociaux, actes) déposé dans l’application');
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r12))});
 const vm=V(m,'var_bandes_joints_plaque_platre_a');
-chk(m.seedRev===25&&vm.texte===v.texte&&vm.pieces.length===2&&vm.photos[0].fichier==='placojoint_pr4.jpeg','bibliothèque de révision 12 : texte, photos et fiches reçus');
+chk(m.seedRev===26&&vm.texte===v.texte&&vm.pieces.length===2&&vm.photos[0].fichier==='placojoint_pr4.jpeg','bibliothèque de révision 12 : texte, photos et fiches reçus');
 fin();
