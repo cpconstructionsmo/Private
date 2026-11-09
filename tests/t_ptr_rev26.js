@@ -30,7 +30,7 @@ const fautes=IDS.flatMap(id=>M.ptrAlertesPrestation(pr(id),b).filter(x=>/faute|a
 chk(!fautes.length,'sans faute signalée '+fautes.join(' | '));
 /* migration depuis la révision 25 */
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r25))});
-chk(m.seedRev===28&&IDS.every(id=>{const p=m.prestations.find(x=>x.id==='pr_'+id);return p.variantes.some(v=>v.id==='var_'+id+'_c'&&v.parDefaut===defautC(id))&&p.variantes[0].parDefaut===!defautC(id)}),
+chk(m.seedRev===29&&IDS.every(id=>{const p=m.prestations.find(x=>x.id==='pr_'+id);return p.variantes.some(v=>v.id==='var_'+id+'_c'&&v.parDefaut===defautC(id))&&p.variantes[0].parDefaut===!defautC(id)}),
   'révision 25 : les quatre propositions C arrivent ; seule celle des volets devient par défaut (révision 28)');
 chk(m.prestations.length===r25.prestations.length+7,'aucune autre prestation ajoutée ni retirée (+7 de la révision 27)');
 /* une vente « menuiseries PVC blanc » trouve maintenant les propositions blanches */

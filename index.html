@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-08 · Programme technique : importer un programme préparé (fichier .json), « chambre de tirage » n’est plus signalée en ERP';
+const VERSION='2026-11-09 · Programme technique : portes intérieures techniques Chapuzet Plane PHONE EI 30 – 29 dB (proposition B) et photos des BAES (révision 29)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4847,7 +4847,7 @@ const ptrMontantTexte=m=>{
    T.One AquaAIR (avec leurs photos et fiches techniques). Une bibliothèque
    déjà enregistrée en base reçoit ces nouveautés sans perdre les retouches
    de l'utilisateur (ptrMigrerBiblio). */
-const PTR_SEED_REV=28;
+const PTR_SEED_REV=29;
 const PTR_SEED_DATE_2='2026-09-26T12:00:00.000Z';
 const PTR_SEED_DATE_3='2026-09-26T15:00:00.000Z';
 const PTR_SEED_DATE_4='2026-09-26T18:00:00.000Z';
@@ -4947,6 +4947,11 @@ PTR_SEED_DATES[27]=PTR_SEED_DATE_27;
    TaHoma Switch (B) */
 const PTR_SEED_DATE_28='2026-11-08T13:00:00.000Z';
 PTR_SEED_DATES[28]=PTR_SEED_DATE_28;
+/* révision 29 : portes intérieures techniques CHAPUZET Plane PHONE EI 30 –
+   29 dB, pour les locaux tertiaires et les ERP (proposition B) ; photos
+   des blocs autonomes d'éclairage de sécurité (évacuation et ambiance) */
+const PTR_SEED_DATE_29='2026-11-09T09:00:00.000Z';
+PTR_SEED_DATES[29]=PTR_SEED_DATE_29;
 /* la proposition par défaut de certaines prestations a changé : une
    nouvelle bibliothèque la prend d'office ; une bibliothèque enregistrée
    ne la prend que si son défaut est resté celui du modèle (la A) — un
@@ -4999,12 +5004,14 @@ const PTR_SEED_NOUVELLES={
   21:['var_revetements_sols_c'],
   22:['var_revetements_muraux_b'],
   24:['var_couverture_c'],
+  29:['var_portes_interieures_b'],
   26:['var_chassis_fenetres_francaise_c','var_coulissant_c','var_volets_roulants_c','var_porte_entree_c'],
 };
 /* photos ajoutées après coup à des propositions déjà livrées : la
    migration les ajoute à la suite de celles de la bibliothèque enregistrée,
-   sans rien retirer ni remplacer (révision 26 : vitrerie et box TaHoma) */
-const PTR_PHOTOS_AJOUTEES={26:['var_vitrerie_b','var_domotique_b'],28:['var_volets_roulants_c']};
+   sans rien retirer ni remplacer (révision 26 : vitrerie et box TaHoma ;
+   révision 29 : blocs d'éclairage de sécurité) */
+const PTR_PHOTOS_AJOUTEES={26:['var_vitrerie_b','var_domotique_b'],28:['var_volets_roulants_c'],29:['var_erp_eclairage_securite_a']};
 const ptrRevNaissance=id=>{for(const r in PTR_SEED_NOUVELLES)if(PTR_SEED_NOUVELLES[r].indexOf(id)>=0)return +r;return 1};
 /* noms de fichiers ASCII : identifiant calculé sans deaccent, que ces
    constantes précèdent dans le fichier */
@@ -5042,6 +5049,9 @@ const PTR_PRESTATIONS_AJOUTEES=[
   {rev:23,apres:'options_electriques',id:'erp_eclairage_securite',titre:'ÉCLAIRAGE DE SÉCURITÉ (ERP)',
     optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
     nom:'Blocs autonomes d’éclairage de sécurité (BAES)',
+    /* révision 29 : bloc d'évacuation et bloc d'ambiance (anti-panique),
+       pour illustrer ; le texte reste générique */
+    photos:[ptrPhotoAsset('baes_evacuation.jpeg',785,598),ptrPhotoAsset('baes_ambiance_anti_panique.jpeg',775,587)],
     texte:'Blocs autonomes d’éclairage de sécurité (BAES) d’évacuation, implantés suivant plans : [à préciser].\nBalisage des issues et des cheminements d’évacuation. Nombre et implantation définitifs suivant la notice de sécurité et l’avis du bureau de contrôle.'},
   {rev:27,apres:'options_electriques',id:'erp_electricite',titre:'DISPOSITIONS ÉLECTRIQUES (ERP)',
     optionnelle:true,defautMO:true,defautHors:false,montantDefaut:{type:'',valeur:''},
@@ -5178,6 +5188,10 @@ const PTR_PROPOSITIONS_3={
     texte:'Ensemble de douche en remplacement de la colonne de douche, finition chromée :\n- mitigeur thermostatique mural, butée de sécurité à 38 °C, raccords excentrés avec rosaces ;\n- barre de douche murale avec support de douchette coulissant ;\n- douchette à main et flexible lisse anti-torsion.\nClapets anti-retour sur les alimentations.'},
 };
 const PTR_PROPOSITIONS_2={
+  portes_interieures:{nom:'CHAPUZET — Plane PHONE EI 30 – 29 dB (porte technique tertiaire)',marque:'Chapuzet',
+    reference:'Plane PHONE EI 30 – 29 dB, réf. 1732_plane (ou équivalent)',url:'https://chapuzet.com/produit/plane-2/',
+    photos:[ptrPhotoAsset('chapuzet_plane.jpeg',365,750)],
+    texte:'Blocs-portes techniques CHAPUZET **PLANE PHONE EI 30 – 29 dB** ou équivalent, pour locaux tertiaires et établissements recevant du public, posés en fin de chantier :\n- vantail plan prépeint, rive dégraissée ; résistance au feu EI 30 et affaiblissement acoustique de 29 dB ;\n- hauteur 2 040 mm ; largeur de vantail selon plans (730, 830, 930 ou 1 030 mm ; 1 460 ou 1 660 mm en double vantail) ; sens d’ouverture selon plans ;\n- huisserie en hêtre massif abouté, d’épaisseur adaptée à la cloison ;\n- 4 paumelles de 140 x 55 mm (ordinaires, nickelées à bouts plats ou invisibles réglables) ;\n- joint ODICEFEU et joint isophonique sur 3 côtés, joint balai à double lèvre en partie basse ;\n- serrure axe 50 spéciale feu, selon le local : à clé, à bec-de-cane à condamnation ou à cylindre (cylindre non fourni).\nFinition du vantail et de l’huisserie en peinture (voir peintures). Procès-verbaux de résistance au feu et d’essais acoustiques remis par le fabricant.'},
   revetements_muraux:{nom:'Faïence 60 x 60 beige et faïence décorative verte 29,5 x 59,5, étanchéité SPEC',marque:'Torchio (distributeur)',reference:'CICO826F000277 · COLO345F000695 (ou équivalent)',
     photos:[ptrPhotoAsset('faience_beige_60x60.jpeg',1210,590),ptrPhotoAsset('faience_verte_29x59.jpeg',1565,610)],
     texte:'Faïence murale posée droite, collée conformément au DTU 52.2, sans listels ; localisation selon plans (pourtour des douches, des baignoires et des lavabos) :\n- faïence grand format 60 x 60 cm, coloris beige, épaisseur 8 mm (réf. TORCHIO CICO826F000277, 60,5 x 60,5 cm, ou équivalent) : [à préciser] m² ;\n- faïence décorative verte 29,5 x 59,5 cm, rectifiée, finition brillante (réf. TORCHIO COLO345F000695 DECOR, ou équivalent) : [à préciser] m² ;\n- baguettes de finition sur les angles saillants.\nÉtanchéité : système de protection à l’eau sous carrelage (SPEC) dans les douches et au pourtour des baignoires, avec bandes d’angle et traitement des traversées de tuyauterie, selon l’avis technique du produit.'},
