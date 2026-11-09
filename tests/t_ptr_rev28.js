@@ -25,7 +25,7 @@ chk(l('volets_roulants').varianteId==='var_volets_roulants_c'&&/monobloc/.test(l
   'nouveau programme : volets monobloc, vitrerie renforcée, TaHoma');
 /* migration : le défaut resté celui du modèle change ; celui choisi par l'utilisateur reste */
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r27))});
-chk(m.seedRev===28&&Object.keys(DEF).every(id=>defaut(m,id).join()===DEF[id]),'révision 27 : les trois nouveaux défauts arrivent');
+chk(m.seedRev===29&&Object.keys(DEF).every(id=>defaut(m,id).join()===DEF[id]),'révision 27 : les trois nouveaux défauts arrivent');
 const vm=pr(m,'volets_roulants').variantes.find(v=>v.id==='var_volets_roulants_c');
 chk(vm.photos.length===3&&vm.photos[2].fichier==='coffre_monobloc_coupe.jpeg','révision 27 : les photos du coffre monobloc s’ajoutent à la suite');
 const perso=JSON.parse(JSON.stringify(r27));

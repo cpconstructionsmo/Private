@@ -54,7 +54,7 @@ lPoint.texte+='\nParticularité du projet.';lPoint.modifie=true;   /* …et reto
 data={...data,programmes:[prog]};
 const bm=M.ptrBiblio(data);
 const prm=id=>bm.prestations.find(x=>x.id===id);
-chk(bm.seedRev===28&&!/0,20 cm/.test(prm('pr_murs').variantes[0].texte)&&prm('pr_murs').variantes[0].version===3,'migration : la proposition jamais retouchée reçoit le texte corrigé (v3)');
+chk(bm.seedRev===29&&!/0,20 cm/.test(prm('pr_murs').variantes[0].texte)&&prm('pr_murs').variantes[0].version===3,'migration : la proposition jamais retouchée reçoit le texte corrigé (v3)');
 chk(prm('pr_implantation').variantes[0].texte==='Implantation maison — texte CP retouché.','migration : une proposition retouchée par l’utilisateur n’est pas touchée');
 chk(!prm('pr_implantation').variantes.some(v=>v.id==='var_implantation_b'),'migration : une proposition supprimée ne revient pas');
 chk(prm('pr_murs').variantes.some(v=>v.id==='var_murs_b'&&!v.parDefaut)&&prm('pr_couverture').variantes.some(v=>v.id==='var_couverture_b'),'migration : brique et tuile HP 20 ajoutées à la bibliothèque existante');

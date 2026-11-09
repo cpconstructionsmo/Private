@@ -41,7 +41,7 @@ const prog=M.ptrNouveauProgramme(b,{prospectId:'pA'},'modele');
 chk(IDS.every(id=>{const l=prog.lignes.find(x=>x.prestationId==='pr_'+id);return l&&!l.incluse}),'programme de maison : les lignes ERP sont là, non incluses');
 /* migration depuis la révision 26 */
 const m=M.ptrBiblio({...M.EMPTY,ptrBiblio:JSON.parse(JSON.stringify(r26))});
-chk(m.seedRev===28&&IDS.every(id=>m.prestations.some(p=>p.id==='pr_'+id))&&m.prestations.length===r26.prestations.length+7,'révision 26 : les sept prestations arrivent, rien d’autre');
+chk(m.seedRev===29&&IDS.every(id=>m.prestations.some(p=>p.id==='pr_'+id))&&m.prestations.length===r26.prestations.length+7,'révision 26 : les sept prestations arrivent, rien d’autre');
 const mo=cat=>m.prestations.filter(p=>p.categorieId===cat).sort((x,y)=>x.ordre-y.ordre).map(p=>p.id);
 const ms=mo('cat_plomberie');
 chk(ms.indexOf('pr_erp_sanitaire_accessible')===ms.indexOf('pr_wc')+1,'migrée : le sanitaire accessible suit les WC');
