@@ -287,8 +287,17 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
   accessibles, sanitaire accessible, réaction au feu, stationnement et
   cheminement accessibles, contrôles avant ouverture (révision 27). Aucun
   article ni seuil réglementaire chiffré : tout renvoie aux notices de
-  sécurité et d'accessibilité et au contrôleur technique. Tests :
-  `t_ptr_rev23.js`, `t_ptr_rev27.js`.
+  sécurité et d'accessibilité et au contrôleur technique. Le nom du
+  dossier (« Maison Philippe… ») ne change pas ; les documents d'un ERP
+  portent « Bâtiment Philippe… » (`ptrIntituleDefaut`), ou l'intitulé
+  saisi sur le programme (`prog.intitule`, « Intitulé sur les
+  documents »). Tests : `t_ptr_rev23.js`, `t_ptr_rev27.js`,
+  `t_ptr_intitule.js`.
+- **Word du programme** : Word refuse ce que LibreOffice et Google Drive
+  tolèrent ; l'ordre des éléments suit le schéma OOXML (marges et
+  bordures de cellule : haut, gauche, bas, droite). Après un export, «
+  Télécharger à nouveau » relance le fichier d'un vrai clic (Safari peut
+  retenir un téléchargement lancé après la composition).
 - **Importer un programme préparé** (création ou éditeur du programme,
   fichier `.json` au format `cp-ptr`, `ptrLireImport`,
   `ptrImporterProgramme`) : un programme complet préparé hors de
