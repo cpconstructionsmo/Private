@@ -299,7 +299,8 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
   navigateur d'iPhone) refuse un téléchargement lancé à la fin d'une
   composition : il ouvre un onglet « WebKitBlobResource erreur 1 ». Sous
   Safari (`telechargementDifere`), l'export dit « prêt » et le fichier se
-  télécharge d'un bouton (« ⬇ Télécharger le Word ») ; ailleurs il part
+  télécharge d'un vrai lien `<a download>` (« ⬇ Télécharger le Word » ; un
+  clic simulé ouvre l'onglet en erreur) ; ailleurs il part
   tout seul, avec « Télécharger à nouveau ». Tests :
   `t_ptr_export_safari.js`, `t_ptr_intitule.js`.
 - **Importer un programme préparé** (création ou éditeur du programme,

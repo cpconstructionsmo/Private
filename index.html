@@ -27132,6 +27132,19 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
   const [modale,setModale]=useState(null);
   const [sauve,setSauve]=useState('ok');
   const [exp,setExp]=useState(null);
+  /* le fichier exporté, servi par un vrai lien <a download> : sous Safari,
+     un clic simulé ouvre un onglet qui ne peut pas lire le fichier
+     (WebKitBlobResource erreur 1) ; un lien cliqué télécharge. Le lien
+     vit jusqu'à l'export suivant. */
+  const [urlFichier,setUrlFichier]=useState('');
+  useEffect(()=>{
+    const f=exp&&exp.etat==='ok'&&exp.fichier;
+    if(!f){setUrlFichier('');return}
+    let u='';
+    try{u=URL.createObjectURL(new Blob([f.octets],{type:f.mime}))}catch(e){u=''}
+    setUrlFichier(u);
+    return ()=>{if(u)try{URL.revokeObjectURL(u)}catch(e){}};
+  },[exp]);
   const [nouvelleCat,setNouvelleCat]=useState('');
   const [creation,setCreation]=useState({source:'modele',depuis:''});
   const [importMsg,setImportMsg]=useState(null);
@@ -27547,11 +27560,11 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
       </div>
       {exp&&<div className="xs" style={{marginTop:10,lineHeight:1.5,color:exp.etat==='erreur'?TERRA:exp.etat==='ok'?GREEN:MUTED}}>
         {exp.etat==='travail'?'Composition du document…':exp.msg}
-        {/* un vrai clic : Safari n'accepte que lui (téléchargement non
-           lancé tout seul), ailleurs c'est « à nouveau » */}
-        {exp.etat==='ok'&&exp.fichier&&<button className={exp.auto===false?'btn acc s':'btn gh s'} style={{marginLeft:8}}
-          onClick={()=>telechargerOctets(exp.fichier.octets,exp.fichier.nom,exp.fichier.mime)}>
-          {exp.auto===false?'⬇ Télécharger '+(exp.fichier.quoi||'le fichier'):'Télécharger à nouveau'}</button>}
+        {/* un vrai lien, cliqué : Safari n'accepte que lui (rien n'y part
+           tout seul) ; ailleurs, c'est « à nouveau » */}
+        {exp.etat==='ok'&&exp.fichier&&urlFichier&&<a className={exp.auto===false?'btn acc s':'btn gh s'} href={urlFichier}
+          download={exp.fichier.nom} style={{marginLeft:8,display:'inline-block',textDecoration:'none'}}>
+          {exp.auto===false?'⬇ Télécharger '+(exp.fichier.quoi||'le fichier'):'Télécharger à nouveau'}</a>}
         {exp.lien&&<a href={exp.lien} target="_blank" rel="noreferrer" style={{color:TERRA,marginLeft:8}}>Ouvrir sur le Drive</a>}</div>}
       <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
         {!fige&&<button className="btn s" onClick={figer}>Valider et figer la version {prog.version||1}</button>}

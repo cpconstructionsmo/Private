@@ -26,20 +26,24 @@ const monter=()=>React.createElement(M.ProgrammeTechnique,{data,save,cible});
 function save(d){data=d;TR.act(()=>{tr.update(monter())})}
 const txt=()=>norm(texteInst(tr.root));
 const bouton=re=>tr.root.findAll(n=>n.type==='button').find(n=>re.test(norm(texteInst(n))));
-const attendre=async re=>{for(let i=0;i<200&&!re.test(txt());i++)await TR.act(()=>new Promise(r=>setTimeout(r,25)))};
+/* le lien de téléchargement : un vrai <a download>, cliqué par l'utilisateur */
+const lien=re=>tr.root.findAll(n=>n.type==='a'&&n.props.download).find(n=>re.test(norm(texteInst(n))));
+/* le message, puis le lien (créé juste après, quand le fichier est prêt) */
+const attendre=async re=>{for(let i=0;i<200&&!(re.test(txt())&&tr.root.findAll(n=>n.type==='a'&&n.props.download).length);i++)
+  await TR.act(()=>new Promise(r=>setTimeout(r,25)))};
 
 (async()=>{
-  /* Safari : rien ne part tout seul, le bouton « Télécharger le Word » */
+  /* Safari : rien ne part tout seul, le lien « Télécharger le Word » */
   nav.userAgent=SAFARI;
   TR.act(()=>{tr=TR.create(monter())});
   await TR.act(async()=>{bouton(/^Générer le programme \(Word\)$/).props.onClick()});
   if(bouton(/Exporter malgré tout/))await TR.act(async()=>{bouton(/Exporter malgré tout/).props.onClick()});
   await attendre(/Document Word (prêt|téléchargé)/);
   chk(/Document Word prêt/.test(txt())&&!clics.length,'Safari : « Document Word prêt », aucun téléchargement lancé tout seul');
-  const b=bouton(/Télécharger le Word/);
-  chk(!!b&&/acc/.test(b.props.className),'Safari : bouton « ⬇ Télécharger le Word », mis en avant');
-  TR.act(()=>{b.props.onClick()});
-  chk(clics.length===1&&/^Programme_Technique_Fictive_V1\.docx$/.test(clics[0]),'le clic télécharge le Word ('+clics.join()+')');
+  const b=lien(/Télécharger le Word/);
+  chk(!!b&&/acc/.test(b.props.className),'Safari : lien « ⬇ Télécharger le Word », mis en avant comme un bouton');
+  chk(b&&/^blob:/.test(b.props.href)&&b.props.download==='Programme_Technique_Fictive_V1.docx',
+    'un vrai lien vers le fichier, nommé ('+(b&&b.props.download)+') : Safari le télécharge au clic, sans onglet');
   TR.act(()=>{tr.unmount()});
 
   /* Chrome : le Word part tout seul, « Télécharger à nouveau » en secours */
@@ -49,7 +53,7 @@ const attendre=async re=>{for(let i=0;i<200&&!re.test(txt());i++)await TR.act(()
   if(bouton(/Exporter malgré tout/))await TR.act(async()=>{bouton(/Exporter malgré tout/).props.onClick()});
   await attendre(/Document Word (prêt|téléchargé)/);
   chk(/Document Word téléchargé/.test(txt())&&clics.length===1,'Chrome : le Word est téléchargé aussitôt');
-  chk(!!bouton(/^Télécharger à nouveau$/)&&!bouton(/Télécharger le Word/),'Chrome : « Télécharger à nouveau » en secours');
+  chk(!!lien(/^Télécharger à nouveau$/)&&!lien(/Télécharger le Word/),'Chrome : lien « Télécharger à nouveau » en secours');
   TR.act(()=>{tr.unmount()});
   fin();
 })().catch(e=>{console.error(e);process.exit(1)});
