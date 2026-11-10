@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-10 · Programme technique sous Safari : le Word prêt se télécharge d’un bouton (plus d’onglet en erreur)';
+const VERSION='2026-11-10 · Safari : le Word du programme se télécharge d’un bouton ; un lot facturé à quelques centimes près est soldé';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -9124,7 +9124,7 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
           {f.numero?f.numero+' · ':''}{f.date?fd(f.date):'date à saisir'}
           {/* le reste après chaque facture n'a de sens qu'à partir de la deuxième :
               sur une facture unique il répéterait le reste à facturer du bas */}
-          {L.length>1?(du>0?' · reste '+eur(du):' · soldé'):''}</div>
+          {L.length>1?(du>=SOLDE_ARRONDI?' · reste '+eur(du):' · soldé'):''}</div>
         {ouv===k&&<div style={{textAlign:'left',marginTop:4,padding:'6px 8px',background:'#F4F1EB',borderRadius:6}}>
           {onCorriger&&(enEdition
             ?<div style={{marginBottom:8}}>
@@ -9176,8 +9176,9 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
     })}
     {L.length>0&&<div style={{borderTop:'1px solid '+RULE,paddingTop:4,marginTop:2}}>
       <div className="b">{eur(total)} facturé</div>
-      <div style={{color:reste<0?TERRA:(reste<=0?GREEN:MUTED),fontSize:11}}>
-        {reste<0?'dépassement '+eur(-reste):(reste<=0?'soldé':'reste à facturer '+eur(reste))}</div>
+      {/* les centimes d'arrondi des factures ne font ni un reste ni un dépassement */}
+      <div style={{color:reste<=-SOLDE_ARRONDI?TERRA:(reste<SOLDE_ARRONDI?GREEN:MUTED),fontSize:11}}>
+        {reste<=-SOLDE_ARRONDI?'dépassement '+eur(-reste):(reste<SOLDE_ARRONDI?'soldé':'reste à facturer '+eur(reste))}</div>
     </div>}
   </div>;
 }
@@ -10805,8 +10806,10 @@ const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 /* un engagement soldé : tout le montant est facturé (au centime près) — la même règle que
    « soldé » / « dépassement » sous la colonne des factures. Un lot soldé, c'est une entreprise
    qui a fini et transmis sa dernière facture : l'onglet Marchés le grise. Sans montant ou sans
-   facture, rien n'est soldé */
-const engagementSolde=(montant,factures)=>(+montant||0)>0&&(factures||[]).length>0&&facturesTotal(factures)>=(+montant||0)-0.005;
+   facture, rien n'est soldé. Un reste de quelques centimes (arrondis des factures) s'affiche
+   « 0 € » : il vaut soldé, sinon l'écran dirait « reste à facturer 0 € » sans griser le lot */
+const SOLDE_ARRONDI=0.5;
+const engagementSolde=(montant,factures)=>(+montant||0)>0&&(factures||[]).length>0&&(+montant||0)-facturesTotal(factures)<SOLDE_ARRONDI;
 const marcheSolde=m=>engagementSolde(m.montantHT,m.factures);
 
 /* ---------- chiffrage d'un lot depuis un bordereau de prix ----------

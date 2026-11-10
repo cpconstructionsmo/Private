@@ -37,6 +37,9 @@ chk(!M.engagementSolde(15133,[{montant:10380}]),'un reste à facturer : pas sold
 chk(!M.engagementSolde(2353,[]),'aucune facture : pas soldé');
 chk(!M.engagementSolde(0,[{montant:100}]),'un lot sans montant n’est jamais soldé');
 chk(M.engagementSolde('6143.04',[{montant:'6143.04'}]),'montants saisis en texte : lus comme des nombres');
+/* les centimes d'arrondi des factures : l'écran affiche « reste 0 € », le lot est soldé */
+chk(M.engagementSolde(28738.40,[{montant:4276.85},{montant:13135},{montant:9340.30},{montant:1986}]),'reste de 25 centimes (affiché « 0 € ») : soldé');
+chk(!M.engagementSolde(28738,[{montant:28737.40}]),'reste de 60 centimes (affiché « 1 € ») : pas soldé');
 
 /* l'onglet */
 const ch={id:'ch1',nom:'Maison fictive',client:'M. Fictif',tva:20};
@@ -62,6 +65,15 @@ chk(lignes.some(l=>/Négoce fictif/.test(texteInst(l))),'l’achat de matériaux
 chk((t.match(/✓ soldé/g)||[]).length===3,'une pastille « ✓ soldé » par ligne soldée');
 chk(/4 lots — facturé .* · 2 soldés/.test(t),'l’en-tête compte les lots soldés de ce chantier (pas ceux des autres)');
 chk(/dépassement 180 €/.test(t),'la mention du dépassement reste affichée');
+TR.act(()=>{tr.unmount()});
+
+/* un lot facturé à quelques centimes près : grisé, « soldé », sans « reste 0 € » */
+const dc={...data,marches:[{id:'m6',chantierId:'ch1',lot:'MACONNERIE',artisanId:'a2',montantHT:28738.40,statut:'signe',
+  factures:[{id:'g1',montant:4276.85,date:'2026-07-27'},{id:'g2',montant:13135,date:'2026-08-31'},{id:'g3',montant:9340.30,date:'2026-10-23'},{id:'g4',montant:1986,date:'2026-11-03'}]}],commandes:[]};
+TR.act(()=>{tr=TR.create(React.createElement(M.Marches,{data:dc,ch,save(){},eng:28738.40,fac:28738.15}))});
+const tc=norm(texteInst(tr.root));
+chk(tr.root.findAll(n=>n.type==='tr'&&n.props.className==='lot-solde').length===1&&/✓ soldé/.test(tc),'à 25 centimes près : le lot est grisé, pastille « ✓ soldé »');
+chk(!/reste à facturer 0 €|reste 0 €/.test(tc)&&/28 738 € facturé\s*soldé/.test(tc),'la colonne des factures dit « soldé », plus « reste à facturer 0 € »');
 TR.act(()=>{tr.unmount()});
 
 console.log(ko?('\n'+ko+' echec(s)'):'\nTout est bon.');
