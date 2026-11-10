@@ -295,9 +295,13 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
   `t_ptr_intitule.js`.
 - **Word du programme** : Word refuse ce que LibreOffice et Google Drive
   tolèrent ; l'ordre des éléments suit le schéma OOXML (marges et
-  bordures de cellule : haut, gauche, bas, droite). Après un export, «
-  Télécharger à nouveau » relance le fichier d'un vrai clic (Safari peut
-  retenir un téléchargement lancé après la composition).
+  bordures de cellule : haut, gauche, bas, droite). Safari (et tout
+  navigateur d'iPhone) refuse un téléchargement lancé à la fin d'une
+  composition : il ouvre un onglet « WebKitBlobResource erreur 1 ». Sous
+  Safari (`telechargementDifere`), l'export dit « prêt » et le fichier se
+  télécharge d'un bouton (« ⬇ Télécharger le Word ») ; ailleurs il part
+  tout seul, avec « Télécharger à nouveau ». Tests :
+  `t_ptr_export_safari.js`, `t_ptr_intitule.js`.
 - **Importer un programme préparé** (création ou éditeur du programme,
   fichier `.json` au format `cp-ptr`, `ptrLireImport`,
   `ptrImporterProgramme`) : un programme complet préparé hors de

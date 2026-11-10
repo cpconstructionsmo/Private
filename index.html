@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-10 · Programme technique : intitulé « Bâtiment … » pour un ERP, Word conforme au schéma, « Télécharger à nouveau »';
+const VERSION='2026-11-10 · Programme technique sous Safari : le Word prêt se télécharge d’un bouton (plus d’onglet en erreur)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -6311,10 +6311,20 @@ const telechargerOctets=(octets,nom,type)=>{
     const u=URL.createObjectURL(new Blob([octets],{type:type||'application/octet-stream'}));
     const a=document.createElement('a');a.href=u;a.download=nom;
     document.body.appendChild(a);a.click();a.remove();
-    /* Safari lit le fichier après coup : le libérer trop tôt fait échouer
-       le téléchargement d'un gros document sans rien dire */
-    setTimeout(()=>URL.revokeObjectURL(u),60000);
+    /* Safari lit le fichier après coup (après sa question « Autoriser les
+       téléchargements ? ») : le libérer trop tôt fait échouer le
+       téléchargement (WebKitBlobResource erreur 1) */
+    const t=setTimeout(()=>URL.revokeObjectURL(u),300000);
+    if(t&&t.unref)t.unref();/* hors navigateur (tests) : ne retient pas Node */
   }catch(e){/* hors navigateur : rien à télécharger */}
+};
+/* Safari (Mac, iPhone, iPad, et tout navigateur d'iPhone, qui est un
+   Safari) n'accepte un téléchargement que d'un clic : lancé à la fin d'une
+   composition de quelques secondes, il ouvre un onglet « Safari ne parvient
+   pas à ouvrir la page ». Le document prêt s'y télécharge donc d'un bouton. */
+const telechargementDifere=()=>{
+  try{const u=String((window.navigator&&window.navigator.userAgent)||'');
+    return /AppleWebKit/i.test(u)&&!/Chrome|Chromium|Edg\/|Android/i.test(u)}catch(e){return false}
 };
 const PTR_MIME={
   docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -27363,24 +27373,28 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
     if(anomalies.length&&!forcer&&!version){setModale({type:'controles',apres:type});return}
     setModale(m=>m&&m.type==='controles'?null:m);
     setExp({type,etat:'travail'});
+    /* Safari : le fichier prêt se télécharge d'un clic sur le bouton (voir
+       telechargementDifere) ; ailleurs, il part tout seul */
+    const auto=!telechargementDifere();
+    const livrer=(o,nom,mime)=>{if(auto)telechargerOctets(o,nom,mime)};
     try{
       const base=ptrNomFichier(pj,pg,'Programme_Technique','',pg.version).replace(/\.$/,'');
       if(type==='xlsx'){
         const nom=ptrNomFichier(pj,pg,'Synthese_Prestations','xlsx',pg.version);
         const o=genererProgrammeXlsx(pg,pj);
-        telechargerOctets(o,nom,PTR_MIME.xlsx);
+        livrer(o,nom,PTR_MIME.xlsx);
         const lien=await deposer(o,nom,PTR_MIME.xlsx);noter('xlsx',nom,lien);
-        setExp({type,etat:'ok',msg:'Synthèse Excel téléchargée'+(lien?' et déposée sur le Drive':'')+' — '+nom,lien,
-          fichier:{octets:o,nom,mime:PTR_MIME.xlsx}});return;
+        setExp({type,etat:'ok',msg:'Synthèse Excel '+(auto?'téléchargée':'prête')+(lien?' et déposée sur le Drive':'')+' — '+nom,lien,auto,
+          fichier:{octets:o,nom,mime:PTR_MIME.xlsx,quoi:'l’Excel'}});return;
       }
       const {octets,manquantes}=await genererProgrammeDocx(pg,pj,biblio,dataRef.current.majorationsCorps);
       const nomDocx=base+'.docx', nomPdf=base+'.pdf';
       const note=manquantes.length?' — '+manquantes.length+' photo(s) introuvable(s) : '+manquantes.join(', '):'';
       if(type==='docx'){
-        telechargerOctets(octets,nomDocx,PTR_MIME.docx);
+        livrer(octets,nomDocx,PTR_MIME.docx);
         const lien=await deposer(octets,nomDocx,PTR_MIME.docx);noter('docx',nomDocx,lien);
-        setExp({type,etat:'ok',msg:'Document Word téléchargé'+(lien?' et déposé sur le Drive':'')+' — '+nomDocx+note,lien,
-          fichier:{octets,nom:nomDocx,mime:PTR_MIME.docx}});return;
+        setExp({type,etat:'ok',msg:'Document Word '+(auto?'téléchargé':'prêt')+(lien?' et déposé sur le Drive':'')+' — '+nomDocx+note,lien,auto,
+          fichier:{octets,nom:nomDocx,mime:PTR_MIME.docx,quoi:'le Word'}});return;
       }
       if(type==='pdf'||type==='apercu'){
         const pdf=await driveDocxEnPdf(await getDriveToken(),octets,base);
@@ -27388,10 +27402,10 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
           try{window.open(URL.createObjectURL(new Blob([pdf],{type:'application/pdf'})),'_blank')}catch(e){}
           setExp({type,etat:'ok',msg:'Aperçu PDF ouvert dans un nouvel onglet.'});return;
         }
-        telechargerOctets(pdf,nomPdf,PTR_MIME.pdf);
+        livrer(pdf,nomPdf,PTR_MIME.pdf);
         const lien=await deposer(pdf,nomPdf,PTR_MIME.pdf);noter('pdf',nomPdf,lien);
-        setExp({type,etat:'ok',msg:'PDF téléchargé'+(lien?' et déposé sur le Drive':'')+' — '+nomPdf+note,lien,
-          fichier:{octets:pdf,nom:nomPdf,mime:PTR_MIME.pdf}});return;
+        setExp({type,etat:'ok',msg:'PDF '+(auto?'téléchargé':'prêt')+(lien?' et déposé sur le Drive':'')+' — '+nomPdf+note,lien,auto,
+          fichier:{octets:pdf,nom:nomPdf,mime:PTR_MIME.pdf,quoi:'le PDF'}});return;
       }
       if(type==='zip'){
         const enc=[{nom:base+'/'+nomDocx,data:octets}];
@@ -27420,10 +27434,10 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
           catch(e){manquePieces++}
         }
         const zip=zipEcrire(enc);
-        telechargerOctets(zip,base+'.zip',PTR_MIME.zip);
+        livrer(zip,base+'.zip',PTR_MIME.zip);
         noter('zip',base+'.zip','');
-        setExp({type,etat:'ok',msg:'Dossier ZIP téléchargé — '+base+'.zip'+notePdf+(manquePieces?' — '+manquePieces+' pièce(s) jointe(s) introuvable(s)':'')+note,
-          fichier:{octets:zip,nom:base+'.zip',mime:PTR_MIME.zip}});
+        setExp({type,etat:'ok',msg:'Dossier ZIP '+(auto?'téléchargé':'prêt')+' — '+base+'.zip'+notePdf+(manquePieces?' — '+manquePieces+' pièce(s) jointe(s) introuvable(s)':'')+note,auto,
+          fichier:{octets:zip,nom:base+'.zip',mime:PTR_MIME.zip,quoi:'le dossier ZIP'}});
       }
     }catch(e){setExp({type,etat:'erreur',msg:'Export impossible — '+ptrMessageErreur(e)})}
   };
@@ -27530,10 +27544,11 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
       </div>
       {exp&&<div className="xs" style={{marginTop:10,lineHeight:1.5,color:exp.etat==='erreur'?TERRA:exp.etat==='ok'?GREEN:MUTED}}>
         {exp.etat==='travail'?'Composition du document…':exp.msg}
-        {/* Safari peut retenir un téléchargement lancé après la composition :
-           ce bouton le relance d'un vrai clic */}
-        {exp.etat==='ok'&&exp.fichier&&<button className="btn gh s" style={{marginLeft:8}}
-          onClick={()=>telechargerOctets(exp.fichier.octets,exp.fichier.nom,exp.fichier.mime)}>Télécharger à nouveau</button>}
+        {/* un vrai clic : Safari n'accepte que lui (téléchargement non
+           lancé tout seul), ailleurs c'est « à nouveau » */}
+        {exp.etat==='ok'&&exp.fichier&&<button className={exp.auto===false?'btn acc s':'btn gh s'} style={{marginLeft:8}}
+          onClick={()=>telechargerOctets(exp.fichier.octets,exp.fichier.nom,exp.fichier.mime)}>
+          {exp.auto===false?'⬇ Télécharger '+(exp.fichier.quoi||'le fichier'):'Télécharger à nouveau'}</button>}
         {exp.lien&&<a href={exp.lien} target="_blank" rel="noreferrer" style={{color:TERRA,marginLeft:8}}>Ouvrir sur le Drive</a>}</div>}
       <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
         {!fige&&<button className="btn s" onClick={figer}>Valider et figer la version {prog.version||1}</button>}
