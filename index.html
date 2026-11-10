@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-09 · Programme technique : portes intérieures techniques Chapuzet Plane PHONE EI 30 – 29 dB (proposition B) et photos des BAES (révision 29)';
+const VERSION='2026-11-10 · Programme technique : intitulé « Bâtiment … » pour un ERP, Word conforme au schéma, « Télécharger à nouveau »';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2347,8 +2347,10 @@ const tc=(l,contenu,o)=>{o=o||{};
     +(o.fusion?'<w:gridSpan w:val="'+o.fusion+'"/>':'')
     +(o.bords||'')
     +(o.fond?'<w:shd w:val="clear" w:color="auto" w:fill="'+o.fond+'"/>':'')
-    +'<w:tcMar><w:top w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/>'
-    +'<w:left w:w="'+(o.mg===undefined?90:o.mg)+'" w:type="dxa"/><w:right w:w="'+(o.mg===undefined?90:o.mg)+'" w:type="dxa"/></w:tcMar>'
+    /* ordre imposé par le schéma (haut, gauche, bas, droite) : Word est
+       plus strict que LibreOffice et Google Drive */
+    +'<w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="'+(o.mg===undefined?90:o.mg)+'" w:type="dxa"/>'
+    +'<w:bottom w:w="60" w:type="dxa"/><w:right w:w="'+(o.mg===undefined?90:o.mg)+'" w:type="dxa"/></w:tcMar>'
     +'<w:vAlign w:val="'+(o.v||'center')+'"/></w:tcPr>'
     +(contenu||par('',{ap:0}))+'</w:tc>';
 };
@@ -5908,6 +5910,7 @@ function ptrLireImport(texte){
 function ptrImporterProgramme(existant,importe,biblio,cible,fichier,t){
   const contenu={categories:ptrCopie(importe.categories),lignes:ptrCopie(importe.lignes),
     typeOuvrage:importe.typeOuvrage||'maison',options:{...(importe.options||{synthese:true,annexes:true})},
+    ...(importe.intitule?{intitule:String(importe.intitule)}:{}),
     ...(importe.vente?{vente:ptrCopie(importe.vente),venteIgnores:ptrCopie(importe.venteIgnores||[])}:{})};
   const source={type:'import',fichier:fichier||'',le:t};
   if(!existant)return {...ptrNouveauProgramme(biblio,cible,'import'),...contenu,source,creeLe:t,modifieLe:t};
@@ -5926,6 +5929,12 @@ const ptrProgrammePour=(data,cible)=>{
   return (cible.prospectId&&L.find(x=>x.prospectId===cible.prospectId))
     ||(cible.chantierId&&L.find(x=>x.chantierId===cible.chantierId))||null;
 };
+/* l'intitulé de l'opération sur les documents : celui saisi pour le
+   programme, sinon le nom du dossier. Pour un ERP, « Maison Philippe »
+   devient « Bâtiment Philippe » sur le programme ; le dossier, lui, garde
+   son nom. */
+const ptrIntituleDefaut=(nom,prog)=>ptrTypeOuvrage(prog)==='erp5'
+  ?String(nom||'').replace(/^\s*(maison|villa|habitation)\b\s*/i,'Bâtiment ').trim():String(nom||'');
 /* ce que l'application sait déjà du projet : rien n'est ressaisi */
 function ptrProjet(data,prog){
   const P=(data&&data.prospects)||[], C=(data&&data.chantiers)||[];
@@ -5936,13 +5945,14 @@ function ptrProjet(data,prog){
   const src=p||ch||{};
   const nomCivil=(civ,nom)=>afficherCivilite(civ,nom)||nom||'';
   const client=[nomCivil(src.civilite,src.client),src.client2?nomCivil(src.civilite2,src.client2):''].filter(Boolean).join(' et ');
-  const nom=(p&&p.nom)||(ch&&ch.nom)||'';
-  return {p,ch,nom,client,adresseClient:src.adresseClient||'',adresseChantier:(p&&p.commune)||(ch&&ch.adresse)||'',
+  const nomDossier=(p&&p.nom)||(ch&&ch.nom)||'';
+  const nom=String(prog.intitule||'').trim()||ptrIntituleDefaut(nomDossier,prog);
+  return {p,ch,nom,nomDossier,client,adresseClient:src.adresseClient||'',adresseChantier:(p&&p.commune)||(ch&&ch.adresse)||'',
     tel:src.telClient||'',email:src.emailClient||'',niveaux:(p&&p.niveaux)||'',
     reference:prog.reference||('PT-'+String(prog.creeLe||ptrMaintenant()).slice(0,4)+'-'+String(prog.id).slice(0,4).toUpperCase())};
 }
 const ptrNomFichier=(projet,prog,prefixe,ext,version)=>{
-  const base=ptrSlug(String(projet.nom||projet.client||'Projet').replace(/^(maison|projet|villa)\s+/i,''))||'Projet';
+  const base=ptrSlug(String(projet.nom||projet.client||'Projet').replace(/^(maison|projet|villa|b[âa]timent)\s+/i,''))||'Projet';
   return prefixe+'_'+base+'_V'+(version||prog.version||1)+'.'+ext;
 };
 /* le contrôle avant export : chaque anomalie renvoie à sa ligne */
@@ -6301,7 +6311,9 @@ const telechargerOctets=(octets,nom,type)=>{
     const u=URL.createObjectURL(new Blob([octets],{type:type||'application/octet-stream'}));
     const a=document.createElement('a');a.href=u;a.download=nom;
     document.body.appendChild(a);a.click();a.remove();
-    setTimeout(()=>URL.revokeObjectURL(u),5000);
+    /* Safari lit le fichier après coup : le libérer trop tôt fait échouer
+       le téléchargement d'un gros document sans rien dire */
+    setTimeout(()=>URL.revokeObjectURL(u),60000);
   }catch(e){/* hors navigateur : rien à télécharger */}
 };
 const PTR_MIME={
@@ -27358,7 +27370,8 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
         const o=genererProgrammeXlsx(pg,pj);
         telechargerOctets(o,nom,PTR_MIME.xlsx);
         const lien=await deposer(o,nom,PTR_MIME.xlsx);noter('xlsx',nom,lien);
-        setExp({type,etat:'ok',msg:'Synthèse Excel téléchargée'+(lien?' et déposée sur le Drive':'')+' — '+nom});return;
+        setExp({type,etat:'ok',msg:'Synthèse Excel téléchargée'+(lien?' et déposée sur le Drive':'')+' — '+nom,lien,
+          fichier:{octets:o,nom,mime:PTR_MIME.xlsx}});return;
       }
       const {octets,manquantes}=await genererProgrammeDocx(pg,pj,biblio,dataRef.current.majorationsCorps);
       const nomDocx=base+'.docx', nomPdf=base+'.pdf';
@@ -27366,7 +27379,8 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
       if(type==='docx'){
         telechargerOctets(octets,nomDocx,PTR_MIME.docx);
         const lien=await deposer(octets,nomDocx,PTR_MIME.docx);noter('docx',nomDocx,lien);
-        setExp({type,etat:'ok',msg:'Document Word téléchargé'+(lien?' et déposé sur le Drive':'')+' — '+nomDocx+note,lien});return;
+        setExp({type,etat:'ok',msg:'Document Word téléchargé'+(lien?' et déposé sur le Drive':'')+' — '+nomDocx+note,lien,
+          fichier:{octets,nom:nomDocx,mime:PTR_MIME.docx}});return;
       }
       if(type==='pdf'||type==='apercu'){
         const pdf=await driveDocxEnPdf(await getDriveToken(),octets,base);
@@ -27376,7 +27390,8 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
         }
         telechargerOctets(pdf,nomPdf,PTR_MIME.pdf);
         const lien=await deposer(pdf,nomPdf,PTR_MIME.pdf);noter('pdf',nomPdf,lien);
-        setExp({type,etat:'ok',msg:'PDF téléchargé'+(lien?' et déposé sur le Drive':'')+' — '+nomPdf+note,lien});return;
+        setExp({type,etat:'ok',msg:'PDF téléchargé'+(lien?' et déposé sur le Drive':'')+' — '+nomPdf+note,lien,
+          fichier:{octets:pdf,nom:nomPdf,mime:PTR_MIME.pdf}});return;
       }
       if(type==='zip'){
         const enc=[{nom:base+'/'+nomDocx,data:octets}];
@@ -27407,7 +27422,8 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
         const zip=zipEcrire(enc);
         telechargerOctets(zip,base+'.zip',PTR_MIME.zip);
         noter('zip',base+'.zip','');
-        setExp({type,etat:'ok',msg:'Dossier ZIP téléchargé — '+base+'.zip'+notePdf+(manquePieces?' — '+manquePieces+' pièce(s) jointe(s) introuvable(s)':'')+note});
+        setExp({type,etat:'ok',msg:'Dossier ZIP téléchargé — '+base+'.zip'+notePdf+(manquePieces?' — '+manquePieces+' pièce(s) jointe(s) introuvable(s)':'')+note,
+          fichier:{octets:zip,nom:base+'.zip',mime:PTR_MIME.zip}});
       }
     }catch(e){setExp({type,etat:'erreur',msg:'Export impossible — '+ptrMessageErreur(e)})}
   };
@@ -27458,6 +27474,13 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
           onChange={e=>majProg(x=>({...x,typeOuvrage:e.target.value}),{statut:false})}>
           {PTR_TYPES_OUVRAGE.map(t=><option key={t.id} value={t.id}>{t.l}</option>)}</select>
       </div>
+      {/* le nom du dossier reste celui du CRM ; les documents peuvent en porter un autre */}
+      <div className="row" style={{gap:10,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
+        <span className="xs mut">Intitulé sur les documents</span>
+        <div style={{flex:'1 1 240px',maxWidth:460}}><PtrTexte multiligne={false} valeur={prog.intitule||''} disabled={fige}
+          placeholder={ptrIntituleDefaut(projet.nomDossier,prog)||'Nom du projet'}
+          onValide={t=>majProg(x=>({...x,intitule:t}),{statut:false})}/></div>
+      </div>
       {ptrTypeOuvrage(prog)==='erp5'&&(erpManquantes.length>0||ptrAlertesUsage(prog).length>0)&&<div className="xs"
         style={{marginTop:10,padding:'8px 10px',borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.6}}>
         {erpManquantes.length>0&&<div>
@@ -27507,6 +27530,10 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
       </div>
       {exp&&<div className="xs" style={{marginTop:10,lineHeight:1.5,color:exp.etat==='erreur'?TERRA:exp.etat==='ok'?GREEN:MUTED}}>
         {exp.etat==='travail'?'Composition du document…':exp.msg}
+        {/* Safari peut retenir un téléchargement lancé après la composition :
+           ce bouton le relance d'un vrai clic */}
+        {exp.etat==='ok'&&exp.fichier&&<button className="btn gh s" style={{marginLeft:8}}
+          onClick={()=>telechargerOctets(exp.fichier.octets,exp.fichier.nom,exp.fichier.mime)}>Télécharger à nouveau</button>}
         {exp.lien&&<a href={exp.lien} target="_blank" rel="noreferrer" style={{color:TERRA,marginLeft:8}}>Ouvrir sur le Drive</a>}</div>}
       <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
         {!fige&&<button className="btn s" onClick={figer}>Valider et figer la version {prog.version||1}</button>}
