@@ -62,7 +62,10 @@ qu'on ait à les redire.
   programme technique (`contratTypeOuvrage`) : pour un ERP, seules les
   lignes descriptives changent (« Bâtiment à usage de bureaux — ERP de 5e
   catégorie », `CONTRAT_ERP_DESIGNATION`), jamais les articles — le
-  contrat est à faire relire. Tests : `t_contrat_moe.js`,
+  contrat est à faire relire. Coût des travaux de l'article 6 : un forfait
+  TTC saisi sur la carte (`p.contratTravauxTTC`, `contratTravaux`)
+  l'emporte sur le chiffrage par poste, HT déduit au taux du dossier ; les
+  honoraires ne changent pas. Tests : `t_contrat_moe.js`,
   `t_contrat_moe_erp.js`.
 - **Marché de travaux** (Marchés › lot › « Rédiger le marché ») : il sort
   en trois exemplaires Word (`MARCHE_EXEMPLAIRES` : client, entreprise,

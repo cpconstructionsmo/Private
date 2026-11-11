@@ -33,6 +33,22 @@ const docx=async(p,t)=>{const b=await M.genererContratMoeDocx(p,t);
     'tout le reste — les articles — est identique mot pour mot ('+seulM.length+' / '+seulE.length+' lignes descriptives)');
   chk(/article L\.231-1|L\.231-1/.test(erp),'l’avertissement légal du modèle reste tel quel');
 
+  /* ---- 1 bis) un coût des travaux forfaitaire TTC (article 6) ---- */
+  chk(/100 000,00 € HT, soit 120 000,00 € TTC sur la base d’un taux de TVA en vigueur de 20 %/.test(maison),'sans forfait : le coût des travaux du chiffrage');
+  const forf=await docx({...P,contratTravauxTTC:129800},'erp5');
+  chk(/108 166,67 € HT, soit 129 800,00 € TTC sur la base d’un taux de TVA en vigueur de 20 %/.test(forf),'forfait de 129 800 € TTC : article 6, HT déduit au taux du dossier');
+  chk(/15 000,00 €/.test(forf)&&/18 000,00 €/.test(forf)&&!/120 000,00 € TTC/.test(forf),'les honoraires ne changent pas (indépendants du coût des travaux)');
+  {let t2,pp=[];
+    TR.act(()=>{t2=TR.create(React.createElement(M.SortirContratMoe,{data:M.EMPTY,p:P,maj:v=>pp.push(v)}))});
+    const champ=t2.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Coût des travaux forfaitaire TTC')[0];
+    chk(champ&&/calculé : 120 000 €/.test(norm(champ.props.placeholder)),'champ « Coût des travaux forfaitaire (TTC) », le calcul du chiffrage en indication');
+    TR.act(()=>{champ.props.onChange({target:{value:'129 800'}})});
+    TR.act(()=>{t2.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Coût des travaux forfaitaire TTC')[0].props.onBlur()});
+    chk(pp.some(v=>v.contratTravauxTTC===129800),'« 129 800 » saisi : gardé sur la fiche');
+    TR.act(()=>{t2.update(React.createElement(M.SortirContratMoe,{data:M.EMPTY,p:{...P,contratTravauxTTC:129800},maj:v=>pp.push(v)}))});
+    chk(/budget travaux forfaitaire de 129 800,00 € TTC, soit 108 166,67 € HT \(TVA 20 %\) — au lieu des 120 000 € TTC du chiffrage/.test(norm(texteInst(t2.root))),'la carte dit ce que portera l’article 6');
+    TR.act(()=>{t2.unmount()});}
+
   /* ---- 2) le type d'ouvrage : la fiche, sinon le programme du dossier ---- */
   const data={...M.EMPTY,prospects:[P],chantiers:[{id:'c1',nom:'Maison Fictive - Sainte-Cécile',client:'Fictif',prospectId:'p1',docs:{}}],
     programmes:[{id:'pg1',prospectId:'p1',chantierId:'c1',typeOuvrage:'erp5',lignes:[],categories:[]}]};

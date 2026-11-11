@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-11 · Programme technique : version définitive retouchée ; contrat de maîtrise d’œuvre d’un ERP, sorti aussi depuis le chantier';
+const VERSION='2026-11-11 · Programme technique : version définitive retouchée ; contrat de maîtrise d’œuvre : ERP, coût des travaux forfaitaire, sortie depuis le chantier';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4181,6 +4181,17 @@ async function genererDossierDocx(p,com,majTarifs){
    les lignes descriptives changent (sous-titre, type d'ouvrage) ; les
    articles restent ceux du modèle — le contrat est à faire relire. */
 const CONTRAT_ERP_DESIGNATION='Bâtiment à usage de bureaux — ERP de 5e catégorie';
+/* le coût des travaux du contrat (article 6) : un forfait TTC saisi sur la
+   carte du contrat l'emporte sur le chiffrage par poste ; le HT s'en déduit
+   au taux de TVA du dossier. Les honoraires ne bougent pas : le contrat les
+   dit indépendants du coût des travaux. */
+const contratTravauxForfaitTTC=p=>{const v=+String((p&&p.contratTravauxTTC)||'').replace(/\s/g,'').replace(',','.');return v>0?Math.round(v*100)/100:0};
+const contratTravaux=p=>{
+  const tva=prospectTva(p), forfait=contratTravauxForfaitTTC(p);
+  if(forfait)return {forfait:true,tva,ttc:forfait,ht:Math.round(forfait/(1+tva/100)*100)/100};
+  const ht=prospectCoutHT(p);
+  return {forfait:false,tva,ht,ttc:Math.round(ht*(1+tva/100)*100)/100};
+};
 const contratTypeOuvrage=(p,data)=>{
   if(p&&(p.typeOuvrage==='erp5'||p.typeOuvrage==='maison'))return p.typeOuvrage;
   const prog=p&&data?ptrProgrammePour(data,{prospectId:p.id,chantierId:p.chantierId||null}):null;
@@ -4202,8 +4213,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
   const nomClient=afficherCivilite(p.civilite,p.client)||p.client||'';
   const nomClient2=p.client2?afficherCivilite(p.civilite2,p.client2)||p.client2:'';
   const geoObligatoire=etudeSolObligatoire(p);
-  const coutHT=prospectCoutHT(p), tva=prospectTva(p),
-    coutTTC=Math.round(coutHT*(1+tva/100)*100)/100;
+  const trav=contratTravaux(p), coutHT=trav.ht, tva=trav.tva, coutTTC=trav.ttc;
   const margeHT=prospectMargeHT(p), margeTva=Math.round(margeHT*tva)/100,
     margeTTC=honoDossierTTC(p);
   const surfaceFonciere=p.surfaceTerrain?nb2(+p.surfaceTerrain)+' m²':'';
@@ -26342,6 +26352,12 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
   const [etat,setEtat]=useState(null);
   const pret=prospectPrixTTC(p)>0;
   const type=contratTypeOuvrage(p,data);
+  const trav=contratTravaux(p), calculeTTC=Math.round(prospectCoutHT(p)*(1+prospectTva(p)/100)*100)/100;
+  const forfait=contratTravauxForfaitTTC(p);
+  const [saisieForfait,setSaisieForfait]=useState(forfait?String(forfait):'');
+  useEffect(()=>{setSaisieForfait(forfait?String(forfait):'')},[forfait]);
+  const validerForfait=()=>{const v=+String(saisieForfait).replace(/\s/g,'').replace(',','.');
+    const n=v>0?Math.round(v*100)/100:'';if(n!==(forfait||''))maj({contratTravauxTTC:n})};
   const produire=async()=>{
     setEtat({etat:'travail'});
     try{
@@ -26376,6 +26392,17 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
         onChange={e=>maj({typeOuvrage:e.target.value})}>
         {PTR_TYPES_OUVRAGE.map(t=><option key={t.id} value={t.id}>{t.l}</option>)}</select>
     </div>
+    <div className="row xs" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="mut">Coût des travaux forfaitaire (TTC)</span>
+      <input className="in" aria-label="Coût des travaux forfaitaire TTC" inputMode="decimal" style={{width:150,fontSize:13,padding:'6px 8px'}}
+        placeholder={calculeTTC?'calculé : '+eur(calculeTTC):'montant TTC'} value={saisieForfait}
+        onChange={e=>setSaisieForfait(e.target.value)} onBlur={validerForfait}
+        onKeyDown={e=>{if(e.key==='Enter')validerForfait()}}/>
+    </div>
+    <div className="xs" style={{marginTop:4,lineHeight:1.5,color:trav.forfait?NAVY:MUTED}}>
+      {trav.forfait?'Article 6 : budget travaux forfaitaire de '+eurDoc(trav.ttc)+' TTC, soit '+eurDoc(trav.ht)+' HT (TVA '+trav.tva+' %)'
+        +(calculeTTC?' — au lieu des '+eur(calculeTTC)+' TTC du chiffrage.':'.')+' Les honoraires ne changent pas.'
+        :'Laissé vide, l’article 6 reprend le coût des travaux du chiffrage'+(calculeTTC?' ('+eur(calculeTTC)+' TTC).':'.')}</div>
     {type==='erp5'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:AMBER}}>
       ERP : seules les lignes descriptives changent (« {CONTRAT_ERP_DESIGNATION} »). Les articles restent ceux du
       modèle, écrit pour une maison : faites relire l’ensemble du contrat avant de le signer.</div>}
