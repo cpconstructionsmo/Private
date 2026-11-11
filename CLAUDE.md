@@ -303,6 +303,15 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
   clic simulé ouvre l'onglet en erreur) ; ailleurs il part
   tout seul, avec « Télécharger à nouveau ». Tests :
   `t_ptr_export_safari.js`, `t_ptr_intitule.js`.
+- **Version définitive retouchée** (éditeur du programme, `PtrDefinitifs`) :
+  le Word généré, repris dans Word, se redépose (Word et/ou PDF). Il part
+  sur le Drive › Programme technique, renommé `…_V<n>_definitif`
+  (`ptrNomDefinitif`), rattaché à la version en cours
+  (`prog.definitifs`, `ptrAjouterDefinitifs`) ; les textes du programme
+  ne changent pas, c'est ce document qui fait foi. Dépôt possible sur une
+  version figée ; l'historique des versions et la carte du programme le
+  donnent ; un Word régénéré prévient qu'il ne reprend pas les retouches.
+  Tests : `t_ptr_definitif.js`.
 - **Importer un programme préparé** (création ou éditeur du programme,
   fichier `.json` au format `cp-ptr`, `ptrLireImport`,
   `ptrImporterProgramme`) : un programme complet préparé hors de

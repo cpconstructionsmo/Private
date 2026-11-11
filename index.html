@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-10 · Safari : le Word du programme se télécharge d’un bouton ; un lot facturé à quelques centimes près est soldé';
+const VERSION='2026-11-11 · Programme technique : déposer la version définitive retouchée dans Word (ou son PDF)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -5919,6 +5919,21 @@ function ptrImporterProgramme(existant,importe,biblio,cible,fichier,t){
       categories:ptrCopie(existant.categories),lignes:ptrCopie(existant.lignes)}];
   return {...existant,...contenu,source,version:(existant.version||1)+1,statut:'brouillon',fige:false,versions:garde,modifieLe:t};
 }
+/* la version définitive retouchée : le Word généré, repris dans Word puis
+   redéposé (ou son PDF). Elle est rattachée à la version en cours et
+   rangée sur le Drive ; les textes du programme dans l'application ne
+   changent pas — c'est ce document qui fait foi. */
+const PTR_DEFINITIF_ACCEPT='.docx,.doc,.pdf';
+const ptrTypeDefinitif=nom=>/\.pdf$/i.test(nom||'')?'pdf':/\.docx?$/i.test(nom||'')?'docx':'';
+const ptrNomDefinitif=(projet,prog,ext)=>ptrNomFichier(projet,prog,'Programme_Technique',ext).replace(/(\.[A-Za-z0-9]+)$/,'_definitif$1');
+const ptrDefinitifsVersion=(prog,n)=>((prog&&prog.definitifs)||[]).filter(d=>d.version===n);
+const ptrAjouterDefinitifs=(prog,docs,t)=>{
+  const v=prog.version||1;
+  return {...prog,
+    definitifs:[...(prog.definitifs||[]),...docs.map(d=>({id:d.id||uid(),nom:d.nom,lien:d.lien||'',type:d.type,
+      nomOrigine:d.nomOrigine||'',version:v,date:t}))],
+    exports:[...(prog.exports||[]),...docs.map(d=>({type:'definitif',nom:d.nom,lien:d.lien||'',version:v,date:t}))].slice(-30)};
+};
 const ptrConfiguree=l=>!l.incluse||(String(l.texte||'').trim()!==''&&(l.lotMO||l.horsCoord));
 function ptrStats(prog){
   const L=prog.lignes||[], inc=L.filter(l=>l.incluse);
@@ -27132,6 +27147,7 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
   const [modale,setModale]=useState(null);
   const [sauve,setSauve]=useState('ok');
   const [exp,setExp]=useState(null);
+  const [defEtat,setDefEtat]=useState(null);
   /* le fichier exporté, servi par un vrai lien <a download> : sous Safari,
      un clic simulé ouvre un onglet qui ne peut pas lire le fichier
      (WebKitBlobResource erreur 1) ; un lien cliqué télécharge. Le lien
@@ -27381,6 +27397,32 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
     try{const token=await getDriveToken();const dossier=await ptrDossierDrive(token,dataRef.current,cible);
       const r=await uploadToDrive(new File([octets],nom,{type}),dossier);return r.webViewLink||''}catch(e){return ''}
   };
+  /* la version définitive retouchée dans Word (ou son PDF) : sur le Drive,
+     renommée d'après le programme, rattachée à la version en cours */
+  const deposerDefinitifs=async files=>{
+    const bons=files.filter(f=>ptrTypeDefinitif(f.name));
+    if(!bons.length){setDefEtat({etat:'erreur',msg:'Déposez le programme en Word (.docx) ou en PDF.'});return}
+    setDefEtat({etat:'travail'});
+    try{
+      const token=await getDriveToken();
+      const dossier=await ptrDossierDrive(token,dataRef.current,cible);
+      const pj=ptrProjet(dataRef.current,prog), docs=[];
+      for(const f of bons){
+        const type=ptrTypeDefinitif(f.name), ext=type==='pdf'?'pdf':(/\.doc$/i.test(f.name)?'doc':'docx');
+        const nom=ptrNomDefinitif(pj,prog,ext);
+        const r=await uploadToDrive(new File([f],nom,{type:f.type||(type==='pdf'?PTR_MIME.pdf:PTR_MIME.docx)}),dossier);
+        docs.push({nom,lien:(r&&r.webViewLink)||'',type,nomOrigine:f.name});
+      }
+      majProg(x=>ptrAjouterDefinitifs(x,docs,ptrMaintenant()),{statut:false});
+      setDefEtat({etat:'ok',msg:(docs.length>1?docs.length+' documents déposés':'Document déposé')+' sur le Drive, rattaché'+(docs.length>1?'s':'')
+        +' à la version '+(prog.version||1)+' — '+docs.map(d=>d.nom).join(', ')
+        +(bons.length<files.length?' ('+(files.length-bons.length)+' fichier(s) ignoré(s) : ni Word ni PDF)':'')});
+    }catch(e){setDefEtat({etat:'erreur',msg:'Dépôt impossible — '+ptrMessageErreur(e)})}
+  };
+  const retirerDefinitif=d=>{
+    if(!confirm('Retirer « '+d.nom+' » du programme ? Le fichier reste sur le Drive.'))return;
+    majProg(x=>({...x,definitifs:(x.definitifs||[]).filter(y=>y.id!==d.id)}),{statut:false});
+  };
   const noter=(type,nom,lien)=>majProg(x=>({...x,exports:[...(x.exports||[]),{type,nom,lien,version:x.version,date:ptrMaintenant()}].slice(-30)}),{statut:false});
   const exporter=async(type,forcer,version)=>{
     const pg=version?{...prog,categories:version.categories,lignes:version.lignes,version:version.numero,statut:version.statut,reference:version.reference||prog.reference}:prog;
@@ -27405,7 +27447,8 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
       }
       const {octets,manquantes}=await genererProgrammeDocx(pg,pj,biblio,dataRef.current.majorationsCorps);
       const nomDocx=base+'.docx', nomPdf=base+'.pdf';
-      const note=manquantes.length?' — '+manquantes.length+' photo(s) introuvable(s) : '+manquantes.join(', '):'';
+      const note=(manquantes.length?' — '+manquantes.length+' photo(s) introuvable(s) : '+manquantes.join(', '):'')
+        +(ptrDefinitifsVersion(pg,pg.version||1).length?' — attention : composé depuis l’application, il ne reprend pas les retouches de la version définitive déposée':'');
       if(type==='docx'){
         livrer(octets,nomDocx,PTR_MIME.docx);
         const lien=await deposer(octets,nomDocx,PTR_MIME.docx);noter('docx',nomDocx,lien);
@@ -27566,6 +27609,7 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
           download={exp.fichier.nom} style={{marginLeft:8,display:'inline-block',textDecoration:'none'}}>
           {exp.auto===false?'⬇ Télécharger '+(exp.fichier.quoi||'le fichier'):'Télécharger à nouveau'}</a>}
         {exp.lien&&<a href={exp.lien} target="_blank" rel="noreferrer" style={{color:TERRA,marginLeft:8}}>Ouvrir sur le Drive</a>}</div>}
+      <PtrDefinitifs prog={prog} fige={fige} etat={defEtat} onDeposer={deposerDefinitifs} onRetirer={retirerDefinitif}/>
       <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
         {!fige&&<button className="btn s" onClick={figer}>Valider et figer la version {prog.version||1}</button>}
         {prog.statut!=='archive'&&<button className="btn gh s" onClick={archiver}>Archiver</button>}
@@ -27669,16 +27713,49 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
     </PtrModale>}
     {modale&&modale.type==='versions'&&<PtrModale titre="Versions du programme" onFermer={()=>setModale(null)}>
       {[...(prog.versions||[])].sort((a,b)=>b.numero-a.numero).map(v=><div key={v.numero} className="sp sm" style={{gap:8,padding:'6px 0',borderBottom:'1px solid '+RULE}}>
-        <span>Version {v.numero} — {fd(String(v.date).slice(0,10))} — <b style={{color:ptrStatut(v.statut).c}}>{ptrStatut(v.statut).l}</b></span>
+        <span>Version {v.numero} — {fd(String(v.date).slice(0,10))} — <b style={{color:ptrStatut(v.statut).c}}>{ptrStatut(v.statut).l}</b>
+          {ptrDefinitifsVersion(prog,v.numero).map(d=><span key={d.id} className="xs"> · <a href={d.lien} target="_blank" rel="noreferrer"
+            style={{color:TERRA}}>définitif {d.type==='pdf'?'PDF':'Word'}</a></span>)}</span>
         <button className="btn gh s" onClick={()=>exporter('docx',true,v)}>Word</button>
       </div>)}
-      {!fige&&<div className="sm" style={{padding:'6px 0'}}>Version {prog.version} — en cours d’édition ({ptrStatut(prog.statut).l})</div>}
+      {!fige&&<div className="sm" style={{padding:'6px 0'}}>Version {prog.version} — en cours d’édition ({ptrStatut(prog.statut).l})
+        {ptrDefinitifsVersion(prog,prog.version||1).map(d=><span key={d.id} className="xs"> · <a href={d.lien} target="_blank" rel="noreferrer"
+          style={{color:TERRA}}>définitif {d.type==='pdf'?'PDF':'Word'}</a></span>)}</div>}
       {(prog.exports||[]).length>0&&<div style={{marginTop:12}}>
         <div className="lbl">Derniers exports</div>
         {[...prog.exports].reverse().slice(0,10).map((x,i)=><div key={i} className="xs" style={{padding:'2px 0'}}>
           {fd(String(x.date).slice(0,10))} · V{x.version} · {x.type.toUpperCase()} · {x.lien?<a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{x.nom}</a>:x.nom}</div>)}
       </div>}
     </PtrModale>}
+  </div>;
+}
+
+/* la version définitive retouchée hors de l'application (Word ou PDF) :
+   déposée ici, elle fait foi ; les textes de l'application ne changent pas.
+   Le dépôt reste possible sur une version figée — c'est souvent après la
+   validation que le document final revient. */
+function PtrDefinitifs({prog,fige,etat,onDeposer,onRetirer}){
+  const L=[...(prog.definitifs||[])].sort((a,b)=>(b.version-a.version)||String(b.date).localeCompare(String(a.date)));
+  const enCours=ptrDefinitifsVersion(prog,prog.version||1).length>0;
+  return <div style={{marginTop:12,padding:'10px 12px',borderRadius:8,background:'#F4F1EB'}}>
+    <div className="b sm" style={{color:NAVY}}>Version définitive retouchée</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Le programme a été retouché dans Word ? Déposez ici le document définitif (Word, et son PDF si vous l’avez) :
+      il part sur le Drive, rattaché à la version {prog.version||1}. Les textes du programme dans l’application ne
+      changent pas : c’est ce document qui fait foi.</div>
+    {L.map(d=><div key={d.id} className="row xs" style={{gap:8,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="pill" style={{background:NAVY+'14',color:NAVY}}>V{d.version} · {d.type==='pdf'?'PDF':'Word'}</span>
+      {d.lien?<a href={d.lien} target="_blank" rel="noreferrer" style={{color:TERRA,wordBreak:'break-word'}}>{d.nom}</a>:<span>{d.nom}</span>}
+      <span className="mut">déposé le {fd(String(d.date).slice(0,10))}</span>
+      <button aria-label={'Retirer '+d.nom} style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>onRetirer(d)}>✕</button>
+    </div>)}
+    <label className="btn gh s" style={{marginTop:8,display:'inline-block',whiteSpace:'normal',maxWidth:'100%'}}>
+      {etat&&etat.etat==='travail'?'Dépôt…':enCours?'Déposer un autre document définitif':'Déposer la version définitive (Word ou PDF)'}
+      <input type="file" accept={PTR_DEFINITIF_ACCEPT} multiple style={{display:'none'}} disabled={!!(etat&&etat.etat==='travail')}
+        onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)onDeposer(fs)}}/></label>
+    {etat&&etat.etat!=='travail'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:etat.etat==='erreur'?TERRA:GREEN}}>{etat.msg}</div>}
+    {enCours&&!fige&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:MUTED}}>
+      Le document est déposé : vous pouvez « Valider et figer la version {prog.version||1} » — il y reste attaché.</div>}
   </div>;
 }
 
@@ -27692,6 +27769,8 @@ function CarteProgrammeTechnique({data,cible,onOuvrir}){
       {prog?<span>Version {prog.version} — <b style={{color:st.c}}>{st.l}</b> — {s.configurees} / {s.incluses} prestations configurées
         — modifié le {fd(String(prog.modifieLe||prog.creeLe).slice(0,10))}.</span>
         :'Construit depuis la bibliothèque de prestations CP Constructions : propositions A/B/C, photos, Lot MO / hors coordination, puis Word, PDF ou Excel.'}
+      {prog&&ptrDefinitifsVersion(prog,prog.version||1).map(d=><div key={d.id}>Version définitive retouchée :{' '}
+        <a href={d.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{d.nom}</a></div>)}
     </div>
     <button className="btn acc s" style={{marginTop:8}} onClick={onOuvrir}>{prog?'Ouvrir le programme technique':'Créer le programme technique'}</button>
   </div>;
