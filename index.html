@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-11 · Programme technique : déposer la version définitive retouchée dans Word (ou son PDF)';
+const VERSION='2026-11-11 · Programme technique : version définitive retouchée ; contrat de maîtrise d’œuvre d’un ERP, sorti aussi depuis le chantier';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4176,7 +4176,18 @@ async function genererDossierDocx(p,com,majTarifs){
    d'une société, références cadastrales, financement — reste à compléter à
    la main, comme sur le modèle papier, faute d'un champ pour le saisir
    ailleurs dans l'appli. */
-function contratMoeDocumentXml(p,px){
+/* le type d'ouvrage du contrat : celui choisi sur la fiche, sinon celui du
+   programme technique du dossier, sinon une maison. Pour un ERP, seules
+   les lignes descriptives changent (sous-titre, type d'ouvrage) ; les
+   articles restent ceux du modèle — le contrat est à faire relire. */
+const CONTRAT_ERP_DESIGNATION='Bâtiment à usage de bureaux — ERP de 5e catégorie';
+const contratTypeOuvrage=(p,data)=>{
+  if(p&&(p.typeOuvrage==='erp5'||p.typeOuvrage==='maison'))return p.typeOuvrage;
+  const prog=p&&data?ptrProgrammePour(data,{prospectId:p.id,chantierId:p.chantierId||null}):null;
+  return prog?ptrTypeOuvrage(prog):'maison';
+};
+function contratMoeDocumentXml(p,px,typeOuvrage){
+  const erp=typeOuvrage==='erp5';
   const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
   const sousTitre=t=>par(t,{b:true,sz:19,c:DOC_BRUN,av:140,ap:80});
   const texte=t=>par(t,{sz:18,jc:'both',ap:120});
@@ -4203,7 +4214,8 @@ function contratMoeDocumentXml(p,px){
     par([logoXml(px)],{ap:0}),
     vide(300),
     par('CONTRAT DE MAÎTRISE D’ŒUVRE',{b:true,sz:34,c:DOC_TERRA,sp:30,jc:'center',ap:60}),
-    par('Mission de maîtrise d’œuvre — Ouvrage à usage d’habitation — Client privé',
+    par(erp?'Mission de maîtrise d’œuvre — '+CONTRAT_ERP_DESIGNATION+' — Client privé'
+      :'Mission de maîtrise d’œuvre — Ouvrage à usage d’habitation — Client privé',
       {sz:19,c:DOC_BRUN,jc:'center',ap:20,filet:DOC_BRUN}),
     par((p.nom||'')+(nomClient?' — '+nomClient:''),{sz:18,c:DOC_GRIS,jc:'center',ap:0}),
     vide(300),
@@ -4228,7 +4240,8 @@ function contratMoeDocumentXml(p,px){
 
   const a2=[
     titre('Article 2 — Description du projet'),
-    champs([['Type de maison',p.niveaux?'Ouvrage d’habitation personnalisé — '+p.niveaux:'Ouvrage d’habitation personnalisé'],
+    champs([erp?['Type d’ouvrage',CONTRAT_ERP_DESIGNATION+(p.niveaux?' — '+p.niveaux:'')]
+      :['Type de maison',p.niveaux?'Ouvrage d’habitation personnalisé — '+p.niveaux:'Ouvrage d’habitation personnalisé'],
       ['Adresse des travaux',p.commune||''],['Références cadastrales',''],
       ['Surface foncière',surfaceFonciere],['Surface projetée',surfaceProjetee],
       ['Nature du projet',p.prestation?p.prestation+' — RE 2020':'Construction neuve — RE 2020'],
@@ -4434,10 +4447,10 @@ function contratMoeDocumentXml(p,px){
     +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
     +'</w:body></w:document>';
 }
-async function genererContratMoeDocx(p){
+async function genererContratMoeDocx(p,typeOuvrage){
   let logo=null;
   try{logo=await logoDocx()}catch(e){/* sans logo, le contrat reste valable */}
-  return fabriquerDocx(contratMoeDocumentXml(p,logo),
+  return fabriquerDocx(contratMoeDocumentXml(p,logo,typeOuvrage),
     'Contrat de maîtrise d’œuvre — '+(p.nom||''),logo);
 }
 
@@ -17364,6 +17377,9 @@ function Docs({data,ch,up,save}){
               {x.id==='plan_elec'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
                 <EnvoyerEtudeElec ch={ch} d={d} up={up} data={data}/>
               </div>}
+              {x.id==='contrat_moe'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
+                <ContratMoeChantier data={data} ch={ch} save={save}/>
+              </div>}
               {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
                 <VignetteSign id={s.id}/>
                 <div style={{flex:1}}>
@@ -17379,6 +17395,19 @@ function Docs({data,ch,up,save}){
     })}
     {signe&&<SignaturePad titre={signe.l+' — '+ch.nom} onAnnuler={()=>setSigne(null)} onSigner={v=>enregistrerSignature(signe,v)}/>}
   </div>;
+}
+
+/* un dossier signé n'est plus dans les prospects en cours : le contrat de
+   maîtrise d'œuvre se sort aussi depuis le chantier, avec le chiffrage du
+   prospect dont il est issu, et se range dans ses pièces */
+function ContratMoeChantier({data,ch,save}){
+  const p=ch.prospectId?(data.prospects||[]).find(x=>x.id===ch.prospectId):null;
+  if(!p)return <div className="xs mut" style={{lineHeight:1.5}}>
+    Ce chantier n’a pas été créé depuis un prospect : le contrat de maîtrise d’œuvre se sort depuis une fiche
+    prospect chiffrée (PROSPECTS › la fiche › 3. Votre chiffrage).</div>;
+  return <SortirContratMoe data={data} p={p} sansCadre ou={'Drive › '+ch.nom+' › Pièces'}
+    dossier={token=>driveSousDossier(token,ch.id,ch.nom,'Pièces')}
+    maj={v=>save({...data,prospects:(data.prospects||[]).map(x=>x.id===p.id?{...x,...v}:x)})}/>;
 }
 
 /* ---------------- MISE AU POINT TECHNIQUE (MAP) ----------------
@@ -26309,16 +26338,19 @@ function SortirChiffrageInterne({data,p,maj}){
    retapé depuis le modèle papier. Le champ N° RCS, les références
    cadastrales et le financement restent des blancs à compléter à la main,
    faute d'un champ pour les saisir ailleurs dans l'application. */
-function SortirContratMoe({data,p,maj}){
+function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
   const [etat,setEtat]=useState(null);
   const pret=prospectPrixTTC(p)>0;
+  const type=contratTypeOuvrage(p,data);
   const produire=async()=>{
     setEtat({etat:'travail'});
     try{
-      const buf=await genererContratMoeDocx(p);
+      const buf=await genererContratMoeDocx(p,type);
       const nom='Contrat de maîtrise d’œuvre — '+(p.nom||'projet')+'.docx';
       const token=await getDriveToken();
-      const dossierId=await driveProspectFolder(token,p.id,p.nom);
+      /* depuis le chantier, le contrat se range avec ses pièces ; depuis la
+         fiche prospect, dans le dossier du prospect, comme avant */
+      const dossierId=dossier?await dossier(token):await driveProspectFolder(token,p.id,p.nom);
       const {webViewLink}=await uploadToDrive(new File([buf],nom,
         {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),dossierId);
       maj({contratMoeLe:today()});
@@ -26330,7 +26362,7 @@ function SortirContratMoe({data,p,maj}){
         :'Sortie impossible — '+c});
     }
   };
-  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>
+  const contenu=<React.Fragment>
     <div className="b sm" style={{color:NAVY}}>Contrat de maîtrise d’œuvre</div>
     <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
       Le contrat prêt à signer, rempli des informations déjà saisies : identité du client, adresse du
@@ -26338,6 +26370,15 @@ function SortirContratMoe({data,p,maj}){
       références cadastrales et le financement restent à compléter à la main.
       {p.contratMoeLe?<span> Dernière sortie le {fd(p.contratMoeLe)}.</span>:null}
     </div>
+    <div className="row xs" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="mut">Ouvrage</span>
+      <select className="in" aria-label="Ouvrage du contrat" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={type}
+        onChange={e=>maj({typeOuvrage:e.target.value})}>
+        {PTR_TYPES_OUVRAGE.map(t=><option key={t.id} value={t.id}>{t.l}</option>)}</select>
+    </div>
+    {type==='erp5'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:AMBER}}>
+      ERP : seules les lignes descriptives changent (« {CONTRAT_ERP_DESIGNATION} »). Les articles restent ceux du
+      modèle, écrit pour une maison : faites relire l’ensemble du contrat avant de le signer.</div>}
     <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
       <button className="btn acc s" disabled={!pret||(etat&&etat.etat==='travail')} onClick={produire}>
         {etat&&etat.etat==='travail'?'Composition…':'Sortir le contrat de maîtrise d’œuvre'}</button>
@@ -26345,11 +26386,13 @@ function SortirContratMoe({data,p,maj}){
         style={{textDecoration:'none'}}>Ouvrir</a>}
     </div>
     {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
-      Déposé dans Drive › Prospects › {p.nom} — {etat.nom}</div>}
+      Déposé dans {ou||'Drive › Prospects › '+p.nom} — {etat.nom}</div>}
     {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
     {!pret&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       Chiffrez d'abord le projet : sans montant, il n'y a pas de budget travaux ni d'honoraires à indiquer.</div>}
-  </div>;
+  </React.Fragment>;
+  return sansCadre?<div>{contenu}</div>
+    :<div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>{contenu}</div>;
 }
 
 /* ---------- sortir la notice précontractuelle ----------

@@ -53,6 +53,17 @@ qu'on ait à les redire.
   (`supprimerAvenantClient` défait ses reports ; son numéro ne resert
   pas). Tests :
   `t_budget_avenants.js`, `budget_avenants_navigateur.js`.
+- **Contrat de maîtrise d'œuvre** (`SortirContratMoe`, `genererContratMoeDocx`) :
+  texte juridique repris mot pour mot du modèle CP ; seuls les champs
+  connus sont remplis (client, adresse, surfaces, budget, honoraires). Il
+  se sort de la fiche prospect chiffrée, et aussi du chantier signé
+  (PIÈCES › Contrat de maîtrise d'œuvre, `ContratMoeChantier`, rangé dans
+  ses pièces). Type d'ouvrage choisi sur la carte, sinon repris du
+  programme technique (`contratTypeOuvrage`) : pour un ERP, seules les
+  lignes descriptives changent (« Bâtiment à usage de bureaux — ERP de 5e
+  catégorie », `CONTRAT_ERP_DESIGNATION`), jamais les articles — le
+  contrat est à faire relire. Tests : `t_contrat_moe.js`,
+  `t_contrat_moe_erp.js`.
 - **Marché de travaux** (Marchés › lot › « Rédiger le marché ») : il sort
   en trois exemplaires Word (`MARCHE_EXEMPLAIRES` : client, entreprise,
   CP Constructions), marqués en tête de page. Celui du client annexe
