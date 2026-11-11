@@ -53,6 +53,20 @@ qu'on ait à les redire.
   (`supprimerAvenantClient` défait ses reports ; son numéro ne resert
   pas). Tests :
   `t_budget_avenants.js`, `budget_avenants_navigateur.js`.
+- **Contrat de maîtrise d'œuvre** (`SortirContratMoe`, `genererContratMoeDocx`) :
+  texte juridique repris mot pour mot du modèle CP ; seuls les champs
+  connus sont remplis (client, adresse, surfaces, budget, honoraires). Il
+  se sort de la fiche prospect chiffrée, et aussi du chantier signé
+  (PIÈCES › Contrat de maîtrise d'œuvre, `ContratMoeChantier`, rangé dans
+  ses pièces). Type d'ouvrage choisi sur la carte, sinon repris du
+  programme technique (`contratTypeOuvrage`) : pour un ERP, seules les
+  lignes descriptives changent (« Bâtiment à usage de bureaux — ERP de 5e
+  catégorie », `CONTRAT_ERP_DESIGNATION`), jamais les articles — le
+  contrat est à faire relire. Coût des travaux de l'article 6 : un forfait
+  TTC saisi sur la carte (`p.contratTravauxTTC`, `contratTravaux`)
+  l'emporte sur le chiffrage par poste, HT déduit au taux du dossier ; les
+  honoraires ne changent pas. Tests : `t_contrat_moe.js`,
+  `t_contrat_moe_erp.js`.
 - **Marché de travaux** (Marchés › lot › « Rédiger le marché ») : il sort
   en trois exemplaires Word (`MARCHE_EXEMPLAIRES` : client, entreprise,
   CP Constructions), marqués en tête de page. Celui du client annexe
@@ -303,6 +317,15 @@ npm run test:navigateur   # + vérifications dans Chromium (*_navigateur.js)
   clic simulé ouvre l'onglet en erreur) ; ailleurs il part
   tout seul, avec « Télécharger à nouveau ». Tests :
   `t_ptr_export_safari.js`, `t_ptr_intitule.js`.
+- **Version définitive retouchée** (éditeur du programme, `PtrDefinitifs`) :
+  le Word généré, repris dans Word, se redépose (Word et/ou PDF). Il part
+  sur le Drive › Programme technique, renommé `…_V<n>_definitif`
+  (`ptrNomDefinitif`), rattaché à la version en cours
+  (`prog.definitifs`, `ptrAjouterDefinitifs`) ; les textes du programme
+  ne changent pas, c'est ce document qui fait foi. Dépôt possible sur une
+  version figée ; l'historique des versions et la carte du programme le
+  donnent ; un Word régénéré prévient qu'il ne reprend pas les retouches.
+  Tests : `t_ptr_definitif.js`.
 - **Importer un programme préparé** (création ou éditeur du programme,
   fichier `.json` au format `cp-ptr`, `ptrLireImport`,
   `ptrImporterProgramme`) : un programme complet préparé hors de

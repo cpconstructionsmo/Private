@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-10 · Safari : le Word du programme se télécharge d’un bouton ; un lot facturé à quelques centimes près est soldé';
+const VERSION='2026-11-11 · Programme technique : version définitive retouchée ; contrat de maîtrise d’œuvre : ERP, coût des travaux forfaitaire, sortie depuis le chantier';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4176,7 +4176,29 @@ async function genererDossierDocx(p,com,majTarifs){
    d'une société, références cadastrales, financement — reste à compléter à
    la main, comme sur le modèle papier, faute d'un champ pour le saisir
    ailleurs dans l'appli. */
-function contratMoeDocumentXml(p,px){
+/* le type d'ouvrage du contrat : celui choisi sur la fiche, sinon celui du
+   programme technique du dossier, sinon une maison. Pour un ERP, seules
+   les lignes descriptives changent (sous-titre, type d'ouvrage) ; les
+   articles restent ceux du modèle — le contrat est à faire relire. */
+const CONTRAT_ERP_DESIGNATION='Bâtiment à usage de bureaux — ERP de 5e catégorie';
+/* le coût des travaux du contrat (article 6) : un forfait TTC saisi sur la
+   carte du contrat l'emporte sur le chiffrage par poste ; le HT s'en déduit
+   au taux de TVA du dossier. Les honoraires ne bougent pas : le contrat les
+   dit indépendants du coût des travaux. */
+const contratTravauxForfaitTTC=p=>{const v=+String((p&&p.contratTravauxTTC)||'').replace(/\s/g,'').replace(',','.');return v>0?Math.round(v*100)/100:0};
+const contratTravaux=p=>{
+  const tva=prospectTva(p), forfait=contratTravauxForfaitTTC(p);
+  if(forfait)return {forfait:true,tva,ttc:forfait,ht:Math.round(forfait/(1+tva/100)*100)/100};
+  const ht=prospectCoutHT(p);
+  return {forfait:false,tva,ht,ttc:Math.round(ht*(1+tva/100)*100)/100};
+};
+const contratTypeOuvrage=(p,data)=>{
+  if(p&&(p.typeOuvrage==='erp5'||p.typeOuvrage==='maison'))return p.typeOuvrage;
+  const prog=p&&data?ptrProgrammePour(data,{prospectId:p.id,chantierId:p.chantierId||null}):null;
+  return prog?ptrTypeOuvrage(prog):'maison';
+};
+function contratMoeDocumentXml(p,px,typeOuvrage){
+  const erp=typeOuvrage==='erp5';
   const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
   const sousTitre=t=>par(t,{b:true,sz:19,c:DOC_BRUN,av:140,ap:80});
   const texte=t=>par(t,{sz:18,jc:'both',ap:120});
@@ -4191,8 +4213,7 @@ function contratMoeDocumentXml(p,px){
   const nomClient=afficherCivilite(p.civilite,p.client)||p.client||'';
   const nomClient2=p.client2?afficherCivilite(p.civilite2,p.client2)||p.client2:'';
   const geoObligatoire=etudeSolObligatoire(p);
-  const coutHT=prospectCoutHT(p), tva=prospectTva(p),
-    coutTTC=Math.round(coutHT*(1+tva/100)*100)/100;
+  const trav=contratTravaux(p), coutHT=trav.ht, tva=trav.tva, coutTTC=trav.ttc;
   const margeHT=prospectMargeHT(p), margeTva=Math.round(margeHT*tva)/100,
     margeTTC=honoDossierTTC(p);
   const surfaceFonciere=p.surfaceTerrain?nb2(+p.surfaceTerrain)+' m²':'';
@@ -4203,7 +4224,8 @@ function contratMoeDocumentXml(p,px){
     par([logoXml(px)],{ap:0}),
     vide(300),
     par('CONTRAT DE MAÎTRISE D’ŒUVRE',{b:true,sz:34,c:DOC_TERRA,sp:30,jc:'center',ap:60}),
-    par('Mission de maîtrise d’œuvre — Ouvrage à usage d’habitation — Client privé',
+    par(erp?'Mission de maîtrise d’œuvre — '+CONTRAT_ERP_DESIGNATION+' — Client privé'
+      :'Mission de maîtrise d’œuvre — Ouvrage à usage d’habitation — Client privé',
       {sz:19,c:DOC_BRUN,jc:'center',ap:20,filet:DOC_BRUN}),
     par((p.nom||'')+(nomClient?' — '+nomClient:''),{sz:18,c:DOC_GRIS,jc:'center',ap:0}),
     vide(300),
@@ -4228,7 +4250,8 @@ function contratMoeDocumentXml(p,px){
 
   const a2=[
     titre('Article 2 — Description du projet'),
-    champs([['Type de maison',p.niveaux?'Ouvrage d’habitation personnalisé — '+p.niveaux:'Ouvrage d’habitation personnalisé'],
+    champs([erp?['Type d’ouvrage',CONTRAT_ERP_DESIGNATION+(p.niveaux?' — '+p.niveaux:'')]
+      :['Type de maison',p.niveaux?'Ouvrage d’habitation personnalisé — '+p.niveaux:'Ouvrage d’habitation personnalisé'],
       ['Adresse des travaux',p.commune||''],['Références cadastrales',''],
       ['Surface foncière',surfaceFonciere],['Surface projetée',surfaceProjetee],
       ['Nature du projet',p.prestation?p.prestation+' — RE 2020':'Construction neuve — RE 2020'],
@@ -4434,10 +4457,10 @@ function contratMoeDocumentXml(p,px){
     +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
     +'</w:body></w:document>';
 }
-async function genererContratMoeDocx(p){
+async function genererContratMoeDocx(p,typeOuvrage){
   let logo=null;
   try{logo=await logoDocx()}catch(e){/* sans logo, le contrat reste valable */}
-  return fabriquerDocx(contratMoeDocumentXml(p,logo),
+  return fabriquerDocx(contratMoeDocumentXml(p,logo,typeOuvrage),
     'Contrat de maîtrise d’œuvre — '+(p.nom||''),logo);
 }
 
@@ -5919,6 +5942,21 @@ function ptrImporterProgramme(existant,importe,biblio,cible,fichier,t){
       categories:ptrCopie(existant.categories),lignes:ptrCopie(existant.lignes)}];
   return {...existant,...contenu,source,version:(existant.version||1)+1,statut:'brouillon',fige:false,versions:garde,modifieLe:t};
 }
+/* la version définitive retouchée : le Word généré, repris dans Word puis
+   redéposé (ou son PDF). Elle est rattachée à la version en cours et
+   rangée sur le Drive ; les textes du programme dans l'application ne
+   changent pas — c'est ce document qui fait foi. */
+const PTR_DEFINITIF_ACCEPT='.docx,.doc,.pdf';
+const ptrTypeDefinitif=nom=>/\.pdf$/i.test(nom||'')?'pdf':/\.docx?$/i.test(nom||'')?'docx':'';
+const ptrNomDefinitif=(projet,prog,ext)=>ptrNomFichier(projet,prog,'Programme_Technique',ext).replace(/(\.[A-Za-z0-9]+)$/,'_definitif$1');
+const ptrDefinitifsVersion=(prog,n)=>((prog&&prog.definitifs)||[]).filter(d=>d.version===n);
+const ptrAjouterDefinitifs=(prog,docs,t)=>{
+  const v=prog.version||1;
+  return {...prog,
+    definitifs:[...(prog.definitifs||[]),...docs.map(d=>({id:d.id||uid(),nom:d.nom,lien:d.lien||'',type:d.type,
+      nomOrigine:d.nomOrigine||'',version:v,date:t}))],
+    exports:[...(prog.exports||[]),...docs.map(d=>({type:'definitif',nom:d.nom,lien:d.lien||'',version:v,date:t}))].slice(-30)};
+};
 const ptrConfiguree=l=>!l.incluse||(String(l.texte||'').trim()!==''&&(l.lotMO||l.horsCoord));
 function ptrStats(prog){
   const L=prog.lignes||[], inc=L.filter(l=>l.incluse);
@@ -17349,6 +17387,9 @@ function Docs({data,ch,up,save}){
               {x.id==='plan_elec'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
                 <EnvoyerEtudeElec ch={ch} d={d} up={up} data={data}/>
               </div>}
+              {x.id==='contrat_moe'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
+                <ContratMoeChantier data={data} ch={ch} save={save}/>
+              </div>}
               {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
                 <VignetteSign id={s.id}/>
                 <div style={{flex:1}}>
@@ -17364,6 +17405,19 @@ function Docs({data,ch,up,save}){
     })}
     {signe&&<SignaturePad titre={signe.l+' — '+ch.nom} onAnnuler={()=>setSigne(null)} onSigner={v=>enregistrerSignature(signe,v)}/>}
   </div>;
+}
+
+/* un dossier signé n'est plus dans les prospects en cours : le contrat de
+   maîtrise d'œuvre se sort aussi depuis le chantier, avec le chiffrage du
+   prospect dont il est issu, et se range dans ses pièces */
+function ContratMoeChantier({data,ch,save}){
+  const p=ch.prospectId?(data.prospects||[]).find(x=>x.id===ch.prospectId):null;
+  if(!p)return <div className="xs mut" style={{lineHeight:1.5}}>
+    Ce chantier n’a pas été créé depuis un prospect : le contrat de maîtrise d’œuvre se sort depuis une fiche
+    prospect chiffrée (PROSPECTS › la fiche › 3. Votre chiffrage).</div>;
+  return <SortirContratMoe data={data} p={p} sansCadre ou={'Drive › '+ch.nom+' › Pièces'}
+    dossier={token=>driveSousDossier(token,ch.id,ch.nom,'Pièces')}
+    maj={v=>save({...data,prospects:(data.prospects||[]).map(x=>x.id===p.id?{...x,...v}:x)})}/>;
 }
 
 /* ---------------- MISE AU POINT TECHNIQUE (MAP) ----------------
@@ -26294,16 +26348,25 @@ function SortirChiffrageInterne({data,p,maj}){
    retapé depuis le modèle papier. Le champ N° RCS, les références
    cadastrales et le financement restent des blancs à compléter à la main,
    faute d'un champ pour les saisir ailleurs dans l'application. */
-function SortirContratMoe({data,p,maj}){
+function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
   const [etat,setEtat]=useState(null);
   const pret=prospectPrixTTC(p)>0;
+  const type=contratTypeOuvrage(p,data);
+  const trav=contratTravaux(p), calculeTTC=Math.round(prospectCoutHT(p)*(1+prospectTva(p)/100)*100)/100;
+  const forfait=contratTravauxForfaitTTC(p);
+  const [saisieForfait,setSaisieForfait]=useState(forfait?String(forfait):'');
+  useEffect(()=>{setSaisieForfait(forfait?String(forfait):'')},[forfait]);
+  const validerForfait=()=>{const v=+String(saisieForfait).replace(/\s/g,'').replace(',','.');
+    const n=v>0?Math.round(v*100)/100:'';if(n!==(forfait||''))maj({contratTravauxTTC:n})};
   const produire=async()=>{
     setEtat({etat:'travail'});
     try{
-      const buf=await genererContratMoeDocx(p);
+      const buf=await genererContratMoeDocx(p,type);
       const nom='Contrat de maîtrise d’œuvre — '+(p.nom||'projet')+'.docx';
       const token=await getDriveToken();
-      const dossierId=await driveProspectFolder(token,p.id,p.nom);
+      /* depuis le chantier, le contrat se range avec ses pièces ; depuis la
+         fiche prospect, dans le dossier du prospect, comme avant */
+      const dossierId=dossier?await dossier(token):await driveProspectFolder(token,p.id,p.nom);
       const {webViewLink}=await uploadToDrive(new File([buf],nom,
         {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),dossierId);
       maj({contratMoeLe:today()});
@@ -26315,7 +26378,7 @@ function SortirContratMoe({data,p,maj}){
         :'Sortie impossible — '+c});
     }
   };
-  return <div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>
+  const contenu=<React.Fragment>
     <div className="b sm" style={{color:NAVY}}>Contrat de maîtrise d’œuvre</div>
     <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
       Le contrat prêt à signer, rempli des informations déjà saisies : identité du client, adresse du
@@ -26323,6 +26386,26 @@ function SortirContratMoe({data,p,maj}){
       références cadastrales et le financement restent à compléter à la main.
       {p.contratMoeLe?<span> Dernière sortie le {fd(p.contratMoeLe)}.</span>:null}
     </div>
+    <div className="row xs" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="mut">Ouvrage</span>
+      <select className="in" aria-label="Ouvrage du contrat" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={type}
+        onChange={e=>maj({typeOuvrage:e.target.value})}>
+        {PTR_TYPES_OUVRAGE.map(t=><option key={t.id} value={t.id}>{t.l}</option>)}</select>
+    </div>
+    <div className="row xs" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="mut">Coût des travaux forfaitaire (TTC)</span>
+      <input className="in" aria-label="Coût des travaux forfaitaire TTC" inputMode="decimal" style={{width:150,fontSize:13,padding:'6px 8px'}}
+        placeholder={calculeTTC?'calculé : '+eur(calculeTTC):'montant TTC'} value={saisieForfait}
+        onChange={e=>setSaisieForfait(e.target.value)} onBlur={validerForfait}
+        onKeyDown={e=>{if(e.key==='Enter')validerForfait()}}/>
+    </div>
+    <div className="xs" style={{marginTop:4,lineHeight:1.5,color:trav.forfait?NAVY:MUTED}}>
+      {trav.forfait?'Article 6 : budget travaux forfaitaire de '+eurDoc(trav.ttc)+' TTC, soit '+eurDoc(trav.ht)+' HT (TVA '+trav.tva+' %)'
+        +(calculeTTC?' — au lieu des '+eur(calculeTTC)+' TTC du chiffrage.':'.')+' Les honoraires ne changent pas.'
+        :'Laissé vide, l’article 6 reprend le coût des travaux du chiffrage'+(calculeTTC?' ('+eur(calculeTTC)+' TTC).':'.')}</div>
+    {type==='erp5'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:AMBER}}>
+      ERP : seules les lignes descriptives changent (« {CONTRAT_ERP_DESIGNATION} »). Les articles restent ceux du
+      modèle, écrit pour une maison : faites relire l’ensemble du contrat avant de le signer.</div>}
     <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
       <button className="btn acc s" disabled={!pret||(etat&&etat.etat==='travail')} onClick={produire}>
         {etat&&etat.etat==='travail'?'Composition…':'Sortir le contrat de maîtrise d’œuvre'}</button>
@@ -26330,11 +26413,13 @@ function SortirContratMoe({data,p,maj}){
         style={{textDecoration:'none'}}>Ouvrir</a>}
     </div>
     {etat&&etat.etat==='ok'&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
-      Déposé dans Drive › Prospects › {p.nom} — {etat.nom}</div>}
+      Déposé dans {ou||'Drive › Prospects › '+p.nom} — {etat.nom}</div>}
     {etat&&etat.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{etat.msg}</div>}
     {!pret&&<div className="xs" style={{marginTop:8,color:AMBER,lineHeight:1.5}}>
       Chiffrez d'abord le projet : sans montant, il n'y a pas de budget travaux ni d'honoraires à indiquer.</div>}
-  </div>;
+  </React.Fragment>;
+  return sansCadre?<div>{contenu}</div>
+    :<div className="card" style={{marginTop:12,padding:10,borderLeft:'3px solid '+NAVY}}>{contenu}</div>;
 }
 
 /* ---------- sortir la notice précontractuelle ----------
@@ -27132,6 +27217,7 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
   const [modale,setModale]=useState(null);
   const [sauve,setSauve]=useState('ok');
   const [exp,setExp]=useState(null);
+  const [defEtat,setDefEtat]=useState(null);
   /* le fichier exporté, servi par un vrai lien <a download> : sous Safari,
      un clic simulé ouvre un onglet qui ne peut pas lire le fichier
      (WebKitBlobResource erreur 1) ; un lien cliqué télécharge. Le lien
@@ -27381,6 +27467,32 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
     try{const token=await getDriveToken();const dossier=await ptrDossierDrive(token,dataRef.current,cible);
       const r=await uploadToDrive(new File([octets],nom,{type}),dossier);return r.webViewLink||''}catch(e){return ''}
   };
+  /* la version définitive retouchée dans Word (ou son PDF) : sur le Drive,
+     renommée d'après le programme, rattachée à la version en cours */
+  const deposerDefinitifs=async files=>{
+    const bons=files.filter(f=>ptrTypeDefinitif(f.name));
+    if(!bons.length){setDefEtat({etat:'erreur',msg:'Déposez le programme en Word (.docx) ou en PDF.'});return}
+    setDefEtat({etat:'travail'});
+    try{
+      const token=await getDriveToken();
+      const dossier=await ptrDossierDrive(token,dataRef.current,cible);
+      const pj=ptrProjet(dataRef.current,prog), docs=[];
+      for(const f of bons){
+        const type=ptrTypeDefinitif(f.name), ext=type==='pdf'?'pdf':(/\.doc$/i.test(f.name)?'doc':'docx');
+        const nom=ptrNomDefinitif(pj,prog,ext);
+        const r=await uploadToDrive(new File([f],nom,{type:f.type||(type==='pdf'?PTR_MIME.pdf:PTR_MIME.docx)}),dossier);
+        docs.push({nom,lien:(r&&r.webViewLink)||'',type,nomOrigine:f.name});
+      }
+      majProg(x=>ptrAjouterDefinitifs(x,docs,ptrMaintenant()),{statut:false});
+      setDefEtat({etat:'ok',msg:(docs.length>1?docs.length+' documents déposés':'Document déposé')+' sur le Drive, rattaché'+(docs.length>1?'s':'')
+        +' à la version '+(prog.version||1)+' — '+docs.map(d=>d.nom).join(', ')
+        +(bons.length<files.length?' ('+(files.length-bons.length)+' fichier(s) ignoré(s) : ni Word ni PDF)':'')});
+    }catch(e){setDefEtat({etat:'erreur',msg:'Dépôt impossible — '+ptrMessageErreur(e)})}
+  };
+  const retirerDefinitif=d=>{
+    if(!confirm('Retirer « '+d.nom+' » du programme ? Le fichier reste sur le Drive.'))return;
+    majProg(x=>({...x,definitifs:(x.definitifs||[]).filter(y=>y.id!==d.id)}),{statut:false});
+  };
   const noter=(type,nom,lien)=>majProg(x=>({...x,exports:[...(x.exports||[]),{type,nom,lien,version:x.version,date:ptrMaintenant()}].slice(-30)}),{statut:false});
   const exporter=async(type,forcer,version)=>{
     const pg=version?{...prog,categories:version.categories,lignes:version.lignes,version:version.numero,statut:version.statut,reference:version.reference||prog.reference}:prog;
@@ -27405,7 +27517,8 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
       }
       const {octets,manquantes}=await genererProgrammeDocx(pg,pj,biblio,dataRef.current.majorationsCorps);
       const nomDocx=base+'.docx', nomPdf=base+'.pdf';
-      const note=manquantes.length?' — '+manquantes.length+' photo(s) introuvable(s) : '+manquantes.join(', '):'';
+      const note=(manquantes.length?' — '+manquantes.length+' photo(s) introuvable(s) : '+manquantes.join(', '):'')
+        +(ptrDefinitifsVersion(pg,pg.version||1).length?' — attention : composé depuis l’application, il ne reprend pas les retouches de la version définitive déposée':'');
       if(type==='docx'){
         livrer(octets,nomDocx,PTR_MIME.docx);
         const lien=await deposer(octets,nomDocx,PTR_MIME.docx);noter('docx',nomDocx,lien);
@@ -27566,6 +27679,7 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
           download={exp.fichier.nom} style={{marginLeft:8,display:'inline-block',textDecoration:'none'}}>
           {exp.auto===false?'⬇ Télécharger '+(exp.fichier.quoi||'le fichier'):'Télécharger à nouveau'}</a>}
         {exp.lien&&<a href={exp.lien} target="_blank" rel="noreferrer" style={{color:TERRA,marginLeft:8}}>Ouvrir sur le Drive</a>}</div>}
+      <PtrDefinitifs prog={prog} fige={fige} etat={defEtat} onDeposer={deposerDefinitifs} onRetirer={retirerDefinitif}/>
       <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
         {!fige&&<button className="btn s" onClick={figer}>Valider et figer la version {prog.version||1}</button>}
         {prog.statut!=='archive'&&<button className="btn gh s" onClick={archiver}>Archiver</button>}
@@ -27669,16 +27783,49 @@ function ProgrammeTechnique({data,save,cible,onFermer}){
     </PtrModale>}
     {modale&&modale.type==='versions'&&<PtrModale titre="Versions du programme" onFermer={()=>setModale(null)}>
       {[...(prog.versions||[])].sort((a,b)=>b.numero-a.numero).map(v=><div key={v.numero} className="sp sm" style={{gap:8,padding:'6px 0',borderBottom:'1px solid '+RULE}}>
-        <span>Version {v.numero} — {fd(String(v.date).slice(0,10))} — <b style={{color:ptrStatut(v.statut).c}}>{ptrStatut(v.statut).l}</b></span>
+        <span>Version {v.numero} — {fd(String(v.date).slice(0,10))} — <b style={{color:ptrStatut(v.statut).c}}>{ptrStatut(v.statut).l}</b>
+          {ptrDefinitifsVersion(prog,v.numero).map(d=><span key={d.id} className="xs"> · <a href={d.lien} target="_blank" rel="noreferrer"
+            style={{color:TERRA}}>définitif {d.type==='pdf'?'PDF':'Word'}</a></span>)}</span>
         <button className="btn gh s" onClick={()=>exporter('docx',true,v)}>Word</button>
       </div>)}
-      {!fige&&<div className="sm" style={{padding:'6px 0'}}>Version {prog.version} — en cours d’édition ({ptrStatut(prog.statut).l})</div>}
+      {!fige&&<div className="sm" style={{padding:'6px 0'}}>Version {prog.version} — en cours d’édition ({ptrStatut(prog.statut).l})
+        {ptrDefinitifsVersion(prog,prog.version||1).map(d=><span key={d.id} className="xs"> · <a href={d.lien} target="_blank" rel="noreferrer"
+          style={{color:TERRA}}>définitif {d.type==='pdf'?'PDF':'Word'}</a></span>)}</div>}
       {(prog.exports||[]).length>0&&<div style={{marginTop:12}}>
         <div className="lbl">Derniers exports</div>
         {[...prog.exports].reverse().slice(0,10).map((x,i)=><div key={i} className="xs" style={{padding:'2px 0'}}>
           {fd(String(x.date).slice(0,10))} · V{x.version} · {x.type.toUpperCase()} · {x.lien?<a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{x.nom}</a>:x.nom}</div>)}
       </div>}
     </PtrModale>}
+  </div>;
+}
+
+/* la version définitive retouchée hors de l'application (Word ou PDF) :
+   déposée ici, elle fait foi ; les textes de l'application ne changent pas.
+   Le dépôt reste possible sur une version figée — c'est souvent après la
+   validation que le document final revient. */
+function PtrDefinitifs({prog,fige,etat,onDeposer,onRetirer}){
+  const L=[...(prog.definitifs||[])].sort((a,b)=>(b.version-a.version)||String(b.date).localeCompare(String(a.date)));
+  const enCours=ptrDefinitifsVersion(prog,prog.version||1).length>0;
+  return <div style={{marginTop:12,padding:'10px 12px',borderRadius:8,background:'#F4F1EB'}}>
+    <div className="b sm" style={{color:NAVY}}>Version définitive retouchée</div>
+    <div className="xs mut" style={{marginTop:3,lineHeight:1.5}}>
+      Le programme a été retouché dans Word ? Déposez ici le document définitif (Word, et son PDF si vous l’avez) :
+      il part sur le Drive, rattaché à la version {prog.version||1}. Les textes du programme dans l’application ne
+      changent pas : c’est ce document qui fait foi.</div>
+    {L.map(d=><div key={d.id} className="row xs" style={{gap:8,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="pill" style={{background:NAVY+'14',color:NAVY}}>V{d.version} · {d.type==='pdf'?'PDF':'Word'}</span>
+      {d.lien?<a href={d.lien} target="_blank" rel="noreferrer" style={{color:TERRA,wordBreak:'break-word'}}>{d.nom}</a>:<span>{d.nom}</span>}
+      <span className="mut">déposé le {fd(String(d.date).slice(0,10))}</span>
+      <button aria-label={'Retirer '+d.nom} style={{color:MUTED,background:'none',border:'none',padding:0}} onClick={()=>onRetirer(d)}>✕</button>
+    </div>)}
+    <label className="btn gh s" style={{marginTop:8,display:'inline-block',whiteSpace:'normal',maxWidth:'100%'}}>
+      {etat&&etat.etat==='travail'?'Dépôt…':enCours?'Déposer un autre document définitif':'Déposer la version définitive (Word ou PDF)'}
+      <input type="file" accept={PTR_DEFINITIF_ACCEPT} multiple style={{display:'none'}} disabled={!!(etat&&etat.etat==='travail')}
+        onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)onDeposer(fs)}}/></label>
+    {etat&&etat.etat!=='travail'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:etat.etat==='erreur'?TERRA:GREEN}}>{etat.msg}</div>}
+    {enCours&&!fige&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:MUTED}}>
+      Le document est déposé : vous pouvez « Valider et figer la version {prog.version||1} » — il y reste attaché.</div>}
   </div>;
 }
 
@@ -27692,6 +27839,8 @@ function CarteProgrammeTechnique({data,cible,onOuvrir}){
       {prog?<span>Version {prog.version} — <b style={{color:st.c}}>{st.l}</b> — {s.configurees} / {s.incluses} prestations configurées
         — modifié le {fd(String(prog.modifieLe||prog.creeLe).slice(0,10))}.</span>
         :'Construit depuis la bibliothèque de prestations CP Constructions : propositions A/B/C, photos, Lot MO / hors coordination, puis Word, PDF ou Excel.'}
+      {prog&&ptrDefinitifsVersion(prog,prog.version||1).map(d=><div key={d.id}>Version définitive retouchée :{' '}
+        <a href={d.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{d.nom}</a></div>)}
     </div>
     <button className="btn acc s" style={{marginTop:8}} onClick={onOuvrir}>{prog?'Ouvrir le programme technique':'Créer le programme technique'}</button>
   </div>;
