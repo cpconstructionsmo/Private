@@ -97,8 +97,10 @@ qu'on ait à les redire.
   (`pvSignataires`) : tracée à l'écran (stockage photos, empreinte), ou
   celle fournie par l'entreprise (`artisan.visa`, fiche artisan, aussi
   depuis le PV) seulement quand son accord pour ce PV est noté
-  (`pv.accordEntreprise`) ; le cachet accompagne la signature, jamais
-  seul. Visa de CP Constructions (`data.cpVisa`, déposé depuis un PV) :
+  (`pv.accordEntreprise`) ; le cachet accompagne une signature distincte.
+  Un fichier unique (cachet et signature ensemble, déposé dans « Cachet »,
+  « Signature » vide) s'appose seul, en plus grand, et ne s'ajoute pas à
+  une signature tracée à l'écran. Visa de CP Constructions (`data.cpVisa`, déposé depuis un PV) :
   apposé d'office dès que sa signature est enregistrée, décochable sur un
   PV (`pv.visaCp===false`). Après production, l'écran dit ce que porte
   le PV, colonne par colonne. Le Word part sur
