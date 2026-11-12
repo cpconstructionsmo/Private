@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-11 · Programme technique : version définitive retouchée ; contrat de maîtrise d’œuvre : ERP, coût des travaux forfaitaire, sortie depuis le chantier';
+const VERSION='2026-11-12 · Marchés : PV de réception par lot (modèle CP, rempli d’office, signatures et cachets)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3566,6 +3566,206 @@ async function genererMarcheDocx(d){
   return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||'')+(d.exemplaire?' — '+d.exemplaire:''),
     logo,qr,qrPlan,extra.length?extra:undefined);
 }
+
+/* ---------- procès-verbal de réception, lot par lot ----------
+   Le modèle CP Constructions (une page), rempli d'office de ce que
+   l'application connaît — maître d'ouvrage, adresse du chantier, entreprise,
+   date et montant TTC du marché, avenants — puis complété à la visite
+   (achèvement, présence, décision, réserves) et signé : à l'écran, ou par la
+   signature et le cachet que l'entreprise a fournis, quand elle a donné son
+   accord pour ce PV-là. Il est rangé sur le chantier (ch.pvs[marcheId]) et
+   non dans le lot : le formulaire du lot ne s'enregistre qu'au clic, une
+   signature recueillie ne doit pas attendre ce clic. */
+const PV_DECISIONS=[{id:'sans',l:'Sans réserve'},{id:'avec',l:'Avec réserves'},{id:'refus',l:'Non prononcée (différée ou refusée)'}];
+const PV_ROLES=[
+  {id:'moa',l:'Le(s) maître(s) d’ouvrage',qualite:'Client',aide:'Signature précédée de « Lu et approuvé »'},
+  {id:'entreprise',l:'L’entreprise',qualite:'Entreprise',aide:'Nom, qualité, signature et cachet'},
+  {id:'moe',l:'Visa de CP Constructions',qualite:'Maître d’œuvre',aide:'Signature et cachet'}];
+const PV_TEXTE_GARANTIES='Réception de la totalité des travaux de ce lot (marché et avenants), à l’exclusion de tout autre lot. '
+  +'Elle fait courir pour ce lot les garanties de parfait achèvement (1 an), de bon fonctionnement (2 ans au moins) et décennale '
+  +'(10 ans) — articles 1792, 1792-3 et 1792-6 du Code civil. Solde réglé directement par le maître d’ouvrage à l’entreprise.';
+const PV_PIED_LEGAL='CP Constructions · '+CP.forme+' · 14 rue de Congé, 61250 Valframbert · RCS Alençon '+CP.siren;
+const pvDe=(ch,mid)=>({acheveLe:'',presence:'',decision:'',motif:'',dateEffet:'',reserves:[],annexe:false,faitA:'',faitLe:'',
+  signatures:{},accordEntreprise:null,visaCp:false,...((((ch&&ch.pvs)||{})[mid])||{})});
+const pvDate=d=>d?fd(d):'';
+/* ce qui part dans le PV : rempli d'office, puis ce que la visite a dit */
+function pvDonnees(m,ch,data,pv){
+  pv=pv||pvDe(ch,m.id);
+  const art=((data&&data.artisans)||[]).find(a=>a.id===m.artisanId)||null;
+  const p=ch.prospectId?((data&&data.prospects)||[]).find(x=>x.id===ch.prospectId):null;
+  /* civilité et second maître d'ouvrage : ceux du prospect, tant que le nom
+     du client n'a pas été changé sur le chantier depuis */
+  const duProspect=p&&p.client&&(!ch.client||ch.client===p.client);
+  const moa=duProspect
+    ?[afficherCivilite(p.civilite,p.client),p.client2?afficherCivilite(p.civilite2,p.client2):''].filter(Boolean).join(' et ')
+    :(ch.client||'');
+  const avs=(m.avenants||[]).filter(a=>a.numero&&(a.dateSignature||a.lien||a.budgetAppliqueLe));
+  return {dossier:ch.nom||'',lotNumero:String(m.numeroMarche||''),intitule:m.lot||'',
+    maitreOuvrage:moa,adresse:ch.adresse||'',entreprise:art?art.nom:'',
+    marche:[m.dateSignature?pvDate(m.dateSignature):'',(+m.montantHT>0)?eurDoc(Math.round(marcheTTC(m,ch)*100)/100)+' TTC':''].filter(Boolean).join(' — '),
+    avenants:avs.length?avs.map(a=>a.numero).join(', '):'aucun',
+    acheveLe:pvDate(pv.acheveLe),presence:pv.presence||'',decision:pv.decision||'',motif:pv.motif||'',
+    dateEffet:pvDate(pv.dateEffet),
+    reserves:(pv.reserves||[]).filter(r=>(r.localisation||r.description||r.avant)).map(r=>({...r,avant:pvDate(r.avant)})),
+    annexe:!!pv.annexe,faitA:pv.faitA||'',faitLe:pvDate(pv.faitLe)};
+}
+/* qui a signé, et avec quelle image : la signature tracée à l'écran le jour
+   de la réception prime ; sinon celle que l'entreprise (ou CP Constructions)
+   a fournie, seulement si son accord pour ce PV a été noté. Le cachet
+   accompagne la signature de son titulaire, jamais seul. */
+function pvSignataires(pv,art,data){
+  const vEnt=(art&&art.visa)||{}, vCp=(data&&data.cpVisa)||{};
+  const S=(pv&&pv.signatures)||{};
+  const ent=S.entreprise?{...S.entreprise,source:'ecran'}
+    :(pv&&pv.accordEntreprise&&vEnt.signature)?{id:vEnt.signature.id,nom:(art&&art.nom)||'',qualite:'Entreprise',
+      date:pv.accordEntreprise.le,source:'fournie'}:null;
+  const moe=S.moe?{...S.moe,source:'ecran'}
+    :(pv&&pv.visaCp&&vCp.signature)?{id:vCp.signature.id,nom:'CP Constructions',qualite:'Maître d’œuvre',
+      date:pv.visaCp.le||'',source:'fournie'}:null;
+  return {moa:S.moa?{...S.moa,source:'ecran'}:null,
+    entreprise:ent,cachetEntreprise:ent&&vEnt.cachet?vEnt.cachet:null,
+    moe,cachetMoe:moe&&vCp.cachet?vCp.cachet:null};
+}
+/* une image dans une boîte, sans la déformer (EMU) */
+const pvAjuster=(w,h,maxL,maxH)=>{const r=Math.min(maxL/(w||1),maxH/(h||1));return [Math.round((w||1)*r),Math.round((h||1)*r)]};
+const PV_ARDOISE='2F4558', PV_GRIS_CLAIR='EEF1F4', PV_FILET='BFC5CC';
+function pvReceptionDocumentXml(d,img,px){
+  img=img||{};
+  const L=10206, pt='…………';
+  const t=(s,o)=>run(s,{sz:19,...(o||{})});
+  const coche=v=>run(v?'☒':'☐',{f:'Segoe UI Symbol',sz:20,c:PV_ARDOISE});
+  const cel=(w,contenu,o)=>tc(w,contenu,{bords:tcB({c:PV_FILET,sz:4,t:4,bs:4}),mg:100,...(o||{})});
+  const barre=c=>'<w:tcBorders><w:top w:val="nil"/><w:left w:val="single" w:sz="24" w:space="0" w:color="'+c+'"/>'
+    +'<w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders>';
+  const ligne=(cells,haut)=>'<w:tr><w:trPr><w:cantSplit/>'+(haut?'<w:trHeight w:val="'+haut+'"/>':'')+'</w:trPr>'+cells.join('')+'</w:tr>';
+  const entete=tbl([4200,L-4200],[tr([
+    tc(4200,px?'<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'+logoXml(px)+'</w:p>':par(CP.nom,{b:true,sz:24,c:DOC_TERRA,ap:0}),{mg:0}),
+    tc(L-4200,par('Maîtrise d’œuvre',{sz:26,c:PV_ARDOISE,jc:'right',ap:20})
+      +par('Construction · Rénovation · Extension',{sz:16,c:DOC_GRIS,jc:'right',ap:0})
+      +par(CP.tel+' · '+CP.mail,{sz:16,c:DOC_GRIS,jc:'right',ap:0}),{mg:0})])])
+    +par('',{filet:DOC_TERRA,filetSz:6,ap:100,sz:4});
+  const titre=tbl([L],[tr([tc(L,par('Procès-verbal de réception',{sz:38,c:PV_ARDOISE,ap:0}),{bords:barre(DOC_TERRA),mg:160})])]);
+  const lot=tbl([L],[tr([tc(L,par([t('Lot n° ',{b:true,c:PV_ARDOISE}),t(d.lotNumero||pt,{b:true}),
+    t('      Intitulé : ',{b:true,c:PV_ARDOISE}),t('« '+(d.intitule||'……………………………………')+' »',{b:true})],{ap:0}),
+    {bords:barre(DOC_TERRA),fond:PV_GRIS_CLAIR,mg:160})])]);
+  const lab=(w,s)=>cel(w,par(s,{b:true,sz:18,c:PV_ARDOISE,ap:0}),{fond:PV_GRIS_CLAIR});
+  const val=(w,s)=>cel(w,par(s||'',{sz:18,ap:0}));
+  const infos=tbl([2000,3100,2000,3106],[
+    tr([lab(2000,'Maître d’ouvrage'),val(3100,d.maitreOuvrage),lab(2000,'Adresse'),val(3106,d.adresse)]),
+    tr([lab(2000,'Entreprise'),val(3100,d.entreprise),lab(2000,'Marché du / TTC'),val(3106,d.marche)]),
+    tr([lab(2000,'Achevé le'),val(3100,d.acheveLe),lab(2000,'Avenants n°'),val(3106,d.avenants)])]);
+  const titreSection=(s,suite)=>par([t(s,{b:true,caps:true,sp:40,sz:18,c:DOC_TERRA})].concat(suite||[]),{av:100,ap:40});
+  const decisions=[
+    par([coche(d.decision==='sans'),t(' prononcer la réception '),t('sans réserve',{b:true}),t(' ;')],{ap:30}),
+    par([coche(d.decision==='avec'),t(' prononcer la réception '),t('avec les réserves',{b:true}),t(' ci-dessous, à lever dans les délais indiqués ;')],{ap:30}),
+    par([coche(d.decision==='refus'),t(' '),t('ne pas prononcer',{b:true}),t(' la réception (différée ou refusée). Motif : '),
+      t(d.decision==='refus'&&d.motif?d.motif:'……………………………………')],{ap:60})].join('');
+  const effet=tbl([5400,L-5400],[tr([
+    tc(5400,par('Date d’effet de la réception (jour de la visite)',{b:true,sz:18,c:PV_ARDOISE,ap:0}),{bords:tcB({c:DOC_TERRA,sz:8,t:8,bs:8}),fond:PV_GRIS_CLAIR,mg:120}),
+    tc(L-5400,par(d.dateEffet||'………… / ………… / ………………',{sz:20,jc:'center',ap:0}),{bords:tcB({c:DOC_TERRA,sz:8,t:8,bs:8}),mg:120})])]);
+  const RW=[600,2000,5300,2306];
+  const entR=(w,s)=>tc(w,par(s,{b:true,sz:17,c:'FFFFFF',ap:0}),{fond:PV_ARDOISE,bords:tcB({c:PV_ARDOISE,sz:4,t:4,bs:4}),mg:100});
+  const R=d.reserves||[], nR=Math.max(3,R.length);
+  const reserves=tbl(RW,[tr([entR(RW[0],'N°'),entR(RW[1],'Localisation'),entR(RW[2],'Description précise'),entR(RW[3],'À lever avant le')])]
+    .concat(Array.from({length:nR},(x,i)=>{const r=R[i]||{};return ligne([
+      cel(RW[0],par(String(i+1),{b:true,sz:18,c:DOC_TERRA,jc:'center',ap:0})),
+      cel(RW[1],par(r.localisation||'',{sz:17,ap:0})),cel(RW[2],par(r.description||'',{sz:17,ap:0})),
+      cel(RW[3],par(r.avant||'',{sz:17,ap:0}))],380)})));
+  const garanties=tbl([L],[tr([tc(L,par(PV_TEXTE_GARANTIES,{sz:16,jc:'both',ap:0}),{bords:barre(PV_ARDOISE),fond:PV_GRIS_CLAIR,mg:140})])]);
+  const fait=par([t('Fait à '),t(d.faitA||'……………………………………'),t(', le '),t(d.faitLe||'……… / ……… / ……………'),t(', en 2 exemplaires.')],{av:120,ap:60});
+  /* les signatures : chaque image dans sa colonne, avec qui, en quelle qualité et quand */
+  const SW=[3402,3402,3402];
+  let docPr=40;
+  const dessin=(im,nom,maxL,maxH)=>{if(!im||!im.rid)return '';const [l,h]=pvAjuster(im.w,im.h,maxL,maxH);return photoXml(im.rid,docPr++,nom,l,h)};
+  const colonne=(role,s,cachet)=>{
+    let x=par(role.aide,{i:true,sz:14,c:DOC_GRIS,ap:40});
+    const images=[dessin(s,'Signature',1250000,560000),dessin(cachet,'Cachet',1050000,620000)].filter(Boolean);
+    if(images.length)x+='<w:p><w:pPr><w:spacing w:before="20" w:after="20" w:line="240" w:lineRule="auto"/></w:pPr>'+images.join(run('  ',{sz:14}))+'</w:p>';
+    if(s&&s.nom)x+=par(s.nom+(s.qualite?' — '+s.qualite:''),{sz:15,ap:0})
+      +par((s.source==='fournie'?'Signature fournie, accord donné le ':'Signé le ')+(s.date?(/T/.test(s.date)?dateHeure(s.date):pvDate(s.date)):''),{sz:13,c:DOC_GRIS,ap:0});
+    return x;
+  };
+  const entS=(w,s)=>tc(w,par(s,{b:true,sz:17,c:'FFFFFF',ap:0}),{fond:PV_ARDOISE,bords:tcB({c:PV_ARDOISE,sz:4,t:4,bs:4}),mg:100});
+  const signatures=tbl(SW,[
+    tr(PV_ROLES.map((r,i)=>entS(SW[i],r.l))),
+    ligne([cel(SW[0],colonne(PV_ROLES[0],img.moa),{v:'top'}),
+      cel(SW[1],colonne(PV_ROLES[1],img.entreprise,img.cachetEntreprise),{v:'top'}),
+      cel(SW[2],colonne(PV_ROLES[2],img.moe,img.cachetMoe),{v:'top'})],2300),
+    tr([cel(L,par([t('Levée des réserves',{b:true,sz:18,c:PV_ARDOISE}),t('   '),coche(false),t(' toutes   ',{sz:18}),coche(false),
+      t(' n° ……………   le …… / …… / …………   — signatures et cachets ci-dessous',{sz:18})],{ap:0}),{fond:PV_GRIS_CLAIR,fusion:3})]),
+    ligne([cel(SW[0],par('',{ap:0})),cel(SW[1],par('',{ap:0})),cel(SW[2],par('',{ap:0}))],1300)]);
+  const corps=[entete,titre,vide(60),lot,
+    par('Nous soussigné(s), maître(s) d’ouvrage, après visite contradictoire des travaux du lot ci-dessus, avec l’assistance de CP Constructions, maître d’œuvre :',{sz:19,av:100,ap:80}),
+    infos,
+    par([t('Entreprise : ',{b:true,c:PV_ARDOISE}),coche(d.presence==='presente'),t(' présente ou représentée        '),coche(d.presence==='absente'),t(' absente')],{av:120,ap:40}),
+    titreSection('Déclarons'),decisions,effet,
+    titreSection('Réserves',[t('          '),coche(d.annexe),t(' suite sur feuille annexée et paraphée',{sz:18})]),reserves,vide(100),
+    garanties,fait,signatures].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:headerReference w:type="default" r:id="rId50"/><w:footerReference w:type="default" r:id="rId51"/>'
+    +'<w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="700" w:right="850" w:bottom="700" w:left="850" w:header="300" w:footer="300" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+function pvPiedXml(d){
+  const champ=instr=>'<w:fldSimple w:instr=" '+instr+' "><w:r>'+rP({sz:14,c:DOC_GRIS})+'<w:t>1</w:t></w:r></w:fldSimple>';
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    +'<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="'+PV_FILET+'"/></w:pBdr>'
+    +'<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
+    +run('Dossier : '+(d.dossier||'…………')+'  ·  ',{sz:14,c:DOC_GRIS})
+    +run('PV de réception · Lot '+(d.lotNumero||'……'),{sz:14,b:true,c:PV_ARDOISE})
+    +run('  ·  Date : '+(d.faitLe||'…… / …… / ……')+'        Page ',{sz:14,c:DOC_GRIS})
+    +champ('PAGE')+run(' / ',{sz:14,c:DOC_GRIS})+champ('NUMPAGES')+'</w:p>'
+    +par(PV_PIED_LEGAL,{sz:13,c:DOC_GRIS,ap:0})
+    +'</w:ftr>';
+}
+const PV_ENTETE_VIDE='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+  +'<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr></w:p></w:hdr>';
+/* images : {moa, entreprise, cachetEntreprise, moe, cachetMoe}, chacune
+   {data (octets JPEG ou PNG), w, h} plus, pour une signature, nom, qualité,
+   date et source — déjà chargées par l'appelant */
+async function genererPvReceptionDocx(d,images){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, le PV reste valable */}
+  const img={}, extra=[];
+  let n=20;
+  ['moa','entreprise','cachetEntreprise','moe','cachetMoe'].forEach(k=>{
+    const im=images&&images[k];
+    if(!im)return;
+    if(!im.data){img[k]={...im};return}
+    const dim=ptrDimensionsBrutes(im.data)||{w:im.w||400,h:im.h||200,ext:'jpeg'};
+    const rid='rId'+(n++);
+    extra.push({id:rid,nom:'pv-'+k+'.'+(dim.ext||'jpeg'),data:im.data});
+    img[k]={...im,rid,w:dim.w,h:dim.h};
+  });
+  const xml=pvReceptionDocumentXml(d,img,logo);
+  return fabriquerDocx(xml,'PV de réception — Lot '+(d.lotNumero||'')+' — '+(d.intitule||''),logo,null,null,
+    extra.length?extra:undefined,{entete:PV_ENTETE_VIDE,pied:pvPiedXml(d)});
+}
+/* les octets d'une image rangée dans le stockage photos (signature, cachet) */
+async function pvImageOctets(id){
+  const url=await Photo.get(id);
+  if(!url)throw new Error('image introuvable');
+  const r=await fetch(url);
+  if(!r.ok)throw new Error('image illisible ('+r.status+')');
+  return new Uint8Array(await r.arrayBuffer());
+}
+/* charge les images des signataires ; une image illisible est nommée, le PV
+   sort quand même avec la case vide (à signer à la main) */
+async function pvChargerImages(sig,lire){
+  lire=lire||pvImageOctets;
+  const out={}, manquantes=[];
+  for(const k of ['moa','entreprise','cachetEntreprise','moe','cachetMoe']){
+    const s=sig[k];
+    if(!s)continue;
+    try{out[k]={...s,data:await lire(s.id)}}
+    catch(e){out[k]={...s,data:null};manquantes.push(k)}
+  }
+  return {images:out,manquantes};
+}
+const pvNomFichier=(d,m)=>'PV de réception — Lot '+(d.lotNumero?d.lotNumero+' — ':'')+(m.lot||'lot')+' — '+(d.dossier||'')+'.docx';
 
 /* ---------- avenant au marché de travaux ----------
    Une prestation ajoutée ou supprimée après la mise au point technique, avant
@@ -9525,10 +9725,10 @@ function ImportContact({onLu,label}){
 
 const QUALITES=['Client','Maître d’œuvre','Entreprise','Autre'];
 
-function SignaturePad({titre,onAnnuler,onSigner}){
+function SignaturePad({titre,onAnnuler,onSigner,qualiteDefaut}){
   const cv=useRef(null), trace=useRef(false), vide=useRef(true);
   const [nom,setNom]=useState('');
-  const [qualite,setQualite]=useState('Client');
+  const [qualite,setQualite]=useState(qualiteDefaut||'Client');
   const [err,setErr]=useState('');
   const [busy,setBusy]=useState(false);
 
@@ -11127,6 +11327,221 @@ function Quantitatif({data,f,setF,save,champ}){
   </Fld>;
 }
 
+/* ---------- cachet et signature fournis (entreprise, ou CP Constructions) ----------
+   Une photo ou un scan du tampon et de la signature, recadré et allégé, rangé
+   dans le stockage photos : il sert ensuite aux PV de réception, quand le
+   titulaire a donné son accord pour le PV en question. */
+async function imageVersJpeg(file,max){
+  max=max||900;
+  const url=URL.createObjectURL(file);
+  try{
+    const im=await new Promise((ok,ko)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ko(new Error('image illisible'));i.src=url});
+    const r=Math.min(1,max/Math.max(im.naturalWidth||1,im.naturalHeight||1));
+    const w=Math.max(1,Math.round(im.naturalWidth*r)), h=Math.max(1,Math.round(im.naturalHeight*r));
+    const c=document.createElement('canvas');c.width=w;c.height=h;
+    const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,w,h);x.drawImage(im,0,0,w,h);
+    return {dataUrl:c.toDataURL('image/jpeg',0.88),w,h};
+  }finally{URL.revokeObjectURL(url)}
+}
+function CachetSignature({valeur,onChange,qui}){
+  const v=valeur||{};
+  const [busy,setBusy]=useState('');
+  const deposer=async(cle,file)=>{
+    setBusy(cle);
+    try{
+      const img=await imageVersJpeg(file,cle==='cachet'?700:900);
+      const id=uid();
+      await Photo.put(id,img.dataUrl);
+      onChange({...v,[cle]:{id,w:img.w,h:img.h,le:today()}});
+    }catch(e){alert('Image impossible à enregistrer — '+((e&&e.message)||e))}
+    setBusy('');
+  };
+  return <div>
+    <div className="row" style={{gap:16,flexWrap:'wrap',alignItems:'flex-start'}}>
+      {[['cachet','Cachet (tampon)'],['signature','Signature']].map(([cle,l])=><div key={cle}>
+        <div className="xs mut" style={{marginBottom:3}}>{l}</div>
+        {v[cle]?<VignetteSign id={v[cle].id}/>:<div style={{height:52,width:110,border:'1px dashed '+RULE,background:'#FAF8F4'}}/>}
+        <div className="row xs" style={{gap:10,marginTop:4,alignItems:'center'}}>
+          <label style={{color:NAVY,cursor:'pointer'}}>{busy===cle?'Envoi…':v[cle]?'Remplacer':'Déposer (photo ou scan)'}
+            <input type="file" accept="image/*" style={{display:'none'}} disabled={!!busy}
+              onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)deposer(cle,file)}}/></label>
+          {v[cle]&&<button style={{color:MUTED,background:'none',border:'none',padding:0}}
+            onClick={()=>{if(confirm('Retirer '+l.toLowerCase()+' de '+(qui||'cette fiche')+' ?'))onChange({...v,[cle]:null})}}>Retirer</button>}
+        </div>
+      </div>)}
+    </div>
+  </div>;
+}
+
+/* ---------- le PV de réception, dans la fiche du lot ---------- */
+function PvReception({data,ch,m,save}){
+  const dataRef=useRef(data);dataRef.current=data;
+  const chActuel=()=>(dataRef.current.chantiers||[]).find(c=>c.id===ch.id)||ch;
+  const pv=pvDe(chActuel(),m.id);
+  const art=(data.artisans||[]).find(a=>a.id===m.artisanId)||null;
+  const [signer,setSigner]=useState(null);
+  const [sortie,setSortie]=useState(null);
+  const [urlWord,setUrlWord]=useState('');
+  useEffect(()=>{
+    if(!sortie||!sortie.octets){setUrlWord('');return}
+    let u='';try{u=URL.createObjectURL(new Blob([sortie.octets],{type:PTR_MIME.docx}))}catch(e){u=''}
+    setUrlWord(u);return ()=>{if(u)try{URL.revokeObjectURL(u)}catch(e){}};
+  },[sortie]);
+  /* chaque saisie part tout de suite sur le chantier : elle ne dépend pas
+     de l'Enregistrer du lot */
+  const maj=patch=>{
+    const d=dataRef.current;
+    save({...d,chantiers:(d.chantiers||[]).map(c=>c.id!==ch.id?c:{...c,pvs:{...(c.pvs||{}),
+      [m.id]:{...pvDe(c,m.id),...(typeof patch==='function'?patch(pvDe(c,m.id)):patch),modifieLe:new Date().toISOString()}}})});
+  };
+  const majArtisan=visa=>{const d=dataRef.current;
+    save({...d,artisans:(d.artisans||[]).map(a=>a.id===art.id?{...a,visa}:a)})};
+  const majCp=visa=>{const d=dataRef.current;save({...d,cpVisa:visa})};
+  const majReserve=(id,patch)=>maj(p=>({reserves:(p.reserves||[]).map(r=>r.id===id?{...r,...patch}:r)}));
+  const enregistrerSignature=async(role,{nom,qualite,image})=>{
+    const sid=uid(), date=new Date().toISOString();
+    await Photo.put(sid,image);
+    const empreinte=await empreinteSignature([ch.nom,'PV de réception',m.lot||'',nom,qualite,date]);
+    maj(p=>({signatures:{...(p.signatures||{}),[role]:{id:sid,nom,qualite,date,empreinte}}}));
+    setSigner(null);
+  };
+  const retirerSignature=role=>{
+    if(!confirm('Retirer cette signature du PV ?'))return;
+    maj(p=>{const s={...(p.signatures||{})};delete s[role];return {signatures:s}});
+  };
+  const d=pvDonnees(m,chActuel(),data,pv);
+  const sig=pvSignataires(pv,art,data);
+  const vEnt=(art&&art.visa)||{}, vCp=data.cpVisa||{};
+  const produire=async()=>{
+    setSortie({etat:'travail'});
+    try{
+      const {images,manquantes}=await pvChargerImages(sig);
+      const octets=await genererPvReceptionDocx(d,images);
+      const nom=pvNomFichier(d,m);
+      let lien='', note='';
+      try{
+        const token=await getDriveToken();
+        const dossier=await driveSousDossier(token,ch.id,ch.nom,'PV de réception');
+        const r=await uploadToDrive(new File([octets],nom,{type:PTR_MIME.docx}),dossier);
+        lien=(r&&r.webViewLink)||'';
+      }catch(e){note=e&&e.error==='auth_required'?'Google Drive n’est pas connecté : le Word n’est pas déposé, téléchargez-le ci-dessous.'
+        :'Dépôt sur le Drive impossible — '+((e&&(e.error||e.message))||e)}
+      const le=new Date().toISOString();
+      maj({genere:{nom,lien,le}});
+      /* la pièce « PV de réception » du chantier liste les PV produits */
+      if(lien){const dd=dataRef.current;
+        save({...dd,chantiers:(dd.chantiers||[]).map(c=>{if(c.id!==ch.id)return c;
+          const docs=c.docs||{}, r=docs.pv||{};
+          return {...c,docs:{...docs,pv:{...r,fichiers:[...fichiersDe(r).filter(f=>f.nom!==nom),{id:uid(),nom,lien}]}}};})});}
+      setSortie({etat:'ok',octets,nom,lien,note,
+        manquantes:manquantes.map(k=>({moa:'signature du maître d’ouvrage',entreprise:'signature de l’entreprise',cachetEntreprise:'cachet de l’entreprise',
+          moe:'signature de CP Constructions',cachetMoe:'cachet de CP Constructions'}[k]))});
+    }catch(e){setSortie({etat:'erreur',msg:'PV impossible à produire — '+((e&&e.message)||e)})}
+  };
+  const champ=(l,el)=><div style={{flex:'1 1 150px'}}><div className="xs mut" style={{marginBottom:3}}>{l}</div>{el}</div>;
+  const choix=(cle,val,l)=><label key={val} className="row xs" style={{gap:6,alignItems:'center',cursor:'pointer'}}>
+    <input type="radio" checked={pv[cle]===val} onChange={()=>maj({[cle]:val})}/>{l}</label>;
+  const nSignes=['moa','entreprise','moe'].filter(k=>sig[k]).length;
+  return <div className="card" style={{padding:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="xs mut" style={{lineHeight:1.5}}>
+      Le PV du modèle CP Constructions, rempli d’office : <b>{d.maitreOuvrage||'maître d’ouvrage ?'}</b> · {d.adresse||'adresse du chantier ?'} ·
+      {' '}{d.entreprise||'entreprise ?'} · marché {d.marche||'(date et montant à saisir)'} · avenants {d.avenants}.
+      {pv.genere&&<span> Produit le {dateHeure(pv.genere.le)}.</span>}</div>
+    <div className="row" style={{gap:10,marginTop:10,flexWrap:'wrap'}}>
+      {champ('Achevé le',<input className="in" type="date" value={pv.acheveLe||''} onChange={e=>maj({acheveLe:e.target.value})}/>)}
+      {champ('Date d’effet (jour de la visite)',<input className="in" type="date" value={pv.dateEffet||''} onChange={e=>maj({dateEffet:e.target.value})}/>)}
+    </div>
+    <div className="row" style={{gap:16,marginTop:10,flexWrap:'wrap',alignItems:'center'}}>
+      <span className="xs b" style={{color:NAVY}}>Entreprise</span>
+      {choix('presence','presente','présente ou représentée')}{choix('presence','absente','absente')}
+    </div>
+    <div className="row" style={{gap:16,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
+      <span className="xs b" style={{color:NAVY}}>Réception</span>
+      {PV_DECISIONS.map(x=>choix('decision',x.id,x.l))}
+    </div>
+    {pv.decision==='refus'&&<div style={{marginTop:8}}>{champ('Motif',<input className="in" value={pv.motif||''} onChange={e=>maj({motif:e.target.value})}/>)}</div>}
+    <div style={{marginTop:10}}>
+      <div className="xs b" style={{color:NAVY,marginBottom:4}}>Réserves{(pv.reserves||[]).length?' ('+pv.reserves.length+')':''}</div>
+      {(pv.reserves||[]).map((r,i)=><div key={r.id} className="row" style={{gap:6,marginBottom:6,flexWrap:'wrap',alignItems:'center'}}>
+        <span className="xs b" style={{color:TERRA,width:16}}>{i+1}</span>
+        <input className="in" style={{flex:'1 1 120px'}} placeholder="Localisation" value={r.localisation||''} onChange={e=>majReserve(r.id,{localisation:e.target.value})}/>
+        <input className="in" style={{flex:'3 1 220px'}} placeholder="Description précise" value={r.description||''} onChange={e=>majReserve(r.id,{description:e.target.value})}/>
+        <input className="in" style={{flex:'1 1 130px'}} type="date" title="À lever avant le" value={r.avant||''} onChange={e=>majReserve(r.id,{avant:e.target.value})}/>
+        <button className="btn dg s" aria-label={'Retirer la réserve '+(i+1)} onClick={()=>maj(p=>({reserves:(p.reserves||[]).filter(x=>x.id!==r.id)}))}>✕</button>
+      </div>)}
+      <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
+        <button className="btn gh s" onClick={()=>maj(p=>({reserves:[...(p.reserves||[]),{id:uid(),localisation:'',description:'',avant:''}],
+          decision:p.decision||'avec'}))}>+ Réserve</button>
+        <label className="row xs" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!pv.annexe} onChange={e=>maj({annexe:e.target.checked})}/>
+          suite sur feuille annexée et paraphée</label>
+      </div>
+    </div>
+    <div className="row" style={{gap:10,marginTop:10,flexWrap:'wrap'}}>
+      {champ('Fait à',<input className="in" value={pv.faitA||''} placeholder={ch.adresse||''} onChange={e=>maj({faitA:e.target.value})}/>)}
+      {champ('Le',<input className="in" type="date" value={pv.faitLe||''} onChange={e=>maj({faitLe:e.target.value})}/>)}
+    </div>
+    <div style={{marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
+      <div className="xs b" style={{color:NAVY}}>Signatures ({nSignes}/3)</div>
+      {PV_ROLES.map(r=>{const s=sig[r.id], ecran=pv.signatures&&pv.signatures[r.id];
+        return <div key={r.id} style={{marginTop:8,padding:'8px 10px',borderRadius:8,background:'#F4F1EB'}}>
+          <div className="sp" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <span className="xs b">{r.l}</span>
+            {!ecran&&<button className="btn gh s" onClick={()=>setSigner(r)}>Signer à l’écran</button>}
+          </div>
+          {s&&<div className="row" style={{gap:10,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+            <VignetteSign id={s.id}/>
+            {r.id==='entreprise'&&sig.cachetEntreprise&&<VignetteSign id={sig.cachetEntreprise.id}/>}
+            {r.id==='moe'&&sig.cachetMoe&&<VignetteSign id={sig.cachetMoe.id}/>}
+            <div className="xs" style={{flex:1,minWidth:140}}>
+              <div className="b">{s.nom}{s.qualite?' — '+s.qualite:''}</div>
+              <div className="mut">{s.source==='ecran'?'Signé à l’écran le '+dateHeure(s.date):'Signature fournie — accord pour ce PV noté le '+pvDate(s.date)}</div>
+              {s.empreinte&&<div className="mut" style={{fontSize:10}}>Empreinte {s.empreinte}</div>}
+            </div>
+            {ecran&&<button className="btn dg s" onClick={()=>retirerSignature(r.id)}>✕</button>}
+          </div>}
+          {r.id==='entreprise'&&!ecran&&<div style={{marginTop:6}}>
+            {art?<React.Fragment>
+              <label className="row xs" style={{gap:6,alignItems:'flex-start',lineHeight:1.5,opacity:vEnt.signature?1:.55}}>
+                <input type="checkbox" disabled={!vEnt.signature} checked={!!pv.accordEntreprise}
+                  onChange={e=>maj({accordEntreprise:e.target.checked?{le:today()}:null})}/>
+                <span>L’entreprise a donné son accord pour ce PV : y apposer sa signature et son cachet enregistrés.</span></label>
+              <details style={{marginTop:6}}><summary className="xs" style={{color:NAVY,cursor:'pointer'}}>
+                Cachet et signature de {art.nom}{vEnt.signature||vEnt.cachet?'':' — à déposer'}</summary>
+                <div style={{marginTop:6}}><CachetSignature valeur={vEnt} onChange={majArtisan} qui={art.nom}/></div>
+                <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Fournis par l’entreprise ; aussi dans ARTISANS › sa fiche.</div>
+              </details></React.Fragment>
+              :<div className="xs mut">Choisissez l’artisan du lot pour reprendre son cachet et sa signature.</div>}
+          </div>}
+          {r.id==='entreprise'&&ecran&&vEnt.cachet&&<div className="xs mut" style={{marginTop:4}}>Le cachet enregistré de l’entreprise accompagne sa signature.</div>}
+          {r.id==='moe'&&!ecran&&<div style={{marginTop:6}}>
+            <label className="row xs" style={{gap:6,alignItems:'center',opacity:vCp.signature?1:.55}}>
+              <input type="checkbox" disabled={!vCp.signature} checked={!!pv.visaCp}
+                onChange={e=>maj({visaCp:e.target.checked?{le:today()}:false})}/>
+              Apposer la signature et le cachet enregistrés de CP Constructions</label>
+            <details style={{marginTop:6}}><summary className="xs" style={{color:NAVY,cursor:'pointer'}}>
+              Cachet et signature de CP Constructions{vCp.signature||vCp.cachet?'':' — à déposer'}</summary>
+              <div style={{marginTop:6}}><CachetSignature valeur={vCp} onChange={majCp} qui="CP Constructions"/></div>
+            </details>
+          </div>}
+        </div>})}
+    </div>
+    <div className="row" style={{gap:10,marginTop:12,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn acc s" disabled={sortie&&sortie.etat==='travail'} onClick={produire}>
+        {sortie&&sortie.etat==='travail'?'Composition…':(pv.genere?'Produire à nouveau le PV (Word)':'Produire le PV de réception (Word)')}</button>
+      {sortie&&sortie.etat==='ok'&&urlWord&&<a className="btn gh s" href={urlWord} download={sortie.nom}
+        style={{display:'inline-block',textDecoration:'none'}}>⬇ Télécharger le Word</a>}
+      {((sortie&&sortie.lien)||(pv.genere&&pv.genere.lien))&&<a className="xs" href={(sortie&&sortie.lien)||pv.genere.lien} target="_blank" rel="noreferrer"
+        style={{color:TERRA}}>Ouvrir sur le Drive</a>}
+    </div>
+    {sortie&&sortie.etat==='ok'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:sortie.note?AMBER:GREEN}}>
+      {sortie.lien?'PV déposé dans Drive › '+ch.nom+' › PV de réception — '+sortie.nom+'.':sortie.note}
+      {sortie.manquantes&&sortie.manquantes.length?<span style={{color:AMBER}}> Image illisible, case laissée vide : {sortie.manquantes.join(', ')}.</span>:null}</div>}
+    {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
+    {signer&&<SignaturePad titre={'PV de réception — '+(m.lot||'lot')+' — '+signer.l+' — '+ch.nom} qualiteDefaut={signer.qualite}
+      onAnnuler={()=>setSigner(null)} onSigner={v=>enregistrerSignature(signer.id,v)}/>}
+  </div>;
+}
+
 function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const [f,setF]=useState(null);
   const brouillon=useBrouillon('marches:'+ch.id,f,setF,x=>'Lot '+(x.lot||'sans nom'));
@@ -12019,6 +12434,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         })}
         <button className="btn gh s" onClick={addAvenant}>+ Avenant</button>
       </Fld>}
+      {f.id&&<Fld label="PV DE RÉCEPTION"><PvReception data={data} ch={ch} m={f} save={save}/></Fld>}
       <Fld label="NOTES"><textarea className="in" rows="2" value={f.notes} onChange={e=>setF({...f,notes:e.target.value})}/></Fld>
       <Fld label={"FACTURES — total "+eur(facturesTotal(f.factures))}>
         {(f.factures||[]).map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
@@ -22282,6 +22698,12 @@ function Artisans({data,save,cible}){
           {f.lienRib&&<a href={f.lienRib} target="_blank" rel="noreferrer" className="xs" style={{color:TERRA}}>Ouvrir le RIB</a>}
         </div>
         <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Nécessaire pour transmettre une facture visée au client avec les coordonnées bancaires de l'entreprise.</div>
+      </Fld>
+      <Fld label="CACHET ET SIGNATURE (PV DE RÉCEPTION)">
+        <CachetSignature valeur={f.visa} onChange={v=>setF({...f,visa:v})} qui={f.nom||'cette entreprise'}/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Fournis par l’entreprise (photo ou scan). Ils ne s’apposent sur un
+          PV de réception que lorsque son accord pour ce PV est noté ; à défaut, elle signe à l’écran le jour de la réception.
+          Enregistrez la fiche pour les garder.</div>
       </Fld>
       <DriveStatus/>
       <Acts onSave={()=>{setLecture(null);ok()}} onCancel={()=>{setLecture(null);setF(null)}} onDel={f.id?()=>{save({...data,artisans:data.artisans.filter(a=>a.id!==f.id)});setLecture(null);setF(null)}:null}/>

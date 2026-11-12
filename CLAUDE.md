@@ -86,6 +86,22 @@ qu'on ait à les redire.
   fichiers signés repris du Drive tels quels, avec les plans d'exécution
   cochés d'office (`PIECES_MAIL_SIGNE`) ; la date est gardée
   (`mailSigneLe`). Tests : `t_marche_signe_mail.js`.
+- **PV de réception** (Marchés › lot › « PV DE RÉCEPTION », `PvReception`) :
+  le modèle CP d'une page (`pvReceptionDocumentXml`,
+  `genererPvReceptionDocx`), rempli d'office (`pvDonnees` : maître
+  d'ouvrage avec civilité et second maître d'ouvrage du prospect, adresse
+  du chantier, entreprise, date et TTC du marché, avenants signés ou
+  rédigés), complété à la visite (achèvement, présence, décision,
+  réserves, fait à / le). Rangé sur le chantier (`ch.pvs[marcheId]`,
+  enregistré à chaque saisie, pas à l'Enregistrer du lot). Signatures
+  (`pvSignataires`) : tracée à l'écran (stockage photos, empreinte), ou
+  celle fournie par l'entreprise (`artisan.visa`, fiche artisan, aussi
+  depuis le PV) seulement quand son accord pour ce PV est noté
+  (`pv.accordEntreprise`) ; le cachet accompagne la signature, jamais
+  seul ; visa CP de même (`data.cpVisa`, `pv.visaCp`). Le Word part sur
+  le Drive › PV de réception et s'ajoute à la pièce « PV de réception » du
+  chantier (sans la cocher) ; une image illisible est nommée, le PV sort
+  quand même. Tests : `t_pv_reception.js`.
 - **Factures d'achat de matériaux** (Marchés › Achats de matériaux) : une
   facture déposée se transmet au client depuis son volet (« Envoyer au
   client », `EnvoyerFactureAchat`) : aperçu à relire, facture reprise du
