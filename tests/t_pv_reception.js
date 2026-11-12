@@ -41,10 +41,18 @@ let data={...M.EMPTY,chantiers:[ch],prospects:[{id:'p1',civilite:'M.',client:'Fi
   chk(S.entreprise&&S.entreprise.id==='sig'&&S.entreprise.source==='fournie'&&S.cachetEntreprise.id==='cach','accord noté : signature et cachet fournis');
   S=M.pvSignataires({...pv0,accordEntreprise:{le:'2026-11-12'},signatures:{entreprise:{id:'live',nom:'J. Maçon',qualite:'Entreprise',date:'2026-11-12T10:00:00Z'}}},artV,data);
   chk(S.entreprise.id==='live'&&S.entreprise.source==='ecran'&&S.cachetEntreprise.id==='cach','la signature tracée à l’écran prime, le cachet l’accompagne');
-  S=M.pvSignataires({...pv0,accordEntreprise:{le:'2026-11-12'}},{...art,visa:{cachet:{id:'cach'}}},data);
-  chk(!S.entreprise&&!S.cachetEntreprise,'un cachet sans signature ne s’appose pas seul');
-  S=M.pvSignataires({...pv0,visaCp:{le:'2026-11-12'}},art,{...data,cpVisa:{signature:{id:'cps'},cachet:{id:'cpc'}}});
-  chk(S.moe&&S.moe.id==='cps'&&S.cachetMoe.id==='cpc','visa de CP Constructions : signature et cachet enregistrés, sur demande');
+  const artUn={...art,visa:{cachet:{id:'ensemble'}}};
+  chk(!M.pvSignataires(pv0,artUn,data).entreprise,'un fichier unique (cachet et signature ensemble) : rien sans l’accord');
+  S=M.pvSignataires({...pv0,accordEntreprise:{le:'2026-11-12'}},artUn,data);
+  chk(S.entreprise&&S.entreprise.id==='ensemble'&&S.entreprise.ensemble&&!S.cachetEntreprise,'avec l’accord : le fichier unique s’appose seul, en une image');
+  S=M.pvSignataires({...pv0,signatures:{entreprise:{id:'live',nom:'J. Maçon',qualite:'Entreprise',date:'2026-11-12T10:00:00Z'}}},artUn,data);
+  chk(S.entreprise.id==='live'&&!S.cachetEntreprise,'signée à l’écran : l’image « ensemble » (qui porte déjà une signature) ne s’y ajoute pas');
+  const dCp={...data,cpVisa:{signature:{id:'cps'},cachet:{id:'cpc'}}};
+  S=M.pvSignataires(pv0,art,dCp);
+  chk(S.moe&&S.moe.id==='cps'&&S.cachetMoe.id==='cpc'&&S.moe.mention==='Visa apposé','visa de CP Constructions : apposé d’office dès que sa signature est enregistrée');
+  chk(!M.pvSignataires({...pv0,visaCp:false},art,dCp).moe,'décoché sur un PV : pas de visa sur ce PV');
+  S=M.pvSignataires(pv0,art,{...data,cpVisa:{cachet:{id:'cpc'}}});
+  chk(S.moe&&S.moe.id==='cpc'&&S.moe.ensemble&&!S.cachetMoe,'visa CP en un seul fichier : apposé tel quel');
 
   /* ---- 3) le Word ---- */
   const pvPlein={...pv0,acheveLe:'2026-11-05',presence:'presente',decision:'avec',dateEffet:'2026-11-12',faitA:'Sainte-Cécile',faitLe:'2026-11-12',
@@ -65,6 +73,10 @@ let data={...M.EMPTY,chantiers:[ch],prospects:[{id:'p1',civilite:'M.',client:'Fi
   chk(/Signature fournie, accord donné le 12\/11\/2026/.test(texte)&&/M\. Fictif — Client/.test(texte),'chaque signature dit qui, en quelle qualité, et comment');
   chk(/Dossier : Maison Fictive - Sainte-Cécile/.test(pied)&&/PV de réception · Lot 2/.test(pied)&&/RCS Alençon 999 593 395/.test(pied),'pied de page : dossier, lot, mentions de CP Constructions');
   chk(/garanties de parfait achèvement \(1 an\)/.test(texte)&&/1792, 1792-3 et 1792-6/.test(texte),'le texte des garanties du modèle');
+  const octE=await M.genererPvReceptionDocx(M.pvDonnees(m,ch,data,pvPlein),{entreprise:{data:IMG,nom:'SARL',qualite:'Entreprise',date:'2026-11-12',source:'fournie',ensemble:true}});
+  const xE=new TextDecoder().decode(await M.zipEntree(octE.buffer.slice(octE.byteOffset,octE.byteOffset+octE.byteLength),'word/document.xml'));
+  const ext=(xE.match(/name="Cachet et signature"[\s\S]*?<a:ext cx="(\d+)"/)||[])[1];
+  chk(+ext>1250000,'l’image « cachet et signature » est apposée plus grande qu’une signature seule ('+ext+' EMU)');
   const vide=await M.genererPvReceptionDocx(M.pvDonnees({...m,avenants:[]},ch,data,pv0),{});
   const xv=new TextDecoder().decode(await M.zipEntree(vide.buffer.slice(vide.byteOffset,vide.byteOffset+vide.byteLength),'word/document.xml'));
   chk((xv.match(/<w:drawing>/g)||[]).length===1&&(xv.match(/☒/g)||[]).length===0&&/………… \/ ………… \/ ………………/.test(xv),'PV vierge : à remplir et signer à la main, rien de coché');
@@ -96,6 +108,8 @@ let data={...M.EMPTY,chantiers:[ch],prospects:[{id:'p1',civilite:'M.',client:'Fi
   chk(docsPv&&docsPv.fichiers.length===1&&docsPv.fichiers[0].nom===pv().genere.nom&&!docsPv.fait,'il s’ajoute à la pièce « PV de réception » du chantier (sans la cocher)');
   chk(/Image illisible, case laissée vide : signature de l’entreprise, cachet de l’entreprise/.test(txt()),'une image illisible est nommée : le PV sort quand même');
   for(let i=0;i<50&&!tr.root.findAll(n=>n.type==='a'&&n.props.download).length;i++)await TR.act(()=>new Promise(r=>setTimeout(r,10)));
+  chk(/Dans ce PV — maître d’ouvrage : à signer à la main · entreprise : à signer à la main · CP Constructions : à signer à la main\./.test(txt()),
+    'le message dit ce que porte le PV, colonne par colonne (images illisibles ici : rien d’apposé)');
   chk(!!tr.root.findAll(n=>n.type==='a'&&n.props.download)[0],'« ⬇ Télécharger le Word » : un vrai lien (Safari)');
   TR.act(()=>{tr.unmount()});
   fin();
