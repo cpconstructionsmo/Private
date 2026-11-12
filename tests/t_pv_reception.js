@@ -43,8 +43,11 @@ let data={...M.EMPTY,chantiers:[ch],prospects:[{id:'p1',civilite:'M.',client:'Fi
   chk(S.entreprise.id==='live'&&S.entreprise.source==='ecran'&&S.cachetEntreprise.id==='cach','la signature tracée à l’écran prime, le cachet l’accompagne');
   S=M.pvSignataires({...pv0,accordEntreprise:{le:'2026-11-12'}},{...art,visa:{cachet:{id:'cach'}}},data);
   chk(!S.entreprise&&!S.cachetEntreprise,'un cachet sans signature ne s’appose pas seul');
-  S=M.pvSignataires({...pv0,visaCp:{le:'2026-11-12'}},art,{...data,cpVisa:{signature:{id:'cps'},cachet:{id:'cpc'}}});
-  chk(S.moe&&S.moe.id==='cps'&&S.cachetMoe.id==='cpc','visa de CP Constructions : signature et cachet enregistrés, sur demande');
+  const dCp={...data,cpVisa:{signature:{id:'cps'},cachet:{id:'cpc'}}};
+  S=M.pvSignataires(pv0,art,dCp);
+  chk(S.moe&&S.moe.id==='cps'&&S.cachetMoe.id==='cpc'&&S.moe.mention==='Visa apposé','visa de CP Constructions : apposé d’office dès que sa signature est enregistrée');
+  chk(!M.pvSignataires({...pv0,visaCp:false},art,dCp).moe,'décoché sur un PV : pas de visa sur ce PV');
+  chk(!M.pvSignataires(pv0,art,{...data,cpVisa:{cachet:{id:'cpc'}}}).moe,'un cachet CP sans signature ne s’appose pas seul');
 
   /* ---- 3) le Word ---- */
   const pvPlein={...pv0,acheveLe:'2026-11-05',presence:'presente',decision:'avec',dateEffet:'2026-11-12',faitA:'Sainte-Cécile',faitLe:'2026-11-12',
@@ -96,6 +99,8 @@ let data={...M.EMPTY,chantiers:[ch],prospects:[{id:'p1',civilite:'M.',client:'Fi
   chk(docsPv&&docsPv.fichiers.length===1&&docsPv.fichiers[0].nom===pv().genere.nom&&!docsPv.fait,'il s’ajoute à la pièce « PV de réception » du chantier (sans la cocher)');
   chk(/Image illisible, case laissée vide : signature de l’entreprise, cachet de l’entreprise/.test(txt()),'une image illisible est nommée : le PV sort quand même');
   for(let i=0;i<50&&!tr.root.findAll(n=>n.type==='a'&&n.props.download).length;i++)await TR.act(()=>new Promise(r=>setTimeout(r,10)));
+  chk(/Dans ce PV — maître d’ouvrage : à signer à la main · entreprise : à signer à la main · CP Constructions : à signer à la main\./.test(txt()),
+    'le message dit ce que porte le PV, colonne par colonne (images illisibles ici : rien d’apposé)');
   chk(!!tr.root.findAll(n=>n.type==='a'&&n.props.download)[0],'« ⬇ Télécharger le Word » : un vrai lien (Safari)');
   TR.act(()=>{tr.unmount()});
   fin();

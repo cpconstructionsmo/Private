@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-12 · Marchés : PV de réception par lot (modèle CP, rempli d’office, signatures et cachets)';
+const VERSION='2026-11-12 · PV de réception : visa de CP Constructions apposé d’office, le PV dit ce qu’il porte';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3586,7 +3586,7 @@ const PV_TEXTE_GARANTIES='Réception de la totalité des travaux de ce lot (marc
   +'(10 ans) — articles 1792, 1792-3 et 1792-6 du Code civil. Solde réglé directement par le maître d’ouvrage à l’entreprise.';
 const PV_PIED_LEGAL='CP Constructions · '+CP.forme+' · 14 rue de Congé, 61250 Valframbert · RCS Alençon '+CP.siren;
 const pvDe=(ch,mid)=>({acheveLe:'',presence:'',decision:'',motif:'',dateEffet:'',reserves:[],annexe:false,faitA:'',faitLe:'',
-  signatures:{},accordEntreprise:null,visaCp:false,...((((ch&&ch.pvs)||{})[mid])||{})});
+  signatures:{},accordEntreprise:null,...((((ch&&ch.pvs)||{})[mid])||{})});
 const pvDate=d=>d?fd(d):'';
 /* ce qui part dans le PV : rempli d'office, puis ce que la visite a dit */
 function pvDonnees(m,ch,data,pv){
@@ -3620,8 +3620,10 @@ function pvSignataires(pv,art,data){
     :(pv&&pv.accordEntreprise&&vEnt.signature)?{id:vEnt.signature.id,nom:(art&&art.nom)||'',qualite:'Entreprise',
       date:pv.accordEntreprise.le,source:'fournie'}:null;
   const moe=S.moe?{...S.moe,source:'ecran'}
-    :(pv&&pv.visaCp&&vCp.signature)?{id:vCp.signature.id,nom:'CP Constructions',qualite:'Maître d’œuvre',
-      date:pv.visaCp.le||'',source:'fournie'}:null;
+    /* le visa de CP Constructions est le sien : apposé d'office dès que sa
+       signature est enregistrée, sauf s'il a été décoché sur ce PV */
+    :(pv&&pv.visaCp!==false&&vCp.signature)?{id:vCp.signature.id,nom:'CP Constructions',qualite:'Maître d’œuvre',
+      date:(pv.visaCp&&pv.visaCp.le)||pv.faitLe||pv.dateEffet||'',source:'fournie',mention:'Visa apposé'}:null;
   return {moa:S.moa?{...S.moa,source:'ecran'}:null,
     entreprise:ent,cachetEntreprise:ent&&vEnt.cachet?vEnt.cachet:null,
     moe,cachetMoe:moe&&vCp.cachet?vCp.cachet:null};
@@ -3682,7 +3684,7 @@ function pvReceptionDocumentXml(d,img,px){
     const images=[dessin(s,'Signature',1250000,560000),dessin(cachet,'Cachet',1050000,620000)].filter(Boolean);
     if(images.length)x+='<w:p><w:pPr><w:spacing w:before="20" w:after="20" w:line="240" w:lineRule="auto"/></w:pPr>'+images.join(run('  ',{sz:14}))+'</w:p>';
     if(s&&s.nom)x+=par(s.nom+(s.qualite?' — '+s.qualite:''),{sz:15,ap:0})
-      +par((s.source==='fournie'?'Signature fournie, accord donné le ':'Signé le ')+(s.date?(/T/.test(s.date)?dateHeure(s.date):pvDate(s.date)):''),{sz:13,c:DOC_GRIS,ap:0});
+      +par((s.source==='fournie'?(s.mention||'Signature fournie, accord donné')+(s.date?' le ':''):'Signé le ')+(s.date?(/T/.test(s.date)?dateHeure(s.date):pvDate(s.date)):''),{sz:13,c:DOC_GRIS,ap:0});
     return x;
   };
   const entS=(w,s)=>tc(w,par(s,{b:true,sz:17,c:'FFFFFF',ap:0}),{fond:PV_ARDOISE,bords:tcB({c:PV_ARDOISE,sz:4,t:4,bs:4}),mg:100});
@@ -11433,7 +11435,12 @@ function PvReception({data,ch,m,save}){
         save({...dd,chantiers:(dd.chantiers||[]).map(c=>{if(c.id!==ch.id)return c;
           const docs=c.docs||{}, r=docs.pv||{};
           return {...c,docs:{...docs,pv:{...r,fichiers:[...fichiersDe(r).filter(f=>f.nom!==nom),{id:uid(),nom,lien}]}}};})});}
-      setSortie({etat:'ok',octets,nom,lien,note,
+      const ok=k=>images[k]&&images[k].data;
+      const contenu=[
+        'maître d’ouvrage : '+(ok('moa')?'signé':'à signer à la main'),
+        'entreprise : '+(ok('entreprise')?'signée'+(ok('cachetEntreprise')?' et tamponnée':''):'à signer à la main'),
+        'CP Constructions : '+(ok('moe')?'visa'+(ok('cachetMoe')?' et cachet':''):'à signer à la main')];
+      setSortie({etat:'ok',octets,nom,lien,note,contenu,
         manquantes:manquantes.map(k=>({moa:'signature du maître d’ouvrage',entreprise:'signature de l’entreprise',cachetEntreprise:'cachet de l’entreprise',
           moe:'signature de CP Constructions',cachetMoe:'cachet de CP Constructions'}[k]))});
     }catch(e){setSortie({etat:'erreur',msg:'PV impossible à produire — '+((e&&e.message)||e)})}
@@ -11494,7 +11501,8 @@ function PvReception({data,ch,m,save}){
             {r.id==='moe'&&sig.cachetMoe&&<VignetteSign id={sig.cachetMoe.id}/>}
             <div className="xs" style={{flex:1,minWidth:140}}>
               <div className="b">{s.nom}{s.qualite?' — '+s.qualite:''}</div>
-              <div className="mut">{s.source==='ecran'?'Signé à l’écran le '+dateHeure(s.date):'Signature fournie — accord pour ce PV noté le '+pvDate(s.date)}</div>
+              <div className="mut">{s.source==='ecran'?'Signé à l’écran le '+dateHeure(s.date)
+                :s.mention?s.mention+' (signature et cachet enregistrés)':'Signature fournie — accord pour ce PV noté le '+pvDate(s.date)}</div>
               {s.empreinte&&<div className="mut" style={{fontSize:10}}>Empreinte {s.empreinte}</div>}
             </div>
             {ecran&&<button className="btn dg s" onClick={()=>retirerSignature(r.id)}>✕</button>}
@@ -11515,7 +11523,7 @@ function PvReception({data,ch,m,save}){
           {r.id==='entreprise'&&ecran&&vEnt.cachet&&<div className="xs mut" style={{marginTop:4}}>Le cachet enregistré de l’entreprise accompagne sa signature.</div>}
           {r.id==='moe'&&!ecran&&<div style={{marginTop:6}}>
             <label className="row xs" style={{gap:6,alignItems:'center',opacity:vCp.signature?1:.55}}>
-              <input type="checkbox" disabled={!vCp.signature} checked={!!pv.visaCp}
+              <input type="checkbox" disabled={!vCp.signature} checked={!!vCp.signature&&pv.visaCp!==false}
                 onChange={e=>maj({visaCp:e.target.checked?{le:today()}:false})}/>
               Apposer la signature et le cachet enregistrés de CP Constructions</label>
             <details style={{marginTop:6}}><summary className="xs" style={{color:NAVY,cursor:'pointer'}}>
@@ -11535,6 +11543,7 @@ function PvReception({data,ch,m,save}){
     </div>
     {sortie&&sortie.etat==='ok'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:sortie.note?AMBER:GREEN}}>
       {sortie.lien?'PV déposé dans Drive › '+ch.nom+' › PV de réception — '+sortie.nom+'.':sortie.note}
+      {sortie.contenu&&<div style={{color:MUTED}}>Dans ce PV — {sortie.contenu.join(' · ')}.</div>}
       {sortie.manquantes&&sortie.manquantes.length?<span style={{color:AMBER}}> Image illisible, case laissée vide : {sortie.manquantes.join(', ')}.</span>:null}</div>}
     {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
     {signer&&<SignaturePad titre={'PV de réception — '+(m.lot||'lot')+' — '+signer.l+' — '+ch.nom} qualiteDefaut={signer.qualite}
