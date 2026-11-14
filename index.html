@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-14 · Avenants : un report perdu dans le marché se rétablit ; un lot ouvert n’efface plus un avenant reporté';
+const VERSION='2026-11-14 · Attestation de fin de mission de maîtrise d’œuvre ; levée des réserves notée sur le PV';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -334,6 +334,7 @@ const DOCS_GROUPES=[
     {id:'daact',l:'DAACT (Cerfa 13408)'},
     {id:'attest',l:'Attestation RE2020 fin de travaux'},
     {id:'pv',l:'PV de réception'},
+    {id:'fin_mission',l:'Attestation de fin de mission de maîtrise d\u2019œuvre'},
   ]},
 ];
 const DOCS=DOCS_GROUPES.flatMap(g=>g.items);
@@ -3655,20 +3656,24 @@ const PV_TEXTE_GARANTIES='Réception de la totalité des travaux de ce lot (marc
   +'Elle fait courir pour ce lot les garanties de parfait achèvement (1 an), de bon fonctionnement (2 ans au moins) et décennale '
   +'(10 ans) — articles 1792, 1792-3 et 1792-6 du Code civil. Solde réglé directement par le maître d’ouvrage à l’entreprise.';
 const PV_PIED_LEGAL='CP Constructions · '+CP.forme+' · 14 rue de Congé, 61250 Valframbert · RCS Alençon '+CP.siren;
-const pvDe=(ch,mid)=>({acheveLe:'',presence:'',decision:'',motif:'',dateEffet:'',reserves:[],annexe:false,faitA:'',faitLe:'',
+const pvDe=(ch,mid)=>({acheveLe:'',presence:'',decision:'',motif:'',dateEffet:'',reserves:[],annexe:false,faitA:'',faitLe:'',leveeLe:'',
   signatures:{},accordEntreprise:null,...((((ch&&ch.pvs)||{})[mid])||{})});
 const pvDate=d=>d?fd(d):'';
+/* le(s) maître(s) d'ouvrage d'un chantier, tels qu'ils signent : civilité
+   et second maître d'ouvrage du prospect, tant que le nom du client n'a pas
+   été changé sur le chantier depuis */
+function pvMaitreOuvrage(ch,data){
+  const p=ch.prospectId?((data&&data.prospects)||[]).find(x=>x.id===ch.prospectId):null;
+  const duProspect=p&&p.client&&(!ch.client||ch.client===p.client);
+  return duProspect
+    ?[afficherCivilite(p.civilite,p.client),p.client2?afficherCivilite(p.civilite2,p.client2):''].filter(Boolean).join(' et ')
+    :(ch.client||'');
+}
 /* ce qui part dans le PV : rempli d'office, puis ce que la visite a dit */
 function pvDonnees(m,ch,data,pv){
   pv=pv||pvDe(ch,m.id);
   const art=((data&&data.artisans)||[]).find(a=>a.id===m.artisanId)||null;
-  const p=ch.prospectId?((data&&data.prospects)||[]).find(x=>x.id===ch.prospectId):null;
-  /* civilité et second maître d'ouvrage : ceux du prospect, tant que le nom
-     du client n'a pas été changé sur le chantier depuis */
-  const duProspect=p&&p.client&&(!ch.client||ch.client===p.client);
-  const moa=duProspect
-    ?[afficherCivilite(p.civilite,p.client),p.client2?afficherCivilite(p.civilite2,p.client2):''].filter(Boolean).join(' et ')
-    :(ch.client||'');
+  const moa=pvMaitreOuvrage(ch,data);
   const avs=(m.avenants||[]).filter(a=>a.numero&&(a.dateSignature||a.lien||a.budgetAppliqueLe));
   return {dossier:ch.nom||'',lotNumero:String(m.numeroMarche||''),intitule:m.lot||'',
     maitreOuvrage:moa,adresse:ch.adresse||'',entreprise:art?art.nom:'',
@@ -3677,7 +3682,7 @@ function pvDonnees(m,ch,data,pv){
     acheveLe:pvDate(pv.acheveLe),presence:pv.presence||'',decision:pv.decision||'',motif:pv.motif||'',
     dateEffet:pvDate(pv.dateEffet),
     reserves:(pv.reserves||[]).filter(r=>(r.localisation||r.description||r.avant)).map(r=>({...r,avant:pvDate(r.avant)})),
-    annexe:!!pv.annexe,faitA:pv.faitA||'',faitLe:pvDate(pv.faitLe)};
+    annexe:!!pv.annexe,faitA:pv.faitA||'',faitLe:pvDate(pv.faitLe),leveeLe:pvDate(pv.leveeLe)};
 }
 /* qui a signé, et avec quelle image : la signature tracée à l'écran le jour
    de la réception prime ; sinon celle que l'entreprise (ou CP Constructions)
@@ -3710,6 +3715,13 @@ function pvSignataires(pv,art,data){
 /* une image dans une boîte, sans la déformer (EMU) */
 const pvAjuster=(w,h,maxL,maxH)=>{const r=Math.min(maxL/(w||1),maxH/(h||1));return [Math.round((w||1)*r),Math.round((h||1)*r)]};
 const PV_ARDOISE='2F4558', PV_GRIS_CLAIR='EEF1F4', PV_FILET='BFC5CC';
+/* l'en-tête des documents d'une page de CP Constructions (PV, attestation) */
+const enteteDocCpXml=(px,L)=>tbl([4200,L-4200],[tr([
+    tc(4200,px?'<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'+logoXml(px)+'</w:p>':par(CP.nom,{b:true,sz:24,c:DOC_TERRA,ap:0}),{mg:0}),
+    tc(L-4200,par('Maîtrise d’œuvre',{sz:26,c:PV_ARDOISE,jc:'right',ap:20})
+      +par('Construction · Rénovation · Extension',{sz:16,c:DOC_GRIS,jc:'right',ap:0})
+      +par(CP.tel+' · '+CP.mail,{sz:16,c:DOC_GRIS,jc:'right',ap:0}),{mg:0})])])
+    +par('',{filet:DOC_TERRA,filetSz:6,ap:100,sz:4});
 function pvReceptionDocumentXml(d,img,px){
   img=img||{};
   const L=10206, pt='…………';
@@ -3719,12 +3731,7 @@ function pvReceptionDocumentXml(d,img,px){
   const barre=c=>'<w:tcBorders><w:top w:val="nil"/><w:left w:val="single" w:sz="24" w:space="0" w:color="'+c+'"/>'
     +'<w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders>';
   const ligne=(cells,haut)=>'<w:tr><w:trPr><w:cantSplit/>'+(haut?'<w:trHeight w:val="'+haut+'"/>':'')+'</w:trPr>'+cells.join('')+'</w:tr>';
-  const entete=tbl([4200,L-4200],[tr([
-    tc(4200,px?'<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'+logoXml(px)+'</w:p>':par(CP.nom,{b:true,sz:24,c:DOC_TERRA,ap:0}),{mg:0}),
-    tc(L-4200,par('Maîtrise d’œuvre',{sz:26,c:PV_ARDOISE,jc:'right',ap:20})
-      +par('Construction · Rénovation · Extension',{sz:16,c:DOC_GRIS,jc:'right',ap:0})
-      +par(CP.tel+' · '+CP.mail,{sz:16,c:DOC_GRIS,jc:'right',ap:0}),{mg:0})])])
-    +par('',{filet:DOC_TERRA,filetSz:6,ap:100,sz:4});
+  const entete=enteteDocCpXml(px,L);
   const titre=tbl([L],[tr([tc(L,par('Procès-verbal de réception',{sz:38,c:PV_ARDOISE,ap:0}),{bords:barre(DOC_TERRA),mg:160})])]);
   const lot=tbl([L],[tr([tc(L,par([t('Lot n° ',{b:true,c:PV_ARDOISE}),t(d.lotNumero||pt,{b:true}),
     t('      Intitulé : ',{b:true,c:PV_ARDOISE}),t('« '+(d.intitule||'……………………………………')+' »',{b:true})],{ap:0}),
@@ -3773,8 +3780,8 @@ function pvReceptionDocumentXml(d,img,px){
     ligne([cel(SW[0],colonne(PV_ROLES[0],img.moa),{v:'top'}),
       cel(SW[1],colonne(PV_ROLES[1],img.entreprise,img.cachetEntreprise),{v:'top'}),
       cel(SW[2],colonne(PV_ROLES[2],img.moe,img.cachetMoe),{v:'top'})],2300),
-    tr([cel(L,par([t('Levée des réserves',{b:true,sz:18,c:PV_ARDOISE}),t('   '),coche(false),t(' toutes   ',{sz:18}),coche(false),
-      t(' n° ……………   le …… / …… / …………   — signatures et cachets ci-dessous',{sz:18})],{ap:0}),{fond:PV_GRIS_CLAIR,fusion:3})]),
+    tr([cel(L,par([t('Levée des réserves',{b:true,sz:18,c:PV_ARDOISE}),t('   '),coche(!!d.leveeLe),t(' toutes   ',{sz:18}),coche(false),
+      t(' n° ……………   le '+(d.leveeLe||'…… / …… / …………')+'   — signatures et cachets ci-dessous',{sz:18})],{ap:0}),{fond:PV_GRIS_CLAIR,fusion:3})]),
     ligne([cel(SW[0],par('',{ap:0})),cel(SW[1],par('',{ap:0})),cel(SW[2],par('',{ap:0}))],1300)]);
   const corps=[entete,titre,vide(60),lot,
     par('Nous soussigné(s), maître(s) d’ouvrage, après visite contradictoire des travaux du lot ci-dessus, avec l’assistance de CP Constructions, maître d’œuvre :',{sz:19,av:100,ap:80}),
@@ -3790,15 +3797,16 @@ function pvReceptionDocumentXml(d,img,px){
     +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
     +'</w:body></w:document>';
 }
-function pvPiedXml(d){
+function pvPiedXml(d){return piedDocCpXml(d.dossier,'PV de réception · Lot '+(d.lotNumero||'……'),d.faitLe)}
+function piedDocCpXml(dossier,libelle,date){
   const champ=instr=>'<w:fldSimple w:instr=" '+instr+' "><w:r>'+rP({sz:14,c:DOC_GRIS})+'<w:t>1</w:t></w:r></w:fldSimple>';
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     +'<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
     +'<w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="'+PV_FILET+'"/></w:pBdr>'
     +'<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
-    +run('Dossier : '+(d.dossier||'…………')+'  ·  ',{sz:14,c:DOC_GRIS})
-    +run('PV de réception · Lot '+(d.lotNumero||'……'),{sz:14,b:true,c:PV_ARDOISE})
-    +run('  ·  Date : '+(d.faitLe||'…… / …… / ……')+'        Page ',{sz:14,c:DOC_GRIS})
+    +run('Dossier : '+(dossier||'…………')+'  ·  ',{sz:14,c:DOC_GRIS})
+    +run(libelle,{sz:14,b:true,c:PV_ARDOISE})
+    +run('  ·  Date : '+(date||'…… / …… / ……')+'        Page ',{sz:14,c:DOC_GRIS})
     +champ('PAGE')+run(' / ',{sz:14,c:DOC_GRIS})+champ('NUMPAGES')+'</w:p>'
     +par(PV_PIED_LEGAL,{sz:13,c:DOC_GRIS,ap:0})
     +'</w:ftr>';
@@ -3848,6 +3856,177 @@ async function pvChargerImages(sig,lire){
   return {images:out,manquantes};
 }
 const pvNomFichier=(d,m)=>'PV de réception — Lot '+(d.lotNumero?d.lotNumero+' — ':'')+(m.lot||'lot')+' — '+(d.dossier||'')+'.docx';
+
+/* ---------- attestation de fin de mission de maîtrise d'œuvre ----------
+   La mission de maîtrise d'œuvre ne se « réceptionne » pas : la réception
+   porte sur les travaux, lot par lot, et c'est elle qui fait courir les
+   garanties. Le client signe en revanche, une fois tout terminé, une
+   attestation qui constate l'achèvement de la mission (AOR comprise) : les
+   lots reçus et la levée de leurs réserves, repris des PV ; les documents
+   remis, cochés un par un (rien n'est coché d'office) ; les honoraires
+   facturés et le solde. Elle justifie la facture de solde et la remise du
+   DOE ; elle ne touche à aucune garantie légale, et le dit. Rangée sur le
+   chantier (ch.finMission), enregistrée à chaque saisie. */
+const FIN_MISSION_DOCS=[
+  {id:'doe',l:'Dossier des ouvrages exécutés (DOE) : plans, fiches techniques, garanties des fabricants'},
+  {id:'entretien',l:'Notices d’utilisation et d’entretien des équipements (chauffage, ventilation, menuiseries…)'},
+  {id:'pv',l:'Procès-verbaux de réception des lots et de levée des réserves'},
+  {id:'consuel',l:'Attestation de conformité de l’installation électrique (Consuel)'},
+  {id:'gaz',l:'Certificat de conformité de l’installation de gaz'},
+  {id:'re2020',l:'Attestation de prise en compte de la RE2020 à l’achèvement des travaux'},
+  {id:'permeabilite',l:'Mesure de la perméabilité à l’air'},
+  {id:'ventilation',l:'Contrôle des débits de ventilation'},
+  {id:'spanc',l:'Contrôle de bonne exécution de l’assainissement (SPANC)'},
+  {id:'decennales',l:'Attestations d’assurance décennale des entreprises'},
+  {id:'daact',l:'Déclaration attestant l’achèvement et la conformité des travaux (DAACT), à déposer en mairie'},
+  {id:'cles',l:'Clés, badges et télécommandes (inventaire)'},
+];
+const FIN_MISSION_TEXTE='La présente attestation constate l’achèvement de la mission de maîtrise d’œuvre et la remise des documents ci-dessus. '
+  +'Elle ne modifie ni ne réduit les garanties et responsabilités légales des constructeurs, qui courent à compter de la réception '
+  +'des travaux de chaque lot (articles 1792 et suivants du Code civil).';
+const finMissionDe=ch=>({documents:{},autres:'',faitA:'',faitLe:'',signatures:{},...((ch&&ch.finMission)||{})});
+/* un lot tel qu'il apparaît dans l'attestation : son PV dit s'il est reçu,
+   quand, et où en sont ses réserves */
+function finMissionLot(m,ch,data){
+  const pv=pvDe(ch,m.id);
+  const art=((data&&data.artisans)||[]).find(a=>a.id===m.artisanId)||null;
+  const nR=(pv.reserves||[]).filter(r=>r.localisation||r.description).length;
+  const etat=!pv.decision?'aucun':pv.decision==='refus'?'refus'
+    :pv.decision==='sans'?'sans':pv.leveeLe?'levees':'reserves';
+  const texte={aucun:'PV de réception non établi',refus:'Réception non prononcée',sans:'Sans réserve',
+    levees:'Avec réserves — levées le '+pvDate(pv.leveeLe),
+    reserves:'Avec '+(nR||'des')+' réserve'+(nR===1?'':'s')+' — non levée'+(nR===1?'':'s')}[etat];
+  return {id:m.id,numero:String(m.numeroMarche||''),lot:m.lot||'',entreprise:art?art.nom:'',
+    recuLe:etat==='aucun'||etat==='refus'?'':pvDate(pv.dateEffet),etat,texte,nReserves:nR};
+}
+/* ce que l'attestation reprend, et ce qui reste à faire avant de la faire signer */
+function finMissionDonnees(ch,data,fm){
+  fm=fm||finMissionDe(ch);
+  const ms=((data&&data.marches)||[]).filter(m=>m.chantierId===ch.id&&marcheSigne(m));
+  const lots=ms.map(m=>finMissionLot(m,ch,data));
+  const contrat=((ch&&ch.docs)||{}).contrat_moe;
+  const docs=FIN_MISSION_DOCS.filter(x=>fm.documents&&fm.documents[x.id]).map(x=>x.l)
+    .concat(String(fm.autres||'').split('\n').map(x=>x.trim()).filter(Boolean));
+  const honoConnus=honoAmount(ch)>0;
+  const arr=v=>Math.round(v*100)/100;
+  const hono=honoConnus?{total:arr(honoTotalTTC(ch)),facture:arr(honoFactureTTC(ch)),reste:arr(honoResteTTC(ch))}:null;
+  const noms=L=>L.map(x=>x.lot||'lot sans intitulé').join(', ');
+  const parEtat=e=>lots.filter(x=>x.etat===e);
+  const alertes=[
+    !lots.length&&'Aucun marché signé sur ce chantier : pas de lot à reprendre.',
+    parEtat('aucun').length&&'PV de réception à établir : '+noms(parEtat('aucun'))+'.',
+    parEtat('refus').length&&'Réception non prononcée : '+noms(parEtat('refus'))+'.',
+    parEtat('reserves').length&&'Réserves non levées : '+noms(parEtat('reserves'))+' (notez la date de levée sur le PV du lot).',
+    !(fm.documents&&fm.documents.doe)&&'Le DOE n’est pas coché parmi les documents remis.',
+    !honoConnus&&'Honoraires non renseignés sur le chantier.',
+    hono&&hono.reste>=0.5&&'Honoraires restant à facturer : '+eurDoc(hono.reste)+' TTC.',
+    !fm.faitLe&&'Date de signature (« Le ») à renseigner.',
+  ].filter(Boolean);
+  return {dossier:ch.nom||'',maitreOuvrage:pvMaitreOuvrage(ch,data),adresse:ch.adresse||'',
+    contratDate:contrat&&contrat.date?pvDate(contrat.date):'',lots,documents:docs,hono,
+    faitA:fm.faitA||'',faitLe:pvDate(fm.faitLe),alertes};
+}
+/* la signature du client à l'écran ; le visa de CP Constructions d'office,
+   comme sur un PV, sauf s'il a été décoché ici */
+function finMissionSignataires(fm,data){
+  const vCp=(data&&data.cpVisa)||{}, S=(fm&&fm.signatures)||{};
+  const ensemble=!vCp.signature&&!!vCp.cachet, fichier=vCp.signature||vCp.cachet;
+  const moe=(fm&&fm.visaCp!==false&&fichier)?{id:fichier.id,nom:'CP Constructions',qualite:'Maître d’œuvre',
+    date:(fm.visaCp&&fm.visaCp.le)||fm.faitLe||'',source:'fournie',mention:'Visa apposé',ensemble}:null;
+  return {moa:S.moa?{...S.moa,source:'ecran'}:null,moe,cachetMoe:moe&&vCp.cachet&&!ensemble?vCp.cachet:null};
+}
+function finMissionDocumentXml(d,img,px){
+  img=img||{};
+  const L=10206, pt='…………………………';
+  const t=(s,o)=>run(s,{sz:19,...(o||{})});
+  const coche=v=>run(v?'☒':'☐',{f:'Segoe UI Symbol',sz:20,c:PV_ARDOISE});
+  const cel=(w,contenu,o)=>tc(w,contenu,{bords:tcB({c:PV_FILET,sz:4,t:4,bs:4}),mg:100,...(o||{})});
+  const barre=c=>'<w:tcBorders><w:top w:val="nil"/><w:left w:val="single" w:sz="24" w:space="0" w:color="'+c+'"/>'
+    +'<w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders>';
+  const ligne=(cells,haut)=>'<w:tr><w:trPr><w:cantSplit/>'+(haut?'<w:trHeight w:val="'+haut+'"/>':'')+'</w:trPr>'+cells.join('')+'</w:tr>';
+  const titre=tbl([L],[tr([tc(L,par('Attestation de fin de mission',{sz:38,c:PV_ARDOISE,ap:0}),{bords:barre(DOC_TERRA),mg:160})])]);
+  const sousTitre=tbl([L],[tr([tc(L,par([t('Mission de maîtrise d’œuvre',{b:true,c:PV_ARDOISE}),t('      Dossier : ',{b:true,c:PV_ARDOISE}),
+    t(d.dossier||pt,{b:true})],{ap:0}),{bords:barre(DOC_TERRA),fond:PV_GRIS_CLAIR,mg:160})])]);
+  const lab=(w,s)=>cel(w,par(s,{b:true,sz:18,c:PV_ARDOISE,ap:0}),{fond:PV_GRIS_CLAIR});
+  const val=(w,s)=>cel(w,par(s||'',{sz:18,ap:0}));
+  const infos=tbl([2300,L-2300],[
+    tr([lab(2300,'Maître(s) d’ouvrage'),val(L-2300,d.maitreOuvrage)]),
+    tr([lab(2300,'Adresse du chantier'),val(L-2300,d.adresse)]),
+    tr([lab(2300,'Maître d’œuvre'),val(L-2300,'CP Constructions — '+CP.adresse+' — SIRET '+CP.siret)]),
+    tr([lab(2300,'Contrat'),val(L-2300,'Contrat de maîtrise d’œuvre'+(d.contratDate?' du '+d.contratDate:' du ……… / ……… / ……………'))])]);
+  const titreSection=s=>par([t(s,{b:true,caps:true,sp:40,sz:18,c:DOC_TERRA})],{av:140,ap:40});
+  const entT=(w,s)=>tc(w,par(s,{b:true,sz:17,c:'FFFFFF',ap:0}),{fond:PV_ARDOISE,bords:tcB({c:PV_ARDOISE,sz:4,t:4,bs:4}),mg:100});
+  const LW=[3300,2600,1400,2906];
+  const lots=tbl(LW,[tr([entT(LW[0],'Lot'),entT(LW[1],'Entreprise'),entT(LW[2],'Reçu le'),entT(LW[3],'Décision et réserves')])]
+    .concat((d.lots.length?d.lots:[{lot:'',entreprise:'',recuLe:'',texte:''}]).map(x=>ligne([
+      cel(LW[0],par((x.numero?'n° '+x.numero+' — ':'')+(x.lot||''),{sz:17,ap:0})),
+      cel(LW[1],par(x.entreprise||'',{sz:17,ap:0})),
+      cel(LW[2],par(x.recuLe||'',{sz:17,jc:'center',ap:0})),
+      cel(LW[3],par(x.texte||'',{sz:17,ap:0,c:x.etat&&x.etat!=='sans'&&x.etat!=='levees'?DOC_TERRA:undefined}))],340))));
+  const documents=d.documents.length
+    ?d.documents.map(s=>par([coche(true),t(' '+s,{sz:18})],{ap:20})).join('')
+    :[1,2,3].map(()=>par([coche(false),t(' ……………………………………………………………………………………',{sz:18})],{ap:20})).join('');
+  const HW=[6806,3400];
+  const ligneH=(l,v,b)=>tr([lab(HW[0],l),cel(HW[1],par(v,{sz:18,b:!!b,jc:'right',ap:0}))]);
+  const h=d.hono;
+  const honoraires=tbl(HW,[
+    ligneH('Honoraires du contrat, avenants compris (TTC)',h?eurDoc(h.total):pt),
+    ligneH('Facturés à ce jour (TTC)',h?eurDoc(h.facture):pt),
+    ligneH('Reste à facturer (TTC)',h?eurDoc(Math.max(0,h.reste)):pt,true)])
+    +par(h?(h.reste>=0.5?'Le solde des honoraires, soit '+eurDoc(h.reste)+' TTC, est payable selon les conditions du contrat.'
+      :'Les honoraires du contrat sont intégralement facturés.'):'',{sz:17,av:60,ap:0});
+  const garanties=tbl([L],[tr([tc(L,par(FIN_MISSION_TEXTE,{sz:16,jc:'both',ap:0}),{bords:barre(PV_ARDOISE),fond:PV_GRIS_CLAIR,mg:140})])]);
+  const fait=par([t('Fait à '),t(d.faitA||'……………………………………'),t(', le '),t(d.faitLe||'……… / ……… / ……………'),t(', en 2 exemplaires.')],{av:140,ap:60});
+  let docPr=40;
+  const dessin=(im,nom,maxL,maxH)=>{if(!im||!im.rid)return '';const [l,hh]=pvAjuster(im.w,im.h,maxL,maxH);return photoXml(im.rid,docPr++,nom,l,hh)};
+  const colonne=(aide,s,cachet,nomDefaut)=>{
+    let x=par(aide,{i:true,sz:14,c:DOC_GRIS,ap:40});
+    const images=[s&&s.ensemble?dessin(s,'Cachet et signature',2200000,1000000):dessin(s,'Signature',1400000,600000),
+      dessin(cachet,'Cachet',1100000,620000)].filter(Boolean);
+    if(images.length)x+='<w:p><w:pPr><w:spacing w:before="20" w:after="20" w:line="240" w:lineRule="auto"/></w:pPr>'+images.join(run('  ',{sz:14}))+'</w:p>';
+    const nom=(s&&s.nom)||nomDefaut;
+    if(nom)x+=par(nom+(s&&s.qualite?' — '+s.qualite:''),{sz:15,ap:0});
+    if(s)x+=par((s.source==='fournie'?(s.mention||'Signature fournie')+(s.date?' le ':''):'Signé le ')+(s.date?(/T/.test(s.date)?dateHeure(s.date):pvDate(s.date)):''),{sz:13,c:DOC_GRIS,ap:0});
+    return x;
+  };
+  const SW=[5103,5103];
+  const signatures=tbl(SW,[
+    tr([entT(SW[0],'Le(s) maître(s) d’ouvrage'),entT(SW[1],'CP Constructions — maître d’œuvre')]),
+    ligne([cel(SW[0],colonne('Signature précédée de « Lu et approuvé »',img.moa,null,d.maitreOuvrage),{v:'top'}),
+      cel(SW[1],colonne('Signature et cachet',img.moe,img.cachetMoe,''),{v:'top'})],2300)]);
+  const corps=[enteteDocCpXml(px,L),titre,vide(60),sousTitre,vide(80),infos,
+    par('Le(s) maître(s) d’ouvrage et CP Constructions, maître d’œuvre, constatent ensemble l’achèvement de la mission de maîtrise '
+      +'d’œuvre confiée par le contrat ci-dessus, assistance aux opérations de réception (AOR) comprise :',{sz:19,av:120,ap:40}),
+    titreSection('1. Réception des travaux'),lots,
+    titreSection('2. Documents remis au maître d’ouvrage'),documents,
+    titreSection('3. Honoraires de maîtrise d’œuvre'),honoraires,vide(100),
+    garanties,fait,signatures].join('');
+  return DOC_ENTETE_XML+'<w:body>'+corps
+    +'<w:sectPr><w:headerReference w:type="default" r:id="rId50"/><w:footerReference w:type="default" r:id="rId51"/>'
+    +'<w:pgSz w:w="11906" w:h="16838"/>'
+    +'<w:pgMar w:top="700" w:right="850" w:bottom="700" w:left="850" w:header="300" w:footer="300" w:gutter="0"/>'
+    +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
+    +'</w:body></w:document>';
+}
+/* images : {moa, moe, cachetMoe}, chacune {data, …} déjà chargée (pvChargerImages) */
+async function genererFinMissionDocx(d,images){
+  let logo=null;
+  try{logo=await logoDocx()}catch(e){/* sans logo, l'attestation reste valable */}
+  const img={}, extra=[];
+  let n=20;
+  ['moa','moe','cachetMoe'].forEach(k=>{
+    const im=images&&images[k];
+    if(!im)return;
+    if(!im.data){img[k]={...im};return}
+    const dim=ptrDimensionsBrutes(im.data)||{w:im.w||400,h:im.h||200,ext:'jpeg'};
+    const rid='rId'+(n++);
+    extra.push({id:rid,nom:'fin-'+k+'.'+(dim.ext||'jpeg'),data:im.data});
+    img[k]={...im,rid,w:dim.w,h:dim.h};
+  });
+  return fabriquerDocx(finMissionDocumentXml(d,img,logo),'Attestation de fin de mission — '+(d.dossier||''),logo,null,null,
+    extra.length?extra:undefined,{entete:PV_ENTETE_VIDE,pied:piedDocCpXml(d.dossier,'Attestation de fin de mission',d.faitLe)});
+}
+const finMissionNomFichier=d=>('Attestation de fin de mission — '+(d.dossier||'chantier')).replace(/[\\/:*?"<>|]/g,'-')+'.docx';
 
 /* ---------- avenant au marché de travaux ----------
    Une prestation ajoutée ou supprimée après la mise au point technique, avant
@@ -11588,6 +11767,13 @@ function PvReception({data,ch,m,save}){
         <label className="row xs" style={{gap:6,alignItems:'center'}}><input type="checkbox" checked={!!pv.annexe} onChange={e=>maj({annexe:e.target.checked})}/>
           suite sur feuille annexée et paraphée</label>
       </div>
+      {/* la levée des réserves : reprise par le PV (ligne « Levée des
+         réserves ») et par l'attestation de fin de mission */}
+      {pv.decision==='avec'&&<div className="row" style={{gap:10,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
+        {champ('Toutes les réserves levées le',<input className="in" type="date" value={pv.leveeLe||''} onChange={e=>maj({leveeLe:e.target.value})}/>)}
+        <span className="xs mut" style={{flex:'2 1 220px',lineHeight:1.5}}>{pv.leveeLe?'Reprise sur le PV et sur l’attestation de fin de mission.'
+          :'À noter une fois les réserves levées, après visite.'}</span>
+      </div>}
     </div>
     <div className="row" style={{gap:10,marginTop:10,flexWrap:'wrap'}}>
       {champ('Fait à',<input className="in" value={pv.faitA||''} placeholder={ch.adresse||''} onChange={e=>maj({faitA:e.target.value})}/>)}
@@ -17962,6 +18148,9 @@ function Docs({data,ch,up,save}){
               {x.id==='contrat_moe'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
                 <ContratMoeChantier data={data} ch={ch} save={save}/>
               </div>}
+              {x.id==='fin_mission'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
+                <FinMissionChantier data={data} ch={ch} save={save}/>
+              </div>}
               {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
                 <VignetteSign id={s.id}/>
                 <div style={{flex:1}}>
@@ -17990,6 +18179,144 @@ function ContratMoeChantier({data,ch,save}){
   return <SortirContratMoe data={data} p={p} sansCadre ou={'Drive › '+ch.nom+' › Pièces'}
     dossier={token=>driveSousDossier(token,ch.id,ch.nom,'Pièces')}
     maj={v=>save({...data,prospects:(data.prospects||[]).map(x=>x.id===p.id?{...x,...v}:x)})}/>;
+}
+
+/* l'attestation de fin de mission, sous sa pièce : ce que disent les PV des
+   lots, les documents remis (cochés un par un), la date, les signatures ;
+   le Word part dans Drive › Pièces et s'ajoute à la pièce, sans la cocher —
+   c'est l'exemplaire signé qui la complète */
+function FinMissionChantier({data,ch,save}){
+  const dataRef=useRef(data);dataRef.current=data;
+  const chActuel=()=>(dataRef.current.chantiers||[]).find(c=>c.id===ch.id)||ch;
+  const fm=finMissionDe(chActuel());
+  const [signer,setSigner]=useState(false);
+  const [sortie,setSortie]=useState(null);
+  const [urlWord,setUrlWord]=useState('');
+  useEffect(()=>{
+    if(!sortie||!sortie.octets){setUrlWord('');return}
+    let u='';try{u=URL.createObjectURL(new Blob([sortie.octets],{type:PTR_MIME.docx}))}catch(e){u=''}
+    setUrlWord(u);return ()=>{if(u)try{URL.revokeObjectURL(u)}catch(e){}};
+  },[sortie]);
+  /* chaque saisie part tout de suite sur le chantier */
+  const maj=patch=>{
+    const d=dataRef.current;
+    save({...d,chantiers:(d.chantiers||[]).map(c=>c.id!==ch.id?c:{...c,
+      finMission:{...finMissionDe(c),...(typeof patch==='function'?patch(finMissionDe(c)):patch),modifieLe:new Date().toISOString()}})});
+  };
+  const majCp=visa=>{const d=dataRef.current;save({...d,cpVisa:visa})};
+  const enregistrerSignature=async({nom,qualite,image})=>{
+    const sid=uid(), date=new Date().toISOString();
+    await Photo.put(sid,image);
+    const empreinte=await empreinteSignature([ch.nom,'Attestation de fin de mission',nom,qualite,date]);
+    maj(p=>({signatures:{...(p.signatures||{}),moa:{id:sid,nom,qualite,date,empreinte}}}));
+    setSigner(false);
+  };
+  const retirerSignature=()=>{
+    if(!confirm('Retirer la signature du maître d’ouvrage de l’attestation ?'))return;
+    maj(p=>{const s={...(p.signatures||{})};delete s.moa;return {signatures:s}});
+  };
+  const d=finMissionDonnees(chActuel(),data,fm);
+  const sig=finMissionSignataires(fm,data);
+  const vCp=data.cpVisa||{};
+  const produire=async()=>{
+    setSortie({etat:'travail'});
+    try{
+      const {images,manquantes}=await pvChargerImages(sig);
+      const octets=await genererFinMissionDocx(d,images);
+      const nom=finMissionNomFichier(d);
+      let lien='', note='';
+      try{
+        const token=await getDriveToken();
+        const dossier=await driveSousDossier(token,ch.id,ch.nom,'Pièces');
+        const r=await uploadToDrive(new File([octets],nom,{type:PTR_MIME.docx}),dossier);
+        lien=(r&&r.webViewLink)||'';
+      }catch(e){note=e&&e.error==='auth_required'?'Google Drive n’est pas connecté : le Word n’est pas déposé, téléchargez-le ci-dessous.'
+        :'Dépôt sur le Drive impossible — '+((e&&(e.error||e.message))||e)}
+      maj({genere:{nom,lien,le:new Date().toISOString()}});
+      if(lien){const dd=dataRef.current;
+        save({...dd,chantiers:(dd.chantiers||[]).map(c=>{if(c.id!==ch.id)return c;
+          const docs=c.docs||{}, r=docs.fin_mission||{};
+          return {...c,docs:{...docs,fin_mission:{...r,fichiers:[...fichiersDe(r).filter(f=>f.nom!==nom),{id:uid(),nom,lien}]}}};})});}
+      const ok=k=>images[k]&&images[k].data;
+      setSortie({etat:'ok',octets,nom,lien,note,
+        contenu:['maître d’ouvrage : '+(ok('moa')?'signé':'à signer à la main'),
+          'CP Constructions : '+(ok('moe')?'visa'+(ok('cachetMoe')?' et cachet':''):'à signer à la main')],
+        manquantes:manquantes.map(k=>({moa:'signature du maître d’ouvrage',moe:'signature de CP Constructions',cachetMoe:'cachet de CP Constructions'}[k]))});
+    }catch(e){setSortie({etat:'erreur',msg:'Attestation impossible à produire — '+((e&&e.message)||e)})}
+  };
+  const champ=(l,el)=><div style={{flex:'1 1 150px'}}><div className="xs mut" style={{marginBottom:3}}>{l}</div>{el}</div>;
+  const couleur=e=>e==='sans'||e==='levees'?GREEN:e==='aucun'?MUTED:TERRA;
+  return <div className="xs" style={{lineHeight:1.5}}>
+    <div className="mut">À faire signer au client une fois tout terminé : elle constate l’achèvement de votre mission (AOR comprise),
+      la remise des documents et l’état des honoraires. Elle ne remplace pas les PV de réception des lots, d’où partent les garanties,
+      et ne les réduit pas. Texte à faire relire avant sa première utilisation.</div>
+    <div className="b" style={{color:NAVY,marginTop:10}}>Réception des lots ({d.lots.length})</div>
+    {d.lots.map(x=><div key={x.id} className="row" style={{gap:8,flexWrap:'wrap',marginTop:3}}>
+      <span style={{flex:'2 1 180px'}}>{x.numero?'n° '+x.numero+' — ':''}{x.lot||'lot sans intitulé'}<span className="mut"> · {x.entreprise||'entreprise ?'}</span></span>
+      <span style={{flex:'2 1 200px',color:couleur(x.etat)}}>{x.texte}{x.recuLe?' — reçu le '+x.recuLe:''}</span>
+    </div>)}
+    {!d.lots.length&&<div className="mut">Aucun marché signé sur ce chantier.</div>}
+    <div className="mut" style={{marginTop:4}}>Décision, réserves et date de levée se notent dans le PV de chaque lot (MARCHÉS › le lot › PV DE RÉCEPTION).</div>
+    <div className="b" style={{color:NAVY,marginTop:12}}>Documents remis au client</div>
+    {FIN_MISSION_DOCS.map(x=><label key={x.id} className="row" style={{gap:6,alignItems:'flex-start',marginTop:3,cursor:'pointer'}}>
+      <input type="checkbox" checked={!!(fm.documents&&fm.documents[x.id])}
+        onChange={e=>maj(p=>({documents:{...(p.documents||{}),[x.id]:e.target.checked}}))}/>
+      <span>{x.l}</span></label>)}
+    <textarea className="in" rows={2} style={{marginTop:6,width:'100%'}} placeholder="Autres documents remis (un par ligne)"
+      value={fm.autres||''} onChange={e=>maj({autres:e.target.value})}/>
+    <div className="row" style={{gap:10,marginTop:10,flexWrap:'wrap'}}>
+      {champ('Fait à',<input className="in" value={fm.faitA||''} placeholder="Valframbert" onChange={e=>maj({faitA:e.target.value})}/>)}
+      {champ('Le',<input className="in" type="date" value={fm.faitLe||''} onChange={e=>maj({faitLe:e.target.value})}/>)}
+    </div>
+    <div style={{marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
+      <div className="b" style={{color:NAVY}}>Signatures</div>
+      <div style={{marginTop:6,padding:'8px 10px',borderRadius:8,background:'#F4F1EB'}}>
+        <div className="sp" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <span className="b">Le(s) maître(s) d’ouvrage{d.maitreOuvrage?' — '+d.maitreOuvrage:''}</span>
+          {!sig.moa&&<button className="btn gh s" onClick={()=>setSigner(true)}>Signer à l’écran</button>}
+        </div>
+        {sig.moa?<div className="row" style={{gap:10,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+          <VignetteSign id={sig.moa.id}/>
+          <div style={{flex:1,minWidth:140}}><div className="b">{sig.moa.nom}{sig.moa.qualite?' — '+sig.moa.qualite:''}</div>
+            <div className="mut">Signé à l’écran le {dateHeure(sig.moa.date)}</div>
+            {sig.moa.empreinte&&<div className="mut" style={{fontSize:10}}>Empreinte {sig.moa.empreinte}</div>}</div>
+          <button className="btn dg s" onClick={retirerSignature}>✕</button>
+        </div>:<div className="mut" style={{marginTop:4}}>Sinon, le client signe le Word imprimé.</div>}
+      </div>
+      <div style={{marginTop:6,padding:'8px 10px',borderRadius:8,background:'#F4F1EB'}}>
+        <span className="b">CP Constructions — maître d’œuvre</span>
+        <label className="row" style={{gap:6,alignItems:'center',marginTop:6,opacity:(vCp.signature||vCp.cachet)?1:.55}}>
+          <input type="checkbox" disabled={!(vCp.signature||vCp.cachet)} checked={!!(vCp.signature||vCp.cachet)&&fm.visaCp!==false}
+            onChange={e=>maj({visaCp:e.target.checked?{le:today()}:false})}/>
+          Apposer la signature et le cachet enregistrés de CP Constructions</label>
+        <details style={{marginTop:6}}><summary style={{color:NAVY,cursor:'pointer'}}>
+          Cachet et signature de CP Constructions{vCp.signature||vCp.cachet?'':' — à déposer'}</summary>
+          <div style={{marginTop:6}}><CachetSignature valeur={vCp} onChange={majCp} qui="CP Constructions"/></div>
+        </details>
+      </div>
+    </div>
+    {!!d.alertes.length&&<div style={{marginTop:10,padding:'8px 10px',borderLeft:'3px solid '+AMBER,background:'#FBF3E2',borderRadius:6}}>
+      <b>Avant de la faire signer</b>
+      {d.alertes.map((a,i)=><div key={i}>· {a}</div>)}
+      <div className="mut">L’attestation se produit quand même : elle dira ce qui reste à faire.</div>
+    </div>}
+    <div className="row" style={{gap:10,marginTop:12,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn acc s" disabled={sortie&&sortie.etat==='travail'} onClick={produire}>
+        {sortie&&sortie.etat==='travail'?'Composition…':(fm.genere?'Produire à nouveau l’attestation (Word)':'Produire l’attestation de fin de mission (Word)')}</button>
+      {sortie&&sortie.etat==='ok'&&urlWord&&<a className="btn gh s" href={urlWord} download={sortie.nom}
+        style={{display:'inline-block',textDecoration:'none'}}>⬇ Télécharger le Word</a>}
+      {((sortie&&sortie.lien)||(fm.genere&&fm.genere.lien))&&<a href={(sortie&&sortie.lien)||fm.genere.lien} target="_blank" rel="noreferrer"
+        style={{color:TERRA}}>Ouvrir sur le Drive</a>}
+      {fm.genere&&!sortie&&<span className="mut">Produite le {dateHeure(fm.genere.le)}.</span>}
+    </div>
+    {sortie&&sortie.etat==='ok'&&<div style={{marginTop:6,color:sortie.note?AMBER:GREEN}}>
+      {sortie.lien?'Attestation déposée dans Drive › '+ch.nom+' › Pièces — '+sortie.nom+'.':sortie.note}
+      <div style={{color:MUTED}}>Dans l’attestation — {sortie.contenu.join(' · ')}.</div>
+      {sortie.manquantes&&sortie.manquantes.length?<span style={{color:AMBER}}> Image illisible, case laissée vide : {sortie.manquantes.join(', ')}.</span>:null}</div>}
+    {sortie&&sortie.etat==='erreur'&&<div style={{marginTop:6,color:TERRA}}>{sortie.msg}</div>}
+    {signer&&<SignaturePad titre={'Attestation de fin de mission — '+ch.nom} qualiteDefaut="Maître d’ouvrage"
+      onAnnuler={()=>setSigner(false)} onSigner={enregistrerSignature}/>}
+  </div>;
 }
 
 /* ---------------- MISE AU POINT TECHNIQUE (MAP) ----------------
