@@ -112,7 +112,24 @@ qu'on ait à les redire.
   le PV, colonne par colonne. Le Word part sur
   le Drive › PV de réception et s'ajoute à la pièce « PV de réception » du
   chantier (sans la cocher) ; une image illisible est nommée, le PV sort
-  quand même. Tests : `t_pv_reception.js`.
+  quand même. La levée des réserves se note sur le PV (`pv.leveeLe`,
+  « Toutes les réserves levées le ») : reprise sur la ligne « Levée des
+  réserves » du PV et par l'attestation de fin de mission. Tests :
+  `t_pv_reception.js`.
+- **Attestation de fin de mission** (PIÈCES › Achèvement, pièce
+  `fin_mission`, `FinMissionChantier`) : la mission de maîtrise d'œuvre ne
+  se réceptionne pas (la réception porte sur les travaux, lot par lot) ; le
+  client signe en fin de mission une attestation au style du PV
+  (`finMissionDonnees`, `genererFinMissionDocx`) : lots signés et leur PV
+  (reçu le, décision, réserves et levée), documents remis cochés un par
+  un (`FIN_MISSION_DOCS`, rien d'office, « autres » en texte libre),
+  honoraires facturés et solde (rien d'inventé s'ils manquent). Elle dit
+  ce qui reste à faire avant signature sans bloquer, et qu'elle ne réduit
+  aucune garantie (`FIN_MISSION_TEXTE`, à faire relire). Visa de CP
+  d'office, client à l'écran ou à la main (`finMissionSignataires`) ;
+  rangée sur le chantier (`ch.finMission`, à chaque saisie), Word dans
+  Drive › Pièces, ajouté à la pièce sans la cocher. Tests :
+  `t_fin_mission.js`, `fin_mission_navigateur.js`.
 - **Factures d'achat de matériaux** (Marchés › Achats de matériaux) : une
   facture déposée se transmet au client depuis son volet (« Envoyer au
   client », `EnvoyerFactureAchat`) : aperçu à relire, facture reprise du
