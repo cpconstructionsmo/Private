@@ -51,8 +51,14 @@ qu'on ait à les redire.
   honoraires, factures d'honoraires et avenants prennent 20 % ; un autre
   taux saisi est gardé mais signalé, avec un bouton pour repasser à 20 %. Un avenant, même validé, se supprime
   (`supprimerAvenantClient` défait ses reports ; son numéro ne resert
-  pas). Tests :
-  `t_budget_avenants.js`, `budget_avenants_navigateur.js`.
+  pas). Le formulaire d'un lot resté ouvert pendant un report ne l'efface
+  plus : « Enregistrer » ne réécrit que la saisie, ce qui a changé ailleurs
+  suit (`lotRebaser`), un montant touché des deux côtés est signalé. Une
+  ligne reportée que son marché ne porte plus (`avReportsPerdus`, jamais un
+  avenant venu d'un lot) se signale « report à refaire » et se rétablit
+  après aperçu (`retablirReportsAvenant`). Tests :
+  `t_budget_avenants.js`, `budget_avenants_navigateur.js`,
+  `t_avenant_report_perdu.js`.
 - **Contrat de maîtrise d'œuvre** (`SortirContratMoe`, `genererContratMoeDocx`) :
   texte juridique repris mot pour mot du modèle CP ; seuls les champs
   connus sont remplis (client, adresse, surfaces, budget, honoraires). Il
