@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-12 · PV de réception : visa CP d’office, cachet et signature en un seul fichier acceptés';
+const VERSION='2026-11-14 · Avenants : un report perdu dans le marché se rétablit ; un lot ouvert n’efface plus un avenant reporté';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1343,6 +1343,76 @@ const reporterAvenantMarches=(data,chId,avId)=>{
       :avJournal({...x,lignes:x.lignes.map(l=>ids.has(l.id)?{...l,reporteLe:le,reporteSur:l.marcheId}:l)},
         'Reporté dans les marchés ('+[...ids].length+' ligne'+([...ids].length>1?'s':'')+')'))}),
   };
+};
+/* une prestation marquée « reportée » dont le marché ne garde plus la trace :
+   le marché a été réécrit après le report — un formulaire de lot resté ouvert
+   pendant le report, puis enregistré, remettait l'ancien montant. Le total
+   engagé ne la compte plus. Les avenants venus d'un avenant de lot n'en sont
+   jamais : leur montant était déjà dans le marché, sans trace. */
+const avReportsPerdus=(a,marches)=>avStatut(a)!=='valide'||(a&&a.origine)?[]:((a&&a.lignes)||[]).filter(l=>{
+  if(!l.reporteLe)return false;
+  const m=(marches||[]).find(x=>x.id===(l.reporteSur||l.marcheId));
+  return !!m&&!(m.avenantsClientReportes||[]).some(x=>x.ligneId===l.id);
+});
+/* le report se rétablit à la demande, une fois, après avoir montré le montant :
+   même calcul et même trace que le premier report */
+const retablirReportsAvenant=(data,chId,avId)=>{
+  const ch=(data.chantiers||[]).find(c=>c.id===chId);
+  const a=ch&&(ch.avenantsClient||[]).find(x=>x.id===avId);
+  const L=a?avReportsPerdus(a,data.marches):[];
+  if(!L.length)return data;
+  const le=today(), parMarche=new Map();
+  for(const l of L){
+    const id=l.reporteSur||l.marcheId, cur=parMarche.get(id)||[];
+    cur.push({avenantId:a.id,numero:a.numero,ligneId:l.id,ht:avLigneCalc(l,ch).ht/100,le,retabli:true});
+    parMarche.set(id,cur);
+  }
+  const ids=new Set(L.map(l=>l.id));
+  return {...data,
+    marches:(data.marches||[]).map(m=>{
+      const R=parMarche.get(m.id);
+      if(!R)return m;
+      const montantHT=(centimes(m.montantHT)+R.reduce((s,x)=>s+centimes(x.ht),0))/100;
+      return {...m,montantHT,avenantsClientReportes:[...(m.avenantsClientReportes||[]),...R]};
+    }),
+    chantiers:(data.chantiers||[]).map(c=>c.id!==chId?c:{...c,avenantsClient:(c.avenantsClient||[]).map(x=>x.id!==avId?x
+      :avJournal({...x,lignes:x.lignes.map(l=>ids.has(l.id)?{...l,retabliLe:le}:l)},
+        'Report rétabli dans les marchés ('+ids.size+' ligne'+(ids.size>1?'s':'')+') : le marché avait été réécrit depuis'))}),
+  };
+};
+/* ce que le rétablissement change, marché par marché, pour le dire avant */
+const retablirReportsApercu=(data,ch,a)=>{
+  const par=new Map();
+  for(const l of avReportsPerdus(a,data.marches)){
+    const id=l.reporteSur||l.marcheId;
+    par.set(id,(par.get(id)||0)+avLigneCalc(l,ch).ht);
+  }
+  return [...par].map(([id,ht])=>{const m=data.marches.find(x=>x.id===id);
+    return {marche:m,avant:centimes(m.montantHT),apres:centimes(m.montantHT)+ht,ht}});
+};
+/* le formulaire d'un lot garde une copie du marché, faite à son ouverture.
+   Pendant qu'il reste ouvert, le même marché peut changer ailleurs : avenant
+   reporté depuis l'encart « Budget et avenants », facture déposée depuis la
+   liste… « Enregistrer » réécrivait alors la copie entière et effaçait ces
+   changements en silence. On reporte donc sur la saisie, champ par champ, ce
+   qui a changé depuis l'ouverture (« ouvertSur » → « actuel »), sauf ce que
+   l'utilisateur a retouché lui-même (« depart » → « saisie ») : une liste de
+   fiches se fusionne fiche par fiche, un autre champ touché des deux côtés
+   garde la saisie et se signale (« conflits »). */
+const lotRebaser=(saisie,depart,ouvertSur,actuel)=>{
+  const s={...saisie}, d={...depart}, conflits=[];
+  const o=ouvertSur||{}, n=actuel||{};
+  for(const k of new Set([...Object.keys(o),...Object.keys(n)])){
+    if(memeValeur(o[k],n[k]))continue;
+    /* déjà pareil des deux côtés (le même geste écrit à l'écran et dans data) */
+    if(memeValeur(saisie[k],n[k])){}
+    else if(memeValeur(saisie[k],depart[k])){if(n[k]===undefined)delete s[k];else s[k]=n[k]}
+    else if(estListeDeFiches(saisie[k])&&estListeDeFiches(n[k]))s[k]=fusionnerListe(estListeDeFiches(depart[k])?depart[k]:[],saisie[k],n[k]);
+    else if(estObjetSimple(saisie[k])&&estObjetSimple(n[k]))s[k]=fusionnerDonnees(depart[k],saisie[k],n[k]);
+    else conflits.push(k);
+    if(n[k]===undefined)delete d[k];else d[k]=n[k];
+  }
+  return {saisie:s,depart:d,conflits};
 };
 /* supprimer un avenant, même validé — à la demande, après confirmation.
    Ce qu'il avait reporté dans les marchés en est retiré, d'après la trace
@@ -7564,6 +7634,10 @@ function useBrouillon(ecran,f,setF,nommer){
   /* l'écran se ferme formulaire ouvert : la copie reste, le bandeau la proposera au retour */
   useEffect(()=>()=>{if(cle.current)saisiesEnCours.delete(cle.current)},[]);
   const reprendre=b=>{cle.current=b.cle;ouvertAvec.current='';setTrouves(L=>L.filter(x=>x.cle!==b.cle));setF(b.f)};
+  /* la saisie suit un changement venu d'ailleurs (le même marché enregistré
+     depuis un autre encart), pas une frappe : tant que rien n'a été tapé, ce
+     n'est pas une saisie en cours, ni un brouillon à garder */
+  const suivre=nouveau=>{if(cle.current&&ouvertAvec.current===JSON.stringify(f))ouvertAvec.current=JSON.stringify(nouveau)};
   const jeter=b=>{if(!confirm('Jeter cette saisie non enregistrée ? Elle sera perdue.'))return;brouillonEcrit(b.cle,null);setTrouves(L=>L.filter(x=>x.cle!==b.cle))};
   const bandeau=f||!trouves.length?null:<div className="card brouillons" style={{borderLeft:'3px solid '+AMBER,marginBottom:12,padding:'10px 12px'}}>
     <div className="sm b" style={{color:AMBER}}>Saisie non enregistrée retrouvée</div>
@@ -7575,7 +7649,7 @@ function useBrouillon(ecran,f,setF,nommer){
       </span></div>)}
     <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>Copie gardée sur cet appareil : la page a été rechargée (ou quittée) avant « Enregistrer ». Reprenez la saisie, vérifiez-la, puis enregistrez.</div>
   </div>;
-  return {bandeau};
+  return {bandeau,suivre};
 }
 
 /* ---------- le marché converti en PDF ----------
@@ -10334,6 +10408,8 @@ function DetailAvenant({data,ch,ms,a,L,on,valid,setValid,redaction}){
   const aReporter=avLignesAReporter(a).filter(l=>marche(l.marcheId));
   const htReport=aReporter.reduce((s,l)=>s+(parLigne.get(l.id)||{ht:0}).ht,0);
   const sansMarche=st==='valide'?(a.lignes||[]).filter(l=>!l.reporteLe&&!marche(l.marcheId)):[];
+  const perdus=avReportsPerdus(a,ms), perdu=new Set(perdus.map(l=>l.id));
+  const htPerdu=perdus.reduce((s,l)=>s+(parLigne.get(l.id)||{ht:0}).ht,0);
   const enValidation=valid&&valid.id===a.id;
   return <div className="xs" style={{padding:'8px 4px 12px',lineHeight:1.6}}>
     {(a.description||a.motif)&&<div style={{marginBottom:6}}>
@@ -10355,7 +10431,9 @@ function DetailAvenant({data,ch,ms,a,L,on,valid,setValid,redaction}){
           {(a.lignes||[]).map(l=>{const x=parLigne.get(l.id)||{};const m=marche(l.marcheId);
             return <tr key={l.id} style={{borderBottom:'1px solid '+RULE}}>
               <td style={{padding:'4px'}}>{(m&&m.lot)||l.lot||'—'}
-                {l.reporteLe&&<div style={{color:GREEN,fontSize:11}}>✓ reporté au marché le {fd(l.reporteLe)}</div>}</td>
+                {l.reporteLe&&(perdu.has(l.id)
+                  ?<div style={{color:AMBER,fontSize:11}}>⚠ reporté le {fd(l.reporteLe)}, mais le marché ne le porte plus</div>
+                  :<div style={{color:GREEN,fontSize:11}}>✓ reporté au marché le {fd(l.reporteLe)}{l.retabliLe?' (rétabli le '+fd(l.retabliLe)+')':''}</div>)}</td>
               <td style={{padding:'4px'}}>{nomArt(l.artisanId||(m&&m.artisanId))||'—'}</td>
               <td style={{padding:'4px'}}>{avSens(l)===-1&&<span style={{color:TERRA}}>Moins-value — </span>}{l.designation||'—'}</td>
               <td style={avCell}>{Math.abs(+l.qte||0).toLocaleString('fr-FR')} {l.unite||''}</td>
@@ -10412,6 +10490,13 @@ function DetailAvenant({data,ch,ms,a,L,on,valid,setValid,redaction}){
       {aReporter.length} prestation{aReporter.length>1?'s':''} validée{aReporter.length>1?'s':''} ({eurCtsSigne(htReport)} HT) pas encore
       reportée{aReporter.length>1?'s':''} dans {aReporter.length>1?'leurs marchés':'son marché'} : le total engagé ne les compte pas encore.
       <div><button className="btn gh s" style={{marginTop:6}} onClick={()=>on.reporterMarches(a,htReport)}>Reporter dans les marchés</button></div>
+    </div>}
+    {!!perdus.length&&<div style={{marginTop:8,padding:'8px 10px',borderLeft:'3px solid '+AMBER,background:'#FBF3E2',borderRadius:6}}>
+      {perdus.length} prestation{perdus.length>1?'s':''} ({eurCtsSigne(htPerdu)} HT) {perdus.length>1?'sont marquées reportées':'est marquée reportée'},
+      mais {perdus.length>1?'leurs marchés ne les portent':'son marché ne la porte'} plus : le montant du marché a été réécrit depuis le report
+      (un lot resté ouvert puis enregistré pendant le report remettait l'ancien montant). Le total engagé et le reste à facturer ne
+      {perdus.length>1?' les':' la'} comptent pas.
+      <div><button className="btn gh s" style={{marginTop:6}} onClick={()=>on.retablirReports(a)}>Reporter à nouveau dans {perdus.length>1?'les marchés':'le marché'}</button></div>
     </div>}
     {st==='valide'&&c.hono.ht!==0&&!(a.hono&&a.hono.reporteLe)&&<div style={{marginTop:8,padding:'8px 10px',borderLeft:'3px solid '+AMBER,background:'#FBF3E2',borderRadius:6}}>
       Honoraires de l'avenant ({eurCtsSigne(c.hono.ht)} HT) pas encore ajoutés aux honoraires du chantier : le total engagé ne les compte pas encore.
@@ -10603,6 +10688,14 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
       if(!confirm('Ajouter '+eurCtsSigne(ht)+' HT au montant des marchés concernés ? Chaque prestation n’y est reportée qu’une fois.'))return;
       save(reporterAvenantMarches(data,ch.id,a.id));
     },
+    retablirReports:a=>{
+      const P=retablirReportsApercu(data,ch,a);
+      if(!P.length)return;
+      if(!confirm('Reporter à nouveau '+a.numero+' dans '+(P.length>1?'ses marchés':'son marché')+' :\n'
+        +P.map(x=>'• '+(x.marche.lot||'Lot')+' : '+eurc(x.avant/100)+' → '+eurc(x.apres/100)+' HT ('+eurCtsSigne(x.ht)+')').join('\n')
+        +'\n\nSi vous aviez déjà corrigé ce montant à la main, annulez : il serait compté deux fois.'))return;
+      save(retablirReportsAvenant(data,ch.id,a.id));
+    },
     reporterHono:(a,ht)=>{
       if(!confirm('Ajouter '+eurCtsSigne(ht)+' HT aux honoraires du chantier (actuellement '+eurc(honoAmount(ch))+' HT) ?'))return;
       majAv(a.id,x=>avStatut(x)==='valide'&&!(x.hono&&x.hono.reporteLe)
@@ -10785,7 +10878,8 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
                   <td style={{padding:'6px 4px',whiteSpace:'nowrap'}} className="b">{deplie?'▾':'▸'} {a.numero}</td>
                   <td style={{padding:'6px 4px'}}>{a.objet||<span className="mut">(sans objet)</span>}</td>
                   <td style={{padding:'6px 4px',whiteSpace:'nowrap'}}>{fd(a.date)}</td>
-                  <td style={{padding:'6px 4px'}}><PastilleAvenant statut={st}/></td>
+                  <td style={{padding:'6px 4px'}}><PastilleAvenant statut={st}/>
+                    {!!avReportsPerdus(a,ms).length&&<div className="xs" style={{color:AMBER,whiteSpace:'nowrap'}}>⚠ report à refaire</div>}</td>
                   <td style={{...avCell,...barre}}>{eurCtsSigne(c.trav.ttc)||'—'}</td>
                   <td style={{...avCell,...barre}}>{eurCtsSigne(c.hono.ttc)||'—'}</td>
                   <td style={{...avCell,...barre}} className="b">{eurCtsSigne(c.total.ttc)||'0,00 €'}</td>
@@ -11589,12 +11683,47 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     })});
   };
   const glisseLots=useGlisser(ms.length,ordonnerLots);
-  const openRow=m=>setF(m.factures?m:{...m,factures:m.facture?[{id:uid(),montant:m.facture,date:m.dateSignature||today(),lien:''}]:[]});
+  /* le marché tel qu'il était à l'ouverture du lot (« ouvertSur ») et la
+     saisie de départ (« depart ») : de quoi reconnaître, à l'enregistrement,
+     ce qui a changé ailleurs pendant que le lot était ouvert (lotRebaser) */
+  const baseLot=useRef(null);
+  const openRow=m=>{
+    const v=m.factures?m:{...m,factures:m.facture?[{id:uid(),montant:m.facture,date:m.dateSignature||today(),lien:''}]:[]};
+    baseLot.current={id:m.id,ouvertSur:m,depart:v,conflits:[]};
+    setF(v);
+  };
+  const lotActuel=f&&f.id?data.marches.find(m=>m.id===f.id):null;
+  useEffect(()=>{
+    if(!f){baseLot.current=null;return}
+    /* une saisie reprise d'un brouillon : on part du marché tel qu'il est */
+    if(f.id&&lotActuel&&!(baseLot.current&&baseLot.current.id===f.id))baseLot.current={id:f.id,ouvertSur:lotActuel,depart:f,conflits:[]};
+  },[f&&(f.id||'nouveau')]);
+  /* le marché change ailleurs, lot ouvert : la saisie le suit à l'écran */
+  useEffect(()=>{
+    const b=baseLot.current;
+    if(!f||!lotActuel||!b||b.id!==f.id||lotActuel===b.ouvertSur)return;
+    const r=lotRebaser(f,b.depart,b.ouvertSur,lotActuel);
+    baseLot.current={...b,ouvertSur:lotActuel,depart:r.depart,conflits:[...new Set([...b.conflits,...r.conflits])]};
+    if(!memeValeur(r.saisie,f)){brouillon.suivre(r.saisie);setF(r.saisie)}
+  },[lotActuel]);
+  const conflitMontant=!!(f&&lotActuel&&baseLot.current&&baseLot.current.id===f.id&&baseLot.current.conflits.includes('montantHT')
+    &&centimes(f.montantHT)!==centimes(lotActuel.montantHT));
   const ok=()=>{
     if(!f.lot)return;
-    const factures=f.factures||[];
-    const r={...f,montantHT:+f.montantHT||0,tva:f.tva===''||f.tva===undefined||f.tva===null?'':+f.tva,
-      remisePct:f.remisePct===''||f.remisePct===undefined||f.remisePct===null?'':+f.remisePct,
+    /* ce qui a changé ailleurs depuis l'ouverture reste : on ne réécrit que la saisie */
+    let s=f;
+    const b=baseLot.current, actuel=f.id?data.marches.find(m=>m.id===f.id):null;
+    if(b&&actuel&&b.id===f.id){
+      const r=lotRebaser(f,b.depart,b.ouvertSur,actuel);
+      s=r.saisie;
+      const conflits=[...new Set([...b.conflits,...r.conflits])];
+      if(conflits.includes('montantHT')&&centimes(s.montantHT)!==centimes(actuel.montantHT)
+        &&!confirm('Le montant de ce marché a changé pendant que le lot était ouvert (avenant reporté, autre appareil…) : il est de '
+          +eurc(+actuel.montantHT||0)+' HT.\n\nEnregistrer quand même votre saisie de '+eurc(+s.montantHT||0)+' HT ?'))return;
+    }
+    const factures=s.factures||[];
+    const r={...s,montantHT:+s.montantHT||0,tva:s.tva===''||s.tva===undefined||s.tva===null?'':+s.tva,
+      remisePct:s.remisePct===''||s.remisePct===undefined||s.remisePct===null?'':+s.remisePct,
       factures,facture:facturesTotal(factures)};
     save({...data,marches:f.id?data.marches.map(m=>m.id===f.id?r:m):[...data.marches,{...r,id:uid(),chantierId:ch.id}]});
     setF(null);
@@ -12109,6 +12238,12 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           :<span>Laissez la TVA vide pour appliquer le taux du chantier ({tvaRate(ch)} %). Saisissez <b>0</b> pour un artisan en franchise de TVA ou en autoliquidation. </span>}
         {f.montantHT>0&&<span>— soit <b>{eur(marcheTTC({montantHT:+f.montantHT,tva:f.tva},ch))}</b> TTC.</span>}
       </div>
+      {conflitMontant&&<div className="xs" style={{marginTop:-6,marginBottom:12,padding:'6px 10px',borderLeft:'3px solid '+AMBER,background:'#FBF3E2',borderRadius:6,lineHeight:1.5}}>
+        Le montant de ce marché a changé pendant que le lot était ouvert : il est enregistré à <b>{eurc(+lotActuel.montantHT||0)} HT</b>
+        (avenant reporté, autre appareil…). Votre saisie, {eurc(+f.montantHT||0)} HT, le remplacerait.
+        <button type="button" className="btn gh s" style={{marginLeft:8}} onClick={()=>setF(p=>({...p,montantHT:lotActuel.montantHT}))}>
+          Reprendre {eurc(+lotActuel.montantHT||0)}</button>
+      </div>}
       {/* la rétrocession, ajoutée au prix de l'artisan dans les prix unitaires : rien n'en paraît sur le marché */}
       {(()=>{
         const signe=marcheSigne(f), a=+f.retroPctApplique||0, t=+f.retroPct||0;
