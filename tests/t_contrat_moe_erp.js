@@ -78,10 +78,16 @@ const docx=async(p,t)=>{const b=await M.genererContratMoeDocx(p,t);
   chk(!(d2.chantiers[0].docs||{}).contrat_moe,'la pièce n’est pas cochée : c’est le contrat signé qu’on y dépose');
   TR.act(()=>{tr.unmount()});
 
-  /* un chantier sans prospect : on dit où le sortir */
+  /* un chantier sans prospect : le contrat se sort de sa fiche ; tant que
+     ni budget ni honoraires n'y sont, le bouton attend le chiffrage */
   d2={...M.EMPTY,chantiers:[{id:'c2',nom:'Chantier direct',docs:{}}]};
   TR.act(()=>{tr=TR.create(monter())});
-  chk(!btn(tr,/Sortir le contrat/)&&/n’a pas été créé depuis un prospect/.test(norm(texteInst(tr.root))),'chantier sans prospect : il dit où sortir le contrat');
+  chk(btn(tr,/Sortir le contrat/)&&btn(tr,/Sortir le contrat/).props.disabled&&/Chiffrez d'abord le projet/.test(norm(texteInst(tr.root))),
+    'chantier sans prospect : la carte du contrat, en attente d’un budget');
+  TR.act(()=>{tr.unmount()});
+  d2={...M.EMPTY,chantiers:[{id:'c2',nom:'Chantier direct',docs:{},budget:100000,honorairesMontant:12000,tva:20}]};
+  TR.act(()=>{tr=TR.create(monter())});
+  chk(btn(tr,/Sortir le contrat/)&&!btn(tr,/Sortir le contrat/).props.disabled,'chantier sans prospect, chiffré : le contrat se sort de sa fiche');
   TR.act(()=>{tr.unmount()});
   fin();
 })().catch(e=>{console.error(e);process.exit(1)});
