@@ -369,25 +369,135 @@ function cartePiece(v, p) {
     h('button', { class: 'gros sec', style: 'margin-top:8px', disabled: true, title: 'Bientôt : illustration de la pièce transformée' }, '✨ Imaginer (bientôt)'));
 }
 
-/* étape 5 : le scan */
+/* étape 5 : le scan, puis le plan */
+const resumePlan = r => r ? r.pieces + ' pièce' + (r.pieces > 1 ? 's' : '') + ' · ' + String(r.surface).replace('.', ',') + ' m²' +
+  (r.ouvertures != null ? ' · ' + r.ouvertures + ' ouverture' + (r.ouvertures > 1 ? 's' : '') : '') : '';
+
 function etapeScan(v) {
-  const scan = M.valeur(v, 'scan.fichier');
-  const importer = () => choisirFichier({}, async ([f]) => {
-    // sur iPhone, l'export d'OpenPlan 3D peut arriver sans extension : aucun
-    // filtre de type, sinon il serait grisé dans le sélecteur
-    const id = M.nouvelId(), chemin = cheminScan(S.courante, id, f.name);
-    await stock.garderFichier(id, S.courante, f, { chemin, type: f.type || 'application/json' });
-    await poser('scan.fichier', { id, nom: f.name || 'scan.json', taille: f.size, type: f.type || '', importeLe: new Date().toISOString() });
-    vibrer(); dessiner();
-  });
+  const scan = M.valeur(v, 'scan.fichier'), plan = M.valeur(v, 'plan'), ecarte = M.valeur(v, 'plan.ecarte');
+  const importer = () => {
+    // un plan déjà retouché n'est jamais remplacé en silence : il est mis de côté
+    if (plan && !confirm('Un plan existe déjà pour cette visite. Le remplacer par un nouveau scan ?\n(L’ancien plan reste gardé de côté.)')) return;
+    choisirFichier({}, async ([f]) => {
+      // sur iPhone, l'export d'OpenPlan 3D peut arriver sans extension : aucun
+      // filtre de type, sinon il serait grisé dans le sélecteur
+      const id = M.nouvelId(), chemin = cheminScan(S.courante, id, f.name);
+      await stock.garderFichier(id, S.courante, f, { chemin, type: f.type || 'application/json' });
+      await changer(w => {
+        let x = M.modifier(w, 'scan.fichier', { id, nom: f.name || 'scan.json', taille: f.size, type: f.type || '', importeLe: new Date().toISOString() });
+        const actuel = M.valeur(w, 'plan');
+        if (actuel) x = M.modifier(M.modifier(x, 'plan.ecarte', actuel), 'plan', null);
+        return x;
+      });
+      vibrer(); ouvrirPlan();
+    });
+  };
   return [
-    h('h1', {}, 'Le scan'),
-    h('p', { class: 'mut' }, 'Dans OpenPlan 3D : « Export Editable Plan (JSON) », puis importez le fichier ici.'),
-    scan ? h('div', { class: 'carte' }, h('b', {}, '📐 ' + scan.nom), h('div', { class: 'mut petit' }, Math.round((scan.taille || 0) / 1024) + ' Ko · importé le ' + dateCourte(scan.importeLe)),
-      h('div', { class: 'message att', style: 'margin:10px 0 0' }, 'Fichier gardé avec la visite. Son ouverture en plan (mesures, murs, avant/après) arrive à l’étape suivante du développement.')) : null,
-    h('button', { class: scan ? 'gros sec' : 'gros', id: 'importerScan', onclick: importer }, scan ? 'Remplacer le scan' : '📐 Importer le scan'),
+    h('h1', {}, 'Le scan et le plan'),
+    h('p', { class: 'mut' }, 'Dans OpenPlan 3D : « Export Editable Plan (JSON) », puis importez le fichier ici. Le plan s’ouvre aussitôt : mesures, murs, ouvertures, avant/après, 3D, PDF.'),
+    scan ? h('div', { class: 'carte' }, h('b', {}, '📄 ' + scan.nom), h('div', { class: 'mut petit' }, Math.round((scan.taille || 0) / 1024) + ' Ko · importé le ' + dateCourte(scan.importeLe))) : null,
+    plan ? h('div', { class: 'carte', id: 'resumePlan' }, h('b', {}, '📐 Plan'), h('div', { class: 'mut petit' }, resumePlan(plan.resume))) : null,
+    ecarte ? h('div', { class: 'message att' }, 'Une autre version du plan, modifiée sur un autre appareil, a été gardée de côté' + (ecarte.resume ? ' (' + resumePlan(ecarte.resume) + ')' : '') + '. ',
+      h('div', { class: 'rang', style: 'margin-top:8px' },
+        h('button', { class: 'puce', type: 'button', onclick: async () => {
+          await changer(w => M.modifier(M.modifier(w, 'plan', M.valeur(w, 'plan.ecarte')), 'plan.ecarte', M.valeur(w, 'plan')));
+          dessiner();
+        } }, 'Ouvrir cette version'),
+        h('button', { class: 'puce', type: 'button', onclick: async () => {
+          if (!confirm('Oublier définitivement cette autre version du plan ?')) return;
+          await poser('plan.ecarte', null); dessiner();
+        } }, 'L’oublier'))) : null,
+    scan || plan ? h('button', { class: 'gros', id: 'ouvrirPlan', onclick: ouvrirPlan }, '📐 Ouvrir le plan') : null,
+    h('div', { style: 'margin-top:10px' }, h('button', { class: scan || plan ? 'gros sec' : 'gros', id: 'importerScan', onclick: importer }, scan ? 'Remplacer le scan' : '📐 Importer le scan')),
   ];
 }
+
+/* ---------- le plan : le moteur de relevé (releve/moteur/) dans un cadre ----------
+   Le moteur ne garde rien lui-même : il reçoit le relevé de la visite et lui
+   renvoie chaque modification (avec ses seules photos nouvelles). Ses
+   messages sont traités l'un après l'autre, et on ne quitte le plan qu'après
+   avoir reçu sa dernière modification. */
+let fileMoteur = Promise.resolve(), attenteVidage = null;
+
+function ouvrirPlan() { S.ecran = 'plan'; S.message = null; dessiner(); }
+
+function ecranPlan() {
+  const v = visite();
+  if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
+  return [h('div', { class: 'ecranPlan' },
+    h('header', { class: 'haut' },
+      h('button', { class: 'lienRetour', id: 'fermerPlan', onclick: fermerPlan }, '‹ Visite'),
+      h('span', { class: 'titre' }, 'Plan · ' + M.intitule(v)), pastilleEtat()),
+    h('div', { class: 'message err', id: 'erreurPlan', hidden: true }),
+    h('iframe', { class: 'cadrePlan', id: 'cadrePlan', src: 'moteur/index.html', title: 'Plan du relevé', allow: 'web-share; fullscreen' }))];
+}
+
+async function fermerPlan() {
+  const cadre = document.getElementById('cadrePlan');
+  if (cadre && cadre.contentWindow) {
+    await new Promise(ok => { attenteVidage = ok; cadre.contentWindow.postMessage({ type: 'releve:vider' }, location.origin); setTimeout(ok, 1500); });
+    attenteVidage = null;
+  }
+  S.ecran = 'visite'; dessiner();
+}
+
+const lireDataUrl = blob => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ko(r.error); r.readAsDataURL(blob); });
+async function blobFichier(id, chemin) {
+  const local = await stock.lirePhoto(id);
+  if (local) return local;
+  if (!chemin) return null;
+  const { data } = await supa.storage.from(ESPACE).createSignedUrl(chemin, 600);
+  if (!data || !data.signedUrl) return null;
+  const rep = await fetch(data.signedUrl);
+  return rep.ok ? rep.blob() : null;
+}
+
+function erreurPlan(texte) { const el = document.getElementById('erreurPlan'); if (el) { el.textContent = texte; el.hidden = false; } }
+
+async function envoyerAuMoteur(cadre) {
+  const v = visite(), plan = M.valeur(v, 'plan'), scan = M.valeur(v, 'scan.fichier');
+  if (plan && plan.releve) {
+    const images = {};
+    for (const ph of M.actifs(v.photos).filter(p => p.role === 'plan')) {
+      try { const b = await blobFichier(ph.id, ph.chemin); if (b) images[ph.id] = await lireDataUrl(b); } catch (e) { /* photo absente ici : le plan s'ouvre sans elle */ }
+    }
+    cadre.contentWindow.postMessage({ type: 'releve:charger', texte: JSON.stringify(plan.releve), nom: (plan.resume && plan.resume.projet) || 'Relevé', images, reprise: true }, location.origin);
+  } else if (scan) {
+    const b = await blobFichier(scan.id, scan.chemin).catch(() => null);
+    if (!b) { erreurPlan('Le fichier du scan n’est pas sur cet appareil et n’a pas pu être téléchargé (réseau ?). Réessayez avec du réseau.'); return; }
+    cadre.contentWindow.postMessage({ type: 'releve:charger', texte: await b.text(), nom: scan.nom, reprise: false }, location.origin);
+  }
+}
+
+async function enregistrerPlan(m, cadre) {
+  if (!m.releve || typeof m.releve !== 'object' || !Array.isArray(m.releve.pieces)) return;
+  const recues = [];
+  for (const [id, url] of Object.entries(m.images || {})) {
+    if (typeof url !== 'string' || !/^data:image\/(jpeg|png);base64,/.test(url) || !/^[\w-]{1,64}$/.test(id)) continue;
+    await stock.garderPhoto(id, S.courante, await (await fetch(url)).blob());
+    recues.push(id);
+  }
+  await changer(w => {
+    let x = w;
+    for (const id of recues) if (!x.photos[id]) x = M.ajouterPhoto(x, { id, role: 'plan' });
+    // une photo retirée dans le plan est retirée de la visite (suppression notée, voir modele.js)
+    const refs = new Set([...m.releve.pieces.flatMap(p => (p.photos || []).map(ph => ph.id)), ...(m.releve.documents || []).map(d => d.id)]);
+    for (const ph of M.actifs(x.photos)) if (ph.role === 'plan' && !refs.has(ph.id)) x = M.supprimer(x, 'photos', ph.id);
+    return M.modifier(x, 'plan', { releve: m.releve, resume: m.resume || null });
+  });
+  cadre.contentWindow.postMessage({ type: 'releve:enregistre', images: recues }, location.origin);
+}
+
+window.addEventListener('message', e => {
+  const cadre = document.getElementById('cadrePlan');
+  if (!cadre || e.source !== cadre.contentWindow || e.origin !== location.origin) return;
+  const m = e.data || {};
+  fileMoteur = fileMoteur.then(async () => {
+    if (m.type === 'releve:pret') await envoyerAuMoteur(cadre);
+    else if (m.type === 'releve:enregistrer') await enregistrerPlan(m, cadre);
+    else if (m.type === 'releve:vide' && attenteVidage) attenteVidage();
+  }).catch(err => erreurPlan('Le plan n’a pas pu être enregistré sur l’appareil (' + ((err && err.message) || 'erreur') + ').'));
+});
 
 /* étape 6 : fin de visite */
 function etapeFin(v) {
@@ -407,7 +517,8 @@ function etapeFin(v) {
       dd('Délai', M.valeur(v, 'projet.delai')),
       dd('Enveloppe', M.valeur(v, 'projet.enveloppe') != null ? M.formatEuros(M.valeur(v, 'projet.enveloppe')) + ' TTC' : null),
       dd('Pièces', M.actifs(v.pieces).map(p => p.nom + ' (' + M.actifs(v.photos).filter(x => x.pieceId === p.id).length + ' ph.)').join(', ')),
-      dd('Scan', (M.valeur(v, 'scan.fichier') || {}).nom)),
+      dd('Scan', (M.valeur(v, 'scan.fichier') || {}).nom),
+      dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null)),
     champ(v, 'notes', 'NOTES DE VISITE', { multiligne: true, autocapitalize: 'sentences' }),
   ];
 }
@@ -415,7 +526,7 @@ function etapeFin(v) {
 /* ---------- dessin ---------- */
 function dessiner() {
   const app = document.getElementById('app');
-  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : ecranAccueil();
+  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
 }
 

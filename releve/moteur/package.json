@@ -1,0 +1,6 @@
+{
+  "name": "cp-releve-moteur",
+  "private": true,
+  "description": "Moteur de relevé (plan 2D/3D, PDF) : scripts classiques du navigateur, sans module. Ce fichier dit seulement à Node (tests) de les lire comme tels, et non comme les modules ES du dossier parent.",
+  "type": "commonjs"
+}

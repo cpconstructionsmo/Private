@@ -9,12 +9,36 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 2. **Client** : civilité, nom, prénom, téléphone, e-mail, adresse (dictée par le micro du clavier).
 3. **Projet** : types de travaux, explicatif, délai, enveloppe (curseur ou saisie).
 4. **Pièces et photos** : pièces à transformer, photos de chacune.
-5. **Scan** : le fichier d'OpenPlan 3D est gardé avec la visite (son ouverture
-   en plan est l'étape 2).
+5. **Scan et plan** : le fichier d'OpenPlan 3D (accepté même sans extension)
+   s'ouvre aussitôt dans le **moteur de relevé** (`moteur/`) : plan coté,
+   mesures au mètre et écarts, murs (épaisseur, démolition, cloisons),
+   ouvertures, étages, toitures, avant/après, vue 3D, export PDF.
 6. **Fin de visite** : récapitulatif, ce qui manque, notes.
 
-À venir : moteur de relevé et plan (étape 2), rattachement aux prospects du
-suivi (étape 3), « Imaginer » (étape 4).
+À venir : rattachement aux prospects du suivi (étape 3), « Imaginer »
+(étape 4), lecture des notes manuscrites par une fonction du serveur.
+
+## Le moteur de relevé (`moteur/`, Phase 1 étape 2)
+
+- C'est l'outil de relevé déjà validé sur des scans réels, repris tel quel et
+  découpé en fichiers : `convertisseur.js` (export RoomPlan → pièces,
+  ouvertures), `moteur.js` (plan, mesures, 3D, PDF), `three.min.js` et
+  `OrbitControls.js` (three.js r128, licence MIT).
+- Ce qui dépendait de la plateforme Claude est remplacé : sauvegarde → dans
+  la visite (messages entre les deux pages, même site seulement) ; fichiers →
+  feuille de partage de l'iPhone, sinon un vrai lien de téléchargement ;
+  dictée → micro du clavier ; lecture des notes manuscrites → à venir, par une
+  fonction du serveur (aucune clé dans le navigateur).
+- **Porte vue deux fois dans un coin** (`doublonsPortesCoin`) : deux portes de
+  la même pièce, sur deux murs qui se touchent, chacune à moins de 30 cm du
+  coin, sont montrées au métreur qui choisit (garder l'une ou l'autre, ou les
+  deux). Rien n'est retiré sans son accord.
+- Le plan est enregistré dans la visite (`plan` : le relevé et son résumé),
+  ses photos dans l'espace privé comme les autres. S'il a été modifié sur deux
+  appareils à la fois, le plus récent s'ouvre et l'autre est **gardé de
+  côté** (« Ouvrir cette version » / « L'oublier ») : rien ne se perd.
+- Les versions nommées et leur comparaison (sauvegarde « compte » de la page
+  publiée dans Claude) ne sont pas encore reprises.
 
 ## Comment c'est fait
 
@@ -49,6 +73,8 @@ d'accueil ». L'icône « Relevé CP » ouvre la page en plein écran.
 
 ## Tests
 
-`tests/t_releve_modele.js`, `tests/t_releve_synchro.js` (Node) et
-`tests/releve_navigateur.js` (Chromium, faux Supabase, format iPhone).
+`tests/t_releve_modele.js`, `tests/t_releve_synchro.js`,
+`tests/t_releve_convertisseur.js` (Node) et `tests/releve_navigateur.js`,
+`tests/releve_plan_navigateur.js` (Chromium, faux Supabase, format iPhone,
+scan fictif `tests/releve_scan_fictif.js`).
 Aucune donnée réelle dans les tests.
