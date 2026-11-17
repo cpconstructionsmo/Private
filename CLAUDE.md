@@ -59,6 +59,17 @@ qu'on ait à les redire.
   après aperçu (`retablirReportsAvenant`). Tests :
   `t_budget_avenants.js`, `budget_avenants_navigateur.js`,
   `t_avenant_report_perdu.js`.
+- **Rénovation** (`typeTravaux` du chantier : `neuf` ou `renovation`,
+  repris à défaut de la catégorie « Rénovation » du prospect — `estReno`) :
+  badge « RÉNOVATION » et liseré violet (`BadgeReno`, `RENO_COULEUR`) dans
+  la liste des chantiers, la fiche et CP Designer ; choix du type dans les
+  formulaires du chantier ; un prospect de rénovation devient un chantier
+  de rénovation. Pièces : une pièce `pour:'renovation'` ou `pour:'neuf'`
+  ne se montre qu'à ce type (`docsDuChantier`, `docVisible`), toujours si
+  elle est déjà cochée ou déposée — relevé de l'existant, repérages avant
+  travaux, déclaration préalable, DQE pour la rénovation ; RE2020, étude de
+  sol, fermettes pour le neuf ; pièces attendues par phase
+  `DOCS_PHASE_RENO`. Tests : `t_renovation.js`, `renovation_navigateur.js`.
 - **Contrat de maîtrise d'œuvre** (`SortirContratMoe`, `genererContratMoeDocx`) :
   texte juridique repris mot pour mot du modèle CP ; seuls les champs
   connus sont remplis (client, adresse, surfaces, budget, honoraires). Il
@@ -71,8 +82,17 @@ qu'on ait à les redire.
   contrat est à faire relire. Coût des travaux de l'article 6 : un forfait
   TTC saisi sur la carte (`p.contratTravauxTTC`, `contratTravaux`)
   l'emporte sur le chiffrage par poste, HT déduit au taux du dossier ; les
-  honoraires ne changent pas. Tests : `t_contrat_moe.js`,
-  `t_contrat_moe_erp.js`.
+  honoraires ne changent pas. Type « Rénovation » (`contratTypes`, d'office
+  pour un prospect ou un chantier de rénovation) : là où le modèle suppose
+  une construction neuve (terrain, permis, étude de sol, RE2020,
+  maçonnerie, hors d'eau), les articles changent, un « Article 4 ter —
+  Travaux sur existant » s'ajoute, l'échéancier suit `HONO_ECHEANCIER_RENO` ;
+  le reste du modèle est repris tel quel, à faire relire. TVA mixte : le HT
+  des travaux se saisit à côté du TTC (`p.contratTravauxHT`) ; les
+  honoraires du contrat sont toujours à 20 % (`HONO_TVA_DEFAUT`). Un
+  chantier créé sans prospect sort aussi son contrat
+  (`contratPourChantier`, réglages gardés dans `ch.contratMoe`). Tests :
+  `t_contrat_moe.js`, `t_contrat_moe_erp.js`, `t_renovation.js`.
 - **Marché de travaux** (Marchés › lot › « Rédiger le marché ») : il sort
   en trois exemplaires Word (`MARCHE_EXEMPLAIRES` : client, entreprise,
   CP Constructions), marqués en tête de page. Celui du client annexe
