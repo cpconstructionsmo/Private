@@ -116,7 +116,7 @@ t=texte(tr);
 chk(/report à refaire/.test(t),'liste des avenants : « report à refaire » sur AV-001');
 TR.act(()=>bouton(/^Consulter$/).props.onClick());
 t=texte(tr);
-chk(/reporté le 14\/11\/2026, mais le marché ne le porte plus/.test(t.replace(/\d{2}\/\d{2}\/\d{4}/,'14/11/2026'))
+chk(/reporté le \d{2}\/\d{2}\/\d{4}, mais le marché ne le porte plus/.test(t)
   &&/le montant du marché a été réécrit depuis le report/.test(t),'détail : la ligne et l’explication');
 questions.length=0;
 TR.act(()=>bouton(/^Reporter à nouveau dans le marché$/).props.onClick());
