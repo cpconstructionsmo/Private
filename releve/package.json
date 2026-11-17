@@ -1,0 +1,6 @@
+{
+  "name": "cp-releve",
+  "private": true,
+  "description": "Page « Relevé de visite » : modules ES chargés tels quels par le navigateur (pas de compilation). Ce fichier ne sert qu'à Node, pour les tests (tests/t_releve_*.js).",
+  "type": "module"
+}
