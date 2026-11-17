@@ -225,8 +225,14 @@ qu'on ait à les redire.
   compte ; une pièce illisible est nommée (facture visée : envoi possible
   sans elle). ARTISANS › « Vérifier les pièces sur le Drive »
   (`verifierPiecesArtisans`, `VerifPiecesDrive`) liste d'un coup les
-  attestations et RIB illisibles, à redéposer sur place. Tests :
-  `t_drive_envoi.js`, `t_viser_illisible.js`, `t_verif_pieces.js`.
+  attestations et RIB illisibles, à redéposer sur place. La visa d'une
+  facture les vérifie dès l'ouverture du message (fiche seulement) : une
+  pièce illisible est signalée avant « Envoyer », avec le pourquoi (autre
+  compte, ou déposée directement dans le Drive) et « Redéposer ici »
+  (`redeposerPieceArtisan`, `remplacerPieceArtisan` : le lien de la fiche
+  est remplacé, la pièce repart et le message l'annonce de nouveau) ; de
+  même sur l'écran d'erreur à l'envoi. Tests : `t_drive_envoi.js`,
+  `t_viser_illisible.js`, `t_viser_redeposer.js`, `t_verif_pieces.js`.
 
 ## Livrer une modification
 

@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-14 · Attestation de fin de mission de maîtrise d’œuvre ; levée des réserves notée sur le PV';
+const VERSION='2026-11-17 · Facture visée : pièce illisible signalée dès l’ouverture et redéposée sur place';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -7916,6 +7916,16 @@ async function verifierPiecesArtisans(artisans,token,progres){
   return L;
 }
 
+/* une attestation ou un RIB redéposé avec le compte connecté : même dossier
+   du Drive que depuis la fiche de l'artisan ; le lien de la fiche est
+   remplacé. Déposé par l'application, il se relira ensuite. */
+async function redeposerPieceArtisan(token,cle,file){
+  const dossier=cle==='att'?await driveAttestationsFolder(token):await driveRibFolder(token);
+  return (await uploadToDrive(file,dossier)).webViewLink;
+}
+const remplacerPieceArtisan=(data,artisanId,champ,lien)=>({...data,
+  artisans:(data.artisans||[]).map(a=>a.id===artisanId?{...a,[champ]:lien}:a)});
+
 /* le type d'une pièce jointe, d'après son nom. Un PDF annoncé comme tel
    s'ouvre d'un geste sur le téléphone de l'artisan ; sous un type générique,
    il faut d'abord l'enregistrer puis chercher avec quoi l'ouvrir. */
@@ -9667,7 +9677,7 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
                 {f.repartition?' (il servira à tous les lots de la facture)':''}.</div>}
             </div>}
           {f.lien&&visa&&visa.artisan&&<div style={{marginTop:8}}>
-            <ViserFacture f={f} ch={visa.ch} art={visa.artisan} lot={visa.lot} data={visa.data} marche={visa.marche}/>
+            <ViserFacture f={f} ch={visa.ch} art={visa.artisan} lot={visa.lot} data={visa.data} marche={visa.marche} save={visa.save}/>
           </div>}
           {f.lien&&envoiClient&&<div style={{marginTop:8}}>
             <EnvoyerFactureAchat f={f} ch={envoiClient.ch} cmd={envoiClient.cmd} data={envoiClient.data} onEnvoyee={envoiClient.onEnvoyee}/>
@@ -9709,8 +9719,9 @@ const corpsFactureVisee=(f,art,marche,ch,lot,avec,rep)=>'Bonjour,\n\nNous avons 
     :'\n\nVous trouverez ci-joint la facture visée, à régler sur le relevé d’identité bancaire de l’entreprise déjà en votre possession.')
   +(avec.att?'\n\nVous trouverez également son attestation d’assurance décennale en cours de validité.':'')
   +'\n\nCordialement,';
-function ViserFacture({f,ch,art,data,lot,marche}){
+function ViserFacture({f,ch,art,data,lot,marche,save}){
   const [mail,setMail]=useState(null);
+  const dataRef=useRef(data);dataRef.current=data;
   const expediteur=((data&&data.expediteurMail)||'').trim();
   const nomArt=art.nom||'entreprise';
   /* les pièces qui partent : celles déposées, moins celles qu'on a choisi
@@ -9726,8 +9737,65 @@ function ViserFacture({f,ch,art,data,lot,marche}){
       sujet:'Facture visée'+(f.numero?' n° '+f.numero:'')+' — '+(art.nom||lot||''),
       corps:corpsFactureVisee(f,art,marche,ch,lot,avecPieces([]),repMail),
     });
-    getDriveToken().then(driveCompteConnecte).then(c=>setMail(p=>p&&({...p,compte:c}))).catch(()=>{});
+    /* le RIB et l'attestation se vérifient dès l'ouverture (leur fiche
+       seulement, c'est léger) : une pièce que le compte connecté ne relit
+       pas — déposée depuis un autre compte Google, ou directement dans le
+       Drive — se signale avant « Envoyer », et se redépose sur place */
+    getDriveToken().then(async token=>{
+      const compte=await driveCompteConnecte().catch(()=>'');
+      setMail(p=>p&&({...p,compte}));
+      const aRedeposer=[];
+      for(const [cle,champ,libelle] of PIECES_ARTISAN){
+        const id=driveIdDepuisLien(art[champ]);
+        if(!id)continue;
+        try{await driveFichierLisible(token,id)}
+        catch(e){if(e&&e.error==='auth_required')return;aRedeposer.push({cle,nom:libelle+' — '+nomArt,raison:(e&&e.message)||String(e)})}
+      }
+      setMail(p=>p&&({...p,aRedeposer}));
+    }).catch(()=>{});
   };
+  /* redéposer une pièce illisible : le lien de la fiche de l'artisan est
+     remplacé ; la pièce repart avec la facture, et le message l'annonce de
+     nouveau s'il n'a pas été retouché */
+  const [redepot,setRedepot]=useState({});
+  const redeposer=async(cle,file)=>{
+    const champ=cle==='att'?'lienAttestation':'lienRib';
+    setRedepot(p=>({...p,[cle]:{etat:'envoi'}}));
+    try{
+      const token=await getDriveToken();
+      const lien=await redeposerPieceArtisan(token,cle,file);
+      save(remplacerPieceArtisan(dataRef.current,art.id,champ,lien));
+      setRedepot(p=>({...p,[cle]:{etat:'ok'}}));
+      setMail(p=>{
+        if(!p)return p;
+        const sans=(p.sans||[]).filter(c=>c!==cle);
+        const intact=p.corps===corpsFactureVisee(f,art,marche,ch,lot,avecPieces(p.sans),repMail);
+        const ill=p.illisibles?p.illisibles.filter(x=>x.cle!==cle):p.illisibles;
+        return {...p,sans,aRedeposer:(p.aRedeposer||[]).filter(x=>x.cle!==cle),
+          illisibles:ill&&ill.length?ill:null,etat:p.etat==='illisible'&&!(ill&&ill.length)?'apercu':p.etat,
+          corps:intact?corpsFactureVisee(f,{...art,[champ]:lien},marche,ch,lot,
+            {rib:(cle==='rib'||!!art.lienRib)&&!sans.includes('rib'),att:(cle==='att'||!!art.lienAttestation)&&!sans.includes('att')},repMail):p.corps};
+      });
+    }catch(e){
+      setRedepot(p=>({...p,[cle]:{etat:'erreur',msg:e&&e.error==='auth_required'
+        ?'connexion Google expirée : reconnectez-vous, puis redéposez':'redépôt impossible — '+((e&&(e.error||e.message))||String(e))}}));
+    }
+  };
+  /* chaque pièce illisible : l'ouvrir (le navigateur y a peut-être encore
+     accès, pour en enregistrer le PDF), puis la redéposer */
+  const lignesRedepot=L=><div style={{marginTop:6}}>
+    {L.map(x=>{const r=redepot[x.cle]||{};const lien=art[x.cle==='att'?'lienAttestation':'lienRib'];
+      return <div key={x.cle} className="row xs" style={{gap:8,alignItems:'center',flexWrap:'wrap',padding:'4px 0'}}>
+        <span style={{flex:'1 1 200px'}}><b>{x.nom}</b></span>
+        {lien&&<a href={lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir</a>}
+        {save&&<label className="btn gh s" style={{whiteSpace:'nowrap'}}>{r.etat==='envoi'?'Envoi…':'Redéposer ici'}
+          <input type="file" aria-label={'Redéposer '+x.nom} accept={DOC_ACCEPT+',image/*'} style={{display:'none'}} disabled={r.etat==='envoi'}
+            onChange={e=>{const file=e.target.files[0];e.target.value='';if(file)redeposer(x.cle,file)}}/></label>}
+        {r.etat==='erreur'&&<span style={{color:TERRA,flex:'1 1 100%'}}>{r.msg}</span>}
+      </div>})}
+  </div>;
+  const pourquoi=<span>L’application ne relit que les fichiers qu’elle a elle-même déposés avec le compte Google connecté
+    {mail&&mail.compte?' ('+mail.compte+')':''} : celui-ci a été déposé depuis un autre compte Google, ou directement dans le Drive.</span>;
   /* écarter les pièces illisibles et revenir au message : s'il n'a pas été
      retouché, il est réécrit pour ne plus les annoncer ; sinon, à relire */
   const envoyerSans=()=>{
@@ -9809,6 +9877,14 @@ function ViserFacture({f,ch,art,data,lot,marche}){
           :art.lienAttestation?', sans son attestation décennale, illisible sur le Drive':''}.</div>
       {mail.relire&&<div className="xs" style={{marginBottom:8,color:AMBER,lineHeight:1.5}}>
         Relisez le message : il annonce peut-être une pièce qui ne part plus.</div>}
+      {!!(mail.aRedeposer||[]).filter(x=>!(mail.sans||[]).includes(x.cle)).length&&<div className="xs" style={{marginBottom:8,padding:'8px 10px',
+        borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,lineHeight:1.5}}>
+        <b>{mail.aRedeposer.length>1?'Ces pièces ne se lisent pas':'Cette pièce ne se lit pas'} sur le Drive</b> : en l’état, {mail.aRedeposer.length>1?'elles ne partiront':'elle ne partira'} pas
+        avec la facture. {pourquoi} {mail.aRedeposer.length>1?'Redéposez-les ici : elles partiront, et se reliront':'Redéposez-la ici : elle partira, et se relira'} ensuite
+        pour les prochaines factures.
+        {lignesRedepot(mail.aRedeposer.filter(x=>!(mail.sans||[]).includes(x.cle)))}</div>}
+      {Object.keys(redepot).filter(k=>redepot[k].etat==='ok').map(k=><div key={k} className="xs" style={{marginBottom:6,color:GREEN}}>
+        ✓ {k==='att'?'Attestation décennale':'RIB'} redéposé{k==='att'?'e':''} sur la fiche de {nomArt} : {k==='att'?'elle partira':'il partira'} avec la facture.</div>)}
       <div className="row" style={{gap:8}}>
         <button className="btn acc s" onClick={envoyer}>Envoyer</button>
         <button className="btn gh s" onClick={()=>setMail(null)}>Annuler</button>
@@ -9821,8 +9897,10 @@ function ViserFacture({f,ch,art,data,lot,marche}){
         {mail.illisibles.map(x=><div key={x.cle}>• <b>{x.nom}</b> — {x.raison}</div>)}
       </div>
       <div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
-        Le plus souvent, la pièce a été déposée depuis un autre compte Google. Pour la joindre, déposez-la de nouveau sur la fiche
-        de {art.nom||'l’entreprise'} (onglet ARTISANS). Sinon, la facture peut partir sans elle : le message sera ajusté.</div>
+        {pourquoi} {save?'Redéposez-la ici (le lien de la fiche de '+(art.nom||'l’entreprise')+' est remplacé) :'
+          :'Pour la joindre, déposez-la de nouveau sur la fiche de '+(art.nom||'l’entreprise')+' (onglet ARTISANS).'} sinon, la facture
+        peut partir sans elle : le message sera ajusté.</div>
+      {lignesRedepot(mail.illisibles.filter(x=>x.cle!=='facture'))}
       <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
         <button className="btn acc s" onClick={envoyerSans}>{mail.illisibles.length>1?'Envoyer sans ces pièces':'Envoyer sans cette pièce'}</button>
         <button className="btn gh s" onClick={()=>setMail({...mail,etat:'apercu',illisibles:null})}>Revenir au message</button>
@@ -12872,7 +12950,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                   <ColFactures liste={m.factures} engage={+m.montantHT||0} ouv={ouv} setOuv={setOuv}
                     cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}
                     onCorriger={(fid,patch)=>corrigerFactureMarche(m.id,fid,patch)}
-                    visa={{ch,artisan:art,lot:m.lot,data,marche:m}}
+                    visa={{ch,artisan:art,lot:m.lot,data,marche:m,save}}
                     repartir={{data,save,src:{type:'marche',id:m.id},cibles:ciblesRepartition(m.artisanId)}}/>
                 </td>
               </tr>
