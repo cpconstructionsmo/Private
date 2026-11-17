@@ -1,0 +1,299 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Relevé de chantier</title>
+<style>
+  :root { --bord:#d5dbe3; --fond:#f3f5f8; --texte:#1d2430; --accent:#1f6feb; --gris:#667085; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin:0; font-family: "Segoe UI", Arial, sans-serif; background:var(--fond); color:var(--texte); }
+  header { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:12px 20px; background:#fff; border-bottom:1px solid var(--bord); }
+  header h1 { font-size:18px; margin:0; flex:1; min-width:240px; }
+  header h1 small { display:block; font-weight:normal; font-size:12px; color:var(--gris); margin-top:2px; }
+  .btn { display:inline-block; padding:9px 16px; border-radius:8px; border:1px solid var(--accent); background:var(--accent);
+         color:#fff; font:600 14px "Segoe UI", Arial, sans-serif; cursor:pointer; }
+  .btn.sec { background:#fff; color:var(--accent); }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  .btn:hover:not(:disabled) { filter:brightness(1.08); }
+  #msg { margin:12px 20px 0; padding:10px 14px; border-radius:8px; font-size:14px; white-space:pre-line; display:none; }
+  #msg.ok  { display:block; background:#e8f5ec; border:1px solid #b6dfc3; }
+  #msg.err { display:block; background:#fdeaea; border:1px solid #f1b5b5; color:#8a1c1c; }
+  #msg.warn{ display:block; background:#fff6e0; border:1px solid #f0d596; color:#6b4a00; }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:16px 20px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  .panel { background:#fff; border:1px solid var(--bord); border-radius:10px; padding:12px 14px; min-width:0; }
+  .panel h2 { margin:0 0 8px; font-size:15px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .tools { margin-left:auto; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; font-weight:normal; }
+  @media (max-width: 700px) { .tools { margin-left:0; width:100%; } }
+  .tools button { padding:4px 10px; border:1px solid var(--bord); background:#fff; border-radius:6px; cursor:pointer; font-size:13px; }
+  .tools button:hover { background:#eef3fb; }
+  .zone { position:relative; height:480px; border:1px solid var(--bord); border-radius:8px; background:#fff; overflow:hidden; }
+  .zone canvas { display:block; width:100%; height:100%; }
+  #plan { cursor:grab; touch-action:none; }
+  .vide { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
+          color:var(--gris); padding:20px; pointer-events:none; }
+  .hint { margin:6px 0 0; font-size:12px; color:var(--gris); }
+  #recap { margin:0 20px 24px; background:#fff; border:1px solid var(--bord); border-radius:10px; padding:12px 14px; overflow-x:auto; }
+  #recap h2 { font-size:15px; margin:0 0 8px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; margin-bottom:14px; }
+  input.nomPiece { font:inherit; width:100%; min-width:150px; padding:3px 6px; border:1px solid transparent; border-radius:5px; background:transparent; }
+  input.nomPiece:hover, input.nomPiece:focus { border-color:var(--accent); background:#fff; outline:none; }
+  input.mes { font:inherit; width:92px; text-align:right; padding:3px 6px; border:1px solid #cfd6df; border-radius:5px; background:#fff; }
+  input.mes:focus { outline:2px solid var(--accent); }
+  input.mes.mesure { background:#e8f5ec; border-color:#15803d; color:#14532d; font-weight:600; }
+  button.rev { border:1px solid var(--bord); background:#fff; border-radius:5px; cursor:pointer; margin-left:6px; padding:2px 7px; }
+  button.rev:hover { background:#eef3fb; }
+  .barre { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:0 0 12px; font-size:14px; }
+  .barre input { width:90px; padding:5px 8px; border:1px solid #cfd6df; border-radius:6px; font:inherit; text-align:right; }
+  .barre button { padding:5px 12px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; font:inherit; }
+  .note { font-size:12px; color:var(--gris); margin:-6px 0 14px; }
+  #notes { margin:0 20px 24px; background:#fff; border:1px solid var(--bord); border-radius:10px; padding:12px 14px; }
+  #notes h2 { font-size:15px; margin:0 0 6px; }
+  .noteBloc { margin:0 0 14px; }
+  .noteTete { display:flex; align-items:center; gap:10px; margin-bottom:4px; font-size:14px; }
+  .noteZone { width:100%; font:inherit; font-size:14px; padding:8px 10px; border:1px solid #cfd6df; border-radius:8px; resize:vertical; }
+  .noteZone:focus { outline:2px solid var(--accent); }
+  button.micro { padding:3px 10px; border:1px solid var(--bord); background:#fff; border-radius:6px; cursor:pointer; font-size:13px; }
+  button.micro:hover { background:#eef3fb; }
+  button.micro.ecoute { background:#d93025; color:#fff; border-color:#d93025; }
+  #editeur { position:absolute; z-index:5; width:250px; background:#fff; border:1px solid var(--accent); border-radius:10px; padding:10px 12px; box-shadow:0 6px 24px rgba(0,0,0,.2); font-size:14px; }
+  #editeur label { display:block; margin:8px 0 0; color:var(--gris); font-size:12px; }
+  #editeur input { width:100%; margin-top:2px; font-size:16px; padding:6px 8px; border:1px solid #cfd6df; border-radius:6px; text-align:right; }
+  #editeur .boutons { display:flex; gap:6px; margin-top:10px; }
+  #editeur button { flex:1; padding:7px 0; border-radius:6px; border:1px solid var(--accent); background:#fff; color:var(--accent); font-weight:600; font-size:14px; cursor:pointer; }
+  #editeur button#edOk { background:var(--accent); color:#fff; }
+  #editeur button#edRev { flex:0 0 40px; }
+  header h1 small#etatSauv { color:#15803d; }
+  #mesReleves { margin:12px 20px 0; background:#fff; border:1px solid var(--bord); border-radius:10px; padding:12px 14px; }
+  #mesReleves h2 { font-size:15px; margin:0 0 6px; }
+  #mesReleves .note { margin:0 0 10px; }
+  label.auto { display:inline-block; margin-left:10px; white-space:nowrap; font-size:13px; color:var(--texte); }
+  .ligneReleve { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 0; border-top:1px solid #e6eaf0; font-size:14px; }
+  .ligneReleve small { color:var(--gris); }
+  .ligneReleve.courant { background:#f3f8ff; }
+  .badge { background:var(--accent); color:#fff; border-radius:10px; padding:1px 8px; font-size:11px; }
+  .ligneReleve .actions { display:flex; gap:6px; }
+  .ligneReleve button { padding:6px 12px; border-radius:6px; border:1px solid var(--accent); background:#fff; color:var(--accent); font-size:13px; cursor:pointer; }
+  .ligneReleve button.repr { background:var(--accent); color:#fff; }
+  .ligneReleve button.supr { border-color:#cfd6df; color:var(--gris); }
+  .ligneReleve button.alerte { border-color:#d93025; background:#d93025; color:#fff; }
+  label.angle { display:inline-flex; align-items:center; gap:4px; font-size:13px; }
+  label.angle input { width:52px; padding:3px 5px; border:1px solid var(--bord); border-radius:6px; font-size:13px; text-align:right; }
+  .ligLeg { display:flex; gap:8px; align-items:center; margin:0 0 8px; }
+  .ligLeg input[type=color], #editeur input[type=color] { width:44px; height:34px; padding:0; border:1px solid #cfd6df; border-radius:6px; background:#fff; flex:0 0 44px; }
+  .ligLeg input[type=text] { flex:1; min-width:0; font-size:16px; padding:6px 8px; border:1px solid #cfd6df; border-radius:6px; }
+  .ligLeg .supLeg { border:1px solid var(--bord); background:#fff; border-radius:6px; padding:6px 10px; cursor:pointer; }
+  .btnPetit { padding:6px 12px; border:1px solid var(--accent); background:#fff; color:var(--accent); border-radius:6px; font-size:13px; cursor:pointer; margin:0 0 14px; }
+  #editeur .coul { display:flex; align-items:center; gap:8px; margin-top:6px; font-size:13px; }
+  #editeur .coul span { flex:1; color:var(--texte); }
+  #editeur .coul .raz { flex:0 0 32px; padding:4px 0; }
+  #editeur .coulTitre { margin-top:10px; font-size:12px; color:var(--gris); }
+  #editeur #fpNom, #editeur #fpH { text-align:left; }
+  #editeur button.danger { border-color:#d93025; color:#d93025; background:#fff; }
+  #modal { position:fixed; inset:0; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; z-index:20; padding:16px; }
+  #modal[hidden] { display:none; }
+  .modalBoite { background:#fff; border-radius:12px; padding:16px 18px; width:100%; max-width:420px; max-height:90vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,.3); }
+  .modalBoite h3 { margin:0 0 8px; font-size:17px; }
+  .modalBoite label { display:block; margin:10px 0 0; font-size:13px; color:var(--gris); }
+  .modalBoite input:not([type=color]), .modalBoite select { width:100%; margin-top:3px; font-size:16px; padding:8px 10px; border:1px solid #cfd6df; border-radius:8px; background:#fff; color:var(--texte); }
+  .modalBoite input[type=color] { width:48px; height:34px; padding:0; border:1px solid #cfd6df; border-radius:6px; vertical-align:middle; margin-left:8px; }
+  .modalErr { color:#b3261e; font-size:13px; margin:10px 0 0; }
+  .modalBtns { display:flex; gap:8px; margin-top:14px; }
+  .modalBtns .btn { flex:1; }
+  #btnAnnuler:disabled, #btnRefaire:disabled { opacity:.35; cursor:not-allowed; }
+  .btnPhoto { display:inline-block; padding:3px 10px; border:1px solid var(--bord); background:#fff; border-radius:6px; cursor:pointer; font-size:13px; }
+  .btnPhoto:hover { background:#eef3fb; }
+  .vignettes { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+  .vig { margin:0; width:132px; position:relative; }
+  .vig img { width:132px; height:100px; object-fit:cover; border-radius:6px; border:1px solid var(--bord); cursor:zoom-in; display:block; }
+  .vigAttente { width:132px; height:100px; border-radius:6px; background:#eef1f5; color:var(--gris); display:flex; align-items:center; justify-content:center; font-size:12px; }
+  .vig .legImg { width:100%; margin-top:4px; font-size:13px; padding:4px 6px; border:1px solid #cfd6df; border-radius:6px; }
+  .vig .supImg { position:absolute; top:4px; right:4px; width:24px; height:24px; border-radius:12px; border:0; background:rgba(0,0,0,.6); color:#fff; cursor:pointer; font-size:12px; line-height:24px; padding:0; }
+  #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; z-index:30; cursor:zoom-out; padding:12px; }
+  #lightbox[hidden] { display:none; }
+  #lightbox img { max-width:100%; max-height:100%; border-radius:6px; }
+  .docBloc { display:flex; gap:12px; flex-wrap:wrap; margin-top:10px; align-items:flex-start; }
+  .docTxt { flex:1; min-width:230px; display:flex; flex-direction:column; gap:6px; }
+  .docTxt .btnPetit { margin:0; align-self:flex-start; }
+  .txtDoc { width:100%; font:inherit; font-size:14px; padding:8px 10px; border:1px solid #cfd6df; border-radius:8px; resize:vertical; }
+  .groupe { border-top:1px solid #e6eaf0; padding-top:6px; margin-top:6px; }
+  .groupeTitre { font-weight:600; font-size:14px; margin-bottom:2px; }
+  .groupeTitre small { font-weight:normal; color:var(--gris); margin-left:6px; }
+  .groupe .ligneReleve { border-top:0; padding:5px 0 5px 10px; }
+  #comparaison { margin:12px 20px 0; background:#fff; border:1px solid var(--bord); border-radius:10px; padding:12px 14px; overflow-x:auto; }
+  #comparaison h2 { font-size:15px; margin:0 0 10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  #comparaison h3 { font-size:14px; margin:14px 0 6px; }
+  #comparaison canvas { display:block; width:100%; border:1px solid var(--bord); border-radius:8px; margin:12px 0; }
+  .cartes { display:flex; flex-wrap:wrap; gap:10px; }
+  .carte { flex:1 1 150px; border:1px solid var(--bord); border-radius:10px; padding:8px 12px; display:flex; flex-direction:column; gap:2px; }
+  .carte small { color:var(--gris); }
+  .carte b { font-size:18px; }
+  .carte span { font-size:12px; color:var(--gris); }
+  ul.difs { margin:0; padding-left:20px; font-size:14px; }
+  td.tdNote { text-align:left; }
+  input.noteMur { width:100%; min-width:230px; font:inherit; font-size:13px; padding:4px 6px; border:1px solid #cfd6df; border-radius:5px; }
+  #editeur textarea { width:100%; margin-top:2px; font-size:16px; padding:6px 8px; border:1px solid #cfd6df; border-radius:6px; font-family:inherit; resize:vertical; }
+  .onglets { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 8px; }
+  .onglet { padding:5px 12px; border:1px solid var(--bord); background:#fff; border-radius:16px; cursor:pointer; font-size:13px; }
+  .onglet.actif { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .onglet.add { border-style:dashed; color:var(--accent); }
+  .onglet.opt { padding:5px 9px; }
+  label.radio { display:flex; align-items:flex-start; gap:8px; margin:8px 0 0; font-size:14px; color:var(--texte); }
+  label.radio input { width:auto !important; margin:3px 0 0 !important; padding:0 !important; }
+  label.radio.sous { margin-left:26px; }
+  #sel3dEtage { font-size:13px; padding:3px 6px; border:1px solid var(--bord); border-radius:6px; background:#fff; }
+  .modalBoite button.danger, .btnPetit.danger { border-color:#d93025; color:#d93025; background:#fff; }
+  label.radio.sous0 { margin:4px 0 0 4px; }
+  main.duo .panelPlan { grid-column: 1 / -1; }
+  #planRef { position:absolute; left:0; top:0; width:50%; height:100%; border-right:2px solid #9aa4b2; cursor:grab; touch-action:none; }
+  #planRef[hidden] { display:none; }
+  #zonePlan.duo #plan { position:absolute; left:50%; top:0; width:50%; height:100%; }
+  .modalBtns.col { flex-direction:column; }
+  .modalBtns .btn.danger { color:#d93025; border-color:#d93025; }
+  #barreTrace { position:absolute; left:50%; top:8px; transform:translateX(-50%); z-index:6; background:#1f6feb; color:#fff; padding:6px 12px; border-radius:18px; font-size:13px; display:flex; gap:10px; align-items:center; box-shadow:0 4px 14px rgba(0,0,0,.25); max-width:94%; }
+  #barreTrace[hidden] { display:none; }
+  #barreTrace button { background:#fff; color:#1f6feb; border:0; border-radius:12px; padding:3px 10px; cursor:pointer; font-size:12px; }
+  input.epMur, input.cloLong, input.cloEp { width:84px; font:inherit; font-size:13px; padding:4px 6px; text-align:right; border:1px solid #cfd6df; border-radius:5px; }
+  #btnAvantApres { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  .aideAA { display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:#eef5ff; border:1px solid #bcd6ff; border-radius:10px; padding:8px 12px; margin:0 0 8px; font-size:13px; }
+  .aideAA[hidden] { display:none; }
+  .aideAA span { flex:1 1 260px; }
+  .aideAA button { padding:5px 12px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; font-size:13px; }
+  .aideAA button#btnFermerAideAA { background:#fff; color:var(--gris); border-color:var(--bord); }
+  label.repCase { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; cursor:pointer; }
+  td.tdAj { white-space:nowrap; }
+  td.tdAj .btnPetit { margin:0; padding:3px 8px; font-size:12px; }
+  @media (max-width: 800px) {
+    #zonePlan.duo { height:900px; }
+    #planRef { width:100%; height:50%; border-right:0; border-bottom:2px solid #9aa4b2; }
+    #zonePlan.duo #plan { left:0; top:50%; width:100%; height:50%; }
+  }
+  th, td { padding:6px 10px; border-bottom:1px solid #e6eaf0; text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  th { background:#f3f6fa; font-weight:600; }
+  tr.total td { font-weight:700; background:#f8fafc; }
+  #drop { position:fixed; inset:0; background:rgba(31,111,235,.15); border:4px dashed var(--accent); display:none;
+          align-items:center; justify-content:center; font-size:26px; color:var(--accent); z-index:10; }
+  #drop.on { display:flex; }
+  #barreFichier { position:fixed; left:12px; right:12px; bottom:calc(12px + env(safe-area-inset-bottom,0px)); z-index:40; display:flex; gap:8px; justify-content:center; background:#fff; border:1px solid var(--bord); border-radius:12px; padding:10px; box-shadow:0 8px 24px rgba(0,0,0,.2); }
+</style>
+
+<header>
+  <h1>Relevé de chantier – validation<small id="sousTitre">Aucun relevé chargé</small><small id="etatSauv"></small></h1>
+  <label class="btn sec">Ouvrir un fichier (scan ou relevé)<input id="fichier" type="file" hidden></label>
+  <button id="btnVersion" class="btn sec" hidden>Nouvelle version</button>
+  <button id="btnForcer" class="btn sec" hidden>Écraser quand même</button>
+  <button id="btnEnregistrer" class="btn sec" hidden>Enregistrer le relevé (.json)</button>
+  <button id="btnPdf" class="btn" disabled>Exporter en PDF</button>
+</header>
+
+<div id="msg"></div>
+
+<section id="mesReleves" hidden>
+  <h2>Mes relevés enregistrés</h2>
+  <p class="note">Le relevé est enregistré avec la visite, sur l'appareil puis sur le serveur de CP Constructions.
+  <label class="auto"><input id="chkAuto" type="checkbox" checked> Sauvegarde automatique</label></p>
+  <div id="listeReleves"></div>
+</section>
+
+<section id="comparaison" hidden>
+  <h2><span id="titreComp">Comparaison</span> <span class="tools"><button type="button" id="btnPdfComp">Exporter la comparaison en PDF</button><button type="button" id="btnFermerComp">Fermer</button></span></h2>
+  <div id="contenuComp"></div>
+</section>
+
+<main>
+  <section class="panel panelPlan">
+    <h2>Plan 2D coté <span class="tools">
+      <button id="btnAvantApres" type="button" title="Figer le plan actuel (situation initiale) et afficher à côté une copie à modifier (après travaux)">◫ Avant / après</button>
+      <label class="angle" id="lblDuo" hidden><input type="checkbox" id="chkDuo"> Côte à côte</label>
+      <button id="btnAjMur" type="button" title="Tracer un nouveau mur (cloison) en touchant deux points sur le plan">＋ Mur</button>
+      <button id="btnAjPiece" type="button" title="Ajouter une pièce (agrandissement…)">＋ Pièce</button>
+      <button id="btnAnnuler" type="button" title="Annuler la dernière modification (Ctrl+Z)" disabled>↶</button>
+      <button id="btnRefaire" type="button" title="Rétablir (Ctrl+Maj+Z)" disabled>↷</button>
+      <button id="btnRotG" type="button" title="Tourner le plan de 90° vers la gauche">⟲ 90°</button>
+      <button id="btnRotD" type="button" title="Tourner le plan de 90° vers la droite">⟳ 90°</button>
+      <label class="angle"><input type="checkbox" id="chkReperes" checked> Repères des murs (A, B…)</label>
+      <label class="angle" title="Activé : glisser une porte ou une fenêtre la déplace le long du mur ; tirer l'un de ses bouts change sa largeur."><input type="checkbox" id="chkOuv" checked> Déplacer les portes et fenêtres</label>
+      <label class="angle" title="Désactivé : glisser une flèche la déplace sans toucher au mur. Activé : tirer le bout d'une flèche (rond bleu) change la longueur du mur."><input type="checkbox" id="chkAjuster"> Ajuster les murs avec les flèches</label>
+      <label class="angle">Angle <input id="angleRot" inputmode="decimal" value="0" aria-label="Angle de rotation en degrés">°</label>
+      <button id="btnRecentrer" type="button">Recentrer</button></span></h2>
+    <div id="onglets" class="onglets"></div>
+    <div id="aideAvantApres" class="aideAA" hidden><span>💡 <b>Avant / après travaux</b> : préparez ce plan avec les bonnes cotes, puis créez la <b>copie à côté</b> : l'original reste figé (situation initiale) et vous modifiez la copie (après travaux).</span> <button type="button" id="btnAideAA">Créer la copie avant / après</button> <button type="button" id="btnFermerAideAA" title="Masquer cette aide">✕</button></div>
+    <div class="zone" id="zonePlan">
+      <div id="barreTrace" hidden><span id="texteTrace"></span> <button type="button" id="btnAnnulerTrace">Annuler le tracé</button></div>
+      <canvas id="planRef" hidden></canvas>
+      <canvas id="plan"></canvas>
+      <div id="editeur" hidden></div>
+      <div class="vide" id="videPlan">Ouvrez un fichier de relevé (.json)<br>ou glissez-le sur cette page.</div>
+    </div>
+    <p class="hint">Pincez ou molette : zoom · Glisser : déplacer · <b>Touchez une cote, une porte ou une fenêtre pour corriger sa mesure · glissez une porte ou une fenêtre pour la déplacer, tirez ses bouts pour changer sa largeur · « ＋ Mur » trace une cloison, « Démolir » (fenêtre d'un mur) retire un mur · glissez une flèche ou son chiffre pour la déplacer (le mur ne bouge pas ; double-clic : la remettre) · pour changer un mur en tirant le bout d'une flèche, cochez « Ajuster les murs avec les flèches »</b> · Cotes en mètres · <b style="color:#c0392b">P</b> = porte, <b style="color:#1f6feb">F</b> = fenêtre, <b style="color:#6b7280">Pa</b> = passage (largeur) · <span style="color:#b45309"><b>~</b> et pointillés = côté estimé (non scanné)</span> · <b style="color:#15803d">vert</b> = mesuré</p>
+  </section>
+
+  <section class="panel">
+    <h2>Vue 3D
+      <span class="tools">
+        <button id="btnIso" type="button">Vue 3D</button>
+        <button id="btnDessus" type="button">Vue de dessus</button>
+        <select id="sel3dEtage" hidden title="Étages affichés en 3D"></select>
+        <label><input id="chkToits" type="checkbox" checked> Toitures</label>
+        <label><input id="chkTransp" type="checkbox"> Murs transparents</label>
+      </span>
+    </h2>
+    <div class="zone" id="v3d">
+      <div class="vide" id="vide3d">La vue 3D apparaîtra après le chargement d'un relevé.</div>
+    </div>
+    <p class="hint">Glisser : tourner · Molette : zoom · Clic droit + glisser : déplacer · <span style="color:#b45309">murs orangés = estimés</span></p>
+  </section>
+</main>
+
+<section id="recap" hidden>
+  <h2>Mesures de la pièce <small style="font-weight:normal;color:var(--gris)">– saisissez vos mesures au mètre : elles remplacent celles du scan</small></h2>
+  <div class="barre"><label for="hGlobal">Hauteur sous plafond mesurée (toutes les pièces) :</label>
+    <input id="hGlobal" inputmode="decimal" placeholder="2,47"> m <button id="btnHGlobal" type="button">Appliquer</button></div>
+  <p class="note">En vert : valeur mesurée par vous (↺ pour revenir au scan). Tab ou Entrée passe à la case suivante. Cliquez sur un nom de pièce pour la renommer.</p>
+  <h2>Légende du plan</h2>
+  <p class="note">Choisissez la couleur des murs, des textes et des cotes de chaque pièce en touchant son nom sur le plan, puis expliquez les couleurs ici (ex. rouge = agrandissement). La légende apparaît sur le plan et dans le PDF.</p>
+  <div id="editLegende"></div><button type="button" id="btnAjLeg" class="btnPetit">+ Ajouter une ligne de légende</button>
+  <div class="barre"><label for="epDef">Épaisseur des murs par défaut (m) :</label> <input id="epDef" inputmode="decimal" placeholder="0,100"> <button id="btnEpDef" type="button">Appliquer</button></div>
+  <p class="note">Chaque mur peut avoir sa propre épaisseur (fenêtre du mur sur le plan, ou colonne « Épaisseur » ci-dessous).</p>
+  <h2 id="titreEtages" hidden>Étages</h2>
+  <table id="tabEtages"></table>
+  <h2>Pièces</h2>
+  <table id="tabPieces"></table>
+  <h2>Longueurs des murs</h2>
+  <div class="barre"><span>Lettres des murs sur le plan :</span> <button type="button" id="btnRepTous" class="btnPetit">Tout afficher</button> <button type="button" id="btnRepAucun" class="btnPetit">Tout masquer</button> <span class="note" style="margin:0">Cochez la case d'un mur pour afficher ou masquer sa lettre.</span></div>
+  <table id="tabMurs"></table>
+  <h2>Toitures</h2>
+  <p class="note">Chaque toiture couvre une ou plusieurs pièces : type (plat, 1 pente, 2 pentes, 4 pentes), angle, couverture (tuiles, ardoise, zinc…). Touchez une toiture sur l'onglet « Toitures » du plan pour la modifier.</p>
+  <table id="tabToits"></table>
+  <button type="button" id="btnAjToit" class="btnPetit">+ Ajouter une toiture</button>
+  <h2 id="titreClo" hidden>Murs ajoutés</h2>
+  <table id="tabCloisons"></table>
+  <h2 id="titreDemol" hidden>Murs à démolir</h2>
+  <table id="tabDemol"></table>
+  <h2>Ouvertures</h2>
+  <table id="tabOuv"></table>
+  <button type="button" id="btnAjOuv" class="btnPetit">+ Ajouter une ouverture</button>
+  <h2 id="titreEcarts" hidden>Écarts entre le scan et vos mesures</h2>
+  <table id="tabEcarts"></table>
+</section>
+
+<section id="notes" hidden>
+  <h2>Notes et travaux à prévoir</h2>
+  <p class="note">Écrivez, ou cliquez sur « Dicter » et parlez (en français). Les notes figurent dans le PDF et dans le fichier enregistré.
+  Sur iPhone : touchez une zone de notes puis le micro du clavier pour dicter.</p>
+  <p class="note" id="astuceMicro" hidden>Sur téléphone ou tablette : touchez une zone de notes puis la touche micro du clavier pour dicter.</p>
+  <div id="listeNotes"></div>
+</section>
+
+<div id="modal" hidden><div class="modalBoite"><h3 id="modalTitre"></h3><div id="modalCorps"></div>
+  <div class="modalBtns"><button type="button" id="modalOk" class="btn">OK</button><button type="button" id="modalAnnuler" class="btn sec">Annuler</button></div></div></div>
+
+<div id="lightbox" hidden><img id="lightboxImg" alt="Photo agrandie"></div>
+
+<div id="drop">Déposez le fichier .json ici</div>
+
+<script src="three.min.js"></script>
+<script src="OrbitControls.js"></script>
+<script src="convertisseur.js"></script>
+<script src="moteur.js"></script>
+
+</body></html>

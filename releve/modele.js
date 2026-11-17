@@ -44,6 +44,8 @@ export const CHAMPS = {
   'projet.enveloppe': 'nombre',
   'photoGarde': 'texte', // identifiant de la photo de garde
   'scan.fichier': 'objet', // { nom, taille, chemin } du fichier importé
+  'plan': 'objet', // { releve, resume } : le relevé ouvert dans le moteur (releve/moteur/)
+  'plan.ecarte': 'objet', // l'autre version du plan, gardée de côté après une modification sur deux appareils
   'notes': 'texte',
   'statut': 'texte', // 'en_cours' | 'terminee'
   'etape': 'texte',
@@ -129,6 +131,17 @@ export function fusionner(a, b) {
     const prendB = tb > ta || (tb === ta && empreinte(b.valeurs[cle] ?? null) > empreinte(a.valeurs[cle] ?? null));
     const src = prendB ? b : a;
     valeurs[cle] = src.valeurs[cle] ?? null; maj[cle] = src.maj[cle] || ta || tb;
+  }
+  /* Le plan est un seul bloc (le relevé entier) : s'il a été modifié des deux
+     côtés, la version la plus récente est gardée et l'autre est mise de côté
+     (« plan.ecarte »), pour que le métreur puisse la rouvrir : aucune
+     modification de plan ne disparaît en silence. */
+  const pa = a.valeurs.plan ?? null, pb = b.valeurs.plan ?? null;
+  if (pa && pb && empreinte(pa) !== empreinte(pb)) {
+    const perdant = valeurs.plan === pa ? b : a, ecarteActuel = valeurs['plan.ecarte'] ?? null;
+    if (!ecarteActuel || (perdant.maj.plan || '') >= (maj['plan.ecarte'] || '')) {
+      valeurs['plan.ecarte'] = perdant.valeurs.plan; maj['plan.ecarte'] = perdant.maj.plan || '';
+    }
   }
   const liste = nom => {
     const out = {};

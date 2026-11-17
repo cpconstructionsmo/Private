@@ -81,6 +81,10 @@
   .valide{animation:valide .5s ease-out}
   @keyframes valide{0%{box-shadow:0 0 0 0 rgba(47,107,74,.5)}100%{box-shadow:0 0 0 18px rgba(47,107,74,0)}}
   @media (prefers-reduced-motion:reduce){.anime,.valide{animation:none}}
+  /* le plan : le moteur de relevé en plein écran, sous la barre de la visite */
+  .ecranPlan{display:flex;flex-direction:column;height:calc(100dvh - env(safe-area-inset-top))}
+  .ecranPlan .message{margin:8px 16px 0}
+  .cadrePlan{flex:1;width:100%;border:0;background:#fff;display:block}
   /* sur PC : même page, plus large, champs côte à côte */
   @media (min-width:900px){
     main{max-width:960px}

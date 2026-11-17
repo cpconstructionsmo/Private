@@ -44,6 +44,17 @@ const {chk,fin}=verif();
   const pieceIphone=M.ajouterPiece(v,'Salle de bains',t(3),'p2');
   chk(Object.keys(M.fusionner(a,pieceIphone).pieces).length===2,'des pièces ajoutées sur deux appareils sont toutes gardées');
 
+  /* le plan : un seul bloc, l'autre version mise de côté en cas de double modification */
+  const base=M.modifier(v,'plan',{releve:{pieces:[{id:'p1'}]},resume:{pieces:1}},t(1));
+  const pIphone=M.modifier(base,'plan',{releve:{pieces:[{id:'p1',nom:'Cuisine'}]},resume:{pieces:1}},t(5));
+  const pPc=M.modifier(base,'plan',{releve:{pieces:[{id:'p1'},{id:'p2'}]},resume:{pieces:2}},t(3));
+  const fp=M.fusionner(pIphone,pPc);
+  chk(M.valeur(fp,'plan').releve.pieces[0].nom==='Cuisine','plan modifié des deux côtés : le plus récent est ouvert');
+  chk(M.valeur(fp,'plan.ecarte')&&M.valeur(fp,'plan.ecarte').resume.pieces===2,'l’autre version du plan est gardée de côté, pas perdue');
+  chk(M.empreinte(M.fusionner(pIphone,pPc))===M.empreinte(M.fusionner(pPc,pIphone)),'plan : même résultat dans les deux sens');
+  chk(M.valeur(M.fusionner(pIphone,base),'plan.ecarte')!==null,'même face à la version de départ, rien ne disparaît');
+  chk(M.valeur(M.fusionner(pIphone,pIphone),'plan.ecarte')===null,'plan identique : rien n’est mis de côté');
+
   /* contrôles */
   chk(M.telephoneValide('06 12 34 56 78')&&M.telephoneValide('+33 6 12 34 56 78')&&!M.telephoneValide('12 34'),'téléphone : formats français et international');
   chk(M.emailValide('a@b.fr')&&!M.emailValide('a@b')&&M.emailValide(''),'e-mail : vérifié seulement s’il est saisi');

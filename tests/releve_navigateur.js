@@ -86,7 +86,10 @@ let b;
   const [choix3]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#importerScan')]);
   chk(!(await choix3.element().getAttribute('accept')),'le sélecteur du scan n’a aucun filtre : un export sans extension n’est pas grisé');
   await choix3.setFiles({name:'Plan maison',mimeType:'',buffer:Buffer.from('{"rooms":[]}')});
-  await p.waitForSelector('text=📐 Plan maison');
+  /* le plan s'ouvre aussitôt (étape 2, voir releve_plan_navigateur.js) ; on revient à la visite */
+  await p.waitForSelector('#cadrePlan');
+  await p.tap('#fermerPlan');
+  await p.waitForSelector('text=📄 Plan maison');
 
   /* récapitulatif et fin */
   await p.tap('#suivant');
