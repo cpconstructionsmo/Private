@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-17 · Facture visée : pièce illisible signalée dès l’ouverture et redéposée sur place';
+const VERSION='2026-11-17 · Chantiers de rénovation : badge, pièces de l’existant, contrat de maîtrise d’œuvre adapté';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -301,27 +301,38 @@ const CMD_ST=[{id:'a_commander',label:'À commander',c:TERRA},{id:'commande',lab
    qui la relie à ce qui est déjà coché/déposé sur les chantiers existants —
    on peut réordonner ou reformuler un libellé sans rien perdre, mais jamais
    changer un id déjà utilisé. */
+/* une pièce « pour » un type de travaux ne se montre qu'aux chantiers de ce
+   type : la rénovation a ses pièces (relevé de l'existant, repérages avant
+   travaux, déclaration préalable), le neuf les siennes (RE2020, étude de
+   sol, fermettes). Une pièce déjà cochée ou déposée reste toujours visible. */
 const DOCS_GROUPES=[
   {titre:'Document contractuel',items:[
     {id:'plans_apd',l:'Plans d\u2019avant-projet (APS / APD)'},
     {id:'contrat_moe',l:'Contrat de maîtrise d\u2019œuvre'},
     {id:'notice',l:'Notice descriptive'},
+    {id:'dqe',l:'Descriptif par lot et DQE (estimation détaillée)',pour:'renovation'},
   ]},
-  {titre:'Permis de construire',items:[
+  {titre:'Existant',pour:'renovation',items:[
+    {id:'releve_existant',l:'Relevé de l\u2019existant (plans, cotes, niveaux)',pour:'renovation'},
+    {id:'diag_avant_travaux',l:'Repérages avant travaux (amiante, plomb le cas échéant)',pour:'renovation'},
+  ]},
+  {titre:'Permis de construire',titreReno:'Autorisation d\u2019urbanisme',items:[
+    {id:'dp_depot',l:'Déclaration préalable (Cerfa 13703) — récépissé de dépôt',pour:'renovation'},
+    {id:'dp_arrete',l:'Non-opposition à la déclaration préalable',pour:'renovation'},
     {id:'plans_pc',l:'Plans du permis'},
     {id:'cerfa_pc',l:'CERFA de demande de permis de construire'},
     {id:'pc_depot',l:'Récépissé de dépôt du permis'},
     {id:'pc_arrete',l:'Arrêté de permis de construire'},
-    {id:'attest_re_pc',l:'Attestation de prise en compte de la réglementation énergétique — dépôt du PC'},
+    {id:'attest_re_pc',l:'Attestation de prise en compte de la réglementation énergétique — dépôt du PC',pour:'neuf'},
     {id:'doc',l:'DOC — ouverture de chantier (Cerfa 13407)'},
   ]},
   {titre:'Étude',items:[
-    {id:'sol',l:'Étude de sol G2 — si argile moyen ou fort'},
-    {id:'thermique',l:'Étude thermique RE2020'},
+    {id:'sol',l:'Étude de sol G2 — si argile moyen ou fort',pour:'neuf'},
+    {id:'thermique',l:'Étude thermique RE2020',pour:'neuf'},
   ]},
   {titre:'Plans',items:[
     {id:'plans_exe',l:"Plans d'exécution"},
-    {id:'plan_fermette',l:'Plan de pose des fermettes industrielles'},
+    {id:'plan_fermette',l:'Plan de pose des fermettes industrielles',pour:'neuf'},
     {id:'plan_chauffant',l:'Plan du plancher chauffant — le cas échéant'},
     {id:'plan_elec',l:'Plan électrique'},
   ]},
@@ -332,12 +343,38 @@ const DOCS_GROUPES=[
   ]},
   {titre:'Achèvement',items:[
     {id:'daact',l:'DAACT (Cerfa 13408)'},
-    {id:'attest',l:'Attestation RE2020 fin de travaux'},
+    {id:'attest',l:'Attestation RE2020 fin de travaux',pour:'neuf'},
     {id:'pv',l:'PV de réception'},
     {id:'fin_mission',l:'Attestation de fin de mission de maîtrise d\u2019œuvre'},
   ]},
 ];
 const DOCS=DOCS_GROUPES.flatMap(g=>g.items);
+/* ---------- construction neuve ou rénovation ----------
+   Un chantier de rénovation doit se reconnaître d'un coup d'œil : badge et
+   liseré, pièces et contrat adaptés. Le type se choisit sur le chantier ;
+   à défaut, il se reprend de la catégorie du prospect dont il est issu. */
+const TYPES_TRAVAUX=[{id:'neuf',l:'Construction neuve'},{id:'renovation',l:'Rénovation (travaux sur existant)'}];
+const RENO_COULEUR='#6B4FA0';
+const typeTravaux=(ch,data)=>{
+  if(ch&&(ch.typeTravaux==='renovation'||ch.typeTravaux==='neuf'))return ch.typeTravaux;
+  const p=ch&&ch.prospectId?((data&&data.prospects)||[]).find(x=>x.id===ch.prospectId):null;
+  return p&&p.categorie==='renovation'?'renovation':'neuf';
+};
+const estReno=(ch,data)=>typeTravaux(ch,data)==='renovation';
+const BadgeReno=()=><span className="pill" title="Chantier de rénovation : travaux sur existant"
+  style={{marginLeft:8,background:RENO_COULEUR,color:'#fff',fontWeight:700,letterSpacing:.4,fontSize:10,verticalAlign:'middle'}}>RÉNOVATION</span>;
+/* le choix du type, dans les formulaires du chantier */
+const ChampTypeTravaux=({valeur,onChange})=><Fld label="TYPE DE TRAVAUX">
+  <select className="in" value={valeur} onChange={e=>onChange(e.target.value)}>
+    {TYPES_TRAVAUX.map(t=><option key={t.id} value={t.id}>{t.l}</option>)}</select>
+  {valeur==='renovation'&&<div className="xs" style={{marginTop:4,lineHeight:1.5,color:RENO_COULEUR}}>Badge « Rénovation », pièces de
+    l’existant (relevé, repérages, déclaration préalable) et contrat de maîtrise d’œuvre adapté.</div>}
+</Fld>;
+/* les pièces que montre un chantier : celles de son type, et toutes celles
+   déjà cochées ou déposées */
+const docVisible=(x,type,r)=>!x.pour||x.pour===type||!!(r&&(r.fait||r.lien||(r.fichiers&&r.fichiers.length)));
+const docsDuChantier=(ch,data)=>{const t=typeTravaux(ch,data), d=(ch&&ch.docs)||{};
+  return DOCS.filter(x=>docVisible(x,t,d[x.id]))};
 /* la trame standard d'un planning de maison neuve, phase par phase — les
    durées par défaut sont indicatives, à ajuster au cas par cas */
 const JALONS=[
@@ -497,6 +534,19 @@ const DOCS_PHASE={
   reception:['daact','pv','attest'],
   clos:['pv','attest'],
 };
+/* en rénovation : le relevé et les repérages de l'existant, la déclaration
+   préalable (un permis, s'il en faut un, se coche à la main) ; ni étude de
+   sol, ni RE2020, ni DOC (réservée au permis) */
+const DOCS_PHASE_RENO={
+  etude:['contrat_moe','releve_existant','plans_apd'],
+  pc:['dp_depot','notice','dqe'],
+  consultation:['dp_arrete','diag_avant_travaux','do'],
+  travaux:['diag_avant_travaux','do'],
+  reception:['daact','pv'],
+  clos:['pv'],
+};
+/* la phase « Permis » d'une rénovation est celle de l'autorisation d'urbanisme */
+const phaseLibelle=(ch,data)=>estReno(ch,data)&&ch.statut==='pc'?'Autorisation':PHASE[ch&&ch.statut];
 
 /* ---------- prospects ----------
    Le commercial dépose une demande de chiffrage, le maître d'œuvre y répond.
@@ -2830,6 +2880,17 @@ const HONO_ECHEANCIER=[
   {phase:'A l’achèvement des travaux',pct:15,echeance:'A l’achèvement des travaux'},
   {phase:'Assistance aux opérations de réception (AOR)',pct:5,echeance:'A la réception'},
 ];
+/* en rénovation, ni maçonnerie courante ni mise hors d'eau à attendre : la
+   mission se découpe comme l'onglet Honoraires du DQE de rénovation CP
+   (relevé, avant-projet, autorisation, consultation, suivi, réception) */
+const HONO_ECHEANCIER_RENO=[
+  {phase:'Relevé et diagnostic de l’existant',pct:5,echeance:'Signature'},
+  {phase:'Avant-projet : plans, descriptif par lot, estimation (DQE)',pct:5,echeance:'Remise de l’avant-projet'},
+  {phase:'Autorisation d’urbanisme (déclaration préalable ou permis)',pct:10,echeance:'Dépôt du dossier'},
+  {phase:'Consultation des entreprises, mise au point des marchés',pct:10,echeance:'Signature des marchés'},
+  {phase:'Direction de l’exécution des travaux',pct:60,echeance:'Au prorata de l’avancement des travaux'},
+  {phase:'Assistance aux opérations de réception (AOR)',pct:10,echeance:'A la réception'},
+];
 
 /* ---------------- PROGRAMME TECHNIQUE DE RÉFÉRENCE (PTR) ----------------
    Le catalogue ci-dessous reprend, lot par lot, le modèle standard fourni
@@ -4642,24 +4703,38 @@ async function genererDossierDocx(p,com,majTarifs){
    les lignes descriptives changent (sous-titre, type d'ouvrage) ; les
    articles restent ceux du modèle — le contrat est à faire relire. */
 const CONTRAT_ERP_DESIGNATION='Bâtiment à usage de bureaux — ERP de 5e catégorie';
+/* la rénovation : ses articles changent là où le modèle supposait une
+   construction neuve (terrain, permis, étude de sol, RE2020, maçonnerie,
+   mise hors d'eau) et un article « Travaux sur existant » s'ajoute ; le
+   reste du modèle est repris tel quel. À faire relire avant signature. */
+const CONTRAT_RENO_DESIGNATION='Rénovation d’un ouvrage existant à usage d’habitation';
+/* une fonction : PTR_TYPES_OUVRAGE n'est déclaré que plus loin dans le script */
+const contratTypes=()=>[...PTR_TYPES_OUVRAGE,{id:'renovation',l:'Rénovation (travaux sur existant)'}];
 /* le coût des travaux du contrat (article 6) : un forfait TTC saisi sur la
    carte du contrat l'emporte sur le chiffrage par poste ; le HT s'en déduit
    au taux de TVA du dossier. Les honoraires ne bougent pas : le contrat les
    dit indépendants du coût des travaux. */
-const contratTravauxForfaitTTC=p=>{const v=+String((p&&p.contratTravauxTTC)||'').replace(/\s/g,'').replace(',','.');return v>0?Math.round(v*100)/100:0};
+const montantSaisi=v=>{const n=+String(v===undefined||v===null?'':v).replace(/\s/g,'').replace(',','.');return n>0?Math.round(n*100)/100:0};
+const contratTravauxForfaitTTC=p=>montantSaisi(p&&p.contratTravauxTTC);
+/* une rénovation mêle les taux de TVA (logement existant, création de
+   surface, eau chaude thermodynamique…) : le HT se saisit alors à côté du
+   TTC, au lieu d'être déduit au taux du dossier */
+const contratTravauxForfaitHT=p=>montantSaisi(p&&p.contratTravauxHT);
 const contratTravaux=p=>{
-  const tva=prospectTva(p), forfait=contratTravauxForfaitTTC(p);
+  const tva=prospectTva(p), forfait=contratTravauxForfaitTTC(p), fHT=contratTravauxForfaitHT(p);
+  if(forfait&&fHT)return {forfait:true,tva,ttc:forfait,ht:fHT,tvaMixte:Math.abs(forfait-fHT*(1+tva/100))>=0.5};
   if(forfait)return {forfait:true,tva,ttc:forfait,ht:Math.round(forfait/(1+tva/100)*100)/100};
   const ht=prospectCoutHT(p);
   return {forfait:false,tva,ht,ttc:Math.round(ht*(1+tva/100)*100)/100};
 };
 const contratTypeOuvrage=(p,data)=>{
-  if(p&&(p.typeOuvrage==='erp5'||p.typeOuvrage==='maison'))return p.typeOuvrage;
+  if(p&&(p.typeOuvrage==='erp5'||p.typeOuvrage==='maison'||p.typeOuvrage==='renovation'))return p.typeOuvrage;
+  if(p&&p.categorie==='renovation')return 'renovation';
   const prog=p&&data?ptrProgrammePour(data,{prospectId:p.id,chantierId:p.chantierId||null}):null;
   return prog?ptrTypeOuvrage(prog):'maison';
 };
 function contratMoeDocumentXml(p,px,typeOuvrage){
-  const erp=typeOuvrage==='erp5';
+  const erp=typeOuvrage==='erp5', reno=typeOuvrage==='renovation';
   const titre=t=>par(t,{b:true,sz:22,c:DOC_TERRA,sp:20,caps:true,av:220,ap:100,filet:DOC_TERRA});
   const sousTitre=t=>par(t,{b:true,sz:19,c:DOC_BRUN,av:140,ap:80});
   const texte=t=>par(t,{sz:18,jc:'both',ap:120});
@@ -4675,8 +4750,11 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
   const nomClient2=p.client2?afficherCivilite(p.civilite2,p.client2)||p.client2:'';
   const geoObligatoire=etudeSolObligatoire(p);
   const trav=contratTravaux(p), coutHT=trav.ht, tva=trav.tva, coutTTC=trav.ttc;
-  const margeHT=prospectMargeHT(p), margeTva=Math.round(margeHT*tva)/100,
-    margeTTC=honoDossierTTC(p);
+  /* la maîtrise d'œuvre facture toujours à 20 %, même quand les travaux
+     sont à un taux réduit (rénovation d'un logement existant) */
+  const tvaHono=HONO_TVA_DEFAUT;
+  const margeHT=prospectMargeHT(p), margeTva=Math.round(margeHT*tvaHono)/100,
+    margeTTC=Math.round((margeHT+margeTva)*100)/100;
   const surfaceFonciere=p.surfaceTerrain?nb2(+p.surfaceTerrain)+' m²':'';
   const surfaceProjetee=(+p.surfaceHabitable||+p.surfaceAnnexes)
     ?nb2((+p.surfaceHabitable||0)+(+p.surfaceAnnexes||0))+' m²':'';
@@ -4686,6 +4764,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     vide(300),
     par('CONTRAT DE MAÎTRISE D’ŒUVRE',{b:true,sz:34,c:DOC_TERRA,sp:30,jc:'center',ap:60}),
     par(erp?'Mission de maîtrise d’œuvre — '+CONTRAT_ERP_DESIGNATION+' — Client privé'
+      :reno?'Mission de maîtrise d’œuvre — '+CONTRAT_RENO_DESIGNATION+' — Client privé'
       :'Mission de maîtrise d’œuvre — Ouvrage à usage d’habitation — Client privé',
       {sz:19,c:DOC_BRUN,jc:'center',ap:20,filet:DOC_BRUN}),
     par((p.nom||'')+(nomClient?' — '+nomClient:''),{sz:18,c:DOC_GRIS,jc:'center',ap:0}),
@@ -4709,7 +4788,15 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
       ['RC Pro',CP.rcProAssureur+' — Contrat n° '+CP.rcProContrat]]),
   ].join('');
 
-  const a2=[
+  const a2=reno?[
+    titre('Article 2 — Description du projet'),
+    champs([['Type d’ouvrage','Maison individuelle existante — travaux de rénovation'],
+      ['Adresse des travaux',p.commune||''],['Références cadastrales',''],
+      ['Surface concernée',surfaceProjetee],
+      ['Nature des travaux',p.prestation||'Rénovation — travaux sur existant (réglementation thermique de l’existant)'],
+      ['Repérages avant travaux','☐ Amiante    ☐ Plomb    ☐ Non concerné (à compléter selon l’âge du bâtiment)']]),
+    texte('Les parties s’engagent conformément aux plans de l’existant et du projet, au descriptif technique par lot et à l’estimation détaillée (DQE) annexés au présent contrat. Le Maître de l’Ouvrage fournit au Maître d’Œuvre tous les éléments nécessaires (titre de propriété, plans et documents disponibles de l’existant, diagnostics immobiliers, données cadastrales, études antérieures, etc.). Il effectue la déclaration de projet de travaux (DT) auprès de chaque exploitant de réseaux lorsque les travaux l’exigent et dépose lui-même ou valide la demande d’autorisation d’urbanisme (déclaration préalable ou permis de construire, selon le cas) en sa qualité de pétitionnaire.'),
+  ].join(''):[
     titre('Article 2 — Description du projet'),
     champs([erp?['Type d’ouvrage',CONTRAT_ERP_DESIGNATION+(p.niveaux?' — '+p.niveaux:'')]
       :['Type de maison',p.niveaux?'Ouvrage d’habitation personnalisé — '+p.niveaux:'Ouvrage d’habitation personnalisé'],
@@ -4725,11 +4812,18 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     titre('Article 3 — Mission confiée au Maître d’Œuvre'),
     sousTitre('Article III-1 — Décomposition de la mission'),
     texte('La mission du Maître d’Œuvre est décomposée en deux blocs distincts, dont le périmètre et la rémunération sont définis séparément.'),
+    ...(reno?[
+    par('BLOC A — Mission Diagnostic, Conception & Autorisation',{b:true,sz:18,c:DOC_TERRA,ap:60}),
+    puce('REL — Relevé et diagnostic de l’existant : visite et relevé complémentaire sur site, état des lieux, vérification des règles d’urbanisme et des contraintes de l’existant'),
+    puce('AVP — Avant-Projet : plans de l’existant, des démolitions et du projet, coupe et détails, descriptif technique par lot et estimation détaillée (DQE)'),
+    puce('AUT — Autorisation d’urbanisme : constitution et dépôt du dossier de déclaration préalable (ou de permis de construire si la réglementation l’exige), suivi d’instruction jusqu’à la décision'),
+    ]:[
     par('BLOC A — Mission Conception & Autorisation',{b:true,sz:18,c:DOC_TERRA,ap:60}),
     puce('ESQ — Esquisse : première traduction du programme, orientation architecturale, vérification de faisabilité au regard du PLU et des contraintes parcellaires'),
     puce('APS — Avant-Projet Sommaire : plans masse, coupes et façades, affinement de l’enveloppe budgétaire'),
     puce('APD — Avant-Projet Définitif : plans précis, choix techniques, coût prévisionnel par corps d’état'),
     puce('PC — Permis de Construire : constitution et dépôt du dossier, suivi d’instruction, interface avec les services instructeurs jusqu’à l’obtention de l’arrêté'),
+    ]),
     par('BLOC B — Mission Chantier',{b:true,sz:18,c:DOC_TERRA,av:100,ap:60}),
     puce('PRO — Projet : plans d’exécution détaillés'),
     puce('DCE — Dossier de Consultation des Entreprises'),
@@ -4741,7 +4835,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     texte('Le Maître d’Œuvre exerce son art dans le cadre d’une profession libérale indépendante. Sa responsabilité est limitée à sa propre mission, sans interférence avec les obligations contractuelles propres aux différents entrepreneurs et hommes de l’art appelés à concourir à l’édification de la construction.'),
     texte('Le Maître d’Œuvre n’est pas le mandataire du Maître de l’Ouvrage. Toute décision de nature à engager le Maître de l’Ouvrage notamment la signature des marchés avec les entreprises, les paiements, les ordres de service modificatifs appartient exclusivement au Maître de l’Ouvrage.'),
     texte('Le Maître d’œuvre devra concevoir l’ouvrage à la destination qui lui aura été définie par le maître de l’ouvrage. Les plans seront conformes au projet ainsi arrêté.'),
-    texte('Le Maître d’Œuvre sur le vu des marchés et contrats qui seront passés, surveillera selon les règles de l’art, l’exécution de l’ouvrage conformément aux plans fournis à l’appui du permis de construire. Il signale par écrit au Maître de l’Ouvrage toute insuffisance, erreur, malfaçon ou non-conformité qu’il détecte lors de ses visites de chantier. Il appartient au seul Maître de l’Ouvrage, en sa qualité de cocontractant des entreprises, d’exiger la réparation des désordres constatés. Le Maître d’Œuvre n’assume aucune obligation de résultat sur l’exécution des travaux réalisés par des tiers.'),
+    texte('Le Maître d’Œuvre sur le vu des marchés et contrats qui seront passés, surveillera selon les règles de l’art, l’exécution de l’ouvrage conformément aux plans fournis à l’appui '+(reno?'de l’autorisation d’urbanisme':'du permis de construire')+'. Il signale par écrit au Maître de l’Ouvrage toute insuffisance, erreur, malfaçon ou non-conformité qu’il détecte lors de ses visites de chantier. Il appartient au seul Maître de l’Ouvrage, en sa qualité de cocontractant des entreprises, d’exiger la réparation des désordres constatés. Le Maître d’Œuvre n’assume aucune obligation de résultat sur l’exécution des travaux réalisés par des tiers.'),
     texte('Le maître d’œuvre assistera le maitre de l’ouvrage de ses avis et de ses conseils au cours de toutes conférences ou discussions qui seraient nécessaires, il participera d’ailleurs personnellement ou par l’un de ses représentants ou préposés à toutes réunions de chantier. Il donnera au Maitre de l’ouvrage toutes indications ou lui fera toutes suggestions pour la réalisation de son projet.'),
     texte('Dans les rapports avec les administrations, le Maitre d’œuvre se bornera à assister le maitre de l’ouvrage de ses conseils sans se substituer à lui, tout décision ne pouvant être prise que par ce dernier.'),
     texte('Si à l’occasion de ses rapports avec des tiers, il advenait que le maitre de l’ouvrage passe outre aux avis exprimés par le Maitre d’œuvre, il en supporterait seul les conséquences, et le maitre d’œuvre serait dégagé de toute responsabilité à l’occasion des difficultés qui pourraient résulter du désaccord intervenu.'),
@@ -4750,9 +4844,13 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
   const a4=[
     titre('Article 4 — Obligations du Maître de l’Ouvrage'),
     sousTitre('Article 4-1 — Renseignements et documents'),
-    texte('Le Maître de l’Ouvrage s’engage à fournir au Maître d’Œuvre tous les éléments nécessaires à la bonne réalisation du projet, notamment : titre de propriété, relevé topographique, règlement de lotissement le cas échéant, certificat d’urbanisme.'),
+    texte(reno?'Le Maître de l’Ouvrage s’engage à fournir au Maître d’Œuvre tous les éléments nécessaires à la bonne réalisation du projet, notamment : titre de propriété, plans et documents disponibles de l’existant, diagnostics immobiliers et rapports de repérage avant travaux, certificat d’urbanisme le cas échéant.'
+      :'Le Maître de l’Ouvrage s’engage à fournir au Maître d’Œuvre tous les éléments nécessaires à la bonne réalisation du projet, notamment : titre de propriété, relevé topographique, règlement de lotissement le cas échéant, certificat d’urbanisme.'),
     sousTitre('Article 4-2 — Formalités'),
-    puce('Signer et présenter la demande de permis de construire préparée par le Maître d’Œuvre'),
+    ...(reno?[puce('Signer et présenter la demande d’autorisation d’urbanisme (déclaration préalable ou permis de construire) préparée par le Maître d’Œuvre'),
+      puce('Faire réaliser, avant la consultation des entreprises, les repérages réglementaires avant travaux (amiante et, le cas échéant, plomb) et en transmettre les rapports au Maître d’Œuvre et aux entreprises'),
+      puce('Rendre accessibles, libérées et protégées, les zones d’intervention pendant toute la durée des travaux')]
+      :[puce('Signer et présenter la demande de permis de construire préparée par le Maître d’Œuvre')]),
     puce('Sélectionner et signer directement les marchés avec les entrepreneurs, après recommandation du Maître d’Œuvre'),
     puce('Effectuer tous paiements d’acomptes et règlements aux entreprises'),
     puce('Souscrire une assurance dommages-ouvrage avant l’ouverture du chantier, conformément aux articles L242-1 et suivants du Code des assurances'),
@@ -4776,7 +4874,31 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     puce('Le Maître de l’Ouvrage reconnaît avoir été informé de la distinction entre le contrat de maîtrise d’Œuvre et le CCMI, et avoir choisi en pleine connaissance de cause le régime de la maîtrise d’Œuvre séparée.'),
   ].join('');
 
-  const a5=[
+  /* les travaux sur existant : ce que la rénovation ajoute au modèle */
+  const a4ter=reno?[
+    titre('Article 4 ter — Travaux sur existant'),
+    sousTitre('État de l’existant'),
+    texte('Les plans de l’existant sont établis d’après un relevé et, le cas échéant, d’après les documents remis par le Maître de l’Ouvrage. Les dimensions, niveaux et caractéristiques des ouvrages existants sont vérifiés sur place par les entreprises avant toute commande ou fabrication. Le Maître d’Œuvre ne peut garantir l’état ni la composition des parties d’ouvrage non visibles ou non accessibles lors de ses visites (structure, réseaux encastrés, supports, fondations).'),
+    sousTitre('Découvertes en cours de travaux'),
+    texte('Les démolitions et déposes peuvent révéler des désordres, des non-conformités ou des matériaux dangereux qui n’étaient pas décelables auparavant. Le Maître d’Œuvre en informe sans délai le Maître de l’Ouvrage et lui soumet les solutions possibles et leur incidence sur le coût et les délais. Les travaux supplémentaires qui en résultent font l’objet d’avenants signés par le Maître de l’Ouvrage avant leur exécution. Une provision pour imprévus est recommandée.'),
+    sousTitre('Repérages réglementaires'),
+    texte('Lorsque le bâtiment est susceptible de contenir de l’amiante ou du plomb, notamment en raison de sa date de construction, le Maître de l’Ouvrage fait réaliser les repérages réglementaires avant travaux par un opérateur qualifié. Les travaux ne peuvent débuter sur les parties concernées avant la remise de ces repérages.'),
+    sousTitre('Site occupé'),
+    texte('Lorsque le logement reste occupé pendant les travaux, le Maître de l’Ouvrage libère et protège les zones d’intervention, en organise l’accès et retire les biens susceptibles d’être endommagés. Les nuisances inhérentes aux travaux (bruit, poussière, coupures temporaires des réseaux) sont annoncées par le planning et ne constituent pas un manquement du Maître d’Œuvre.'),
+    sousTitre('Existants et assurances'),
+    texte('Le Maître de l’Ouvrage est informé que les assurances obligatoires de construction ne couvrent les ouvrages existants que dans les conditions prévues par la loi, notamment lorsqu’ils sont totalement incorporés dans l’ouvrage neuf et en deviennent techniquement indivisibles. Il déclare les existants à son assureur dommages-ouvrage et vérifie, pendant la durée des travaux, l’étendue de son assurance habitation.'),
+    sousTitre('Travaux exclus de la mission'),
+    texte('Les travaux que le Maître de l’Ouvrage réalise lui-même ou confie directement à des tiers en dehors des marchés suivis par le Maître d’Œuvre (désignés « hors marché » au descriptif) sont exclus de la mission : le Maître d’Œuvre n’en assure ni la conception, ni la direction, ni le contrôle, et le Maître de l’Ouvrage en assume seul la conformité et les conséquences sur les autres ouvrages.'),
+  ].join(''):'';
+
+  const a5=reno?[
+    titre('Article 5 — Conditions suspensives'),
+    texte('Le présent contrat est conclu sous réserve de la réalisation, dans un délai de 6 mois à compter de sa signature, des conditions suivantes :'),
+    puce('Obtention du ou des prêts bancaires nécessaires au financement de l’opération'),
+    puce('Obtention de l’autorisation d’urbanisme requise (déclaration préalable ou permis de construire) et des autres autorisations administratives'),
+    texte('À défaut de réalisation de l’une de ces conditions dans le délai imparti, le contrat est réputé caduc et les sommes versées sont intégralement remboursées au Maître de l’Ouvrage. Si la non-réalisation est imputable au Maître de l’Ouvrage, celui-ci devra au Maître d’Œuvre une indemnité forfaitaire égale à 10 % du montant total des honoraires TTC.'),
+    texte('Les travaux ne pourront démarrer qu’après remise au Maître d’Œuvre des pièces suivantes : autorisation d’urbanisme purgée de tout recours, attestation de propriété, attestation d’assurance dommages-ouvrage, attestation de financement, repérages réglementaires avant travaux, accès aux zones d’intervention libérées.'),
+  ].join(''):[
     titre('Article 5 — Conditions suspensives'),
     texte('Le présent contrat est conclu sous réserve de la réalisation, dans un délai de 6 mois à compter de sa signature, des conditions suivantes :'),
     puce('Acquisition du terrain ou des droits réels permettant de construire'),
@@ -4786,7 +4908,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     texte('Les travaux ne pourront démarrer qu’après remise au Maître d’Œuvre des pièces suivantes : autorisation d’urbanisme purgée de tout recours, attestation de propriété, attestation d’assurance dommages-ouvrage, attestation de financement, accès chantier opérationnel (eau, électricité, bornage géomètre).'),
   ].join('');
 
-  const echeancierRows=HONO_ECHEANCIER.map((e,i)=>[String(i+1),e.phase,e.pct+' %',
+  const echeancierRows=(reno?HONO_ECHEANCIER_RENO:HONO_ECHEANCIER).map((e,i)=>[String(i+1),e.phase,e.pct+' %',
     eurDoc(Math.round(margeTTC*e.pct)/100),e.echeance]);
   const entEch=(l,t,jc)=>tc(l,par(t,{b:true,sz:15,c:DOC_TERRA,sp:14,caps:true,jc:jc,ap:0}),
     {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
@@ -4797,13 +4919,14 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
   const a6=[
     titre('Article 6 — Honoraires du Maître d’Œuvre et budget travaux'),
     texte('A la signature du présent contrat, le maître d’ouvrage dispose d’un budget travaux de :'),
-    par(eurDoc(coutHT)+' HT, soit '+eurDoc(coutTTC)+' TTC sur la base d’un taux de TVA en vigueur de '+tva+' %.',
+    par(eurDoc(coutHT)+' HT, soit '+eurDoc(coutTTC)+' TTC'+(trav.tvaMixte?', TVA aux taux en vigueur applicables à chaque poste de travaux.'
+      :' sur la base d’un taux de TVA en vigueur de '+tva+' %.'),
       {b:true,sz:20,c:DOC_ENCRE,ap:100}),
-    texte('Le budget de travaux est établi conformément au programme de l’opération. Il s’applique à un mode de dévolution des contrats de travaux envisagé par le maître d’ouvrage en corps d’état séparés.'),
+    texte('Le budget de travaux est établi conformément '+(reno?'à l’avant-projet et à l’estimation détaillée (DQE)':'au programme de l’opération')+'. Il s’applique à un mode de dévolution des contrats de travaux envisagé par le maître d’ouvrage en corps d’état séparés.'),
     texte('Cette estimation est établie à titre indicatif, sur la base des données disponibles à la date de signature. Elle ne constitue en aucun cas un engagement du Maître d’Œuvre sur le coût définitif de l’opération. Elle ne tient pas compte des évolutions ultérieures des prix des matériaux, de la main d’œuvre, ni des contraintes techniques susceptibles d’être révélées en cours d’instruction ou de chantier.'),
     texte('En cas d’écart constaté entre l’estimation prévisionnelle et les offres reçues des entreprises, le Maître d’Œuvre en informera le Maître de l’Ouvrage et lui soumettra les arbitrages nécessaires. Le Maître de l’Ouvrage demeure seul décisionnaire des ajustements à apporter au programme.'),
     texte('La rémunération du Maître d’Œuvre est constituée d’honoraires forfaitaires toutes taxes comprises, répartis selon les deux blocs de mission définis à l’article 3. Ils sont indépendants du coût des travaux et ne constituent en aucun cas un engagement du Maître d’Œuvre sur le coût global de l’opération.'),
-    champs([['Honoraires HT',eurDoc(margeHT)],['TVA ('+tva+' %)',eurDoc(margeTva)],['Honoraires TTC',eurDoc(margeTTC)]]),
+    champs([['Honoraires HT',eurDoc(margeHT)],['TVA ('+tvaHono+' %)',eurDoc(margeTva)],['Honoraires TTC',eurDoc(margeTTC)]]),
     vide(160),
     sousTitre('Échéancier des honoraires'),
     tbl([500,4200,1200,1800,2700],
@@ -4835,13 +4958,13 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
 
   const a8=[
     titre('Article 8 — Délais d’exécution'),
-    champs([['Dépôt du permis de construire','2 mois après signature du contrat'],
+    champs([[reno?'Dépôt de l’autorisation d’urbanisme':'Dépôt du permis de construire','2 mois après signature du contrat'],
       ['Réalisation des conditions suspensives','6 mois après signature du contrat']]),
   ].join('');
 
   const a9=[
     titre('Article 9 — Responsabilités et assurances'),
-    texte('L’établissement des plans, du dossier de permis de construire et de l’ensemble des documents techniques s’inscrit dans le cadre exclusif de la mission intellectuelle du Maître d’Œuvre. Il ne saurait en résulter aucun engagement du Maître d’Œuvre sur le coût global de l’opération, ni aucune assimilation à la qualité de constructeur au sens de la loi du 19 décembre 1990.'),
+    texte('L’établissement des plans, du dossier '+(reno?'d’autorisation d’urbanisme':'de permis de construire')+' et de l’ensemble des documents techniques s’inscrit dans le cadre exclusif de la mission intellectuelle du Maître d’Œuvre. Il ne saurait en résulter aucun engagement du Maître d’Œuvre sur le coût global de l’opération, ni aucune assimilation à la qualité de constructeur au sens de la loi du 19 décembre 1990.'),
     texte('Le Maître d’Œuvre assume sa responsabilité professionnelle dans les limites des articles 1792 et suivants du Code civil et dans la limite des plafonds de son contrat d’assurance RC Pro ('+CP.rcProAssureur+' — n° '+CP.rcProContrat+'). Il ne peut être tenu responsable des défaillances des entreprises, des aléas techniques imprévisibles, des règles d’urbanisme annulées postérieurement ou de contraintes non signalées par le Client.'),
     texte('La responsabilité décennale des entreprises de travaux est engagée au titre de leurs propres marchés, directement envers le Maître de l’Ouvrage. Le Maître d’Œuvre n’est pas garant des obligations des entreprises et ne peut être appelé en garantie au titre des désordres résultant exclusivement de leur exécution. Chaque entreprise titulaire fournit, préalablement à l’ouverture du chantier, son attestation d’assurance décennale en cours de validité, que le Maître de l’Ouvrage est tenu de recueillir.'),
     sousTitre('Assurance dommages-ouvrage'),
@@ -4885,8 +5008,10 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     titre('Article 13 — Pièces contractuelles'),
     texte('Les documents suivants sont indissociables du présent contrat :'),
     puce('Le présent contrat de maîtrise d’œuvre signé'),
-    puce('L’avant-projet : plans, façades et visuels'),
-    puce('Le programme technique de référence (PTR)'),
+    ...(reno?[puce('L’avant-projet de rénovation : plans de l’existant, des démolitions et du projet'),
+      puce('Le descriptif technique par lot et l’estimation détaillée (DQE)')]
+      :[puce('L’avant-projet : plans, façades et visuels'),
+      puce('Le programme technique de référence (PTR)')]),
     puce('Formulaire de rétractation'),
   ].join('');
 
@@ -4911,7 +5036,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     ])],{}),
   ].join('');
 
-  const corps=[garde,a1,a2,a3,sautPage,a4,a4bis,a5,sautPage,a6,a7,a8,sautPage,a9,a10,a11,sautPage,a12,a13,vide(200),signatures].join('');
+  const corps=[garde,a1,a2,a3,sautPage,a4,a4bis,a4ter,a5,sautPage,a6,a7,a8,sautPage,a9,a10,a11,sautPage,a12,a13,vide(200),signatures].join('');
   return DOC_ENTETE_XML+'<w:body>'+corps
     +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
     +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
@@ -10377,7 +10502,8 @@ function DesignerAccueil({data}){
     <input className="in" value={q} onChange={e=>setQ(e.target.value)} placeholder="Chercher un chantier, un prospect, un client…" style={{marginBottom:12}}/>
     <div className="lbl" style={{margin:'4px 0 8px'}}>CHANTIERS ({chantiers.length})</div>
     {!chantiers.length&&<Empty>{(data.chantiers||[]).length?'Aucun chantier ne correspond.':'Aucun chantier : créez-le dans CHANTIERS.'}</Empty>}
-    {chantiers.map(c=>ligne('c:'+c.id,c.nom||'Chantier sans nom',[c.client,c.adresse].filter(Boolean).join(' — '),null,designerLien(c)))}
+    {chantiers.map(c=>ligne('c:'+c.id,c.nom||'Chantier sans nom',[c.client,c.adresse].filter(Boolean).join(' — '),
+      estReno(c,data)?{label:'RÉNOVATION',c:RENO_COULEUR}:null,designerLien(c)))}
     <div className="lbl" style={{margin:'18px 0 8px'}}>PROSPECTS — AVANT-PROJET ({prospects.length})</div>
     {!prospects.length&&<Empty>{(data.prospects||[]).some(p=>!p.chantierId&&p.statut!=='perdu')?'Aucun prospect ne correspond.':'Aucun prospect en cours.'}</Empty>}
     {prospects.map(p=>ligne('p:'+p.id,p.nom||'Prospect sans nom',[p.client,p.commune,(PROSPECT_CATEGORIES.find(c=>c.id===prospectCategorie(p))||{}).label].filter(Boolean).join(' — '),prospectSt(p.statut),designerLienProspect(p)))}
@@ -10422,6 +10548,7 @@ function Chantiers({data,save,open}){
     {brouillon.bandeau}
     {f&&<div className="card">
       <Fld label="NOM DU CHANTIER"><input className="in" value={f.nom} onChange={e=>setF({...f,nom:e.target.value})} placeholder="Maison Barbé — Céaucé"/></Fld>
+      <ChampTypeTravaux valeur={typeTravaux(f,data)} onChange={v=>setF({...f,typeTravaux:v})}/>
       <ImportContact label="Remplir depuis Contacts"
         onLu={c=>setF(p=>({...p,client:c.nom||p.client,telClient:c.tel||p.telClient,
           emailClient:c.email||p.emailClient||'',adresse:c.adresse||p.adresse}))}/>
@@ -10470,13 +10597,14 @@ function Chantiers({data,save,open}){
       /* on compare le TTC au TTC : le budget annoncé au client comprend tout */
       const co=coutOperation(c,data.marches.filter(m=>m.chantierId===c.id),data.commandes.filter(x=>x.chantierId===c.id));
       const bc=budgetClient(c)?budgetActualise(c):0;
-      const nd=DOCS.filter(d=>c.docs&&c.docs[d.id]&&c.docs[d.id].fait).length;
+      const docsC=docsDuChantier(c,data), reno=estReno(c,data);
+      const nd=docsC.filter(d=>c.docs&&c.docs[d.id]&&c.docs[d.id].fait).length;
       const np=data.photos.filter(p=>p.chantierId===c.id).length;
       const nKo=Object.values(c.controles||{}).filter(r=>r.statut==='non_conforme').length;
-      return <button key={c.id} className="card" style={{borderLeft:'3px solid '+NAVY}} onClick={()=>open(c.id)}>
+      return <button key={c.id} className="card" style={{borderLeft:'3px solid '+(reno?RENO_COULEUR:NAVY)}} onClick={()=>open(c.id)}>
         <div className="sp" style={{gap:8,alignItems:'flex-start'}}>
-          <span className="b sm" style={{color:NAVY}}>{c.nom}</span>
-          <span className="pill" style={{background:'rgba(44,74,94,.09)',color:NAVY}}>{PHASE[c.statut]}</span>
+          <span className="b sm" style={{color:NAVY}}>{c.nom}{reno&&<BadgeReno/>}</span>
+          <span className="pill" style={{background:'rgba(44,74,94,.09)',color:NAVY}}>{phaseLibelle(c,data)}</span>
         </div>
         <div className="xs mut" style={{marginTop:3}}>{c.client}{c.adresse?' — '+c.adresse:''}</div>
         {dateSignature(c,data.marches)&&<div className="xs mut" style={{marginTop:3}}>Signé le {fd(dateSignature(c,data.marches))}</div>}
@@ -10492,7 +10620,7 @@ function Chantiers({data,save,open}){
           {bc
             ?<span style={{color:co.totalTTC>bc?TERRA:MUTED}}>Engagé {eur(co.totalTTC)} / {eur(bc)} TTC</span>
             :<span>Budget client non renseigné</span>}
-          <span>{nd}/{DOCS.length} pièces · {np} photo{np>1?'s':''}</span>
+          <span>{nd}/{docsC.length} pièces · {np} photo{np>1?'s':''}</span>
         </div>
         {nKo>0&&<div className="xs b" style={{color:TERRA,marginTop:4}}>{nKo} point{nKo>1?'s':''} de contrôle non conforme{nKo>1?'s':''}</div>}
       </button>;
@@ -11214,6 +11342,7 @@ function Fiche({data,ch,save,back,reprise,ongletInitial}){
     <button onClick={back} className="xs" style={{color:TERRA,background:'none',border:'none',padding:'0 0 12px'}}>← Tous les chantiers</button>
     {edit?<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
       <Fld label="NOM DU CHANTIER"><input className="in" value={edit.nom} onChange={e=>setEdit({...edit,nom:e.target.value})}/></Fld>
+      <ChampTypeTravaux valeur={typeTravaux(edit,data)} onChange={v=>setEdit({...edit,typeTravaux:v})}/>
       <ImportContact label="Remplir depuis Contacts"
         onLu={c=>setEdit(p=>({...p,client:c.nom||p.client,telClient:c.tel||p.telClient,
           emailClient:c.email||p.emailClient||'',adresse:c.adresse||p.adresse}))}/>
@@ -11322,9 +11451,9 @@ function Fiche({data,ch,save,back,reprise,ongletInitial}){
       <Fld label="PHASE"><select className="in" value={edit.statut} onChange={e=>setEdit({...edit,statut:e.target.value})}>
         {Object.entries(PHASE).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Fld>
       <Acts onSave={saveEdit} onCancel={()=>setEdit(null)}/>
-    </div>:<div className="card" style={{borderLeft:'3px solid '+TERRA}}>
+    </div>:<div className="card" style={{borderLeft:'3px solid '+(estReno(ch,data)?RENO_COULEUR:TERRA)}}>
       <div className="sp">
-        <div className="b" style={{color:NAVY}}>{ch.nom}</div>
+        <div className="b" style={{color:NAVY}}>{ch.nom}{estReno(ch,data)&&<BadgeReno/>}</div>
         <button className="btn gh s" onClick={()=>setEdit(ch)}>Modifier</button>
       </div>
       <div className="xs mut" style={{marginTop:3}}>{ch.client} — {ch.adresse}</div>
@@ -18172,22 +18301,25 @@ function Docs({data,ch,up,save}){
     const c=d[docId]||{};
     up({docs:{...d,[docId]:{...c,signatures:(c.signatures||[]).filter(s=>s.id!==sid)}}});
   };
-  const n=DOCS.filter(x=>d[x.id]&&d[x.id].fait).length;
+  const typeCh=typeTravaux(ch,data), docsCh=docsDuChantier(ch,data);
+  const n=docsCh.filter(x=>d[x.id]&&d[x.id].fait).length;
   if(planElec)return <PlanElectrique ch={ch} up={up} data={data} save={save} onFermer={()=>setPlanElec(false)}/>;
   return <div>
     <DriveStatus/>
     <div className="sp xs" style={{marginTop:0,marginBottom:10}}>
-      <span className="mut">{n} pièce{n>1?'s':''} sur {DOCS.length} — rangées dans Drive › {ch.nom} › Pièces</span>
+      <span className="mut">{n} pièce{n>1?'s':''} sur {docsCh.length}{typeCh==='renovation'?' (rénovation)':''} — rangées dans Drive › {ch.nom} › Pièces</span>
       <BoutonDossierDrive ch={ch} sous="Pièces"/>
     </div>
     {DOCS_GROUPES.map(g=>{
-      const nG=g.items.filter(x=>d[x.id]&&d[x.id].fait).length;
+      const items=g.items.filter(x=>docVisible(x,typeCh,d[x.id]));
+      if(!items.length)return null;
+      const nG=items.filter(x=>d[x.id]&&d[x.id].fait).length;
       return <div key={g.titre} style={{marginBottom:16}}>
         <div className="sp" style={{marginBottom:6}}>
-          <span className="h2" style={{fontSize:13}}>{g.titre.toUpperCase()}</span>
-          <span className="xs mut">{nG}/{g.items.length}</span>
+          <span className="h2" style={{fontSize:13}}>{((typeCh==='renovation'&&g.titreReno)||g.titre).toUpperCase()}</span>
+          <span className="xs mut">{nG}/{items.length}</span>
         </div>
-        {g.items.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card" style={{padding:10,marginBottom:6}}>
+        {items.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card" style={{padding:10,marginBottom:6}}>
           <div className="row" style={{gap:10,alignItems:'flex-start'}}>
             <button className="chk" onClick={()=>tog(x.id)} style={{background:r.fait?GREEN:'#fff',borderColor:r.fait?GREEN:RULE}}>{r.fait?'✓':''}</button>
             <div style={{flex:1}}>
@@ -18249,11 +18381,19 @@ function Docs({data,ch,up,save}){
 /* un dossier signé n'est plus dans les prospects en cours : le contrat de
    maîtrise d'œuvre se sort aussi depuis le chantier, avec le chiffrage du
    prospect dont il est issu, et se range dans ses pièces */
+/* un chantier créé directement (sans prospect) : le contrat se remplit de
+   sa fiche — client, adresse des travaux, budget travaux HT, honoraires
+   du contrat initial — et ses réglages de contrat se gardent sur lui */
+const contratPourChantier=(ch,data)=>({id:'chantier:'+ch.id,chantierId:ch.id,nom:ch.nom||'',client:ch.client||'',
+  telClient:ch.telClient||'',emailClient:ch.emailClient||'',adresseClient:ch.adresseClient||'',commune:ch.adresse||'',
+  surfaceHabitable:ch.surfaceHabitable||'',coutHT:+ch.budget||0,
+  margeMontant:Math.round((honoAmount(ch)-honoAvenantsHT(ch))*100)/100||'',tva:tvaRate(ch),
+  categorie:estReno(ch,data)?'renovation':'neuf',...((ch&&ch.contratMoe)||{})});
 function ContratMoeChantier({data,ch,save}){
   const p=ch.prospectId?(data.prospects||[]).find(x=>x.id===ch.prospectId):null;
-  if(!p)return <div className="xs mut" style={{lineHeight:1.5}}>
-    Ce chantier n’a pas été créé depuis un prospect : le contrat de maîtrise d’œuvre se sort depuis une fiche
-    prospect chiffrée (PROSPECTS › la fiche › 3. Votre chiffrage).</div>;
+  if(!p)return <SortirContratMoe data={data} p={contratPourChantier(ch,data)} sansCadre ou={'Drive › '+ch.nom+' › Pièces'}
+    dossier={token=>driveSousDossier(token,ch.id,ch.nom,'Pièces')}
+    maj={v=>save({...data,chantiers:(data.chantiers||[]).map(x=>x.id===ch.id?{...x,contratMoe:{...(x.contratMoe||{}),...v}}:x)})}/>;
   return <SortirContratMoe data={data} p={p} sansCadre ou={'Drive › '+ch.nom+' › Pièces'}
     dossier={token=>driveSousDossier(token,ch.id,ch.nom,'Pièces')}
     maj={v=>save({...data,prospects:(data.prospects||[]).map(x=>x.id===p.id?{...x,...v}:x)})}/>;
@@ -25127,8 +25267,8 @@ function Agenda(props){
    en est chaque chantier, et les décennales qui tombent. */
 
 /* les pièces attendues à la phase courante et qui ne sont pas encore cochées */
-function piecesManquantes(ch){
-  const attendues=DOCS_PHASE[ch.statut]||[];
+function piecesManquantes(ch,data){
+  const attendues=(estReno(ch,data)?DOCS_PHASE_RENO:DOCS_PHASE)[ch.statut]||[];
   const d=ch.docs||{};
   return attendues.filter(id=>!(d[id]&&d[id].fait))
     .map(id=>(DOCS.find(x=>x.id===id)||{l:id}).l);
@@ -25299,7 +25439,7 @@ function TableauBord({data,save,open,allerA,allerVers}){
      où tout se mélange. */
   const dossiers=[];
   actifs.forEach(c=>{
-    const manque=piecesManquantes(c);
+    const manque=piecesManquantes(c,data);
     const relances=data.marches.filter(m=>m.chantierId===c.id&&marcheARelancer(m))
       .sort((a,b)=>(envoiMarche(a)||'').localeCompare(envoiMarche(b)||''));
     /* les estimatifs d'achat remis au client et jamais retournés signés : sans
@@ -25666,6 +25806,7 @@ function Prospects({data,save,cible}){
       budgetClientTTC:prospectPrixTTC(p,data.majorationsCorps)||'',budget:prospectCoutHT(p,data.majorationsCorps)||'',
       honorairesPct:'',honorairesMontant:prospectMargeHT(p,data.majorationsCorps)||'',
       statut:'etude',lienDrive:'',docs:{},jalons:[],prospectId:p.id,
+      typeTravaux:prospectCategorie(p)==='renovation'?'renovation':'neuf',
       notesDossier:(p.notesDossier||[]).map(n=>({...n}))};
     save({...data,chantiers:[...data.chantiers,ch],
       prospects:P.map(x=>x.id===p.id?{...x,statut:'gagne',chantierId:id}:x)});
@@ -27336,11 +27477,14 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
   const pret=prospectPrixTTC(p)>0;
   const type=contratTypeOuvrage(p,data);
   const trav=contratTravaux(p), calculeTTC=Math.round(prospectCoutHT(p)*(1+prospectTva(p)/100)*100)/100;
-  const forfait=contratTravauxForfaitTTC(p);
+  const forfait=contratTravauxForfaitTTC(p), forfaitHT=contratTravauxForfaitHT(p);
   const [saisieForfait,setSaisieForfait]=useState(forfait?String(forfait):'');
   useEffect(()=>{setSaisieForfait(forfait?String(forfait):'')},[forfait]);
   const validerForfait=()=>{const v=+String(saisieForfait).replace(/\s/g,'').replace(',','.');
     const n=v>0?Math.round(v*100)/100:'';if(n!==(forfait||''))maj({contratTravauxTTC:n})};
+  const [saisieHT,setSaisieHT]=useState(forfaitHT?String(forfaitHT):'');
+  useEffect(()=>{setSaisieHT(forfaitHT?String(forfaitHT):'')},[forfaitHT]);
+  const validerHT=()=>{const n=montantSaisi(saisieHT)||'';if(n!==(forfaitHT||''))maj({contratTravauxHT:n})};
   const produire=async()=>{
     setEtat({etat:'travail'});
     try{
@@ -27373,7 +27517,7 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
       <span className="mut">Ouvrage</span>
       <select className="in" aria-label="Ouvrage du contrat" style={{width:'auto',fontSize:13,padding:'6px 8px'}} value={type}
         onChange={e=>maj({typeOuvrage:e.target.value})}>
-        {PTR_TYPES_OUVRAGE.map(t=><option key={t.id} value={t.id}>{t.l}</option>)}</select>
+        {contratTypes().map(t=><option key={t.id} value={t.id}>{t.l}</option>)}</select>
     </div>
     <div className="row xs" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
       <span className="mut">Coût des travaux forfaitaire (TTC)</span>
@@ -27382,10 +27526,23 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
         onChange={e=>setSaisieForfait(e.target.value)} onBlur={validerForfait}
         onKeyDown={e=>{if(e.key==='Enter')validerForfait()}}/>
     </div>
+    {(type==='renovation'||forfaitHT>0)&&<div className="row xs" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="mut">et son montant HT (TVA par poste)</span>
+      <input className="in" aria-label="Coût des travaux HT" inputMode="decimal" style={{width:150,fontSize:13,padding:'6px 8px'}}
+        placeholder="montant HT" value={saisieHT} onChange={e=>setSaisieHT(e.target.value)} onBlur={validerHT}
+        onKeyDown={e=>{if(e.key==='Enter')validerHT()}}/>
+    </div>}
     <div className="xs" style={{marginTop:4,lineHeight:1.5,color:trav.forfait?NAVY:MUTED}}>
-      {trav.forfait?'Article 6 : budget travaux forfaitaire de '+eurDoc(trav.ttc)+' TTC, soit '+eurDoc(trav.ht)+' HT (TVA '+trav.tva+' %)'
+      {trav.forfait&&trav.tvaMixte?'Article 6 : budget travaux de '+eurDoc(trav.ttc)+' TTC, soit '+eurDoc(trav.ht)+' HT, TVA aux taux applicables à chaque poste.'
+        +' Les honoraires ne changent pas.'
+        :trav.forfait?'Article 6 : budget travaux forfaitaire de '+eurDoc(trav.ttc)+' TTC, soit '+eurDoc(trav.ht)+' HT (TVA '+trav.tva+' %)'
         +(calculeTTC?' — au lieu des '+eur(calculeTTC)+' TTC du chiffrage.':'.')+' Les honoraires ne changent pas.'
         :'Laissé vide, l’article 6 reprend le coût des travaux du chiffrage'+(calculeTTC?' ('+eur(calculeTTC)+' TTC).':'.')}</div>
+    {type==='renovation'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:RENO_COULEUR}}>
+      Rénovation : description du projet, mission (relevé de l’existant, avant-projet, autorisation d’urbanisme), conditions
+      suspensives, article « Travaux sur existant » (existant, découvertes, repérages, site occupé, assurances, travaux hors marché)
+      et échéancier adaptés ; honoraires à {HONO_TVA_DEFAUT} %. Les autres articles restent ceux du modèle : faites relire
+      l’ensemble du contrat avant de le signer.</div>}
     {type==='erp5'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:AMBER}}>
       ERP : seules les lignes descriptives changent (« {CONTRAT_ERP_DESIGNATION} »). Les articles restent ceux du
       modèle, écrit pour une maison : faites relire l’ensemble du contrat avant de le signer.</div>}
