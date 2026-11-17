@@ -1,0 +1,443 @@
+/* Relevé de visite — l'interface (iPhone d'abord, PC ensuite).
+
+   Un écran = un geste ; gros boutons en bas, au pouce. Chaque saisie est
+   écrite sur l'appareil tout de suite (stockage.js), puis envoyée quand le
+   réseau le permet (synchro.js) : on peut fermer l'application, perdre le
+   réseau ou changer d'appareil sans rien perdre.
+
+   Le DOM est construit par `h()` avec textContent : rien de ce que tape
+   l'utilisateur n'est jamais interprété comme du HTML. Les champs de saisie
+   ne redessinent pas l'écran (le clavier resterait ouvert sur un champ
+   remplacé) : ils enregistrent, et seul un changement d'écran redessine. */
+import * as M from './modele.js';
+import { creerStockage, magasinIndexedDB } from './stockage.js';
+import { creerSynchro, ESPACE, cheminScan } from './synchro.js';
+import { reduirePhoto } from './photo.js';
+
+// même projet Supabase et même clé publique que le suivi de chantiers (index.html)
+const SUPABASE_URL = 'https://gxfrughmwkvdepvkhufv.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_JCBSnZhTaKlpSIZeXAeMkw_2OvI6YIr';
+
+/* sans la bibliothèque (première ouverture hors ligne), on travaille quand
+   même : tout reste sur l'appareil et l'état dit « hors ligne » */
+const horsLigneErr = { message: 'Failed to fetch' };
+const supaAbsent = {
+  from: () => { const q = new Proxy({}, { get: (t, k) => k === 'then' ? (ok => ok({ data: null, error: horsLigneErr })) : () => q }); return q; },
+  storage: { from: () => ({ upload: async () => ({ error: horsLigneErr }), createSignedUrl: async () => ({ error: horsLigneErr }) }) },
+  auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange: () => ({}), signInWithPassword: async () => ({ error: horsLigneErr }), signOut: async () => ({}) },
+};
+const supa = window.supabase && window.supabase.createClient ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : supaAbsent;
+const stock = creerStockage(magasinIndexedDB());
+
+const S = { ecran: 'accueil', visites: [], courante: null, etape: 0, etatSync: { etat: 'ok', enAttente: 0 }, session: null, horsConnexion: false, message: null };
+
+const sync = creerSynchro({
+  supa, stock,
+  enLigne: () => navigator.onLine !== false && (!!S.session),
+  surEtat: e => { S.etatSync = S.session ? e : { ...e, etat: 'horsligne', message: 'Non connecté : tout reste sur l’appareil. Connectez-vous pour envoyer.' }; majEtat(); },
+});
+
+/* ---------- petits outils ---------- */
+function h(tag, props = {}, ...enfants) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'style') el.style.cssText = v;
+    else if (k in el && k !== 'list') el[k] = v;
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const e of enfants.flat(Infinity)) if (e != null && e !== false) el.append(e instanceof Node ? e : document.createTextNode(String(e)));
+  return el;
+}
+const vibrer = () => { try { navigator.vibrate && navigator.vibrate(12); } catch (e) { /* iPhone : pas de vibration web */ } };
+const feter = el => { if (!el) return; el.classList.remove('valide'); void el.offsetWidth; el.classList.add('valide'); vibrer(); };
+const dateCourte = iso => iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+
+let attenteSync = null;
+function planifierSync(delai = 1500) { clearTimeout(attenteSync); attenteSync = setTimeout(() => sync.synchroniser(), delai); }
+
+async function recharger() { S.visites = await stock.liste(); }
+const visite = () => (S.visites.find(r => r.id === S.courante) || {}).visite;
+
+/* une modification de la visite ouverte : écrite sur l'appareil, puis envoyée */
+async function changer(f) {
+  const v = await stock.modifier(S.courante, f);
+  const rec = S.visites.find(r => r.id === S.courante);
+  if (rec) { rec.visite = v; rec.enAttente = true; }
+  majEtat(); planifierSync();
+  return v;
+}
+const poser = async (cle, val) => {
+  const v = await changer(w => M.modifier(w, cle, val));
+  // le nom du client s'affiche en tête dès qu'il est tapé (texte, jamais HTML)
+  if (cle.startsWith('client.')) { const t = document.querySelector('header .titre'); if (t && S.ecran === 'visite') t.textContent = M.intitule(v); }
+  return v;
+};
+
+/* ---------- photos : affichage depuis l'appareil, sinon lien temporaire ---------- */
+const urls = new Map();
+async function urlPhoto(id, chemin) {
+  if (urls.has(id)) return urls.get(id);
+  const blob = await stock.lirePhoto(id);
+  let u = null;
+  if (blob) u = URL.createObjectURL(blob);
+  else if (chemin) { const { data } = await supa.storage.from(ESPACE).createSignedUrl(chemin, 3600); u = data && data.signedUrl; }
+  if (u) urls.set(id, u);
+  return u;
+}
+function imagePhoto(photo, cls) {
+  const img = h('img', { class: cls, alt: photo.legende || 'Photo' });
+  urlPhoto(photo.id, photo.chemin).then(u => { if (u) img.src = u; });
+  return img;
+}
+
+/* le sélecteur de fichier : `capture` ouvre directement l'appareil photo de
+   l'iPhone. Il doit être lancé dans le geste même (le toucher du bouton),
+   sinon Safari refuse de l'ouvrir. */
+function choisirFichier({ accept, capture, multiple }, surFichiers) {
+  const inp = h('input', { type: 'file', style: 'position:fixed;left:-1000px;opacity:0' });
+  if (accept) inp.accept = accept;
+  if (capture) inp.setAttribute('capture', 'environment');
+  if (multiple) inp.multiple = true;
+  inp.addEventListener('change', () => { const f = [...inp.files]; inp.remove(); if (f.length) surFichiers(f); });
+  document.body.append(inp);
+  inp.click();
+}
+
+async function ajouterPhotos(fichiers, { role, pieceId }) {
+  for (const f of fichiers) {
+    let blob;
+    try { blob = await reduirePhoto(f); } catch (e) { montrerMessage('err', 'Cette photo n’a pas pu être lue (' + (f.name || 'fichier') + ').'); continue; }
+    const id = M.nouvelId();
+    await stock.garderPhoto(id, S.courante, blob);
+    await changer(v => {
+      let w = M.ajouterPhoto(v, { id, role, pieceId });
+      if (role === 'garde') w = M.modifier(w, 'photoGarde', id);
+      return w;
+    });
+  }
+  vibrer(); dessiner();
+}
+
+function montrerMessage(type, texte) { S.message = { type, texte }; dessiner(); }
+
+/* ---------- l'état de la synchronisation, toujours visible ---------- */
+function texteEtat() {
+  const e = S.etatSync;
+  if (e.etat === 'synchro') return '↻ Envoi…';
+  if (e.etat === 'ok' && !e.enAttente) return '✓ Synchronisé';
+  if (e.etat === 'horsligne') return '⏸ Sur l’appareil' + (e.enAttente ? ' · ' + e.enAttente : '');
+  if (e.etat === 'erreur') return '⚠ En attente' + (e.enAttente ? ' · ' + e.enAttente : '');
+  return '⏳ En attente' + (e.enAttente ? ' · ' + e.enAttente : '');
+}
+function pastilleEtat() {
+  const e = S.etatSync;
+  return h('span', { class: 'etat ' + e.etat, id: 'etatSync', role: 'status', 'aria-live': 'polite', title: e.message || '',
+    onclick: () => { if (e.message) montrerMessage(e.etat === 'erreur' ? 'err' : 'att', e.message); sync.synchroniser(); } }, texteEtat());
+}
+function majEtat() {
+  const el = document.getElementById('etatSync');
+  if (el) { const n = pastilleEtat(); el.replaceWith(n); }
+}
+
+/* ---------- écrans ---------- */
+function ecranConnexion() {
+  let email, mdp, msg;
+  const valider = async ev => {
+    ev.preventDefault();
+    msg.textContent = 'Connexion…';
+    const { error } = await supa.auth.signInWithPassword({ email: email.value.trim(), password: mdp.value });
+    if (error) { msg.textContent = /Failed to fetch/.test(error.message) ? 'Pas de réseau : réessayez, ou travaillez sur l’appareil.' : 'Adresse ou mot de passe incorrect.'; return; }
+    const { data } = await supa.auth.getSession(); S.session = data.session; S.ecran = 'accueil';
+    dessiner(); sync.synchroniser();
+  };
+  return [
+    h('header', { class: 'haut' }, h('img', { src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }), h('span', { class: 'titre' }, 'Relevé de visite')),
+    h('main', {},
+      h('h1', {}, 'Connexion'),
+      h('p', { class: 'mut' }, 'Le même compte que le suivi de chantiers.'),
+      h('form', { class: 'carte', onsubmit: valider },
+        h('label', { class: 'champ' }, 'E-MAIL', email = h('input', { class: 'in', type: 'email', autocomplete: 'username', required: true })),
+        h('label', { class: 'champ' }, 'MOT DE PASSE', mdp = h('input', { class: 'in', type: 'password', autocomplete: 'current-password', required: true })),
+        h('div', { style: 'margin-top:16px' }, h('button', { class: 'gros', type: 'submit' }, 'Se connecter')),
+        msg = h('p', { class: 'aide', role: 'alert' })),
+      h('button', { class: 'gros sec', onclick: () => { S.horsConnexion = true; S.ecran = 'accueil'; dessiner(); } }, 'Travailler sur l’appareil sans connexion'),
+      h('p', { class: 'mut petit' }, 'Sans connexion, les visites restent sur cet appareil ; elles partiront dès que vous serez connecté.')),
+  ];
+}
+
+async function nouvelleVisite() {
+  const v = M.nouvelleVisite();
+  await stock.creer(v);
+  S.visites.unshift({ id: v.id, visite: v, enAttente: true, rev: 1 });
+  S.courante = v.id; S.etape = 0; S.ecran = 'visite'; S.message = null;
+  // dans le même geste : l'appareil photo s'ouvre pour la photo de garde
+  choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'garde' }));
+  dessiner(); planifierSync(300);
+}
+
+function ecranAccueil() {
+  const liste = [...S.visites].sort((a, b) => M.derniereMaj(b.visite).localeCompare(M.derniereMaj(a.visite)));
+  return [
+    h('header', { class: 'haut' }, h('img', { src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }), h('span', { class: 'titre' }, 'Relevés de visite'), pastilleEtat()),
+    h('main', {},
+      S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
+      !S.session && h('div', { class: 'message att' }, 'Non connecté : les visites restent sur cet appareil. ',
+        h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'connexion'; dessiner(); } }, 'Se connecter')),
+      liste.length ? liste.map(r => carteVisite(r)) : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.')),
+    h('div', { class: 'barreBas' }, h('div', { class: 'in' }, h('button', { class: 'gros', id: 'nouvelleVisite', onclick: nouvelleVisite }, '📷 Nouvelle visite'))),
+  ];
+}
+
+function carteVisite(r) {
+  const v = r.visite, garde = v.photos[M.valeur(v, 'photoGarde')];
+  const ville = M.valeur(v, 'client.ville'), types = M.valeur(v, 'projet.types') || [];
+  return h('div', { class: 'carte visite', onclick: () => { S.courante = r.id; S.etape = Math.max(0, M.ETAPES.findIndex(e => e.id === M.valeur(v, 'etape'))); S.ecran = 'visite'; S.message = null; dessiner(); } },
+    garde && !garde.supprime ? imagePhoto(garde, 'vignette') : h('div', { class: 'vignette' }, '🏠'),
+    h('div', { class: 'corps' },
+      h('b', {}, M.intitule(v)),
+      h('div', { class: 'mut petit' }, [ville, types.slice(0, 2).join(', ')].filter(Boolean).join(' · ') || 'Projet à préciser'),
+      h('div', { class: 'mut petit' }, dateCourte(v.creeLe),
+        M.valeur(v, 'statut') === 'terminee' ? h('span', { class: 'pastille ok' }, 'Terminée') : null,
+        r.enAttente ? h('span', { class: 'pastille' }, 'À envoyer') : null)));
+}
+
+function allerEtape(i) {
+  S.etape = Math.max(0, Math.min(M.ETAPES.length - 1, i));
+  S.message = null;
+  poser('etape', M.ETAPES[S.etape].id);
+  dessiner(); window.scrollTo(0, 0);
+}
+
+function ecranVisite() {
+  const v = visite();
+  if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
+  const et = M.ETAPES[S.etape], dernier = S.etape === M.ETAPES.length - 1;
+  const corps = { garde: etapeGarde, client: etapeClient, projet: etapeProjet, pieces: etapePieces, scan: etapeScan, fin: etapeFin }[et.id](v);
+  return [
+    h('header', { class: 'haut' },
+      h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'accueil'; S.message = null; dessiner(); } }, '‹ Visites'),
+      h('span', { class: 'titre' }, M.intitule(v)), pastilleEtat()),
+    h('main', {},
+      h('div', { class: 'progres', 'aria-hidden': 'true' }, M.ETAPES.map((e, i) => h('i', { class: i < S.etape ? 'fait' : i === S.etape ? 'ici' : '' }))),
+      h('div', { class: 'etapeNom' }, 'Étape ' + (S.etape + 1) + ' sur ' + M.ETAPES.length + ' · ' + et.titre),
+      S.message && h('div', { class: 'message ' + S.message.type, style: 'margin-top:10px' }, S.message.texte),
+      h('div', { class: 'anime' }, corps)),
+    h('div', { class: 'barreBas' }, h('div', { class: 'in' },
+      h('button', { class: 'gros sec', onclick: () => S.etape ? allerEtape(S.etape - 1) : (S.ecran = 'accueil', dessiner()) }, S.etape ? '‹ Retour' : '‹ Visites'),
+      dernier
+        ? h('button', { class: 'gros', id: 'terminer', onclick: terminer }, M.valeur(v, 'statut') === 'terminee' ? '✓ Visite terminée' : '✓ Terminer la visite')
+        : h('button', { class: 'gros', id: 'suivant', onclick: e => { feter(e.currentTarget); allerEtape(S.etape + 1); } }, 'Suivant ›'))),
+  ];
+}
+
+async function terminer(e) {
+  await poser('statut', 'terminee');
+  feter(e.currentTarget);
+  S.message = { type: 'ok', texte: 'Visite terminée et enregistrée. Elle partira sur le serveur dès que le réseau le permet. Le chiffrage arrive en Phase 2.' };
+  dessiner(); sync.synchroniser();
+}
+
+/* étape 1 : photo de garde */
+function etapeGarde(v) {
+  const garde = v.photos[M.valeur(v, 'photoGarde')];
+  const prendre = () => choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'garde' }));
+  const galerie = () => choisirFichier({ accept: 'image/*' }, f => ajouterPhotos(f.slice(0, 1), { role: 'garde' }));
+  return [
+    h('h1', {}, 'La maison'),
+    garde && !garde.supprime
+      ? [imagePhoto(garde, 'garde'), h('div', { class: 'rang', style: 'margin-top:10px' }, h('button', { class: 'gros sec', onclick: prendre }, '📷 Reprendre'), h('button', { class: 'gros sec', onclick: galerie }, '🖼 Galerie'))]
+      : [h('p', { class: 'mut' }, 'Une photo de la façade : elle servira de page de garde au dossier du client.'),
+        h('button', { class: 'gros', id: 'photoGarde', onclick: prendre }, '📷 Prendre la photo de garde'),
+        h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', onclick: galerie }, '🖼 Choisir dans la galerie'))],
+  ];
+}
+
+/* un champ texte qui enregistre à chaque frappe (sans redessiner) */
+function champ(v, cle, label, attrs = {}, verifier) {
+  let aide;
+  const inp = h(attrs.multiligne ? 'textarea' : 'input', {
+    class: 'in', value: M.valeur(v, cle) ?? '', rows: attrs.multiligne ? 4 : null, name: cle,
+    type: attrs.type || (attrs.multiligne ? null : 'text'), inputMode: attrs.inputmode || null,
+    autocomplete: attrs.autocomplete || 'off', autocapitalize: attrs.autocapitalize || null, placeholder: attrs.placeholder || '',
+    oninput: e => poser(cle, e.target.value),
+    onblur: e => { if (verifier) { const ok = verifier(e.target.value); e.target.classList.toggle('faux', !ok); aide.textContent = ok ? '' : attrs.messageFaux; } },
+  });
+  return h('label', { class: 'champ' }, label, inp, aide = h('div', { class: 'aide' }));
+}
+
+function puces(v, cle, options, { multiple = false, cls = 'puces' } = {}) {
+  const box = h('div', { class: cls, role: multiple ? 'group' : 'radiogroup' });
+  const dessinerPuces = () => {
+    const val = M.valeur(visite(), cle);
+    box.replaceChildren(...options.map(o => {
+      const on = multiple ? (val || []).includes(o) : val === o;
+      return h('button', { class: 'puce' + (on ? ' on' : ''), type: 'button', 'aria-pressed': String(on), onclick: async () => {
+        const cur = M.valeur(visite(), cle);
+        const nv = multiple ? (on ? (cur || []).filter(x => x !== o) : [...(cur || []), o]) : (on ? null : o);
+        await poser(cle, nv); vibrer(); dessinerPuces();
+      } }, o);
+    }));
+  };
+  dessinerPuces();
+  return box;
+}
+
+/* étape 2 : le client */
+function etapeClient(v) {
+  return [
+    h('h1', {}, 'Le client'),
+    h('div', { class: 'champ' }, 'CIVILITÉ'), puces(v, 'client.civilite', M.CIVILITES),
+    h('div', { class: 'deuxCol' },
+      champ(v, 'client.nom', 'NOM', { autocomplete: 'family-name', autocapitalize: 'characters' }),
+      champ(v, 'client.prenom', 'PRÉNOM', { autocomplete: 'given-name', autocapitalize: 'words' }),
+      champ(v, 'client.telephone', 'TÉLÉPHONE', { type: 'tel', inputmode: 'tel', autocomplete: 'tel', messageFaux: 'Numéro à vérifier (10 chiffres, ou +33…).' }, M.telephoneValide),
+      champ(v, 'client.email', 'E-MAIL', { type: 'email', inputmode: 'email', autocomplete: 'email', autocapitalize: 'off', messageFaux: 'Adresse e-mail à vérifier.' }, M.emailValide)),
+    champ(v, 'client.adresse', 'ADRESSE DES TRAVAUX', { autocomplete: 'street-address', autocapitalize: 'sentences' }),
+    h('div', { class: 'deuxCol' },
+      champ(v, 'client.codePostal', 'CODE POSTAL', { inputmode: 'numeric', autocomplete: 'postal-code' }),
+      champ(v, 'client.ville', 'VILLE', { autocomplete: 'address-level2', autocapitalize: 'words' })),
+    h('p', { class: 'mut petit', style: 'margin-top:14px' }, '🎤 Pour dicter : touchez le micro du clavier de l’iPhone.'),
+  ];
+}
+
+/* étape 3 : le projet */
+function etapeProjet(v) {
+  const env = M.valeur(v, 'projet.enveloppe');
+  let affichage, saisie, curseur;
+  const majEnv = (n, source) => {
+    poser('projet.enveloppe', n);
+    const val = M.valeur(M.modifier(visite(), 'projet.enveloppe', n), 'projet.enveloppe');
+    affichage.textContent = M.formatEuros(val);
+    if (source !== 'saisie') saisie.value = val ?? '';
+    if (source !== 'curseur') curseur.value = Math.min(val || 0, 300000);
+  };
+  return [
+    h('h1', {}, 'Le projet'),
+    h('div', { class: 'champ' }, 'TYPE DE TRAVAUX'), puces(v, 'projet.types', M.TYPES_TRAVAUX, { multiple: true, cls: 'grille' }),
+    champ(v, 'projet.explicatif', 'EN QUELQUES MOTS', { multiligne: true, autocapitalize: 'sentences', placeholder: 'Ce que le client souhaite, ses contraintes…' }),
+    h('div', { class: 'champ' }, 'DÉLAI SOUHAITÉ'), puces(v, 'projet.delai', M.DELAIS),
+    h('div', { class: 'champ' }, 'ENVELOPPE FINANCIÈRE (TTC)'),
+    h('div', { class: 'carte', style: 'margin-top:6px' },
+      affichage = h('div', { class: 'montant', id: 'montantEnveloppe' }, M.formatEuros(env)),
+      curseur = h('input', { type: 'range', class: 'curseur', min: 0, max: 300000, step: 1000, value: Math.min(env || 0, 300000), 'aria-label': 'Enveloppe financière', oninput: e => majEnv(e.target.value, 'curseur') }),
+      h('label', { class: 'champ', style: 'margin-top:4px' }, 'OU TAPER LE MONTANT',
+        saisie = h('input', { class: 'in', inputMode: 'numeric', name: 'projet.enveloppe', value: env ?? '', placeholder: 'ex. 45 000', oninput: e => majEnv(e.target.value, 'saisie') }))),
+  ];
+}
+
+/* étape 4 : pièces et photos */
+function etapePieces(v) {
+  const pieces = M.actifs(v.pieces).sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0) || a.id.localeCompare(b.id));
+  const nbPhotos = M.actifs(v.photos).filter(p => p.role === 'piece').length;
+  const ajouter = async nom => {
+    if (!nom) return;
+    await changer(x => M.ajouterPiece(x, nom));
+    vibrer(); dessiner();
+  };
+  return [
+    h('h1', {}, 'Pièces et photos'),
+    h('p', { class: 'mut' }, pieces.length ? pieces.length + ' pièce' + (pieces.length > 1 ? 's' : '') + ' · ' + nbPhotos + ' photo' + (nbPhotos > 1 ? 's' : '') : 'Ajoutez les pièces à transformer, puis leurs photos.'),
+    pieces.map(p => cartePiece(v, p)),
+    h('div', { class: 'champ' }, 'AJOUTER UNE PIÈCE'),
+    h('div', { class: 'puces' }, M.PIECES_COURANTES.map(n => h('button', { class: 'puce', type: 'button', onclick: () => ajouter(n) }, '+ ' + n)),
+      h('button', { class: 'puce', type: 'button', onclick: () => ajouter((prompt('Nom de la pièce') || '').trim()) }, '+ Autre…')),
+  ];
+}
+
+function cartePiece(v, p) {
+  const photos = M.actifs(v.photos).filter(x => x.pieceId === p.id);
+  return h('div', { class: 'carte', 'data-piece': p.id },
+    h('div', { class: 'rang' },
+      h('input', { class: 'in', value: p.nom, 'aria-label': 'Nom de la pièce', style: 'margin:0;font-weight:600',
+        oninput: e => changer(x => M.majElement(x, 'pieces', p.id, { nom: e.target.value })) }),
+      h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer la pièce', onclick: async () => {
+        if (!confirm('Supprimer la pièce « ' + p.nom + ' » et ses photos ?')) return;
+        await changer(x => photos.reduce((w, ph) => M.supprimer(w, 'photos', ph.id), M.supprimer(x, 'pieces', p.id)));
+        dessiner();
+      } }, '🗑')),
+    photos.length ? h('div', { class: 'photos' }, photos.map(ph => h('figure', {}, imagePhoto(ph),
+      h('button', { class: 'x', 'aria-label': 'Supprimer la photo', onclick: async () => {
+        if (!confirm('Supprimer cette photo ?')) return;
+        await changer(x => M.supprimer(x, 'photos', ph.id)); dessiner();
+      } }, '×')))) : null,
+    h('div', { class: 'rang', style: 'margin-top:10px' },
+      h('button', { class: 'gros sec', onclick: () => choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'piece', pieceId: p.id })) }, '📷 Photo'),
+      h('button', { class: 'gros sec', onclick: () => choisirFichier({ accept: 'image/*', multiple: true }, f => ajouterPhotos(f, { role: 'piece', pieceId: p.id })) }, '🖼 Galerie')),
+    h('button', { class: 'gros sec', style: 'margin-top:8px', disabled: true, title: 'Bientôt : illustration de la pièce transformée' }, '✨ Imaginer (bientôt)'));
+}
+
+/* étape 5 : le scan */
+function etapeScan(v) {
+  const scan = M.valeur(v, 'scan.fichier');
+  const importer = () => choisirFichier({}, async ([f]) => {
+    // sur iPhone, l'export d'OpenPlan 3D peut arriver sans extension : aucun
+    // filtre de type, sinon il serait grisé dans le sélecteur
+    const id = M.nouvelId(), chemin = cheminScan(S.courante, id, f.name);
+    await stock.garderFichier(id, S.courante, f, { chemin, type: f.type || 'application/json' });
+    await poser('scan.fichier', { id, nom: f.name || 'scan.json', taille: f.size, type: f.type || '', importeLe: new Date().toISOString() });
+    vibrer(); dessiner();
+  });
+  return [
+    h('h1', {}, 'Le scan'),
+    h('p', { class: 'mut' }, 'Dans OpenPlan 3D : « Export Editable Plan (JSON) », puis importez le fichier ici.'),
+    scan ? h('div', { class: 'carte' }, h('b', {}, '📐 ' + scan.nom), h('div', { class: 'mut petit' }, Math.round((scan.taille || 0) / 1024) + ' Ko · importé le ' + dateCourte(scan.importeLe)),
+      h('div', { class: 'message att', style: 'margin:10px 0 0' }, 'Fichier gardé avec la visite. Son ouverture en plan (mesures, murs, avant/après) arrive à l’étape suivante du développement.')) : null,
+    h('button', { class: scan ? 'gros sec' : 'gros', id: 'importerScan', onclick: importer }, scan ? 'Remplacer le scan' : '📐 Importer le scan'),
+  ];
+}
+
+/* étape 6 : fin de visite */
+function etapeFin(v) {
+  const m = M.manques(v), types = M.valeur(v, 'projet.types') || [];
+  const garde = v.photos[M.valeur(v, 'photoGarde')];
+  const c = k => M.valeur(v, 'client.' + k);
+  const dd = (t, val) => [h('dt', {}, t), h('dd', {}, val || '—')];
+  return [
+    h('h1', {}, 'Récapitulatif'),
+    m.length ? h('div', { class: 'manque' }, 'À compléter si possible : ' + m.join(', ') + '.') : h('div', { class: 'message ok' }, '✓ Fiche complète.'),
+    garde && !garde.supprime ? h('div', { style: 'margin-top:12px' }, imagePhoto(garde, 'garde')) : null,
+    h('dl', { class: 'carte recap', style: 'margin-top:12px' },
+      dd('Client', M.intitule(v)),
+      dd('Contact', [c('telephone'), c('email')].filter(Boolean).join(' · ')),
+      dd('Adresse', [c('adresse'), [c('codePostal'), c('ville')].filter(Boolean).join(' ')].filter(Boolean).join(', ')),
+      dd('Travaux', types.join(', ')),
+      dd('Délai', M.valeur(v, 'projet.delai')),
+      dd('Enveloppe', M.valeur(v, 'projet.enveloppe') != null ? M.formatEuros(M.valeur(v, 'projet.enveloppe')) + ' TTC' : null),
+      dd('Pièces', M.actifs(v.pieces).map(p => p.nom + ' (' + M.actifs(v.photos).filter(x => x.pieceId === p.id).length + ' ph.)').join(', ')),
+      dd('Scan', (M.valeur(v, 'scan.fichier') || {}).nom)),
+    champ(v, 'notes', 'NOTES DE VISITE', { multiligne: true, autocapitalize: 'sentences' }),
+  ];
+}
+
+/* ---------- dessin ---------- */
+function dessiner() {
+  const app = document.getElementById('app');
+  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : ecranAccueil();
+  app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
+}
+
+/* ---------- démarrage ---------- */
+async function demarrer() {
+  try { await recharger(); } catch (e) {
+    document.getElementById('app').replaceChildren(h('main', {}, h('div', { class: 'message err' },
+      'Le stockage de l’appareil est indisponible (navigation privée ?). Ouvrez la page dans Safari normal pour ne rien perdre.')));
+    return;
+  }
+  try { const { data } = await supa.auth.getSession(); S.session = data && data.session; } catch (e) { S.session = null; }
+  if (supa.auth.onAuthStateChange) supa.auth.onAuthStateChange((ev, session) => { S.session = session; });
+  if (!S.session && navigator.onLine !== false && supa !== supaAbsent) S.ecran = 'connexion';
+  dessiner();
+  // ce qui est arrivé du serveur (autre appareil) apparaît dans la liste
+  const avant = sync.synchroniser;
+  sync.synchroniser = async () => { await avant(); const n = S.visites.length; await recharger(); if (S.ecran === 'accueil' && S.visites.length !== n) dessiner(); };
+  sync.synchroniser();
+  window.addEventListener('online', () => sync.synchroniser());
+  window.addEventListener('offline', () => sync.synchroniser());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync.synchroniser(); });
+  setInterval(() => sync.synchroniser(), 60000);
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+demarrer();
