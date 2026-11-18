@@ -153,3 +153,122 @@ export const formatPlage = t => {
   const f = v => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(v);
   return t && t.max > 0 ? 'de ' + f(t.min) + ' à ' + f(t.max) + ' € TTC' : '—';
 };
+
+/* ==========================================================================
+   L'estimation de premier rendez-vous (R1) : par surfaces globales.
+
+   Chez le client, pas de poste par poste : on choisit les travaux (tuiles),
+   la surface vient du plan quand il existe (la cuisine du scan, la surface
+   habitable…), sinon d'une valeur courante que l'on règle d'un geste, et la
+   gamme (éco, standard, haut de gamme) situe le prix entre le mini et le
+   maxi du marché. Le résultat est une fourchette TTC, indicative.
+
+   Prix de départ : repères publics 2026 (guides de prix en ligne, voir
+   releve/README.md), médianes retenues par CP Constructions et à remplacer
+   au bureau par ses propres ratios (écran « Prix au m² », table partagée
+   releve_reglages, ligne « ouvrages »). `repere` dit d'où vient le prix :
+   'marche' (plusieurs guides concordants) ou 'estimation' (à confirmer).
+   Le chiffrage précis se fait au bureau, dans la fiche prospect du suivi.
+   ========================================================================== */
+const O = (id, nom, icone, o) => Object.assign({ id, nom, icone, unite: 'm2', base: 'saisie', defaut: 20, types: [], categories: [], repere: 'marche' }, o);
+export const OUVRAGES = [
+  O('reno-complete', 'Rénovation complète (tous corps d’état)', '🏚️', { base: 'habitable', defaut: 100, categories: ['Rénovation importante'], prix: { min: 1100, med: 1450, max: 1800 },
+    note: 'Comprend cuisine, salle de bains, sols, électricité, plomberie, peinture : ne les ajoutez pas en plus.' }),
+  O('rafraichissement', 'Rafraîchissement (peinture, sols, finitions)', '🖌️', { base: 'habitable', defaut: 100, categories: ['Rénovation partielle'], prix: { min: 250, med: 450, max: 750 } }),
+  O('cuisine', 'Cuisine', '🍳', { base: 'piece', motif: 'cuisine', defaut: 10, types: ['Cuisine'], prix: { min: 500, med: 900, max: 1500 } }),
+  O('sdb', 'Salle de bains', '🛁', { base: 'piece', motif: 'bain|douche|sdb', defaut: 5, types: ['Salle de bains'], prix: { min: 700, med: 1200, max: 2000 } }),
+  O('peinture', 'Peinture murs et plafonds', '🎨', { base: 'habitable', defaut: 100, types: ['Peinture'], prix: { min: 60, med: 95, max: 150 },
+    note: 'Au m² habitable (environ 3 m² peints par m² de sol).' }),
+  O('sols', 'Sols (carrelage, parquet posé)', '🪵', { base: 'habitable', defaut: 60, types: ['Sols'], prix: { min: 50, med: 80, max: 130 } }),
+  O('electricite', 'Électricité (remise aux normes)', '⚡', { base: 'habitable', defaut: 100, types: ['Électricité'], prix: { min: 60, med: 90, max: 130 } }),
+  O('plomberie', 'Plomberie (reprise des réseaux)', '🚰', { base: 'habitable', defaut: 100, types: ['Plomberie'], prix: { min: 30, med: 50, max: 80 }, repere: 'estimation' }),
+  O('combles', 'Isolation des combles', '🧱', { base: 'habitable', defaut: 80, types: ['Isolation'], categories: ['Rénovation énergétique'], prix: { min: 25, med: 40, max: 70 } }),
+  O('iti', 'Isolation des murs par l’intérieur', '🧱', { base: 'saisie', defaut: 80, types: ['Isolation'], prix: { min: 40, med: 65, max: 90 }, note: 'm² de murs à isoler.' }),
+  O('ite', 'Isolation par l’extérieur', '🏠', { base: 'saisie', defaut: 100, types: ['Façade'], categories: ['Rénovation énergétique'], prix: { min: 120, med: 180, max: 270 }, note: 'm² de façade.' }),
+  O('facade', 'Ravalement de façade', '🏠', { base: 'saisie', defaut: 100, types: ['Façade'], prix: { min: 40, med: 70, max: 120 }, note: 'm² de façade.' }),
+  O('toiture', 'Réfection de couverture', '🏗️', { base: 'toiture', defaut: 120, types: ['Toiture'], prix: { min: 120, med: 200, max: 300 }, note: 'm² de toiture (environ 1,3 × l’emprise).' }),
+  O('fenetres', 'Fenêtres (remplacement, posées)', '🪟', { unite: 'u', base: 'fenetres', defaut: 6, types: ['Menuiseries'], categories: ['Rénovation énergétique'], prix: { min: 500, med: 800, max: 1200 } }),
+  O('pac', 'Pompe à chaleur air-eau (posée)', '🔥', { unite: 'forfait', base: 'forfait', defaut: 1, types: ['Chauffage'], categories: ['Rénovation énergétique'], prix: { min: 9000, med: 13000, max: 18000 } }),
+  O('extension', 'Extension (surface créée)', '➕', { base: 'saisie', defaut: 20, types: ['Extension'], prix: { min: 1500, med: 2000, max: 2800 }, repere: 'estimation' }),
+  O('exterieur', 'Terrasse, aménagement extérieur', '🌳', { base: 'saisie', defaut: 20, types: ['Extérieur'], prix: { min: 80, med: 150, max: 250 }, repere: 'estimation' }),
+];
+
+/* les trois gammes : où se place le prix entre le mini et le maxi du marché */
+export const NIVEAUX = [
+  { id: 'eco', nom: 'Éco', signe: '€' },
+  { id: 'standard', nom: 'Standard', signe: '€€' },
+  { id: 'haut', nom: 'Haut de gamme', signe: '€€€' },
+];
+export function prixNiveau(p, niveau) {
+  const min = nb(p && p.min), med = nb(p && p.med), max = nb(p && p.max);
+  if (min == null || med == null || max == null || !(min <= med && med <= max)) return null;
+  if (niveau === 'eco') return { min, max: med };
+  if (niveau === 'haut') return { min: med, max };
+  return { min: Math.min(med, Math.max(min, med * 0.85)), max: Math.max(med, Math.min(max, med * 1.15)) };   // standard : autour de la médiane
+}
+
+/* la table utilisée : celle du modèle, prix remplacés par ceux de CP s'ils
+   ont été saisis (une ligne enregistrée = { id, prix:{min,med,max}, maj }) */
+export function tableOuvrages(enregistres) {
+  const m = new Map((enregistres || []).filter(x => x && !x.supprime).map(x => [x.id, x]));
+  return OUVRAGES.map(o => { const e = m.get(o.id); return e && prixNiveau(e.prix, 'standard') ? { ...o, prix: { ...e.prix }, repere: 'cp' } : o; });
+}
+
+const UNITES_O = { m2: 'm²', u: 'u', forfait: 'forfait' };
+export const uniteOuvrage = o => UNITES_O[o.unite] || '';
+
+/* la surface (ou le nombre) proposée par le plan, ou la valeur courante */
+export function surfaceAuto(o, piecesPlan) {
+  const P = Array.isArray(piecesPlan) ? piecesPlan : [];
+  const somme = k => Math.round(P.reduce((t, p) => t + (nb(p[k]) || 0), 0) * 10) / 10;
+  if (o.base === 'forfait') return { valeur: 1, source: 'forfait' };
+  if (P.length) {
+    if (o.base === 'piece') {
+      const re = new RegExp(o.motif, 'i'), q = P.filter(p => re.test(p.nom || ''));
+      if (q.length) return { valeur: Math.round(q.reduce((t, p) => t + (nb(p.sol) || 0), 0) * 10) / 10, source: 'plan', detail: q.map(p => p.nom).join(', ') };
+    }
+    if (o.base === 'habitable') return { valeur: somme('sol'), source: 'plan', detail: 'surface habitable' };
+    if (o.base === 'fenetres' && somme('fenetres') > 0) return { valeur: somme('fenetres'), source: 'plan', detail: 'fenêtres du plan' };
+    if (o.base === 'toiture') {
+      const rdc = P.filter(p => !p.etage); const emprise = Math.round(rdc.reduce((t, p) => t + (nb(p.sol) || 0), 0) * 1.3);
+      if (emprise > 0) return { valeur: emprise, source: 'plan', detail: '1,3 × l’emprise du plan' };
+    }
+  }
+  return { valeur: o.defaut, source: 'defaut' };
+}
+
+/* un ouvrage choisi : { id, ouvrageId, surface (null = automatique), niveau } */
+export function calculerOuvrage(choix, table, piecesPlan) {
+  const o = (table || OUVRAGES).find(x => x.id === choix.ouvrageId);
+  if (!o) return { id: choix.id, manque: 'ouvrage', min: 0, max: 0, med: 0 };
+  const auto = surfaceAuto(o, piecesPlan), saisie = nb(choix.surface);
+  const surface = o.unite === 'forfait' ? 1 : saisie != null && saisie >= 0 ? saisie : auto.valeur;
+  const niveau = choix.niveau || 'standard', p = prixNiveau(o.prix, niveau);
+  if (!p) return { id: choix.id, ouvrage: o, surface, niveau, manque: 'prix', min: 0, max: 0, med: 0 };
+  return { id: choix.id, ouvrage: o, surface, niveau, source: saisie != null && o.unite !== 'forfait' ? 'saisie' : auto.source, detail: auto.detail || '',
+    auto: auto.valeur, min: p.min * surface, max: p.max * surface, med: (p.min + p.max) / 2 * surface };
+}
+
+/* les ouvrages proposés d'après l'étape Projet. Une rénovation importante
+   propose la rénovation complète, qui comprend déjà les postes intérieurs. */
+export function ouvragesSuggeres(types, categories, table, dejaPris) {
+  const T = new Set(types || []), C = new Set(categories || []), pris = new Set((dejaPris || []).map(c => c.ouvrageId));
+  const complete = C.has('Rénovation importante');
+  const interieurs = new Set(['cuisine', 'sdb', 'peinture', 'sols', 'electricite', 'plomberie', 'rafraichissement']);
+  return (table || OUVRAGES).filter(o => !pris.has(o.id) && (o.types.some(t => T.has(t)) || o.categories.some(c => C.has(c)))
+    && !(complete && interieurs.has(o.id))
+    // l'isolation par l'extérieur n'est proposée que si la façade est cochée (la case « énergétique » seule ne suffit pas)
+    && !(o.id === 'ite' && !T.has('Façade')));
+}
+
+/* l'estimation complète : ouvrages (R1) + postes détaillés éventuels, mêmes ajustements */
+export function calculerEstimation(budget, table, piecesPlan, fourchettes) {
+  const b = budget || {}, a = b.ajust || {};
+  const ouvrages = (b.ouvrages || []).map(c => calculerOuvrage(c, table, piecesPlan));
+  const detail = calculerBudget({ lignes: b.lignes || [], ajust: {} }, fourchettes || [], piecesPlan);
+  const s = ouvrages.reduce((t, o) => ({ min: t.min + o.min, max: t.max + o.max }), { min: detail.sousTotal.min, max: detail.sousTotal.max });
+  const majoration = (nb(a.etat) || 0) + (nb(a.acces) || 0) + Math.min(IMPREVUS_MAX, Math.max(0, nb(a.imprevus) || 0));
+  const total = { min: cent(s.min * (1 + majoration)), max: cent(s.max * (1 + majoration)) };
+  return { ouvrages, detail, majoration: Math.round(majoration * 100) / 100, total,
+    manques: ouvrages.filter(o => o.manque).length + detail.manques, vide: !ouvrages.length && !detail.lignes.length };
+}

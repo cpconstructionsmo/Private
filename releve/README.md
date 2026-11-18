@@ -49,24 +49,43 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   (3e acheteur, représentant, SIRET, ampleur, usage, situation, souhaits)
   est écrit dans la demande.
 
-## La fourchette de prix pendant la visite (Phase 2, mode A)
+## Le budget de premier rendez-vous (R1)
 
-- Étape **« Budget »** de la visite, après le plan : postes proposés d'après
-  les travaux choisis, gamme (éco / standard / premium), quantité tirée du
-  plan (toute la maison ou pièces choisies : sol, murs ouvertures déduites,
-  périmètre, portes, fenêtres) ou saisie ; ajustements (état, accès,
-  imprévus, tous à 0 % par défaut) ; « de X à Y € TTC » et voyant face à
-  l'enveloppe du client. Indicatif, non contractuel.
-- **« ⚙ Fourchettes de prix »** : la table partagée par l'équipe (prix TTC
-  par unité, mini et maxi, par gamme), table `releve_reglages`, gardée aussi
-  sur l'appareil pour servir sans réseau. **Livrée sans aucun prix** : les
-  postes et leurs unités seulement, à compléter par CP Constructions. Un
-  poste sans prix est signalé, jamais compté au hasard.
-- Le calcul (`budget.js`) est indépendant de l'écran et testé seul. Le
-  moteur de relevé envoie les quantités de chaque pièce (`resume.detail`).
-- L'estimation part avec la visite : le suivi l'affiche dans le bloc
-  « Visites » de la fiche prospect et la reprend dans la demande d'un
-  prospect créé depuis la visite.
+- Étape **« Budget »** de la visite, après le plan. Pas de poste par poste
+  chez le client : on **touche les travaux** (tuiles : rénovation complète,
+  rafraîchissement, cuisine, salle de bains, peinture, sols, électricité,
+  plomberie, isolation, façade, toiture, fenêtres, pompe à chaleur,
+  extension, extérieur). « ✨ Estimer les travaux choisis » reprend d'un
+  toucher ceux de l'étape Projet (une rénovation importante propose la
+  rénovation complète, qui comprend déjà les postes intérieurs).
+- Chaque travail a sa **surface globale** : celle du plan quand il existe
+  (la cuisine du scan, la surface habitable, les fenêtres comptées, 1,3 ×
+  l'emprise pour la toiture), sinon une valeur courante. Elle se règle par
+  **− / +** (ou se tape) et revient au plan d'un toucher. La **gamme** (€ éco,
+  €€ standard, €€€ haut de gamme) place le prix entre le mini et le maxi.
+- Le total TTC s'affiche aussitôt (il « roule » jusqu'à sa valeur), avec une
+  jauge et le voyant face à l'enveloppe du client. Indicatif, non
+  contractuel ; arrondi à la centaine.
+- **« Approfondir »** (replié) : ajustements (état, accès, imprévus) et
+  postes détaillés avec quantités (l'ancien mode, qui s'ajoute au total).
+- **« ⚙ Prix au m² »** : mini, médian, maxi de chaque travail (TTC posé).
+  Livrés avec des **repères publics 2026** (guides de prix en ligne : par
+  exemple cuisine 400–1 500 €/m², salle de bains 500–2 000 €/m², peinture
+  25–45 €/m² de mur, carrelage ou parquet 40–130 €/m², électricité
+  60–130 €/m² habitable, combles 20–70 €/m², ITE 120–270 €/m², ravalement
+  30–120 €/m², couverture 120–300 €/m², fenêtre 500–1 200 €, PAC air-eau
+  9 000–18 000 €, rénovation complète 1 100–1 800 €/m²). Plomberie,
+  extension et extérieur sont des estimations à confirmer (« À confirmer »).
+  Ces repères divergent d'un site à l'autre : CP Constructions les remplace
+  par ses ratios de chantiers. Seuls les prix retouchés sont gardés (table
+  partagée `releve_reglages`, ligne « ouvrages », copie sur l'appareil pour
+  servir sans réseau), un prix se ramène au repère d'un toucher.
+- Le calcul (`budget.js` : `OUVRAGES`, `surfaceAuto`, `prixNiveau`,
+  `calculerEstimation`) est indépendant de l'écran et testé seul.
+- L'estimation part avec la visite (`budget.estimation`) : le suivi
+  l'affiche dans le bloc « Visites » de la fiche prospect et la reprend
+  dans la demande d'un prospect créé depuis la visite. Le chiffrage précis
+  se fait au bureau, dans la fiche prospect.
 
 ## Le chiffrage précis depuis le plan (Phase 2, mode B, 1re livraison)
 
