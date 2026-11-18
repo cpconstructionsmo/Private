@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-17 · Chantiers de rénovation : badge, pièces de l’existant, contrat de maîtrise d’œuvre adapté';
+const VERSION='2026-11-18 · Contrat de maîtrise d’œuvre : orthographe, TVA variable en rénovation, dommages-ouvrage, case 100 % encadrée';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2873,12 +2873,12 @@ const HONO_ECHEANCIER=[
   {phase:'Dépôt du dossier permis de construire',pct:10,echeance:'Arrêté PC'},
   {phase:'Assistance à la consultation des entreprises',pct:10,echeance:'OS de démarrage'},
   {phase:'Réalisation des plans d’exécution',pct:10,echeance:'OS de démarrage'},
-  {phase:'A l’ouverture du chantier',pct:10,echeance:'OS de démarrage'},
-  {phase:'A l’achèvement des travaux de maçonnerie courante',pct:10,echeance:'Fin maçonnerie'},
-  {phase:'A la mise hors d’eau',pct:10,echeance:'Hors d’eau'},
-  {phase:'A l’achèvement des travaux de cloisonnement',pct:10,echeance:'A l’achèvement des travaux de cloisonnement'},
-  {phase:'A l’achèvement des travaux',pct:15,echeance:'A l’achèvement des travaux'},
-  {phase:'Assistance aux opérations de réception (AOR)',pct:5,echeance:'A la réception'},
+  {phase:'À l’ouverture du chantier',pct:10,echeance:'OS de démarrage'},
+  {phase:'À l’achèvement des travaux de maçonnerie courante',pct:10,echeance:'Fin maçonnerie'},
+  {phase:'À la mise hors d’eau',pct:10,echeance:'Hors d’eau'},
+  {phase:'À l’achèvement des travaux de cloisonnement',pct:10,echeance:'À l’achèvement des travaux de cloisonnement'},
+  {phase:'À l’achèvement des travaux',pct:15,echeance:'À l’achèvement des travaux'},
+  {phase:'Assistance aux opérations de réception (AOR)',pct:5,echeance:'À la réception'},
 ];
 /* en rénovation, ni maçonnerie courante ni mise hors d'eau à attendre : la
    mission se découpe comme l'onglet Honoraires du DQE de rénovation CP
@@ -2889,7 +2889,7 @@ const HONO_ECHEANCIER_RENO=[
   {phase:'Autorisation d’urbanisme (déclaration préalable ou permis)',pct:10,echeance:'Dépôt du dossier'},
   {phase:'Consultation des entreprises, mise au point des marchés',pct:10,echeance:'Signature des marchés'},
   {phase:'Direction de l’exécution des travaux',pct:60,echeance:'Au prorata de l’avancement des travaux'},
-  {phase:'Assistance aux opérations de réception (AOR)',pct:10,echeance:'A la réception'},
+  {phase:'Assistance aux opérations de réception (AOR)',pct:10,echeance:'À la réception'},
 ];
 
 /* ---------------- PROGRAMME TECHNIQUE DE RÉFÉRENCE (PTR) ----------------
@@ -4753,6 +4753,11 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
   /* la maîtrise d'œuvre facture toujours à 20 %, même quand les travaux
      sont à un taux réduit (rénovation d'un logement existant) */
   const tvaHono=HONO_TVA_DEFAUT;
+  /* la dommages-ouvrage : son coût estimé (carte du contrat, sinon celui du
+     chiffrage du prospect) ; en rénovation, des travaux sans démolition de
+     mur porteur ni gros œuvre ne la rendent pas forcément obligatoire */
+  const doCout=montantSaisi(p.contratDoCout)||montantSaisi(p.dommageOuvrage);
+  const doSansStructure=reno&&!!p.contratDoSansStructure;
   const margeHT=prospectMargeHT(p), margeTva=Math.round(margeHT*tvaHono)/100,
     margeTTC=Math.round((margeHT+margeTva)*100)/100;
   const surfaceFonciere=p.surfaceTerrain?nb2(+p.surfaceTerrain)+' m²':'';
@@ -4769,7 +4774,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
       {sz:19,c:DOC_BRUN,jc:'center',ap:20,filet:DOC_BRUN}),
     par((p.nom||'')+(nomClient?' — '+nomClient:''),{sz:18,c:DOC_GRIS,jc:'center',ap:0}),
     vide(300),
-    encadre([par('AVERTISSEMENT LÉGAL — Le présent contrat est un contrat de maîtrise d’œuvre relevant exclusivement des articles 1779 et suivants du Code civil (louage d’ouvrage intellectuel). Il n’entre pas dans le champ d’application de l’article L.231-1 du Code de la construction et de l’habitation, le Maître d’Œuvre n’étant pas constructeur de maison individuelle au sens dudit article, n’assumant aucune obligation de livraison à prix et délai convenus, et n’étant lié aux entreprises par aucun rapport contractuel direct ou indirect. Il ne constitue en aucun cas un CCMI. Le Maître d’Œuvre n’est pas constructeur, ne s’engage sur aucun prix global et forfaitaire de construction, et n’est pas lié contractuellement aux entreprises de travaux. Les marchés de travaux sont conclus directement et individuellement par le maître de l’ouvrage avec chaque entreprise titulaire. Il est bien précisé que le Maître d’Œuvre n’est pas mandataire du Maître de l’Ouvrage, qu’il est lié à ce dernier dans le cadre d’un louage d’ouvrage défini par les articles 1779 et suivants du Code Civil. Le Maître d’Œuvre exerce son art dans le cadre d’une profession libérale indépendante : sa responsabilité est limitée dans le cadre de la loi à sa propre mission, sans interférence avec celles qui seront données d’autres part aux différents entrepreneurs et hommes de l’art appelés à concourir à l’édification de la construction.',
+    encadre([par('AVERTISSEMENT LÉGAL — Le présent contrat est un contrat de maîtrise d’œuvre relevant exclusivement des articles 1779 et suivants du Code civil (louage d’ouvrage intellectuel). Il n’entre pas dans le champ d’application de l’article L.231-1 du Code de la construction et de l’habitation, le Maître d’Œuvre n’étant pas constructeur de maison individuelle au sens dudit article, n’assumant aucune obligation de livraison à prix et délai convenus, et n’étant lié aux entreprises par aucun rapport contractuel direct ou indirect. Il ne constitue en aucun cas un CCMI. Le Maître d’Œuvre n’est pas constructeur, ne s’engage sur aucun prix global et forfaitaire de construction, et n’est pas lié contractuellement aux entreprises de travaux. Les marchés de travaux sont conclus directement et individuellement par le Maître de l’Ouvrage avec chaque entreprise titulaire. Il est bien précisé que le Maître d’Œuvre n’est pas mandataire du Maître de l’Ouvrage, qu’il est lié à ce dernier dans le cadre d’un louage d’ouvrage défini par les articles 1779 et suivants du Code civil. Le Maître d’Œuvre exerce son art dans le cadre d’une profession libérale indépendante : sa responsabilité est limitée dans le cadre de la loi à sa propre mission, sans interférence avec celles qui seront données d’autre part aux différents entrepreneurs et hommes de l’art appelés à concourir à l’édification de la construction.',
       {sz:16,i:true,jc:'both',ap:0})]),
     vide(200),
   ].join('');
@@ -4827,18 +4832,18 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     par('BLOC B — Mission Chantier',{b:true,sz:18,c:DOC_TERRA,av:100,ap:60}),
     puce('PRO — Projet : plans d’exécution détaillés'),
     puce('DCE — Dossier de Consultation des Entreprises'),
-    puce('ACT — Assistance à la passation des Contrats : analyse comparative des devis, recommandation au Maître de l’Ouvrage (les marchés sont signés par le Maître de l’Ouvrage directement)'),
+    puce('ACT — Assistance à la passation des contrats : analyse comparative des devis, recommandation au Maître de l’Ouvrage (les marchés sont signés par le Maître de l’Ouvrage directement)'),
     puce('VISA — Visa des études d’exécution : vérification de la conformité des plans d’exécution des entreprises'),
     puce('DET — Direction de l’Exécution des Travaux : réunions de chantier, vérification de conformité, visa des situations de paiement'),
     puce('AOR — Assistance aux Opérations de Réception : organisation de la réception, établissement de la liste des réserves, suivi de leur levée, déclenchement des garanties légales'),
     sousTitre('Article III-2 — Nature de la mission'),
     texte('Le Maître d’Œuvre exerce son art dans le cadre d’une profession libérale indépendante. Sa responsabilité est limitée à sa propre mission, sans interférence avec les obligations contractuelles propres aux différents entrepreneurs et hommes de l’art appelés à concourir à l’édification de la construction.'),
-    texte('Le Maître d’Œuvre n’est pas le mandataire du Maître de l’Ouvrage. Toute décision de nature à engager le Maître de l’Ouvrage notamment la signature des marchés avec les entreprises, les paiements, les ordres de service modificatifs appartient exclusivement au Maître de l’Ouvrage.'),
-    texte('Le Maître d’œuvre devra concevoir l’ouvrage à la destination qui lui aura été définie par le maître de l’ouvrage. Les plans seront conformes au projet ainsi arrêté.'),
-    texte('Le Maître d’Œuvre sur le vu des marchés et contrats qui seront passés, surveillera selon les règles de l’art, l’exécution de l’ouvrage conformément aux plans fournis à l’appui '+(reno?'de l’autorisation d’urbanisme':'du permis de construire')+'. Il signale par écrit au Maître de l’Ouvrage toute insuffisance, erreur, malfaçon ou non-conformité qu’il détecte lors de ses visites de chantier. Il appartient au seul Maître de l’Ouvrage, en sa qualité de cocontractant des entreprises, d’exiger la réparation des désordres constatés. Le Maître d’Œuvre n’assume aucune obligation de résultat sur l’exécution des travaux réalisés par des tiers.'),
-    texte('Le maître d’œuvre assistera le maitre de l’ouvrage de ses avis et de ses conseils au cours de toutes conférences ou discussions qui seraient nécessaires, il participera d’ailleurs personnellement ou par l’un de ses représentants ou préposés à toutes réunions de chantier. Il donnera au Maitre de l’ouvrage toutes indications ou lui fera toutes suggestions pour la réalisation de son projet.'),
-    texte('Dans les rapports avec les administrations, le Maitre d’œuvre se bornera à assister le maitre de l’ouvrage de ses conseils sans se substituer à lui, tout décision ne pouvant être prise que par ce dernier.'),
-    texte('Si à l’occasion de ses rapports avec des tiers, il advenait que le maitre de l’ouvrage passe outre aux avis exprimés par le Maitre d’œuvre, il en supporterait seul les conséquences, et le maitre d’œuvre serait dégagé de toute responsabilité à l’occasion des difficultés qui pourraient résulter du désaccord intervenu.'),
+    texte('Le Maître d’Œuvre n’est pas le mandataire du Maître de l’Ouvrage. Toute décision de nature à engager le Maître de l’Ouvrage, notamment la signature des marchés avec les entreprises, les paiements et les ordres de service modificatifs, appartient exclusivement au Maître de l’Ouvrage.'),
+    texte('Le Maître d’Œuvre devra concevoir l’ouvrage à la destination qui lui aura été définie par le Maître de l’Ouvrage. Les plans seront conformes au projet ainsi arrêté.'),
+    texte('Le Maître d’Œuvre, au vu des marchés et contrats qui seront passés, surveillera selon les règles de l’art l’exécution de l’ouvrage conformément aux plans fournis à l’appui '+(reno?'de l’autorisation d’urbanisme':'du permis de construire')+'. Il signale par écrit au Maître de l’Ouvrage toute insuffisance, erreur, malfaçon ou non-conformité qu’il détecte lors de ses visites de chantier. Il appartient au seul Maître de l’Ouvrage, en sa qualité de cocontractant des entreprises, d’exiger la réparation des désordres constatés. Le Maître d’Œuvre n’assume aucune obligation de résultat sur l’exécution des travaux réalisés par des tiers.'),
+    texte('Le Maître d’Œuvre assistera le Maître de l’Ouvrage de ses avis et de ses conseils au cours de toutes conférences ou discussions qui seraient nécessaires ; il participera d’ailleurs personnellement, ou par l’un de ses représentants ou préposés, à toutes réunions de chantier. Il donnera au Maître de l’Ouvrage toutes indications ou lui fera toutes suggestions pour la réalisation de son projet.'),
+    texte('Dans les rapports avec les administrations, le Maître d’Œuvre se bornera à assister le Maître de l’Ouvrage de ses conseils sans se substituer à lui, toute décision ne pouvant être prise que par ce dernier.'),
+    texte('Si, à l’occasion de ses rapports avec des tiers, il advenait que le Maître de l’Ouvrage passe outre aux avis exprimés par le Maître d’Œuvre, il en supporterait seul les conséquences, et le Maître d’Œuvre serait dégagé de toute responsabilité à l’occasion des difficultés qui pourraient résulter du désaccord intervenu.'),
   ].join('');
 
   const a4=[
@@ -4853,25 +4858,26 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
       :[puce('Signer et présenter la demande de permis de construire préparée par le Maître d’Œuvre')]),
     puce('Sélectionner et signer directement les marchés avec les entrepreneurs, après recommandation du Maître d’Œuvre'),
     puce('Effectuer tous paiements d’acomptes et règlements aux entreprises'),
-    puce('Souscrire une assurance dommages-ouvrage avant l’ouverture du chantier, conformément aux articles L242-1 et suivants du Code des assurances'),
-    puce('En général, effectuera toutes démarches, précédera à toutes discussions indispensables à la défense de ses intérêts. La mission du Maître d’œuvre étant limité au rôle de conseil pour tout ce qui ne concerne pas sa mission proprement dite qu’elle a été définie à l’articles 3 ci-dessus.'),
+    (reno?puce('Souscrire, lorsque les travaux l’exigent, une assurance dommages-ouvrage avant l’ouverture du chantier, conformément aux articles L.242-1 et suivants du Code des assurances')
+      :puce('Souscrire une assurance dommages-ouvrage avant l’ouverture du chantier, conformément aux articles L.242-1 et suivants du Code des assurances')),
+    puce('De manière générale, effectuer toutes démarches et procéder à toutes discussions indispensables à la défense de ses intérêts, la mission du Maître d’Œuvre étant limitée au rôle de conseil pour tout ce qui ne concerne pas sa mission proprement dite, telle qu’elle a été définie à l’article 3 ci-dessus.'),
     sousTitre('Article 4-3 — Initiatives propres du Maître de l’Ouvrage'),
     texte('Si le Maître de l’Ouvrage passe outre aux avis exprimés par le Maître d’Œuvre dans les rapports avec les tiers ou les entreprises, il en supporterait seul les conséquences. Le Maître d’Œuvre serait dégagé de toute responsabilité à l’occasion des difficultés qui pourraient en résulter.'),
-    texte('Là où les réceptions seront faites en présence du maitre d’œuvre, celui-ci donnera toutes appréciations nécessaires au Maitre de l’Ouvrage en vue de la formulation des observations et réserves qui apparaitraient utiles. Si, nonobstant les avis du Maître d’œuvre, le Maître de l’Ouvrage passait outre, et décidait de réceptionner l’immeuble, il le ferait à ses risques et périls ; dégageant ainsi le maitre d’œuvre de toute responsabilité de ce chef.'),
+    texte('Lorsque les réceptions seront faites en présence du Maître d’Œuvre, celui-ci donnera toutes appréciations nécessaires au Maître de l’Ouvrage en vue de la formulation des observations et réserves qui apparaîtraient utiles. Si, nonobstant les avis du Maître d’Œuvre, le Maître de l’Ouvrage passait outre et décidait de réceptionner l’immeuble, il le ferait à ses risques et périls, dégageant ainsi le Maître d’Œuvre de toute responsabilité de ce chef.'),
     texte('Le client s’engage à ne pas donner d’instructions directes aux entreprises sans en informer préalablement le Maître d’Œuvre, afin de préserver la cohérence de la coordination de chantier.'),
     encadre([par('Le Maître d’Œuvre n’est pas lié contractuellement aux entreprises et ne réalise pas lui-même les travaux. Il n’assure pas de présence permanente sur le chantier. Les paiements des entreprises sont effectués directement par le Maître de l’Ouvrage à chaque entreprise. Le Maître d’Œuvre ne centralise aucun paiement. Toute mission complémentaire fait l’objet d’un avenant écrit signé des deux parties.',{sz:16,jc:'both',ap:0})]),
   ].join('');
 
   const a4bis=[
     titre('Article 4 bis — Absence de qualité de constructeur — distinction expresse avec le CCMI'),
-    texte('Les parties reconnaissent expressément et irrévocablement que le présent contrat est un contrat de maîtrise d’Œuvre relevant du droit commun des obligations (articles 1779 et suivants du Code civil), et non un contrat de construction de maison individuelle au sens de l’article L.231-1 du Code de la construction et de l’habitation.'),
+    texte('Les parties reconnaissent expressément et irrévocablement que le présent contrat est un contrat de maîtrise d’œuvre relevant du droit commun des obligations (articles 1779 et suivants du Code civil), et non un contrat de construction de maison individuelle au sens de l’article L.231-1 du Code de la construction et de l’habitation.'),
     texte('À ce titre, il est expressément convenu que :'),
     puce('Le Maître d’Œuvre n’est pas constructeur, n’assume aucune obligation de livraison de l’ouvrage à prix convenu et dans un délai déterminé ;'),
     puce('Le Maître d’Œuvre ne contracte pas avec les entreprises de travaux en son nom propre ou au nom du Maître de l’Ouvrage — les marchés de travaux sont conclus exclusivement par le Maître de l’Ouvrage ;'),
     puce('Le Maître d’Œuvre ne perçoit, ne centralise, ni ne redistribue aucun paiement destiné aux entreprises ;'),
     puce('Le Maître d’Œuvre ne fournit aucune garantie de remboursement, de livraison ou d’achèvement ;'),
     puce('La rémunération du Maître d’Œuvre constitue des honoraires intellectuels indépendants du coût final des travaux ;'),
-    puce('Le Maître de l’Ouvrage reconnaît avoir été informé de la distinction entre le contrat de maîtrise d’Œuvre et le CCMI, et avoir choisi en pleine connaissance de cause le régime de la maîtrise d’Œuvre séparée.'),
+    puce('Le Maître de l’Ouvrage reconnaît avoir été informé de la distinction entre le contrat de maîtrise d’œuvre et le CCMI, et avoir choisi en pleine connaissance de cause le régime de la maîtrise d’œuvre séparée.'),
   ].join('');
 
   /* les travaux sur existant : ce que la rénovation ajoute au modèle */
@@ -4886,7 +4892,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     sousTitre('Site occupé'),
     texte('Lorsque le logement reste occupé pendant les travaux, le Maître de l’Ouvrage libère et protège les zones d’intervention, en organise l’accès et retire les biens susceptibles d’être endommagés. Les nuisances inhérentes aux travaux (bruit, poussière, coupures temporaires des réseaux) sont annoncées par le planning et ne constituent pas un manquement du Maître d’Œuvre.'),
     sousTitre('Existants et assurances'),
-    texte('Le Maître de l’Ouvrage est informé que les assurances obligatoires de construction ne couvrent les ouvrages existants que dans les conditions prévues par la loi, notamment lorsqu’ils sont totalement incorporés dans l’ouvrage neuf et en deviennent techniquement indivisibles. Il déclare les existants à son assureur dommages-ouvrage et vérifie, pendant la durée des travaux, l’étendue de son assurance habitation.'),
+    texte('Le Maître de l’Ouvrage est informé que les assurances obligatoires de construction ne couvrent les ouvrages existants que dans les conditions prévues par la loi, notamment lorsqu’ils sont totalement incorporés dans l’ouvrage neuf et en deviennent techniquement indivisibles. Le cas échéant, il déclare les existants à son assureur dommages-ouvrage ; il vérifie, pendant la durée des travaux, l’étendue de son assurance habitation.'),
     sousTitre('Travaux exclus de la mission'),
     texte('Les travaux que le Maître de l’Ouvrage réalise lui-même ou confie directement à des tiers en dehors des marchés suivis par le Maître d’Œuvre (désignés « hors marché » au descriptif) sont exclus de la mission : le Maître d’Œuvre n’en assure ni la conception, ni la direction, ni le contrôle, et le Maître de l’Ouvrage en assume seul la conformité et les conséquences sur les autres ouvrages.'),
   ].join(''):'';
@@ -4897,7 +4903,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     puce('Obtention du ou des prêts bancaires nécessaires au financement de l’opération'),
     puce('Obtention de l’autorisation d’urbanisme requise (déclaration préalable ou permis de construire) et des autres autorisations administratives'),
     texte('À défaut de réalisation de l’une de ces conditions dans le délai imparti, le contrat est réputé caduc et les sommes versées sont intégralement remboursées au Maître de l’Ouvrage. Si la non-réalisation est imputable au Maître de l’Ouvrage, celui-ci devra au Maître d’Œuvre une indemnité forfaitaire égale à 10 % du montant total des honoraires TTC.'),
-    texte('Les travaux ne pourront démarrer qu’après remise au Maître d’Œuvre des pièces suivantes : autorisation d’urbanisme purgée de tout recours, attestation de propriété, attestation d’assurance dommages-ouvrage, attestation de financement, repérages réglementaires avant travaux, accès aux zones d’intervention libérées.'),
+    texte('Les travaux ne pourront démarrer qu’après remise au Maître d’Œuvre des pièces suivantes : autorisation d’urbanisme purgée de tout recours, attestation de propriété, attestation d’assurance dommages-ouvrage le cas échéant, attestation de financement, repérages réglementaires avant travaux, accès aux zones d’intervention libérées.'),
   ].join(''):[
     titre('Article 5 — Conditions suspensives'),
     texte('Le présent contrat est conclu sous réserve de la réalisation, dans un délai de 6 mois à compter de sa signature, des conditions suivantes :'),
@@ -4918,12 +4924,16 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
       +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:70,v:'top'});
   const a6=[
     titre('Article 6 — Honoraires du Maître d’Œuvre et budget travaux'),
-    texte('A la signature du présent contrat, le maître d’ouvrage dispose d’un budget travaux de :'),
-    par(eurDoc(coutHT)+' HT, soit '+eurDoc(coutTTC)+' TTC'+(trav.tvaMixte?', TVA aux taux en vigueur applicables à chaque poste de travaux.'
-      :' sur la base d’un taux de TVA en vigueur de '+tva+' %.'),
+    texte('À la signature du présent contrat, le Maître de l’Ouvrage dispose d’un budget travaux de :'),
+    /* en rénovation, la TVA varie selon la nature des prestations : aucun
+       taux unique n'est annoncé, et le HT n'est écrit que s'il a été saisi
+       (le déduire d'un taux unique le fausserait) */
+    par(!(reno||trav.tvaMixte)?eurDoc(coutHT)+' HT, soit '+eurDoc(coutTTC)+' TTC sur la base d’un taux de TVA en vigueur de '+tva+' %.'
+      :(reno&&trav.forfait&&!contratTravauxForfaitHT(p)?eurDoc(coutTTC)+' TTC':eurDoc(coutHT)+' HT, soit '+eurDoc(coutTTC)+' TTC')
+        +', TVA à taux variable selon la nature des prestations.',
       {b:true,sz:20,c:DOC_ENCRE,ap:100}),
-    texte('Le budget de travaux est établi conformément '+(reno?'à l’avant-projet et à l’estimation détaillée (DQE)':'au programme de l’opération')+'. Il s’applique à un mode de dévolution des contrats de travaux envisagé par le maître d’ouvrage en corps d’état séparés.'),
-    texte('Cette estimation est établie à titre indicatif, sur la base des données disponibles à la date de signature. Elle ne constitue en aucun cas un engagement du Maître d’Œuvre sur le coût définitif de l’opération. Elle ne tient pas compte des évolutions ultérieures des prix des matériaux, de la main d’œuvre, ni des contraintes techniques susceptibles d’être révélées en cours d’instruction ou de chantier.'),
+    texte('Le budget de travaux est établi conformément '+(reno?'à l’avant-projet et à l’estimation détaillée (DQE)':'au programme de l’opération')+'. Il s’applique à un mode de dévolution des contrats de travaux envisagé par le Maître de l’Ouvrage en corps d’état séparés.'),
+    texte('Cette estimation est établie à titre indicatif, sur la base des données disponibles à la date de signature. Elle ne constitue en aucun cas un engagement du Maître d’Œuvre sur le coût définitif de l’opération. Elle ne tient pas compte des évolutions ultérieures des prix des matériaux, de la main-d’œuvre, ni des contraintes techniques susceptibles d’être révélées en cours d’instruction ou de chantier.'),
     texte('En cas d’écart constaté entre l’estimation prévisionnelle et les offres reçues des entreprises, le Maître d’Œuvre en informera le Maître de l’Ouvrage et lui soumettra les arbitrages nécessaires. Le Maître de l’Ouvrage demeure seul décisionnaire des ajustements à apporter au programme.'),
     texte('La rémunération du Maître d’Œuvre est constituée d’honoraires forfaitaires toutes taxes comprises, répartis selon les deux blocs de mission définis à l’article 3. Ils sont indépendants du coût des travaux et ne constituent en aucun cas un engagement du Maître d’Œuvre sur le coût global de l’opération.'),
     champs([['Honoraires HT',eurDoc(margeHT)],['TVA ('+tvaHono+' %)',eurDoc(margeTva)],['Honoraires TTC',eurDoc(margeTTC)]]),
@@ -4936,7 +4946,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
         celEch(1200,L[2],'right'),celEch(1800,L[3],'right'),celEch(2700,L[4],'left')])))
       .concat([tr([tc(500+4200,par('TOTAL HONORAIRES',{b:true,sz:16,c:DOC_TERRA,ap:0}),
         {fusion:2,bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70}),
-        celEch(1200,'100 %','right'),
+        tc(1200,par('100 %',{b:true,sz:16,jc:'right',ap:0}),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70}),
         tc(1800,par(eurDoc(margeTTC)+' TTC',{b:true,sz:16,jc:'right',ap:0}),
           {bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70}),
         tc(2700,par('',{ap:0}),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70})])]),{}),
@@ -4968,12 +4978,18 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     texte('Le Maître d’Œuvre assume sa responsabilité professionnelle dans les limites des articles 1792 et suivants du Code civil et dans la limite des plafonds de son contrat d’assurance RC Pro ('+CP.rcProAssureur+' — n° '+CP.rcProContrat+'). Il ne peut être tenu responsable des défaillances des entreprises, des aléas techniques imprévisibles, des règles d’urbanisme annulées postérieurement ou de contraintes non signalées par le Client.'),
     texte('La responsabilité décennale des entreprises de travaux est engagée au titre de leurs propres marchés, directement envers le Maître de l’Ouvrage. Le Maître d’Œuvre n’est pas garant des obligations des entreprises et ne peut être appelé en garantie au titre des désordres résultant exclusivement de leur exécution. Chaque entreprise titulaire fournit, préalablement à l’ouverture du chantier, son attestation d’assurance décennale en cours de validité, que le Maître de l’Ouvrage est tenu de recueillir.'),
     sousTitre('Assurance dommages-ouvrage'),
-    texte('Conformément à l’article L.242-1 du Code des assurances, le Maître de l’Ouvrage est tenu de souscrire une assurance dommages-ouvrage avant toute déclaration d’ouverture de chantier. Le Maître d’Œuvre a expressément informé le Maître de l’Ouvrage :'),
-    puce('de l’obligation légale de souscrire une assurance dommages-ouvrage'),
+    ...(reno?[
+      texte('Lorsque les travaux entrent dans le champ de l’article L.242-1 du Code des assurances, le Maître de l’Ouvrage est tenu de souscrire une assurance dommages-ouvrage avant leur ouverture.'),
+      ...(doSansStructure?[texte('Les travaux prévus ne comportent ni démolition de mur porteur ni travaux de gros œuvre : selon la nature des ouvrages réalisés, l’assurance dommages-ouvrage peut ne pas être exigée. Le Maître de l’Ouvrage en apprécie la nécessité avec son assureur.')]:[]),
+    ]:[texte('Conformément à l’article L.242-1 du Code des assurances, le Maître de l’Ouvrage est tenu de souscrire une assurance dommages-ouvrage avant toute déclaration d’ouverture de chantier.')]),
+    ...(doCout?[texte('Le coût d’une assurance dommages-ouvrage pour ce projet est estimé à environ '+eurDoc(doCout)+' TTC (montant indicatif, sur devis de l’assureur).')]:[]),
+    texte('Le Maître d’Œuvre a expressément informé le Maître de l’Ouvrage :'),
+    puce(reno?'des cas dans lesquels la souscription d’une assurance dommages-ouvrage est obligatoire':'de l’obligation légale de souscrire une assurance dommages-ouvrage'),
     puce('des conséquences financières d’une absence de couverture en cas de sinistre relevant de la garantie décennale'),
     puce('de l’obligation de mention de l’absence de DO dans tout acte de vente du bien dans les 10 ans suivant la réception des travaux'),
     encadre([par('Mention manuscrite obligatoire à recopier de la main du Maître de l’Ouvrage si volonté de ne pas y souscrire :',{b:true,sz:16,ap:80}),
-      par('« Je reconnais avoir été informé(e) de l’obligation légale de souscrire une assurance dommages-ouvrage et des risques financiers liés à mon absence de souscription. Je renonce expressément à cette assurance et en assume seul(e) les conséquences. »',{i:true,sz:16,jc:'both',ap:100}),
+      par(reno?'« Je reconnais avoir été informé(e) des cas dans lesquels la souscription d’une assurance dommages-ouvrage est obligatoire et des risques financiers liés à mon absence de souscription. Je renonce expressément à cette assurance et en assume seul(e) les conséquences. »'
+        :'« Je reconnais avoir été informé(e) de l’obligation légale de souscrire une assurance dommages-ouvrage et des risques financiers liés à mon absence de souscription. Je renonce expressément à cette assurance et en assume seul(e) les conséquences. »',{i:true,sz:16,jc:'both',ap:100}),
       par('Mme : ……………………………………………………………………………',{sz:16,ap:60}),
       par('M. : ……………………………………………………………………………',{sz:16,ap:100}),
       par('Fait à ………………………………………, le ………………………',{sz:16,ap:0})]),
@@ -4987,7 +5003,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
   const a11=[
     titre('Article 11 — Suspension et résiliation'),
     sousTitre('11.1 — Suspension'),
-    texte('La mission peut être suspendue par l’une ou l’autre des parties par LRAR après mise en demeure restée sans effet 15 jours, en cas de : force majeure, blocage administratif, non-paiement d’une facture échue, absence de décisions nécessaires à la poursuite de la mission, ou tout manquement grave aux obligations contractuelles. Si la cause de suspension n’est pas levée dans un délai de 3 mois, la partie concernée peut constater la résiliation par nouvelle LRAR.'),
+    texte('La mission peut être suspendue par l’une ou l’autre des parties par LRAR après mise en demeure restée sans effet pendant 15 jours, en cas de : force majeure, blocage administratif, non-paiement d’une facture échue, absence de décisions nécessaires à la poursuite de la mission, ou tout manquement grave aux obligations contractuelles. Si la cause de suspension n’est pas levée dans un délai de 3 mois, la partie concernée peut constater la résiliation par nouvelle LRAR.'),
     sousTitre('11.2 — Résiliation à l’initiative du Maître de l’Ouvrage (sans faute du MŒ)'),
     texte('En cas de résiliation sans faute du Maître d’Œuvre, celui-ci perçoit :'),
     puce('les honoraires des missions entièrement exécutées à la date de résiliation'),
@@ -27485,6 +27501,12 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
   const [saisieHT,setSaisieHT]=useState(forfaitHT?String(forfaitHT):'');
   useEffect(()=>{setSaisieHT(forfaitHT?String(forfaitHT):'')},[forfaitHT]);
   const validerHT=()=>{const n=montantSaisi(saisieHT)||'';if(n!==(forfaitHT||''))maj({contratTravauxHT:n})};
+  /* la dommages-ouvrage du contrat : coût estimé (repris du chiffrage du
+     prospect à défaut), et en rénovation, l'absence de travaux de structure */
+  const doCout=montantSaisi(p.contratDoCout), doChiffre=montantSaisi(p.dommageOuvrage);
+  const [saisieDo,setSaisieDo]=useState(doCout?String(doCout):'');
+  useEffect(()=>{setSaisieDo(doCout?String(doCout):'')},[doCout]);
+  const validerDo=()=>{const n=montantSaisi(saisieDo)||'';if(n!==(doCout||''))maj({contratDoCout:n})};
   const produire=async()=>{
     setEtat({etat:'travail'});
     try{
@@ -27533,11 +27555,23 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
         onKeyDown={e=>{if(e.key==='Enter')validerHT()}}/>
     </div>}
     <div className="xs" style={{marginTop:4,lineHeight:1.5,color:trav.forfait?NAVY:MUTED}}>
-      {trav.forfait&&trav.tvaMixte?'Article 6 : budget travaux de '+eurDoc(trav.ttc)+' TTC, soit '+eurDoc(trav.ht)+' HT, TVA aux taux applicables à chaque poste.'
+      {type==='renovation'&&trav.forfait?'Article 6 : budget travaux de '+(forfaitHT?eurDoc(trav.ht)+' HT, soit ':'')+eurDoc(trav.ttc)+' TTC, TVA à taux variable selon la nature des prestations'
+        +(forfaitHT?'.':' (sans montant HT saisi, seul le TTC est écrit).')+' Les honoraires ne changent pas.'
+        :trav.forfait&&trav.tvaMixte?'Article 6 : budget travaux de '+eurDoc(trav.ht)+' HT, soit '+eurDoc(trav.ttc)+' TTC, TVA à taux variable selon la nature des prestations.'
         +' Les honoraires ne changent pas.'
         :trav.forfait?'Article 6 : budget travaux forfaitaire de '+eurDoc(trav.ttc)+' TTC, soit '+eurDoc(trav.ht)+' HT (TVA '+trav.tva+' %)'
         +(calculeTTC?' — au lieu des '+eur(calculeTTC)+' TTC du chiffrage.':'.')+' Les honoraires ne changent pas.'
         :'Laissé vide, l’article 6 reprend le coût des travaux du chiffrage'+(calculeTTC?' ('+eur(calculeTTC)+' TTC).':'.')}</div>
+    <div className="row xs" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="mut">Dommages-ouvrage — coût estimé (TTC)</span>
+      <input className="in" aria-label="Coût estimé de la dommages-ouvrage" inputMode="decimal" style={{width:150,fontSize:13,padding:'6px 8px'}}
+        placeholder={doChiffre?'chiffrage : '+eur(doChiffre):'facultatif'} value={saisieDo} onChange={e=>setSaisieDo(e.target.value)} onBlur={validerDo}
+        onKeyDown={e=>{if(e.key==='Enter')validerDo()}}/>
+    </div>
+    {type==='renovation'&&<label className="row xs" style={{gap:6,marginTop:6,alignItems:'flex-start',lineHeight:1.5,cursor:'pointer'}}>
+      <input type="checkbox" checked={!!p.contratDoSansStructure} onChange={e=>maj({contratDoSansStructure:e.target.checked})}/>
+      <span>Aucune démolition de mur porteur ni travaux de gros œuvre : le contrat dit que la dommages-ouvrage peut ne pas être exigée,
+        à apprécier par le client avec son assureur (la mention de renonciation reste au contrat).</span></label>}
     {type==='renovation'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:RENO_COULEUR}}>
       Rénovation : description du projet, mission (relevé de l’existant, avant-projet, autorisation d’urbanisme), conditions
       suspensives, article « Travaux sur existant » (existant, découvertes, repérages, site occupé, assurances, travaux hors marché)
