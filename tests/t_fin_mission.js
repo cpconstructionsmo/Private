@@ -51,11 +51,11 @@ let data={...M.EMPTY,chantiers:[CH],prospects:[{id:'p1',civilite:'M.',client:'Fi
   chk(d.hono&&d.hono.total===17200&&d.hono.facture===14400&&d.hono.reste===2800,'honoraires : 17 200 € TTC, 14 400 facturés, 2 800 restants');
   const a=d.alertes.join(' | ');
   chk(/PV de réception à établir : Peinture/.test(a)&&/Réception non prononcée : Carrelage/.test(a)&&/Réserves non levées : Plomberie/.test(a)
-    &&/DOE n’est pas coché/.test(a)&&/2 800,00 € TTC/.test(norm(a))&&/Date de signature/.test(a),'ce qui reste à faire avant signature, nommé lot par lot');
+    &&!/DOE/.test(a)&&/2 800,00 € TTC/.test(norm(a))&&/Date de signature/.test(a),'ce qui reste à faire avant signature, nommé lot par lot (le DOE n’est plus demandé)');
   const fm={...M.finMissionDe(CH),documents:{doe:true,consuel:true},autres:'Carnet d’entretien de la PAC\n\n',faitA:'Valframbert',faitLe:'2026-11-25'};
   d=M.finMissionDonnees(CH,data,fm);
   chk(d.documents.length===3&&/DOE/.test(d.documents[0])&&/Consuel/.test(d.documents[1])&&d.documents[2]==='Carnet d’entretien de la PAC',
-    'documents remis : les cochés, dans l’ordre de la liste, puis les autres (lignes vides ignorées)');
+    'documents remis : les cochés, dans l’ordre de la liste, puis les autres (lignes vides ignorées) ; un DOE coché avant reste repris');
   chk(!/DOE/.test(d.alertes.join())&&!/Date de signature/.test(d.alertes.join())&&d.faitLe==='25/11/2026','DOE coché et date saisie : plus d’alerte pour eux');
   const sans=M.finMissionDonnees({...CH,honorairesMontant:0,honoFactures:[]},data,fm);
   chk(sans.hono===null&&/Honoraires non renseignés/.test(sans.alertes.join()),'honoraires inconnus : rien d’inventé, signalé');
@@ -106,8 +106,9 @@ let data={...M.EMPTY,chantiers:[CH],prospects:[{id:'p1',civilite:'M.',client:'Fi
   const fmS=()=>data.chantiers[0].finMission||{};
   const caseDoc=id=>tr.root.findAll(n=>n.type==='input'&&n.props.type==='checkbox'
     &&norm(texteInst(n.parent)).includes(M.FIN_MISSION_DOCS.find(y=>y.id===id).l))[0];
-  TR.act(()=>{caseDoc('doe').props.onChange({target:{checked:true}})});
-  chk(fmS().documents&&fmS().documents.doe===true,'cocher le DOE l’enregistre aussitôt sur le chantier');
+  chk(!caseDoc('doe')&&!caseDoc('entretien'),'le DOE et les notices d’entretien ne sont plus proposés');
+  TR.act(()=>{caseDoc('consuel').props.onChange({target:{checked:true}})});
+  chk(fmS().documents&&fmS().documents.consuel===true,'cocher le Consuel l’enregistre aussitôt sur le chantier');
   const date=tr.root.findAll(n=>n.type==='input'&&n.props.type==='date')[0];
   TR.act(()=>{date.props.onChange({target:{value:'2026-11-25'}})});
   chk(fmS().faitLe==='2026-11-25','« Le » enregistré');
