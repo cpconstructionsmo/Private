@@ -2110,6 +2110,7 @@ function planifierEnvoiVisite() {
   clearTimeout(pont.timer); etatSauv('Enregistrement dans la visite…');
   pont.timer = setTimeout(envoyerVisite, 600);
 }
+const arr2 = v => Math.round((+v || 0) * 100) / 100;
 function envoyerVisite() {
   pont.timer = null;
   if (!donneesCourantes || !modele) return;
@@ -2117,7 +2118,11 @@ function envoyerVisite() {
   [...(releve.pieces || []).flatMap(q => q.photos || []), ...(releve.documents || [])]
     .forEach(ph => { if (photosMem.has(ph.id) && !pont.envoyees.has(ph.id)) images[ph.id] = photosMem.get(ph.id); });
   versVisite({ type: 'releve:enregistrer', releve, images,
-    resume: { projet: modele.projet, pieces: modele.rooms.length, surface: Math.round(modele.totalAire * 100) / 100, ouvertures: modele.openings.length } });
+    resume: { projet: modele.projet, pieces: modele.rooms.length, surface: Math.round(modele.totalAire * 100) / 100, ouvertures: modele.openings.length,
+      /* les quantités de chaque pièce, pour la fourchette de prix de la visite
+         (releve/budget.js) : calculées ici, là où le plan est analysé */
+      detail: modele.rooms.map(r => ({ id: r.id, nom: r.nom, etage: r.etage, sol: arr2(r.aire), perimetre: arr2(r.perim),
+        hauteur: arr2(r.hauteur), murs: arr2(r.mursNets), portes: r.portes || 0, fenetres: r.fenetres || 0 })) } });
 }
 window.addEventListener('message', e => {
   if (!pont.actif || e.source !== window.parent || e.origin !== location.origin) return;

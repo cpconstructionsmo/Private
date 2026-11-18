@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Relevé de visite : visites à rattacher aux prospects ; factures à glisser-déposer, dossier de fin de chantier pour l’assureur';
+const VERSION='2026-11-18 · Relevé de visite : fourchette de prix pendant la visite, reprise sur la fiche prospect';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -26199,7 +26199,9 @@ function visiteResume(ligne){
     notes:txt('notes'), statut:txt('statut')||'en_cours', prospectId:txt('prospectId'),
     nbPieces:Object.values(d.pieces||{}).filter(x=>x&&!x.supprime).length,
     nbPhotos:actives.filter(x=>x.role==='piece').length,
-    gardeChemin:(garde&&garde.chemin)||'', plan:v.plan&&v.plan.resume?v.plan.resume:null};
+    gardeChemin:(garde&&garde.chemin)||'', plan:v.plan&&v.plan.resume?v.plan.resume:null,
+    /* la fourchette de prix donnée pendant la visite (releve/budget.js) : indicative */
+    fourchette:v.budget&&v.budget.estimation&&v.budget.estimation.max>0?{min:v.budget.estimation.min,max:v.budget.estimation.max,complet:!!v.budget.estimation.complet}:null};
 }
 const visiteNomClient=r=>[r.prenom,r.nom].filter(Boolean).join(' ');
 const visiteIntitule=r=>[r.civilite,visiteNomClient(r)].filter(Boolean).join(' ')||'Visite sans nom';
@@ -26241,7 +26243,8 @@ function prospectsCandidats(r,prospects){
    formulaire des prospects) ; « M. et Mme » devient deux acquéreurs */
 function prospectDepuisVisite(r,base,le){
   const lieu=[r.codePostal,r.ville].filter(Boolean).join(' ');
-  const demande=[r.types.length?'Travaux : '+r.types.join(', '):'',r.delai?'Délai souhaité : '+r.delai:'',r.explicatif]
+  const demande=[r.types.length?'Travaux : '+r.types.join(', '):'',r.delai?'Délai souhaité : '+r.delai:'',r.explicatif,
+    r.fourchette?'Fourchette annoncée à la visite (indicative) : de '+eur(r.fourchette.min)+' à '+eur(r.fourchette.max)+' TTC':'']
     .filter(Boolean).join('\n');
   const couple=r.civilite==='M. et Mme';
   const b=base||{};
@@ -26314,7 +26317,8 @@ function ResumeVisite({r}){
     <div className="xs" style={{lineHeight:1.5}}>
       {[r.types.join(', '),r.delai,r.enveloppe!=null?'enveloppe '+eur(r.enveloppe):'',
         r.nbPieces?r.nbPieces+' pièce'+(r.nbPieces>1?'s':'')+' · '+r.nbPhotos+' photo'+(r.nbPhotos>1?'s':''):'',
-        r.plan?'plan '+String(r.plan.surface).replace('.',',')+' m²':''].filter(Boolean).join(' · ')||'Projet à préciser'}</div>
+        r.plan?'plan '+String(r.plan.surface).replace('.',',')+' m²':'',
+        r.fourchette?'fourchette '+eur(r.fourchette.min)+' à '+eur(r.fourchette.max)+' TTC':''].filter(Boolean).join(' · ')||'Projet à préciser'}</div>
   </div>;
 }
 function VisitesARattacher({data,save,modele,ouvrir}){

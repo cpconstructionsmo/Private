@@ -45,3 +45,23 @@ create policy "releves : lecture app" on storage.objects for select to authentic
 create policy "releves : ajout app" on storage.objects for insert to authenticated with check (bucket_id = 'releves');
 -- l'envoi d'une photo est rejoué après une coupure (upsert) : il faut pouvoir la remplacer
 create policy "releves : remplacement app" on storage.objects for update to authenticated using (bucket_id = 'releves') with check (bucket_id = 'releves');
+
+-- Réglages partagés du relevé (ajouté pour la fourchette de prix, Phase 2) :
+-- une ligne par réglage, par exemple id = 'fourchettes' (la table des
+-- fourchettes de prix TTC par poste et par gamme, saisie par CP
+-- Constructions). Même règle de version que les visites. Sans danger si on
+-- relance ce fichier.
+create table if not exists public.releve_reglages (
+  id        text primary key,
+  donnees   jsonb not null,
+  version   bigint not null default 1,
+  maj_le    timestamptz not null default now(),
+  maj_par   uuid default auth.uid()
+);
+alter table public.releve_reglages enable row level security;
+drop policy if exists "releve reglages : lecture app" on public.releve_reglages;
+drop policy if exists "releve reglages : création app" on public.releve_reglages;
+drop policy if exists "releve reglages : mise à jour app" on public.releve_reglages;
+create policy "releve reglages : lecture app" on public.releve_reglages for select to authenticated using (true);
+create policy "releve reglages : création app" on public.releve_reglages for insert to authenticated with check (true);
+create policy "releve reglages : mise à jour app" on public.releve_reglages for update to authenticated using (true) with check (true);

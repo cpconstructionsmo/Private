@@ -42,7 +42,7 @@ let b;
   await choix.setFiles(PHOTO);
   await p.waitForSelector('img.garde[src^="blob:"]',{timeout:8000});
   chk(true,'la photo de garde s’affiche depuis l’appareil');
-  chk((await p.textContent('.etapeNom')).includes('Étape 1 sur 6'),'barre de progression : étape 1 sur 6');
+  chk((await p.textContent('.etapeNom')).includes('Étape 1 sur 7'),'barre de progression : étape 1 sur 7');
   await p.screenshot({path:SORTIE+'/releve_garde.png'});
 
   /* fiche client */
@@ -91,7 +91,9 @@ let b;
   await p.tap('#fermerPlan');
   await p.waitForSelector('text=📄 Plan maison');
 
-  /* récapitulatif et fin */
+  /* budget (voir releve_budget_navigateur.js), puis récapitulatif et fin */
+  await p.tap('#suivant');
+  await p.waitForSelector('#totalBudget');
   await p.tap('#suivant');
   const recap=(await p.textContent('.recap')).replace(/\s/g,' ');
   chk(recap.includes('Cuisine, Peinture')&&recap.includes('45 000 €'),'récapitulatif : travaux et enveloppe');
