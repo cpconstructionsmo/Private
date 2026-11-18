@@ -25850,23 +25850,32 @@ function visitesARattacher(resumes,prospects,ignorees){
   return (resumes||[]).filter(r=>!ign.has(r.id)&&!P.some(p=>(p.visites||[]).some(x=>x.id===r.id))
     &&!(r.prospectId&&P.some(p=>p.id===r.prospectId)));
 }
-/* les visites, lues dans leur table (rien si elle n'est pas encore installée) */
+/* les visites, lues dans leur table (rien si elle n'est pas encore installée).
+   Quoi qu'il arrive à cette lecture (table absente, réseau, réponse
+   inattendue), le reste du suivi s'affiche : seul le bloc des visites
+   s'efface ou dit qu'elles sont indisponibles. */
 function useVisitesReleve(){
   const [st,setSt]=useState({etat:'chargement',liste:[]});
   useEffect(()=>{let vivant=true;
-    Promise.resolve(sb.from('releve_visites').select('id,donnees,maj_le').order('maj_le',{ascending:false}).limit(200))
-      .then(({data,error})=>{if(!vivant)return;
-        if(error)setSt({etat:/42P01|PGRST205|does not exist|schema cache/.test((error.code||'')+' '+(error.message||''))?'absent':'erreur',liste:[]});
-        else setSt({etat:'ok',liste:(data||[]).map(visiteResume)})})
-      .catch(()=>{if(vivant)setSt({etat:'erreur',liste:[]})});
+    const fixer=x=>{if(vivant)setSt(x)};
+    let demande;
+    try{demande=sb.from('releve_visites').select('id,donnees,maj_le').order('maj_le',{ascending:false}).limit(200)}
+    catch(e){fixer({etat:'absent',liste:[]});return ()=>{vivant=false}}
+    Promise.resolve(demande).then(r=>{
+      const {data,error}=r||{};
+      if(error)fixer({etat:/42P01|PGRST205|does not exist|schema cache/.test((error.code||'')+' '+(error.message||''))?'absent':'erreur',liste:[]});
+      else fixer(Array.isArray(data)?{etat:'ok',liste:data.map(visiteResume)}:{etat:'erreur',liste:[]});
+    }).catch(()=>fixer({etat:'erreur',liste:[]}));
     return ()=>{vivant=false}},[]);
   return st;
 }
 function VignetteVisite({chemin,taille}){
   const t=taille||56, [url,setUrl]=useState(null);
   useEffect(()=>{let vivant=true;
-    if(chemin)Promise.resolve(sb.storage.from(RELEVE_ESPACE).createSignedUrl(chemin,3600))
-      .then(({data})=>{if(vivant&&data&&data.signedUrl)setUrl(data.signedUrl)}).catch(()=>{});
+    try{
+      if(chemin)Promise.resolve(sb.storage.from(RELEVE_ESPACE).createSignedUrl(chemin,3600))
+        .then(r=>{const d=r&&r.data;if(vivant&&d&&d.signedUrl)setUrl(d.signedUrl)}).catch(()=>{});
+    }catch(e){/* sans espace de fichiers : la vignette reste l'icône */}
     return ()=>{vivant=false}},[chemin]);
   return url?<img src={url} alt="" style={{width:t,height:t,objectFit:'cover',borderRadius:8,flex:'0 0 auto'}}/>
     :<div style={{width:t,height:t,borderRadius:8,background:RULE+'66',display:'flex',alignItems:'center',justifyContent:'center',flex:'0 0 auto',fontSize:t/2.4}}>🏠</div>;
