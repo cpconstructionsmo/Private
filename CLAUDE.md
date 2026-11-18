@@ -231,8 +231,12 @@ qu'on ait à les redire.
   pièces, illisibles nommés) se télécharge d'un vrai lien, pour
   WeTransfer ; le message (`dossierAssureurMail` : pièces, réception, coût
   définitif facturé HT et TTC, lien collé) se copie ou s'ouvre dans la
-  messagerie. Assureur, e-mail, n° de contrat, lien et date d'envoi :
-  `ch.dossierAssureur`. Tests : `t_dossier_assureur.js`,
+  messagerie. En copie (`dossierAssureurCopies`) : soi-même (adresse
+  d'envoi des réglages, sinon celle de CP, ou celle saisie), le(s)
+  client(s) (e-mail du chantier, sinon du prospect), d'autres adresses ;
+  jamais l'assureur ; reprises par « Ouvrir dans la messagerie » (`cc`) et
+  « Copier les adresses » (WeTransfer). Assureur, e-mail, n° de contrat,
+  copies, lien et date d'envoi : `ch.dossierAssureur`. Tests : `t_dossier_assureur.js`,
   `dossier_assureur_navigateur.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
