@@ -47,6 +47,7 @@ export const CHAMPS = {
   'plan': 'objet', // { releve, resume } : le relevé ouvert dans le moteur (releve/moteur/)
   'plan.ecarte': 'objet', // l'autre version du plan, gardée de côté après une modification sur deux appareils
   'notes': 'texte',
+  'prospectId': 'texte', // le dossier du suivi pour lequel la visite a été lancée (lien « Nouvelle visite » d'une fiche prospect)
   'statut': 'texte', // 'en_cours' | 'terminee'
   'etape': 'texte',
 };

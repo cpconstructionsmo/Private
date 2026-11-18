@@ -22,6 +22,20 @@ qu'on ait à les redire.
   `#t=<jeton>` : voir, commenter, valider l'indice ; jamais modifier) et la
   fonction `supabase/functions/plan-validation` (tables `plan_publications`,
   `plan_remarques`, `plan_validations`). Installation : son `README.md`.
+- **Relevé de visite** : `releve/` (page à part, iPhone d'abord, PWA hors
+  ligne ; mode d'emploi : `releve/README.md`). Visite = photo de garde,
+  client, projet, pièces et photos, scan OpenPlan 3D ouvert dans le moteur
+  de relevé (`releve/moteur/`, plan, mesures, avant/après, 3D, PDF). Tout
+  s'écrit d'abord sur l'appareil (IndexedDB) puis dans la table
+  `releve_visites` (version, fusion champ par champ : `releve/modele.js`) ;
+  photos dans l'espace privé `releves`. Jamais dans `app_data`, et le relevé
+  n'écrit jamais dans `app_data` (il la lit seulement pour « Nouvelle
+  visite » d'une fiche prospect). Le suivi rattache les visites aux
+  prospects sans doublon (PROSPECTS › « Visites à rattacher »,
+  `prospectsCandidats`, `completerProspectDepuisVisite` : cases vides
+  seulement) et ne garde que le lien `p.visites`. Installation :
+  `supabase/releve/schema.sql`. Tests : `t_releve_*.js`,
+  `releve*_navigateur.js` (scan fictif `tests/releve_scan_fictif.js`).
 - **Plan électrique** : le DQE (quantitatif du marché « Électricité », ou un
   fichier) est la jauge du plan — `elecLireDQE`, `elecControle`. Aucune
   règle réglementaire n'est inscrite dans le code : elles se saisissent

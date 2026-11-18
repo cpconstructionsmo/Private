@@ -151,7 +151,7 @@ function ecranConnexion() {
     const { error } = await supa.auth.signInWithPassword({ email: email.value.trim(), password: mdp.value });
     if (error) { msg.textContent = /Failed to fetch/.test(error.message) ? 'Pas de réseau : réessayez, ou travaillez sur l’appareil.' : 'Adresse ou mot de passe incorrect.'; return; }
     const { data } = await supa.auth.getSession(); S.session = data.session; S.ecran = 'accueil';
-    dessiner(); sync.synchroniser();
+    dessiner(); sync.synchroniser(); traiterLien();
   };
   return [
     h('header', { class: 'haut' }, h('img', { src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }), h('span', { class: 'titre' }, 'Relevé de visite')),
@@ -163,7 +163,7 @@ function ecranConnexion() {
         h('label', { class: 'champ' }, 'MOT DE PASSE', mdp = h('input', { class: 'in', type: 'password', autocomplete: 'current-password', required: true })),
         h('div', { style: 'margin-top:16px' }, h('button', { class: 'gros', type: 'submit' }, 'Se connecter')),
         msg = h('p', { class: 'aide', role: 'alert' })),
-      h('button', { class: 'gros sec', onclick: () => { S.horsConnexion = true; S.ecran = 'accueil'; dessiner(); } }, 'Travailler sur l’appareil sans connexion'),
+      h('button', { class: 'gros sec', onclick: () => { S.horsConnexion = true; S.ecran = 'accueil'; dessiner(); traiterLien(); } }, 'Travailler sur l’appareil sans connexion'),
       h('p', { class: 'mut petit' }, 'Sans connexion, les visites restent sur cet appareil ; elles partiront dès que vous serez connecté.')),
   ];
 }
@@ -530,6 +530,50 @@ function dessiner() {
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
 }
 
+/* ---------- arrivée depuis le suivi de chantiers ----------
+   « Ouvrir » une visite (?visite=<id>) ou « Nouvelle visite » sur une fiche
+   prospect (?prospect=<id>) : la visite s'ouvre, ou se crée rattachée au
+   dossier, fiche client reprise du suivi (lecture seule : rien n'est écrit
+   dans les données du suivi). L'adresse est nettoyée aussitôt, pour qu'un
+   rechargement ne crée pas une seconde visite. */
+const lien = (() => { const q = new URLSearchParams(location.search); return { visite: q.get('visite'), prospect: q.get('prospect') }; })();
+if (lien.visite || lien.prospect) history.replaceState(null, '', location.pathname);
+
+async function traiterLien() {
+  if (lien.visite) {
+    const id = lien.visite; lien.visite = null;
+    let rec = S.visites.find(r => r.id === id);
+    if (!rec) { await sync.synchroniser(); rec = S.visites.find(r => r.id === id); }
+    if (rec) { S.courante = id; S.etape = Math.max(0, M.ETAPES.findIndex(e => e.id === M.valeur(rec.visite, 'etape'))); S.ecran = 'visite'; S.message = null; }
+    else S.message = { type: 'err', texte: 'Cette visite n’est pas sur cet appareil et n’a pas pu être téléchargée (réseau ?). Réessayez avec du réseau.' };
+    dessiner();
+  } else if (lien.prospect) {
+    const pid = lien.prospect; lien.prospect = null;
+    await visitePourProspect(pid);
+  }
+}
+
+async function visitePourProspect(pid) {
+  let v = M.modifier(M.nouvelleVisite(), 'prospectId', pid), p = null;
+  try {
+    const { data, error } = await supa.from('app_data').select('data').eq('id', 'main').single();
+    if (!error && data && data.data) p = (data.data.prospects || []).find(x => x.id === pid) || null;
+  } catch (e) { /* hors ligne : la visite reste rattachée au dossier, la fiche se remplit à la main */ }
+  if (p) {
+    const couple = p.afficherClient2 && p.civilite === 'M.' && p.civilite2 === 'Mme';
+    const civ = couple ? 'M. et Mme' : M.CIVILITES.includes(p.civilite) ? p.civilite : null;
+    v = [['client.civilite', civ], ['client.nom', p.client], ['client.telephone', p.telClient], ['client.email', p.emailClient],
+      ['client.adresse', p.adresseClient], ['client.ville', p.commune]]
+      .reduce((w, [k, val]) => (typeof val === 'string' && val.trim()) ? M.modifier(w, k, val.trim()) : w, v);
+  }
+  await stock.creer(v);
+  S.visites.unshift({ id: v.id, visite: v, enAttente: true, rev: 1 });
+  S.courante = v.id; S.etape = 0; S.ecran = 'visite';
+  S.message = p ? { type: 'ok', texte: 'Visite pour « ' + (p.nom || p.client || 'ce dossier') + ' » : fiche client reprise du suivi. Prenez la photo de garde.' }
+    : { type: 'att', texte: 'Visite rattachée au dossier du suivi. La fiche client n’a pas pu être reprise (réseau ?) : complétez-la.' };
+  dessiner(); planifierSync(300);
+}
+
 /* ---------- démarrage ---------- */
 async function demarrer() {
   try { await recharger(); } catch (e) {
@@ -545,6 +589,7 @@ async function demarrer() {
   const avant = sync.synchroniser;
   sync.synchroniser = async () => { await avant(); const n = S.visites.length; await recharger(); if (S.ecran === 'accueil' && S.visites.length !== n) dessiner(); };
   sync.synchroniser();
+  if (S.ecran !== 'connexion') traiterLien();   // sinon, après la connexion
   window.addEventListener('online', () => sync.synchroniser());
   window.addEventListener('offline', () => sync.synchroniser());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync.synchroniser(); });
