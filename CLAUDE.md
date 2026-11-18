@@ -36,7 +36,12 @@ qu'on ait à les redire.
   seulement) et ne garde que le lien `p.visites`. Fourchette de prix de
   la visite (`releve/budget.js`, étape « Budget », table partagée
   `releve_reglages` livrée **sans prix**) : l'estimation part avec la visite
-  et s'affiche sur la fiche prospect (`visiteResume().fourchette`). Installation :
+  et s'affiche sur la fiche prospect (`visiteResume().fourchette`). Chiffrage
+  précis : dans le quantitatif d'un poste de la fiche prospect (seulement là,
+  `Quantitatif` prop `plan`), une ligne prend sa quantité dans le plan de la
+  visite (`l.regle` : grandeur et pièces, `qtePlan`, `planDuProspect`) ;
+  « Mettre à jour depuis le plan » ne touche que ces lignes ; une quantité
+  tapée retire la règle. Installation :
   `supabase/releve/schema.sql`. Tests : `t_releve_*.js`,
   `releve*_navigateur.js` (scan fictif `tests/releve_scan_fictif.js`).
 - **Plan électrique** : le DQE (quantitatif du marché « Électricité », ou un

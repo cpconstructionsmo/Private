@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Relevé de visite : fourchette de prix pendant la visite ; PV signé à glisser-déposer, fin de mission sans DOE';
+const VERSION='2026-11-18 · Chiffrage précis : quantités des postes tirées du plan de la visite';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -11873,7 +11873,7 @@ function AvoirMarche({f,m,data,save}){
    Le principe du serveur d'Hexaom : on ne retape pas un montant, on saisit des
    quantités en face d'articles dont le prix est déjà négocié, et le marché en
    découle. Le montant HT du lot n'est plus une saisie mais un résultat. */
-function Quantitatif({data,f,setF,save,champ}){
+function Quantitatif({data,f,setF,save,champ,plan}){
   const champMontant=champ||'montantHT';
   const [ouvert,setOuvert]=useState(false);
   const [choix,setChoix]=useState('');
@@ -11904,6 +11904,16 @@ function Quantitatif({data,f,setF,save,champ}){
   const recale=(p,lignes)=>({...p,quantitatif:{...p.quantitatif,lignes},
     [champMontant]:quantitatifNet(lignes,remisePct(p))});
   const majL=(id,k,v)=>setF(p=>recale(p,p.quantitatif.lignes.map(l=>l.id===id?{...l,[k]:v}:l)));
+  /* quantité tapée : elle ne suit plus le plan (la règle est retirée), et ne sera jamais remplacée */
+  const majQt=(id,v)=>setF(p=>recale(p,p.quantitatif.lignes.map(l=>{if(l.id!==id)return l;const {regle,...x}=l;return {...x,qt:v}})));
+  /* quantité réglée sur le plan de la visite (fiche prospect seulement) */
+  const reglerPlan=(id,regle)=>setF(p=>recale(p,p.quantitatif.lignes.map(l=>{
+    if(l.id!==id)return l;
+    if(!regle){const {regle:r,...x}=l;return x}
+    const v=qtePlan(regle,plan&&plan.pieces);
+    return {...l,regle,qt:v===null?l.qt:signeQt(l)*v};
+  })));
+  const suivrePlan=()=>setF(p=>recale(p,appliquerPlanLignes(p.quantitatif.lignes,plan)));
   const majRemise=v=>setF(p=>({...p,remisePct:v===''?'':+v,
     montantHT:quantitatifNet((p.quantitatif||{}).lignes,v===''?0:+v)}));
   const neuveLigne=type=>type==='article'
@@ -11999,6 +12009,13 @@ function Quantitatif({data,f,setF,save,champ}){
       <span className="mut">%</span>
       {r>0&&<span className="mut">— {eurc(brut)} moins {eurc(Math.round(brut*r)/100)} = <b style={{color:NAVY}}>{eurc(net)}</b></span>}
     </div>
+    {plan&&<div className="xs plan-visite" style={{marginBottom:8,padding:'6px 10px',borderRadius:6,background:NAVY+'10',lineHeight:1.5}}>
+      📐 Plan de la visite{plan.le?' du '+fd(plan.le.slice(0,10)):''} ({plan.intitule}) : {plan.pieces.length} pièce{plan.pieces.length>1?'s':''}
+      {plan.surface?', '+String(plan.surface).replace('.',',')+' m²':''}. Dans une ligne, « + » puis « Quantité depuis le plan ».
+      {(()=>{const n=lignesPlanEnRetard(lignes,plan).length;
+        return n?<button className="btn acc s" style={{marginLeft:6}} onClick={suivrePlan}>
+          Mettre à jour depuis le plan ({n} ligne{n>1?'s':''})</button>:null})()}
+    </div>}
     {ouvert&&<div>
       {servies.length>0&&<label className="xs mut row" style={{gap:6,marginBottom:6,alignItems:'center'}}>
         <input type="checkbox" checked={servisSeuls} onChange={e=>setServisSeuls(e.target.checked)}/>
@@ -12062,10 +12079,12 @@ function Quantitatif({data,f,setF,save,champ}){
                   onClick={()=>{if(+l.qt)majL(l.id,'qt',-(+l.qt))}}>
                   {ligneQt(l)<0?'−':'+'}
                 </button>
+                {plan&&l.regle&&<span className="regle-plan" title={'D’après le plan : '+((GRANDEURS_PLAN.find(g=>g[0]===l.regle.grandeur)||[])[1]||'')+' — '+libellePiecesRegle(l.regle,plan)}
+                  style={{fontSize:12,color:NAVY}}>📐</span>}
                 <input className="in" type="number" step="0.001" placeholder="Qté" aria-label={'Quantité — '+(l.libelle||l.code)}
                   style={{padding:'3px 6px',fontSize:12,width:76,textAlign:'right'}}
                   value={l.qt===''||l.qt===undefined?'':Math.abs(l.qt)}
-                  onChange={e=>majL(l.id,'qt',e.target.value===''?'':(ligneQt(l)<0?-1:1)*Math.abs(+e.target.value))}/>
+                  onChange={e=>majQt(l.id,e.target.value===''?'':(ligneQt(l)<0?-1:1)*Math.abs(+e.target.value))}/>
                 <span style={{minWidth:84,display:'inline-block',textAlign:'right'}}>
                   <span className="b" style={{color:ligneQt(l)<0?TERRA:(ligneQt(l)?INK:MUTED)}}>{ligneQt(l)?eurc(lignePT(l)):'—'}</span>
                   {/* la quantité s'écrit au millième, comme sur le marché imprimé */}
@@ -12090,6 +12109,25 @@ function Quantitatif({data,f,setF,save,champ}){
                   <input className="in" type="number" step="0.01" style={{padding:'4px 6px',fontSize:12,width:'100%',textAlign:'right'}}
                     value={l.pu===''||l.pu===undefined?'':l.pu} onChange={e=>majL(l.id,'pu',e.target.value===''?'':+e.target.value)}/></span>
               </div>
+              {plan&&<div className="quantite-plan" style={{marginTop:8}}>
+                <div className="lbl">QUANTITÉ DEPUIS LE PLAN DE LA VISITE</div>
+                <select className="in" style={{padding:'4px 6px',fontSize:12}} value={(l.regle&&l.regle.grandeur)||''}
+                  aria-label={'Quantité depuis le plan — '+(l.libelle||l.code)}
+                  onChange={e=>reglerPlan(l.id,e.target.value?{grandeur:e.target.value,pieces:(l.regle&&l.regle.pieces)||[]}:null)}>
+                  <option value="">— saisie à la main —</option>
+                  {GRANDEURS_PLAN.map(([k,t])=><option key={k} value={k}>{t}</option>)}
+                </select>
+                {l.regle&&<div className="row" style={{gap:4,marginTop:6,flexWrap:'wrap'}}>
+                  <button type="button" className={'btn s '+(!(l.regle.pieces||[]).length?'acc':'gh')}
+                    onClick={()=>reglerPlan(l.id,{...l.regle,pieces:[]})}>Toute la maison</button>
+                  {plan.pieces.map(x=>{const on=(l.regle.pieces||[]).includes(x.id);
+                    return <button key={x.id} type="button" className={'btn s '+(on?'acc':'gh')}
+                      onClick={()=>reglerPlan(l.id,{...l.regle,pieces:on?l.regle.pieces.filter(y=>y!==x.id):[...(l.regle.pieces||[]),x.id]})}>{x.nom}</button>})}
+                </div>}
+                <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>
+                  {l.regle?'Quantité : '+nb3(qtePlan(l.regle,plan.pieces))+' — elle suivra le plan ; une quantité tapée à la main l’arrête.'
+                    :'Choisissez une grandeur : la quantité vient du plan, pour toute la maison ou les pièces choisies.'}</div>
+              </div>}
               <div className="row" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
                 <button className="btn gh s" onClick={()=>{setDetail('');insererApres(l.id,'note')}}>+ Précision dessous</button>
                 <button className="btn gh s" onClick={()=>{setDetail('');insererApres(l.id,'titre')}}>+ Intertitre dessus</button>
@@ -26369,6 +26407,37 @@ function visitesARattacher(resumes,prospects,ignorees){
   return (resumes||[]).filter(r=>!ign.has(r.id)&&!P.some(p=>(p.visites||[]).some(x=>x.id===r.id))
     &&!(r.prospectId&&P.some(p=>p.id===r.prospectId)));
 }
+/* ---------- chiffrage précis : quantités tirées du plan (Phase 2, mode B) ----------
+   Une ligne d'article d'un poste de chiffrage peut prendre sa quantité dans
+   le plan de la visite du prospect : une grandeur (sol, murs, périmètre,
+   portes, fenêtres, pièces) sur toute la maison ou sur les pièces choisies.
+   La règle est gardée sur la ligne (l.regle) pour la remettre à jour quand
+   le plan change ; une quantité tapée à la main retire la règle : elle
+   n'est plus jamais remplacée. Le signe (moins-value) est conservé.
+   Tests : t_releve_chiffrage.js. */
+const GRANDEURS_PLAN=[['sol','Surface de sol (m²)'],['murs','Surface de murs, ouvertures déduites (m²)'],
+  ['perimetre','Périmètre des murs (ml)'],['portes','Nombre de portes'],['fenetres','Nombre de fenêtres'],['pieces','Nombre de pièces']];
+function qtePlan(regle,pieces){
+  if(!regle||!regle.grandeur||!Array.isArray(pieces)||!pieces.length)return null;
+  const choix=regle.pieces||[], P=pieces.filter(x=>!choix.length||choix.includes(x.id));
+  if(regle.grandeur==='pieces')return P.length;
+  return Math.round(P.reduce((t,x)=>t+(+x[regle.grandeur]||0),0)*100)/100;
+}
+/* le plan le plus récent parmi les visites du prospect */
+function planDuProspect(p,resumes){
+  const V=visitesDuProspect(p,resumes).filter(r=>r.plan&&Array.isArray(r.plan.detail)&&r.plan.detail.length)
+    .sort((a,b)=>(b.majLe||'').localeCompare(a.majLe||''));
+  const r=V[0];
+  return r?{visiteId:r.id,intitule:visiteIntitule(r),le:r.creeLe,pieces:r.plan.detail,surface:r.plan.surface}:null;
+}
+const signeQt=l=>(+(l&&l.qt)||0)<0?-1:1;
+const regleQt=(l,plan)=>{const v=qtePlan(l&&l.regle,plan&&plan.pieces);return v===null?null:signeQt(l)*v};
+/* les lignes réglées sur le plan dont la quantité ne suit plus le plan */
+const lignesPlanEnRetard=(lignes,plan)=>(lignes||[]).filter(l=>l.regle&&regleQt(l,plan)!==null&&Math.abs(regleQt(l,plan)-(+l.qt||0))>0.001);
+const appliquerPlanLignes=(lignes,plan)=>(lignes||[]).map(l=>{const v=l.regle?regleQt(l,plan):null;return v===null?l:{...l,qt:v}});
+const libellePiecesRegle=(regle,plan)=>{const ids=(regle&&regle.pieces)||[];
+  return ids.length?((plan&&plan.pieces)||[]).filter(x=>ids.includes(x.id)).map(x=>x.nom).join(', '):'toute la maison'};
+
 /* les visites, lues dans leur table (rien si elle n'est pas encore installée).
    Quoi qu'il arrive à cette lecture (table absente, réseau, réponse
    inattendue), le reste du suivi s'affiche : seul le bloc des visites
@@ -26986,6 +27055,8 @@ function FicheProspect({p,data,save,maj,back,onModifier,onTransformer}){
    du projet (prospectPostesHT s'en charge). */
 function PostesChiffrage({data,save,p,postes,onChange,options}){
   const L=postes||[];
+  /* le plan de la visite du prospect : les quantités des lignes peuvent en venir */
+  const visitesP=useVisitesReleve(), planP=visitesP.etat==='ok'&&p?planDuProspect(p,visitesP.liste):null;
   const set=(id,d)=>onChange(L.map(x=>x.id===id?{...x,...d}:x));
   const setPoste=(id,fn)=>onChange(L.map(x=>x.id===id?(typeof fn==='function'?fn(x):fn):x));
   const dl=options?'pcorpsopt':'pcorps';
@@ -27190,7 +27261,7 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
         <span>%</span>
         <button className="btn gh s" disabled={!(+x.majPct)} onClick={()=>appliquerMajPoste(x.id)}>Appliquer</button>
       </div>
-      <Quantitatif data={data} f={x} setF={fn=>setPoste(x.id,fn)} save={save} champ="montant"/>
+      <Quantitatif data={data} f={x} setF={fn=>setPoste(x.id,fn)} save={save} champ="montant" plan={planP}/>
     </div>)}
     <datalist id={dl}>{CORPS_CHIFFRAGE.map(c=><option key={c} value={c}/>)}</datalist>
     <div className="row" style={{gap:10,alignItems:'center',marginTop:4,flexWrap:'wrap'}}>

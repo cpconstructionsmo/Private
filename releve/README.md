@@ -50,8 +50,21 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   « Visites » de la fiche prospect et la reprend dans la demande d'un
   prospect créé depuis la visite.
 
-À venir : chiffrage précis depuis le plan (Phase 2, mode B), « Imaginer »,
-lecture des notes manuscrites par une fonction du serveur.
+## Le chiffrage précis depuis le plan (Phase 2, mode B, 1re livraison)
+
+- Dans le suivi, fiche prospect › « 3. Votre chiffrage » › un poste détaillé
+  depuis un bordereau (onglet PRIX) : le plan de la visite du prospect est
+  annoncé au-dessus du quantitatif. Dans une ligne (« + »), « Quantité
+  depuis le plan de la visite » : surface de sol, surface de murs
+  (ouvertures déduites), périmètre, portes, fenêtres ou pièces, pour toute
+  la maison ou les pièces choisies. Le montant du poste suit.
+- La règle reste sur la ligne : si le plan change (mesures reprises au
+  mètre), « Mettre à jour depuis le plan » remet ces lignes à jour, et elles
+  seules. Une quantité tapée à la main n'est jamais remplacée.
+- Les lots des marchés (onglet MARCHÉS) ne changent pas.
+
+À venir : devis client en PDF (sans marge) et Excel interne, TVA par poste,
+« Imaginer », lecture des notes manuscrites par une fonction du serveur.
 
 ## Le moteur de relevé (`moteur/`, Phase 1 étape 2)
 
@@ -111,8 +124,8 @@ d'accueil ». L'icône « Relevé CP » ouvre la page en plein écran.
 
 `tests/t_releve_modele.js`, `tests/t_releve_synchro.js`,
 `tests/t_releve_convertisseur.js`, `tests/t_releve_rattachement.js`,
-`tests/t_releve_budget.js` (Node) et
+`tests/t_releve_budget.js`, `tests/t_releve_chiffrage.js` (Node) et
 `tests/releve_navigateur.js`, `tests/releve_plan_navigateur.js`,
-`tests/releve_rattachement_navigateur.js`, `tests/releve_budget_navigateur.js` (Chromium, faux Supabase, format iPhone,
+`tests/releve_rattachement_navigateur.js`, `tests/releve_budget_navigateur.js`, `tests/releve_chiffrage_navigateur.js` (Chromium, faux Supabase, format iPhone,
 scan fictif `tests/releve_scan_fictif.js`).
 Aucune donnée réelle dans les tests.
