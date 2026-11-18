@@ -188,6 +188,25 @@ qu'on ait à les redire.
   gardent le marché signé (`marcheAvoirsHT` rajouté). Une prestation
   retirée à la demande du client passe plutôt par un avenant client en
   moins-value. Tests : `t_avoir_solde.js`.
+- **Glisser-déposer** (`ZoneDepot`) : une facture se glisse sur sa zone
+  (volet de la facture : « Importer la facture », « Remplacer »), plusieurs
+  sur « Lire des factures », et tout fichier sur la carte de sa pièce
+  (PIÈCES). Un fichier lâché à côté d'une zone n'ouvre rien (le navigateur
+  aurait remplacé l'application). Tests : `t_dossier_assureur.js`,
+  `dossier_assureur_navigateur.js`.
+- **Dossier de fin de chantier pour l'assureur** (PIÈCES › Achèvement,
+  pièce `dossier_assureur`, `DossierAssureur`) : toutes les factures
+  (entreprises, achats, maîtrise d'œuvre ; une facture répartie une seule
+  fois), les fichiers des pièces « PV de réception » et « DAACT », par
+  famille cochée (`dossierAssureurDonnees`). Ce qui manque est dit sans
+  bloquer (facture sans fichier, lot sans PV, DAACT, lot non soldé). Le
+  ZIP (`dossierAssureurZip` : noms UTF-8, vraie extension, bordereau des
+  pièces, illisibles nommés) se télécharge d'un vrai lien, pour
+  WeTransfer ; le message (`dossierAssureurMail` : pièces, réception, coût
+  définitif facturé HT et TTC, lien collé) se copie ou s'ouvre dans la
+  messagerie. Assureur, e-mail, n° de contrat, lien et date d'envoi :
+  `ch.dossierAssureur`. Tests : `t_dossier_assureur.js`,
+  `dossier_assureur_navigateur.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR

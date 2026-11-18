@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Avoirs des entreprises : déduits du marché en un clic, le lot se solde';
+const VERSION='2026-11-18 · Factures à glisser-déposer ; dossier de fin de chantier pour l’assureur (ZIP + message)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -346,6 +346,7 @@ const DOCS_GROUPES=[
     {id:'attest',l:'Attestation RE2020 fin de travaux',pour:'neuf'},
     {id:'pv',l:'PV de réception'},
     {id:'fin_mission',l:'Attestation de fin de mission de maîtrise d\u2019œuvre'},
+    {id:'dossier_assureur',l:'Dossier de fin de chantier pour l\u2019assureur (dommages-ouvrage)'},
   ]},
 ];
 const DOCS=DOCS_GROUPES.flatMap(g=>g.items);
@@ -4098,6 +4099,161 @@ async function genererFinMissionDocx(d,images){
     extra.length?extra:undefined,{entete:PV_ENTETE_VIDE,pied:piedDocCpXml(d.dossier,'Attestation de fin de mission',d.faitLe)});
 }
 const finMissionNomFichier=d=>('Attestation de fin de mission — '+(d.dossier||'chantier')).replace(/[\\/:*?"<>|]/g,'-')+'.docx';
+
+/* ---------- le dossier de fin de chantier pour l'assureur ----------
+   Pour clore le dossier dommages-ouvrage, l'assureur demande de quoi arrêter
+   le coût définitif de l'opération : toutes les factures, les PV de réception,
+   la DAACT. Le dossier les reprend de ce qui est enregistré sur le chantier
+   (rien d'inventé), dit ce qui manque sans bloquer, et sort un ZIP — trop
+   lourd pour un mail, il part par WeTransfer, par exemple — avec le message
+   prêt à copier. Une facture répartie sur plusieurs lots n'y est qu'une fois. */
+const DOSSIER_ASSUREUR_GROUPES=[
+  {id:'marches',l:'Factures des entreprises',dossier:'1 - Factures des entreprises'},
+  {id:'achats',l:'Factures d’achats de matériaux',dossier:'2 - Factures d’achats de matériaux'},
+  {id:'honoraires',l:'Factures de maîtrise d’œuvre',dossier:'3 - Factures de maîtrise d’œuvre'},
+  {id:'pv',l:'PV de réception (pièce « PV de réception »)',dossier:'4 - PV de réception'},
+  {id:'daact',l:'DAACT (pièce « DAACT »)',dossier:'5 - DAACT'},
+];
+const dossierAssureurDe=ch=>{
+  const s=(ch&&ch.dossierAssureur)||{};
+  const groupes={};for(const g of DOSSIER_ASSUREUR_GROUPES)groupes[g.id]=true;
+  return {assureur:'',email:'',police:'',lienTransfert:'',envoyeLe:'',...s,groupes:{...groupes,...(s.groupes||{})}};
+};
+/* un nom de fichier ou de dossier que tous les systèmes acceptent */
+const nomZip=v=>String(v||'').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'-').replace(/\s+/g,' ').trim().slice(0,110)||'sans nom';
+const eurCentimes=c=>eurc(c/100);
+function dossierAssureurDonnees(ch,data,da){
+  da=da||dossierAssureurDe(ch);
+  const art=id=>((data&&data.artisans)||[]).find(a=>a.id===id)||null;
+  const ms=((data&&data.marches)||[]).filter(m=>m.chantierId===ch.id);
+  const cs=((data&&data.commandes)||[]).filter(c=>c.chantierId===ch.id);
+  const fichiers=[], manquants=[], nonSoldes=[];
+  const tot={marches:{ht:0,ttc:0,n:0},achats:{ht:0,ttc:0,n:0},honoraires:{ht:0,ttc:0,n:0}};
+  const facture=(groupe,f,sousDossier,qui,ttc,montant)=>{
+    const ht=centimes(montant!==undefined?montant:f.montant);
+    tot[groupe].ht+=ht;tot[groupe].ttc+=centimes(ttc);tot[groupe].n++;
+    const titre='Facture'+(f.numero?' '+f.numero:'')+(ht<0?' (avoir)':'')+' — '+qui;
+    const base=[f.date||'',f.numero?'n° '+f.numero:'',ht<0?'avoir':'facture',eurCentimes(ht).replace(/\s/g,' ')+' HT'].filter(Boolean).join(' ');
+    if(f.lien)fichiers.push({groupe,dossier:sousDossier,base,titre,lien:f.lien,nom:''});
+    else manquants.push({groupe,texte:titre+(f.date?' du '+fd(f.date):'')+' ('+eurCentimes(ht)+' HT) : fichier non déposé'});
+  };
+  /* une facture répartie : une seule fois, pour son total, sur le premier lot */
+  const reparties=new Set();
+  for(const m of ms){
+    const a=art(m.artisanId), qui=(m.lot||'lot')+' — '+((a&&a.nom)||'entreprise');
+    const dossier=nomZip(qui);
+    for(const f of (m.factures||[])){
+      if(f.repartition){
+        if(reparties.has(f.repartition.id))continue;
+        reparties.add(f.repartition.id);
+        const parts=ms.flatMap(x=>(x.factures||[]).filter(y=>y.repartition&&y.repartition.id===f.repartition.id).map(y=>({x,y})));
+        const ttc=parts.reduce((s,p)=>s+factureTTC(p.y,p.x,ch),0);
+        facture('marches',f,dossier,qui+' (répartie sur '+parts.map(p=>p.x.lot).join(', ')+')',
+          f.repartition.totalTTC||ttc,f.repartition.totalHT);
+      }
+      else facture('marches',f,dossier,qui,factureTTC(f,m,ch));
+    }
+    if(marcheSigne(m)&&!marcheSolde(m)){
+      const reste=centimes(m.montantHT)-centimes(facturesTotal(m.factures));
+      if(reste>=centimes(SOLDE_ARRONDI))nonSoldes.push({lot:qui,reste:reste/100});
+    }
+  }
+  for(const c of cs){
+    const qui=(c.fournisseur||'fournisseur')+(c.libelle?' — '+c.libelle:'');
+    for(const f of (c.factures||[]))facture('achats',f,nomZip(qui),qui,factureTTC(f,c,ch));
+  }
+  for(const f of ((ch&&ch.honoFactures)||[]))
+    facture('honoraires',f,'',CP.nom,(+f.montant||0)*(1+honoFactTva(f,ch)/100));
+  const docs=(ch&&ch.docs)||{};
+  for(const x of fichiersDe(docs.pv||{}))fichiers.push({groupe:'pv',dossier:'',base:x.nom,titre:x.nom,lien:x.lien,nom:x.nom});
+  for(const x of fichiersDe(docs.daact||{}))fichiers.push({groupe:'daact',dossier:'',base:x.nom,titre:x.nom,lien:x.lien,nom:x.nom});
+  /* les lots signés dont le PV n'a pas été produit depuis l'application */
+  const sansPv=ms.filter(m=>marcheSigne(m)&&!(pvDe(ch,m.id).genere));
+  if(sansPv.length)manquants.push({groupe:'pv',texte:'PV de réception non produit pour : '+sansPv.map(m=>m.lot||'lot sans intitulé').join(', ')
+    +' (un PV signé déposé dans la pièce « PV de réception » part quand même)'});
+  if(!fichiersDe(docs.pv||{}).length)manquants.push({groupe:'pv',texte:'Aucun fichier dans la pièce « PV de réception »'});
+  if(!fichiersDe(docs.daact||{}).length)manquants.push({groupe:'daact',texte:'DAACT non déposée (PIÈCES › Achèvement › DAACT)'});
+  /* les dates de réception, pour le message */
+  const recus=ms.filter(marcheSigne).map(m=>{const p=pvDe(ch,m.id);return p.genere?(p.dateEffet||p.faitLe||''):''}).filter(Boolean).sort();
+  const choisi=g=>da.groupes[g]!==false;
+  const garde=fichiers.filter(x=>choisi(x.groupe));
+  const total={ht:0,ttc:0};
+  for(const g of ['marches','achats','honoraires'])if(choisi(g)){total.ht+=tot[g].ht;total.ttc+=tot[g].ttc}
+  return {dossier:ch.nom||'',adresse:ch.adresse||'',maitreOuvrage:pvMaitreOuvrage(ch,data),
+    fichiers:garde,tous:fichiers,manquants:manquants.filter(x=>choisi(x.groupe)),nonSoldes,tot,total,recus,
+    compte:g=>garde.filter(x=>x.groupe===g).length,choisi};
+}
+const dossierAssureurNomZip=d=>nomZip('Dossier de fin de travaux — '+(d.dossier||'chantier'))+'.zip';
+const dossierAssureurObjet=(d,da)=>'Dossier de fin de travaux — '+(d.dossier||'chantier')+(da.police?' — contrat dommages-ouvrage n° '+da.police:'');
+function dossierAssureurMail(d,da){
+  const n=g=>d.compte(g), pl=(k,s)=>k+' '+s+(k>1?'s':'');
+  const r=d.recus;
+  const recep=!r.length?'':r.length===1||r[0]===r[r.length-1]?' et réceptionnés le '+fd(r[0])
+    :' et réceptionnés entre le '+fd(r[0])+' et le '+fd(r[r.length-1]);
+  const pieces=[];
+  if(d.choisi('daact')&&n('daact'))pieces.push('la déclaration attestant l’achèvement et la conformité des travaux (DAACT)');
+  if(d.choisi('pv')&&n('pv'))pieces.push('les procès-verbaux de réception ('+pl(n('pv'),'fichier')+')');
+  const fac=[['marches','des entreprises'],['achats','des achats de matériaux'],['honoraires','de maîtrise d’œuvre']]
+    .filter(([g])=>d.choisi(g)&&n(g)).map(([g,l])=>l+' ('+n(g)+')');
+  if(fac.length)pieces.push('les factures '+(fac.length>1?fac.slice(0,-1).join(', ')+' et '+fac[fac.length-1]:fac[0]));
+  const ligne=(g,l)=>d.choisi(g)&&d.tot[g].n?'\n- '+l+' : '+eurCentimes(d.tot[g].ht)+' HT, soit '+eurCentimes(d.tot[g].ttc)+' TTC':'';
+  const cout=d.total.ht||d.total.ttc?'\n\nCoût définitif de l’opération (montants facturés) : '+eurCentimes(d.total.ht)+' HT, soit '+eurCentimes(d.total.ttc)+' TTC'
+    +ligne('marches','travaux des entreprises')+ligne('achats','matériaux achetés en direct')+ligne('honoraires','maîtrise d’œuvre'):'';
+  return 'Madame, Monsieur,'
+    +'\n\nLes travaux de l’opération « '+(d.dossier||'chantier')+' »'+(d.adresse?', '+d.adresse:'')
+    +(d.maitreOuvrage?' (maître d’ouvrage : '+d.maitreOuvrage+')':'')+', sont achevés'+recep+'.'
+    +'\n\nAfin de finaliser le dossier d’assurance dommages-ouvrage'+(da.police?' n° '+da.police:'')
+    +', nous vous transmettons l’ensemble des pièces de fin de chantier'+(pieces.length?' :\n'+pieces.map(x=>'- '+x).join(' ;\n')+'.':'.')
+    +cout
+    +'\n\n'+(String(da.lienTransfert||'').trim()?'Les pièces sont à télécharger ici : '+String(da.lienTransfert).trim()
+      :'Les pièces vous parviennent par WeTransfer, le dossier dépassant la taille d’un mail.')
+    +' Un bordereau des pièces est joint au dossier.'
+    +'\n\nNous restons à votre disposition pour tout complément.'
+    +'\n\nCordialement,\n'+signatureTexte();
+}
+/* l'extension d'un fichier repris du Drive : celle de son nom, sinon celle
+   que disent ses premiers octets (une facture déposée en photo reste une photo) */
+const extDepuisOctets=o=>{
+  if(o&&o.length>4&&o[0]===0x25&&o[1]===0x50&&o[2]===0x44&&o[3]===0x46)return 'pdf';
+  if(o&&o.length>4&&o[0]===0x50&&o[1]===0x4b&&o[2]===3&&o[3]===4)return 'docx';
+  const d=o&&dimensionsImage(o);
+  return d?(d.ext==='jpeg'?'jpg':d.ext):'';
+};
+async function dossierAssureurZip(d,token,progres){
+  const entrees=[], illisibles=[], pris=new Set(), lus=new Map();
+  const unique=chemin=>{let c=chemin,i=2;while(pris.has(c.toLowerCase()))c=chemin.replace(/(\.[^./]+)?$/,m=>' ('+(i++)+')'+m);pris.add(c.toLowerCase());return c};
+  let fait=0;
+  for(const x of d.fichiers){
+    const g=DOSSIER_ASSUREUR_GROUPES.find(y=>y.id===x.groupe);
+    const id=driveIdDepuisLien(x.lien);
+    try{
+      if(!id)throw new Error('lien hors du Drive');
+      const o=lus.get(id)||await driveFichierBytes(token,id);
+      lus.set(id,o);
+      const extNom=(String(x.nom||'').match(/\.([a-z0-9]{2,5})$/i)||[])[1];
+      const ext=extNom?'':(extDepuisOctets(o)||'pdf');
+      const nom=nomZip(String(x.base||'').replace(/\.[a-z0-9]{2,5}$/i,''))+'.'+(extNom||ext).toLowerCase();
+      entrees.push({nom:unique([g.dossier,x.dossier,nom].filter(Boolean).map(nomZip).join('/')),data:o,x});
+    }catch(e){
+      if(e&&e.error==='auth_required')throw e;
+      illisibles.push({...x,raison:(e&&e.message)||String(e)});
+    }
+    if(progres)progres(++fait,d.fichiers.length);
+  }
+  const L=['Dossier de fin de travaux — '+(d.dossier||'chantier'),d.adresse,'Bordereau des pièces — '+fd(today()),''];
+  for(const g of DOSSIER_ASSUREUR_GROUPES){
+    const E=entrees.filter(e=>e.x.groupe===g.id);
+    if(!E.length)continue;
+    L.push(g.dossier);
+    for(const e of E)L.push('  '+e.nom.split('/').slice(1).join(' / '));
+    L.push('');
+  }
+  if(d.total.ht||d.total.ttc)L.push('Coût définitif (montants facturés) : '+eurCentimes(d.total.ht)+' HT — '+eurCentimes(d.total.ttc)+' TTC','');
+  if(illisibles.length){L.push('Pièces non jointes (illisibles sur le Drive) :');for(const x of illisibles)L.push('  '+x.titre);L.push('')}
+  const bordereau=new TextEncoder().encode(L.join('\r\n'));
+  const tout=[{nom:'0 - Bordereau des pièces.txt',data:bordereau},...entrees.map(e=>({nom:e.nom,data:e.data}))];
+  return {octets:zipEcrire(tout,{utf8:true}),n:entrees.length,illisibles,noms:entrees.map(e=>e.nom)};
+}
 
 /* ---------- avenant au marché de travaux ----------
    Une prestation ajoutée ou supprimée après la mise au point technique, avant
@@ -8490,17 +8646,20 @@ function zipReecrire(buf,remplacements){
 }
 
 /* fabrique un ZIP de toutes pièces, entrées non compressées */
-function zipEcrire(entrees){
+function zipEcrire(entrees,opt){
   const enc=new TextEncoder();
+  /* des noms accentués (« Plâtrerie », « Maîtrise d’œuvre ») : le drapeau 11
+     dit qu'ils sont en UTF-8, sans quoi le Mac les ouvre en caractères cassés */
+  const drapeau=opt&&opt.utf8?0x0800:0;
   const u16=v=>[v&255,(v>>8)&255], u32=v=>[v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255];
   const morceaux=[], central=[];
   let offset=0;
   for(const {nom,data} of entrees){
     const n=enc.encode(nom), crc=CRC32(data);
-    const lfh=[...u32(0x04034b50),...u16(20),...u16(0),...u16(0),...u16(0),...u16(0),
+    const lfh=[...u32(0x04034b50),...u16(20),...u16(drapeau),...u16(0),...u16(0),...u16(0),
       ...u32(crc),...u32(data.length),...u32(data.length),...u16(n.length),...u16(0)];
     morceaux.push(new Uint8Array(lfh),n,data);
-    central.push([...u32(0x02014b50),...u16(20),...u16(20),...u16(0),...u16(0),...u16(0),...u16(0),
+    central.push([...u32(0x02014b50),...u16(20),...u16(20),...u16(drapeau),...u16(0),...u16(0),...u16(0),
       ...u32(crc),...u32(data.length),...u32(data.length),...u16(n.length),...u16(0),...u16(0),
       ...u16(0),...u16(0),...u32(0),...u32(offset),...Array.from(n)]);
     offset+=lfh.length+n.length+data.length;
@@ -9489,6 +9648,40 @@ const Poignee=({onPointerDown,titre})=><button
     border:'1px solid '+RULE,background:'transparent',color:MUTED,fontSize:13,
     lineHeight:'24px',cursor:'grab',touchAction:'none'}}>⠿</button>;
 
+/* ---------- déposer un fichier en le glissant ----------
+   Une facture, un PV, un scan : glissé depuis le Finder, un mail ou un
+   logiciel de comptabilité, ou choisi d'un clic (téléphone). La zone se
+   colore au survol. « lien » la réduit à un mot dans une phrase
+   (« Remplacer »), qui reçoit aussi le fichier glissé. */
+function ZoneDepot({onFiles,accept,multiple,titre,aide,occupe,label,lien,style}){
+  const [survol,setSurvol]=useState(false);
+  const deposer=fs=>{const L=[...(fs||[])];if(!L.length||occupe)return;onFiles(multiple?L:L.slice(0,1))};
+  const glisse={
+    onDragOver:e=>{e.preventDefault();e.stopPropagation();if(!survol)setSurvol(true)},
+    onDragLeave:()=>setSurvol(false),
+    onDrop:e=>{e.preventDefault();e.stopPropagation();setSurvol(false);deposer(e.dataTransfer&&e.dataTransfer.files)},
+  };
+  const champ=<input type="file" multiple={!!multiple} accept={accept} style={{display:'none'}} disabled={!!occupe}
+    onChange={e=>{const l=[...e.target.files];e.target.value='';deposer(l)}}/>;
+  if(lien)return <label aria-label={label||titre} {...glisse} style={{color:NAVY,cursor:occupe?'wait':'pointer',borderRadius:4,
+    outline:survol?'2px dashed '+TERRA:'none',background:survol?'#FBEFEA':'transparent',padding:survol?'0 4px':0,...style}}>{titre}{champ}</label>;
+  return <label aria-label={label||titre} {...glisse}
+    style={{display:'block',padding:'12px 10px',borderRadius:8,textAlign:'center',cursor:occupe?'wait':'pointer',
+      border:'2px dashed '+(survol?TERRA:RULE),background:survol?'#FBEFEA':'transparent',...style}}>
+    <div className="xs b" style={{color:NAVY}}>{titre}</div>
+    <div className="xs mut" style={{marginTop:2}}>{aide||'Glissez le fichier ici, ou cliquez pour le choisir'}</div>
+    {champ}
+  </label>;
+}
+/* un fichier lâché à côté d'une zone : le navigateur l'ouvrirait à la place
+   de l'application (et la saisie en cours serait perdue). Hors des zones,
+   le dépôt d'un fichier ne fait donc rien. */
+if(typeof window!=='undefined'&&window&&typeof window.addEventListener==='function'){
+  const fichiersGlisses=e=>{try{return [...((e.dataTransfer&&e.dataTransfer.types)||[])].includes('Files')}catch(x){return false}};
+  window.addEventListener('dragover',e=>{if(fichiersGlisses(e))e.preventDefault()});
+  window.addEventListener('drop',e=>{if(fichiersGlisses(e))e.preventDefault()});
+}
+
 const Plus=({actif,onClick,titre})=><button title={titre} aria-label={titre} aria-expanded={!!actif}
   onClick={e=>{e.stopPropagation();onClick()}}
   style={{width:20,height:20,lineHeight:'18px',padding:0,borderRadius:5,flex:'0 0 auto',
@@ -9817,13 +10010,12 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
           {f.lien
             ?<div className="row xs" style={{gap:10,alignItems:'center',flexWrap:'wrap'}}><Transmis/>
               <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir la facture</a>
-              <label style={{color:NAVY,cursor:'pointer'}}>Remplacer
-                <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
-                  onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label></div>
+              <ZoneDepot lien titre="Remplacer" label="Remplacer la facture" accept={DOC_ACCEPT+',image/*'}
+                onFiles={([x])=>onLien(f.id,x)}/></div>
             :<div>
-              <label className="xs" style={{color:NAVY,cursor:'pointer'}}>Importer la facture — elle part sur le Drive
-                <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
-                  onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label>
+              <ZoneDepot titre="Importer la facture" label="Importer la facture" accept={DOC_ACCEPT+',image/*'}
+                aide="Glissez-la ici, ou cliquez pour la choisir — elle part sur le Drive"
+                onFiles={([x])=>onLien(f.id,x)}/>
               {(visa&&visa.artisan||envoiClient)&&<div className="xs" style={{marginTop:4,color:AMBER,lineHeight:1.5}}>
                 Le fichier de cette facture n’est pas déposé : importez-le pour pouvoir {visa&&visa.artisan?'la viser et l’envoyer':'l’envoyer'} au client
                 {f.repartition?' (il servira à tous les lots de la facture)':''}.</div>}
@@ -13838,9 +14030,9 @@ function LireFactures({data,ch,save,close}){
           (charpente et couverture, par exemple) : rangez-la sur l'un d'eux pour son total, puis
           « Répartir sur plusieurs lots » depuis son « + ».
         </div>
-        <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des factures (PDF ou Word)'}
-          <input type="file" accept={DOC_ACCEPT} multiple style={{display:'none'}} disabled={!!busy}
-            onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)lire(fs)}}/></label>
+        <ZoneDepot multiple accept={DOC_ACCEPT} occupe={!!busy} label="Choisir des factures"
+          titre={busy||'Choisir des factures (PDF ou Word)'}
+          aide="Glissez-les ici (plusieurs à la fois), ou cliquez pour les choisir" onFiles={fs=>lire(fs)}/>
       </div>}
     {!!scans.length&&<div className="xs" style={{marginTop:10,background:'#FBF3DF',color:'#6A4E06',borderLeft:'3px solid '+AMBER,padding:8,lineHeight:1.5}}>
       {scans.length} facture{scans.length>1?'s':''} n'ont rien donné :
@@ -18354,6 +18546,8 @@ function EnvoyerEtudeElec({ch,d,up,data}){
 function Docs({data,ch,up,save}){
   const d=ch.docs||{};
   const [busy,setBusy]=useState(null);
+  /* la pièce survolée par un fichier glissé : toute sa carte le reçoit */
+  const [survolPiece,setSurvolPiece]=useState(null);
   const [signe,setSigne]=useState(null);
   const [planElec,setPlanElec]=useState(false);
   const [partage,setPartage]=useState(null);
@@ -18439,7 +18633,12 @@ function Docs({data,ch,up,save}){
           <span className="h2" style={{fontSize:13}}>{((typeCh==='renovation'&&g.titreReno)||g.titre).toUpperCase()}</span>
           <span className="xs mut">{nG}/{items.length}</span>
         </div>
-        {items.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card" style={{padding:10,marginBottom:6}}>
+        {items.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card"
+          onDragOver={e=>{if(![...((e.dataTransfer&&e.dataTransfer.types)||[])].includes('Files'))return;e.preventDefault();if(survolPiece!==x.id)setSurvolPiece(x.id)}}
+          onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget))setSurvolPiece(null)}}
+          onDrop={e=>{const fs=[...((e.dataTransfer&&e.dataTransfer.files)||[])];if(!fs.length)return;e.preventDefault();setSurvolPiece(null);
+            if(busy!==x.id)importPieces(x.id,fs)}}
+          style={{padding:10,marginBottom:6,...(survolPiece===x.id?{outline:'2px dashed '+TERRA,background:'#FBEFEA'}:{})}}>
           <div className="row" style={{gap:10,alignItems:'flex-start'}}>
             <button className="chk" onClick={()=>tog(x.id)} style={{background:r.fait?GREEN:'#fff',borderColor:r.fait?GREEN:RULE}}>{r.fait?'✓':''}</button>
             <div style={{flex:1}}>
@@ -18452,7 +18651,7 @@ function Docs({data,ch,up,save}){
               </div>)}
               {!fichiersDe(r).length&&<input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}} placeholder="Lien Drive…" value={r.lien||''} onChange={e=>lien(x.id,e.target.value)}/>}
               <div className="row" style={{gap:14,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
-                <label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':(fichiersDe(r).length?'Ajouter des fichiers':'Importer des fichiers')}
+                <label className="xs" style={{color:NAVY}} title="ou glissez les fichiers sur la pièce">{busy===x.id?'Import…':(fichiersDe(r).length?'Ajouter des fichiers':'Importer des fichiers')}
                   <input type="file" accept={PIECES_ACCEPT} multiple style={{display:'none'}} disabled={busy===x.id}
                     onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)importPieces(x.id,fs)}}/>
                 </label>
@@ -18480,6 +18679,9 @@ function Docs({data,ch,up,save}){
               </div>}
               {x.id==='fin_mission'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
                 <FinMissionChantier data={data} ch={ch} save={save}/>
+              </div>}
+              {x.id==='dossier_assureur'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
+                <DossierAssureur data={data} ch={ch} save={save}/>
               </div>}
               {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
                 <VignetteSign id={s.id}/>
@@ -18654,6 +18856,109 @@ function FinMissionChantier({data,ch,save}){
     {sortie&&sortie.etat==='erreur'&&<div style={{marginTop:6,color:TERRA}}>{sortie.msg}</div>}
     {signer&&<SignaturePad titre={'Attestation de fin de mission — '+ch.nom} qualiteDefaut="Maître d’ouvrage"
       onAnnuler={()=>setSigner(false)} onSigner={enregistrerSignature}/>}
+  </div>;
+}
+
+/* le dossier de fin de chantier pour l'assureur, sous sa pièce : ce qui part
+   (coché par famille), ce qui manque, le ZIP à transmettre et le message */
+function DossierAssureur({data,ch,save}){
+  const dataRef=useRef(data);dataRef.current=data;
+  const chActuel=()=>(dataRef.current.chantiers||[]).find(c=>c.id===ch.id)||ch;
+  const da=dossierAssureurDe(chActuel());
+  const d=dossierAssureurDonnees(chActuel(),data,da);
+  const [sortie,setSortie]=useState(null);
+  const [url,setUrl]=useState('');
+  const [copie,setCopie]=useState('');
+  useEffect(()=>{
+    if(!sortie||!sortie.octets){setUrl('');return}
+    let u='';try{u=URL.createObjectURL(new Blob([sortie.octets],{type:'application/zip'}))}catch(e){u=''}
+    setUrl(u);return ()=>{if(u)try{URL.revokeObjectURL(u)}catch(e){}};
+  },[sortie]);
+  /* chaque saisie part tout de suite sur le chantier */
+  const maj=patch=>{
+    const dd=dataRef.current;
+    save({...dd,chantiers:(dd.chantiers||[]).map(c=>c.id!==ch.id?c:{...c,
+      dossierAssureur:{...((c.dossierAssureur)||{}),...(typeof patch==='function'?patch(dossierAssureurDe(c)):patch)}})});
+  };
+  const objet=dossierAssureurObjet(d,da), corps=dossierAssureurMail(d,da);
+  const produire=async()=>{
+    setSortie({etat:'travail',fait:0,n:d.fichiers.length});
+    try{
+      const token=await getDriveToken();
+      const r=await dossierAssureurZip(d,token,(fait,n)=>setSortie({etat:'travail',fait,n}));
+      setSortie({etat:'ok',...r,nom:dossierAssureurNomZip(d)});
+    }catch(e){setSortie({etat:'erreur',msg:e&&e.error==='auth_required'
+      ?'Google Drive n’est pas connecté : connectez-le (en haut de l’application), puis recommencez.'
+      :'Dossier impossible à préparer — '+((e&&(e.error||e.message))||e)})}
+  };
+  const copier=async(texte,quoi)=>{
+    try{await navigator.clipboard.writeText(texte);setCopie(quoi)}
+    catch(e){setCopie('');alert('La copie automatique est refusée par le navigateur : sélectionnez le texte et copiez-le.')}
+  };
+  const champ=(l,el)=><div style={{flex:'1 1 170px'}}><div className="xs mut" style={{marginBottom:3}}>{l}</div>{el}</div>;
+  const travail=sortie&&sortie.etat==='travail';
+  return <div className="xs" style={{lineHeight:1.5}}>
+    <div className="mut">Pour clore l’assurance dommages-ouvrage : toutes les factures, les PV de réception et la DAACT,
+      repris du chantier, en un dossier ZIP à transmettre par WeTransfer, avec le message prêt à copier.</div>
+    <div className="row" style={{gap:10,marginTop:8,flexWrap:'wrap'}}>
+      {champ('Assureur',<input className="in" value={da.assureur} placeholder="Compagnie ou courtier" onChange={e=>maj({assureur:e.target.value})}/>)}
+      {champ('E-mail de l’assureur',<input className="in" type="email" value={da.email} onChange={e=>maj({email:e.target.value})}/>)}
+      {champ('N° de contrat dommages-ouvrage',<input className="in" value={da.police} onChange={e=>maj({police:e.target.value})}/>)}
+    </div>
+    <div className="b" style={{color:NAVY,marginTop:12}}>Ce qui part dans le dossier</div>
+    {DOSSIER_ASSUREUR_GROUPES.map(g=>{
+      const n=d.tous.filter(x=>x.groupe===g.id).length;
+      const t=d.tot[g.id];
+      return <label key={g.id} className="row" style={{gap:6,alignItems:'flex-start',marginTop:3,cursor:'pointer'}}>
+        <input type="checkbox" checked={da.groupes[g.id]!==false} onChange={e=>maj(p=>({groupes:{...p.groupes,[g.id]:e.target.checked}}))}/>
+        <span>{g.l} — <b>{n} fichier{n>1?'s':''}</b>{t&&t.n?<span className="mut"> · {eurCentimes(t.ht)} HT facturés</span>:null}</span></label>;
+    })}
+    {(d.total.ht!==0||d.total.ttc!==0)&&<div style={{marginTop:6}}>Coût définitif (montants facturés) : <b>{eurCentimes(d.total.ht)} HT</b>, soit {eurCentimes(d.total.ttc)} TTC</div>}
+    {!!(d.manquants.length||d.nonSoldes.length)&&<div style={{marginTop:8,background:'#FBF3DF',color:'#6A4E06',borderLeft:'3px solid '+AMBER,padding:8}}>
+      <div className="b">À compléter avant l’envoi (rien ne bloque) :</div>
+      {d.manquants.map((x,i)=><div key={i}>· {x.texte}</div>)}
+      {d.nonSoldes.map((x,i)=><div key={'s'+i}>· {x.lot} : reste à facturer {eurc(x.reste)} HT — le coût n’est pas encore définitif</div>)}
+      <div style={{marginTop:4}}>Une facture se dépose depuis son « + » (MARCHÉS) ; un PV signé ou la DAACT, en les glissant sur leur pièce ci-dessus.</div>
+    </div>}
+    <div className="row" style={{gap:10,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn acc s" disabled={travail||!d.fichiers.length} onClick={produire}>
+        {travail?'Lecture des fichiers sur le Drive… ('+sortie.fait+'/'+sortie.n+')':'Préparer le dossier (ZIP, '+d.fichiers.length+' fichier'+(d.fichiers.length>1?'s':'')+')'}</button>
+      {!d.fichiers.length&&<span className="mut">Aucun fichier à joindre pour l’instant.</span>}
+    </div>
+    {sortie&&sortie.etat==='erreur'&&<div style={{marginTop:6,color:TERRA}}>{sortie.msg}</div>}
+    {sortie&&sortie.etat==='ok'&&<div style={{marginTop:8}}>
+      <div style={{color:GREEN}}>✓ Dossier prêt : {sortie.n} fichier{sortie.n>1?'s':''} et le bordereau des pièces.</div>
+      {/* un vrai lien : Safari refuse un téléchargement lancé à la fin d'une composition */}
+      {url&&<a className="btn acc s" style={{display:'inline-block',marginTop:6,textDecoration:'none'}} href={url} download={sortie.nom}>⬇ Télécharger {sortie.nom}</a>}
+      {!!sortie.illisibles.length&&<div style={{marginTop:6,color:AMBER}}>
+        <div className="b">Non joints — illisibles sur le Drive avec le compte connecté (déposés depuis un autre compte, ou directement dans le Drive) :</div>
+        {sortie.illisibles.map((x,i)=><div key={i}>· <a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{x.titre}</a> — à ajouter à la main au transfert, ou à redéposer dans l’application</div>)}
+      </div>}
+    </div>}
+    <div className="b" style={{color:NAVY,marginTop:12}}>Le message</div>
+    <ol style={{margin:'4px 0 0 18px',padding:0}}>
+      <li>Téléchargez le dossier ci-dessus.</li>
+      <li>Sur <a href="https://wetransfer.com/" target="_blank" rel="noreferrer" style={{color:TERRA}}>WeTransfer</a>, déposez le ZIP,
+        mettez l’e-mail de l’assureur{da.email?' ('+da.email+')':''} et collez l’objet et le message ci-dessous ;
+        ou choisissez « Obtenir un lien », collez-le ici, et envoyez le message de votre messagerie.</li>
+    </ol>
+    {champ('Lien WeTransfer (facultatif)',<input className="in" value={da.lienTransfert} placeholder="https://we.tl/…" onChange={e=>maj({lienTransfert:e.target.value})}/>)}
+    <div className="xs mut" style={{marginTop:8}}>Objet</div>
+    <input className="in" readOnly value={objet} style={{width:'100%'}}/>
+    <textarea className="in" readOnly rows={14} style={{marginTop:6,width:'100%'}} value={corps}/>
+    <div className="row" style={{gap:10,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn gh s" onClick={()=>copier(objet,'objet')}>Copier l’objet</button>
+      <button className="btn gh s" onClick={()=>copier(corps,'message')}>Copier le message</button>
+      {da.email&&<a className="btn gh s" style={{textDecoration:'none'}}
+        href={'mailto:'+encodeURIComponent(da.email)+'?subject='+encodeURIComponent(objet)+'&body='+encodeURIComponent(corps)}>Ouvrir dans la messagerie</a>}
+      {copie&&<span style={{color:GREEN}}>✓ {copie==='objet'?'Objet copié':'Message copié'}</span>}
+    </div>
+    <div className="row" style={{gap:10,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
+      {da.envoyeLe
+        ?<span style={{color:GREEN}}>✓ Envoyé à l’assureur le {fd(da.envoyeLe)} <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0,marginLeft:6}}
+            onClick={()=>maj({envoyeLe:''})}>effacer</button></span>
+        :<button className="btn gh s" onClick={()=>maj({envoyeLe:today()})}>Noter l’envoi (aujourd’hui)</button>}
+    </div>
   </div>;
 }
 
