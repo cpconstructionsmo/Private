@@ -239,8 +239,16 @@ qu'on ait à les redire.
   d'envoi des réglages, sinon celle de CP, ou celle saisie), le(s)
   client(s) (e-mail du chantier, sinon du prospect), d'autres adresses ;
   jamais l'assureur ; reprises par « Ouvrir dans la messagerie » (`cc`) et
-  « Copier les adresses » (WeTransfer). Assureur, e-mail, n° de contrat,
-  copies, lien et date d'envoi : `ch.dossierAssureur`. Tests : `t_dossier_assureur.js`,
+  « Copier les adresses » (WeTransfer). Objet et message se retouchent à
+  l'écran (`objetSaisi`, `corpsSaisi`, `dossierAssureurTextes` ; « Reprendre
+  le texte proposé » ; un lien WeTransfer collé après coup s'insère :
+  `insererLienTransfert`) ; la signature des mails habituels (logo) s'ajoute
+  à l'envoi (`mailSigne`, `dossierAssureurSigne` pour la copie). « Envoyer
+  depuis l'application » : Gmail connecté, assureur en destinataire, copies
+  en Cc, adresse d'envoi en copie cachée, le ZIP joint s'il tient
+  (`ZIP_MAIL_MAX`) ; l'envoi se note (`envoyeLe`, `envoi`). Assureur,
+  e-mail, n° de contrat, copies, textes, lien et date d'envoi :
+  `ch.dossierAssureur`. Tests : `t_dossier_assureur.js`,
   `dossier_assureur_navigateur.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
