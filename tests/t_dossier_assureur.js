@@ -13,7 +13,8 @@ const {chk,fin}=verif();
 const PDF=t=>Buffer.from('%PDF-1.4 '+t);
 const JPG=fs.readFileSync(path.join(__dirname,'..','assets','logo_signature.jpg'));
 const M=charger(['DossierAssureur','Marches','EMPTY','dossierAssureurDe','dossierAssureurDonnees','dossierAssureurMail','dossierAssureurObjet',
-  'dossierAssureurZip','dossierAssureurNomZip','zipEntrees','deduireAvoirMarche','dossierAssureurCopies'],{
+  'dossierAssureurZip','dossierAssureurNomZip','zipEntrees','deduireAvoirMarche','dossierAssureurCopies',
+  'dossierAssureurTextes','dossierAssureurSigne','insererLienTransfert'],{
   drive:{F1:PDF('f1'),AV:PDF('avoir'),R:PDF('repartie'),H1:PDF('hono'),PV1:Buffer.from('PK\x03\x04 word'),DA:PDF('daact'),ACH:JPG},
   fetch:async(url,init,base)=>/files\/F2\?alt=media/.test(url)
     ?{ok:false,status:404,json:async()=>({error:{code:404,message:'File not found: F2.',errors:[{reason:'notFound'}]}})}
@@ -68,7 +69,14 @@ const base=()=>({...M.EMPTY,chantiers:[CH],
   chk(/- la déclaration attestant l’achèvement et la conformité des travaux \(DAACT\) ;/.test(t)&&/- les procès-verbaux de réception \(1 fichier\) ;/.test(t)
     &&/- les factures des entreprises \(4\), des achats de matériaux \(1\) et de maîtrise d’œuvre \(1\)\./.test(t),'les pièces, famille par famille');
   chk(/Coût définitif de l’opération \(montants facturés\) : 22 924,00 € HT, soit 25 366,40 € TTC/.test(t),'le coût définitif');
-  chk(/par WeTransfer/.test(t)&&/Cordialement,\nClaude PORTIER/.test(t),'WeTransfer, et la signature CP');
+  chk(/par WeTransfer/.test(t)&&/Cordialement,$/.test(t),'WeTransfer ; le message proposé finit sur la formule de politesse');
+  chk(/Cordialement,\n\nClaude PORTIER\n/.test(M.dossierAssureurSigne(t,true))&&/Cordialement,\nClaude Portier$/.test(M.dossierAssureurSigne(t,false)),
+    'signé : la signature des mails habituels, ou le seul nom');
+  const ret=M.dossierAssureurTextes(d,{...da,objetSaisi:'Mon objet',corpsSaisi:'Mon message\n\nCordialement,'});
+  chk(ret.objet==='Mon objet'&&ret.corps==='Mon message\n\nCordialement,'&&ret.retouche&&!M.dossierAssureurTextes(d,da).retouche,'objet et message retouchés l’emportent');
+  chk(/^Mon message\n\nLes pièces sont à télécharger ici : https:\/\/we\.tl\/x\n\nCordialement,$/.test(M.insererLienTransfert(ret.corps,'https://we.tl/x'))
+    &&/Les pièces sont à télécharger ici : https:\/\/we\.tl\/x\nUn bordereau/.test(M.insererLienTransfert(t,'https://we.tl/x')),
+    'le lien collé après une retouche s’insère (à la place de la phrase d’attente, sinon avant la politesse)');
   const da2=M.dossierAssureurDe({...ch,dossierAssureur:{...ch.dossierAssureur,lienTransfert:'https://we.tl/t-fictif',groupes:{honoraires:false}}});
   const d3=M.dossierAssureurDonnees(ch,data,da2), t3=norm(M.dossierAssureurMail(d3,da2));
   chk(/à télécharger ici : https:\/\/we\.tl\/t-fictif/.test(t3),'le lien WeTransfer collé passe dans le message');
@@ -128,7 +136,7 @@ const base=()=>({...M.EMPTY,chantiers:[CH],
   chk(/Factures des entreprises — 4 fichiers/.test(t())&&/À compléter avant l’envoi \(rien ne bloque\)/.test(t()),'ce qui part, et ce qui manque');
   const champ=re=>tr.root.findAll(n=>n.type==='input'&&n.props.className==='in').find(n=>re.test(norm(texteInst(n.parent))));
   TR.act(()=>champ(/N° de contrat dommages-ouvrage/).props.onChange({target:{value:'DO-9'}}));
-  chk(data.chantiers[0].dossierAssureur.police==='DO-9'&&/n° DO-9/.test(tr.root.findAll(n=>n.type==='input'&&n.props.readOnly)[0].props.value),'le n° de contrat se garde et passe dans l’objet');
+  chk(data.chantiers[0].dossierAssureur.police==='DO-9'&&/n° DO-9/.test(tr.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Objet du message')[0].props.value),'le n° de contrat se garde et passe dans l’objet');
   await TR.act(async()=>{await btn(/Préparer le dossier \(ZIP, 8 fichiers\)/).props.onClick()});
   for(let i=0;i<100&&!/Dossier prêt/.test(t());i++)await TR.act(()=>new Promise(r=>setTimeout(r,10)));
   chk(/✓ Dossier prêt : 7 fichiers et le bordereau des pièces/.test(t())&&/Non joints — illisibles sur le Drive/.test(t()),'prêt ; l’illisible est dit');
@@ -136,6 +144,53 @@ const base=()=>({...M.EMPTY,chantiers:[CH],
   chk(a&&a.props.download==='Dossier de fin de travaux — Maison Fictive.zip','un vrai lien de téléchargement (Safari)');
   TR.act(()=>btn(/Noter l’envoi/).props.onClick());
   chk(/^\d{4}-\d{2}-\d{2}$/.test(data.chantiers[0].dossierAssureur.envoyeLe)&&/✓ Envoyé à l’assureur le/.test(t()),'l’envoi se note');
+  TR.act(()=>tr.unmount());
+}
+/* 4 bis. envoyer depuis l'application : Gmail, copies, signature, ZIP joint */
+{
+  let data={...base(),expediteurMail:'moe@example.fr'};
+  data.chantiers=[{...data.chantiers[0],emailClient:'client@example.fr',
+    dossierAssureur:{email:'assureur@example.fr',police:'DO-9',lienTransfert:'https://we.tl/t-fictif'}}];
+  let tr;
+  const monter=()=>React.createElement(M.DossierAssureur,{data,ch:data.chantiers[0],save});
+  function save(n){data=n;TR.act(()=>tr.update(monter()))}
+  TR.act(()=>{tr=TR.create(monter())});
+  const t=()=>norm(texteInst(tr.root));
+  const btn=re=>tr.root.findAll(n=>n.type==='button').find(n=>re.test(norm(texteInst(n))));
+  const zone=n=>tr.root.findAll(x=>(x.type==='input'||x.type==='textarea')&&x.props['aria-label']===n)[0];
+  TR.act(()=>zone('Objet du message').props.onChange({target:{value:'Fin de travaux — Maison Fictive'}}));
+  const corps0=zone('Message à l’assureur').props.value;
+  TR.act(()=>zone('Message à l’assureur').props.onChange({target:{value:corps0.replace('Madame, Monsieur,','Bonjour Monsieur Fictif,')}}));
+  const da=()=>data.chantiers[0].dossierAssureur;
+  chk(da().objetSaisi==='Fin de travaux — Maison Fictive'&&/^Bonjour Monsieur Fictif,/.test(da().corpsSaisi)&&/Objet ou message retouché/.test(t()),
+    'objet et message se modifient, et la retouche se garde sur le chantier');
+  chk(/Ajouter ma signature habituelle \(avec le logo\)/.test(t())&&tr.root.findAll(n=>n.props&&n.props.className==='signature-apercu').length===1,
+    'la signature habituelle, cochée d’office, se voit');
+  /* préparer le ZIP, puis envoyer */
+  await TR.act(async()=>{await btn(/Préparer le dossier/).props.onClick()});
+  for(let i=0;i<100&&!/Dossier prêt/.test(t());i++)await TR.act(()=>new Promise(r=>setTimeout(r,10)));
+  global.__driveAppels.length=0;
+  await TR.act(async()=>{btn(/^Envoyer depuis l’application$/).props.onClick()});
+  for(let i=0;i<20;i++)await TR.act(()=>new Promise(r=>setTimeout(r,5)));
+  chk(/De : moe@example\.fr/.test(t())&&/À : assureur@example\.fr/.test(t())&&/Copie : moe@example\.fr, client@example\.fr/.test(t())
+    &&/Joindre le dossier ZIP \(/.test(t()),'avant l’envoi : de, à, copies, objet, et le ZIP à joindre (il tient dans un mail)');
+  const caseZip=tr.root.findAll(n=>n.type==='input'&&n.props.type==='checkbox'&&/Joindre le dossier ZIP/.test(norm(texteInst(n.parent))))[0];
+  chk(caseZip&&caseZip.props.checked===false,'un lien WeTransfer dans le message : le ZIP n’est pas joint d’office');
+  TR.act(()=>caseZip.props.onChange({target:{checked:true}}));
+  await TR.act(async()=>{await btn(/^Envoyer$/).props.onClick()});
+  for(let i=0;i<100&&!/Message envoyé/.test(t());i++)await TR.act(()=>new Promise(r=>setTimeout(r,10)));
+  const envoi=global.__driveAppels.find(a=>/gmail\/v1\/users\/me\/messages\/send/.test(a.url));
+  const raw=envoi&&Buffer.from(JSON.parse(envoi.init.body).raw.replace(/-/g,'+').replace(/_/g,'/'),'base64').toString('utf8');
+  const b64=s=>Buffer.from(s,'base64').toString('utf8');
+  const sujet=raw&&(raw.match(/Subject: =\?UTF-8\?B\?([^?]+)\?=/)||[])[1];
+  chk(raw&&/^To: assureur@example\.fr$/m.test(raw)&&/^Cc: moe@example\.fr, client@example\.fr$/m.test(raw)&&!/^Bcc:/m.test(raw)
+    &&b64(sujet||'')==='Fin de travaux — Maison Fictive','envoyé par Gmail : à l’assureur, copies en Cc (pas de copie cachée en double), l’objet retouché');
+  const texteMail=raw&&raw.split(/\r?\n\r?\n/).map(b=>{try{return b64(b.replace(/\s/g,''))}catch(e){return ''}}).join('\n');
+  chk(/Bonjour Monsieur Fictif,/.test(texteMail)&&/Claude PORTIER/.test(texteMail)&&/logo-cp/.test(raw),'le message retouché, signé, avec le logo');
+  chk(/application\/zip/.test(raw)&&/Dossier de fin de travaux/.test(raw),'le dossier ZIP joint');
+  chk(/✓ Message envoyé à assureur@example\.fr/.test(t())&&da().envoyeLe&&da().envoi&&da().envoi.zip===true&&da().envoi.cc.length===2,'l’envoi se note sur le chantier');
+  TR.act(()=>btn(/Reprendre le texte proposé/).props.onClick());
+  chk(!da().objetSaisi&&!da().corpsSaisi,'« Reprendre le texte proposé » efface les retouches');
   TR.act(()=>tr.unmount());
 }
 /* 5. glisser une facture sur sa zone (MARCHÉS) */

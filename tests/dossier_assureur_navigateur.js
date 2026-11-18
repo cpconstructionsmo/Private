@@ -57,7 +57,7 @@ async function contexte(b,data,viewport){
     chk(/Factures des entreprises — 1 fichier/.test(t)&&/PV de réception \(pièce « PV de réception »\) — 1 fichier/.test(t),nomVp+' : ce qui part dans le dossier');
     chk(/Facture E-1 — Électricité — EI Électricité Fictive du 05\/10\/2026 \(8 000,00 € HT\) : fichier non déposé/.test(t)
       &&/DAACT non déposée/.test(t),nomVp+' : ce qui manque, nommé');
-    chk(/Préparer le dossier \(ZIP, 2 fichiers\)/.test(t)&&/Madame, Monsieur/.test(await p.locator('textarea[readonly]').inputValue()),nomVp+' : le bouton et le message');
+    chk(/Préparer le dossier \(ZIP, 2 fichiers\)/.test(t)&&/Madame, Monsieur/.test(await p.locator('textarea[aria-label="Message à l’assureur"]').inputValue()),nomVp+' : le bouton et le message');
     if(nomVp==='ordinateur'){
       await p.locator('label:has-text("N° de contrat dommages-ouvrage") input, div:has(> div:text-is("N° de contrat dommages-ouvrage")) input').first().fill('DO-77');
       await p.waitForFunction(()=>window.__ecrit&&window.__ecrit.chantiers[0].dossierAssureur&&window.__ecrit.chantiers[0].dossierAssureur.police==='DO-77',null,{timeout:15000});
@@ -67,6 +67,8 @@ async function contexte(b,data,viewport){
       chk(!deborde,'téléphone : pas de défilement horizontal de la page');
     }
     if(process.env.CAPTURE_DOSSIER){
+      await p.locator('text=Ajouter ma signature habituelle').scrollIntoViewIfNeeded();
+      await p.screenshot({path:process.env.CAPTURE_DOSSIER.replace('.png','-message-'+(nomVp==='ordinateur'?'pc':'tel')+'.png'),fullPage:false});
       await p.locator('text=Ce qui part dans le dossier').scrollIntoViewIfNeeded();
       await p.screenshot({path:process.env.CAPTURE_DOSSIER.replace('.png','-'+(nomVp==='ordinateur'?'pc':'tel')+'.png'),fullPage:false});
     }
