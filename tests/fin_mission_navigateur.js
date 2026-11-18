@@ -51,9 +51,10 @@ async function contexte(b,data,viewport){
     chk(/Réception des lots \(2\)/.test(t)&&/Sans réserve — reçu le 10\/11\/2026/.test(t)&&/Avec 1 réserve — non levée/.test(t),nomVp+' : l’état des lots repris des PV');
     chk(/Avant de la faire signer/.test(t),nomVp+' : ce qui reste à faire est affiché');
     if(nomVp==='ordinateur'){
-      await p.locator('label:has-text("Dossier des ouvrages exécutés") input').check();
-      await p.waitForFunction(()=>window.__ecrit&&window.__ecrit.chantiers[0].finMission&&window.__ecrit.chantiers[0].finMission.documents.doe===true,null,{timeout:15000});
-      chk(true,'le DOE coché part vers la base');
+      chk(!/Dossier des ouvrages exécutés/.test(t)&&!/Notices d’utilisation et d’entretien/.test(t),'le DOE et les notices ne sont plus proposés');
+      await p.locator('label:has-text("Attestation de conformité de l’installation électrique") input').check();
+      await p.waitForFunction(()=>window.__ecrit&&window.__ecrit.chantiers[0].finMission&&window.__ecrit.chantiers[0].finMission.documents.consuel===true,null,{timeout:15000});
+      chk(true,'le Consuel coché part vers la base');
     }else{
       const deborde=await p.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+1);
       chk(!deborde,'téléphone : pas de défilement horizontal de la page');

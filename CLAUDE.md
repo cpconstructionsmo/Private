@@ -159,15 +159,25 @@ qu'on ait à les redire.
   chantier (sans la cocher) ; une image illisible est nommée, le PV sort
   quand même. La levée des réserves se note sur le PV (`pv.leveeLe`,
   « Toutes les réserves levées le ») : reprise sur la ligne « Levée des
-  réserves » du PV et par l'attestation de fin de mission. Tests :
-  `t_pv_reception.js`.
+  réserves » du PV et par l'attestation de fin de mission. Une réserve
+  notée par le client « pour information » (`r.info` : rien à lever, par
+  exemple un défaut sous la cuisine posée) n'a pas de date de levée ; le
+  PV le dit (« Levée des réserves : sans objet » si elles le sont toutes)
+  et l'attestation ne l'attend pas. Le PV revenu signé se glisse sur le PV
+  du lot (« Déposer le PV signé », `pv.signes`, `pvNomSigne`) : Drive › PV
+  de réception, renommé d'après le lot, ajouté à la pièce « PV de
+  réception » (donc au dossier de l'assureur), retirable. Tests :
+  `t_pv_reception.js`, `t_pv_signe_reserves.js`.
 - **Attestation de fin de mission** (PIÈCES › Achèvement, pièce
   `fin_mission`, `FinMissionChantier`) : la mission de maîtrise d'œuvre ne
   se réceptionne pas (la réception porte sur les travaux, lot par lot) ; le
   client signe en fin de mission une attestation au style du PV
   (`finMissionDonnees`, `genererFinMissionDocx`) : lots signés et leur PV
   (reçu le, décision, réserves et levée), documents remis cochés un par
-  un (`FIN_MISSION_DOCS`, rien d'office, « autres » en texte libre),
+  un (`FIN_MISSION_DOCS`, rien d'office, « autres » en texte libre ; DOE
+  et notices d'entretien retirés à la demande de CP — `retire`, encore
+  montrés s'ils étaient cochés), un PV produit ou déposé signé sans
+  décision cochée y est « décision à noter »,
   honoraires facturés et solde (rien d'inventé s'ils manquent). Elle dit
   ce qui reste à faire avant signature sans bloquer, et qu'elle ne réduit
   aucune garantie (`FIN_MISSION_TEXTE`, à faire relire). Visa de CP

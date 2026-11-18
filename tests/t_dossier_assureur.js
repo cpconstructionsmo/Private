@@ -47,7 +47,11 @@ const base=()=>({...M.EMPTY,chantiers:[CH],
     'la facture répartie sur deux lots n’y est qu’une fois, pour son total');
   const m=d.manquants.map(x=>norm(x.texte)).join(' | ');
   chk(/Facture H-2 — CP CONSTRUCTIONS du 01\/11\/2026 \(500,00 € HT\) : fichier non déposé/.test(m),'une facture sans fichier est nommée');
-  chk(/PV de réception non produit pour : CHARPENTE, COUVERTURE/.test(m),'les lots signés sans PV sont nommés');
+  chk(/PV de réception ni produit ni déposé signé pour : CHARPENTE, COUVERTURE/.test(m),'les lots signés sans PV sont nommés');
+  const avecSigne={...ch,pvs:{...ch.pvs,m2:{signes:[{id:'s',nom:'PV signé.pdf',lien:lien('S'),le:'2026-11-12'}],dateEffet:'2026-11-12'}}};
+  const dS=M.dossierAssureurDonnees(avecSigne,data);
+  chk(/ni produit ni déposé signé pour : COUVERTURE \(/.test(dS.manquants.map(x=>x.texte).join(' | '))&&dS.recus.includes('2026-11-12'),
+    'un PV déposé signé vaut PV : le lot n’est plus en manque, sa date de réception compte');
   chk(d.nonSoldes.length===1&&d.nonSoldes[0].reste===300,'le lot pas encore soldé (avoir non déduit) est signalé : le coût n’est pas définitif');
   chk(d.tot.marches.ht===1783300&&d.tot.achats.ht===359100&&d.tot.honoraires.ht===150000&&d.total.ht===2292400,
     'coût facturé : 17 833 + 3 591 + 1 500 = 22 924 € HT (avoir compris ; une facture sans fichier reste facturée)');

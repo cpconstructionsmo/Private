@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Relevé de visite : fourchette de prix pendant la visite, reprise sur la fiche prospect';
+const VERSION='2026-11-18 · Relevé de visite : fourchette de prix pendant la visite ; PV signé à glisser-déposer, fin de mission sans DOE';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3728,6 +3728,14 @@ const PV_PIED_LEGAL='CP Constructions · '+CP.forme+' · 14 rue de Congé, 61250
 const pvDe=(ch,mid)=>({acheveLe:'',presence:'',decision:'',motif:'',dateEffet:'',reserves:[],annexe:false,faitA:'',faitLe:'',leveeLe:'',
   signatures:{},accordEntreprise:null,...((((ch&&ch.pvs)||{})[mid])||{})});
 const pvDate=d=>d?fd(d):'';
+/* les scans du PV revenu signé (réception faite, client signataire), déposés
+   sur le PV du lot : ils partent sur le Drive › PV de réception et dans la
+   pièce « PV de réception » du chantier */
+const pvSignes=pv=>((pv&&pv.signes)||[]).filter(Boolean);
+const pvNomSigne=(m,ch,file,i,n)=>{
+  const ext=(String((file&&file.name)||'').match(/\.([a-z0-9]{2,5})$/i)||[])[1]||'pdf';
+  return nomZip('PV de réception signé — '+(m.lot||'lot')+' — '+(ch.nom||'chantier')+(n>1?' ('+(i+1)+')':''))+'.'+ext.toLowerCase();
+};
 /* le(s) maître(s) d'ouvrage d'un chantier, tels qu'ils signent : civilité
    et second maître d'ouvrage du prospect, tant que le nom du client n'a pas
    été changé sur le chantier depuis */
@@ -3754,6 +3762,8 @@ function pvDonnees(m,ch,data,pv){
     acheveLe:pvDate(pv.acheveLe),presence:pv.presence||'',decision:pv.decision||'',motif:pv.motif||'',
     dateEffet:pvDate(pv.dateEffet),
     reserves:(pv.reserves||[]).filter(r=>(r.localisation||r.description||r.avant)).map(r=>({...r,avant:pvDate(r.avant)})),
+    reservesInfoSeules:(pv.reserves||[]).filter(r=>r.localisation||r.description).length>0
+      &&(pv.reserves||[]).filter(r=>r.localisation||r.description).every(r=>r.info),
     annexe:!!pv.annexe,faitA:pv.faitA||'',faitLe:pvDate(pv.faitLe),leveeLe:pvDate(pv.leveeLe)};
 }
 /* qui a signé, et avec quelle image : la signature tracée à l'écran le jour
@@ -3830,7 +3840,7 @@ function pvReceptionDocumentXml(d,img,px){
     .concat(Array.from({length:nR},(x,i)=>{const r=R[i]||{};return ligne([
       cel(RW[0],par(String(i+1),{b:true,sz:18,c:DOC_TERRA,jc:'center',ap:0})),
       cel(RW[1],par(r.localisation||'',{sz:17,ap:0})),cel(RW[2],par(r.description||'',{sz:17,ap:0})),
-      cel(RW[3],par(r.avant||'',{sz:17,ap:0}))],380)})));
+      cel(RW[3],r.info?par('Pour information — aucune levée attendue',{sz:15,i:true,c:PV_ARDOISE,ap:0}):par(r.avant||'',{sz:17,ap:0}))],380)})));
   const garanties=tbl([L],[tr([tc(L,par(PV_TEXTE_GARANTIES,{sz:16,jc:'both',ap:0}),{bords:barre(PV_ARDOISE),fond:PV_GRIS_CLAIR,mg:140})])]);
   const fait=par([t('Fait à '),t(d.faitA||'……………………………………'),t(', le '),t(d.faitLe||'……… / ……… / ……………'),t(', en 2 exemplaires.')],{av:120,ap:60});
   /* les signatures : chaque image dans sa colonne, avec qui, en quelle qualité et quand */
@@ -3852,7 +3862,9 @@ function pvReceptionDocumentXml(d,img,px){
     ligne([cel(SW[0],colonne(PV_ROLES[0],img.moa),{v:'top'}),
       cel(SW[1],colonne(PV_ROLES[1],img.entreprise,img.cachetEntreprise),{v:'top'}),
       cel(SW[2],colonne(PV_ROLES[2],img.moe,img.cachetMoe),{v:'top'})],2300),
-    tr([cel(L,par([t('Levée des réserves',{b:true,sz:18,c:PV_ARDOISE}),t('   '),coche(!!d.leveeLe),t(' toutes   ',{sz:18}),coche(false),
+    tr([cel(L,d.reservesInfoSeules&&!d.leveeLe
+      ?par([t('Levée des réserves',{b:true,sz:18,c:PV_ARDOISE}),t('   sans objet — réserve(s) notée(s) pour information, aucune levée attendue',{sz:18})],{ap:0})
+      :par([t('Levée des réserves',{b:true,sz:18,c:PV_ARDOISE}),t('   '),coche(!!d.leveeLe),t(' toutes   ',{sz:18}),coche(false),
       t(' n° ……………   le '+(d.leveeLe||'…… / …… / …………')+'   — signatures et cachets ci-dessous',{sz:18})],{ap:0}),{fond:PV_GRIS_CLAIR,fusion:3})]),
     ligne([cel(SW[0],par('',{ap:0})),cel(SW[1],par('',{ap:0})),cel(SW[2],par('',{ap:0}))],1300)]);
   const corps=[entete,titre,vide(60),lot,
@@ -3936,12 +3948,15 @@ const pvNomFichier=(d,m)=>'PV de réception — Lot '+(d.lotNumero?d.lotNumero+'
    attestation qui constate l'achèvement de la mission (AOR comprise) : les
    lots reçus et la levée de leurs réserves, repris des PV ; les documents
    remis, cochés un par un (rien n'est coché d'office) ; les honoraires
-   facturés et le solde. Elle justifie la facture de solde et la remise du
-   DOE ; elle ne touche à aucune garantie légale, et le dit. Rangée sur le
-   chantier (ch.finMission), enregistrée à chaque saisie. */
+   facturés et le solde. Elle justifie la facture de solde ; elle ne touche
+   à aucune garantie légale, et le dit. Rangée sur le chantier
+   (ch.finMission), enregistrée à chaque saisie. Le DOE et les notices
+   d'entretien ne sont plus proposés (CP Constructions, novembre 2026 : pas
+   nécessaires) : « retire » les cache, sauf sur une attestation où ils
+   étaient déjà cochés — une ancienne saisie reste lisible. */
 const FIN_MISSION_DOCS=[
-  {id:'doe',l:'Dossier des ouvrages exécutés (DOE) : plans, fiches techniques, garanties des fabricants'},
-  {id:'entretien',l:'Notices d’utilisation et d’entretien des équipements (chauffage, ventilation, menuiseries…)'},
+  {id:'doe',l:'Dossier des ouvrages exécutés (DOE) : plans, fiches techniques, garanties des fabricants',retire:true},
+  {id:'entretien',l:'Notices d’utilisation et d’entretien des équipements (chauffage, ventilation, menuiseries…)',retire:true},
   {id:'pv',l:'Procès-verbaux de réception des lots et de levée des réserves'},
   {id:'consuel',l:'Attestation de conformité de l’installation électrique (Consuel)'},
   {id:'gaz',l:'Certificat de conformité de l’installation de gaz'},
@@ -3962,12 +3977,23 @@ const finMissionDe=ch=>({documents:{},autres:'',faitA:'',faitLe:'',signatures:{}
 function finMissionLot(m,ch,data){
   const pv=pvDe(ch,m.id);
   const art=((data&&data.artisans)||[]).find(a=>a.id===m.artisanId)||null;
-  const nR=(pv.reserves||[]).filter(r=>r.localisation||r.description).length;
-  const etat=!pv.decision?'aucun':pv.decision==='refus'?'refus'
-    :pv.decision==='sans'?'sans':pv.leveeLe?'levees':'reserves';
+  /* une réserve « pour information » (le client la note sans attendre
+     d'action : un défaut qu'on ne reprendrait qu'en déposant la cuisine,
+     par exemple) ne se lève pas : elle ne fait pas attendre l'attestation */
+  const R=(pv.reserves||[]).filter(r=>r.localisation||r.description);
+  const nR=R.filter(r=>!r.info).length, nI=R.length-nR;
+  const signe=pvSignes(pv).length>0;
+  /* un PV produit ou déposé signé, sans décision cochée dans l'application :
+     il existe, seule la décision manque pour que l'attestation la reprenne */
+  const etat=!pv.decision?(pv.genere||signe?'decision':'aucun'):pv.decision==='refus'?'refus'
+    :pv.decision==='sans'?'sans':pv.leveeLe?'levees':(nR||!R.length)?'reserves':'info';
+  const pl=(n,s)=>s+(n>1?'s':'');
   const texte={aucun:'PV de réception non établi',refus:'Réception non prononcée',sans:'Sans réserve',
+    decision:'PV '+(signe?'signé déposé':'établi')+' — décision à noter',
     levees:'Avec réserves — levées le '+pvDate(pv.leveeLe),
-    reserves:'Avec '+(nR||'des')+' réserve'+(nR===1?'':'s')+' — non levée'+(nR===1?'':'s')}[etat];
+    info:'Avec '+pl(nI,'réserve')+' '+pl(nI,'notée')+' pour information — aucune levée attendue',
+    reserves:'Avec '+(nR||'des')+' réserve'+(nR===1?'':'s')+' — non levée'+(nR===1?'':'s')
+      +(nI?' (et '+nI+' pour information)':'')}[etat];
   return {id:m.id,numero:String(m.numeroMarche||''),lot:m.lot||'',entreprise:art?art.nom:'',
     recuLe:etat==='aucun'||etat==='refus'?'':pvDate(pv.dateEffet),etat,texte,nReserves:nR};
 }
@@ -3987,9 +4013,9 @@ function finMissionDonnees(ch,data,fm){
   const alertes=[
     !lots.length&&'Aucun marché signé sur ce chantier : pas de lot à reprendre.',
     parEtat('aucun').length&&'PV de réception à établir : '+noms(parEtat('aucun'))+'.',
+    parEtat('decision').length&&'Décision de réception à noter sur le PV (sans réserve, avec réserves…) : '+noms(parEtat('decision'))+'.',
     parEtat('refus').length&&'Réception non prononcée : '+noms(parEtat('refus'))+'.',
     parEtat('reserves').length&&'Réserves non levées : '+noms(parEtat('reserves'))+' (notez la date de levée sur le PV du lot).',
-    !(fm.documents&&fm.documents.doe)&&'Le DOE n’est pas coché parmi les documents remis.',
     !honoConnus&&'Honoraires non renseignés sur le chantier.',
     hono&&hono.reste>=0.5&&'Honoraires restant à facturer : '+eurDoc(hono.reste)+' TTC.',
     !fm.faitLe&&'Date de signature (« Le ») à renseigner.',
@@ -4034,7 +4060,7 @@ function finMissionDocumentXml(d,img,px){
       cel(LW[0],par((x.numero?'n° '+x.numero+' — ':'')+(x.lot||''),{sz:17,ap:0})),
       cel(LW[1],par(x.entreprise||'',{sz:17,ap:0})),
       cel(LW[2],par(x.recuLe||'',{sz:17,jc:'center',ap:0})),
-      cel(LW[3],par(x.texte||'',{sz:17,ap:0,c:x.etat&&x.etat!=='sans'&&x.etat!=='levees'?DOC_TERRA:undefined}))],340))));
+      cel(LW[3],par(x.texte||'',{sz:17,ap:0,c:x.etat&&!['sans','levees','info'].includes(x.etat)?DOC_TERRA:undefined}))],340))));
   const documents=d.documents.length
     ?d.documents.map(s=>par([coche(true),t(' '+s,{sz:18})],{ap:20})).join('')
     :[1,2,3].map(()=>par([coche(false),t(' ……………………………………………………………………………………',{sz:18})],{ap:20})).join('');
@@ -4168,13 +4194,14 @@ function dossierAssureurDonnees(ch,data,da){
   for(const x of fichiersDe(docs.pv||{}))fichiers.push({groupe:'pv',dossier:'',base:x.nom,titre:x.nom,lien:x.lien,nom:x.nom});
   for(const x of fichiersDe(docs.daact||{}))fichiers.push({groupe:'daact',dossier:'',base:x.nom,titre:x.nom,lien:x.lien,nom:x.nom});
   /* les lots signés dont le PV n'a pas été produit depuis l'application */
-  const sansPv=ms.filter(m=>marcheSigne(m)&&!(pvDe(ch,m.id).genere));
-  if(sansPv.length)manquants.push({groupe:'pv',texte:'PV de réception non produit pour : '+sansPv.map(m=>m.lot||'lot sans intitulé').join(', ')
-    +' (un PV signé déposé dans la pièce « PV de réception » part quand même)'});
+  const pvEtabli=m=>{const p=pvDe(ch,m.id);return !!(p.genere||pvSignes(p).length)};
+  const sansPv=ms.filter(m=>marcheSigne(m)&&!pvEtabli(m));
+  if(sansPv.length)manquants.push({groupe:'pv',texte:'PV de réception ni produit ni déposé signé pour : '+sansPv.map(m=>m.lot||'lot sans intitulé').join(', ')
+    +' (MARCHÉS › le lot › PV DE RÉCEPTION › « Déposer le PV signé »)'});
   if(!fichiersDe(docs.pv||{}).length)manquants.push({groupe:'pv',texte:'Aucun fichier dans la pièce « PV de réception »'});
   if(!fichiersDe(docs.daact||{}).length)manquants.push({groupe:'daact',texte:'DAACT non déposée (PIÈCES › Achèvement › DAACT)'});
   /* les dates de réception, pour le message */
-  const recus=ms.filter(marcheSigne).map(m=>{const p=pvDe(ch,m.id);return p.genere?(p.dateEffet||p.faitLe||''):''}).filter(Boolean).sort();
+  const recus=ms.filter(marcheSigne).map(m=>{const p=pvDe(ch,m.id);return pvEtabli(m)?(p.dateEffet||p.faitLe||''):''}).filter(Boolean).sort();
   const choisi=g=>da.groupes[g]!==false;
   const garde=fichiers.filter(x=>choisi(x.groupe));
   const total={ht:0,ttc:0};
@@ -12237,6 +12264,42 @@ function PvReception({data,ch,m,save}){
           moe:'signature de CP Constructions',cachetMoe:'cachet de CP Constructions'}[k]))});
     }catch(e){setSortie({etat:'erreur',msg:'PV impossible à produire — '+((e&&e.message)||e)})}
   };
+  /* le PV revenu signé (réception faite, client signataire) : glissé ou
+     choisi, il part sur le Drive › PV de réception, renommé d'après le lot,
+     et rejoint la pièce « PV de réception » du chantier — d'où le dossier de
+     l'assureur le reprend. PV et pièce changent en un seul enregistrement. */
+  const [depot,setDepot]=useState(null);
+  const deposerSignes=async fichiers=>{
+    const L=[...(fichiers||[])];if(!L.length)return;
+    setDepot({etat:'envoi',n:L.length});
+    try{
+      const token=await getDriveToken();
+      const dossier=await driveSousDossier(token,ch.id,ch.nom,'PV de réception');
+      const deja=pvSignes(pvDe(chActuel(),m.id)).length, n=deja+L.length;
+      const neufs=[];
+      for(let i=0;i<L.length;i++){
+        const nom=pvNomSigne(m,ch,L[i],deja+i,n);
+        const r=await uploadToDrive(new File([L[i]],nom,{type:L[i].type||'application/octet-stream'}),dossier);
+        neufs.push({id:uid(),nom,lien:(r&&r.webViewLink)||'',le:today()});
+      }
+      const dd=dataRef.current;
+      save({...dd,chantiers:(dd.chantiers||[]).map(c=>{if(c.id!==ch.id)return c;
+        const p=pvDe(c,m.id), docs=c.docs||{}, r=docs.pv||{};
+        return {...c,pvs:{...(c.pvs||{}),[m.id]:{...p,signes:[...pvSignes(p),...neufs],modifieLe:new Date().toISOString()}},
+          docs:{...docs,pv:{...r,fichiers:[...fichiersDe(r),...neufs.filter(x=>x.lien).map(x=>({id:uid(),nom:x.nom,lien:x.lien}))]}}};})});
+      setDepot({etat:'ok',noms:neufs.map(x=>x.nom)});
+    }catch(e){setDepot({etat:'erreur',msg:e&&e.error==='auth_required'
+      ?'Google Drive n’est pas connecté : connectez-le, puis déposez de nouveau le PV signé.'
+      :'Dépôt impossible — '+((e&&(e.error||e.message))||e)})}
+  };
+  const retirerSigne=x=>{
+    if(!confirm('Retirer « '+x.nom+' » du PV ? Le fichier reste sur le Drive.'))return;
+    const dd=dataRef.current;
+    save({...dd,chantiers:(dd.chantiers||[]).map(c=>{if(c.id!==ch.id)return c;
+      const p=pvDe(c,m.id), docs=c.docs||{}, r=docs.pv||{};
+      return {...c,pvs:{...(c.pvs||{}),[m.id]:{...p,signes:pvSignes(p).filter(y=>y.id!==x.id)}},
+        docs:{...docs,pv:{...r,fichiers:fichiersDe(r).filter(f=>!(x.lien&&f.lien===x.lien))}}};})});
+  };
   const champ=(l,el)=><div style={{flex:'1 1 150px'}}><div className="xs mut" style={{marginBottom:3}}>{l}</div>{el}</div>;
   const choix=(cle,val,l)=><label key={val} className="row xs" style={{gap:6,alignItems:'center',cursor:'pointer'}}>
     <input type="radio" checked={pv[cle]===val} onChange={()=>maj({[cle]:val})}/>{l}</label>;
@@ -12265,7 +12328,12 @@ function PvReception({data,ch,m,save}){
         <span className="xs b" style={{color:TERRA,width:16}}>{i+1}</span>
         <input className="in" style={{flex:'1 1 120px'}} placeholder="Localisation" value={r.localisation||''} onChange={e=>majReserve(r.id,{localisation:e.target.value})}/>
         <input className="in" style={{flex:'3 1 220px'}} placeholder="Description précise" value={r.description||''} onChange={e=>majReserve(r.id,{description:e.target.value})}/>
-        <input className="in" style={{flex:'1 1 130px'}} type="date" title="À lever avant le" value={r.avant||''} onChange={e=>majReserve(r.id,{avant:e.target.value})}/>
+        {!r.info&&<input className="in" style={{flex:'1 1 130px'}} type="date" title="À lever avant le" value={r.avant||''} onChange={e=>majReserve(r.id,{avant:e.target.value})}/>}
+        {/* notée par le client pour information, sans action attendue (on ne
+            la reprendrait qu'en déposant la cuisine, par exemple) : elle ne
+            se lève pas, et ne fait pas attendre l'attestation de fin de mission */}
+        <label className="row xs" style={{gap:4,alignItems:'center',flex:'1 1 130px',cursor:'pointer'}} title="Le client la note à titre d’information et n’attend pas d’action">
+          <input type="checkbox" checked={!!r.info} onChange={e=>majReserve(r.id,{info:e.target.checked})}/>pour information</label>
         <button className="btn dg s" aria-label={'Retirer la réserve '+(i+1)} onClick={()=>maj(p=>({reserves:(p.reserves||[]).filter(x=>x.id!==r.id)}))}>✕</button>
       </div>)}
       <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap'}}>
@@ -12276,7 +12344,10 @@ function PvReception({data,ch,m,save}){
       </div>
       {/* la levée des réserves : reprise par le PV (ligne « Levée des
          réserves ») et par l'attestation de fin de mission */}
-      {pv.decision==='avec'&&<div className="row" style={{gap:10,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
+      {pv.decision==='avec'&&d.reservesInfoSeules&&!pv.leveeLe&&<div className="xs" style={{marginTop:8,color:GREEN,lineHeight:1.5}}>
+        Réserve{(pv.reserves||[]).length>1?'s':''} notée{(pv.reserves||[]).length>1?'s':''} pour information : aucune levée attendue —
+        le PV et l’attestation de fin de mission le disent.</div>}
+      {pv.decision==='avec'&&!(d.reservesInfoSeules&&!pv.leveeLe)&&<div className="row" style={{gap:10,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
         {champ('Toutes les réserves levées le',<input className="in" type="date" value={pv.leveeLe||''} onChange={e=>maj({leveeLe:e.target.value})}/>)}
         <span className="xs mut" style={{flex:'2 1 220px',lineHeight:1.5}}>{pv.leveeLe?'Reprise sur le PV et sur l’attestation de fin de mission.'
           :'À noter une fois les réserves levées, après visite.'}</span>
@@ -12345,6 +12416,25 @@ function PvReception({data,ch,m,save}){
       {sortie.contenu&&<div style={{color:MUTED}}>Dans ce PV — {sortie.contenu.join(' · ')}.</div>}
       {sortie.manquantes&&sortie.manquantes.length?<span style={{color:AMBER}}> Image illisible, case laissée vide : {sortie.manquantes.join(', ')}.</span>:null}</div>}
     {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
+    <div style={{marginTop:12,paddingTop:10,borderTop:'1px solid '+RULE}}>
+      <div className="xs b" style={{color:NAVY}}>PV signé</div>
+      {pvSignes(pv).map(x=><div key={x.id} className="row xs" style={{gap:10,alignItems:'center',flexWrap:'wrap',marginTop:4}}>
+        <span style={{flex:'0 1 auto',minWidth:0,wordBreak:'break-word'}}><span style={{color:GREEN}}>✓ </span>
+          {x.lien?<a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{x.nom}</a>:x.nom}</span>
+        <span className="mut">déposé le {fd(x.le)}</span>
+        <button className="btn gh s" aria-label={'Retirer '+x.nom} onClick={()=>retirerSigne(x)}>Retirer</button>
+      </div>)}
+      <ZoneDepot multiple accept={PIECES_ACCEPT} occupe={depot&&depot.etat==='envoi'} label="Déposer le PV signé" style={{marginTop:6}}
+        titre={depot&&depot.etat==='envoi'?'Envoi sur le Drive… ('+depot.n+' fichier'+(depot.n>1?'s':'')+')'
+          :pvSignes(pv).length?'+ Ajouter un fichier signé':'Déposer le PV signé'}
+        aide="Une fois la réception faite et le PV signé par le client : glissez le scan ici, ou cliquez pour le choisir"
+        onFiles={deposerSignes}/>
+      {depot&&depot.etat==='ok'&&<div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+        Déposé dans Drive › {ch.nom} › PV de réception, et ajouté à la pièce « PV de réception » du chantier : {depot.noms.join(', ')}.</div>}
+      {depot&&depot.etat==='erreur'&&<div className="xs" style={{marginTop:6,color:TERRA,lineHeight:1.5}}>{depot.msg}</div>}
+      {pvSignes(pv).length>0&&!pv.decision&&<div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+        Cochez aussi la décision ci-dessus (sans réserve, avec réserves…) : l’attestation de fin de mission la reprend.</div>}
+    </div>
     {signer&&<SignaturePad titre={'PV de réception — '+(m.lot||'lot')+' — '+signer.l+' — '+ch.nom} qualiteDefaut={signer.qualite}
       onAnnuler={()=>setSigner(null)} onSigner={v=>enregistrerSignature(signer.id,v)}/>}
   </div>;
@@ -18785,7 +18875,7 @@ function FinMissionChantier({data,ch,save}){
     }catch(e){setSortie({etat:'erreur',msg:'Attestation impossible à produire — '+((e&&e.message)||e)})}
   };
   const champ=(l,el)=><div style={{flex:'1 1 150px'}}><div className="xs mut" style={{marginBottom:3}}>{l}</div>{el}</div>;
-  const couleur=e=>e==='sans'||e==='levees'?GREEN:e==='aucun'?MUTED:TERRA;
+  const couleur=e=>e==='sans'||e==='levees'||e==='info'?GREEN:e==='aucun'?MUTED:e==='decision'?AMBER:TERRA;
   return <div className="xs" style={{lineHeight:1.5}}>
     <div className="mut">À faire signer au client une fois tout terminé : elle constate l’achèvement de votre mission (AOR comprise),
       la remise des documents et l’état des honoraires. Elle ne remplace pas les PV de réception des lots, d’où partent les garanties,
@@ -18798,7 +18888,7 @@ function FinMissionChantier({data,ch,save}){
     {!d.lots.length&&<div className="mut">Aucun marché signé sur ce chantier.</div>}
     <div className="mut" style={{marginTop:4}}>Décision, réserves et date de levée se notent dans le PV de chaque lot (MARCHÉS › le lot › PV DE RÉCEPTION).</div>
     <div className="b" style={{color:NAVY,marginTop:12}}>Documents remis au client</div>
-    {FIN_MISSION_DOCS.map(x=><label key={x.id} className="row" style={{gap:6,alignItems:'flex-start',marginTop:3,cursor:'pointer'}}>
+    {FIN_MISSION_DOCS.filter(x=>!x.retire||(fm.documents&&fm.documents[x.id])).map(x=><label key={x.id} className="row" style={{gap:6,alignItems:'flex-start',marginTop:3,cursor:'pointer'}}>
       <input type="checkbox" checked={!!(fm.documents&&fm.documents[x.id])}
         onChange={e=>maj(p=>({documents:{...(p.documents||{}),[x.id]:e.target.checked}}))}/>
       <span>{x.l}</span></label>)}
@@ -18918,7 +19008,8 @@ function DossierAssureur({data,ch,save}){
       <div className="b">À compléter avant l’envoi (rien ne bloque) :</div>
       {d.manquants.map((x,i)=><div key={i}>· {x.texte}</div>)}
       {d.nonSoldes.map((x,i)=><div key={'s'+i}>· {x.lot} : reste à facturer {eurc(x.reste)} HT — le coût n’est pas encore définitif</div>)}
-      <div style={{marginTop:4}}>Une facture se dépose depuis son « + » (MARCHÉS) ; un PV signé ou la DAACT, en les glissant sur leur pièce ci-dessus.</div>
+      <div style={{marginTop:4}}>Une facture se dépose depuis son « + » (MARCHÉS) ; un PV signé, depuis le PV du lot (MARCHÉS › le lot ›
+        PV DE RÉCEPTION) ; la DAACT, en la glissant sur sa pièce ci-dessus.</div>
     </div>}
     <div className="row" style={{gap:10,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
       <button className="btn acc s" disabled={travail||!d.fichiers.length} onClick={produire}>
