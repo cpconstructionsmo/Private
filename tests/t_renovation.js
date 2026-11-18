@@ -50,12 +50,27 @@ const data={...M.EMPTY,chantiers:[RENO,NEUF,DEPUIS],prospects:[P_RENO],marches:[
     &&/Existants et assurances/.test(x)&&/Travaux exclus de la mission/.test(x),'article « Travaux sur existant »');
   chk(!/Acquisition du terrain/.test(x)&&/Obtention de l’autorisation d’urbanisme requise/.test(x)&&/repérages réglementaires avant travaux/.test(x),
     'conditions suspensives : ni terrain, mais autorisation et repérages');
-  chk(/39 468,39 € HT, soit 45 204,12 € TTC, TVA aux taux en vigueur applicables à chaque poste/.test(x),'article 6 : travaux HT et TTC, TVA par poste');
+  chk(/39 468,39 € HT, soit 45 204,12 € TTC, TVA à taux variable selon la nature des prestations/.test(x)&&!/taux de TVA en vigueur de/.test(x),
+    'article 6 : travaux HT et TTC, TVA variable, aucun taux unique');
   chk(/TVA \(20 %\)947,24 €/.test(x)&&/Honoraires TTC5 683,44 €/.test(x),'honoraires à 20 % même quand les travaux sont à 10 %');
   chk(/Direction de l’exécution des travaux60 %3 410,06 €/.test(x)&&!/maçonnerie courante/.test(x)&&!/mise hors d’eau/i.test(x),'échéancier de la rénovation');
   chk(M.HONO_ECHEANCIER_RENO.reduce((s,e)=>s+e.pct,0)===100,'échéancier : 100 %');
   chk(/Dépôt de l’autorisation d’urbanisme/.test(x)&&/descriptif technique par lot et l’estimation détaillée \(DQE\)/.test(x)&&!/programme technique de référence \(PTR\)/.test(x),
     'délais et pièces contractuelles de la rénovation');
+  x=await xmlDe(await M.genererContratMoeDocx({...p,contratTravauxHT:'',tva:0},'renovation'));
+  chk(/45 204,12 € TTC, TVA à taux variable selon la nature des prestations/.test(x)&&!/45 204,12 € HT/.test(x)&&!/0 %\./.test(x),
+    'rénovation sans HT saisi : le TTC seul, TVA variable (ni HT déduit, ni taux à 0 %)');
+  chk(!/Les travaux prévus ne comportent ni démolition/.test(x)&&!/estimé à environ/.test(x)
+    &&/Lorsque les travaux entrent dans le champ de l’article L\.242-1/.test(x),'dommages-ouvrage : obligation selon la nature des travaux');
+  x=await xmlDe(await M.genererContratMoeDocx({...p,contratDoCout:3000,contratDoSansStructure:true},'renovation'));
+  chk(/ni démolition de mur porteur ni travaux de gros œuvre : selon la nature des ouvrages réalisés, l’assurance dommages-ouvrage peut ne pas être exigée/.test(x)
+    &&/estimé à environ 3 000,00 € TTC/.test(x)&&/Je renonce expressément à cette assurance/.test(x),'dommages-ouvrage : coût estimé, sans travaux de structure, renonciation gardée');
+  /* l'orthographe du modèle */
+  chk(!/maitre|Maitre|tout décision|précédera|à l’articles|d’autres part|Code Civil|apparaitraient|A la réception|maîtrise d’Œuvre/.test(x),'orthographe du modèle corrigée');
+  const brut=await (async()=>{const o=await M.genererContratMoeDocx(p,'renovation');return new TextDecoder().decode(await M.zipEntree(o.buffer.slice(o.byteOffset,o.byteOffset+o.byteLength),'word/document.xml'))})();
+  const total=brut.slice(brut.indexOf('TOTAL HONORAIRES')-1500,brut.indexOf('TOTAL HONORAIRES')+3000);
+  const cellule100=total.slice(total.lastIndexOf('<w:tc>',total.indexOf('>100 %<')),total.indexOf('>100 %<'));
+  chk(/w:fill="/.test(cellule100)&&/<w:top w:val="single"/.test(cellule100),'échéancier : la case « 100 % » encadrée et teintée comme le reste du total');
   x=await xmlDe(await M.genererContratMoeDocx({...p,categorie:'neuf',typeOuvrage:'maison',contratTravauxHT:'',contratTravauxTTC:'',tva:20},'maison'));
   chk(/Acquisition du terrain/.test(x)&&!/Article 4 ter/.test(x)&&/ESQ — Esquisse/.test(x)&&/maçonnerie courante/.test(x)
     &&/sur la base d’un taux de TVA en vigueur de 20 %/.test(x),'maison neuve : le contrat du modèle, inchangé');

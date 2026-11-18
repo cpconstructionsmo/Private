@@ -71,7 +71,8 @@ qu'on ait à les redire.
   sol, fermettes pour le neuf ; pièces attendues par phase
   `DOCS_PHASE_RENO`. Tests : `t_renovation.js`, `renovation_navigateur.js`.
 - **Contrat de maîtrise d'œuvre** (`SortirContratMoe`, `genererContratMoeDocx`) :
-  texte juridique repris mot pour mot du modèle CP ; seuls les champs
+  texte juridique repris du modèle CP (orthographe corrigée à la demande de
+  CP, novembre 2026, sans rien changer au sens) ; seuls les champs
   connus sont remplis (client, adresse, surfaces, budget, honoraires). Il
   se sort de la fiche prospect chiffrée, et aussi du chantier signé
   (PIÈCES › Contrat de maîtrise d'œuvre, `ContratMoeChantier`, rangé dans
@@ -88,8 +89,15 @@ qu'on ait à les redire.
   maçonnerie, hors d'eau), les articles changent, un « Article 4 ter —
   Travaux sur existant » s'ajoute, l'échéancier suit `HONO_ECHEANCIER_RENO` ;
   le reste du modèle est repris tel quel, à faire relire. TVA mixte : le HT
-  des travaux se saisit à côté du TTC (`p.contratTravauxHT`) ; les
-  honoraires du contrat sont toujours à 20 % (`HONO_TVA_DEFAUT`). Un
+  des travaux se saisit à côté du TTC (`p.contratTravauxHT`) ; en
+  rénovation, l'article 6 ne cite jamais un taux unique (« TVA à taux
+  variable selon la nature des prestations ») et n'écrit le HT que s'il a
+  été saisi. Les honoraires du contrat sont toujours à 20 %
+  (`HONO_TVA_DEFAUT`). Dommages-ouvrage : coût estimé saisi sur la carte
+  (`p.contratDoCout`, à défaut `p.dommageOuvrage` du chiffrage) ; en
+  rénovation, « aucune démolition de mur porteur ni gros œuvre »
+  (`p.contratDoSansStructure`) fait dire au contrat qu'elle peut ne pas
+  être exigée, la mention de renonciation restant au contrat. Un
   chantier créé sans prospect sort aussi son contrat
   (`contratPourChantier`, réglages gardés dans `ch.contratMoe`). Tests :
   `t_contrat_moe.js`, `t_contrat_moe_erp.js`, `t_renovation.js`.
