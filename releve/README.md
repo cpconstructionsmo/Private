@@ -31,8 +31,27 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 - Le relevé **lit** les données du suivi pour remplir la fiche client ; il n'y
   écrit jamais.
 
-À venir : « Imaginer » (étape 4), lecture des notes manuscrites par une
-fonction du serveur.
+## La fourchette de prix pendant la visite (Phase 2, mode A)
+
+- Étape **« Budget »** de la visite, après le plan : postes proposés d'après
+  les travaux choisis, gamme (éco / standard / premium), quantité tirée du
+  plan (toute la maison ou pièces choisies : sol, murs ouvertures déduites,
+  périmètre, portes, fenêtres) ou saisie ; ajustements (état, accès,
+  imprévus, tous à 0 % par défaut) ; « de X à Y € TTC » et voyant face à
+  l'enveloppe du client. Indicatif, non contractuel.
+- **« ⚙ Fourchettes de prix »** : la table partagée par l'équipe (prix TTC
+  par unité, mini et maxi, par gamme), table `releve_reglages`, gardée aussi
+  sur l'appareil pour servir sans réseau. **Livrée sans aucun prix** : les
+  postes et leurs unités seulement, à compléter par CP Constructions. Un
+  poste sans prix est signalé, jamais compté au hasard.
+- Le calcul (`budget.js`) est indépendant de l'écran et testé seul. Le
+  moteur de relevé envoie les quantités de chaque pièce (`resume.detail`).
+- L'estimation part avec la visite : le suivi l'affiche dans le bloc
+  « Visites » de la fiche prospect et la reprend dans la demande d'un
+  prospect créé depuis la visite.
+
+À venir : chiffrage précis depuis le plan (Phase 2, mode B), « Imaginer »,
+lecture des notes manuscrites par une fonction du serveur.
 
 ## Le moteur de relevé (`moteur/`, Phase 1 étape 2)
 
@@ -75,7 +94,8 @@ fonction du serveur.
 
 ## Installation (une fois)
 
-1. Supabase › SQL Editor : exécuter `supabase/releve/schema.sql`.
+1. Supabase › SQL Editor : exécuter `supabase/releve/schema.sql` (à relancer
+   quand il évolue : sans danger, il ne recrée que ce qui manque).
 2. Supabase › Authentication › Sign In / Providers : vérifier que
    « Allow new users to sign up » est **décoché**.
 
@@ -90,8 +110,9 @@ d'accueil ». L'icône « Relevé CP » ouvre la page en plein écran.
 ## Tests
 
 `tests/t_releve_modele.js`, `tests/t_releve_synchro.js`,
-`tests/t_releve_convertisseur.js`, `tests/t_releve_rattachement.js` (Node) et
+`tests/t_releve_convertisseur.js`, `tests/t_releve_rattachement.js`,
+`tests/t_releve_budget.js` (Node) et
 `tests/releve_navigateur.js`, `tests/releve_plan_navigateur.js`,
-`tests/releve_rattachement_navigateur.js` (Chromium, faux Supabase, format iPhone,
+`tests/releve_rattachement_navigateur.js`, `tests/releve_budget_navigateur.js` (Chromium, faux Supabase, format iPhone,
 scan fictif `tests/releve_scan_fictif.js`).
 Aucune donnée réelle dans les tests.

@@ -13,6 +13,7 @@ import * as M from './modele.js';
 import { creerStockage, magasinIndexedDB } from './stockage.js';
 import { creerSynchro, ESPACE, cheminScan } from './synchro.js';
 import { reduirePhoto } from './photo.js';
+import * as B from './budget.js';
 
 // même projet Supabase et même clé publique que le suivi de chantiers (index.html)
 const SUPABASE_URL = 'https://gxfrughmwkvdepvkhufv.supabase.co';
@@ -186,7 +187,8 @@ function ecranAccueil() {
       S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
       !S.session && h('div', { class: 'message att' }, 'Non connecté : les visites restent sur cet appareil. ',
         h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'connexion'; dessiner(); } }, 'Se connecter')),
-      liste.length ? liste.map(r => carteVisite(r)) : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.')),
+      liste.length ? liste.map(r => carteVisite(r)) : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.'),
+      h('div', { style: 'text-align:center;margin-top:8px' }, h('button', { class: 'lienRetour', id: 'reglerFourchettes', onclick: () => { S.retour = 'accueil'; S.ecran = 'fourchettes'; S.brouillonF = null; S.message = null; dessiner(); } }, '⚙ Fourchettes de prix'))),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' }, h('button', { class: 'gros', id: 'nouvelleVisite', onclick: nouvelleVisite }, '📷 Nouvelle visite'))),
   ];
 }
@@ -215,7 +217,7 @@ function ecranVisite() {
   const v = visite();
   if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
   const et = M.ETAPES[S.etape], dernier = S.etape === M.ETAPES.length - 1;
-  const corps = { garde: etapeGarde, client: etapeClient, projet: etapeProjet, pieces: etapePieces, scan: etapeScan, fin: etapeFin }[et.id](v);
+  const corps = { garde: etapeGarde, client: etapeClient, projet: etapeProjet, pieces: etapePieces, scan: etapeScan, budget: etapeBudget, fin: etapeFin }[et.id](v);
   return [
     h('header', { class: 'haut' },
       h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'accueil'; S.message = null; dessiner(); } }, '‹ Visites'),
@@ -518,15 +520,158 @@ function etapeFin(v) {
       dd('Enveloppe', M.valeur(v, 'projet.enveloppe') != null ? M.formatEuros(M.valeur(v, 'projet.enveloppe')) + ' TTC' : null),
       dd('Pièces', M.actifs(v.pieces).map(p => p.nom + ' (' + M.actifs(v.photos).filter(x => x.pieceId === p.id).length + ' ph.)').join(', ')),
       dd('Scan', (M.valeur(v, 'scan.fichier') || {}).nom),
-      dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null)),
+      dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null),
+      dd('Budget estimé', (M.valeur(v, 'budget') || {}).estimation ? B.formatPlage(M.valeur(v, 'budget').estimation) + ' (indicatif)' : null)),
     champ(v, 'notes', 'NOTES DE VISITE', { multiligne: true, autocapitalize: 'sentences' }),
+  ];
+}
+
+/* ---------- étape 7 : la fourchette de prix (Phase 2, mode A) ----------
+   Les postes renvoient à la table des fourchettes de CP Constructions ; la
+   quantité vient du plan (pièces choisies, ou toute la maison) ou se saisit.
+   Le résultat est indicatif : « estimation, non contractuelle ». Le total
+   est aussi gardé avec la visite (« estimation »), pour que le suivi
+   l'affiche sur la fiche du prospect. */
+function etapeBudget(v) {
+  const budget = M.valeur(v, 'budget') || { lignes: [], ajust: {} };
+  const pieces = B.piecesDuPlan(M.valeur(v, 'plan')), F_ = fourchettes();
+  const calc = B.calculerBudget(budget, F_, pieces);
+  const env = M.valeur(v, 'projet.enveloppe'), verdict = B.verdictEnveloppe(calc.total, env);
+  const majBudget = async f => {
+    const b = f(JSON.parse(JSON.stringify({ lignes: [], ajust: {}, ...budget })));
+    const c = B.calculerBudget(b, fourchettes(), pieces);
+    b.estimation = { min: c.total.min, max: c.total.max, complet: c.complet, le: new Date().toISOString() };
+    await poser('budget', b); vibrer(); dessiner();
+  };
+  const ajouter = fid => majBudget(b => { b.lignes.push({ id: M.nouvelId(), fourchetteId: fid, gamme: 'standard', pieces: [] }); return b; });
+  const sugg = B.postesSuggeres(M.valeur(v, 'projet.types') || [], F_, budget.lignes);
+  const couleur = { dans: 'ok', limite: 'att', hors: 'err' };
+  const a = budget.ajust || {};
+  return [
+    h('h1', {}, 'Budget'),
+    h('p', { class: 'mut' }, 'Estimation indicative, non contractuelle, à affiner au chiffrage.'),
+    h('div', { class: 'carte', id: 'totalBudget' },
+      h('div', { class: 'montant' }, calc.lignes.length ? B.formatPlage(calc.total) : 'Ajoutez des postes'),
+      calc.majoration ? h('div', { class: 'mut petit' }, 'Ajustements compris : +' + Math.round(calc.majoration * 100) + ' %') : null,
+      env != null ? h('div', { class: 'message ' + (verdict ? couleur[verdict.niveau] : 'att'), style: 'margin:10px 0 0', id: 'verdictBudget' },
+        'Enveloppe du client : ' + M.formatEuros(env) + (verdict ? ' · ' + verdict.texte : '')) : h('div', { class: 'mut petit' }, 'Enveloppe du client non renseignée (étape Projet).'),
+      calc.manques ? h('div', { class: 'manque', style: 'margin-top:10px' }, calc.manques + ' poste' + (calc.manques > 1 ? 's' : '') + ' sans prix : complétez les fourchettes de prix.') : null),
+    sugg.length ? h('button', { class: 'gros sec', id: 'ajouterSuggeres', style: 'margin-bottom:12px', onclick: () => majBudget(b => { sugg.forEach(f => b.lignes.push({ id: M.nouvelId(), fourchetteId: f.id, gamme: 'standard', pieces: [] })); return b; }) },
+      '＋ Postes des travaux choisis (' + sugg.length + ')') : null,
+    calc.lignes.map((l, i) => carteLigneBudget(l, budget.lignes[i], pieces, majBudget)),
+    h('label', { class: 'champ' }, 'AJOUTER UN POSTE',
+      h('select', { class: 'in', id: 'ajouterPoste', onchange: e => { if (e.target.value) ajouter(e.target.value); } },
+        h('option', { value: '' }, 'Choisir…'), F_.map(f => h('option', { value: f.id }, f.libelle + ' (' + (B.UNITES[f.unite] || {}).court + ')')))),
+    h('div', { class: 'champ' }, 'AJUSTEMENTS'),
+    h('div', { class: 'puces' }, B.ETATS.map(([n, val]) => h('button', { class: 'puce' + ((a.etat || 0) === val ? ' on' : ''), type: 'button', onclick: () => majBudget(b => { b.ajust = { ...b.ajust, etat: val }; return b; }) }, n + (val ? ' +' + val * 100 + ' %' : '')))),
+    h('div', { class: 'puces' }, B.ACCES.map(([n, val]) => h('button', { class: 'puce' + ((a.acces || 0) === val ? ' on' : ''), type: 'button', onclick: () => majBudget(b => { b.ajust = { ...b.ajust, acces: val }; return b; }) }, n + (val ? ' +' + val * 100 + ' %' : '')))),
+    h('label', { class: 'champ' }, 'IMPRÉVUS : +' + Math.round((a.imprevus || 0) * 100) + ' %',
+      h('input', { type: 'range', class: 'curseur', min: 0, max: B.IMPREVUS_MAX * 100, step: 5, value: Math.round((a.imprevus || 0) * 100), 'aria-label': 'Imprévus',
+        onchange: e => majBudget(b => { b.ajust = { ...b.ajust, imprevus: (+e.target.value) / 100 }; return b; }) })),
+    h('button', { class: 'gros sec', id: 'ouvrirFourchettes', style: 'margin-top:14px', onclick: () => { S.retour = 'visite'; S.ecran = 'fourchettes'; S.brouillonF = null; dessiner(); window.scrollTo(0, 0); } }, '⚙ Fourchettes de prix'),
+  ];
+}
+
+function carteLigneBudget(l, src, pieces, majBudget) {
+  const u = B.UNITES[l.unite] || {}, duPlan = !!u.plan && pieces.length > 0;
+  const changer = f => majBudget(b => { const x = b.lignes.find(y => y.id === src.id); if (x) f(x, b); return b; });
+  return h('div', { class: 'carte', 'data-ligne': src.id },
+    h('div', { class: 'rang', style: 'justify-content:space-between;align-items:flex-start' },
+      h('b', {}, l.libelle),
+      h('button', { class: 'puce', type: 'button', 'aria-label': 'Retirer le poste', onclick: () => majBudget(b => { b.lignes = b.lignes.filter(y => y.id !== src.id); return b; }) }, '🗑')),
+    h('div', { class: 'mut petit', style: 'margin:4px 0 6px' }, l.manque === 'prix' ? 'Prix à saisir dans les fourchettes (gamme ' + (B.GAMMES.find(g => g.id === l.gamme) || {}).nom + ')'
+      : l.manque === 'quantite' ? 'Quantité à saisir' : l.manque === 'poste' ? 'Poste retiré des fourchettes' : B.formatPlage({ min: l.min, max: l.max })),
+    h('div', { class: 'puces' }, B.GAMMES.map(g => h('button', { class: 'puce' + (l.gamme === g.id ? ' on' : ''), type: 'button', onclick: () => changer(x => { x.gamme = g.id; }) }, g.nom))),
+    l.unite === 'forfait' ? null : h('label', { class: 'champ' }, 'QUANTITÉ (' + (u.court || '') + ')' + (l.source === 'plan' ? ' : d’après le plan' : ''),
+      h('input', { class: 'in', inputMode: 'decimal', name: 'quantite-' + src.id, value: l.quantite != null ? String(l.quantite).replace('.', ',') : '',
+        placeholder: l.quantitePlan != null ? 'plan : ' + String(l.quantitePlan).replace('.', ',') : 'à saisir',
+        onchange: e => changer(x => { const t = e.target.value.trim(); x.quantite = t === '' || (l.quantitePlan != null && t.replace(',', '.') == l.quantitePlan && l.source === 'plan') ? null : t; }) })),
+    duPlan ? h('div', { class: 'puces', style: 'margin-top:6px' },
+      h('button', { class: 'puce' + (!(src.pieces || []).length ? ' on' : ''), type: 'button', onclick: () => changer(x => { x.pieces = []; x.quantite = null; }) }, 'Toute la maison'),
+      pieces.map(p => { const on = (src.pieces || []).includes(p.id);
+        return h('button', { class: 'puce' + (on ? ' on' : ''), type: 'button', onclick: () => changer(x => { const s = new Set(x.pieces || []); on ? s.delete(p.id) : s.add(p.id); x.pieces = [...s]; x.quantite = null; }) }, p.nom); })) : null);
+}
+
+/* ---------- la table des fourchettes de prix (partagée par l'équipe) ----------
+   Gardée dans la table releve_reglages (ligne « fourchettes ») et sur
+   l'appareil pour servir sans réseau. Sans table installée, ou sans réseau,
+   la saisie reste sur cet appareil et l'écran le dit. */
+const CLE_FOURCHETTES = 'cp-releve-fourchettes';
+const F = { lignes: null, version: 0, etat: 'local' };
+const fourchettes = () => (F.lignes || B.FOURCHETTES_MODELE).filter(l => !l.supprime);
+function lireCacheFourchettes() { try { const x = JSON.parse(localStorage.getItem(CLE_FOURCHETTES) || 'null'); return x && Array.isArray(x.lignes) ? x : null; } catch (e) { return null; } }
+function ecrireCacheFourchettes() { try { localStorage.setItem(CLE_FOURCHETTES, JSON.stringify({ lignes: F.lignes, version: F.version })); } catch (e) { /* stockage plein : la table reste en mémoire */ } }
+async function chargerFourchettes() {
+  const c = lireCacheFourchettes(); if (c) { F.lignes = c.lignes; F.version = c.version || 0; }
+  try {
+    const { data, error } = await supa.from('releve_reglages').select('donnees,version').eq('id', 'fourchettes').maybeSingle();
+    if (error) { F.etat = /42P01|PGRST205|does not exist|schema cache/.test((error.code || '') + ' ' + (error.message || '')) ? 'absent' : 'local'; return; }
+    F.etat = 'serveur';
+    if (data && data.donnees && Array.isArray(data.donnees.lignes)) {
+      // ce qui a été saisi ici sans réseau et pas encore envoyé n'est pas perdu
+      F.lignes = c && c.enAttente ? B.fusionnerFourchettes(data.donnees.lignes, c.lignes) : data.donnees.lignes;
+      F.version = data.version; ecrireCacheFourchettes();
+    }
+  } catch (e) { F.etat = 'local'; }
+}
+async function enregistrerFourchettes(lignes) {
+  for (let essai = 0; essai < 3; essai++) {
+    const { data, error } = await supa.from('releve_reglages').select('donnees,version').eq('id', 'fourchettes').maybeSingle();
+    if (error) throw error;
+    const fus = data && data.donnees ? B.fusionnerFourchettes(data.donnees.lignes, lignes) : lignes;
+    const quand = new Date().toISOString();
+    const r = data ? await supa.from('releve_reglages').update({ donnees: { lignes: fus }, version: data.version + 1, maj_le: quand }).eq('id', 'fourchettes').eq('version', data.version).select('id')
+      : await supa.from('releve_reglages').insert({ id: 'fourchettes', donnees: { lignes: fus }, version: 1, maj_le: quand }).select('id');
+    if (r.error && r.error.code === '23505') continue;
+    if (r.error) throw r.error;
+    if ((r.data || []).length) { F.lignes = fus; F.version = data ? data.version + 1 : 1; F.etat = 'serveur'; ecrireCacheFourchettes(); return; }
+  }
+  throw { message: 'la table a été modifiée en même temps par un collègue : réessayez' };
+}
+
+function ecranFourchettes() {
+  if (!S.brouillonF) S.brouillonF = JSON.parse(JSON.stringify(F.lignes || B.FOURCHETTES_MODELE));
+  const L = S.brouillonF, quand = () => new Date().toISOString();
+  const poserL = (id, f) => { const l = L.find(x => x.id === id); if (l) { f(l); l.maj = quand(); } };
+  const retour = () => { S.ecran = S.retour || 'accueil'; S.brouillonF = null; dessiner(); window.scrollTo(0, 0); };
+  const enregistrer = async e => {
+    const bouton = e.currentTarget; bouton.disabled = true;
+    try { await enregistrerFourchettes(L); feter(bouton); S.message = { type: 'ok', texte: 'Fourchettes de prix enregistrées pour toute l’équipe.' }; retour(); }
+    catch (err) {
+      F.lignes = JSON.parse(JSON.stringify(L));
+      try { localStorage.setItem(CLE_FOURCHETTES, JSON.stringify({ lignes: F.lignes, version: F.version, enAttente: true })); } catch (x) { /* rien de plus à faire */ }
+      S.message = { type: 'att', texte: 'Fourchettes enregistrées sur cet appareil seulement (' + (F.etat === 'absent' ? 'table « releve_reglages » à installer : relancez supabase/releve/schema.sql' : 'pas de réseau ou serveur indisponible') + '). Elles partiront au prochain enregistrement avec du réseau.' };
+      retour();
+    }
+  };
+  const nombre = (l, g, k) => h('input', { class: 'in', inputMode: 'decimal', 'aria-label': l.libelle + ' ' + g + ' ' + k, name: 'prix-' + l.id + '-' + g + '-' + k, style: 'margin:0',
+    value: l.prix && l.prix[g] && l.prix[g][k] != null ? String(l.prix[g][k]).replace('.', ',') : '', placeholder: k === 'min' ? 'mini' : 'maxi',
+    oninput: e => poserL(l.id, x => { const t = e.target.value.trim().replace(/\s/g, '').replace(',', '.'); x.prix = { ...(x.prix || {}) }; x.prix[g] = { ...(x.prix[g] || {}), [k]: t === '' ? null : +t }; }) });
+  return [
+    h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Retour'), h('span', { class: 'titre' }, 'Fourchettes de prix'), pastilleEtat()),
+    h('main', {},
+      h('h1', {}, 'Fourchettes de prix'),
+      h('p', { class: 'mut' }, 'Prix TTC par unité, mini et maxi, pour chaque gamme. Ils donnent la fourchette annoncée au client pendant la visite. La table est partagée par toute l’équipe.'),
+      F.etat === 'absent' ? h('div', { class: 'message att' }, 'La table des réglages n’est pas encore installée sur le serveur (relancez supabase/releve/schema.sql). Vos prix resteront sur cet appareil en attendant.') : null,
+      L.filter(l => !l.supprime).map(l => h('div', { class: 'carte', 'data-fourchette': l.id },
+        h('div', { class: 'rang' },
+          h('input', { class: 'in', value: l.libelle, 'aria-label': 'Libellé du poste', style: 'margin:0;font-weight:600', oninput: e => poserL(l.id, x => { x.libelle = e.target.value; }) }),
+          h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer le poste', onclick: () => { if (!confirm('Supprimer le poste « ' + l.libelle + ' » ?')) return; poserL(l.id, x => { x.supprime = true; }); dessiner(); } }, '🗑')),
+        h('div', { class: 'deuxCol' },
+          h('label', { class: 'champ' }, 'UNITÉ', h('select', { class: 'in', onchange: e => poserL(l.id, x => { x.unite = e.target.value; }) },
+            Object.entries(B.UNITES).map(([k, u]) => h('option', { value: k, selected: l.unite === k }, u.nom)))),
+          h('label', { class: 'champ' }, 'TRAVAUX', h('select', { class: 'in', onchange: e => poserL(l.id, x => { x.type = e.target.value; }) },
+            [...M.TYPES_TRAVAUX, 'Autre'].map(t => h('option', { value: t, selected: l.type === t }, t))))),
+        B.GAMMES.map(g => h('div', { class: 'rang', style: 'margin-top:8px' }, h('span', { style: 'flex:0 0 76px;font-weight:600' }, g.nom), nombre(l, g.id, 'min'), nombre(l, g.id, 'max'))))),
+      h('button', { class: 'gros sec', id: 'ajouterFourchette', onclick: () => { L.push({ id: M.nouvelId(), type: 'Autre', libelle: 'Nouveau poste', unite: 'm2_sol', prix: {}, maj: quand() }); dessiner(); } }, '＋ Ajouter un poste')),
+    h('div', { class: 'barreBas' }, h('div', { class: 'in' }, h('button', { class: 'gros sec', onclick: retour }, 'Annuler'), h('button', { class: 'gros', id: 'enregistrerFourchettes', onclick: enregistrer }, 'Enregistrer'))),
   ];
 }
 
 /* ---------- dessin ---------- */
 function dessiner() {
   const app = document.getElementById('app');
-  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : ecranAccueil();
+  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
 }
 
@@ -589,6 +734,7 @@ async function demarrer() {
   const avant = sync.synchroniser;
   sync.synchroniser = async () => { await avant(); const n = S.visites.length; await recharger(); if (S.ecran === 'accueil' && S.visites.length !== n) dessiner(); };
   sync.synchroniser();
+  chargerFourchettes().then(() => { if (S.ecran === 'visite' || S.ecran === 'fourchettes') dessiner(); });
   if (S.ecran !== 'connexion') traiterLien();   // sinon, après la connexion
   window.addEventListener('online', () => sync.synchroniser());
   window.addEventListener('offline', () => sync.synchroniser());

@@ -33,7 +33,10 @@ qu'on ait à les redire.
   visite » d'une fiche prospect). Le suivi rattache les visites aux
   prospects sans doublon (PROSPECTS › « Visites à rattacher »,
   `prospectsCandidats`, `completerProspectDepuisVisite` : cases vides
-  seulement) et ne garde que le lien `p.visites`. Installation :
+  seulement) et ne garde que le lien `p.visites`. Fourchette de prix de
+  la visite (`releve/budget.js`, étape « Budget », table partagée
+  `releve_reglages` livrée **sans prix**) : l'estimation part avec la visite
+  et s'affiche sur la fiche prospect (`visiteResume().fourchette`). Installation :
   `supabase/releve/schema.sql`. Tests : `t_releve_*.js`,
   `releve*_navigateur.js` (scan fictif `tests/releve_scan_fictif.js`).
 - **Plan électrique** : le DQE (quantitatif du marché « Électricité », ou un

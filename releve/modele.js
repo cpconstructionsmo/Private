@@ -17,6 +17,7 @@ export const ETAPES = [
   { id: 'projet', titre: 'Projet' },
   { id: 'pieces', titre: 'Pièces et photos' },
   { id: 'scan', titre: 'Scan' },
+  { id: 'budget', titre: 'Budget' },
   { id: 'fin', titre: 'Fin de visite' },
 ];
 
@@ -47,6 +48,7 @@ export const CHAMPS = {
   'plan': 'objet', // { releve, resume } : le relevé ouvert dans le moteur (releve/moteur/)
   'plan.ecarte': 'objet', // l'autre version du plan, gardée de côté après une modification sur deux appareils
   'notes': 'texte',
+  'budget': 'objet', // { lignes, ajust, estimation } : la fourchette de prix (releve/budget.js)
   'prospectId': 'texte', // le dossier du suivi pour lequel la visite a été lancée (lien « Nouvelle visite » d'une fiche prospect)
   'statut': 'texte', // 'en_cours' | 'terminee'
   'etape': 'texte',

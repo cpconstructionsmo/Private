@@ -33,20 +33,23 @@ function fauxSupabase(etat) {
         if (st.op !== 'select') { etat.ecritureAppData = true; return { data: null, error: { message: 'écriture interdite depuis le relevé' } }; }
         return etat.appData ? { data: { data: copie(etat.appData) }, error: null } : { data: null, error: { code: 'PGRST116', message: 'aucune ligne' } };
       }
-      if (table !== 'releve_visites') return { data: null, error: { code: '42P01', message: 'table inconnue' } };
+      if (table === 'releve_reglages' && etat.sansReglages) return { data: null, error: { code: '42P01', message: 'relation "public.releve_reglages" does not exist' } };
+      const magasins = { releve_visites: etat.lignes, releve_reglages: (etat.reglages = etat.reglages || {}) };
+      const magasin = magasins[table];
+      if (!magasin) return { data: null, error: { code: '42P01', message: 'table inconnue' } };
       const garde = l => st.filtres.every(([c, v]) => l[c] === v);
       if (st.op === 'select') {
-        const L = Object.values(etat.lignes).filter(garde).map(copie)
+        const L = Object.values(magasin).filter(garde).map(copie)
           .sort((a, b) => (b.maj_le || '').localeCompare(a.maj_le || ''));
         return { data: st.unique ? (L[0] || null) : L, error: null };
       }
       if (etat.avantEcriture) { const f = etat.avantEcriture; etat.avantEcriture = null; f(); }
       if (st.op === 'insert') {
-        if (etat.lignes[st.valeurs.id]) return { data: null, error: { code: '23505', message: 'duplicate key' } };
-        etat.lignes[st.valeurs.id] = copie(st.valeurs); etat.ecritures++;
+        if (magasin[st.valeurs.id]) return { data: null, error: { code: '23505', message: 'duplicate key' } };
+        magasin[st.valeurs.id] = copie(st.valeurs); etat.ecritures++;
         return { data: [{ id: st.valeurs.id }], error: null };
       }
-      const touchees = Object.values(etat.lignes).filter(garde);
+      const touchees = Object.values(magasin).filter(garde);
       touchees.forEach(l => Object.assign(l, copie(st.valeurs)));
       if (touchees.length) etat.ecritures++;
       return { data: touchees.map(l => ({ id: l.id })), error: null };

@@ -71,5 +71,9 @@ chk(M.visitesARattacher([v1,v2,v3],P.slice(1),[]).map(r=>r.id).join()==='vis-1,v
 chk(M.visitesDuProspect(prospect,[v1,v2,v3]).map(r=>r.id).join()==='vis-1','la fiche prospect retrouve sa visite rattachée');
 chk(M.visitesDuProspect(P[2],[v1,v2,v3]).map(r=>r.id).join()==='vis-2','et celle lancée depuis sa fiche');
 
+const vf=M.visiteResume(ligne('vis-f',{'client.nom':'Fourchette',budget:{lignes:[],ajust:{},estimation:{min:8600,max:12900,complet:true}}}));
+chk(vf.fourchette&&vf.fourchette.min===8600&&vf.fourchette.max===12900,'la fourchette de la visite est lue');
+chk(M.visiteResume(ligne('vis-g',{budget:{lignes:[],estimation:{min:0,max:0}}})).fourchette===null,'fourchette vide : rien d’affiché');
+chk(/Fourchette annoncée à la visite \(indicative\) : de 8.600 € à 12.900 € TTC/.test(M.prospectDepuisVisite(vf,{},'2026-11-18').demande),'la demande du prospect créé reprend la fourchette annoncée');
 chk(M.releveLien()==='releve/'&&M.releveLien({visite:'a b'})==='releve/?visite=a%20b'&&M.releveLien({prospect:'p1'})==='releve/?prospect=p1','liens vers le relevé de visite');
 fin();
