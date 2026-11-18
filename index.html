@@ -7237,6 +7237,43 @@ function xlsxOctets(nomFeuille,lignes,largeurs){
     {nom:'xl/styles.xml',data:enc.encode(styles)},
   ]);
 }
+/* ---------- le chiffrage interne en Excel (mode B, au bureau) ----------
+   Les mêmes chiffres que le Word interne, en vrais nombres pour retravailler :
+   chaque poste (montant retenu, majoration du corps comprise, TVA, TTC,
+   rétrocession) suivi des lignes de son quantitatif (unité, quantité, PU,
+   montant, quantité tirée du plan de la visite), puis les options incluses,
+   et la récapitulation (coût, marge, prix HT, TVA par taux, TTC). À usage
+   interne : la marge et la rétrocession y figurent. Tests : t_chiffrage_xlsx.js. */
+const GRANDEUR_LIB={sol:'sol',murs:'murs',perimetre:'périmètre',portes:'portes',fenetres:'fenêtres',pieces:'pièces'};
+function chiffrageInterneLignes(p,majTarifs){
+  const r2=v=>Math.round((+v||0)*100)/100;
+  const L=[['Poste / ligne','Détail','Unité','Quantité','PU HT','Montant HT','TVA %','Montant TTC','Rétrocession','D’après le plan']];
+  const lignesQuantitatif=x=>((x.quantitatif&&x.quantitatif.lignes)||[]).forEach(l=>{
+    if(ligneType(l)==='titre'){L.push(['',majCorps(l.libelle||''),'','','','','','','',''])}
+    else if(estArticle(l))L.push(['',l.libelle||'',l.unite||'',ligneQt(l),lignePU(l),lignePT(l),'','','',
+      l.regle&&l.regle.grandeur?(GRANDEUR_LIB[l.regle.grandeur]||l.regle.grandeur)+((l.regle.pieces||[]).length?' (pièces choisies)':' (toute la maison)'):'']);
+  });
+  ((p&&p.postes)||[]).forEach(x=>{
+    const ht=posteMontantMajore(x,majTarifs), t=posteTva(x,p);
+    L.push([majCorps(x.libelle||'Poste'),remisePct(x)?'remise '+nb2(remisePct(x))+' %':'','','','',ht,t,r2(ht*(1+t/100)),r2(posteRetro(x,majTarifs)),'']);
+    lignesQuantitatif(x);
+  });
+  optionsInclues(p).forEach(x=>{
+    const ht=optionMontant(x,majTarifs,p), t=posteTva(x,p);
+    L.push(['Option : '+(x.libelle||'option'),x.moinsValue?'moins-value':'','','','',ht,t,r2(ht*(1+t/100)),r2(optionRetro(x,majTarifs,p)),'']);
+  });
+  const cout=prospectCoutHT(p,majTarifs), marge=prospectMargeHT(p,majTarifs);
+  L.push(['','','','','','','','','','']);
+  L.push(['Coût des travaux HT','','','','',r2(cout),'','','','']);
+  L.push(['Marge maîtrise d’œuvre HT',cout?nb2(Math.round(marge/cout*1000)/10)+' %':'','','','',r2(marge),'','','','']);
+  L.push(['Prix HT','','','','',prospectPrixHT(p,majTarifs),'','','','']);
+  prospectVentilationTva(p,majTarifs).forEach(g=>L.push(['TVA '+nb2(g.taux)+' %','sur '+eur(g.ht)+' HT','','','',g.tva,g.taux,'','','']));
+  L.push(['Prix TTC','','','','','','',prospectPrixTTC(p,majTarifs),'','']);
+  const retro=((p&&p.postes)||[]).reduce((t,x)=>t+posteRetro(x,majTarifs),0)+optionsInclues(p).reduce((t,x)=>t+optionRetro(x,majTarifs,p),0);
+  if(retro)L.push(['Rétrocession totale','','','','','','','',r2(retro),'']);
+  return L;
+}
+const genererChiffrageInterneXlsx=(p,majTarifs)=>xlsxOctets('Chiffrage interne',chiffrageInterneLignes(p,majTarifs),[34,40,8,10,10,12,7,12,12,24]);
 function genererProgrammeXlsx(prog,projet){
   const lignes=[['Catégorie','N°','Prestation','Proposition','Incluse','Lot MO','Hors coord.','Montant hors coordination',
     'Marque','Référence','Photos','Pièces jointes','Observations (interne)','Texte']];
@@ -28482,6 +28519,10 @@ function SortirChiffrageInterne({data,p,maj}){
     <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
       <button className="btn gh s" disabled={!pret||(etat&&etat.etat==='travail')} onClick={produire}>
         {etat&&etat.etat==='travail'?'Composition…':'Sortir le chiffrage interne'}</button>
+      {/* l'Excel se compose et se télécharge dans le même geste (Safari refuse un téléchargement différé) */}
+      <button className="btn gh s chiffrage-xlsx" disabled={!pret} title="Postes, lignes du quantitatif, TVA, rétrocession et marge, en vrais nombres"
+        onClick={()=>telechargerOctets(genererChiffrageInterneXlsx(p,data&&data.majorationsCorps),
+          'Chiffrage interne — '+(p.nom||'projet')+'.xlsx',PTR_MIME.xlsx)}>Exporter en Excel</button>
       {lien&&<a href={lien} target="_blank" rel="noreferrer" className="btn gh s"
         style={{textDecoration:'none'}}>Ouvrir</a>}
     </div>
