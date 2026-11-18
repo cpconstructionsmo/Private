@@ -48,7 +48,10 @@ qu'on ait à les redire.
   ligne « fourchettes », livrée sans prix) reste sous « Approfondir ».
   « ✨ Imaginer » (photo de pièce → pièce rénovée) passe par la fonction
   `supabase/functions/imaginer` (Gemini, clé `GEMINI_API_KEY` dans les
-  secrets Supabase, utilisateur connecté, limite par jour). L'estimation part avec la visite
+  secrets Supabase, utilisateur connecté, limite par jour). Dossier client
+  (`releve/dossier.js`, « 📄 Dossier client », lien du suivi
+  `releveLien({visite,vue:'dossier'})`) : imprimable en PDF A4, jamais les
+  notes de visite ni la marge. L'estimation part avec la visite
   et s'affiche sur la fiche prospect (`visiteResume().fourchette`). Chiffrage
   précis : dans le quantitatif d'un poste de la fiche prospect (seulement là,
   `Quantitatif` prop `plan`), une ligne prend sa quantité dans le plan de la

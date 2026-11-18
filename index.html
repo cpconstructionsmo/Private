@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Relevé de visite : 2e et 3e acheteurs, société, usage du bien, situation et souhaits repris sur le prospect ; TVA par poste';
+const VERSION='2026-11-18 · Relevé de visite : dossier client (projet, photos, relevé, estimation) ouvert depuis la fiche prospect';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -26533,7 +26533,7 @@ function TableauBord({data,save,open,allerA,allerVers}){
    Rattacher ne complète que les cases vides du prospect : rien de ce qui a
    été saisi n'est remplacé. Tests : t_releve_rattachement.js. */
 const RELEVE_ESPACE='releves';
-const releveLien=({visite,prospect}={})=>'releve/'+(visite?'?visite='+encodeURIComponent(visite):prospect?'?prospect='+encodeURIComponent(prospect):'');
+const releveLien=({visite,prospect,vue}={})=>'releve/'+(visite?'?visite='+encodeURIComponent(visite)+(vue?'&vue='+encodeURIComponent(vue):''):prospect?'?prospect='+encodeURIComponent(prospect):'');
 function visiteResume(ligne){
   const d=(ligne&&ligne.donnees)||{}, v=d.valeurs||{}, ph=d.photos||{};
   const actives=Object.values(ph).filter(x=>x&&!x.supprime);
@@ -26795,7 +26795,10 @@ function VisitesProspect({p}){
       Aucune visite pour ce dossier. « Nouvelle visite » ouvre le relevé avec la fiche client déjà remplie.</div>}
     {L.map(r=><div key={r.id} className="row" style={{gap:10,alignItems:'flex-start',borderTop:'1px solid '+RULE,paddingTop:10,marginTop:10}}>
       <VignetteVisite chemin={r.gardeChemin}/><ResumeVisite r={r}/>
-      <a className="btn gh s" href={releveLien({visite:r.id})} target="_blank" rel="noopener">Ouvrir</a>
+      <div style={{display:'flex',flexDirection:'column',gap:4}}>
+        <a className="btn gh s" href={releveLien({visite:r.id})} target="_blank" rel="noopener">Ouvrir</a>
+        <a className="btn gh s" href={releveLien({visite:r.id,vue:'dossier'})} target="_blank" rel="noopener" title="Le dossier à remettre au client : projet, photos, relevé, estimation indicative">📄 Dossier</a>
+      </div>
     </div>)}
   </div>;
 }

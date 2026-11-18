@@ -87,6 +87,30 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   dans la demande d'un prospect créé depuis la visite. Le chiffrage précis
   se fait au bureau, dans la fiche prospect.
 
+## Le dossier client (Phase 3)
+
+- Récapitulatif › **« 📄 Dossier client »** (et, dans le suivi, fiche
+  prospect › Visites › **« 📄 Dossier »**, lien `?visite=…&vue=dossier`) :
+  le document à remettre au client après le rendez-vous, construit depuis
+  la visite, sans réseau (`dossier.js`, fonction pure ; mise en page dans
+  `app.js`, `ecranDossier`).
+- Contenu : couverture (logo, client, adresse des travaux, photo de garde,
+  date), « Vous » (acheteurs ou société et représentant), le bien, le projet
+  (ampleur, travaux, délai, situation, souhaits), les pièces avec photos et
+  légendes, les images d'intention « ✨ Imaginé » à côté de leur photo
+  (« Aujourd'hui » / « Demain », avec une mention de non-engagement), le
+  relevé (pièces, surfaces), l'estimation indicative (travaux, quantité,
+  gamme, fourchette, total, mention « ni un devis ni une offre »), la suite.
+- Options (gardées sur l'appareil) : estimation, budget envisagé par le
+  client, images d'intention, notes des pièces (non cochées par défaut).
+  **Jamais** : les notes de visite (internes), la marge.
+- « 🖨 Imprimer / PDF » attend que les photos soient chargées puis ouvre
+  l'impression : A4, couverture seule sur sa page, puis les parties
+  s'enchaînent sans couper une pièce ni un tableau. Sur iPhone : Imprimer,
+  puis Partager pour l'enregistrer en PDF ou l'envoyer.
+- La liste des visites a une recherche dès 5 visites (client, ville,
+  travaux, sans tenir compte des accents).
+
 ## Le chiffrage précis depuis le plan (Phase 2, mode B, 1re livraison)
 
 - Dans le suivi, fiche prospect › « 3. Votre chiffrage » › un poste détaillé

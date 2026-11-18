@@ -14,6 +14,7 @@ import { creerStockage, magasinIndexedDB } from './stockage.js';
 import { creerSynchro, ESPACE, cheminScan } from './synchro.js';
 import { reduirePhoto } from './photo.js';
 import * as B from './budget.js';
+import { dossierClient, OPTIONS_DEFAUT } from './dossier.js';
 
 // même projet Supabase et même clé publique que le suivi de chantiers (index.html)
 const SUPABASE_URL = 'https://gxfrughmwkvdepvkhufv.supabase.co';
@@ -179,15 +180,29 @@ async function nouvelleVisite() {
   dessiner(); planifierSync(300);
 }
 
+/* le texte cherché dans une visite : client, société, ville, travaux */
+const sansAccents = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const texteVisite = v => sansAccents([M.intitule(v), M.valeur(v, 'client.nom'), M.valeur(v, 'acheteur2.nom'), M.valeur(v, 'client.ville'), M.valeur(v, 'client.adresse'),
+  ...(M.valeur(v, 'projet.types') || [])].filter(Boolean).join(' '));
 function ecranAccueil() {
-  const liste = [...S.visites].sort((a, b) => M.derniereMaj(b.visite).localeCompare(M.derniereMaj(a.visite)));
+  const toutes = [...S.visites].sort((a, b) => M.derniereMaj(b.visite).localeCompare(M.derniereMaj(a.visite)));
+  const mots = sansAccents(S.recherche || '').split(/\s+/).filter(Boolean);
+  const liste = mots.length ? toutes.filter(r => { const t = texteVisite(r.visite); return mots.every(m => t.includes(m)); }) : toutes;
+  // la liste se refiltre à chaque lettre, sans redessiner le champ (le clavier reste ouvert)
+  const filtrer = e => { S.recherche = e.target.value; const box = document.getElementById('listeVisites'); if (!box) return;
+    const m = sansAccents(S.recherche).split(/\s+/).filter(Boolean);
+    box.querySelectorAll('[data-visite]').forEach(c => { const r = S.visites.find(x => x.id === c.dataset.visite); c.hidden = !!(r && m.length && !m.every(w => texteVisite(r.visite).includes(w))); });
+    const n = box.querySelectorAll('[data-visite]:not([hidden])').length, vide = document.getElementById('aucuneVisiteTrouvee'); if (vide) vide.hidden = n > 0; };
   return [
     h('header', { class: 'haut' }, h('img', { src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }), h('span', { class: 'titre' }, 'Relevés de visite'), pastilleEtat()),
     h('main', {},
       S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
       !S.session && h('div', { class: 'message att' }, 'Non connecté : les visites restent sur cet appareil. ',
         h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'connexion'; dessiner(); } }, 'Se connecter')),
-      liste.length ? liste.map(r => carteVisite(r)) : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.'),
+      toutes.length > 4 ? h('input', { class: 'in', type: 'search', id: 'chercherVisite', placeholder: '🔎 Chercher : client, ville, travaux…', value: S.recherche || '', autocomplete: 'off', oninput: filtrer, style: 'margin:0 0 12px' }) : null,
+      toutes.length ? h('div', { id: 'listeVisites' }, toutes.map(r => { const c = carteVisite(r); if (!liste.includes(r)) c.hidden = true; return c; }),
+        h('div', { class: 'vide', id: 'aucuneVisiteTrouvee', hidden: liste.length > 0 }, 'Aucune visite ne correspond.'))
+        : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.'),
       h('div', { style: 'text-align:center;margin-top:8px' }, h('button', { class: 'lienRetour', id: 'reglerOuvrages', onclick: () => { S.retour = 'accueil'; S.ecran = 'ouvrages'; S.brouillonO = null; S.message = null; dessiner(); } }, '⚙ Prix au m²'), ' · ',
         h('button', { class: 'lienRetour', id: 'reglerFourchettes', onclick: () => { S.retour = 'accueil'; S.ecran = 'fourchettes'; S.brouillonF = null; S.message = null; dessiner(); } }, '⚙ Postes détaillés'))),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' }, h('button', { class: 'gros', id: 'nouvelleVisite', onclick: nouvelleVisite }, '📷 Nouvelle visite'))),
@@ -197,7 +212,7 @@ function ecranAccueil() {
 function carteVisite(r) {
   const v = r.visite, garde = v.photos[M.valeur(v, 'photoGarde')];
   const ville = M.valeur(v, 'client.ville'), types = M.valeur(v, 'projet.types') || [];
-  return h('div', { class: 'carte visite', onclick: () => { S.courante = r.id; S.etape = Math.max(0, M.ETAPES.findIndex(e => e.id === M.valeur(v, 'etape'))); S.ecran = 'visite'; S.message = null; dessiner(); } },
+  return h('div', { class: 'carte visite', 'data-visite': r.id, onclick: () => { S.courante = r.id; S.etape = Math.max(0, M.ETAPES.findIndex(e => e.id === M.valeur(v, 'etape'))); S.ecran = 'visite'; S.message = null; dessiner(); } },
     garde && !garde.supprime ? imagePhoto(garde, 'vignette') : h('div', { class: 'vignette' }, '🏠'),
     h('div', { class: 'corps' },
       h('b', {}, M.intitule(v)),
@@ -239,7 +254,7 @@ function ecranVisite() {
 async function terminer(e) {
   await poser('statut', 'terminee');
   feter(e.currentTarget);
-  S.message = { type: 'ok', texte: 'Visite terminée et enregistrée. Elle partira sur le serveur dès que le réseau le permet. Le chiffrage arrive en Phase 2.' };
+  S.message = { type: 'ok', texte: 'Visite terminée et enregistrée. Elle partira sur le serveur dès que le réseau le permet. « 📄 Dossier client » prépare le document à remettre au client.' };
   dessiner(); sync.synchroniser();
 }
 
@@ -751,7 +766,97 @@ function etapeFin(v) {
       dd('Scan', (M.valeur(v, 'scan.fichier') || {}).nom),
       dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null),
       dd('Budget estimé', (M.valeur(v, 'budget') || {}).estimation ? B.formatPlage(M.valeur(v, 'budget').estimation) + ' (indicatif)' : null)),
-    champ(v, 'notes', 'NOTES DE VISITE', { multiligne: true, autocapitalize: 'sentences' }),
+    champ(v, 'notes', 'NOTES DE VISITE (internes, jamais dans le dossier client)', { multiligne: true, autocapitalize: 'sentences' }),
+    h('button', { class: 'gros sec', id: 'ouvrirDossier', style: 'margin-top:14px', onclick: () => { S.ecran = 'dossier'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '📄 Dossier client'),
+  ];
+}
+
+/* ---------- le dossier client (Phase 3, releve/dossier.js) ----------
+   Mis en page comme des feuilles A4 ; « Imprimer / PDF » l'imprime, ou
+   l'enregistre en PDF (sur iPhone : Imprimer, puis Partager). Les options
+   choisissent ce qui y figure ; elles sont gardées sur l'appareil. */
+const CLE_OPT_DOSSIER = 'cp-releve-dossier-options';
+function optionsDossier() {
+  if (!S.optDossier) { try { S.optDossier = { ...OPTIONS_DEFAUT, ...JSON.parse(localStorage.getItem(CLE_OPT_DOSSIER) || '{}') }; } catch (e) { S.optDossier = { ...OPTIONS_DEFAUT }; } }
+  return S.optDossier;
+}
+const dateLongue = iso => iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+const photoDossier = (ph, cls) => imagePhoto({ id: ph.id, chemin: ph.chemin, legende: ph.legende || ph.consigne || 'Photo' }, cls);
+
+function ecranDossier() {
+  const v = visite();
+  if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
+  const o = optionsDossier();
+  const d = dossierClient(v, { ...o, table: tableOuv(), fourchettes: fourchettes() });
+  const retour = () => { S.ecran = 'visite'; dessiner(); window.scrollTo(0, 0); };
+  const basculer = k => { o[k] = !o[k]; try { localStorage.setItem(CLE_OPT_DOSSIER, JSON.stringify(o)); } catch (e) { /* option non gardée */ } redessiner(); };
+  const imprimer = async e => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = 'Préparation des photos…';
+    // toutes les photos chargées avant d'imprimer (sinon des cadres vides)
+    await Promise.all([...document.querySelectorAll('.dossier img')].map(img => img.complete && img.src ? null : new Promise(ok => { img.onload = img.onerror = ok; setTimeout(ok, 6000); })));
+    b.disabled = false; b.textContent = '🖨 Imprimer / PDF';
+    window.print();
+  };
+  const ligne = (t, val) => val ? h('div', { class: 'dl' }, h('span', {}, t), h('b', {}, val)) : null;
+  const page = (cls, ...enfants) => h('section', { class: 'feuille ' + (cls || '') }, ...enfants,
+    h('footer', {}, 'CP Constructions · ' + d.client + ' · visite du ' + dateLongue(d.date)));
+  const option = (k, lib) => h('label', { class: 'case' }, h('input', { type: 'checkbox', checked: !!o[k], name: 'opt-' + k, onchange: () => basculer(k) }), h('span', {}, lib));
+  return [
+    h('header', { class: 'haut sansImpression' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Visite'), h('span', { class: 'titre' }, 'Dossier client'), pastilleEtat()),
+    h('main', { class: 'mainDossier' },
+      h('div', { class: 'carte sansImpression outilsDossier' },
+        h('b', {}, 'Ce que le dossier contient'),
+        option('estimation', 'Estimation budgétaire indicative'),
+        option('enveloppe', 'Budget envisagé par le client'),
+        option('imagines', 'Images d’intention (✨ Imaginé)'),
+        option('notesPieces', 'Notes des pièces'),
+        h('p', { class: 'mut petit' }, 'Jamais dans le dossier : les notes de visite, la marge.'),
+        h('button', { class: 'gros', id: 'imprimerDossier', type: 'button', onclick: imprimer }, '🖨 Imprimer / PDF'),
+        h('p', { class: 'mut petit' }, 'Sur iPhone : « Imprimer », puis le bouton Partager pour l’enregistrer en PDF ou l’envoyer.')),
+      h('div', { class: 'dossier' },
+        page('garde',
+          h('img', { class: 'logoDossier', src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }),
+          h('h1', {}, d.titre),
+          h('div', { class: 'gardeClient' }, d.client),
+          d.adresse ? h('div', { class: 'gardeAdresse' }, d.adresse) : null,
+          d.garde ? photoDossier(d.garde, 'gardeDossier') : null,
+          h('div', { class: 'gardeDate' }, 'Visite du ' + dateLongue(d.date))),
+        page('',
+          h('h2', {}, 'Vous'),
+          d.personnes.map(p => ligne(p.role, [p.nom, p.detail].filter(Boolean).join(' — '))),
+          h('h2', {}, 'Le bien'),
+          ligne('Adresse des travaux', d.bien.adresse), ligne('Usage', d.bien.usage),
+          ligne('Surface relevée', d.bien.surface ? String(d.bien.surface).replace('.', ',') + ' m²' + (d.bien.nbPieces ? ' (' + d.bien.nbPieces + ' pièce' + (d.bien.nbPieces > 1 ? 's' : '') + ')' : '') : ''),
+          h('h2', {}, 'Votre projet'),
+          ligne('Ampleur', d.projet.categories.join(', ')), ligne('Travaux', d.projet.types.join(', ')), ligne('Délai souhaité', d.projet.delai),
+          d.projet.enveloppe != null ? ligne('Budget envisagé', M.formatEuros(d.projet.enveloppe) + ' TTC') : null,
+          d.projet.situation ? [h('h3', {}, 'La situation aujourd’hui'), h('p', { class: 'texte' }, d.projet.situation)] : null,
+          d.projet.souhaits ? [h('h3', {}, 'Vos souhaits'), h('p', { class: 'texte' }, d.projet.souhaits)] : null),
+        d.pieces.length ? page('pieces',
+          h('h2', {}, 'Vos pièces'),
+          d.pieces.map(p => h('div', { class: 'pieceDossier' },
+            h('h3', {}, p.nom),
+            p.note ? h('p', { class: 'texte' }, p.note) : null,
+            p.photos.map(ph => h('div', { class: 'duo' + (ph.imagines.length ? ' avecImagine' : '') },
+              h('figure', {}, photoDossier(ph), h('figcaption', {}, ph.imagines.length ? 'Aujourd’hui' + (ph.legende ? ' — ' + ph.legende : '') : ph.legende)),
+              ph.imagines.map(im => h('figure', {}, photoDossier(im), h('figcaption', {}, '✨ Demain (image d’intention) — ' + im.consigne))))))),
+          d.pieces.some(p => p.photos.some(ph => ph.imagines.length)) ? h('p', { class: 'mention' }, 'Les images d’intention sont générées pour aider à se projeter : elles ne sont ni un plan ni un engagement sur le rendu final.') : null) : null,
+        d.plan.length ? page('',
+          h('h2', {}, 'Le relevé'),
+          h('table', { class: 'tableDossier' }, h('thead', {}, h('tr', {}, h('th', {}, 'Pièce'), h('th', {}, 'Niveau'), h('th', {}, 'Surface'), h('th', {}, 'Hauteur'))),
+            h('tbody', {}, d.plan.map(p => h('tr', {}, h('td', {}, p.nom), h('td', {}, p.etage ? 'Étage ' + p.etage : 'RDC'),
+              h('td', {}, p.surface != null ? String(p.surface).replace('.', ',') + ' m²' : '—'), h('td', {}, p.hauteur ? String(p.hauteur).replace('.', ',') + ' m' : '—'))))),
+          h('p', { class: 'mention' }, 'Surfaces intérieures relevées au scanner lors de la visite, à confirmer par un relevé contradictoire.')) : null,
+        d.estimation ? page('',
+          h('h2', {}, 'Estimation budgétaire indicative'),
+          h('table', { class: 'tableDossier' }, h('thead', {}, h('tr', {}, h('th', {}, 'Travaux'), h('th', {}, 'Quantité'), h('th', {}, 'Gamme'), h('th', {}, 'Fourchette TTC'))),
+            h('tbody', {}, d.estimation.lignes.map(l => h('tr', {}, h('td', {}, l.libelle), h('td', {}, l.quantite), h('td', {}, l.gamme), h('td', { class: 'nombre' }, euros(l.min) + ' à ' + euros(l.max))))),
+            h('tfoot', {}, h('tr', {}, h('td', { colspan: 3 }, 'Total' + (d.estimation.majoration ? ' (ajustements compris : +' + Math.round(d.estimation.majoration * 100) + ' %)' : '')), h('td', { class: 'nombre' }, euros(d.estimation.total.min) + ' à ' + euros(d.estimation.total.max))))),
+          h('p', { class: 'mention' }, 'Estimation indicative, non contractuelle, établie lors de la première visite à partir de surfaces globales et de prix moyens. Elle ne constitue ni un devis ni une offre. Le chiffrage détaillé vous sera remis après étude du projet.' + (d.estimation.incomplet ? ' Certains postes restent à chiffrer.' : ''))) : null,
+        page('fin',
+          h('h2', {}, 'La suite'),
+          h('ol', { class: 'suite' }, h('li', {}, 'Nous étudions votre projet à partir de ce relevé.'), h('li', {}, 'Nous vous remettons un chiffrage détaillé.'), h('li', {}, 'Nous en parlons ensemble et ajustons le projet si besoin.')),
+          h('img', { class: 'logoDossier', src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' })))),
   ];
 }
 
@@ -1055,7 +1160,7 @@ function ecranFourchettes() {
 function dessiner() {
   arreterDictee(); // le champ dicté va être remplacé
   const app = document.getElementById('app');
-  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : ecranAccueil();
+  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
 }
 
@@ -1065,7 +1170,7 @@ function dessiner() {
    dossier, fiche client reprise du suivi (lecture seule : rien n'est écrit
    dans les données du suivi). L'adresse est nettoyée aussitôt, pour qu'un
    rechargement ne crée pas une seconde visite. */
-const lien = (() => { const q = new URLSearchParams(location.search); return { visite: q.get('visite'), prospect: q.get('prospect') }; })();
+const lien = (() => { const q = new URLSearchParams(location.search); return { visite: q.get('visite'), prospect: q.get('prospect'), vue: q.get('vue') }; })();
 if (lien.visite || lien.prospect) history.replaceState(null, '', location.pathname);
 
 async function traiterLien() {
@@ -1073,7 +1178,8 @@ async function traiterLien() {
     const id = lien.visite; lien.visite = null;
     let rec = S.visites.find(r => r.id === id);
     if (!rec) { await sync.synchroniser(); rec = S.visites.find(r => r.id === id); }
-    if (rec) { S.courante = id; S.etape = Math.max(0, M.ETAPES.findIndex(e => e.id === M.valeur(rec.visite, 'etape'))); S.ecran = 'visite'; S.message = null; }
+    // « ?vue=dossier » (depuis la fiche prospect du suivi) ouvre directement le dossier client
+    if (rec) { S.courante = id; S.etape = Math.max(0, M.ETAPES.findIndex(e => e.id === M.valeur(rec.visite, 'etape'))); S.ecran = lien.vue === 'dossier' ? 'dossier' : 'visite'; S.message = null; }
     else S.message = { type: 'err', texte: 'Cette visite n’est pas sur cet appareil et n’a pas pu être téléchargée (réseau ?). Réessayez avec du réseau.' };
     dessiner();
   } else if (lien.prospect) {

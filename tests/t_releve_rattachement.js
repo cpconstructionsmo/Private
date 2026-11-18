@@ -107,5 +107,5 @@ chk(M.prospectsCandidats(vs,[{id:'pS',nom:'Maison Fictive Immo',client:'SCI Fict
 chk(vf.fourchette&&vf.fourchette.min===8600&&vf.fourchette.max===12900,'la fourchette de la visite est lue');
 chk(M.visiteResume(ligne('vis-g',{budget:{lignes:[],estimation:{min:0,max:0}}})).fourchette===null,'fourchette vide : rien d’affiché');
 chk(/Fourchette annoncée à la visite \(indicative\) : de 8.600 € à 12.900 € TTC/.test(M.prospectDepuisVisite(vf,{},'2026-11-18').demande),'la demande du prospect créé reprend la fourchette annoncée');
-chk(M.releveLien()==='releve/'&&M.releveLien({visite:'a b'})==='releve/?visite=a%20b'&&M.releveLien({prospect:'p1'})==='releve/?prospect=p1','liens vers le relevé de visite');
+chk(M.releveLien()==='releve/'&&M.releveLien({visite:'a b'})==='releve/?visite=a%20b'&&M.releveLien({prospect:'p1'})==='releve/?prospect=p1'&&M.releveLien({visite:'v1',vue:'dossier'})==='releve/?visite=v1&vue=dossier','liens vers le relevé de visite');
 fin();
