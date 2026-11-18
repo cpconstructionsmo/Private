@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Contrat de maîtrise d’œuvre : aléas et imprévus détaillés à l’article 6';
+const VERSION='2026-11-18 · Dossier pour l’assureur : envoi depuis l’application, signature, objet et message modifiables';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4144,7 +4144,7 @@ const dossierAssureurDe=ch=>{
   const s=(ch&&ch.dossierAssureur)||{};
   const groupes={};for(const g of DOSSIER_ASSUREUR_GROUPES)groupes[g.id]=true;
   return {assureur:'',email:'',police:'',lienTransfert:'',envoyeLe:'',copieMoi:true,adresseMoi:'',copieClient:true,copieAutres:'',
-    ...s,groupes:{...groupes,...(s.groupes||{})}};
+    objetSaisi:'',corpsSaisi:'',signature:true,...s,groupes:{...groupes,...(s.groupes||{})}};
 };
 /* les adresses écrites dans un champ (une ou plusieurs, séparées comme on veut) */
 const emailsDans=v=>(String(v||'').match(/[^\s,;<>()"']+@[^\s,;<>()"']+\.[a-z]{2,}/gi)||[]);
@@ -4252,11 +4252,34 @@ function dossierAssureurMail(d,da){
     +', nous vous transmettons l’ensemble des pièces de fin de chantier'+(pieces.length?' :\n'+pieces.map(x=>'- '+x).join(' ;\n')+'.':'.')
     +cout
     +'\n\n'+(String(da.lienTransfert||'').trim()?'Les pièces sont à télécharger ici : '+String(da.lienTransfert).trim()
-      :'Les pièces vous parviennent par WeTransfer, le dossier dépassant la taille d’un mail.')
+      :LIGNE_ATTENTE_TRANSFERT)
     +'\nUn bordereau des pièces est joint au dossier.'
     +'\n\nNous restons à votre disposition pour tout complément.'
-    +'\n\nCordialement,\n'+signatureTexte();
+    +'\n\nCordialement,';
 }
+/* l'objet et le message tels qu'ils partiront : retouchés à l'écran (gardés
+   sur le chantier), sinon ceux que l'application propose */
+const dossierAssureurTextes=(d,da)=>({
+  objet:String(da.objetSaisi||'').trim()?da.objetSaisi:dossierAssureurObjet(d,da),
+  corps:String(da.corpsSaisi||'').trim()?da.corpsSaisi:dossierAssureurMail(d,da),
+  retouche:!!(String(da.objetSaisi||'').trim()||String(da.corpsSaisi||'').trim())});
+/* le message signé, en texte : la signature des mails habituels (celle des
+   factures visées), ou le seul nom */
+const dossierAssureurSigne=(corps,signature)=>String(corps||'').replace(/\s+$/,'')
+  +(signature!==false?'\n\n'+signatureTexte():'\n'+SIGNATAIRE_MAIL);
+/* un message retouché avant que le lien WeTransfer soit collé ne le contient
+   pas : il s'y insère à la place de la phrase d'attente, sinon avant la
+   formule de politesse */
+const LIGNE_ATTENTE_TRANSFERT='Les pièces vous parviennent par WeTransfer, le dossier dépassant la taille d’un mail.';
+const insererLienTransfert=(corps,lien)=>{
+  const c=String(corps||''), l='Les pièces sont à télécharger ici : '+String(lien||'').trim();
+  if(c.includes(LIGNE_ATTENTE_TRANSFERT))return c.replace(LIGNE_ATTENTE_TRANSFERT,l);
+  const i=c.lastIndexOf('\n\nCordialement');
+  return i>=0?c.slice(0,i)+'\n\n'+l+c.slice(i):c.replace(/\s+$/,'')+'\n\n'+l;
+};
+/* le ZIP voyage avec le mail s'il tient dans la limite de la messagerie
+   (25 Mo, pièces encodées comprises : un tiers de plus) */
+const ZIP_MAIL_MAX=18*1024*1024;
 /* l'extension d'un fichier repris du Drive : celle de son nom, sinon celle
    que disent ses premiers octets (une facture déposée en photo reste une photo) */
 const extDepuisOctets=o=>{
@@ -19004,9 +19027,48 @@ function DossierAssureur({data,ch,save}){
     save({...dd,chantiers:(dd.chantiers||[]).map(c=>c.id!==ch.id?c:{...c,
       dossierAssureur:{...((c.dossierAssureur)||{}),...(typeof patch==='function'?patch(dossierAssureurDe(c)):patch)}})});
   };
-  const objet=dossierAssureurObjet(d,da), corps=dossierAssureurMail(d,da);
+  const T=dossierAssureurTextes(d,da), objet=T.objet, corps=T.corps;
+  const signe=dossierAssureurSigne(corps,da.signature);
   const cc=dossierAssureurCopies(chActuel(),data,da);
   const adresses=[...emailsDans(da.email),...cc.liste];
+  const lien=String(da.lienTransfert||'').trim();
+  const lienAbsent=!!lien&&!corps.includes(lien);
+  /* l'envoi depuis l'application, par la messagerie Google connectée : à
+     l'assureur, les copies en Cc, l'adresse d'envoi en copie cachée (comme
+     les factures visées), la signature habituelle, le ZIP s'il tient */
+  const expediteur=((data&&data.expediteurMail)||'').trim();
+  const [envoi,setEnvoi]=useState(null);
+  const zipOk=!!(sortie&&sortie.etat==='ok'&&sortie.octets&&sortie.octets.length<=ZIP_MAIL_MAX);
+  const mo=n=>(Math.round(n/1024/1024*10)/10).toLocaleString('fr-FR')+' Mo';
+  const preparerEnvoi=()=>{
+    setEnvoi({etat:'apercu',compte:'',zip:zipOk&&!lien});
+    getDriveToken().then(driveCompteConnecte).then(c=>setEnvoi(p=>p&&({...p,compte:c}))).catch(()=>{});
+  };
+  const envoyer=async()=>{
+    const joindre=!!(envoi&&envoi.zip&&zipOk);
+    if(!joindre&&!/https?:\/\//.test(corps)
+      &&!confirm('Le message ne contient aucun lien de téléchargement et le dossier ZIP n’est pas joint : l’assureur ne recevra pas les pièces. Envoyer quand même ?'))return;
+    setEnvoi(p=>({...p,etat:'envoi'}));
+    try{
+      const token=await getDriveToken();
+      const sig=da.signature!==false?mailSigne(corps,await signatureLogo())
+        :{corps:dossierAssureurSigne(corps,false)};
+      const bcc=expediteur&&!cc.liste.some(x=>x.toLowerCase()===expediteur.toLowerCase())?expediteur:null;
+      await gmailEnvoyer(token,{destinataire:da.email.trim(),cc:cc.liste.length?cc.liste.join(', '):null,bcc,sujet:objet,...sig,
+        pieces:joindre?[{nom:sortie.nom,type:'application/zip',data:sortie.octets}]:[],
+        expediteur,expediteurNom:expediteur?SIGNATAIRE_MAIL:''});
+      maj({envoyeLe:today(),envoi:{le:new Date().toISOString(),a:da.email.trim(),cc:cc.liste,zip:joindre,lien:lien||''}});
+      setEnvoi(p=>({...p,etat:'ok',joint:joindre}));
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setEnvoi(p=>({...p,etat:'erreur',msg:
+        c==='auth_required'?'Google n’est pas connecté — connectez-le, avec l’autorisation d’envoi de mail, puis réessayez.':
+        /too large|size|quota/i.test(c)?'Le message dépasse la limite de la messagerie (25 Mo) : décochez le ZIP et passez par le lien WeTransfer.':
+        /from|alias|delegat|not.*permitted|precondition/i.test(c)&&expediteur
+          ?'La messagerie refuse d’écrire depuis '+expediteur+' : cette adresse doit être déclarée comme adresse d’envoi vérifiée (Gmail › Paramètres › Comptes et importation). Détail : '+c:
+        'Envoi impossible — '+c}));
+    }
+  };
   const produire=async()=>{
     setSortie({etat:'travail',fait:0,n:d.fichiers.length});
     try{
@@ -19079,22 +19141,72 @@ function DossierAssureur({data,ch,save}){
       <li>Sur <a href="https://wetransfer.com/" target="_blank" rel="noreferrer" style={{color:TERRA}}>WeTransfer</a>, déposez le ZIP,
         mettez en destinataires l’assureur{da.email?' ('+da.email+')':''}{cc.liste.length?' et les adresses en copie':''} (« Copier les adresses »),
         puis collez l’objet et le message ci-dessous ; ou choisissez « Obtenir un lien », collez-le ici, et envoyez le message
-        de votre messagerie (« Ouvrir dans la messagerie » : copies comprises).</li>
+        d’ici (« Envoyer depuis l’application ») ou de votre messagerie (« Ouvrir dans la messagerie ») — copies comprises.</li>
     </ol>
     {champ('Lien WeTransfer (facultatif)',<input className="in" value={da.lienTransfert} placeholder="https://we.tl/…" onChange={e=>maj({lienTransfert:e.target.value})}/>)}
+    {/* objet et message se retouchent ici ; la retouche se garde sur le chantier */}
     <div className="xs mut" style={{marginTop:8}}>Objet</div>
-    <input className="in" readOnly value={objet} style={{width:'100%'}}/>
-    <textarea className="in" readOnly rows={14} style={{marginTop:6,width:'100%'}} value={corps}/>
-    <div className="row" style={{gap:10,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+    <input className="in" aria-label="Objet du message" value={objet} style={{width:'100%'}} onChange={e=>maj({objetSaisi:e.target.value})}/>
+    <div className="xs mut" style={{marginTop:6}}>Message</div>
+    <textarea className="in" aria-label="Message à l’assureur" rows={14} style={{width:'100%'}} value={corps} onChange={e=>maj({corpsSaisi:e.target.value})}/>
+    {lienAbsent&&<div style={{marginTop:4,color:AMBER}}>Le lien WeTransfer n’est pas dans le message.
+      <button className="btn gh s" style={{marginLeft:8}} onClick={()=>maj({corpsSaisi:insererLienTransfert(corps,lien)})}>Insérer le lien</button></div>}
+    {T.retouche&&<div className="mut" style={{marginTop:4}}>Objet ou message retouché.
+      <button className="btn gh s" style={{marginLeft:8}} onClick={()=>{
+        if(confirm('Reprendre l’objet et le message proposés ? Vos retouches seront perdues.'))maj({objetSaisi:'',corpsSaisi:''});
+      }}>Reprendre le texte proposé</button></div>}
+    <label className="row" style={{gap:6,alignItems:'center',marginTop:6,cursor:'pointer'}}>
+      <input type="checkbox" checked={da.signature!==false} onChange={e=>maj({signature:e.target.checked})}/>
+      Ajouter ma signature habituelle (avec le logo)</label>
+    {da.signature!==false
+      ?<div className="signature-apercu" style={{border:'1px solid '+RULE,borderRadius:8,padding:'8px 10px',marginTop:4,background:'#fff',maxWidth:420}}
+        dangerouslySetInnerHTML={{__html:signatureHtml(true,SIGNATURE_PRO.logo)}}/>
+      :<div className="mut" style={{marginTop:4}}>Signé simplement : {SIGNATAIRE_MAIL}.</div>}
+    <div className="row" style={{gap:10,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn acc s" disabled={!emailsDans(da.email).length||(envoi&&envoi.etat==='envoi')} onClick={preparerEnvoi}
+        title={emailsDans(da.email).length?'':'Saisissez d’abord l’e-mail de l’assureur'}>Envoyer depuis l’application</button>
       <button className="btn gh s" onClick={()=>copier(objet,'objet')}>Copier l’objet</button>
-      <button className="btn gh s" onClick={()=>copier(corps,'message')}>Copier le message</button>
+      <button className="btn gh s" onClick={()=>copier(signe,'message')}>Copier le message</button>
       {adresses.length>0&&<button className="btn gh s" onClick={()=>copier(adresses.join(', '),'adresses')}>Copier les adresses</button>}
       {da.email&&<a className="btn gh s" style={{textDecoration:'none'}}
         href={'mailto:'+encodeURIComponent(da.email)+'?'+(cc.liste.length?'cc='+encodeURIComponent(cc.liste.join(','))+'&':'')
-          +'subject='+encodeURIComponent(objet)+'&body='+encodeURIComponent(corps)}>Ouvrir dans la messagerie</a>}
+          +'subject='+encodeURIComponent(objet)+'&body='+encodeURIComponent(signe)}>Ouvrir dans la messagerie</a>}
       {copie&&<span style={{color:GREEN}}>✓ {{objet:'Objet copié',message:'Message copié',adresses:'Adresses copiées'}[copie]}</span>}
     </div>
     <div className="xs mut" style={{marginTop:4}}>{cc.liste.length?'En copie : '+cc.liste.join(', ')+'.':'Personne en copie.'}</div>
+    {envoi&&<div style={{marginTop:8,padding:'8px 10px',borderRadius:8,background:'#F4F1EB'}}>
+      {envoi.etat==='apercu'&&<div>
+        {!expediteur&&!!envoi.compte&&<div style={{marginBottom:6,color:AMBER}}>Le mail partira de <b>{envoi.compte}</b>, le compte Google
+          connecté. Pour qu’il parte d’une adresse cpconstructions.fr, renseignez-la dans RÉGLAGES › Adresse d’expédition.</div>}
+        <div><span className="mut">De : </span>{expediteur||envoi.compte||'le compte Google connecté'}</div>
+        <div><span className="mut">À : </span>{da.email.trim()}</div>
+        {cc.liste.length>0&&<div><span className="mut">Copie : </span>{cc.liste.join(', ')}</div>}
+        {expediteur&&!cc.liste.some(x=>x.toLowerCase()===expediteur.toLowerCase())&&<div><span className="mut">Copie cachée : </span>{expediteur}</div>}
+        <div><span className="mut">Objet : </span>{objet}</div>
+        {zipOk
+          ?<label className="row" style={{gap:6,alignItems:'center',marginTop:4,cursor:'pointer'}}>
+            <input type="checkbox" checked={!!envoi.zip} onChange={e=>setEnvoi({...envoi,zip:e.target.checked})}/>
+            Joindre le dossier ZIP ({mo(sortie.octets.length)}) au mail</label>
+          :<div className="mut" style={{marginTop:4}}>{sortie&&sortie.octets
+            ?'Le dossier ('+mo(sortie.octets.length)+') dépasse la taille d’un mail : les pièces passent par le lien WeTransfer du message.'
+            :'Pièces : par le lien WeTransfer du message (le dossier ZIP n’est pas préparé).'}</div>}
+        <div className="row" style={{gap:8,marginTop:8}}>
+          <button className="btn acc s" onClick={envoyer}>Envoyer</button>
+          <button className="btn gh s" onClick={()=>setEnvoi(null)}>Annuler</button>
+        </div>
+      </div>}
+      {envoi.etat==='envoi'&&<div className="mut">Envoi en cours…</div>}
+      {envoi.etat==='ok'&&<div style={{color:GREEN}}>✓ Message envoyé à {da.email.trim()}{cc.liste.length?' (copie : '+cc.liste.join(', ')+')':''}
+        {envoi.joint?', avec le dossier ZIP':''}.
+        <button className="btn gh s" style={{marginLeft:8}} onClick={()=>setEnvoi(null)}>Fermer</button></div>}
+      {envoi.etat==='erreur'&&<div>
+        <div style={{color:TERRA,marginBottom:6}}>{envoi.msg}</div>
+        <div className="row" style={{gap:8}}>
+          <button className="btn gh s" onClick={envoyer}>Réessayer</button>
+          <button className="btn gh s" onClick={()=>setEnvoi(null)}>Annuler</button>
+        </div>
+      </div>}
+    </div>}
     <div className="row" style={{gap:10,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
       {da.envoyeLe
         ?<span style={{color:GREEN}}>✓ Envoyé à l’assureur le {fd(da.envoyeLe)} <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0,marginLeft:6}}
