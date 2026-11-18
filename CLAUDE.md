@@ -127,6 +127,16 @@ qu'on ait à les redire.
   chantier créé sans prospect sort aussi son contrat
   (`contratPourChantier`, réglages gardés dans `ch.contratMoe`). Tests :
   `t_contrat_moe.js`, `t_contrat_moe_erp.js`, `t_renovation.js`.
+- **TVA par poste** (chiffrage d'un prospect) : chaque poste ou option peut
+  porter son taux (`x.tva` : 20, 10 ou 5,5 ; vide = celui du projet `p.tva`).
+  Sans taux par poste, le prix est exactement celui d'avant. Sinon la marge
+  se répartit au prorata du coût (`prospectVentilationTva`), le prix TTC est
+  la somme par taux (`prospectPrixTTC`), le coût TTC aussi
+  (`prospectCoutTTC`) ; `prospectTauxUnique` vaut null en TVA mixte, et le
+  contrat (`contratTravaux().tvaMixte`), le chiffrage interne et le
+  récapitulatif disent « TVA mixte » avec le détail, jamais un taux unique.
+  Les honoraires de maîtrise d'œuvre restent à 20 %. Tests :
+  `t_tva_poste.js`, `tva_poste_navigateur.js`.
 - **Marché de travaux** (Marchés › lot › « Rédiger le marché ») : il sort
   en trois exemplaires Word (`MARCHE_EXEMPLAIRES` : client, entreprise,
   CP Constructions), marqués en tête de page. Celui du client annexe
