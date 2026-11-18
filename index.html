@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Relevé de visite : visites à rattacher aux prospects, sans doublon';
+const VERSION='2026-11-18 · Relevé de visite : visites à rattacher aux prospects ; factures à glisser-déposer, dossier de fin de chantier pour l’assureur';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -346,6 +346,7 @@ const DOCS_GROUPES=[
     {id:'attest',l:'Attestation RE2020 fin de travaux',pour:'neuf'},
     {id:'pv',l:'PV de réception'},
     {id:'fin_mission',l:'Attestation de fin de mission de maîtrise d\u2019œuvre'},
+    {id:'dossier_assureur',l:'Dossier de fin de chantier pour l\u2019assureur (dommages-ouvrage)'},
   ]},
 ];
 const DOCS=DOCS_GROUPES.flatMap(g=>g.items);
@@ -1299,11 +1300,18 @@ const contratVentilation=ch=>{
    de travaux, commandes de matériaux, honoraires du contrat de maîtrise
    d'œuvre —, chacun à ses propres taux de TVA. Les avenants déjà reportés
    dans un marché ou dans les honoraires en sont retirés : ils se lisent à
-   part, sous « Avenants validés », et ne comptent pas deux fois. Ce que le
+   part, sous « Avenants validés », et ne comptent pas deux fois. Les avoirs
+   déduits d'un marché y sont rajoutés : une remise reçue en fin de chantier
+   ne change pas le contrat initial (le total engagé, lui, la suit). Ce que le
    contrat n'a pas encore engagé fait la différence avec son total. */
 const contratDepuisEngagements=(ch,ms,cs)=>{
   const co=coutOperation(ch,ms,cs);
   const rep={ht:0,tva:0}, repH={ht:0,tva:0};
+  let avoirs=0;
+  for(const m of (ms||[])){
+    const ht=centimes(marcheAvoirsHT(m));
+    if(ht){rep.ht-=ht;rep.tva-=tvaCentimes(ht,marcheTva(m,ch));avoirs+=ht}
+  }
   for(const a of ((ch&&ch.avenantsClient)||[])){
     if(avStatut(a)!=='valide')continue;
     for(const l of (a.lignes||[]))if(l.reporteLe){const x=avLigneCalc(l,ch);rep.ht+=x.ht;rep.tva+=x.tva}
@@ -1319,7 +1327,7 @@ const contratDepuisEngagements=(ch,ms,cs)=>{
   const tot={ht:0,tva:0,ttc:0};
   for(const p of postes){tot.ht+=p.ht;tot.tva+=p.tva;tot.ttc+=p.ttc}
   const total=centimes(budgetClient(ch));
-  return {postes,tot,total,reste:total-tot.ttc,avenantsRetires:rep.ht!==0||repH.ht!==0};
+  return {postes,tot,total,reste:total-tot.ttc,avenantsRetires:rep.ht+avoirs!==0||repH.ht!==0,avoirsRajoutes:avoirs!==0};
 };
 /* la ventilation se reprend des engagements, sauf si on l'a choisie à la main */
 const contratManuel=ch=>!!(ch&&ch.contratInitial&&ch.contratInitial.mode==='manuel');
@@ -2873,12 +2881,12 @@ const HONO_ECHEANCIER=[
   {phase:'Dépôt du dossier permis de construire',pct:10,echeance:'Arrêté PC'},
   {phase:'Assistance à la consultation des entreprises',pct:10,echeance:'OS de démarrage'},
   {phase:'Réalisation des plans d’exécution',pct:10,echeance:'OS de démarrage'},
-  {phase:'A l’ouverture du chantier',pct:10,echeance:'OS de démarrage'},
-  {phase:'A l’achèvement des travaux de maçonnerie courante',pct:10,echeance:'Fin maçonnerie'},
-  {phase:'A la mise hors d’eau',pct:10,echeance:'Hors d’eau'},
-  {phase:'A l’achèvement des travaux de cloisonnement',pct:10,echeance:'A l’achèvement des travaux de cloisonnement'},
-  {phase:'A l’achèvement des travaux',pct:15,echeance:'A l’achèvement des travaux'},
-  {phase:'Assistance aux opérations de réception (AOR)',pct:5,echeance:'A la réception'},
+  {phase:'À l’ouverture du chantier',pct:10,echeance:'OS de démarrage'},
+  {phase:'À l’achèvement des travaux de maçonnerie courante',pct:10,echeance:'Fin maçonnerie'},
+  {phase:'À la mise hors d’eau',pct:10,echeance:'Hors d’eau'},
+  {phase:'À l’achèvement des travaux de cloisonnement',pct:10,echeance:'À l’achèvement des travaux de cloisonnement'},
+  {phase:'À l’achèvement des travaux',pct:15,echeance:'À l’achèvement des travaux'},
+  {phase:'Assistance aux opérations de réception (AOR)',pct:5,echeance:'À la réception'},
 ];
 /* en rénovation, ni maçonnerie courante ni mise hors d'eau à attendre : la
    mission se découpe comme l'onglet Honoraires du DQE de rénovation CP
@@ -2889,7 +2897,7 @@ const HONO_ECHEANCIER_RENO=[
   {phase:'Autorisation d’urbanisme (déclaration préalable ou permis)',pct:10,echeance:'Dépôt du dossier'},
   {phase:'Consultation des entreprises, mise au point des marchés',pct:10,echeance:'Signature des marchés'},
   {phase:'Direction de l’exécution des travaux',pct:60,echeance:'Au prorata de l’avancement des travaux'},
-  {phase:'Assistance aux opérations de réception (AOR)',pct:10,echeance:'A la réception'},
+  {phase:'Assistance aux opérations de réception (AOR)',pct:10,echeance:'À la réception'},
 ];
 
 /* ---------------- PROGRAMME TECHNIQUE DE RÉFÉRENCE (PTR) ----------------
@@ -3736,9 +3744,12 @@ function pvDonnees(m,ch,data,pv){
   const art=((data&&data.artisans)||[]).find(a=>a.id===m.artisanId)||null;
   const moa=pvMaitreOuvrage(ch,data);
   const avs=(m.avenants||[]).filter(a=>a.numero&&(a.dateSignature||a.lien||a.budgetAppliqueLe));
+  /* le marché tel que signé et avenanté : un avoir déduit pour solder le lot
+     (remise, prestation non réalisée) est une affaire de facturation */
+  const mPv=marcheAvoirsHT(m)?{...m,montantHT:(centimes(m.montantHT)+centimes(marcheAvoirsHT(m)))/100}:m;
   return {dossier:ch.nom||'',lotNumero:String(m.numeroMarche||''),intitule:m.lot||'',
     maitreOuvrage:moa,adresse:ch.adresse||'',entreprise:art?art.nom:'',
-    marche:[m.dateSignature?pvDate(m.dateSignature):'',(+m.montantHT>0)?eurDoc(Math.round(marcheTTC(m,ch)*100)/100)+' TTC':''].filter(Boolean).join(' — '),
+    marche:[m.dateSignature?pvDate(m.dateSignature):'',(+mPv.montantHT>0)?eurDoc(Math.round(marcheTTC(mPv,ch)*100)/100)+' TTC':''].filter(Boolean).join(' — '),
     avenants:avs.length?avs.map(a=>a.numero).join(', '):'aucun',
     acheveLe:pvDate(pv.acheveLe),presence:pv.presence||'',decision:pv.decision||'',motif:pv.motif||'',
     dateEffet:pvDate(pv.dateEffet),
@@ -4088,6 +4099,161 @@ async function genererFinMissionDocx(d,images){
     extra.length?extra:undefined,{entete:PV_ENTETE_VIDE,pied:piedDocCpXml(d.dossier,'Attestation de fin de mission',d.faitLe)});
 }
 const finMissionNomFichier=d=>('Attestation de fin de mission — '+(d.dossier||'chantier')).replace(/[\\/:*?"<>|]/g,'-')+'.docx';
+
+/* ---------- le dossier de fin de chantier pour l'assureur ----------
+   Pour clore le dossier dommages-ouvrage, l'assureur demande de quoi arrêter
+   le coût définitif de l'opération : toutes les factures, les PV de réception,
+   la DAACT. Le dossier les reprend de ce qui est enregistré sur le chantier
+   (rien d'inventé), dit ce qui manque sans bloquer, et sort un ZIP — trop
+   lourd pour un mail, il part par WeTransfer, par exemple — avec le message
+   prêt à copier. Une facture répartie sur plusieurs lots n'y est qu'une fois. */
+const DOSSIER_ASSUREUR_GROUPES=[
+  {id:'marches',l:'Factures des entreprises',dossier:'1 - Factures des entreprises'},
+  {id:'achats',l:'Factures d’achats de matériaux',dossier:'2 - Factures d’achats de matériaux'},
+  {id:'honoraires',l:'Factures de maîtrise d’œuvre',dossier:'3 - Factures de maîtrise d’œuvre'},
+  {id:'pv',l:'PV de réception (pièce « PV de réception »)',dossier:'4 - PV de réception'},
+  {id:'daact',l:'DAACT (pièce « DAACT »)',dossier:'5 - DAACT'},
+];
+const dossierAssureurDe=ch=>{
+  const s=(ch&&ch.dossierAssureur)||{};
+  const groupes={};for(const g of DOSSIER_ASSUREUR_GROUPES)groupes[g.id]=true;
+  return {assureur:'',email:'',police:'',lienTransfert:'',envoyeLe:'',...s,groupes:{...groupes,...(s.groupes||{})}};
+};
+/* un nom de fichier ou de dossier que tous les systèmes acceptent */
+const nomZip=v=>String(v||'').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'-').replace(/\s+/g,' ').trim().slice(0,110)||'sans nom';
+const eurCentimes=c=>eurc(c/100);
+function dossierAssureurDonnees(ch,data,da){
+  da=da||dossierAssureurDe(ch);
+  const art=id=>((data&&data.artisans)||[]).find(a=>a.id===id)||null;
+  const ms=((data&&data.marches)||[]).filter(m=>m.chantierId===ch.id);
+  const cs=((data&&data.commandes)||[]).filter(c=>c.chantierId===ch.id);
+  const fichiers=[], manquants=[], nonSoldes=[];
+  const tot={marches:{ht:0,ttc:0,n:0},achats:{ht:0,ttc:0,n:0},honoraires:{ht:0,ttc:0,n:0}};
+  const facture=(groupe,f,sousDossier,qui,ttc,montant)=>{
+    const ht=centimes(montant!==undefined?montant:f.montant);
+    tot[groupe].ht+=ht;tot[groupe].ttc+=centimes(ttc);tot[groupe].n++;
+    const titre='Facture'+(f.numero?' '+f.numero:'')+(ht<0?' (avoir)':'')+' — '+qui;
+    const base=[f.date||'',f.numero?'n° '+f.numero:'',ht<0?'avoir':'facture',eurCentimes(ht).replace(/\s/g,' ')+' HT'].filter(Boolean).join(' ');
+    if(f.lien)fichiers.push({groupe,dossier:sousDossier,base,titre,lien:f.lien,nom:''});
+    else manquants.push({groupe,texte:titre+(f.date?' du '+fd(f.date):'')+' ('+eurCentimes(ht)+' HT) : fichier non déposé'});
+  };
+  /* une facture répartie : une seule fois, pour son total, sur le premier lot */
+  const reparties=new Set();
+  for(const m of ms){
+    const a=art(m.artisanId), qui=(m.lot||'lot')+' — '+((a&&a.nom)||'entreprise');
+    const dossier=nomZip(qui);
+    for(const f of (m.factures||[])){
+      if(f.repartition){
+        if(reparties.has(f.repartition.id))continue;
+        reparties.add(f.repartition.id);
+        const parts=ms.flatMap(x=>(x.factures||[]).filter(y=>y.repartition&&y.repartition.id===f.repartition.id).map(y=>({x,y})));
+        const ttc=parts.reduce((s,p)=>s+factureTTC(p.y,p.x,ch),0);
+        facture('marches',f,dossier,qui+' (répartie sur '+parts.map(p=>p.x.lot).join(', ')+')',
+          f.repartition.totalTTC||ttc,f.repartition.totalHT);
+      }
+      else facture('marches',f,dossier,qui,factureTTC(f,m,ch));
+    }
+    if(marcheSigne(m)&&!marcheSolde(m)){
+      const reste=centimes(m.montantHT)-centimes(facturesTotal(m.factures));
+      if(reste>=centimes(SOLDE_ARRONDI))nonSoldes.push({lot:qui,reste:reste/100});
+    }
+  }
+  for(const c of cs){
+    const qui=(c.fournisseur||'fournisseur')+(c.libelle?' — '+c.libelle:'');
+    for(const f of (c.factures||[]))facture('achats',f,nomZip(qui),qui,factureTTC(f,c,ch));
+  }
+  for(const f of ((ch&&ch.honoFactures)||[]))
+    facture('honoraires',f,'',CP.nom,(+f.montant||0)*(1+honoFactTva(f,ch)/100));
+  const docs=(ch&&ch.docs)||{};
+  for(const x of fichiersDe(docs.pv||{}))fichiers.push({groupe:'pv',dossier:'',base:x.nom,titre:x.nom,lien:x.lien,nom:x.nom});
+  for(const x of fichiersDe(docs.daact||{}))fichiers.push({groupe:'daact',dossier:'',base:x.nom,titre:x.nom,lien:x.lien,nom:x.nom});
+  /* les lots signés dont le PV n'a pas été produit depuis l'application */
+  const sansPv=ms.filter(m=>marcheSigne(m)&&!(pvDe(ch,m.id).genere));
+  if(sansPv.length)manquants.push({groupe:'pv',texte:'PV de réception non produit pour : '+sansPv.map(m=>m.lot||'lot sans intitulé').join(', ')
+    +' (un PV signé déposé dans la pièce « PV de réception » part quand même)'});
+  if(!fichiersDe(docs.pv||{}).length)manquants.push({groupe:'pv',texte:'Aucun fichier dans la pièce « PV de réception »'});
+  if(!fichiersDe(docs.daact||{}).length)manquants.push({groupe:'daact',texte:'DAACT non déposée (PIÈCES › Achèvement › DAACT)'});
+  /* les dates de réception, pour le message */
+  const recus=ms.filter(marcheSigne).map(m=>{const p=pvDe(ch,m.id);return p.genere?(p.dateEffet||p.faitLe||''):''}).filter(Boolean).sort();
+  const choisi=g=>da.groupes[g]!==false;
+  const garde=fichiers.filter(x=>choisi(x.groupe));
+  const total={ht:0,ttc:0};
+  for(const g of ['marches','achats','honoraires'])if(choisi(g)){total.ht+=tot[g].ht;total.ttc+=tot[g].ttc}
+  return {dossier:ch.nom||'',adresse:ch.adresse||'',maitreOuvrage:pvMaitreOuvrage(ch,data),
+    fichiers:garde,tous:fichiers,manquants:manquants.filter(x=>choisi(x.groupe)),nonSoldes,tot,total,recus,
+    compte:g=>garde.filter(x=>x.groupe===g).length,choisi};
+}
+const dossierAssureurNomZip=d=>nomZip('Dossier de fin de travaux — '+(d.dossier||'chantier'))+'.zip';
+const dossierAssureurObjet=(d,da)=>'Dossier de fin de travaux — '+(d.dossier||'chantier')+(da.police?' — contrat dommages-ouvrage n° '+da.police:'');
+function dossierAssureurMail(d,da){
+  const n=g=>d.compte(g), pl=(k,s)=>k+' '+s+(k>1?'s':'');
+  const r=d.recus;
+  const recep=!r.length?'':r.length===1||r[0]===r[r.length-1]?' et réceptionnés le '+fd(r[0])
+    :' et réceptionnés entre le '+fd(r[0])+' et le '+fd(r[r.length-1]);
+  const pieces=[];
+  if(d.choisi('daact')&&n('daact'))pieces.push('la déclaration attestant l’achèvement et la conformité des travaux (DAACT)');
+  if(d.choisi('pv')&&n('pv'))pieces.push('les procès-verbaux de réception ('+pl(n('pv'),'fichier')+')');
+  const fac=[['marches','des entreprises'],['achats','des achats de matériaux'],['honoraires','de maîtrise d’œuvre']]
+    .filter(([g])=>d.choisi(g)&&n(g)).map(([g,l])=>l+' ('+n(g)+')');
+  if(fac.length)pieces.push('les factures '+(fac.length>1?fac.slice(0,-1).join(', ')+' et '+fac[fac.length-1]:fac[0]));
+  const ligne=(g,l)=>d.choisi(g)&&d.tot[g].n?'\n- '+l+' : '+eurCentimes(d.tot[g].ht)+' HT, soit '+eurCentimes(d.tot[g].ttc)+' TTC':'';
+  const cout=d.total.ht||d.total.ttc?'\n\nCoût définitif de l’opération (montants facturés) : '+eurCentimes(d.total.ht)+' HT, soit '+eurCentimes(d.total.ttc)+' TTC'
+    +ligne('marches','travaux des entreprises')+ligne('achats','matériaux achetés en direct')+ligne('honoraires','maîtrise d’œuvre'):'';
+  return 'Madame, Monsieur,'
+    +'\n\nLes travaux de l’opération « '+(d.dossier||'chantier')+' »'+(d.adresse?', '+d.adresse:'')
+    +(d.maitreOuvrage?' (maître d’ouvrage : '+d.maitreOuvrage+')':'')+', sont achevés'+recep+'.'
+    +'\n\nAfin de finaliser le dossier d’assurance dommages-ouvrage'+(da.police?' n° '+da.police:'')
+    +', nous vous transmettons l’ensemble des pièces de fin de chantier'+(pieces.length?' :\n'+pieces.map(x=>'- '+x).join(' ;\n')+'.':'.')
+    +cout
+    +'\n\n'+(String(da.lienTransfert||'').trim()?'Les pièces sont à télécharger ici : '+String(da.lienTransfert).trim()
+      :'Les pièces vous parviennent par WeTransfer, le dossier dépassant la taille d’un mail.')
+    +' Un bordereau des pièces est joint au dossier.'
+    +'\n\nNous restons à votre disposition pour tout complément.'
+    +'\n\nCordialement,\n'+signatureTexte();
+}
+/* l'extension d'un fichier repris du Drive : celle de son nom, sinon celle
+   que disent ses premiers octets (une facture déposée en photo reste une photo) */
+const extDepuisOctets=o=>{
+  if(o&&o.length>4&&o[0]===0x25&&o[1]===0x50&&o[2]===0x44&&o[3]===0x46)return 'pdf';
+  if(o&&o.length>4&&o[0]===0x50&&o[1]===0x4b&&o[2]===3&&o[3]===4)return 'docx';
+  const d=o&&dimensionsImage(o);
+  return d?(d.ext==='jpeg'?'jpg':d.ext):'';
+};
+async function dossierAssureurZip(d,token,progres){
+  const entrees=[], illisibles=[], pris=new Set(), lus=new Map();
+  const unique=chemin=>{let c=chemin,i=2;while(pris.has(c.toLowerCase()))c=chemin.replace(/(\.[^./]+)?$/,m=>' ('+(i++)+')'+m);pris.add(c.toLowerCase());return c};
+  let fait=0;
+  for(const x of d.fichiers){
+    const g=DOSSIER_ASSUREUR_GROUPES.find(y=>y.id===x.groupe);
+    const id=driveIdDepuisLien(x.lien);
+    try{
+      if(!id)throw new Error('lien hors du Drive');
+      const o=lus.get(id)||await driveFichierBytes(token,id);
+      lus.set(id,o);
+      const extNom=(String(x.nom||'').match(/\.([a-z0-9]{2,5})$/i)||[])[1];
+      const ext=extNom?'':(extDepuisOctets(o)||'pdf');
+      const nom=nomZip(String(x.base||'').replace(/\.[a-z0-9]{2,5}$/i,''))+'.'+(extNom||ext).toLowerCase();
+      entrees.push({nom:unique([g.dossier,x.dossier,nom].filter(Boolean).map(nomZip).join('/')),data:o,x});
+    }catch(e){
+      if(e&&e.error==='auth_required')throw e;
+      illisibles.push({...x,raison:(e&&e.message)||String(e)});
+    }
+    if(progres)progres(++fait,d.fichiers.length);
+  }
+  const L=['Dossier de fin de travaux — '+(d.dossier||'chantier'),d.adresse,'Bordereau des pièces — '+fd(today()),''];
+  for(const g of DOSSIER_ASSUREUR_GROUPES){
+    const E=entrees.filter(e=>e.x.groupe===g.id);
+    if(!E.length)continue;
+    L.push(g.dossier);
+    for(const e of E)L.push('  '+e.nom.split('/').slice(1).join(' / '));
+    L.push('');
+  }
+  if(d.total.ht||d.total.ttc)L.push('Coût définitif (montants facturés) : '+eurCentimes(d.total.ht)+' HT — '+eurCentimes(d.total.ttc)+' TTC','');
+  if(illisibles.length){L.push('Pièces non jointes (illisibles sur le Drive) :');for(const x of illisibles)L.push('  '+x.titre);L.push('')}
+  const bordereau=new TextEncoder().encode(L.join('\r\n'));
+  const tout=[{nom:'0 - Bordereau des pièces.txt',data:bordereau},...entrees.map(e=>({nom:e.nom,data:e.data}))];
+  return {octets:zipEcrire(tout,{utf8:true}),n:entrees.length,illisibles,noms:entrees.map(e=>e.nom)};
+}
 
 /* ---------- avenant au marché de travaux ----------
    Une prestation ajoutée ou supprimée après la mise au point technique, avant
@@ -4753,6 +4919,11 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
   /* la maîtrise d'œuvre facture toujours à 20 %, même quand les travaux
      sont à un taux réduit (rénovation d'un logement existant) */
   const tvaHono=HONO_TVA_DEFAUT;
+  /* la dommages-ouvrage : son coût estimé (carte du contrat, sinon celui du
+     chiffrage du prospect) ; en rénovation, des travaux sans démolition de
+     mur porteur ni gros œuvre ne la rendent pas forcément obligatoire */
+  const doCout=montantSaisi(p.contratDoCout)||montantSaisi(p.dommageOuvrage);
+  const doSansStructure=reno&&!!p.contratDoSansStructure;
   const margeHT=prospectMargeHT(p), margeTva=Math.round(margeHT*tvaHono)/100,
     margeTTC=Math.round((margeHT+margeTva)*100)/100;
   const surfaceFonciere=p.surfaceTerrain?nb2(+p.surfaceTerrain)+' m²':'';
@@ -4769,7 +4940,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
       {sz:19,c:DOC_BRUN,jc:'center',ap:20,filet:DOC_BRUN}),
     par((p.nom||'')+(nomClient?' — '+nomClient:''),{sz:18,c:DOC_GRIS,jc:'center',ap:0}),
     vide(300),
-    encadre([par('AVERTISSEMENT LÉGAL — Le présent contrat est un contrat de maîtrise d’œuvre relevant exclusivement des articles 1779 et suivants du Code civil (louage d’ouvrage intellectuel). Il n’entre pas dans le champ d’application de l’article L.231-1 du Code de la construction et de l’habitation, le Maître d’Œuvre n’étant pas constructeur de maison individuelle au sens dudit article, n’assumant aucune obligation de livraison à prix et délai convenus, et n’étant lié aux entreprises par aucun rapport contractuel direct ou indirect. Il ne constitue en aucun cas un CCMI. Le Maître d’Œuvre n’est pas constructeur, ne s’engage sur aucun prix global et forfaitaire de construction, et n’est pas lié contractuellement aux entreprises de travaux. Les marchés de travaux sont conclus directement et individuellement par le maître de l’ouvrage avec chaque entreprise titulaire. Il est bien précisé que le Maître d’Œuvre n’est pas mandataire du Maître de l’Ouvrage, qu’il est lié à ce dernier dans le cadre d’un louage d’ouvrage défini par les articles 1779 et suivants du Code Civil. Le Maître d’Œuvre exerce son art dans le cadre d’une profession libérale indépendante : sa responsabilité est limitée dans le cadre de la loi à sa propre mission, sans interférence avec celles qui seront données d’autres part aux différents entrepreneurs et hommes de l’art appelés à concourir à l’édification de la construction.',
+    encadre([par('AVERTISSEMENT LÉGAL — Le présent contrat est un contrat de maîtrise d’œuvre relevant exclusivement des articles 1779 et suivants du Code civil (louage d’ouvrage intellectuel). Il n’entre pas dans le champ d’application de l’article L.231-1 du Code de la construction et de l’habitation, le Maître d’Œuvre n’étant pas constructeur de maison individuelle au sens dudit article, n’assumant aucune obligation de livraison à prix et délai convenus, et n’étant lié aux entreprises par aucun rapport contractuel direct ou indirect. Il ne constitue en aucun cas un CCMI. Le Maître d’Œuvre n’est pas constructeur, ne s’engage sur aucun prix global et forfaitaire de construction, et n’est pas lié contractuellement aux entreprises de travaux. Les marchés de travaux sont conclus directement et individuellement par le Maître de l’Ouvrage avec chaque entreprise titulaire. Il est bien précisé que le Maître d’Œuvre n’est pas mandataire du Maître de l’Ouvrage, qu’il est lié à ce dernier dans le cadre d’un louage d’ouvrage défini par les articles 1779 et suivants du Code civil. Le Maître d’Œuvre exerce son art dans le cadre d’une profession libérale indépendante : sa responsabilité est limitée dans le cadre de la loi à sa propre mission, sans interférence avec celles qui seront données d’autre part aux différents entrepreneurs et hommes de l’art appelés à concourir à l’édification de la construction.',
       {sz:16,i:true,jc:'both',ap:0})]),
     vide(200),
   ].join('');
@@ -4827,18 +4998,18 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     par('BLOC B — Mission Chantier',{b:true,sz:18,c:DOC_TERRA,av:100,ap:60}),
     puce('PRO — Projet : plans d’exécution détaillés'),
     puce('DCE — Dossier de Consultation des Entreprises'),
-    puce('ACT — Assistance à la passation des Contrats : analyse comparative des devis, recommandation au Maître de l’Ouvrage (les marchés sont signés par le Maître de l’Ouvrage directement)'),
+    puce('ACT — Assistance à la passation des contrats : analyse comparative des devis, recommandation au Maître de l’Ouvrage (les marchés sont signés par le Maître de l’Ouvrage directement)'),
     puce('VISA — Visa des études d’exécution : vérification de la conformité des plans d’exécution des entreprises'),
     puce('DET — Direction de l’Exécution des Travaux : réunions de chantier, vérification de conformité, visa des situations de paiement'),
     puce('AOR — Assistance aux Opérations de Réception : organisation de la réception, établissement de la liste des réserves, suivi de leur levée, déclenchement des garanties légales'),
     sousTitre('Article III-2 — Nature de la mission'),
     texte('Le Maître d’Œuvre exerce son art dans le cadre d’une profession libérale indépendante. Sa responsabilité est limitée à sa propre mission, sans interférence avec les obligations contractuelles propres aux différents entrepreneurs et hommes de l’art appelés à concourir à l’édification de la construction.'),
-    texte('Le Maître d’Œuvre n’est pas le mandataire du Maître de l’Ouvrage. Toute décision de nature à engager le Maître de l’Ouvrage notamment la signature des marchés avec les entreprises, les paiements, les ordres de service modificatifs appartient exclusivement au Maître de l’Ouvrage.'),
-    texte('Le Maître d’œuvre devra concevoir l’ouvrage à la destination qui lui aura été définie par le maître de l’ouvrage. Les plans seront conformes au projet ainsi arrêté.'),
-    texte('Le Maître d’Œuvre sur le vu des marchés et contrats qui seront passés, surveillera selon les règles de l’art, l’exécution de l’ouvrage conformément aux plans fournis à l’appui '+(reno?'de l’autorisation d’urbanisme':'du permis de construire')+'. Il signale par écrit au Maître de l’Ouvrage toute insuffisance, erreur, malfaçon ou non-conformité qu’il détecte lors de ses visites de chantier. Il appartient au seul Maître de l’Ouvrage, en sa qualité de cocontractant des entreprises, d’exiger la réparation des désordres constatés. Le Maître d’Œuvre n’assume aucune obligation de résultat sur l’exécution des travaux réalisés par des tiers.'),
-    texte('Le maître d’œuvre assistera le maitre de l’ouvrage de ses avis et de ses conseils au cours de toutes conférences ou discussions qui seraient nécessaires, il participera d’ailleurs personnellement ou par l’un de ses représentants ou préposés à toutes réunions de chantier. Il donnera au Maitre de l’ouvrage toutes indications ou lui fera toutes suggestions pour la réalisation de son projet.'),
-    texte('Dans les rapports avec les administrations, le Maitre d’œuvre se bornera à assister le maitre de l’ouvrage de ses conseils sans se substituer à lui, tout décision ne pouvant être prise que par ce dernier.'),
-    texte('Si à l’occasion de ses rapports avec des tiers, il advenait que le maitre de l’ouvrage passe outre aux avis exprimés par le Maitre d’œuvre, il en supporterait seul les conséquences, et le maitre d’œuvre serait dégagé de toute responsabilité à l’occasion des difficultés qui pourraient résulter du désaccord intervenu.'),
+    texte('Le Maître d’Œuvre n’est pas le mandataire du Maître de l’Ouvrage. Toute décision de nature à engager le Maître de l’Ouvrage, notamment la signature des marchés avec les entreprises, les paiements et les ordres de service modificatifs, appartient exclusivement au Maître de l’Ouvrage.'),
+    texte('Le Maître d’Œuvre devra concevoir l’ouvrage à la destination qui lui aura été définie par le Maître de l’Ouvrage. Les plans seront conformes au projet ainsi arrêté.'),
+    texte('Le Maître d’Œuvre, au vu des marchés et contrats qui seront passés, surveillera selon les règles de l’art l’exécution de l’ouvrage conformément aux plans fournis à l’appui '+(reno?'de l’autorisation d’urbanisme':'du permis de construire')+'. Il signale par écrit au Maître de l’Ouvrage toute insuffisance, erreur, malfaçon ou non-conformité qu’il détecte lors de ses visites de chantier. Il appartient au seul Maître de l’Ouvrage, en sa qualité de cocontractant des entreprises, d’exiger la réparation des désordres constatés. Le Maître d’Œuvre n’assume aucune obligation de résultat sur l’exécution des travaux réalisés par des tiers.'),
+    texte('Le Maître d’Œuvre assistera le Maître de l’Ouvrage de ses avis et de ses conseils au cours de toutes conférences ou discussions qui seraient nécessaires ; il participera d’ailleurs personnellement, ou par l’un de ses représentants ou préposés, à toutes réunions de chantier. Il donnera au Maître de l’Ouvrage toutes indications ou lui fera toutes suggestions pour la réalisation de son projet.'),
+    texte('Dans les rapports avec les administrations, le Maître d’Œuvre se bornera à assister le Maître de l’Ouvrage de ses conseils sans se substituer à lui, toute décision ne pouvant être prise que par ce dernier.'),
+    texte('Si, à l’occasion de ses rapports avec des tiers, il advenait que le Maître de l’Ouvrage passe outre aux avis exprimés par le Maître d’Œuvre, il en supporterait seul les conséquences, et le Maître d’Œuvre serait dégagé de toute responsabilité à l’occasion des difficultés qui pourraient résulter du désaccord intervenu.'),
   ].join('');
 
   const a4=[
@@ -4853,25 +5024,26 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
       :[puce('Signer et présenter la demande de permis de construire préparée par le Maître d’Œuvre')]),
     puce('Sélectionner et signer directement les marchés avec les entrepreneurs, après recommandation du Maître d’Œuvre'),
     puce('Effectuer tous paiements d’acomptes et règlements aux entreprises'),
-    puce('Souscrire une assurance dommages-ouvrage avant l’ouverture du chantier, conformément aux articles L242-1 et suivants du Code des assurances'),
-    puce('En général, effectuera toutes démarches, précédera à toutes discussions indispensables à la défense de ses intérêts. La mission du Maître d’œuvre étant limité au rôle de conseil pour tout ce qui ne concerne pas sa mission proprement dite qu’elle a été définie à l’articles 3 ci-dessus.'),
+    (reno?puce('Souscrire, lorsque les travaux l’exigent, une assurance dommages-ouvrage avant l’ouverture du chantier, conformément aux articles L.242-1 et suivants du Code des assurances')
+      :puce('Souscrire une assurance dommages-ouvrage avant l’ouverture du chantier, conformément aux articles L.242-1 et suivants du Code des assurances')),
+    puce('De manière générale, effectuer toutes démarches et procéder à toutes discussions indispensables à la défense de ses intérêts, la mission du Maître d’Œuvre étant limitée au rôle de conseil pour tout ce qui ne concerne pas sa mission proprement dite, telle qu’elle a été définie à l’article 3 ci-dessus.'),
     sousTitre('Article 4-3 — Initiatives propres du Maître de l’Ouvrage'),
     texte('Si le Maître de l’Ouvrage passe outre aux avis exprimés par le Maître d’Œuvre dans les rapports avec les tiers ou les entreprises, il en supporterait seul les conséquences. Le Maître d’Œuvre serait dégagé de toute responsabilité à l’occasion des difficultés qui pourraient en résulter.'),
-    texte('Là où les réceptions seront faites en présence du maitre d’œuvre, celui-ci donnera toutes appréciations nécessaires au Maitre de l’Ouvrage en vue de la formulation des observations et réserves qui apparaitraient utiles. Si, nonobstant les avis du Maître d’œuvre, le Maître de l’Ouvrage passait outre, et décidait de réceptionner l’immeuble, il le ferait à ses risques et périls ; dégageant ainsi le maitre d’œuvre de toute responsabilité de ce chef.'),
+    texte('Lorsque les réceptions seront faites en présence du Maître d’Œuvre, celui-ci donnera toutes appréciations nécessaires au Maître de l’Ouvrage en vue de la formulation des observations et réserves qui apparaîtraient utiles. Si, nonobstant les avis du Maître d’Œuvre, le Maître de l’Ouvrage passait outre et décidait de réceptionner l’immeuble, il le ferait à ses risques et périls, dégageant ainsi le Maître d’Œuvre de toute responsabilité de ce chef.'),
     texte('Le client s’engage à ne pas donner d’instructions directes aux entreprises sans en informer préalablement le Maître d’Œuvre, afin de préserver la cohérence de la coordination de chantier.'),
     encadre([par('Le Maître d’Œuvre n’est pas lié contractuellement aux entreprises et ne réalise pas lui-même les travaux. Il n’assure pas de présence permanente sur le chantier. Les paiements des entreprises sont effectués directement par le Maître de l’Ouvrage à chaque entreprise. Le Maître d’Œuvre ne centralise aucun paiement. Toute mission complémentaire fait l’objet d’un avenant écrit signé des deux parties.',{sz:16,jc:'both',ap:0})]),
   ].join('');
 
   const a4bis=[
     titre('Article 4 bis — Absence de qualité de constructeur — distinction expresse avec le CCMI'),
-    texte('Les parties reconnaissent expressément et irrévocablement que le présent contrat est un contrat de maîtrise d’Œuvre relevant du droit commun des obligations (articles 1779 et suivants du Code civil), et non un contrat de construction de maison individuelle au sens de l’article L.231-1 du Code de la construction et de l’habitation.'),
+    texte('Les parties reconnaissent expressément et irrévocablement que le présent contrat est un contrat de maîtrise d’œuvre relevant du droit commun des obligations (articles 1779 et suivants du Code civil), et non un contrat de construction de maison individuelle au sens de l’article L.231-1 du Code de la construction et de l’habitation.'),
     texte('À ce titre, il est expressément convenu que :'),
     puce('Le Maître d’Œuvre n’est pas constructeur, n’assume aucune obligation de livraison de l’ouvrage à prix convenu et dans un délai déterminé ;'),
     puce('Le Maître d’Œuvre ne contracte pas avec les entreprises de travaux en son nom propre ou au nom du Maître de l’Ouvrage — les marchés de travaux sont conclus exclusivement par le Maître de l’Ouvrage ;'),
     puce('Le Maître d’Œuvre ne perçoit, ne centralise, ni ne redistribue aucun paiement destiné aux entreprises ;'),
     puce('Le Maître d’Œuvre ne fournit aucune garantie de remboursement, de livraison ou d’achèvement ;'),
     puce('La rémunération du Maître d’Œuvre constitue des honoraires intellectuels indépendants du coût final des travaux ;'),
-    puce('Le Maître de l’Ouvrage reconnaît avoir été informé de la distinction entre le contrat de maîtrise d’Œuvre et le CCMI, et avoir choisi en pleine connaissance de cause le régime de la maîtrise d’Œuvre séparée.'),
+    puce('Le Maître de l’Ouvrage reconnaît avoir été informé de la distinction entre le contrat de maîtrise d’œuvre et le CCMI, et avoir choisi en pleine connaissance de cause le régime de la maîtrise d’œuvre séparée.'),
   ].join('');
 
   /* les travaux sur existant : ce que la rénovation ajoute au modèle */
@@ -4886,7 +5058,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     sousTitre('Site occupé'),
     texte('Lorsque le logement reste occupé pendant les travaux, le Maître de l’Ouvrage libère et protège les zones d’intervention, en organise l’accès et retire les biens susceptibles d’être endommagés. Les nuisances inhérentes aux travaux (bruit, poussière, coupures temporaires des réseaux) sont annoncées par le planning et ne constituent pas un manquement du Maître d’Œuvre.'),
     sousTitre('Existants et assurances'),
-    texte('Le Maître de l’Ouvrage est informé que les assurances obligatoires de construction ne couvrent les ouvrages existants que dans les conditions prévues par la loi, notamment lorsqu’ils sont totalement incorporés dans l’ouvrage neuf et en deviennent techniquement indivisibles. Il déclare les existants à son assureur dommages-ouvrage et vérifie, pendant la durée des travaux, l’étendue de son assurance habitation.'),
+    texte('Le Maître de l’Ouvrage est informé que les assurances obligatoires de construction ne couvrent les ouvrages existants que dans les conditions prévues par la loi, notamment lorsqu’ils sont totalement incorporés dans l’ouvrage neuf et en deviennent techniquement indivisibles. Le cas échéant, il déclare les existants à son assureur dommages-ouvrage ; il vérifie, pendant la durée des travaux, l’étendue de son assurance habitation.'),
     sousTitre('Travaux exclus de la mission'),
     texte('Les travaux que le Maître de l’Ouvrage réalise lui-même ou confie directement à des tiers en dehors des marchés suivis par le Maître d’Œuvre (désignés « hors marché » au descriptif) sont exclus de la mission : le Maître d’Œuvre n’en assure ni la conception, ni la direction, ni le contrôle, et le Maître de l’Ouvrage en assume seul la conformité et les conséquences sur les autres ouvrages.'),
   ].join(''):'';
@@ -4897,7 +5069,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     puce('Obtention du ou des prêts bancaires nécessaires au financement de l’opération'),
     puce('Obtention de l’autorisation d’urbanisme requise (déclaration préalable ou permis de construire) et des autres autorisations administratives'),
     texte('À défaut de réalisation de l’une de ces conditions dans le délai imparti, le contrat est réputé caduc et les sommes versées sont intégralement remboursées au Maître de l’Ouvrage. Si la non-réalisation est imputable au Maître de l’Ouvrage, celui-ci devra au Maître d’Œuvre une indemnité forfaitaire égale à 10 % du montant total des honoraires TTC.'),
-    texte('Les travaux ne pourront démarrer qu’après remise au Maître d’Œuvre des pièces suivantes : autorisation d’urbanisme purgée de tout recours, attestation de propriété, attestation d’assurance dommages-ouvrage, attestation de financement, repérages réglementaires avant travaux, accès aux zones d’intervention libérées.'),
+    texte('Les travaux ne pourront démarrer qu’après remise au Maître d’Œuvre des pièces suivantes : autorisation d’urbanisme purgée de tout recours, attestation de propriété, attestation d’assurance dommages-ouvrage le cas échéant, attestation de financement, repérages réglementaires avant travaux, accès aux zones d’intervention libérées.'),
   ].join(''):[
     titre('Article 5 — Conditions suspensives'),
     texte('Le présent contrat est conclu sous réserve de la réalisation, dans un délai de 6 mois à compter de sa signature, des conditions suivantes :'),
@@ -4918,12 +5090,16 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
       +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:70,v:'top'});
   const a6=[
     titre('Article 6 — Honoraires du Maître d’Œuvre et budget travaux'),
-    texte('A la signature du présent contrat, le maître d’ouvrage dispose d’un budget travaux de :'),
-    par(eurDoc(coutHT)+' HT, soit '+eurDoc(coutTTC)+' TTC'+(trav.tvaMixte?', TVA aux taux en vigueur applicables à chaque poste de travaux.'
-      :' sur la base d’un taux de TVA en vigueur de '+tva+' %.'),
+    texte('À la signature du présent contrat, le Maître de l’Ouvrage dispose d’un budget travaux de :'),
+    /* en rénovation, la TVA varie selon la nature des prestations : aucun
+       taux unique n'est annoncé, et le HT n'est écrit que s'il a été saisi
+       (le déduire d'un taux unique le fausserait) */
+    par(!(reno||trav.tvaMixte)?eurDoc(coutHT)+' HT, soit '+eurDoc(coutTTC)+' TTC sur la base d’un taux de TVA en vigueur de '+tva+' %.'
+      :(reno&&trav.forfait&&!contratTravauxForfaitHT(p)?eurDoc(coutTTC)+' TTC':eurDoc(coutHT)+' HT, soit '+eurDoc(coutTTC)+' TTC')
+        +', TVA à taux variable selon la nature des prestations.',
       {b:true,sz:20,c:DOC_ENCRE,ap:100}),
-    texte('Le budget de travaux est établi conformément '+(reno?'à l’avant-projet et à l’estimation détaillée (DQE)':'au programme de l’opération')+'. Il s’applique à un mode de dévolution des contrats de travaux envisagé par le maître d’ouvrage en corps d’état séparés.'),
-    texte('Cette estimation est établie à titre indicatif, sur la base des données disponibles à la date de signature. Elle ne constitue en aucun cas un engagement du Maître d’Œuvre sur le coût définitif de l’opération. Elle ne tient pas compte des évolutions ultérieures des prix des matériaux, de la main d’œuvre, ni des contraintes techniques susceptibles d’être révélées en cours d’instruction ou de chantier.'),
+    texte('Le budget de travaux est établi conformément '+(reno?'à l’avant-projet et à l’estimation détaillée (DQE)':'au programme de l’opération')+'. Il s’applique à un mode de dévolution des contrats de travaux envisagé par le Maître de l’Ouvrage en corps d’état séparés.'),
+    texte('Cette estimation est établie à titre indicatif, sur la base des données disponibles à la date de signature. Elle ne constitue en aucun cas un engagement du Maître d’Œuvre sur le coût définitif de l’opération. Elle ne tient pas compte des évolutions ultérieures des prix des matériaux, de la main-d’œuvre, ni des contraintes techniques susceptibles d’être révélées en cours d’instruction ou de chantier.'),
     texte('En cas d’écart constaté entre l’estimation prévisionnelle et les offres reçues des entreprises, le Maître d’Œuvre en informera le Maître de l’Ouvrage et lui soumettra les arbitrages nécessaires. Le Maître de l’Ouvrage demeure seul décisionnaire des ajustements à apporter au programme.'),
     texte('La rémunération du Maître d’Œuvre est constituée d’honoraires forfaitaires toutes taxes comprises, répartis selon les deux blocs de mission définis à l’article 3. Ils sont indépendants du coût des travaux et ne constituent en aucun cas un engagement du Maître d’Œuvre sur le coût global de l’opération.'),
     champs([['Honoraires HT',eurDoc(margeHT)],['TVA ('+tvaHono+' %)',eurDoc(margeTva)],['Honoraires TTC',eurDoc(margeTTC)]]),
@@ -4936,7 +5112,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
         celEch(1200,L[2],'right'),celEch(1800,L[3],'right'),celEch(2700,L[4],'left')])))
       .concat([tr([tc(500+4200,par('TOTAL HONORAIRES',{b:true,sz:16,c:DOC_TERRA,ap:0}),
         {fusion:2,bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70}),
-        celEch(1200,'100 %','right'),
+        tc(1200,par('100 %',{b:true,sz:16,jc:'right',ap:0}),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70}),
         tc(1800,par(eurDoc(margeTTC)+' TTC',{b:true,sz:16,jc:'right',ap:0}),
           {bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70}),
         tc(2700,par('',{ap:0}),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:70})])]),{}),
@@ -4968,12 +5144,18 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
     texte('Le Maître d’Œuvre assume sa responsabilité professionnelle dans les limites des articles 1792 et suivants du Code civil et dans la limite des plafonds de son contrat d’assurance RC Pro ('+CP.rcProAssureur+' — n° '+CP.rcProContrat+'). Il ne peut être tenu responsable des défaillances des entreprises, des aléas techniques imprévisibles, des règles d’urbanisme annulées postérieurement ou de contraintes non signalées par le Client.'),
     texte('La responsabilité décennale des entreprises de travaux est engagée au titre de leurs propres marchés, directement envers le Maître de l’Ouvrage. Le Maître d’Œuvre n’est pas garant des obligations des entreprises et ne peut être appelé en garantie au titre des désordres résultant exclusivement de leur exécution. Chaque entreprise titulaire fournit, préalablement à l’ouverture du chantier, son attestation d’assurance décennale en cours de validité, que le Maître de l’Ouvrage est tenu de recueillir.'),
     sousTitre('Assurance dommages-ouvrage'),
-    texte('Conformément à l’article L.242-1 du Code des assurances, le Maître de l’Ouvrage est tenu de souscrire une assurance dommages-ouvrage avant toute déclaration d’ouverture de chantier. Le Maître d’Œuvre a expressément informé le Maître de l’Ouvrage :'),
-    puce('de l’obligation légale de souscrire une assurance dommages-ouvrage'),
+    ...(reno?[
+      texte('Lorsque les travaux entrent dans le champ de l’article L.242-1 du Code des assurances, le Maître de l’Ouvrage est tenu de souscrire une assurance dommages-ouvrage avant leur ouverture.'),
+      ...(doSansStructure?[texte('Les travaux prévus ne comportent ni démolition de mur porteur ni travaux de gros œuvre : selon la nature des ouvrages réalisés, l’assurance dommages-ouvrage peut ne pas être exigée. Le Maître de l’Ouvrage en apprécie la nécessité avec son assureur.')]:[]),
+    ]:[texte('Conformément à l’article L.242-1 du Code des assurances, le Maître de l’Ouvrage est tenu de souscrire une assurance dommages-ouvrage avant toute déclaration d’ouverture de chantier.')]),
+    ...(doCout?[texte('Le coût d’une assurance dommages-ouvrage pour ce projet est estimé à environ '+eurDoc(doCout)+' TTC (montant indicatif, sur devis de l’assureur).')]:[]),
+    texte('Le Maître d’Œuvre a expressément informé le Maître de l’Ouvrage :'),
+    puce(reno?'des cas dans lesquels la souscription d’une assurance dommages-ouvrage est obligatoire':'de l’obligation légale de souscrire une assurance dommages-ouvrage'),
     puce('des conséquences financières d’une absence de couverture en cas de sinistre relevant de la garantie décennale'),
     puce('de l’obligation de mention de l’absence de DO dans tout acte de vente du bien dans les 10 ans suivant la réception des travaux'),
     encadre([par('Mention manuscrite obligatoire à recopier de la main du Maître de l’Ouvrage si volonté de ne pas y souscrire :',{b:true,sz:16,ap:80}),
-      par('« Je reconnais avoir été informé(e) de l’obligation légale de souscrire une assurance dommages-ouvrage et des risques financiers liés à mon absence de souscription. Je renonce expressément à cette assurance et en assume seul(e) les conséquences. »',{i:true,sz:16,jc:'both',ap:100}),
+      par(reno?'« Je reconnais avoir été informé(e) des cas dans lesquels la souscription d’une assurance dommages-ouvrage est obligatoire et des risques financiers liés à mon absence de souscription. Je renonce expressément à cette assurance et en assume seul(e) les conséquences. »'
+        :'« Je reconnais avoir été informé(e) de l’obligation légale de souscrire une assurance dommages-ouvrage et des risques financiers liés à mon absence de souscription. Je renonce expressément à cette assurance et en assume seul(e) les conséquences. »',{i:true,sz:16,jc:'both',ap:100}),
       par('Mme : ……………………………………………………………………………',{sz:16,ap:60}),
       par('M. : ……………………………………………………………………………',{sz:16,ap:100}),
       par('Fait à ………………………………………, le ………………………',{sz:16,ap:0})]),
@@ -4987,7 +5169,7 @@ function contratMoeDocumentXml(p,px,typeOuvrage){
   const a11=[
     titre('Article 11 — Suspension et résiliation'),
     sousTitre('11.1 — Suspension'),
-    texte('La mission peut être suspendue par l’une ou l’autre des parties par LRAR après mise en demeure restée sans effet 15 jours, en cas de : force majeure, blocage administratif, non-paiement d’une facture échue, absence de décisions nécessaires à la poursuite de la mission, ou tout manquement grave aux obligations contractuelles. Si la cause de suspension n’est pas levée dans un délai de 3 mois, la partie concernée peut constater la résiliation par nouvelle LRAR.'),
+    texte('La mission peut être suspendue par l’une ou l’autre des parties par LRAR après mise en demeure restée sans effet pendant 15 jours, en cas de : force majeure, blocage administratif, non-paiement d’une facture échue, absence de décisions nécessaires à la poursuite de la mission, ou tout manquement grave aux obligations contractuelles. Si la cause de suspension n’est pas levée dans un délai de 3 mois, la partie concernée peut constater la résiliation par nouvelle LRAR.'),
     sousTitre('11.2 — Résiliation à l’initiative du Maître de l’Ouvrage (sans faute du MŒ)'),
     texte('En cas de résiliation sans faute du Maître d’Œuvre, celui-ci perçoit :'),
     puce('les honoraires des missions entièrement exécutées à la date de résiliation'),
@@ -8464,17 +8646,20 @@ function zipReecrire(buf,remplacements){
 }
 
 /* fabrique un ZIP de toutes pièces, entrées non compressées */
-function zipEcrire(entrees){
+function zipEcrire(entrees,opt){
   const enc=new TextEncoder();
+  /* des noms accentués (« Plâtrerie », « Maîtrise d’œuvre ») : le drapeau 11
+     dit qu'ils sont en UTF-8, sans quoi le Mac les ouvre en caractères cassés */
+  const drapeau=opt&&opt.utf8?0x0800:0;
   const u16=v=>[v&255,(v>>8)&255], u32=v=>[v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255];
   const morceaux=[], central=[];
   let offset=0;
   for(const {nom,data} of entrees){
     const n=enc.encode(nom), crc=CRC32(data);
-    const lfh=[...u32(0x04034b50),...u16(20),...u16(0),...u16(0),...u16(0),...u16(0),
+    const lfh=[...u32(0x04034b50),...u16(20),...u16(drapeau),...u16(0),...u16(0),...u16(0),
       ...u32(crc),...u32(data.length),...u32(data.length),...u16(n.length),...u16(0)];
     morceaux.push(new Uint8Array(lfh),n,data);
-    central.push([...u32(0x02014b50),...u16(20),...u16(20),...u16(0),...u16(0),...u16(0),...u16(0),
+    central.push([...u32(0x02014b50),...u16(20),...u16(20),...u16(drapeau),...u16(0),...u16(0),...u16(0),
       ...u32(crc),...u32(data.length),...u32(data.length),...u16(n.length),...u16(0),...u16(0),
       ...u16(0),...u16(0),...u32(0),...u32(offset),...Array.from(n)]);
     offset+=lfh.length+n.length+data.length;
@@ -9463,6 +9648,40 @@ const Poignee=({onPointerDown,titre})=><button
     border:'1px solid '+RULE,background:'transparent',color:MUTED,fontSize:13,
     lineHeight:'24px',cursor:'grab',touchAction:'none'}}>⠿</button>;
 
+/* ---------- déposer un fichier en le glissant ----------
+   Une facture, un PV, un scan : glissé depuis le Finder, un mail ou un
+   logiciel de comptabilité, ou choisi d'un clic (téléphone). La zone se
+   colore au survol. « lien » la réduit à un mot dans une phrase
+   (« Remplacer »), qui reçoit aussi le fichier glissé. */
+function ZoneDepot({onFiles,accept,multiple,titre,aide,occupe,label,lien,style}){
+  const [survol,setSurvol]=useState(false);
+  const deposer=fs=>{const L=[...(fs||[])];if(!L.length||occupe)return;onFiles(multiple?L:L.slice(0,1))};
+  const glisse={
+    onDragOver:e=>{e.preventDefault();e.stopPropagation();if(!survol)setSurvol(true)},
+    onDragLeave:()=>setSurvol(false),
+    onDrop:e=>{e.preventDefault();e.stopPropagation();setSurvol(false);deposer(e.dataTransfer&&e.dataTransfer.files)},
+  };
+  const champ=<input type="file" multiple={!!multiple} accept={accept} style={{display:'none'}} disabled={!!occupe}
+    onChange={e=>{const l=[...e.target.files];e.target.value='';deposer(l)}}/>;
+  if(lien)return <label aria-label={label||titre} {...glisse} style={{color:NAVY,cursor:occupe?'wait':'pointer',borderRadius:4,
+    outline:survol?'2px dashed '+TERRA:'none',background:survol?'#FBEFEA':'transparent',padding:survol?'0 4px':0,...style}}>{titre}{champ}</label>;
+  return <label aria-label={label||titre} {...glisse}
+    style={{display:'block',padding:'12px 10px',borderRadius:8,textAlign:'center',cursor:occupe?'wait':'pointer',
+      border:'2px dashed '+(survol?TERRA:RULE),background:survol?'#FBEFEA':'transparent',...style}}>
+    <div className="xs b" style={{color:NAVY}}>{titre}</div>
+    <div className="xs mut" style={{marginTop:2}}>{aide||'Glissez le fichier ici, ou cliquez pour le choisir'}</div>
+    {champ}
+  </label>;
+}
+/* un fichier lâché à côté d'une zone : le navigateur l'ouvrirait à la place
+   de l'application (et la saisie en cours serait perdue). Hors des zones,
+   le dépôt d'un fichier ne fait donc rien. */
+if(typeof window!=='undefined'&&window&&typeof window.addEventListener==='function'){
+  const fichiersGlisses=e=>{try{return [...((e.dataTransfer&&e.dataTransfer.types)||[])].includes('Files')}catch(x){return false}};
+  window.addEventListener('dragover',e=>{if(fichiersGlisses(e))e.preventDefault()});
+  window.addEventListener('drop',e=>{if(fichiersGlisses(e))e.preventDefault()});
+}
+
 const Plus=({actif,onClick,titre})=><button title={titre} aria-label={titre} aria-expanded={!!actif}
   onClick={e=>{e.stopPropagation();onClick()}}
   style={{width:20,height:20,lineHeight:'18px',padding:0,borderRadius:5,flex:'0 0 auto',
@@ -9736,7 +9955,7 @@ function RepartitionFacture({f,data,src,cibles,save}){
   </PtrModale>;
 }
 
-function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiClient,repartir}){
+function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiClient,repartir,avoirs}){
   const L=liste||[];
   const total=facturesTotal(L), reste=(engage||0)-total;
   /* une facture lue automatiquement (Lire des factures) peut mal reprendre
@@ -9759,6 +9978,7 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
         <div className="mut" style={{fontSize:11}}>
           {f.envoyeeClientLe&&<span style={{color:GREEN}} title={'Envoyée au client le '+fd(f.envoyeeClientLe)}>envoyée au client · </span>}
           {f.repartition&&<span style={{color:NAVY}} title={'Part d’une facture de '+eur(f.repartition.totalHT)+' HT répartie sur plusieurs lots'}>part · </span>}
+          {avoirs&&estAvoir(f)&&<span style={{color:avoirDeduit(avoirs.m,f)?GREEN:AMBER}}>{avoirDeduit(avoirs.m,f)?'avoir déduit du marché · ':'avoir · '}</span>}
           {f.numero?f.numero+' · ':''}{f.date?fd(f.date):'date à saisir'}
           {/* le reste après chaque facture n'a de sens qu'à partir de la deuxième :
               sur une facture unique il répéterait le reste à facturer du bas */}
@@ -9790,13 +10010,12 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
           {f.lien
             ?<div className="row xs" style={{gap:10,alignItems:'center',flexWrap:'wrap'}}><Transmis/>
               <a href={f.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>Ouvrir la facture</a>
-              <label style={{color:NAVY,cursor:'pointer'}}>Remplacer
-                <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
-                  onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label></div>
+              <ZoneDepot lien titre="Remplacer" label="Remplacer la facture" accept={DOC_ACCEPT+',image/*'}
+                onFiles={([x])=>onLien(f.id,x)}/></div>
             :<div>
-              <label className="xs" style={{color:NAVY,cursor:'pointer'}}>Importer la facture — elle part sur le Drive
-                <input type="file" accept={DOC_ACCEPT+',image/*'} style={{display:'none'}}
-                  onChange={e=>{const x=e.target.files[0];e.target.value='';if(x)onLien(f.id,x)}}/></label>
+              <ZoneDepot titre="Importer la facture" label="Importer la facture" accept={DOC_ACCEPT+',image/*'}
+                aide="Glissez-la ici, ou cliquez pour la choisir — elle part sur le Drive"
+                onFiles={([x])=>onLien(f.id,x)}/>
               {(visa&&visa.artisan||envoiClient)&&<div className="xs" style={{marginTop:4,color:AMBER,lineHeight:1.5}}>
                 Le fichier de cette facture n’est pas déposé : importez-le pour pouvoir {visa&&visa.artisan?'la viser et l’envoyer':'l’envoyer'} au client
                 {f.repartition?' (il servira à tous les lots de la facture)':''}.</div>}
@@ -9809,6 +10028,8 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
           </div>}
           {repartir&&(+f.montant>0||f.repartition)&&<RepartitionFacture f={f} data={repartir.data} src={repartir.src}
             cibles={repartir.cibles} save={repartir.save}/>}
+          {avoirs&&estAvoir(f)&&<div style={{marginTop:8}}>
+            <AvoirMarche f={f} m={avoirs.m} data={avoirs.data} save={avoirs.save}/></div>}
         </div>}
       </div>;
     })}
@@ -9817,6 +10038,13 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
       {/* les centimes d'arrondi des factures ne font ni un reste ni un dépassement */}
       <div style={{color:reste<=-SOLDE_ARRONDI?TERRA:(reste<SOLDE_ARRONDI?GREEN:MUTED),fontSize:11}}>
         {reste<=-SOLDE_ARRONDI?'dépassement '+eur(-reste):(reste<SOLDE_ARRONDI?'soldé':'reste à facturer '+eur(reste))}</div>
+      {/* un reste qui n'est qu'un avoir pas encore déduit : le chemin pour solder */}
+      {avoirs&&reste>=SOLDE_ARRONDI&&avoirsNonDeduits(avoirs.m).length>0&&(()=>{
+        const A=avoirsNonDeduits(avoirs.m), k=cle+':'+A[0].id;
+        return <button className="xs" onClick={()=>{setOuv(k);setEdit(null)}}
+          style={{background:'none',border:'none',padding:0,marginTop:2,color:TERRA,cursor:'pointer',textAlign:'right'}}>
+          {A.length>1?A.length+' avoirs non déduits du marché':'avoir de '+eur(-A[0].montant)+' non déduit du marché'} — le déduire ›</button>;
+      })()}
     </div>}
   </div>;
 }
@@ -11212,7 +11440,8 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
             <tr><td colSpan={4} className="lbl" style={{padding:'8px 4px 2px'}}>CONTRAT INITIAL — MARCHÉS, COMMANDES ET HONORAIRES ENREGISTRÉS</td></tr>
             {E.postes.map(p=><tr key={p.id}><td style={{padding:'5px 4px 5px 12px'}}>{p.libelle}</td>{ligneMontants(eurCts(p.ht),eurCts(p.tva),eurCts(p.ttc))}</tr>)}
             <tr style={{borderTop:'1px solid '+RULE}}><td style={{padding:'6px 4px'}}>Engagé au titre du contrat
-              {E.avenantsRetires&&<span className="mut"> (avenants reportés retirés)</span>}</td>
+              {(E.avenantsRetires||E.avoirsRajoutes)&&<span className="mut"> ({[E.avenantsRetires&&'avenants reportés retirés',
+                E.avoirsRajoutes&&'avoirs déduits des marchés rajoutés'].filter(Boolean).join(', ')})</span>}</td>
               {ligneMontants(eurCts(E.tot.ht),eurCts(E.tot.tva),eurCts(E.tot.ttc))}</tr>
             {!!bc&&<tr><td style={{padding:'5px 4px'}}>{E.reste>=0?'Reste à engager sur le contrat':'Engagé au-delà du contrat'}</td>
               {ligneMontants(tiret,tiret,<span style={{color:E.reste<0?TERRA:GREEN}}>{eurCts(Math.abs(E.reste))}</span>)}</tr>}
@@ -11541,6 +11770,77 @@ const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 const SOLDE_ARRONDI=0.5;
 const engagementSolde=(montant,factures)=>(+montant||0)>0&&(factures||[]).length>0&&(+montant||0)-facturesTotal(factures)<SOLDE_ARRONDI;
 const marcheSolde=m=>engagementSolde(m.montantHT,m.factures);
+/* ---------- l'avoir d'une entreprise (remise commerciale, prestation non réalisée) ----------
+   Il se saisit comme une facture, en négatif : le facturé baisse, le marché non —
+   le lot garderait « à facturer » ce que l'entreprise ne facturera jamais, et ne
+   se solderait pas. Déduit du marché (un clic, après avoir montré le nouveau
+   montant), il en baisse le HT : le lot se solde, le total engagé suit ce qui
+   sera réellement payé. La trace (m.avoirsDeduits) dit d'où vient la baisse,
+   empêche de déduire deux fois le même avoir et permet d'annuler. Une
+   prestation retirée à la demande du client passe plutôt par un avenant client
+   en moins-value (Budget et avenants), reporté dans le marché. */
+const estAvoir=f=>(+(f&&f.montant)||0)<0;
+const avoirDeduit=(m,f)=>(f&&((m&&m.avoirsDeduits)||[]).find(x=>x.factureId===f.id))||null;
+/* le HT retiré du marché par ses avoirs, en euros positifs */
+const marcheAvoirsHT=m=>((m&&m.avoirsDeduits)||[]).reduce((s,x)=>s+centimes(x.ht),0)/100;
+/* les avoirs du lot pas encore déduits de son marché */
+const avoirsNonDeduits=m=>((m&&m.factures)||[]).filter(f=>estAvoir(f)&&!avoirDeduit(m,f));
+const deduireAvoirMarche=(data,marcheId,factureId)=>{
+  const m=(data.marches||[]).find(x=>x.id===marcheId);
+  const f=m&&(m.factures||[]).find(x=>x.id===factureId);
+  if(!f||!estAvoir(f)||avoirDeduit(m,f))return data;
+  const ht=-centimes(f.montant);
+  const trace={factureId:f.id,numero:f.numero||'',date:f.date||'',ht:ht/100,le:today()};
+  return {...data,marches:data.marches.map(x=>x.id!==marcheId?x
+    :{...x,montantHT:(centimes(x.montantHT)-ht)/100,avoirsDeduits:[...(x.avoirsDeduits||[]),trace]})};
+};
+/* le marché retrouve ce que l'avoir lui avait retiré — même si l'avoir a été
+   supprimé ou corrigé depuis : c'est la trace qui dit combien */
+const annulerDeductionAvoir=(data,marcheId,factureId)=>{
+  const m=(data.marches||[]).find(x=>x.id===marcheId);
+  const t=m&&(m.avoirsDeduits||[]).find(x=>x.factureId===factureId);
+  if(!t)return data;
+  return {...data,marches:data.marches.map(x=>x.id!==marcheId?x
+    :{...x,montantHT:(centimes(x.montantHT)+centimes(t.ht))/100,avoirsDeduits:(x.avoirsDeduits||[]).filter(y=>y.factureId!==factureId)})};
+};
+/* l'avoir corrigé après sa déduction : la déduction se reprend au nouveau montant */
+const reprendreDeductionAvoir=(data,marcheId,factureId)=>deduireAvoirMarche(annulerDeductionAvoir(data,marcheId,factureId),marcheId,factureId);
+/* ce que la déduction changera, pour le dire avant le clic */
+const deductionAvoirApercu=(m,f)=>{
+  const ht=-centimes(f&&f.montant), avant=centimes(m&&m.montantHT), apres=avant-ht;
+  const reste=apres-centimes(facturesTotal(m&&m.factures));
+  return {ht:ht/100,avant:avant/100,apres:apres/100,solde:(m&&(m.factures||[]).length>0)&&apres>0&&reste<centimes(SOLDE_ARRONDI),reste:reste/100};
+};
+/* le volet d'un avoir : le déduire du marché, ou annuler la déduction */
+function AvoirMarche({f,m,data,save}){
+  const t=avoirDeduit(m,f);
+  const ap=deductionAvoirApercu(m,f);
+  const maj=fn=>save(fn(data,m.id,f.id));
+  if(t){
+    const change=centimes(t.ht)!==-centimes(f.montant);
+    return <div className="xs" style={{lineHeight:1.5}}>
+      <div style={{color:GREEN}}>✓ Avoir déduit du marché le {fd(t.le)} : {eur(-t.ht)} HT
+        (marché {eur(+m.montantHT+t.ht)} → {eur(m.montantHT)} HT).</div>
+      {change&&<div style={{color:AMBER}}>L’avoir a été corrigé depuis ({eur(f.montant)} HT au lieu de {eur(-t.ht)}) :
+        <button className="btn gh s" style={{marginLeft:6}} onClick={()=>maj(reprendreDeductionAvoir)}>Déduire le nouveau montant</button></div>}
+      <button className="btn gh s" style={{marginTop:4}} onClick={()=>{
+        if(!confirm('Annuler la déduction de cet avoir ?\n\nLe marché revient à '+eur(+m.montantHT+t.ht)+' HT ; l’avoir reste dans les factures du lot.'))return;
+        maj(annulerDeductionAvoir);
+      }}>Annuler la déduction</button>
+    </div>;
+  }
+  return <div className="xs" style={{lineHeight:1.5}}>
+    <div className="lbl">AVOIR DE L’ENTREPRISE</div>
+    <div>Une remise commerciale ou une prestation non réalisée : l’avoir baisse le facturé, pas le marché.
+      Déduit du marché, il en baisse le montant et le lot peut se solder.</div>
+    <div style={{marginTop:4}}>Marché : <b>{eur(ap.avant)}</b> → <b>{eur(ap.apres)}</b> HT
+      {ap.solde?<span style={{color:GREEN}}> · le lot sera soldé</span>
+        :ap.reste>=SOLDE_ARRONDI?<span className="mut"> · reste à facturer ensuite {eur(ap.reste)}</span>:null}</div>
+    <button className="btn acc s" style={{marginTop:6}} onClick={()=>maj(deduireAvoirMarche)}>Déduire l’avoir du marché ({eur(f.montant)} HT)</button>
+    <div className="mut" style={{marginTop:4}}>Une prestation retirée à la demande du client se traite plutôt par un avenant client
+      en moins-value (Budget et avenants), reporté dans le marché : ne déduisez pas l’avoir en plus.</div>
+  </div>;
+}
 
 /* ---------- chiffrage d'un lot depuis un bordereau de prix ----------
    Le principe du serveur d'Hexaom : on ne retape pas un montant, on saisit des
@@ -13073,6 +13373,17 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                     chiffré — {(m.quantitatif.lignes||[]).filter(l=>ligneQt(l)!==0).length} articles</div>}
                   {remisePct(m)>0&&<div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>
                     remise {remisePct(m)} % sur {eur(quantitatifHT((m.quantitatif||{}).lignes))}</div>}
+                  {(m.avoirsDeduits||[]).map(t=>{
+                    /* l'avoir supprimé des factures après sa déduction : le marché
+                       resterait baissé sans raison visible — on le dit, et on défait */
+                    const orphelin=!(m.factures||[]).some(x=>x.id===t.factureId);
+                    return <div key={t.factureId} className="mut" style={{marginTop:2}}>
+                      avoir{t.numero?' '+t.numero:''} déduit : {eur(-t.ht)}
+                      {orphelin&&<span style={{color:AMBER}}> · retiré des factures —{' '}
+                        <button onClick={()=>{if(confirm('Rendre au marché les '+eur(t.ht)+' HT de cet avoir retiré des factures ?'))save(annulerDeductionAvoir(data,m.id,t.factureId))}}
+                          style={{background:'none',border:'none',padding:0,color:TERRA,cursor:'pointer'}}>annuler la déduction</button></span>}
+                    </div>;
+                  })}
                 </td>
                 {/* à droite chaque facture, une par une */}
                 <td style={{padding:'8px 4px'}}>
@@ -13080,7 +13391,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                     cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}
                     onCorriger={(fid,patch)=>corrigerFactureMarche(m.id,fid,patch)}
                     visa={{ch,artisan:art,lot:m.lot,data,marche:m,save}}
-                    repartir={{data,save,src:{type:'marche',id:m.id},cibles:ciblesRepartition(m.artisanId)}}/>
+                    repartir={{data,save,src:{type:'marche',id:m.id},cibles:ciblesRepartition(m.artisanId)}}
+                    avoirs={{m,data,save}}/>
                 </td>
               </tr>
               {f&&f.id===m.id&&<Volet cols={3}>{formulaireLot}</Volet>}
@@ -13718,9 +14030,9 @@ function LireFactures({data,ch,save,close}){
           (charpente et couverture, par exemple) : rangez-la sur l'un d'eux pour son total, puis
           « Répartir sur plusieurs lots » depuis son « + ».
         </div>
-        <label className="btn gh s" style={{display:'inline-block',whiteSpace:'nowrap'}}>{busy||'Choisir des factures (PDF ou Word)'}
-          <input type="file" accept={DOC_ACCEPT} multiple style={{display:'none'}} disabled={!!busy}
-            onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)lire(fs)}}/></label>
+        <ZoneDepot multiple accept={DOC_ACCEPT} occupe={!!busy} label="Choisir des factures"
+          titre={busy||'Choisir des factures (PDF ou Word)'}
+          aide="Glissez-les ici (plusieurs à la fois), ou cliquez pour les choisir" onFiles={fs=>lire(fs)}/>
       </div>}
     {!!scans.length&&<div className="xs" style={{marginTop:10,background:'#FBF3DF',color:'#6A4E06',borderLeft:'3px solid '+AMBER,padding:8,lineHeight:1.5}}>
       {scans.length} facture{scans.length>1?'s':''} n'ont rien donné :
@@ -18234,6 +18546,8 @@ function EnvoyerEtudeElec({ch,d,up,data}){
 function Docs({data,ch,up,save}){
   const d=ch.docs||{};
   const [busy,setBusy]=useState(null);
+  /* la pièce survolée par un fichier glissé : toute sa carte le reçoit */
+  const [survolPiece,setSurvolPiece]=useState(null);
   const [signe,setSigne]=useState(null);
   const [planElec,setPlanElec]=useState(false);
   const [partage,setPartage]=useState(null);
@@ -18319,7 +18633,12 @@ function Docs({data,ch,up,save}){
           <span className="h2" style={{fontSize:13}}>{((typeCh==='renovation'&&g.titreReno)||g.titre).toUpperCase()}</span>
           <span className="xs mut">{nG}/{items.length}</span>
         </div>
-        {items.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card" style={{padding:10,marginBottom:6}}>
+        {items.map(x=>{const r=d[x.id]||{}, sgs=r.signatures||[];return <div key={x.id} className="card"
+          onDragOver={e=>{if(![...((e.dataTransfer&&e.dataTransfer.types)||[])].includes('Files'))return;e.preventDefault();if(survolPiece!==x.id)setSurvolPiece(x.id)}}
+          onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget))setSurvolPiece(null)}}
+          onDrop={e=>{const fs=[...((e.dataTransfer&&e.dataTransfer.files)||[])];if(!fs.length)return;e.preventDefault();setSurvolPiece(null);
+            if(busy!==x.id)importPieces(x.id,fs)}}
+          style={{padding:10,marginBottom:6,...(survolPiece===x.id?{outline:'2px dashed '+TERRA,background:'#FBEFEA'}:{})}}>
           <div className="row" style={{gap:10,alignItems:'flex-start'}}>
             <button className="chk" onClick={()=>tog(x.id)} style={{background:r.fait?GREEN:'#fff',borderColor:r.fait?GREEN:RULE}}>{r.fait?'✓':''}</button>
             <div style={{flex:1}}>
@@ -18332,7 +18651,7 @@ function Docs({data,ch,up,save}){
               </div>)}
               {!fichiersDe(r).length&&<input className="in" style={{border:'none',borderBottom:'1px solid '+RULE,padding:'4px 0',marginTop:4,fontSize:13}} placeholder="Lien Drive…" value={r.lien||''} onChange={e=>lien(x.id,e.target.value)}/>}
               <div className="row" style={{gap:14,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
-                <label className="xs" style={{color:NAVY}}>{busy===x.id?'Import…':(fichiersDe(r).length?'Ajouter des fichiers':'Importer des fichiers')}
+                <label className="xs" style={{color:NAVY}} title="ou glissez les fichiers sur la pièce">{busy===x.id?'Import…':(fichiersDe(r).length?'Ajouter des fichiers':'Importer des fichiers')}
                   <input type="file" accept={PIECES_ACCEPT} multiple style={{display:'none'}} disabled={busy===x.id}
                     onChange={e=>{const fs=[...e.target.files];e.target.value='';if(fs.length)importPieces(x.id,fs)}}/>
                 </label>
@@ -18360,6 +18679,9 @@ function Docs({data,ch,up,save}){
               </div>}
               {x.id==='fin_mission'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
                 <FinMissionChantier data={data} ch={ch} save={save}/>
+              </div>}
+              {x.id==='dossier_assureur'&&<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE}}>
+                <DossierAssureur data={data} ch={ch} save={save}/>
               </div>}
               {sgs.map(s=><div key={s.id} className="row" style={{gap:10,marginTop:8,paddingTop:8,borderTop:'1px solid '+RULE,alignItems:'center'}}>
                 <VignetteSign id={s.id}/>
@@ -18534,6 +18856,109 @@ function FinMissionChantier({data,ch,save}){
     {sortie&&sortie.etat==='erreur'&&<div style={{marginTop:6,color:TERRA}}>{sortie.msg}</div>}
     {signer&&<SignaturePad titre={'Attestation de fin de mission — '+ch.nom} qualiteDefaut="Maître d’ouvrage"
       onAnnuler={()=>setSigner(false)} onSigner={enregistrerSignature}/>}
+  </div>;
+}
+
+/* le dossier de fin de chantier pour l'assureur, sous sa pièce : ce qui part
+   (coché par famille), ce qui manque, le ZIP à transmettre et le message */
+function DossierAssureur({data,ch,save}){
+  const dataRef=useRef(data);dataRef.current=data;
+  const chActuel=()=>(dataRef.current.chantiers||[]).find(c=>c.id===ch.id)||ch;
+  const da=dossierAssureurDe(chActuel());
+  const d=dossierAssureurDonnees(chActuel(),data,da);
+  const [sortie,setSortie]=useState(null);
+  const [url,setUrl]=useState('');
+  const [copie,setCopie]=useState('');
+  useEffect(()=>{
+    if(!sortie||!sortie.octets){setUrl('');return}
+    let u='';try{u=URL.createObjectURL(new Blob([sortie.octets],{type:'application/zip'}))}catch(e){u=''}
+    setUrl(u);return ()=>{if(u)try{URL.revokeObjectURL(u)}catch(e){}};
+  },[sortie]);
+  /* chaque saisie part tout de suite sur le chantier */
+  const maj=patch=>{
+    const dd=dataRef.current;
+    save({...dd,chantiers:(dd.chantiers||[]).map(c=>c.id!==ch.id?c:{...c,
+      dossierAssureur:{...((c.dossierAssureur)||{}),...(typeof patch==='function'?patch(dossierAssureurDe(c)):patch)}})});
+  };
+  const objet=dossierAssureurObjet(d,da), corps=dossierAssureurMail(d,da);
+  const produire=async()=>{
+    setSortie({etat:'travail',fait:0,n:d.fichiers.length});
+    try{
+      const token=await getDriveToken();
+      const r=await dossierAssureurZip(d,token,(fait,n)=>setSortie({etat:'travail',fait,n}));
+      setSortie({etat:'ok',...r,nom:dossierAssureurNomZip(d)});
+    }catch(e){setSortie({etat:'erreur',msg:e&&e.error==='auth_required'
+      ?'Google Drive n’est pas connecté : connectez-le (en haut de l’application), puis recommencez.'
+      :'Dossier impossible à préparer — '+((e&&(e.error||e.message))||e)})}
+  };
+  const copier=async(texte,quoi)=>{
+    try{await navigator.clipboard.writeText(texte);setCopie(quoi)}
+    catch(e){setCopie('');alert('La copie automatique est refusée par le navigateur : sélectionnez le texte et copiez-le.')}
+  };
+  const champ=(l,el)=><div style={{flex:'1 1 170px'}}><div className="xs mut" style={{marginBottom:3}}>{l}</div>{el}</div>;
+  const travail=sortie&&sortie.etat==='travail';
+  return <div className="xs" style={{lineHeight:1.5}}>
+    <div className="mut">Pour clore l’assurance dommages-ouvrage : toutes les factures, les PV de réception et la DAACT,
+      repris du chantier, en un dossier ZIP à transmettre par WeTransfer, avec le message prêt à copier.</div>
+    <div className="row" style={{gap:10,marginTop:8,flexWrap:'wrap'}}>
+      {champ('Assureur',<input className="in" value={da.assureur} placeholder="Compagnie ou courtier" onChange={e=>maj({assureur:e.target.value})}/>)}
+      {champ('E-mail de l’assureur',<input className="in" type="email" value={da.email} onChange={e=>maj({email:e.target.value})}/>)}
+      {champ('N° de contrat dommages-ouvrage',<input className="in" value={da.police} onChange={e=>maj({police:e.target.value})}/>)}
+    </div>
+    <div className="b" style={{color:NAVY,marginTop:12}}>Ce qui part dans le dossier</div>
+    {DOSSIER_ASSUREUR_GROUPES.map(g=>{
+      const n=d.tous.filter(x=>x.groupe===g.id).length;
+      const t=d.tot[g.id];
+      return <label key={g.id} className="row" style={{gap:6,alignItems:'flex-start',marginTop:3,cursor:'pointer'}}>
+        <input type="checkbox" checked={da.groupes[g.id]!==false} onChange={e=>maj(p=>({groupes:{...p.groupes,[g.id]:e.target.checked}}))}/>
+        <span>{g.l} — <b>{n} fichier{n>1?'s':''}</b>{t&&t.n?<span className="mut"> · {eurCentimes(t.ht)} HT facturés</span>:null}</span></label>;
+    })}
+    {(d.total.ht!==0||d.total.ttc!==0)&&<div style={{marginTop:6}}>Coût définitif (montants facturés) : <b>{eurCentimes(d.total.ht)} HT</b>, soit {eurCentimes(d.total.ttc)} TTC</div>}
+    {!!(d.manquants.length||d.nonSoldes.length)&&<div style={{marginTop:8,background:'#FBF3DF',color:'#6A4E06',borderLeft:'3px solid '+AMBER,padding:8}}>
+      <div className="b">À compléter avant l’envoi (rien ne bloque) :</div>
+      {d.manquants.map((x,i)=><div key={i}>· {x.texte}</div>)}
+      {d.nonSoldes.map((x,i)=><div key={'s'+i}>· {x.lot} : reste à facturer {eurc(x.reste)} HT — le coût n’est pas encore définitif</div>)}
+      <div style={{marginTop:4}}>Une facture se dépose depuis son « + » (MARCHÉS) ; un PV signé ou la DAACT, en les glissant sur leur pièce ci-dessus.</div>
+    </div>}
+    <div className="row" style={{gap:10,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn acc s" disabled={travail||!d.fichiers.length} onClick={produire}>
+        {travail?'Lecture des fichiers sur le Drive… ('+sortie.fait+'/'+sortie.n+')':'Préparer le dossier (ZIP, '+d.fichiers.length+' fichier'+(d.fichiers.length>1?'s':'')+')'}</button>
+      {!d.fichiers.length&&<span className="mut">Aucun fichier à joindre pour l’instant.</span>}
+    </div>
+    {sortie&&sortie.etat==='erreur'&&<div style={{marginTop:6,color:TERRA}}>{sortie.msg}</div>}
+    {sortie&&sortie.etat==='ok'&&<div style={{marginTop:8}}>
+      <div style={{color:GREEN}}>✓ Dossier prêt : {sortie.n} fichier{sortie.n>1?'s':''} et le bordereau des pièces.</div>
+      {/* un vrai lien : Safari refuse un téléchargement lancé à la fin d'une composition */}
+      {url&&<a className="btn acc s" style={{display:'inline-block',marginTop:6,textDecoration:'none'}} href={url} download={sortie.nom}>⬇ Télécharger {sortie.nom}</a>}
+      {!!sortie.illisibles.length&&<div style={{marginTop:6,color:AMBER}}>
+        <div className="b">Non joints — illisibles sur le Drive avec le compte connecté (déposés depuis un autre compte, ou directement dans le Drive) :</div>
+        {sortie.illisibles.map((x,i)=><div key={i}>· <a href={x.lien} target="_blank" rel="noreferrer" style={{color:TERRA}}>{x.titre}</a> — à ajouter à la main au transfert, ou à redéposer dans l’application</div>)}
+      </div>}
+    </div>}
+    <div className="b" style={{color:NAVY,marginTop:12}}>Le message</div>
+    <ol style={{margin:'4px 0 0 18px',padding:0}}>
+      <li>Téléchargez le dossier ci-dessus.</li>
+      <li>Sur <a href="https://wetransfer.com/" target="_blank" rel="noreferrer" style={{color:TERRA}}>WeTransfer</a>, déposez le ZIP,
+        mettez l’e-mail de l’assureur{da.email?' ('+da.email+')':''} et collez l’objet et le message ci-dessous ;
+        ou choisissez « Obtenir un lien », collez-le ici, et envoyez le message de votre messagerie.</li>
+    </ol>
+    {champ('Lien WeTransfer (facultatif)',<input className="in" value={da.lienTransfert} placeholder="https://we.tl/…" onChange={e=>maj({lienTransfert:e.target.value})}/>)}
+    <div className="xs mut" style={{marginTop:8}}>Objet</div>
+    <input className="in" readOnly value={objet} style={{width:'100%'}}/>
+    <textarea className="in" readOnly rows={14} style={{marginTop:6,width:'100%'}} value={corps}/>
+    <div className="row" style={{gap:10,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn gh s" onClick={()=>copier(objet,'objet')}>Copier l’objet</button>
+      <button className="btn gh s" onClick={()=>copier(corps,'message')}>Copier le message</button>
+      {da.email&&<a className="btn gh s" style={{textDecoration:'none'}}
+        href={'mailto:'+encodeURIComponent(da.email)+'?subject='+encodeURIComponent(objet)+'&body='+encodeURIComponent(corps)}>Ouvrir dans la messagerie</a>}
+      {copie&&<span style={{color:GREEN}}>✓ {copie==='objet'?'Objet copié':'Message copié'}</span>}
+    </div>
+    <div className="row" style={{gap:10,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
+      {da.envoyeLe
+        ?<span style={{color:GREEN}}>✓ Envoyé à l’assureur le {fd(da.envoyeLe)} <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0,marginLeft:6}}
+            onClick={()=>maj({envoyeLe:''})}>effacer</button></span>
+        :<button className="btn gh s" onClick={()=>maj({envoyeLe:today()})}>Noter l’envoi (aujourd’hui)</button>}
+    </div>
   </div>;
 }
 
@@ -27688,6 +28113,12 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
   const [saisieHT,setSaisieHT]=useState(forfaitHT?String(forfaitHT):'');
   useEffect(()=>{setSaisieHT(forfaitHT?String(forfaitHT):'')},[forfaitHT]);
   const validerHT=()=>{const n=montantSaisi(saisieHT)||'';if(n!==(forfaitHT||''))maj({contratTravauxHT:n})};
+  /* la dommages-ouvrage du contrat : coût estimé (repris du chiffrage du
+     prospect à défaut), et en rénovation, l'absence de travaux de structure */
+  const doCout=montantSaisi(p.contratDoCout), doChiffre=montantSaisi(p.dommageOuvrage);
+  const [saisieDo,setSaisieDo]=useState(doCout?String(doCout):'');
+  useEffect(()=>{setSaisieDo(doCout?String(doCout):'')},[doCout]);
+  const validerDo=()=>{const n=montantSaisi(saisieDo)||'';if(n!==(doCout||''))maj({contratDoCout:n})};
   const produire=async()=>{
     setEtat({etat:'travail'});
     try{
@@ -27736,11 +28167,23 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
         onKeyDown={e=>{if(e.key==='Enter')validerHT()}}/>
     </div>}
     <div className="xs" style={{marginTop:4,lineHeight:1.5,color:trav.forfait?NAVY:MUTED}}>
-      {trav.forfait&&trav.tvaMixte?'Article 6 : budget travaux de '+eurDoc(trav.ttc)+' TTC, soit '+eurDoc(trav.ht)+' HT, TVA aux taux applicables à chaque poste.'
+      {type==='renovation'&&trav.forfait?'Article 6 : budget travaux de '+(forfaitHT?eurDoc(trav.ht)+' HT, soit ':'')+eurDoc(trav.ttc)+' TTC, TVA à taux variable selon la nature des prestations'
+        +(forfaitHT?'.':' (sans montant HT saisi, seul le TTC est écrit).')+' Les honoraires ne changent pas.'
+        :trav.forfait&&trav.tvaMixte?'Article 6 : budget travaux de '+eurDoc(trav.ht)+' HT, soit '+eurDoc(trav.ttc)+' TTC, TVA à taux variable selon la nature des prestations.'
         +' Les honoraires ne changent pas.'
         :trav.forfait?'Article 6 : budget travaux forfaitaire de '+eurDoc(trav.ttc)+' TTC, soit '+eurDoc(trav.ht)+' HT (TVA '+trav.tva+' %)'
         +(calculeTTC?' — au lieu des '+eur(calculeTTC)+' TTC du chiffrage.':'.')+' Les honoraires ne changent pas.'
         :'Laissé vide, l’article 6 reprend le coût des travaux du chiffrage'+(calculeTTC?' ('+eur(calculeTTC)+' TTC).':'.')}</div>
+    <div className="row xs" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="mut">Dommages-ouvrage — coût estimé (TTC)</span>
+      <input className="in" aria-label="Coût estimé de la dommages-ouvrage" inputMode="decimal" style={{width:150,fontSize:13,padding:'6px 8px'}}
+        placeholder={doChiffre?'chiffrage : '+eur(doChiffre):'facultatif'} value={saisieDo} onChange={e=>setSaisieDo(e.target.value)} onBlur={validerDo}
+        onKeyDown={e=>{if(e.key==='Enter')validerDo()}}/>
+    </div>
+    {type==='renovation'&&<label className="row xs" style={{gap:6,marginTop:6,alignItems:'flex-start',lineHeight:1.5,cursor:'pointer'}}>
+      <input type="checkbox" checked={!!p.contratDoSansStructure} onChange={e=>maj({contratDoSansStructure:e.target.checked})}/>
+      <span>Aucune démolition de mur porteur ni travaux de gros œuvre : le contrat dit que la dommages-ouvrage peut ne pas être exigée,
+        à apprécier par le client avec son assureur (la mention de renonciation reste au contrat).</span></label>}
     {type==='renovation'&&<div className="xs" style={{marginTop:6,lineHeight:1.5,color:RENO_COULEUR}}>
       Rénovation : description du projet, mission (relevé de l’existant, avant-projet, autorisation d’urbanisme), conditions
       suspensives, article « Travaux sur existant » (existant, découvertes, repérages, site occupé, assurances, travaux hors marché)

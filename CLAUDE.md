@@ -85,7 +85,8 @@ qu'on ait à les redire.
   sol, fermettes pour le neuf ; pièces attendues par phase
   `DOCS_PHASE_RENO`. Tests : `t_renovation.js`, `renovation_navigateur.js`.
 - **Contrat de maîtrise d'œuvre** (`SortirContratMoe`, `genererContratMoeDocx`) :
-  texte juridique repris mot pour mot du modèle CP ; seuls les champs
+  texte juridique repris du modèle CP (orthographe corrigée à la demande de
+  CP, novembre 2026, sans rien changer au sens) ; seuls les champs
   connus sont remplis (client, adresse, surfaces, budget, honoraires). Il
   se sort de la fiche prospect chiffrée, et aussi du chantier signé
   (PIÈCES › Contrat de maîtrise d'œuvre, `ContratMoeChantier`, rangé dans
@@ -102,8 +103,15 @@ qu'on ait à les redire.
   maçonnerie, hors d'eau), les articles changent, un « Article 4 ter —
   Travaux sur existant » s'ajoute, l'échéancier suit `HONO_ECHEANCIER_RENO` ;
   le reste du modèle est repris tel quel, à faire relire. TVA mixte : le HT
-  des travaux se saisit à côté du TTC (`p.contratTravauxHT`) ; les
-  honoraires du contrat sont toujours à 20 % (`HONO_TVA_DEFAUT`). Un
+  des travaux se saisit à côté du TTC (`p.contratTravauxHT`) ; en
+  rénovation, l'article 6 ne cite jamais un taux unique (« TVA à taux
+  variable selon la nature des prestations ») et n'écrit le HT que s'il a
+  été saisi. Les honoraires du contrat sont toujours à 20 %
+  (`HONO_TVA_DEFAUT`). Dommages-ouvrage : coût estimé saisi sur la carte
+  (`p.contratDoCout`, à défaut `p.dommageOuvrage` du chiffrage) ; en
+  rénovation, « aucune démolition de mur porteur ni gros œuvre »
+  (`p.contratDoSansStructure`) fait dire au contrat qu'elle peut ne pas
+  être exigée, la mention de renonciation restant au contrat. Un
   chantier créé sans prospect sort aussi son contrat
   (`contratPourChantier`, réglages gardés dans `ch.contratMoe`). Tests :
   `t_contrat_moe.js`, `t_contrat_moe_erp.js`, `t_renovation.js`.
@@ -182,6 +190,37 @@ qu'on ait à les redire.
   (`relierFactures`) ; le fichier déposé sur une part vaut pour toutes
   (`poserLienFacture`). Sans fichier, le volet dit que la visa l'attend.
   Tests : `t_facture_repartie.js`.
+- **Avoir d'une entreprise** (remise commerciale, prestation non
+  réalisée) : saisi en facture négative, il baisse le facturé, pas le
+  marché. Sous « reste à facturer », un avoir non déduit le dit ; son
+  volet (`AvoirMarche`) montre le marché avant et après, puis « Déduire
+  l'avoir du marché » (`deduireAvoirMarche`, centimes) baisse le HT : le
+  lot se solde, le total engagé suit. Trace `m.avoirsDeduits` (une fois
+  par avoir), reprise si l'avoir est corrigé (`reprendreDeductionAvoir`),
+  annulation possible même avoir supprimé (`annulerDeductionAvoir`). Le
+  contrat initial (`contratDepuisEngagements`) et le PV de réception
+  gardent le marché signé (`marcheAvoirsHT` rajouté). Une prestation
+  retirée à la demande du client passe plutôt par un avenant client en
+  moins-value. Tests : `t_avoir_solde.js`.
+- **Glisser-déposer** (`ZoneDepot`) : une facture se glisse sur sa zone
+  (volet de la facture : « Importer la facture », « Remplacer »), plusieurs
+  sur « Lire des factures », et tout fichier sur la carte de sa pièce
+  (PIÈCES). Un fichier lâché à côté d'une zone n'ouvre rien (le navigateur
+  aurait remplacé l'application). Tests : `t_dossier_assureur.js`,
+  `dossier_assureur_navigateur.js`.
+- **Dossier de fin de chantier pour l'assureur** (PIÈCES › Achèvement,
+  pièce `dossier_assureur`, `DossierAssureur`) : toutes les factures
+  (entreprises, achats, maîtrise d'œuvre ; une facture répartie une seule
+  fois), les fichiers des pièces « PV de réception » et « DAACT », par
+  famille cochée (`dossierAssureurDonnees`). Ce qui manque est dit sans
+  bloquer (facture sans fichier, lot sans PV, DAACT, lot non soldé). Le
+  ZIP (`dossierAssureurZip` : noms UTF-8, vraie extension, bordereau des
+  pièces, illisibles nommés) se télécharge d'un vrai lien, pour
+  WeTransfer ; le message (`dossierAssureurMail` : pièces, réception, coût
+  définitif facturé HT et TTC, lien collé) se copie ou s'ouvre dans la
+  messagerie. Assureur, e-mail, n° de contrat, lien et date d'envoi :
+  `ch.dossierAssureur`. Tests : `t_dossier_assureur.js`,
+  `dossier_assureur_navigateur.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR
