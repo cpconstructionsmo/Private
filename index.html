@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Chiffrage précis : quantités des postes tirées du plan de la visite';
+const VERSION='2026-11-18 · Chiffrage précis : quantités tirées du plan de la visite ; dossier assureur avec copies';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4143,8 +4143,27 @@ const DOSSIER_ASSUREUR_GROUPES=[
 const dossierAssureurDe=ch=>{
   const s=(ch&&ch.dossierAssureur)||{};
   const groupes={};for(const g of DOSSIER_ASSUREUR_GROUPES)groupes[g.id]=true;
-  return {assureur:'',email:'',police:'',lienTransfert:'',envoyeLe:'',...s,groupes:{...groupes,...(s.groupes||{})}};
+  return {assureur:'',email:'',police:'',lienTransfert:'',envoyeLe:'',copieMoi:true,adresseMoi:'',copieClient:true,copieAutres:'',
+    ...s,groupes:{...groupes,...(s.groupes||{})}};
 };
+/* les adresses écrites dans un champ (une ou plusieurs, séparées comme on veut) */
+const emailsDans=v=>(String(v||'').match(/[^\s,;<>()"']+@[^\s,;<>()"']+\.[a-z]{2,}/gi)||[]);
+/* qui reçoit le message en copie : soi-même (l'adresse d'envoi des réglages,
+   sinon celle de CP Constructions, ou celle saisie ici), le(s) client(s) —
+   e-mail de la fiche du chantier, sinon du prospect —, et d'autres adresses
+   saisies ; sans doublon, et jamais l'assureur lui-même */
+function dossierAssureurCopies(ch,data,da){
+  da=da||dossierAssureurDe(ch);
+  const p=ch&&ch.prospectId?((data&&data.prospects)||[]).find(x=>x.id===ch.prospectId):null;
+  const moiDefaut=((data&&data.expediteurMail)||'').trim()||CP.mail;
+  const moi=emailsDans(da.adresseMoi)[0]||moiDefaut;
+  const clients=[...emailsDans(ch&&ch.emailClient),...(emailsDans(ch&&ch.emailClient).length?[]:emailsDans(p&&p.emailClient))];
+  const autres=emailsDans(da.copieAutres);
+  const vus=new Set(emailsDans(da.email).map(x=>x.toLowerCase())), liste=[];
+  for(const x of [...(da.copieMoi!==false?[moi]:[]),...(da.copieClient!==false?clients:[]),...autres])
+    if(!vus.has(x.toLowerCase())){vus.add(x.toLowerCase());liste.push(x)}
+  return {moi,moiDefaut,clients,autres,liste};
+}
 /* un nom de fichier ou de dossier que tous les systèmes acceptent */
 const nomZip=v=>String(v||'').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'-').replace(/\s+/g,' ').trim().slice(0,110)||'sans nom';
 const eurCentimes=c=>eurc(c/100);
@@ -4234,7 +4253,7 @@ function dossierAssureurMail(d,da){
     +cout
     +'\n\n'+(String(da.lienTransfert||'').trim()?'Les pièces sont à télécharger ici : '+String(da.lienTransfert).trim()
       :'Les pièces vous parviennent par WeTransfer, le dossier dépassant la taille d’un mail.')
-    +' Un bordereau des pièces est joint au dossier.'
+    +'\nUn bordereau des pièces est joint au dossier.'
     +'\n\nNous restons à votre disposition pour tout complément.'
     +'\n\nCordialement,\n'+signatureTexte();
 }
@@ -19009,6 +19028,8 @@ function DossierAssureur({data,ch,save}){
       dossierAssureur:{...((c.dossierAssureur)||{}),...(typeof patch==='function'?patch(dossierAssureurDe(c)):patch)}})});
   };
   const objet=dossierAssureurObjet(d,da), corps=dossierAssureurMail(d,da);
+  const cc=dossierAssureurCopies(chActuel(),data,da);
+  const adresses=[...emailsDans(da.email),...cc.liste];
   const produire=async()=>{
     setSortie({etat:'travail',fait:0,n:d.fichiers.length});
     try{
@@ -19033,6 +19054,17 @@ function DossierAssureur({data,ch,save}){
       {champ('E-mail de l’assureur',<input className="in" type="email" value={da.email} onChange={e=>maj({email:e.target.value})}/>)}
       {champ('N° de contrat dommages-ouvrage',<input className="in" value={da.police} onChange={e=>maj({police:e.target.value})}/>)}
     </div>
+    <div className="b" style={{color:NAVY,marginTop:12}}>En copie</div>
+    <label className="row" style={{gap:6,alignItems:'center',marginTop:3,cursor:'pointer',flexWrap:'wrap'}}>
+      <input type="checkbox" checked={da.copieMoi!==false} onChange={e=>maj({copieMoi:e.target.checked})}/>
+      <span>Moi-même</span>
+      <input className="in" type="email" aria-label="Mon adresse en copie" style={{flex:'1 1 220px',maxWidth:340}} value={da.adresseMoi}
+        placeholder={cc.moiDefaut} onChange={e=>maj({adresseMoi:e.target.value})}/></label>
+    <label className="row" style={{gap:6,alignItems:'flex-start',marginTop:4,cursor:'pointer'}}>
+      <input type="checkbox" checked={da.copieClient!==false} disabled={!cc.clients.length} onChange={e=>maj({copieClient:e.target.checked})}/>
+      <span>{cc.clients.length?'Le client ('+cc.clients.join(', ')+')':<span className="mut">Le client — aucun e-mail sur la fiche du chantier (« Modifier » en haut de la fiche)</span>}</span></label>
+    <div style={{marginTop:4}}>{champ('Autres adresses en copie (facultatif)',<input className="in" value={da.copieAutres}
+      placeholder="Séparées par des virgules" onChange={e=>maj({copieAutres:e.target.value})}/>)}</div>
     <div className="b" style={{color:NAVY,marginTop:12}}>Ce qui part dans le dossier</div>
     {DOSSIER_ASSUREUR_GROUPES.map(g=>{
       const n=d.tous.filter(x=>x.groupe===g.id).length;
@@ -19068,8 +19100,9 @@ function DossierAssureur({data,ch,save}){
     <ol style={{margin:'4px 0 0 18px',padding:0}}>
       <li>Téléchargez le dossier ci-dessus.</li>
       <li>Sur <a href="https://wetransfer.com/" target="_blank" rel="noreferrer" style={{color:TERRA}}>WeTransfer</a>, déposez le ZIP,
-        mettez l’e-mail de l’assureur{da.email?' ('+da.email+')':''} et collez l’objet et le message ci-dessous ;
-        ou choisissez « Obtenir un lien », collez-le ici, et envoyez le message de votre messagerie.</li>
+        mettez en destinataires l’assureur{da.email?' ('+da.email+')':''}{cc.liste.length?' et les adresses en copie':''} (« Copier les adresses »),
+        puis collez l’objet et le message ci-dessous ; ou choisissez « Obtenir un lien », collez-le ici, et envoyez le message
+        de votre messagerie (« Ouvrir dans la messagerie » : copies comprises).</li>
     </ol>
     {champ('Lien WeTransfer (facultatif)',<input className="in" value={da.lienTransfert} placeholder="https://we.tl/…" onChange={e=>maj({lienTransfert:e.target.value})}/>)}
     <div className="xs mut" style={{marginTop:8}}>Objet</div>
@@ -19078,10 +19111,13 @@ function DossierAssureur({data,ch,save}){
     <div className="row" style={{gap:10,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
       <button className="btn gh s" onClick={()=>copier(objet,'objet')}>Copier l’objet</button>
       <button className="btn gh s" onClick={()=>copier(corps,'message')}>Copier le message</button>
+      {adresses.length>0&&<button className="btn gh s" onClick={()=>copier(adresses.join(', '),'adresses')}>Copier les adresses</button>}
       {da.email&&<a className="btn gh s" style={{textDecoration:'none'}}
-        href={'mailto:'+encodeURIComponent(da.email)+'?subject='+encodeURIComponent(objet)+'&body='+encodeURIComponent(corps)}>Ouvrir dans la messagerie</a>}
-      {copie&&<span style={{color:GREEN}}>✓ {copie==='objet'?'Objet copié':'Message copié'}</span>}
+        href={'mailto:'+encodeURIComponent(da.email)+'?'+(cc.liste.length?'cc='+encodeURIComponent(cc.liste.join(','))+'&':'')
+          +'subject='+encodeURIComponent(objet)+'&body='+encodeURIComponent(corps)}>Ouvrir dans la messagerie</a>}
+      {copie&&<span style={{color:GREEN}}>✓ {{objet:'Objet copié',message:'Message copié',adresses:'Adresses copiées'}[copie]}</span>}
     </div>
+    <div className="xs mut" style={{marginTop:4}}>{cc.liste.length?'En copie : '+cc.liste.join(', ')+'.':'Personne en copie.'}</div>
     <div className="row" style={{gap:10,marginTop:10,alignItems:'center',flexWrap:'wrap'}}>
       {da.envoyeLe
         ?<span style={{color:GREEN}}>✓ Envoyé à l’assureur le {fd(da.envoyeLe)} <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:0,marginLeft:6}}
