@@ -176,6 +176,18 @@ qu'on ait à les redire.
   (`relierFactures`) ; le fichier déposé sur une part vaut pour toutes
   (`poserLienFacture`). Sans fichier, le volet dit que la visa l'attend.
   Tests : `t_facture_repartie.js`.
+- **Avoir d'une entreprise** (remise commerciale, prestation non
+  réalisée) : saisi en facture négative, il baisse le facturé, pas le
+  marché. Sous « reste à facturer », un avoir non déduit le dit ; son
+  volet (`AvoirMarche`) montre le marché avant et après, puis « Déduire
+  l'avoir du marché » (`deduireAvoirMarche`, centimes) baisse le HT : le
+  lot se solde, le total engagé suit. Trace `m.avoirsDeduits` (une fois
+  par avoir), reprise si l'avoir est corrigé (`reprendreDeductionAvoir`),
+  annulation possible même avoir supprimé (`annulerDeductionAvoir`). Le
+  contrat initial (`contratDepuisEngagements`) et le PV de réception
+  gardent le marché signé (`marcheAvoirsHT` rajouté). Une prestation
+  retirée à la demande du client passe plutôt par un avenant client en
+  moins-value. Tests : `t_avoir_solde.js`.
 - **Déploiement** : GitHub Pages, à chaque push sur `main`
   (`.github/workflows/pages.yml`, tout le dépôt est publié). Les tests du
   CRM, de l'atelier et du Designer tournent à chaque PR

@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Contrat de maîtrise d’œuvre : orthographe, TVA variable en rénovation, dommages-ouvrage, case 100 % encadrée';
+const VERSION='2026-11-18 · Avoirs des entreprises : déduits du marché en un clic, le lot se solde';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1299,11 +1299,18 @@ const contratVentilation=ch=>{
    de travaux, commandes de matériaux, honoraires du contrat de maîtrise
    d'œuvre —, chacun à ses propres taux de TVA. Les avenants déjà reportés
    dans un marché ou dans les honoraires en sont retirés : ils se lisent à
-   part, sous « Avenants validés », et ne comptent pas deux fois. Ce que le
+   part, sous « Avenants validés », et ne comptent pas deux fois. Les avoirs
+   déduits d'un marché y sont rajoutés : une remise reçue en fin de chantier
+   ne change pas le contrat initial (le total engagé, lui, la suit). Ce que le
    contrat n'a pas encore engagé fait la différence avec son total. */
 const contratDepuisEngagements=(ch,ms,cs)=>{
   const co=coutOperation(ch,ms,cs);
   const rep={ht:0,tva:0}, repH={ht:0,tva:0};
+  let avoirs=0;
+  for(const m of (ms||[])){
+    const ht=centimes(marcheAvoirsHT(m));
+    if(ht){rep.ht-=ht;rep.tva-=tvaCentimes(ht,marcheTva(m,ch));avoirs+=ht}
+  }
   for(const a of ((ch&&ch.avenantsClient)||[])){
     if(avStatut(a)!=='valide')continue;
     for(const l of (a.lignes||[]))if(l.reporteLe){const x=avLigneCalc(l,ch);rep.ht+=x.ht;rep.tva+=x.tva}
@@ -1319,7 +1326,7 @@ const contratDepuisEngagements=(ch,ms,cs)=>{
   const tot={ht:0,tva:0,ttc:0};
   for(const p of postes){tot.ht+=p.ht;tot.tva+=p.tva;tot.ttc+=p.ttc}
   const total=centimes(budgetClient(ch));
-  return {postes,tot,total,reste:total-tot.ttc,avenantsRetires:rep.ht!==0||repH.ht!==0};
+  return {postes,tot,total,reste:total-tot.ttc,avenantsRetires:rep.ht+avoirs!==0||repH.ht!==0,avoirsRajoutes:avoirs!==0};
 };
 /* la ventilation se reprend des engagements, sauf si on l'a choisie à la main */
 const contratManuel=ch=>!!(ch&&ch.contratInitial&&ch.contratInitial.mode==='manuel');
@@ -3736,9 +3743,12 @@ function pvDonnees(m,ch,data,pv){
   const art=((data&&data.artisans)||[]).find(a=>a.id===m.artisanId)||null;
   const moa=pvMaitreOuvrage(ch,data);
   const avs=(m.avenants||[]).filter(a=>a.numero&&(a.dateSignature||a.lien||a.budgetAppliqueLe));
+  /* le marché tel que signé et avenanté : un avoir déduit pour solder le lot
+     (remise, prestation non réalisée) est une affaire de facturation */
+  const mPv=marcheAvoirsHT(m)?{...m,montantHT:(centimes(m.montantHT)+centimes(marcheAvoirsHT(m)))/100}:m;
   return {dossier:ch.nom||'',lotNumero:String(m.numeroMarche||''),intitule:m.lot||'',
     maitreOuvrage:moa,adresse:ch.adresse||'',entreprise:art?art.nom:'',
-    marche:[m.dateSignature?pvDate(m.dateSignature):'',(+m.montantHT>0)?eurDoc(Math.round(marcheTTC(m,ch)*100)/100)+' TTC':''].filter(Boolean).join(' — '),
+    marche:[m.dateSignature?pvDate(m.dateSignature):'',(+mPv.montantHT>0)?eurDoc(Math.round(marcheTTC(mPv,ch)*100)/100)+' TTC':''].filter(Boolean).join(' — '),
     avenants:avs.length?avs.map(a=>a.numero).join(', '):'aucun',
     acheveLe:pvDate(pv.acheveLe),presence:pv.presence||'',decision:pv.decision||'',motif:pv.motif||'',
     dateEffet:pvDate(pv.dateEffet),
@@ -9752,7 +9762,7 @@ function RepartitionFacture({f,data,src,cibles,save}){
   </PtrModale>;
 }
 
-function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiClient,repartir}){
+function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiClient,repartir,avoirs}){
   const L=liste||[];
   const total=facturesTotal(L), reste=(engage||0)-total;
   /* une facture lue automatiquement (Lire des factures) peut mal reprendre
@@ -9775,6 +9785,7 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
         <div className="mut" style={{fontSize:11}}>
           {f.envoyeeClientLe&&<span style={{color:GREEN}} title={'Envoyée au client le '+fd(f.envoyeeClientLe)}>envoyée au client · </span>}
           {f.repartition&&<span style={{color:NAVY}} title={'Part d’une facture de '+eur(f.repartition.totalHT)+' HT répartie sur plusieurs lots'}>part · </span>}
+          {avoirs&&estAvoir(f)&&<span style={{color:avoirDeduit(avoirs.m,f)?GREEN:AMBER}}>{avoirDeduit(avoirs.m,f)?'avoir déduit du marché · ':'avoir · '}</span>}
           {f.numero?f.numero+' · ':''}{f.date?fd(f.date):'date à saisir'}
           {/* le reste après chaque facture n'a de sens qu'à partir de la deuxième :
               sur une facture unique il répéterait le reste à facturer du bas */}
@@ -9825,6 +9836,8 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
           </div>}
           {repartir&&(+f.montant>0||f.repartition)&&<RepartitionFacture f={f} data={repartir.data} src={repartir.src}
             cibles={repartir.cibles} save={repartir.save}/>}
+          {avoirs&&estAvoir(f)&&<div style={{marginTop:8}}>
+            <AvoirMarche f={f} m={avoirs.m} data={avoirs.data} save={avoirs.save}/></div>}
         </div>}
       </div>;
     })}
@@ -9833,6 +9846,13 @@ function ColFactures({liste,engage,ouv,setOuv,cle,onLien,onCorriger,visa,envoiCl
       {/* les centimes d'arrondi des factures ne font ni un reste ni un dépassement */}
       <div style={{color:reste<=-SOLDE_ARRONDI?TERRA:(reste<SOLDE_ARRONDI?GREEN:MUTED),fontSize:11}}>
         {reste<=-SOLDE_ARRONDI?'dépassement '+eur(-reste):(reste<SOLDE_ARRONDI?'soldé':'reste à facturer '+eur(reste))}</div>
+      {/* un reste qui n'est qu'un avoir pas encore déduit : le chemin pour solder */}
+      {avoirs&&reste>=SOLDE_ARRONDI&&avoirsNonDeduits(avoirs.m).length>0&&(()=>{
+        const A=avoirsNonDeduits(avoirs.m), k=cle+':'+A[0].id;
+        return <button className="xs" onClick={()=>{setOuv(k);setEdit(null)}}
+          style={{background:'none',border:'none',padding:0,marginTop:2,color:TERRA,cursor:'pointer',textAlign:'right'}}>
+          {A.length>1?A.length+' avoirs non déduits du marché':'avoir de '+eur(-A[0].montant)+' non déduit du marché'} — le déduire ›</button>;
+      })()}
     </div>}
   </div>;
 }
@@ -11228,7 +11248,8 @@ function BudgetAvenants({data,ch,save,ms,cmds}){
             <tr><td colSpan={4} className="lbl" style={{padding:'8px 4px 2px'}}>CONTRAT INITIAL — MARCHÉS, COMMANDES ET HONORAIRES ENREGISTRÉS</td></tr>
             {E.postes.map(p=><tr key={p.id}><td style={{padding:'5px 4px 5px 12px'}}>{p.libelle}</td>{ligneMontants(eurCts(p.ht),eurCts(p.tva),eurCts(p.ttc))}</tr>)}
             <tr style={{borderTop:'1px solid '+RULE}}><td style={{padding:'6px 4px'}}>Engagé au titre du contrat
-              {E.avenantsRetires&&<span className="mut"> (avenants reportés retirés)</span>}</td>
+              {(E.avenantsRetires||E.avoirsRajoutes)&&<span className="mut"> ({[E.avenantsRetires&&'avenants reportés retirés',
+                E.avoirsRajoutes&&'avoirs déduits des marchés rajoutés'].filter(Boolean).join(', ')})</span>}</td>
               {ligneMontants(eurCts(E.tot.ht),eurCts(E.tot.tva),eurCts(E.tot.ttc))}</tr>
             {!!bc&&<tr><td style={{padding:'5px 4px'}}>{E.reste>=0?'Reste à engager sur le contrat':'Engagé au-delà du contrat'}</td>
               {ligneMontants(tiret,tiret,<span style={{color:E.reste<0?TERRA:GREEN}}>{eurCts(Math.abs(E.reste))}</span>)}</tr>}
@@ -11557,6 +11578,77 @@ const facturesTotal=list=>(list||[]).reduce((s,x)=>s+(+x.montant||0),0);
 const SOLDE_ARRONDI=0.5;
 const engagementSolde=(montant,factures)=>(+montant||0)>0&&(factures||[]).length>0&&(+montant||0)-facturesTotal(factures)<SOLDE_ARRONDI;
 const marcheSolde=m=>engagementSolde(m.montantHT,m.factures);
+/* ---------- l'avoir d'une entreprise (remise commerciale, prestation non réalisée) ----------
+   Il se saisit comme une facture, en négatif : le facturé baisse, le marché non —
+   le lot garderait « à facturer » ce que l'entreprise ne facturera jamais, et ne
+   se solderait pas. Déduit du marché (un clic, après avoir montré le nouveau
+   montant), il en baisse le HT : le lot se solde, le total engagé suit ce qui
+   sera réellement payé. La trace (m.avoirsDeduits) dit d'où vient la baisse,
+   empêche de déduire deux fois le même avoir et permet d'annuler. Une
+   prestation retirée à la demande du client passe plutôt par un avenant client
+   en moins-value (Budget et avenants), reporté dans le marché. */
+const estAvoir=f=>(+(f&&f.montant)||0)<0;
+const avoirDeduit=(m,f)=>(f&&((m&&m.avoirsDeduits)||[]).find(x=>x.factureId===f.id))||null;
+/* le HT retiré du marché par ses avoirs, en euros positifs */
+const marcheAvoirsHT=m=>((m&&m.avoirsDeduits)||[]).reduce((s,x)=>s+centimes(x.ht),0)/100;
+/* les avoirs du lot pas encore déduits de son marché */
+const avoirsNonDeduits=m=>((m&&m.factures)||[]).filter(f=>estAvoir(f)&&!avoirDeduit(m,f));
+const deduireAvoirMarche=(data,marcheId,factureId)=>{
+  const m=(data.marches||[]).find(x=>x.id===marcheId);
+  const f=m&&(m.factures||[]).find(x=>x.id===factureId);
+  if(!f||!estAvoir(f)||avoirDeduit(m,f))return data;
+  const ht=-centimes(f.montant);
+  const trace={factureId:f.id,numero:f.numero||'',date:f.date||'',ht:ht/100,le:today()};
+  return {...data,marches:data.marches.map(x=>x.id!==marcheId?x
+    :{...x,montantHT:(centimes(x.montantHT)-ht)/100,avoirsDeduits:[...(x.avoirsDeduits||[]),trace]})};
+};
+/* le marché retrouve ce que l'avoir lui avait retiré — même si l'avoir a été
+   supprimé ou corrigé depuis : c'est la trace qui dit combien */
+const annulerDeductionAvoir=(data,marcheId,factureId)=>{
+  const m=(data.marches||[]).find(x=>x.id===marcheId);
+  const t=m&&(m.avoirsDeduits||[]).find(x=>x.factureId===factureId);
+  if(!t)return data;
+  return {...data,marches:data.marches.map(x=>x.id!==marcheId?x
+    :{...x,montantHT:(centimes(x.montantHT)+centimes(t.ht))/100,avoirsDeduits:(x.avoirsDeduits||[]).filter(y=>y.factureId!==factureId)})};
+};
+/* l'avoir corrigé après sa déduction : la déduction se reprend au nouveau montant */
+const reprendreDeductionAvoir=(data,marcheId,factureId)=>deduireAvoirMarche(annulerDeductionAvoir(data,marcheId,factureId),marcheId,factureId);
+/* ce que la déduction changera, pour le dire avant le clic */
+const deductionAvoirApercu=(m,f)=>{
+  const ht=-centimes(f&&f.montant), avant=centimes(m&&m.montantHT), apres=avant-ht;
+  const reste=apres-centimes(facturesTotal(m&&m.factures));
+  return {ht:ht/100,avant:avant/100,apres:apres/100,solde:(m&&(m.factures||[]).length>0)&&apres>0&&reste<centimes(SOLDE_ARRONDI),reste:reste/100};
+};
+/* le volet d'un avoir : le déduire du marché, ou annuler la déduction */
+function AvoirMarche({f,m,data,save}){
+  const t=avoirDeduit(m,f);
+  const ap=deductionAvoirApercu(m,f);
+  const maj=fn=>save(fn(data,m.id,f.id));
+  if(t){
+    const change=centimes(t.ht)!==-centimes(f.montant);
+    return <div className="xs" style={{lineHeight:1.5}}>
+      <div style={{color:GREEN}}>✓ Avoir déduit du marché le {fd(t.le)} : {eur(-t.ht)} HT
+        (marché {eur(+m.montantHT+t.ht)} → {eur(m.montantHT)} HT).</div>
+      {change&&<div style={{color:AMBER}}>L’avoir a été corrigé depuis ({eur(f.montant)} HT au lieu de {eur(-t.ht)}) :
+        <button className="btn gh s" style={{marginLeft:6}} onClick={()=>maj(reprendreDeductionAvoir)}>Déduire le nouveau montant</button></div>}
+      <button className="btn gh s" style={{marginTop:4}} onClick={()=>{
+        if(!confirm('Annuler la déduction de cet avoir ?\n\nLe marché revient à '+eur(+m.montantHT+t.ht)+' HT ; l’avoir reste dans les factures du lot.'))return;
+        maj(annulerDeductionAvoir);
+      }}>Annuler la déduction</button>
+    </div>;
+  }
+  return <div className="xs" style={{lineHeight:1.5}}>
+    <div className="lbl">AVOIR DE L’ENTREPRISE</div>
+    <div>Une remise commerciale ou une prestation non réalisée : l’avoir baisse le facturé, pas le marché.
+      Déduit du marché, il en baisse le montant et le lot peut se solder.</div>
+    <div style={{marginTop:4}}>Marché : <b>{eur(ap.avant)}</b> → <b>{eur(ap.apres)}</b> HT
+      {ap.solde?<span style={{color:GREEN}}> · le lot sera soldé</span>
+        :ap.reste>=SOLDE_ARRONDI?<span className="mut"> · reste à facturer ensuite {eur(ap.reste)}</span>:null}</div>
+    <button className="btn acc s" style={{marginTop:6}} onClick={()=>maj(deduireAvoirMarche)}>Déduire l’avoir du marché ({eur(f.montant)} HT)</button>
+    <div className="mut" style={{marginTop:4}}>Une prestation retirée à la demande du client se traite plutôt par un avenant client
+      en moins-value (Budget et avenants), reporté dans le marché : ne déduisez pas l’avoir en plus.</div>
+  </div>;
+}
 
 /* ---------- chiffrage d'un lot depuis un bordereau de prix ----------
    Le principe du serveur d'Hexaom : on ne retape pas un montant, on saisit des
@@ -13089,6 +13181,17 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                     chiffré — {(m.quantitatif.lignes||[]).filter(l=>ligneQt(l)!==0).length} articles</div>}
                   {remisePct(m)>0&&<div className="mut" style={{marginTop:2,whiteSpace:'nowrap'}}>
                     remise {remisePct(m)} % sur {eur(quantitatifHT((m.quantitatif||{}).lignes))}</div>}
+                  {(m.avoirsDeduits||[]).map(t=>{
+                    /* l'avoir supprimé des factures après sa déduction : le marché
+                       resterait baissé sans raison visible — on le dit, et on défait */
+                    const orphelin=!(m.factures||[]).some(x=>x.id===t.factureId);
+                    return <div key={t.factureId} className="mut" style={{marginTop:2}}>
+                      avoir{t.numero?' '+t.numero:''} déduit : {eur(-t.ht)}
+                      {orphelin&&<span style={{color:AMBER}}> · retiré des factures —{' '}
+                        <button onClick={()=>{if(confirm('Rendre au marché les '+eur(t.ht)+' HT de cet avoir retiré des factures ?'))save(annulerDeductionAvoir(data,m.id,t.factureId))}}
+                          style={{background:'none',border:'none',padding:0,color:TERRA,cursor:'pointer'}}>annuler la déduction</button></span>}
+                    </div>;
+                  })}
                 </td>
                 {/* à droite chaque facture, une par une */}
                 <td style={{padding:'8px 4px'}}>
@@ -13096,7 +13199,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
                     cle={'m-fac:'+m.id} onLien={(fid,file)=>joindreFactureMarche(m.id,fid,file)}
                     onCorriger={(fid,patch)=>corrigerFactureMarche(m.id,fid,patch)}
                     visa={{ch,artisan:art,lot:m.lot,data,marche:m,save}}
-                    repartir={{data,save,src:{type:'marche',id:m.id},cibles:ciblesRepartition(m.artisanId)}}/>
+                    repartir={{data,save,src:{type:'marche',id:m.id},cibles:ciblesRepartition(m.artisanId)}}
+                    avoirs={{m,data,save}}/>
                 </td>
               </tr>
               {f&&f.id===m.id&&<Volet cols={3}>{formulaireLot}</Volet>}
