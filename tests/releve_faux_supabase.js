@@ -58,6 +58,16 @@ function fauxSupabase(etat) {
   }
   return {
     from,
+    /* fonctions du serveur (« imaginer ») : réponse réglée par le test dans
+       etat.fonctions[nom] = { statut, corps } ; absente = non déployée (404),
+       comme le renvoie supabase-js (error.context = la réponse) */
+    functions: { invoke: async (nom, o) => {
+      (etat.appels = etat.appels || []).push({ nom, body: o && o.body });
+      const f = (etat.fonctions || {})[nom];
+      if (!f) return { data: null, error: { name: 'FunctionsHttpError', context: new Response('{}', { status: 404 }) } };
+      if (f.statut >= 400) return { data: null, error: { name: 'FunctionsHttpError', context: new Response(JSON.stringify(f.corps || {}), { status: f.statut }) } };
+      return { data: f.corps, error: null };
+    } },
     storage: { from: espace => ({
       upload: async (chemin, blob) => {
         const e = panne(); if (e && e.message === 'Failed to fetch') return { data: null, error: e };

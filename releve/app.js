@@ -466,8 +466,80 @@ function texteElement(liste, el, champTexte, attrs) {
   return h('div', { class: 'champMicro ' + (attrs.cls || '') }, attrs.titre ? h('label', { class: 'champ' }, attrs.titre, inp) : inp, boutonMicro(inp, aide), aide);
 }
 
+/* ---------- « Imaginer » : la pièce rénovée, d'après sa photo ----------
+   La photo et la consigne (tapée ou dictée) partent à la fonction du serveur
+   « imaginer » (supabase/functions/imaginer : Gemini, clé dans les secrets de
+   Supabase, jamais ici). L'image revient et se range avec la visite comme
+   une photo (role 'imagine', source = la photo d'origine) : sur l'appareil
+   d'abord, puis dans l'espace privé. Il faut le réseau et être connecté. */
+const enBase64 = blob => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => ko(r.error); r.readAsDataURL(blob); });
+const versBlob = (b64, mime) => { const bin = atob(b64), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: mime || 'image/png' }); };
+const MESSAGES_IMAGINER = {
+  non_configure: 'Imaginer n’est pas encore installé sur le serveur (clé Google à ranger dans Supabase : voir supabase/functions/imaginer/README.md).',
+  non_connecte: 'Reconnectez-vous pour utiliser Imaginer.',
+  aucune_image: 'Google n’a pas rendu d’image pour cette consigne : reformulez-la (sans nom de marque ni personne), puis réessayez.',
+  google_occupe: 'Google est surchargé pour le moment : réessayez dans une minute.',
+  image_trop_lourde: 'Cette photo est trop lourde pour Imaginer.',
+  consigne_absente: 'Décrivez d’abord ce que vous voulez voir.',
+};
+async function lancerImaginer(p, ph, consigne, btn, info) {
+  consigne = consigne.trim();
+  const dire = (t, type) => { info.textContent = t; info.className = 'message ' + (type || 'err'); };
+  if (consigne.length < 3) return dire(MESSAGES_IMAGINER.consigne_absente, 'att');
+  if (navigator.onLine === false) return dire('Imaginer a besoin du réseau. La consigne est gardée : réessayez quand le réseau revient.', 'att');
+  if (!S.session) return dire('Connectez-vous (même compte que le suivi) pour utiliser Imaginer.', 'att');
+  if (!supa.functions || !supa.functions.invoke) return dire(MESSAGES_IMAGINER.non_configure, 'att');
+  const texte = btn.textContent; btn.disabled = true; btn.textContent = '✨ Création en cours… (jusqu’à une minute)';
+  dire('L’image est en cours de création. Vous pouvez continuer la visite : elle arrivera ici.', 'att');
+  try {
+    let blob = await stock.lirePhoto(ph.id);
+    if (!blob && ph.chemin) { const u = await urlPhoto(ph.id, ph.chemin); if (u) blob = await (await fetch(u)).blob(); }
+    if (!blob) throw { code: 'photo' };
+    const { data, error } = await supa.functions.invoke('imaginer', { body: { image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom } });
+    if (error) {
+      let j = {}; try { j = await error.context.json(); } catch (e) { /* pas de corps lisible */ }
+      const st = error.context && error.context.status;
+      throw { code: j.erreur || (st === 404 ? 'non_configure' : st ? 'erreur_' + st : 'reseau'), limite: j.limite, message: j.message };
+    }
+    if (!data || !data.image) throw { code: 'aucune_image' };
+    const id = M.nouvelId();
+    await stock.garderPhoto(id, S.courante, versBlob(data.image, data.mime));
+    await changer(v => M.majElement(M.ajouterPhoto(v, { id, role: 'imagine', pieceId: p.id, legende: consigne }), 'photos', id,
+      { source: ph.id, consigne, modele: data.modele || '', creeLe: new Date().toISOString() }));
+    if (S.imaginer && S.imaginer.photoId === ph.id) S.imaginer = null;
+    S.message = { type: 'ok', texte: '✨ Image créée pour « ' + p.nom + ' »' + (data.restant != null ? ' (encore ' + data.restant + ' aujourd’hui).' : '.') };
+    vibrer(); dessiner();
+  } catch (e) {
+    const code = (e && e.code) || 'reseau';
+    btn.disabled = false; btn.textContent = texte;
+    dire(code === 'quota' ? 'Limite du jour atteinte (' + (e.limite || '') + ' images par personne) : réessayez demain.'
+      : code === 'photo' ? 'La photo d’origine n’est pas lisible sur cet appareil (pas encore téléchargée ?).'
+      : code === 'reseau' ? 'Pas de réponse du serveur : réseau coupé, ou Imaginer pas encore installé.'
+      : MESSAGES_IMAGINER[code] || 'La création a échoué (' + code + (e && e.message ? ' : ' + e.message : '') + ').');
+  }
+}
+
+/* le panneau sous la photo : consigne (avec dictée), puis « Créer l'image » */
+function panneauImaginer(p, ph) {
+  const st = S.imaginer;
+  let info;
+  const ta = h('textarea', { class: 'in', rows: 3, value: st.consigne || '', 'aria-label': 'Consigne pour imaginer la pièce', autocapitalize: 'sentences',
+    placeholder: 'Ex. : cuisine blanche, plan de travail bois, carrelage gris clair, suspensions noires',
+    oninput: e => { st.consigne = e.target.value; } });
+  const aide = h('div', { class: 'aide info' });
+  const btn = h('button', { class: 'gros', type: 'button', onclick: () => lancerImaginer(p, ph, ta.value, btn, info) }, '✨ Créer l’image');
+  return h('div', { class: 'carte panneauImaginer', 'data-imaginer': ph.id },
+    h('b', {}, '✨ Imaginer cette pièce rénovée'),
+    h('div', { class: 'champMicro' }, ta, boutonMicro(ta, aide), aide),
+    M.valeur(visite(), 'projet.souhaits') && !st.consigne ? h('button', { class: 'puce', type: 'button', style: 'margin-top:8px', onclick: () => { ta.value = st.consigne = M.valeur(visite(), 'projet.souhaits'); } }, 'Reprendre les souhaits du client') : null,
+    info = h('div', { role: 'status', style: 'margin-top:8px' }),
+    h('div', { class: 'rang', style: 'margin-top:8px' }, h('button', { class: 'gros sec', type: 'button', onclick: () => { S.imaginer = null; dessiner(); } }, 'Fermer'), btn));
+}
+
 function cartePiece(v, p) {
-  const photos = M.actifs(v.photos).filter(x => x.pieceId === p.id);
+  const toutes = M.actifs(v.photos).filter(x => x.pieceId === p.id);
+  const photos = toutes.filter(x => x.role !== 'imagine');
+  const imagines = src => toutes.filter(x => x.role === 'imagine' && x.source === src);
   const prendre = () => choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'piece', pieceId: p.id }));
   return h('div', { class: 'carte', 'data-piece': p.id },
     h('div', { class: 'rang' },
@@ -475,16 +547,30 @@ function cartePiece(v, p) {
         oninput: e => changer(x => M.majElement(x, 'pieces', p.id, { nom: e.target.value })) }),
       h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer la pièce', onclick: async () => {
         if (!confirm('Supprimer la pièce « ' + p.nom + ' » et ses photos ?')) return;
-        await changer(x => photos.reduce((w, ph) => M.supprimer(w, 'photos', ph.id), M.supprimer(x, 'pieces', p.id)));
+        await changer(x => toutes.reduce((w, ph) => M.supprimer(w, 'photos', ph.id), M.supprimer(x, 'pieces', p.id)));
         dessiner();
       } }, '🗑')),
-    photos.map((ph, i) => h('div', { class: 'photoLegende', 'data-photo': ph.id },
-      h('figure', {}, imagePhoto(ph),
-        h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => {
-          if (!confirm('Supprimer cette photo ?')) return;
-          await changer(x => M.supprimer(x, 'photos', ph.id)); dessiner();
-        } }, '×')),
-      texteElement('photos', ph, 'legende', { label: 'Légende de la photo ' + (i + 1), placeholder: 'Ce que montre la photo (fissure, tableau électrique…)', lignes: 3 }))),
+    photos.map((ph, i) => [
+      h('div', { class: 'photoLegende', 'data-photo': ph.id },
+        h('figure', {}, imagePhoto(ph),
+          h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => {
+            const lies = imagines(ph.id);
+            if (!confirm(lies.length ? 'Supprimer cette photo et ses ' + lies.length + ' image(s) imaginée(s) ?' : 'Supprimer cette photo ?')) return;
+            await changer(x => lies.reduce((w, im) => M.supprimer(w, 'photos', im.id), M.supprimer(x, 'photos', ph.id))); dessiner();
+          } }, '×')),
+        h('div', { style: 'flex:1;min-width:0' },
+          texteElement('photos', ph, 'legende', { label: 'Légende de la photo ' + (i + 1), placeholder: 'Ce que montre la photo (fissure, tableau électrique…)', lignes: 3 }),
+          S.imaginer && S.imaginer.photoId === ph.id ? null
+            : h('button', { class: 'puce imaginer', type: 'button', 'aria-label': 'Imaginer la photo ' + (i + 1) + ' rénovée',
+                onclick: () => { S.imaginer = { photoId: ph.id, consigne: '' }; dessiner(); } }, '✨ Imaginer'))),
+      imagines(ph.id).map(im => h('div', { class: 'imagine', 'data-imagine': im.id },
+        h('figure', {}, imagePhoto(im, 'imagineImg'), h('span', { class: 'badgeImagine' }, '✨ Imaginé'),
+          h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer l’image imaginée', onclick: async () => {
+            if (!confirm('Supprimer cette image imaginée ?')) return;
+            await changer(x => M.supprimer(x, 'photos', im.id)); dessiner();
+          } }, '×')),
+        h('div', { class: 'mut petit' }, '« ' + (im.consigne || im.legende || '') + ' »'))),
+      S.imaginer && S.imaginer.photoId === ph.id ? panneauImaginer(p, ph) : null]),
     h('div', { class: 'rang', style: 'margin-top:10px' },
       h('button', { class: 'gros sec', onclick: prendre }, photos.length ? '📷 Photo suivante' : '📷 Photo'),
       h('button', { class: 'gros sec', onclick: () => choisirFichier({ accept: 'image/*', multiple: true }, f => ajouterPhotos(f, { role: 'piece', pieceId: p.id })) }, '🖼 Galerie')),
@@ -659,7 +745,8 @@ function etapeFin(v) {
       M.valeur(v, 'projet.explicatif') ? dd('En quelques mots', M.valeur(v, 'projet.explicatif')) : null,
       dd('Délai', M.valeur(v, 'projet.delai')),
       dd('Enveloppe', M.valeur(v, 'projet.enveloppe') != null ? M.formatEuros(M.valeur(v, 'projet.enveloppe')) + ' TTC' : null),
-      dd('Pièces', M.actifs(v.pieces).map(p => p.nom + ' (' + M.actifs(v.photos).filter(x => x.pieceId === p.id).length + ' ph.)').join(', ')),
+      dd('Pièces', M.actifs(v.pieces).map(p => { const ph = M.actifs(v.photos).filter(x => x.pieceId === p.id), im = ph.filter(x => x.role === 'imagine').length;
+        return p.nom + ' (' + (ph.length - im) + ' ph.' + (im ? ', ' + im + ' imaginée' + (im > 1 ? 's' : '') : '') + ')'; }).join(', ')),
       dd('Scan', (M.valeur(v, 'scan.fichier') || {}).nom),
       dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null),
       dd('Budget estimé', (M.valeur(v, 'budget') || {}).estimation ? B.formatPlage(M.valeur(v, 'budget').estimation) + ' (indicatif)' : null)),

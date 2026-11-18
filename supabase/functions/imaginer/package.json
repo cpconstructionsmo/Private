@@ -1,0 +1,6 @@
+{
+  "name": "cp-imaginer",
+  "private": true,
+  "description": "Fonction « imaginer » (Deno, Supabase). Ce fichier ne sert qu'à Node, pour lire regles.js dans les tests (tests/t_releve_imaginer.js).",
+  "type": "module"
+}
