@@ -88,7 +88,7 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 
 - C'est l'outil de relevé déjà validé sur des scans réels, repris tel quel et
   découpé en fichiers : `convertisseur.js` (export RoomPlan → pièces,
-  ouvertures), `moteur.js` (plan, mesures, 3D, PDF), `three.min.js` et
+  ouvertures), `assemblage.js` (plusieurs scans reliés), `moteur.js` (plan, mesures, 3D, PDF), `three.min.js` et
   `OrbitControls.js` (three.js r128, licence MIT).
 - Ce qui dépendait de la plateforme Claude est remplacé : sauvegarde → dans
   la visite (messages entre les deux pages, même site seulement) ; fichiers →
@@ -99,6 +99,17 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   la même pièce, sur deux murs qui se touchent, chacune à moins de 30 cm du
   coin, sont montrées au métreur qui choisit (garder l'une ou l'autre, ou les
   deux). Rien n'est retiré sans son accord.
+- **Plusieurs scans, pièce par pièce** (`assemblage.js`) : « ＋ Scan » ajoute
+  le scan d'une autre pièce, posé à droite du plan (pièces marquées de leur
+  numéro de scan, `p.scan`, noms numérotés s'ils sont déjà pris) ; la liaison
+  démarre aussitôt — « 🔗 Relier » la relance : on touche un mur, puis le mur
+  de l'autre scan qui le touche. Tout le second scan tourne (par quarts de
+  tour) et glisse pour que les deux murs n'en fassent qu'un, pièces de part
+  et d'autre ; la fenêtre en bas règle le décalage le long du mur en direct
+  (aligner les débuts, centrer, aligner les fins, au centimètre) et dit la
+  longueur de mur commun. Les murs sont coupés aux bouts de l'autre (un seul
+  mur commun) ; une mesure saisie sur un mur coupé est retirée et signalée.
+  « Relier » valide (annulable par ↶), « Annuler » ne change rien.
 - Le plan est enregistré dans la visite (`plan` : le relevé et son résumé),
   ses photos dans l'espace privé comme les autres. S'il a été modifié sur deux
   appareils à la fois, le plus récent s'ouvre et l'autre est **gardé de

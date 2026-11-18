@@ -968,6 +968,11 @@ function dessinerSurcouche(T) {
     if (survol.type === 'ouvC') { c.globalAlpha = 0.45; c.lineWidth = 6; c.beginPath(); c.moveTo(survol.p0[0], survol.p0[1]); c.lineTo(survol.p1[0], survol.p1[1]); c.stroke(); }
     c.restore();
   }
+  if (liaison) {                                      /* liaison de deux scans : le mur choisi, et celui sous le doigt */
+    const trait = (m, coul, larg) => { if (!m) return; const r = modele.rooms.find(q => q.id === m.piece.id), n = r ? r.pts.length : 0; if (!r) return;
+      const A = planVersPx(r.pts[m.mur]), B = planVersPx(r.pts[(m.mur + 1) % n]); c.save(); c.strokeStyle = coul; c.lineWidth = larg; c.lineCap = 'round'; c.globalAlpha = 0.85; c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); c.stroke(); c.restore(); };
+    trait(liaison.survolMur, '#f59e0b', 6); trait(liaison.a, '#d97706', 9);
+  }
   if (trace && trace.a && trace.cur) {                /* aperçu du mur en cours de tracé */
     const A = planVersPx(trace.a), B = planVersPx(trace.cur), L = Math.hypot(trace.cur[0] - trace.a[0], trace.cur[1] - trace.a[1]);
     c.save(); c.strokeStyle = '#1f6feb'; c.fillStyle = '#1f6feb'; c.lineWidth = Math.max(trace.ep * T.s, 3); c.globalAlpha = 0.45; c.lineCap = 'square'; c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); c.stroke(); c.globalAlpha = 1;
@@ -1472,7 +1477,7 @@ const memoriserReglage = z => { const r = modele.rooms[z.ri], e = areteDe(z); if
 cvPlan.addEventListener('pointerdown', e => {
   doigts.set(e.pointerId, posPlan(e)); try { cvPlan.setPointerCapture(e.pointerId); } catch (err) { /* capture impossible : sans conséquence */ }
   if (doigts.size === 1) {
-    const [x, y] = posPlan(e), c = modele && !trace ? cibleEn(x, y, e.pointerType === 'touch') : null;
+    const [x, y] = posPlan(e), c = modele && !trace && !liaison ? cibleEn(x, y, e.pointerType === 'touch') : null;
     geste = { mode: 'un', x: e.clientX, y: e.clientY, tx: vue.tx, ty: vue.ty, bouge: 0, cible: c };
     if (c && c.type === 'fin') { geste.mode = 'fin'; geste.decalage = alongDe(c, x, y) - (c.which === 'q' ? longueurPx(c) : 0); }
     else if (c && c.type === 'ligne') { const ed = areteDe(c); geste.mode = 'ligne'; geste.p0 = [x, y]; geste.decal0 = (ed.reglage && ed.reglage.decal) || 0; }
@@ -1485,6 +1490,7 @@ cvPlan.addEventListener('pointermove', e => {
   if (doigts.has(e.pointerId)) doigts.set(e.pointerId, posPlan(e));
   const [x, y] = posPlan(e);
   if (!geste && trace) { const [tx, ty] = [x, y]; if (trace.a) { trace.cur = accrocherPlan(tx, ty); dessiner2D(); } return; }
+  if (!geste && liaison) { const m = murSous(x, y); const k = m ? m.piece.id + '|' + m.mur : ''; if (k !== (liaison.survol || '')) { liaison.survol = k; liaison.survolMur = m; dessiner2D(); } return; }
   if (!geste) {
     const cleZ = q => q ? q.type + (q.ri !== undefined ? q.ri : q.oi) + '|' + (q.ei !== undefined ? q.ei : '') + (q.which || '') : '';
     const c = cibleEn(x, y, e.pointerType === 'touch'), cle = cleZ(c);
@@ -1531,7 +1537,7 @@ const finDoigt = (e, annule) => {
         const { z, len } = apercu; apercu = null; dessiner2D();
         editerMesure({ dataset: { t: 'mur', i: z.ri, e: z.ei, fixe: z.which === 'q' ? 'debut' : 'fin' }, value: FR3(len) });
       } else if ((g.mode === 'ligne' || g.mode === 'etiq') && g.bouge > 3) memoriserReglage(g.cible);
-      else if (g.mode === 'un' && g.bouge <= 6) { const [x, y] = posPlan(e); if (trace) pointTrace(x, y); else { const z = zoneEn(x, y); if (z) ouvrirEditeur(z, x, y); else fermerEditeur(); } }
+      else if (g.mode === 'un' && g.bouge <= 6) { const [x, y] = posPlan(e); if (trace) pointTrace(x, y); else if (liaison) pointLiaison(x, y); else { const z = zoneEn(x, y); if (z) ouvrirEditeur(z, x, y); else fermerEditeur(); } }
     }
     if (apercu || apercuOuv) { apercu = null; apercuOuv = null; dessiner2D(); }
   } else if (doigts.size === 1) { const [p] = [...doigts.values()]; geste = { mode: 'un', x: p[0] + cvPlan.getBoundingClientRect().left, y: p[1] + cvPlan.getBoundingClientRect().top, tx: vue.tx, ty: vue.ty, bouge: 99, cible: null }; }
@@ -1673,7 +1679,7 @@ function ouvrirEditeur(z, x, y) {
   const premier = editeur.querySelector('.edIn'); premier.focus(); premier.select();
 }
 /* ---- boîte de dialogue (les fenêtres du navigateur type confirm() ne s'affichent pas dans une page publiée) ---- */
-function fermerModal() { $('modal').hidden = true; $('modalCorps').innerHTML = ''; }
+function fermerModal() { $('modal').hidden = true; $('modal').classList.remove('basEcran'); $('modalCorps').innerHTML = ''; }
 function ouvrirModal(titre, corps, texteOk, onOk) {
   $('modalTitre').textContent = titre; $('modalCorps').innerHTML = corps + '<p class="modalErr" id="modalErr" hidden></p>'; $('modalOk').textContent = texteOk; $('modal').hidden = false;
   const ok = () => { const r = onOk($('modalCorps')); if (r === false) return; if (typeof r === 'string') { $('modalErr').textContent = r; $('modalErr').hidden = false; return; } fermerModal(); };
@@ -1684,28 +1690,9 @@ function ouvrirModal(titre, corps, texteOk, onOk) {
 const idPiece = r => { if (r.src.id === undefined) r.src.id = r.id; return r.src.id; };      /* les ouvertures retrouvent leur pièce par l'identifiant */
 const champNum = (id, lib, val, pas) => '<label>' + lib + '<input id="' + id + '" inputmode="decimal" value="' + FR3(val) + '"></label>';
 
-/* coupe une arête (côté) d'une pièce en plusieurs morceaux et remet à jour tout ce qui y fait référence (ouvertures, mesures, réglages) */
-function decouperArete(p, ei, coupes, L) {
-  if (!coupes.length) return false;
-  const n = p.points.length, a = p.points[ei], b = p.points[(ei + 1) % n], ps = p.pointsScan || p.points, sa = ps[ei], sb = ps[(ei + 1) % n], k = coupes.length;
-  coupes = coupes.slice().sort((x, y) => x - y);
-  const ins = coupes.map(d => [arr3(a[0] + (b[0] - a[0]) * d / L), arr3(a[1] + (b[1] - a[1]) * d / L)]);
-  const insS = coupes.map(d => [arr3(sa[0] + (sb[0] - sa[0]) * d / L), arr3(sa[1] + (sb[1] - sa[1]) * d / L)]);
-  const bornes = [0, ...coupes, L], cle = String(p.id || p.nom);
-  (donneesCourantes.ouvertures || []).forEach(o => {
-    if (String(o.piece) !== cle && String(o.piece) !== String(p.nom)) return;
-    if (o.mur === ei) { let sg = 0; while (sg < k && o.position >= bornes[sg + 1] - 1e-9) sg++; o.mur = ei + sg; o.position = arr3(Math.max(0, o.position - bornes[sg])); }
-    else if (o.mur > ei) o.mur += k;
-  });
-  p.points.splice(ei + 1, 0, ...ins); if (p.pointsScan) p.pointsScan.splice(ei + 1, 0, ...insS);
-  let perdu = false;
-  const remap = obj => { if (!obj) return obj; const out = {}; Object.keys(obj).forEach(key => { const i = +key; if (i < ei) out[i] = obj[key]; else if (i > ei) out[i + k] = obj[key]; else perdu = true; }); return Object.keys(out).length ? out : undefined; };
-  ['epaisseurs', 'demolis', 'reperesMasques'].forEach(c => { if (!p[c]) return; const nn = {}; Object.keys(p[c]).forEach(key => { const i = +key; if (i < ei) nn[i] = p[c][key]; else if (i > ei) nn[i + k] = p[c][key]; else for (let sg = 0; sg <= k; sg++) nn[ei + sg] = p[c][key]; }); p[c] = nn; });   /* épaisseur et démolition valent pour tous les morceaux */
-  if (p.notesMurs) { const nn = {}; Object.keys(p.notesMurs).forEach(key => { const i = +key; nn[i < ei ? i : i > ei ? i + k : i] = p.notesMurs[key]; }); p.notesMurs = nn; }
-  ['mesuresMurs', 'fixeMur', 'reglagesCotes'].forEach(c => { if (p[c]) { const r = remap(p[c]); if (r) p[c] = r; else delete p[c]; } });
-  if (Array.isArray(p.cotesEstimees)) { const ne = []; p.cotesEstimees.forEach(i => { if (i < ei) ne.push(i); else if (i > ei) ne.push(i + k); else for (let sg = 0; sg <= k; sg++) ne.push(ei + sg); }); p.cotesEstimees = ne; }
-  return perdu;
-}
+/* coupe une arête (côté) d'une pièce en plusieurs morceaux et remet à jour tout ce qui y fait référence (ouvertures, mesures, réglages) :
+   la règle est dans assemblage.js, partagée avec la liaison de deux scans */
+function decouperArete(p, ei, coupes, L) { return Assemblage.decouperArete(donneesCourantes, p, ei, coupes, L); }
 
 /* crée une pièce rectangulaire : accolée à un mur extérieur d'une pièce existante, ou séparée */
 function creerPiece(o) {
@@ -1879,7 +1866,7 @@ function supprimerEtage(k) {
   });
 }
 /* ---- tracer un nouveau mur : on touche le point de départ puis le point d'arrivée ---- */
-let trace = null;
+let trace = null, liaison = null;          /* tracé d'un mur ; liaison de deux scans (plus bas) */
 function majBarreTrace() { $('barreTrace').hidden = !trace; if (trace) $('texteTrace').textContent = trace.a ? 'Touchez le point d\'arrivée du mur.' : 'Touchez le point de départ du mur (il s\'accroche aux coins et aux murs existants).'; cvPlan.style.cursor = trace ? 'crosshair' : 'grab'; dessiner2D(); }
 function pxVersPlan(x, y) { const T = transformationEcran(), q = [(x - T.ox) / T.s, (y - T.oy) / T.s], a = -(modele.rotation || 0) * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a); return [q[0] * c - q[1] * sn, q[0] * sn + q[1] * c]; }
 function planVersPx(q) { const T = transformationEcran(), a = (modele.rotation || 0) * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a), r = [q[0] * c - q[1] * sn, q[0] * sn + q[1] * c]; return [T.ox + r[0] * T.s, T.oy + r[1] * T.s]; }
@@ -1929,6 +1916,90 @@ function supprimerCloison(ci) {
   ouvrirModal('Supprimer ce mur ?', '<p>Le mur ajouté M' + (ci + 1) + ' (' + FR(c.len) + ' m) sera supprimé.</p>', 'Supprimer', () => { const avant = JSON.stringify(donneesCourantes), arr = donneesCourantes.cloisons; arr.splice(arr.indexOf(c.src), 1); reanalyser(avant, null, 'Mur M' + (ci + 1) + ' supprimé.'); });
 }
 $('btnAjMur').addEventListener('click', dialogTracerMur);
+/* ---- plusieurs scans, pièce par pièce (assemblage.js) ----
+   « ＋ Scan » pose le scan d'une autre pièce à droite du plan ; « 🔗 Relier »
+   : on touche un mur, puis le mur de l'autre scan qui le touche. Le second
+   scan tourne et glisse pour que les deux murs n'en fassent qu'un ; un
+   décalage le long du mur se règle avant de valider. Tout s'annule (↶). */
+function majBarreLiaison() {
+  $('barreLiaison').hidden = !liaison; $('btnRelier').classList.toggle('actif', !!liaison);
+  if (liaison) $('texteLiaison').textContent = liaison.a ? 'Touchez maintenant le mur de l’autre scan qui touche ce mur.' : 'Touchez un mur d’une pièce (le scan déjà en place).';
+  cvPlan.style.cursor = liaison ? 'pointer' : 'grab'; dessiner2D();
+}
+function murSous(x, y) {
+  if (!modele || typeof etageCourant !== 'number') return null;
+  const rooms = modele.rooms.filter(r => r.etage === etageNum());
+  const m = Assemblage.murProche(rooms, pxVersPlan(x, y), 16 / transformationEcran().s);
+  return m ? { piece: m.piece, mur: m.mur, id: idPiece(m.piece), scan: Assemblage.groupeScan(m.piece.src) } : null;
+}
+function demarrerLiaison(texte) {
+  if (!modele) return;
+  if (typeof etageCourant !== 'number') { message('Choisissez d\'abord un étage (onglets au-dessus du plan) pour relier deux scans.', 'warn'); return; }
+  if (Assemblage.scans(donneesCourantes).length < 2) { message('Il n\'y a qu\'un scan dans ce relevé. Ajoutez d\'abord le scan d\'une autre pièce (« ＋ Scan »), puis reliez-les.', 'warn'); return; }
+  trace = null; majBarreTrace(); fermerEditeur();
+  liaison = { a: null }; majBarreLiaison(); if (texte) message(texte, 'ok');
+}
+function pointLiaison(x, y) {
+  const m = murSous(x, y);
+  if (!m) { message('Touchez un mur, au plus près de son trait.', 'warn'); return; }
+  if (!liaison.a) { liaison.a = m; majBarreLiaison(); return; }
+  if (m.scan === liaison.a.scan) { message('Ce mur est du même scan que le premier : touchez un mur de l\'autre scan (la pièce à rapprocher).', 'warn'); return; }
+  const a = liaison.a; liaison = null; majBarreLiaison();
+  dialogLiaison({ piece: a.id, mur: a.mur, nom: a.piece.nom }, { piece: m.id, mur: m.mur, nom: m.piece.nom });
+}
+function dialogLiaison(a, b) {
+  const avant = JSON.stringify(donneesCourantes);
+  let res = null;
+  const calculer = dec => {
+    try { res = Assemblage.relierMurs(JSON.parse(avant), a, b, dec); } catch (e) { return e.message; }
+    donneesCourantes = res.donnees; resoudreMesures(donneesCourantes); ajusterOuvertures(donneesCourantes); modele = analyser(donneesCourantes); dessiner2D();
+    const t = $('lzInfo'); if (t) t.textContent = 'Murs : ' + FR(res.longueurA) + ' m et ' + FR(res.longueurB) + ' m · en commun : ' + FR(res.recouvrement) + ' m' + (res.rotationDeg ? ' · scan tourné de ' + res.rotationDeg + '°' : '') + (res.avertissements.length ? '\n' + res.avertissements.join('\n') : '');
+    return null;
+  };
+  const err = calculer(0);
+  if (err) { donneesCourantes = JSON.parse(avant); modele = analyser(donneesCourantes); dessiner2D(); message(err, 'warn'); return; }
+  const LA = res.longueurA, LB = res.longueurB;
+  ouvrirModal('Relier « ' + b.nom + ' » à « ' + a.nom + ' »',
+    '<p class="note">Le second scan est maintenant collé au mur choisi. Réglez sa position le long du mur, au mètre si besoin.</p>' +
+    '<div class="rangLz"><button type="button" data-lz="debut">Aligner les débuts</button> <button type="button" data-lz="centre">Centrer</button> <button type="button" data-lz="fin">Aligner les fins</button></div>' +
+    '<label>Décalage le long du mur (m)<input id="lzDec" inputmode="decimal" value="0,000"></label>' +
+    '<div class="rangLz"><button type="button" data-pas="-0.1">◀ 10 cm</button> <button type="button" data-pas="-0.01">◀ 1 cm</button> <button type="button" data-pas="0.01">1 cm ▶</button> <button type="button" data-pas="0.1">10 cm ▶</button></div>' +
+    '<p class="note" id="lzInfo" style="white-space:pre-line"></p>', 'Relier', () => {
+      const dec = num($('lzDec').value); if (!isFinite(dec)) return 'Décalage : un nombre en mètres (par exemple 0,25 ou -0,4).';
+      const e = calculer(dec); if (e) return e;
+      if (res.recouvrement < 0.05) return 'Les deux murs ne se touchent plus : réduisez le décalage.';
+      const r = res;
+      reanalyser(avant, null, 'Scans reliés : « ' + b.nom + ' » contre « ' + a.nom + ' » (' + FR(r.recouvrement) + ' m de mur commun).' + (r.avertissements.length ? ' ' + r.avertissements.join(' ') : ''));
+    });
+  $('modal').classList.add('basEcran'); calculer(0);
+  const champ = $('lzDec'), appliquer = v => { champ.value = FR3(v); const e = calculer(v); if (e) { $('modalErr').textContent = e; $('modalErr').hidden = false; } else $('modalErr').hidden = true; };
+  champ.addEventListener('input', () => { const v = num(champ.value); if (isFinite(v)) appliquer(v); });
+  $('modalCorps').querySelectorAll('[data-pas]').forEach(btn => btn.addEventListener('click', () => appliquer(Math.round(((num(champ.value) || 0) + +btn.dataset.pas) * 1000) / 1000)));
+  const prereglage = { debut: (LB - LA) / 2, centre: 0, fin: (LA - LB) / 2 };
+  $('modalCorps').querySelectorAll('[data-lz]').forEach(btn => btn.addEventListener('click', () => appliquer(Math.round(prereglage[btn.dataset.lz] * 1000) / 1000)));
+  /* « Annuler » : le plan revient tel qu'il était, rien n'entre dans l'historique */
+  $('modalAnnuler').onclick = () => { fermerModal(); donneesCourantes = JSON.parse(avant); modele = analyser(donneesCourantes); dessiner2D(); message('Liaison annulée : le plan n\'a pas changé.', 'ok'); };
+}
+function ajouterScanTexte(texte, nom) {
+  if (!modele) { chargerTexte(texte, nom); return; }
+  if (typeof etageCourant !== 'number') { message('Choisissez d\'abord un étage (onglets au-dessus du plan) pour y ajouter un scan.', 'warn'); return; }
+  let conv;
+  try {
+    let data; try { data = JSON.parse(texte); } catch (e) { throw new Error('Ce fichier n\'est pas un JSON valide : ' + e.message); }
+    if (estRoomPlan(data)) conv = convertirRoomPlan(data).donnees;
+    else if (data && Array.isArray(data.pieces)) conv = data;
+    else throw new Error('Ce fichier n\'est ni un scan OpenPlan 3D ni un relevé.');
+  } catch (e) { message(e.message, 'err'); return; }
+  const avant = JSON.stringify(donneesCourantes), nomScan = String(nom || 'scan').replace(/\.json$/i, '');
+  let r; try { r = Assemblage.ajouterScan(donneesCourantes, conv, { etage: etageNum(), nom: nomScan }); } catch (e) { message(e.message, 'err'); return; }
+  donneesCourantes = r.donnees; vue.k = 1; vue.tx = 0; vue.ty = 0;
+  if (reanalyser(avant, null, 'Scan « ' + nomScan + ' » ajouté à droite du plan : ' + r.pieces + ' pièce(s).'))
+    demarrerLiaison('Scan « ' + nomScan + ' » ajouté à droite du plan (' + r.pieces + ' pièce(s)). Reliez-le : touchez un mur du plan, puis le mur du nouveau scan qui le touche.');
+}
+$('fichierScan').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) f.text().then(t => ajouterScanTexte(t, f.name)); });
+$('btnRelier').addEventListener('click', () => { if (liaison) { liaison = null; majBarreLiaison(); } else demarrerLiaison(); });
+$('btnAnnulerLiaison').addEventListener('click', () => { liaison = null; majBarreLiaison(); });
+
 $('btnAnnulerTrace').addEventListener('click', () => { trace = null; majBarreTrace(); });
 window.addEventListener('keydown', e => { if (e.key === 'Escape' && trace) { trace = null; majBarreTrace(); } });
 $('recap').addEventListener('change', e => {
