@@ -9,7 +9,7 @@
    Stratégie : réseau d'abord pour les fichiers de l'application (on a
    toujours la dernière version quand le réseau est là), cache sinon. Monter
    VERSION à chaque livraison de releve/ fait le ménage des anciens caches. */
-const VERSION = 'releve-2026-11-18-3';
+const VERSION = 'releve-2026-11-18-4';
 const COQUILLE = ['./', 'index.html', 'app.js', 'modele.js', 'stockage.js', 'synchro.js', 'photo.js', 'budget.js',
   'manifest.webmanifest', 'icone-180.png', 'icone-192.png', 'icone-512.png', '../assets/logo_fiche.jpg',
   // le moteur de relevé (plan, 3D, PDF) : lui aussi doit s'ouvrir sans réseau chez le client

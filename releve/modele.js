@@ -23,10 +23,21 @@ export const ETAPES = [
 
 export const CIVILITES = ['M.', 'Mme', 'M. et Mme'];
 
+/* « Rénovation complète » a été retirée de la liste (retour du terrain) au
+   profit des catégories de rénovation ; une ancienne visite qui la porte
+   l'affiche encore (voir app.js, puces) */
 export const TYPES_TRAVAUX = [
-  'Cuisine', 'Salle de bains', 'Extension', 'Isolation', 'Peinture', 'Façade',
-  'Toiture', 'Menuiseries', 'Électricité', 'Plomberie', 'Sols', 'Rénovation complète',
+  'Cuisine', 'Salle de bains', 'Extension', 'Isolation', 'Chauffage', 'Peinture', 'Façade',
+  'Toiture', 'Menuiseries', 'Électricité', 'Plomberie', 'Sols', 'Extérieur', 'Autre',
 ];
+
+/* l'ampleur du projet : cumulable (une rénovation importante peut aussi être énergétique) */
+export const CATEGORIES_RENO = ['Rénovation partielle', 'Rénovation importante', 'Rénovation énergétique'];
+
+/* l'usage du bien des travaux (il compte, entre autres, pour la TVA et les aides) */
+export const USAGES_BIEN = ['Résidence principale', 'Locatif', 'Résidence secondaire', 'Autre'];
+
+export const FORMES_SOCIETE = ['SCI', 'SAS', 'SARL', 'EURL', 'Autre'];
 
 export const DELAIS = ['Dès que possible', 'Sous 3 mois', 'Sous 6 mois', 'Dans l’année', 'Pas pressé'];
 
@@ -41,7 +52,24 @@ export const CHAMPS = {
   'client.civilite': 'texte', 'client.nom': 'texte', 'client.prenom': 'texte',
   'client.telephone': 'texte', 'client.email': 'texte', 'client.adresse': 'texte',
   'client.codePostal': 'texte', 'client.ville': 'texte',
+  /* le client : un à trois acheteurs (particuliers), ou une société. Les
+     champs client.* restent ceux de l'acheteur 1 (les anciennes visites se
+     lisent telles quelles) ; client.adresse est l'adresse des TRAVAUX, le
+     domicile de chacun se saisit à part s'il est différent. */
+  'client.type': 'texte', // 'particulier' (défaut) | 'societe'
+  'client.nbAcheteurs': 'nombre', // 1 (défaut) à 3
+  'client.domicileIdem': 'booleen', // le domicile de l'acheteur 1 est l'adresse des travaux (défaut : oui)
+  'client.domicile': 'texte',
+  'acheteur2.civilite': 'texte', 'acheteur2.nom': 'texte', 'acheteur2.prenom': 'texte',
+  'acheteur2.telephone': 'texte', 'acheteur2.email': 'texte', 'acheteur2.domicileIdem': 'booleen', 'acheteur2.domicile': 'texte',
+  'acheteur3.civilite': 'texte', 'acheteur3.nom': 'texte', 'acheteur3.prenom': 'texte',
+  'acheteur3.telephone': 'texte', 'acheteur3.email': 'texte', 'acheteur3.domicileIdem': 'booleen', 'acheteur3.domicile': 'texte',
+  'societe.raisonSociale': 'texte', 'societe.forme': 'texte', 'societe.siret': 'texte', 'societe.siege': 'texte',
+  'bien.usage': 'texte', 'bien.usageAutre': 'texte',
   'projet.types': 'liste', 'projet.explicatif': 'texte', 'projet.delai': 'texte',
+  'projet.categories': 'liste', 'projet.typeAutre': 'texte',
+  // « en quelques mots » devient deux champs (situation actuelle, souhaits) ; explicatif reste lisible
+  'projet.situation': 'texte', 'projet.souhaits': 'texte',
   'projet.enveloppe': 'nombre',
   'photoGarde': 'texte', // identifiant de la photo de garde
   'scan.fichier': 'objet', // { nom, taille, chemin } du fichier importé
@@ -84,6 +112,7 @@ function normaliser(cle, v) {
     return Math.min(Math.round(n), ENVELOPPE_MAX);
   }
   if (type === 'liste') return Array.isArray(v) ? [...new Set(v.map(String))] : null;
+  if (type === 'booleen') return v === true || v === 'true' ? true : v === false || v === 'false' ? false : null;
   return v;
 }
 
@@ -184,7 +213,20 @@ export function derniereMaj(v) {
 }
 
 /* le nom affiché d'une visite (liste, récapitulatif) */
+export const estSociete = v => valeur(v, 'client.type') === 'societe';
+export const nbAcheteurs = v => estSociete(v) ? 1 : Math.min(3, Math.max(1, valeur(v, 'client.nbAcheteurs') || 1));
+/* le domicile d'un acheteur (1 à 3) : l'adresse des travaux, celle de
+   l'acheteur 1, ou la sienne */
+export function domicile(v, n) {
+  const travaux = [valeur(v, 'client.adresse'), [valeur(v, 'client.codePostal'), valeur(v, 'client.ville')].filter(Boolean).join(' ')].filter(Boolean).join(' ');
+  if (n === 1) return valeur(v, 'client.domicileIdem') === false ? (valeur(v, 'client.domicile') || '') : travaux;
+  return valeur(v, 'acheteur' + n + '.domicileIdem') === false ? (valeur(v, 'acheteur' + n + '.domicile') || '') : domicile(v, 1);
+}
 export function intitule(v) {
+  if (estSociete(v)) {
+    const rs = valeur(v, 'societe.raisonSociale');
+    if (rs) return [valeur(v, 'societe.forme') !== 'Autre' ? valeur(v, 'societe.forme') : '', rs].filter(Boolean).join(' ');
+  }
   const c = k => valeur(v, 'client.' + k);
   const nom = [c('civilite'), c('prenom'), c('nom')].filter(Boolean).join(' ');
   return nom || 'Visite sans nom';
@@ -195,7 +237,7 @@ export function intitule(v) {
 export function manques(v) {
   const m = [];
   if (!valeur(v, 'photoGarde')) m.push('photo de garde');
-  if (!valeur(v, 'client.nom')) m.push('nom du client');
+  if (estSociete(v) ? !valeur(v, 'societe.raisonSociale') : !valeur(v, 'client.nom')) m.push(estSociete(v) ? 'raison sociale' : 'nom du client');
   if (!valeur(v, 'client.telephone') && !valeur(v, 'client.email')) m.push('téléphone ou e-mail');
   if (!valeur(v, 'client.adresse')) m.push('adresse');
   if (!(valeur(v, 'projet.types') || []).length) m.push('type de travaux');

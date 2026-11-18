@@ -69,6 +69,23 @@
   .photos figure{margin:0;position:relative}
   .photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;display:block;background:#E9E4DA}
   .photos .x{position:absolute;top:4px;right:4px;width:30px;height:30px;border-radius:15px;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:16px;cursor:pointer}
+  /* un champ avec son micro (dictée) : le bouton se pose en haut à droite du champ */
+  .champMicro{position:relative}
+  .champMicro .micro{position:absolute;right:6px;bottom:auto;top:38px;width:44px;height:44px;border-radius:22px;border:1.5px solid var(--rule);background:#fff;font-size:20px;cursor:pointer;z-index:1}
+  .champMicro > textarea.in,.champMicro label textarea.in,.champMicro label input.in{padding-right:56px}
+  .champMicro > textarea.in + .micro{top:8px}
+  .champMicro .micro.ecoute{background:var(--terra);border-color:var(--terra);color:#fff;animation:ecoute 1.2s ease-in-out infinite}
+  @keyframes ecoute{0%,100%{box-shadow:0 0 0 0 rgba(197,86,58,.45)}50%{box-shadow:0 0 0 8px rgba(197,86,58,0)}}
+  .aide.info{color:var(--muted)}
+  .case{display:flex;gap:10px;align-items:center;margin:12px 0 0;font-size:16px;cursor:pointer}
+  .case input{width:24px;height:24px;accent-color:var(--navy);flex:0 0 24px}
+  /* une photo de pièce et sa légende, côte à côte */
+  .photoLegende{display:flex;gap:10px;align-items:flex-start;margin-top:10px}
+  .photoLegende figure{margin:0;position:relative;flex:0 0 108px}
+  .photoLegende img{width:108px;height:108px;object-fit:cover;border-radius:8px;display:block;background:#E9E4DA}
+  .photoLegende .x{position:absolute;top:4px;right:4px;width:30px;height:30px;border-radius:15px;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:16px;cursor:pointer}
+  .photoLegende .champMicro{flex:1;min-width:0}
+  .photoLegende textarea.in{margin-top:0;font-size:16px}
   .curseur{width:100%;margin:14px 0 4px;accent-color:var(--terra);height:34px}
   .montant{font-size:26px;font-weight:700;color:var(--navy)}
   .manque{background:#FBF0DA;color:var(--amber);border-radius:10px;padding:10px 12px;font-size:15px}

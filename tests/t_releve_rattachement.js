@@ -59,7 +59,7 @@ const pExist={id:'pA',nom:'Maison Fictif - Alençon',client:'Anne Fictif',telCli
 const {prospect,champs}=M.completerProspectDepuisVisite(pExist,v1,'2026-11-18');
 chk(prospect.telClient==='02 33 00 00 00'&&prospect.client==='Anne Fictif'&&prospect.decouverte.enveloppe==='60000','rattacher ne remplace aucune case déjà remplie');
 chk(prospect.emailClient==='Anne.Fictif@Exemple.fr'&&prospect.adresseClient==='1 rue Imaginaire 61000 Alençon','les cases vides sont complétées');
-chk(champs.join()==='civilité,e-mail,adresse','la liste de ce qui est complété est donnée avant de confirmer');
+chk(champs.join()==='civilité,e-mail,adresse,demande,adresse du projet','la liste de ce qui est complété est donnée avant de confirmer');
 chk(prospect.visites.length===1&&M.completerProspectDepuisVisite(prospect,v1,'2026-11-19').prospect.visites.length===1,'rattacher deux fois ne crée pas deux liens');
 
 /* à rattacher / déjà rattachées */
@@ -72,6 +72,38 @@ chk(M.visitesDuProspect(prospect,[v1,v2,v3]).map(r=>r.id).join()==='vis-1','la f
 chk(M.visitesDuProspect(P[2],[v1,v2,v3]).map(r=>r.id).join()==='vis-2','et celle lancée depuis sa fiche');
 
 const vf=M.visiteResume(ligne('vis-f',{'client.nom':'Fourchette',budget:{lignes:[],ajust:{},estimation:{min:8600,max:12900,complet:true}}}));
+/* retours du terrain : deux ou trois acheteurs, domicile, société, usage,
+   ampleur, situation et souhaits (releve/modele.js) */
+const vt=M.visiteResume(ligne('vis-2',{'client.civilite':'M.','client.nom':'FICTIF','client.prenom':'Marc','client.telephone':'06 11 11 11 11',
+  'client.adresse':'2 rue Fictive','client.codePostal':'53100','client.ville':'Mayenne','client.domicileIdem':false,'client.domicile':'9 avenue Imaginaire 75000 Paris',
+  'client.nbAcheteurs':3,'acheteur2.civilite':'Mme','acheteur2.nom':'FICTIVE','acheteur2.prenom':'Lise','acheteur2.email':'lise@exemple.fr',
+  'acheteur2.domicileIdem':false,'acheteur2.domicile':'4 quai Fictif 72000 Le Mans',
+  'acheteur3.nom':'TROIS','acheteur3.prenom':'Léo','acheteur3.telephone':'07 22 22 22 22',
+  'bien.usage':'Locatif','projet.categories':['Rénovation importante','Rénovation énergétique'],
+  'projet.types':['Chauffage','Autre'],'projet.typeAutre':'Véranda','projet.situation':'Chaudière fioul de 1990.','projet.souhaits':'Une pompe à chaleur.'}));
+chk(vt.domicile==='9 avenue Imaginaire 75000 Paris'&&vt.acheteurs.length===2&&vt.acheteurs[0].prenom==='Lise'&&vt.acheteurs[1].telephone==='07 22 22 22 22','résumé : domicile, acheteurs 2 et 3');
+chk(vt.usage==='Locatif'&&vt.categories.length===2&&vt.situation&&vt.souhaits&&vt.typeAutre==='Véranda','résumé : usage, ampleur, situation, souhaits');
+const npt=M.prospectDepuisVisite(vt,{},'2026-11-18');
+chk(npt.afficherClient2&&npt.civilite2==='Mme'&&npt.client2==='Lise FICTIVE'&&npt.emailClient2==='lise@exemple.fr'&&npt.adresseClient2==='4 quai Fictif 72000 Le Mans','l’acheteur 2 devient le 2e acheteur du prospect, avec son adresse');
+chk(npt.adresseClient==='9 avenue Imaginaire 75000 Paris'&&npt.decouverte.adresseProjet==='2 rue Fictive 53100 Mayenne','domicile en adresse du client, adresse des travaux en adresse du projet');
+chk(/3e acheteur : Léo TROIS · 07 22 22 22 22/.test(npt.demande),'le 3e acheteur est écrit dans la demande (le prospect n’a pas sa case)');
+chk(/Ampleur : Rénovation importante, Rénovation énergétique/.test(npt.demande)&&/Travaux : Chauffage, Autre \(Véranda\)/.test(npt.demande)&&/Usage du bien : Locatif/.test(npt.demande)
+  &&/Situation actuelle : Chaudière fioul/.test(npt.demande)&&/Souhaits : Une pompe à chaleur/.test(npt.demande),'la demande reprend ampleur, travaux, usage, situation et souhaits');
+chk(M.prospectDepuisVisite({...vt,civilite:'M. et Mme'},{},'2026-11-18').client2==='Lise FICTIVE','un acheteur 2 saisi l’emporte sur « M. et Mme »');
+/* rattacher : le 2e acheteur complète un prospect qui n'en a pas, jamais celui qui en a un */
+const rt2=M.completerProspectDepuisVisite({id:'pX',client:'Marc Fictif',client2:'',decouverte:{}},vt,'2026-11-18');
+chk(rt2.prospect.client2==='Lise FICTIVE'&&rt2.prospect.afficherClient2&&rt2.champs.includes('2e acheteur'),'rattacher : le 2e acheteur complète une case vide');
+const rt3=M.completerProspectDepuisVisite({id:'pY',client:'Marc Fictif',client2:'Autre Personne',afficherClient2:true,decouverte:{adresseProjet:'ailleurs'}},vt,'2026-11-18');
+chk(rt3.prospect.client2==='Autre Personne'&&rt3.prospect.decouverte.adresseProjet==='ailleurs','rattacher : un 2e acheteur ou une adresse du projet déjà saisis ne bougent pas');
+/* une société */
+const vs=M.visiteResume(ligne('vis-s',{'client.type':'societe','societe.raisonSociale':'FICTIVE IMMO','societe.forme':'SCI','societe.siret':'000 000 000 00000',
+  'client.civilite':'M.','client.nom':'GÉRANT','client.prenom':'Paul','client.telephone':'06 33 33 33 33','client.adresse':'3 rue Fictive','client.ville':'Alençon',
+  'client.nbAcheteurs':2,'acheteur2.nom':'IGNORÉ'}));
+chk(M.visiteIntitule(vs)==='SCI FICTIVE IMMO'&&vs.acheteurs.length===0,'société : intitulé par la raison sociale, pas d’acheteur 2');
+const nps=M.prospectDepuisVisite(vs,{},'2026-11-18');
+chk(nps.civilite==='SCI'&&nps.client==='SCI FICTIVE IMMO'&&nps.nom==='Maison FICTIVE IMMO - Alençon'&&/représentée par M\. Paul GÉRANT/.test(nps.demande)&&/SIRET 000 000 000 00000/.test(nps.demande),'société : civilité SCI, raison sociale en client, représentant et SIRET dans la demande');
+chk(M.prospectsCandidats(vs,[{id:'pS',nom:'Maison Fictive Immo',client:'SCI Fictive Immo'}]).length===1,'société : un prospect au nom de la raison sociale est proposé');
+
 chk(vf.fourchette&&vf.fourchette.min===8600&&vf.fourchette.max===12900,'la fourchette de la visite est lue');
 chk(M.visiteResume(ligne('vis-g',{budget:{lignes:[],estimation:{min:0,max:0}}})).fourchette===null,'fourchette vide : rien d’affiché');
 chk(/Fourchette annoncée à la visite \(indicative\) : de 8.600 € à 12.900 € TTC/.test(M.prospectDepuisVisite(vf,{},'2026-11-18').demande),'la demande du prospect créé reprend la fourchette annoncée');

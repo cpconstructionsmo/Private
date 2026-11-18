@@ -59,8 +59,11 @@ export const FOURCHETTES_MODELE = [
   L('facade', 'Façade', 'Ravalement de façade', 'm2_saisi'),
   L('toiture', 'Toiture', 'Réfection de couverture', 'm2_saisi'),
   L('extension', 'Extension', 'Extension (surface créée)', 'm2_saisi'),
-  L('reno-complete', 'Rénovation complète', 'Rénovation complète', 'm2_sol'),
-  L('demolition', 'Rénovation complète', 'Démolition de cloison', 'ml_saisi'),
+  L('chauffage', 'Chauffage', 'Chauffage : remplacement du générateur (PAC, chaudière…)', 'forfait'),
+  L('exterieur', 'Extérieur', 'Aménagement extérieur (terrasse, allée…)', 'm2_saisi'),
+  // « Rénovation complète » n'est plus un type de travaux : ces postes suivent la catégorie
+  L('reno-complete', 'Rénovation importante', 'Rénovation lourde (tous corps d’état)', 'm2_sol'),
+  L('demolition', 'Rénovation importante', 'Démolition de cloison', 'ml_saisi'),
 ];
 
 const nb = v => (typeof v === 'number' && isFinite(v) ? v : (v === '' || v == null ? null : (isFinite(+String(v).replace(',', '.')) ? +String(v).replace(',', '.') : null)));
@@ -120,10 +123,15 @@ export function verdictEnveloppe(total, enveloppe) {
   return { niveau: 'limite', texte: 'À la limite du budget' };
 }
 
-/* les postes de la table qui correspondent aux travaux choisis à la visite */
+/* les postes de la table qui correspondent aux travaux choisis à la visite.
+   `types` peut mêler types de travaux et catégories de rénovation ; une table
+   enregistrée avant le retrait de « Rénovation complète » garde ce type sur
+   ses lignes : il répond à « Rénovation importante ». */
 export function postesSuggeres(types, fourchettes, dejaPris) {
   const pris = new Set((dejaPris || []).map(l => l.fourchetteId));
-  return (fourchettes || []).filter(f => (types || []).includes(f.type) && !pris.has(f.id));
+  const t = new Set(types || []);
+  if (t.has('Rénovation importante')) t.add('Rénovation complète');
+  return (fourchettes || []).filter(f => t.has(f.type) && !pris.has(f.id));
 }
 
 /* les pièces du plan, telles que le moteur de relevé les envoie (resume) */

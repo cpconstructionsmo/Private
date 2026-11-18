@@ -76,7 +76,7 @@ let b;
   await carte1.getByRole('button',{name:'Rattacher',exact:true}).click();
   await carte1.locator('button:has-text("Confirmer le rattachement")').waitFor();
   const apercu=(await carte1.textContent()).replace(/\s+/g,' ');
-  chk(/complète : e-mail, adresse, enveloppe \(cases vides seulement\)/.test(apercu),'avant de confirmer : ce qui sera complété (cases vides seulement)');
+  chk(/complète : e-mail, adresse, demande, enveloppe, adresse du projet \(cases vides seulement\)/.test(apercu),'avant de confirmer : ce qui sera complété (cases vides seulement)');
   chk(!(await p.evaluate(()=>window.__ecrits.length)),'rien n’est enregistré avant la confirmation');
   await carte1.locator('button:has-text("Confirmer le rattachement")').click();
   await p.waitForFunction(()=>window.__ecrits.length>0);
@@ -130,6 +130,18 @@ let b;
   await o.goto('https://app.local/releve/?visite='+lignes[0].id);
   await o.waitForSelector('.etapeNom');
   chk((await o.textContent('header .titre')).includes('Anne Fictif'),'« Ouvrir » : la visite s’ouvre directement, même sur un autre appareil');
+
+  /* une fiche à deux acheteurs, avec l'adresse du projet distincte du domicile */
+  const DATA2={...DATA,prospects:[{id:'pE',nom:'Maison Deux - Mayenne',categorie:'renovation',civilite:'Mme',client:'Jeanne DEUX',telClient:'06 44 44 44 44',
+    adresseClient:'8 rue du Domicile 75000 Paris',commune:'Mayenne',afficherClient2:true,civilite2:'M.',client2:'Paul AUTRE',telClient2:'06 55 55 55 55',
+    statut:'demande',demandeLe:'2026-11-01',postes:[],decouverte:{adresseProjet:'1 chemin des Travaux'}}]};
+  const ctxE=await contexte(BIBLIO_RELEVE({appData:DATA2}),{viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  const e2=await ctxE.newPage();e2.setDefaultTimeout(15000);e2.on('pageerror',e=>erreurs.push('relevé 2 : '+e));
+  await e2.goto('https://app.local/releve/?prospect=pE');
+  await e2.waitForSelector('text=fiche client reprise du suivi');
+  await e2.tap('#suivant');
+  chk(await e2.inputValue('input[name="client.adresse"]')==='1 chemin des Travaux'&&await e2.inputValue('textarea[name="client.domicile"]')==='8 rue du Domicile 75000 Paris','reprise du suivi : adresse du projet en adresse des travaux, domicile à part');
+  chk(await e2.inputValue('input[name="acheteur2.nom"]')==='Paul AUTRE'&&await e2.inputValue('input[name="acheteur2.telephone"]')==='06 55 55 55 55','reprise du suivi : le 2e acheteur a sa fiche');
 
   chk(!erreurs.length,'aucune erreur dans les pages'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,500):''));
   await b.close();
