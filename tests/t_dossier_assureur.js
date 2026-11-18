@@ -13,7 +13,7 @@ const {chk,fin}=verif();
 const PDF=t=>Buffer.from('%PDF-1.4 '+t);
 const JPG=fs.readFileSync(path.join(__dirname,'..','assets','logo_signature.jpg'));
 const M=charger(['DossierAssureur','Marches','EMPTY','dossierAssureurDe','dossierAssureurDonnees','dossierAssureurMail','dossierAssureurObjet',
-  'dossierAssureurZip','dossierAssureurNomZip','zipEntrees','deduireAvoirMarche'],{
+  'dossierAssureurZip','dossierAssureurNomZip','zipEntrees','deduireAvoirMarche','dossierAssureurCopies'],{
   drive:{F1:PDF('f1'),AV:PDF('avoir'),R:PDF('repartie'),H1:PDF('hono'),PV1:Buffer.from('PK\x03\x04 word'),DA:PDF('daact'),ACH:JPG},
   fetch:async(url,init,base)=>/files\/F2\?alt=media/.test(url)
     ?{ok:false,status:404,json:async()=>({error:{code:404,message:'File not found: F2.',errors:[{reason:'notFound'}]}})}
@@ -74,6 +74,32 @@ const base=()=>({...M.EMPTY,chantiers:[CH],
   chk(/à télécharger ici : https:\/\/we\.tl\/t-fictif/.test(t3),'le lien WeTransfer collé passe dans le message');
   chk(!d3.fichiers.some(x=>x.groupe==='honoraires')&&d3.total.ht===2142400&&!/maîtrise d’œuvre \(/.test(t3)&&!d3.manquants.some(x=>/H-2/.test(x.texte)),
     'honoraires décochés : ni fichiers, ni montant, ni manque');
+}
+/* 2 bis. en copie : soi-même, le(s) client(s), d'autres adresses ; jamais l'assureur */
+{
+  const data={...base(),expediteurMail:'moe@example.fr'};
+  const ch={...data.chantiers[0],emailClient:'client@example.fr ; client2@example.fr',
+    dossierAssureur:{email:'assureur@example.fr',copieAutres:'x@example.fr, Assureur@example.fr'}};
+  const c=M.dossierAssureurCopies(ch,data);
+  chk(c.liste.join()==='moe@example.fr,client@example.fr,client2@example.fr,x@example.fr','moi, les deux clients, l’autre adresse ; l’assureur jamais en copie');
+  chk(M.dossierAssureurCopies(ch,base()).moi==='contact@cpconstructions.fr','sans adresse d’envoi réglée : celle de CP Constructions');
+  chk(M.dossierAssureurCopies({...ch,dossierAssureur:{...ch.dossierAssureur,adresseMoi:'perso@example.fr'}},data).liste[0]==='perso@example.fr','mon adresse saisie l’emporte');
+  chk(M.dossierAssureurCopies({...ch,dossierAssureur:{...ch.dossierAssureur,copieMoi:false,copieClient:false}},data).liste.join()==='x@example.fr','décochés : ni moi ni le client');
+  const pr={...data,prospects:[{id:'p1',emailClient:'prospect@example.fr'}]};
+  chk(M.dossierAssureurCopies({...ch,emailClient:'',prospectId:'p1'},pr).clients.join()==='prospect@example.fr','sans e-mail sur le chantier : celui du prospect');
+  let tr, d2={...data,chantiers:[ch]};
+  const monter=()=>React.createElement(M.DossierAssureur,{data:d2,ch:d2.chantiers[0],save:n=>{d2=n;TR.act(()=>tr.update(monter()))}});
+  TR.act(()=>{tr=TR.create(monter())});
+  const a=tr.root.findAll(n=>n.type==='a'&&/^mailto:/.test(n.props.href||''))[0];
+  chk(a&&decodeURIComponent(a.props.href).includes('?cc=moe@example.fr,client@example.fr,client2@example.fr,x@example.fr&subject='),
+    '« Ouvrir dans la messagerie » : les copies comprises');
+  const t=norm(texteInst(tr.root));
+  chk(/En copie : moe@example\.fr, client@example\.fr, client2@example\.fr, x@example\.fr\./.test(t)&&/Le client \(client@example\.fr, client2@example\.fr\)/.test(t)
+    &&tr.root.findAll(n=>n.type==='button'&&/Copier les adresses/.test(norm(texteInst(n)))).length===1,'l’écran dit qui est en copie ; les adresses se copient (WeTransfer)');
+  const caseClient=tr.root.findAll(n=>n.type==='input'&&n.props.type==='checkbox'&&/Le client/.test(norm(texteInst(n.parent))))[0];
+  TR.act(()=>caseClient.props.onChange({target:{checked:false}}));
+  chk(d2.chantiers[0].dossierAssureur.copieClient===false&&/En copie : moe@example\.fr, x@example\.fr\./.test(norm(texteInst(tr.root))),'décocher le client se garde');
+  TR.act(()=>tr.unmount());
 }
 /* 3. le ZIP */
 {
