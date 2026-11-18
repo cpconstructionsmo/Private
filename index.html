@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-17 · Chantiers de rénovation : badge, pièces de l’existant, contrat de maîtrise d’œuvre adapté';
+const VERSION='2026-11-18 · Relevé de visite : visites à rattacher aux prospects, sans doublon';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -25750,6 +25750,196 @@ function TableauBord({data,save,open,allerA,allerVers}){
    (des travaux sur l'existant), apporteur d'affaires (un projet amené par un
    apporteur). Un prospect saisi avant les catégories n'en porte pas : il
    reste dans « Maison neuve », où se trouvaient tous les prospects. */
+/* ---------- Relevé de visite (page releve/, table releve_visites) ----------
+   Les visites faites chez le client (iPhone, souvent sans réseau) vivent dans
+   leur propre table, jamais dans app_data. Le suivi les lit, propose de les
+   rattacher au bon prospect sans créer de doublon, et ne garde que le lien :
+   p.visites = [{id, le}]. Une visite lancée depuis une fiche prospect porte
+   déjà son prospect (valeurs.prospectId) : elle s'y range d'elle-même.
+   Rattacher ne complète que les cases vides du prospect : rien de ce qui a
+   été saisi n'est remplacé. Tests : t_releve_rattachement.js. */
+const RELEVE_ESPACE='releves';
+const releveLien=({visite,prospect}={})=>'releve/'+(visite?'?visite='+encodeURIComponent(visite):prospect?'?prospect='+encodeURIComponent(prospect):'');
+function visiteResume(ligne){
+  const d=(ligne&&ligne.donnees)||{}, v=d.valeurs||{}, ph=d.photos||{};
+  const actives=Object.values(ph).filter(x=>x&&!x.supprime);
+  const garde=v.photoGarde&&ph[v.photoGarde]&&!ph[v.photoGarde].supprime?ph[v.photoGarde]:null;
+  const txt=k=>typeof v[k]==='string'?v[k]:'';
+  return {id:(ligne&&ligne.id)||d.id||'', creeLe:d.creeLe||'', majLe:(ligne&&ligne.maj_le)||'',
+    civilite:txt('client.civilite'), nom:txt('client.nom'), prenom:txt('client.prenom'),
+    telephone:txt('client.telephone'), email:txt('client.email'), adresse:txt('client.adresse'),
+    codePostal:txt('client.codePostal'), ville:txt('client.ville'),
+    types:Array.isArray(v['projet.types'])?v['projet.types'].map(String):[], explicatif:txt('projet.explicatif'),
+    delai:txt('projet.delai'), enveloppe:typeof v['projet.enveloppe']==='number'?v['projet.enveloppe']:null,
+    notes:txt('notes'), statut:txt('statut')||'en_cours', prospectId:txt('prospectId'),
+    nbPieces:Object.values(d.pieces||{}).filter(x=>x&&!x.supprime).length,
+    nbPhotos:actives.filter(x=>x.role==='piece').length,
+    gardeChemin:(garde&&garde.chemin)||'', plan:v.plan&&v.plan.resume?v.plan.resume:null};
+}
+const visiteNomClient=r=>[r.prenom,r.nom].filter(Boolean).join(' ');
+const visiteIntitule=r=>[r.civilite,visiteNomClient(r)].filter(Boolean).join(' ')||'Visite sans nom';
+/* un téléphone comparable : chiffres seuls, +33 ramené à 0 */
+function normTel(s){
+  let n=String(s||'').replace(/[^\d+]/g,'');
+  if(n.startsWith('+33'))n='0'+n.slice(3); else if(n.startsWith('0033'))n='0'+n.slice(4);
+  n=n.replace(/\D/g,'');
+  return n.length>=9?n:'';
+}
+const normMots=s=>deaccent(String(s||'')).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+/* les prospects qui ressemblent au client de la visite, le plus sûr d'abord :
+   même téléphone ou même e-mail (sûr), même nom dans la même commune
+   (probable), même nom seulement (à vérifier) */
+function prospectsCandidats(r,prospects){
+  const tel=normTel(r.telephone), mail=String(r.email||'').trim().toLowerCase();
+  const nom=normMots(r.nom).split(' ').filter(m=>m.length>=2);
+  const lieux=normMots([r.ville,r.codePostal].join(' ')).split(' ').filter(m=>m.length>=3);
+  const res=[];
+  (prospects||[]).forEach(p=>{
+    const raisons=[];
+    if(tel&&[p.telClient,p.telClient2].some(t=>normTel(t)===tel))raisons.push('même téléphone');
+    if(mail&&[p.emailClient,p.emailClient2].some(e=>String(e||'').trim().toLowerCase()===mail))raisons.push('même e-mail');
+    if(nom.length){
+      const mots=' '+normMots([p.client,p.client2,p.nom].join(' '))+' ';
+      if(nom.every(m=>mots.includes(' '+m+' '))){
+        const lieuP=' '+normMots([p.commune,p.adresseClient,(p.decouverte||{}).adresseProjet,p.nom].join(' '))+' ';
+        raisons.push(lieux.some(m=>lieuP.includes(' '+m+' '))?'même nom, même commune':'même nom');
+      }
+    }
+    if(!raisons.length)return;
+    const score=(raisons.includes('même téléphone')?3:0)+(raisons.includes('même e-mail')?3:0)
+      +(raisons.includes('même nom, même commune')?2:raisons.includes('même nom')?1:0);
+    res.push({p,raisons,score,sur:score>=3});
+  });
+  return res.sort((a,b)=>b.score-a.score||(prospectArchive(a.p)?1:0)-(prospectArchive(b.p)?1:0));
+}
+/* un nouveau prospect rempli depuis la visite (base : le modèle vide du
+   formulaire des prospects) ; « M. et Mme » devient deux acquéreurs */
+function prospectDepuisVisite(r,base,le){
+  const lieu=[r.codePostal,r.ville].filter(Boolean).join(' ');
+  const demande=[r.types.length?'Travaux : '+r.types.join(', '):'',r.delai?'Délai souhaité : '+r.delai:'',r.explicatif]
+    .filter(Boolean).join('\n');
+  const couple=r.civilite==='M. et Mme';
+  const b=base||{};
+  return {...b,categorie:'renovation',
+    nom:'Maison '+(r.nom||'à nommer')+(r.ville?' - '+r.ville:''),
+    civilite:couple?'M.':(r.civilite||''), client:visiteNomClient(r),
+    ...(couple?{afficherClient2:true,civilite2:'Mme',client2:r.nom||''}:{}),
+    telClient:r.telephone||'', emailClient:r.email||'',
+    adresseClient:[r.adresse,lieu].filter(Boolean).join(' '), commune:r.ville||'',
+    demande, demandeLe:(r.creeLe||'').slice(0,10)||le, statut:'demande',
+    decouverte:{...(b.decouverte||{}),...(r.enveloppe!=null?{enveloppe:String(r.enveloppe)}:{})},
+    visites:[{id:r.id,le}]};
+}
+/* rattacher à un prospect existant : seules les cases vides sont complétées */
+const VISITE_CHAMPS_PROSPECT=[['civilite','civilité'],['client','nom du client'],['telClient','téléphone'],
+  ['emailClient','e-mail'],['adresseClient','adresse'],['commune','commune']];
+function completerProspectDepuisVisite(p,r,le){
+  const nv=prospectDepuisVisite(r,{},le), q={...p}, champs=[];
+  VISITE_CHAMPS_PROSPECT.forEach(([k,lib])=>{
+    if(!String(p[k]||'').trim()&&String(nv[k]||'').trim()){q[k]=nv[k];champs.push(lib)}
+  });
+  if(nv.decouverte.enveloppe&&!String((p.decouverte||{}).enveloppe||'').trim()){
+    q.decouverte={...(p.decouverte||{}),enveloppe:nv.decouverte.enveloppe};champs.push('enveloppe');
+  }
+  q.visites=(p.visites||[]).some(x=>x.id===r.id)?p.visites:[...(p.visites||[]),{id:r.id,le}];
+  return {prospect:q,champs};
+}
+const visitesDuProspect=(p,resumes)=>(resumes||[]).filter(r=>(p.visites||[]).some(x=>x.id===r.id)||(r.prospectId&&r.prospectId===p.id));
+function visitesARattacher(resumes,prospects,ignorees){
+  const P=prospects||[], ign=new Set(ignorees||[]);
+  return (resumes||[]).filter(r=>!ign.has(r.id)&&!P.some(p=>(p.visites||[]).some(x=>x.id===r.id))
+    &&!(r.prospectId&&P.some(p=>p.id===r.prospectId)));
+}
+/* les visites, lues dans leur table (rien si elle n'est pas encore installée) */
+function useVisitesReleve(){
+  const [st,setSt]=useState({etat:'chargement',liste:[]});
+  useEffect(()=>{let vivant=true;
+    Promise.resolve(sb.from('releve_visites').select('id,donnees,maj_le').order('maj_le',{ascending:false}).limit(200))
+      .then(({data,error})=>{if(!vivant)return;
+        if(error)setSt({etat:/42P01|PGRST205|does not exist|schema cache/.test((error.code||'')+' '+(error.message||''))?'absent':'erreur',liste:[]});
+        else setSt({etat:'ok',liste:(data||[]).map(visiteResume)})})
+      .catch(()=>{if(vivant)setSt({etat:'erreur',liste:[]})});
+    return ()=>{vivant=false}},[]);
+  return st;
+}
+function VignetteVisite({chemin,taille}){
+  const t=taille||56, [url,setUrl]=useState(null);
+  useEffect(()=>{let vivant=true;
+    if(chemin)Promise.resolve(sb.storage.from(RELEVE_ESPACE).createSignedUrl(chemin,3600))
+      .then(({data})=>{if(vivant&&data&&data.signedUrl)setUrl(data.signedUrl)}).catch(()=>{});
+    return ()=>{vivant=false}},[chemin]);
+  return url?<img src={url} alt="" style={{width:t,height:t,objectFit:'cover',borderRadius:8,flex:'0 0 auto'}}/>
+    :<div style={{width:t,height:t,borderRadius:8,background:RULE+'66',display:'flex',alignItems:'center',justifyContent:'center',flex:'0 0 auto',fontSize:t/2.4}}>🏠</div>;
+}
+function ResumeVisite({r}){
+  return <div style={{flex:1,minWidth:0}}>
+    <div className="sm" style={{fontWeight:600}}>{visiteIntitule(r)}
+      {r.statut==='terminee'&&<span className="pill" style={{marginLeft:6,background:GREEN+'1A',color:GREEN}}>terminée</span>}</div>
+    <div className="xs mut" style={{lineHeight:1.5}}>
+      {[r.telephone,[r.codePostal,r.ville].filter(Boolean).join(' '),r.creeLe?'visite du '+fd(r.creeLe.slice(0,10)):''].filter(Boolean).join(' · ')}</div>
+    <div className="xs" style={{lineHeight:1.5}}>
+      {[r.types.join(', '),r.delai,r.enveloppe!=null?'enveloppe '+eur(r.enveloppe):'',
+        r.nbPieces?r.nbPieces+' pièce'+(r.nbPieces>1?'s':'')+' · '+r.nbPhotos+' photo'+(r.nbPhotos>1?'s':''):'',
+        r.plan?'plan '+String(r.plan.surface).replace('.',',')+' m²':''].filter(Boolean).join(' · ')||'Projet à préciser'}</div>
+  </div>;
+}
+function VisitesARattacher({data,save,modele,ouvrir}){
+  const st=useVisitesReleve(), P=data.prospects||[];
+  const [apercu,setApercu]=useState(null);
+  if(st.etat!=='ok')return null;
+  const L=visitesARattacher(st.liste,P,data.visitesIgnorees);
+  if(!L.length)return null;
+  const creer=r=>{const id=uid();save({...data,prospects:[...P,{...prospectDepuisVisite(r,modele(),today()),id}]});ouvrir(id)};
+  const rattacher=(r,p)=>{const {prospect}=completerProspectDepuisVisite(p,r,today());
+    save({...data,prospects:P.map(x=>x.id===p.id?prospect:x)});setApercu(null);ouvrir(p.id)};
+  const ignorer=r=>{if(!confirm('Ne rattacher cette visite à aucun prospect ? Elle reste consultable dans le relevé.'))return;
+    save({...data,visitesIgnorees:[...(data.visitesIgnorees||[]),r.id]})};
+  return <div className="card visites-a-rattacher" style={{borderLeft:'3px solid '+NAVY}}>
+    <div className="h2" style={{marginBottom:4}}>VISITES À RATTACHER ({L.length})</div>
+    <div className="xs mut" style={{marginBottom:10,lineHeight:1.5}}>
+      Faites avec le relevé de visite et rattachées à aucun prospect. Rattachez chacune à son dossier, ou créez le
+      prospect depuis la visite : rien n’est ressaisi, et rattacher ne complète que les cases vides.</div>
+    {L.map(r=>{const C=prospectsCandidats(r,P).slice(0,3);
+      return <div key={r.id} className="visite-a-rattacher" style={{borderTop:'1px solid '+RULE,paddingTop:10,marginTop:10}}>
+        <div className="row" style={{gap:10,alignItems:'flex-start'}}><VignetteVisite chemin={r.gardeChemin}/><ResumeVisite r={r}/></div>
+        {C.map(c=><div key={c.p.id} className="xs" style={{marginTop:8,padding:'8px 10px',borderRadius:8,
+          background:(c.sur?GREEN:AMBER)+'14',lineHeight:1.5}}>
+          {c.sur?'Même client que':'Peut-être le même client que'} <b>« {c.p.nom||c.p.client} »</b> ({c.raisons.join(', ')})
+          {apercu&&apercu.r===r.id&&apercu.p===c.p.id
+            ?<div style={{marginTop:6}}>
+              {(()=>{const ch=completerProspectDepuisVisite(c.p,r,today()).champs;
+                return ch.length?'Le rattachement complète : '+ch.join(', ')+' (cases vides seulement).':'Rien à compléter : la fiche du prospect reste telle quelle.'})()}
+              <div className="row" style={{gap:6,marginTop:6}}>
+                <button className="btn acc s" onClick={()=>rattacher(r,c.p)}>Confirmer le rattachement</button>
+                <button className="btn gh s" onClick={()=>setApercu(null)}>Annuler</button></div></div>
+            :<button className="btn gh s" style={{marginLeft:6}} onClick={()=>setApercu({r:r.id,p:c.p.id})}>Rattacher</button>}
+        </div>)}
+        <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
+          <button className="btn acc s" onClick={()=>creer(r)}>{C.length?'Non, créer un nouveau prospect':'Créer le prospect'}</button>
+          <a className="btn gh s" href={releveLien({visite:r.id})} target="_blank" rel="noopener">Voir la visite</a>
+          <button className="btn gh s" onClick={()=>ignorer(r)}>Ne pas rattacher</button>
+        </div>
+      </div>})}
+  </div>;
+}
+function VisitesProspect({p}){
+  const st=useVisitesReleve();
+  const L=st.etat==='ok'?visitesDuProspect(p,st.liste):[];
+  return <div className="card visites-prospect" style={{marginBottom:12}}>
+    <div className="sp" style={{alignItems:'center',gap:8}}>
+      <span className="h2">VISITES{L.length?' ('+L.length+')':''}</span>
+      <a className="btn gh s" href={releveLien({prospect:p.id})} target="_blank" rel="noopener">📷 Nouvelle visite</a>
+    </div>
+    {st.etat==='chargement'&&<div className="xs mut" style={{marginTop:6}}>Chargement des visites…</div>}
+    {st.etat==='erreur'&&<div className="xs mut" style={{marginTop:6}}>Visites indisponibles pour le moment (réseau ?).</div>}
+    {st.etat==='ok'&&!L.length&&<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
+      Aucune visite pour ce dossier. « Nouvelle visite » ouvre le relevé avec la fiche client déjà remplie.</div>}
+    {L.map(r=><div key={r.id} className="row" style={{gap:10,alignItems:'flex-start',borderTop:'1px solid '+RULE,paddingTop:10,marginTop:10}}>
+      <VignetteVisite chemin={r.gardeChemin}/><ResumeVisite r={r}/>
+      <a className="btn gh s" href={releveLien({visite:r.id})} target="_blank" rel="noopener">Ouvrir</a>
+    </div>)}
+  </div>;
+}
 const PROSPECT_CATEGORIES=[{id:'neuf',label:'Maison neuve'},{id:'renovation',label:'Rénovation'},{id:'apporteur',label:'Apporteur d’affaires'}];
 const prospectCategorie=p=>PROSPECT_CATEGORIES.some(c=>c.id===(p&&p.categorie))?p.categorie:'neuf';
 function Prospects({data,save,cible}){
@@ -25833,8 +26023,11 @@ function Prospects({data,save,cible}){
     onModifier={n=>{setCaseModif(n);setF(avecTaxesAuto({...neuf(),...ouvert},data))}}
     onTransformer={()=>transformer(ouvert)}/>;
   return <div>
-    <H2 action={<button className="btn acc s" onClick={()=>{setCaseModif(null);setF(neuf())}}>+ Prospect</button>}>PROSPECTS ({P.length})</H2>
+    <H2 action={<span className="row" style={{gap:6}}>
+      <a className="btn gh s" href={releveLien()} target="_blank" rel="noopener" title="Ouvrir le relevé de visite (iPhone)">📷 Nouvelle visite</a>
+      <button className="btn acc s" onClick={()=>{setCaseModif(null);setF(neuf())}}>+ Prospect</button></span>}>PROSPECTS ({P.length})</H2>
     {brouillon.bandeau}
+    {!f&&<VisitesARattacher data={data} save={save} modele={neuf} ouvrir={id=>setOuv(id)}/>}
     <div className="row" style={{gap:6,marginBottom:12,flexWrap:'wrap'}}>
       {PROSPECT_CATEGORIES.map(c=>{const n=P.filter(p=>prospectCategorie(p)===c.id).length;
         return <button key={c.id} className={'btn '+(categorie===c.id?'acc':'gh')} onClick={()=>setCategorie(c.id)}>{c.label} ({n})</button>})}
@@ -26225,6 +26418,7 @@ function FicheProspect({p,data,save,maj,back,onModifier,onTransformer}){
       {prix?' · '+eur(prix)+' TTC'+(r?' · '+eurM2(r):''):''}
     </div>
     <NotesDossier notes={p.notesDossier} onChange={L=>maj({notesDossier:L})}/>
+    <VisitesProspect p={p}/>
     <DetailProspect p={p} maj={maj} data={data} onModifier={onModifier} onPtr={save?()=>setPtr(true):null}/>
     <div className="row" style={{gap:8,marginTop:4,flexWrap:'wrap'}}>
       {p.statut!=='gagne'&&!prospectArchive(p)&&<button className="btn gh s" onClick={onTransformer}>Transformer en chantier</button>}

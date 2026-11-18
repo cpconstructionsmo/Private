@@ -15,8 +15,24 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
    ouvertures, étages, toitures, avant/après, vue 3D, export PDF.
 6. **Fin de visite** : récapitulatif, ce qui manque, notes.
 
-À venir : rattachement aux prospects du suivi (étape 3), « Imaginer »
-(étape 4), lecture des notes manuscrites par une fonction du serveur.
+## Le lien avec le suivi de chantiers (Phase 1 étape 3)
+
+- PROSPECTS › **« Visites à rattacher »** : chaque visite qui n'appartient à
+  aucun dossier est proposée avec les prospects qui lui ressemblent (même
+  téléphone ou e-mail : sûr ; même nom dans la même commune : probable ;
+  même nom seulement : à vérifier). « Rattacher » dit d'abord ce qui sera
+  complété — **les cases vides seulement**, rien n'est remplacé ; « Créer le
+  prospect » le remplit depuis la visite ; « Ne pas rattacher » l'écarte.
+  Le suivi ne garde que le lien (`p.visites`), jamais la visite elle-même.
+- Fiche prospect › **« Visites »** : photo de garde, travaux, enveloppe, plan,
+  « Ouvrir » (la visite, sur n'importe quel appareil) et « Nouvelle visite »
+  (le relevé s'ouvre avec la fiche client reprise du suivi, la visite est
+  rattachée d'office au dossier).
+- Le relevé **lit** les données du suivi pour remplir la fiche client ; il n'y
+  écrit jamais.
+
+À venir : « Imaginer » (étape 4), lecture des notes manuscrites par une
+fonction du serveur.
 
 ## Le moteur de relevé (`moteur/`, Phase 1 étape 2)
 
@@ -74,7 +90,8 @@ d'accueil ». L'icône « Relevé CP » ouvre la page en plein écran.
 ## Tests
 
 `tests/t_releve_modele.js`, `tests/t_releve_synchro.js`,
-`tests/t_releve_convertisseur.js` (Node) et `tests/releve_navigateur.js`,
-`tests/releve_plan_navigateur.js` (Chromium, faux Supabase, format iPhone,
+`tests/t_releve_convertisseur.js`, `tests/t_releve_rattachement.js` (Node) et
+`tests/releve_navigateur.js`, `tests/releve_plan_navigateur.js`,
+`tests/releve_rattachement_navigateur.js` (Chromium, faux Supabase, format iPhone,
 scan fictif `tests/releve_scan_fictif.js`).
 Aucune donnée réelle dans les tests.

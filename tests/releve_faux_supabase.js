@@ -3,6 +3,8 @@
    Utilisé tel quel dans Node (t_releve_synchro.js) et injecté par son texte
    dans Chromium (releve_navigateur.js) : il ne dépend de rien.
 
+   etat.appData : les données du suivi (app_data), lues par « Nouvelle visite »
+   depuis une fiche prospect ; toute écriture y est refusée et notée.
    etat.panne : 'reseau' | 'tables' | null — simule une coupure ou des
    tables pas encore installées. etat.avantEcriture(table, ligne) : appelé
    juste avant une écriture, pour glisser l'écriture d'un « autre appareil ». */
@@ -19,12 +21,18 @@ function fauxSupabase(etat) {
       select() { return q; }, order() { return q; }, limit() { return q; },
       eq(c, v) { st.filtres.push([c, v]); return q; },
       maybeSingle() { st.unique = true; return q; },
+      single() { st.unique = true; return q; },
       insert(v) { st.op = 'insert'; st.valeurs = v; return q; },
       update(v) { st.op = 'update'; st.valeurs = v; return q; },
       then(ok, ko) { return Promise.resolve().then(executer).then(ok, ko); },
     };
     function executer() {
       const e = panne(); if (e) return { data: null, error: e };
+      /* les données du suivi (lecture seule ici) : etat.appData, ou absentes */
+      if (table === 'app_data') {
+        if (st.op !== 'select') { etat.ecritureAppData = true; return { data: null, error: { message: 'écriture interdite depuis le relevé' } }; }
+        return etat.appData ? { data: { data: copie(etat.appData) }, error: null } : { data: null, error: { code: 'PGRST116', message: 'aucune ligne' } };
+      }
       if (table !== 'releve_visites') return { data: null, error: { code: '42P01', message: 'table inconnue' } };
       const garde = l => st.filtres.every(([c, v]) => l[c] === v);
       if (st.op === 'select') {
