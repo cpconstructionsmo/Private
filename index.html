@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Relevé de visite : dossier client (projet, photos, relevé, estimation) ouvert depuis la fiche prospect';
+const VERSION='2026-11-18 · Chiffrage interne en Excel ; dossier de présentation détaillé par corps d’état (au choix)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4846,6 +4846,15 @@ function dossierDocumentXml(p,px,com,majTarifs){
     sautPage,
   ].join('');
 
+  /* en-têtes et cellules des tableaux du dossier */
+  const entC=(l,t,jc)=>tc(l,par(t,{b:true,sz:17,c:DOC_TERRA,sp:16,caps:true,jc:jc,ap:0}),
+    {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100});
+  const celC=(l,t,jc)=>tc(l,par(t,{sz:18,jc:jc,ap:0}),
+    {bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
+      +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100,v:'top'});
+  /* le détail par corps d'état, seulement si on l'a coché sur la carte (p.dossierDetailPostes) */
+  const detail=p.dossierDetailPostes?detailPostesClient(p,majTarifs):null;
   /* ---- 1. la notice technique ---- */
   const p1=[
     titre('1.  Notice de présentation technique du projet envisagé'),
@@ -4860,6 +4869,10 @@ function dossierDocumentXml(p,px,com,majTarifs){
       par('Coût prévisionnel des travaux (à titre indicatif)',{b:true,sz:19,c:DOC_TERRA,caps:true,sp:16,ap:40}),
       par(eurDoc(prospectPrixTTC(p,majTarifs))+' TTC',{b:true,sz:30,c:DOC_ENCRE,ap:0}),
     ].join(''),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:160})])],{}),
+    detail&&detail.lignes.length?[vide(120),
+      tbl([6400,1600,2400],[tr([entC(6400,'Corps d’état'),entC(1600,'TVA','right'),entC(2400,'Montant TTC','right')])]
+        .concat(detail.lignes.map(l=>tr([celC(6400,l.libelle,'left'),celC(1600,nb2(l.taux)+' %','right'),celC(2400,eurDoc(l.ttc),'right')])))
+        .concat([tr([entC(6400,'Total'),entC(1600,detail.mixte?'mixte':nb2(detail.lignes[0].taux)+' %','right'),entC(2400,eurDoc(detail.total),'right')])]))].join(''):'',
     par('Ce montant correspond au coût prévisionnel de réalisation des travaux par les entreprises exécutantes. Il ne constitue ni un engagement de prix ferme, ni les honoraires du maître d’œuvre, et sera précisé lors de la consultation des entreprises (DCE) et de la signature des marchés de travaux.',
       {sz:16,i:true,c:DOC_GRIS,jc:'both',av:100,ap:0}),
   ]).join('');
@@ -4878,12 +4891,6 @@ function dossierDocumentXml(p,px,com,majTarifs){
     ]).join('');
 
   /* ---- 3. ce qui reste au client ---- */
-  const entC=(l,t,jc)=>tc(l,par(t,{b:true,sz:17,c:DOC_TERRA,sp:16,caps:true,jc:jc,ap:0}),
-    {fond:DOC_SABLE,bords:'<w:tcBorders><w:top '+bord(DOC_BRUN,8)+'/><w:left '+bord(DOC_BRUN,4)+'/>'
-      +'<w:bottom '+bord(DOC_BRUN,8)+'/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100});
-  const celC=(l,t,jc)=>tc(l,par(t,{sz:18,jc:jc,ap:0}),
-    {bords:'<w:tcBorders><w:top w:val="nil"/><w:left '+bord(DOC_BRUN,4)+'/>'
-      +'<w:bottom w:val="nil"/><w:right '+bord(DOC_BRUN,4)+'/></w:tcBorders>',mg:100,v:'top'});
   const p3=[
     titre('3.  Travaux et prestations non compris dans la mission'),
     par('Restent à la charge exclusive du maître de l’ouvrage :',{sz:18,ap:100}),
@@ -4962,6 +4969,24 @@ function dossierDocumentXml(p,px,com,majTarifs){
     +'<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/>'
     +'<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>'
     +'</w:body></w:document>';
+}
+/* le coût prévisionnel détaillé par corps d'état, pour le client : chaque
+   poste (et option incluse) reçoit sa part du prix HT au prorata de son coût,
+   puis sa TVA ; la marge n'apparaît donc jamais en tant que telle. La somme
+   est exactement le coût prévisionnel annoncé (le dernier poste reçoit
+   l'arrondi). Tests : t_chiffrage_xlsx.js. */
+function detailPostesClient(p,majTarifs){
+  const items=[...((p&&p.postes)||[]).map(x=>({libelle:majCorps(x.libelle||'Poste'),cout:posteMontantMajore(x,majTarifs),taux:posteTva(x,p)})),
+    ...optionsInclues(p).map(x=>({libelle:majCorps(x.libelle||'Option')+(x.moinsValue?' (moins-value)':' (option)'),cout:optionMontant(x,majTarifs,p),taux:posteTva(x,p)}))]
+    .filter(x=>Math.abs(x.cout)>=0.005);
+  const total=prospectPrixTTC(p,majTarifs), cout=items.reduce((t,x)=>t+x.cout,0), prix=prospectPrixHT(p,majTarifs);
+  if(!items.length||Math.abs(cout)<0.005)return {lignes:[],total,mixte:false};
+  let reste=total;
+  const lignes=items.map((x,i)=>{
+    const ttc=i===items.length-1?Math.round(reste*100)/100:Math.round(prix*x.cout/cout*(1+x.taux/100)*100)/100;
+    reste-=ttc; return {libelle:x.libelle,taux:x.taux,ttc};
+  });
+  return {lignes,total,mixte:new Set(lignes.map(l=>l.taux)).size>1};
 }
 /* les honoraires annoncés au client : la marge du maître d'œuvre, TTC */
 const honoDossierTTC=(p,majTarifs)=>Math.round(prospectMargeHT(p,majTarifs)*(1+prospectTva(p)/100)*100)/100;
@@ -28435,6 +28460,9 @@ function SortirDossier({data,p,maj}){
         {prospectMargeHT(p)>0?'✓ honoraires':'⚠ marge non fixée'}</span>
       {' · '}<span className="mut">{(p.produits||[]).length} produit(s)</span>
     </div>
+    {(p.postes||[]).length>1&&<label className="row xs" style={{gap:6,marginTop:6,cursor:'pointer',alignItems:'center'}}>
+      <input type="checkbox" className="dossier-detail-postes" checked={!!p.dossierDetailPostes} onChange={e=>maj({dossierDetailPostes:e.target.checked})}/>
+      <span>Détailler le coût par corps d’état (montants TTC, TVA de chaque poste ; la marge n’apparaît pas)</span></label>}
     <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
       <button className="btn acc s" disabled={etat&&etat.etat==='travail'} onClick={produire}>
         {etat&&etat.etat==='travail'?'Composition…':'Sortir le dossier Word'}</button>

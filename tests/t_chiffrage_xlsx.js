@@ -3,7 +3,7 @@
    nombres, TVA par poste, rétrocession, options, récapitulation. Montants
    et libellés fictifs. */
 const {charger,verif}=require('./harness');
-const M=charger(['chiffrageInterneLignes','genererChiffrageInterneXlsx','prospectPrixTTC','prospectPrixHT','prospectMargeHT','prospectCoutHT']);
+const M=charger(['detailPostesClient','dossierDocumentXml','chiffrageInterneLignes','genererChiffrageInterneXlsx','prospectPrixTTC','prospectPrixHT','prospectMargeHT','prospectCoutHT']);
 const {chk,fin}=verif();
 
 const p={nom:'Maison Fictif',margePct:10,tva:10,postes:[
@@ -33,4 +33,13 @@ chk(o&&o.length>500&&o[0]===0x50&&o[1]===0x4B,'classeur .xlsx produit (archive z
 const txt=Buffer.from(o).toString('latin1');
 chk(/<c r="F3" s="2"><v>1000<\/v><\/c>/.test(txt)||/<v>1000<\/v>/.test(txt),'les montants sont des nombres dans la feuille');
 chk(M.chiffrageInterneLignes({postes:[],coutHT:50000,margePct:10}).some(r=>r[0]==='Prix HT'&&r[5]===55000),'projet sans poste (coût saisi) : la récapitulation suffit');
+
+/* le détail par corps d'état remis au client (dossier de présentation, si coché) */
+const d=M.detailPostesClient(p);
+chk(d.lignes.length===3&&Math.abs(d.lignes.reduce((t,l)=>t+l.ttc,0)-M.prospectPrixTTC(p))<0.001&&d.total===M.prospectPrixTTC(p),'détail client : la somme des postes est exactement le coût prévisionnel annoncé');
+chk(d.mixte&&d.lignes.find(l=>l.libelle==='MENUISERIES').taux===5.5&&d.lignes.some(l=>l.libelle==='VOLETS (FICTIF) (option)'),'chaque poste avec sa TVA ; l’option incluse est nommée');
+chk(Math.abs(d.lignes[0].ttc-Math.round(M.prospectPrixHT(p)*1000/M.prospectCoutHT(p)*1.1*100)/100)<0.01,'la marge est répartie au prorata du coût : elle n’apparaît jamais seule');
+const sansDetail=M.dossierDocumentXml(p,{},{},undefined), avecDetail=M.dossierDocumentXml({...p,dossierDetailPostes:true},{},{},undefined);
+chk(!/Corps d’état/.test(sansDetail)&&/Corps d’état/.test(avecDetail)&&/MENUISERIES/.test(avecDetail),'dossier de présentation : le détail n’y est que si on le coche');
+chk(!/[Mm]arge|[Rr]étrocession/.test(avecDetail.replace(/<[^>]+>/g,'')),'le dossier remis au client ne parle ni de marge ni de rétrocession');
 fin();
