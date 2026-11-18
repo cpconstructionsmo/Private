@@ -530,6 +530,8 @@ function etapeScan(v) {
           if (!confirm('Oublier définitivement cette autre version du plan ?')) return;
           await poser('plan.ecarte', null); dessiner();
         } }, 'L’oublier'))) : null,
+    // une pièce scannée à part : elle s'ajoute dans le plan, pas en remplaçant le scan
+    plan ? h('p', { class: 'mut petit' }, 'Pièces scannées séparément ? Ouvrez le plan, puis « ＋ Scan » pour chaque autre scan et « 🔗 Relier » : touchez un mur, puis le mur de l’autre scan qui le touche.') : null,
     scan || plan ? h('button', { class: 'gros', id: 'ouvrirPlan', onclick: ouvrirPlan }, '📐 Ouvrir le plan') : null,
     h('div', { style: 'margin-top:10px' }, h('button', { class: scan || plan ? 'gros sec' : 'gros', id: 'importerScan', onclick: importer }, scan ? 'Remplacer le scan' : '📐 Importer le scan')),
   ];

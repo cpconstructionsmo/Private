@@ -25,6 +25,9 @@
   @media (max-width: 700px) { .tools { margin-left:0; width:100%; } }
   .tools button { padding:4px 10px; border:1px solid var(--bord); background:#fff; border-radius:6px; cursor:pointer; font-size:13px; }
   .tools button:hover { background:#eef3fb; }
+  .tools .btnOutil { padding:4px 10px; border:1px solid var(--bord); background:#fff; border-radius:6px; cursor:pointer; font-size:13px; }
+  .tools .btnOutil:hover { background:#eef3fb; }
+  .tools button.actif { background:#d97706; border-color:#d97706; color:#fff; }
   .zone { position:relative; height:480px; border:1px solid var(--bord); border-radius:8px; background:#fff; overflow:hidden; }
   .zone canvas { display:block; width:100%; height:100%; }
   #plan { cursor:grab; touch-action:none; }
@@ -90,6 +93,11 @@
   #editeur button.danger { border-color:#d93025; color:#d93025; background:#fff; }
   #modal { position:fixed; inset:0; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; z-index:20; padding:16px; }
   #modal[hidden] { display:none; }
+  /* réglage en direct (liaison de deux scans) : la fenêtre en bas, le plan reste visible */
+  #modal.basEcran { align-items:flex-end; background:transparent; pointer-events:none; }
+  #modal.basEcran .modalBoite { pointer-events:auto; box-shadow:0 -6px 30px rgba(0,0,0,.28); }
+  .rangLz { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .rangLz button { flex:1; padding:7px 8px; border:1px solid var(--bord); background:#fff; border-radius:8px; cursor:pointer; font-size:13px; }
   .modalBoite { background:#fff; border-radius:12px; padding:16px 18px; width:100%; max-width:420px; max-height:90vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,.3); }
   .modalBoite h3 { margin:0 0 8px; font-size:17px; }
   .modalBoite label { display:block; margin:10px 0 0; font-size:13px; color:var(--gris); }
@@ -150,6 +158,9 @@
   .modalBtns .btn.danger { color:#d93025; border-color:#d93025; }
   #barreTrace { position:absolute; left:50%; top:8px; transform:translateX(-50%); z-index:6; background:#1f6feb; color:#fff; padding:6px 12px; border-radius:18px; font-size:13px; display:flex; gap:10px; align-items:center; box-shadow:0 4px 14px rgba(0,0,0,.25); max-width:94%; }
   #barreTrace[hidden] { display:none; }
+  #barreLiaison { position:absolute; left:50%; top:8px; transform:translateX(-50%); z-index:6; background:#d97706; color:#fff; padding:6px 12px; border-radius:18px; font-size:13px; display:flex; gap:10px; align-items:center; box-shadow:0 4px 14px rgba(0,0,0,.25); max-width:94%; }
+  #barreLiaison[hidden] { display:none; }
+  #barreLiaison button { background:#fff; color:#d97706; border:0; border-radius:12px; padding:3px 10px; cursor:pointer; font-size:12px; }
   #barreTrace button { background:#fff; color:#1f6feb; border:0; border-radius:12px; padding:3px 10px; cursor:pointer; font-size:12px; }
   input.epMur, input.cloLong, input.cloEp { width:84px; font:inherit; font-size:13px; padding:4px 6px; text-align:right; border:1px solid #cfd6df; border-radius:5px; }
   #btnAvantApres { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
@@ -206,6 +217,8 @@
       <label class="angle" id="lblDuo" hidden><input type="checkbox" id="chkDuo"> Côte à côte</label>
       <button id="btnAjMur" type="button" title="Tracer un nouveau mur (cloison) en touchant deux points sur le plan">＋ Mur</button>
       <button id="btnAjPiece" type="button" title="Ajouter une pièce (agrandissement…)">＋ Pièce</button>
+      <label id="btnAjScan" class="btnOutil" title="Ajouter le scan d'une autre pièce : il se pose à droite du plan, puis on le relie">＋ Scan<input id="fichierScan" type="file" hidden></label>
+      <button id="btnRelier" type="button" title="Relier deux scans : touchez un mur, puis le mur de l'autre scan qui le touche">🔗 Relier</button>
       <button id="btnAnnuler" type="button" title="Annuler la dernière modification (Ctrl+Z)" disabled>↶</button>
       <button id="btnRefaire" type="button" title="Rétablir (Ctrl+Maj+Z)" disabled>↷</button>
       <button id="btnRotG" type="button" title="Tourner le plan de 90° vers la gauche">⟲ 90°</button>
@@ -219,6 +232,7 @@
     <div id="aideAvantApres" class="aideAA" hidden><span>💡 <b>Avant / après travaux</b> : préparez ce plan avec les bonnes cotes, puis créez la <b>copie à côté</b> : l'original reste figé (situation initiale) et vous modifiez la copie (après travaux).</span> <button type="button" id="btnAideAA">Créer la copie avant / après</button> <button type="button" id="btnFermerAideAA" title="Masquer cette aide">✕</button></div>
     <div class="zone" id="zonePlan">
       <div id="barreTrace" hidden><span id="texteTrace"></span> <button type="button" id="btnAnnulerTrace">Annuler le tracé</button></div>
+      <div id="barreLiaison" hidden><span id="texteLiaison"></span> <button type="button" id="btnAnnulerLiaison">Annuler</button></div>
       <canvas id="planRef" hidden></canvas>
       <canvas id="plan"></canvas>
       <div id="editeur" hidden></div>
@@ -294,6 +308,7 @@
 <script src="three.min.js"></script>
 <script src="OrbitControls.js"></script>
 <script src="convertisseur.js"></script>
+<script src="assemblage.js"></script>
 <script src="moteur.js"></script>
 
 </body></html>
