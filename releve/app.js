@@ -217,6 +217,7 @@ function carteVisite(r) {
     h('div', { class: 'corps' },
       h('b', {}, M.intitule(v)),
       h('div', { class: 'mut petit' }, [ville, types.slice(0, 2).join(', ')].filter(Boolean).join(' · ') || 'Projet à préciser'),
+      (M.valeur(v, 'budget') || {}).estimation && M.valeur(v, 'budget').estimation.max > 0 ? h('div', { class: 'petit', style: 'color:var(--navy);font-weight:600' }, '💶 ' + B.formatPlage(M.valeur(v, 'budget').estimation)) : null,
       h('div', { class: 'mut petit' }, dateCourte(v.creeLe),
         M.valeur(v, 'statut') === 'terminee' ? h('span', { class: 'pastille ok' }, 'Terminée') : null,
         r.enAttente ? h('span', { class: 'pastille' }, 'À envoyer') : null)));
@@ -239,7 +240,9 @@ function ecranVisite() {
       h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'accueil'; S.message = null; dessiner(); } }, '‹ Visites'),
       h('span', { class: 'titre' }, M.intitule(v)), pastilleEtat()),
     h('main', {},
-      h('div', { class: 'progres', 'aria-hidden': 'true' }, M.ETAPES.map((e, i) => h('i', { class: i < S.etape ? 'fait' : i === S.etape ? 'ici' : '' }))),
+      // la barre de progression est aussi un sommaire : toucher une étape y va directement
+      h('nav', { class: 'progres', 'aria-label': 'Étapes de la visite' }, M.ETAPES.map((e, i) => h('button', { type: 'button', class: i < S.etape ? 'fait' : i === S.etape ? 'ici' : '',
+        title: e.titre, 'aria-label': 'Étape ' + (i + 1) + ' : ' + e.titre, 'aria-current': i === S.etape ? 'step' : null, onclick: () => { if (i !== S.etape) allerEtape(i); } }, h('i')))),
       h('div', { class: 'etapeNom' }, 'Étape ' + (S.etape + 1) + ' sur ' + M.ETAPES.length + ' · ' + et.titre),
       S.message && h('div', { class: 'message ' + S.message.type, style: 'margin-top:10px' }, S.message.texte),
       h('div', { class: 'anime' }, corps)),

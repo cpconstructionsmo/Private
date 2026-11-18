@@ -57,7 +57,13 @@ qu'on ait à les redire.
   `Quantitatif` prop `plan`), une ligne prend sa quantité dans le plan de la
   visite (`l.regle` : grandeur et pièces, `qtePlan`, `planDuProspect`) ;
   « Mettre à jour depuis le plan » ne touche que ces lignes ; une quantité
-  tapée retire la règle. Installation :
+  tapée retire la règle. Chiffrage interne en Excel (carte « Chiffrage
+  interne », `chiffrageInterneLignes`, `genererChiffrageInterneXlsx` :
+  postes, lignes du quantitatif, TVA, rétrocession, marge — usage interne).
+  Dossier de présentation : « Détailler le coût par corps d'état »
+  (`p.dossierDetailPostes`, `detailPostesClient` : marge répartie au
+  prorata, somme = coût prévisionnel annoncé), non coché par défaut. Tests :
+  `t_chiffrage_xlsx.js`. Installation :
   `supabase/releve/schema.sql`. Tests : `t_releve_*.js`,
   `releve*_navigateur.js` (scan fictif `tests/releve_scan_fictif.js`).
 - **Plan électrique** : le DQE (quantitatif du marché « Électricité », ou un

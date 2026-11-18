@@ -43,6 +43,9 @@ let b;
   await p.waitForSelector('img.garde[src^="blob:"]',{timeout:8000});
   chk(true,'la photo de garde s’affiche depuis l’appareil');
   chk((await p.textContent('.etapeNom')).includes('Étape 1 sur 7'),'barre de progression : étape 1 sur 7');
+  await p.tap('.progres button[aria-label="Étape 3 : Projet"]');
+  chk((await p.textContent('.etapeNom')).includes('Étape 3 sur 7'),'toucher la barre de progression : on va directement à l’étape 3');
+  await p.tap('.progres button[aria-label^="Étape 1 "]');
   await p.screenshot({path:SORTIE+'/releve_garde.png'});
 
   /* fiche client */

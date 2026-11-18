@@ -38,7 +38,7 @@ const FAUX=`window.__ecrits=[];window.supabase={createClient:()=>{
 let b;
 (async()=>{
   b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium'});
-  const ctx=await b.newContext({viewport:{width:1440,height:900}});
+  const ctx=await b.newContext({viewport:{width:1440,height:900},acceptDownloads:true});
   await ctx.route('**/*',r=>{const u=r.request().url();
     if(/react\.production/.test(u))return r.fulfill({path:NM+'/react/umd/react.production.min.js',contentType:'text/javascript'});
     if(/react-dom\.production/.test(u))return r.fulfill({path:NM+'/react-dom/umd/react-dom.production.min.js',contentType:'text/javascript'});
@@ -83,6 +83,14 @@ let b;
   chk(l1.qt===30.1&&l1.regle&&l1.regle.grandeur==='murs'&&l1.regle.pieces.join()==='p1','enregistré : quantité et règle du plan (murs de la cuisine)');
   chk(+l2.qt===12&&!l2.regle,'la quantité tapée à la main est gardée telle quelle, sans règle');
   chk(Math.abs(po.montant-(30.1*14.5+12*8))<0.01,'montant du poste enregistré : '+po.montant+' € HT');
+
+  /* le chiffrage interne en Excel : téléchargé d'un clic, depuis la fiche */
+  const bx=p.locator('button.chiffrage-xlsx');
+  if(await bx.count()){
+    const [dl]=await Promise.all([p.waitForEvent('download'),bx.first().click()]);
+    const f=await dl.path();const taille=f?require('fs').statSync(f).size:0;
+    chk(/^Chiffrage_interne_.*\.xlsx$/.test(dl.suggestedFilename())&&taille>1000,'« Exporter en Excel » : le classeur se télécharge ('+dl.suggestedFilename()+', '+taille+' octets)');
+  } else chk(false,'le bouton « Exporter en Excel » est sur la fiche');
 
   /* puis on tape à la main sur la ligne réglée : elle cesse de suivre le plan */
   await p.click('text=Maison Fictif - Alençon').catch(()=>{});
