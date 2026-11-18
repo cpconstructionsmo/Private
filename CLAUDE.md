@@ -119,7 +119,11 @@ qu'on ait à les redire.
   (`p.contratDoCout`, à défaut `p.dommageOuvrage` du chiffrage) ; en
   rénovation, « aucune démolition de mur porteur ni gros œuvre »
   (`p.contratDoSansStructure`) fait dire au contrat qu'elle peut ne pas
-  être exigée, la mention de renonciation restant au contrat. Un
+  être exigée, la mention de renonciation restant au contrat. Aléas et
+  imprévus compris dans le budget travaux : un pourcentage saisi sur la
+  carte (`p.contratAleasPct`, `contratAleas` : part = budget × % / (100 + %))
+  que l'article 6 détaille sans changer le budget (TTC seul si le HT d'une
+  rénovation n'est pas saisi) ; tests : `t_contrat_aleas.js`. Un
   chantier créé sans prospect sort aussi son contrat
   (`contratPourChantier`, réglages gardés dans `ch.contratMoe`). Tests :
   `t_contrat_moe.js`, `t_contrat_moe_erp.js`, `t_renovation.js`.
