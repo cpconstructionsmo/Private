@@ -28550,7 +28550,8 @@ function SortirChiffrageInterne({data,p,maj}){
       {/* l'Excel se compose et se télécharge dans le même geste (Safari refuse un téléchargement différé) */}
       <button className="btn gh s chiffrage-xlsx" disabled={!pret} title="Postes, lignes du quantitatif, TVA, rétrocession et marge, en vrais nombres"
         onClick={()=>telechargerOctets(genererChiffrageInterneXlsx(p,data&&data.majorationsCorps),
-          'Chiffrage interne — '+(p.nom||'projet')+'.xlsx',PTR_MIME.xlsx)}>Exporter en Excel</button>
+          /* nom sans tiret long ni accent : Chrome remplace sinon le nom par « download » */
+          'Chiffrage_interne_'+(ptrSlug(p.nom||'')||'Projet')+'.xlsx',PTR_MIME.xlsx)}>Exporter en Excel</button>
       {lien&&<a href={lien} target="_blank" rel="noreferrer" className="btn gh s"
         style={{textDecoration:'none'}}>Ouvrir</a>}
     </div>
