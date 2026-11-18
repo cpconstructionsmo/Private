@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Chiffrage précis : quantités tirées du plan de la visite ; dossier assureur envoyé depuis l’application';
+const VERSION='2026-11-18 · Relevé de visite : 2e et 3e acheteurs, société, usage du bien, situation et souhaits repris sur le prospect';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -26486,6 +26486,17 @@ function visiteResume(ligne){
     civilite:txt('client.civilite'), nom:txt('client.nom'), prenom:txt('client.prenom'),
     telephone:txt('client.telephone'), email:txt('client.email'), adresse:txt('client.adresse'),
     codePostal:txt('client.codePostal'), ville:txt('client.ville'),
+    /* le client : un à trois acheteurs, ou une société (releve/modele.js) ;
+       domicile vide = l'adresse des travaux */
+    societe:v['client.type']==='societe'?{raisonSociale:txt('societe.raisonSociale'),forme:txt('societe.forme'),siret:txt('societe.siret'),siege:txt('societe.siege')}:null,
+    domicile:v['client.domicileIdem']===false?txt('client.domicile'):'',
+    acheteurs:v['client.type']==='societe'?[]:[2,3].filter(n=>n<=Math.min(3,+v['client.nbAcheteurs']||1)).map(n=>({
+      civilite:txt('acheteur'+n+'.civilite'), nom:txt('acheteur'+n+'.nom'), prenom:txt('acheteur'+n+'.prenom'),
+      telephone:txt('acheteur'+n+'.telephone'), email:txt('acheteur'+n+'.email'),
+      domicile:v['acheteur'+n+'.domicileIdem']===false?txt('acheteur'+n+'.domicile'):''})).filter(a=>a.nom||a.prenom||a.telephone||a.email),
+    usage:v['bien.usage']==='Autre'?(txt('bien.usageAutre')||'Autre'):txt('bien.usage'),
+    categories:Array.isArray(v['projet.categories'])?v['projet.categories'].map(String):[], typeAutre:txt('projet.typeAutre'),
+    situation:txt('projet.situation'), souhaits:txt('projet.souhaits'),
     types:Array.isArray(v['projet.types'])?v['projet.types'].map(String):[], explicatif:txt('projet.explicatif'),
     delai:txt('projet.delai'), enveloppe:typeof v['projet.enveloppe']==='number'?v['projet.enveloppe']:null,
     notes:txt('notes'), statut:txt('statut')||'en_cours', prospectId:txt('prospectId'),
@@ -26496,7 +26507,8 @@ function visiteResume(ligne){
     fourchette:v.budget&&v.budget.estimation&&v.budget.estimation.max>0?{min:v.budget.estimation.min,max:v.budget.estimation.max,complet:!!v.budget.estimation.complet}:null};
 }
 const visiteNomClient=r=>[r.prenom,r.nom].filter(Boolean).join(' ');
-const visiteIntitule=r=>[r.civilite,visiteNomClient(r)].filter(Boolean).join(' ')||'Visite sans nom';
+const visiteSociete=r=>r.societe&&r.societe.raisonSociale?[r.societe.forme!=='Autre'?r.societe.forme:'',r.societe.raisonSociale].filter(Boolean).join(' '):'';
+const visiteIntitule=r=>visiteSociete(r)||[r.civilite,visiteNomClient(r)].filter(Boolean).join(' ')||'Visite sans nom';
 /* un téléphone comparable : chiffres seuls, +33 ramené à 0 */
 function normTel(s){
   let n=String(s||'').replace(/[^\d+]/g,'');
@@ -26510,16 +26522,17 @@ const normMots=s=>deaccent(String(s||'')).toLowerCase().replace(/[^a-z0-9]+/g,' 
    (probable), même nom seulement (à vérifier) */
 function prospectsCandidats(r,prospects){
   const tel=normTel(r.telephone), mail=String(r.email||'').trim().toLowerCase();
-  const nom=normMots(r.nom).split(' ').filter(m=>m.length>=2);
+  // pour une société : le nom du représentant, ou la raison sociale
+  const noms=[r.nom,r.societe&&r.societe.raisonSociale].map(x=>normMots(x).split(' ').filter(m=>m.length>=2)).filter(n=>n.length);
   const lieux=normMots([r.ville,r.codePostal].join(' ')).split(' ').filter(m=>m.length>=3);
   const res=[];
   (prospects||[]).forEach(p=>{
     const raisons=[];
     if(tel&&[p.telClient,p.telClient2].some(t=>normTel(t)===tel))raisons.push('même téléphone');
     if(mail&&[p.emailClient,p.emailClient2].some(e=>String(e||'').trim().toLowerCase()===mail))raisons.push('même e-mail');
-    if(nom.length){
+    if(noms.length){
       const mots=' '+normMots([p.client,p.client2,p.nom].join(' '))+' ';
-      if(nom.every(m=>mots.includes(' '+m+' '))){
+      if(noms.some(nom=>nom.every(m=>mots.includes(' '+m+' ')))){
         const lieuP=' '+normMots([p.commune,p.adresseClient,(p.decouverte||{}).adresseProjet,p.nom].join(' '))+' ';
         raisons.push(lieux.some(m=>lieuP.includes(' '+m+' '))?'même nom, même commune':'même nom');
       }
@@ -26532,35 +26545,63 @@ function prospectsCandidats(r,prospects){
   return res.sort((a,b)=>b.score-a.score||(prospectArchive(a.p)?1:0)-(prospectArchive(b.p)?1:0));
 }
 /* un nouveau prospect rempli depuis la visite (base : le modèle vide du
-   formulaire des prospects) ; « M. et Mme » devient deux acquéreurs */
+   formulaire des prospects). L'acheteur 2 devient le 2e acheteur du
+   prospect ; sans lui, « M. et Mme » en fait deux. Le prospect n'a pas de
+   3e acheteur ni de fiche société : ils sont écrits dans la demande.
+   adresseClient est le domicile (à défaut l'adresse des travaux), l'adresse
+   des travaux va dans la découverte (adresseProjet). */
+const PROSPECT_CIVILITES_SOCIETE=['SCI','SAS'];
 function prospectDepuisVisite(r,base,le){
   const lieu=[r.codePostal,r.ville].filter(Boolean).join(' ');
-  const demande=[r.types.length?'Travaux : '+r.types.join(', '):'',r.delai?'Délai souhaité : '+r.delai:'',r.explicatif,
+  const travaux=[r.adresse,lieu].filter(Boolean).join(' ');
+  const soc=r.societe||null, a2=(r.acheteurs||[])[0], a3=(r.acheteurs||[])[1];
+  const nomA=a=>[a.prenom,a.nom].filter(Boolean).join(' ');
+  const types=(r.types||[]).map(t=>t==='Autre'&&r.typeAutre?'Autre ('+r.typeAutre+')':t);
+  const demande=[
+    soc?'Société : '+[visiteSociete(r),soc.siret?'SIRET '+soc.siret:''].filter(Boolean).join(' · ')+(visiteNomClient(r)?' — représentée par '+[r.civilite,visiteNomClient(r)].filter(Boolean).join(' '):''):'',
+    a3?'3e acheteur : '+[[a3.civilite,nomA(a3)].filter(Boolean).join(' '),a3.telephone,a3.email,a3.domicile].filter(Boolean).join(' · '):'',
+    (r.categories||[]).length?'Ampleur : '+r.categories.join(', '):'',
+    types.length?'Travaux : '+types.join(', '):'',
+    r.usage?'Usage du bien : '+r.usage:'',
+    r.delai?'Délai souhaité : '+r.delai:'',
+    r.situation?'Situation actuelle : '+r.situation:'',
+    r.souhaits?'Souhaits : '+r.souhaits:'',
+    r.explicatif,
     r.fourchette?'Fourchette annoncée à la visite (indicative) : de '+eur(r.fourchette.min)+' à '+eur(r.fourchette.max)+' TTC':'']
     .filter(Boolean).join('\n');
-  const couple=r.civilite==='M. et Mme';
+  const couple=!a2&&!soc&&r.civilite==='M. et Mme';
   const b=base||{};
+  const nomProjet=soc?(soc.raisonSociale||r.nom):r.nom;
   return {...b,categorie:'renovation',
-    nom:'Maison '+(r.nom||'à nommer')+(r.ville?' - '+r.ville:''),
-    civilite:couple?'M.':(r.civilite||''), client:visiteNomClient(r),
+    nom:'Maison '+(nomProjet||'à nommer')+(r.ville?' - '+r.ville:''),
+    civilite:soc?(PROSPECT_CIVILITES_SOCIETE.includes(soc.forme)?soc.forme:'Autre'):couple?'M.':(r.civilite||''),
+    client:soc?(visiteSociete(r)||visiteNomClient(r)):visiteNomClient(r),
     ...(couple?{afficherClient2:true,civilite2:'Mme',client2:r.nom||''}:{}),
+    ...(a2?{afficherClient2:true,civilite2:a2.civilite||'',client2:nomA(a2),telClient2:a2.telephone||'',
+      emailClient2:a2.email||'',adresseClient2:a2.domicile||''}:{}),
     telClient:r.telephone||'', emailClient:r.email||'',
-    adresseClient:[r.adresse,lieu].filter(Boolean).join(' '), commune:r.ville||'',
+    adresseClient:(soc?soc.siege:r.domicile)||travaux, commune:r.ville||'',
     demande, demandeLe:(r.creeLe||'').slice(0,10)||le, statut:'demande',
-    decouverte:{...(b.decouverte||{}),...(r.enveloppe!=null?{enveloppe:String(r.enveloppe)}:{})},
+    decouverte:{...(b.decouverte||{}),...(r.enveloppe!=null?{enveloppe:String(r.enveloppe)}:{}),...(travaux?{adresseProjet:travaux}:{})},
     visites:[{id:r.id,le}]};
 }
 /* rattacher à un prospect existant : seules les cases vides sont complétées */
 const VISITE_CHAMPS_PROSPECT=[['civilite','civilité'],['client','nom du client'],['telClient','téléphone'],
-  ['emailClient','e-mail'],['adresseClient','adresse'],['commune','commune']];
+  ['emailClient','e-mail'],['adresseClient','adresse'],['commune','commune'],['demande','demande'],
+  ['civilite2','civilité du 2e acheteur'],['client2','2e acheteur'],['telClient2','téléphone du 2e acheteur'],
+  ['emailClient2','e-mail du 2e acheteur'],['adresseClient2','adresse du 2e acheteur']];
+const VISITE_CHAMPS_DECOUVERTE=[['enveloppe','enveloppe'],['adresseProjet','adresse du projet']];
 function completerProspectDepuisVisite(p,r,le){
   const nv=prospectDepuisVisite(r,{},le), q={...p}, champs=[];
   VISITE_CHAMPS_PROSPECT.forEach(([k,lib])=>{
     if(!String(p[k]||'').trim()&&String(nv[k]||'').trim()){q[k]=nv[k];champs.push(lib)}
   });
-  if(nv.decouverte.enveloppe&&!String((p.decouverte||{}).enveloppe||'').trim()){
-    q.decouverte={...(p.decouverte||{}),enveloppe:nv.decouverte.enveloppe};champs.push('enveloppe');
-  }
+  if(q.client2&&!p.client2)q.afficherClient2=true;
+  VISITE_CHAMPS_DECOUVERTE.forEach(([k,lib])=>{
+    if(String(nv.decouverte[k]||'').trim()&&!String((p.decouverte||{})[k]||'').trim()){
+      q.decouverte={...(q.decouverte||{}),[k]:nv.decouverte[k]};champs.push(lib);
+    }
+  });
   q.visites=(p.visites||[]).some(x=>x.id===r.id)?p.visites:[...(p.visites||[]),{id:r.id,le}];
   return {prospect:q,champs};
 }

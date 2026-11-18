@@ -257,50 +257,149 @@ function etapeGarde(v) {
   ];
 }
 
+/* ---------- la dictée ----------
+   Le bouton 🎤 d'un champ dicte en français avec la reconnaissance vocale du
+   navigateur (Safari sur iPhone, Chrome sur PC) : le texte reconnu s'ajoute
+   à la suite de ce qui est déjà écrit, et s'enregistre comme une frappe.
+   Là où elle n'existe pas (ou est refusée), le bouton ouvre le clavier sur
+   le champ : il reste le micro du clavier de l'iPhone. */
+const Reconnaissance = window.SpeechRecognition || window.webkitSpeechRecognition;
+let dicteeEnCours = null;
+function arreterDictee() { if (dicteeEnCours) { try { dicteeEnCours.stop(); } catch (e) { /* déjà arrêtée */ } dicteeEnCours = null; } }
+
+function boutonMicro(cible, aide) {
+  const btn = h('button', { class: 'micro', type: 'button', 'aria-label': 'Dicter', title: 'Dicter' }, '🎤');
+  const repli = texte => { cible.focus(); if (aide) aide.textContent = texte; };
+  btn.addEventListener('click', ev => {
+    ev.preventDefault();
+    if (btn.classList.contains('ecoute')) { arreterDictee(); return; }
+    if (!Reconnaissance) { repli('Touchez 🎤 sur le clavier pour dicter.'); return; }
+    arreterDictee();
+    const r = new Reconnaissance();
+    r.lang = 'fr-FR'; r.continuous = true; r.interimResults = false;
+    const ajouter = t => {
+      t = t.trim(); if (!t) return;
+      const avant = cible.value.replace(/\s+$/, '');
+      t = avant && /[.!?]$/.test(avant) ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+      cible.value = avant ? avant + ' ' + t : t.charAt(0).toUpperCase() + t.slice(1);
+      cible.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    r.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) ajouter(e.results[i][0].transcript); };
+    const fin = () => { btn.classList.remove('ecoute'); btn.textContent = '🎤'; if (dicteeEnCours === r) dicteeEnCours = null; };
+    r.onend = fin;
+    r.onerror = e => { fin(); if (e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'audio-capture') repli('Dictée refusée par l’appareil : touchez 🎤 sur le clavier.'); };
+    try { r.start(); } catch (e) { repli('Touchez 🎤 sur le clavier pour dicter.'); return; }
+    dicteeEnCours = r; btn.classList.add('ecoute'); btn.textContent = '⏹'; if (aide) aide.textContent = 'Je vous écoute… touchez ⏹ pour arrêter.';
+    vibrer();
+  });
+  return btn;
+}
+
 /* un champ texte qui enregistre à chaque frappe (sans redessiner) */
 function champ(v, cle, label, attrs = {}, verifier) {
   let aide;
   const inp = h(attrs.multiligne ? 'textarea' : 'input', {
-    class: 'in', value: M.valeur(v, cle) ?? '', rows: attrs.multiligne ? 4 : null, name: cle,
+    class: 'in', value: M.valeur(v, cle) ?? '', rows: attrs.multiligne ? (attrs.lignes || 4) : null, name: cle,
     type: attrs.type || (attrs.multiligne ? null : 'text'), inputMode: attrs.inputmode || null,
     autocomplete: attrs.autocomplete || 'off', autocapitalize: attrs.autocapitalize || null, placeholder: attrs.placeholder || '',
     oninput: e => poser(cle, e.target.value),
     onblur: e => { if (verifier) { const ok = verifier(e.target.value); e.target.classList.toggle('faux', !ok); aide.textContent = ok ? '' : attrs.messageFaux; } },
   });
-  return h('label', { class: 'champ' }, label, inp, aide = h('div', { class: 'aide' }));
+  aide = h('div', { class: attrs.micro ? 'aide info' : 'aide' });
+  // le micro est hors du <label> : le toucher n'ouvre pas le clavier par-dessus la dictée
+  if (attrs.micro) return h('div', { class: 'champMicro' }, h('label', { class: 'champ' }, label, inp), boutonMicro(inp, aide), aide);
+  return h('label', { class: 'champ' }, label, inp, aide);
 }
 
-function puces(v, cle, options, { multiple = false, cls = 'puces' } = {}) {
+/* une case à cocher enregistrée ; `defaut` quand rien n'est encore saisi */
+function caseACocher(v, cle, label, { defaut = false, apres } = {}) {
+  const val = M.valeur(v, cle);
+  return h('label', { class: 'case' },
+    h('input', { type: 'checkbox', name: cle, checked: val == null ? defaut : val, onchange: async e => { await poser(cle, e.target.checked); vibrer(); if (apres) apres(); } }),
+    h('span', {}, label));
+}
+
+/* des puces ; `apres` est appelé après un choix (pour montrer un champ lié),
+   et une valeur enregistrée qui n'est plus proposée reste affichée */
+function puces(v, cle, options, { multiple = false, cls = 'puces', coche = false, apres } = {}) {
   const box = h('div', { class: cls, role: multiple ? 'group' : 'radiogroup' });
   const dessinerPuces = () => {
     const val = M.valeur(visite(), cle);
-    box.replaceChildren(...options.map(o => {
-      const on = multiple ? (val || []).includes(o) : val === o;
+    const anciennes = (multiple ? (val || []) : (val != null ? [val] : [])).filter(x => !options.some(o => (Array.isArray(o) ? o[0] : o) === x));
+    box.replaceChildren(...[...options, ...anciennes].map(o => {
+      const [code, libelle] = Array.isArray(o) ? o : [o, o];
+      const on = multiple ? (val || []).includes(code) : val === code;
       return h('button', { class: 'puce' + (on ? ' on' : ''), type: 'button', 'aria-pressed': String(on), onclick: async () => {
         const cur = M.valeur(visite(), cle);
-        const nv = multiple ? (on ? (cur || []).filter(x => x !== o) : [...(cur || []), o]) : (on ? null : o);
-        await poser(cle, nv); vibrer(); dessinerPuces();
-      } }, o);
+        const nv = multiple ? (on ? (cur || []).filter(x => x !== code) : [...(cur || []), code]) : (on ? null : code);
+        await poser(cle, nv); vibrer();
+        if (apres) apres(); else dessinerPuces();
+      } }, coche ? (on ? '☑ ' : '☐ ') + libelle : libelle);
     }));
   };
   dessinerPuces();
   return box;
 }
 
-/* étape 2 : le client */
-function etapeClient(v) {
+/* redessiner l'étape en gardant la place à l'écran (choix qui montre ou cache des champs) */
+const redessiner = () => { const y = window.scrollY; dessiner(); window.scrollTo(0, y); };
+
+/* étape 2 : le client — un à trois acheteurs, ou une société */
+function blocContact(v, prefixe, civilites) {
   return [
-    h('h1', {}, 'Le client'),
-    h('div', { class: 'champ' }, 'CIVILITÉ'), puces(v, 'client.civilite', M.CIVILITES),
+    h('div', { class: 'champ' }, 'CIVILITÉ'), puces(v, prefixe + '.civilite', civilites),
     h('div', { class: 'deuxCol' },
-      champ(v, 'client.nom', 'NOM', { autocomplete: 'family-name', autocapitalize: 'characters' }),
-      champ(v, 'client.prenom', 'PRÉNOM', { autocomplete: 'given-name', autocapitalize: 'words' }),
-      champ(v, 'client.telephone', 'TÉLÉPHONE', { type: 'tel', inputmode: 'tel', autocomplete: 'tel', messageFaux: 'Numéro à vérifier (10 chiffres, ou +33…).' }, M.telephoneValide),
-      champ(v, 'client.email', 'E-MAIL', { type: 'email', inputmode: 'email', autocomplete: 'email', autocapitalize: 'off', messageFaux: 'Adresse e-mail à vérifier.' }, M.emailValide)),
+      champ(v, prefixe + '.nom', 'NOM', { autocomplete: prefixe === 'client' ? 'family-name' : 'off', autocapitalize: 'characters' }),
+      champ(v, prefixe + '.prenom', 'PRÉNOM', { autocomplete: prefixe === 'client' ? 'given-name' : 'off', autocapitalize: 'words' }),
+      champ(v, prefixe + '.telephone', 'TÉLÉPHONE', { type: 'tel', inputmode: 'tel', autocomplete: prefixe === 'client' ? 'tel' : 'off', messageFaux: 'Numéro à vérifier (10 chiffres, ou +33…).' }, M.telephoneValide),
+      champ(v, prefixe + '.email', 'E-MAIL', { type: 'email', inputmode: 'email', autocomplete: prefixe === 'client' ? 'email' : 'off', autocapitalize: 'off', messageFaux: 'Adresse e-mail à vérifier.' }, M.emailValide)),
+  ];
+}
+
+function etapeClient(v) {
+  const societe = M.estSociete(v), nb = M.nbAcheteurs(v);
+  const usage = M.valeur(v, 'bien.usage');
+  const adresseTravaux = [
     champ(v, 'client.adresse', 'ADRESSE DES TRAVAUX', { autocomplete: 'street-address', autocapitalize: 'sentences' }),
     h('div', { class: 'deuxCol' },
       champ(v, 'client.codePostal', 'CODE POSTAL', { inputmode: 'numeric', autocomplete: 'postal-code' }),
       champ(v, 'client.ville', 'VILLE', { autocomplete: 'address-level2', autocapitalize: 'words' })),
+  ];
+  const domicile = (prefixe, libelle, defautLibelle) => [
+    caseACocher(v, prefixe + '.domicileIdem', defautLibelle, { defaut: true, apres: redessiner }),
+    M.valeur(v, prefixe + '.domicileIdem') === false
+      ? champ(v, prefixe + '.domicile', libelle, { multiligne: true, lignes: 2, autocapitalize: 'sentences', placeholder: 'N°, rue, code postal, ville' }) : null,
+  ];
+  return [
+    h('h1', {}, 'Le client'),
+    h('div', { class: 'puces', role: 'radiogroup' }, [['particulier', '👤 Particulier'], ['societe', '🏢 Société']].map(([code, lib]) => {
+      const on = (code === 'societe') === societe;
+      return h('button', { class: 'puce' + (on ? ' on' : ''), type: 'button', name: 'client.type', 'aria-pressed': String(on), onclick: async () => { await poser('client.type', code); vibrer(); redessiner(); } }, lib);
+    })),
+    societe
+      ? [h('div', { class: 'carte', style: 'margin-top:12px' },
+          h('h2', {}, 'La société'),
+          champ(v, 'societe.raisonSociale', 'RAISON SOCIALE', { autocapitalize: 'characters' }),
+          h('div', { class: 'champ' }, 'FORME'), puces(v, 'societe.forme', M.FORMES_SOCIETE),
+          h('div', { class: 'deuxCol' },
+            champ(v, 'societe.siret', 'SIRET', { inputmode: 'numeric' }),
+            champ(v, 'societe.siege', 'SIÈGE SOCIAL', { autocapitalize: 'sentences', placeholder: 'si différent de l’adresse des travaux' }))),
+        h('div', { class: 'carte' }, h('h2', {}, 'Représentée par'), blocContact(v, 'client', M.CIVILITES)),
+        h('div', { class: 'carte' }, h('h2', {}, 'Le bien'), adresseTravaux)]
+      : [h('div', { class: 'champ' }, 'NOMBRE D’ACHETEURS'),
+        h('div', { class: 'puces', role: 'radiogroup' }, [1, 2, 3].map(n => h('button', { class: 'puce' + (nb === n ? ' on' : ''), type: 'button', name: 'client.nbAcheteurs', 'aria-pressed': String(nb === n),
+          onclick: async () => { await poser('client.nbAcheteurs', n); vibrer(); redessiner(); } }, String(n)))),
+        h('div', { class: 'carte', style: 'margin-top:12px' },
+          nb > 1 ? h('h2', {}, 'Acheteur 1') : null,
+          blocContact(v, 'client', M.CIVILITES), adresseTravaux,
+          domicile('client', 'ADRESSE PRINCIPALE (DOMICILE)', 'Habite à l’adresse des travaux')),
+        [2, 3].filter(n => n <= nb).map(n => h('div', { class: 'carte', 'data-acheteur': n },
+          h('h2', {}, 'Acheteur ' + n),
+          blocContact(v, 'acheteur' + n, ['M.', 'Mme']),
+          domicile('acheteur' + n, 'ADRESSE PRINCIPALE (si différente de l’acheteur 1)', 'Même adresse que l’acheteur 1')))],
+    h('div', { class: 'champ' }, 'USAGE DU BIEN'),
+    puces(v, 'bien.usage', M.USAGES_BIEN, { apres: redessiner }),
+    usage === 'Autre' ? champ(v, 'bien.usageAutre', 'PRÉCISEZ L’USAGE', { autocapitalize: 'sentences' }) : null,
     h('p', { class: 'mut petit', style: 'margin-top:14px' }, '🎤 Pour dicter : touchez le micro du clavier de l’iPhone.'),
   ];
 }
@@ -308,6 +407,7 @@ function etapeClient(v) {
 /* étape 3 : le projet */
 function etapeProjet(v) {
   const env = M.valeur(v, 'projet.enveloppe');
+  const types = M.valeur(v, 'projet.types') || [];
   let affichage, saisie, curseur;
   const majEnv = (n, source) => {
     poser('projet.enveloppe', n);
@@ -318,8 +418,15 @@ function etapeProjet(v) {
   };
   return [
     h('h1', {}, 'Le projet'),
-    h('div', { class: 'champ' }, 'TYPE DE TRAVAUX'), puces(v, 'projet.types', M.TYPES_TRAVAUX, { multiple: true, cls: 'grille' }),
-    champ(v, 'projet.explicatif', 'EN QUELQUES MOTS', { multiligne: true, autocapitalize: 'sentences', placeholder: 'Ce que le client souhaite, ses contraintes…' }),
+    h('div', { class: 'champ' }, 'AMPLEUR DE LA RÉNOVATION'),
+    puces(v, 'projet.categories', M.CATEGORIES_RENO, { multiple: true, coche: true }),
+    h('div', { class: 'champ' }, 'TYPE DE TRAVAUX'),
+    puces(v, 'projet.types', M.TYPES_TRAVAUX, { multiple: true, cls: 'grille', apres: redessiner }),
+    types.includes('Autre') ? champ(v, 'projet.typeAutre', 'AUTRES TRAVAUX : PRÉCISEZ', { autocapitalize: 'sentences', micro: true }) : null,
+    champ(v, 'projet.situation', 'SITUATION ACTUELLE', { multiligne: true, autocapitalize: 'sentences', micro: true, placeholder: 'L’existant : état, chauffage, isolation, contraintes…' }),
+    champ(v, 'projet.souhaits', 'SOUHAITS DU CLIENT', { multiligne: true, autocapitalize: 'sentences', micro: true, placeholder: 'Ce que le client veut obtenir, ses priorités…' }),
+    // l'ancien champ unique « en quelques mots » n'est montré que s'il a été rempli
+    M.valeur(v, 'projet.explicatif') ? champ(v, 'projet.explicatif', 'EN QUELQUES MOTS (ancienne saisie)', { multiligne: true, autocapitalize: 'sentences', micro: true }) : null,
     h('div', { class: 'champ' }, 'DÉLAI SOUHAITÉ'), puces(v, 'projet.delai', M.DELAIS),
     h('div', { class: 'champ' }, 'ENVELOPPE FINANCIÈRE (TTC)'),
     h('div', { class: 'carte', style: 'margin-top:6px' },
@@ -349,8 +456,19 @@ function etapePieces(v) {
   ];
 }
 
+/* un texte attaché à une pièce ou à une photo (note, légende), avec dictée ;
+   il s'enregistre sur l'élément, sans redessiner */
+function texteElement(liste, el, champTexte, attrs) {
+  let aide;
+  const inp = h('textarea', { class: 'in', rows: attrs.lignes || 2, value: el[champTexte] || '', placeholder: attrs.placeholder, 'aria-label': attrs.label, autocapitalize: 'sentences',
+    oninput: e => changer(x => M.majElement(x, liste, el.id, { [champTexte]: e.target.value })) });
+  aide = h('div', { class: 'aide info' });
+  return h('div', { class: 'champMicro ' + (attrs.cls || '') }, attrs.titre ? h('label', { class: 'champ' }, attrs.titre, inp) : inp, boutonMicro(inp, aide), aide);
+}
+
 function cartePiece(v, p) {
   const photos = M.actifs(v.photos).filter(x => x.pieceId === p.id);
+  const prendre = () => choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'piece', pieceId: p.id }));
   return h('div', { class: 'carte', 'data-piece': p.id },
     h('div', { class: 'rang' },
       h('input', { class: 'in', value: p.nom, 'aria-label': 'Nom de la pièce', style: 'margin:0;font-weight:600',
@@ -360,15 +478,18 @@ function cartePiece(v, p) {
         await changer(x => photos.reduce((w, ph) => M.supprimer(w, 'photos', ph.id), M.supprimer(x, 'pieces', p.id)));
         dessiner();
       } }, '🗑')),
-    photos.length ? h('div', { class: 'photos' }, photos.map(ph => h('figure', {}, imagePhoto(ph),
-      h('button', { class: 'x', 'aria-label': 'Supprimer la photo', onclick: async () => {
-        if (!confirm('Supprimer cette photo ?')) return;
-        await changer(x => M.supprimer(x, 'photos', ph.id)); dessiner();
-      } }, '×')))) : null,
+    photos.map((ph, i) => h('div', { class: 'photoLegende', 'data-photo': ph.id },
+      h('figure', {}, imagePhoto(ph),
+        h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => {
+          if (!confirm('Supprimer cette photo ?')) return;
+          await changer(x => M.supprimer(x, 'photos', ph.id)); dessiner();
+        } }, '×')),
+      texteElement('photos', ph, 'legende', { label: 'Légende de la photo ' + (i + 1), placeholder: 'Ce que montre la photo (fissure, tableau électrique…)', lignes: 3 }))),
     h('div', { class: 'rang', style: 'margin-top:10px' },
-      h('button', { class: 'gros sec', onclick: () => choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'piece', pieceId: p.id })) }, '📷 Photo'),
+      h('button', { class: 'gros sec', onclick: prendre }, photos.length ? '📷 Photo suivante' : '📷 Photo'),
       h('button', { class: 'gros sec', onclick: () => choisirFichier({ accept: 'image/*', multiple: true }, f => ajouterPhotos(f, { role: 'piece', pieceId: p.id })) }, '🖼 Galerie')),
-    h('button', { class: 'gros sec', style: 'margin-top:8px', disabled: true, title: 'Bientôt : illustration de la pièce transformée' }, '✨ Imaginer (bientôt)'));
+    h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Galerie : vous pouvez choisir plusieurs photos d’un coup.'),
+    texteElement('pieces', p, 'note', { titre: 'NOTES SUR LA PIÈCE', label: 'Notes sur la pièce ' + p.nom, placeholder: 'État, dimensions particulières, souhaits pour cette pièce…', lignes: 3 }));
 }
 
 /* étape 5 : le scan, puis le plan */
@@ -507,15 +628,33 @@ function etapeFin(v) {
   const garde = v.photos[M.valeur(v, 'photoGarde')];
   const c = k => M.valeur(v, 'client.' + k);
   const dd = (t, val) => [h('dt', {}, t), h('dd', {}, val || '—')];
+  const nb = M.nbAcheteurs(v), soc = M.estSociete(v);
+  const nomDe = p => [M.valeur(v, p + '.civilite'), M.valeur(v, p + '.prenom'), M.valeur(v, p + '.nom')].filter(Boolean).join(' ');
+  const contactDe = p => [M.valeur(v, p + '.telephone'), M.valeur(v, p + '.email')].filter(Boolean).join(' · ');
+  const travaux = [c('adresse'), [c('codePostal'), c('ville')].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const usage = M.valeur(v, 'bien.usage') === 'Autre' ? (M.valeur(v, 'bien.usageAutre') || 'Autre') : M.valeur(v, 'bien.usage');
+  const listeTypes = types.map(t => t === 'Autre' && M.valeur(v, 'projet.typeAutre') ? 'Autre (' + M.valeur(v, 'projet.typeAutre') + ')' : t);
   return [
     h('h1', {}, 'Récapitulatif'),
     m.length ? h('div', { class: 'manque' }, 'À compléter si possible : ' + m.join(', ') + '.') : h('div', { class: 'message ok' }, '✓ Fiche complète.'),
     garde && !garde.supprime ? h('div', { style: 'margin-top:12px' }, imagePhoto(garde, 'garde')) : null,
     h('dl', { class: 'carte recap', style: 'margin-top:12px' },
       dd('Client', M.intitule(v)),
-      dd('Contact', [c('telephone'), c('email')].filter(Boolean).join(' · ')),
-      dd('Adresse', [c('adresse'), [c('codePostal'), c('ville')].filter(Boolean).join(' ')].filter(Boolean).join(', ')),
-      dd('Travaux', types.join(', ')),
+      soc ? dd('Société', [M.valeur(v, 'societe.siret') && 'SIRET ' + M.valeur(v, 'societe.siret'), M.valeur(v, 'societe.siege') && 'siège : ' + M.valeur(v, 'societe.siege')].filter(Boolean).join(' · ') || null) : null,
+      soc ? dd('Représentée par', nomDe('client')) : null,
+      dd(nb > 1 ? 'Contact acheteur 1' : 'Contact', contactDe('client')),
+      // le domicile n'est dit que s'il diffère de l'adresse des travaux
+      !soc && M.valeur(v, 'client.domicileIdem') === false ? dd(nb > 1 ? 'Domicile acheteur 1' : 'Domicile', M.domicile(v, 1)) : null,
+      [2, 3].filter(n => n <= nb).map(n => [
+        dd('Acheteur ' + n, [nomDe('acheteur' + n), contactDe('acheteur' + n)].filter(Boolean).join(' · ')),
+        M.valeur(v, 'acheteur' + n + '.domicileIdem') === false ? dd('Domicile acheteur ' + n, M.domicile(v, n)) : null]),
+      dd('Adresse des travaux', travaux),
+      dd('Usage du bien', usage),
+      dd('Ampleur', (M.valeur(v, 'projet.categories') || []).join(', ')),
+      dd('Travaux', listeTypes.join(', ')),
+      dd('Situation actuelle', M.valeur(v, 'projet.situation')),
+      dd('Souhaits', M.valeur(v, 'projet.souhaits')),
+      M.valeur(v, 'projet.explicatif') ? dd('En quelques mots', M.valeur(v, 'projet.explicatif')) : null,
       dd('Délai', M.valeur(v, 'projet.delai')),
       dd('Enveloppe', M.valeur(v, 'projet.enveloppe') != null ? M.formatEuros(M.valeur(v, 'projet.enveloppe')) + ' TTC' : null),
       dd('Pièces', M.actifs(v.pieces).map(p => p.nom + ' (' + M.actifs(v.photos).filter(x => x.pieceId === p.id).length + ' ph.)').join(', ')),
@@ -544,7 +683,7 @@ function etapeBudget(v) {
     await poser('budget', b); vibrer(); dessiner();
   };
   const ajouter = fid => majBudget(b => { b.lignes.push({ id: M.nouvelId(), fourchetteId: fid, gamme: 'standard', pieces: [] }); return b; });
-  const sugg = B.postesSuggeres(M.valeur(v, 'projet.types') || [], F_, budget.lignes);
+  const sugg = B.postesSuggeres([...(M.valeur(v, 'projet.types') || []), ...(M.valeur(v, 'projet.categories') || [])], F_, budget.lignes);
   const couleur = { dans: 'ok', limite: 'att', hors: 'err' };
   const a = budget.ajust || {};
   return [
@@ -661,7 +800,7 @@ function ecranFourchettes() {
           h('label', { class: 'champ' }, 'UNITÉ', h('select', { class: 'in', onchange: e => poserL(l.id, x => { x.unite = e.target.value; }) },
             Object.entries(B.UNITES).map(([k, u]) => h('option', { value: k, selected: l.unite === k }, u.nom)))),
           h('label', { class: 'champ' }, 'TRAVAUX', h('select', { class: 'in', onchange: e => poserL(l.id, x => { x.type = e.target.value; }) },
-            [...M.TYPES_TRAVAUX, 'Autre'].map(t => h('option', { value: t, selected: l.type === t }, t))))),
+            [...new Set([...M.TYPES_TRAVAUX, ...M.CATEGORIES_RENO, l.type].filter(Boolean))].map(t => h('option', { value: t, selected: l.type === t }, t))))),
         B.GAMMES.map(g => h('div', { class: 'rang', style: 'margin-top:8px' }, h('span', { style: 'flex:0 0 76px;font-weight:600' }, g.nom), nombre(l, g.id, 'min'), nombre(l, g.id, 'max'))))),
       h('button', { class: 'gros sec', id: 'ajouterFourchette', onclick: () => { L.push({ id: M.nouvelId(), type: 'Autre', libelle: 'Nouveau poste', unite: 'm2_sol', prix: {}, maj: quand() }); dessiner(); } }, '＋ Ajouter un poste')),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' }, h('button', { class: 'gros sec', onclick: retour }, 'Annuler'), h('button', { class: 'gros', id: 'enregistrerFourchettes', onclick: enregistrer }, 'Enregistrer'))),
@@ -670,6 +809,7 @@ function ecranFourchettes() {
 
 /* ---------- dessin ---------- */
 function dessiner() {
+  arreterDictee(); // le champ dicté va être remplacé
   const app = document.getElementById('app');
   const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
@@ -705,11 +845,24 @@ async function visitePourProspect(pid) {
     if (!error && data && data.data) p = (data.data.prospects || []).find(x => x.id === pid) || null;
   } catch (e) { /* hors ligne : la visite reste rattachée au dossier, la fiche se remplit à la main */ }
   if (p) {
-    const couple = p.afficherClient2 && p.civilite === 'M.' && p.civilite2 === 'Mme';
+    const t = x => typeof x === 'string' ? x.trim() : '';
+    // « M. » + « Mme » du même nom : un couple ; sinon le 2e acheteur garde sa fiche
+    const couple = p.afficherClient2 && p.civilite === 'M.' && p.civilite2 === 'Mme' && (!t(p.client2) || t(p.client).toLowerCase().endsWith(t(p.client2).toLowerCase()));
+    const societe = ['SCI', 'SAS'].includes(p.civilite);
     const civ = couple ? 'M. et Mme' : M.CIVILITES.includes(p.civilite) ? p.civilite : null;
-    v = [['client.civilite', civ], ['client.nom', p.client], ['client.telephone', p.telClient], ['client.email', p.emailClient],
-      ['client.adresse', p.adresseClient], ['client.ville', p.commune]]
-      .reduce((w, [k, val]) => (typeof val === 'string' && val.trim()) ? M.modifier(w, k, val.trim()) : w, v);
+    // l'adresse du projet (découverte) est celle des travaux ; l'adresse du client, son domicile
+    const projet = t((p.decouverte || {}).adresseProjet), domicile = t(p.adresseClient);
+    const deux = !couple && !societe && p.afficherClient2 && t(p.client2);
+    v = [
+      ...(societe ? [['client.type', 'societe'], ['societe.forme', p.civilite], ['societe.raisonSociale', p.client]]
+        : [['client.civilite', civ], ['client.nom', p.client]]),
+      ['client.telephone', p.telClient], ['client.email', p.emailClient],
+      ['client.adresse', projet || domicile], ['client.ville', p.commune],
+      ...(projet && domicile && projet !== domicile && !societe ? [['client.domicileIdem', false], ['client.domicile', domicile]] : []),
+      ...(deux ? [['client.nbAcheteurs', 2], ['acheteur2.civilite', ['M.', 'Mme'].includes(p.civilite2) ? p.civilite2 : null], ['acheteur2.nom', p.client2],
+        ['acheteur2.telephone', p.telClient2], ['acheteur2.email', p.emailClient2],
+        ...(t(p.adresseClient2) && t(p.adresseClient2) !== domicile ? [['acheteur2.domicileIdem', false], ['acheteur2.domicile', p.adresseClient2]] : [])] : []),
+    ].reduce((w, [k, val]) => (typeof val === 'string' ? val.trim() : val != null) ? M.modifier(w, k, typeof val === 'string' ? val.trim() : val) : w, v);
   }
   await stock.creer(v);
   S.visites.unshift({ id: v.id, visite: v, enAttente: true, rev: 1 });

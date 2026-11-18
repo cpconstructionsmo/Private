@@ -28,6 +28,10 @@ qu'on ait à les redire.
   de relevé (`releve/moteur/`, plan, mesures, avant/après, 3D, PDF). Tout
   s'écrit d'abord sur l'appareil (IndexedDB) puis dans la table
   `releve_visites` (version, fusion champ par champ : `releve/modele.js`) ;
+  client particulier (1 à 3 acheteurs, `acheteur2.*`, `acheteur3.*`,
+  domicile de chacun) ou société (`societe.*`), usage du bien, ampleur
+  (`projet.categories`), situation et souhaits dictés (🎤, Web Speech,
+  repli sur le micro du clavier), légende par photo et note par pièce ;
   photos dans l'espace privé `releves`. Jamais dans `app_data`, et le relevé
   n'écrit jamais dans `app_data` (il la lit seulement pour « Nouvelle
   visite » d'une fiche prospect). Le suivi rattache les visites aux

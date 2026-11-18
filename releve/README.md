@@ -6,9 +6,21 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 ## Ce qu'elle fait (Phase 1, étape 1)
 
 1. **Nouvelle visite** : l'appareil photo s'ouvre aussitôt pour la photo de garde.
-2. **Client** : civilité, nom, prénom, téléphone, e-mail, adresse (dictée par le micro du clavier).
-3. **Projet** : types de travaux, explicatif, délai, enveloppe (curseur ou saisie).
-4. **Pièces et photos** : pièces à transformer, photos de chacune.
+2. **Client** : particulier (1 à 3 acheteurs) ou société (raison sociale,
+   forme, SIRET, siège, représentant) ; civilité, nom, prénom, téléphone,
+   e-mail ; adresse des travaux ; adresse principale de chacun si elle
+   diffère (« Habite à l'adresse des travaux », « Même adresse que
+   l'acheteur 1 ») ; usage du bien (résidence principale, locatif,
+   secondaire, autre).
+3. **Projet** : ampleur (rénovation partielle, importante, énergétique,
+   cumulables), types de travaux (« Autre » avec sa précision), situation
+   actuelle et souhaits du client, délai, enveloppe (curseur ou saisie).
+   Le bouton 🎤 d'un champ dicte en français (reconnaissance vocale du
+   navigateur) ; là où elle manque, il ouvre le clavier et son micro.
+   L'ancien champ « en quelques mots » ne s'affiche que s'il a été rempli.
+4. **Pièces et photos** : pièces à transformer, photos de chacune (plusieurs
+   d'un coup depuis la galerie, « Photo suivante » à l'appareil), une
+   légende par photo et des notes par pièce, avec dictée.
 5. **Scan et plan** : le fichier d'OpenPlan 3D (accepté même sans extension)
    s'ouvre aussitôt dans le **moteur de relevé** (`moteur/`) : plan coté,
    mesures au mètre et écarts, murs (épaisseur, démolition, cloisons),
@@ -30,6 +42,12 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   rattachée d'office au dossier).
 - Le relevé **lit** les données du suivi pour remplir la fiche client ; il n'y
   écrit jamais.
+- Ce que reprend le prospect : l'acheteur 2 devient son 2e acheteur (avec
+  son adresse), le domicile va en adresse du client et l'adresse des travaux
+  en adresse du projet (découverte) ; une société devient civilité SCI/SAS
+  (sinon « Autre ») et client = raison sociale. Ce qui n'a pas de case
+  (3e acheteur, représentant, SIRET, ampleur, usage, situation, souhaits)
+  est écrit dans la demande.
 
 ## La fourchette de prix pendant la visite (Phase 2, mode A)
 
