@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Chiffrage précis : quantités tirées du plan de la visite ; dossier assureur envoyé depuis l’application';
+const VERSION='2026-11-18 · TVA par poste (10 %, 5,5 %, 20 %) : prix, contrat et chiffrage interne en TVA mixte';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -1801,7 +1801,58 @@ const prospectMargeHT=(p,majTarifs)=>{
 };
 const prospectPrixHT=(p,majTarifs)=>Math.round((prospectCoutHT(p,majTarifs)+prospectMargeHT(p,majTarifs))*100)/100;
 const prospectTva=p=>{const v=p&&p.tva;return (v===undefined||v===null||v==='')?20:(+v||0)};
-const prospectPrixTTC=(p,majTarifs)=>Math.round(prospectPrixHT(p,majTarifs)*(1+prospectTva(p)/100)*100)/100;
+/* ---------- TVA par poste ----------
+   En rénovation, un même projet mêle des taux (10 %, 5,5 % pour la
+   rénovation énergétique, 20 %). Chaque poste ou option peut porter son
+   taux (x.tva) ; laissé vide, il prend celui du projet (p.tva) : un
+   chiffrage sans taux par poste donne exactement le même prix qu'avant.
+   La marge se répartit sur les taux au prorata du coût des postes. Quand
+   les taux diffèrent, les documents disent « TVA mixte » avec le détail,
+   jamais un taux unique. Tests : t_tva_poste.js. */
+const posteTva=(x,p)=>{const v=x&&x.tva;return (v===undefined||v===null||v==='')?prospectTva(p):(+v||0)};
+function prospectVentilationTva(p,majTarifs){
+  const items=[...((p&&p.postes)||[]).map(x=>({cout:posteMontantMajore(x,majTarifs),taux:posteTva(x,p)})),
+    ...optionsInclues(p).map(x=>({cout:optionMontant(x,majTarifs,p),taux:posteTva(x,p)}))];
+  const somme=items.reduce((t,x)=>t+x.cout,0), cout=prospectCoutHT(p,majTarifs), prix=prospectPrixHT(p,majTarifs);
+  const groupes=new Map();
+  if(!items.length||Math.abs(somme)<0.005)groupes.set(prospectTva(p),{taux:prospectTva(p),coutHT:cout});
+  else items.forEach(x=>{const g=groupes.get(x.taux)||{taux:x.taux,coutHT:0};g.coutHT+=x.cout;groupes.set(x.taux,g)});
+  let G=[...groupes.values()];
+  if(G.length>1)G=G.filter(g=>Math.abs(g.coutHT)>=0.005);
+  const base=G.reduce((t,g)=>t+g.coutHT,0);
+  let reste=prix;
+  G.sort((a,b)=>b.coutHT-a.coutHT).forEach((g,i)=>{
+    /* le dernier taux reçoit l'arrondi : la somme des HT reste le prix HT du projet */
+    g.ht=i===G.length-1?Math.round(reste*100)/100:Math.round((base?prix*g.coutHT/base:prix)*100)/100;
+    reste-=g.ht;
+    g.coutHT=Math.round(g.coutHT*100)/100;
+    g.tva=Math.round(g.ht*g.taux)/100; g.ttc=Math.round((g.ht+g.tva)*100)/100;
+    g.coutTTC=Math.round(g.coutHT*(1+g.taux/100)*100)/100;
+  });
+  return G.sort((a,b)=>b.taux-a.taux);
+}
+/* le taux unique du projet, ou null si les taux des postes diffèrent */
+const prospectTauxUnique=(p,majTarifs)=>{
+  const G=prospectVentilationTva(p,majTarifs).filter(g=>Math.abs(g.ht)>=0.005||Math.abs(g.coutHT)>=0.005);
+  return G.length>1?null:G.length?G[0].taux:prospectTva(p);
+};
+const prospectTvaMixte=(p,majTarifs)=>prospectTauxUnique(p,majTarifs)===null;
+const prospectPrixTTC=(p,majTarifs)=>{
+  const t=prospectTauxUnique(p,majTarifs);
+  return t!==null?Math.round(prospectPrixHT(p,majTarifs)*(1+t/100)*100)/100
+    :Math.round(prospectVentilationTva(p,majTarifs).reduce((x,g)=>x+g.ttc,0)*100)/100;
+};
+/* le coût des travaux TTC (sans la marge), pour le contrat et la notice */
+const prospectCoutTTC=(p,majTarifs)=>{
+  const t=prospectTauxUnique(p,majTarifs);
+  return t!==null?Math.round(prospectCoutHT(p,majTarifs)*(1+t/100)*100)/100
+    :Math.round(prospectVentilationTva(p,majTarifs).reduce((x,g)=>x+g.coutTTC,0)*100)/100;
+};
+/* « TVA 10 % » ou « TVA mixte : 10 % sur 30 000 € HT, 20 % sur 5 000 € HT » */
+const libelleTvaProspect=(p,majTarifs)=>{
+  const t=prospectTauxUnique(p,majTarifs);
+  return t!==null?'TVA '+nb2(t)+' %':'TVA mixte : '+prospectVentilationTva(p,majTarifs).map(g=>nb2(g.taux)+' % sur '+eur(g.ht)+' HT').join(', ');
+};
 /* le prix de vente rapporté au prix de revient — ce que le devis appelle
    couramment le « coefficient » : 1,15 veut dire 15 % de marge appliquée
    au coût. Sans coût, il n'y a rien à rapporter. */
@@ -4956,11 +5007,16 @@ const contratTravauxForfaitTTC=p=>montantSaisi(p&&p.contratTravauxTTC);
    TTC, au lieu d'être déduit au taux du dossier */
 const contratTravauxForfaitHT=p=>montantSaisi(p&&p.contratTravauxHT);
 const contratTravaux=p=>{
-  const tva=prospectTva(p), forfait=contratTravauxForfaitTTC(p), fHT=contratTravauxForfaitHT(p);
-  if(forfait&&fHT)return {forfait:true,tva,ttc:forfait,ht:fHT,tvaMixte:Math.abs(forfait-fHT*(1+tva/100))>=0.5};
+  /* TVA par poste : un taux unique s'il y en a un, sinon « mixte » (le
+     contrat dit alors « TVA à taux variable », jamais un taux) */
+  const unique=prospectTauxUnique(p), mixte=unique===null, tva=mixte?prospectTva(p):unique;
+  const forfait=contratTravauxForfaitTTC(p), fHT=contratTravauxForfaitHT(p);
+  if(forfait&&fHT)return {forfait:true,tva,ttc:forfait,ht:fHT,tvaMixte:mixte||Math.abs(forfait-fHT*(1+tva/100))>=0.5};
+  if(forfait&&mixte){const h=prospectCoutHT(p),t=prospectCoutTTC(p);
+    return {forfait:true,tva,ttc:forfait,ht:t?Math.round(forfait*h/t*100)/100:forfait,tvaMixte:true}}
   if(forfait)return {forfait:true,tva,ttc:forfait,ht:Math.round(forfait/(1+tva/100)*100)/100};
   const ht=prospectCoutHT(p);
-  return {forfait:false,tva,ht,ttc:Math.round(ht*(1+tva/100)*100)/100};
+  return mixte?{forfait:false,tva,ht,ttc:prospectCoutTTC(p),tvaMixte:true}:{forfait:false,tva,ht,ttc:Math.round(ht*(1+tva/100)*100)/100};
 };
 /* la provision pour aléas et imprévus comprise dans le budget travaux de
    l'article 6 (« 49 910 € TTC avec 5 % d'imprévus ») : un pourcentage du
@@ -5586,8 +5642,7 @@ function ptrSyntheseXml(p,majTarifs,nomClients,typeOuvrage){
   const sousTitre=t=>par(t,{b:true,sz:19,c:DOC_BRUN,av:140,ap:60});
   /* un ERP n'a pas de « logement » à rendre habitable */
   const texte=t=>par(ptrTexteSelonOuvrage(t,typeOuvrage),{sz:17,jc:'both',ap:80});
-  const coutHT=prospectCoutHT(p,majTarifs), tva=prospectTva(p),
-    coutTTC=Math.round(coutHT*(1+tva/100)*100)/100;
+  const coutHT=prospectCoutHT(p,majTarifs), coutTTC=prospectCoutTTC(p,majTarifs);
   const honoTTC=honoDossierTTC(p,majTarifs);
   const ligneB=[]
     .concat((p.raccordements||[]).filter(x=>+x.montant).map(x=>[x.libelle||'Raccordement',eurDoc(x.montant)]))
@@ -7304,7 +7359,7 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
 
   const cout=prospectCoutHT(p,majTarifs), marge=prospectMargeHT(p,majTarifs),
     ht=prospectPrixHT(p,majTarifs), ttc=prospectPrixTTC(p,majTarifs);
-  const retro=prospectRetro(p,majTarifs), tva=prospectTva(p), ratio=ratioM2(ttc,p);
+  const retro=prospectRetro(p,majTarifs), tva=nb2(prospectTauxUnique(p,majTarifs)??prospectTva(p)), ratio=ratioM2(ttc,p);
   const coef=cout>0?Math.round(ht/cout*1000)/1000:null;
   const bilan=[
     titre('Bilan financier'),
@@ -7316,7 +7371,9 @@ function chiffrageInterneDocumentXml(p,px,majTarifs){
         celC(4200,eurDoc(prospectHonoOptionsHT(p,majTarifs))+' HT','right')])]:[]),
       tr([celC(6200,'Prix de vente HT (au client)','left'),celC(4200,eurDoc(ht)+' HT','right')]),
       tr([celC(6200,'Coefficient de vente','left'),celC(4200,coef?nb2(coef):'—','right')]),
-      tr([celC(6200,'TVA '+tva+' %','left'),celC(4200,eurDoc(Math.round((ttc-ht)*100)/100),'right')]),
+      ...(prospectTvaMixte(p,majTarifs)
+        ?prospectVentilationTva(p,majTarifs).map(g=>tr([celC(6200,'TVA '+nb2(g.taux)+' % sur '+eurDoc(g.ht)+' HT','left'),celC(4200,eurDoc(g.tva),'right')]))
+        :[tr([celC(6200,'TVA '+tva+' %','left'),celC(4200,eurDoc(Math.round((ttc-ht)*100)/100),'right')])]),
       tr([celC(6200,'Prix de vente TTC','left'),celC(4200,eurDoc(ttc)+' TTC','right')]),
       tr([celC(6200,'Ratio au m² pondéré','left'),celC(4200,eurM2(ratio),'right')]),
       tr([celC(6200,'Rétrocession totale prévue','left'),celC(4200,eurDoc(retro)+' HT','right')]),
@@ -26922,7 +26979,7 @@ function Prospects({data,save,cible}){
           placeholder={'Auto : '+eur(prospectCoutHT(f,data.majorationsCorps)*(+f.margePct||0)/100)}
           value={f.margeMontant||''} onChange={e=>setF({...f,margeMontant:e.target.value})}/></Fld>
       </div>
-      <Fld label="TVA (%)"><input className="in" type="number" step="0.1" placeholder="20" value={f.tva===undefined?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/></Fld>
+      <Fld label="TVA DU PROJET (%) — LES POSTES SANS TAUX LA PRENNENT"><input className="in" type="number" step="0.1" placeholder="20" value={f.tva===undefined?'':f.tva} onChange={e=>setF({...f,tva:e.target.value})}/></Fld>
 
       <div className="h2" style={{marginTop:16,marginBottom:4,fontSize:13}}>LE RESTE DE L’OPÉRATION</div>
       <div className="xs mut" style={{marginBottom:8,lineHeight:1.5}}>
@@ -27309,6 +27366,12 @@ function PostesChiffrage({data,save,p,postes,onChange,options}){
         <input className="in" style={{width:110,flex:'0 0 auto',background:x.quantitatif?'#F2EFE9':null}}
           type="number" value={x.montant||''} disabled={!!x.quantitatif}
           placeholder={x.moinsValue?'€ HT retiré':'€ HT'} onChange={e=>set(x.id,{montant:e.target.value})}/>
+        <select className="in tva-poste" style={{width:96,flex:'0 0 auto'}} aria-label={'TVA du poste — '+(x.libelle||'sans libellé')}
+          title="Taux de TVA de ce poste (vide : celui du projet)"
+          value={x.tva===undefined||x.tva===null?'':String(x.tva)} onChange={e=>set(x.id,{tva:e.target.value===''?'':+e.target.value})}>
+          <option value="">TVA {nb2(prospectTva(p))} %</option>
+          {[20,10,5.5].map(t=><option key={t} value={String(t)}>{nb2(t)} %</option>)}
+        </select>
         <button className="xs" style={{color:MUTED,background:'none',border:'none',padding:'0 4px'}}
           onClick={()=>onChange(L.filter(y=>y.id!==x.id))}>✕</button>
       </div>
@@ -27914,7 +27977,7 @@ function RecapChiffrage({p,interne,majTarifs}){
       <span className="xs mut">Prix de la maison</span>
       <span className="b" style={{fontSize:19,color:NAVY,lineHeight:1}}>{eur(ttc)} TTC</span>
     </div>
-    <div className="xs mut" style={{textAlign:'right',marginTop:2}}>{eur(ht)} HT · TVA {prospectTva(p)} %</div>
+    <div className="xs mut tva-recap" style={{textAlign:'right',marginTop:2}}>{eur(ht)} HT · {libelleTvaProspect(p,majTarifs)}</div>
     <div className="sp" style={{marginTop:10,paddingTop:10,borderTop:'2px solid '+TERRA,alignItems:'flex-end'}}>
       <span className="xs mut">Ratio au m² pondéré</span>
       <span className="b" style={{fontSize:18,color:TERRA,lineHeight:1}}>{eurM2(rTTC)} TTC</span>
@@ -28433,7 +28496,7 @@ function SortirContratMoe({data,p,maj,dossier,ou,sansCadre}){
   const [etat,setEtat]=useState(null);
   const pret=prospectPrixTTC(p)>0;
   const type=contratTypeOuvrage(p,data);
-  const trav=contratTravaux(p), calculeTTC=Math.round(prospectCoutHT(p)*(1+prospectTva(p)/100)*100)/100;
+  const trav=contratTravaux(p), calculeTTC=prospectCoutTTC(p);
   const forfait=contratTravauxForfaitTTC(p), forfaitHT=contratTravauxForfaitHT(p);
   const [saisieForfait,setSaisieForfait]=useState(forfait?String(forfait):'');
   useEffect(()=>{setSaisieForfait(forfait?String(forfait):'')},[forfait]);
