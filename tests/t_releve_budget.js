@@ -57,5 +57,39 @@ const {chk,fin}=verif();
   const fz=B.fusionnerFourchettes(a,b);
   chk(fz.find(l=>l.id==='x').libelle==='A modifié'&&fz.find(l=>l.id==='y').supprime&&fz.some(l=>l.id==='z'),'table retouchée par deux personnes : le plus récent par ligne, suppression gardée, ajout gardé');
   chk(B.formatPlage({min:8600,max:12900}).replace(/\s/g,' ')==='de 8 600 à 12 900 € TTC','affichage « de X à Y € TTC »');
+
+  /* ---------- l'estimation R1 par surfaces globales ---------- */
+  chk(B.OUVRAGES.length>=15&&B.OUVRAGES.every(o=>B.prixNiveau(o.prix,'standard')),'ouvrages livrés avec des prix de départ cohérents (mini ≤ médian ≤ maxi)');
+  chk(new Set(B.OUVRAGES.map(o=>o.id)).size===B.OUVRAGES.length,'identifiants des ouvrages uniques');
+  const cu=B.OUVRAGES.find(o=>o.id==='cuisine');
+  chk(JSON.stringify(B.prixNiveau({min:500,med:900,max:1500},'eco'))==='{"min":500,"max":900}'&&B.prixNiveau({min:500,med:900,max:1500},'haut').min===900,'gammes : éco du mini au médian, haut de gamme du médian au maxi');
+  const st=B.prixNiveau({min:500,med:900,max:1500},'standard');chk(st.min===765&&st.max===1035,'standard : autour du médian (± 15 %)');
+  chk(B.prixNiveau({min:900,med:500,max:1500},'standard')===null,'prix incohérent : pas utilisé');
+  const plan=[{id:'p1',nom:'Cuisine',sol:12.5,fenetres:1},{id:'p2',nom:'Séjour',sol:25,fenetres:3},{id:'p3',nom:'Chambre',sol:11,etage:1,fenetres:1}];
+  chk(B.surfaceAuto(cu,plan).valeur===12.5&&B.surfaceAuto(cu,plan).source==='plan','cuisine : la surface de la cuisine du plan');
+  chk(B.surfaceAuto(cu,[]).valeur===10&&B.surfaceAuto(cu,[]).source==='defaut','sans plan : valeur courante (10 m²)');
+  chk(B.surfaceAuto(B.OUVRAGES.find(o=>o.id==='electricite'),plan).valeur===48.5,'électricité : surface habitable du plan');
+  chk(B.surfaceAuto(B.OUVRAGES.find(o=>o.id==='fenetres'),plan).valeur===5,'fenêtres : comptées sur le plan');
+  chk(B.surfaceAuto(B.OUVRAGES.find(o=>o.id==='toiture'),plan).valeur===Math.round(37.5*1.3),'toiture : 1,3 × l’emprise du rez-de-chaussée');
+  const r1=B.calculerOuvrage({id:'c',ouvrageId:'cuisine',surface:null,niveau:'haut'},B.OUVRAGES,plan);
+  chk(r1.surface===12.5&&r1.min===900*12.5&&r1.max===1500*12.5,'cuisine haut de gamme : 12,5 m² × 900 à 1 500 €');
+  chk(B.calculerOuvrage({id:'c',ouvrageId:'cuisine',surface:'14,5',niveau:'eco'},B.OUVRAGES,plan).surface===14.5,'surface réglée à la main (virgule acceptée) : elle l’emporte sur le plan');
+  chk(B.calculerOuvrage({id:'p',ouvrageId:'pac',surface:50},B.OUVRAGES,plan).surface===1,'forfait : 1, quelle que soit la surface');
+  /* la table de CP remplace les repères */
+  const T=B.tableOuvrages([{id:'cuisine',prix:{min:600,med:1000,max:1600}},{id:'sdb',prix:{min:9,med:1,max:2}},{id:'sols',supprime:true,prix:{min:1,med:2,max:3}}]);
+  chk(T.find(o=>o.id==='cuisine').prix.med===1000&&T.find(o=>o.id==='cuisine').repere==='cp','prix de CP : ils remplacent le repère du marché');
+  chk(T.find(o=>o.id==='sdb').prix.med===1200&&T.find(o=>o.id==='sols').prix.med===80,'prix enregistré incohérent ou retiré : le repère reste');
+  /* propositions */
+  const sg=B.ouvragesSuggeres(['Cuisine','Peinture'],[],B.OUVRAGES,[]).map(o=>o.id);
+  chk(sg.join()==='cuisine,peinture','cuisine et peinture cochées : ces deux travaux proposés');
+  const sg2=B.ouvragesSuggeres(['Cuisine','Chauffage','Extension'],['Rénovation importante'],B.OUVRAGES,[]).map(o=>o.id);
+  chk(sg2.includes('reno-complete')&&!sg2.includes('cuisine')&&sg2.includes('pac')&&sg2.includes('extension'),'rénovation importante : la rénovation complète remplace les postes intérieurs, pas la PAC ni l’extension');
+  const sg3=B.ouvragesSuggeres([],['Rénovation énergétique'],B.OUVRAGES,[{ouvrageId:'pac'}]).map(o=>o.id);
+  chk(sg3.join()==='combles,fenetres','rénovation énergétique : combles et fenêtres (PAC déjà prise ; l’ITE seulement si la façade est cochée)');
+  /* le total : ouvrages + postes détaillés, mêmes ajustements, à la centaine */
+  const est=B.calculerEstimation({ouvrages:[{id:'a',ouvrageId:'cuisine',niveau:'haut'}],lignes:[{id:'l',fourchetteId:'peinture-murs',gamme:'standard',pieces:['p1']}],ajust:{etat:0.1}},B.OUVRAGES,
+    [{id:'p1',nom:'Cuisine',sol:12.5,murs:30.1}],F);
+  chk(est.total.min===Math.round((11250+602)*1.1/100)*100&&est.total.max===Math.round((18750+903)*1.1/100)*100,'total : ouvrages + poste détaillé, ajustement +10 %, à la centaine');
+  chk(B.calculerEstimation({},B.OUVRAGES,[],[]).vide===true,'rien de choisi : estimation vide');
   fin();
 })();

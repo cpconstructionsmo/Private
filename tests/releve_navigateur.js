@@ -100,7 +100,7 @@ let b;
   await choix2.setFiles([PHOTO,PHOTO]);
   await p.waitForFunction(()=>document.querySelectorAll('.photoLegende img[src^="blob:"]').length===2,null,{timeout:8000});
   chk((await p.textContent('main')).includes('1 pièce · 2 photos'),'compteur : 1 pièce · 2 photos');
-  chk(await p.locator('text=Imaginer').count()===0,'le bouton « Imaginer (bientôt) » inactif est retiré');
+  chk(await p.locator('text=Imaginer (bientôt)').count()===0&&await p.locator('[data-piece] button.imaginer').count()===2,'« Imaginer (bientôt) » inactif remplacé par « ✨ Imaginer » sous chaque photo');
   chk(await p.locator('[data-piece] >> text=📷 Photo suivante').count()===1,'après une photo : « Photo suivante »');
   await p.fill('textarea[aria-label="Légende de la photo 1"]','Fissure au-dessus de la fenêtre');
   await p.fill('textarea[aria-label="Notes sur la pièce Cuisine"]','Garder le carrelage.');

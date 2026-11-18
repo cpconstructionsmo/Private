@@ -39,9 +39,16 @@ qu'on ait à les redire.
   visite » d'une fiche prospect). Le suivi rattache les visites aux
   prospects sans doublon (PROSPECTS › « Visites à rattacher »,
   `prospectsCandidats`, `completerProspectDepuisVisite` : cases vides
-  seulement) et ne garde que le lien `p.visites`. Fourchette de prix de
-  la visite (`releve/budget.js`, étape « Budget », table partagée
-  `releve_reglages` livrée **sans prix**) : l'estimation part avec la visite
+  seulement) et ne garde que le lien `p.visites`. Budget de premier
+  rendez-vous (`releve/budget.js`, étape « Budget ») : travaux en tuiles,
+  surface globale tirée du plan ou réglée par − / +, gamme éco / standard /
+  haut de gamme, prix au m² mini / médian / maxi (`OUVRAGES`, repères
+  publics 2026 à remplacer par les ratios de CP : « ⚙ Prix au m² », table
+  `releve_reglages` ligne « ouvrages ») ; le poste par poste (fourchettes,
+  ligne « fourchettes », livrée sans prix) reste sous « Approfondir ».
+  « ✨ Imaginer » (photo de pièce → pièce rénovée) passe par la fonction
+  `supabase/functions/imaginer` (Gemini, clé `GEMINI_API_KEY` dans les
+  secrets Supabase, utilisateur connecté, limite par jour). L'estimation part avec la visite
   et s'affiche sur la fiche prospect (`visiteResume().fourchette`). Chiffrage
   précis : dans le quantitatif d'un poste de la fiche prospect (seulement là,
   `Quantitatif` prop `plan`), une ligne prend sa quantité dans le plan de la

@@ -1,11 +1,12 @@
-/* Relevé de visite, Phase 2 mode A — la fourchette de prix pendant la
-   visite, dans Chromium au format iPhone, faux Supabase, scan FICTIF et prix
-   FICTIFS saisis par le test (la table livrée n'en contient aucun) :
-   - sans prix : les postes sont signalés « prix à saisir », rien d'inventé ;
-   - la table des fourchettes se remplit et s'enregistre pour l'équipe ;
-   - postes proposés d'après les travaux, quantités tirées du plan, gamme,
-     pièces choisies, ajustements, voyant face à l'enveloppe du client ;
-   - l'estimation part avec la visite ; hors ligne, la table sert encore. */
+/* Relevé de visite — le budget de premier rendez-vous (R1), dans Chromium au
+   format iPhone, faux Supabase, scan FICTIF :
+   - travaux proposés d'après l'étape Projet, estimés d'un toucher ;
+   - surface reprise du plan (surface habitable) ou valeur courante, réglée
+     par − / + et ramenée au plan ; gamme éco / standard / haut de gamme ;
+   - voyant face à l'enveloppe ; tuiles pour ajouter des travaux ;
+   - « Approfondir » : ajustements et poste par poste, toujours là ;
+   - « Prix au m² » : les prix de CP enregistrés pour toute l'équipe ;
+   - l'estimation part avec la visite ; hors ligne, elle se calcule encore. */
 require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
 const {chromium}=require('playwright-core');const fs=require('fs');const path=require('path');
 const {fauxSupabase}=require('./releve_faux_supabase');
@@ -48,66 +49,79 @@ let b;
   await p.waitForSelector('#totalBudget');
   chk((await p.textContent('.etapeNom')).includes('Étape 6 sur 7 · Budget'),'étape Budget, après le plan');
 
-  /* postes proposés, sans prix encore */
-  chk((await p.textContent('#ajouterSuggeres')).includes('(4)'),'quatre postes proposés d’après les travaux (cuisine, mobilier de cuisine, peinture des murs et des plafonds)');
-  await p.tap('#ajouterSuggeres');
-  await p.waitForSelector('[data-ligne]');
-  chk(await p.locator('[data-ligne]').count()===4,'les quatre postes sont ajoutés');
-  chk(plat(await p.textContent('#totalBudget')).includes('4 postes sans prix'),'sans prix saisis : signalé, aucun montant inventé');
-  chk(plat(await p.textContent('[data-ligne]:first-child, .carte[data-ligne]')).includes('Prix à saisir'),'chaque poste dit « prix à saisir »');
+  /* travaux proposés, estimés d'un toucher */
+  chk(/\(2\)/.test(await p.textContent('#estimerSuggeres')),'deux travaux proposés d’après l’étape Projet (cuisine, peinture)');
+  chk(await p.locator('.tuile.propose').count()===2,'les tuiles proposées sont marquées');
+  await p.tap('#estimerSuggeres');
+  await p.waitForSelector('[data-ouvrage-choisi="cuisine"]');
+  const cuisine=p.locator('[data-ouvrage-choisi="cuisine"]'), peinture=p.locator('[data-ouvrage-choisi="peinture"]');
+  chk(await p.locator('.carte.ouvrage').count()===2,'une carte par travaux, sans rien saisir');
+  await p.waitForFunction(()=>/de [\d\s ]+ à [\d\s ]+ € TTC/.test(document.getElementById('montantBudget').textContent));
+  const total0=plat(await p.textContent('#montantBudget'));
+  chk(/de [\d  ]+ à [\d  ]+ € TTC/.test(total0),'la fourchette s’affiche aussitôt : '+total0);
+  await p.waitForTimeout(700);   /* le total « roule » jusqu'à sa valeur */
+  const nbr=t=>+t.replace(/[^\d]/g,'');
+  const plages=await p.$$eval('.carte.ouvrage .plage',els=>els.map(e=>e.textContent));
+  const somme=plages.reduce((t,x)=>{const m=x.match(/de (.+?) € à (.+?) €/);return {min:t.min+nbr(m[1]),max:t.max+nbr(m[2])}},{min:0,max:0});
+  const fin0=plat(await p.textContent('#montantBudget')).match(/de (.+?) à (.+?) €/);
+  chk(Math.abs(nbr(fin0[1])-somme.min)<=200&&Math.abs(nbr(fin0[2])-somme.max)<=200,'le total final est la somme des travaux ('+fin0[0]+')');
+  chk(/D’après le plan : surface habitable/.test(plat(await peinture.textContent())),'peinture : surface habitable reprise du plan');
+  chk(await cuisine.locator('input').inputValue()==='10'&&/Valeur courante/.test(await cuisine.textContent()),'cuisine absente du plan : valeur courante (10 m²), à régler');
+  chk(/Dans le budget/.test(await p.textContent('#verdictBudget')),'15 000 € d’enveloppe : dans le budget');
+  await p.screenshot({path:SORTIE+'/releve_budget.png',fullPage:true});
 
-  /* la table des fourchettes : prix fictifs */
-  await p.tap('#ouvrirFourchettes');
-  await p.waitForSelector('[data-fourchette="peinture-murs"]');
-  chk(await p.locator('[data-fourchette]').count()>=15,'la table livrée liste les postes courants');
-  await p.fill('input[name="prix-peinture-murs-standard-min"]','20');await p.fill('input[name="prix-peinture-murs-standard-max"]','30');
-  await p.fill('input[name="prix-peinture-plafonds-standard-min"]','15');await p.fill('input[name="prix-peinture-plafonds-standard-max"]','25');
-  await p.fill('input[name="prix-cuisine-standard-min"]','8000');await p.fill('input[name="prix-cuisine-standard-max"]','12000');
-  await p.fill('input[name="prix-cuisine-premium-min"]','14000');await p.fill('input[name="prix-cuisine-premium-max"]','20000');
-  await p.screenshot({path:SORTIE+'/releve_fourchettes.png'});
-  await p.tap('#enregistrerFourchettes');
-  await p.waitForSelector('#totalBudget');
-  chk(await p.isVisible('text=Fourchettes de prix enregistrées pour toute l’équipe'),'table enregistrée pour toute l’équipe');
-  const reg=await p.evaluate(()=>window.__etat.reglages&&window.__etat.reglages.fourchettes);
-  chk(reg&&reg.donnees.lignes.find(l=>l.id==='cuisine').prix.standard.max===12000,'les prix sont sur le serveur (releve_reglages)');
+  /* − / + et gamme */
+  await cuisine.locator('button[aria-label="Plus"]').tap();
+  await p.waitForFunction(()=>document.querySelector('[data-ouvrage-choisi="cuisine"] input').value==='11');
+  chk(/Réglé à la main/.test(await p.locator('[data-ouvrage-choisi="cuisine"]').textContent()),'« + » : 11 m², réglé à la main');
+  await p.locator('[data-ouvrage-choisi="cuisine"] >> text=Haut de gamme').tap();
+  await p.waitForFunction(()=>/À la limite|Hors budget/.test(document.getElementById('verdictBudget').textContent));
+  chk(true,'cuisine haut de gamme : le voyant passe « à la limite » ou « hors budget »');
+  await p.tap('[data-ouvrage="pac"]');
+  await p.waitForSelector('[data-ouvrage-choisi="pac"]');
+  await p.waitForFunction(()=>/Hors budget/.test(document.getElementById('verdictBudget').textContent));
+  chk(/Prix posé, au forfait/.test(await p.textContent('[data-ouvrage-choisi="pac"]')),'tuile « pompe à chaleur » : ajoutée au forfait, hors budget');
+  await p.locator('[data-ouvrage-choisi="cuisine"] >> text=revenir à').tap();
+  await p.waitForFunction(()=>document.querySelector('[data-ouvrage-choisi="cuisine"] input').value==='10');
+  chk(true,'« ↺ revenir » : la valeur automatique revient');
 
-  /* le calcul */
-  const total=plat(await p.textContent('#totalBudget'));
-  chk(/de \d[\d ]* à \d[\d ]* € TTC/.test(total)&&/1 poste sans prix/.test(total),'la fourchette s’affiche ('+(total.match(/de [\d ]+ à [\d ]+ € TTC/)||[''])[0]+'), le mobilier de cuisine reste signalé sans prix');
-  const lignes=await p.evaluate(()=>Object.values(window.__etat.lignes)[0]);
-  const qMurs=await p.locator('[data-ligne]').filter({hasText:'Peinture des murs'}).locator('input[name^="quantite-"]').inputValue();
-  chk(qMurs!=='','quantité des murs reprise du plan : '+qMurs+' m²');
-  chk(plat(await p.textContent('#verdictBudget')).includes('Enveloppe du client : 15 000 €'),'enveloppe du client rappelée');
-  const verdict1=plat(await p.textContent('#verdictBudget'));
-  /* gamme premium pour la cuisine : la fourchette monte */
-  const carteCuisine=p.locator('[data-ligne]').filter({hasText:'rénovation complète (hors mobilier)'});
-  await carteCuisine.locator('text=Premium').tap();
-  await p.waitForFunction(()=>/Hors budget|À la limite/.test(document.getElementById('verdictBudget').textContent));
-  chk(/Dans le budget/.test(verdict1)&&/Hors budget|À la limite/.test(plat(await p.textContent('#verdictBudget'))),'cuisine en premium : le voyant passe de « dans le budget » à « hors / à la limite »');
-  /* ajustements */
+  /* approfondir : ajustements et poste par poste */
+  await p.tap('summary');
   await p.tap('text=Dégradé +20 %');
-  await p.waitForSelector('text=Ajustements compris : +20 %');
-  chk(true,'ajustement « dégradé » : +20 % affiché');
-  /* pièces choisies */
-  const carteMurs=p.locator('[data-ligne]').filter({hasText:'Peinture des murs'});
-  chk(await carteMurs.locator('text=Toute la maison').count()===1,'quantité : toute la maison, ou les pièces choisies');
+  await p.waitForSelector('text=ajustements compris : +20 %');
+  chk(true,'« Approfondir » : ajustement « dégradé » +20 % appliqué au total');
+  await p.selectOption('#ajouterPoste','peinture-murs');
+  await p.waitForSelector('[data-ligne]');
+  chk(/1 poste sans prix/.test(plat(await p.textContent('#totalBudget'))),'un poste détaillé sans prix est signalé, sans montant inventé');
+
+  /* prix au m² de CP */
+  await p.tap('#ouvrirPrixOuvrages');
+  await p.waitForSelector('[data-prix-ouvrage="cuisine"]');
+  chk(await p.locator('[data-prix-ouvrage]').count()>=15&&/Repère marché/.test(await p.textContent('[data-prix-ouvrage="cuisine"]')),'les prix de départ sont listés, marqués « repère marché »');
+  await p.fill('input[name="ouv-cuisine-min"]','600');await p.fill('input[name="ouv-cuisine-med"]','1000');await p.fill('input[name="ouv-cuisine-max"]','1600');
+  await p.tap('#enregistrerOuvrages');
+  await p.waitForSelector('#totalBudget');
+  chk(await p.isVisible('text=Prix au m² enregistrés pour toute l’équipe'),'prix enregistrés pour toute l’équipe');
+  const reg=await p.evaluate(()=>window.__etat.reglages&&window.__etat.reglages.ouvrages);
+  chk(reg&&reg.donnees.lignes.length===1&&reg.donnees.lignes[0].prix.med===1000,'seul le prix retouché part sur le serveur (releve_reglages, « ouvrages »)');
+  const plageCuisine=plat(await p.textContent('[data-ouvrage-choisi="cuisine"] .plage'));
+  chk(plageCuisine==='de 10 000 € à 16 000 €','la cuisine suit le prix de CP : 10 m² × 1 000 à 1 600 € ('+plageCuisine+')');
 
   /* l'estimation part avec la visite */
-  chk(await attendre(p,()=>{const v=Object.values(window.__etat.lignes)[0].donnees.valeurs.budget;return v&&v.estimation&&v.estimation.max>0&&v.lignes.length===4&&v.ajust.etat===0.2}),
-    'l’estimation, les postes et les ajustements partent avec la visite');
-  await p.screenshot({path:SORTIE+'/releve_budget.png'});
+  chk(await attendre(p,()=>{const v=Object.values(window.__etat.lignes)[0].donnees.valeurs.budget;return v&&v.estimation&&v.estimation.max>0&&v.ouvrages.length===3&&v.ajust.etat===0.2&&v.lignes.length===1}),
+    'l’estimation, les travaux, les ajustements et le poste détaillé partent avec la visite');
 
-  /* hors ligne : la table sert encore (rechargement compris) */
+  /* hors ligne : tout se calcule encore (rechargement compris) */
   await p.reload();await p.waitForSelector('.visite');
   await ctx.setOffline(true);
   await p.click('.visite');
   await p.waitForSelector('#totalBudget');
-  chk(/de \d[\d ]* à \d[\d ]* € TTC/.test(plat(await p.textContent('#totalBudget'))),'hors ligne, après rechargement : la fourchette se calcule encore');
+  chk(/de [\d  ]+ à [\d  ]+ € TTC/.test(plat(await p.textContent('#montantBudget')))&&plat(await p.textContent('[data-ouvrage-choisi="cuisine"] .plage'))==='de 10 000 € à 16 000 €','hors ligne, après rechargement : la fourchette et les prix de CP servent encore');
   await ctx.setOffline(false);
 
   /* récapitulatif */
   await p.tap('#suivant');
-  chk(/Budget estimé.*de [\d ]+ à [\d ]+ € TTC \(indicatif\)/.test(plat(await p.textContent('.recap'))),'récapitulatif : budget estimé (indicatif)');
+  chk(/Budget estimé.*de [\d  ]+ à [\d  ]+ € TTC \(indicatif\)/.test(plat(await p.textContent('.recap'))),'récapitulatif : budget estimé (indicatif)');
 
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,500):''));
   await b.close();

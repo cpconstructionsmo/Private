@@ -188,7 +188,8 @@ function ecranAccueil() {
       !S.session && h('div', { class: 'message att' }, 'Non connecté : les visites restent sur cet appareil. ',
         h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'connexion'; dessiner(); } }, 'Se connecter')),
       liste.length ? liste.map(r => carteVisite(r)) : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.'),
-      h('div', { style: 'text-align:center;margin-top:8px' }, h('button', { class: 'lienRetour', id: 'reglerFourchettes', onclick: () => { S.retour = 'accueil'; S.ecran = 'fourchettes'; S.brouillonF = null; S.message = null; dessiner(); } }, '⚙ Fourchettes de prix'))),
+      h('div', { style: 'text-align:center;margin-top:8px' }, h('button', { class: 'lienRetour', id: 'reglerOuvrages', onclick: () => { S.retour = 'accueil'; S.ecran = 'ouvrages'; S.brouillonO = null; S.message = null; dessiner(); } }, '⚙ Prix au m²'), ' · ',
+        h('button', { class: 'lienRetour', id: 'reglerFourchettes', onclick: () => { S.retour = 'accueil'; S.ecran = 'fourchettes'; S.brouillonF = null; S.message = null; dessiner(); } }, '⚙ Postes détaillés'))),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' }, h('button', { class: 'gros', id: 'nouvelleVisite', onclick: nouvelleVisite }, '📷 Nouvelle visite'))),
   ];
 }
@@ -466,8 +467,80 @@ function texteElement(liste, el, champTexte, attrs) {
   return h('div', { class: 'champMicro ' + (attrs.cls || '') }, attrs.titre ? h('label', { class: 'champ' }, attrs.titre, inp) : inp, boutonMicro(inp, aide), aide);
 }
 
+/* ---------- « Imaginer » : la pièce rénovée, d'après sa photo ----------
+   La photo et la consigne (tapée ou dictée) partent à la fonction du serveur
+   « imaginer » (supabase/functions/imaginer : Gemini, clé dans les secrets de
+   Supabase, jamais ici). L'image revient et se range avec la visite comme
+   une photo (role 'imagine', source = la photo d'origine) : sur l'appareil
+   d'abord, puis dans l'espace privé. Il faut le réseau et être connecté. */
+const enBase64 = blob => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => ko(r.error); r.readAsDataURL(blob); });
+const versBlob = (b64, mime) => { const bin = atob(b64), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: mime || 'image/png' }); };
+const MESSAGES_IMAGINER = {
+  non_configure: 'Imaginer n’est pas encore installé sur le serveur (clé Google à ranger dans Supabase : voir supabase/functions/imaginer/README.md).',
+  non_connecte: 'Reconnectez-vous pour utiliser Imaginer.',
+  aucune_image: 'Google n’a pas rendu d’image pour cette consigne : reformulez-la (sans nom de marque ni personne), puis réessayez.',
+  google_occupe: 'Google est surchargé pour le moment : réessayez dans une minute.',
+  image_trop_lourde: 'Cette photo est trop lourde pour Imaginer.',
+  consigne_absente: 'Décrivez d’abord ce que vous voulez voir.',
+};
+async function lancerImaginer(p, ph, consigne, btn, info) {
+  consigne = consigne.trim();
+  const dire = (t, type) => { info.textContent = t; info.className = 'message ' + (type || 'err'); };
+  if (consigne.length < 3) return dire(MESSAGES_IMAGINER.consigne_absente, 'att');
+  if (navigator.onLine === false) return dire('Imaginer a besoin du réseau. La consigne est gardée : réessayez quand le réseau revient.', 'att');
+  if (!S.session) return dire('Connectez-vous (même compte que le suivi) pour utiliser Imaginer.', 'att');
+  if (!supa.functions || !supa.functions.invoke) return dire(MESSAGES_IMAGINER.non_configure, 'att');
+  const texte = btn.textContent; btn.disabled = true; btn.textContent = '✨ Création en cours… (jusqu’à une minute)';
+  dire('L’image est en cours de création. Vous pouvez continuer la visite : elle arrivera ici.', 'att');
+  try {
+    let blob = await stock.lirePhoto(ph.id);
+    if (!blob && ph.chemin) { const u = await urlPhoto(ph.id, ph.chemin); if (u) blob = await (await fetch(u)).blob(); }
+    if (!blob) throw { code: 'photo' };
+    const { data, error } = await supa.functions.invoke('imaginer', { body: { image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom } });
+    if (error) {
+      let j = {}; try { j = await error.context.json(); } catch (e) { /* pas de corps lisible */ }
+      const st = error.context && error.context.status;
+      throw { code: j.erreur || (st === 404 ? 'non_configure' : st ? 'erreur_' + st : 'reseau'), limite: j.limite, message: j.message };
+    }
+    if (!data || !data.image) throw { code: 'aucune_image' };
+    const id = M.nouvelId();
+    await stock.garderPhoto(id, S.courante, versBlob(data.image, data.mime));
+    await changer(v => M.majElement(M.ajouterPhoto(v, { id, role: 'imagine', pieceId: p.id, legende: consigne }), 'photos', id,
+      { source: ph.id, consigne, modele: data.modele || '', creeLe: new Date().toISOString() }));
+    if (S.imaginer && S.imaginer.photoId === ph.id) S.imaginer = null;
+    S.message = { type: 'ok', texte: '✨ Image créée pour « ' + p.nom + ' »' + (data.restant != null ? ' (encore ' + data.restant + ' aujourd’hui).' : '.') };
+    vibrer(); dessiner();
+  } catch (e) {
+    const code = (e && e.code) || 'reseau';
+    btn.disabled = false; btn.textContent = texte;
+    dire(code === 'quota' ? 'Limite du jour atteinte (' + (e.limite || '') + ' images par personne) : réessayez demain.'
+      : code === 'photo' ? 'La photo d’origine n’est pas lisible sur cet appareil (pas encore téléchargée ?).'
+      : code === 'reseau' ? 'Pas de réponse du serveur : réseau coupé, ou Imaginer pas encore installé.'
+      : MESSAGES_IMAGINER[code] || 'La création a échoué (' + code + (e && e.message ? ' : ' + e.message : '') + ').');
+  }
+}
+
+/* le panneau sous la photo : consigne (avec dictée), puis « Créer l'image » */
+function panneauImaginer(p, ph) {
+  const st = S.imaginer;
+  let info;
+  const ta = h('textarea', { class: 'in', rows: 3, value: st.consigne || '', 'aria-label': 'Consigne pour imaginer la pièce', autocapitalize: 'sentences',
+    placeholder: 'Ex. : cuisine blanche, plan de travail bois, carrelage gris clair, suspensions noires',
+    oninput: e => { st.consigne = e.target.value; } });
+  const aide = h('div', { class: 'aide info' });
+  const btn = h('button', { class: 'gros', type: 'button', onclick: () => lancerImaginer(p, ph, ta.value, btn, info) }, '✨ Créer l’image');
+  return h('div', { class: 'carte panneauImaginer', 'data-imaginer': ph.id },
+    h('b', {}, '✨ Imaginer cette pièce rénovée'),
+    h('div', { class: 'champMicro' }, ta, boutonMicro(ta, aide), aide),
+    M.valeur(visite(), 'projet.souhaits') && !st.consigne ? h('button', { class: 'puce', type: 'button', style: 'margin-top:8px', onclick: () => { ta.value = st.consigne = M.valeur(visite(), 'projet.souhaits'); } }, 'Reprendre les souhaits du client') : null,
+    info = h('div', { role: 'status', style: 'margin-top:8px' }),
+    h('div', { class: 'rang', style: 'margin-top:8px' }, h('button', { class: 'gros sec', type: 'button', onclick: () => { S.imaginer = null; dessiner(); } }, 'Fermer'), btn));
+}
+
 function cartePiece(v, p) {
-  const photos = M.actifs(v.photos).filter(x => x.pieceId === p.id);
+  const toutes = M.actifs(v.photos).filter(x => x.pieceId === p.id);
+  const photos = toutes.filter(x => x.role !== 'imagine');
+  const imagines = src => toutes.filter(x => x.role === 'imagine' && x.source === src);
   const prendre = () => choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'piece', pieceId: p.id }));
   return h('div', { class: 'carte', 'data-piece': p.id },
     h('div', { class: 'rang' },
@@ -475,16 +548,30 @@ function cartePiece(v, p) {
         oninput: e => changer(x => M.majElement(x, 'pieces', p.id, { nom: e.target.value })) }),
       h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer la pièce', onclick: async () => {
         if (!confirm('Supprimer la pièce « ' + p.nom + ' » et ses photos ?')) return;
-        await changer(x => photos.reduce((w, ph) => M.supprimer(w, 'photos', ph.id), M.supprimer(x, 'pieces', p.id)));
+        await changer(x => toutes.reduce((w, ph) => M.supprimer(w, 'photos', ph.id), M.supprimer(x, 'pieces', p.id)));
         dessiner();
       } }, '🗑')),
-    photos.map((ph, i) => h('div', { class: 'photoLegende', 'data-photo': ph.id },
-      h('figure', {}, imagePhoto(ph),
-        h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => {
-          if (!confirm('Supprimer cette photo ?')) return;
-          await changer(x => M.supprimer(x, 'photos', ph.id)); dessiner();
-        } }, '×')),
-      texteElement('photos', ph, 'legende', { label: 'Légende de la photo ' + (i + 1), placeholder: 'Ce que montre la photo (fissure, tableau électrique…)', lignes: 3 }))),
+    photos.map((ph, i) => [
+      h('div', { class: 'photoLegende', 'data-photo': ph.id },
+        h('figure', {}, imagePhoto(ph),
+          h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => {
+            const lies = imagines(ph.id);
+            if (!confirm(lies.length ? 'Supprimer cette photo et ses ' + lies.length + ' image(s) imaginée(s) ?' : 'Supprimer cette photo ?')) return;
+            await changer(x => lies.reduce((w, im) => M.supprimer(w, 'photos', im.id), M.supprimer(x, 'photos', ph.id))); dessiner();
+          } }, '×')),
+        h('div', { style: 'flex:1;min-width:0' },
+          texteElement('photos', ph, 'legende', { label: 'Légende de la photo ' + (i + 1), placeholder: 'Ce que montre la photo (fissure, tableau électrique…)', lignes: 3 }),
+          S.imaginer && S.imaginer.photoId === ph.id ? null
+            : h('button', { class: 'puce imaginer', type: 'button', 'aria-label': 'Imaginer la photo ' + (i + 1) + ' rénovée',
+                onclick: () => { S.imaginer = { photoId: ph.id, consigne: '' }; dessiner(); } }, '✨ Imaginer'))),
+      imagines(ph.id).map(im => h('div', { class: 'imagine', 'data-imagine': im.id },
+        h('figure', {}, imagePhoto(im, 'imagineImg'), h('span', { class: 'badgeImagine' }, '✨ Imaginé'),
+          h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer l’image imaginée', onclick: async () => {
+            if (!confirm('Supprimer cette image imaginée ?')) return;
+            await changer(x => M.supprimer(x, 'photos', im.id)); dessiner();
+          } }, '×')),
+        h('div', { class: 'mut petit' }, '« ' + (im.consigne || im.legende || '') + ' »'))),
+      S.imaginer && S.imaginer.photoId === ph.id ? panneauImaginer(p, ph) : null]),
     h('div', { class: 'rang', style: 'margin-top:10px' },
       h('button', { class: 'gros sec', onclick: prendre }, photos.length ? '📷 Photo suivante' : '📷 Photo'),
       h('button', { class: 'gros sec', onclick: () => choisirFichier({ accept: 'image/*', multiple: true }, f => ajouterPhotos(f, { role: 'piece', pieceId: p.id })) }, '🖼 Galerie')),
@@ -659,7 +746,8 @@ function etapeFin(v) {
       M.valeur(v, 'projet.explicatif') ? dd('En quelques mots', M.valeur(v, 'projet.explicatif')) : null,
       dd('Délai', M.valeur(v, 'projet.delai')),
       dd('Enveloppe', M.valeur(v, 'projet.enveloppe') != null ? M.formatEuros(M.valeur(v, 'projet.enveloppe')) + ' TTC' : null),
-      dd('Pièces', M.actifs(v.pieces).map(p => p.nom + ' (' + M.actifs(v.photos).filter(x => x.pieceId === p.id).length + ' ph.)').join(', ')),
+      dd('Pièces', M.actifs(v.pieces).map(p => { const ph = M.actifs(v.photos).filter(x => x.pieceId === p.id), im = ph.filter(x => x.role === 'imagine').length;
+        return p.nom + ' (' + (ph.length - im) + ' ph.' + (im ? ', ' + im + ' imaginée' + (im > 1 ? 's' : '') : '') + ')'; }).join(', ')),
       dd('Scan', (M.valeur(v, 'scan.fichier') || {}).nom),
       dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null),
       dd('Budget estimé', (M.valeur(v, 'budget') || {}).estimation ? B.formatPlage(M.valeur(v, 'budget').estimation) + ' (indicatif)' : null)),
@@ -667,50 +755,128 @@ function etapeFin(v) {
   ];
 }
 
-/* ---------- étape 7 : la fourchette de prix (Phase 2, mode A) ----------
-   Les postes renvoient à la table des fourchettes de CP Constructions ; la
-   quantité vient du plan (pièces choisies, ou toute la maison) ou se saisit.
-   Le résultat est indicatif : « estimation, non contractuelle ». Le total
-   est aussi gardé avec la visite (« estimation »), pour que le suivi
-   l'affiche sur la fiche du prospect. */
+/* ---------- étape « Budget » : l'estimation de premier rendez-vous ----------
+   Chez le client, en quelques touchers : on choisit les travaux (tuiles), la
+   surface vient du plan (la cuisine du scan, la surface habitable…) ou d'une
+   valeur courante réglée par − / +, la gamme place le prix entre le mini et
+   le maxi (releve/budget.js, OUVRAGES). La fourchette TTC s'affiche aussitôt,
+   face à l'enveloppe du client. Indicatif, non contractuel : le chiffrage
+   précis se fait au bureau (fiche prospect du suivi). Le total est gardé
+   avec la visite (« estimation ») : le suivi l'affiche sur la fiche du
+   prospect. « Approfondir » garde les ajustements et le poste par poste. */
+const euros = n => Math.round(n).toLocaleString('fr-FR') + ' €';
+function compteur(el, de, a) {
+  // le total « roule » jusqu'à sa nouvelle valeur (sauf si l'on préfère moins d'animations)
+  if (!el) return;
+  const fin = () => { el.textContent = a.min || a.max ? B.formatPlage(a) : 'Touchez les travaux'; };
+  if (!de || (de.min === a.min && de.max === a.max) || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return fin();
+  const t0 = performance.now(), d = 450;
+  const pas = t => { const k = Math.min(1, (t - t0) / d), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = B.formatPlage({ min: Math.round((de.min + (a.min - de.min) * e) / 100) * 100, max: Math.round((de.max + (a.max - de.max) * e) / 100) * 100 });
+    if (k < 1) requestAnimationFrame(pas); else fin(); };
+  requestAnimationFrame(pas);
+}
+function jaugeEnveloppe(total, env) {
+  if (!(total.max > 0)) return null;
+  const echelle = Math.max(total.max, env || 0) * 1.12, pc = x => Math.max(0, Math.min(100, x / echelle * 100)) + '%';
+  return h('div', { class: 'jauge', 'aria-hidden': 'true' },
+    h('i', { class: 'bande', style: 'left:' + pc(total.min) + ';width:calc(' + pc(total.max) + ' - ' + pc(total.min) + ')' }),
+    env ? h('b', { class: 'repere', style: 'left:' + pc(env) }, h('span', {}, 'enveloppe')) : null);
+}
+
 function etapeBudget(v) {
-  const budget = M.valeur(v, 'budget') || { lignes: [], ajust: {} };
-  const pieces = B.piecesDuPlan(M.valeur(v, 'plan')), F_ = fourchettes();
-  const calc = B.calculerBudget(budget, F_, pieces);
+  const budget = M.valeur(v, 'budget') || {};
+  const pieces = B.piecesDuPlan(M.valeur(v, 'plan')), T = tableOuv(), F_ = fourchettes();
+  const calc = B.calculerEstimation(budget, T, pieces, F_);
   const env = M.valeur(v, 'projet.enveloppe'), verdict = B.verdictEnveloppe(calc.total, env);
   const majBudget = async f => {
-    const b = f(JSON.parse(JSON.stringify({ lignes: [], ajust: {}, ...budget })));
-    const c = B.calculerBudget(b, fourchettes(), pieces);
-    b.estimation = { min: c.total.min, max: c.total.max, complet: c.complet, le: new Date().toISOString() };
-    await poser('budget', b); vibrer(); dessiner();
+    const b = f(JSON.parse(JSON.stringify({ lignes: [], ouvrages: [], ajust: {}, ...budget, ouvrages: budget.ouvrages || [] })));
+    const c = B.calculerEstimation(b, tableOuv(), pieces, fourchettes());
+    b.estimation = { min: c.total.min, max: c.total.max, complet: !c.vide && !c.manques, le: new Date().toISOString() };
+    S.totalAvant = calc.total;
+    await poser('budget', b); vibrer(); redessiner();
   };
-  const ajouter = fid => majBudget(b => { b.lignes.push({ id: M.nouvelId(), fourchetteId: fid, gamme: 'standard', pieces: [] }); return b; });
-  const sugg = B.postesSuggeres([...(M.valeur(v, 'projet.types') || []), ...(M.valeur(v, 'projet.categories') || [])], F_, budget.lignes);
+  const types = M.valeur(v, 'projet.types') || [], cats = M.valeur(v, 'projet.categories') || [];
+  const sugg = B.ouvragesSuggeres(types, cats, T, budget.ouvrages);
+  const proposes = new Set(sugg.map(o => o.id)), pris = new Set((budget.ouvrages || []).map(c => c.ouvrageId));
+  const nouveau = o => ({ id: M.nouvelId(), ouvrageId: o.id, surface: null, niveau: 'standard' });
+  const basculer = o => majBudget(b => { const i = b.ouvrages.findIndex(c => c.ouvrageId === o.id); if (i >= 0) b.ouvrages.splice(i, 1); else b.ouvrages.push(nouveau(o)); return b; });
   const couleur = { dans: 'ok', limite: 'att', hors: 'err' };
-  const a = budget.ajust || {};
-  return [
+  let montant;
+  const vue = [
     h('h1', {}, 'Budget'),
-    h('p', { class: 'mut' }, 'Estimation indicative, non contractuelle, à affiner au chiffrage.'),
-    h('div', { class: 'carte', id: 'totalBudget' },
-      h('div', { class: 'montant' }, calc.lignes.length ? B.formatPlage(calc.total) : 'Ajoutez des postes'),
-      calc.majoration ? h('div', { class: 'mut petit' }, 'Ajustements compris : +' + Math.round(calc.majoration * 100) + ' %') : null,
+    h('p', { class: 'mut' }, 'Touchez les travaux : la fourchette se calcule tout de suite. Indicatif, non contractuel : le chiffrage précis se fait au bureau.'),
+    h('div', { class: 'carte totalBudget', id: 'totalBudget' },
+      montant = h('div', { class: 'montant', id: 'montantBudget' }, calc.vide ? 'Touchez les travaux' : B.formatPlage(calc.total)),
+      h('div', { class: 'mut petit' }, calc.vide ? 'Estimation TTC, indicative.' : 'Indicatif, non contractuel' + (calc.majoration ? ' · ajustements compris : +' + Math.round(calc.majoration * 100) + ' %' : '')),
+      jaugeEnveloppe(calc.total, env),
       env != null ? h('div', { class: 'message ' + (verdict ? couleur[verdict.niveau] : 'att'), style: 'margin:10px 0 0', id: 'verdictBudget' },
-        'Enveloppe du client : ' + M.formatEuros(env) + (verdict ? ' · ' + verdict.texte : '')) : h('div', { class: 'mut petit' }, 'Enveloppe du client non renseignée (étape Projet).'),
-      calc.manques ? h('div', { class: 'manque', style: 'margin-top:10px' }, calc.manques + ' poste' + (calc.manques > 1 ? 's' : '') + ' sans prix : complétez les fourchettes de prix.') : null),
-    sugg.length ? h('button', { class: 'gros sec', id: 'ajouterSuggeres', style: 'margin-bottom:12px', onclick: () => majBudget(b => { sugg.forEach(f => b.lignes.push({ id: M.nouvelId(), fourchetteId: f.id, gamme: 'standard', pieces: [] })); return b; }) },
-      '＋ Postes des travaux choisis (' + sugg.length + ')') : null,
-    calc.lignes.map((l, i) => carteLigneBudget(l, budget.lignes[i], pieces, majBudget)),
-    h('label', { class: 'champ' }, 'AJOUTER UN POSTE',
-      h('select', { class: 'in', id: 'ajouterPoste', onchange: e => { if (e.target.value) ajouter(e.target.value); } },
-        h('option', { value: '' }, 'Choisir…'), F_.map(f => h('option', { value: f.id }, f.libelle + ' (' + (B.UNITES[f.unite] || {}).court + ')')))),
+        'Enveloppe du client : ' + M.formatEuros(env) + (verdict ? ' · ' + verdict.texte : '')) : h('div', { class: 'mut petit', style: 'margin-top:6px' }, 'Enveloppe du client non renseignée (étape Projet).'),
+      calc.manques ? h('div', { class: 'manque', style: 'margin-top:10px' }, calc.manques + ' poste' + (calc.manques > 1 ? 's' : '') + ' sans prix : voir « Approfondir ».') : null),
+    calc.vide && sugg.length ? h('button', { class: 'gros', id: 'estimerSuggeres', style: 'margin-bottom:12px',
+      onclick: () => majBudget(b => { sugg.forEach(o => b.ouvrages.push(nouveau(o))); return b; }) },
+      '✨ Estimer les travaux choisis (' + sugg.length + ')') : null,
+    calc.ouvrages.map(r => carteOuvrage(r, majBudget)),
+    h('div', { class: 'champ' }, calc.ouvrages.length ? 'AJOUTER DES TRAVAUX' : 'LES TRAVAUX'),
+    h('div', { class: 'tuiles' }, T.map(o => h('button', { class: 'tuile' + (pris.has(o.id) ? ' on' : '') + (proposes.has(o.id) ? ' propose' : ''), type: 'button',
+      'data-ouvrage': o.id, 'aria-pressed': String(pris.has(o.id)), onclick: () => basculer(o) },
+      h('span', { class: 'ico' }, o.icone), h('span', {}, o.nom)))),
+    blocApprofondir(v, budget, calc, pieces, F_, majBudget),
+  ];
+  compteur(montant, S.totalAvant, calc.total); S.totalAvant = null;
+  return vue;
+}
+
+/* une carte par travaux choisis : surface (− / +), gamme, fourchette */
+function carteOuvrage(r, majBudget) {
+  const o = r.ouvrage;
+  if (!o) return null;
+  const changer = f => majBudget(b => { const c = b.ouvrages.find(x => x.id === r.id); if (c) f(c); return b; });
+  const u = B.uniteOuvrage(o), forfait = o.unite === 'forfait';
+  const pas = o.unite === 'u' ? 1 : r.surface < 20 ? 1 : r.surface < 100 ? 5 : 10;
+  const poserSurface = val => changer(c => { const n = Math.max(0, Math.round(val * 10) / 10); c.surface = r.source !== 'saisie' && n === r.auto ? null : n; });
+  return h('div', { class: 'carte ouvrage', 'data-choix': r.id, 'data-ouvrage-choisi': o.id },
+    h('div', { class: 'rang', style: 'justify-content:space-between;align-items:flex-start' },
+      h('b', {}, o.icone + ' ' + o.nom),
+      h('button', { class: 'puce', type: 'button', 'aria-label': 'Retirer ' + o.nom, onclick: () => majBudget(b => { b.ouvrages = b.ouvrages.filter(c => c.id !== r.id); return b; }) }, '×')),
+    h('div', { class: 'plage' }, r.manque ? 'Prix à saisir (voir « Approfondir »)' : 'de ' + euros(Math.round(r.min / 100) * 100) + ' à ' + euros(Math.round(r.max / 100) * 100)),
+    forfait ? h('div', { class: 'mut petit' }, 'Prix posé, au forfait.') : [
+      h('div', { class: 'reglage' },
+        h('button', { class: 'pm', type: 'button', 'aria-label': 'Moins', onclick: () => poserSurface(r.surface - pas) }, '−'),
+        h('label', { class: 'valeur' }, h('input', { inputMode: 'decimal', value: String(r.surface).replace('.', ','), 'aria-label': (o.unite === 'u' ? 'Nombre' : 'Surface') + ' — ' + o.nom,
+          onchange: e => { const n = +String(e.target.value).replace(/\s/g, '').replace(',', '.'); if (isFinite(n) && n >= 0) poserSurface(n); } }), h('span', {}, ' ' + u)),
+        h('button', { class: 'pm', type: 'button', 'aria-label': 'Plus', onclick: () => poserSurface(r.surface + pas) }, '+')),
+      h('div', { class: 'mut petit' }, r.source === 'plan' ? '📐 D’après le plan : ' + r.detail
+        : r.source === 'saisie' ? ['Réglé à la main', r.auto != null ? h('button', { class: 'lienRetour', type: 'button', onclick: () => changer(c => { c.surface = null; }) }, ' ↺ revenir à ' + String(r.auto).replace('.', ',') + ' ' + u) : null]
+        : 'Valeur courante : réglez-la avec − / +.')],
+    h('div', { class: 'puces niveaux' }, B.NIVEAUX.map(n => h('button', { class: 'puce' + (r.niveau === n.id ? ' on' : ''), type: 'button', 'aria-pressed': String(r.niveau === n.id),
+      onclick: () => changer(c => { c.niveau = n.id; }) }, n.signe + ' ' + n.nom))),
+    o.note ? h('div', { class: 'mut petit', style: 'margin-top:6px' }, o.note) : null,
+    o.repere === 'estimation' ? h('div', { class: 'mut petit' }, 'Prix de départ à confirmer (⚙ Prix au m²).') : null);
+}
+
+/* « Approfondir » : ajustements, poste par poste, réglage des prix */
+function blocApprofondir(v, budget, calc, pieces, F_, majBudget) {
+  const a = budget.ajust || {};
+  const ajouter = fid => majBudget(b => { b.lignes.push({ id: M.nouvelId(), fourchetteId: fid, gamme: 'standard', pieces: [] }); return b; });
+  const d = h('details', { class: 'approfondir', open: !!S.budgetDetail || (budget.lignes || []).length > 0, ontoggle: e => { S.budgetDetail = e.target.open; } },
+    h('summary', {}, 'Approfondir : ajustements, poste par poste, prix'),
     h('div', { class: 'champ' }, 'AJUSTEMENTS'),
     h('div', { class: 'puces' }, B.ETATS.map(([n, val]) => h('button', { class: 'puce' + ((a.etat || 0) === val ? ' on' : ''), type: 'button', onclick: () => majBudget(b => { b.ajust = { ...b.ajust, etat: val }; return b; }) }, n + (val ? ' +' + val * 100 + ' %' : '')))),
     h('div', { class: 'puces' }, B.ACCES.map(([n, val]) => h('button', { class: 'puce' + ((a.acces || 0) === val ? ' on' : ''), type: 'button', onclick: () => majBudget(b => { b.ajust = { ...b.ajust, acces: val }; return b; }) }, n + (val ? ' +' + val * 100 + ' %' : '')))),
     h('label', { class: 'champ' }, 'IMPRÉVUS : +' + Math.round((a.imprevus || 0) * 100) + ' %',
       h('input', { type: 'range', class: 'curseur', min: 0, max: B.IMPREVUS_MAX * 100, step: 5, value: Math.round((a.imprevus || 0) * 100), 'aria-label': 'Imprévus',
         onchange: e => majBudget(b => { b.ajust = { ...b.ajust, imprevus: (+e.target.value) / 100 }; return b; }) })),
-    h('button', { class: 'gros sec', id: 'ouvrirFourchettes', style: 'margin-top:14px', onclick: () => { S.retour = 'visite'; S.ecran = 'fourchettes'; S.brouillonF = null; dessiner(); window.scrollTo(0, 0); } }, '⚙ Fourchettes de prix'),
-  ];
+    h('div', { class: 'champ' }, 'POSTE PAR POSTE (FACULTATIF)'),
+    h('p', { class: 'mut petit' }, 'Pour détailler un poste avec ses quantités : il s’ajoute à l’estimation ci-dessus.'),
+    calc.detail.lignes.map((l, i) => carteLigneBudget(l, budget.lignes[i], pieces, majBudget)),
+    h('label', { class: 'champ' }, 'AJOUTER UN POSTE DÉTAILLÉ',
+      h('select', { class: 'in', id: 'ajouterPoste', onchange: e => { if (e.target.value) ajouter(e.target.value); } },
+        h('option', { value: '' }, 'Choisir…'), F_.map(f => h('option', { value: f.id }, f.libelle + ' (' + (B.UNITES[f.unite] || {}).court + ')')))),
+    h('div', { class: 'rang', style: 'margin-top:14px;flex-wrap:wrap' },
+      h('button', { class: 'gros sec', id: 'ouvrirPrixOuvrages', onclick: () => { S.retour = 'visite'; S.ecran = 'ouvrages'; S.brouillonO = null; dessiner(); window.scrollTo(0, 0); } }, '⚙ Prix au m²'),
+      h('button', { class: 'gros sec', id: 'ouvrirFourchettes', onclick: () => { S.retour = 'visite'; S.ecran = 'fourchettes'; S.brouillonF = null; dessiner(); window.scrollTo(0, 0); } }, '⚙ Postes détaillés')));
+  return d;
 }
 
 function carteLigneBudget(l, src, pieces, majBudget) {
@@ -770,6 +936,82 @@ async function enregistrerFourchettes(lignes) {
   throw { message: 'la table a été modifiée en même temps par un collègue : réessayez' };
 }
 
+/* ---------- les prix au m² de l'estimation R1 (partagés par l'équipe) ----------
+   Table releve_reglages, ligne « ouvrages » : seuls les prix retouchés par
+   CP Constructions y sont ; le reste vient des repères du modèle
+   (releve/budget.js, OUVRAGES). Même fonctionnement que les fourchettes :
+   copie sur l'appareil pour servir sans réseau, fusion par ligne. */
+const CLE_OUVRAGES = 'cp-releve-ouvrages';
+const PO = { lignes: [], version: 0, etat: 'local' };
+const tableOuv = () => B.tableOuvrages(PO.lignes);
+async function chargerOuvrages() {
+  try { const c = JSON.parse(localStorage.getItem(CLE_OUVRAGES) || 'null'); if (c && Array.isArray(c.lignes)) { PO.lignes = c.lignes; PO.version = c.version || 0; PO.enAttente = !!c.enAttente; } } catch (e) { /* pas de copie */ }
+  try {
+    const { data, error } = await supa.from('releve_reglages').select('donnees,version').eq('id', 'ouvrages').maybeSingle();
+    if (error) { PO.etat = /42P01|PGRST205|does not exist|schema cache/.test((error.code || '') + ' ' + (error.message || '')) ? 'absent' : 'local'; return; }
+    PO.etat = 'serveur';
+    if (data && data.donnees && Array.isArray(data.donnees.lignes)) {
+      PO.lignes = PO.enAttente ? B.fusionnerFourchettes(data.donnees.lignes, PO.lignes) : data.donnees.lignes;
+      PO.version = data.version;
+      try { localStorage.setItem(CLE_OUVRAGES, JSON.stringify({ lignes: PO.lignes, version: PO.version, enAttente: PO.enAttente })); } catch (e) { /* stockage plein */ }
+    }
+  } catch (e) { PO.etat = 'local'; }
+}
+async function enregistrerOuvrages(lignes) {
+  for (let essai = 0; essai < 3; essai++) {
+    const { data, error } = await supa.from('releve_reglages').select('donnees,version').eq('id', 'ouvrages').maybeSingle();
+    if (error) throw error;
+    const fus = data && data.donnees ? B.fusionnerFourchettes(data.donnees.lignes, lignes) : lignes;
+    const quand = new Date().toISOString();
+    const r = data ? await supa.from('releve_reglages').update({ donnees: { lignes: fus }, version: data.version + 1, maj_le: quand }).eq('id', 'ouvrages').eq('version', data.version).select('id')
+      : await supa.from('releve_reglages').insert({ id: 'ouvrages', donnees: { lignes: fus }, version: 1, maj_le: quand }).select('id');
+    if (r.error && r.error.code === '23505') continue;
+    if (r.error) throw r.error;
+    if ((r.data || []).length) { PO.lignes = fus; PO.version = data ? data.version + 1 : 1; PO.etat = 'serveur'; PO.enAttente = false;
+      try { localStorage.setItem(CLE_OUVRAGES, JSON.stringify({ lignes: PO.lignes, version: PO.version })); } catch (e) { /* stockage plein */ } return; }
+  }
+  throw { message: 'la table a été modifiée en même temps par un collègue : réessayez' };
+}
+function ecranOuvrages() {
+  // brouillon : une ligne par ouvrage, prix de CP s'ils existent, sinon ceux du modèle
+  if (!S.brouillonO) S.brouillonO = B.OUVRAGES.map(o => { const e = (PO.lignes || []).find(x => x.id === o.id && !x.supprime); return { id: o.id, prix: { ...(e ? e.prix : o.prix) }, perso: !!e, maj: e ? e.maj : null }; });
+  const L = S.brouillonO, quand = () => new Date().toISOString();
+  const retour = () => { S.ecran = S.retour || 'accueil'; S.brouillonO = null; dessiner(); window.scrollTo(0, 0); };
+  const enregistrer = async e => {
+    const bouton = e.currentTarget, faux = L.filter(l => l.perso && !B.prixNiveau(l.prix, 'standard'));
+    if (faux.length) { S.message = { type: 'err', texte: 'Prix à corriger (mini ≤ médian ≤ maxi) : ' + faux.map(l => B.OUVRAGES.find(o => o.id === l.id).nom).join(', ') + '.' }; dessiner(); return; }
+    const lignes = L.filter(l => l.maj).map(l => l.perso ? { id: l.id, prix: l.prix, maj: l.maj } : { id: l.id, supprime: true, maj: l.maj });
+    bouton.disabled = true;
+    try { await enregistrerOuvrages(lignes); feter(bouton); S.message = { type: 'ok', texte: 'Prix au m² enregistrés pour toute l’équipe.' }; retour(); }
+    catch (err) {
+      PO.lignes = B.fusionnerFourchettes(PO.lignes || [], lignes); PO.enAttente = true;
+      try { localStorage.setItem(CLE_OUVRAGES, JSON.stringify({ lignes: PO.lignes, version: PO.version, enAttente: true })); } catch (x) { /* rien de plus à faire */ }
+      S.message = { type: 'att', texte: 'Prix enregistrés sur cet appareil seulement (' + (PO.etat === 'absent' ? 'table « releve_reglages » à installer : relancez supabase/releve/schema.sql' : 'pas de réseau ou serveur indisponible') + '). Ils partiront au prochain enregistrement avec du réseau.' };
+      retour();
+    }
+  };
+  const champPrix = (l, o, k) => h('input', { class: 'in', inputMode: 'decimal', style: 'margin:0', name: 'ouv-' + l.id + '-' + k, 'aria-label': o.nom + ' ' + k,
+    value: l.prix[k] != null ? String(l.prix[k]).replace('.', ',') : '',
+    oninput: e => { const t = e.target.value.trim().replace(/\s/g, '').replace(',', '.'); l.prix[k] = t === '' ? null : +t; l.perso = true; l.maj = quand(); } });
+  return [
+    h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Retour'), h('span', { class: 'titre' }, 'Prix au m²'), pastilleEtat()),
+    h('main', {},
+      S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
+      h('h1', {}, 'Prix au m² (estimation R1)'),
+      h('p', { class: 'mut' }, 'Prix TTC posés : mini, médian, maxi. Éco = du mini au médian, Standard = autour du médian, Haut de gamme = du médian au maxi. Partis des repères publics 2026 : remplacez-les par vos ratios de chantiers. Table partagée par toute l’équipe.'),
+      PO.etat === 'absent' ? h('div', { class: 'message att' }, 'La table des réglages n’est pas encore installée sur le serveur (relancez supabase/releve/schema.sql). Vos prix resteront sur cet appareil en attendant.') : null,
+      L.map(l => { const o = B.OUVRAGES.find(x => x.id === l.id);
+        return h('div', { class: 'carte', 'data-prix-ouvrage': l.id },
+          h('div', { class: 'rang', style: 'justify-content:space-between' }, h('b', {}, o.icone + ' ' + o.nom),
+            h('span', { class: 'pastille' + (l.perso ? ' ok' : '') }, l.perso ? 'Prix CP' : o.repere === 'estimation' ? 'À confirmer' : 'Repère marché')),
+          h('div', { class: 'mut petit' }, 'Par ' + (o.unite === 'forfait' ? 'chantier (forfait)' : o.unite === 'u' ? 'unité' : 'm²') + (o.note ? ' · ' + o.note : '')),
+          h('div', { class: 'rang', style: 'margin-top:8px' }, champPrix(l, o, 'min'), champPrix(l, o, 'med'), champPrix(l, o, 'max')),
+          h('div', { class: 'rang mut petit', style: 'margin-top:2px' }, h('span', { style: 'flex:1' }, 'mini'), h('span', { style: 'flex:1' }, 'médian'), h('span', { style: 'flex:1' }, 'maxi')),
+          l.perso ? h('button', { class: 'lienRetour', type: 'button', onclick: () => { l.prix = { ...o.prix }; l.perso = false; l.maj = quand(); dessiner(); } }, '↺ Revenir au repère du marché') : null); })),
+    h('div', { class: 'barreBas' }, h('div', { class: 'in' }, h('button', { class: 'gros sec', onclick: retour }, 'Annuler'), h('button', { class: 'gros', id: 'enregistrerOuvrages', onclick: enregistrer }, 'Enregistrer'))),
+  ];
+}
+
 function ecranFourchettes() {
   if (!S.brouillonF) S.brouillonF = JSON.parse(JSON.stringify(F.lignes || B.FOURCHETTES_MODELE));
   const L = S.brouillonF, quand = () => new Date().toISOString();
@@ -813,7 +1055,7 @@ function ecranFourchettes() {
 function dessiner() {
   arreterDictee(); // le champ dicté va être remplacé
   const app = document.getElementById('app');
-  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : ecranAccueil();
+  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
 }
 
@@ -890,6 +1132,7 @@ async function demarrer() {
   sync.synchroniser = async () => { await avant(); const n = S.visites.length; await recharger(); if (S.ecran === 'accueil' && S.visites.length !== n) dessiner(); };
   sync.synchroniser();
   chargerFourchettes().then(() => { if (S.ecran === 'visite' || S.ecran === 'fourchettes') dessiner(); });
+  chargerOuvrages().then(() => { if (S.ecran === 'visite' || S.ecran === 'ouvrages') dessiner(); });
   if (S.ecran !== 'connexion') traiterLien();   // sinon, après la connexion
   window.addEventListener('online', () => sync.synchroniser());
   window.addEventListener('offline', () => sync.synchroniser());
