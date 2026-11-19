@@ -16,6 +16,7 @@ import { reduirePhoto } from './photo.js';
 import * as B from './budget.js';
 import { dossierClient, OPTIONS_DEFAUT } from './dossier.js';
 import * as A from './assistant.js';
+import * as DR from './dessin.js';
 import { h } from './dom.js';
 import { vueDossier, dateLongue } from './dossier-vue.js';
 
@@ -675,6 +676,10 @@ function etapeScan(v) {
     plan ? h('p', { class: 'mut petit' }, 'Pièces scannées séparément ? Ouvrez le plan, puis « ＋ Scan » pour chaque autre scan et « 🔗 Relier » : touchez un mur, puis le mur de l’autre scan qui le touche.') : null,
     scan || plan ? h('button', { class: 'gros', id: 'ouvrirPlan', onclick: ouvrirPlan }, '📐 Ouvrir le plan') : null,
     h('div', { style: 'margin-top:10px' }, h('button', { class: scan || plan ? 'gros sec' : 'gros', id: 'importerScan', onclick: importer }, scan ? 'Remplacer le scan' : '📐 Importer le scan')),
+    // sans scan LiDAR : des pièces rectangulaires posées au doigt (dessin.js), puis le même moteur de plan
+    h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', id: 'dessinRapide', onclick: () => { S.ecran = 'dessin'; S.dessinSel = null; S.message = null; dessiner(); window.scrollTo(0, 0); } },
+      M.valeur(v, 'dessin') ? '✏️ Reprendre le dessin rapide' : '✏️ Dessin rapide (sans scan)')),
+    h('p', { class: 'mut petit' }, 'Pas de scan ? Posez les pièces une à une (longueur × largeur, à côté de la précédente). Ensuite, dans le plan, touchez une cote pour taper la vraie longueur.'),
   ];
 }
 
@@ -822,6 +827,112 @@ function etapeFin(v) {
       dd('Budget estimé', (M.valeur(v, 'budget') || {}).estimation ? B.formatPlage(M.valeur(v, 'budget').estimation) + ' (indicatif)' : null)),
     champ(v, 'notes', 'NOTES DE VISITE (internes, jamais dans le dossier client)', { multiligne: true, autocapitalize: 'sentences' }),
     h('button', { class: 'gros sec', id: 'ouvrirDossier', style: 'margin-top:14px', onclick: () => { S.ecran = 'dossier'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '📄 Dossier client'),
+  ];
+}
+
+/* ---------- le dessin rapide (releve/dessin.js) ----------
+   Des pièces rectangulaires, posées l'une contre l'autre au doigt, avec de
+   gros − / + ; l'aperçu se redessine à chaque geste. Le dessin est gardé
+   avec la visite (« dessin »). « Créer le plan » en tire le relevé du moteur
+   et l'ouvre : on y tape les vraies longueurs (toucher une cote), on ajoute
+   portes et fenêtres. Un plan retouché ensuite n'est jamais écrasé en
+   silence : le recréer depuis le dessin met l'ancien de côté. */
+const PIECE_DEFAUT = () => ({ id: M.nouvelId().slice(0, 8), nom: 'Pièce', longueur: 3, largeur: 3 });
+function dessinCourant() {
+  const d = M.valeur(visite(), 'dessin');
+  return d && Array.isArray(d.pieces) ? JSON.parse(JSON.stringify(d)) : { pieces: [], hauteur: 2.5 };
+}
+const majDessin = async f => { const d = dessinCourant(); f(d); await poser('dessin', d); redessiner(); };
+
+function apercuDessin(d, R) {
+  const NS = 'http://www.w3.org/2000/svg', el = (t, a, txt) => { const e = document.createElementNS(NS, t); Object.entries(a).forEach(([k, v]) => e.setAttribute(k, v)); if (txt != null) e.textContent = txt; return e; };
+  const rs = d.pieces.filter(p => R.rect.has(p.id)).map(p => ({ p, r: R.rect.get(p.id) }));
+  const svg = el('svg', { class: 'apercuDessin', role: 'img', 'aria-label': 'Aperçu du dessin' });
+  if (!rs.length) { svg.setAttribute('viewBox', '0 0 10 4'); svg.append(el('text', { x: 5, y: 2.2, 'text-anchor': 'middle', 'font-size': 0.5, fill: '#5E6B74' }, 'Ajoutez une pièce')); return svg; }
+  const x0 = Math.min(...rs.map(o => o.r.x0)) - 1, y0 = Math.min(...rs.map(o => o.r.y0)) - 1, x1 = Math.max(...rs.map(o => o.r.x1)) + 1, y1 = Math.max(...rs.map(o => o.r.y1)) + 1;
+  svg.setAttribute('viewBox', [x0, y0, x1 - x0, y1 - y0].join(' '));
+  const t = Math.max(0.25, Math.min(0.45, (x1 - x0) / 22));
+  rs.forEach(({ p, r }) => {
+    const sel = S.dessinSel === p.id, g = el('g', { 'data-piece-dessin': p.id, style: 'cursor:pointer' });
+    g.append(el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, fill: sel ? '#FCE9E3' : '#E7EEF2', stroke: sel ? '#C5563A' : '#2C4A5E', 'stroke-width': sel ? 0.12 : 0.08 }));
+    g.append(el('text', { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2, 'text-anchor': 'middle', 'font-size': t, 'font-weight': 700, fill: '#1A2B36' }, p.nom));
+    g.append(el('text', { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2 + t * 1.2, 'text-anchor': 'middle', 'font-size': t * 0.8, fill: '#5E6B74' }, String(Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²'));
+    g.append(el('text', { x: (r.x0 + r.x1) / 2, y: r.y0 + t * 0.9, 'text-anchor': 'middle', 'font-size': t * 0.75, fill: '#2C4A5E' }, String(r3l(r.x1 - r.x0)).replace('.', ',')));
+    g.append(el('text', { x: r.x0 + t * 0.35, y: (r.y0 + r.y1) / 2, 'text-anchor': 'start', 'font-size': t * 0.75, fill: '#2C4A5E' }, String(r3l(r.y1 - r.y0)).replace('.', ',')));
+    g.addEventListener('click', () => { S.dessinSel = sel ? null : p.id; redessiner(); });
+    svg.append(g);
+  });
+  return svg;
+}
+const r3l = v => Math.round(v * 100) / 100;
+
+function reglageMetres(valeur, libelle, nom, pas, poserValeur, min = 0.3) {
+  const n = DRnb(valeur);
+  return h('label', { class: 'champ reglageDessin' }, libelle,
+    h('div', { class: 'reglage' },
+      h('button', { class: 'pm', type: 'button', 'aria-label': libelle + ' moins', onclick: e => { e.preventDefault(); poserValeur(Math.max(min, Math.round(((n || 0) - pas) * 100) / 100)); } }, '−'),
+      h('span', { class: 'valeur' }, h('input', { inputMode: 'decimal', name: nom, value: n == null ? '' : String(n).replace('.', ','), 'aria-label': libelle,
+        onchange: e => { const x = DRnb(e.target.value); if (x != null) poserValeur(Math.round(x * 100) / 100); } }), h('span', {}, ' m')),
+      h('button', { class: 'pm', type: 'button', 'aria-label': libelle + ' plus', onclick: e => { e.preventDefault(); poserValeur(Math.round(((n || 0) + pas) * 100) / 100); } }, '+')));
+}
+const DRnb = v => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return isFinite(n) ? n : null; };
+
+function ecranDessin() {
+  const v = visite();
+  if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
+  const d = dessinCourant(), R = DR.releveDepuisDessin(d.pieces, { hauteur: d.hauteur });
+  const retour = () => { S.ecran = 'visite'; dessiner(); window.scrollTo(0, 0); };
+  const ajouter = () => majDessin(x => {
+    const n = PIECE_DEFAUT(), der = x.pieces[x.pieces.length - 1];
+    if (der) n.contre = { id: der.id, cote: 'droite', decalage: 0 };
+    n.nom = x.pieces.length ? 'Pièce ' + (x.pieces.length + 1) : 'Séjour';
+    x.pieces.push(n); S.dessinSel = n.id;
+  });
+  const creer = async () => {
+    if (!d.pieces.length) return montrerMessage('att', 'Ajoutez au moins une pièce.');
+    if (R.erreurs.length) return montrerMessage('err', 'À corriger avant de créer le plan : ' + R.erreurs.join(' '));
+    const actuel = M.valeur(visite(), 'plan');
+    if (actuel && !confirm('Un plan existe déjà pour cette visite. Le remplacer par ce dessin ?\n(L’ancien plan, avec ses retouches, reste gardé de côté.)')) return;
+    const projet = 'Plan de ' + M.intitule(visite());
+    const nv = DR.releveDepuisDessin(d.pieces, { projet, hauteur: d.hauteur });
+    await changer(w => { let x = w; if (actuel) x = M.modifier(x, 'plan.ecarte', actuel); return M.modifier(x, 'plan', { releve: nv.donnees, resume: nv.resume }); });
+    S.message = null; vibrer(); ouvrirPlan();
+  };
+  return [
+    h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Visite'), h('span', { class: 'titre' }, 'Dessin rapide'), pastilleEtat()),
+    h('main', {},
+      S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
+      h('h1', {}, '✏️ Dessin rapide'),
+      h('p', { class: 'mut petit' }, 'Posez les pièces une à une, à côté de la précédente. Touchez une pièce pour la régler. Les cotes exactes se tapent ensuite dans le plan.'),
+      h('div', { class: 'carte', style: 'padding:6px' }, apercuDessin(d, R)),
+      R.erreurs.length ? h('div', { class: 'message err' }, R.erreurs.join(' ')) : d.pieces.length ? h('div', { class: 'mut petit' }, R.resume.pieces + ' pièce' + (R.resume.pieces > 1 ? 's' : '') + ' · ' + String(R.resume.surface).replace('.', ',') + ' m²') : null,
+      d.pieces.map((p, i) => {
+        const sel = S.dessinSel === p.id;
+        const maj = f => majDessin(x => { const q = x.pieces.find(y => y.id === p.id); if (q) f(q, x); });
+        const autres = d.pieces.slice(0, i);
+        return h('div', { class: 'carte pieceDessin' + (sel ? ' sel' : ''), 'data-dessin': p.id },
+          h('div', { class: 'rang', style: 'justify-content:space-between', onclick: () => { if (!sel) { S.dessinSel = p.id; redessiner(); } } },
+            h('b', {}, p.nom + ' · ' + String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m'),
+            h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer ' + p.nom, onclick: e => { e.stopPropagation(); if (!confirm('Supprimer « ' + p.nom + ' » ?')) return;
+              majDessin(x => { x.pieces = x.pieces.filter(y => y.id !== p.id); x.pieces.forEach(y => { if (y.contre && y.contre.id === p.id) delete y.contre; }); }); } }, '🗑')),
+          sel ? [
+            h('label', { class: 'champ' }, 'NOM', h('input', { class: 'in', name: 'dessin-nom', value: p.nom, autocapitalize: 'sentences', onchange: e => maj(q => { q.nom = e.target.value.trim() || 'Pièce'; }) })),
+            h('div', { class: 'puces' }, M.PIECES_COURANTES.slice(0, 10).map(n => h('button', { class: 'puce' + (p.nom === n ? ' on' : ''), type: 'button', onclick: () => maj(q => { q.nom = n; }) }, n))),
+            reglageMetres(p.longueur, 'LONGUEUR (gauche ↔ droite)', 'dessin-longueur', 0.1, x => maj(q => { q.longueur = x; })),
+            reglageMetres(p.largeur, 'LARGEUR (haut ↕ bas)', 'dessin-largeur', 0.1, x => maj(q => { q.largeur = x; })),
+            autres.length ? [
+              h('div', { class: 'champ' }, 'POSÉE'),
+              h('div', { class: 'puces' }, DR.COTES.map(([c, lib]) => h('button', { class: 'puce' + (p.contre && p.contre.cote === c ? ' on' : ''), type: 'button',
+                onclick: () => maj(q => { q.contre = { id: (q.contre && q.contre.id) || autres[autres.length - 1].id, cote: c, decalage: 0 }; }) }, lib))),
+              h('label', { class: 'champ' }, 'CONTRE LA PIÈCE', h('select', { class: 'in', name: 'dessin-contre', onchange: e => maj(q => { q.contre = e.target.value ? { id: e.target.value, cote: (q.contre && q.contre.cote) || 'droite', decalage: 0 } : undefined; }) },
+                h('option', { value: '' }, 'Aucune (posée à part)'), autres.map(o => h('option', { value: o.id, selected: p.contre && p.contre.id === o.id }, o.nom)))),
+              p.contre ? reglageMetres(p.contre.decalage || 0, 'DÉCALAGE LE LONG DU MUR', 'dessin-decalage', 0.1, x => maj(q => { q.contre.decalage = x; }), -50) : null] : null] : null);
+      }),
+      h('button', { class: 'gros sec', id: 'ajouterPieceDessin', type: 'button', onclick: ajouter, style: 'margin-top:4px' }, '＋ Ajouter une pièce'),
+      reglageMetres(d.hauteur || 2.5, 'HAUTEUR SOUS PLAFOND', 'dessin-hauteur', 0.05, x => majDessin(y => { y.hauteur = x; }), 1.8)),
+    h('div', { class: 'barreBas' }, h('div', { class: 'in' },
+      h('button', { class: 'gros sec', onclick: retour }, '‹ Visite'),
+      h('button', { class: 'gros', id: 'creerPlanDessin', onclick: creer }, '✓ Créer le plan'))),
   ];
 }
 
@@ -1416,7 +1527,7 @@ window.addEventListener('popstate', async e => {
 function dessiner() {
   arreterDictee(); // le champ dicté va être remplacé
   const app = document.getElementById('app');
-  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : S.ecran === 'assistant' ? ecranAssistant() : ecranAccueil();
+  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : S.ecran === 'assistant' ? ecranAssistant() : S.ecran === 'dessin' ? ecranDessin() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
   suivreHistorique();
 }
