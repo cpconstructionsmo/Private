@@ -76,6 +76,9 @@ export const CHAMPS = {
   'plan': 'objet', // { releve, resume } : le relevé ouvert dans le moteur (releve/moteur/)
   'plan.ecarte': 'objet', // l'autre version du plan, gardée de côté après une modification sur deux appareils
   'notes': 'texte',
+  'assistant.texte': 'texte', // la dictée libre de la visite (assistant), gardée tant qu'elle n'est pas rangée
+  'planImage': 'objet', // { id, empreinte } : l'image du plan dessiné, pour le dossier client
+  'partageDossier': 'objet', // { id, lien, expireLe, creeLe } : le lien du dossier envoyé au client (table releve_partages)
   'budget': 'objet', // { lignes, ajust, estimation } : la fourchette de prix (releve/budget.js)
   'prospectId': 'texte', // le dossier du suivi pour lequel la visite a été lancée (lien « Nouvelle visite » d'une fiche prospect)
   'statut': 'texte', // 'en_cours' | 'terminee'

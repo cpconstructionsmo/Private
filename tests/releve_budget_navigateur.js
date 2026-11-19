@@ -98,12 +98,23 @@ let b;
   await p.tap('#ouvrirPrixOuvrages');
   await p.waitForSelector('[data-prix-ouvrage="cuisine"]');
   chk(await p.locator('[data-prix-ouvrage]').count()>=15&&/Repère marché/.test(await p.textContent('[data-prix-ouvrage="cuisine"]')),'les prix de départ sont listés, marqués « repère marché »');
+  /* vos prix appris des chantiers du suivi (prospects de rénovation fictifs, lus seulement) */
+  await p.evaluate(()=>{window.__etat.appData={prospects:[
+    {id:'a',nom:'Réno A (fictif)',categorie:'renovation',surfaceHabitable:100,tva:10,postes:[{libelle:'PEINTURE',montant:5000},{libelle:'ÉLECTRICITÉ',montant:8000}]},
+    {id:'b',nom:'Réno B (fictif)',categorie:'renovation',surfaceHabitable:80,tva:10,postes:[{libelle:'Peinture',montant:6400}]},
+    {id:'n',nom:'Neuf (fictif)',categorie:'neuf',surfaceHabitable:120,postes:[{libelle:'Peinture',montant:12000}]}]}});
+  await p.tap('#calculerRatios');
+  await p.waitForSelector('#ratiosCP [data-ratio="peinture"]');
+  chk(/2 projets · 60 \/ 70 \/ 90 €\/m²/.test(plat(await p.textContent('#ratiosCP [data-ratio="peinture"]'))),'peinture apprise de 2 projets de rénovation (le neuf écarté) : 60 / 70 / 90 €/m²');
+  await p.locator('#ratiosCP [data-ratio="peinture"] >> text=Reprendre').tap();
+  chk(await p.inputValue('input[name="ouv-peinture-med"]')==='70'&&/Prix CP/.test(await p.textContent('[data-prix-ouvrage="peinture"]')),'« Reprendre » : le prix appris passe dans le brouillon, marqué « Prix CP »');
+  chk(!(await p.evaluate(()=>!!window.__etat.ecritureAppData)),'les données du suivi sont seulement lues');
   await p.fill('input[name="ouv-cuisine-min"]','600');await p.fill('input[name="ouv-cuisine-med"]','1000');await p.fill('input[name="ouv-cuisine-max"]','1600');
   await p.tap('#enregistrerOuvrages');
   await p.waitForSelector('#totalBudget');
   chk(await p.isVisible('text=Prix au m² enregistrés pour toute l’équipe'),'prix enregistrés pour toute l’équipe');
   const reg=await p.evaluate(()=>window.__etat.reglages&&window.__etat.reglages.ouvrages);
-  chk(reg&&reg.donnees.lignes.length===1&&reg.donnees.lignes[0].prix.med===1000,'seul le prix retouché part sur le serveur (releve_reglages, « ouvrages »)');
+  chk(reg&&reg.donnees.lignes.length===2&&reg.donnees.lignes.find(l=>l.id==='cuisine').prix.med===1000&&reg.donnees.lignes.find(l=>l.id==='peinture').prix.med===70,'seuls les prix retouchés ou repris partent sur le serveur (releve_reglages, « ouvrages »)');
   const plageCuisine=plat(await p.textContent('[data-ouvrage-choisi="cuisine"] .plage'));
   chk(plageCuisine==='de 10 000 € à 16 000 €','la cuisine suit le prix de CP : 10 m² × 1 000 à 1 600 € ('+plageCuisine+')');
 

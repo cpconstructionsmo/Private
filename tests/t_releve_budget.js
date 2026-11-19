@@ -91,5 +91,21 @@ const {chk,fin}=verif();
     [{id:'p1',nom:'Cuisine',sol:12.5,murs:30.1}],F);
   chk(est.total.min===Math.round((11250+602)*1.1/100)*100&&est.total.max===Math.round((18750+903)*1.1/100)*100,'total : ouvrages + poste détaillé, ajustement +10 %, à la centaine');
   chk(B.calculerEstimation({},B.OUVRAGES,[],[]).vide===true,'rien de choisi : estimation vide');
+
+  /* ---------- les prix de CP appris de ses chantiers ---------- */
+  const PR=[
+    {id:'a',nom:'Réno A (fictif)',categorie:'renovation',surfaceHabitable:'100',tva:10,postes:[{libelle:'PEINTURE',montant:5000},{libelle:'ÉLECTRICITÉ',montant:8000},{libelle:'Plomberie sanitaire',montant:4000},{libelle:'Carrelage',montant:6000,tva:20}]},
+    {id:'b',nom:'Réno B (fictif)',categorie:'renovation',surfaceHabitable:80,tva:10,postes:[{libelle:'Peinture',montant:4800},{libelle:'MAÇONNERIE',montant:20000}]},
+    {id:'c',nom:'Réno C (fictif)',categorie:'renovation',tva:10,postes:[{libelle:'Peinture',montant:9000}]},
+    {id:'n',nom:'Maison neuve (fictif)',categorie:'neuf',surfaceHabitable:120,postes:[{libelle:'Peinture',montant:12000}]},
+    {id:'s',nom:'Sans surface (fictif)',categorie:'renovation',postes:[{libelle:'Peinture',montant:1000}]}];
+  const RA=B.ratiosDepuisProspects(PR,{surfacesPlan:{c:90},majorations:[{corps:'Peinture',pct:10}]});
+  const pe=RA.find(r=>r.id==='peinture');
+  chk(pe&&pe.n===3&&pe.projets.join()==='Réno A (fictif),Réno B (fictif),Réno C (fictif)','peinture : 3 projets de rénovation (surface du plan pour C) ; le neuf et le projet sans surface sont écartés');
+  // A : 5000×1,1×1,1/100 = 60,5 ; B : 4800×1,1×1,1/80 = 72,6 ; C : 9000×1,1×1,1/90 = 121
+  chk(pe.prix.min===60&&pe.prix.med===70&&pe.prix.max===120,'peinture : majoration du corps et TVA comprises, mini / médian / maxi arrondis à la dizaine');
+  chk(RA.find(r=>r.id==='sols').prix.med===70&&RA.find(r=>r.id==='electricite').prix.med===90,'TVA du poste (carrelage à 20 %) et du projet (électricité à 10 %) prises en compte');
+  chk(RA.find(r=>r.id==='reno-complete').n===1&&!RA.some(r=>r.id==='cuisine'),'coût global : seulement le projet tous corps d’état ; rien d’appris pour la cuisine (surface de la pièce inconnue)');
+  chk(B.ratiosDepuisProspects([],{}).length===0&&B.ratiosDepuisProspects(null).length===0,'aucun projet : rien à proposer');
   fin();
 })();

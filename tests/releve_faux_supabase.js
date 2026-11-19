@@ -34,7 +34,7 @@ function fauxSupabase(etat) {
         return etat.appData ? { data: { data: copie(etat.appData) }, error: null } : { data: null, error: { code: 'PGRST116', message: 'aucune ligne' } };
       }
       if (table === 'releve_reglages' && etat.sansReglages) return { data: null, error: { code: '42P01', message: 'relation "public.releve_reglages" does not exist' } };
-      const magasins = { releve_visites: etat.lignes, releve_reglages: (etat.reglages = etat.reglages || {}) };
+      const magasins = { releve_visites: etat.lignes, releve_reglages: (etat.reglages = etat.reglages || {}), releve_partages: (etat.partages = etat.partages || {}) };
       const magasin = magasins[table];
       if (!magasin) return { data: null, error: { code: '42P01', message: 'table inconnue' } };
       const garde = l => st.filtres.every(([c, v]) => l[c] === v);
@@ -45,6 +45,7 @@ function fauxSupabase(etat) {
       }
       if (etat.avantEcriture) { const f = etat.avantEcriture; etat.avantEcriture = null; f(); }
       if (st.op === 'insert') {
+        if (!st.valeurs.id) st.valeurs = { id: 'id-' + (Object.keys(magasin).length + 1), ...st.valeurs };   // clé créée par la base
         if (magasin[st.valeurs.id]) return { data: null, error: { code: '23505', message: 'duplicate key' } };
         magasin[st.valeurs.id] = copie(st.valeurs); etat.ecritures++;
         return { data: [{ id: st.valeurs.id }], error: null };

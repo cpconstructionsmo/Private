@@ -272,3 +272,49 @@ export function calculerEstimation(budget, table, piecesPlan, fourchettes) {
   return { ouvrages, detail, majoration: Math.round(majoration * 100) / 100, total,
     manques: ouvrages.filter(o => o.manque).length + detail.manques, vide: !ouvrages.length && !detail.lignes.length };
 }
+
+/* ==========================================================================
+   Les prix de CP appris de ses chantiers : à partir des prospects de
+   rénovation chiffrés dans le suivi (lus, jamais écrits), le coût TTC des
+   entreprises de chaque corps d'état, rapporté à la surface habitable du
+   projet. Hors honoraires (comme le « coût prévisionnel des travaux » du
+   dossier de présentation). Par travail : nombre de projets, mini, médian,
+   maxi — une proposition, reprise d'un toucher dans « ⚙ Prix au m² ».
+   Seules les grandeurs qui se rapportent à la surface habitable sont
+   apprises (une cuisine au m² de cuisine ne se déduit pas d'un projet).
+   ========================================================================== */
+const sansAcc = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+export const CORPS_OUVRAGES = [
+  ['peinture', /peinture|peintre/],
+  ['electricite', /electri/],
+  ['plomberie', /plomb|sanitaire/],
+  ['sols', /carrel|parquet|revetement.*sol|sols?\b/],
+];
+const majorationCorps = (maj, corps) => { const c = sansAcc(corps).trim(); const m = (maj || []).find(x => sansAcc(x.corps).trim() === c); return m ? (+m.pct || 0) : 0; };
+const mediane = a => { const s = [...a].sort((x, y) => x - y), n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : null; };
+const dizaine = v => Math.round(v / 10) * 10;
+
+/* surfaces : celle saisie sur le prospect, sinon celle du plan d'une visite rattachée (surfacesPlan[prospectId]) */
+export function ratiosDepuisProspects(prospects, { majorations = [], surfacesPlan = {} } = {}) {
+  const parOuvrage = {}, global = [];
+  (prospects || []).filter(p => p && p.categorie === 'renovation').forEach(p => {
+    const surf = nb(p.surfaceHabitable) || nb(surfacesPlan[p.id]);
+    if (!(surf >= 10)) return;
+    const tvaProjet = nb(p.tva) ?? 20;
+    const postes = (p.postes || []).map(x => {
+      const ht = (nb(x.montant) || 0) * (1 + majorationCorps(majorations, x.libelle) / 100);
+      return { corps: x.libelle || '', ttc: ht * (1 + ((nb(x.tva) ?? tvaProjet) / 100)) };
+    }).filter(x => x.ttc > 0);
+    if (!postes.length) return;
+    const parCorps = {};
+    postes.forEach(x => { const o = CORPS_OUVRAGES.find(([, re]) => re.test(sansAcc(x.corps))); if (o) parCorps[o[0]] = (parCorps[o[0]] || 0) + x.ttc; });
+    Object.entries(parCorps).forEach(([id, ttc]) => (parOuvrage[id] = parOuvrage[id] || []).push({ ratio: ttc / surf, projet: p.nom || 'Projet' }));
+    // le coût global au m² ne vaut « rénovation complète » que pour un projet tous corps d'état (au moins 4 corps)
+    if (new Set(postes.map(x => sansAcc(x.corps).trim())).size >= 4) global.push({ ratio: postes.reduce((t, x) => t + x.ttc, 0) / surf, projet: p.nom || 'Projet' });
+  });
+  if (global.length) parOuvrage['reno-complete'] = global;
+  return Object.entries(parOuvrage).map(([id, L]) => {
+    const r = L.map(x => x.ratio);
+    return { id, n: L.length, projets: L.map(x => x.projet), prix: { min: dizaine(Math.min(...r)), med: dizaine(mediane(r)), max: dizaine(Math.max(...r)) } };
+  }).sort((a, b) => OUVRAGES.findIndex(o => o.id === a.id) - OUVRAGES.findIndex(o => o.id === b.id));
+}

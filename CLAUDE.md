@@ -51,7 +51,14 @@ qu'on ait à les redire.
   secrets Supabase, utilisateur connecté, limite par jour). Dossier client
   (`releve/dossier.js`, « 📄 Dossier client », lien du suivi
   `releveLien({visite,vue:'dossier'})`) : imprimable en PDF A4, jamais les
-  notes de visite ni la marge. L'estimation part avec la visite
+  notes de visite ni la marge ; image du plan dessiné (`planImage`) ;
+  envoyé au client par un lien de 30 jours (`partage.html#t=<jeton>`, table
+  `releve_partages`, empreinte seule, action `partage` de la fonction
+  `imaginer`, mise en page partagée `dossier-vue.js`). Assistant de visite
+  (`releve/assistant.js`, action `structurer`) : dictée libre → fiche
+  proposée, vérifiée champ par champ, jamais d'écrasement sans case
+  cochée. Prix au m² appris des prospects de rénovation
+  (`ratiosDepuisProspects`). L'estimation part avec la visite
   et s'affiche sur la fiche prospect (`visiteResume().fourchette`). Chiffrage
   précis : dans le quantitatif d'un poste de la fiche prospect (seulement là,
   `Quantitatif` prop `plan`), une ligne prend sa quantité dans le plan de la

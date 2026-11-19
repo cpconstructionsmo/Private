@@ -15,6 +15,9 @@ import { creerSynchro, ESPACE, cheminScan } from './synchro.js';
 import { reduirePhoto } from './photo.js';
 import * as B from './budget.js';
 import { dossierClient, OPTIONS_DEFAUT } from './dossier.js';
+import * as A from './assistant.js';
+import { h } from './dom.js';
+import { vueDossier, dateLongue } from './dossier-vue.js';
 
 // même projet Supabase et même clé publique que le suivi de chantiers (index.html)
 const SUPABASE_URL = 'https://gxfrughmwkvdepvkhufv.supabase.co';
@@ -40,19 +43,6 @@ const sync = creerSynchro({
 });
 
 /* ---------- petits outils ---------- */
-function h(tag, props = {}, ...enfants) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(props || {})) {
-    if (v == null || v === false) continue;
-    if (k === 'class') el.className = v;
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-    else if (k === 'style') el.style.cssText = v;
-    else if (k in el && k !== 'list') el[k] = v;
-    else el.setAttribute(k, v === true ? '' : v);
-  }
-  for (const e of enfants.flat(Infinity)) if (e != null && e !== false) el.append(e instanceof Node ? e : document.createTextNode(String(e)));
-  return el;
-}
 const vibrer = () => { try { navigator.vibrate && navigator.vibrate(12); } catch (e) { /* iPhone : pas de vibration web */ } };
 const feter = el => { if (!el) return; el.classList.remove('valide'); void el.offsetWidth; el.classList.add('valide'); vibrer(); };
 const dateCourte = iso => iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
@@ -243,7 +233,9 @@ function ecranVisite() {
       // la barre de progression est aussi un sommaire : toucher une étape y va directement
       h('nav', { class: 'progres', 'aria-label': 'Étapes de la visite' }, M.ETAPES.map((e, i) => h('button', { type: 'button', class: i < S.etape ? 'fait' : i === S.etape ? 'ici' : '',
         title: e.titre, 'aria-label': 'Étape ' + (i + 1) + ' : ' + e.titre, 'aria-current': i === S.etape ? 'step' : null, onclick: () => { if (i !== S.etape) allerEtape(i); } }, h('i')))),
-      h('div', { class: 'etapeNom' }, 'Étape ' + (S.etape + 1) + ' sur ' + M.ETAPES.length + ' · ' + et.titre),
+      h('div', { class: 'rang', style: 'justify-content:space-between;align-items:center' },
+        h('div', { class: 'etapeNom' }, 'Étape ' + (S.etape + 1) + ' sur ' + M.ETAPES.length + ' · ' + et.titre),
+        h('button', { class: 'puce assistantBouton', type: 'button', id: 'ouvrirAssistant', onclick: () => { S.ecran = 'assistant'; S.propAssistant = null; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🎙 Assistant')),
       S.message && h('div', { class: 'message ' + S.message.type, style: 'margin-top:10px' }, S.message.texte),
       h('div', { class: 'anime' }, corps)),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' },
@@ -708,8 +700,23 @@ async function enregistrerPlan(m, cadre) {
     await stock.garderPhoto(id, S.courante, await (await fetch(url)).blob());
     recues.push(id);
   }
+  /* l'image du plan dessiné (dossier client) : gardée seulement si elle a changé */
+  let image = null;
+  if (typeof m.imagePlan === 'string' && /^data:image\/jpeg;base64,/.test(m.imagePlan) && m.imagePlan.length < 4000000) {
+    const empreinte = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(m.imagePlan)))).slice(0, 12).map(b => b.toString(16).padStart(2, '0')).join('');
+    const avant = M.valeur(visite(), 'planImage');
+    if (!avant || avant.empreinte !== empreinte) {
+      image = { id: M.nouvelId(), empreinte };
+      await stock.garderPhoto(image.id, S.courante, await (await fetch(m.imagePlan)).blob());
+    }
+  }
   await changer(w => {
     let x = w;
+    if (image) {
+      const avant = M.valeur(x, 'planImage');
+      if (avant && x.photos[avant.id]) x = M.supprimer(x, 'photos', avant.id);
+      x = M.modifier(M.ajouterPhoto(x, { id: image.id, role: 'dessinPlan' }), 'planImage', image);
+    }
     for (const id of recues) if (!x.photos[id]) x = M.ajouterPhoto(x, { id, role: 'plan' });
     // une photo retirée dans le plan est retirée de la visite (suppression notée, voir modele.js)
     const refs = new Set([...m.releve.pieces.flatMap(p => (p.photos || []).map(ph => ph.id)), ...(m.releve.documents || []).map(d => d.id)]);
@@ -775,6 +782,85 @@ function etapeFin(v) {
   ];
 }
 
+/* ---------- l'assistant de visite (releve/assistant.js) ----------
+   On raconte la visite d'un trait, au micro ou au clavier ; « Remplir la
+   fiche » la confie à la fonction du serveur (action « structurer »), puis
+   chaque champ proposé se relit et se coche avant d'entrer dans la visite.
+   La dictée est gardée avec la visite (hors ligne compris) jusqu'à ce
+   qu'elle soit rangée : rien ne se perd si le réseau manque. */
+async function lancerAssistant(btn, info) {
+  const v = visite(), texte = (M.valeur(v, 'assistant.texte') || '').trim();
+  const dire = (t, type) => { info.textContent = t; info.className = 'message ' + (type || 'err'); };
+  if (texte.length < 10) return dire('Racontez d’abord la visite (au moins une phrase).', 'att');
+  if (navigator.onLine === false) return dire('L’assistant a besoin du réseau. Votre dictée est gardée avec la visite : touchez « Remplir la fiche » quand le réseau revient.', 'att');
+  if (!S.session) return dire('Connectez-vous (même compte que le suivi) pour utiliser l’assistant. Votre dictée est gardée.', 'att');
+  if (!supa.functions || !supa.functions.invoke) return dire(MESSAGES_IMAGINER.non_configure, 'att');
+  const lib = btn.textContent; btn.disabled = true; btn.textContent = '✨ Lecture de la dictée…';
+  try {
+    const { data, error } = await supa.functions.invoke('imaginer', { body: { action: 'structurer', texte, listes: A.listesPourIA() } });
+    if (error) {
+      let j = {}; try { j = await error.context.json(); } catch (e) { /* pas de corps lisible */ }
+      const st = error.context && error.context.status;
+      throw { code: j.erreur || (st === 404 ? 'non_configure' : st ? 'erreur_' + st : 'reseau'), limite: j.limite, manque: j.manque, message: j.message };
+    }
+    if (!data || !data.fiche) throw { code: 'illisible' };
+    const prop = A.propositions(data.fiche, visite());
+    S.propAssistant = prop;
+    if (!prop.champs.length && !prop.pieces.length) dire('Rien de nouveau à ranger : la fiche contient déjà ce que dit la dictée.', 'ok');
+    redessiner();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = lib;
+    const code = (e && e.code) || 'reseau';
+    dire(code === 'quota' ? 'Limite du jour atteinte (' + (e.limite || '') + ' dictées par personne) : réessayez demain.'
+      : code === 'illisible' ? 'La dictée n’a pas pu être lue : réessayez, ou reformulez quelques phrases.'
+      : code === 'texte_absent' ? 'La dictée est trop courte.'
+      : code === 'non_configure' && e.manque && e.manque.length ? 'Assistant : réglage à ajouter dans les secrets Supabase : ' + e.manque.join(', ') + '.'
+      : code === 'reseau' ? 'Pas de réponse du serveur : réseau coupé, ou la fonction du serveur n’est pas à jour (voir supabase/functions/imaginer/README.md).'
+      : MESSAGES_IMAGINER[code] || 'La lecture a échoué (' + code + (e && e.message ? ' : ' + e.message : '') + ').');
+  }
+}
+
+function ecranAssistant() {
+  const v = visite();
+  if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
+  const retour = () => { S.ecran = 'visite'; S.propAssistant = null; dessiner(); window.scrollTo(0, 0); };
+  const P = S.propAssistant;
+  let info;
+  const affiche = x => Array.isArray(x) ? x.join(', ') : x == null || x === '' ? '—' : String(x);
+  const appliquer = async e => {
+    const n = P.champs.filter(c => c.coche).length + P.pieces.filter(p => p.coche).length;
+    if (!n) return;
+    await changer(w => A.appliquer(w, P));
+    feter(e.currentTarget);
+    S.propAssistant = null; S.ecran = 'visite';
+    S.message = { type: 'ok', texte: '✨ Fiche complétée par l’assistant : ' + n + ' élément' + (n > 1 ? 's' : '') + ' rangé' + (n > 1 ? 's' : '') + '. Relisez les étapes Client, Projet et Pièces.' };
+    dessiner(); window.scrollTo(0, 0);
+  };
+  return [
+    h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Visite'), h('span', { class: 'titre' }, 'Assistant de visite'), pastilleEtat()),
+    h('main', {},
+      h('h1', {}, '🎙 Racontez la visite'),
+      h('p', { class: 'mut' }, 'Parlez librement : qui est le client, comment le joindre, l’adresse, la maison, ce qui ne va pas, ce qu’il veut, son budget, son délai, les pièces à transformer. L’assistant range tout dans la fiche ; vous relisez avant que rien n’y entre.'),
+      champ(v, 'assistant.texte', 'VOTRE DICTÉE', { multiligne: true, lignes: 9, autocapitalize: 'sentences', micro: true,
+        placeholder: 'Ex. : Monsieur et Madame Martin, 06 12 34 56 78, 3 rue des Lilas à Alençon. Maison de 1975, chauffage fioul, simple vitrage. Ils veulent ouvrir la cuisine sur le séjour et refaire la salle de bains, budget autour de 40 000 €, travaux d’ici six mois…' }),
+      info = h('div', { role: 'status', id: 'infoAssistant', style: 'margin-top:10px' }),
+      !P ? h('button', { class: 'gros', id: 'remplirFiche', style: 'margin-top:10px', onclick: e => lancerAssistant(e.currentTarget, info) }, '✨ Remplir la fiche') : null,
+      P ? h('div', { class: 'carte propositions', style: 'margin-top:12px' },
+        h('h2', {}, 'Ce que l’assistant propose'),
+        h('p', { class: 'mut petit' }, 'Cochez ce qui est juste. Une case décochée remplacerait une saisie déjà faite.'),
+        P.champs.map(c => h('label', { class: 'case proposition', 'data-cle': c.cle },
+          h('input', { type: 'checkbox', checked: c.coche, onchange: e => { c.coche = e.target.checked; } }),
+          h('span', {}, h('b', {}, A.libelleChamp(c.cle) + ' : '), affiche(c.cle === 'projet.enveloppe' ? M.formatEuros(c.valeur) + ' TTC' : c.valeur),
+            c.mode === 'remplace' ? h('span', { class: 'mut petit' }, ' (remplace « ' + affiche(c.actuel) + ' »)') : c.mode === 'complete' ? h('span', { class: 'mut petit' }, ' (complète)') : null))),
+        P.pieces.map(p => h('label', { class: 'case proposition', 'data-piece-proposee': p.nom },
+          h('input', { type: 'checkbox', checked: p.coche, onchange: e => { p.coche = e.target.checked; } }),
+          h('span', {}, h('b', {}, (p.pieceId ? 'Pièce « ' + p.nom + ' » : note' : 'Nouvelle pièce : ' + p.nom) + (p.note ? ' — ' : '')), p.note || ''))),
+        h('div', { class: 'rang', style: 'margin-top:12px' },
+          h('button', { class: 'gros sec', type: 'button', onclick: () => { S.propAssistant = null; redessiner(); } }, 'Recommencer'),
+          h('button', { class: 'gros', id: 'appliquerAssistant', type: 'button', onclick: appliquer }, '✓ Ranger dans la fiche'))) : null),
+  ];
+}
+
 /* ---------- le dossier client (Phase 3, releve/dossier.js) ----------
    Mis en page comme des feuilles A4 ; « Imprimer / PDF » l'imprime, ou
    l'enregistre en PDF (sur iPhone : Imprimer, puis Partager). Les options
@@ -784,8 +870,91 @@ function optionsDossier() {
   if (!S.optDossier) { try { S.optDossier = { ...OPTIONS_DEFAUT, ...JSON.parse(localStorage.getItem(CLE_OPT_DOSSIER) || '{}') }; } catch (e) { S.optDossier = { ...OPTIONS_DEFAUT }; } }
   return S.optDossier;
 }
-const dateLongue = iso => iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
 const photoDossier = (ph, cls) => imagePhoto({ id: ph.id, chemin: ph.chemin, legende: ph.legende || ph.consigne || 'Photo' }, cls);
+
+/* ---------- envoyer le dossier au client : un lien personnel, 30 jours ----------
+   Le dossier (tel qu'à l'écran, options comprises) est gardé dans la table
+   releve_partages avec l'empreinte d'un jeton aléatoire ; le client ouvre
+   partage.html#t=<jeton>, sans compte. Le lien est gardé avec la visite pour
+   être renvoyé ; « Mettre à jour » remplace le dossier gardé (même lien),
+   « Retirer le lien » le rend inutilisable. Le relevé voit si le client l'a
+   ouvert (vues, vu_le). */
+const JOURS_PARTAGE = 30;
+const jetonAleatoire = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const empreinteJeton = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map(b => b.toString(16).padStart(2, '0')).join('');
+const tableAbsente = err => /42P01|PGRST205|does not exist|schema cache/.test(((err && err.code) || '') + ' ' + ((err && err.message) || ''));
+/* les photos du dossier pas encore envoyées sur le serveur (le client ne les verrait pas) */
+const photosNonEnvoyees = d => [d.garde, d.planImage, ...d.pieces.flatMap(p => p.photos.flatMap(ph => [ph, ...ph.imagines]))].filter(ph => ph && !ph.chemin).length;
+
+async function dossierAPartager() {
+  const o = optionsDossier();
+  let d = dossierClient(visite(), { ...o, table: tableOuv(), fourchettes: fourchettes() });
+  if (photosNonEnvoyees(d)) { await sync.synchroniser(); d = dossierClient(visite(), { ...o, table: tableOuv(), fourchettes: fourchettes() }); }
+  return d;
+}
+async function partagerDossier(action, btn, info) {
+  const dire = (t, type) => { info.textContent = t; info.className = 'message ' + (type || 'err'); };
+  if (navigator.onLine === false) return dire('Il faut du réseau pour envoyer le dossier au client.', 'att');
+  if (!S.session) return dire('Connectez-vous (même compte que le suivi) pour envoyer le dossier.', 'att');
+  const lib = btn.textContent; btn.disabled = true; btn.textContent = 'Préparation…';
+  try {
+    const actuel = M.valeur(visite(), 'partageDossier');
+    if (action === 'retirer') {
+      if (!confirm('Retirer le lien ? Le client ne pourra plus ouvrir son dossier avec ce lien.')) { btn.disabled = false; btn.textContent = lib; return; }
+      const { error } = await supa.from('releve_partages').update({ revoque: true }).eq('id', actuel.id);
+      if (error) throw error;
+      await poser('partageDossier', null);
+      S.message = { type: 'ok', texte: 'Lien retiré : le client ne peut plus ouvrir ce dossier.' }; redessiner(); return;
+    }
+    const d = await dossierAPartager(), manquent = photosNonEnvoyees(d);
+    if (action === 'maj') {
+      const { error } = await supa.from('releve_partages').update({ donnees: d }).eq('id', actuel.id);
+      if (error) throw error;
+      S.message = { type: 'ok', texte: 'Dossier envoyé mis à jour : le client voit la nouvelle version avec le même lien.' + (manquent ? ' ' + manquent + ' photo(s) pas encore envoyée(s) n’y figurent pas.' : '') };
+      redessiner(); return;
+    }
+    const jeton = jetonAleatoire(), expire = new Date(Date.now() + JOURS_PARTAGE * 86400000).toISOString();
+    const { data, error } = await supa.from('releve_partages').insert({ visite_id: S.courante, jeton_hash: await empreinteJeton(jeton), donnees: d, expire_le: expire }).select('id');
+    if (error) throw error;
+    const lien = new URL('partage.html#t=' + jeton, location.href).href;
+    await poser('partageDossier', { id: (data && data[0] && data[0].id) || null, lien, expireLe: expire, creeLe: new Date().toISOString() });
+    S.message = { type: 'ok', texte: '🔗 Lien du dossier créé, valable ' + JOURS_PARTAGE + ' jours. Envoyez-le au client ci-dessous.' + (manquent ? ' ' + manquent + ' photo(s) pas encore envoyée(s) n’y figurent pas : « Mettre à jour » une fois le réseau revenu.' : '') };
+    redessiner();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = lib;
+    dire(tableAbsente(e) ? 'Le partage n’est pas encore installé sur le serveur (table releve_partages : voir supabase/functions/imaginer/schema.sql).'
+      : 'L’envoi a échoué (' + ((e && e.message) || 'erreur') + '). Réessayez.');
+  }
+}
+function carteEnvoiClient(v) {
+  const pa = M.valeur(v, 'partageDossier'), c = k => M.valeur(v, 'client.' + k);
+  let info;
+  const etat = h('div', { class: 'mut petit', id: 'etatPartage' });
+  if (pa && pa.id && S.session) supa.from('releve_partages').select('vues, vu_le, revoque, expire_le').eq('id', pa.id).maybeSingle().then(({ data }) => {
+    if (!data) return;
+    etat.textContent = data.revoque ? 'Lien retiré.' : new Date(data.expire_le) < new Date() ? 'Lien expiré le ' + dateLongue(data.expire_le) + ' : créez-en un nouveau.'
+      : data.vues ? '👁 Ouvert par le client ' + data.vues + ' fois, la dernière le ' + new Date(data.vu_le).toLocaleString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) + '.'
+      : 'Pas encore ouvert par le client.';
+  }).catch(() => {});
+  const corpsMail = pa ? 'Bonjour,\n\nSuite à notre visite, voici votre dossier : votre projet, les photos de vos pièces et les premières idées, le relevé et une estimation indicative.\n\n'
+    + pa.lien + '\n\nCe lien personnel est valable jusqu’au ' + dateLongue(pa.expireLe) + '.\n\nBien cordialement,\nCP Constructions' : '';
+  const copier = async e => { try { await navigator.clipboard.writeText(pa.lien); e.currentTarget.textContent = '✓ Copié'; } catch (x) { prompt('Copiez le lien :', pa.lien); } };
+  return h('div', { class: 'carte sansImpression envoiClient' },
+    h('b', {}, '🔗 Envoyer au client'),
+    !pa ? [h('p', { class: 'mut petit' }, 'Le client reçoit un lien personnel, valable ' + JOURS_PARTAGE + ' jours, pour voir ce dossier sur son téléphone ou son ordinateur, sans compte.'),
+        h('button', { class: 'gros', id: 'creerLien', type: 'button', onclick: e => partagerDossier('creer', e.currentTarget, info) }, '🔗 Créer le lien du dossier')]
+      : [h('input', { class: 'in', readOnly: true, value: pa.lien, id: 'lienDossier', 'aria-label': 'Lien du dossier', onclick: e => e.target.select() }),
+        h('div', { class: 'mut petit' }, 'Valable jusqu’au ' + dateLongue(pa.expireLe) + '.'), etat,
+        h('div', { class: 'puces' },
+          h('button', { class: 'puce', type: 'button', onclick: copier }, '📋 Copier'),
+          navigator.share ? h('button', { class: 'puce', type: 'button', onclick: () => navigator.share({ title: 'Votre projet — CP Constructions', text: 'Votre dossier de projet :', url: pa.lien }).catch(() => {}) }, '📤 Partager…') : null,
+          h('a', { class: 'puce', href: 'mailto:' + encodeURIComponent(c('email') || '') + '?subject=' + encodeURIComponent('Votre projet de rénovation — CP Constructions') + '&body=' + encodeURIComponent(corpsMail) }, '✉ E-mail'),
+          c('telephone') ? h('a', { class: 'puce', href: 'sms:' + String(c('telephone')).replace(/[^\d+]/g, '') + '?&body=' + encodeURIComponent('Bonjour, voici votre dossier CP Constructions : ' + pa.lien) }, '💬 SMS') : null),
+        h('div', { class: 'rang', style: 'margin-top:8px;flex-wrap:wrap' },
+          h('button', { class: 'gros sec', id: 'majLien', type: 'button', onclick: e => partagerDossier('maj', e.currentTarget, info) }, '↻ Mettre à jour'),
+          h('button', { class: 'gros sec', id: 'retirerLien', type: 'button', onclick: e => partagerDossier('retirer', e.currentTarget, info) }, 'Retirer le lien'))],
+    info = h('div', { role: 'status', id: 'infoPartage', style: 'margin-top:8px' }));
+}
 
 function ecranDossier() {
   const v = visite();
@@ -801,9 +970,6 @@ function ecranDossier() {
     b.disabled = false; b.textContent = '🖨 Imprimer / PDF';
     window.print();
   };
-  const ligne = (t, val) => val ? h('div', { class: 'dl' }, h('span', {}, t), h('b', {}, val)) : null;
-  const page = (cls, ...enfants) => h('section', { class: 'feuille ' + (cls || '') }, ...enfants,
-    h('footer', {}, 'CP Constructions · ' + d.client + ' · visite du ' + dateLongue(d.date)));
   const option = (k, lib) => h('label', { class: 'case' }, h('input', { type: 'checkbox', checked: !!o[k], name: 'opt-' + k, onchange: () => basculer(k) }), h('span', {}, lib));
   return [
     h('header', { class: 'haut sansImpression' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Visite'), h('span', { class: 'titre' }, 'Dossier client'), pastilleEtat()),
@@ -817,50 +983,9 @@ function ecranDossier() {
         h('p', { class: 'mut petit' }, 'Jamais dans le dossier : les notes de visite, la marge.'),
         h('button', { class: 'gros', id: 'imprimerDossier', type: 'button', onclick: imprimer }, '🖨 Imprimer / PDF'),
         h('p', { class: 'mut petit' }, 'Sur iPhone : « Imprimer », puis le bouton Partager pour l’enregistrer en PDF ou l’envoyer.')),
-      h('div', { class: 'dossier' },
-        page('garde',
-          h('img', { class: 'logoDossier', src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }),
-          h('h1', {}, d.titre),
-          h('div', { class: 'gardeClient' }, d.client),
-          d.adresse ? h('div', { class: 'gardeAdresse' }, d.adresse) : null,
-          d.garde ? photoDossier(d.garde, 'gardeDossier') : null,
-          h('div', { class: 'gardeDate' }, 'Visite du ' + dateLongue(d.date))),
-        page('',
-          h('h2', {}, 'Vous'),
-          d.personnes.map(p => ligne(p.role, [p.nom, p.detail].filter(Boolean).join(' — '))),
-          h('h2', {}, 'Le bien'),
-          ligne('Adresse des travaux', d.bien.adresse), ligne('Usage', d.bien.usage),
-          ligne('Surface relevée', d.bien.surface ? String(d.bien.surface).replace('.', ',') + ' m²' + (d.bien.nbPieces ? ' (' + d.bien.nbPieces + ' pièce' + (d.bien.nbPieces > 1 ? 's' : '') + ')' : '') : ''),
-          h('h2', {}, 'Votre projet'),
-          ligne('Ampleur', d.projet.categories.join(', ')), ligne('Travaux', d.projet.types.join(', ')), ligne('Délai souhaité', d.projet.delai),
-          d.projet.enveloppe != null ? ligne('Budget envisagé', M.formatEuros(d.projet.enveloppe) + ' TTC') : null,
-          d.projet.situation ? [h('h3', {}, 'La situation aujourd’hui'), h('p', { class: 'texte' }, d.projet.situation)] : null,
-          d.projet.souhaits ? [h('h3', {}, 'Vos souhaits'), h('p', { class: 'texte' }, d.projet.souhaits)] : null),
-        d.pieces.length ? page('pieces',
-          h('h2', {}, 'Vos pièces'),
-          d.pieces.map(p => h('div', { class: 'pieceDossier' },
-            h('h3', {}, p.nom),
-            p.note ? h('p', { class: 'texte' }, p.note) : null,
-            p.photos.map(ph => h('div', { class: 'duo' + (ph.imagines.length ? ' avecImagine' : '') },
-              h('figure', {}, photoDossier(ph), h('figcaption', {}, ph.imagines.length ? 'Aujourd’hui' + (ph.legende ? ' — ' + ph.legende : '') : ph.legende)),
-              ph.imagines.map(im => h('figure', {}, photoDossier(im), h('figcaption', {}, '✨ Demain (image d’intention) — ' + im.consigne))))))),
-          d.pieces.some(p => p.photos.some(ph => ph.imagines.length)) ? h('p', { class: 'mention' }, 'Les images d’intention sont générées pour aider à se projeter : elles ne sont ni un plan ni un engagement sur le rendu final.') : null) : null,
-        d.plan.length ? page('',
-          h('h2', {}, 'Le relevé'),
-          h('table', { class: 'tableDossier' }, h('thead', {}, h('tr', {}, h('th', {}, 'Pièce'), h('th', {}, 'Niveau'), h('th', {}, 'Surface'), h('th', {}, 'Hauteur'))),
-            h('tbody', {}, d.plan.map(p => h('tr', {}, h('td', {}, p.nom), h('td', {}, p.etage ? 'Étage ' + p.etage : 'RDC'),
-              h('td', {}, p.surface != null ? String(p.surface).replace('.', ',') + ' m²' : '—'), h('td', {}, p.hauteur ? String(p.hauteur).replace('.', ',') + ' m' : '—'))))),
-          h('p', { class: 'mention' }, 'Surfaces intérieures relevées au scanner lors de la visite, à confirmer par un relevé contradictoire.')) : null,
-        d.estimation ? page('',
-          h('h2', {}, 'Estimation budgétaire indicative'),
-          h('table', { class: 'tableDossier' }, h('thead', {}, h('tr', {}, h('th', {}, 'Travaux'), h('th', {}, 'Quantité'), h('th', {}, 'Gamme'), h('th', {}, 'Fourchette TTC'))),
-            h('tbody', {}, d.estimation.lignes.map(l => h('tr', {}, h('td', {}, l.libelle), h('td', {}, l.quantite), h('td', {}, l.gamme), h('td', { class: 'nombre' }, euros(l.min) + ' à ' + euros(l.max))))),
-            h('tfoot', {}, h('tr', {}, h('td', { colspan: 3 }, 'Total' + (d.estimation.majoration ? ' (ajustements compris : +' + Math.round(d.estimation.majoration * 100) + ' %)' : '')), h('td', { class: 'nombre' }, euros(d.estimation.total.min) + ' à ' + euros(d.estimation.total.max))))),
-          h('p', { class: 'mention' }, 'Estimation indicative, non contractuelle, établie lors de la première visite à partir de surfaces globales et de prix moyens. Elle ne constitue ni un devis ni une offre. Le chiffrage détaillé vous sera remis après étude du projet.' + (d.estimation.incomplet ? ' Certains postes restent à chiffrer.' : ''))) : null,
-        page('fin',
-          h('h2', {}, 'La suite'),
-          h('ol', { class: 'suite' }, h('li', {}, 'Nous étudions votre projet à partir de ce relevé.'), h('li', {}, 'Nous vous remettons un chiffrage détaillé.'), h('li', {}, 'Nous en parlons ensemble et ajustons le projet si besoin.')),
-          h('img', { class: 'logoDossier', src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' })))),
+      carteEnvoiClient(v),
+      S.message && h('div', { class: 'message sansImpression ' + S.message.type }, S.message.texte),
+      vueDossier(d, { photo: photoDossier, logo: '../assets/logo_fiche.jpg' })),
   ];
 }
 
@@ -1081,11 +1206,52 @@ async function enregistrerOuvrages(lignes) {
   }
   throw { message: 'la table a été modifiée en même temps par un collègue : réessayez' };
 }
+/* « 📊 Calculer depuis mes chantiers » : les prospects de rénovation du
+   suivi, lus (jamais écrits), donnent les prix de CP par travail
+   (budget.js, ratiosDepuisProspects) ; chaque ligne se reprend d'un toucher
+   dans le brouillon, puis « Enregistrer » comme une saisie. */
+async function calculerRatiosCP() {
+  S.ratiosCP = { etat: 'calcul' }; redessiner();
+  try {
+    if (!S.session || navigator.onLine === false) throw { message: 'il faut du réseau et être connecté' };
+    const { data, error } = await supa.from('app_data').select('data').eq('id', 'main').single();
+    if (error || !data || !data.data) throw error || { message: 'données du suivi introuvables' };
+    const prospects = data.data.prospects || [];
+    // la surface du plan d'une visite rattachée, quand le prospect n'a pas de surface saisie
+    const surfaceDeVisite = new Map(S.visites.map(r => [r.id, r.visite]).map(([id, v]) => [id, (M.valeur(v, 'plan') || {}).resume]).filter(([, r]) => r && r.surface > 0).map(([id, r]) => [id, r.surface]));
+    const surfacesPlan = {};
+    S.visites.forEach(r => { const pid = M.valeur(r.visite, 'prospectId'); if (pid && surfaceDeVisite.has(r.id)) surfacesPlan[pid] = surfaceDeVisite.get(r.id); });
+    prospects.forEach(p => (p.visites || []).forEach(x => { if (!surfacesPlan[p.id] && surfaceDeVisite.has(x.id)) surfacesPlan[p.id] = surfaceDeVisite.get(x.id); }));
+    const liste = B.ratiosDepuisProspects(prospects, { majorations: data.data.majorationsCorps || [], surfacesPlan });
+    S.ratiosCP = { etat: 'ok', liste, nb: prospects.filter(p => p.categorie === 'renovation').length };
+  } catch (e) { S.ratiosCP = { etat: 'erreur', msg: (e && e.message) || 'erreur' }; }
+  redessiner();
+}
+function carteRatiosCP(L, quand) {
+  const R = S.ratiosCP;
+  const reprendre = r => { const l = L.find(x => x.id === r.id); if (l) { l.prix = { ...r.prix }; l.perso = true; l.maj = quand(); } };
+  if (!R) return h('div', { class: 'carte' }, h('b', {}, '📊 Vos prix, appris de vos chantiers'),
+    h('p', { class: 'mut petit' }, 'Calcule vos prix au m² à partir des projets de rénovation déjà chiffrés dans le suivi (coût TTC des entreprises, hors honoraires, rapporté à la surface habitable). Rien n’est changé sans votre accord.'),
+    h('button', { class: 'gros sec', id: 'calculerRatios', type: 'button', onclick: calculerRatiosCP }, '📊 Calculer depuis mes chantiers'));
+  if (R.etat === 'calcul') return h('div', { class: 'carte mut' }, 'Lecture des chantiers du suivi…');
+  if (R.etat === 'erreur') return h('div', { class: 'message err' }, 'Calcul impossible (' + R.msg + ').');
+  return h('div', { class: 'carte', id: 'ratiosCP' },
+    h('b', {}, '📊 Vos prix, appris de vos chantiers'),
+    !R.liste.length ? h('p', { class: 'mut' }, 'Pas assez de données : il faut des projets de rénovation chiffrés par poste, avec leur surface habitable (ou le plan d’une visite). ' + R.nb + ' projet(s) de rénovation trouvé(s).')
+      : [h('p', { class: 'mut petit' }, 'Coût TTC des entreprises, hors honoraires, au m² habitable. Peu de projets = repère fragile : vérifiez avant de reprendre.'),
+        R.liste.map(r => { const o = B.OUVRAGES.find(x => x.id === r.id);
+          return h('div', { class: 'rang ratio', 'data-ratio': r.id, style: 'justify-content:space-between;border-top:1px solid var(--rule);padding:8px 0' },
+            h('div', {}, h('b', {}, o.icone + ' ' + o.nom), h('div', { class: 'mut petit', title: r.projets.join(', ') },
+              r.n + ' projet' + (r.n > 1 ? 's' : '') + ' · ' + r.prix.min + ' / ' + r.prix.med + ' / ' + r.prix.max + ' €/m²')),
+            h('button', { class: 'puce', type: 'button', onclick: () => { reprendre(r); redessiner(); } }, 'Reprendre')); }),
+        h('button', { class: 'gros sec', id: 'reprendreRatios', type: 'button', style: 'margin-top:8px', onclick: () => { R.liste.forEach(reprendre); redessiner(); } }, 'Tout reprendre')]);
+}
+
 function ecranOuvrages() {
   // brouillon : une ligne par ouvrage, prix de CP s'ils existent, sinon ceux du modèle
   if (!S.brouillonO) S.brouillonO = B.OUVRAGES.map(o => { const e = (PO.lignes || []).find(x => x.id === o.id && !x.supprime); return { id: o.id, prix: { ...(e ? e.prix : o.prix) }, perso: !!e, maj: e ? e.maj : null }; });
   const L = S.brouillonO, quand = () => new Date().toISOString();
-  const retour = () => { S.ecran = S.retour || 'accueil'; S.brouillonO = null; dessiner(); window.scrollTo(0, 0); };
+  const retour = () => { S.ecran = S.retour || 'accueil'; S.brouillonO = null; S.ratiosCP = null; dessiner(); window.scrollTo(0, 0); };
   const enregistrer = async e => {
     const bouton = e.currentTarget, faux = L.filter(l => l.perso && !B.prixNiveau(l.prix, 'standard'));
     if (faux.length) { S.message = { type: 'err', texte: 'Prix à corriger (mini ≤ médian ≤ maxi) : ' + faux.map(l => B.OUVRAGES.find(o => o.id === l.id).nom).join(', ') + '.' }; dessiner(); return; }
@@ -1109,6 +1275,7 @@ function ecranOuvrages() {
       h('h1', {}, 'Prix au m² (estimation R1)'),
       h('p', { class: 'mut' }, 'Prix TTC posés : mini, médian, maxi. Éco = du mini au médian, Standard = autour du médian, Haut de gamme = du médian au maxi. Partis des repères publics 2026 : remplacez-les par vos ratios de chantiers. Table partagée par toute l’équipe.'),
       PO.etat === 'absent' ? h('div', { class: 'message att' }, 'La table des réglages n’est pas encore installée sur le serveur (relancez supabase/releve/schema.sql). Vos prix resteront sur cet appareil en attendant.') : null,
+      carteRatiosCP(L, quand),
       L.map(l => { const o = B.OUVRAGES.find(x => x.id === l.id);
         return h('div', { class: 'carte', 'data-prix-ouvrage': l.id },
           h('div', { class: 'rang', style: 'justify-content:space-between' }, h('b', {}, o.icone + ' ' + o.nom),
@@ -1164,7 +1331,7 @@ function ecranFourchettes() {
 function dessiner() {
   arreterDictee(); // le champ dicté va être remplacé
   const app = document.getElementById('app');
-  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : ecranAccueil();
+  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : S.ecran === 'assistant' ? ecranAssistant() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
 }
 

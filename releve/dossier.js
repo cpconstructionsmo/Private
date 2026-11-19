@@ -77,6 +77,8 @@ export function dossierClient(v, opt = {}) {
     titre: 'Votre projet de rénovation',
     client: M.intitule(v), adresse, date: v.creeLe || '',
     garde: (() => { const g = v.photos[val('photoGarde')]; return g && !g.supprime ? { id: g.id, chemin: g.chemin || null } : null; })(),
+    // l'image du plan dessiné, envoyée par le moteur à la fermeture du plan
+    planImage: (() => { const pi = val('planImage'), ph = pi && v.photos[pi.id]; return ph && !ph.supprime ? { id: ph.id, chemin: ph.chemin || null } : null; })(),
     personnes,
     bien: { adresse, usage, surface: resume && resume.surface ? resume.surface : null, nbPieces: resume ? resume.pieces : null },
     projet: { categories: val('projet.categories') || [], types, situation: txt(val('projet.situation')), souhaits: txt(val('projet.souhaits')) || txt(val('projet.explicatif')),

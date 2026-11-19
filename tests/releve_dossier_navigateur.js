@@ -19,6 +19,8 @@ let b;
   const ctx=await b.newContext({serviceWorkers:'block',viewport:{width:390,height:844},deviceScaleFactor:1,hasTouch:true,isMobile:true});
   await ctx.route('**/*',async r=>{const u=r.request().url();
     if(/supabase-js/.test(u))return r.fulfill({body:BIBLIO,contentType:'text/javascript'});
+    if(/\/functions\/v1\/imaginer$/.test(u)){const b=JSON.parse(r.request().postData()||'{}');const rep=global.__partage&&global.__partage(b);
+      return r.fulfill({status:rep?200:404,contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify(rep||{erreur:'lien_invalide'})});}
     const m=u.match(/^https:\/\/app\.local\/([^?#]*)/);
     if(m){let f=path.join(R,decodeURIComponent(m[1]));if(fs.existsSync(f)&&fs.statSync(f).isDirectory())f=path.join(f,'index.html');
       if(fs.existsSync(f)&&fs.statSync(f).isFile())return r.fulfill({path:f,contentType:/\.js$/.test(f)?'text/javascript':/\.html$/.test(f)?'text/html':undefined});
@@ -76,6 +78,34 @@ let b;
   const pages=(pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g)||[]).length;
   chk(pages>=2&&pages<=4,'PDF A4 : '+pages+' pages (couverture seule, puis les parties enchaînées)');
   await p.emulateMedia({media:'screen'});
+
+  /* envoyer le dossier au client : lien personnel, 30 jours */
+  await p.tap('#creerLien');
+  await p.waitForSelector('#lienDossier');
+  const lien=await p.inputValue('#lienDossier');
+  const jeton=(lien.match(/partage\.html#t=([A-Za-z0-9_-]+)$/)||[])[1];
+  chk(jeton&&jeton.length>=40,'lien créé : partage.html#t=<jeton aléatoire>');
+  const parts=await p.evaluate(()=>JSON.parse(JSON.stringify(window.__etat.partages||{})));
+  const pa=Object.values(parts)[0];
+  const crypto=require('crypto');
+  chk(pa&&pa.jeton_hash===crypto.createHash('sha256').update(jeton).digest('hex')&&!JSON.stringify(pa).includes(jeton),'seule l’empreinte du jeton est en base, jamais le jeton');
+  chk(pa&&pa.donnees.client==='Mme Anne FICTIF'&&!/note interne|pressé|marge/i.test(JSON.stringify(pa.donnees))&&new Date(pa.expire_le)-Date.now()>29*86400000,'le dossier gardé est celui de l’écran (sans notes internes), valable 30 jours');
+  chk(await p.locator('.envoiClient a[href^="mailto:"]').count()===1,'envoi par e-mail préparé (et copier, partager)');
+  /* la page du client : ce que rend la fonction pour ce jeton */
+  global.__partage=b=>b.action==='partage'&&crypto.createHash('sha256').update(b.t||'').digest('hex')===pa.jeton_hash?{dossier:pa.donnees,urls:{},expire_le:pa.expire_le}:null;
+  const cp=await ctx.newPage();
+  await cp.goto(lien.replace(/^https:\/\/app\.local\//,'https://app.local/'));
+  await cp.waitForSelector('.dossier .feuille');
+  const tc=await cp.textContent('.dossier');
+  chk(/Votre projet de rénovation/.test(tc)&&/Cuisine ouverte sur le séjour/.test(tc)&&/Estimation budgétaire indicative/.test(tc)&&/valable jusqu’au/.test(await cp.textContent('main')),'page du client : le dossier s’affiche, avec la date de validité du lien');
+  await cp.goto('about:blank');await cp.goto('https://app.local/releve/partage.html#t='+'x'.repeat(43));
+  await cp.waitForSelector('.message');
+  chk(/plus valable/.test(await cp.textContent('.message')),'jeton inconnu : « ce lien n’est plus valable », rien d’autre');
+  await cp.close();
+  /* retirer le lien */
+  await p.tap('#retirerLien');
+  await p.waitForSelector('#creerLien');
+  chk(await p.evaluate(()=>Object.values(window.__etat.partages)[0].revoque===true),'« Retirer le lien » : le lien est désactivé');
 
   /* la liste des visites : recherche dès 5 visites */
   await p.waitForFunction(()=>Object.values(window.__etat.lignes||{}).length>0,null,{timeout:15000}).catch(()=>{});

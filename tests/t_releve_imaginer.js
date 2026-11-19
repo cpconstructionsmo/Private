@@ -27,5 +27,25 @@ const {chk,fin}=verif();
 
   chk(R.modeles('')[0]===R.MODELES[0]&&R.modeles('mon-modele')[0]==='mon-modele'&&R.modeles(R.MODELES[1]).length===R.MODELES.length,'modèle imposé en tête, sans doublon ; sinon la liste');
   chk(R.limiteJour(undefined)===30&&R.limiteJour('12')===12&&R.limiteJour('-3')===30&&R.limiteJour('abc')===30,'limite du jour : 30 par défaut, réglable');
+
+  /* l'assistant de visite (action « structurer ») */
+  chk(R.lireStructuration({texte:'court'}).erreur==='texte_absent','dictée trop courte : refusée');
+  const ds=R.lireStructuration({texte:'Madame FICTIF, maison de 1975, chauffage fioul, elle veut ouvrir la cuisine.'+'x'.repeat(9000),
+    listes:{civilites:['M.','Mme'],types:Array.from({length:80},(_,i)=>'T'+i),inconnue:['x']}});
+  chk(ds.texte.length===R.TEXTE_MAX&&ds.listes.types.length===40&&!('inconnue' in ds.listes)&&ds.listes.delais.length===0,'dictée bornée, listes bornées, liste inconnue ignorée');
+  const iv=R.inviteStructuration(ds);
+  chk(/N’invente rien/.test(iv)&&/« Mme »/.test(iv)&&/MAJUSCULES/.test(iv)&&/Dictée :/.test(iv),'la consigne interdit d’inventer et donne les choix permis');
+  const qs=R.requeteStructuration(ds);
+  chk(qs.generationConfig.responseMimeType==='application/json'&&qs.generationConfig.temperature<=0.2,'réponse demandée en JSON, sans fantaisie');
+  chk(R.jsonReponse({candidates:[{content:{parts:[{text:'```json\n{"client":{"nom":"FICTIF"}}\n```'}]}}]}).fiche.client.nom==='FICTIF','JSON lu, même entouré de ```json');
+  chk(R.jsonReponse({candidates:[{content:{parts:[{text:'pas du json'}]}}]}).erreur==='illisible'&&R.jsonReponse({candidates:[{content:{parts:[{text:'[1,2]'}]}}]}).erreur==='illisible','réponse illisible ou pas un objet : erreur nommée');
+  chk(R.modelesTexte('')[0]==='gemini-flash-latest'&&R.limiteTexte(undefined)===100&&R.limiteTexte('250')===250,'modèle texte et limite par défaut (100 dictées par jour)');
+
+  /* le dossier partagé (action « partage ») */
+  chk(!R.jetonValide('court')&&!R.jetonValide('a'.repeat(43)+'/')&&R.jetonValide('Abc-_'.repeat(9)),'jeton du lien : 40 à 64 caractères base64url');
+  const e1=await R.empreinte('jeton-fictif'), e2=await R.empreinte('jeton-fictif');
+  chk(e1===e2&&/^[0-9a-f]{64}$/.test(e1)&&e1!==await R.empreinte('autre'),'empreinte SHA-256 stable (seule elle est en base)');
+  const ch=R.cheminsDossier({garde:{chemin:'v1/g.jpg'},planImage:{chemin:'v1/plan.jpg'},pieces:[{photos:[{chemin:'v1/a.jpg',imagines:[{chemin:'v1/b.jpg'},{chemin:'../secret'}]},{chemin:null}]}]});
+  chk(ch.join()==='v1/g.jpg,v1/plan.jpg,v1/a.jpg,v1/b.jpg','chemins des photos du dossier pour leurs liens temporaires (chemin douteux écarté)');
   fin();
 })();
