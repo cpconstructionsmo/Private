@@ -1492,7 +1492,14 @@ async function demarrer() {
   dessiner();
   // ce qui est arrivé du serveur (autre appareil) apparaît dans la liste
   const avant = sync.synchroniser;
-  sync.synchroniser = async () => { await avant(); const n = S.visites.length; await recharger(); if (S.ecran === 'accueil' && S.visites.length !== n) dessiner(); };
+  /* après chaque synchronisation, l'accueil se redessine dès qu'une visite a changé (nouvelle visite, nom
+     tapé sur un autre appareil, statut, photo de garde…), pas seulement quand leur nombre change ; jamais
+     pendant une recherche en cours (le clavier resterait ouvert sur un champ remplacé) */
+  const signature = () => S.visites.map(r => r.id + ':' + M.derniereMaj(r.visite) + ':' + (r.enAttente ? 1 : 0)).sort().join('|');
+  sync.synchroniser = async () => {
+    await avant(); const avantSync = signature(); await recharger();
+    if (S.ecran === 'accueil' && signature() !== avantSync && (document.activeElement || {}).id !== 'chercherVisite') dessiner();
+  };
   sync.synchroniser();
   chargerFourchettes().then(() => { if (S.ecran === 'visite' || S.ecran === 'fourchettes') dessiner(); });
   chargerOuvrages().then(() => { if (S.ecran === 'visite' || S.ecran === 'ouvrages') dessiner(); });

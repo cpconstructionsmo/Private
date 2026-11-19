@@ -173,6 +173,12 @@ let b;
   await pc.goto('https://app.local/releve/');
   await pc.waitForSelector('.visite',{timeout:10000});
   chk((await pc.textContent('.visite')).includes('FICTIF'),'le PC retrouve la visite faite sur l’iPhone');
+  /* le nom retouché sur l'iPhone arrive sur le PC resté à l'accueil, sans recharger (signature de la liste) */
+  await pc.evaluate(()=>{const l=Object.values(window.__etat.lignes)[0], q=new Date(Date.now()+60000).toISOString();
+    l.donnees.valeurs['client.nom']='RENOMME';l.donnees.maj={...(l.donnees.maj||{}),'client.nom':q};l.version=(l.version||1)+1;l.maj_le=q;});
+  await pc.click('#etatSync');
+  await pc.waitForFunction(()=>/RENOMME/.test(document.querySelector('.visite').textContent),null,{timeout:8000}).catch(()=>{});
+  chk((await pc.textContent('.visite')).includes('RENOMME'),'nom changé sur un autre appareil : la liste du PC se met à jour sans recharger');
   await pc.click('.visite');await pc.click('text=Fin de visite').catch(()=>{});
   await pc.screenshot({path:SORTIE+'/releve_pc.png'});
 
