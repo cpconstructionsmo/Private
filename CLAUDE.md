@@ -48,7 +48,9 @@ qu'on ait à les redire.
   ligne « fourchettes », livrée sans prix) reste sous « Approfondir ».
   « ✨ Imaginer » (photo de pièce → pièce rénovée) passe par la fonction
   `supabase/functions/imaginer` (Gemini, clé `GEMINI_API_KEY` dans les
-  secrets Supabase, utilisateur connecté, limite par jour). Dossier client
+  secrets Supabase, utilisateur connecté, limite par jour) ; sans réseau, la
+  demande attend sur la photo (`imaginerEnAttente`, appareil d'origine seul)
+  et part au retour du réseau. Dossier client
   (`releve/dossier.js`, « 📄 Dossier client », lien du suivi
   `releveLien({visite,vue:'dossier'})`) : imprimable en PDF A4, jamais les
   notes de visite ni la marge ; image du plan dessiné (`planImage`) ;

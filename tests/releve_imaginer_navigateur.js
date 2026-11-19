@@ -4,6 +4,8 @@
    - « ✨ Imaginer » sous une photo : consigne (reprise des souhaits possible),
      photo et consigne envoyées, l'image revient sous la photo, marquée ;
    - elle part avec la visite (espace privé), liée à sa photo d'origine ;
+   - sans réseau : la demande attend sur la photo (annulable) et part
+     toute seule au retour du réseau ;
    - limite du jour atteinte : message clair, la consigne reste ;
    - supprimer la photo supprime aussi ses images imaginées. */
 require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
@@ -70,6 +72,26 @@ let b;
   const ok=await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const ph=L[0]&&Object.values(L[0].donnees.photos);
     return ph&&ph.some(x=>x.role==='imagine'&&x.chemin&&ph.some(y=>y.id===x.source&&y.role==='piece'))});
   chk(ok,'l’image imaginée part sur le serveur (espace privé), liée à sa photo d’origine');
+
+  /* sans réseau : la demande attend sur la photo, puis part toute seule */
+  const nbAppels=await p.evaluate(()=>window.__etat.appels.length);
+  await ctx.setOffline(true);
+  await p.tap('button.imaginer');await p.fill('.panneauImaginer textarea','Version annulée');
+  await p.tap('.panneauImaginer >> text=✨ Créer l’image');
+  await p.waitForSelector('.enAttenteImaginer');
+  chk(/Version annulée/.test(await p.textContent('.enAttenteImaginer'))&&/Pas de réseau/.test(await p.textContent('main')),'sans réseau : « ⏳ Imaginer en attente du réseau » sous la photo, rien n’est perdu');
+  await p.tap('.enAttenteImaginer >> text=✕ annuler');
+  await p.waitForFunction(()=>!document.querySelector('.enAttenteImaginer'));
+  await p.tap('button.imaginer');await p.fill('.panneauImaginer textarea','Version scandinave');
+  await p.tap('.panneauImaginer >> text=✨ Créer l’image');
+  await p.waitForSelector('.enAttenteImaginer');
+  chk(await p.evaluate(n=>window.__etat.appels.length===n,nbAppels),'sans réseau, aucun appel n’est tenté ; une demande peut être annulée');
+  await p.evaluate(img=>{window.__etat.fonctions={imaginer:{corps:{image:img,mime:'image/jpeg',modele:'modele-fictif',restant:28}}}},IMAGE);
+  await ctx.setOffline(false);
+  await p.waitForFunction(()=>document.querySelectorAll('.imagine img[src^="blob:"]').length===2&&!document.querySelector('.enAttenteImaginer'),null,{timeout:15000});
+  const app2=await p.evaluate(()=>window.__etat.appels.filter(a=>a.nom==='imaginer').slice(-1)[0]);
+  chk(app2.body.consigne==='Version scandinave'&&/au retour du réseau/.test(await p.textContent('main')),'au retour du réseau, l’image est créée toute seule (une seule fois, la demande annulée n’est pas partie)');
+  chk(await p.evaluate(()=>window.__etat.appels.filter(a=>a.nom==='imaginer'&&a.body.consigne==='Version scandinave').length)===1,'un seul appel pour la demande en attente');
 
   /* limite du jour */
   await p.evaluate(()=>{window.__etat.fonctions={imaginer:{statut:429,corps:{erreur:'quota',limite:30}}}});
