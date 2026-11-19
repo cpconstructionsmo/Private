@@ -48,6 +48,12 @@ let b;
   await p.waitForFunction(()=>/pas encore installé/.test(document.querySelector('.panneauImaginer [role=status]').textContent));
   chk(true,'fonction absente : « Imaginer n’est pas encore installé », rien n’est cassé');
 
+  /* fonction déployée mais secret absent : l'écran nomme le réglage qui manque */
+  await p.evaluate(()=>{window.__etat.fonctions={imaginer:{statut:500,corps:{erreur:'non_configure',manque:['GEMINI_API_KEY']}}}});
+  await p.tap('.panneauImaginer >> text=✨ Créer l’image');
+  await p.waitForFunction(()=>/secrets Supabase : GEMINI_API_KEY/.test(document.querySelector('.panneauImaginer [role=status]').textContent));
+  chk(true,'secret absent : le message nomme GEMINI_API_KEY');
+
   /* la fonction répond */
   await p.evaluate(img=>{window.__etat.fonctions={imaginer:{corps:{image:img,mime:'image/jpeg',modele:'modele-fictif',restant:29}}}},IMAGE);
   await p.fill('.panneauImaginer textarea','Murs blancs, parquet chêne clair');

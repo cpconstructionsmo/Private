@@ -518,7 +518,7 @@ async function lancerImaginer(p, ph, consigne, btn, info) {
     if (error) {
       let j = {}; try { j = await error.context.json(); } catch (e) { /* pas de corps lisible */ }
       const st = error.context && error.context.status;
-      throw { code: j.erreur || (st === 404 ? 'non_configure' : st ? 'erreur_' + st : 'reseau'), limite: j.limite, message: j.message };
+      throw { code: j.erreur || (st === 404 ? 'non_configure' : st ? 'erreur_' + st : 'reseau'), limite: j.limite, message: j.message, manque: j.manque };
     }
     if (!data || !data.image) throw { code: 'aucune_image' };
     const id = M.nouvelId();
@@ -533,7 +533,8 @@ async function lancerImaginer(p, ph, consigne, btn, info) {
     btn.disabled = false; btn.textContent = texte;
     dire(code === 'quota' ? 'Limite du jour atteinte (' + (e.limite || '') + ' images par personne) : réessayez demain.'
       : code === 'photo' ? 'La photo d’origine n’est pas lisible sur cet appareil (pas encore téléchargée ?).'
-      : code === 'reseau' ? 'Pas de réponse du serveur : réseau coupé, ou Imaginer pas encore installé.'
+      : code === 'reseau' ? 'Pas de réponse du serveur : réseau coupé, fonction « imaginer » absente, ou « Verify JWT » encore actif (voir supabase/functions/imaginer/README.md).'
+      : code === 'non_configure' && e.manque && e.manque.length ? 'Imaginer : réglage à ajouter dans les secrets Supabase : ' + e.manque.join(', ') + '.'
       : MESSAGES_IMAGINER[code] || 'La création a échoué (' + code + (e && e.message ? ' : ' + e.message : '') + ').');
   }
 }
