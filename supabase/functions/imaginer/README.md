@@ -1,6 +1,6 @@
 # La fonction du relevé de visite (`imaginer`)
 
-Une seule fonction Supabase pour trois services du relevé de visite :
+Une seule fonction Supabase pour quatre services du relevé de visite :
 
 - **✨ Imaginer** (étape Pièces et photos) : la photo d'une pièce et la
   consigne du métreur partent à Gemini ; la pièce rénovée revient et se
@@ -9,6 +9,12 @@ Une seule fonction Supabase pour trois services du relevé de visite :
   visite d'un trait ; Gemini en tire les champs de la fiche (client, projet,
   pièces…). C'est une proposition : le relevé la vérifie champ par champ
   (`releve/assistant.js`) et le métreur coche ce qu'il reprend.
+- **🔍 Décrire** (action `decrire`) : sous une photo de pièce, Gemini propose
+  une légende courte (posée seulement si la légende est vide) et des
+  constats utiles au chiffrage (état, matériaux, vigilance), qui s'ajoutent
+  aux notes de la pièce d'un geste ; dans l'assistant, **« 📷 Lire une note
+  manuscrite »** recopie une note photographiée à la suite de la dictée.
+  Compté avec les dictées.
 - **🔗 Dossier envoyé au client** (action `partage`) : le client ouvre son
   dossier par un lien personnel (`releve/partage.html#t=<jeton>`, 30 jours),
   sans compte. La fonction rend le dossier gardé (table `releve_partages`)
@@ -22,7 +28,7 @@ Ce qui protège :
 - **Il faut être connecté** (le même compte que le suivi) pour Imaginer et
   l'assistant. Seul le dossier partagé s'ouvre sans compte, avec le jeton
   du lien : seule son empreinte est en base, le lien expire et se retire.
-- **Le nombre d'appels est limité** : 30 images et 100 dictées par personne
+- **Le nombre d'appels est limité** : 30 images et 100 dictées ou photos décrites par personne
   et par jour (réglables). Les compteurs sont dans la table
   `releve_ia_usage`, que seule la fonction lit et écrit.
 - La fonction ne garde rien. L'image part dans l'espace privé `releves`,

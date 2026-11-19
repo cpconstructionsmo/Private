@@ -50,7 +50,9 @@ qu'on ait à les redire.
   `supabase/functions/imaginer` (Gemini, clé `GEMINI_API_KEY` dans les
   secrets Supabase, utilisateur connecté, limite par jour) ; sans réseau, la
   demande attend sur la photo (`imaginerEnAttente`, appareil d'origine seul)
-  et part au retour du réseau. Dossier client
+  et part au retour du réseau. « 🔍 Décrire » (action `decrire`) : légende si vide et
+  constats internes (`description`) d'une photo ; « 📷 Lire une note
+  manuscrite » ajoute la transcription à la dictée de l'assistant. Dossier client
   (`releve/dossier.js`, « 📄 Dossier client », lien du suivi
   `releveLien({visite,vue:'dossier'})`) : imprimable en PDF A4, jamais les
   notes de visite ni la marge ; image du plan dessiné (`planImage`) ;

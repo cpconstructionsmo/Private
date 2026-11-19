@@ -146,22 +146,6 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 - Chevauchements et dimensions hors bornes (0,30 à 50 m) sont signalés
   avant de créer le plan.
 
-## Le dessin rapide (sans scan)
-
-- Étape Scan › **« ✏️ Dessin rapide (sans scan) »** : on pose des pièces
-  rectangulaires au doigt (nom, longueur, largeur avec de gros − / +), chacune
-  à droite, en dessous, à gauche ou au-dessus d'une pièce déjà posée, avec un
-  décalage le long du mur. L'aperçu suit chaque geste ; touchez une pièce pour
-  la régler. Le dessin est gardé avec la visite (`dessin`).
-- **« ✓ Créer le plan »** (`dessin.js`, `releveDepuisDessin`) : le relevé du
-  moteur (pièces voisines aux coins partagés : un seul mur commun) et son
-  résumé (surface, périmètre, murs, pour la fourchette et le dossier). Le
-  plan s'ouvre aussitôt : toucher une cote pour taper la vraie longueur,
-  « + Ouverture » pour portes et fenêtres, 3D, PDF. Un plan existant n'est
-  jamais écrasé en silence : il est gardé de côté (`plan.ecarte`).
-- Chevauchements et dimensions hors bornes (0,30 à 50 m) sont signalés
-  avant de créer le plan.
-
 ## L'assistant de visite
 
 - Bouton **« 🎙 Assistant »** à chaque étape de la visite : on raconte la
@@ -177,6 +161,22 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   **décoché** ; listes et textes (situation, souhaits) se complètent sans
   doublon ; les pièces citées s'ajoutent, ou complètent la note d'une pièce
   du même nom. « Ranger dans la fiche » n'applique que le coché.
+
+## Décrire une photo, lire une note manuscrite
+
+- **« 🔍 Décrire »** sous chaque photo de pièce : la photo part à la fonction
+  `imaginer` (action `decrire`, Gemini). Elle rend une légende courte, posée
+  seulement si la légende est vide (sinon « Légende proposée … Utiliser »),
+  et jusqu'à 6 constats utiles au chiffrage (état, matériaux, équipements,
+  points de vigilance). Ils sont gardés sur la photo (`description`, interne :
+  jamais dans le dossier client) ; « + Ajouter aux notes » les copie dans les
+  notes de la pièce, « ✕ » les masque.
+- **« 📷 Lire une note manuscrite »** (assistant de visite) : la note
+  photographiée est recopiée **à la suite** de la dictée, jamais à sa place ;
+  « ✨ Remplir la fiche » la range comme une dictée.
+- Il faut le réseau et être connecté ; c'est compté avec les dictées (100 par
+  jour par défaut). Si la fonction du serveur n'est pas à jour, l'écran dit
+  de la redéployer.
 
 ## Le dossier envoyé au client
 

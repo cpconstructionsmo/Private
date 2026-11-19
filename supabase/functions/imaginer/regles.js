@@ -139,3 +139,60 @@ export function cheminsDossier(d) {
   return [...s].slice(0, 200);
 }
 export const limiteTexte = v => { const n = parseInt(String(v ?? ''), 10); return n > 0 && n <= 5000 ? n : LIMITE_TEXTE_DEFAUT; };
+
+/* ==========================================================================
+   « Décrire » : Gemini regarde une photo et répond en texte.
+   - mode « photo » : la photo d'une pièce → une légende courte et quelques
+     constats utiles au chiffrage (état, matériaux, points de vigilance) ;
+   - mode « note »  : la photo d'une note manuscrite ou d'un document →
+     sa transcription, que l'assistant de visite range ensuite dans la fiche.
+   Ce n'est qu'une proposition : le relevé n'écrase jamais ce qui est tapé.
+   Compté avec les dictées (IMAGINER_LIMITE_TEXTE).
+   ========================================================================== */
+export const LEGENDE_MAX = 140, CONSTAT_MAX = 200, CONSTATS_MAX = 6, NOTE_MAX = 8000;
+
+export function lireDescription(corps) {
+  const image = String(corps?.image ?? '').replace(/^data:image\/[a-z+]+;base64,/i, '');
+  if (!image || !/^[A-Za-z0-9+/=\s]+$/.test(image.slice(0, 2000))) return { erreur: 'image_absente' };
+  if (image.length > IMAGE_MAX) return { erreur: 'image_trop_lourde' };
+  const mime = /^image\/(jpeg|png|webp)$/.test(String(corps?.mime)) ? String(corps.mime) : 'image/jpeg';
+  return { image: image.replace(/\s+/g, ''), mime, mode: corps?.mode === 'note' ? 'note' : 'photo', piece: nettoyer(corps?.piece, 80) };
+}
+
+export function inviteDescription({ mode, piece }) {
+  if (mode === 'note') return [
+    'Voici la photo d’une note manuscrite (ou d’un document) prise pendant la visite d’un chantier de rénovation.',
+    'Recopie fidèlement tout le texte lisible, en français, ligne par ligne, avec les nombres et les unités tels qu’écrits.',
+    'N’ajoute rien, ne corrige pas le sens, ne résume pas. Un mot illisible s’écrit […].',
+    'Réponds en JSON : {"texte":"…"}',
+  ].join('\n');
+  return [
+    'Tu aides le métreur d’une entreprise de rénovation pendant une visite. Voici une photo' + (piece ? ' prise dans la pièce « ' + piece + ' »' : '') + '.',
+    'Réponds en JSON, en français, sans rien inventer de ce qui ne se voit pas :',
+    '{"legende":"…","constats":["…"]}',
+    'legende : ce que montre la photo, en quelques mots (ex. « Tableau électrique ancien à fusibles », « Fissure au-dessus de la porte »), ' + LEGENDE_MAX + ' caractères au plus.',
+    'constats : au plus ' + CONSTATS_MAX + ' remarques courtes utiles pour chiffrer les travaux : état, matériaux visibles, équipements, points de vigilance (humidité, amiante possible, plomb, normes…). Liste vide si rien d’utile.',
+    'Pas de prix, pas de marque devinée, pas de personne décrite.',
+  ].join('\n');
+}
+
+export function requeteDescription(d) {
+  return {
+    contents: [{ role: 'user', parts: [{ text: inviteDescription(d) }, { inline_data: { mime_type: d.mime, data: d.image } }] }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+  };
+}
+
+/* la réponse vérifiée : seulement des textes, bornés */
+export function descriptionReponse(json, mode) {
+  const r = jsonReponse(json);
+  if ('erreur' in r) return r;
+  const o = r.fiche, txt = (v, max) => typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ').trim().slice(0, max) : '';
+  if (mode === 'note') {
+    const texte = txt(o.texte, NOTE_MAX);
+    return texte ? { texte } : { erreur: 'rien_lu' };
+  }
+  const legende = txt(o.legende, LEGENDE_MAX).replace(/\s+/g, ' ');
+  const constats = (Array.isArray(o.constats) ? o.constats : []).map(c => txt(c, CONSTAT_MAX).replace(/\s+/g, ' ')).filter(Boolean).slice(0, CONSTATS_MAX);
+  return legende || constats.length ? { legende, constats } : { erreur: 'rien_lu' };
+}
