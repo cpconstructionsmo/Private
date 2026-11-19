@@ -78,6 +78,7 @@ export const CHAMPS = {
   'notes': 'texte',
   'assistant.texte': 'texte', // la dictée libre de la visite (assistant), gardée tant qu'elle n'est pas rangée
   'planImage': 'objet', // { id, empreinte } : l'image du plan dessiné, pour le dossier client
+  'dessin': 'objet', // { pieces:[{id,nom,longueur,largeur,contre}], hauteur } : le dessin rapide (dessin.js), sans scan
   'partageDossier': 'objet', // { id, lien, expireLe, creeLe } : le lien du dossier envoyé au client (table releve_partages)
   'budget': 'objet', // { lignes, ajust, estimation } : la fourchette de prix (releve/budget.js)
   'prospectId': 'texte', // le dossier du suivi pour lequel la visite a été lancée (lien « Nouvelle visite » d'une fiche prospect)

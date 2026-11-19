@@ -18,7 +18,7 @@ const DATA={chantiers:[],artisans:[],commandes:[],marches:[],bordereaux:[BORD],p
    postes:[{id:'po1',corps:'Peinture',libelle:'Peinture',montant:0,quantitatif:{bordereauId:'b1',nom:BORD.nom,
      lignes:BORD.articles.map((a,i)=>({id:'l'+(i+1),ref:a.id,code:a.code,libelle:a.libelle,unite:a.unite,pu:a.pu,qt:''}))}}]}]};
 const VISITES=[{id:'vis-1',maj_le:'2026-11-18T09:00:00Z',version:1,donnees:{id:'vis-1',schema:1,creeLe:'2026-11-17T09:30:00.000Z',
-  valeurs:{statut:'terminee','client.nom':'FICTIF',plan:{releve:{pieces:[]},resume:{pieces:2,surface:37.5,ouvertures:3,detail:[
+  valeurs:{statut:'terminee','client.nom':'FICTIF',partageDossier:{id:'pa-1',expireLe:'2099-01-01T00:00:00Z',creeLe:'2026-11-19T10:00:00Z'},plan:{releve:{pieces:[]},resume:{pieces:2,surface:37.5,ouvertures:3,detail:[
     {id:'p1',nom:'Cuisine',sol:12.5,perimetre:14.2,murs:30.1,portes:1,fenetres:1},
     {id:'p2',nom:'Séjour',sol:25,perimetre:20,murs:42.4,portes:2,fenetres:3}]}}},maj:{},pieces:{},photos:{}}}];
 
@@ -27,6 +27,7 @@ const FAUX=`window.__ecrits=[];window.supabase={createClient:()=>{
   if(st.table==='app_data'&&op){window.__ecrits.push(op[1][0].data);return {data:[{updated_at:op[1][0].updated_at}],error:null}}
   if(st.table==='app_data')return {data:{data:${JSON.stringify(DATA)},updated_at:'2026-11-18T08:00:00Z'},error:null};
   if(st.table==='releve_visites')return {data:${JSON.stringify(VISITES)},error:null};
+  if(st.table==='releve_partages')return {data:{vues:2,vu_le:'2026-11-19T16:05:00Z',revoque:false,expire_le:'2099-01-01T00:00:00Z'},error:null};
   return {data:[],error:null}};
  const from=table=>{const st={table,ops:[]};const q={};
   ['select','eq','order','limit','insert','update','upsert','single','maybeSingle','in','gte','lte','neq'].forEach(k=>{q[k]=(...a)=>{st.ops.push([k,a]);return q}});
@@ -54,6 +55,9 @@ let b;
   await p.click('button:has-text("Rénovation (1)")');
   await p.click('text=Maison Fictif - Alençon');
   await p.waitForSelector('text=3. VOTRE CHIFFRAGE');
+  await p.waitForSelector('.etat-partage');
+  await p.waitForFunction(()=>/ouvert par le client 2 fois/.test(document.querySelector('.etat-partage').textContent));
+  chk(true,'fiche prospect : « dossier envoyé · ouvert par le client 2 fois »');
   await p.locator('.card').filter({hasText:'3. VOTRE CHIFFRAGE'}).locator('button:has-text("Modifier")').first().click();
   await p.waitForSelector('.plan-visite');
   const bandeau=(await p.textContent('.plan-visite')).replace(/\s+/g,' ');

@@ -123,6 +123,28 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   d'avant (dossier, assistant, plan, prix → visite → accueil) au lieu de
   quitter le relevé ; les boutons « ‹ » de l'écran gardent l'historique
   juste ; le plan s'enregistre avant de se fermer (`suivreHistorique`).
+- **« ✨ Imaginer » sans réseau** : la demande (consigne) est gardée sur la
+  photo, « ⏳ en attente du réseau » (✕ pour l'annuler), et part toute seule
+  au retour du réseau ou après une synchronisation (`imaginerEnAttente`).
+  Seul l'appareil qui l'a faite la traite : pas d'image en double si la
+  visite est ouverte ailleurs. Limite du jour ou réglage absent : la
+  demande s'arrête et le message reste sous la photo.
+
+## Le dessin rapide (sans scan)
+
+- Étape Scan › **« ✏️ Dessin rapide (sans scan) »** : on pose des pièces
+  rectangulaires au doigt (nom, longueur, largeur avec de gros − / +), chacune
+  à droite, en dessous, à gauche ou au-dessus d'une pièce déjà posée, avec un
+  décalage le long du mur. L'aperçu suit chaque geste ; touchez une pièce pour
+  la régler. Le dessin est gardé avec la visite (`dessin`).
+- **« ✓ Créer le plan »** (`dessin.js`, `releveDepuisDessin`) : le relevé du
+  moteur (pièces voisines aux coins partagés : un seul mur commun) et son
+  résumé (surface, périmètre, murs, pour la fourchette et le dossier). Le
+  plan s'ouvre aussitôt : toucher une cote pour taper la vraie longueur,
+  « + Ouverture » pour portes et fenêtres, 3D, PDF. Un plan existant n'est
+  jamais écrasé en silence : il est gardé de côté (`plan.ecarte`).
+- Chevauchements et dimensions hors bornes (0,30 à 50 m) sont signalés
+  avant de créer le plan.
 
 ## L'assistant de visite
 
@@ -178,8 +200,8 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   seules. Une quantité tapée à la main n'est jamais remplacée.
 - Les lots des marchés (onglet MARCHÉS) ne changent pas.
 
-À venir : devis client en PDF (sans marge) et Excel interne, TVA par poste,
-« Imaginer », lecture des notes manuscrites par une fonction du serveur.
+À venir : TVA par poste, lecture des notes manuscrites par une fonction
+du serveur.
 
 ## Le moteur de relevé (`moteur/`, Phase 1 étape 2)
 
