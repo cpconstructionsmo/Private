@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-18 · Chiffrage interne en Excel ; dossier de présentation détaillé par corps d’état (au choix)';
+const VERSION='2026-11-19 · Dossier de présentation : coût prévisionnel des travaux sans la marge (honoraires annoncés à part)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -4867,7 +4867,10 @@ function dossierDocumentXml(p,px,com,majTarifs){
     vide(160),
     tbl([10400],[tr([tc(10400,[
       par('Coût prévisionnel des travaux (à titre indicatif)',{b:true,sz:19,c:DOC_TERRA,caps:true,sp:16,ap:40}),
-      par(eurDoc(prospectPrixTTC(p,majTarifs))+' TTC',{b:true,sz:30,c:DOC_ENCRE,ap:0}),
+      /* le coût des entreprises, sans la marge : les honoraires du maître
+         d'œuvre (la marge) sont annoncés à part, au point 2 — les compter ici
+         aussi les ferait payer deux fois sur le papier */
+      par(eurDoc(prospectCoutTTC(p,majTarifs))+' TTC',{b:true,sz:30,c:DOC_ENCRE,ap:0}),
     ].join(''),{bords:tcB({c:DOC_BRUN,sz:6,t:6,bs:6}),fond:DOC_SABLE,mg:160})])],{}),
     detail&&detail.lignes.length?[vide(120),
       tbl([6400,1600,2400],[tr([entC(6400,'Corps d’état'),entC(1600,'TVA','right'),entC(2400,'Montant TTC','right')])]
@@ -4971,19 +4974,19 @@ function dossierDocumentXml(p,px,com,majTarifs){
     +'</w:body></w:document>';
 }
 /* le coût prévisionnel détaillé par corps d'état, pour le client : chaque
-   poste (et option incluse) reçoit sa part du prix HT au prorata de son coût,
-   puis sa TVA ; la marge n'apparaît donc jamais en tant que telle. La somme
-   est exactement le coût prévisionnel annoncé (le dernier poste reçoit
+   poste (et option incluse) à son coût, avec sa TVA — sans la marge, qui est
+   annoncée à part comme honoraires du maître d'œuvre. La somme est
+   exactement le coût prévisionnel annoncé (le dernier poste reçoit
    l'arrondi). Tests : t_chiffrage_xlsx.js. */
 function detailPostesClient(p,majTarifs){
   const items=[...((p&&p.postes)||[]).map(x=>({libelle:majCorps(x.libelle||'Poste'),cout:posteMontantMajore(x,majTarifs),taux:posteTva(x,p)})),
     ...optionsInclues(p).map(x=>({libelle:majCorps(x.libelle||'Option')+(x.moinsValue?' (moins-value)':' (option)'),cout:optionMontant(x,majTarifs,p),taux:posteTva(x,p)}))]
     .filter(x=>Math.abs(x.cout)>=0.005);
-  const total=prospectPrixTTC(p,majTarifs), cout=items.reduce((t,x)=>t+x.cout,0), prix=prospectPrixHT(p,majTarifs);
-  if(!items.length||Math.abs(cout)<0.005)return {lignes:[],total,mixte:false};
+  const total=prospectCoutTTC(p,majTarifs);
+  if(!items.length)return {lignes:[],total,mixte:false};
   let reste=total;
   const lignes=items.map((x,i)=>{
-    const ttc=i===items.length-1?Math.round(reste*100)/100:Math.round(prix*x.cout/cout*(1+x.taux/100)*100)/100;
+    const ttc=i===items.length-1?Math.round(reste*100)/100:Math.round(x.cout*(1+x.taux/100)*100)/100;
     reste-=ttc; return {libelle:x.libelle,taux:x.taux,ttc};
   });
   return {lignes,total,mixte:new Set(lignes.map(l=>l.taux)).size>1};
@@ -28462,7 +28465,7 @@ function SortirDossier({data,p,maj}){
     </div>
     {(p.postes||[]).length>1&&<label className="row xs" style={{gap:6,marginTop:6,cursor:'pointer',alignItems:'center'}}>
       <input type="checkbox" className="dossier-detail-postes" checked={!!p.dossierDetailPostes} onChange={e=>maj({dossierDetailPostes:e.target.checked})}/>
-      <span>Détailler le coût par corps d’état (montants TTC, TVA de chaque poste ; la marge n’apparaît pas)</span></label>}
+      <span>Détailler le coût par corps d’état (coût TTC des entreprises, TVA de chaque poste ; sans la marge)</span></label>}
     <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap'}}>
       <button className="btn acc s" disabled={etat&&etat.etat==='travail'} onClick={produire}>
         {etat&&etat.etat==='travail'?'Composition…':'Sortir le dossier Word'}</button>

@@ -3,7 +3,7 @@
    nombres, TVA par poste, rétrocession, options, récapitulation. Montants
    et libellés fictifs. */
 const {charger,verif}=require('./harness');
-const M=charger(['detailPostesClient','dossierDocumentXml','chiffrageInterneLignes','genererChiffrageInterneXlsx','prospectPrixTTC','prospectPrixHT','prospectMargeHT','prospectCoutHT']);
+const M=charger(['prospectCoutTTC','detailPostesClient','dossierDocumentXml','chiffrageInterneLignes','genererChiffrageInterneXlsx','prospectPrixTTC','prospectPrixHT','prospectMargeHT','prospectCoutHT']);
 const {chk,fin}=verif();
 
 const p={nom:'Maison Fictif',margePct:10,tva:10,postes:[
@@ -36,10 +36,15 @@ chk(M.chiffrageInterneLignes({postes:[],coutHT:50000,margePct:10}).some(r=>r[0]=
 
 /* le détail par corps d'état remis au client (dossier de présentation, si coché) */
 const d=M.detailPostesClient(p);
-chk(d.lignes.length===3&&Math.abs(d.lignes.reduce((t,l)=>t+l.ttc,0)-M.prospectPrixTTC(p))<0.001&&d.total===M.prospectPrixTTC(p),'détail client : la somme des postes est exactement le coût prévisionnel annoncé');
+chk(d.lignes.length===3&&Math.abs(d.lignes.reduce((t,l)=>t+l.ttc,0)-M.prospectCoutTTC(p))<0.001&&d.total===M.prospectCoutTTC(p),'détail client : la somme des postes est exactement le coût des travaux TTC, sans la marge');
 chk(d.mixte&&d.lignes.find(l=>l.libelle==='MENUISERIES').taux===5.5&&d.lignes.some(l=>l.libelle==='VOLETS (FICTIF) (option)'),'chaque poste avec sa TVA ; l’option incluse est nommée');
-chk(Math.abs(d.lignes[0].ttc-Math.round(M.prospectPrixHT(p)*1000/M.prospectCoutHT(p)*1.1*100)/100)<0.01,'la marge est répartie au prorata du coût : elle n’apparaît jamais seule');
+chk(d.lignes[0].ttc===1100&&d.lignes.find(l=>l.libelle==='MENUISERIES').ttc===5275,'chaque poste à son coût TTC (1 000 € × 1,10 ; 5 000 € × 1,055), sans part de marge');
 const sansDetail=M.dossierDocumentXml(p,{},{},undefined), avecDetail=M.dossierDocumentXml({...p,dossierDetailPostes:true},{},{},undefined);
 chk(!/Corps d’état/.test(sansDetail)&&/Corps d’état/.test(avecDetail)&&/MENUISERIES/.test(avecDetail),'dossier de présentation : le détail n’y est que si on le coche');
+/* le coût prévisionnel des travaux annoncé au client : sans la marge (les honoraires sont au point 2) */
+const texte=xml=>xml.replace(/<[^>]+>/g,'');
+const eurTxt=n=>n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}).replace(/[\u202f\u00a0]/g,' ');
+const dx=texte(sansDetail).replace(/[\u202f\u00a0]/g,' ');
+chk(dx.includes(eurTxt(M.prospectCoutTTC(p))+' € TTC')&&!dx.includes(eurTxt(M.prospectPrixTTC(p))+' € TTC'),'dossier de présentation : coût prévisionnel des travaux = coût TTC des entreprises ('+eurTxt(M.prospectCoutTTC(p))+' €), pas le prix marge comprise');
 chk(!/[Mm]arge|[Rr]étrocession/.test(avecDetail.replace(/<[^>]+>/g,'')),'le dossier remis au client ne parle ni de marge ni de rétrocession');
 fin();

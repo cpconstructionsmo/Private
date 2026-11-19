@@ -60,9 +60,12 @@ qu'on ait à les redire.
   tapée retire la règle. Chiffrage interne en Excel (carte « Chiffrage
   interne », `chiffrageInterneLignes`, `genererChiffrageInterneXlsx` :
   postes, lignes du quantitatif, TVA, rétrocession, marge — usage interne).
-  Dossier de présentation : « Détailler le coût par corps d'état »
-  (`p.dossierDetailPostes`, `detailPostesClient` : marge répartie au
-  prorata, somme = coût prévisionnel annoncé), non coché par défaut. Tests :
+  Dossier de présentation : le coût prévisionnel des travaux est le coût
+  TTC des entreprises, **sans la marge** (`prospectCoutTTC`) — les
+  honoraires (la marge) sont annoncés à part au point 2 ; « Détailler le
+  coût par corps d'état » (`p.dossierDetailPostes`, `detailPostesClient` :
+  chaque poste à son coût TTC, somme = coût prévisionnel annoncé), non
+  coché par défaut. Tests :
   `t_chiffrage_xlsx.js`. Installation :
   `supabase/releve/schema.sql`. Tests : `t_releve_*.js`,
   `releve*_navigateur.js` (scan fictif `tests/releve_scan_fictif.js`).
