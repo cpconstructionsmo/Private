@@ -111,6 +111,19 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 - La liste des visites a une recherche dès 5 visites (client, ville,
   travaux, sans tenir compte des accents).
 
+## Confort de saisie et navigation
+
+- **Code postal → commune** : dès 5 chiffres, la liste officielle des
+  communes (geo.api.gouv.fr, seul le code postal y part) remplit la ville
+  s'il n'y en a qu'une, sinon propose les communes à toucher. Sans réseau,
+  la ville se tape.
+- **« 🎙 Commencer par un résumé »** en tête de la fiche client : ouvre
+  l'assistant de visite (écrit ou dicté).
+- **Bouton « retour » du navigateur et du téléphone** : il ramène à l'écran
+  d'avant (dossier, assistant, plan, prix → visite → accueil) au lieu de
+  quitter le relevé ; les boutons « ‹ » de l'écran gardent l'historique
+  juste ; le plan s'enregistre avant de se fermer (`suivreHistorique`).
+
 ## L'assistant de visite
 
 - Bouton **« 🎙 Assistant »** à chaque étape de la visite : on raconte la

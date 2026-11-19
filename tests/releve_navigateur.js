@@ -50,7 +50,7 @@ let b;
 
   /* fiche client */
   await p.tap('#suivant');
-  await p.tap('text=Mme');
+  await p.tap('.puce >> text="Mme"');
   await p.fill('input[name="client.nom"]','FICTIF');
   await p.fill('input[name="client.prenom"]','<img src=x onerror=alert(1)>Anne');
   await p.fill('input[name="client.telephone"]','12 34');await p.locator('input[name="client.email"]').focus();
