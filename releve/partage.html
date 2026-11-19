@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#2C4A5E">
+<link rel="icon" href="icone-192.png">
+<title>Votre projet — CP Constructions</title>
+<!-- Le dossier d'un client, ouvert par son lien personnel (#t=<jeton>, valable
+     30 jours). La page ne connaît que ce jeton : la fonction du serveur
+     (supabase/functions/imaginer, action « partage ») rend le dossier gardé
+     et des liens d'une heure vers ses photos. Aucun compte, aucune écriture. -->
+<style>
+  :root{--navy:#2C4A5E;--terra:#C5563A;--ink:#1A2B36;--rule:#D4CFC5;--muted:#5E6B74;--green:#2F6B4A;--amber:#8A6110;--fond:#F5F2EC}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--fond);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .barre{position:sticky;top:0;z-index:5;background:#fff;border-bottom:3px solid var(--terra);padding:10px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .barre img{height:30px}
+  .barre .titre{flex:1;min-width:0;font-weight:700;color:var(--navy)}
+  .barre button{border:1.5px solid var(--navy);background:#fff;color:var(--navy);border-radius:10px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer}
+  main{max-width:900px;margin:0 auto;padding:14px 16px 40px}
+  .info{color:var(--muted);font-size:14px;margin:4px 0 12px}
+  .message{border-radius:10px;padding:14px 16px;background:#fff;border:1px solid var(--rule)}
+  .mut{color:var(--muted)}
+  /* le dossier client : des feuilles A4 à l'écran, une feuille par page à l'impression */
+  .mainDossier{max-width:900px}
+  .outilsDossier .case{margin-top:8px}
+  .dossier{display:flex;flex-direction:column;gap:16px;margin-top:12px}
+  .feuille{background:#fff;border:1px solid var(--rule);border-radius:4px;box-shadow:0 4px 18px rgba(0,0,0,.08);padding:28px 26px 40px;position:relative;min-height:60vh;color:#1d2a33}
+  .feuille footer{position:absolute;left:26px;right:26px;bottom:12px;font-size:10px;color:#8a949b;border-top:1px solid #eee;padding-top:4px}
+  .feuille h1{font-size:26px;margin:18px 0 6px}
+  .feuille h2{font-size:18px;color:var(--navy);border-bottom:2px solid var(--terra);padding-bottom:4px;margin:18px 0 10px}
+  .feuille h3{font-size:15px;color:var(--navy);margin:14px 0 6px}
+  .feuille .texte{white-space:pre-line;font-size:14px;line-height:1.5;margin:0}
+  .feuille .dl{display:flex;gap:10px;font-size:14px;padding:4px 0;border-bottom:1px dotted #e3e3e3}
+  .feuille .dl span{flex:0 0 38%;color:#6b7680}
+  .logoDossier{height:44px;width:auto}
+  .garde{text-align:center}
+  .gardeClient{font-size:20px;font-weight:700;margin-top:10px}
+  .gardeAdresse{color:#6b7680;margin-top:4px}
+  .gardeDossier{display:block;width:100%;max-height:420px;object-fit:cover;border-radius:6px;margin:18px 0}
+  .gardeDate{color:#6b7680;font-size:14px}
+  .planDossier{display:block;width:100%;height:auto;border:1px solid #eee;border-radius:4px;margin:4px 0 12px;break-inside:avoid}
+  .duo{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:10px}
+  .duo.avecImagine{grid-template-columns:1fr 1fr}
+  .duo figure{margin:0}
+  .duo img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;display:block;background:#eee}
+  .duo:not(.avecImagine) img{max-width:340px}
+  .duo figcaption{font-size:12px;color:#4b5760;margin-top:3px}
+  .pieceDossier{break-inside:avoid}
+  .tableDossier{width:100%;border-collapse:collapse;font-size:13px}
+  .tableDossier th{text-align:left;background:#f3efe7;padding:6px;font-weight:600}
+  .tableDossier td{padding:6px;border-bottom:1px solid #eee}
+  .tableDossier tfoot td{font-weight:700;border-top:2px solid var(--navy)}
+  .tableDossier .nombre{text-align:right;white-space:nowrap}
+  .mention{font-size:11px;color:#6b7680;margin-top:12px;line-height:1.4}
+  .suite{font-size:15px;line-height:1.8}
+  @media print{
+    @page{size:A4;margin:14mm 12mm}
+    html,body,#app{background:#fff!important}
+    .sansImpression,.barreBas{display:none!important}
+    main{padding:0;max-width:none;margin:0}
+    .dossier{gap:0;margin:0}
+    /* la couverture seule sur sa page ; ensuite les parties s'enchaînent, sans couper une pièce ni un tableau */
+    .feuille{border:0;box-shadow:none;border-radius:0;padding:0;min-height:auto;break-after:auto}
+    .feuille.garde{break-after:page}
+    .feuille footer{display:none}
+    .feuille h2{break-after:avoid}
+    .pieceDossier,.duo,.tableDossier,.feuille.fin{break-inside:avoid}
+  }
+  [hidden]{display:none!important}
+  .assistantBouton{min-height:38px;padding:6px 12px;border-color:var(--terra);color:var(--terra);font-weight:600}
+  .proposition{align-items:flex-start;border-bottom:1px solid var(--rule);padding:8px 0;margin:0}
+  .proposition input{margin-top:3px}
+  @media print{.barre,.info{display:none!important}}
+</style>
+</head>
+<body>
+<div id="app"><main><div class="message mut">Chargement de votre dossier…</div></main></div>
+<script type="module" src="partage.js"></script>
+</body>
+</html>

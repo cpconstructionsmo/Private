@@ -2182,13 +2182,35 @@ function planifierEnvoiVisite() {
   pont.timer = setTimeout(envoyerVisite, 600);
 }
 const arr2 = v => Math.round((+v || 0) * 100) / 100;
-function envoyerVisite() {
+/* l'image du plan coté (chaque étage, l'un sous l'autre), pour le dossier
+   client : dessinée hors écran avec le même pinceau que le plan à l'écran.
+   Envoyée seulement à la fermeture du plan (« releve:vider »), pas à
+   chaque retouche : la visite ne la garde que si elle a changé. */
+function imagePlan() {
+  try {
+    const Mp = tourner(modele, modele.rotation), marge = 60;
+    const bw = Mp.bbox.x1 - Mp.bbox.x0 || 1, bh = Mp.bbox.y1 - Mp.bbox.y0 || 1;
+    /* cadré sur le plan : au plus 1400 px de large et 1000 px de haut par étage */
+    const s = Math.min((1400 - 2 * marge) / bw, 1000 / bh, 110), L = Math.max(700, Math.ceil(bw * s + 2 * marge));
+    const hEt = Math.ceil(bh * s + 2 * marge + 30), n = Math.max(1, modele.etages.length);
+    const cv = document.createElement('canvas'); cv.width = L; cv.height = Math.min(hEt * n, 6000);
+    const c = cv.getContext('2d'); c.fillStyle = '#ffffff'; c.fillRect(0, 0, cv.width, cv.height);
+    modele.etages.forEach((et, k) => {
+      const oy = k * hEt, T = { s, ox: L / 2 - (Mp.bbox.x0 + bw / 2) * s, oy: oy + 30 + marge - Mp.bbox.y0 * s };
+      if (n > 1) { c.font = 'bold 22px Helvetica, Arial, sans-serif'; c.fillStyle = '#1d2430'; c.fillText(et.nom, 20, oy + 28); }
+      const fant = k > 0 ? Mp.rooms.filter(r => r.etage === k - 1).map(r => r.pts) : null;
+      dessinerPlan(new PinceauEcran(c), vueEtage(Mp, k), T, { fs: 14, fantome: fant, echelle: { x: 20, y: oy + hEt - 16 } });
+    });
+    return cv.toDataURL('image/jpeg', 0.88);
+  } catch (e) { return null; }       /* pas d'image : le dossier s'en passe */
+}
+function envoyerVisite(avecImage) {
   pont.timer = null;
   if (!donneesCourantes || !modele) return;
   const releve = JSON.parse(JSON.stringify(donneesCourantes)), images = {};
   [...(releve.pieces || []).flatMap(q => q.photos || []), ...(releve.documents || [])]
     .forEach(ph => { if (photosMem.has(ph.id) && !pont.envoyees.has(ph.id)) images[ph.id] = photosMem.get(ph.id); });
-  versVisite({ type: 'releve:enregistrer', releve, images,
+  versVisite({ type: 'releve:enregistrer', releve, images, imagePlan: avecImage ? imagePlan() : null,
     resume: { projet: modele.projet, pieces: modele.rooms.length, surface: Math.round(modele.totalAire * 100) / 100, ouvertures: modele.openings.length,
       /* les quantités de chaque pièce, pour la fourchette de prix de la visite
          (releve/budget.js) : calculées ici, là où le plan est analysé */
@@ -2207,8 +2229,9 @@ window.addEventListener('message', e => {
     if (m.images && Object.keys(m.images).length) { try { const d = JSON.parse(texte); d.imagesEmbarquees = m.images; texte = JSON.stringify(d); } catch (err) { /* le message d'erreur vient de chargerTexte */ } }
     chargerTexte(texte, m.nom || 'releve', { reprise: !!m.reprise });
   } else if (m.type === 'releve:vider') {
-    /* la visite va fermer le plan : la dernière modification part tout de suite */
-    if (pont.timer) { clearTimeout(pont.timer); pont.timer = null; envoyerVisite(); }
+    /* la visite va fermer le plan : la dernière modification part tout de suite, avec l'image du plan */
+    if (pont.timer) { clearTimeout(pont.timer); pont.timer = null; }
+    envoyerVisite(true);
     versVisite({ type: 'releve:vide' });
   }
 });

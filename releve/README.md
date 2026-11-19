@@ -111,6 +111,47 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 - La liste des visites a une recherche dès 5 visites (client, ville,
   travaux, sans tenir compte des accents).
 
+## L'assistant de visite
+
+- Bouton **« 🎙 Assistant »** à chaque étape de la visite : on raconte la
+  visite d'un trait (micro ou clavier). La dictée est gardée avec la visite
+  (`assistant.texte`), même sans réseau.
+- **« ✨ Remplir la fiche »** : la fonction du serveur (action
+  `structurer`, Gemini) rend une fiche ; `assistant.js` n'en garde que les
+  champs connus et les valeurs des listes du relevé (civilités, travaux,
+  ampleur, usage, délai…), téléphone et e-mail valides, enveloppe en
+  nombre.
+- **Relecture** : chaque élément proposé est une case. Un champ vide se
+  remplit (coché) ; un champ déjà saisi n'est proposé qu'en remplacement,
+  **décoché** ; listes et textes (situation, souhaits) se complètent sans
+  doublon ; les pièces citées s'ajoutent, ou complètent la note d'une pièce
+  du même nom. « Ranger dans la fiche » n'applique que le coché.
+
+## Le dossier envoyé au client
+
+- Le dossier client montre aussi **l'image du plan dessiné** : le moteur la
+  dessine à la fermeture du plan (`imagePlan`, chaque étage) et la visite
+  ne la garde que si elle a changé (`planImage`, photo `dessinPlan`).
+- **« 🔗 Créer le lien du dossier »** (écran Dossier client) : le dossier, tel
+  qu'à l'écran, est gardé dans `releve_partages` avec l'empreinte d'un
+  jeton aléatoire ; le client ouvre `partage.html#t=<jeton>` (30 jours, sans
+  compte, même mise en page : `dossier-vue.js`). Copier, Partager, e-mail
+  et SMS préparés ; « 👁 Ouvert par le client … fois » ; « ↻ Mettre à jour »
+  (même lien) ; « Retirer le lien ». Les photos pas encore envoyées
+  n'apparaissent pas (le relevé le dit).
+
+## Vos prix, appris de vos chantiers
+
+- « ⚙ Prix au m² » › **« 📊 Calculer depuis mes chantiers »** : les prospects
+  de **rénovation** du suivi (lus seulement), chiffrés par poste, avec leur
+  surface habitable (ou celle du plan d'une visite rattachée), donnent le
+  coût TTC des entreprises au m² par travail — hors honoraires, majoration
+  du corps et TVA de chaque poste comprises (`ratiosDepuisProspects`) :
+  peinture, électricité, plomberie, sols, et le coût global pour un projet
+  tous corps d'état (rénovation complète). Mini, médian, maxi et nombre de
+  projets ; « Reprendre » les met dans le brouillon, « Enregistrer » les
+  partage avec l'équipe.
+
 ## Le chiffrage précis depuis le plan (Phase 2, mode B, 1re livraison)
 
 - Dans le suivi, fiche prospect › « 3. Votre chiffrage » › un poste détaillé

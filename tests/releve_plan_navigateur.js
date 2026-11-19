@@ -70,6 +70,9 @@ let b;
 
   /* fermer puis rouvrir : rien n'est perdu, rien n'est redemandé */
   await p.tap('#fermerPlan');
+  /* à la fermeture, le moteur envoie l'image du plan dessiné : elle est gardée pour le dossier client */
+  chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees;const pi=d&&d.valeurs.planImage;
+    return !!(pi&&d.photos[pi.id]&&d.photos[pi.id].role==='dessinPlan')}),'fermeture du plan : l’image du plan dessiné est gardée avec la visite');
   await p.waitForSelector('#resumePlan');
   chk((await p.textContent('#resumePlan')).includes('1 pièce'),'retour à la visite : le résumé du plan s’affiche');
   await p.tap('#ouvrirPlan');

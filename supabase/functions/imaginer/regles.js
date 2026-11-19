@@ -60,3 +60,82 @@ export function imageReponse(json) {
 }
 
 export const limiteJour = v => { const n = parseInt(String(v ?? ''), 10); return n > 0 && n <= 1000 ? n : LIMITE_JOUR_DEFAUT; };
+
+/* ==========================================================================
+   L'assistant de visite : le métreur raconte la visite (dictée libre), Gemini
+   en tire les champs de la fiche. La réponse n'est qu'une proposition : le
+   relevé la vérifie champ par champ (releve/assistant.js : clés et valeurs
+   permises seulement) et le métreur coche ce qu'il reprend. Les listes de
+   choix (civilités, travaux…) viennent du relevé, bornées ici.
+   ========================================================================== */
+export const TEXTE_MAX = 8000;
+export const LIMITE_TEXTE_DEFAUT = 100;       // demandes par personne et par jour (IMAGINER_LIMITE_TEXTE)
+export const MODELES_TEXTE = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-3-flash-preview'];
+export const modelesTexte = choisi => [...new Set([String(choisi || '').trim(), ...MODELES_TEXTE].filter(Boolean))];
+const LISTES = ['civilites', 'types', 'categories', 'usages', 'delais', 'formes'];
+
+export function lireStructuration(corps) {
+  const texte = String(corps?.texte ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ').trim().slice(0, TEXTE_MAX);
+  if (texte.length < 10) return { erreur: 'texte_absent' };
+  const listes = {};
+  for (const k of LISTES) {
+    const v = corps?.listes?.[k];
+    listes[k] = Array.isArray(v) ? v.slice(0, 40).map(x => nettoyer(x, 60)).filter(Boolean) : [];
+  }
+  return { texte, listes };
+}
+
+export function inviteStructuration({ texte, listes }) {
+  const choix = (k, lib) => lib + ' : ' + (listes[k].length ? listes[k].map(x => '« ' + x + ' »').join(', ') : '(aucun)');
+  return [
+    'Tu aides un métreur d’une entreprise de rénovation. Voici ce qu’il a dicté pendant une visite chez un client.',
+    'Remplis la fiche en JSON, en français, avec UNIQUEMENT ce qui est dit. N’invente rien : une information absente reste null (ou liste vide).',
+    'Pour les champs à choix, reprends exactement une des valeurs proposées, sinon null.',
+    choix('civilites', 'civilite'), choix('usages', 'usage'), choix('delais', 'delai'), choix('formes', 'forme de société'),
+    choix('categories', 'categories (plusieurs possibles)'), choix('types', 'types de travaux (plusieurs possibles ; « Autre » avec typeAutre)'),
+    'Format attendu (toutes les clés, valeurs null si inconnues) :',
+    '{"client":{"civilite":null,"nom":null,"prenom":null,"telephone":null,"email":null,"adresse":null,"codePostal":null,"ville":null},',
+    '"societe":{"raisonSociale":null,"forme":null},"acheteur2":{"civilite":null,"nom":null,"prenom":null,"telephone":null,"email":null},',
+    '"bien":{"usage":null},"projet":{"categories":[],"types":[],"typeAutre":null,"situation":null,"souhaits":null,"delai":null,"enveloppe":null},',
+    '"pieces":[{"nom":"","note":""}]}',
+    'Règles : nom de famille en MAJUSCULES ; enveloppe = budget du client en euros (nombre entier, TTC) ; situation = l’existant (état, chauffage, isolation…) ;',
+    'souhaits = ce que veut le client ; pieces = les pièces à transformer citées, avec une note courte de ce qui est dit pour chacune.',
+    'Dictée :', '« ' + texte + ' »',
+  ].join('\n');
+}
+
+export function requeteStructuration(d) {
+  return {
+    contents: [{ role: 'user', parts: [{ text: inviteStructuration(d) }] }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
+  };
+}
+
+/* le JSON de la réponse (parfois entouré de ```json … ```) */
+export function jsonReponse(json) {
+  const t = (json?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
+  const nu = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  try { const o = JSON.parse(nu); return o && typeof o === 'object' && !Array.isArray(o) ? { fiche: o } : { erreur: 'illisible' }; }
+  catch { return { erreur: 'illisible', raison: String(json?.candidates?.[0]?.finishReason || json?.promptFeedback?.blockReason || '') }; }
+}
+
+/* ==========================================================================
+   Le dossier partagé au client : un lien personnel (#t=<jeton>), à durée
+   limitée. Seule l'empreinte du jeton est en base (releve_partages) ; la
+   fonction rend le dossier gardé et des liens temporaires (une heure) vers
+   ses photos, rien d'autre.
+   ========================================================================== */
+export const jetonValide = t => /^[A-Za-z0-9_-]{40,64}$/.test(String(t || ''));
+export async function empreinte(jeton) {
+  const h = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(jeton));
+  return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+/* les chemins des photos d'un dossier gardé, pour leur lien temporaire */
+export function cheminsDossier(d) {
+  const s = new Set();
+  const voir = ph => { if (ph && typeof ph.chemin === 'string' && /^[\w-]+\/[\w.-]+$/.test(ph.chemin)) s.add(ph.chemin); };
+  voir(d?.garde); voir(d?.planImage);
+  (d?.pieces || []).forEach(p => (p.photos || []).forEach(ph => { voir(ph); (ph.imagines || []).forEach(voir); }));
+  return [...s].slice(0, 200);
+}
+export const limiteTexte = v => { const n = parseInt(String(v ?? ''), 10); return n > 0 && n <= 5000 ? n : LIMITE_TEXTE_DEFAUT; };
