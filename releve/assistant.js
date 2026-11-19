@@ -19,8 +19,23 @@ export const listesPourIA = () => ({ civilites: M.CIVILITES, types: M.TYPES_TRAV
 
 const txt = (v, max = 200) => typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '';
 const long = (v, max = 2000) => typeof v === 'string' ? v.replace(/[ \t]+/g, ' ').trim().slice(0, max) : '';
-const dans = (liste, v) => { const t = txt(v); return liste.find(x => x.toLowerCase() === t.toLowerCase()) || ''; };
 const sansAccents = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+/* un choix de liste : la valeur exacte, sans compter majuscules, accents ni apostrophes */
+const cleChoix = s => sansAccents(s).replace(/[’'`]/g, ' ').replace(/\s+/g, ' ');
+const dans = (liste, v) => { const t = cleChoix(txt(v)); return t ? liste.find(x => cleChoix(x) === t) || '' : ''; };
+/* le délai dit librement (« dans 6 mois », « d'ici 2 mois », « au plus vite »…) ramené à la liste */
+export function delaiSouple(v) {
+  const exact = dans(M.DELAIS, v); if (exact) return exact;
+  const t = cleChoix(txt(v)); if (!t) return '';
+  const D = i => M.DELAIS[i];
+  if (/pas press|pas urgent|plus tard|aucune urgence|pas de date/.test(t)) return D(4);
+  if (/urgent|au plus vite|vite|rapidement|tout de suite|des que possible|asap|immediat|semaine/.test(t)) return D(0);
+  const n = t.match(/(\d+)\s*mois/);
+  if (n) { const m = +n[1]; return m <= 3 ? D(1) : m <= 6 ? D(2) : m <= 12 ? D(3) : D(4); }
+  if (/\b(un|1)\s*an\b|annee|fin d an|cette annee/.test(t)) return D(3);
+  if (/\b([2-9]|deux|trois)\s*ans\b/.test(t)) return D(4);
+  return '';
+}
 
 /* ce que dit la fiche de l'IA, champ par champ, une fois vérifié */
 function lire(f) {
@@ -40,7 +55,7 @@ function lire(f) {
     'projet.categories': (Array.isArray(p.categories) ? p.categories : []).map(x => dans(M.CATEGORIES_RENO, x)).filter(Boolean),
     'projet.types': (Array.isArray(p.types) ? p.types : []).map(x => dans(M.TYPES_TRAVAUX, x)).filter(Boolean),
     'projet.typeAutre': txt(p.typeAutre, 120), 'projet.situation': long(p.situation), 'projet.souhaits': long(p.souhaits),
-    'projet.delai': dans(M.DELAIS, p.delai),
+    'projet.delai': delaiSouple(p.delai),
     'projet.enveloppe': isFinite(env) && env >= 1000 && env <= 5000000 ? Math.round(env) : null,
     pieces: (Array.isArray(o.pieces) ? o.pieces : []).map(x => ({ nom: txt(x && x.nom, 40), note: long(x && x.note, 500) })).filter(x => x.nom).slice(0, 20),
   };
