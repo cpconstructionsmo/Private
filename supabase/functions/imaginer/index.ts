@@ -8,7 +8,8 @@
 // La fonction ne garde rien : l'image revient au relevé, qui la range avec
 // la visite (espace privé « releves »), comme les autres photos.
 //
-// Déploiement : voir README.md (même dossier).
+// Déploiement : voir README.md (même dossier) — « Verify JWT » désactivé :
+// la fonction vérifie elle-même l'utilisateur connecté (auth.getUser).
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { lireDemande, requeteGemini, imageReponse, modeles, limiteJour } from './regles.js';
@@ -28,7 +29,9 @@ const reponse = (corps: unknown, statut = 200) =>
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return reponse({ erreur: 'methode' }, 405);
-  if (!URL_SUPABASE || !CLE_SERVICE || !CLE_GEMINI) return reponse({ erreur: 'non_configure' }, 500);
+  // le nom (jamais la valeur) de ce qui manque, pour que l'écran le dise
+  const manque = [!URL_SUPABASE && 'SUPABASE_URL', !CLE_SERVICE && 'SUPABASE_SERVICE_ROLE_KEY', !CLE_GEMINI && 'GEMINI_API_KEY'].filter(Boolean);
+  if (manque.length) return reponse({ erreur: 'non_configure', manque }, 500);
 
   // un utilisateur connecté, et lui seul
   const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');

@@ -29,16 +29,21 @@ Supabase › **SQL Editor** : collez [`schema.sql`](schema.sql), puis **Run**.
 
 ## 2. La clé de Google
 
-1. Ouvrez **aistudio.google.com**, connectez-vous avec le compte Google de
+1. Ouvrez **aistudio.google.com/apikey**, avec le compte Google de
    l'entreprise.
-2. **Get API key** › **Create API key**. Copiez la clé.
-3. La facturation doit être activée sur ce projet Google (les images ne sont
-   pas comprises dans l'offre gratuite) : AI Studio le propose à côté de la
-   clé.
-4. Supabase › **Edge Functions** › **Secrets** (ou *Project Settings ›
-   Edge Functions*) : ajoutez `GEMINI_API_KEY` avec la clé copiée.
+2. Prenez une clé d'un projet **dont la facturation est active** (colonne
+   « Niveau de facturation » : « Niveau 1 », pas « Niveau sans frais ») :
+   les images ne sont pas comprises dans l'offre gratuite. Sinon, « Créer
+   une clé API » sur ce projet.
+3. Copiez-la avec l'icône « copier » de sa ligne.
+4. Supabase › **Edge Functions › Secrets**
+   (`…/project/<projet>/functions/secrets`) : Name `GEMINI_API_KEY`,
+   Value : la clé, **Save**. Elle doit apparaître sous « Custom secrets ».
 
-Ne collez la clé nulle part ailleurs (ni dans un message, ni dans un fichier).
+Ne collez la clé nulle part ailleurs, et ne faites jamais de capture d'écran
+où elle est affichée en clair (l'œil du champ « Value » la montre). Une clé
+qui a circulé se remplace : nouvelle clé, même nom de secret, Save, puis
+suppression de l'ancienne dans AI Studio.
 
 Réglages facultatifs, dans les mêmes secrets :
 
@@ -49,11 +54,35 @@ Réglages facultatifs, dans les mêmes secrets :
 
 ## 3. Déployer la fonction
 
+**Sans terminal (tableau de bord Supabase)** : Edge Functions › **Deploy a
+new function** › **Via Editor**. Collez **un seul fichier** : `regles.js`
+puis `index.ts` mis bout à bout (sans les `export` de `regles.js` ni la
+ligne `import … from './regles.js'` d'`index.ts`). Dans **Function name**,
+en bas, remplacez le nom proposé au hasard (`super-function`…) par
+**`imaginer`** : sinon l'application reçoit une erreur 404. Puis **Deploy
+function**.
+
+**Avec le terminal** :
+
 ```sh
-npx supabase functions deploy imaginer --project-ref gxfrughmwkvdepvkhufv
+npx supabase functions deploy imaginer --no-verify-jwt --project-ref gxfrughmwkvdepvkhufv
 ```
 
-Sans `--no-verify-jwt` : seul un utilisateur connecté peut l'appeler.
+**« Verify JWT » doit être désactivé** (`--no-verify-jwt`, ou la case dans
+les réglages de la fonction) : avec les nouvelles clés du projet
+(`sb_publishable_…`), le contrôle de Supabase refuse l'appel avant la
+fonction, sans réponse lisible par le navigateur (« pas de réponse du
+serveur »). La fonction vérifie elle-même que l'appelant est connecté
+(`auth.getUser`) : elle reste réservée aux comptes de CP Constructions.
+
+## En cas de souci
+
+Dans le navigateur (F12 › Network), la ligne `imaginer` donne le code :
+
+- **404** : aucune fonction de ce nom (vérifier la liste des Edge Functions) ;
+- **401** sur la ligne « preflight » : « Verify JWT » encore actif ;
+- **500, « pas encore installé »** : un secret manque ; le message de
+  l'application nomme lequel (`GEMINI_API_KEY`, en général).
 
 ## Vérifier
 
