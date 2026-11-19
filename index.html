@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-19 · Dossier de présentation : coût prévisionnel des travaux sans la marge (honoraires annoncés à part)';
+const VERSION='2026-11-19 · Fiche prospect : le dossier envoyé au client par le relevé, ouvert ou non';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -26625,6 +26625,8 @@ function visiteResume(ligne){
     nbPieces:Object.values(d.pieces||{}).filter(x=>x&&!x.supprime).length,
     nbPhotos:actives.filter(x=>x.role==='piece').length,
     gardeChemin:(garde&&garde.chemin)||'', plan:v.plan&&v.plan.resume?v.plan.resume:null,
+    /* le dossier envoyé au client par lien (releve_partages) : de quoi dire s'il l'a ouvert */
+    partage:v.partageDossier&&typeof v.partageDossier==='object'&&v.partageDossier.id?{id:String(v.partageDossier.id),expireLe:String(v.partageDossier.expireLe||''),creeLe:String(v.partageDossier.creeLe||'')}:null,
     /* la fourchette de prix donnée pendant la visite (releve/budget.js) : indicative */
     fourchette:v.budget&&v.budget.estimation&&v.budget.estimation.max>0?{min:v.budget.estimation.min,max:v.budget.estimation.max,complet:!!v.budget.estimation.complet}:null};
 }
@@ -26794,6 +26796,30 @@ function VignetteVisite({chemin,taille}){
   return url?<img src={url} alt="" style={{width:t,height:t,objectFit:'cover',borderRadius:8,flex:'0 0 auto'}}/>
     :<div style={{width:t,height:t,borderRadius:8,background:RULE+'66',display:'flex',alignItems:'center',justifyContent:'center',flex:'0 0 auto',fontSize:t/2.4}}>🏠</div>;
 }
+/* ---------- le dossier envoyé au client : l'a-t-il ouvert ? ----------
+   Le relevé garde les liens envoyés dans releve_partages (vues, vu_le) : la
+   fiche prospect le dit, pour relancer le client au bon moment. Lecture
+   seule ; sans table ou sans réseau, rien ne s'affiche. */
+function libellePartage(pa,ligne,maintenant){
+  const t=maintenant||new Date();
+  const quand=iso=>{const d=new Date(iso);return isNaN(d)?'':d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})};
+  const envoye='🔗 Dossier envoyé'+(pa&&pa.creeLe?' le '+fd(pa.creeLe.slice(0,10)):'');
+  if(!ligne)return {texte:envoye,couleur:MUTED};
+  if(ligne.revoque)return {texte:envoye+' · lien retiré',couleur:MUTED};
+  if(ligne.expire_le&&new Date(ligne.expire_le)<t)return {texte:envoye+' · lien expiré',couleur:AMBER};
+  if(+ligne.vues>0)return {texte:envoye+' · 👁 ouvert par le client '+ligne.vues+' fois, dernière fois le '+quand(ligne.vu_le),couleur:GREEN};
+  return {texte:envoye+' · pas encore ouvert par le client',couleur:AMBER};
+}
+function EtatPartageVisite({partage}){
+  const [ligne,setLigne]=useState(null);
+  useEffect(()=>{let vivant=true;
+    try{Promise.resolve(sb.from('releve_partages').select('vues,vu_le,revoque,expire_le').eq('id',partage.id).maybeSingle())
+      .then(r=>{const d=r&&!r.error&&r.data;const l=Array.isArray(d)?d[0]:d;if(vivant&&l&&typeof l==='object')setLigne(l)}).catch(()=>{})}
+    catch(e){/* table absente ou faux client : rien de plus */}
+    return ()=>{vivant=false}},[partage.id]);
+  const e=libellePartage(partage,ligne);
+  return <div className="xs etat-partage" style={{lineHeight:1.5,color:e.couleur}}>{e.texte}</div>;
+}
 function ResumeVisite({r}){
   return <div style={{flex:1,minWidth:0}}>
     <div className="sm" style={{fontWeight:600}}>{visiteIntitule(r)}
@@ -26805,6 +26831,7 @@ function ResumeVisite({r}){
         r.nbPieces?r.nbPieces+' pièce'+(r.nbPieces>1?'s':'')+' · '+r.nbPhotos+' photo'+(r.nbPhotos>1?'s':''):'',
         r.plan?'plan '+String(r.plan.surface).replace('.',',')+' m²':'',
         r.fourchette?'fourchette '+eur(r.fourchette.min)+' à '+eur(r.fourchette.max)+' TTC':''].filter(Boolean).join(' · ')||'Projet à préciser'}</div>
+    {r.partage&&<EtatPartageVisite partage={r.partage}/>}
   </div>;
 }
 function VisitesARattacher({data,save,modele,ouvrir}){
