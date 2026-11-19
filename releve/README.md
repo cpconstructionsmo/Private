@@ -225,6 +225,13 @@ du serveur.
   découpé en fichiers : `convertisseur.js` (export RoomPlan → pièces,
   ouvertures), `assemblage.js` (plusieurs scans reliés), `moteur.js` (plan, mesures, 3D, PDF), `three.min.js` et
   `OrbitControls.js` (three.js r128, licence MIT).
+- **« Plan DXF »** (en haut du moteur, à côté du PDF) : le plan pour la
+  DAO (AutoCAD, SketchUp, ArchiCAD, DraftSight…), DXF R12 en centimètres,
+  un calque par type (MURS, CLOISONS, PIECES, PORTES, FENETRES, PASSAGES,
+  COTES, TEXTES, DEMOLITION, ESTIME). Les murs sont de vrais pleins à leur
+  épaisseur, coupés aux ouvertures ; le reste est dessiné par le même code
+  que l'écran et le PDF (`construireDxf`, `PinceauDxf`). Étages l'un sous
+  l'autre, accents en Windows-1252.
 - Ce qui dépendait de la plateforme Claude est remplacé : sauvegarde → dans
   la visite (messages entre les deux pages, même site seulement) ; fichiers →
   feuille de partage de l'iPhone, sinon un vrai lien de téléchargement ;

@@ -4,7 +4,7 @@
    1) Lecture / vérification du JSON et calculs (surfaces, murs, ouvertures)
    2) Dessin du plan 2D (même code pour l'écran et pour le PDF)
    3) Vue 3D (three.js)
-   4) Export PDF (écrit à la main, sans bibliothèque)
+   4) Export PDF (écrit à la main, sans bibliothèque) et DXF (DAO)
    5) Interface
    ========================================================================== */
 
@@ -403,7 +403,7 @@ function dessinerPlan(b, M, T, o) {
     if ((e.noteMur || M.reperes) && !e.reperesOff) {                      /* repère du mur : rond avec sa lettre (violet si le mur porte une explication) */
       const pe0 = P(e.p[0], e.p[1]), qe0 = P(e.q[0], e.q[1]), pBadge = best[0] + (best[1] - best[0]) * (e.rev ? 0.8 : 0.2), bx = A[0] + u[0] * pBadge * T.s, by = A[1] + u[1] * pBadge * T.s, rr = Math.max(7, fs * 0.75), cr = [];     /* dans la plus grande partie libre du mur, jamais sur une porte ou une fenêtre */
       for (let k = 0; k < 16; k++) cr.push([bx + rr * Math.cos(k * Math.PI / 8), by + rr * Math.sin(k * Math.PI / 8)]);
-      b.poly(cr, { fill: assombrir(r.color, 0.62), stroke: e.noteMur ? '#7c3aed' : '#ffffff', w: e.noteMur ? 2.4 : 1 }); b.text(e.lettre, bx, by, { size: fs - 1, bold: true, color: '#ffffff' });
+      b.poly(cr, { fill: assombrir(r.color, 0.62), stroke: e.noteMur ? '#7c3aed' : '#ffffff', w: e.noteMur ? 2.4 : 1, calque: 'COTES' }); b.text(e.lettre, bx, by, { size: fs - 1, bold: true, color: '#ffffff', calque: 'COTES' });
       if (o.zones) o.zones.push({ x: bx, y: by, w: 2 * rr + 10, h: 2 * rr + 10, type: 'murnote', ri, ei: e.i, pe: pe0, qe: qe0 });
     }
     const rg = e.reglage || {}, perso = rg.pos !== undefined;       /* réglages faits à la souris : écart de la flèche, place du chiffre */
@@ -417,9 +417,9 @@ function dessinerPlan(b, M, T, o) {
       const a1 = [pe[0] + e.nIn[0] * dE + ue[0] * dl * 1.3, pe[1] + e.nIn[1] * dE + ue[1] * dl * 1.3];
       const a2 = [qe[0] + e.nIn[0] * dE - ue[0] * dl * 1.3, qe[1] + e.nIn[1] * dE - ue[1] * dl * 1.3];
       const col = r.couleurCote || (w.mesure ? '#15803d' : w.estime ? '#b45309' : '#6b7280');
-      b.line(a1[0], a1[1], a2[0], a2[1], { w: 0.9, color: col, dash: w.estime ? [3, 2] : null });
-      b.poly([a1, [a1[0] + ue[0] * ah + pn[0] * aw, a1[1] + ue[1] * ah + pn[1] * aw], [a1[0] + ue[0] * ah - pn[0] * aw, a1[1] + ue[1] * ah - pn[1] * aw]], { fill: col });
-      b.poly([a2, [a2[0] - ue[0] * ah + pn[0] * aw, a2[1] - ue[1] * ah + pn[1] * aw], [a2[0] - ue[0] * ah - pn[0] * aw, a2[1] - ue[1] * ah - pn[1] * aw]], { fill: col });
+      b.line(a1[0], a1[1], a2[0], a2[1], { w: 0.9, color: col, dash: w.estime ? [3, 2] : null, calque: 'COTES' });
+      b.poly([a1, [a1[0] + ue[0] * ah + pn[0] * aw, a1[1] + ue[1] * ah + pn[1] * aw], [a1[0] + ue[0] * ah - pn[0] * aw, a1[1] + ue[1] * ah - pn[1] * aw]], { fill: col, calque: 'COTES' });
+      b.poly([a2, [a2[0] - ue[0] * ah + pn[0] * aw, a2[1] - ue[1] * ah + pn[1] * aw], [a2[0] - ue[0] * ah - pn[0] * aw, a2[1] - ue[1] * ah - pn[1] * aw]], { fill: col, calque: 'COTES' });
       if (o.poignees) {                               /* zones à saisir : les deux bouts (changer la mesure) et la ligne (la déplacer) */
         o.poignees.push({ type: 'fin', which: 'p', x: a1[0], y: a1[1], ri, ei: e.i, pe, qe });
         o.poignees.push({ type: 'fin', which: 'q', x: a2[0], y: a2[1], ri, ei: e.i, pe, qe });
@@ -427,7 +427,7 @@ function dessinerPlan(b, M, T, o) {
       if (o.lignes) o.lignes.push({ type: 'ligne', a1, a2, ri, ei: e.i, nIn: e.nIn });
     }
     const lx = A[0] + u[0] * mid * T.s + e.nIn[0] * off, ly = A[1] + u[1] * mid * T.s + e.nIn[1] * off;
-    b.text(str, lx, ly, { size: fs, bold: !!w.mesure, color: r.couleurCote || (w.mesure ? '#15803d' : w.estime ? '#b45309' : '#333333') });
+    b.text(str, lx, ly, { size: fs, bold: !!w.mesure, calque: 'COTES', color: r.couleurCote || (w.mesure ? '#15803d' : w.estime ? '#b45309' : '#333333') });
     if (o.zones) o.zones.push({ x: lx, y: ly, w: Math.max(tw + 12, 44), h: 34, type: 'mur', ri, ei: e.i, pe, qe });
   }));
 
@@ -1401,7 +1401,7 @@ function chargerTexte(texte, nom, opts) {
   vue.k = 1; vue.tx = 0; vue.ty = 0;
   $('videPlan').style.display = 'none'; $('vide3d').style.display = 'none';
   $('sousTitre').textContent = M.projet + ' – ' + M.rooms.length + ' pièce(s), ' + FR(M.totalAire) + ' m²';
-  $('btnPdf').disabled = false;
+  $('btnPdf').disabled = false; $('btnDxf').disabled = false;
   remplirTableaux(M); remplirNotes(M); remplirLegende(); $('angleRot').value = M.rotation || 0; $('chkReperes').checked = !!M.reperes; $('chkAjuster').checked = modeAjuster; $('chkOuv').checked = modeOuv; dessiner2D(); v3d.construire(M);
   $('btnEnregistrer').hidden = false; $('btnVersion').hidden = !dbCol;
   if (rapportConv) {
@@ -2150,6 +2150,102 @@ $('btnEnregistrer').addEventListener('click', async () => {
     }
     message('Erreur : ' + e.message, 'err');
   }
+});
+
+/* ==========================================================================
+   4 bis) EXPORT DXF (AutoCAD, SketchUp, ArchiCAD… : DXF R12, en centimètres)
+   Le plan est dessiné par le même code que l'écran et le PDF (dessinerPlan),
+   avec un « pinceau » qui écrit des entités DXF rangées par calques. Seuls
+   les murs sont écrits à part : de vrais rectangles à leur épaisseur, coupés
+   aux portes et fenêtres (à l'écran, l'ouverture est « gommée » en blanc, ce
+   qui n'existe pas en DAO). Plusieurs étages : l'un sous l'autre.
+   ========================================================================== */
+const CALQUES_DXF = [['MURS', 7], ['CLOISONS', 7], ['PIECES', 8], ['PORTES', 1], ['FENETRES', 5], ['PASSAGES', 8], ['COTES', 3], ['TEXTES', 7], ['DEMOLITION', 1], ['ESTIME', 30]];
+class PinceauDxf {
+  constructor(couleursPieces) { this.e = []; this.pieces = couleursPieces; this.x0 = Infinity; this.y0 = Infinity; this.x1 = -Infinity; this.y1 = -Infinity; }
+  calque(col) {
+    col = String(col || '').toLowerCase();
+    if (col === COUL_TYPE.porte) return 'PORTES'; if (col === COUL_TYPE.fenetre) return 'FENETRES'; if (col === COUL_TYPE.passage) return 'PASSAGES';
+    if (/^#(15803d|b45309)$/.test(col)) return 'COTES'; if (col === '#c0392b') return 'DEMOLITION'; if (col === '#8b919b') return 'ESTIME';
+    return 'TEXTES';
+  }
+  pt(x, y) { const X = Math.round(x * 100) / 100, Y = Math.round(-y * 100) / 100; this.x0 = Math.min(this.x0, X); this.x1 = Math.max(this.x1, X); this.y0 = Math.min(this.y0, Y); this.y1 = Math.max(this.y1, Y); return [X, Y]; }
+  ligne(cal, a, b) { const A = this.pt(a[0], a[1]), B = this.pt(b[0], b[1]); this.e.push(['LINE', 8, cal, 10, A[0], 20, A[1], 30, 0, 11, B[0], 21, B[1], 31, 0]); }
+  plein(cal, q) {                                  /* SOLID : coins dans l'ordre 1, 2, 4, 3 (règle du DXF) */
+    const P = q.map(v => this.pt(v[0], v[1])), c = [P[0], P[1], P[3] || P[2], P[2]];
+    this.e.push(['SOLID', 8, cal, ...c.flatMap((v, i) => [10 + i, v[0], 20 + i, v[1], 30 + i, 0])]);
+  }
+  contour(cal, pts, ferme) {
+    const L = ['POLYLINE', 8, cal, 66, 1, 10, 0, 20, 0, 30, 0, 70, ferme ? 1 : 0];
+    pts.forEach(v => { const P = this.pt(v[0], v[1]); L.push(0, 'VERTEX', 8, cal, 10, P[0], 20, P[1], 30, 0); });
+    L.push(0, 'SEQEND', 8, cal); this.e.push(L);
+  }
+  mesure(s, size) { return String(s).length * size * 0.56; }
+  line(x1, y1, x2, y2, o) {
+    if (o.cap === 'square') return;                 /* murs et cloisons : écrits à part, à leur épaisseur */
+    this.ligne(o.calque || this.calque(o.color), [x1, y1], [x2, y2]);
+  }
+  poly(pts, o) {
+    if (pts.length < 2) return;
+    const f = String(o.fill || '').toLowerCase();
+    if (f === '#ffffff' && !o.stroke) return;       /* « gomme » d'une ouverture */
+    if (o.fill && this.pieces.has(f)) return this.contour('PIECES', pts, true);
+    if (o.fill && !o.stroke && pts.length <= 4) return this.plein(o.calque || this.calque(o.fill), pts);   /* pointes de flèches */
+    if (o.fill && o.stroke && f === '#ffffff') return;                                      /* cartouches (toitures) */
+    this.contour(o.calque || this.calque(o.stroke || o.fill), pts, o.close !== false);
+  }
+  text(s, x, y, o) {
+    const P = this.pt(x, y), h = Math.round((o.size || 11) * 0.7 * 100) / 100;
+    this.e.push(['TEXT', 8, o.calque || this.calque(o.color), 10, P[0], 20, P[1], 30, 0, 40, h, 1, versCp1252(s).replace(/[\r\n]/g, ' '), 72, 1, 73, 2, 11, P[0], 21, P[1], 31, 0]);
+  }
+  image() { /* pas d'image en DXF */ }
+  texte() {
+    const g = (c, v) => c + '\r\n' + (typeof v === 'number' ? String(v) : v) + '\r\n';
+    const ent = this.e.map(L => g(0, L[0]) + L.slice(1).reduce((t, v, i, a) => i % 2 ? t : t + g(v, a[i + 1]), '')).join('');
+    const x0 = isFinite(this.x0) ? this.x0 : 0, y0 = isFinite(this.y0) ? this.y0 : 0, x1 = isFinite(this.x1) ? this.x1 : 1, y1 = isFinite(this.y1) ? this.y1 : 1;
+    return g(0, 'SECTION') + g(2, 'HEADER') + g(9, '$ACADVER') + g(1, 'AC1009') + g(9, '$DWGCODEPAGE') + g(3, 'ANSI_1252') + g(9, '$INSUNITS') + g(70, 5) +
+      g(9, '$EXTMIN') + g(10, x0) + g(20, y0) + g(30, 0) + g(9, '$EXTMAX') + g(10, x1) + g(20, y1) + g(30, 0) + g(0, 'ENDSEC') +
+      g(0, 'SECTION') + g(2, 'TABLES') + g(0, 'TABLE') + g(2, 'LTYPE') + g(70, 1) + g(0, 'LTYPE') + g(2, 'CONTINUOUS') + g(70, 0) + g(3, 'Trait continu') + g(72, 65) + g(73, 0) + g(40, '0.0') + g(0, 'ENDTAB') +
+      g(0, 'TABLE') + g(2, 'LAYER') + g(70, CALQUES_DXF.length) + CALQUES_DXF.map(([n, c]) => g(0, 'LAYER') + g(2, n) + g(70, 0) + g(62, c) + g(6, 'CONTINUOUS')).join('') + g(0, 'ENDTAB') + g(0, 'ENDSEC') +
+      g(0, 'SECTION') + g(2, 'ENTITIES') + ent + g(0, 'ENDSEC') + g(0, 'EOF');
+  }
+}
+/* murs pleins (épaisseur réelle), coupés aux ouvertures ; T en unités DXF par mètre */
+function mursDxf(b, M, T) {
+  const P = q => [T.ox + q[0] * T.s, T.oy + q[1] * T.s];
+  const rect = (a, u, t0, t1, ep, cal) => {
+    const n = [-u[1], u[0]], h = ep / 2, A = [a[0] + u[0] * t0, a[1] + u[1] * t0], B = [a[0] + u[0] * t1, a[1] + u[1] * t1];
+    const q = [[A[0] + n[0] * h, A[1] + n[1] * h], [B[0] + n[0] * h, B[1] + n[1] * h], [B[0] - n[0] * h, B[1] - n[1] * h], [A[0] - n[0] * h, A[1] - n[1] * h]].map(P);
+    b.plein(cal, q); b.contour(cal, q, true);
+  };
+  M.walls.forEach(w => {
+    const ep = w.ep || M.ep;
+    if (w.demoli || w.estime) { b.ligne(w.demoli ? 'DEMOLITION' : 'ESTIME', P(w.a), P(w.b)); return; }
+    const trous = w.openings.map(op => [Math.max(0, op.pos), Math.min(w.len, op.pos + op.w)]).filter(t => t[1] > t[0]).sort((x, y) => x[0] - y[0]);
+    let cur = -ep / 2;                               /* le mur déborde d'une demi-épaisseur à chaque bout (coins fermés) */
+    trous.forEach(t => { if (t[0] - cur > 0.005) rect(w.a, w.u, cur, t[0], ep, 'MURS'); cur = Math.max(cur, t[1]); });
+    if (w.len + ep / 2 - cur > 0.005) rect(w.a, w.u, cur, w.len + ep / 2, ep, 'MURS');
+  });
+  (M.cloisons || []).forEach(c => rect(c.a, c.u, 0, c.len, c.ep, 'CLOISONS'));
+}
+function construireDxf(M) {
+  const Mp = tourner(M, M.rotation), s = 100;        /* 1 unité = 1 cm */
+  const bh = Mp.bbox.y1 - Mp.bbox.y0 || 1, ecart = Math.ceil(bh * s + 300);
+  const b = new PinceauDxf(new Set(M.rooms.map(r => String(r.color || '').toLowerCase())));
+  M.etages.forEach((et, k) => {
+    const T = { s, ox: -Mp.bbox.x0 * s, oy: k * ecart - Mp.bbox.y0 * s }, V = vueEtage(Mp, k);
+    if (M.etages.length > 1) b.text(et.nom, 0, T.oy - 80, { size: 30, bold: true, color: '#1d2430' });
+    mursDxf(b, V, T);
+    dessinerPlan(b, V, T, { fs: 16 });
+  });
+  return new Blob([Uint8Array.from(b.texte(), c => c.charCodeAt(0) & 255)], { type: 'application/dxf' });
+}
+$('btnDxf').addEventListener('click', async () => {
+  if (!modele) return;
+  try {
+    const nom = (sansAccent(nomFichier).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'releve') + '.dxf';
+    if (await sauvegarder(construireDxf(modele), nom)) message('Plan DXF généré (centimètres, un calque par type : murs, portes, fenêtres, cotes, pièces) : ' + nom, 'ok');
+  } catch (e) { message(e.code === 'public' ? 'Le DXF est prêt mais ne peut pas être enregistré avec un lien public : ' + e.message : 'Erreur pendant la création du DXF : ' + e.message, e.code === 'public' ? 'warn' : 'err'); if (e.code !== 'public') console.error(e); }
 });
 
 $('btnPdf').addEventListener('click', async () => {

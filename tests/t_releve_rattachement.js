@@ -3,7 +3,7 @@
    completerProspectDepuisVisite, visitesARattacher, visitesDuProspect).
    Clients fictifs. */
 const {charger,verif}=require('./harness');
-const M=charger(['visiteResume','visiteIntitule','normTel','prospectsCandidats','prospectDepuisVisite',
+const M=charger(['libellePartage','visiteResume','visiteIntitule','normTel','prospectsCandidats','prospectDepuisVisite',
   'completerProspectDepuisVisite','visitesARattacher','visitesDuProspect','releveLien']);
 const {chk,fin}=verif();
 
@@ -103,6 +103,16 @@ chk(M.visiteIntitule(vs)==='SCI FICTIVE IMMO'&&vs.acheteurs.length===0,'sociét�
 const nps=M.prospectDepuisVisite(vs,{},'2026-11-18');
 chk(nps.civilite==='SCI'&&nps.client==='SCI FICTIVE IMMO'&&nps.nom==='Maison FICTIVE IMMO - Alençon'&&/représentée par M\. Paul GÉRANT/.test(nps.demande)&&/SIRET 000 000 000 00000/.test(nps.demande),'société : civilité SCI, raison sociale en client, représentant et SIRET dans la demande');
 chk(M.prospectsCandidats(vs,[{id:'pS',nom:'Maison Fictive Immo',client:'SCI Fictive Immo'}]).length===1,'société : un prospect au nom de la raison sociale est proposé');
+
+/* le dossier envoyé au client : ouvert ou non (releve_partages) */
+const vp=M.visiteResume(ligne('vis-p',{'client.nom':'P',partageDossier:{id:'pa-1',lien:'https://x/partage.html#t=secret',expireLe:'2026-12-19T10:00:00Z',creeLe:'2026-11-19T10:00:00Z'}}));
+chk(vp.partage&&vp.partage.id==='pa-1'&&!JSON.stringify(vp.partage).includes('secret'),'résumé : le dossier envoyé est connu (jamais le lien ni son jeton)');
+chk(M.visiteResume(ligne('vis-q',{partageDossier:{lien:'x'}})).partage===null,'sans identifiant : pas de suivi d’ouverture');
+const now=new Date('2026-11-20T10:00:00Z');
+chk(/pas encore ouvert/.test(M.libellePartage(vp.partage,{vues:0,expire_le:'2026-12-19T10:00:00Z'},now).texte),'pas encore ouvert par le client');
+chk(/ouvert par le client 2 fois/.test(M.libellePartage(vp.partage,{vues:2,vu_le:'2026-11-19T16:00:00Z',expire_le:'2026-12-19T10:00:00Z'},now).texte),'ouvert 2 fois, avec la date de la dernière ouverture');
+chk(/lien expiré/.test(M.libellePartage(vp.partage,{vues:3,expire_le:'2026-11-01T10:00:00Z'},now).texte)&&/lien retiré/.test(M.libellePartage(vp.partage,{revoque:true},now).texte),'lien expiré ou retiré : dit tel quel');
+chk(/Dossier envoyé le 19\/11\/2026/.test(M.libellePartage(vp.partage,null,now).texte),'sans réponse du serveur : seulement « dossier envoyé le … »');
 
 chk(vf.fourchette&&vf.fourchette.min===8600&&vf.fourchette.max===12900,'la fourchette de la visite est lue');
 chk(M.visiteResume(ligne('vis-g',{budget:{lignes:[],estimation:{min:0,max:0}}})).fourchette===null,'fourchette vide : rien d’affiché');
