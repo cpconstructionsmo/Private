@@ -68,6 +68,17 @@ let b;
   const chemin=await dl.path();
   chk(/\.pdf$/.test(dl.suggestedFilename())&&fs.readFileSync(chemin).slice(0,5).toString()==='%PDF-','export PDF : un vrai fichier PDF ('+dl.suggestedFilename()+')');
 
+  /* export DXF (DAO) : calques, murs pleins coupés à la porte, pièce, cotes, accents */
+  const [dl2]=await Promise.all([p.waitForEvent('download',{timeout:15000}),cadre.locator('#btnDxf').click()]);
+  const dxf=fs.readFileSync(await dl2.path()).toString('latin1');
+  fs.copyFileSync(await dl2.path(),SORTIE+'/releve_plan.dxf');
+  const ents=dxf.split('ENTITIES')[1]||'', nbE=(t,c)=>(ents.match(new RegExp('\\r\\n0\\r\\n'+t+'\\r\\n8\\r\\n'+c+'\\r\\n','g'))||[]).length;
+  chk(/\.dxf$/.test(dl2.suggestedFilename())&&/\$ACADVER\r\n1\r\nAC1009/.test(dxf)&&/\r\nEOF\r\n$/.test(dxf),'export DXF : un vrai fichier DXF R12 ('+dl2.suggestedFilename()+')');
+  chk(nbE('SOLID','MURS')===5&&nbE('POLYLINE','PIECES')===1&&nbE('POLYLINE','PORTES')>=1,'DXF : 4 murs pleins, celui de la porte coupé en deux ; contour de la pièce ; arc de la porte');
+  chk(nbE('TEXT','COTES')>=4&&nbE('TEXT','TEXTES')>=2&&/\r\n1\r\n[^\r]*\d+,\d\d m²\r\n/.test(ents.replace(/\xb2/g,'²')),'DXF : cotes des murs, nom et surface de la pièce (accents et m² lisibles)');
+  const xs=[...ents.matchAll(/\r\n10\r\n(-?[\d.]+)\r\n/g)].map(m=>+m[1]);
+  chk(Math.max(...xs)-Math.min(...xs)>300&&Math.max(...xs)-Math.min(...xs)<1000,'DXF en centimètres (largeur du plan : '+Math.round(Math.max(...xs)-Math.min(...xs))+' cm)');
+
   /* fermer puis rouvrir : rien n'est perdu, rien n'est redemandé */
   await p.tap('#fermerPlan');
   /* à la fermeture, le moteur envoie l'image du plan dessiné : elle est gardée pour le dossier client */

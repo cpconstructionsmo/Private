@@ -25,7 +25,7 @@ qu'on ait à les redire.
 - **Relevé de visite** : `releve/` (page à part, iPhone d'abord, PWA hors
   ligne ; mode d'emploi : `releve/README.md`). Visite = photo de garde,
   client, projet, pièces et photos, scan OpenPlan 3D ouvert dans le moteur
-  de relevé (`releve/moteur/`, plan, mesures, avant/après, 3D, PDF ;
+  de relevé (`releve/moteur/`, plan, mesures, avant/après, 3D, PDF, DXF ;
   plusieurs scans reliés pièce par pièce : `assemblage.js`, « ＋ Scan »,
   « 🔗 Relier », tests `t_releve_assemblage.js`). Tout
   s'écrit d'abord sur l'appareil (IndexedDB) puis dans la table
