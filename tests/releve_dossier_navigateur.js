@@ -32,7 +32,7 @@ let b;
   const [c1]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#nouvelleVisite')]);await c1.setFiles(PHOTO);
   await p.waitForSelector('img.garde[src^="blob:"]');
   await p.tap('#suivant');
-  await p.tap('text=Mme');await p.fill('input[name="client.nom"]','FICTIF');await p.fill('input[name="client.prenom"]','Anne');
+  await p.tap('.puce >> text="Mme"');await p.fill('input[name="client.nom"]','FICTIF');await p.fill('input[name="client.prenom"]','Anne');
   await p.fill('input[name="client.adresse"]','1 rue Imaginaire');await p.fill('input[name="client.ville"]','Alençon');
   await p.tap('#suivant');
   await p.tap('.grille >> text=Cuisine');

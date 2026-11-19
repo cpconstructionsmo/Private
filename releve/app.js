@@ -355,6 +355,45 @@ function puces(v, cle, options, { multiple = false, cls = 'puces', coche = false
 /* redessiner l'étape en gardant la place à l'écran (choix qui montre ou cache des champs) */
 const redessiner = () => { const y = window.scrollY; dessiner(); window.scrollTo(0, y); };
 
+/* le code postal remplit la commune : la liste officielle des communes
+   (geo.api.gouv.fr, service public, seul le code postal y part). Une seule
+   commune : elle se met d'office si la ville est vide ; plusieurs : on la
+   choisit d'un toucher. Sans réseau, rien ne change : la ville se tape. */
+const communesCache = new Map();
+async function communesDuCodePostal(cp) {
+  if (communesCache.has(cp)) return communesCache.get(cp);
+  const r = await fetch('https://geo.api.gouv.fr/communes?codePostal=' + cp + '&fields=nom&format=json');
+  if (!r.ok) throw new Error('geo ' + r.status);
+  const L = [...new Set((await r.json()).map(c => String(c.nom || '')).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+  communesCache.set(cp, L); return L;
+}
+function champCodePostal(v) {
+  const el = champ(v, 'client.codePostal', 'CODE POSTAL', { inputmode: 'numeric', autocomplete: 'postal-code', placeholder: 'ex. 61000' });
+  const inp = el.querySelector('input');
+  inp.maxLength = 5;
+  const poserVille = async nom => {
+    await poser('client.ville', nom);
+    const vi = document.querySelector('input[name="client.ville"]'); if (vi) vi.value = nom;
+    const box = document.getElementById('communesProposees'); if (box) box.replaceChildren();
+    vibrer();
+  };
+  inp.addEventListener('input', async () => {
+    const cp = inp.value.replace(/\D/g, '');
+    const box = document.getElementById('communesProposees');
+    if (box) box.replaceChildren();
+    if (cp.length !== 5 || navigator.onLine === false) return;
+    let L;
+    try { L = await communesDuCodePostal(cp); } catch (e) { return; }     // pas de réseau : la ville se tape
+    if (inp.value.replace(/\D/g, '') !== cp || !L.length) return;
+    const ville = (M.valeur(visite(), 'client.ville') || '').trim();
+    if (L.length === 1) { if (!ville || ville.toLowerCase() !== L[0].toLowerCase()) await poserVille(L[0]); return; }
+    if (box && !L.some(n => n.toLowerCase() === ville.toLowerCase()))
+      box.replaceChildren(h('span', { class: 'mut petit', style: 'width:100%' }, 'Quelle commune ?'),
+        ...L.slice(0, 12).map(n => h('button', { class: 'puce', type: 'button', onclick: () => poserVille(n) }, n)));
+  });
+  return el;
+}
+
 /* étape 2 : le client — un à trois acheteurs, ou une société */
 function blocContact(v, prefixe, civilites) {
   return [
@@ -373,8 +412,9 @@ function etapeClient(v) {
   const adresseTravaux = [
     champ(v, 'client.adresse', 'ADRESSE DES TRAVAUX', { autocomplete: 'street-address', autocapitalize: 'sentences' }),
     h('div', { class: 'deuxCol' },
-      champ(v, 'client.codePostal', 'CODE POSTAL', { inputmode: 'numeric', autocomplete: 'postal-code' }),
+      champCodePostal(v),
       champ(v, 'client.ville', 'VILLE', { autocomplete: 'address-level2', autocapitalize: 'words' })),
+    h('div', { class: 'puces', id: 'communesProposees' }),
   ];
   const domicile = (prefixe, libelle, defautLibelle) => [
     caseACocher(v, prefixe + '.domicileIdem', defautLibelle, { defaut: true, apres: redessiner }),
@@ -383,6 +423,9 @@ function etapeClient(v) {
   ];
   return [
     h('h1', {}, 'Le client'),
+    // le résumé de départ : on raconte, l'assistant remplit la fiche (relue avant d'y entrer)
+    h('button', { class: 'carte resumeDepart', type: 'button', id: 'resumeDepart', onclick: () => { S.ecran = 'assistant'; S.propAssistant = null; S.message = null; dessiner(); window.scrollTo(0, 0); } },
+      h('b', {}, '🎙 Commencer par un résumé'), h('span', { class: 'mut petit' }, 'Racontez ou écrivez la visite en quelques phrases : la fiche se remplit toute seule, vous relisez avant.')),
     h('div', { class: 'puces', role: 'radiogroup' }, [['particulier', '👤 Particulier'], ['societe', '🏢 Société']].map(([code, lib]) => {
       const on = (code === 'societe') === societe;
       return h('button', { class: 'puce' + (on ? ' on' : ''), type: 'button', name: 'client.type', 'aria-pressed': String(on), onclick: async () => { await poser('client.type', code); vibrer(); redessiner(); } }, lib);
@@ -1328,11 +1371,54 @@ function ecranFourchettes() {
 }
 
 /* ---------- dessin ---------- */
+/* ---------- le bouton « retour » du navigateur et du téléphone ----------
+   Chaque écran plus profond (accueil → visite → dossier, assistant, plan,
+   prix) ajoute une entrée à l'historique : « retour » ramène à l'écran
+   d'avant au lieu de quitter le relevé. Les boutons « ‹ » de l'écran font
+   le même chemin (history.go), pour que l'historique reste juste. Changer
+   d'étape dans une visite ne fait que réécrire l'entrée en cours. Le plan
+   se ferme toujours par fermerPlan (sa dernière retouche part d'abord). */
+const PROFONDEUR = { connexion: 0, accueil: 0, visite: 1 };
+const profondeur = e => PROFONDEUR[e] ?? 2;
+const ECRANS_SANS_VISITE = new Set(['connexion', 'accueil', 'ouvrages', 'fourchettes']);
+let vueAffichee = null, sautHistorique = false, retourInterne = false, rangHistorique = 0, aReecrire = null;
+function suivreHistorique() {
+  const vue = { ecran: S.ecran, courante: S.courante, etape: S.etape };
+  const avant = vueAffichee; vueAffichee = vue;
+  try {
+    if (sautHistorique) { sautHistorique = false; history.replaceState({ releve: vue, rang: rangHistorique }, ''); return; }
+    if (!avant) { history.replaceState({ releve: vue, rang: rangHistorique }, ''); return; }
+    const pa = profondeur(avant.ecran), pn = profondeur(vue.ecran);
+    const autreEcran = avant.ecran !== vue.ecran || avant.courante !== vue.courante;
+    if (pn > pa || (pn === pa && pn > 0 && autreEcran)) { rangHistorique++; history.pushState({ releve: vue, rang: rangHistorique }, ''); }
+    else if (pn < pa && rangHistorique > 0) {
+      // remonter par un bouton de l'écran : on recule d'autant dans l'historique (l'écran est déjà dessiné)
+      const n = Math.min(rangHistorique, pa - pn); rangHistorique -= n; retourInterne = true; aReecrire = vue; history.go(-n);
+    } else history.replaceState({ releve: vue, rang: rangHistorique }, '');
+  } catch (e) { /* historique indisponible (aperçu, cadre) : sans conséquence */ }
+}
+window.addEventListener('popstate', async e => {
+  const st = e.state || {};
+  if (retourInterne) {                              // fin d'un retour demandé par un bouton de l'écran
+    retourInterne = false; rangHistorique = st.rang || 0;
+    if (aReecrire) { try { history.replaceState({ releve: aReecrire, rang: rangHistorique }, ''); } catch (x) { /* rien */ } aReecrire = null; }
+    return;
+  }
+  const vue = st.releve; rangHistorique = st.rang || 0;
+  if (!vue) return;
+  if (S.ecran === 'plan' && vue.ecran !== 'plan') { sautHistorique = true; await fermerPlan(); }
+  const ecran = !ECRANS_SANS_VISITE.has(vue.ecran) && !S.visites.some(r => r.id === vue.courante) ? 'accueil' : vue.ecran;
+  S.ecran = ecran; if (vue.courante) S.courante = vue.courante; if (vue.etape != null) S.etape = vue.etape;
+  S.message = null; S.propAssistant = null; S.imaginer = null;
+  sautHistorique = true; dessiner(); window.scrollTo(0, 0);
+});
+
 function dessiner() {
   arreterDictee(); // le champ dicté va être remplacé
   const app = document.getElementById('app');
   const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : S.ecran === 'assistant' ? ecranAssistant() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
+  suivreHistorique();
 }
 
 /* ---------- arrivée depuis le suivi de chantiers ----------
@@ -1406,7 +1492,14 @@ async function demarrer() {
   dessiner();
   // ce qui est arrivé du serveur (autre appareil) apparaît dans la liste
   const avant = sync.synchroniser;
-  sync.synchroniser = async () => { await avant(); const n = S.visites.length; await recharger(); if (S.ecran === 'accueil' && S.visites.length !== n) dessiner(); };
+  /* après chaque synchronisation, l'accueil se redessine dès qu'une visite a changé (nouvelle visite, nom
+     tapé sur un autre appareil, statut, photo de garde…), pas seulement quand leur nombre change ; jamais
+     pendant une recherche en cours (le clavier resterait ouvert sur un champ remplacé) */
+  const signature = () => S.visites.map(r => r.id + ':' + M.derniereMaj(r.visite) + ':' + (r.enAttente ? 1 : 0)).sort().join('|');
+  sync.synchroniser = async () => {
+    await avant(); const avantSync = signature(); await recharger();
+    if (S.ecran === 'accueil' && signature() !== avantSync && (document.activeElement || {}).id !== 'chercherVisite') dessiner();
+  };
   sync.synchroniser();
   chargerFourchettes().then(() => { if (S.ecran === 'visite' || S.ecran === 'fourchettes') dessiner(); });
   chargerOuvrages().then(() => { if (S.ecran === 'visite' || S.ecran === 'ouvrages') dessiner(); });
