@@ -146,6 +146,22 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 - Chevauchements et dimensions hors bornes (0,30 à 50 m) sont signalés
   avant de créer le plan.
 
+## Le dessin rapide (sans scan)
+
+- Étape Scan › **« ✏️ Dessin rapide (sans scan) »** : on pose des pièces
+  rectangulaires au doigt (nom, longueur, largeur avec de gros − / +), chacune
+  à droite, en dessous, à gauche ou au-dessus d'une pièce déjà posée, avec un
+  décalage le long du mur. L'aperçu suit chaque geste ; touchez une pièce pour
+  la régler. Le dessin est gardé avec la visite (`dessin`).
+- **« ✓ Créer le plan »** (`dessin.js`, `releveDepuisDessin`) : le relevé du
+  moteur (pièces voisines aux coins partagés : un seul mur commun) et son
+  résumé (surface, périmètre, murs, pour la fourchette et le dossier). Le
+  plan s'ouvre aussitôt : toucher une cote pour taper la vraie longueur,
+  « + Ouverture » pour portes et fenêtres, 3D, PDF. Un plan existant n'est
+  jamais écrasé en silence : il est gardé de côté (`plan.ecarte`).
+- Chevauchements et dimensions hors bornes (0,30 à 50 m) sont signalés
+  avant de créer le plan.
+
 ## L'assistant de visite
 
 - Bouton **« 🎙 Assistant »** à chaque étape de la visite : on raconte la
