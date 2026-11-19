@@ -541,19 +541,29 @@ const MESSAGES_IMAGINER = {
 /* la création d'une image, pour n'importe quelle visite de l'appareil
    (appel direct ou file d'attente) : rend { nom de pièce, restant } ou
    lance { code } */
-async function creerImageImaginee(visiteId, pieceId, photoId, consigne) {
-  const rec = S.visites.find(r => r.id === visiteId), v = rec && rec.visite;
-  const ph = v && v.photos[photoId], p = v && v.pieces[pieceId];
-  if (!ph || ph.supprime || !p) throw { code: 'photo' };
-  let blob = await stock.lirePhoto(ph.id);
-  if (!blob && ph.chemin) { const u = await urlPhoto(ph.id, ph.chemin); if (u) blob = await (await fetch(u)).blob(); }
-  if (!blob) throw { code: 'photo' };
-  const { data, error } = await supa.functions.invoke('imaginer', { body: { image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom } });
+/* l'appel à la fonction du serveur : sa réponse, ou lance { code, limite, manque, message } */
+async function appelerFonction(body) {
+  const { data, error } = await supa.functions.invoke('imaginer', { body });
   if (error) {
     let j = {}; try { j = await error.context.json(); } catch (e) { /* pas de corps lisible */ }
     const st = error.context && error.context.status;
     throw { code: j.erreur || (st === 404 ? 'non_configure' : st ? 'erreur_' + st : 'reseau'), limite: j.limite, message: j.message, manque: j.manque };
   }
+  return data;
+}
+/* la photo elle-même : sur l'appareil, sinon depuis l'espace privé */
+async function blobPhoto(ph) {
+  let blob = await stock.lirePhoto(ph.id);
+  if (!blob && ph.chemin) { const u = await urlPhoto(ph.id, ph.chemin); if (u) blob = await (await fetch(u)).blob(); }
+  if (!blob) throw { code: 'photo' };
+  return blob;
+}
+async function creerImageImaginee(visiteId, pieceId, photoId, consigne) {
+  const rec = S.visites.find(r => r.id === visiteId), v = rec && rec.visite;
+  const ph = v && v.photos[photoId], p = v && v.pieces[pieceId];
+  if (!ph || ph.supprime || !p) throw { code: 'photo' };
+  const blob = await blobPhoto(ph);
+  const data = await appelerFonction({ image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom });
   if (!data || !data.image) throw { code: 'aucune_image' };
   const id = M.nouvelId();
   await stock.garderPhoto(id, visiteId, versBlob(data.image, data.mime));
@@ -626,6 +636,57 @@ async function lancerImaginer(p, ph, consigne, btn, info) {
   }
 }
 
+/* ---------- « 🔍 Décrire » : Gemini regarde la photo ----------
+   Une légende courte (posée seulement si la légende est vide : jamais
+   d'écrasement) et quelques constats utiles au chiffrage, gardés sur la photo
+   (champ « description », interne : jamais dans le dossier client). Les
+   constats s'ajoutent aux notes de la pièce d'un geste. */
+const messageDecrire = (e, quoi) => { const code = (e && e.code) || 'reseau';
+  return code === 'quota' ? 'Limite du jour atteinte (' + (e.limite || '') + ' lectures par personne) : réessayez demain.'
+    : code === 'rien_lu' ? (quoi === 'note' ? 'Aucun texte lisible sur cette photo : reprenez-la de plus près, bien éclairée.' : 'Rien d’utile n’a été vu sur cette photo.')
+    : code === 'consigne_absente' ? 'La fonction « imaginer » du serveur n’est pas à jour : redéployez-la (voir supabase/functions/imaginer/README.md).'
+    : code === 'illisible' ? 'La réponse n’a pas pu être lue : réessayez.'
+    : messageErreurImaginer(e); };
+function pretPourIA(dire, quoi) {
+  if (navigator.onLine === false) { dire(quoi + ' a besoin du réseau : réessayez une fois connecté.', 'att'); return false; }
+  if (!S.session) { dire('Connectez-vous (même compte que le suivi) pour utiliser ' + quoi + '.', 'att'); return false; }
+  if (!supa.functions || !supa.functions.invoke) { dire(MESSAGES_IMAGINER.non_configure, 'att'); return false; }
+  return true;
+}
+async function decrirePhoto(p, ph, btn, info) {
+  const dire = (t, type) => { info.textContent = t; info.className = 'infoDecrire message petit ' + (type || 'err'); };
+  if (!pretPourIA(dire, 'Décrire')) return;
+  const lib = btn.textContent; btn.disabled = true; btn.textContent = '🔍 Lecture de la photo…';
+  try {
+    const blob = await blobPhoto(ph);
+    const r = await appelerFonction({ action: 'decrire', mode: 'photo', image: await enBase64(blob), mime: blob.type || 'image/jpeg', piece: p.nom }) || {};
+    const constats = Array.isArray(r.constats) ? r.constats.filter(c => typeof c === 'string' && c.trim()).slice(0, 6) : [];
+    const legende = typeof r.legende === 'string' ? r.legende.trim().slice(0, 140) : '';
+    if (!legende && !constats.length) throw { code: 'rien_lu' };
+    const vide = !String(ph.legende || '').trim();
+    await changer(w => M.majElement(w, 'photos', ph.id, { ...(vide && legende ? { legende } : {}), description: { legende, constats, creeLe: new Date().toISOString() } }));
+    redessiner();
+  } catch (e) { btn.disabled = false; btn.textContent = lib; dire(messageDecrire(e, 'photo')); }
+}
+function blocDescription(p, ph) {
+  const d = ph.description;
+  if (!d || typeof d !== 'object') return null;
+  const constats = Array.isArray(d.constats) ? d.constats : [];
+  const autreLegende = d.legende && d.legende !== String(ph.legende || '').trim();
+  return h('div', { class: 'descriptionIA petit', 'data-description': ph.id },
+    h('b', {}, '🔍 Vu sur la photo'),
+    autreLegende ? h('div', {}, 'Légende proposée : « ' + d.legende + ' » ',
+      h('button', { class: 'lienRetour', type: 'button', onclick: async () => { await changer(w => M.majElement(w, 'photos', ph.id, { legende: d.legende })); redessiner(); } }, 'Utiliser')) : null,
+    constats.length ? h('ul', {}, constats.map(c => h('li', {}, String(c)))) : null,
+    h('div', { class: 'rang', style: 'margin-top:4px' },
+      constats.length ? h('button', { class: 'puce', type: 'button', onclick: async () => {
+        await changer(w => { const note = String((w.pieces[p.id] || {}).note || '').trimEnd();
+          return M.majElement(M.majElement(w, 'pieces', p.id, { note: (note ? note + '\n' : '') + constats.map(c => '• ' + c).join('\n') }), 'photos', ph.id, { description: null }); });
+        redessiner();
+      } }, '+ Ajouter aux notes') : null,
+      h('button', { class: 'puce', type: 'button', 'aria-label': 'Masquer ce qui a été vu sur la photo', onclick: async () => { await changer(w => M.majElement(w, 'photos', ph.id, { description: null })); redessiner(); } }, '✕')));
+}
+
 /* le panneau sous la photo : consigne (avec dictée), puis « Créer l'image » */
 function panneauImaginer(p, ph) {
   const st = S.imaginer;
@@ -671,9 +732,13 @@ function cartePiece(v, p) {
             h('button', { class: 'lienRetour', type: 'button', onclick: async () => { await changer(w => M.majElement(w, 'photos', ph.id, { imaginerEnAttente: null })); redessiner(); } }, '✕ annuler')) : null,
           ph.imaginerErreur ? h('div', { class: 'message err petit' }, ph.imaginerErreur, ' ',
             h('button', { class: 'lienRetour', type: 'button', onclick: async () => { await changer(w => M.majElement(w, 'photos', ph.id, { imaginerErreur: null })); redessiner(); } }, '✕')) : null,
-          S.imaginer && S.imaginer.photoId === ph.id ? null
-            : h('button', { class: 'puce imaginer', type: 'button', 'aria-label': 'Imaginer la photo ' + (i + 1) + ' rénovée',
-                onclick: () => { S.imaginer = { photoId: ph.id, consigne: '' }; dessiner(); } }, '✨ Imaginer'))),
+          blocDescription(p, ph),
+          (() => { const info = h('div', { role: 'status', class: 'infoDecrire' });
+            const bd = h('button', { class: 'puce decrire', type: 'button', 'aria-label': 'Décrire la photo ' + (i + 1), onclick: () => decrirePhoto(p, ph, bd, info) }, '🔍 Décrire');
+            return [h('div', { class: 'puces', style: 'margin-top:6px' }, ph.description ? null : bd,
+              S.imaginer && S.imaginer.photoId === ph.id ? null
+                : h('button', { class: 'puce imaginer', type: 'button', 'aria-label': 'Imaginer la photo ' + (i + 1) + ' rénovée',
+                    onclick: () => { S.imaginer = { photoId: ph.id, consigne: '' }; dessiner(); } }, '✨ Imaginer')), info]; })())),
       imagines(ph.id).map(im => h('div', { class: 'imagine', 'data-imagine': im.id },
         h('figure', {}, imagePhoto(im, 'imagineImg'), h('span', { class: 'badgeImagine' }, '✨ Imaginé'),
           h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer l’image imaginée', onclick: async () => {
@@ -997,6 +1062,31 @@ function ecranDessin() {
    chaque champ proposé se relit et se coche avant d'entrer dans la visite.
    La dictée est gardée avec la visite (hors ligne compris) jusqu'à ce
    qu'elle soit rangée : rien ne se perd si le réseau manque. */
+/* « 📷 Lire une note manuscrite » : la photo d'une note (ou d'un document)
+   est recopiée par Gemini et AJOUTÉE à la dictée (jamais à sa place) ;
+   « Remplir la fiche » la range ensuite comme une dictée. */
+function lireNote(btn, info) {
+  const dire = (t, type) => { info.textContent = t; info.className = 'message ' + (type || 'err'); };
+  if (!pretPourIA(dire, 'La lecture de note')) return;
+  choisirFichier({ accept: 'image/*', capture: true }, async f => {
+    const lib = btn.textContent; btn.disabled = true; btn.textContent = '📷 Lecture de la note…';
+    dire('La note est en cours de lecture…', 'att');
+    try {
+      const blob = await reduirePhoto(f[0]);
+      const r = await appelerFonction({ action: 'decrire', mode: 'note', image: await enBase64(blob), mime: 'image/jpeg' }) || {};
+      const texte = typeof r.texte === 'string' ? r.texte.trim() : '';
+      if (!texte) throw { code: 'rien_lu' };
+      const avant = String(M.valeur(visite(), 'assistant.texte') || '').trim();
+      await changer(w => M.modifier(w, 'assistant.texte', (avant ? avant + '\n\n' : '') + texte));
+      const ta = document.querySelector('textarea[name="assistant.texte"]');
+      if (ta) ta.value = (avant ? avant + '\n\n' : '') + texte;
+      S.propAssistant = null;
+      dire('📷 Note recopiée à la suite de la dictée : relisez-la, puis touchez « ✨ Remplir la fiche ».', 'ok');
+    } catch (e) { dire(messageDecrire(e, 'note')); }
+    btn.disabled = false; btn.textContent = lib;
+  });
+}
+
 async function lancerAssistant(btn, info) {
   const v = visite(), texte = (M.valeur(v, 'assistant.texte') || '').trim();
   const dire = (t, type) => { info.textContent = t; info.className = 'message ' + (type || 'err'); };
@@ -1006,12 +1096,7 @@ async function lancerAssistant(btn, info) {
   if (!supa.functions || !supa.functions.invoke) return dire(MESSAGES_IMAGINER.non_configure, 'att');
   const lib = btn.textContent; btn.disabled = true; btn.textContent = '✨ Lecture de la dictée…';
   try {
-    const { data, error } = await supa.functions.invoke('imaginer', { body: { action: 'structurer', texte, listes: A.listesPourIA() } });
-    if (error) {
-      let j = {}; try { j = await error.context.json(); } catch (e) { /* pas de corps lisible */ }
-      const st = error.context && error.context.status;
-      throw { code: j.erreur || (st === 404 ? 'non_configure' : st ? 'erreur_' + st : 'reseau'), limite: j.limite, manque: j.manque, message: j.message };
-    }
+    const data = await appelerFonction({ action: 'structurer', texte, listes: A.listesPourIA() });
     if (!data || !data.fiche) throw { code: 'illisible' };
     const prop = A.propositions(data.fiche, visite());
     S.propAssistant = prop;
@@ -1053,6 +1138,7 @@ function ecranAssistant() {
       champ(v, 'assistant.texte', 'VOTRE DICTÉE', { multiligne: true, lignes: 9, autocapitalize: 'sentences', micro: true,
         placeholder: 'Ex. : Monsieur et Madame Martin, 06 12 34 56 78, 3 rue des Lilas à Alençon. Maison de 1975, chauffage fioul, simple vitrage. Ils veulent ouvrir la cuisine sur le séjour et refaire la salle de bains, budget autour de 40 000 €, travaux d’ici six mois…' }),
       info = h('div', { role: 'status', id: 'infoAssistant', style: 'margin-top:10px' }),
+      !P ? h('button', { class: 'gros sec', id: 'lireNote', type: 'button', style: 'margin-top:10px', onclick: e => lireNote(e.currentTarget, info) }, '📷 Lire une note manuscrite') : null,
       !P ? h('button', { class: 'gros', id: 'remplirFiche', style: 'margin-top:10px', onclick: e => lancerAssistant(e.currentTarget, info) }, '✨ Remplir la fiche') : null,
       P ? h('div', { class: 'carte propositions', style: 'margin-top:12px' },
         h('h2', {}, 'Ce que l’assistant propose'),

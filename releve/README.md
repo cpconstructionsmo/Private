@@ -162,6 +162,22 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   doublon ; les pièces citées s'ajoutent, ou complètent la note d'une pièce
   du même nom. « Ranger dans la fiche » n'applique que le coché.
 
+## Décrire une photo, lire une note manuscrite
+
+- **« 🔍 Décrire »** sous chaque photo de pièce : la photo part à la fonction
+  `imaginer` (action `decrire`, Gemini). Elle rend une légende courte, posée
+  seulement si la légende est vide (sinon « Légende proposée … Utiliser »),
+  et jusqu'à 6 constats utiles au chiffrage (état, matériaux, équipements,
+  points de vigilance). Ils sont gardés sur la photo (`description`, interne :
+  jamais dans le dossier client) ; « + Ajouter aux notes » les copie dans les
+  notes de la pièce, « ✕ » les masque.
+- **« 📷 Lire une note manuscrite »** (assistant de visite) : la note
+  photographiée est recopiée **à la suite** de la dictée, jamais à sa place ;
+  « ✨ Remplir la fiche » la range comme une dictée.
+- Il faut le réseau et être connecté ; c'est compté avec les dictées (100 par
+  jour par défaut). Si la fonction du serveur n'est pas à jour, l'écran dit
+  de la redéployer.
+
 ## Le dossier envoyé au client
 
 - Le dossier client montre aussi **l'image du plan dessiné** : le moteur la

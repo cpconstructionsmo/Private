@@ -28,6 +28,19 @@ const {chk,fin}=verif();
   chk(R.modeles('')[0]===R.MODELES[0]&&R.modeles('mon-modele')[0]==='mon-modele'&&R.modeles(R.MODELES[1]).length===R.MODELES.length,'modèle imposé en tête, sans doublon ; sinon la liste');
   chk(R.limiteJour(undefined)===30&&R.limiteJour('12')===12&&R.limiteJour('-3')===30&&R.limiteJour('abc')===30,'limite du jour : 30 par défaut, réglable');
 
+  /* « décrire » : légende et constats d'une photo, ou note manuscrite lue */
+  chk(R.lireDescription({}).erreur==='image_absente'&&R.lireDescription({image:'A'.repeat(R.IMAGE_MAX+4)}).erreur==='image_trop_lourde','décrire : photo absente ou trop lourde refusée');
+  const dd=R.lireDescription({image:'data:image/png;base64,'+img,mime:'image/png',mode:'autre',piece:'Cuisine'});
+  chk(dd.image===img&&dd.mime==='image/png'&&dd.mode==='photo'&&dd.piece==='Cuisine'&&R.lireDescription({image:img,mode:'note'}).mode==='note','décrire : mode « photo » par défaut, « note » sur demande');
+  const ip=R.inviteDescription(dd), inn=R.inviteDescription({mode:'note'});
+  chk(/sans rien inventer/.test(ip)&&/Pas de prix/.test(ip)&&/Cuisine/.test(ip)&&/Recopie fidèlement/.test(inn)&&/\[…\]/.test(inn),'décrire : consignes (rien d’inventé, pas de prix ; note recopiée telle quelle)');
+  const qd=R.requeteDescription(dd);
+  chk(qd.contents[0].parts[1].inline_data.data===img&&qd.generationConfig.responseMimeType==='application/json','décrire : la photo jointe, réponse en JSON');
+  const rep=t=>({candidates:[{content:{parts:[{text:t}]}}]});
+  const rd=R.descriptionReponse(rep(JSON.stringify({legende:'  Tableau   électrique ancien ',constats:['Fusibles porcelaine',3,'', ...Array(10).fill('x'.repeat(500))]})),'photo');
+  chk(rd.legende==='Tableau électrique ancien'&&rd.constats.length===R.CONSTATS_MAX&&rd.constats[0]==='Fusibles porcelaine'&&rd.constats[1].length===R.CONSTAT_MAX,'décrire : légende nettoyée, constats texte seulement et bornés');
+  chk(R.descriptionReponse(rep('{"texte":"Cuisine 3,20 x 2,80\\nprise à déplacer"}'),'note').texte==='Cuisine 3,20 x 2,80\nprise à déplacer'&&R.descriptionReponse(rep('{"texte":""}'),'note').erreur==='rien_lu'&&R.descriptionReponse(rep('{"legende":"","constats":[]}'),'photo').erreur==='rien_lu','décrire : note transcrite gardée ligne par ligne ; rien de lu : erreur nommée');
+
   /* l'assistant de visite (action « structurer ») */
   chk(R.lireStructuration({texte:'court'}).erreur==='texte_absent','dictée trop courte : refusée');
   const ds=R.lireStructuration({texte:'Madame FICTIF, maison de 1975, chauffage fioul, elle veut ouvrir la cuisine.'+'x'.repeat(9000),

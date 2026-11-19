@@ -1,15 +1,17 @@
-// La fonction du relevé de visite (nom historique : « imaginer »). Trois actions :
+// La fonction du relevé de visite (nom historique : « imaginer »). Quatre actions :
 // - imaginer   : la photo d'une pièce, transformée en pièce rénovée par Gemini ;
 // - structurer : l'assistant de visite — la dictée libre du métreur, rangée
 //                en champs de fiche (une proposition, vérifiée par le relevé) ;
+// - decrire    : une photo lue par Gemini — légende et constats d'une photo
+//                de pièce, ou transcription d'une note manuscrite ;
 // - partage    : le dossier client ouvert par le lien personnel (#t=<jeton>)
 //                envoyé au client : seule action sans compte, le jeton suffit.
 //
 // La clé de Google n'est que dans les secrets de Supabase (GEMINI_API_KEY) :
-// jamais dans le dépôt ni dans le navigateur. « imaginer » et « structurer »
-// exigent un utilisateur connecté (le même compte que le suivi) et sont
+// jamais dans le dépôt ni dans le navigateur. « imaginer », « structurer » et
+// « decrire » exigent un utilisateur connecté (le même compte que le suivi) et sont
 // limitées par personne et par jour (IMAGINER_LIMITE_JOUR, 30 images ;
-// IMAGINER_LIMITE_TEXTE, 100 dictées), pour tenir le coût.
+// IMAGINER_LIMITE_TEXTE, 100 dictées ou photos décrites), pour tenir le coût.
 //
 // Déploiement : voir README.md (même dossier) — « Verify JWT » désactivé :
 // la fonction vérifie elle-même l'utilisateur connecté (auth.getUser).
@@ -17,7 +19,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { lireDemande, requeteGemini, imageReponse, modeles, limiteJour,
   lireStructuration, requeteStructuration, jsonReponse, modelesTexte, limiteTexte,
-  jetonValide, empreinte, cheminsDossier } from './regles.js';
+  jetonValide, empreinte, cheminsDossier, lireDescription, requeteDescription, descriptionReponse } from './regles.js';
 
 const URL_SUPABASE = Deno.env.get('SUPABASE_URL');
 const CLE_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -88,20 +90,21 @@ Deno.serve(async (req: Request) => {
   if (eu || !u?.user) return reponse({ erreur: 'non_connecte' }, 401);
   const jour = jourParis();
 
-  if (action === 'structurer') {
-    const d = lireStructuration(corps);
+  if (action === 'structurer' || action === 'decrire') {
+    const d = action === 'decrire' ? lireDescription(corps) : lireStructuration(corps);
     if ('erreur' in d) return reponse(d, 400);
     const limite = limiteTexte(Deno.env.get('IMAGINER_LIMITE_TEXTE'));
     // compteur à part des images (colonne nb_texte) ; une table sans cette colonne ne bloque pas l'assistant
     const { data: c, error: ec } = await db.from('releve_ia_usage').select('nb_texte').eq('jour', jour).eq('user_id', u.user.id).maybeSingle();
     const deja = ec ? 0 : (c?.nb_texte || 0);
     if (deja >= limite) return reponse({ erreur: 'quota', limite }, 429);
-    const g = await gemini(modelesTexte(Deno.env.get('IMAGINER_MODELE_TEXTE')), requeteStructuration(d));
+    const g = await gemini(modelesTexte(Deno.env.get('IMAGINER_MODELE_TEXTE')),
+      action === 'decrire' ? requeteDescription(d as { image: string; mime: string; mode: string; piece: string }) : requeteStructuration(d));
     if ('erreur' in g) return reponse(g, 502);
-    const f = jsonReponse(g.json);
+    const f = action === 'decrire' ? descriptionReponse(g.json, (d as { mode: string }).mode) : jsonReponse(g.json);
     if ('erreur' in f) return reponse(f, 422);
     if (!ec) await db.from('releve_ia_usage').upsert({ jour, user_id: u.user.id, nb_texte: deja + 1 }, { onConflict: 'jour,user_id' });
-    return reponse({ fiche: f.fiche, modele: g.modele });
+    return reponse(action === 'decrire' ? { ...f, modele: g.modele, restant: limite - deja - 1 } : { fiche: (f as { fiche: unknown }).fiche, modele: g.modele });
   }
 
   /* ---------- imaginer : la pièce rénovée ---------- */

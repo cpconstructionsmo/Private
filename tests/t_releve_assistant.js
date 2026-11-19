@@ -27,6 +27,10 @@ const {chk,fin}=verif();
   chk(par('projet.types').valeur.join()==='Peinture,Cuisine,Autre'&&par('projet.types').mode==='complete','travaux : la liste se complète (Piscine écartée, Autre ajouté pour la précision)');
   chk(par('projet.souhaits').valeur==='Garder la cheminée.\nOuvrir la cuisine.'&&par('projet.souhaits').mode==='complete','souhaits : le texte se complète, sans effacer');
   chk(par('projet.enveloppe').valeur===45000&&par('projet.delai').valeur==='Sous 3 mois','enveloppe lue en nombre, délai de la liste');
+  const dl=x=>A.delaiSouple(x);
+  chk(dl('dans 6 mois')==='Sous 6 mois'&&dl("d'ici 2 mois")==='Sous 3 mois'&&dl('sous 3 mois')==='Sous 3 mois'&&dl('dans l\'annee')==='Dans l’année'&&dl('dans un an')==='Dans l’année'&&dl('9 mois')==='Dans l’année',
+    'délai dit librement ramené à la liste (dans 6 mois → Sous 6 mois, d’ici 2 mois → Sous 3 mois, dans un an → Dans l’année)');
+  chk(dl('au plus vite')==='Dès que possible'&&dl('pas pressé')==='Pas pressé'&&dl('dans 2 ans')==='Pas pressé'&&dl('')===''&&dl('bientôt peut-être')==='','urgence, pas pressé, plusieurs années ; rien de clair : rien de proposé');
   chk(P.pieces.length===2&&P.pieces[0].pieceId==='pc'&&P.pieces[1].nom==='Salle de bains'&&!P.pieces[1].pieceId,'pièce du même nom : la note la complète ; nouvelle pièce : ajoutée ; pièce sans nom : écartée');
   const w=A.appliquer(v,P);
   chk(M.valeur(w,'client.nom')==='FICTIF'&&M.valeur(w,'client.prenom')==='jean'&&M.valeur(w,'acheteur2.nom')==='FICTIVE'&&M.nbAcheteurs(w)===2,'appliquer : seulement ce qui est coché (le nom saisi reste)');
