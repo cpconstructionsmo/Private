@@ -123,6 +123,12 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   d'avant (dossier, assistant, plan, prix → visite → accueil) au lieu de
   quitter le relevé ; les boutons « ‹ » de l'écran gardent l'historique
   juste ; le plan s'enregistre avant de se fermer (`suivreHistorique`).
+- **« ✨ Imaginer » sans réseau** : la demande (consigne) est gardée sur la
+  photo, « ⏳ en attente du réseau » (✕ pour l'annuler), et part toute seule
+  au retour du réseau ou après une synchronisation (`imaginerEnAttente`).
+  Seul l'appareil qui l'a faite la traite : pas d'image en double si la
+  visite est ouverte ailleurs. Limite du jour ou réglage absent : la
+  demande s'arrête et le message reste sous la photo.
 
 ## Le dessin rapide (sans scan)
 
@@ -194,8 +200,8 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   seules. Une quantité tapée à la main n'est jamais remplacée.
 - Les lots des marchés (onglet MARCHÉS) ne changent pas.
 
-À venir : devis client en PDF (sans marge) et Excel interne, TVA par poste,
-« Imaginer », lecture des notes manuscrites par une fonction du serveur.
+À venir : TVA par poste, lecture des notes manuscrites par une fonction
+du serveur.
 
 ## Le moteur de relevé (`moteur/`, Phase 1 étape 2)
 

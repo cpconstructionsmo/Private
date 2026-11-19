@@ -55,9 +55,10 @@ async function recharger() { S.visites = await stock.liste(); }
 const visite = () => (S.visites.find(r => r.id === S.courante) || {}).visite;
 
 /* une modification de la visite ouverte : écrite sur l'appareil, puis envoyée */
-async function changer(f) {
-  const v = await stock.modifier(S.courante, f);
-  const rec = S.visites.find(r => r.id === S.courante);
+async function changer(f) { return changerVisite(S.courante, f); }
+async function changerVisite(id, f) {
+  const v = await stock.modifier(id, f);
+  const rec = S.visites.find(r => r.id === id);
   if (rec) { rec.visite = v; rec.enAttente = true; }
   majEtat(); planifierSync();
   return v;
@@ -537,41 +538,91 @@ const MESSAGES_IMAGINER = {
   image_trop_lourde: 'Cette photo est trop lourde pour Imaginer.',
   consigne_absente: 'Décrivez d’abord ce que vous voulez voir.',
 };
+/* la création d'une image, pour n'importe quelle visite de l'appareil
+   (appel direct ou file d'attente) : rend { nom de pièce, restant } ou
+   lance { code } */
+async function creerImageImaginee(visiteId, pieceId, photoId, consigne) {
+  const rec = S.visites.find(r => r.id === visiteId), v = rec && rec.visite;
+  const ph = v && v.photos[photoId], p = v && v.pieces[pieceId];
+  if (!ph || ph.supprime || !p) throw { code: 'photo' };
+  let blob = await stock.lirePhoto(ph.id);
+  if (!blob && ph.chemin) { const u = await urlPhoto(ph.id, ph.chemin); if (u) blob = await (await fetch(u)).blob(); }
+  if (!blob) throw { code: 'photo' };
+  const { data, error } = await supa.functions.invoke('imaginer', { body: { image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom } });
+  if (error) {
+    let j = {}; try { j = await error.context.json(); } catch (e) { /* pas de corps lisible */ }
+    const st = error.context && error.context.status;
+    throw { code: j.erreur || (st === 404 ? 'non_configure' : st ? 'erreur_' + st : 'reseau'), limite: j.limite, message: j.message, manque: j.manque };
+  }
+  if (!data || !data.image) throw { code: 'aucune_image' };
+  const id = M.nouvelId();
+  await stock.garderPhoto(id, visiteId, versBlob(data.image, data.mime));
+  await changerVisite(visiteId, w => { let x = M.majElement(M.ajouterPhoto(w, { id, role: 'imagine', pieceId, legende: consigne }), 'photos', id,
+    { source: photoId, consigne, modele: data.modele || '', creeLe: new Date().toISOString() });
+    return x.photos[photoId] && x.photos[photoId].imaginerEnAttente ? M.majElement(x, 'photos', photoId, { imaginerEnAttente: null }) : x; });
+  return { piece: p.nom, restant: data.restant };
+}
+const messageErreurImaginer = e => { const code = (e && e.code) || 'reseau';
+  return code === 'quota' ? 'Limite du jour atteinte (' + (e.limite || '') + ' images par personne) : réessayez demain.'
+    : code === 'photo' ? 'La photo d’origine n’est pas lisible sur cet appareil (pas encore téléchargée ?).'
+    : code === 'reseau' ? 'Pas de réponse du serveur : réseau coupé, fonction « imaginer » absente, ou « Verify JWT » encore actif (voir supabase/functions/imaginer/README.md).'
+    : code === 'non_configure' && e.manque && e.manque.length ? 'Imaginer : réglage à ajouter dans les secrets Supabase : ' + e.manque.join(', ') + '.'
+    : MESSAGES_IMAGINER[code] || 'La création a échoué (' + code + (e && e.message ? ' : ' + e.message : '') + ').'; };
+
+/* ---------- « Imaginer » sans réseau : la file d'attente ----------
+   Sans réseau (ou sans réponse), la demande est gardée sur la photo
+   (imaginerEnAttente : consigne, date, appareil) ; elle part toute seule au
+   retour du réseau, après chaque synchronisation. Seul l'appareil qui l'a
+   faite la traite (pas de double image si la visite est ouverte ailleurs). */
+const APPAREIL = (() => { try { let a = localStorage.getItem('cp-releve-appareil'); if (!a) { a = M.nouvelId(); localStorage.setItem('cp-releve-appareil', a); } return a; } catch (e) { return 'appareil'; } })();
+async function mettreEnAttenteImaginer(pieceId, photoId, consigne) {
+  await changer(w => M.majElement(w, 'photos', photoId, { imaginerEnAttente: { consigne, pieceId, demandeLe: new Date().toISOString(), appareil: APPAREIL } }));
+}
+let fileImaginerEnCours = false;
+async function traiterFileImaginer() {
+  if (fileImaginerEnCours || navigator.onLine === false || !S.session || !supa.functions || !supa.functions.invoke) return;
+  fileImaginerEnCours = true; let faites = 0;
+  try {
+    for (const rec of [...S.visites]) for (const ph of M.actifs(rec.visite.photos)) {
+      const a = ph.imaginerEnAttente;
+      if (!a || a.appareil !== APPAREIL) continue;
+      try { await creerImageImaginee(rec.id, a.pieceId || ph.pieceId, ph.id, a.consigne); faites++; }
+      catch (e) {
+        if (e && (e.code === 'reseau' || e.code === 'google_occupe')) return;            // encore sans réseau : on réessaiera
+        await changerVisite(rec.id, w => M.majElement(w, 'photos', ph.id, { imaginerEnAttente: null, imaginerErreur: messageErreurImaginer(e) }));
+      }
+    }
+  } finally {
+    fileImaginerEnCours = false;
+    if (faites) { if (S.ecran === 'visite' || S.ecran === 'accueil') { S.message = { type: 'ok', texte: '✨ ' + faites + ' image' + (faites > 1 ? 's' : '') + ' imaginée' + (faites > 1 ? 's' : '') + ' au retour du réseau.' }; redessiner(); } }
+  }
+}
+window.addEventListener('online', () => setTimeout(traiterFileImaginer, 1500));
+
 async function lancerImaginer(p, ph, consigne, btn, info) {
   consigne = consigne.trim();
   const dire = (t, type) => { info.textContent = t; info.className = 'message ' + (type || 'err'); };
   if (consigne.length < 3) return dire(MESSAGES_IMAGINER.consigne_absente, 'att');
-  if (navigator.onLine === false) return dire('Imaginer a besoin du réseau. La consigne est gardée : réessayez quand le réseau revient.', 'att');
+  const enAttente = async () => {
+    await mettreEnAttenteImaginer(p.id, ph.id, consigne);
+    if (S.imaginer && S.imaginer.photoId === ph.id) S.imaginer = null;
+    S.message = { type: 'att', texte: '⏳ Pas de réseau : la demande « ' + consigne + ' » est gardée. L’image sera créée toute seule au retour du réseau.' };
+    vibrer(); redessiner();
+  };
+  if (navigator.onLine === false) return enAttente();
   if (!S.session) return dire('Connectez-vous (même compte que le suivi) pour utiliser Imaginer.', 'att');
   if (!supa.functions || !supa.functions.invoke) return dire(MESSAGES_IMAGINER.non_configure, 'att');
   const texte = btn.textContent; btn.disabled = true; btn.textContent = '✨ Création en cours… (jusqu’à une minute)';
   dire('L’image est en cours de création. Vous pouvez continuer la visite : elle arrivera ici.', 'att');
   try {
-    let blob = await stock.lirePhoto(ph.id);
-    if (!blob && ph.chemin) { const u = await urlPhoto(ph.id, ph.chemin); if (u) blob = await (await fetch(u)).blob(); }
-    if (!blob) throw { code: 'photo' };
-    const { data, error } = await supa.functions.invoke('imaginer', { body: { image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom } });
-    if (error) {
-      let j = {}; try { j = await error.context.json(); } catch (e) { /* pas de corps lisible */ }
-      const st = error.context && error.context.status;
-      throw { code: j.erreur || (st === 404 ? 'non_configure' : st ? 'erreur_' + st : 'reseau'), limite: j.limite, message: j.message, manque: j.manque };
-    }
-    if (!data || !data.image) throw { code: 'aucune_image' };
-    const id = M.nouvelId();
-    await stock.garderPhoto(id, S.courante, versBlob(data.image, data.mime));
-    await changer(v => M.majElement(M.ajouterPhoto(v, { id, role: 'imagine', pieceId: p.id, legende: consigne }), 'photos', id,
-      { source: ph.id, consigne, modele: data.modele || '', creeLe: new Date().toISOString() }));
+    const r = await creerImageImaginee(S.courante, p.id, ph.id, consigne);
     if (S.imaginer && S.imaginer.photoId === ph.id) S.imaginer = null;
-    S.message = { type: 'ok', texte: '✨ Image créée pour « ' + p.nom + ' »' + (data.restant != null ? ' (encore ' + data.restant + ' aujourd’hui).' : '.') };
+    S.message = { type: 'ok', texte: '✨ Image créée pour « ' + r.piece + ' »' + (r.restant != null ? ' (encore ' + r.restant + ' aujourd’hui).' : '.') };
     vibrer(); dessiner();
   } catch (e) {
-    const code = (e && e.code) || 'reseau';
     btn.disabled = false; btn.textContent = texte;
-    dire(code === 'quota' ? 'Limite du jour atteinte (' + (e.limite || '') + ' images par personne) : réessayez demain.'
-      : code === 'photo' ? 'La photo d’origine n’est pas lisible sur cet appareil (pas encore téléchargée ?).'
-      : code === 'reseau' ? 'Pas de réponse du serveur : réseau coupé, fonction « imaginer » absente, ou « Verify JWT » encore actif (voir supabase/functions/imaginer/README.md).'
-      : code === 'non_configure' && e.manque && e.manque.length ? 'Imaginer : réglage à ajouter dans les secrets Supabase : ' + e.manque.join(', ') + '.'
-      : MESSAGES_IMAGINER[code] || 'La création a échoué (' + code + (e && e.message ? ' : ' + e.message : '') + ').');
+    if (e && e.code === 'reseau' && navigator.onLine === false) return enAttente();
+    dire(messageErreurImaginer(e));
   }
 }
 
@@ -616,6 +667,10 @@ function cartePiece(v, p) {
           } }, '×')),
         h('div', { style: 'flex:1;min-width:0' },
           texteElement('photos', ph, 'legende', { label: 'Légende de la photo ' + (i + 1), placeholder: 'Ce que montre la photo (fissure, tableau électrique…)', lignes: 3 }),
+          ph.imaginerEnAttente ? h('div', { class: 'enAttenteImaginer petit', 'data-attente': ph.id }, '⏳ Imaginer en attente du réseau : « ' + ph.imaginerEnAttente.consigne + ' » ',
+            h('button', { class: 'lienRetour', type: 'button', onclick: async () => { await changer(w => M.majElement(w, 'photos', ph.id, { imaginerEnAttente: null })); redessiner(); } }, '✕ annuler')) : null,
+          ph.imaginerErreur ? h('div', { class: 'message err petit' }, ph.imaginerErreur, ' ',
+            h('button', { class: 'lienRetour', type: 'button', onclick: async () => { await changer(w => M.majElement(w, 'photos', ph.id, { imaginerErreur: null })); redessiner(); } }, '✕')) : null,
           S.imaginer && S.imaginer.photoId === ph.id ? null
             : h('button', { class: 'puce imaginer', type: 'button', 'aria-label': 'Imaginer la photo ' + (i + 1) + ' rénovée',
                 onclick: () => { S.imaginer = { photoId: ph.id, consigne: '' }; dessiner(); } }, '✨ Imaginer'))),
@@ -1610,6 +1665,7 @@ async function demarrer() {
   sync.synchroniser = async () => {
     await avant(); const avantSync = signature(); await recharger();
     if (S.ecran === 'accueil' && signature() !== avantSync && (document.activeElement || {}).id !== 'chercherVisite') dessiner();
+    traiterFileImaginer();
   };
   sync.synchroniser();
   chargerFourchettes().then(() => { if (S.ecran === 'visite' || S.ecran === 'fourchettes') dessiner(); });
