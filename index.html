@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-19 · Fiche prospect : le dossier envoyé au client par le relevé, ouvert ou non';
+const VERSION='2026-11-20 · Visites à rattacher : « Sans suite » (prospect archivé) ou « Supprimer », visites écartées remises d’un clic';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -26709,6 +26709,12 @@ function prospectDepuisVisite(r,base,le){
     decouverte:{...(b.decouverte||{}),...(r.enveloppe!=null?{enveloppe:String(r.enveloppe)}:{}),...(travaux?{adresseProjet:travaux}:{})},
     visites:[{id:r.id,le}]};
 }
+/* une visite classée « sans suite » depuis la liste à rattacher : le contact
+   devient un prospect déjà archivé (filtre « Archivés »), avec sa visite ;
+   décocher l'archivage sur sa fiche le remet « Chiffrage demandé » */
+function prospectSansSuiteDepuisVisite(r,base,le){
+  return {...prospectDepuisVisite(r,base,le),statut:'perdu',archive:{motif:'sans_suite',le,statutAvant:'demande'}};
+}
 /* rattacher à un prospect existant : seules les cases vides sont complétées */
 const VISITE_CHAMPS_PROSPECT=[['civilite','civilité'],['client','nom du client'],['telClient','téléphone'],
   ['emailClient','e-mail'],['adresseClient','adresse'],['commune','commune'],['demande','demande'],
@@ -26837,16 +26843,22 @@ function ResumeVisite({r}){
 function VisitesARattacher({data,save,modele,ouvrir}){
   const st=useVisitesReleve(), P=data.prospects||[];
   const [apercu,setApercu]=useState(null);
+  const [voirEcartees,setVoirEcartees]=useState(false);
   if(st.etat!=='ok')return null;
   const L=visitesARattacher(st.liste,P,data.visitesIgnorees);
-  if(!L.length)return null;
+  const ign=data.visitesIgnorees||[], E=st.liste.filter(r=>ign.includes(r.id));
+  if(!L.length&&!E.length)return null;
   const creer=r=>{const id=uid();save({...data,prospects:[...P,{...prospectDepuisVisite(r,modele(),today()),id}]});ouvrir(id)};
   const rattacher=(r,p)=>{const {prospect}=completerProspectDepuisVisite(p,r,today());
     save({...data,prospects:P.map(x=>x.id===p.id?prospect:x)});setApercu(null);ouvrir(p.id)};
-  const ignorer=r=>{if(!confirm('Ne rattacher cette visite à aucun prospect ? Elle reste consultable dans le relevé.'))return;
-    save({...data,visitesIgnorees:[...(data.visitesIgnorees||[]),r.id]})};
+  const sansSuite=r=>{if(!confirm('Classer « '+visiteIntitule(r)+' » sans suite ?\n\nLe contact est gardé dans les prospects archivés (filtre « Archivés »), avec sa visite. Décocher l’archivage sur sa fiche le remet en cours.'))return;
+    save({...data,prospects:[...P,{...prospectSansSuiteDepuisVisite(r,modele(),today()),id:uid()}]})};
+  const supprimer=r=>{if(!confirm('Supprimer « '+visiteIntitule(r)+' » de la liste ?\n\nAucun prospect n’est créé. La visite (photos, plan) reste dans le relevé, et se remet d’un clic depuis « Visites écartées ».'))return;
+    save({...data,visitesIgnorees:[...ign.filter(x=>x!==r.id),r.id]})};
+  const remettre=r=>save({...data,visitesIgnorees:ign.filter(x=>x!==r.id)});
   return <div className="card visites-a-rattacher" style={{borderLeft:'3px solid '+NAVY}}>
     <div className="h2" style={{marginBottom:4}}>VISITES À RATTACHER ({L.length})</div>
+    {!L.length&&<div className="xs mut">Aucune visite en attente.</div>}
     <div className="xs mut" style={{marginBottom:10,lineHeight:1.5}}>
       Faites avec le relevé de visite et rattachées à aucun prospect. Rattachez chacune à son dossier, ou créez le
       prospect depuis la visite : rien n’est ressaisi, et rattacher ne complète que les cases vides.</div>
@@ -26868,9 +26880,17 @@ function VisitesARattacher({data,save,modele,ouvrir}){
         <div className="row" style={{gap:6,marginTop:8,flexWrap:'wrap'}}>
           <button className="btn acc s" onClick={()=>creer(r)}>{C.length?'Non, créer un nouveau prospect':'Créer le prospect'}</button>
           <a className="btn gh s" href={releveLien({visite:r.id})} target="_blank" rel="noopener">Voir la visite</a>
-          <button className="btn gh s" onClick={()=>ignorer(r)}>Ne pas rattacher</button>
+          <button className="btn gh s visite-sans-suite" onClick={()=>sansSuite(r)} title="Le contact est gardé dans les prospects archivés">Sans suite</button>
+          <button className="btn gh s visite-supprimer" onClick={()=>supprimer(r)} title="Retirer de la liste, sans créer de prospect">🗑 Supprimer</button>
         </div>
       </div>})}
+    {E.length>0&&<div style={{borderTop:'1px solid '+RULE,marginTop:10,paddingTop:8}}>
+      <button className="btn gh s visites-ecartees" onClick={()=>setVoirEcartees(!voirEcartees)}>{voirEcartees?'▾':'▸'} Visites écartées ({E.length})</button>
+      {voirEcartees&&E.map(r=><div key={r.id} className="row visite-ecartee" style={{gap:8,alignItems:'center',marginTop:6}}>
+        <span className="sm" style={{flex:1}}>{visiteIntitule(r)}{r.ville?' · '+r.ville:''}{r.creeLe?' · '+fd(r.creeLe.slice(0,10)):''}</span>
+        <a className="btn gh s" href={releveLien({visite:r.id})} target="_blank" rel="noopener">Voir</a>
+        <button className="btn gh s" onClick={()=>remettre(r)}>Remettre dans la liste</button></div>)}
+    </div>}
   </div>;
 }
 function VisitesProspect({p}){
@@ -27383,13 +27403,13 @@ function FicheProspect({p,data,save,maj,back,onModifier,onTransformer}){
       background:prospectArchive(p)?MUTED+'14':'transparent',border:'1px solid '+RULE}}>
       <label className="row sm" style={{gap:8,alignItems:'center',cursor:'pointer'}}>
         <input type="checkbox" checked={prospectArchive(p)} onChange={e=>maj(prospectArchiver(p,e.target.checked,today()))}/>
-        <span><b>Parti à la concurrence</b> — archiver ce prospect</span>
+        <span><b>{p.archive&&p.archive.motif==='sans_suite'?'Sans suite':'Parti à la concurrence'}</b> — archiver ce prospect</span>
       </label>
       {prospectArchive(p)?<div className="xs mut" style={{marginTop:6,lineHeight:1.5}}>
         Archivé le {fd(p.archive.le)} : il ne figure plus dans les prospects en cours, les relances ni les rappels
         (filtre « Archivés » de la liste). Décochez pour le remettre en « {prospectSt(p.archive.statutAvant||'attente').label} ».
-        <Fld label="CONCURRENT RETENU (FACULTATIF)"><input className="in" key={p.id+':'+(p.archive.concurrent||'')} defaultValue={p.archive.concurrent||''}
-          placeholder="Constructeur, artisan…" onBlur={e=>{const v=e.target.value.trim();if(v!==(p.archive.concurrent||''))maj({archive:{...p.archive,concurrent:v}})}}/></Fld>
+        {p.archive.motif!=='sans_suite'&&<Fld label="CONCURRENT RETENU (FACULTATIF)"><input className="in" key={p.id+':'+(p.archive.concurrent||'')} defaultValue={p.archive.concurrent||''}
+          placeholder="Constructeur, artisan…" onBlur={e=>{const v=e.target.value.trim();if(v!==(p.archive.concurrent||''))maj({archive:{...p.archive,concurrent:v}})}}/></Fld>}
       </div>:<div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Le prospect et tout son dossier restent consultables.</div>}
     </div>}
   </div>;
