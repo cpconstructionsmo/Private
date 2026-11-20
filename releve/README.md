@@ -168,6 +168,8 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   `fondAnnote`) ; en quittant l'écran, l'image annotée est refaite (photo
   `planAnnote`) et s'affiche à côté du plan. Si le plan change, « Repartir
   du plan à jour » garde les annotations (à vérifier).
+  Dans le dossier client, en option (« Plan annoté (travaux) », décochée
+  d'office) : une page « Les travaux envisagés sur le plan ».
 
 ## L'assistant de visite
 

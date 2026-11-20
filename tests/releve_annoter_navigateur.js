@@ -3,6 +3,7 @@
    - un plan 2D importé : « 🖍 Annoter une copie du plan importé » ;
    - stylo, flèche, texte au doigt ; « ↶ Annuler » ; tout part avec la visite ;
    - en quittant, l'image annotée est refaite et affichée à côté du plan ;
+   - en option dans le dossier client (décochée d'office) ;
    - le plan change : « Repartir du plan à jour » garde les annotations. */
 require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
 const {chromium}=require('playwright-core');const fs=require('fs');const path=require('path');
@@ -69,6 +70,18 @@ let b;
     'en quittant, l’image du plan annoté est refaite et part sur le serveur');
   await p.waitForFunction(()=>document.querySelectorAll('#blocAnnotations img.vignettePlan').length===2);
   chk(/Copie annotée · 1 trait, 1 flèche/.test(await p.textContent('#blocAnnotations'))&&/Continuer les annotations/.test(await p.textContent('#blocAnnotations')),'le plan et sa copie annotée côte à côte, « Continuer les annotations »');
+  /* dans le dossier client : en option, décochée d'office */
+  await p.tap('.progres button[aria-label^="Étape 7 "]');
+  await p.tap('#ouvrirDossier');await p.waitForSelector('.dossier .feuille');
+  chk(!(await p.isChecked('input[name="opt-planAnnote"]'))&&!/travaux envisagés sur le plan/.test(await p.textContent('.dossier')),'dossier client : le plan annoté n’y est pas d’office');
+  await p.check('input[name="opt-planAnnote"]');
+  await p.waitForFunction(()=>/travaux envisagés sur le plan/.test(document.querySelector('.dossier').textContent));
+  await p.waitForSelector('.dossier img.planDossier');
+  chk(true,'option « Plan annoté (travaux) » cochée : une page « Les travaux envisagés sur le plan » avec l’image annotée');
+  await p.tap('text=‹ Visite');
+  await p.tap('.progres button[aria-label^="Étape 5 "]');
+  await p.waitForSelector('#blocAnnotations');
+
   /* le plan change : repartir du plan à jour, annotations gardées */
   await repondre({parties:[{nom:'RDC',pieces:[{nom:'Salon',longueur:4.3,largeur:5.5,x:0,y:0}]}]});
   const [c3]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#importerPlan2D')]);await c3.setFiles(PHOTO);

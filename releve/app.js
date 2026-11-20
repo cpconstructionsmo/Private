@@ -1420,7 +1420,7 @@ const jetonAleatoire = () => btoa(String.fromCharCode(...crypto.getRandomValues(
 const empreinteJeton = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map(b => b.toString(16).padStart(2, '0')).join('');
 const tableAbsente = err => /42P01|PGRST205|does not exist|schema cache/.test(((err && err.code) || '') + ' ' + ((err && err.message) || ''));
 /* les photos du dossier pas encore envoyées sur le serveur (le client ne les verrait pas) */
-const photosNonEnvoyees = d => [d.garde, d.planImage, ...d.pieces.flatMap(p => p.photos.flatMap(ph => [ph, ...ph.imagines]))].filter(ph => ph && !ph.chemin).length;
+const photosNonEnvoyees = d => [d.garde, d.planImage, d.planAnnote, ...d.pieces.flatMap(p => p.photos.flatMap(ph => [ph, ...ph.imagines]))].filter(ph => ph && !ph.chemin).length;
 
 async function dossierAPartager() {
   const o = optionsDossier();
@@ -1516,6 +1516,7 @@ function ecranDossier() {
         option('enveloppe', 'Budget envisagé par le client'),
         option('imagines', 'Images d’intention (✨ Imaginé)'),
         option('notesPieces', 'Notes des pièces'),
+        option('planAnnote', 'Plan annoté (travaux)' + (AN.nettoyer(M.valeur(v, 'annotations')).imageId ? '' : ' — aucun plan annoté pour l’instant (étape Scan)')),
         h('p', { class: 'mut petit' }, 'Jamais dans le dossier : les notes de visite, la marge.'),
         h('button', { class: 'gros', id: 'imprimerDossier', type: 'button', onclick: imprimer }, '🖨 Imprimer / PDF'),
         h('p', { class: 'mut petit' }, 'Sur iPhone : « Imprimer », puis le bouton Partager pour l’enregistrer en PDF ou l’envoyer.')),
