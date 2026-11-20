@@ -3,7 +3,7 @@
    completerProspectDepuisVisite, visitesARattacher, visitesDuProspect).
    Clients fictifs. */
 const {charger,verif}=require('./harness');
-const M=charger(['libellePartage','visiteResume','visiteIntitule','normTel','prospectsCandidats','prospectDepuisVisite',
+const M=charger(['libellePartage','visiteResume','visiteIntitule','normTel','prospectsCandidats','prospectDepuisVisite','prospectSansSuiteDepuisVisite',
   'completerProspectDepuisVisite','visitesARattacher','visitesDuProspect','releveLien']);
 const {chk,fin}=verif();
 
@@ -118,4 +118,8 @@ chk(vf.fourchette&&vf.fourchette.min===8600&&vf.fourchette.max===12900,'la fourc
 chk(M.visiteResume(ligne('vis-g',{budget:{lignes:[],estimation:{min:0,max:0}}})).fourchette===null,'fourchette vide : rien d’affiché');
 chk(/Fourchette annoncée à la visite \(indicative\) : de 8.600 € à 12.900 € TTC/.test(M.prospectDepuisVisite(vf,{},'2026-11-18').demande),'la demande du prospect créé reprend la fourchette annoncée');
 chk(M.releveLien()==='releve/'&&M.releveLien({visite:'a b'})==='releve/?visite=a%20b'&&M.releveLien({prospect:'p1'})==='releve/?prospect=p1'&&M.releveLien({visite:'v1',vue:'dossier'})==='releve/?visite=v1&vue=dossier','liens vers le relevé de visite');
+{const r=M.visiteResume({id:'vx',donnees:{id:'vx',creeLe:'2026-11-17T09:30:00.000Z',valeurs:{'client.nom':'FICTIF','client.prenom':'Léa','client.ville':'Sées'},photos:{}}});
+  const q=M.prospectSansSuiteDepuisVisite(r,{},'2026-11-20');
+  chk(q.statut==='perdu'&&q.archive.motif==='sans_suite'&&q.archive.le==='2026-11-20'&&q.archive.statutAvant==='demande'&&q.visites[0].id==='vx'&&q.client==='Léa FICTIF',
+    'visite « sans suite » : prospect archivé (motif sans suite, remis en « Chiffrage demandé » si on décoche), visite rattachée');}
 fin();
