@@ -20,6 +20,10 @@ Une seule fonction Supabase pour quatre services du relevé de visite :
   géomètre ou d'une esquisse ; **Imaginer** accepte aussi la photo d'un
   terrain (la maison neuve dessus, `mode:'terrain'`) ou d'une façade
   (l'agrandissement, `mode:'facade'`).
+- **🤖 Règlement PLU** (action `reglement`) : la fonction télécharge le
+  règlement de la zone (PDF publié sur la Géoplateforme, et seulement là) et
+  Gemini en extrait les règles d'une maison (hauteur, emprise, reculs…).
+  Compté avec les dictées.
   Compté avec les dictées.
 - **🔗 Dossier envoyé au client** (action `partage`) : le client ouvre son
   dossier par un lien personnel (`releve/partage.html#t=<jeton>`, 30 jours),

@@ -56,6 +56,7 @@ export function vueDossier(d, { photo, logo }) {
       ligne('Adresse', d.terrain.adresse), ligne('Parcelle cadastrale', d.terrain.parcelle), ligne('Surface', d.terrain.surface), ligne('Configuration', d.terrain.configuration),
       d.terrain.urbanisme ? [h('h3', {}, 'Urbanisme'), h('p', { class: 'texte' }, d.terrain.urbanisme),
         d.terrain.reglement ? h('p', {}, h('a', { href: d.terrain.reglement, target: '_blank', rel: 'noopener' }, 'Règlement de la zone (Géoportail de l’urbanisme)')) : null] : null,
+      d.terrain.regles && d.terrain.regles.lignes.length ? [h('h3', {}, 'Règles de la zone ' + d.terrain.regles.zone + ' (extrait du règlement, à vérifier)'), d.terrain.regles.lignes.map(([t, x]) => ligne(t, x))] : null,
       d.terrain.servitudes.length ? [h('h3', {}, 'Servitudes'), h('ul', {}, d.terrain.servitudes.map(x => h('li', {}, x)))] : null,
       d.terrain.risques.length ? [h('h3', {}, 'Risques connus à l’adresse'), h('ul', {}, d.terrain.risques.map(x => h('li', {}, x))),
         d.terrain.rapport ? h('p', {}, h('a', { href: d.terrain.rapport, target: '_blank', rel: 'noopener' }, 'Rapport officiel Géorisques')) : null] : null,

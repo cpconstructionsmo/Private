@@ -41,6 +41,8 @@ qu'on ait à les redire.
   client (option `terrain`) ; plan du terrain coté lu par l'IA et analysé
   (`terrain.plan`, `analyserPlanTerrain`) ; « Imaginer la maison sur ce
   terrain » (mode `terrain`) ; étape « Plan » en construction ;
+  règles de la zone lues dans le règlement PLU (action `reglement` : PDF de
+  la Géoplateforme seulement, `terrain.reglement`, lecture à vérifier) ;
   client particulier (1 à 3 acheteurs, `acheteur2.*`, `acheteur3.*`,
   domicile de chacun) ou société (`societe.*`), usage du bien, ampleur
   (`projet.categories`), situation et souhaits dictés (🎤, Web Speech,

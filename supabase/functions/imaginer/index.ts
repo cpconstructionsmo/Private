@@ -1,9 +1,11 @@
-// La fonction du relevé de visite (nom historique : « imaginer »). Quatre actions :
+// La fonction du relevé de visite (nom historique : « imaginer »). Cinq actions :
 // - imaginer   : la photo d'une pièce, transformée en pièce rénovée par Gemini ;
 // - structurer : l'assistant de visite — la dictée libre du métreur, rangée
 //                en champs de fiche (une proposition, vérifiée par le relevé) ;
 // - decrire    : une photo lue par Gemini — légende et constats d'une photo
 //                de pièce, ou transcription d'une note manuscrite ;
+// - reglement  : le règlement PLU de la zone du terrain (PDF de la
+//                Géoplateforme, téléchargé ici) lu par Gemini ;
 // - partage    : le dossier client ouvert par le lien personnel (#t=<jeton>)
 //                envoyé au client : seule action sans compte, le jeton suffit.
 //
@@ -19,7 +21,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { lireDemande, requeteGemini, imageReponse, modeles, limiteJour,
   lireStructuration, requeteStructuration, jsonReponse, modelesTexte, limiteTexte,
-  jetonValide, empreinte, cheminsDossier, lireDescription, requeteDescription, descriptionReponse } from './regles.js';
+  jetonValide, empreinte, cheminsDossier, lireDescription, requeteDescription, descriptionReponse,
+  lireReglement, requeteReglement, reglementReponse, enBase64, REGLEMENT_MAX } from './regles.js';
 
 const URL_SUPABASE = Deno.env.get('SUPABASE_URL');
 const CLE_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -105,6 +108,30 @@ Deno.serve(async (req: Request) => {
     if ('erreur' in f) return reponse(f, 422);
     if (!ec) await db.from('releve_ia_usage').upsert({ jour, user_id: u.user.id, nb_texte: deja + 1 }, { onConflict: 'jour,user_id' });
     return reponse(action === 'decrire' ? { ...f, modele: g.modele, restant: limite - deja - 1 } : { fiche: (f as { fiche: unknown }).fiche, modele: g.modele });
+  }
+
+  /* ---------- le règlement de la zone : PDF de la Géoplateforme, lu par Gemini ---------- */
+  if (action === 'reglement') {
+    const d = lireReglement(corps);
+    if ('erreur' in d) return reponse(d, 400);
+    const limite = limiteTexte(Deno.env.get('IMAGINER_LIMITE_TEXTE'));
+    const { data: c, error: ec } = await db.from('releve_ia_usage').select('nb_texte').eq('jour', jour).eq('user_id', u.user.id).maybeSingle();
+    const deja = ec ? 0 : (c?.nb_texte || 0);
+    if (deja >= limite) return reponse({ erreur: 'quota', limite }, 429);
+    let octets: Uint8Array;
+    try {
+      const r = await fetch(d.url);
+      if (!r.ok) return reponse({ erreur: 'reglement_absent', statut: r.status }, 502);
+      if (+(r.headers.get('content-length') || 0) > REGLEMENT_MAX) return reponse({ erreur: 'reglement_trop_lourd' }, 413);
+      octets = new Uint8Array(await r.arrayBuffer());
+    } catch { return reponse({ erreur: 'reglement_absent' }, 502); }
+    if (octets.length > REGLEMENT_MAX) return reponse({ erreur: 'reglement_trop_lourd' }, 413);
+    const g = await gemini(modelesTexte(Deno.env.get('IMAGINER_MODELE_TEXTE')), requeteReglement(d, enBase64(octets)));
+    if ('erreur' in g) return reponse(g, 502);
+    const f = reglementReponse(g.json);
+    if ('erreur' in f) return reponse(f, 422);
+    if (!ec) await db.from('releve_ia_usage').upsert({ jour, user_id: u.user.id, nb_texte: deja + 1 }, { onConflict: 'jour,user_id' });
+    return reponse({ ...f, zone: d.zone, modele: g.modele, restant: limite - deja - 1 });
   }
 
   /* ---------- imaginer : la pièce rénovée ---------- */
