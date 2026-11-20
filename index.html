@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-20 · Visites de construction neuve et d’agrandissement : prospect « Maison neuve » prérempli, terrain, urbanisme et risques dans la demande';
+const VERSION='2026-11-20 · Visites de construction : règles de la zone (règlement PLU lu par l’IA) dans la demande du prospect';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -26647,7 +26647,11 @@ function visiteResume(ligne){
         reglement:u.zone&&u.zone.reglement||'', servitudes:(u.servitudes||[]).map(x=>x.libelle),
         risques:[rq.argile?'argiles : '+String(rq.argile.libelle||'').toLowerCase():'',rq.seisme?'sismicité '+String(rq.seisme.libelle||'').toLowerCase():'',
           ...[...(rq.naturels||[]),...(rq.technologiques||[])].filter(x=>/existant|concern/i.test(x.statut||'')&&!/non concern|inconnu|non connu/i.test(x.statut||'')&&x.cle!=='seisme'&&x.cle!=='retraitGonflementArgile').map(x=>x.libelle)].filter(Boolean),
-        rapport:rq.url||'', pente:txt('terrain.pente'), lotissement:txt('terrain.lotissement'), assainissement:txt('terrain.assainissement'),
+        rapport:rq.url||'',
+        /* les règles de la zone lues dans le règlement PLU (lecture automatique, à vérifier) */
+        regles:(()=>{const rg=v['terrain.reglement'];if(!rg||!rg.regles||!u.zone||rg.zone!==u.zone.libelle)return [];
+          return [['hauteur','hauteur'],['emprise','emprise'],['implantationVoies','recul voies'],['implantationLimites','recul limites']].filter(([k])=>typeof rg.regles[k]==='string').map(([k,l])=>l+' : '+rg.regles[k])})(),
+        pente:txt('terrain.pente'), lotissement:txt('terrain.lotissement'), assainissement:txt('terrain.assainissement'),
         reseaux:['eau','electricite','assainissement','gaz','fibre'].map(k=>[k,txt('terrain.reseau.'+k)]).filter(x=>x[1])}})():null,
     /* la fourchette de prix donnée pendant la visite (releve/budget.js) : indicative */
     fourchette:v.budget&&v.budget.estimation&&v.budget.estimation.max>0?{min:v.budget.estimation.min,max:v.budget.estimation.max,complet:!!v.budget.estimation.complet}:null};
@@ -26778,6 +26782,7 @@ function visiteLignesNeuf(r){
     te&&te.adresse?'Adresse du terrain : '+te.adresse:'',
     te&&(te.parcelle||te.surface)?'Parcelle : '+[te.parcelle,te.surface?te.surface+' m²':''].filter(Boolean).join(' · '):'',
     te&&te.urbanisme?'Urbanisme : '+te.urbanisme+(te.reglement?' (règlement : '+te.reglement+')':''):'',
+    te&&te.regles&&te.regles.length?'Règlement de la zone (lecture automatique, à vérifier) : '+te.regles.join(' ; '):'',
     te&&te.servitudes.length?'Servitudes : '+te.servitudes.join(' ; '):'',
     te&&te.risques.length?'Risques (Géorisques) : '+te.risques.join(', ')+(te.rapport?' — rapport : '+te.rapport:''):'',
     te&&(te.pente||te.lotissement||te.assainissement)?'Sur place : '+[te.pente,te.lotissement==='Oui'?'en lotissement':'',te.assainissement?'assainissement '+te.assainissement.toLowerCase():''].filter(Boolean).join(' · '):'',

@@ -161,6 +161,15 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   mouvements de terrain, radon, pollution ; plus de 150 m² (architecte) ;
   agrandissement : déclaration préalable ou permis selon le seuil (40 m² en
   zone urbaine d'un PLU, sinon 20 m²), 150 m² après travaux.
+- **« 🤖 Lire le règlement de la zone »** (étape Terrain, sous l'urbanisme) :
+  la fonction `imaginer` (action `reglement`) télécharge le PDF du règlement
+  (Géoplateforme seulement, 14 Mo au plus) et Gemini en tire les règles de
+  la zone pour une maison : constructions autorisées, emprise, hauteur,
+  reculs (voies, limites), aspect, toitures, clôtures, stationnement,
+  espaces verts, autres règles importantes, pages lues. Citées telles
+  qu'écrites ou absentes, jamais inventées ; affichées comme une lecture
+  automatique à vérifier (`terrain.reglement`), reprises dans le dossier
+  client et dans la demande du prospect (seulement pour la zone actuelle).
 - **Plan du terrain coté** (étape Terrain, « 🗺 Plan du terrain ») : plan de
   géomètre, de bornage, de lotissement ou esquisse cotée à la main, en photo
   ou en PDF. L'IA (fonction `imaginer`, action `decrire`, mode `terrain`)

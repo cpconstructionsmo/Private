@@ -258,3 +258,58 @@ export function descriptionReponse(json, mode) {
   const constats = (Array.isArray(o.constats) ? o.constats : []).map(c => txt(c, CONSTAT_MAX).replace(/\s+/g, ' ')).filter(Boolean).slice(0, CONSTATS_MAX);
   return legende || constats.length ? { legende, constats } : { erreur: 'rien_lu' };
 }
+
+/* ==========================================================================
+   « Lire le règlement » : le règlement du document d'urbanisme (PDF publié
+   sur la Géoplateforme, lien rendu par le Géoportail de l'urbanisme) est lu
+   par Gemini pour la zone du terrain. La fonction télécharge elle-même le
+   PDF, et seulement depuis la Géoplateforme (jamais une adresse quelconque).
+   La réponse cite les règles telles qu'écrites, ou null : rien d'inventé ;
+   le relevé l'affiche comme une lecture automatique, à vérifier.
+   Compté avec les dictées.
+   ========================================================================== */
+export const REGLEMENT_HOTE = 'https://data.geopf.fr/annexes/gpu/documents/';
+export const REGLEMENT_MAX = 14_000_000;      // octets du PDF : en base64 (×4/3), la requête reste sous les 20 Mo acceptés par Gemini
+export const REGLES = [['destination', 'Constructions autorisées'], ['emprise', 'Emprise au sol'], ['hauteur', 'Hauteur'],
+  ['implantationVoies', 'Recul par rapport aux voies'], ['implantationLimites', 'Recul par rapport aux limites séparatives'],
+  ['aspect', 'Aspect extérieur, façades'], ['toitures', 'Toitures'], ['clotures', 'Clôtures'], ['stationnement', 'Stationnement'], ['espacesVerts', 'Espaces verts, pleine terre']];
+export function lireReglement(corps) {
+  const url = String(corps?.url ?? '').split('#')[0].trim();
+  if (!url.startsWith(REGLEMENT_HOTE) || !/\.pdf$/i.test(url) || /\.\.|[\s<>"]/.test(url) || url.length > 400) return { erreur: 'lien_reglement' };
+  const zone = nettoyer(corps?.zone, 20);
+  if (!zone) return { erreur: 'zone_absente' };
+  return { url, zone, libelle: nettoyer(corps?.libelle, 160) };
+}
+export function inviteReglement({ zone, libelle }) {
+  return [
+    'Voici le règlement écrit d’un document d’urbanisme (PLU ou PLUi). Lis les règles qui s’appliquent à la zone « ' + zone + ' »' + (libelle ? ' (' + libelle + ')' : '') + ',',
+    'y compris les dispositions communes à toutes les zones si le règlement en a, pour la construction d’une maison individuelle.',
+    'Réponds en JSON, en français, en citant les règles telles qu’écrites (chiffres, unités, conditions), en quelques phrases courtes au plus par rubrique :',
+    '{"zoneTrouvee":true,"pages":null,' + REGLES.map(([k]) => '"' + k + '":null').join(',') + ',"autres":[]}',
+    'Une rubrique que le règlement ne traite pas pour cette zone reste null. N’invente rien, ne complète pas avec des règles générales.',
+    'zoneTrouvee : false si la zone « ' + zone + ' » n’est pas dans ce règlement. pages : les pages lues (ex. « 32 à 41 »). autres : au plus 5 règles importantes de plus (risques, servitudes, divisions…).',
+  ].join('\n');
+}
+export function requeteReglement(d, pdfBase64) {
+  return {
+    contents: [{ role: 'user', parts: [{ text: inviteReglement(d) }, { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } }] }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
+  };
+}
+export function reglementReponse(json) {
+  const r = jsonReponse(json);
+  if ('erreur' in r) return r;
+  const o = r.fiche, t = v => typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600) : null;
+  if (o.zoneTrouvee === false) return { erreur: 'zone_introuvable' };
+  const regles = {};
+  REGLES.forEach(([k]) => { const v = t(o[k]); if (v) regles[k] = v; });
+  const autres = (Array.isArray(o.autres) ? o.autres : []).map(t).filter(Boolean).slice(0, 5);
+  if (!Object.keys(regles).length && !autres.length) return { erreur: 'rien_lu' };
+  return { regles, autres, pages: t(o.pages) };
+}
+/* le PDF en base64, par morceaux (un fichier de plusieurs Mo) */
+export function enBase64(octets) {
+  let bin = '';
+  for (let i = 0; i < octets.length; i += 0x8000) bin += String.fromCharCode.apply(null, octets.subarray(i, i + 0x8000));
+  return btoa(bin);
+}

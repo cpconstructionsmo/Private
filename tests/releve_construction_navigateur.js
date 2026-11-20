@@ -81,6 +81,14 @@ let b;
   chk(/À retenir \(indicatif, à vérifier\)/.test(pa)&&/Plus de 150 m²/.test(pa)&&/Argiles : exposition moyenne/.test(pa)&&/Inondation/.test(pa),'points d’attention indicatifs (150 m², argiles, inondation…)');
   chk(await p.inputValue('input[name="terrain.surface"]')==='812','surface du terrain reprise du cadastre (case vide)');
   chk(await (async()=>{for(let i=0;i<60;i++){const d=await ligne();if(d&&d.valeurs['terrain.infos']&&d.valeurs['terrain.infos'].parcelle)return d.valeurs['terrain.position'].source==='adresse';await p.waitForTimeout(100)}return false})(),'le terrain et ce qu’en disent les services partent avec la visite (relus hors ligne)');
+  /* le règlement de la zone, lu par l'IA */
+  await p.evaluate(()=>{window.__etat.fonctions={imaginer:{corps:{regles:{hauteur:'7 m à l’égout du toit',emprise:'40 % de l’unité foncière',implantationVoies:'5 m minimum'},autres:['Bande constructible de 25 m'],pages:'12 à 18',zone:'UB',restant:89}}}});
+  await p.tap('#lireReglement');
+  await p.waitForSelector('#reglesZone');
+  const ar=await p.evaluate(()=>window.__etat.appels.filter(a=>a.nom==='imaginer').slice(-1)[0]);
+  chk(ar.body.action==='reglement'&&ar.body.zone==='UB'&&ar.body.url.startsWith('https://data.geopf.fr/annexes/gpu/documents/DU_61999/docfictif/61999_reglement_20260101.pdf'),'« Lire le règlement » : le lien du règlement et la zone partent à la fonction');
+  const rz=await p.textContent('#reglesZone');
+  chk(/Règles de la zone UB \(lecture automatique, pages 12 à 18, à vérifier dans le règlement\)/.test(rz)&&/Hauteur\s*7 m à l’égout du toit/.test(rz)&&/Emprise au sol\s*40 %/.test(rz)&&/Bande constructible de 25 m/.test(rz),'règles de la zone affichées (hauteur, emprise, recul…), dites à vérifier');
   await p.screenshot({path:SORTIE+'/releve_terrain.png',fullPage:true});
   /* une surface tapée n'est pas écrasée ; GPS sur place */
   await p.fill('input[name="terrain.surface"]','790');
@@ -150,6 +158,7 @@ let b;
   await p.tap('#ouvrirDossier');await p.waitForSelector('.dossier .feuille');
   const dz=(await p.textContent('.dossier')).replace(/\s+/g,' ');
   chk(/Votre projet de construction/.test(dz)&&/Surface habitable souhaitée\s*160 m²/.test(dz)&&/Chambres\s*4/.test(dz)&&/Maison neuve \(clé en main\)/.test(dz),'dossier client : titre, projet de construction, estimation (maison neuve)');
+  chk(/Règles de la zone UB \(extrait du règlement, à vérifier\)/.test(dz)&&/Hauteur\s*7 m à l’égout du toit/.test(dz),'dossier client : les règles de la zone, dites à vérifier');
   chk(/Le terrain/.test(dz)&&/Section ZK n° 0123/.test(dz)&&/790 m²/.test(dz)&&/zone UB : zone urbaine pavillonnaire/.test(dz)&&/Points à vérifier/.test(dz)&&/certificat d’urbanisme/.test(dz)
     &&await p.getAttribute('.terrainDossier a:has-text("Rapport officiel Géorisques")','href')===F.rapport.url,'dossier client : page « Le terrain » (parcelle, urbanisme, risques, points à vérifier, rapport officiel), datée et dite indicative');
   await p.uncheck('input[name="opt-terrain"]');

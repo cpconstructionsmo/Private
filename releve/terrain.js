@@ -47,6 +47,10 @@ export function urls(lon, lat) {
     seisme: GEORISQUES + '/zonage_sismique?latlon=' + ll(lon, lat),
   };
 }
+/* les règles du règlement PLU lues par l'IA (fonction « imaginer », action reglement) */
+export const REGLES_PLU = [['destination', 'Constructions autorisées'], ['emprise', 'Emprise au sol'], ['hauteur', 'Hauteur'],
+  ['implantationVoies', 'Recul / voies'], ['implantationLimites', 'Recul / limites séparatives'], ['aspect', 'Aspect extérieur'],
+  ['toitures', 'Toitures'], ['clotures', 'Clôtures'], ['stationnement', 'Stationnement'], ['espacesVerts', 'Espaces verts']];
 export const urlCommune = insee => API_CARTO + '/gpu/municipality?insee=' + encodeURIComponent(insee);
 export const urlGeocodage = q => GEOCODAGE + '?limit=1&q=' + encodeURIComponent(q);
 export const carteUrbanisme = (lon, lat) => 'https://www.geoportail-urbanisme.gouv.fr/map/#tile=1&lon=' + (+lon).toFixed(6) + '&lat=' + (+lat).toFixed(6) + '&zoom=18';
