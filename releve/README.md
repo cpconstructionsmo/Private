@@ -133,6 +133,39 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   visite est ouverte ailleurs. Limite du jour ou réglage absent : la
   demande s'arrête et le message reste sous la photo.
 
+## Rénovation, construction neuve, agrandissement
+
+- **Dès la 1re page** : « 🏚 Rénovation », « 🏗 Construction neuve » ou
+  « ➕ Agrandissement » (`projet.nature`). Le parcours suit (`etapesDe`) :
+  rénovation inchangée (7 étapes, une ancienne visite sans nature est une
+  rénovation) ; construction : photo du terrain, client, projet, terrain,
+  fin ; agrandissement : tout, avec le terrain en plus.
+- **Projet de construction** : prestation, surface habitable souhaitée,
+  niveaux, chambres, garage, chauffage, projet du client (dicté), terrain
+  (acquis, compromis, en recherche) et son prix, financement, délai,
+  enveloppe hors terrain. **Agrandissement** : type (extension,
+  surélévation, véranda…), surface de l'agrandissement et de la maison
+  actuelle, travaux dans l'existant.
+- **Étape Terrain** (`releve/terrain.js`) : adresse (celle des travaux ou à
+  part), « 📍 Localiser par l'adresse » (géocodage de la Géoplateforme) ou
+  « 🛰 Je suis sur le terrain » (GPS). Les services publics, sans clé :
+  parcelle et contenance (API Carto cadastre), document d'urbanisme, zone,
+  **règlement de la zone en PDF**, commune au RNU, servitudes (abords de
+  monument historique, site patrimonial…) et informations (API Carto GPU),
+  **rapport Géorisques** à l'adresse (risques naturels et technologiques,
+  lien du rapport officiel), argiles et sismicité. Gardé avec la visite
+  (`terrain.position`, `terrain.infos`), relu hors ligne ; la contenance ne
+  remplit la surface que si elle est vide. **Points d'attention
+  indicatifs** (`pointsAttention`, à vérifier) : zone A / N / AU, RNU,
+  ABF, plan de prévention, argiles (étude G1 / G2), sismicité, inondation,
+  mouvements de terrain, radon, pollution ; plus de 150 m² (architecte) ;
+  agrandissement : déclaration préalable ou permis selon le seuil (40 m² en
+  zone urbaine d'un PLU, sinon 20 m²), 150 m² après travaux.
+- Sur place : surface, façade, forme, pente, orientation, accès,
+  lotissement (rappel du règlement et du cahier des charges), viabilisation
+  réseau par réseau, assainissement, bornage, étude de sol, démolition,
+  notes dictées, photos du terrain.
+
 ## Le dessin rapide (sans scan)
 
 - Étape Scan › **« ✏️ Dessin rapide (sans scan) »** : on pose des pièces

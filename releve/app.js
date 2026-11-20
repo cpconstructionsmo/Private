@@ -18,6 +18,7 @@ import { dossierClient, OPTIONS_DEFAUT } from './dossier.js';
 import * as A from './assistant.js';
 import * as DR from './dessin.js';
 import * as AN from './annotations.js';
+import * as T from './terrain.js';
 import { h } from './dom.js';
 import { vueDossier, dateLongue } from './dossier-vue.js';
 
@@ -205,7 +206,7 @@ function ecranAccueil() {
 function carteVisite(r) {
   const v = r.visite, garde = v.photos[M.valeur(v, 'photoGarde')];
   const ville = M.valeur(v, 'client.ville'), types = M.valeur(v, 'projet.types') || [];
-  return h('div', { class: 'carte visite', 'data-visite': r.id, onclick: () => { S.courante = r.id; S.etape = Math.max(0, M.ETAPES.findIndex(e => e.id === M.valeur(v, 'etape'))); S.ecran = 'visite'; S.message = null; dessiner(); } },
+  return h('div', { class: 'carte visite', 'data-visite': r.id, onclick: () => { S.courante = r.id; S.etape = Math.max(0, M.etapesDe(v).findIndex(e => e.id === M.valeur(v, 'etape'))); S.ecran = 'visite'; S.message = null; dessiner(); } },
     garde && !garde.supprime ? imagePhoto(garde, 'vignette') : h('div', { class: 'vignette' }, '🏠'),
     h('div', { class: 'corps' },
       h('b', {}, M.intitule(v)),
@@ -217,27 +218,28 @@ function carteVisite(r) {
 }
 
 function allerEtape(i) {
-  S.etape = Math.max(0, Math.min(M.ETAPES.length - 1, i));
+  S.etape = Math.max(0, Math.min(M.etapesDe(visite()).length - 1, i));
   S.message = null;
-  poser('etape', M.ETAPES[S.etape].id);
+  poser('etape', M.etapesDe(visite())[S.etape].id);
   dessiner(); window.scrollTo(0, 0);
 }
 
 function ecranVisite() {
   const v = visite();
   if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
-  const et = M.ETAPES[S.etape], dernier = S.etape === M.ETAPES.length - 1;
-  const corps = { garde: etapeGarde, client: etapeClient, projet: etapeProjet, pieces: etapePieces, scan: etapeScan, budget: etapeBudget, fin: etapeFin }[et.id](v);
+  const ETP = M.etapesDe(v); if (S.etape >= ETP.length) S.etape = ETP.length - 1;
+  const et = ETP[S.etape], dernier = S.etape === ETP.length - 1;
+  const corps = { garde: etapeGarde, client: etapeClient, projet: etapeProjet, terrain: etapeTerrain, pieces: etapePieces, scan: etapeScan, budget: etapeBudget, fin: etapeFin }[et.id](v);
   return [
     h('header', { class: 'haut' },
       h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'accueil'; S.message = null; dessiner(); } }, '‹ Visites'),
       h('span', { class: 'titre' }, M.intitule(v)), pastilleEtat()),
     h('main', {},
       // la barre de progression est aussi un sommaire : toucher une étape y va directement
-      h('nav', { class: 'progres', 'aria-label': 'Étapes de la visite' }, M.ETAPES.map((e, i) => h('button', { type: 'button', class: i < S.etape ? 'fait' : i === S.etape ? 'ici' : '',
+      h('nav', { class: 'progres', 'aria-label': 'Étapes de la visite' }, ETP.map((e, i) => h('button', { type: 'button', class: i < S.etape ? 'fait' : i === S.etape ? 'ici' : '',
         title: e.titre, 'aria-label': 'Étape ' + (i + 1) + ' : ' + e.titre, 'aria-current': i === S.etape ? 'step' : null, onclick: () => { if (i !== S.etape) allerEtape(i); } }, h('i')))),
       h('div', { class: 'rang', style: 'justify-content:space-between;align-items:center' },
-        h('div', { class: 'etapeNom' }, 'Étape ' + (S.etape + 1) + ' sur ' + M.ETAPES.length + ' · ' + et.titre),
+        h('div', { class: 'etapeNom' }, 'Étape ' + (S.etape + 1) + ' sur ' + ETP.length + ' · ' + et.titre),
         h('button', { class: 'puce assistantBouton', type: 'button', id: 'ouvrirAssistant', onclick: () => { S.ecran = 'assistant'; S.propAssistant = null; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🎙 Assistant')),
       S.message && h('div', { class: 'message ' + S.message.type, style: 'margin-top:10px' }, S.message.texte),
       h('div', { class: 'anime' }, corps)),
@@ -261,11 +263,15 @@ function etapeGarde(v) {
   const garde = v.photos[M.valeur(v, 'photoGarde')];
   const prendre = () => choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'garde' }));
   const galerie = () => choisirFichier({ accept: 'image/*' }, f => ajouterPhotos(f.slice(0, 1), { role: 'garde' }));
+  const neuf = M.natureDe(v) === 'construction';
   return [
-    h('h1', {}, 'La maison'),
+    // la nature du projet décide du parcours (étapes) : choisie avant tout
+    h('div', { class: 'champ' }, 'LE PROJET'),
+    puces(v, 'projet.nature', M.NATURES, { cls: 'puces natures', apres: () => { S.etape = 0; redessiner(); } }),
+    h('h1', {}, neuf ? 'Le terrain en photo' : 'La maison'),
     garde && !garde.supprime
       ? [imagePhoto(garde, 'garde'), h('div', { class: 'rang', style: 'margin-top:10px' }, h('button', { class: 'gros sec', onclick: prendre }, '📷 Reprendre'), h('button', { class: 'gros sec', onclick: galerie }, '🖼 Galerie'))]
-      : [h('p', { class: 'mut' }, 'Une photo de la façade : elle servira de page de garde au dossier du client.'),
+      : [h('p', { class: 'mut' }, neuf ? 'Une photo du terrain : elle servira de page de garde au dossier du client.' : 'Une photo de la façade : elle servira de page de garde au dossier du client.'),
         h('button', { class: 'gros', id: 'photoGarde', onclick: prendre }, '📷 Prendre la photo de garde'),
         h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', onclick: galerie }, '🖼 Choisir dans la galerie'))],
   ];
@@ -476,6 +482,47 @@ function etapeProjet(v) {
     if (source !== 'saisie') saisie.value = val ?? '';
     if (source !== 'curseur') curseur.value = Math.min(val || 0, 300000);
   };
+  const nature = M.natureDe(v);
+  const blocEnveloppe = (libelle, max) => [h('div', { class: 'champ' }, libelle),
+    h('div', { class: 'carte', style: 'margin-top:6px' },
+      affichage = h('div', { class: 'montant', id: 'montantEnveloppe' }, M.formatEuros(env)),
+      curseur = h('input', { type: 'range', class: 'curseur', min: 0, max, step: 1000, value: Math.min(env || 0, max), 'aria-label': 'Enveloppe financière', oninput: e => majEnv(e.target.value, 'curseur') }),
+      h('label', { class: 'champ', style: 'margin-top:4px' }, 'OU TAPER LE MONTANT',
+        saisie = h('input', { class: 'in', inputMode: 'numeric', name: 'projet.enveloppe', value: env ?? '', placeholder: 'ex. 45 000', oninput: e => majEnv(e.target.value, 'saisie') })))];
+  const nombre = (cle, libelle, ph) => champ(v, cle, libelle, { inputmode: 'numeric', placeholder: ph });
+  if (nature === 'construction') {
+    const st = M.valeur(v, 'construction.terrainStatut');
+    return [
+      h('h1', {}, 'Le projet de construction'),
+      h('div', { class: 'champ' }, 'PRESTATION'), puces(v, 'construction.prestation', M.PRESTATIONS_NEUF),
+      nombre('construction.surface', 'SURFACE HABITABLE SOUHAITÉE (m²)', 'ex. 110'),
+      h('div', { class: 'champ' }, 'NIVEAUX'), puces(v, 'construction.niveaux', M.NIVEAUX_NEUF, { multiple: true }),
+      h('div', { class: 'champ' }, 'CHAMBRES'), puces(v, 'construction.chambres', M.CHAMBRES),
+      h('div', { class: 'champ' }, 'GARAGE'), puces(v, 'construction.garage', M.GARAGES),
+      h('div', { class: 'champ' }, 'CHAUFFAGE SOUHAITÉ'), puces(v, 'construction.chauffage', M.CHAUFFAGES_NEUF),
+      champ(v, 'projet.souhaits', 'LE PROJET DU CLIENT', { multiligne: true, autocapitalize: 'sentences', micro: true, placeholder: 'Style, pièces de vie, suite parentale, terrasse, matériaux, contraintes…' }),
+      h('div', { class: 'champ' }, 'LE TERRAIN'), puces(v, 'construction.terrainStatut', M.STATUTS_TERRAIN, { apres: redessiner }),
+      st === 'Acquis' || st === 'Compromis signé' ? nombre('construction.prixTerrain', 'PRIX DU TERRAIN (€)', 'ex. 60 000') : null,
+      h('div', { class: 'champ' }, 'FINANCEMENT'), puces(v, 'construction.financement', M.FINANCEMENTS),
+      h('div', { class: 'champ' }, 'DÉLAI SOUHAITÉ'), puces(v, 'projet.delai', M.DELAIS),
+      blocEnveloppe('ENVELOPPE DE LA CONSTRUCTION (TTC, HORS TERRAIN)', 600000),
+    ];
+  }
+  if (nature === 'agrandissement') return [
+    h('h1', {}, 'Le projet d’agrandissement'),
+    h('div', { class: 'champ' }, 'TYPE D’AGRANDISSEMENT'), puces(v, 'agrandissement.types', M.TYPES_AGRANDISSEMENT, { multiple: true }),
+    h('div', { class: 'deuxCol' },
+      nombre('agrandissement.surface', 'SURFACE DE L’AGRANDISSEMENT (m²)', 'ex. 30'),
+      nombre('agrandissement.surfaceExistante', 'SURFACE ACTUELLE DE LA MAISON (m²)', 'ex. 95')),
+    h('p', { class: 'mut petit' }, 'Les deux surfaces servent aux rappels de l’étape Terrain (déclaration ou permis, seuil des 150 m²).'),
+    h('div', { class: 'champ' }, 'TRAVAUX DANS L’EXISTANT (FACULTATIF)'),
+    puces(v, 'projet.types', M.TYPES_TRAVAUX, { multiple: true, cls: 'grille', apres: redessiner }),
+    types.includes('Autre') ? champ(v, 'projet.typeAutre', 'AUTRES TRAVAUX : PRÉCISEZ', { autocapitalize: 'sentences', micro: true }) : null,
+    champ(v, 'projet.situation', 'LA MAISON AUJOURD’HUI', { multiligne: true, autocapitalize: 'sentences', micro: true, placeholder: 'L’existant : année, structure, chauffage, isolation, contraintes…' }),
+    champ(v, 'projet.souhaits', 'SOUHAITS DU CLIENT', { multiligne: true, autocapitalize: 'sentences', micro: true, placeholder: 'Pièces à créer, usage, lumière, liaison avec l’existant…' }),
+    h('div', { class: 'champ' }, 'DÉLAI SOUHAITÉ'), puces(v, 'projet.delai', M.DELAIS),
+    blocEnveloppe('ENVELOPPE FINANCIÈRE (TTC)', 400000),
+  ];
   return [
     h('h1', {}, 'Le projet'),
     h('div', { class: 'champ' }, 'AMPLEUR DE LA RÉNOVATION'),
@@ -494,6 +541,136 @@ function etapeProjet(v) {
       curseur = h('input', { type: 'range', class: 'curseur', min: 0, max: 300000, step: 1000, value: Math.min(env || 0, 300000), 'aria-label': 'Enveloppe financière', oninput: e => majEnv(e.target.value, 'curseur') }),
       h('label', { class: 'champ', style: 'margin-top:4px' }, 'OU TAPER LE MONTANT',
         saisie = h('input', { class: 'in', inputMode: 'numeric', name: 'projet.enveloppe', value: env ?? '', placeholder: 'ex. 45 000', oninput: e => majEnv(e.target.value, 'saisie') }))),
+  ];
+}
+
+/* ---------- étape Terrain (construction, agrandissement) : terrain.js ----------
+   Localisé par l'adresse ou par le GPS sur place, le terrain est interrogé
+   aux services publics (cadastre, urbanisme, risques) ; les réponses sont
+   gardées avec la visite et relues hors ligne. Les points d'attention sont
+   indicatifs : ils disent quoi vérifier. */
+const lireJson = async (url, ms = 20000) => {
+  const c = typeof AbortController === 'function' ? new AbortController() : null, t = c && setTimeout(() => c.abort(), ms);
+  try { const r = await fetch(url, c ? { signal: c.signal } : {}); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
+  finally { if (t) clearTimeout(t); }
+};
+const adresseTerrain = v => M.valeur(v, 'terrain.adresseIdem') !== false && M.natureDe(v) === 'agrandissement' || M.valeur(v, 'terrain.adresseIdem') === true
+  ? [M.valeur(v, 'client.adresse'), M.valeur(v, 'client.codePostal'), M.valeur(v, 'client.ville')]
+  : [M.valeur(v, 'terrain.adresse'), M.valeur(v, 'terrain.codePostal'), M.valeur(v, 'terrain.ville')];
+function positionGps() {
+  return new Promise((ok, ko) => {
+    if (!navigator.geolocation) return ko(new Error('gps_absent'));
+    navigator.geolocation.getCurrentPosition(p => ok(p.coords), e => ko(e), { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 });
+  });
+}
+async function localiserTerrain(mode) {
+  const dire = (t, type) => { S.terrainEtat = { message: t, type: type || 'err' }; redessiner(); };
+  if (navigator.onLine === false) return dire('Pas de réseau : la localisation et les informations du terrain se chercheront au retour du réseau. Les cases ci-dessous se remplissent sans réseau.', 'att');
+  S.terrainEtat = { encours: true }; redessiner();
+  let pos;
+  try {
+    if (mode === 'gps') {
+      const c = await positionGps();
+      pos = { lon: c.longitude, lat: c.latitude, label: 'Position GPS sur le terrain' + (c.accuracy ? ' (± ' + Math.round(c.accuracy) + ' m)' : ''), source: 'gps' };
+    } else {
+      const q = adresseTerrain(visite()).filter(Boolean).join(' ').trim();
+      if (q.length < 5) return dire('Tapez d’abord l’adresse du terrain (ou cochez « même adresse que les travaux »).', 'att');
+      const g = T.lireGeocodage(await lireJson(T.urlGeocodage(q)));
+      if (!g) return dire('Adresse introuvable : vérifiez-la, ou utilisez le GPS une fois sur le terrain.');
+      pos = { lon: g.lon, lat: g.lat, label: g.label, insee: g.insee, source: 'adresse' };
+    }
+  } catch (e) {
+    return dire(mode === 'gps' ? 'Position GPS indisponible (autorisez la localisation pour le relevé dans les réglages de l’iPhone), ou localisez par l’adresse.' : 'Le service d’adresses ne répond pas : réessayez dans un instant.');
+  }
+  await poser('terrain.position', { ...pos, le: new Date().toISOString() });
+  await chercherInfosTerrain(pos);
+}
+async function chercherInfosTerrain(pos) {
+  const U = T.urls(pos.lon, pos.lat), cles = Object.keys(U);
+  const res = await Promise.allSettled(cles.map(k => lireJson(U[k])));
+  const R = {}, erreurs = [];
+  cles.forEach((k, i) => { if (res[i].status === 'fulfilled') R[k] = res[i].value; else erreurs.push(k); });
+  const parcelle = T.lireParcelle(R.parcelle);
+  const insee = (parcelle && parcelle.insee) || pos.insee || (R.rapport && R.rapport.commune && R.rapport.commune.codeInsee);
+  let commune = null;
+  if (insee) { try { commune = await lireJson(T.urlCommune(insee)); } catch (e) { erreurs.push('commune'); } }
+  const infos = { le: new Date().toISOString(), parcelle, urbanisme: T.lireUrbanisme({ ...R, commune }), risques: T.lireRisques(R), erreurs };
+  await changer(w => {
+    let x = M.modifier(w, 'terrain.infos', infos);
+    // la contenance cadastrale ne remplit la surface que si elle est vide (jamais d'écrasement)
+    if (parcelle && parcelle.contenance && !M.valeur(x, 'terrain.surface')) x = M.modifier(x, 'terrain.surface', parcelle.contenance);
+    return x;
+  });
+  S.terrainEtat = erreurs.length === cles.length ? { message: 'Les services publics ne répondent pas pour le moment : réessayez avec « ↻ Actualiser ».', type: 'err' }
+    : erreurs.length ? { message: 'Certaines informations n’ont pas pu être lues (' + erreurs.length + ') : « ↻ Actualiser » pour réessayer.', type: 'att' } : null;
+  vibrer(); redessiner();
+}
+function blocInfosTerrain(v) {
+  const pos = M.valeur(v, 'terrain.position'), inf = M.valeur(v, 'terrain.infos');
+  if (!pos) return null;
+  const u = (inf && inf.urbanisme) || {}, r = (inf && inf.risques) || {}, p = inf && inf.parcelle;
+  const nature = M.natureDe(v);
+  const pts = inf ? T.pointsAttention(inf, { nature, surfaceProjet: nature === 'construction' ? M.valeur(v, 'construction.surface') : M.valeur(v, 'agrandissement.surface'), surfaceExistante: M.valeur(v, 'agrandissement.surfaceExistante') }) : [];
+  const lien = (href, texte) => h('a', { href, target: '_blank', rel: 'noopener', class: 'lienRetour' }, texte);
+  const z = u.zone;
+  return h('div', { class: 'carte infosTerrain', id: 'infosTerrain' },
+    h('div', { class: 'rang', style: 'justify-content:space-between' }, h('b', {}, '📍 ' + (pos.label || 'Terrain localisé')),
+      h('button', { class: 'puce', type: 'button', id: 'actualiserTerrain', onclick: () => chercherInfosTerrain(pos) }, '↻ Actualiser')),
+    inf ? h('div', { class: 'mut petit' }, 'Lu le ' + dateCourte(inf.le) + ' auprès du cadastre, du Géoportail de l’urbanisme et de Géorisques.') : null,
+    p ? h('div', { class: 'ligneTerrain', id: 'parcelle' }, h('b', {}, 'Parcelle '), 'section ' + p.section + ' n° ' + p.numero + (p.commune ? ' (' + p.commune + ')' : '') + (p.contenance ? ' · ' + p.contenance.toLocaleString('fr-FR') + ' m² au cadastre' : '')) : null,
+    h('div', { class: 'ligneTerrain', id: 'urbanisme' }, h('b', {}, 'Urbanisme '),
+      u.rnu ? 'Règlement national d’urbanisme (pas de PLU)' : [u.document ? (u.document.titre || u.document.type) : null, z ? 'zone ' + z.libelle + (z.libelong ? ' : ' + z.libelong.toLowerCase() : '') + (z.typeLibelle ? ' (' + z.typeLibelle + ')' : '') : null].filter(Boolean).join(' — ') || 'non trouvé',
+      z && z.reglement ? [' · ', lien(z.reglement, '📄 Règlement de la zone')] : null, ' · ', lien(T.carteUrbanisme(pos.lon, pos.lat), '🗺 Carte')),
+    (u.servitudes || []).length ? h('ul', { class: 'listeTerrain', id: 'servitudes' }, u.servitudes.map(x => h('li', {}, x.libelle + (x.detail ? ' — ' + x.detail : '')))) : null,
+    (u.informations || []).length ? h('div', { class: 'mut petit' }, 'Informations du document d’urbanisme : ' + u.informations.join(' · ')) : null,
+    h('div', { class: 'ligneTerrain', id: 'risques' }, h('b', {}, 'Risques '),
+      [r.argile ? 'argiles : ' + r.argile.libelle.toLowerCase() : null, r.seisme ? 'sismicité ' + r.seisme.libelle.toLowerCase() : null].filter(Boolean).join(' · ') || '—',
+      r.url ? [' · ', lien(r.url, '📄 Rapport officiel Géorisques')] : null),
+    (r.naturels || []).length || (r.technologiques || []).length ? h('div', { class: 'puces risques' },
+      [...(r.naturels || []), ...(r.technologiques || [])].map(x => h('span', { class: 'puce risque' + (/existant|concerne/i.test(x.statut || '') && !/non /i.test(x.statut || '') ? ' avere' : '') }, x.libelle + (x.statut ? ' · ' + x.statut.replace(/^Risque /, '').toLowerCase() : '')))) : null,
+    pts.length ? h('div', { class: 'pointsAttention', id: 'pointsAttention' }, h('b', {}, 'À retenir (indicatif, à vérifier)'),
+      pts.map(x => h('div', { class: 'point ' + x.niveau }, h('b', {}, x.titre), ' — ', x.texte))) : null);
+}
+function etapeTerrain(v) {
+  const nature = M.natureDe(v), idem = M.valeur(v, 'terrain.adresseIdem') ?? nature === 'agrandissement';
+  const st = S.terrainEtat || {};
+  const photos = M.actifs(v.photos).filter(x => x.role === 'terrain');
+  const prendre = () => choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'terrain' }));
+  return [
+    h('h1', {}, 'Le terrain'),
+    caseACocher(v, 'terrain.adresseIdem', 'Même adresse que les travaux (fiche client)', { defaut: nature === 'agrandissement', apres: redessiner }),
+    idem ? h('div', { class: 'mut petit' }, [M.valeur(v, 'client.adresse'), M.valeur(v, 'client.codePostal'), M.valeur(v, 'client.ville')].filter(Boolean).join(' ') || 'Adresse non saisie à l’étape Client.')
+      : [champ(v, 'terrain.adresse', 'ADRESSE DU TERRAIN (OU LIEU-DIT)', { autocapitalize: 'sentences' }),
+        h('div', { class: 'deuxCol' }, champ(v, 'terrain.codePostal', 'CODE POSTAL', { inputmode: 'numeric' }), champ(v, 'terrain.ville', 'COMMUNE', { autocapitalize: 'words' }))],
+    h('div', { class: 'rang', style: 'margin-top:10px' },
+      h('button', { class: 'gros', type: 'button', id: 'localiserAdresse', disabled: !!st.encours, onclick: () => localiserTerrain('adresse') }, st.encours ? '⏳ Recherche…' : '📍 Localiser par l’adresse'),
+      h('button', { class: 'gros sec', type: 'button', id: 'localiserGps', disabled: !!st.encours, onclick: () => localiserTerrain('gps') }, '🛰 Je suis sur le terrain')),
+    st.message ? h('div', { class: 'message ' + st.type, id: 'infoTerrain' }, st.message) : null,
+    blocInfosTerrain(v),
+    h('h2', { style: 'margin-top:16px' }, 'Sur place'),
+    h('div', { class: 'deuxCol' },
+      champ(v, 'terrain.surface', 'SURFACE DU TERRAIN (m²)', { inputmode: 'numeric' }),
+      champ(v, 'terrain.facade', 'FAÇADE SUR RUE (m)', { inputmode: 'numeric' })),
+    h('div', { class: 'champ' }, 'FORME'), puces(v, 'terrain.forme', T.FORMES),
+    h('div', { class: 'champ' }, 'PENTE'), puces(v, 'terrain.pente', T.PENTES),
+    h('div', { class: 'champ' }, 'ORIENTATION DU JARDIN'), puces(v, 'terrain.orientation', T.ORIENTATIONS),
+    h('div', { class: 'champ' }, 'ACCÈS'), puces(v, 'terrain.acces', T.ACCES),
+    h('div', { class: 'champ' }, 'EN LOTISSEMENT'), puces(v, 'terrain.lotissement', T.OUI_NON, { apres: redessiner }),
+    M.valeur(v, 'terrain.lotissement') === 'Oui' ? h('div', { class: 'message att petit' }, 'Demander le règlement et le cahier des charges du lotissement : ils s’ajoutent au PLU.') : null,
+    h('h2', { style: 'margin-top:16px' }, 'Viabilisation'),
+    T.RESEAUX.map(([k, lib]) => [h('div', { class: 'champ' }, lib.toUpperCase()), puces(v, 'terrain.reseau.' + k, T.ETATS_RESEAU)]),
+    h('div', { class: 'champ' }, 'TYPE D’ASSAINISSEMENT'), puces(v, 'terrain.assainissement', T.ASSAINISSEMENTS),
+    h('h2', { style: 'margin-top:16px' }, 'À savoir'),
+    h('div', { class: 'champ' }, 'BORNAGE FAIT'), puces(v, 'terrain.bornage', T.OUI_NON),
+    h('div', { class: 'champ' }, 'ÉTUDE DE SOL FAITE'), puces(v, 'terrain.etudeSol', T.OUI_NON),
+    h('div', { class: 'champ' }, 'DÉMOLITION OU ABATTAGE À PRÉVOIR'), puces(v, 'terrain.demolition', T.OUI_NON),
+    champ(v, 'terrain.notes', 'NOTES SUR LE TERRAIN', { multiligne: true, autocapitalize: 'sentences', micro: true, placeholder: 'Voisinage, vues, arbres, haies, servitudes de passage, accès chantier…' }),
+    h('h2', { style: 'margin-top:16px' }, 'Photos du terrain'),
+    photos.length ? h('div', { class: 'photosTerrain' }, photos.map(ph => h('figure', {}, imagePhoto(ph),
+      h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => { if (!confirm('Supprimer cette photo ?')) return; await changer(x => M.supprimer(x, 'photos', ph.id)); dessiner(); } }, '×')))) : null,
+    h('div', { class: 'rang', style: 'margin-top:8px' },
+      h('button', { class: 'gros sec', type: 'button', id: 'photoTerrain', onclick: prendre }, '📷 Photo'),
+      h('button', { class: 'gros sec', type: 'button', onclick: () => choisirFichier({ accept: 'image/*', multiple: true }, f => ajouterPhotos(f, { role: 'terrain' })) }, '🖼 Galerie')),
   ];
 }
 
@@ -1014,7 +1191,7 @@ function ecranAnnoter() {
   marquer();
   const fonds = fondsAnnotation(v), aJour = fonds.find(f => f.source === a.source);
   const perime = aJour && a.empreinte && aJour.empreinte !== a.empreinte;
-  const retour = () => { S.ecran = 'visite'; S.etape = Math.max(0, M.ETAPES.findIndex(x => x.id === 'scan')); dessiner(); window.scrollTo(0, 0); };
+  const retour = () => { S.ecran = 'visite'; S.etape = Math.max(0, M.etapesDe(visite()).findIndex(x => x.id === 'scan')); dessiner(); window.scrollTo(0, 0); };
   return [
     h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Visite'), h('span', { class: 'titre' }, 'Plan annoté'), pastilleEtat()),
     h('main', { class: 'ecranAnnot' },
@@ -1135,7 +1312,7 @@ window.addEventListener('message', e => {
       // une image ou un PDF glissé sur le plan : lu comme un plan 2D, depuis l'étape Scan
       // (hors de la file : fermerPlan attend un message du moteur qui passera par elle)
       const f = m.fichiers && m.fichiers.length ? m.fichiers.filter(estPlan2D) : [m.fichier];
-      setTimeout(async () => { await fermerPlan(); S.etape = Math.max(0, M.ETAPES.findIndex(x => x.id === 'scan')); S.ecran = 'visite'; dessiner(); lirePlan2D(f); }, 0);
+      setTimeout(async () => { await fermerPlan(); S.etape = Math.max(0, M.etapesDe(visite()).findIndex(x => x.id === 'scan')); S.ecran = 'visite'; dessiner(); lirePlan2D(f); }, 0);
     }
   }).catch(err => erreurPlan('Le plan n’a pas pu être enregistré sur l’appareil (' + ((err && err.message) || 'erreur') + ').'));
 });
@@ -1166,7 +1343,21 @@ function etapeFin(v) {
       [2, 3].filter(n => n <= nb).map(n => [
         dd('Acheteur ' + n, [nomDe('acheteur' + n), contactDe('acheteur' + n)].filter(Boolean).join(' · ')),
         M.valeur(v, 'acheteur' + n + '.domicileIdem') === false ? dd('Domicile acheteur ' + n, M.domicile(v, n)) : null]),
-      dd('Adresse des travaux', travaux),
+      dd('Projet', (M.NATURES.find(n => n[0] === M.natureDe(v)) || [])[1]),
+      dd(M.natureDe(v) === 'construction' ? 'Adresse' : 'Adresse des travaux', travaux),
+      M.natureDe(v) === 'construction' ? [
+        dd('Construction', [M.valeur(v, 'construction.prestation'), M.valeur(v, 'construction.surface') ? M.valeur(v, 'construction.surface') + ' m² habitables' : null,
+          (M.valeur(v, 'construction.niveaux') || []).join(', ') || null, M.valeur(v, 'construction.chambres') ? M.valeur(v, 'construction.chambres') + ' chambre(s)' : null,
+          M.valeur(v, 'construction.garage') && M.valeur(v, 'construction.garage') !== 'Aucun' ? 'garage ' + M.valeur(v, 'construction.garage').toLowerCase() : null,
+          M.valeur(v, 'construction.chauffage')].filter(Boolean).join(' · ') || null),
+        dd('Terrain', [M.valeur(v, 'construction.terrainStatut'), M.valeur(v, 'construction.prixTerrain') != null ? M.formatEuros(M.valeur(v, 'construction.prixTerrain')) : null].filter(Boolean).join(' · ') || null),
+        dd('Financement', M.valeur(v, 'construction.financement'))] : null,
+      M.natureDe(v) === 'agrandissement' ? dd('Agrandissement', [(M.valeur(v, 'agrandissement.types') || []).join(', ') || null,
+        M.valeur(v, 'agrandissement.surface') ? M.valeur(v, 'agrandissement.surface') + ' m²' : null,
+        M.valeur(v, 'agrandissement.surfaceExistante') ? 'maison actuelle ' + M.valeur(v, 'agrandissement.surfaceExistante') + ' m²' : null].filter(Boolean).join(' · ') || null) : null,
+      M.natureDe(v) !== 'renovation' ? (() => { const inf = M.valeur(v, 'terrain.infos') || {}, z = inf.urbanisme && inf.urbanisme.zone, pa = inf.parcelle;
+        return dd('Parcelle et urbanisme', [pa ? 'section ' + pa.section + ' n° ' + pa.numero : null, M.valeur(v, 'terrain.surface') ? M.valeur(v, 'terrain.surface').toLocaleString('fr-FR') + ' m²' : null,
+          inf.urbanisme && inf.urbanisme.rnu ? 'RNU' : z ? 'zone ' + z.libelle : null].filter(Boolean).join(' · ') || null); })() : null,
       dd('Usage du bien', usage),
       dd('Ampleur', (M.valeur(v, 'projet.categories') || []).join(', ')),
       dd('Travaux', listeTypes.join(', ')),
@@ -1933,7 +2124,7 @@ async function traiterLien() {
     let rec = S.visites.find(r => r.id === id);
     if (!rec) { await sync.synchroniser(); rec = S.visites.find(r => r.id === id); }
     // « ?vue=dossier » (depuis la fiche prospect du suivi) ouvre directement le dossier client
-    if (rec) { S.courante = id; S.etape = Math.max(0, M.ETAPES.findIndex(e => e.id === M.valeur(rec.visite, 'etape'))); S.ecran = lien.vue === 'dossier' ? 'dossier' : 'visite'; S.message = null; }
+    if (rec) { S.courante = id; S.etape = Math.max(0, M.etapesDe(rec.visite).findIndex(e => e.id === M.valeur(rec.visite, 'etape'))); S.ecran = lien.vue === 'dossier' ? 'dossier' : 'visite'; S.message = null; }
     else S.message = { type: 'err', texte: 'Cette visite n’est pas sur cet appareil et n’a pas pu être téléchargée (réseau ?). Réessayez avec du réseau.' };
     dessiner();
   } else if (lien.prospect) {
