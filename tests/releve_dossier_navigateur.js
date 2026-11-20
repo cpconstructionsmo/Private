@@ -36,6 +36,7 @@ let b;
   await p.fill('input[name="client.adresse"]','1 rue Imaginaire');await p.fill('input[name="client.ville"]','Alençon');
   await p.tap('#suivant');
   await p.tap('.grille >> text=Cuisine');
+  await p.waitForSelector('.grille .puce.on >> text=Cuisine');   // l'écran est redessiné : on peut écrire sans perdre la saisie
   await p.fill('textarea[name="projet.situation"]','Cuisine fermée des années 80.');
   await p.fill('textarea[name="projet.souhaits"]','Cuisine ouverte sur le séjour.');
   await p.tap('#suivant');

@@ -145,21 +145,36 @@ export const limiteTexte = v => { const n = parseInt(String(v ?? ''), 10); retur
    - mode « photo » : la photo d'une pièce → une légende courte et quelques
      constats utiles au chiffrage (état, matériaux, points de vigilance) ;
    - mode « note »  : la photo d'une note manuscrite ou d'un document →
-     sa transcription, que l'assistant de visite range ensuite dans la fiche.
+     sa transcription, que l'assistant de visite range ensuite dans la fiche ;
+   - mode « plan »  : un plan 2D (photo, image ou PDF : magicplan, plan
+     d'architecte, croquis) → ses pièces rectangulaires, partie par partie,
+     dont le relevé tire un dessin rapide à vérifier (releve/dessin.js).
    Ce n'est qu'une proposition : le relevé n'écrase jamais ce qui est tapé.
    Compté avec les dictées (IMAGINER_LIMITE_TEXTE).
    ========================================================================== */
-export const LEGENDE_MAX = 140, CONSTAT_MAX = 200, CONSTATS_MAX = 6, NOTE_MAX = 8000;
+export const LEGENDE_MAX = 140, CONSTAT_MAX = 200, CONSTATS_MAX = 6, NOTE_MAX = 8000, PARTIES_MAX = 8, PIECES_PLAN_MAX = 40;
 
 export function lireDescription(corps) {
   const image = String(corps?.image ?? '').replace(/^data:image\/[a-z+]+;base64,/i, '');
   if (!image || !/^[A-Za-z0-9+/=\s]+$/.test(image.slice(0, 2000))) return { erreur: 'image_absente' };
   if (image.length > IMAGE_MAX) return { erreur: 'image_trop_lourde' };
-  const mime = /^image\/(jpeg|png|webp)$/.test(String(corps?.mime)) ? String(corps.mime) : 'image/jpeg';
-  return { image: image.replace(/\s+/g, ''), mime, mode: corps?.mode === 'note' ? 'note' : 'photo', piece: nettoyer(corps?.piece, 80) };
+  const mode = corps?.mode === 'note' ? 'note' : corps?.mode === 'plan' ? 'plan' : 'photo';
+  // un plan peut arriver en PDF (export magicplan) : Gemini le lit tel quel
+  const mime = /^image\/(jpeg|png|webp)$/.test(String(corps?.mime)) || (mode === 'plan' && corps?.mime === 'application/pdf') ? String(corps.mime) : 'image/jpeg';
+  return { image: image.replace(/\s+/g, ''), mime, mode, piece: nettoyer(corps?.piece, 80) };
 }
 
 export function inviteDescription({ mode, piece }) {
+  if (mode === 'plan') return [
+    'Voici un plan 2D de logement (export d’application comme magicplan, plan d’architecte, croquis, ou photo d’un plan papier).',
+    'Relève les pièces dessinées, partie par partie (un étage, ou « état actuel » et « projet » dessinés séparément sont des parties différentes).',
+    'Réponds en JSON : {"parties":[{"nom":"…","pieces":[{"nom":"…","longueur":0,"largeur":0,"x":0,"y":0}]}]}',
+    'longueur = dimension intérieure HORIZONTALE de la pièce telle que dessinée (de gauche à droite), largeur = dimension VERTICALE, en mètres.',
+    'Prends-les dans les cotes écrites (ex. « 4.30 × 5.49 », cotes le long des murs) et vérifie avec ces cotes laquelle est horizontale.',
+    'x, y = coin haut-gauche intérieur de la pièce, en mètres depuis le coin haut-gauche de la partie, en suivant les cotes (murs compris).',
+    'Une pièce non rectangulaire : son rectangle englobant. N’invente aucune pièce ; ignore le mobilier et les annotations manuscrites, sauf un nom de pièce.',
+    'nom de partie : son titre sur le plan (ex. « Rez-de-chaussée — état actuel »), sinon « Plan ».',
+  ].join('\n');
   if (mode === 'note') return [
     'Voici la photo d’une note manuscrite (ou d’un document) prise pendant la visite d’un chantier de rénovation.',
     'Recopie fidèlement tout le texte lisible, en français, ligne par ligne, avec les nombres et les unités tels qu’écrits.',
@@ -191,6 +206,16 @@ export function descriptionReponse(json, mode) {
   if (mode === 'note') {
     const texte = txt(o.texte, NOTE_MAX);
     return texte ? { texte } : { erreur: 'rien_lu' };
+  }
+  if (mode === 'plan') {
+    const n = (v, min, max) => { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return isFinite(x) && x >= min && x <= max ? Math.round(x * 100) / 100 : null; };
+    const parties = (Array.isArray(o.parties) ? o.parties : []).slice(0, PARTIES_MAX).map((p, i) => ({
+      nom: txt(p?.nom, 80).replace(/\s+/g, ' ') || 'Plan ' + (i + 1),
+      pieces: (Array.isArray(p?.pieces) ? p.pieces : []).slice(0, PIECES_PLAN_MAX)
+        .map(q => ({ nom: txt(q?.nom, 40).replace(/\s+/g, ' ') || 'Pièce', longueur: n(q?.longueur, 0.3, 50), largeur: n(q?.largeur, 0.3, 50), x: n(q?.x, -10, 300) ?? 0, y: n(q?.y, -10, 300) ?? 0 }))
+        .filter(q => q.longueur != null && q.largeur != null),
+    })).filter(p => p.pieces.length);
+    return parties.length ? { parties } : { erreur: 'rien_lu' };
   }
   const legende = txt(o.legende, LEGENDE_MAX).replace(/\s+/g, ' ');
   const constats = (Array.isArray(o.constats) ? o.constats : []).map(c => txt(c, CONSTAT_MAX).replace(/\s+/g, ' ')).filter(Boolean).slice(0, CONSTATS_MAX);

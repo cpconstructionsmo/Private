@@ -148,6 +148,26 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   jamais écrasé en silence : il est gardé de côté (`plan.ecarte`).
 - Chevauchements et dimensions hors bornes (0,30 à 50 m) sont signalés
   avant de créer le plan.
+- **« 🖼 Plan 2D (photo, image ou PDF) »** (étape Scan, ou fichier glissé sur
+  le plan) : un plan déjà fait (export magicplan, plan d'architecte, photo
+  d'un plan papier) part à la fonction `imaginer` (action `decrire`, mode
+  `plan`, PDF de 4 Mo au plus). Elle relève les pièces de chaque partie
+  (étage, état actuel / projet : on choisit laquelle) ; `dessinDepuisRectangles`
+  en fait un dessin rapide (chaque pièce contre sa voisine, murs jusqu'à
+  70 cm enjambés, voisines alignées à 3 cm près). Le métreur vérifie, avec
+  le plan d'origine sous le dessin (photo `planPapier`, gardée avec la
+  visite), puis « ✓ Créer le plan ». **Plusieurs esquisses d'un coup**
+  (une par pièce, par exemple) : chacune est lue, leurs pièces s'ajoutent au
+  dessin, posées à côté, puis placées au doigt contre leur voisine. Un dessin
+  existant : « ＋ Ajouter au dessin » ou « Remplacer le dessin », au choix.
+- **« 🖍 Plan annoté (travaux) »** (étape Scan, dès qu'il y a un plan dessiné
+  ou un plan importé) : une **copie** du plan, annotée au doigt — stylo de
+  couleur, flèches, textes (« / » pour aller à la ligne), « ↶ Annuler »,
+  « 🗑 Tout effacer ». Le plan lui-même ne change pas. Annotations en
+  vecteurs (`annotations`, `releve/annotations.js`), fond copié à part (photo
+  `fondAnnote`) ; en quittant l'écran, l'image annotée est refaite (photo
+  `planAnnote`) et s'affiche à côté du plan. Si le plan change, « Repartir
+  du plan à jour » garde les annotations (à vérifier).
 
 ## L'assistant de visite
 

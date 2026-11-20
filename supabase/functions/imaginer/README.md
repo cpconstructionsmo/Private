@@ -14,6 +14,8 @@ Une seule fonction Supabase pour quatre services du relevé de visite :
   constats utiles au chiffrage (état, matériaux, vigilance), qui s'ajoutent
   aux notes de la pièce d'un geste ; dans l'assistant, **« 📷 Lire une note
   manuscrite »** recopie une note photographiée à la suite de la dictée.
+  **« 🖼 Plan 2D »** (mode `plan`, image ou PDF) relève les pièces d'un plan
+  déjà fait (magicplan, architecte) pour le dessin rapide.
   Compté avec les dictées.
 - **🔗 Dossier envoyé au client** (action `partage`) : le client ouvre son
   dossier par un lien personnel (`releve/partage.html#t=<jeton>`, 30 jours),

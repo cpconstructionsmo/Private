@@ -165,6 +165,13 @@
     .pieceDossier,.duo,.tableDossier,.feuille.fin{break-inside:avoid}
   }
   [hidden]{display:none!important}
+  .duoPlans{display:grid;grid-template-columns:1fr;gap:10px;margin-top:8px}
+  @media (min-width:700px){.duoPlans{grid-template-columns:1fr 1fr}}
+  .duoPlans figure{margin:0}.vignettePlan{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line,#ddd);background:#fff}
+  .cadreAnnot{padding:4px;overflow:hidden}.toileAnnot{display:block;width:100%;height:auto;touch-action:none;background:#fff;border-radius:6px;cursor:crosshair}
+  .barreAnnot{flex-wrap:wrap}.pastilleCouleur{color:var(--c);font-size:22px;line-height:1;padding:4px 12px}.pastilleCouleur.on{outline:3px solid var(--c);background:#fff!important;color:var(--c)!important}
+  .planOrigine summary{cursor:pointer;font-weight:600}
+  .imagePlanOrigine{display:block;width:100%;height:auto;margin-top:8px;border-radius:8px}
   .descriptionIA{margin-top:6px;padding:8px 10px;border-radius:8px;background:#EEF3FA;border:1px solid #D5E0EE}
   .descriptionIA ul{margin:4px 0 0;padding-left:18px}
   .enAttenteImaginer{margin-top:6px;padding:6px 10px;border-radius:8px;background:#FBF0DA;color:var(--amber)}

@@ -41,6 +41,15 @@ const {chk,fin}=verif();
   chk(rd.legende==='Tableau électrique ancien'&&rd.constats.length===R.CONSTATS_MAX&&rd.constats[0]==='Fusibles porcelaine'&&rd.constats[1].length===R.CONSTAT_MAX,'décrire : légende nettoyée, constats texte seulement et bornés');
   chk(R.descriptionReponse(rep('{"texte":"Cuisine 3,20 x 2,80\\nprise à déplacer"}'),'note').texte==='Cuisine 3,20 x 2,80\nprise à déplacer'&&R.descriptionReponse(rep('{"texte":""}'),'note').erreur==='rien_lu'&&R.descriptionReponse(rep('{"legende":"","constats":[]}'),'photo').erreur==='rien_lu','décrire : note transcrite gardée ligne par ligne ; rien de lu : erreur nommée');
 
+  /* « décrire » un plan 2D : ses pièces, partie par partie */
+  const dp=R.lireDescription({image:img,mode:'plan',mime:'application/pdf'});
+  chk(dp.mode==='plan'&&dp.mime==='application/pdf'&&R.lireDescription({image:img,mode:'photo',mime:'application/pdf'}).mime==='image/jpeg','plan : le PDF est accepté, seulement pour un plan');
+  const ipl=R.inviteDescription({mode:'plan'});
+  chk(/HORIZONTALE/.test(ipl)&&/N’invente aucune pièce/.test(ipl)&&/"parties"/.test(ipl),'plan : consigne (dimension horizontale, rien d’inventé, JSON par partie)');
+  const rp=R.descriptionReponse(rep(JSON.stringify({parties:[{nom:' RDC  état actuel ',pieces:[{nom:'Salon',longueur:'4,30',largeur:5.49,x:5.2,y:0},{nom:'Placard',longueur:0.1,largeur:2},{nom:'',longueur:3,largeur:3}]},{nom:'Vide',pieces:[]}]})),'plan');
+  chk(rp.parties.length===1&&rp.parties[0].nom==='RDC état actuel'&&rp.parties[0].pieces.length===2&&rp.parties[0].pieces[0].longueur===4.3&&rp.parties[0].pieces[1].nom==='Pièce'&&rp.parties[0].pieces[1].x===0,'plan : nombres lus (virgule), dimension hors bornes écartée, partie vide retirée');
+  chk(R.descriptionReponse(rep('{"parties":[]}'),'plan').erreur==='rien_lu','plan : aucune pièce lue : erreur nommée');
+
   /* l'assistant de visite (action « structurer ») */
   chk(R.lireStructuration({texte:'court'}).erreur==='texte_absent','dictée trop courte : refusée');
   const ds=R.lireStructuration({texte:'Madame FICTIF, maison de 1975, chauffage fioul, elle veut ouvrir la cuisine.'+'x'.repeat(9000),
