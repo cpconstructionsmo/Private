@@ -161,6 +161,43 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   mouvements de terrain, radon, pollution ; plus de 150 m² (architecte) ;
   agrandissement : déclaration préalable ou permis selon le seuil (40 m² en
   zone urbaine d'un PLU, sinon 20 m²), 150 m² après travaux.
+- **Plan du terrain coté** (étape Terrain, « 🗺 Plan du terrain ») : plan de
+  géomètre, de bornage, de lotissement ou esquisse cotée à la main, en photo
+  ou en PDF. L'IA (fonction `imaginer`, action `decrire`, mode `terrain`)
+  relève ce qui est écrit (esquisse ou échelle, surface, façade, cotes, nord,
+  accès, remarques) ; le relevé l'analyse (`analyserPlanTerrain`) : surface
+  tirée des 4 côtés, écarts avec la surface écrite, le cadastre et la façade
+  relevée. Gardé dans `terrain.plan` (photo `planTerrain`) ; les valeurs ne
+  remplissent que les cases vides (« Utiliser … » pour les autres).
+- **« ✨ Imaginer la maison sur ce terrain »** sous chaque photo du terrain
+  (mode `terrain` de la fonction) : consigne tapée, dictée ou reprise du
+  projet (`consigneProjet` : niveaux, surface, garage, souhaits). Même file
+  d'attente sans réseau que les pièces.
+- **Étape « Plan »** en construction (7 étapes) : le plan de la future
+  maison depuis une esquisse ou un plan (lecture IA → dessin rapide → plan
+  coté et vue 3D du moteur) ; pas de scan à importer.
+- **Budget de la construction et de l'agrandissement** (étape Budget, 6e
+  étape en construction) : tuiles propres à la nature (`ouvragesDe`) —
+  maison neuve clé en main ou hors d'eau hors d'air (surface du projet),
+  garage, raccordements, assainissement individuel, étude de sol G2,
+  fondations adaptées, terrassement et VRD, démolition, extension (surface
+  de l'agrandissement). Le projet et le terrain les proposent
+  (`ouvragesSuggeresNeuf` : argiles moyennes ou fortes, pente forte, accès
+  difficile, assainissement individuel…). Prix de départ **à confirmer**
+  par CP (« ⚙ Prix au m² »), comme en rénovation.
+- **Dans le suivi** : une visite de construction crée un prospect « Maison
+  neuve » prérempli (surface habitable, chambres, niveaux, prestation,
+  chauffage, prix et surface du terrain, commune du terrain ; une valeur
+  hors des listes du suivi reste dans la demande) ; la demande reprend le
+  terrain (adresse, parcelle, urbanisme et règlement, servitudes, risques
+  et rapport Géorisques). Agrandissement : prospect de rénovation,
+  prestation « Extension » ou « Surélévation ». Rattacher ne remplit que
+  les cases vides.
+- **Dossier client** : titre selon le projet, lignes du projet de
+  construction, et page « Le terrain » (option « Terrain, urbanisme et
+  risques », cochée d'office) : parcelle, configuration, urbanisme et lien
+  du règlement, servitudes, risques et rapport officiel, points à vérifier,
+  date de consultation et mention « indicatif ».
 - Sur place : surface, façade, forme, pente, orientation, accès,
   lotissement (rappel du règlement et du cahier des charges), viabilisation
   réseau par réseau, assainissement, bornage, étude de sol, démolition,

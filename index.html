@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-20 · Visites à rattacher : « Sans suite » (prospect archivé) ou « Supprimer », visites écartées remises d’un clic';
+const VERSION='2026-11-20 · Visites de construction neuve et d’agrandissement : prospect « Maison neuve » prérempli, terrain, urbanisme et risques dans la demande';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -26627,6 +26627,28 @@ function visiteResume(ligne){
     gardeChemin:(garde&&garde.chemin)||'', plan:v.plan&&v.plan.resume?v.plan.resume:null,
     /* le dossier envoyé au client par lien (releve_partages) : de quoi dire s'il l'a ouvert */
     partage:v.partageDossier&&typeof v.partageDossier==='object'&&v.partageDossier.id?{id:String(v.partageDossier.id),expireLe:String(v.partageDossier.expireLe||''),creeLe:String(v.partageDossier.creeLe||'')}:null,
+    /* rénovation, construction neuve ou agrandissement (releve/modele.js, projet.nature) */
+    nature:v['projet.nature']==='construction'||v['projet.nature']==='agrandissement'?v['projet.nature']:'renovation',
+    construction:v['projet.nature']==='construction'?{surface:typeof v['construction.surface']==='number'?v['construction.surface']:null,
+      niveaux:Array.isArray(v['construction.niveaux'])?v['construction.niveaux'].map(String):[], chambres:txt('construction.chambres'), garage:txt('construction.garage'),
+      prestation:txt('construction.prestation'), chauffage:txt('construction.chauffage'), terrainStatut:txt('construction.terrainStatut'),
+      prixTerrain:typeof v['construction.prixTerrain']==='number'?v['construction.prixTerrain']:null, financement:txt('construction.financement')}:null,
+    agrandissement:v['projet.nature']==='agrandissement'?{types:Array.isArray(v['agrandissement.types'])?v['agrandissement.types'].map(String):[],
+      surface:typeof v['agrandissement.surface']==='number'?v['agrandissement.surface']:null,
+      surfaceExistante:typeof v['agrandissement.surfaceExistante']==='number'?v['agrandissement.surfaceExistante']:null}:null,
+    /* le terrain (releve/terrain.js) : ce que disent cadastre, urbanisme et Géorisques, et ce qui s'est vu sur place */
+    terrain:v['terrain.position']||v['terrain.surface']!=null?(()=>{const inf=v['terrain.infos']&&typeof v['terrain.infos']==='object'?v['terrain.infos']:{},
+      u=inf.urbanisme||{}, rq=inf.risques||{}, pa=inf.parcelle||null;
+      return {adresse:v['terrain.adresseIdem']===false?[txt('terrain.adresse'),txt('terrain.codePostal'),txt('terrain.ville')].filter(Boolean).join(' '):'',
+        ville:v['terrain.adresseIdem']===false?txt('terrain.ville'):'',
+        surface:typeof v['terrain.surface']==='number'?v['terrain.surface']:null,
+        parcelle:pa&&pa.section?'section '+pa.section+' n° '+pa.numero:'',
+        urbanisme:u.rnu?'RNU':u.zone&&u.zone.libelle?[u.document&&(u.document.titre||u.document.type),'zone '+u.zone.libelle+(u.zone.libelong?' ('+String(u.zone.libelong).toLowerCase()+')':'')].filter(Boolean).join(' — '):'',
+        reglement:u.zone&&u.zone.reglement||'', servitudes:(u.servitudes||[]).map(x=>x.libelle),
+        risques:[rq.argile?'argiles : '+String(rq.argile.libelle||'').toLowerCase():'',rq.seisme?'sismicité '+String(rq.seisme.libelle||'').toLowerCase():'',
+          ...[...(rq.naturels||[]),...(rq.technologiques||[])].filter(x=>/existant|concern/i.test(x.statut||'')&&!/non concern|inconnu|non connu/i.test(x.statut||'')&&x.cle!=='seisme'&&x.cle!=='retraitGonflementArgile').map(x=>x.libelle)].filter(Boolean),
+        rapport:rq.url||'', pente:txt('terrain.pente'), lotissement:txt('terrain.lotissement'), assainissement:txt('terrain.assainissement'),
+        reseaux:['eau','electricite','assainissement','gaz','fibre'].map(k=>[k,txt('terrain.reseau.'+k)]).filter(x=>x[1])}})():null,
     /* la fourchette de prix donnée pendant la visite (releve/budget.js) : indicative */
     fourchette:v.budget&&v.budget.estimation&&v.budget.estimation.max>0?{min:v.budget.estimation.min,max:v.budget.estimation.max,complet:!!v.budget.estimation.complet}:null};
 }
@@ -26691,12 +26713,15 @@ function prospectDepuisVisite(r,base,le){
     r.situation?'Situation actuelle : '+r.situation:'',
     r.souhaits?'Souhaits : '+r.souhaits:'',
     r.explicatif,
+    ...visiteLignesNeuf(r),
     r.fourchette?'Fourchette annoncée à la visite (indicative) : de '+eur(r.fourchette.min)+' à '+eur(r.fourchette.max)+' TTC':'']
     .filter(Boolean).join('\n');
   const couple=!a2&&!soc&&r.civilite==='M. et Mme';
   const b=base||{};
   const nomProjet=soc?(soc.raisonSociale||r.nom):r.nom;
-  return {...b,categorie:'renovation',
+  const c=r.construction, ag=r.agrandissement, te=r.terrain;
+  return {...b,categorie:r.nature==='construction'?'neuf':'renovation',
+    ...visiteChampsNeuf(r),
     nom:'Maison '+(nomProjet||'à nommer')+(r.ville?' - '+r.ville:''),
     civilite:soc?(PROSPECT_CIVILITES_SOCIETE.includes(soc.forme)?soc.forme:'Autre'):couple?'M.':(r.civilite||''),
     client:soc?(visiteSociete(r)||visiteNomClient(r)):visiteNomClient(r),
@@ -26704,7 +26729,7 @@ function prospectDepuisVisite(r,base,le){
     ...(a2?{afficherClient2:true,civilite2:a2.civilite||'',client2:nomA(a2),telClient2:a2.telephone||'',
       emailClient2:a2.email||'',adresseClient2:a2.domicile||''}:{}),
     telClient:r.telephone||'', emailClient:r.email||'',
-    adresseClient:(soc?soc.siege:r.domicile)||travaux, commune:r.ville||'',
+    adresseClient:(soc?soc.siege:r.domicile)||travaux, commune:(te&&te.ville)||r.ville||'',
     demande, demandeLe:(r.creeLe||'').slice(0,10)||le, statut:'demande',
     decouverte:{...(b.decouverte||{}),...(r.enveloppe!=null?{enveloppe:String(r.enveloppe)}:{}),...(travaux?{adresseProjet:travaux}:{})},
     visites:[{id:r.id,le}]};
@@ -26715,11 +26740,56 @@ function prospectDepuisVisite(r,base,le){
 function prospectSansSuiteDepuisVisite(r,base,le){
   return {...prospectDepuisVisite(r,base,le),statut:'perdu',archive:{motif:'sans_suite',le,statutAvant:'demande'}};
 }
+/* construction neuve et agrandissement : les champs de la fiche prospect
+   tirés de la visite (mêmes listes que le formulaire : rien d'inventé, une
+   valeur hors liste reste dans la demande) */
+const nbChambresVisite=c=>{const n=parseInt(String(c||''),10);return n>0?n:''};
+function niveauVisite(L){
+  const n=new Set(L||[]);
+  if(n.has('R+1')&&n.has('Combles aménagés'))return 'R+1 combles aménagés';
+  if(n.has('R+1'))return 'R+1';
+  if(n.has('Sous-sol'))return 'Sous-sol complet';
+  if(n.has('Plain-pied'))return 'Plain-pied';
+  return '';
+}
+function visiteChampsNeuf(r){
+  const c=r.construction, ag=r.agrandissement, te=r.terrain, o={};
+  if(c){
+    if(c.surface)o.surfaceHabitable=c.surface;
+    if(nbChambresVisite(c.chambres))o.nbChambres=nbChambresVisite(c.chambres);
+    if(niveauVisite(c.niveaux))o.niveaux=niveauVisite(c.niveaux);
+    if(PRESTATIONS.includes(c.prestation))o.prestation=c.prestation;
+    if(CHAUFFAGES.includes(c.chauffage))o.chauffage=c.chauffage;
+    if(c.prixTerrain!=null)o.terrainPrix=c.prixTerrain;
+  }
+  if(ag){const t=ag.types||[];if(t.includes('Surélévation'))o.prestation='Surélévation';else if(t.length)o.prestation='Extension'}
+  if(te&&te.surface)o.surfaceTerrain=te.surface;
+  return o;
+}
+function visiteLignesNeuf(r){
+  const c=r.construction, ag=r.agrandissement, te=r.terrain;
+  return [
+    r.nature==='construction'?'Projet : construction neuve':r.nature==='agrandissement'?'Projet : agrandissement':'',
+    c?'Construction : '+[c.prestation,c.surface?c.surface+' m² habitables':'',(c.niveaux||[]).join(', '),c.chambres?c.chambres+' chambre(s)':'',
+      c.garage&&c.garage!=='Aucun'?'garage '+c.garage.toLowerCase():'',c.chauffage].filter(Boolean).join(' · '):'',
+    c&&(c.terrainStatut||c.prixTerrain!=null)?'Terrain : '+[c.terrainStatut,c.prixTerrain!=null?eur(c.prixTerrain):''].filter(Boolean).join(' · '):'',
+    c&&c.financement?'Financement : '+c.financement:'',
+    ag?'Agrandissement : '+[(ag.types||[]).join(', '),ag.surface?ag.surface+' m²':'',ag.surfaceExistante?'maison actuelle '+ag.surfaceExistante+' m²':''].filter(Boolean).join(' · '):'',
+    te&&te.adresse?'Adresse du terrain : '+te.adresse:'',
+    te&&(te.parcelle||te.surface)?'Parcelle : '+[te.parcelle,te.surface?te.surface+' m²':''].filter(Boolean).join(' · '):'',
+    te&&te.urbanisme?'Urbanisme : '+te.urbanisme+(te.reglement?' (règlement : '+te.reglement+')':''):'',
+    te&&te.servitudes.length?'Servitudes : '+te.servitudes.join(' ; '):'',
+    te&&te.risques.length?'Risques (Géorisques) : '+te.risques.join(', ')+(te.rapport?' — rapport : '+te.rapport:''):'',
+    te&&(te.pente||te.lotissement||te.assainissement)?'Sur place : '+[te.pente,te.lotissement==='Oui'?'en lotissement':'',te.assainissement?'assainissement '+te.assainissement.toLowerCase():''].filter(Boolean).join(' · '):'',
+  ].filter(Boolean);
+}
 /* rattacher à un prospect existant : seules les cases vides sont complétées */
 const VISITE_CHAMPS_PROSPECT=[['civilite','civilité'],['client','nom du client'],['telClient','téléphone'],
   ['emailClient','e-mail'],['adresseClient','adresse'],['commune','commune'],['demande','demande'],
   ['civilite2','civilité du 2e acheteur'],['client2','2e acheteur'],['telClient2','téléphone du 2e acheteur'],
-  ['emailClient2','e-mail du 2e acheteur'],['adresseClient2','adresse du 2e acheteur']];
+  ['emailClient2','e-mail du 2e acheteur'],['adresseClient2','adresse du 2e acheteur'],
+  ['surfaceHabitable','surface habitable'],['surfaceTerrain','surface du terrain'],['nbChambres','chambres'],['niveaux','niveaux'],
+  ['prestation','prestation'],['chauffage','chauffage'],['terrainPrix','prix du terrain']];
 const VISITE_CHAMPS_DECOUVERTE=[['enveloppe','enveloppe'],['adresseProjet','adresse du projet']];
 function completerProspectDepuisVisite(p,r,le){
   const nv=prospectDepuisVisite(r,{},le), q={...p}, champs=[];
@@ -26829,11 +26899,15 @@ function EtatPartageVisite({partage}){
 function ResumeVisite({r}){
   return <div style={{flex:1,minWidth:0}}>
     <div className="sm" style={{fontWeight:600}}>{visiteIntitule(r)}
-      {r.statut==='terminee'&&<span className="pill" style={{marginLeft:6,background:GREEN+'1A',color:GREEN}}>terminée</span>}</div>
+      {r.statut==='terminee'&&<span className="pill" style={{marginLeft:6,background:GREEN+'1A',color:GREEN}}>terminée</span>}
+      {r.nature&&r.nature!=='renovation'&&<span className="pill nature-visite" style={{marginLeft:6,background:NAVY+'14',color:NAVY}}>{r.nature==='construction'?'construction neuve':'agrandissement'}</span>}</div>
     <div className="xs mut" style={{lineHeight:1.5}}>
       {[r.telephone,[r.codePostal,r.ville].filter(Boolean).join(' '),r.creeLe?'visite du '+fd(r.creeLe.slice(0,10)):''].filter(Boolean).join(' · ')}</div>
     <div className="xs" style={{lineHeight:1.5}}>
-      {[r.types.join(', '),r.delai,r.enveloppe!=null?'enveloppe '+eur(r.enveloppe):'',
+      {[r.construction?[r.construction.surface?r.construction.surface+' m²':'',r.construction.chambres?r.construction.chambres+' ch.':''].filter(Boolean).join(' · '):'',
+        r.agrandissement?[(r.agrandissement.types||[]).join(', '),r.agrandissement.surface?r.agrandissement.surface+' m²':''].filter(Boolean).join(' · '):'',
+        r.terrain&&r.terrain.urbanisme?r.terrain.urbanisme.replace(/^.* — /,''):'',
+        r.types.join(', '),r.delai,r.enveloppe!=null?'enveloppe '+eur(r.enveloppe):'',
         r.nbPieces?r.nbPieces+' pièce'+(r.nbPieces>1?'s':'')+' · '+r.nbPhotos+' photo'+(r.nbPhotos>1?'s':''):'',
         r.plan?'plan '+String(r.plan.surface).replace('.',',')+' m²':'',
         r.fourchette?'fourchette '+eur(r.fourchette.min)+' à '+eur(r.fourchette.max)+' TTC':''].filter(Boolean).join(' · ')||'Projet à préciser'}</div>
