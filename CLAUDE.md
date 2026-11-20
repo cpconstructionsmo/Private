@@ -39,7 +39,10 @@ qu'on ait à les redire.
   visite » d'une fiche prospect). Le suivi rattache les visites aux
   prospects sans doublon (PROSPECTS › « Visites à rattacher »,
   `prospectsCandidats`, `completerProspectDepuisVisite` : cases vides
-  seulement) et ne garde que le lien `p.visites`. Budget de premier
+  seulement) et ne garde que le lien `p.visites` ; « Sans suite » crée le
+  prospect déjà archivé (`archive.motif:'sans_suite'`,
+  `prospectSansSuiteDepuisVisite`), « 🗑 Supprimer » l'écarte
+  (`data.visitesIgnorees`, remise d'un clic sous « Visites écartées »). Budget de premier
   rendez-vous (`releve/budget.js`, étape « Budget ») : travaux en tuiles,
   surface globale tirée du plan ou réglée par − / +, gamme éco / standard /
   haut de gamme, prix au m² mini / médian / maxi (`OUVRAGES`, repères
