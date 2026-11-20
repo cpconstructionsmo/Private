@@ -118,7 +118,10 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   s'il n'y en a qu'une, sinon propose les communes à toucher. Sans réseau,
   la ville se tape.
 - **« 🎙 Commencer par un résumé »** en tête de la fiche client : ouvre
-  l'assistant de visite (écrit ou dicté).
+  l'assistant de visite (écrit ou dicté). Une fois dicté, le résumé s'affiche sur la carte
+  (« 🎙 Votre résumé de visite », 6 lignes, toucher pour le modifier ou le
+  compléter) et dans le récapitulatif ; il reste interne (jamais dans le
+  dossier client).
 - **Bouton « retour » du navigateur et du téléphone** : il ramène à l'écran
   d'avant (dossier, assistant, plan, prix → visite → accueil) au lieu de
   quitter le relevé ; les boutons « ‹ » de l'écran gardent l'historique

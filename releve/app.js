@@ -426,8 +426,11 @@ function etapeClient(v) {
   return [
     h('h1', {}, 'Le client'),
     // le résumé de départ : on raconte, l'assistant remplit la fiche (relue avant d'y entrer)
-    h('button', { class: 'carte resumeDepart', type: 'button', id: 'resumeDepart', onclick: () => { S.ecran = 'assistant'; S.propAssistant = null; S.message = null; dessiner(); window.scrollTo(0, 0); } },
-      h('b', {}, '🎙 Commencer par un résumé'), h('span', { class: 'mut petit' }, 'Racontez ou écrivez la visite en quelques phrases : la fiche se remplit toute seule, vous relisez avant.')),
+    // une fois dicté, le résumé s'affiche ici (toucher pour le modifier ou le compléter)
+    (() => { const resume = String(M.valeur(v, 'assistant.texte') || '').trim();
+      return h('button', { class: 'carte resumeDepart' + (resume ? ' rempli' : ''), type: 'button', id: 'resumeDepart', onclick: () => { S.ecran = 'assistant'; S.propAssistant = null; S.message = null; dessiner(); window.scrollTo(0, 0); } },
+        resume ? [h('b', {}, '🎙 Votre résumé de visite'), h('span', { class: 'resumeTexte', id: 'resumeTexte' }, resume), h('span', { class: 'mut petit' }, '✏️ Modifier ou compléter ›')]
+          : [h('b', {}, '🎙 Commencer par un résumé'), h('span', { class: 'mut petit' }, 'Racontez ou écrivez la visite en quelques phrases : la fiche se remplit toute seule, vous relisez avant.')]); })(),
     h('div', { class: 'puces', role: 'radiogroup' }, [['particulier', '👤 Particulier'], ['societe', '🏢 Société']].map(([code, lib]) => {
       const on = (code === 'societe') === societe;
       return h('button', { class: 'puce' + (on ? ' on' : ''), type: 'button', name: 'client.type', 'aria-pressed': String(on), onclick: async () => { await poser('client.type', code); vibrer(); redessiner(); } }, lib);
@@ -938,6 +941,7 @@ function etapeFin(v) {
       dd('Situation actuelle', M.valeur(v, 'projet.situation')),
       dd('Souhaits', M.valeur(v, 'projet.souhaits')),
       M.valeur(v, 'projet.explicatif') ? dd('En quelques mots', M.valeur(v, 'projet.explicatif')) : null,
+      M.valeur(v, 'assistant.texte') ? dd('Résumé de visite', M.valeur(v, 'assistant.texte')) : null,
       dd('Délai', M.valeur(v, 'projet.delai')),
       dd('Enveloppe', M.valeur(v, 'projet.enveloppe') != null ? M.formatEuros(M.valeur(v, 'projet.enveloppe')) + ' TTC' : null),
       dd('Pièces', M.actifs(v.pieces).map(p => { const ph = M.actifs(v.photos).filter(x => x.pieceId === p.id), im = ph.filter(x => x.role === 'imagine').length;
