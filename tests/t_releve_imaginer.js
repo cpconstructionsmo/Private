@@ -50,6 +50,17 @@ const {chk,fin}=verif();
   chk(rp.parties.length===1&&rp.parties[0].nom==='RDC état actuel'&&rp.parties[0].pieces.length===2&&rp.parties[0].pieces[0].longueur===4.3&&rp.parties[0].pieces[1].nom==='Pièce'&&rp.parties[0].pieces[1].x===0,'plan : nombres lus (virgule), dimension hors bornes écartée, partie vide retirée');
   chk(R.descriptionReponse(rep('{"parties":[]}'),'plan').erreur==='rien_lu','plan : aucune pièce lue : erreur nommée');
 
+  /* imaginer sur un terrain ou une façade ; lire un plan de terrain */
+  const dt=R.lireDemande({image:img,consigne:'maison plain-pied enduit blanc',mode:'terrain'});
+  chk(dt.mode==='terrain'&&/terrain à bâtir/.test(R.invite(dt))&&/maison neuve/.test(R.invite(dt))&&/même point de vue/.test(R.invite(dt))&&R.lireDemande({image:img,consigne:'xx yy',mode:'bidon'}).mode==='piece',
+    'imaginer sur la photo d’un terrain : la maison neuve, même point de vue ; mode inconnu : pièce');
+  chk(/agrandissement réalisé/.test(R.invite(R.lireDemande({image:img,consigne:'extension bois',mode:'facade'}))),'imaginer sur une façade : l’agrandissement');
+  const dtp=R.lireDescription({image:img,mode:'terrain',mime:'application/pdf'});
+  chk(dtp.mode==='terrain'&&dtp.mime==='application/pdf'&&/esquisse/.test(R.inviteDescription(dtp))&&/ne la calcule pas/.test(R.inviteDescription(dtp)),'plan de terrain : PDF accepté, consigne (esquisse ou échelle, surface écrite seulement)');
+  const rt=R.descriptionReponse(rep(JSON.stringify({esquisse:true,surface:'812',facade:18.5,forme:'Rectangulaire',cotes:[{cote:'rue',longueur:'18,5'},{cote:'voisin',longueur:44},{cote:'x',longueur:-3}],nord:'en haut',remarques:['Servitude de passage',''],bidon:1})),'terrain');
+  chk(rt.esquisse===true&&rt.surface===812&&rt.facade===18.5&&rt.cotes.length===2&&rt.cotes[0].longueur===18.5&&rt.forme==='Rectangulaire'&&rt.remarques.length===1&&!('bidon' in rt),'plan de terrain lu : esquisse, surface, façade, cotes valides, remarques');
+  chk(R.descriptionReponse(rep('{"esquisse":true,"cotes":[]}'),'terrain').erreur==='rien_lu','plan de terrain sans cote ni surface : rien lu');
+
   /* l'assistant de visite (action « structurer ») */
   chk(R.lireStructuration({texte:'court'}).erreur==='texte_absent','dictée trop courte : refusée');
   const ds=R.lireStructuration({texte:'Madame FICTIF, maison de 1975, chauffage fioul, elle veut ouvrir la cuisine.'+'x'.repeat(9000),

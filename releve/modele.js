@@ -30,10 +30,11 @@ export const ETAPES = [
 ];
 const PARCOURS = {
   renovation: ['garde', 'client', 'projet', 'pieces', 'scan', 'budget', 'fin'],
-  construction: ['garde', 'client', 'projet', 'terrain', 'budget', 'fin'],
+  construction: ['garde', 'client', 'projet', 'terrain', 'scan', 'budget', 'fin'],
   agrandissement: ['garde', 'client', 'projet', 'terrain', 'pieces', 'scan', 'budget', 'fin'],
 };
-export const etapesDe = v => PARCOURS[natureDe(v)].map(id => ETAPES.find(e => e.id === id));
+// en construction, l'étape du scan devient celle du plan de la future maison (esquisse, plan d'architecte → 2D et 3D)
+export const etapesDe = v => { const n = natureDe(v); return PARCOURS[n].map(id => { const e = ETAPES.find(x => x.id === id); return n === 'construction' && id === 'scan' ? { ...e, titre: 'Plan' } : e; }); };
 /* les surfaces dites à l'étape Projet : le budget s'en sert (budget.js, ouvrages « projet ») */
 export const surfacesProjet = v => ({ construction: (v.valeurs || {})['construction.surface'] ?? null, agrandissement: (v.valeurs || {})['agrandissement.surface'] ?? null });
 
@@ -115,6 +116,7 @@ export const CHAMPS = {
   'terrain.reseau.gaz': 'texte', 'terrain.reseau.fibre': 'texte',
   'terrain.assainissement': 'texte', 'terrain.bornage': 'texte', 'terrain.etudeSol': 'texte', 'terrain.demolition': 'texte',
   'terrain.notes': 'texte',
+  'terrain.plan': 'objet', // le plan du terrain lu par l'IA (decrire, mode terrain) : { esquisse, surface, facade, cotes, …, fichier, photoId, le }
   'photoGarde': 'texte', // identifiant de la photo de garde
   'scan.fichier': 'objet', // { nom, taille, chemin } du fichier importé
   'plan': 'objet', // { releve, resume } : le relevé ouvert dans le moteur (releve/moteur/)

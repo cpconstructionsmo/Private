@@ -34,5 +34,13 @@ const F=require('./fixtures/terrain_fictif');
   const zA=T.pointsAttention({urbanisme:{zone:{libelle:'A',type:'A'}},risques:{}},{nature:'construction'});
   chk(zA[0].niveau==='bloquant'&&/Zone agricole/.test(zA[0].titre),'zone agricole : signalée en premier, bloquante');
   chk(T.pointsAttention({urbanisme:{rnu:true},risques:{}},{}).some(x=>/RNU/.test(x.titre)),'commune au RNU signalée');
+  /* le plan du terrain : analyse de cohérence */
+  const ap=T.analyserPlanTerrain({esquisse:true,surface:820,facade:18,cotes:[{longueur:18},{longueur:45},{longueur:18},{longueur:45}],nord:null},{contenance:812,surfaceSaisie:812,facadeSaisie:18.2});
+  const at=ap.map(x=>x.niveau+':'+x.texte).join(' | ');
+  chk(/Esquisse à main levée/.test(at)&&/Surface tirée des 4 côtés : environ 810 m²/.test(at)&&/ok:Surface du plan cohérente avec le cadastre/.test(at)&&/nord n’est pas indiqué/.test(at)&&!/important/.test(at),'esquisse cohérente : surface des côtés ≈ 810 m², cohérente avec le cadastre, nord à confirmer');
+  const ap2=T.analyserPlanTerrain({esquisse:false,echelle:'1/200',surface:1200,cotes:[{longueur:20},{longueur:40},{longueur:20},{longueur:40}],nord:'en haut',facade:25},{contenance:812,facadeSaisie:18});
+  const at2=ap2.map(x=>x.niveau+':'+x.texte).join(' | ');
+  chk(/Plan à l’échelle \(1\/200\)/.test(at2)&&/important:Écart de 33 % entre la surface tirée des côtés \(800 m²\) et la surface écrite sur le plan/.test(at2)&&/important:La surface du plan \(1\s200 m²\) diffère de 32 %/.test(at2)&&/Façade sur le plan 25 m, relevée 18 m/.test(at2),'incohérences signalées : côtés contre surface écrite, plan contre cadastre, façade');
+  chk(/angles inconnus/.test(T.analyserPlanTerrain({cotes:[{longueur:10},{longueur:12},{longueur:9}],nord:'x'}).map(x=>x.texte).join(' '))&&T.analyserPlanTerrain(null).length===0,'3 côtés : pas de surface déduite ; rien lu : rien dit');
   fin();
 })();

@@ -16,6 +16,10 @@ Une seule fonction Supabase pour quatre services du relevé de visite :
   manuscrite »** recopie une note photographiée à la suite de la dictée.
   **« 🖼 Plan 2D »** (mode `plan`, image ou PDF) relève les pièces d'un plan
   déjà fait (magicplan, architecte) pour le dessin rapide.
+  **« 🗺 Plan du terrain »** (mode `terrain`) relève les cotes d'un plan de
+  géomètre ou d'une esquisse ; **Imaginer** accepte aussi la photo d'un
+  terrain (la maison neuve dessus, `mode:'terrain'`) ou d'une façade
+  (l'agrandissement, `mode:'facade'`).
   Compté avec les dictées.
 - **🔗 Dossier envoyé au client** (action `partage`) : le client ouvre son
   dossier par un lien personnel (`releve/partage.html#t=<jeton>`, 30 jours),

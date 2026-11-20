@@ -38,7 +38,9 @@ qu'on ait à les redire.
   budget construction / agrandissement (`ouvragesDe`, `ouvragesSuggeresNeuf`,
   prix « à confirmer ») ; le suivi crée un prospect « Maison neuve » prérempli
   (`visiteChampsNeuf`, `visiteLignesNeuf`) ; page « Le terrain » du dossier
-  client (option `terrain`) ;
+  client (option `terrain`) ; plan du terrain coté lu par l'IA et analysé
+  (`terrain.plan`, `analyserPlanTerrain`) ; « Imaginer la maison sur ce
+  terrain » (mode `terrain`) ; étape « Plan » en construction ;
   client particulier (1 à 3 acheteurs, `acheteur2.*`, `acheteur3.*`,
   domicile de chacun) ou société (`societe.*`), usage du bien, ampleur
   (`projet.categories`), situation et souhaits dictés (🎤, Web Speech,
