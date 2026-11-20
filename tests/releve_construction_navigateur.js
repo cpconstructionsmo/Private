@@ -48,8 +48,8 @@ let b;
   await p.waitForSelector('img.garde[src^="blob:"]');
   chk(/sur 7/.test(await p.textContent('.etapeNom'))&&await p.locator('.natures .puce').count()===3,'1re page : Rénovation / Construction neuve / Agrandissement ; sans choix, le parcours rénovation (7 étapes)');
   await p.tap('.natures >> text=Construction neuve');
-  await p.waitForFunction(()=>/Étape 1 sur 5/.test(document.querySelector('.etapeNom').textContent));
-  chk(/Le terrain en photo/.test(await p.textContent('main')),'construction : 5 étapes (garde, client, projet, terrain, fin), la photo de garde est celle du terrain');
+  await p.waitForFunction(()=>/Étape 1 sur 6/.test(document.querySelector('.etapeNom').textContent));
+  chk(/Le terrain en photo/.test(await p.textContent('main')),'construction : 6 étapes (garde, client, projet, terrain, budget, fin), la photo de garde est celle du terrain');
   /* client */
   await p.tap('#suivant');
   await p.fill('input[name="client.nom"]','FICTIF');await p.fill('input[name="client.telephone"]','06 11 22 33 44');
@@ -98,12 +98,34 @@ let b;
   await p.waitForFunction(()=>/Pas de réseau/.test((document.querySelector('#infoTerrain')||{}).textContent||''));
   chk(await p.isVisible('#infosTerrain #parcelle'),'sans réseau : message clair, les informations déjà lues restent affichées');
   await ctx.setOffline(false);
+  /* budget de la construction : le projet et le terrain proposent les travaux */
+  await p.tap('#suivant');
+  await p.waitForSelector('#estimerSuggeres');
+  chk(/\(5\)/.test(await p.textContent('#estimerSuggeres'))&&await p.locator('[data-ouvrage="cuisine"]').count()===0&&await p.locator('[data-ouvrage="maison-neuve"]').count()===1,'budget : tuiles de construction (pas de cuisine à rénover), 5 travaux proposés');
+  await p.tap('#estimerSuggeres');
+  await p.waitForSelector('[data-ouvrage-choisi="maison-neuve"]');
+  const choisis=await p.$$eval('[data-ouvrage-choisi]',L=>L.map(x=>x.dataset.ouvrageChoisi).join());
+  chk(choisis==='maison-neuve,garage-neuf,raccordements,etude-sol,fondations','proposés : maison neuve, garage, raccordements, étude de sol, fondations (argiles moyennes)');
+  chk(await p.inputValue('[data-ouvrage-choisi="maison-neuve"] input')==='160'&&/D’après le projet : surface habitable souhaitée/.test(await p.textContent('[data-ouvrage-choisi="maison-neuve"]')),'la maison neuve prend les 160 m² du projet');
+  chk(/€/.test(await p.textContent('#montantBudget'))&&await (async()=>{for(let i=0;i<60;i++){const d=await ligne();if(d&&d.valeurs.budget&&d.valeurs.budget.estimation&&d.valeurs.budget.estimation.min>160*1500)return true;await p.waitForTimeout(100)}return false})(),'la fourchette se calcule et part avec la visite');
+  await p.screenshot({path:SORTIE+'/releve_budget_construction.png',fullPage:true});
   /* récapitulatif */
   await p.tap('#suivant');
-  await p.waitForFunction(()=>/Étape 5 sur 5/.test(document.querySelector('.etapeNom').textContent));
+  await p.waitForFunction(()=>/Étape 6 sur 6/.test(document.querySelector('.etapeNom').textContent));
   const rc=await p.textContent('.recap');
   chk(/Construction neuve/.test(rc)&&/Clé en main · 160 m² habitables · R\+1 · 4 chambre\(s\) · garage intégré/.test(rc)&&/section ZK n° 0123 · 790 m² · zone UB/.test(rc)&&/Acquis · 55\s000\s€/.test(rc),'récapitulatif : projet, construction, terrain acheté, parcelle et zone');
   chk(!/type de travaux/.test(await p.textContent('main')),'construction : on ne réclame pas un « type de travaux » de rénovation');
+  /* le dossier client de la construction */
+  await p.tap('#ouvrirDossier');await p.waitForSelector('.dossier .feuille');
+  const dz=(await p.textContent('.dossier')).replace(/\s+/g,' ');
+  chk(/Votre projet de construction/.test(dz)&&/Surface habitable souhaitée\s*160 m²/.test(dz)&&/Chambres\s*4/.test(dz)&&/Maison neuve \(clé en main\)/.test(dz),'dossier client : titre, projet de construction, estimation (maison neuve)');
+  chk(/Le terrain/.test(dz)&&/Section ZK n° 0123/.test(dz)&&/790 m²/.test(dz)&&/zone UB : zone urbaine pavillonnaire/.test(dz)&&/Points à vérifier/.test(dz)&&/certificat d’urbanisme/.test(dz)
+    &&await p.getAttribute('.terrainDossier a:has-text("Rapport officiel Géorisques")','href')===F.rapport.url,'dossier client : page « Le terrain » (parcelle, urbanisme, risques, points à vérifier, rapport officiel), datée et dite indicative');
+  await p.uncheck('input[name="opt-terrain"]');
+  await p.waitForFunction(()=>!document.querySelector('.terrainDossier'));
+  chk(true,'la page du terrain se retire du dossier d’une case');
+  await p.check('input[name="opt-terrain"]');
+  await p.tap('text=‹ Visite');
   /* agrandissement */
   await p.tap('.progres button[aria-label^="Étape 1 "]');
   await p.tap('.natures >> text=Agrandissement');

@@ -35,6 +35,10 @@ qu'on ait à les redire.
   (`releve/terrain.js` : géocodage Géoplateforme ou GPS, cadastre et
   urbanisme API Carto IGN, Géorisques ; points d'attention indicatifs, à
   vérifier ; tests `t_releve_terrain.js`, `releve_construction_navigateur.js`) ;
+  budget construction / agrandissement (`ouvragesDe`, `ouvragesSuggeresNeuf`,
+  prix « à confirmer ») ; le suivi crée un prospect « Maison neuve » prérempli
+  (`visiteChampsNeuf`, `visiteLignesNeuf`) ; page « Le terrain » du dossier
+  client (option `terrain`) ;
   client particulier (1 à 3 acheteurs, `acheteur2.*`, `acheteur3.*`,
   domicile de chacun) ou société (`societe.*`), usage du bien, ampleur
   (`projet.categories`), situation et souhaits dictés (🎤, Web Speech,

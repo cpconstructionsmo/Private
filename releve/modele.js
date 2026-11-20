@@ -30,10 +30,12 @@ export const ETAPES = [
 ];
 const PARCOURS = {
   renovation: ['garde', 'client', 'projet', 'pieces', 'scan', 'budget', 'fin'],
-  construction: ['garde', 'client', 'projet', 'terrain', 'fin'],
+  construction: ['garde', 'client', 'projet', 'terrain', 'budget', 'fin'],
   agrandissement: ['garde', 'client', 'projet', 'terrain', 'pieces', 'scan', 'budget', 'fin'],
 };
 export const etapesDe = v => PARCOURS[natureDe(v)].map(id => ETAPES.find(e => e.id === id));
+/* les surfaces dites à l'étape Projet : le budget s'en sert (budget.js, ouvrages « projet ») */
+export const surfacesProjet = v => ({ construction: (v.valeurs || {})['construction.surface'] ?? null, agrandissement: (v.valeurs || {})['agrandissement.surface'] ?? null });
 
 /* construction neuve et agrandissement : les choix proposés */
 export const NIVEAUX_NEUF = ['Plain-pied', 'R+1', 'Combles aménagés', 'Sous-sol'];

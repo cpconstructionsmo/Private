@@ -170,7 +170,7 @@ export const formatPlage = t => {
    'marche' (plusieurs guides concordants) ou 'estimation' (à confirmer).
    Le chiffrage précis se fait au bureau, dans la fiche prospect du suivi.
    ========================================================================== */
-const O = (id, nom, icone, o) => Object.assign({ id, nom, icone, unite: 'm2', base: 'saisie', defaut: 20, types: [], categories: [], repere: 'marche' }, o);
+const O = (id, nom, icone, o) => Object.assign({ id, nom, icone, unite: 'm2', base: 'saisie', defaut: 20, types: [], categories: [], repere: 'marche', natures: ['renovation', 'agrandissement'] }, o);
 export const OUVRAGES = [
   O('reno-complete', 'Rénovation complète (tous corps d’état)', '🏚️', { base: 'habitable', defaut: 100, categories: ['Rénovation importante'], prix: { min: 1100, med: 1450, max: 1800 },
     note: 'Comprend cuisine, salle de bains, sols, électricité, plomberie, peinture : ne les ajoutez pas en plus.' }),
@@ -189,9 +189,25 @@ export const OUVRAGES = [
   O('toiture', 'Réfection de couverture', '🏗️', { base: 'toiture', defaut: 120, types: ['Toiture'], prix: { min: 120, med: 200, max: 300 }, note: 'm² de toiture (environ 1,3 × l’emprise).' }),
   O('fenetres', 'Fenêtres (remplacement, posées)', '🪟', { unite: 'u', base: 'fenetres', defaut: 6, types: ['Menuiseries'], categories: ['Rénovation énergétique'], prix: { min: 500, med: 800, max: 1200 } }),
   O('pac', 'Pompe à chaleur air-eau (posée)', '🔥', { unite: 'forfait', base: 'forfait', defaut: 1, types: ['Chauffage'], categories: ['Rénovation énergétique'], prix: { min: 9000, med: 13000, max: 18000 } }),
-  O('extension', 'Extension (surface créée)', '➕', { base: 'saisie', defaut: 20, types: ['Extension'], prix: { min: 1500, med: 2000, max: 2800 }, repere: 'estimation' }),
-  O('exterieur', 'Terrasse, aménagement extérieur', '🌳', { base: 'saisie', defaut: 20, types: ['Extérieur'], prix: { min: 80, med: 150, max: 250 }, repere: 'estimation' }),
+  O('extension', 'Extension (surface créée)', '➕', { base: 'saisie', projet: 'agrandissement', defaut: 20, types: ['Extension'], prix: { min: 1500, med: 2000, max: 2800 }, repere: 'estimation' }),
+  O('exterieur', 'Terrasse, aménagement extérieur', '🌳', { base: 'saisie', defaut: 20, types: ['Extérieur'], prix: { min: 80, med: 150, max: 250 }, repere: 'estimation', natures: ['renovation', 'agrandissement', 'construction'] }),
+  /* construction neuve et agrandissement : prix de départ À CONFIRMER par CP
+     (« ⚙ Prix au m² ») ; la surface vient du projet (étape Projet) */
+  O('maison-neuve', 'Maison neuve (clé en main)', '🏡', { base: 'saisie', projet: 'construction', defaut: 100, prix: { min: 1500, med: 1900, max: 2600 }, repere: 'estimation', natures: ['construction'],
+    note: 'Au m² habitable, hors terrain, raccordements, assainissement et aménagements extérieurs.' }),
+  O('hors-eau', 'Maison neuve hors d’eau hors d’air', '🧱', { base: 'saisie', projet: 'construction', defaut: 100, prix: { min: 900, med: 1150, max: 1500 }, repere: 'estimation', natures: ['construction'],
+    note: 'Gros œuvre, charpente, couverture, menuiseries extérieures : le second œuvre reste à prévoir.' }),
+  O('garage-neuf', 'Garage', '🚗', { base: 'saisie', defaut: 20, prix: { min: 600, med: 850, max: 1200 }, repere: 'estimation', natures: ['construction', 'agrandissement'] }),
+  O('raccordements', 'Raccordements aux réseaux (eau, électricité, télécom)', '🔌', { unite: 'forfait', base: 'forfait', defaut: 1, prix: { min: 3000, med: 5000, max: 8000 }, repere: 'estimation', natures: ['construction'] }),
+  O('assainissement', 'Assainissement individuel (fosse, micro-station)', '🚽', { unite: 'forfait', base: 'forfait', defaut: 1, prix: { min: 6000, med: 9000, max: 13000 }, repere: 'estimation', natures: ['construction', 'agrandissement'] }),
+  O('etude-sol', 'Étude de sol (G2, conception)', '🧪', { unite: 'forfait', base: 'forfait', defaut: 1, prix: { min: 1500, med: 2500, max: 4000 }, repere: 'estimation', natures: ['construction', 'agrandissement'] }),
+  O('fondations', 'Fondations adaptées (argiles, pente)', '🪨', { unite: 'forfait', base: 'forfait', defaut: 1, prix: { min: 5000, med: 10000, max: 20000 }, repere: 'estimation', natures: ['construction', 'agrandissement'],
+    note: 'Surcoût selon l’étude de sol : à préciser au bureau.' }),
+  O('terrassement', 'Terrassement, accès et VRD', '🚜', { unite: 'forfait', base: 'forfait', defaut: 1, prix: { min: 3000, med: 7000, max: 15000 }, repere: 'estimation', natures: ['construction'] }),
+  O('demolition', 'Démolition ou abattage préalable', '🪓', { unite: 'forfait', base: 'forfait', defaut: 1, prix: { min: 3000, med: 8000, max: 20000 }, repere: 'estimation', natures: ['construction', 'agrandissement'] }),
 ];
+/* les travaux proposés pour une nature de projet (tuiles de l'étape Budget) */
+export const ouvragesDe = (table, nature) => (table || OUVRAGES).filter(o => (o.natures || ['renovation', 'agrandissement']).includes(nature || 'renovation'));
 
 /* les trois gammes : où se place le prix entre le mini et le maxi du marché */
 export const NIVEAUX = [
@@ -218,8 +234,10 @@ const UNITES_O = { m2: 'm²', u: 'u', forfait: 'forfait' };
 export const uniteOuvrage = o => UNITES_O[o.unite] || '';
 
 /* la surface (ou le nombre) proposée par le plan, ou la valeur courante */
-export function surfaceAuto(o, piecesPlan) {
+export function surfaceAuto(o, piecesPlan, projet) {
   const P = Array.isArray(piecesPlan) ? piecesPlan : [];
+  // construction et agrandissement : la surface dite à l'étape Projet
+  if (o.projet && projet && nb(projet[o.projet]) > 0) return { valeur: nb(projet[o.projet]), source: 'projet', detail: o.projet === 'construction' ? 'surface habitable souhaitée' : 'surface de l’agrandissement' };
   const somme = k => Math.round(P.reduce((t, p) => t + (nb(p[k]) || 0), 0) * 10) / 10;
   if (o.base === 'forfait') return { valeur: 1, source: 'forfait' };
   if (P.length) {
@@ -238,10 +256,10 @@ export function surfaceAuto(o, piecesPlan) {
 }
 
 /* un ouvrage choisi : { id, ouvrageId, surface (null = automatique), niveau } */
-export function calculerOuvrage(choix, table, piecesPlan) {
+export function calculerOuvrage(choix, table, piecesPlan, projet) {
   const o = (table || OUVRAGES).find(x => x.id === choix.ouvrageId);
   if (!o) return { id: choix.id, manque: 'ouvrage', min: 0, max: 0, med: 0 };
-  const auto = surfaceAuto(o, piecesPlan), saisie = nb(choix.surface);
+  const auto = surfaceAuto(o, piecesPlan, projet), saisie = nb(choix.surface);
   const surface = o.unite === 'forfait' ? 1 : saisie != null && saisie >= 0 ? saisie : auto.valeur;
   const niveau = choix.niveau || 'standard', p = prixNiveau(o.prix, niveau);
   if (!p) return { id: choix.id, ouvrage: o, surface, niveau, manque: 'prix', min: 0, max: 0, med: 0 };
@@ -261,10 +279,29 @@ export function ouvragesSuggeres(types, categories, table, dejaPris) {
     && !(o.id === 'ite' && !T.has('Façade')));
 }
 
+/* construction et agrandissement : les travaux proposés d'après le projet et
+   le terrain (étape Terrain). `c` : { nature, prestation, garage, typesAgrandissement,
+   assainissement, reseauAssainissement, etudeSol, pente, acces, demolition, argile, mouvementTerrain } */
+export function ouvragesSuggeresNeuf(c, table, dejaPris) {
+  const pris = new Set((dejaPris || []).map(x => x.ouvrageId)), ids = [];
+  const neuf = c.nature === 'construction';
+  if (neuf) ids.push(c.prestation === 'Hors d’eau hors d’air' ? 'hors-eau' : 'maison-neuve');
+  else ids.push('extension');
+  if (neuf ? c.garage && c.garage !== 'Aucun' : (c.typesAgrandissement || []).includes('Garage')) ids.push('garage-neuf');
+  if (neuf) ids.push('raccordements');
+  if (/^Individuel/.test(c.assainissement || '') || (neuf && c.reseauAssainissement === 'Absent')) ids.push('assainissement');
+  if (c.etudeSol !== 'Oui' && (neuf || (c.argile || 0) >= 2)) ids.push('etude-sol');
+  if ((c.argile || 0) >= 2 || c.pente === 'Forte pente' || c.mouvementTerrain) ids.push('fondations');
+  if (neuf && (c.pente === 'Forte pente' || /^Difficile/.test(c.acces || ''))) ids.push('terrassement');
+  if (c.demolition === 'Oui') ids.push('demolition');
+  const T = table || OUVRAGES;
+  return ids.filter(id => !pris.has(id)).map(id => T.find(o => o.id === id)).filter(Boolean);
+}
+
 /* l'estimation complète : ouvrages (R1) + postes détaillés éventuels, mêmes ajustements */
-export function calculerEstimation(budget, table, piecesPlan, fourchettes) {
+export function calculerEstimation(budget, table, piecesPlan, fourchettes, projet) {
   const b = budget || {}, a = b.ajust || {};
-  const ouvrages = (b.ouvrages || []).map(c => calculerOuvrage(c, table, piecesPlan));
+  const ouvrages = (b.ouvrages || []).map(c => calculerOuvrage(c, table, piecesPlan, projet));
   const detail = calculerBudget({ lignes: b.lignes || [], ajust: {} }, fourchettes || [], piecesPlan);
   const s = ouvrages.reduce((t, o) => ({ min: t.min + o.min, max: t.max + o.max }), { min: detail.sousTotal.min, max: detail.sousTotal.max });
   const majoration = (nb(a.etat) || 0) + (nb(a.acces) || 0) + Math.min(IMPREVUS_MAX, Math.max(0, nb(a.imprevus) || 0));

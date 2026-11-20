@@ -1707,6 +1707,7 @@ function ecranDossier() {
         option('enveloppe', 'Budget envisagé par le client'),
         option('imagines', 'Images d’intention (✨ Imaginé)'),
         option('notesPieces', 'Notes des pièces'),
+        M.natureDe(v) !== 'renovation' ? option('terrain', 'Terrain, urbanisme et risques') : null,
         option('planAnnote', 'Plan annoté (travaux)' + (AN.nettoyer(M.valeur(v, 'annotations')).imageId ? '' : ' — aucun plan annoté pour l’instant (étape Scan)')),
         h('p', { class: 'mut petit' }, 'Jamais dans le dossier : les notes de visite, la marge.'),
         h('button', { class: 'gros', id: 'imprimerDossier', type: 'button', onclick: imprimer }, '🖨 Imprimer / PDF'),
@@ -1748,18 +1749,25 @@ function jaugeEnveloppe(total, env) {
 
 function etapeBudget(v) {
   const budget = M.valeur(v, 'budget') || {};
+  const nature = M.natureDe(v), SP = M.surfacesProjet(v);
   const pieces = B.piecesDuPlan(M.valeur(v, 'plan')), T = tableOuv(), F_ = fourchettes();
-  const calc = B.calculerEstimation(budget, T, pieces, F_);
+  const calc = B.calculerEstimation(budget, T, pieces, F_, SP);
   const env = M.valeur(v, 'projet.enveloppe'), verdict = B.verdictEnveloppe(calc.total, env);
   const majBudget = async f => {
     const b = f(JSON.parse(JSON.stringify({ lignes: [], ouvrages: [], ajust: {}, ...budget, ouvrages: budget.ouvrages || [] })));
-    const c = B.calculerEstimation(b, tableOuv(), pieces, fourchettes());
+    const c = B.calculerEstimation(b, tableOuv(), pieces, fourchettes(), SP);
     b.estimation = { min: c.total.min, max: c.total.max, complet: !c.vide && !c.manques, le: new Date().toISOString() };
     S.totalAvant = calc.total;
     await poser('budget', b); vibrer(); redessiner();
   };
   const types = M.valeur(v, 'projet.types') || [], cats = M.valeur(v, 'projet.categories') || [];
-  const sugg = B.ouvragesSuggeres(types, cats, T, budget.ouvrages);
+  // construction et agrandissement : le projet et le terrain proposent aussi leurs travaux (fondations, assainissement…)
+  const inf = M.valeur(v, 'terrain.infos') || {}, rq = inf.risques || {};
+  const neuf = nature === 'renovation' ? [] : B.ouvragesSuggeresNeuf({ nature, prestation: M.valeur(v, 'construction.prestation'), garage: M.valeur(v, 'construction.garage'),
+    typesAgrandissement: M.valeur(v, 'agrandissement.types') || [], assainissement: M.valeur(v, 'terrain.assainissement'), reseauAssainissement: M.valeur(v, 'terrain.reseau.assainissement'),
+    etudeSol: M.valeur(v, 'terrain.etudeSol'), pente: M.valeur(v, 'terrain.pente'), acces: M.valeur(v, 'terrain.acces'), demolition: M.valeur(v, 'terrain.demolition'),
+    argile: rq.argile ? rq.argile.code : 0, mouvementTerrain: (rq.naturels || []).some(x => x.cle === 'mouvementTerrain' && /existant/i.test(x.statut || '') && !/inconnu|non connu/i.test(x.statut || '')) }, T, budget.ouvrages);
+  const sugg = nature === 'construction' ? neuf : [...neuf, ...B.ouvragesSuggeres(types, cats, T, budget.ouvrages).filter(o => !neuf.some(x => x.id === o.id))];
   const proposes = new Set(sugg.map(o => o.id)), pris = new Set((budget.ouvrages || []).map(c => c.ouvrageId));
   const nouveau = o => ({ id: M.nouvelId(), ouvrageId: o.id, surface: null, niveau: 'standard' });
   const basculer = o => majBudget(b => { const i = b.ouvrages.findIndex(c => c.ouvrageId === o.id); if (i >= 0) b.ouvrages.splice(i, 1); else b.ouvrages.push(nouveau(o)); return b; });
@@ -1780,7 +1788,7 @@ function etapeBudget(v) {
       '✨ Estimer les travaux choisis (' + sugg.length + ')') : null,
     calc.ouvrages.map(r => carteOuvrage(r, majBudget)),
     h('div', { class: 'champ' }, calc.ouvrages.length ? 'AJOUTER DES TRAVAUX' : 'LES TRAVAUX'),
-    h('div', { class: 'tuiles' }, T.map(o => h('button', { class: 'tuile' + (pris.has(o.id) ? ' on' : '') + (proposes.has(o.id) ? ' propose' : ''), type: 'button',
+    h('div', { class: 'tuiles' }, B.ouvragesDe(T, nature).map(o => h('button', { class: 'tuile' + (pris.has(o.id) ? ' on' : '') + (proposes.has(o.id) ? ' propose' : ''), type: 'button',
       'data-ouvrage': o.id, 'aria-pressed': String(pris.has(o.id)), onclick: () => basculer(o) },
       h('span', { class: 'ico' }, o.icone), h('span', {}, o.nom)))),
     blocApprofondir(v, budget, calc, pieces, F_, majBudget),
@@ -1808,7 +1816,7 @@ function carteOuvrage(r, majBudget) {
         h('label', { class: 'valeur' }, h('input', { inputMode: 'decimal', value: String(r.surface).replace('.', ','), 'aria-label': (o.unite === 'u' ? 'Nombre' : 'Surface') + ' — ' + o.nom,
           onchange: e => { const n = +String(e.target.value).replace(/\s/g, '').replace(',', '.'); if (isFinite(n) && n >= 0) poserSurface(n); } }), h('span', {}, ' ' + u)),
         h('button', { class: 'pm', type: 'button', 'aria-label': 'Plus', onclick: () => poserSurface(r.surface + pas) }, '+')),
-      h('div', { class: 'mut petit' }, r.source === 'plan' ? '📐 D’après le plan : ' + r.detail
+      h('div', { class: 'mut petit' }, r.source === 'projet' ? '🏗 D’après le projet : ' + r.detail : r.source === 'plan' ? '📐 D’après le plan : ' + r.detail
         : r.source === 'saisie' ? ['Réglé à la main', r.auto != null ? h('button', { class: 'lienRetour', type: 'button', onclick: () => changer(c => { c.surface = null; }) }, ' ↺ revenir à ' + String(r.auto).replace('.', ',') + ' ' + u) : null]
         : 'Valeur courante : réglez-la avec − / +.')],
     h('div', { class: 'puces niveaux' }, B.NIVEAUX.map(n => h('button', { class: 'puce' + (r.niveau === n.id ? ' on' : ''), type: 'button', 'aria-pressed': String(r.niveau === n.id),

@@ -118,4 +118,28 @@ chk(vf.fourchette&&vf.fourchette.min===8600&&vf.fourchette.max===12900,'la fourc
 chk(M.visiteResume(ligne('vis-g',{budget:{lignes:[],estimation:{min:0,max:0}}})).fourchette===null,'fourchette vide : rien d’affiché');
 chk(/Fourchette annoncée à la visite \(indicative\) : de 8.600 € à 12.900 € TTC/.test(M.prospectDepuisVisite(vf,{},'2026-11-18').demande),'la demande du prospect créé reprend la fourchette annoncée');
 chk(M.releveLien()==='releve/'&&M.releveLien({visite:'a b'})==='releve/?visite=a%20b'&&M.releveLien({prospect:'p1'})==='releve/?prospect=p1'&&M.releveLien({visite:'v1',vue:'dossier'})==='releve/?visite=v1&vue=dossier','liens vers le relevé de visite');
+{/* une visite de construction neuve : prospect « Maison neuve » prérempli */
+  const F=require('./fixtures/terrain_fictif');
+  const valeurs={'client.nom':'NEUF','client.prenom':'Ana','client.ville':'Ailleurs','projet.nature':'construction','construction.surface':160,'construction.niveaux':['R+1','Combles aménagés'],
+    'construction.chambres':'4','construction.garage':'Intégré','construction.prestation':'Clé en main','construction.chauffage':'Chaudière granulés','construction.terrainStatut':'Acquis','construction.prixTerrain':55000,
+    'terrain.adresseIdem':false,'terrain.adresse':'Lieu-dit Fictif','terrain.codePostal':'61999','terrain.ville':'Villefictive','terrain.surface':812,'terrain.pente':'Légère pente','terrain.lotissement':'Oui',
+    'terrain.position':{lon:0.1,lat:48.4,source:'adresse'},
+    'terrain.infos':{parcelle:{section:'ZK',numero:'0123'},urbanisme:{document:{titre:'PLU DE VILLEFICTIVE'},zone:{libelle:'UB',libelong:'ZONE URBAINE PAVILLONNAIRE',reglement:'https://data.geopf.fr/annexes/gpu/documents/x/y/r.pdf'},servitudes:[{code:'ac1',libelle:'Abords d’un monument historique (avis de l’Architecte des Bâtiments de France)'}]},
+      risques:{url:'https://www.georisques.gouv.fr/x',argile:{code:2,libelle:'Exposition moyenne'},seisme:{zone:2,libelle:'2 - FAIBLE'},naturels:[{cle:'inondation',libelle:'Inondation',statut:'Risque Existant'},{cle:'remonteeNappe',libelle:'Remontée de nappe',statut:'Risque non Connu'}],technologiques:[]}}};
+  const r=M.visiteResume({id:'vc',donnees:{id:'vc',creeLe:'2026-11-20T09:00:00Z',valeurs,photos:{}}});
+  chk(r.nature==='construction'&&r.construction.surface===160&&r.terrain.parcelle==='section ZK n° 0123'&&/zone UB/.test(r.terrain.urbanisme)&&r.terrain.risques.includes('Inondation')&&!r.terrain.risques.includes('Remontée de nappe'),
+    'résumé d’une visite de construction : projet, parcelle, zone, risques avérés seulement');
+  const q=M.prospectDepuisVisite(r,{},'2026-11-20');
+  chk(q.categorie==='neuf'&&q.surfaceHabitable===160&&q.nbChambres===4&&q.niveaux==='R+1 combles aménagés'&&q.prestation==='Clé en main'&&q.terrainPrix===55000&&q.surfaceTerrain===812&&q.commune==='Villefictive',
+    'prospect « Maison neuve » : surface, chambres, niveaux, prestation, terrain, commune du terrain');
+  chk(!q.chauffage&&/Chaudière granulés/.test(q.demande),'un chauffage hors de la liste du suivi reste dans la demande (rien d’inventé)');
+  chk(/Projet : construction neuve/.test(q.demande)&&/Urbanisme : PLU DE VILLEFICTIVE — zone UB/.test(q.demande)&&/Servitudes : Abords d’un monument historique/.test(q.demande)&&/Risques \(Géorisques\) : argiles : exposition moyenne, sismicité 2 - faible, Inondation/.test(q.demande)&&/Adresse du terrain : Lieu-dit Fictif 61999 Villefictive/.test(q.demande),
+    'la demande reprend le terrain : adresse, urbanisme, servitudes, risques');
+  const p0={id:'p',nom:'Maison X',client:'X',surfaceHabitable:140,nbChambres:'',niveaux:'',decouverte:{}};
+  const {prospect:pc,champs}=M.completerProspectDepuisVisite(p0,r,'2026-11-20');
+  chk(pc.surfaceHabitable===140&&pc.nbChambres===4&&pc.niveaux==='R+1 combles aménagés'&&champs.includes('chambres')&&!champs.includes('surface habitable'),'rattacher : seules les cases vides (chambres, niveaux…) se remplissent, la surface saisie (140 m²) reste');
+  const ra=M.visiteResume({id:'va',donnees:{id:'va',valeurs:{'client.nom':'AGR','projet.nature':'agrandissement','agrandissement.types':['Surélévation'],'agrandissement.surface':30},photos:{}}});
+  const qa=M.prospectDepuisVisite(ra,{},'2026-11-20');
+  chk(qa.categorie==='renovation'&&qa.prestation==='Surélévation'&&/Agrandissement : Surélévation · 30 m²/.test(qa.demande),'agrandissement : prospect de rénovation, prestation « Surélévation »');
+  chk(M.visiteResume({id:'vr',donnees:{id:'vr',valeurs:{'client.nom':'R'},photos:{}}}).nature==='renovation','une ancienne visite sans nature reste une rénovation');}
 fin();
