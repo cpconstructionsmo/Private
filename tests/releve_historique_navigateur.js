@@ -44,6 +44,8 @@ let b;
   await p.tap('#resumeDepart');await p.waitForSelector('textarea[name="assistant.texte"]');
   chk(true,'« Commencer par un résumé » ouvre l’assistant (écrit ou dicté)');
   await p.fill('textarea[name="assistant.texte"]','Madame Fictive, maison de 1980.\nRefaire la cuisine.');
+  // la saisie est enregistrée (elle part ensuite au serveur) avant de revenir à la fiche
+  await attendre(p,()=>JSON.stringify(Object.values(window.__etat.lignes||{})).includes('Refaire la cuisine'),15000);
   await p.goBack();await p.waitForSelector('#resumeDepart');
   chk(await p.textContent('#resumeTexte')==='Madame Fictive, maison de 1980.\nRefaire la cuisine.'&&/Votre résumé de visite/.test(await p.textContent('#resumeDepart')),'le résumé dicté s’affiche sur la fiche client (toucher pour le modifier)');
   await p.tap('.progres button[aria-label^="Étape 7 "]');
