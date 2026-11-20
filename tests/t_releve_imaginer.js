@@ -61,6 +61,19 @@ const {chk,fin}=verif();
   chk(rt.esquisse===true&&rt.surface===812&&rt.facade===18.5&&rt.cotes.length===2&&rt.cotes[0].longueur===18.5&&rt.forme==='Rectangulaire'&&rt.remarques.length===1&&!('bidon' in rt),'plan de terrain lu : esquisse, surface, façade, cotes valides, remarques');
   chk(R.descriptionReponse(rep('{"esquisse":true,"cotes":[]}'),'terrain').erreur==='rien_lu','plan de terrain sans cote ni surface : rien lu');
 
+  /* le règlement PLU de la zone */
+  const okU='https://data.geopf.fr/annexes/gpu/documents/DU_61999/doc/reglement.pdf#page=12';
+  chk(R.lireReglement({url:okU,zone:'UB'}).url==='https://data.geopf.fr/annexes/gpu/documents/DU_61999/doc/reglement.pdf'&&R.lireReglement({url:okU,zone:'UB'}).zone==='UB','règlement : lien de la Géoplateforme accepté (ancre de page retirée)');
+  chk(R.lireReglement({url:'https://ailleurs.example/r.pdf',zone:'UB'}).erreur==='lien_reglement'&&R.lireReglement({url:'https://data.geopf.fr/annexes/gpu/documents/../x.pdf',zone:'UB'}).erreur==='lien_reglement'&&R.lireReglement({url:okU}).erreur==='zone_absente',
+    'règlement : toute autre adresse refusée (la fonction ne télécharge que la Géoplateforme), zone obligatoire');
+  const ir=R.inviteReglement({zone:'UB',libelle:'zone pavillonnaire'});
+  chk(/zone « UB »/.test(ir)&&/N’invente rien/.test(ir)&&/"hauteur":null/.test(ir)&&/dispositions communes/.test(ir),'règlement : consigne (zone, règles citées, rien d’inventé)');
+  chk(R.requeteReglement({zone:'UB'},'JVBER').contents[0].parts[1].inline_data.mime_type==='application/pdf','règlement : le PDF joint à la requête');
+  const rr=R.reglementReponse(rep(JSON.stringify({zoneTrouvee:true,pages:'12 à 18',hauteur:'7 m à l’égout du toit',emprise:'40 % de l’unité foncière',clotures:null,inconnu:'x',autres:['Bande de 20 m',3]})));
+  chk(rr.regles.hauteur==='7 m à l’égout du toit'&&rr.regles.emprise&&!('clotures' in rr.regles)&&!('inconnu' in rr.regles)&&rr.autres.length===1&&rr.pages==='12 à 18','règlement lu : rubriques connues seulement, vides retirées');
+  chk(R.reglementReponse(rep('{"zoneTrouvee":false}')).erreur==='zone_introuvable'&&R.reglementReponse(rep('{"zoneTrouvee":true}')).erreur==='rien_lu','zone absente du règlement, ou rien lu : erreur nommée');
+  chk(R.enBase64(new Uint8Array([37,80,68,70]))==='JVBERg==','PDF converti en base64 par morceaux');
+
   /* l'assistant de visite (action « structurer ») */
   chk(R.lireStructuration({texte:'court'}).erreur==='texte_absent','dictée trop courte : refusée');
   const ds=R.lireStructuration({texte:'Madame FICTIF, maison de 1975, chauffage fioul, elle veut ouvrir la cuisine.'+'x'.repeat(9000),

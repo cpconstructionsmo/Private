@@ -104,6 +104,8 @@ export function dossierClient(v, opt = {}) {
       risques: [r.argile ? 'Argiles : ' + String(r.argile.libelle || '').toLowerCase() : '', r.seisme ? 'Sismicité : zone ' + r.seisme.libelle.toLowerCase() : '',
         ...[...(r.naturels || []), ...(r.technologiques || [])].filter(x => avere(x) && x.cle !== 'seisme' && x.cle !== 'retraitGonflementArgile').map(x => x.libelle)].filter(Boolean),
       rapport: r.url || null,
+      // les règles lues dans le règlement PLU, si elles concernent bien la zone actuelle du terrain
+      regles: (() => { const rg = val('terrain.reglement'); return rg && rg.regles && u.zone && rg.zone === u.zone.libelle ? { zone: rg.zone, pages: rg.pages || null, lignes: T.REGLES_PLU.filter(([k]) => rg.regles[k]).map(([k, lib]) => [lib, rg.regles[k]]) } : null; })(),
       points: inf ? T.pointsAttention(inf, { nature, surfaceProjet: nature === 'construction' ? val('construction.surface') : val('agrandissement.surface'), surfaceExistante: val('agrandissement.surfaceExistante') }) : [],
       le: (inf && inf.le) || (pos && pos.le) || '',
     };

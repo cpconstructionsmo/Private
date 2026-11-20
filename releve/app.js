@@ -605,6 +605,40 @@ async function chercherInfosTerrain(pos) {
     : erreurs.length ? { message: 'Certaines informations n’ont pas pu être lues (' + erreurs.length + ') : « ↻ Actualiser » pour réessayer.', type: 'att' } : null;
   vibrer(); redessiner();
 }
+/* « 🤖 Lire le règlement » : la fonction télécharge le PDF du règlement (Géoplateforme) et Gemini en tire les règles de la zone */
+async function lireReglementZone(z) {
+  const dire = (t, type) => { S.reglement = { message: t, type: type || 'err' }; redessiner(); };
+  if (!pretPourIA(dire, 'La lecture du règlement')) return;
+  S.reglement = { encours: true }; redessiner();
+  try {
+    const r = await appelerFonction({ action: 'reglement', url: z.reglement, zone: z.libelle, libelle: z.libelong }) || {};
+    if (!r.regles) throw { code: r.legende !== undefined || r.cotes || r.fiche ? 'consigne_absente' : 'rien_lu' };
+    await poser('terrain.reglement', { zone: z.libelle, url: z.reglement, regles: r.regles, autres: r.autres || [], pages: r.pages || null, le: new Date().toISOString() });
+    S.reglement = null; vibrer(); redessiner();
+  } catch (e) {
+    const code = (e && e.code) || 'reseau';
+    dire(code === 'zone_introuvable' ? 'La zone ' + z.libelle + ' n’a pas été trouvée dans ce règlement : ouvrez-le (lien ci-dessus).'
+      : code === 'reglement_trop_lourd' ? 'Ce règlement est trop volumineux pour être lu d’un coup : ouvrez-le (lien ci-dessus).'
+      : code === 'reglement_absent' ? 'Le règlement n’a pas pu être téléchargé depuis le Géoportail : réessayez plus tard.'
+      : code === 'rien_lu' ? 'Aucune règle n’a pu être lue : ouvrez le règlement (lien ci-dessus).'
+      : code === 'lien_reglement' || code === 'consigne_absente' ? 'La fonction « imaginer » du serveur n’est pas à jour : redéployez-la (voir supabase/functions/imaginer/README.md).'
+      : messageDecrire(e, 'plan'));
+  }
+}
+function blocReglement(v, z) {
+  if (!z || !z.reglement) return null;
+  const rg = M.valeur(v, 'terrain.reglement'), st = S.reglement || {};
+  const autreZone = rg && rg.zone !== z.libelle;
+  return h('div', { class: 'reglementZone', id: 'reglementZone' },
+    h('button', { class: 'puce', type: 'button', id: 'lireReglement', disabled: !!st.encours, onclick: () => lireReglementZone(z) },
+      st.encours ? '🤖 Lecture du règlement… (jusqu’à 1 min)' : rg && !autreZone ? '🤖 Relire le règlement' : '🤖 Lire le règlement de la zone ' + z.libelle),
+    st.message ? h('div', { class: 'message petit ' + st.type, id: 'infoReglement' }, st.message) : null,
+    rg && !autreZone ? h('div', { class: 'reglesZone', id: 'reglesZone' },
+      h('b', {}, 'Règles de la zone ' + rg.zone + ' (lecture automatique' + (rg.pages ? ', pages ' + rg.pages : '') + ', à vérifier dans le règlement)'),
+      h('dl', {}, T.REGLES_PLU.filter(([k]) => rg.regles[k]).map(([k, lib]) => [h('dt', {}, lib), h('dd', {}, rg.regles[k])])),
+      (rg.autres || []).length ? h('ul', { class: 'listeTerrain' }, rg.autres.map(x => h('li', {}, x))) : null) : null,
+    rg && autreZone ? h('div', { class: 'mut petit' }, 'Règles lues pour la zone ' + rg.zone + ' : le terrain est maintenant en zone ' + z.libelle + ', relisez le règlement.') : null);
+}
 function blocInfosTerrain(v) {
   const pos = M.valeur(v, 'terrain.position'), inf = M.valeur(v, 'terrain.infos');
   if (!pos) return null;
@@ -621,6 +655,7 @@ function blocInfosTerrain(v) {
     h('div', { class: 'ligneTerrain', id: 'urbanisme' }, h('b', {}, 'Urbanisme '),
       u.rnu ? 'Règlement national d’urbanisme (pas de PLU)' : [u.document ? (u.document.titre || u.document.type) : null, z ? 'zone ' + z.libelle + (z.libelong ? ' : ' + z.libelong.toLowerCase() : '') + (z.typeLibelle ? ' (' + z.typeLibelle + ')' : '') : null].filter(Boolean).join(' — ') || 'non trouvé',
       z && z.reglement ? [' · ', lien(z.reglement, '📄 Règlement de la zone')] : null, ' · ', lien(T.carteUrbanisme(pos.lon, pos.lat), '🗺 Carte')),
+    blocReglement(v, z),
     (u.servitudes || []).length ? h('ul', { class: 'listeTerrain', id: 'servitudes' }, u.servitudes.map(x => h('li', {}, x.libelle + (x.detail ? ' — ' + x.detail : '')))) : null,
     (u.informations || []).length ? h('div', { class: 'mut petit' }, 'Informations du document d’urbanisme : ' + u.informations.join(' · ')) : null,
     h('div', { class: 'ligneTerrain', id: 'risques' }, h('b', {}, 'Risques '),

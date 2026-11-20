@@ -116,6 +116,7 @@ export const CHAMPS = {
   'terrain.reseau.gaz': 'texte', 'terrain.reseau.fibre': 'texte',
   'terrain.assainissement': 'texte', 'terrain.bornage': 'texte', 'terrain.etudeSol': 'texte', 'terrain.demolition': 'texte',
   'terrain.notes': 'texte',
+  'terrain.reglement': 'objet', // les règles de la zone lues dans le règlement PLU par l'IA : { zone, url, regles, autres, pages, le }
   'terrain.plan': 'objet', // le plan du terrain lu par l'IA (decrire, mode terrain) : { esquisse, surface, facade, cotes, …, fichier, photoId, le }
   'photoGarde': 'texte', // identifiant de la photo de garde
   'scan.fichier': 'objet', // { nom, taille, chemin } du fichier importé

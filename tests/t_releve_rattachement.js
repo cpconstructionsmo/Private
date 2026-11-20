@@ -137,6 +137,11 @@ chk(M.releveLien()==='releve/'&&M.releveLien({visite:'a b'})==='releve/?visite=a
   chk(q.categorie==='neuf'&&q.surfaceHabitable===160&&q.nbChambres===4&&q.niveaux==='R+1 combles aménagés'&&q.prestation==='Clé en main'&&q.terrainPrix===55000&&q.surfaceTerrain===812&&q.commune==='Villefictive',
     'prospect « Maison neuve » : surface, chambres, niveaux, prestation, terrain, commune du terrain');
   chk(!q.chauffage&&/Chaudière granulés/.test(q.demande),'un chauffage hors de la liste du suivi reste dans la demande (rien d’inventé)');
+  {const v2={...valeurs,'terrain.reglement':{zone:'UB',regles:{hauteur:'7 m à l’égout',emprise:'40 %',aspect:'enduit clair'}}};
+    const q2=M.prospectDepuisVisite(M.visiteResume({id:'vc2',donnees:{id:'vc2',valeurs:v2,photos:{}}}),{},'2026-11-20');
+    chk(/Règlement de la zone \(lecture automatique, à vérifier\) : hauteur : 7 m à l’égout ; emprise : 40 %/.test(q2.demande),'la demande reprend les règles de la zone lues (hauteur, emprise), dites à vérifier');
+    const v3={...valeurs,'terrain.reglement':{zone:'UA',regles:{hauteur:'12 m'}}};
+    chk(!/Règlement de la zone/.test(M.prospectDepuisVisite(M.visiteResume({id:'vc3',donnees:{id:'vc3',valeurs:v3,photos:{}}}),{},'2026-11-20').demande),'règles lues pour une autre zone : pas reprises');}
   chk(/Projet : construction neuve/.test(q.demande)&&/Urbanisme : PLU DE VILLEFICTIVE — zone UB/.test(q.demande)&&/Servitudes : Abords d’un monument historique/.test(q.demande)&&/Risques \(Géorisques\) : argiles : exposition moyenne, sismicité 2 - faible, Inondation/.test(q.demande)&&/Adresse du terrain : Lieu-dit Fictif 61999 Villefictive/.test(q.demande),
     'la demande reprend le terrain : adresse, urbanisme, servitudes, risques');
   const p0={id:'p',nom:'Maison X',client:'X',surfaceHabitable:140,nbChambres:'',niveaux:'',decouverte:{}};
