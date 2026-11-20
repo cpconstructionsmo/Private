@@ -1457,7 +1457,12 @@ function chargerFichier(f) {
 $('fichier').addEventListener('change', e => { chargerFichier(e.target.files[0]); e.target.value = ''; });
 ['dragenter', 'dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('on'); }));
 ['dragleave', 'drop'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); if (ev === 'drop' || e.target === $('drop')) $('drop').classList.remove('on'); }));
-window.addEventListener('drop', e => chargerFichier(e.dataTransfer.files[0]));
+window.addEventListener('drop', e => {
+  // plusieurs esquisses glissées d'un coup (une par pièce) : toutes passent à la visite
+  const fs = [...(e.dataTransfer.files || [])];
+  if (fs.length > 1 && pont.actif && fs.every(estPlan2D)) { versVisite({ type: 'releve:plan2d', fichier: fs[0], fichiers: fs }); message(fs.length + ' plans reçus : la visite les lit (étape Scan)…', 'ok'); return; }
+  chargerFichier(fs[0]);
+});
 
 /* zoom et déplacement du plan 2D */
 cvPlan.addEventListener('wheel', e => {

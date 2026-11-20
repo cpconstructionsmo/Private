@@ -55,7 +55,9 @@ qu'on ait à les redire.
   manuscrite » ajoute la transcription à la dictée de l'assistant. « 🖼 Plan 2D » (mode
   `plan`, image ou PDF, aussi glissé sur le plan) : pièces lues → dessin
   rapide à vérifier (`dessinDepuisRectangles`), plan d'origine gardé
-  (photo `planPapier`). Dossier client
+  (photo `planPapier`), plusieurs esquisses d'un coup ajoutées au dessin.
+  Plan annoté (travaux) : copie du plan annotée au doigt (`annotations.js`,
+  champ `annotations`, photos `fondAnnote` et `planAnnote`). Dossier client
   (`releve/dossier.js`, « 📄 Dossier client », lien du suivi
   `releveLien({visite,vue:'dossier'})`) : imprimable en PDF A4, jamais les
   notes de visite ni la marge ; image du plan dessiné (`planImage`) ;

@@ -17,6 +17,7 @@ import * as B from './budget.js';
 import { dossierClient, OPTIONS_DEFAUT } from './dossier.js';
 import * as A from './assistant.js';
 import * as DR from './dessin.js';
+import * as AN from './annotations.js';
 import { h } from './dom.js';
 import { vueDossier, dateLongue } from './dossier-vue.js';
 
@@ -761,6 +762,22 @@ function cartePiece(v, p) {
 const resumePlan = r => r ? r.pieces + ' pièce' + (r.pieces > 1 ? 's' : '') + ' · ' + String(r.surface).replace('.', ',') + ' m²' +
   (r.ouvertures != null ? ' · ' + r.ouvertures + ' ouverture' + (r.ouvertures > 1 ? 's' : '') : '') : '';
 
+/* le plan et sa copie annotée, côte à côte (l'un sous l'autre sur iPhone) */
+function blocAnnotations(v) {
+  const fonds = fondsAnnotation(v), a = annotationsDe(v), annote = a.fondId && v.photos[a.fondId];
+  if (!fonds.length && !annote) return null;
+  const pi = M.valeur(v, 'planImage'), imgPlan = pi && v.photos[pi.id] ? v.photos[pi.id] : fonds[0] && fonds[0].photo;
+  const imgAnnote = a.imageId && v.photos[a.imageId] ? v.photos[a.imageId] : annote ? v.photos[a.fondId] : null;
+  return h('div', { class: 'carte', id: 'blocAnnotations' },
+    h('b', {}, '🖍 Plan annoté (travaux)'),
+    h('div', { class: 'duoPlans' },
+      imgPlan ? h('figure', {}, imagePhoto(imgPlan, 'vignettePlan'), h('figcaption', { class: 'mut petit' }, 'Plan')) : null,
+      imgAnnote ? h('figure', {}, imagePhoto(imgAnnote, 'vignettePlan'), h('figcaption', { class: 'mut petit', id: 'resumeAnnot' }, 'Copie annotée · ' + AN.resume(a.elements))) : null),
+    annote ? h('button', { class: 'gros sec', type: 'button', id: 'annoterPlan', style: 'margin-top:8px', onclick: () => { S.ecran = 'annoter'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🖍 Continuer les annotations')
+      : fonds.map(f => h('button', { class: 'gros sec', type: 'button', style: 'margin-top:8px', 'data-fond': f.source, id: f === fonds[0] ? 'annoterPlan' : null, onclick: () => commencerAnnotations(f) }, '🖍 Annoter une copie ' + f.libelle)),
+    h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Notez les travaux sur une copie : démolition, ouvertures, isolation… Le plan lui-même ne change pas.'));
+}
+
 function etapeScan(v) {
   const scan = M.valeur(v, 'scan.fichier'), plan = M.valeur(v, 'plan'), ecarte = M.valeur(v, 'plan.ecarte');
   const importer = () => {
@@ -785,6 +802,7 @@ function etapeScan(v) {
     h('p', { class: 'mut' }, 'Dans OpenPlan 3D : « Export Editable Plan (JSON) », puis importez le fichier ici. Le plan s’ouvre aussitôt : mesures, murs, ouvertures, avant/après, 3D, PDF.'),
     scan ? h('div', { class: 'carte' }, h('b', {}, '📄 ' + scan.nom), h('div', { class: 'mut petit' }, Math.round((scan.taille || 0) / 1024) + ' Ko · importé le ' + dateCourte(scan.importeLe))) : null,
     plan ? h('div', { class: 'carte', id: 'resumePlan' }, h('b', {}, '📐 Plan'), h('div', { class: 'mut petit' }, resumePlan(plan.resume))) : null,
+    blocAnnotations(v),
     ecarte ? h('div', { class: 'message att' }, 'Une autre version du plan, modifiée sur un autre appareil, a été gardée de côté' + (ecarte.resume ? ' (' + resumePlan(ecarte.resume) + ')' : '') + '. ',
       h('div', { class: 'rang', style: 'margin-top:8px' },
         h('button', { class: 'puce', type: 'button', onclick: async () => {
@@ -805,15 +823,20 @@ function etapeScan(v) {
     h('p', { class: 'mut petit' }, 'Pas de scan ? Posez les pièces une à une (longueur × largeur, à côté de la précédente). Ensuite, dans le plan, touchez une cote pour taper la vraie longueur.'),
     // un plan 2D existant (magicplan, architecte, photo d'un plan papier) : l'IA en relève les pièces
     h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', id: 'importerPlan2D', disabled: !!(S.lecturePlan && S.lecturePlan.encours),
-      onclick: () => choisirFichier({ accept: 'image/*,application/pdf' }, ([f]) => lirePlan2D(f)) },
-      S.lecturePlan && S.lecturePlan.encours ? '🖼 Lecture du plan… (jusqu’à une minute)' : '🖼 Plan 2D (photo, image ou PDF)')),
+      onclick: () => choisirFichier({ accept: 'image/*,application/pdf', multiple: true }, fs => lirePlan2D(fs)) },
+      S.lecturePlan && S.lecturePlan.encours ? '🖼 Lecture du plan' + (S.lecturePlan.rang ? ' ' + S.lecturePlan.rang : '') + '… (jusqu’à une minute)' : '🖼 Plan 2D ou esquisses (photo, image, PDF)')),
     S.lecturePlan && S.lecturePlan.message ? h('div', { class: 'message ' + S.lecturePlan.type, id: 'infoPlan2D' }, S.lecturePlan.message) : null,
     S.lecturePlan && S.lecturePlan.parties ? h('div', { class: 'carte', id: 'partiesPlan' },
       h('b', {}, '🖼 Plusieurs plans sur « ' + S.lecturePlan.nom + ' » : lequel dessiner ?'),
       S.lecturePlan.parties.map(p => h('button', { class: 'gros sec', type: 'button', style: 'margin-top:8px', 'data-partie': p.nom, onclick: () => appliquerPartiePlan(p, S.lecturePlan.nom) },
         p.nom + ' — ' + p.pieces.length + ' pièce' + (p.pieces.length > 1 ? 's' : '') + ', ' + String(Math.round(p.pieces.reduce((t, q) => t + q.longueur * q.largeur, 0))) + ' m²')),
       h('button', { class: 'lienRetour', type: 'button', style: 'margin-top:8px', onclick: () => { S.lecturePlan = null; redessiner(); } }, 'Annuler')) : null,
-    h('p', { class: 'mut petit' }, 'Un plan déjà fait (export magicplan, plan d’architecte, photo d’un plan papier) : l’IA relève les pièces et leurs dimensions, vous vérifiez dans le dessin rapide. Vous pouvez aussi le glisser dans le plan.'),
+    S.lecturePlan && S.lecturePlan.choix ? h('div', { class: 'carte', id: 'choixPlacement' },
+      h('b', {}, '🖼 ' + S.lecturePlan.choix.reduce((t, g) => t + g.partie.pieces.length, 0) + ' pièce(s) lue(s). Un dessin rapide existe déjà (' + ((M.valeur(v, 'dessin') || {}).pieces || []).length + ' pièces) :'),
+      h('button', { class: 'gros', type: 'button', id: 'ajouterAuDessin', style: 'margin-top:8px', onclick: () => appliquerGroupes(S.lecturePlan.choix, 'ajouter', S.lecturePlan.echecs) }, '＋ Ajouter au dessin'),
+      h('button', { class: 'gros sec', type: 'button', id: 'remplacerDessin', style: 'margin-top:8px', onclick: () => { if (confirm('Remplacer tout le dessin rapide par les pièces lues ?')) appliquerGroupes(S.lecturePlan.choix, 'remplacer', S.lecturePlan.echecs); } }, 'Remplacer le dessin'),
+      h('button', { class: 'lienRetour', type: 'button', style: 'margin-top:8px', onclick: () => { S.lecturePlan = null; redessiner(); } }, 'Annuler')) : null,
+    h('p', { class: 'mut petit' }, 'Un plan déjà fait (export magicplan, plan d’architecte) ou des esquisses à la main — une par pièce si vous voulez, plusieurs d’un coup : l’IA relève les pièces et leurs dimensions, elles s’ajoutent au dessin rapide, vous vérifiez et les placez. Un plan se glisse aussi dans le plan.'),
   ];
 }
 
@@ -826,43 +849,187 @@ function etapeScan(v) {
    qu'après accord. */
 const PDF_MAX = 4_400_000;                       // un PDF de plan, envoyé tel quel (≈ 6 Mo en base64)
 const estPlan2D = f => !!f && (/^image\//.test(f.type || '') || f.type === 'application/pdf' || /\.(jpe?g|png|webp|heic|heif|pdf)$/i.test(f.name || ''));
-async function lirePlan2D(f) {
-  const v = visite(); if (!v || !f) return;
+/* lit un ou plusieurs plans (une esquisse par pièce, par exemple) ; les
+   pièces lues s'ajoutent au dessin ou le remplacent, au choix */
+async function lirePlan2D(fichiers) {
+  const liste = (Array.isArray(fichiers) ? fichiers : [fichiers]).filter(Boolean).slice(0, 12);
+  const v = visite(); if (!v || !liste.length) return;
   const dire = (t, type) => { S.lecturePlan = { message: t, type: type || 'err' }; redessiner(); };
   if (!pretPourIA(dire, 'La lecture du plan')) return;
-  const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
-  S.lecturePlan = { encours: true, nom: f.name || 'plan' }; redessiner();
-  try {
-    let blob = f;
-    if (pdf) { if (f.size > PDF_MAX) throw { code: 'pdf_lourd' }; }
-    else {
-      blob = await reduirePhoto(f, 2400);          // assez fin pour lire les cotes d'un plan
-      const id = M.nouvelId();
-      await stock.garderPhoto(id, S.courante, blob);
-      await changer(w => M.majElement(M.ajouterPhoto(w, { id, role: 'planPapier', legende: f.name || 'Plan 2D' }), 'photos', id, { importeLe: new Date().toISOString() }));
+  const lus = [], echecs = [];
+  for (let k = 0; k < liste.length; k++) {
+    const f = liste[k], pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+    S.lecturePlan = { encours: true, nom: f.name || 'plan', rang: liste.length > 1 ? (k + 1) + ' / ' + liste.length : '' }; redessiner();
+    try {
+      let blob = f;
+      if (pdf) { if (f.size > PDF_MAX) throw { code: 'pdf_lourd' }; }
+      else {
+        blob = await reduirePhoto(f, 2400);          // assez fin pour lire les cotes d'un plan
+        const id = M.nouvelId();
+        await stock.garderPhoto(id, S.courante, blob);
+        await changer(w => M.majElement(M.ajouterPhoto(w, { id, role: 'planPapier', legende: f.name || 'Plan 2D' }), 'photos', id, { importeLe: new Date().toISOString() }));
+      }
+      const r = await appelerFonction({ action: 'decrire', mode: 'plan', image: await enBase64(blob), mime: pdf ? 'application/pdf' : 'image/jpeg' }) || {};
+      if (!Array.isArray(r.parties)) throw { code: r.legende !== undefined || r.constats ? 'consigne_absente' : 'rien_lu' };
+      const parties = r.parties.filter(p => p && Array.isArray(p.pieces) && p.pieces.length);
+      if (!parties.length) throw { code: 'rien_lu' };
+      lus.push({ nom: f.name || 'plan', parties });
+    } catch (e) {
+      const code = (e && e.code) || 'reseau';
+      const texte = code === 'pdf_lourd' ? 'ce PDF est trop lourd (plus de 4 Mo) : exportez la page du plan en image (JPG), ou photographiez-la.'
+        : code === 'rien_lu' ? 'aucune pièce lisible. Essayez une image plus nette, bien cadrée.'
+        : messageDecrire(e, 'plan');
+      if (code === 'consigne_absente' || code === 'quota' || code === 'non_configure') return dire(texte);   // inutile d'essayer les suivants
+      echecs.push((f.name || 'plan') + ' : ' + texte);
     }
-    const r = await appelerFonction({ action: 'decrire', mode: 'plan', image: await enBase64(blob), mime: pdf ? 'application/pdf' : 'image/jpeg' }) || {};
-    if (!Array.isArray(r.parties)) throw { code: r.legende !== undefined || r.constats ? 'consigne_absente' : 'rien_lu' };
-    const parties = r.parties.filter(p => p && Array.isArray(p.pieces) && p.pieces.length);
-    if (!parties.length) throw { code: 'rien_lu' };
-    if (parties.length === 1) { S.lecturePlan = null; return appliquerPartiePlan(parties[0], f.name); }
-    S.lecturePlan = { parties, nom: f.name || 'plan' }; redessiner();
-  } catch (e) {
-    const code = (e && e.code) || 'reseau';
-    dire(code === 'pdf_lourd' ? 'Ce PDF est trop lourd (plus de 4 Mo) : exportez la page du plan en image (JPG), ou photographiez-la.'
-      : code === 'rien_lu' ? 'Aucune pièce lisible sur ce plan. Essayez une image plus nette (export JPG ou PDF de l’application de plan), bien cadrée.'
-      : messageDecrire(e, 'plan'));
   }
+  if (!lus.length) return dire(echecs.join(' ') || 'Aucune pièce lisible.');
+  // un seul plan, plusieurs parties (étages, état actuel / projet) : on choisit laquelle
+  if (lus.length === 1 && lus[0].parties.length > 1) { S.lecturePlan = { parties: lus[0].parties, nom: lus[0].nom, echecs }; return redessiner(); }
+  // plusieurs esquisses : la partie la plus fournie de chacune
+  const groupes = lus.map(l => ({ nom: l.nom, partie: [...l.parties].sort((a, b) => b.pieces.length - a.pieces.length)[0] }));
+  proposerPlacement(groupes, echecs);
 }
-async function appliquerPartiePlan(partie, nomFichier) {
-  const pieces = DR.dessinDepuisRectangles(partie.pieces, () => M.nouvelId().slice(0, 8));
-  if (!pieces.length) { S.lecturePlan = { message: 'Aucune pièce exploitable dans « ' + partie.nom + ' ».', type: 'err' }; return redessiner(); }
+/* un dessin existe déjà : ajouter les pièces lues, ou le remplacer (au choix) */
+function proposerPlacement(groupes, echecs) {
   const avant = M.valeur(visite(), 'dessin');
-  if (avant && Array.isArray(avant.pieces) && avant.pieces.length && !confirm('Un dessin rapide existe déjà (' + avant.pieces.length + ' pièce' + (avant.pieces.length > 1 ? 's' : '') + '). Le remplacer par les pièces lues sur le plan ?')) return;
-  await poser('dessin', { pieces, hauteur: (avant && avant.hauteur) || 2.5, source: { fichier: String(nomFichier || '').slice(0, 120), partie: partie.nom, luLe: new Date().toISOString() } });
+  if (avant && Array.isArray(avant.pieces) && avant.pieces.length) { S.lecturePlan = { choix: groupes, echecs: echecs || [] }; return redessiner(); }
+  appliquerGroupes(groupes, 'remplacer', echecs);
+}
+async function appliquerGroupes(groupes, mode, echecs) {
+  // chaque esquisse donne son groupe de pièces ; un groupe ajouté se pose à droite du dessin
+  // (sa première pièce sans voisine) : on la place ensuite contre la bonne pièce, au doigt
+  const nouvelles = groupes.flatMap(g => DR.dessinDepuisRectangles(g.partie.pieces, () => M.nouvelId().slice(0, 8)));
+  if (!nouvelles.length) { S.lecturePlan = { message: 'Aucune pièce exploitable sur ce plan.', type: 'err' }; return redessiner(); }
+  const avant = M.valeur(visite(), 'dessin'), garde = mode === 'ajouter' && avant && Array.isArray(avant.pieces) ? avant.pieces : [];
+  const sources = [...(mode === 'ajouter' && avant && Array.isArray(avant.sources) ? avant.sources : mode === 'ajouter' && avant && avant.source ? [avant.source] : []),
+    ...groupes.map(g => ({ fichier: String(g.nom || '').slice(0, 120), partie: g.partie.nom, luLe: new Date().toISOString() }))].slice(-30);
+  await poser('dessin', { pieces: [...garde, ...nouvelles].slice(0, 60), hauteur: (avant && avant.hauteur) || 2.5, source: sources[sources.length - 1], sources });
+  const n = nouvelles.length, pl = n > 1 ? 's' : '';
   S.lecturePlan = null; S.dessinSel = null; S.ecran = 'dessin';
-  S.message = { type: 'att', texte: '🖼 ' + pieces.length + ' pièce' + (pieces.length > 1 ? 's' : '') + ' lue' + (pieces.length > 1 ? 's' : '') + ' sur le plan (« ' + partie.nom + ' »). Vérifiez les dimensions et la place de chaque pièce (l’IA peut se tromper), puis « ✓ Créer le plan ».' };
+  S.message = { type: 'att', texte: '🖼 ' + n + ' pièce' + pl + ' lue' + pl + (groupes.length > 1 ? ' sur ' + groupes.length + ' esquisses' : ' sur le plan (« ' + groupes[0].partie.nom + ' »)') + (garde.length ? ', ajoutée' + pl + ' au dessin' : '') + '. '
+    + (groupes.length > 1 || garde.length ? 'Touchez chaque pièce ajoutée pour la poser contre sa voisine (à droite, en dessous…). ' : '')
+    + 'Vérifiez les dimensions (l’IA peut se tromper), puis « ✓ Créer le plan ».' + ((echecs || []).length ? ' Non lu : ' + echecs.join(' ') : '') };
   vibrer(); dessiner(); window.scrollTo(0, 0);
+}
+async function appliquerPartiePlan(partie, nomFichier) { proposerPlacement([{ nom: nomFichier, partie }], (S.lecturePlan && S.lecturePlan.echecs) || []); }
+
+/* ---------- le plan annoté (travaux) : releve/annotations.js ----------
+   Une copie du plan (plan dessiné, ou plan 2D importé), annotée au doigt :
+   stylo de couleur, flèches, textes. Les annotations sont gardées en
+   vecteurs avec la visite (« annotations ») ; l'image annotée (photo
+   « planAnnote ») est refaite en quittant l'écran. */
+function fondsAnnotation(v) {
+  const res = [], pi = M.valeur(v, 'planImage');
+  if (pi && v.photos[pi.id] && !v.photos[pi.id].supprime) res.push({ source: 'plan', photo: v.photos[pi.id], empreinte: pi.empreinte || null, libelle: 'du plan dessiné' });
+  const pp = M.actifs(v.photos).filter(x => x.role === 'planPapier').sort((a, b) => String(b.importeLe || '').localeCompare(String(a.importeLe || '')))[0];
+  if (pp) res.push({ source: 'planPapier', photo: pp, empreinte: pp.id, libelle: 'du plan importé' });
+  return res;
+}
+const annotationsDe = v => AN.nettoyer(M.valeur(v, 'annotations'));
+/* une copie du fond, à part : le plan peut changer, l'annotation garde le sien */
+async function commencerAnnotations(fond) {
+  const blob = await blobPhoto(fond.photo).catch(() => null);
+  if (!blob) return montrerMessage('err', 'L’image du plan n’est pas lisible sur cet appareil (pas encore téléchargée ?). Réessayez avec le réseau.');
+  const id = M.nouvelId(), avant = annotationsDe(visite());
+  await stock.garderPhoto(id, S.courante, blob);
+  await changer(w => {
+    let x = M.ajouterPhoto(w, { id, role: 'fondAnnote' });
+    if (avant.fondId && x.photos[avant.fondId]) x = M.supprimer(x, 'photos', avant.fondId);
+    // repartir d'un plan à jour garde les annotations déjà faites (à vérifier)
+    return M.modifier(x, 'annotations', { ...avant, fondId: id, source: fond.source, empreinte: fond.empreinte });
+  });
+  S.ecran = 'annoter'; S.message = null; dessiner(); window.scrollTo(0, 0);
+}
+async function exporterAnnotations(visiteId) {
+  const rec = S.visites.find(r => r.id === visiteId); if (!rec) return;
+  const a = AN.nettoyer(M.valeur(rec.visite, 'annotations')), sig = JSON.stringify([a.fondId, a.elements]);
+  if (!a.fondId || sig === S.signatureAnnot) return;
+  try {
+    const fond = rec.visite.photos[a.fondId]; if (!fond) return;
+    let id = null;
+    if (a.elements.length) {
+      const img = await imageDepuisBlob(await blobPhoto(fond));
+      const W = Math.min(2000, img.naturalWidth), H = Math.round(img.naturalHeight * W / img.naturalWidth);
+      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); c.drawImage(img, 0, 0, W, H); AN.rendre(c, W, H, a.elements);
+      const blob = await new Promise(ok => cv.toBlob(ok, 'image/jpeg', 0.88)); if (!blob) return;
+      id = M.nouvelId(); await stock.garderPhoto(id, visiteId, blob);
+    }
+    await changerVisite(visiteId, w => {
+      const cur = AN.nettoyer(M.valeur(w, 'annotations'));
+      let x = w;
+      if (cur.imageId && x.photos[cur.imageId]) x = M.supprimer(x, 'photos', cur.imageId);
+      if (id) x = M.ajouterPhoto(x, { id, role: 'planAnnote', legende: 'Plan annoté (travaux)' });
+      return M.modifier(x, 'annotations', { ...cur, imageId: id });
+    });
+    S.signatureAnnot = sig;
+    if (S.ecran === 'visite') redessiner();
+  } catch (e) { /* l'image se refera à la prochaine sortie de l'écran */ }
+}
+const imageDepuisBlob = blob => new Promise((ok, ko) => { const u = URL.createObjectURL(blob), i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = u; });
+
+function ecranAnnoter() {
+  const v = visite();
+  if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
+  const a = annotationsDe(v);
+  if (!a.fondId || !v.photos[a.fondId]) { S.ecran = 'visite'; return ecranVisite(); }
+  const st = S.annot || (S.annot = { outil: 'trait', couleur: AN.COULEURS[0][0] });
+  let elements = a.elements.slice(), img = null, enCours = null;
+  const cv = h('canvas', { class: 'toileAnnot', id: 'toileAnnot', 'aria-label': 'Plan à annoter' });
+  const peindre = () => { if (!img) return; const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height); c.drawImage(img, 0, 0, cv.width, cv.height); AN.rendre(c, cv.width, cv.height, enCours ? [...elements, enCours] : elements); };
+  const garder = () => changer(w => M.modifier(w, 'annotations', { ...AN.nettoyer(M.valeur(w, 'annotations')), elements }));
+  const pos = e => { const r = cv.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+  blobPhoto(v.photos[a.fondId]).then(imageDepuisBlob).then(i => { img = i; cv.width = Math.min(2000, i.naturalWidth); cv.height = Math.round(i.naturalHeight * cv.width / i.naturalWidth); peindre(); })
+    .catch(() => montrerMessage('err', 'L’image du plan n’est pas lisible sur cet appareil.'));
+  let depart = null;
+  cv.addEventListener('pointerdown', e => { if (!img) return; e.preventDefault(); cv.setPointerCapture(e.pointerId); depart = pos(e);
+    enCours = st.outil === 'trait' ? { type: 'trait', c: st.couleur, p: [depart] } : st.outil === 'fleche' ? { type: 'fleche', c: st.couleur, a: depart, b: depart } : null; });
+  cv.addEventListener('pointermove', e => { if (!enCours) return; e.preventDefault(); const q = pos(e);
+    if (enCours.type === 'trait') enCours.p.push(q); else enCours.b = q; peindre(); });
+  cv.addEventListener('pointerup', async e => {
+    if (!depart) return; const q = pos(e), d = depart; depart = null;
+    if (st.outil === 'texte') {
+      const t = (window.prompt('Annotation (travaux, cote, remarque) — « / » pour aller à la ligne :') || '').trim();
+      if (t) { elements.push({ type: 'texte', c: st.couleur, x: d[0], y: d[1], t }); }
+    } else if (enCours) {
+      const el = enCours.type === 'trait' ? { ...enCours, p: AN.simplifier(enCours.p) } : enCours;
+      enCours = null;
+      const propre = AN.nettoyer({ elements: [el] }).elements[0];
+      if (propre) elements.push(propre);
+    }
+    enCours = null; peindre(); await garder(); majCompte();
+  });
+  cv.addEventListener('pointercancel', () => { enCours = null; depart = null; peindre(); });
+  const compte = h('span', { class: 'mut petit', id: 'compteAnnot' });
+  const majCompte = () => { compte.textContent = AN.resume(elements); };
+  majCompte();
+  // changer d'outil ou de couleur ne redessine pas l'écran (le plan resterait à recharger)
+  const aideOutil = h('span', { class: 'mut petit', id: 'aideOutil' });
+  const marquer = () => {
+    document.querySelectorAll('[data-outil]').forEach(x => { const on = x.dataset.outil === st.outil; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+    document.querySelectorAll('[data-couleur]').forEach(x => { const on = x.dataset.couleur === st.couleur; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+    aideOutil.textContent = st.outil === 'texte' ? 'Touchez le plan à l’endroit du texte.' : st.outil === 'fleche' ? 'Tirez du départ vers la pointe.' : 'Dessinez au doigt sur le plan.';
+  };
+  marquer();
+  const fonds = fondsAnnotation(v), aJour = fonds.find(f => f.source === a.source);
+  const perime = aJour && a.empreinte && aJour.empreinte !== a.empreinte;
+  const retour = () => { S.ecran = 'visite'; S.etape = Math.max(0, M.ETAPES.findIndex(x => x.id === 'scan')); dessiner(); window.scrollTo(0, 0); };
+  return [
+    h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Visite'), h('span', { class: 'titre' }, 'Plan annoté'), pastilleEtat()),
+    h('main', { class: 'ecranAnnot' },
+      S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
+      perime ? h('div', { class: 'message att', id: 'planChange' }, 'Le plan a changé depuis le début des annotations. ',
+        h('button', { class: 'lienRetour', type: 'button', onclick: () => commencerAnnotations(aJour) }, 'Repartir du plan à jour (les annotations sont gardées, à vérifier)')) : null,
+      h('div', { class: 'puces barreAnnot', role: 'toolbar' },
+        AN.OUTILS.map(([k, lib]) => h('button', { class: 'puce' + (st.outil === k ? ' on' : ''), type: 'button', 'data-outil': k, 'aria-pressed': String(st.outil === k), onclick: () => { st.outil = k; marquer(); } }, lib)),
+        AN.COULEURS.map(([c, lib]) => h('button', { class: 'puce pastilleCouleur' + (st.couleur === c ? ' on' : ''), type: 'button', 'data-couleur': c, 'aria-label': 'Couleur ' + lib, 'aria-pressed': String(st.couleur === c), style: '--c:' + c, onclick: () => { st.couleur = c; marquer(); } }, '●')),
+        h('button', { class: 'puce', type: 'button', id: 'annulerAnnot', onclick: async () => { elements.pop(); peindre(); await garder(); majCompte(); } }, '↶ Annuler'),
+        h('button', { class: 'puce', type: 'button', id: 'effacerAnnot', onclick: async () => { if (!elements.length || !confirm('Effacer toutes les annotations de ce plan ?')) return; elements = []; peindre(); await garder(); majCompte(); } }, '🗑 Tout effacer')),
+      h('div', { class: 'carte cadreAnnot' }, cv),
+      h('div', { class: 'rang', style: 'justify-content:space-between;margin-top:6px' }, compte, aideOutil),
+      h('button', { class: 'gros', type: 'button', id: 'terminerAnnot', style: 'margin-top:12px', onclick: retour }, '✓ Terminer')),
+  ];
 }
 
 /* ---------- le plan : le moteur de relevé (releve/moteur/) dans un cadre ----------
@@ -967,7 +1134,7 @@ window.addEventListener('message', e => {
     else if (m.type === 'releve:plan2d' && m.fichier && estPlan2D(m.fichier)) {
       // une image ou un PDF glissé sur le plan : lu comme un plan 2D, depuis l'étape Scan
       // (hors de la file : fermerPlan attend un message du moteur qui passera par elle)
-      const f = m.fichier;
+      const f = m.fichiers && m.fichiers.length ? m.fichiers.filter(estPlan2D) : [m.fichier];
       setTimeout(async () => { await fermerPlan(); S.etape = Math.max(0, M.ETAPES.findIndex(x => x.id === 'scan')); S.ecran = 'visite'; dessiner(); lirePlan2D(f); }, 0);
     }
   }).catch(err => erreurPlan('Le plan n’a pas pu être enregistré sur l’appareil (' + ((err && err.message) || 'erreur') + ').'));
@@ -1070,7 +1237,7 @@ function ecranDessin() {
   const v = visite();
   if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
   const d = dessinCourant(), R = DR.releveDepuisDessin(d.pieces, { hauteur: d.hauteur });
-  const retour = () => { S.ecran = 'visite'; dessiner(); window.scrollTo(0, 0); };
+  const retour = () => { S.ecran = 'visite'; S.message = null; dessiner(); window.scrollTo(0, 0); };
   const ajouter = () => majDessin(x => {
     const n = PIECE_DEFAUT(), der = x.pieces[x.pieces.length - 1];
     if (der) n.contre = { id: der.id, cote: 'droite', decalage: 0 };
@@ -1095,9 +1262,10 @@ function ecranDessin() {
       h('p', { class: 'mut petit' }, 'Posez les pièces une à une, à côté de la précédente. Touchez une pièce pour la régler. Les cotes exactes se tapent ensuite dans le plan.'),
       h('div', { class: 'carte', style: 'padding:6px' }, apercuDessin(d, R)),
       // lu sur un plan 2D : le plan d'origine sous la main, pour comparer
-      (() => { const pp = d.source ? M.actifs(v.photos).filter(x => x.role === 'planPapier').sort((a, b) => String(b.importeLe || '').localeCompare(String(a.importeLe || '')))[0] : null;
-        return d.source ? h('details', { class: 'carte planOrigine', id: 'planOrigine' }, h('summary', {}, '🖼 Plan d’origine' + (d.source.partie ? ' · ' + d.source.partie : '')),
-          pp ? imagePhoto(pp, 'imagePlanOrigine') : h('div', { class: 'mut petit' }, d.source.fichier || '')) : null; })(),
+      (() => { const n = Array.isArray(d.sources) ? d.sources.length : d.source ? 1 : 0;
+        const pps = n ? M.actifs(v.photos).filter(x => x.role === 'planPapier').sort((a, b) => String(b.importeLe || '').localeCompare(String(a.importeLe || ''))).slice(0, Math.min(n, 12)) : [];
+        return n ? h('details', { class: 'carte planOrigine', id: 'planOrigine' }, h('summary', {}, n > 1 ? '🖼 Plans et esquisses d’origine (' + n + ')' : '🖼 Plan d’origine' + (d.source && d.source.partie ? ' · ' + d.source.partie : '')),
+          pps.length ? pps.map(pp => imagePhoto(pp, 'imagePlanOrigine')) : h('div', { class: 'mut petit' }, (d.source && d.source.fichier) || '')) : null; })(),
       R.erreurs.length ? h('div', { class: 'message err' }, R.erreurs.join(' ')) : d.pieces.length ? h('div', { class: 'mut petit' }, R.resume.pieces + ' pièce' + (R.resume.pieces > 1 ? 's' : '') + ' · ' + String(R.resume.surface).replace('.', ',') + ' m²') : null,
       d.pieces.map((p, i) => {
         const sel = S.dessinSel === p.id;
@@ -1741,8 +1909,11 @@ window.addEventListener('popstate', async e => {
 function dessiner() {
   arreterDictee(); // le champ dicté va être remplacé
   const app = document.getElementById('app');
-  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : S.ecran === 'assistant' ? ecranAssistant() : S.ecran === 'dessin' ? ecranDessin() : ecranAccueil();
+  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : S.ecran === 'assistant' ? ecranAssistant() : S.ecran === 'dessin' ? ecranDessin() : S.ecran === 'annoter' ? ecranAnnoter() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
+  // en quittant le plan annoté (bouton, retour du navigateur…), son image est refaite
+  if (S.dernierEcran === 'annoter' && S.ecran !== 'annoter' && S.courante) exporterAnnotations(S.courante);
+  S.dernierEcran = S.ecran;
   suivreHistorique();
 }
 

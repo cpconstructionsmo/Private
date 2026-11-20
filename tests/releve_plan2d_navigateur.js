@@ -5,7 +5,8 @@
    - le dessin rapide se remplit (pièces posées l'une contre l'autre), le
      plan d'origine reste visible ; « Créer le plan » ouvre le moteur ;
    - une image glissée sur le plan est passée à la visite et lue ;
-   - un dessin existant n'est remplacé qu'après accord ;
+   - un dessin existant : ajouter ou remplacer, au choix ; plusieurs
+     esquisses d'un coup (une par pièce) s'ajoutent ;
    - fonction du serveur pas à jour : message clair. */
 require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
 const {chromium}=require('playwright-core');const fs=require('fs');const path=require('path');
@@ -71,12 +72,27 @@ let b;
   const frame=await (async()=>{for(let i=0;i<80;i++){const f=p.frames().find(x=>/moteur\/index\.html/.test(x.url()));if(f&&await f.evaluate(()=>!!(window.__releve&&window.__releve.donnees())).catch(()=>false))return f;await p.waitForTimeout(100)}return null})();
   chk(!!frame&&await frame.evaluate(()=>window.__releve.donnees().pieces.length)===3,'« Créer le plan » : le moteur ouvre les 3 pièces');
   await repondre({parties:[{nom:'Plan',pieces:[{nom:'Garage',longueur:6,largeur:3,x:0,y:0}]}]});
-  const nbAvant=dialogues.length;
   await frame.evaluate(b64=>{const bin=atob(b64),a=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);
     const dt=new DataTransfer();dt.items.add(new File([a],'plan-magicplan.jpg',{type:'image/jpeg'}));window.dispatchEvent(new DragEvent('drop',{dataTransfer:dt,bubbles:true,cancelable:true}))},fs.readFileSync(PHOTO).toString('base64'));
-  await p.waitForFunction(()=>document.querySelectorAll('[data-dessin]').length===1&&/Garage/.test(document.querySelector('main').textContent),null,{timeout:20000});
-  chk(true,'une image glissée sur le plan est passée à la visite, lue, et donne le dessin');
-  chk(dialogues.slice(nbAvant).some(m=>/Un dessin rapide existe déjà \(3 pièces\)/.test(m)),'le dessin existant n’est remplacé qu’après accord');
+  await p.waitForSelector('#choixPlacement',{timeout:20000});
+  chk(/Un dessin rapide existe déjà \(3 pièces\)/.test(await p.textContent('#choixPlacement')),'une image glissée sur le plan est passée à la visite et lue ; un dessin existe : ajouter ou remplacer, au choix');
+  await p.tap('#ajouterAuDessin');
+  await p.waitForFunction(()=>document.querySelectorAll('[data-dessin]').length===4&&/Garage/.test(document.querySelector('main').textContent));
+  chk(/ajoutée au dessin/.test(await p.textContent('main')),'« Ajouter au dessin » : le garage rejoint les 3 pièces, rien n’est perdu');
+
+  /* plusieurs esquisses d'un coup (une par pièce) */
+  await p.tap('text=‹ Visite');
+  await p.waitForSelector('#importerPlan2D');
+  const nbAppels=await p.evaluate(()=>window.__etat.appels.filter(a=>a.nom==='imaginer').length);
+  await repondre({parties:[{nom:'Esquisse',pieces:[{nom:'Chambre',longueur:3.2,largeur:3.5,x:0,y:0}]}]});
+  const [c3]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#importerPlan2D')]);await c3.setFiles([PHOTO,PHOTO]);
+  await p.waitForSelector('#choixPlacement',{timeout:20000});
+  await p.tap('#ajouterAuDessin');
+  await p.waitForFunction(()=>document.querySelectorAll('[data-dessin]').length===6);
+  chk(await p.evaluate(n=>window.__etat.appels.filter(a=>a.nom==='imaginer').length===n+2,nbAppels)&&/2 pièces lues sur 2 esquisses/.test(await p.textContent('main')),'deux esquisses choisies ensemble : chacune est lue, leurs pièces s’ajoutent (6 pièces)');
+  chk(!/se chevauchent/.test(await p.textContent('main')),'les pièces ajoutées se posent à côté, sans chevauchement : on les place ensuite au doigt');
+  await p.tap('#planOrigine summary');
+  chk(await p.locator('#planOrigine img.imagePlanOrigine').count()>=3,'les esquisses d’origine restent visibles sous le dessin');
 
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();
