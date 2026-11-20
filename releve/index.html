@@ -165,6 +165,12 @@
     .pieceDossier,.duo,.tableDossier,.feuille.fin{break-inside:avoid}
   }
   [hidden]{display:none!important}
+  .natures .puce{flex:1 1 30%;min-height:56px;font-size:15px;font-weight:600}
+  .infosTerrain .ligneTerrain{margin-top:8px;line-height:1.5}.listeTerrain{margin:6px 0 0;padding-left:18px;font-size:14px}
+  .puces.risques{margin-top:8px}.puce.risque{font-size:12px;cursor:default}.puce.risque.avere{border-color:var(--amber);background:#FBF0DA}
+  .pointsAttention{margin-top:12px;padding:10px;border-radius:10px;background:#F6F2EA}.pointsAttention .point{margin-top:6px;font-size:14px;line-height:1.45;padding-left:8px;border-left:3px solid #9AA4B2}
+  .pointsAttention .point.bloquant{border-left-color:#B42318}.pointsAttention .point.important{border-left-color:var(--amber)}
+  .photosTerrain{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}.photosTerrain figure{position:relative;margin:0}.photosTerrain img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px}
   .duoPlans{display:grid;grid-template-columns:1fr;gap:10px;margin-top:8px}
   @media (min-width:700px){.duoPlans{grid-template-columns:1fr 1fr}}
   .duoPlans figure{margin:0}.vignettePlan{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line,#ddd);background:#fff}

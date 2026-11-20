@@ -11,15 +11,40 @@
 
 export const SCHEMA = 1;
 
+/* la nature du projet, choisie dès la première page : elle décide du
+   parcours. Une ancienne visite sans nature est une rénovation (le parcours
+   d'avant, inchangé). */
+export const NATURES = [['renovation', '🏚 Rénovation'], ['construction', '🏗 Construction neuve'], ['agrandissement', '➕ Agrandissement']];
+export const natureDe = v => { const n = v && v.valeurs && v.valeurs['projet.nature']; return n === 'construction' || n === 'agrandissement' ? n : 'renovation'; };
+
+/* toutes les étapes ; chaque nature n'en prend que certaines (etapesDe) */
 export const ETAPES = [
   { id: 'garde', titre: 'Photo de garde' },
   { id: 'client', titre: 'Client' },
   { id: 'projet', titre: 'Projet' },
+  { id: 'terrain', titre: 'Terrain' },
   { id: 'pieces', titre: 'Pièces et photos' },
   { id: 'scan', titre: 'Scan' },
   { id: 'budget', titre: 'Budget' },
   { id: 'fin', titre: 'Fin de visite' },
 ];
+const PARCOURS = {
+  renovation: ['garde', 'client', 'projet', 'pieces', 'scan', 'budget', 'fin'],
+  construction: ['garde', 'client', 'projet', 'terrain', 'fin'],
+  agrandissement: ['garde', 'client', 'projet', 'terrain', 'pieces', 'scan', 'budget', 'fin'],
+};
+export const etapesDe = v => PARCOURS[natureDe(v)].map(id => ETAPES.find(e => e.id === id));
+
+/* construction neuve et agrandissement : les choix proposés */
+export const NIVEAUX_NEUF = ['Plain-pied', 'R+1', 'Combles aménagés', 'Sous-sol'];
+export const CHAMBRES = ['1', '2', '3', '4', '5', '6 et +'];
+export const GARAGES = ['Aucun', 'Intégré', 'Accolé', 'Carport', 'Séparé'];
+export const PRESTATIONS_NEUF = ['Clé en main', 'Hors d’eau hors d’air', 'Gros œuvre seul', 'À définir'];
+export const CHAUFFAGES_NEUF = ['Pompe à chaleur air/eau', 'Pompe à chaleur air/air', 'Poêle à granulés', 'Chaudière granulés', 'Autre', 'À définir'];
+export const STATUTS_TERRAIN = ['Acquis', 'Compromis signé', 'En recherche'];
+export const FINANCEMENTS = ['Crédit immobilier', 'PTZ + crédit', 'Fonds propres', 'À définir'];
+export const TYPES_AGRANDISSEMENT = ['Extension plain-pied', 'Surélévation', 'Véranda', 'Garage', 'Aménagement de combles', 'Autre'];
+
 
 export const CIVILITES = ['M.', 'Mme', 'M. et Mme'];
 
@@ -71,6 +96,23 @@ export const CHAMPS = {
   // « en quelques mots » devient deux champs (situation actuelle, souhaits) ; explicatif reste lisible
   'projet.situation': 'texte', 'projet.souhaits': 'texte',
   'projet.enveloppe': 'nombre',
+  'projet.nature': 'texte', // 'renovation' (défaut) | 'construction' | 'agrandissement' : le parcours (NATURES)
+  // construction neuve
+  'construction.surface': 'nombre', 'construction.niveaux': 'liste', 'construction.chambres': 'texte', 'construction.garage': 'texte',
+  'construction.prestation': 'texte', 'construction.chauffage': 'texte', 'construction.terrainStatut': 'texte',
+  'construction.prixTerrain': 'nombre', 'construction.financement': 'texte',
+  // agrandissement
+  'agrandissement.types': 'liste', 'agrandissement.surface': 'nombre', 'agrandissement.surfaceExistante': 'nombre',
+  // le terrain (terrain.js) : adresse, localisation, ce que disent les services publics, ce qui se voit sur place
+  'terrain.adresseIdem': 'booleen', 'terrain.adresse': 'texte', 'terrain.codePostal': 'texte', 'terrain.ville': 'texte',
+  'terrain.position': 'objet', // { lon, lat, label, source: 'adresse'|'gps', le }
+  'terrain.infos': 'objet', // { le, parcelle, urbanisme, risques, erreurs } (lus par terrain.js)
+  'terrain.surface': 'nombre', 'terrain.forme': 'texte', 'terrain.pente': 'texte', 'terrain.orientation': 'texte',
+  'terrain.acces': 'texte', 'terrain.facade': 'nombre', 'terrain.lotissement': 'texte',
+  'terrain.reseau.eau': 'texte', 'terrain.reseau.electricite': 'texte', 'terrain.reseau.assainissement': 'texte',
+  'terrain.reseau.gaz': 'texte', 'terrain.reseau.fibre': 'texte',
+  'terrain.assainissement': 'texte', 'terrain.bornage': 'texte', 'terrain.etudeSol': 'texte', 'terrain.demolition': 'texte',
+  'terrain.notes': 'texte',
   'photoGarde': 'texte', // identifiant de la photo de garde
   'scan.fichier': 'objet', // { nom, taille, chemin } du fichier importé
   'plan': 'objet', // { releve, resume } : le relevé ouvert dans le moteur (releve/moteur/)
@@ -245,7 +287,14 @@ export function manques(v) {
   if (estSociete(v) ? !valeur(v, 'societe.raisonSociale') : !valeur(v, 'client.nom')) m.push(estSociete(v) ? 'raison sociale' : 'nom du client');
   if (!valeur(v, 'client.telephone') && !valeur(v, 'client.email')) m.push('téléphone ou e-mail');
   if (!valeur(v, 'client.adresse')) m.push('adresse');
-  if (!(valeur(v, 'projet.types') || []).length) m.push('type de travaux');
+  const n = natureDe(v);
+  if (n === 'construction') {
+    if (!valeur(v, 'construction.surface')) m.push('surface souhaitée');
+    if (!valeur(v, 'terrain.position')) m.push('terrain localisé');
+  } else if (n === 'agrandissement') {
+    if (!(valeur(v, 'agrandissement.types') || []).length) m.push('type d’agrandissement');
+    if (!valeur(v, 'terrain.position')) m.push('terrain localisé');
+  } else if (!(valeur(v, 'projet.types') || []).length) m.push('type de travaux');
   return m;
 }
 

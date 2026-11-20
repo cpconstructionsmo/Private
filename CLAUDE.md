@@ -30,6 +30,11 @@ qu'on ait à les redire.
   « 🔗 Relier », tests `t_releve_assemblage.js`). Tout
   s'écrit d'abord sur l'appareil (IndexedDB) puis dans la table
   `releve_visites` (version, fusion champ par champ : `releve/modele.js`) ;
+  nature du projet dès la 1re page (`projet.nature` : rénovation, construction
+  neuve, agrandissement ; parcours `etapesDe`) ; étape Terrain
+  (`releve/terrain.js` : géocodage Géoplateforme ou GPS, cadastre et
+  urbanisme API Carto IGN, Géorisques ; points d'attention indicatifs, à
+  vérifier ; tests `t_releve_terrain.js`, `releve_construction_navigateur.js`) ;
   client particulier (1 à 3 acheteurs, `acheteur2.*`, `acheteur3.*`,
   domicile de chacun) ou société (`societe.*`), usage du bien, ampleur
   (`projet.categories`), situation et souhaits dictés (🎤, Web Speech,
