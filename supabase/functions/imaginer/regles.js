@@ -134,7 +134,7 @@ export async function empreinte(jeton) {
 export function cheminsDossier(d) {
   const s = new Set();
   const voir = ph => { if (ph && typeof ph.chemin === 'string' && /^[\w-]+\/[\w.-]+$/.test(ph.chemin)) s.add(ph.chemin); };
-  voir(d?.garde); voir(d?.planImage);
+  voir(d?.garde); voir(d?.planImage); voir(d?.planAnnote);
   (d?.pieces || []).forEach(p => (p.photos || []).forEach(ph => { voir(ph); (ph.imagines || []).forEach(voir); }));
   return [...s].slice(0, 200);
 }

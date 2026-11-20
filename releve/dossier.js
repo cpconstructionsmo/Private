@@ -17,7 +17,7 @@
 import * as M from './modele.js';
 import * as B from './budget.js';
 
-export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false };
+export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false, planAnnote: false };
 
 const txt = v => (typeof v === 'string' ? v.trim() : '');
 const nom = (v, p) => [M.valeur(v, p + '.civilite'), M.valeur(v, p + '.prenom'), M.valeur(v, p + '.nom')].filter(Boolean).join(' ');
@@ -79,6 +79,8 @@ export function dossierClient(v, opt = {}) {
     garde: (() => { const g = v.photos[val('photoGarde')]; return g && !g.supprime ? { id: g.id, chemin: g.chemin || null } : null; })(),
     // l'image du plan dessiné, envoyée par le moteur à la fermeture du plan
     planImage: (() => { const pi = val('planImage'), ph = pi && v.photos[pi.id]; return ph && !ph.supprime ? { id: ph.id, chemin: ph.chemin || null } : null; })(),
+    // le plan annoté des travaux (annotations.js), seulement si l'option est cochée
+    planAnnote: (() => { const a = val('annotations'), ph = o.planAnnote && a && typeof a.imageId === 'string' ? v.photos[a.imageId] : null; return ph && !ph.supprime ? { id: ph.id, chemin: ph.chemin || null } : null; })(),
     personnes,
     bien: { adresse, usage, surface: resume && resume.surface ? resume.surface : null, nbPieces: resume ? resume.pieces : null },
     projet: { categories: val('projet.categories') || [], types, situation: txt(val('projet.situation')), souhaits: txt(val('projet.souhaits')) || txt(val('projet.explicatif')),
