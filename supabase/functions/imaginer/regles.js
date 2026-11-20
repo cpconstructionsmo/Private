@@ -26,10 +26,26 @@ export function lireDemande(corps) {
   const consigne = nettoyer(corps?.consigne, CONSIGNE_MAX);
   if (consigne.length < 3) return { erreur: 'consigne_absente' };
   const mime = /^image\/(jpeg|png|webp)$/.test(String(corps?.mime)) ? String(corps.mime) : 'image/jpeg';
-  return { image: image.replace(/\s+/g, ''), mime, consigne, piece: nettoyer(corps?.piece, 80) };
+  // « terrain » : la maison neuve sur la photo du terrain ; « facade » : l'agrandissement sur la photo de la maison
+  const mode = corps?.mode === 'terrain' || corps?.mode === 'facade' ? corps.mode : 'piece';
+  return { image: image.replace(/\s+/g, ''), mime, consigne, piece: nettoyer(corps?.piece, 80), mode };
 }
 
-export function invite({ consigne, piece }) {
+export function invite({ consigne, piece, mode }) {
+  if (mode === 'terrain') return [
+    'Tu es architecte pour une entreprise de construction de maisons.',
+    'Voici la photo d’un terrain à bâtir. Montre-le avec la maison neuve construite selon ces souhaits :',
+    '« ' + consigne + ' »',
+    'Garde exactement le même point de vue, le même cadrage, la rue, les voisins, la végétation et le relief. Implante la maison de façon plausible, à une échelle réaliste par rapport au terrain et aux maisons voisines.',
+    'Rendu photoréaliste, lumière naturelle. N’ajoute ni texte, ni logo, ni marque, ni personne.',
+  ].join('\n');
+  if (mode === 'facade') return [
+    'Tu es architecte pour une entreprise de rénovation et d’agrandissement.',
+    'Voici la photo d’une maison existante. Montre-la avec l’agrandissement réalisé selon ces souhaits :',
+    '« ' + consigne + ' »',
+    'Garde la maison existante, le même point de vue, le même cadrage et l’environnement ; l’agrandissement doit s’accorder à la maison (volumes, matériaux, toiture), à une échelle réaliste.',
+    'Rendu photoréaliste, lumière naturelle. N’ajoute ni texte, ni logo, ni marque, ni personne.',
+  ].join('\n');
   return [
     'Tu es architecte d’intérieur pour une entreprise de rénovation.',
     'Voici la photo d’une pièce existante' + (piece ? ' (« ' + piece + ' »)' : '') + '. Montre-la après rénovation, selon ces souhaits :',
@@ -158,13 +174,24 @@ export function lireDescription(corps) {
   const image = String(corps?.image ?? '').replace(/^data:image\/[a-z+]+;base64,/i, '');
   if (!image || !/^[A-Za-z0-9+/=\s]+$/.test(image.slice(0, 2000))) return { erreur: 'image_absente' };
   if (image.length > IMAGE_MAX) return { erreur: 'image_trop_lourde' };
-  const mode = corps?.mode === 'note' ? 'note' : corps?.mode === 'plan' ? 'plan' : 'photo';
-  // un plan peut arriver en PDF (export magicplan) : Gemini le lit tel quel
-  const mime = /^image\/(jpeg|png|webp)$/.test(String(corps?.mime)) || (mode === 'plan' && corps?.mime === 'application/pdf') ? String(corps.mime) : 'image/jpeg';
+  const mode = ['note', 'plan', 'terrain'].includes(corps?.mode) ? corps.mode : 'photo';
+  // un plan peut arriver en PDF (export magicplan, plan de géomètre) : Gemini le lit tel quel
+  const mime = /^image\/(jpeg|png|webp)$/.test(String(corps?.mime)) || ((mode === 'plan' || mode === 'terrain') && corps?.mime === 'application/pdf') ? String(corps.mime) : 'image/jpeg';
   return { image: image.replace(/\s+/g, ''), mime, mode, piece: nettoyer(corps?.piece, 80) };
 }
 
 export function inviteDescription({ mode, piece }) {
+  if (mode === 'terrain') return [
+    'Voici le plan d’un terrain à bâtir : plan de géomètre, plan de bornage, extrait de lotissement, ou simple esquisse à la main avec des cotes.',
+    'Relève ce qui est écrit, sans rien inventer, et réponds en JSON :',
+    '{"esquisse":true,"echelle":null,"surface":null,"facade":null,"profondeur":null,"forme":null,"cotes":[{"cote":"…","longueur":0}],"nord":null,"acces":null,"constructions":null,"remarques":[]}',
+    'esquisse : true si c’est un dessin à main levée (pas à l’échelle), false si c’est un plan à l’échelle (géomètre, cadastre, lotissement).',
+    'echelle : l’échelle écrite (ex. « 1/200 ») ou null. surface : la surface écrite du terrain en m², sinon null (ne la calcule pas).',
+    'facade : longueur du côté sur la voie (rue) en mètres si on la reconnaît ; profondeur : la longueur perpendiculaire à la rue si elle est écrite.',
+    'forme : « Rectangulaire », « En longueur », « Irrégulier » ou « En drapeau ». cotes : chaque côté coté du terrain, dans l’ordre du tour, avec ce qui le désigne (rue, voisin, nord…).',
+    'nord : où est le nord sur le plan (« en haut », « à droite »…) s’il est indiqué, sinon null. acces : l’accès indiqué (portail, servitude de passage…). constructions : bâtiments existants dessinés.',
+    'remarques : au plus 6 remarques courtes utiles (servitude, réseau, talus, arbre, zone non constructible, numéro de lot…).',
+  ].join('\n');
   if (mode === 'plan') return [
     'Voici un plan 2D de logement (export d’application comme magicplan, plan d’architecte, croquis, ou photo d’un plan papier).',
     'Relève les pièces dessinées, partie par partie (un étage, ou « état actuel » et « projet » dessinés séparément sont des parties différentes).',
@@ -206,6 +233,16 @@ export function descriptionReponse(json, mode) {
   if (mode === 'note') {
     const texte = txt(o.texte, NOTE_MAX);
     return texte ? { texte } : { erreur: 'rien_lu' };
+  }
+  if (mode === 'terrain') {
+    const n = (v, min, max) => { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return isFinite(x) && x >= min && x <= max ? Math.round(x * 100) / 100 : null; };
+    const formes = ['Rectangulaire', 'En longueur', 'Irrégulier', 'En drapeau'];
+    const cotes = (Array.isArray(o.cotes) ? o.cotes : []).slice(0, 16).map(c => ({ cote: txt(c?.cote, 40).replace(/\s+/g, ' '), longueur: n(c?.longueur, 0.5, 2000) })).filter(c => c.longueur != null);
+    const r = { esquisse: o.esquisse === true ? true : o.esquisse === false ? false : null, echelle: txt(o.echelle, 20) || null,
+      surface: n(o.surface, 10, 1000000), facade: n(o.facade, 1, 2000), profondeur: n(o.profondeur, 1, 2000), forme: formes.includes(o.forme) ? o.forme : null,
+      cotes, nord: txt(o.nord, 40) || null, acces: txt(o.acces, 160) || null, constructions: txt(o.constructions, 200) || null,
+      remarques: (Array.isArray(o.remarques) ? o.remarques : []).map(x => txt(x, 200).replace(/\s+/g, ' ')).filter(Boolean).slice(0, 6) };
+    return r.surface || r.facade || cotes.length ? r : { erreur: 'rien_lu' };
   }
   if (mode === 'plan') {
     const n = (v, min, max) => { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return isFinite(x) && x >= min && x <= max ? Math.round(x * 100) / 100 : null; };

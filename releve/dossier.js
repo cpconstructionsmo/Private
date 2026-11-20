@@ -16,8 +16,9 @@
    Tests : tests/t_releve_dossier.js. */
 import * as M from './modele.js';
 import * as B from './budget.js';
+import * as T from './terrain.js';
 
-export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false, planAnnote: false };
+export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false, planAnnote: false, terrain: true };
 
 const txt = v => (typeof v === 'string' ? v.trim() : '');
 const nom = (v, p) => [M.valeur(v, p + '.civilite'), M.valeur(v, p + '.prenom'), M.valeur(v, p + '.nom')].filter(Boolean).join(' ');
@@ -58,7 +59,7 @@ export function dossierClient(v, opt = {}) {
   /* la fourchette : recalculée depuis la visite (la même que l'étape Budget) */
   let estimation = null;
   if (o.estimation && o.table) {
-    const c = B.calculerEstimation(val('budget') || {}, o.table, B.piecesDuPlan(plan), o.fourchettes || []);
+    const c = B.calculerEstimation(val('budget') || {}, o.table, B.piecesDuPlan(plan), o.fourchettes || [], M.surfacesProjet(v));
     if (!c.vide && c.total.max > 0) {
       estimation = {
         lignes: [
@@ -73,8 +74,44 @@ export function dossierClient(v, opt = {}) {
     }
   }
 
+  /* construction neuve et agrandissement : le projet, et le terrain tel que
+     le disent les services publics (indicatif, daté, à confirmer) */
+  const nature = M.natureDe(v);
+  const lignesNeuf = nature === 'construction' ? [
+    ['Prestation', txt(val('construction.prestation'))],
+    ['Surface habitable souhaitée', val('construction.surface') ? val('construction.surface') + ' m²' : ''],
+    ['Niveaux', (val('construction.niveaux') || []).join(', ')],
+    ['Chambres', txt(val('construction.chambres'))],
+    ['Garage', val('construction.garage') && val('construction.garage') !== 'Aucun' ? txt(val('construction.garage')) : ''],
+    ['Chauffage souhaité', txt(val('construction.chauffage'))],
+  ].filter(x => x[1]) : nature === 'agrandissement' ? [
+    ['Agrandissement', (val('agrandissement.types') || []).join(', ')],
+    ['Surface créée', val('agrandissement.surface') ? val('agrandissement.surface') + ' m²' : ''],
+    ['Maison actuelle', val('agrandissement.surfaceExistante') ? val('agrandissement.surfaceExistante') + ' m²' : ''],
+  ].filter(x => x[1]) : [];
+  const inf = val('terrain.infos'), pos = val('terrain.position');
+  const terrain = o.terrain && nature !== 'renovation' && (inf || val('terrain.surface')) ? (() => {
+    const u = (inf && inf.urbanisme) || {}, r = (inf && inf.risques) || {}, p = inf && inf.parcelle;
+    const avere = x => /existant|concern/i.test(x.statut || '') && !/non concern|inconnu|non connu/i.test(x.statut || '');
+    return {
+      adresse: val('terrain.adresseIdem') === false ? [txt(val('terrain.adresse')), [txt(val('terrain.codePostal')), txt(val('terrain.ville'))].filter(Boolean).join(' ')].filter(Boolean).join(', ') : adresse,
+      parcelle: p && p.section ? 'Section ' + p.section + ' n° ' + p.numero + (p.commune ? ' (' + p.commune + ')' : '') : '',
+      surface: val('terrain.surface') ? Number(val('terrain.surface')).toLocaleString('fr-FR') + ' m²' : '',
+      configuration: [txt(val('terrain.forme')), txt(val('terrain.pente')), val('terrain.orientation') ? 'jardin orienté ' + txt(val('terrain.orientation')) : ''].filter(Boolean).join(' · '),
+      urbanisme: u.rnu ? 'Règlement national d’urbanisme (pas de PLU)' : u.zone ? [u.document && (u.document.titre || u.document.type), 'zone ' + u.zone.libelle + (u.zone.libelong ? ' : ' + String(u.zone.libelong).toLowerCase() : '')].filter(Boolean).join(' — ') : '',
+      reglement: u.zone && u.zone.reglement || null,
+      servitudes: (u.servitudes || []).map(x => x.libelle),
+      risques: [r.argile ? 'Argiles : ' + String(r.argile.libelle || '').toLowerCase() : '', r.seisme ? 'Sismicité : zone ' + r.seisme.libelle.toLowerCase() : '',
+        ...[...(r.naturels || []), ...(r.technologiques || [])].filter(x => avere(x) && x.cle !== 'seisme' && x.cle !== 'retraitGonflementArgile').map(x => x.libelle)].filter(Boolean),
+      rapport: r.url || null,
+      points: inf ? T.pointsAttention(inf, { nature, surfaceProjet: nature === 'construction' ? val('construction.surface') : val('agrandissement.surface'), surfaceExistante: val('agrandissement.surfaceExistante') }) : [],
+      le: (inf && inf.le) || (pos && pos.le) || '',
+    };
+  })() : null;
+
   return {
-    titre: 'Votre projet de rénovation',
+    titre: nature === 'construction' ? 'Votre projet de construction' : nature === 'agrandissement' ? 'Votre projet d’agrandissement' : 'Votre projet de rénovation',
+    nature, lignesNeuf, terrain,
     client: M.intitule(v), adresse, date: v.creeLe || '',
     garde: (() => { const g = v.photos[val('photoGarde')]; return g && !g.supprime ? { id: g.id, chemin: g.chemin || null } : null; })(),
     // l'image du plan dessiné, envoyée par le moteur à la fermeture du plan

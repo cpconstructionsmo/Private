@@ -8,7 +8,7 @@
      règlement, servitudes, risques, points d'attention, surface reprise du
      cadastre sans rien écraser, sans réseau un message clair ;
    - le récapitulatif ; l'agrandissement reprend l'adresse des travaux. */
-const F=require('./fixtures/terrain_fictif');const appelsTerrain=[];
+const F=require('./fixtures/terrain_fictif');const appelsTerrain=[];const require_image=require('fs').readFileSync(require('path').join(__dirname,'fixtures','portrait.jpg')).toString('base64');
 require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
 const {chromium}=require('playwright-core');const fs=require('fs');const path=require('path');
 const {fauxSupabase}=require('./releve_faux_supabase');
@@ -48,8 +48,8 @@ let b;
   await p.waitForSelector('img.garde[src^="blob:"]');
   chk(/sur 7/.test(await p.textContent('.etapeNom'))&&await p.locator('.natures .puce').count()===3,'1re page : Rénovation / Construction neuve / Agrandissement ; sans choix, le parcours rénovation (7 étapes)');
   await p.tap('.natures >> text=Construction neuve');
-  await p.waitForFunction(()=>/Étape 1 sur 5/.test(document.querySelector('.etapeNom').textContent));
-  chk(/Le terrain en photo/.test(await p.textContent('main')),'construction : 5 étapes (garde, client, projet, terrain, fin), la photo de garde est celle du terrain');
+  await p.waitForFunction(()=>/Étape 1 sur 7/.test(document.querySelector('.etapeNom').textContent)&&/Le terrain en photo/.test(document.querySelector('main').textContent));
+  chk(/Le terrain en photo/.test(await p.textContent('main')),'construction : 7 étapes (garde, client, projet, terrain, plan, budget, fin), la photo de garde est celle du terrain');
   /* client */
   await p.tap('#suivant');
   await p.fill('input[name="client.nom"]','FICTIF');await p.fill('input[name="client.telephone"]','06 11 22 33 44');
@@ -87,23 +87,76 @@ let b;
   await p.tap('#localiserGps');
   await p.waitForFunction(()=>/Position GPS sur le terrain \(± 8 m\)/.test(document.querySelector('#infosTerrain').textContent));
   chk(await p.inputValue('input[name="terrain.surface"]')==='790','GPS sur le terrain : relocalisé, la surface tapée (790 m²) n’est pas remplacée');
+  /* le plan du terrain : une esquisse cotée, lue puis analysée */
+  await p.evaluate(()=>{window.__etat.fonctions={imaginer:{corps:{esquisse:true,echelle:null,surface:800,facade:18,profondeur:44,forme:'Rectangulaire',
+    cotes:[{cote:'rue',longueur:18},{cote:'voisin est',longueur:44},{cote:'fond',longueur:18},{cote:'voisin ouest',longueur:44}],nord:null,acces:'portail côté rue',constructions:null,remarques:['Servitude de passage au fond'],restant:90}}}});
+  const [cp]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#importerPlanTerrain')]);await cp.setFiles(PHOTO);
+  await p.waitForSelector('#planTerrainLu');
+  const apl=await p.evaluate(()=>window.__etat.appels.filter(a=>a.nom==='imaginer').slice(-1)[0]);
+  chk(apl.body.action==='decrire'&&apl.body.mode==='terrain','plan du terrain : la photo part à la fonction (décrire, mode terrain)');
+  const lt=await p.textContent('#planTerrain');
+  chk(/Esquisse cotée/.test(lt)&&/rue 18 m · voisin est 44 m/.test(lt)&&/Servitude de passage au fond/.test(lt),'esquisse cotée lue : cotes, remarques');
+  const an=await p.textContent('#analysePlanTerrain');
+  chk(/Esquisse à main levée/.test(an)&&/Surface tirée des 4 côtés : environ 792 m²/.test(an)&&/nord n’est pas indiqué/.test(an),'analyse : esquisse pas à l’échelle, surface tirée des côtés (792 m²), nord à confirmer');
+  chk(await p.inputValue('input[name="terrain.surface"]')==='790'&&await p.inputValue('input[name="terrain.facade"]')==='18'&&await p.locator('[data-reprendre="terrain.surface"]').count()===1,
+    'la surface déjà saisie (790) reste, « Utiliser la surface du plan » est proposé ; la façade vide se remplit (18 m)');
   /* sur place */
   await p.tap('.puce >> text="Légère pente"');await p.tap('.puce >> text="Sud-Ouest"');
   await p.tap('.puce >> text="Oui" >> nth=0');
   await p.waitForSelector('text=Demander le règlement et le cahier des charges du lotissement');
   chk(true,'en lotissement : rappel du règlement et du cahier des charges');
+  /* imaginer la maison sur la photo du terrain */
+  const [cph]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#photoTerrain')]);await cph.setFiles(PHOTO);
+  await p.waitForSelector('.imaginerTerrain');
+  await p.tap('.imaginerTerrain');
+  await p.waitForSelector('.panneauImaginer');
+  chk(/Imaginer la maison sur ce terrain/.test(await p.textContent('.panneauImaginer')),'photo du terrain : « ✨ Imaginer la maison sur ce terrain »');
+  await p.tap('#reprendreProjet');
+  const cons=await p.inputValue('.panneauImaginer textarea');
+  chk(/Maison r\+1 d’environ 160 m², garage intégré/.test(cons),'« Reprendre le projet » : la consigne vient du projet ('+cons+')');
+  await p.evaluate(img=>{window.__etat.fonctions={imaginer:{corps:{image:img,mime:'image/jpeg',modele:'modele-fictif',restant:28}}}},require_image);
+  await p.tap('.panneauImaginer >> text=✨ Créer l’image');
+  await p.waitForSelector('.imagine img[src^="blob:"]');
+  const aim=await p.evaluate(()=>window.__etat.appels.filter(a=>a.nom==='imaginer').slice(-1)[0]);
+  chk(aim.body.mode==='terrain'&&aim.body.piece==='Terrain'&&/160 m²/.test(aim.body.consigne),'l’image part en mode « terrain » ; la maison imaginée s’affiche sous la photo');
   /* sans réseau */
   await ctx.setOffline(true);
   await p.tap('#localiserAdresse');
   await p.waitForFunction(()=>/Pas de réseau/.test((document.querySelector('#infoTerrain')||{}).textContent||''));
   chk(await p.isVisible('#infosTerrain #parcelle'),'sans réseau : message clair, les informations déjà lues restent affichées');
   await ctx.setOffline(false);
+  /* l'étape Plan : la future maison, depuis une esquisse ou un plan */
+  await p.tap('#suivant');
+  await p.waitForSelector('text=Le plan de la maison');
+  chk(/Plan/.test(await p.textContent('.etapeNom'))&&await p.locator('#importerScan').count()===0&&await p.isVisible('#importerPlan2D')&&await p.isVisible('#dessinRapide'),'étape Plan : esquisse ou plan de la future maison (lecture IA, dessin rapide), pas de scan à importer');
+  /* budget de la construction : le projet et le terrain proposent les travaux */
+  await p.tap('#suivant');
+  await p.waitForSelector('#estimerSuggeres');
+  chk(/\(5\)/.test(await p.textContent('#estimerSuggeres'))&&await p.locator('[data-ouvrage="cuisine"]').count()===0&&await p.locator('[data-ouvrage="maison-neuve"]').count()===1,'budget : tuiles de construction (pas de cuisine à rénover), 5 travaux proposés');
+  await p.tap('#estimerSuggeres');
+  await p.waitForSelector('[data-ouvrage-choisi="maison-neuve"]');
+  const choisis=await p.$$eval('[data-ouvrage-choisi]',L=>L.map(x=>x.dataset.ouvrageChoisi).join());
+  chk(choisis==='maison-neuve,garage-neuf,raccordements,etude-sol,fondations','proposés : maison neuve, garage, raccordements, étude de sol, fondations (argiles moyennes)');
+  chk(await p.inputValue('[data-ouvrage-choisi="maison-neuve"] input')==='160'&&/D’après le projet : surface habitable souhaitée/.test(await p.textContent('[data-ouvrage-choisi="maison-neuve"]')),'la maison neuve prend les 160 m² du projet');
+  chk(/€/.test(await p.textContent('#montantBudget'))&&await (async()=>{for(let i=0;i<60;i++){const d=await ligne();if(d&&d.valeurs.budget&&d.valeurs.budget.estimation&&d.valeurs.budget.estimation.min>160*1500)return true;await p.waitForTimeout(100)}return false})(),'la fourchette se calcule et part avec la visite');
+  await p.screenshot({path:SORTIE+'/releve_budget_construction.png',fullPage:true});
   /* récapitulatif */
   await p.tap('#suivant');
-  await p.waitForFunction(()=>/Étape 5 sur 5/.test(document.querySelector('.etapeNom').textContent));
+  await p.waitForFunction(()=>/Étape 7 sur 7/.test(document.querySelector('.etapeNom').textContent));
   const rc=await p.textContent('.recap');
   chk(/Construction neuve/.test(rc)&&/Clé en main · 160 m² habitables · R\+1 · 4 chambre\(s\) · garage intégré/.test(rc)&&/section ZK n° 0123 · 790 m² · zone UB/.test(rc)&&/Acquis · 55\s000\s€/.test(rc),'récapitulatif : projet, construction, terrain acheté, parcelle et zone');
   chk(!/type de travaux/.test(await p.textContent('main')),'construction : on ne réclame pas un « type de travaux » de rénovation');
+  /* le dossier client de la construction */
+  await p.tap('#ouvrirDossier');await p.waitForSelector('.dossier .feuille');
+  const dz=(await p.textContent('.dossier')).replace(/\s+/g,' ');
+  chk(/Votre projet de construction/.test(dz)&&/Surface habitable souhaitée\s*160 m²/.test(dz)&&/Chambres\s*4/.test(dz)&&/Maison neuve \(clé en main\)/.test(dz),'dossier client : titre, projet de construction, estimation (maison neuve)');
+  chk(/Le terrain/.test(dz)&&/Section ZK n° 0123/.test(dz)&&/790 m²/.test(dz)&&/zone UB : zone urbaine pavillonnaire/.test(dz)&&/Points à vérifier/.test(dz)&&/certificat d’urbanisme/.test(dz)
+    &&await p.getAttribute('.terrainDossier a:has-text("Rapport officiel Géorisques")','href')===F.rapport.url,'dossier client : page « Le terrain » (parcelle, urbanisme, risques, points à vérifier, rapport officiel), datée et dite indicative');
+  await p.uncheck('input[name="opt-terrain"]');
+  await p.waitForFunction(()=>!document.querySelector('.terrainDossier'));
+  chk(true,'la page du terrain se retire du dossier d’une case');
+  await p.check('input[name="opt-terrain"]');
+  await p.tap('text=‹ Visite');
   /* agrandissement */
   await p.tap('.progres button[aria-label^="Étape 1 "]');
   await p.tap('.natures >> text=Agrandissement');

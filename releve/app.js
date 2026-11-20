@@ -631,10 +631,76 @@ function blocInfosTerrain(v) {
     pts.length ? h('div', { class: 'pointsAttention', id: 'pointsAttention' }, h('b', {}, 'À retenir (indicatif, à vérifier)'),
       pts.map(x => h('div', { class: 'point ' + x.niveau }, h('b', {}, x.titre), ' — ', x.texte))) : null);
 }
+/* ---------- le plan du terrain coté (géomètre, lotissement, esquisse) ----------
+   Lu par l'IA (decrire, mode terrain), puis analysé ici (terrain.js :
+   analyserPlanTerrain) : esquisse ou plan à l'échelle, surface tirée des
+   côtés, écarts avec la surface écrite, le cadastre, la façade relevée. Les
+   valeurs lues ne remplissent que les cases vides ; les autres se reprennent
+   d'un toucher. */
+async function lirePlanTerrain(f) {
+  const dire = (t, type) => { S.planTerrain = { message: t, type: type || 'err' }; redessiner(); };
+  if (!pretPourIA(dire, 'La lecture du plan du terrain')) return;
+  const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+  S.planTerrain = { encours: true }; redessiner();
+  try {
+    let blob = f, photoId = null;
+    if (pdf) { if (f.size > PDF_MAX) throw { code: 'pdf_lourd' }; }
+    else {
+      blob = await reduirePhoto(f, 2400);
+      photoId = M.nouvelId();
+      await stock.garderPhoto(photoId, S.courante, blob);
+      await changer(w => M.majElement(M.ajouterPhoto(w, { id: photoId, role: 'planTerrain', legende: f.name || 'Plan du terrain' }), 'photos', photoId, { importeLe: new Date().toISOString() }));
+    }
+    const r = await appelerFonction({ action: 'decrire', mode: 'terrain', image: await enBase64(blob), mime: pdf ? 'application/pdf' : 'image/jpeg' }) || {};
+    if (!Array.isArray(r.cotes)) throw { code: r.legende !== undefined || r.constats ? 'consigne_absente' : 'rien_lu' };
+    const lu = { esquisse: r.esquisse ?? null, echelle: r.echelle || null, surface: r.surface || null, facade: r.facade || null, profondeur: r.profondeur || null, forme: r.forme || null,
+      cotes: r.cotes, nord: r.nord || null, acces: r.acces || null, constructions: r.constructions || null, remarques: r.remarques || [], fichier: String(f.name || '').slice(0, 120), photoId, le: new Date().toISOString() };
+    await changer(w => {
+      let x = M.modifier(w, 'terrain.plan', lu);
+      // jamais d'écrasement : les valeurs lues ne remplissent que les cases vides
+      if (lu.surface && !M.valeur(x, 'terrain.surface')) x = M.modifier(x, 'terrain.surface', lu.surface);
+      if (lu.facade && !M.valeur(x, 'terrain.facade')) x = M.modifier(x, 'terrain.facade', lu.facade);
+      if (lu.forme && !M.valeur(x, 'terrain.forme')) x = M.modifier(x, 'terrain.forme', lu.forme);
+      return x;
+    });
+    S.planTerrain = null; vibrer(); redessiner();
+  } catch (e) {
+    const code = (e && e.code) || 'reseau';
+    dire(code === 'pdf_lourd' ? 'Ce PDF est trop lourd (plus de 4 Mo) : photographiez le plan, ou exportez-le en image.'
+      : code === 'rien_lu' ? 'Aucune cote ni surface lisible : reprenez la photo bien à plat, nette, cotes lisibles.' : messageDecrire(e, 'plan'));
+  }
+}
+function blocPlanTerrain(v) {
+  const lu = M.valeur(v, 'terrain.plan'), st = S.planTerrain || {}, inf = M.valeur(v, 'terrain.infos') || {};
+  const ph = lu && lu.photoId && v.photos[lu.photoId] && !v.photos[lu.photoId].supprime ? v.photos[lu.photoId] : null;
+  const analyse = lu ? T.analyserPlanTerrain(lu, { contenance: inf.parcelle && inf.parcelle.contenance, surfaceSaisie: M.valeur(v, 'terrain.surface'), facadeSaisie: M.valeur(v, 'terrain.facade') }) : [];
+  const reprendre = (cle, val, lib) => val != null && M.valeur(v, cle) !== val ? h('button', { class: 'puce', type: 'button', 'data-reprendre': cle, onclick: async () => { await poser(cle, val); redessiner(); } }, 'Utiliser ' + lib) : null;
+  return h('div', { class: 'carte', id: 'planTerrain', style: 'margin-top:12px' },
+    h('b', {}, '🗺 Plan du terrain'),
+    h('p', { class: 'mut petit', style: 'margin:4px 0 8px' }, 'Plan de géomètre, de bornage, de lotissement, ou esquisse cotée à la main : l’IA relève les cotes, le relevé vérifie leur cohérence.'),
+    h('button', { class: 'gros sec', type: 'button', id: 'importerPlanTerrain', disabled: !!st.encours, onclick: () => choisirFichier({ accept: 'image/*,application/pdf' }, ([f]) => lirePlanTerrain(f)) },
+      st.encours ? '🗺 Lecture du plan… (jusqu’à une minute)' : lu ? '🗺 Lire un autre plan du terrain' : '🗺 Plan du terrain (photo, PDF, esquisse cotée)'),
+    st.message ? h('div', { class: 'message ' + st.type, id: 'infoPlanTerrain' }, st.message) : null,
+    lu ? h('div', { id: 'planTerrainLu', style: 'margin-top:10px' },
+      ph ? h('details', {}, h('summary', {}, 'Voir le plan'), imagePhoto(ph, 'imagePlanOrigine')) : null,
+      h('div', { class: 'ligneTerrain' }, h('b', {}, lu.esquisse ? 'Esquisse cotée' : lu.esquisse === false ? 'Plan à l’échelle' : 'Plan'), lu.echelle ? ' · ' + lu.echelle : '',
+        lu.surface ? ' · surface écrite ' + lu.surface.toLocaleString('fr-FR') + ' m²' : '', lu.facade ? ' · façade ' + String(lu.facade).replace('.', ',') + ' m' : '', lu.forme ? ' · ' + lu.forme.toLowerCase() : ''),
+      lu.cotes.length ? h('div', { class: 'ligneTerrain' }, h('b', {}, 'Cotes '), lu.cotes.map(c => (c.cote ? c.cote + ' ' : '') + String(c.longueur).replace('.', ',') + ' m').join(' · ')) : null,
+      lu.nord || lu.acces || lu.constructions ? h('div', { class: 'mut petit' }, [lu.nord ? 'Nord ' + lu.nord : '', lu.acces ? 'Accès : ' + lu.acces : '', lu.constructions ? 'Existant : ' + lu.constructions : ''].filter(Boolean).join(' · ')) : null,
+      lu.remarques.length ? h('ul', { class: 'listeTerrain' }, lu.remarques.map(x => h('li', {}, x))) : null,
+      analyse.length ? h('div', { class: 'pointsAttention', id: 'analysePlanTerrain' }, h('b', {}, 'Analyse du plan'),
+        analyse.map(x => h('div', { class: 'point ' + (x.niveau === 'important' ? 'important' : x.niveau) }, x.texte))) : null,
+      h('div', { class: 'puces', style: 'margin-top:8px' },
+        reprendre('terrain.surface', lu.surface, 'la surface du plan (' + (lu.surface || '') + ' m²)'),
+        reprendre('terrain.facade', lu.facade, 'la façade du plan (' + String(lu.facade || '').replace('.', ',') + ' m)'),
+        reprendre('terrain.forme', lu.forme, 'la forme (' + (lu.forme || '').toLowerCase() + ')'))) : null);
+}
 function etapeTerrain(v) {
   const nature = M.natureDe(v), idem = M.valeur(v, 'terrain.adresseIdem') ?? nature === 'agrandissement';
   const st = S.terrainEtat || {};
-  const photos = M.actifs(v.photos).filter(x => x.role === 'terrain');
+  const toutes = M.actifs(v.photos), photos = toutes.filter(x => x.role === 'terrain');
+  const imagines = src => toutes.filter(x => x.role === 'imagine' && x.source === src);
+  const sujet = { id: null, nom: 'Terrain', mode: 'terrain' };
   const prendre = () => choisirFichier({ accept: 'image/*', capture: true }, f => ajouterPhotos(f, { role: 'terrain' }));
   return [
     h('h1', {}, 'Le terrain'),
@@ -647,6 +713,7 @@ function etapeTerrain(v) {
       h('button', { class: 'gros sec', type: 'button', id: 'localiserGps', disabled: !!st.encours, onclick: () => localiserTerrain('gps') }, '🛰 Je suis sur le terrain')),
     st.message ? h('div', { class: 'message ' + st.type, id: 'infoTerrain' }, st.message) : null,
     blocInfosTerrain(v),
+    blocPlanTerrain(v),
     h('h2', { style: 'margin-top:16px' }, 'Sur place'),
     h('div', { class: 'deuxCol' },
       champ(v, 'terrain.surface', 'SURFACE DU TERRAIN (m²)', { inputmode: 'numeric' }),
@@ -667,7 +734,16 @@ function etapeTerrain(v) {
     champ(v, 'terrain.notes', 'NOTES SUR LE TERRAIN', { multiligne: true, autocapitalize: 'sentences', micro: true, placeholder: 'Voisinage, vues, arbres, haies, servitudes de passage, accès chantier…' }),
     h('h2', { style: 'margin-top:16px' }, 'Photos du terrain'),
     photos.length ? h('div', { class: 'photosTerrain' }, photos.map(ph => h('figure', {}, imagePhoto(ph),
-      h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => { if (!confirm('Supprimer cette photo ?')) return; await changer(x => M.supprimer(x, 'photos', ph.id)); dessiner(); } }, '×')))) : null,
+      h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => { const lies = imagines(ph.id); if (!confirm(lies.length ? 'Supprimer cette photo et ses ' + lies.length + ' image(s) imaginée(s) ?' : 'Supprimer cette photo ?')) return;
+        await changer(x => lies.reduce((w, im) => M.supprimer(w, 'photos', im.id), M.supprimer(x, 'photos', ph.id))); dessiner(); } }, '×'),
+      ph.imaginerEnAttente ? h('div', { class: 'enAttenteImaginer petit' }, '⏳ En attente du réseau') : null,
+      S.imaginer && S.imaginer.photoId === ph.id ? null : h('button', { class: 'puce imaginer imaginerTerrain', type: 'button', 'data-photo-terrain': ph.id, onclick: () => { S.imaginer = { photoId: ph.id, consigne: '' }; redessiner(); } }, '✨ Imaginer la maison')))) : null,
+    photos.map(ph => [
+      imagines(ph.id).map(im => h('div', { class: 'imagine', 'data-imagine': im.id },
+        h('figure', {}, imagePhoto(im, 'imagineImg'), h('span', { class: 'badgeImagine' }, '✨ Imaginé'),
+          h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer l’image imaginée', onclick: async () => { if (!confirm('Supprimer cette image imaginée ?')) return; await changer(x => M.supprimer(x, 'photos', im.id)); dessiner(); } }, '×')),
+        h('div', { class: 'mut petit' }, '« ' + (im.consigne || im.legende || '') + ' »'))),
+      S.imaginer && S.imaginer.photoId === ph.id ? panneauImaginer(sujet, ph) : null]),
     h('div', { class: 'rang', style: 'margin-top:8px' },
       h('button', { class: 'gros sec', type: 'button', id: 'photoTerrain', onclick: prendre }, '📷 Photo'),
       h('button', { class: 'gros sec', type: 'button', onclick: () => choisirFichier({ accept: 'image/*', multiple: true }, f => ajouterPhotos(f, { role: 'terrain' })) }, '🖼 Galerie')),
@@ -741,10 +817,10 @@ async function blobPhoto(ph) {
 }
 async function creerImageImaginee(visiteId, pieceId, photoId, consigne) {
   const rec = S.visites.find(r => r.id === visiteId), v = rec && rec.visite;
-  const ph = v && v.photos[photoId], p = v && v.pieces[pieceId];
+  const ph = v && v.photos[photoId], p = (v && v.pieces[pieceId]) || (ph && sujetImaginer(ph));
   if (!ph || ph.supprime || !p) throw { code: 'photo' };
   const blob = await blobPhoto(ph);
-  const data = await appelerFonction({ image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom });
+  const data = await appelerFonction({ image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom, mode: p.mode || 'piece' });
   if (!data || !data.image) throw { code: 'aucune_image' };
   const id = M.nouvelId();
   await stock.garderPhoto(id, visiteId, versBlob(data.image, data.mime));
@@ -766,6 +842,12 @@ const messageErreurImaginer = e => { const code = (e && e.code) || 'reseau';
    retour du réseau, après chaque synchronisation. Seul l'appareil qui l'a
    faite la traite (pas de double image si la visite est ouverte ailleurs). */
 const APPAREIL = (() => { try { let a = localStorage.getItem('cp-releve-appareil'); if (!a) { a = M.nouvelId(); localStorage.setItem('cp-releve-appareil', a); } return a; } catch (e) { return 'appareil'; } })();
+/* une photo hors pièce : le terrain (la maison neuve dessus) ou la façade (l'agrandissement) */
+function sujetImaginer(ph) {
+  if (ph.role === 'terrain') return { id: null, nom: 'Terrain', mode: 'terrain' };
+  if (ph.role === 'garde') return { id: null, nom: 'Façade', mode: 'facade' };
+  return null;
+}
 async function mettreEnAttenteImaginer(pieceId, photoId, consigne) {
   await changer(w => M.majElement(w, 'photos', photoId, { imaginerEnAttente: { consigne, pieceId, demandeLe: new Date().toISOString(), appareil: APPAREIL } }));
 }
@@ -869,18 +951,27 @@ function blocDescription(p, ph) {
 }
 
 /* le panneau sous la photo : consigne (avec dictée), puis « Créer l'image » */
+/* la consigne de la maison, tirée de l'étape Projet (construction) */
+function consigneProjet(v) {
+  const niv = M.valeur(v, 'construction.niveaux') || [], g = M.valeur(v, 'construction.garage');
+  return ['Maison ' + (niv.length ? niv.join(' et ').toLowerCase() : 'individuelle') + (M.valeur(v, 'construction.surface') ? ' d’environ ' + M.valeur(v, 'construction.surface') + ' m²' : ''),
+    g && g !== 'Aucun' ? 'garage ' + g.toLowerCase() : null, M.valeur(v, 'projet.souhaits')].filter(Boolean).join(', ');
+}
 function panneauImaginer(p, ph) {
   const st = S.imaginer;
   let info;
-  const ta = h('textarea', { class: 'in', rows: 3, value: st.consigne || '', 'aria-label': 'Consigne pour imaginer la pièce', autocapitalize: 'sentences',
-    placeholder: 'Ex. : cuisine blanche, plan de travail bois, carrelage gris clair, suspensions noires',
+  const terrain = p.mode === 'terrain', facade = p.mode === 'facade';
+  const ta = h('textarea', { class: 'in', rows: 3, value: st.consigne || '', 'aria-label': terrain ? 'Consigne pour imaginer la maison' : 'Consigne pour imaginer la pièce', autocapitalize: 'sentences',
+    placeholder: terrain ? 'Ex. : maison plain-pied contemporaine, enduit blanc, toit deux pans ardoise, garage accolé à gauche'
+      : facade ? 'Ex. : extension plain-pied à droite, toit plat, bardage bois, grande baie vitrée' : 'Ex. : cuisine blanche, plan de travail bois, carrelage gris clair, suspensions noires',
     oninput: e => { st.consigne = e.target.value; } });
   const aide = h('div', { class: 'aide info' });
   const btn = h('button', { class: 'gros', type: 'button', onclick: () => lancerImaginer(p, ph, ta.value, btn, info) }, '✨ Créer l’image');
   return h('div', { class: 'carte panneauImaginer', 'data-imaginer': ph.id },
-    h('b', {}, '✨ Imaginer cette pièce rénovée'),
+    h('b', {}, terrain ? '✨ Imaginer la maison sur ce terrain' : facade ? '✨ Imaginer l’agrandissement' : '✨ Imaginer cette pièce rénovée'),
     h('div', { class: 'champMicro' }, ta, boutonMicro(ta, aide), aide),
-    M.valeur(visite(), 'projet.souhaits') && !st.consigne ? h('button', { class: 'puce', type: 'button', style: 'margin-top:8px', onclick: () => { ta.value = st.consigne = M.valeur(visite(), 'projet.souhaits'); } }, 'Reprendre les souhaits du client') : null,
+    terrain && !st.consigne ? h('button', { class: 'puce', type: 'button', style: 'margin-top:8px', id: 'reprendreProjet', onclick: () => { ta.value = st.consigne = consigneProjet(visite()); } }, 'Reprendre le projet') : null,
+    M.valeur(visite(), 'projet.souhaits') && !st.consigne && !terrain ? h('button', { class: 'puce', type: 'button', style: 'margin-top:8px', onclick: () => { ta.value = st.consigne = M.valeur(visite(), 'projet.souhaits'); } }, 'Reprendre les souhaits du client') : null,
     info = h('div', { role: 'status', style: 'margin-top:8px' }),
     h('div', { class: 'rang', style: 'margin-top:8px' }, h('button', { class: 'gros sec', type: 'button', onclick: () => { S.imaginer = null; dessiner(); } }, 'Fermer'), btn));
 }
@@ -974,9 +1065,11 @@ function etapeScan(v) {
       vibrer(); ouvrirPlan();
     });
   };
+  const neuf = M.natureDe(v) === 'construction';
   return [
-    h('h1', {}, 'Le scan et le plan'),
-    h('p', { class: 'mut' }, 'Dans OpenPlan 3D : « Export Editable Plan (JSON) », puis importez le fichier ici. Le plan s’ouvre aussitôt : mesures, murs, ouvertures, avant/après, 3D, PDF.'),
+    h('h1', {}, neuf ? 'Le plan de la maison' : 'Le scan et le plan'),
+    neuf ? h('p', { class: 'mut' }, 'Le plan de la future maison : esquisse du client, plan de constructeur ou d’architecte, en photo ou en PDF. L’IA relève les pièces, vous les vérifiez dans le dessin rapide, puis « ✓ Créer le plan » donne le plan coté et la vue 3D. Vous pouvez aussi dessiner les pièces directement.')
+      : h('p', { class: 'mut' }, 'Dans OpenPlan 3D : « Export Editable Plan (JSON) », puis importez le fichier ici. Le plan s’ouvre aussitôt : mesures, murs, ouvertures, avant/après, 3D, PDF.'),
     scan ? h('div', { class: 'carte' }, h('b', {}, '📄 ' + scan.nom), h('div', { class: 'mut petit' }, Math.round((scan.taille || 0) / 1024) + ' Ko · importé le ' + dateCourte(scan.importeLe))) : null,
     plan ? h('div', { class: 'carte', id: 'resumePlan' }, h('b', {}, '📐 Plan'), h('div', { class: 'mut petit' }, resumePlan(plan.resume))) : null,
     blocAnnotations(v),
@@ -993,7 +1086,8 @@ function etapeScan(v) {
     // une pièce scannée à part : elle s'ajoute dans le plan, pas en remplaçant le scan
     plan ? h('p', { class: 'mut petit' }, 'Pièces scannées séparément ? Ouvrez le plan, puis « ＋ Scan » pour chaque autre scan et « 🔗 Relier » : touchez un mur, puis le mur de l’autre scan qui le touche.') : null,
     scan || plan ? h('button', { class: 'gros', id: 'ouvrirPlan', onclick: ouvrirPlan }, '📐 Ouvrir le plan') : null,
-    h('div', { style: 'margin-top:10px' }, h('button', { class: scan || plan ? 'gros sec' : 'gros', id: 'importerScan', onclick: importer }, scan ? 'Remplacer le scan' : '📐 Importer le scan')),
+    // en construction, pas de maison à scanner : le bouton du scan ne vient que s'il y en a déjà un
+    neuf && !scan ? null : h('div', { style: 'margin-top:10px' }, h('button', { class: scan || plan ? 'gros sec' : 'gros', id: 'importerScan', onclick: importer }, scan ? 'Remplacer le scan' : '📐 Importer le scan')),
     // sans scan LiDAR : des pièces rectangulaires posées au doigt (dessin.js), puis le même moteur de plan
     h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', id: 'dessinRapide', onclick: () => { S.ecran = 'dessin'; S.dessinSel = null; S.message = null; dessiner(); window.scrollTo(0, 0); } },
       M.valeur(v, 'dessin') ? '✏️ Reprendre le dessin rapide' : '✏️ Dessin rapide (sans scan)')),
@@ -1707,6 +1801,7 @@ function ecranDossier() {
         option('enveloppe', 'Budget envisagé par le client'),
         option('imagines', 'Images d’intention (✨ Imaginé)'),
         option('notesPieces', 'Notes des pièces'),
+        M.natureDe(v) !== 'renovation' ? option('terrain', 'Terrain, urbanisme et risques') : null,
         option('planAnnote', 'Plan annoté (travaux)' + (AN.nettoyer(M.valeur(v, 'annotations')).imageId ? '' : ' — aucun plan annoté pour l’instant (étape Scan)')),
         h('p', { class: 'mut petit' }, 'Jamais dans le dossier : les notes de visite, la marge.'),
         h('button', { class: 'gros', id: 'imprimerDossier', type: 'button', onclick: imprimer }, '🖨 Imprimer / PDF'),
@@ -1748,18 +1843,25 @@ function jaugeEnveloppe(total, env) {
 
 function etapeBudget(v) {
   const budget = M.valeur(v, 'budget') || {};
+  const nature = M.natureDe(v), SP = M.surfacesProjet(v);
   const pieces = B.piecesDuPlan(M.valeur(v, 'plan')), T = tableOuv(), F_ = fourchettes();
-  const calc = B.calculerEstimation(budget, T, pieces, F_);
+  const calc = B.calculerEstimation(budget, T, pieces, F_, SP);
   const env = M.valeur(v, 'projet.enveloppe'), verdict = B.verdictEnveloppe(calc.total, env);
   const majBudget = async f => {
     const b = f(JSON.parse(JSON.stringify({ lignes: [], ouvrages: [], ajust: {}, ...budget, ouvrages: budget.ouvrages || [] })));
-    const c = B.calculerEstimation(b, tableOuv(), pieces, fourchettes());
+    const c = B.calculerEstimation(b, tableOuv(), pieces, fourchettes(), SP);
     b.estimation = { min: c.total.min, max: c.total.max, complet: !c.vide && !c.manques, le: new Date().toISOString() };
     S.totalAvant = calc.total;
     await poser('budget', b); vibrer(); redessiner();
   };
   const types = M.valeur(v, 'projet.types') || [], cats = M.valeur(v, 'projet.categories') || [];
-  const sugg = B.ouvragesSuggeres(types, cats, T, budget.ouvrages);
+  // construction et agrandissement : le projet et le terrain proposent aussi leurs travaux (fondations, assainissement…)
+  const inf = M.valeur(v, 'terrain.infos') || {}, rq = inf.risques || {};
+  const neuf = nature === 'renovation' ? [] : B.ouvragesSuggeresNeuf({ nature, prestation: M.valeur(v, 'construction.prestation'), garage: M.valeur(v, 'construction.garage'),
+    typesAgrandissement: M.valeur(v, 'agrandissement.types') || [], assainissement: M.valeur(v, 'terrain.assainissement'), reseauAssainissement: M.valeur(v, 'terrain.reseau.assainissement'),
+    etudeSol: M.valeur(v, 'terrain.etudeSol'), pente: M.valeur(v, 'terrain.pente'), acces: M.valeur(v, 'terrain.acces'), demolition: M.valeur(v, 'terrain.demolition'),
+    argile: rq.argile ? rq.argile.code : 0, mouvementTerrain: (rq.naturels || []).some(x => x.cle === 'mouvementTerrain' && /existant/i.test(x.statut || '') && !/inconnu|non connu/i.test(x.statut || '')) }, T, budget.ouvrages);
+  const sugg = nature === 'construction' ? neuf : [...neuf, ...B.ouvragesSuggeres(types, cats, T, budget.ouvrages).filter(o => !neuf.some(x => x.id === o.id))];
   const proposes = new Set(sugg.map(o => o.id)), pris = new Set((budget.ouvrages || []).map(c => c.ouvrageId));
   const nouveau = o => ({ id: M.nouvelId(), ouvrageId: o.id, surface: null, niveau: 'standard' });
   const basculer = o => majBudget(b => { const i = b.ouvrages.findIndex(c => c.ouvrageId === o.id); if (i >= 0) b.ouvrages.splice(i, 1); else b.ouvrages.push(nouveau(o)); return b; });
@@ -1780,7 +1882,7 @@ function etapeBudget(v) {
       '✨ Estimer les travaux choisis (' + sugg.length + ')') : null,
     calc.ouvrages.map(r => carteOuvrage(r, majBudget)),
     h('div', { class: 'champ' }, calc.ouvrages.length ? 'AJOUTER DES TRAVAUX' : 'LES TRAVAUX'),
-    h('div', { class: 'tuiles' }, T.map(o => h('button', { class: 'tuile' + (pris.has(o.id) ? ' on' : '') + (proposes.has(o.id) ? ' propose' : ''), type: 'button',
+    h('div', { class: 'tuiles' }, B.ouvragesDe(T, nature).map(o => h('button', { class: 'tuile' + (pris.has(o.id) ? ' on' : '') + (proposes.has(o.id) ? ' propose' : ''), type: 'button',
       'data-ouvrage': o.id, 'aria-pressed': String(pris.has(o.id)), onclick: () => basculer(o) },
       h('span', { class: 'ico' }, o.icone), h('span', {}, o.nom)))),
     blocApprofondir(v, budget, calc, pieces, F_, majBudget),
@@ -1808,7 +1910,7 @@ function carteOuvrage(r, majBudget) {
         h('label', { class: 'valeur' }, h('input', { inputMode: 'decimal', value: String(r.surface).replace('.', ','), 'aria-label': (o.unite === 'u' ? 'Nombre' : 'Surface') + ' — ' + o.nom,
           onchange: e => { const n = +String(e.target.value).replace(/\s/g, '').replace(',', '.'); if (isFinite(n) && n >= 0) poserSurface(n); } }), h('span', {}, ' ' + u)),
         h('button', { class: 'pm', type: 'button', 'aria-label': 'Plus', onclick: () => poserSurface(r.surface + pas) }, '+')),
-      h('div', { class: 'mut petit' }, r.source === 'plan' ? '📐 D’après le plan : ' + r.detail
+      h('div', { class: 'mut petit' }, r.source === 'projet' ? '🏗 D’après le projet : ' + r.detail : r.source === 'plan' ? '📐 D’après le plan : ' + r.detail
         : r.source === 'saisie' ? ['Réglé à la main', r.auto != null ? h('button', { class: 'lienRetour', type: 'button', onclick: () => changer(c => { c.surface = null; }) }, ' ↺ revenir à ' + String(r.auto).replace('.', ',') + ' ' + u) : null]
         : 'Valeur courante : réglez-la avec − / +.')],
     h('div', { class: 'puces niveaux' }, B.NIVEAUX.map(n => h('button', { class: 'puce' + (r.niveau === n.id ? ' on' : ''), type: 'button', 'aria-pressed': String(r.niveau === n.id),

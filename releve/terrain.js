@@ -168,3 +168,39 @@ export function pointsAttention(infos, { nature, surfaceProjet, surfaceExistante
   const ordre = { bloquant: 0, important: 1, info: 2 };
   return res.sort((a, b) => ordre[a.niveau] - ordre[b.niveau]);
 }
+
+/* ==========================================================================
+   Le plan du terrain (plan de géomètre, de lotissement, ou esquisse cotée à
+   la main), lu par l'IA (fonction « imaginer », action decrire, mode
+   terrain) : ce qui est écrit dessus. Ici, l'analyse de cohérence, faite
+   par le relevé lui-même : surface tirée des côtés (terrain à 4 côtés)
+   comparée à la surface écrite et à la contenance du cadastre, façade
+   comparée à celle relevée sur place. Rien n'est corrigé : les écarts sont
+   dits, avec ce qu'il faut vérifier (bornage, géomètre).
+   ========================================================================== */
+const ecart = (a, b) => a && b ? Math.abs(a - b) / Math.max(a, b) : null;
+const m2 = n => Math.round(n).toLocaleString('fr-FR') + ' m²';
+export function analyserPlanTerrain(lu, { contenance, surfaceSaisie, facadeSaisie } = {}) {
+  const res = [], dit = (niveau, texte) => res.push({ niveau, texte });
+  if (!lu) return res;
+  if (lu.esquisse === true) dit('info', 'Esquisse à main levée : elle n’est pas à l’échelle, seules les cotes écrites comptent. À confirmer par le plan de bornage ou un géomètre.');
+  else if (lu.esquisse === false) dit('info', 'Plan à l’échelle' + (lu.echelle ? ' (' + lu.echelle + ')' : '') + ' : ses cotes sont fiables, sous réserve du bornage.');
+  const L = (lu.cotes || []).map(c => c.longueur).filter(x => x > 0);
+  let calcul = null;
+  if (L.length === 4) {
+    // quadrilatère : moyenne des côtés opposés (exacte pour un rectangle, approchée sinon)
+    calcul = ((L[0] + L[2]) / 2) * ((L[1] + L[3]) / 2);
+    const irregulier = ecart(L[0], L[2]) > 0.08 || ecart(L[1], L[3]) > 0.08;
+    dit('info', 'Surface tirée des 4 côtés : environ ' + m2(calcul) + (irregulier ? ' (côtés opposés inégaux : approximation, les angles ne sont pas connus)' : '') + '.');
+  } else if (L.length && L.length !== 4) dit('info', L.length + ' côtés cotés : la surface ne se déduit pas des seules longueurs (angles inconnus).');
+  const ref = [['écrite sur le plan', lu.surface], ['du cadastre', contenance], ['saisie', surfaceSaisie]].filter(x => x[1] > 0);
+  if (calcul) ref.forEach(([nom, val]) => { const e = ecart(calcul, val); if (e > 0.1) dit('important', 'Écart de ' + Math.round(e * 100) + ' % entre la surface tirée des côtés (' + m2(calcul) + ') et la surface ' + nom + ' (' + m2(val) + ') : une cote est peut-être fausse ou mal lue.'); });
+  if (lu.surface && contenance) {
+    const e = ecart(lu.surface, contenance);
+    dit(e > 0.05 ? 'important' : 'ok', e > 0.05 ? 'La surface du plan (' + m2(lu.surface) + ') diffère de ' + Math.round(e * 100) + ' % de la contenance cadastrale (' + m2(contenance) + ') : le cadastre n’a pas valeur de bornage, vérifier le plan de bornage.'
+      : 'Surface du plan cohérente avec le cadastre (' + m2(contenance) + ').');
+  }
+  if (lu.facade && facadeSaisie && ecart(lu.facade, facadeSaisie) > 0.1) dit('important', 'Façade sur le plan ' + String(lu.facade).replace('.', ',') + ' m, relevée ' + String(facadeSaisie).replace('.', ',') + ' m : à vérifier.');
+  if (!lu.nord) dit('info', 'Le nord n’est pas indiqué sur le plan : orientation à confirmer sur place.');
+  return res;
+}

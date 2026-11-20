@@ -107,5 +107,23 @@ const {chk,fin}=verif();
   chk(RA.find(r=>r.id==='sols').prix.med===70&&RA.find(r=>r.id==='electricite').prix.med===90,'TVA du poste (carrelage à 20 %) et du projet (électricité à 10 %) prises en compte');
   chk(RA.find(r=>r.id==='reno-complete').n===1&&!RA.some(r=>r.id==='cuisine'),'coût global : seulement le projet tous corps d’état ; rien d’appris pour la cuisine (surface de la pièce inconnue)');
   chk(B.ratiosDepuisProspects([],{}).length===0&&B.ratiosDepuisProspects(null).length===0,'aucun projet : rien à proposer');
-  fin();
+  /* construction neuve et agrandissement */
+{const reno=B.ouvragesDe(B.OUVRAGES,'renovation').map(o=>o.id), neuf=B.ouvragesDe(B.OUVRAGES,'construction').map(o=>o.id), agr=B.ouvragesDe(B.OUVRAGES,'agrandissement').map(o=>o.id);
+  chk(reno.includes('cuisine')&&!reno.includes('maison-neuve')&&!reno.includes('raccordements'),'rénovation : les tuiles d’avant, sans la construction neuve');
+  chk(neuf.includes('maison-neuve')&&neuf.includes('raccordements')&&neuf.includes('exterieur')&&!neuf.includes('cuisine'),'construction : maison neuve, raccordements, extérieur… sans les travaux de rénovation');
+  chk(agr.includes('extension')&&agr.includes('cuisine')&&agr.includes('fondations')&&!agr.includes('maison-neuve'),'agrandissement : extension, travaux dans l’existant, fondations');
+  const mn=B.OUVRAGES.find(o=>o.id==='maison-neuve');
+  chk(B.surfaceAuto(mn,[],{construction:130}).valeur===130&&B.surfaceAuto(mn,[],{construction:130}).source==='projet'&&B.surfaceAuto(mn,[],{}).valeur===100,'maison neuve : la surface souhaitée du projet, sinon 100 m²');
+  chk(B.surfaceAuto(B.OUVRAGES.find(o=>o.id==='extension'),[],{agrandissement:32}).valeur===32,'extension : la surface de l’agrandissement');
+  const e=B.calculerEstimation({ouvrages:[{id:'m',ouvrageId:'maison-neuve',niveau:'standard'},{id:'r',ouvrageId:'raccordements'}]},B.OUVRAGES,[],[],{construction:120});
+  chk(e.ouvrages[0].surface===120&&e.total.min>120*1500&&e.total.max<120*2600+8000,'estimation construction : surface du projet × prix au m², plus forfaits');
+  const s1=B.ouvragesSuggeresNeuf({nature:'construction',prestation:'Clé en main',garage:'Intégré',assainissement:'Individuel (fosse, micro-station)',etudeSol:'Non',pente:'Forte pente',acces:'Facile',demolition:'Oui',argile:2},B.OUVRAGES,[]).map(o=>o.id);
+  chk(['maison-neuve','garage-neuf','raccordements','assainissement','etude-sol','fondations','terrassement','demolition'].every(x=>s1.includes(x)),'construction : le terrain propose ses travaux (assainissement, étude de sol, fondations sur argile ou pente, terrassement, démolition)');
+  const s2=B.ouvragesSuggeresNeuf({nature:'construction',prestation:'Hors d’eau hors d’air',garage:'Aucun',etudeSol:'Oui',argile:1},B.OUVRAGES,[{ouvrageId:'raccordements'}]).map(o=>o.id);
+  chk(s2.join()==='hors-eau','hors d’eau hors d’air, sans garage, étude faite, argile faible, raccordements déjà pris : la maison seule');
+  const s3=B.ouvragesSuggeresNeuf({nature:'agrandissement',typesAgrandissement:['Garage'],argile:3},B.OUVRAGES,[]).map(o=>o.id);
+  chk(s3.join()==='extension,garage-neuf,etude-sol,fondations','agrandissement sur argile forte : extension, garage, étude de sol, fondations');
+  chk(B.OUVRAGES.filter(o=>o.natures.includes('construction')&&o.id!=='exterieur').every(o=>o.repere==='estimation'),'prix de départ de la construction : tous « à confirmer » par CP');
+}
+fin();
 })();
