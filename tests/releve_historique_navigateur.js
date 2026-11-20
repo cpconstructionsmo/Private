@@ -43,7 +43,9 @@ let b;
   chk(await p.locator('#communesProposees button').count()===0,'plusieurs communes : on choisit d’un toucher (Moulay), la liste disparaît');
   await p.tap('#resumeDepart');await p.waitForSelector('textarea[name="assistant.texte"]');
   chk(true,'« Commencer par un résumé » ouvre l’assistant (écrit ou dicté)');
+  await p.fill('textarea[name="assistant.texte"]','Madame Fictive, maison de 1980.\nRefaire la cuisine.');
   await p.goBack();await p.waitForSelector('#resumeDepart');
+  chk(await p.textContent('#resumeTexte')==='Madame Fictive, maison de 1980.\nRefaire la cuisine.'&&/Votre résumé de visite/.test(await p.textContent('#resumeDepart')),'le résumé dicté s’affiche sur la fiche client (toucher pour le modifier)');
   await p.tap('.progres button[aria-label^="Étape 7 "]');
   await p.tap('#ouvrirDossier');await p.waitForSelector('.dossier .feuille');
 
