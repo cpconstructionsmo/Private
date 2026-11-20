@@ -803,7 +803,66 @@ function etapeScan(v) {
     h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', id: 'dessinRapide', onclick: () => { S.ecran = 'dessin'; S.dessinSel = null; S.message = null; dessiner(); window.scrollTo(0, 0); } },
       M.valeur(v, 'dessin') ? '✏️ Reprendre le dessin rapide' : '✏️ Dessin rapide (sans scan)')),
     h('p', { class: 'mut petit' }, 'Pas de scan ? Posez les pièces une à une (longueur × largeur, à côté de la précédente). Ensuite, dans le plan, touchez une cote pour taper la vraie longueur.'),
+    // un plan 2D existant (magicplan, architecte, photo d'un plan papier) : l'IA en relève les pièces
+    h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', id: 'importerPlan2D', disabled: !!(S.lecturePlan && S.lecturePlan.encours),
+      onclick: () => choisirFichier({ accept: 'image/*,application/pdf' }, ([f]) => lirePlan2D(f)) },
+      S.lecturePlan && S.lecturePlan.encours ? '🖼 Lecture du plan… (jusqu’à une minute)' : '🖼 Plan 2D (photo, image ou PDF)')),
+    S.lecturePlan && S.lecturePlan.message ? h('div', { class: 'message ' + S.lecturePlan.type, id: 'infoPlan2D' }, S.lecturePlan.message) : null,
+    S.lecturePlan && S.lecturePlan.parties ? h('div', { class: 'carte', id: 'partiesPlan' },
+      h('b', {}, '🖼 Plusieurs plans sur « ' + S.lecturePlan.nom + ' » : lequel dessiner ?'),
+      S.lecturePlan.parties.map(p => h('button', { class: 'gros sec', type: 'button', style: 'margin-top:8px', 'data-partie': p.nom, onclick: () => appliquerPartiePlan(p, S.lecturePlan.nom) },
+        p.nom + ' — ' + p.pieces.length + ' pièce' + (p.pieces.length > 1 ? 's' : '') + ', ' + String(Math.round(p.pieces.reduce((t, q) => t + q.longueur * q.largeur, 0))) + ' m²')),
+      h('button', { class: 'lienRetour', type: 'button', style: 'margin-top:8px', onclick: () => { S.lecturePlan = null; redessiner(); } }, 'Annuler')) : null,
+    h('p', { class: 'mut petit' }, 'Un plan déjà fait (export magicplan, plan d’architecte, photo d’un plan papier) : l’IA relève les pièces et leurs dimensions, vous vérifiez dans le dessin rapide. Vous pouvez aussi le glisser dans le plan.'),
   ];
+}
+
+/* ---------- un plan 2D (photo, image ou PDF) lu par l'IA ----------
+   magicplan, plan d'architecte, croquis, photo d'un plan papier : la
+   fonction « imaginer » (action decrire, mode plan) en relève les pièces,
+   partie par partie ; le relevé en tire un dessin rapide (dessin.js) que le
+   métreur vérifie avant « ✓ Créer le plan ». L'image du plan est gardée
+   avec la visite (photo « planPapier »). Un dessin existant n'est remplacé
+   qu'après accord. */
+const PDF_MAX = 4_400_000;                       // un PDF de plan, envoyé tel quel (≈ 6 Mo en base64)
+const estPlan2D = f => !!f && (/^image\//.test(f.type || '') || f.type === 'application/pdf' || /\.(jpe?g|png|webp|heic|heif|pdf)$/i.test(f.name || ''));
+async function lirePlan2D(f) {
+  const v = visite(); if (!v || !f) return;
+  const dire = (t, type) => { S.lecturePlan = { message: t, type: type || 'err' }; redessiner(); };
+  if (!pretPourIA(dire, 'La lecture du plan')) return;
+  const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name || '');
+  S.lecturePlan = { encours: true, nom: f.name || 'plan' }; redessiner();
+  try {
+    let blob = f;
+    if (pdf) { if (f.size > PDF_MAX) throw { code: 'pdf_lourd' }; }
+    else {
+      blob = await reduirePhoto(f, 2400);          // assez fin pour lire les cotes d'un plan
+      const id = M.nouvelId();
+      await stock.garderPhoto(id, S.courante, blob);
+      await changer(w => M.majElement(M.ajouterPhoto(w, { id, role: 'planPapier', legende: f.name || 'Plan 2D' }), 'photos', id, { importeLe: new Date().toISOString() }));
+    }
+    const r = await appelerFonction({ action: 'decrire', mode: 'plan', image: await enBase64(blob), mime: pdf ? 'application/pdf' : 'image/jpeg' }) || {};
+    if (!Array.isArray(r.parties)) throw { code: r.legende !== undefined || r.constats ? 'consigne_absente' : 'rien_lu' };
+    const parties = r.parties.filter(p => p && Array.isArray(p.pieces) && p.pieces.length);
+    if (!parties.length) throw { code: 'rien_lu' };
+    if (parties.length === 1) { S.lecturePlan = null; return appliquerPartiePlan(parties[0], f.name); }
+    S.lecturePlan = { parties, nom: f.name || 'plan' }; redessiner();
+  } catch (e) {
+    const code = (e && e.code) || 'reseau';
+    dire(code === 'pdf_lourd' ? 'Ce PDF est trop lourd (plus de 4 Mo) : exportez la page du plan en image (JPG), ou photographiez-la.'
+      : code === 'rien_lu' ? 'Aucune pièce lisible sur ce plan. Essayez une image plus nette (export JPG ou PDF de l’application de plan), bien cadrée.'
+      : messageDecrire(e, 'plan'));
+  }
+}
+async function appliquerPartiePlan(partie, nomFichier) {
+  const pieces = DR.dessinDepuisRectangles(partie.pieces, () => M.nouvelId().slice(0, 8));
+  if (!pieces.length) { S.lecturePlan = { message: 'Aucune pièce exploitable dans « ' + partie.nom + ' ».', type: 'err' }; return redessiner(); }
+  const avant = M.valeur(visite(), 'dessin');
+  if (avant && Array.isArray(avant.pieces) && avant.pieces.length && !confirm('Un dessin rapide existe déjà (' + avant.pieces.length + ' pièce' + (avant.pieces.length > 1 ? 's' : '') + '). Le remplacer par les pièces lues sur le plan ?')) return;
+  await poser('dessin', { pieces, hauteur: (avant && avant.hauteur) || 2.5, source: { fichier: String(nomFichier || '').slice(0, 120), partie: partie.nom, luLe: new Date().toISOString() } });
+  S.lecturePlan = null; S.dessinSel = null; S.ecran = 'dessin';
+  S.message = { type: 'att', texte: '🖼 ' + pieces.length + ' pièce' + (pieces.length > 1 ? 's' : '') + ' lue' + (pieces.length > 1 ? 's' : '') + ' sur le plan (« ' + partie.nom + ' »). Vérifiez les dimensions et la place de chaque pièce (l’IA peut se tromper), puis « ✓ Créer le plan ».' };
+  vibrer(); dessiner(); window.scrollTo(0, 0);
 }
 
 /* ---------- le plan : le moteur de relevé (releve/moteur/) dans un cadre ----------
@@ -905,6 +964,12 @@ window.addEventListener('message', e => {
     if (m.type === 'releve:pret') await envoyerAuMoteur(cadre);
     else if (m.type === 'releve:enregistrer') await enregistrerPlan(m, cadre);
     else if (m.type === 'releve:vide' && attenteVidage) attenteVidage();
+    else if (m.type === 'releve:plan2d' && m.fichier && estPlan2D(m.fichier)) {
+      // une image ou un PDF glissé sur le plan : lu comme un plan 2D, depuis l'étape Scan
+      // (hors de la file : fermerPlan attend un message du moteur qui passera par elle)
+      const f = m.fichier;
+      setTimeout(async () => { await fermerPlan(); S.etape = Math.max(0, M.ETAPES.findIndex(x => x.id === 'scan')); S.ecran = 'visite'; dessiner(); lirePlan2D(f); }, 0);
+    }
   }).catch(err => erreurPlan('Le plan n’a pas pu être enregistré sur l’appareil (' + ((err && err.message) || 'erreur') + ').'));
 });
 
@@ -1029,6 +1094,10 @@ function ecranDessin() {
       h('h1', {}, '✏️ Dessin rapide'),
       h('p', { class: 'mut petit' }, 'Posez les pièces une à une, à côté de la précédente. Touchez une pièce pour la régler. Les cotes exactes se tapent ensuite dans le plan.'),
       h('div', { class: 'carte', style: 'padding:6px' }, apercuDessin(d, R)),
+      // lu sur un plan 2D : le plan d'origine sous la main, pour comparer
+      (() => { const pp = d.source ? M.actifs(v.photos).filter(x => x.role === 'planPapier').sort((a, b) => String(b.importeLe || '').localeCompare(String(a.importeLe || '')))[0] : null;
+        return d.source ? h('details', { class: 'carte planOrigine', id: 'planOrigine' }, h('summary', {}, '🖼 Plan d’origine' + (d.source.partie ? ' · ' + d.source.partie : '')),
+          pp ? imagePhoto(pp, 'imagePlanOrigine') : h('div', { class: 'mut petit' }, d.source.fichier || '')) : null; })(),
       R.erreurs.length ? h('div', { class: 'message err' }, R.erreurs.join(' ')) : d.pieces.length ? h('div', { class: 'mut petit' }, R.resume.pieces + ' pièce' + (R.resume.pieces > 1 ? 's' : '') + ' · ' + String(R.resume.surface).replace('.', ',') + ' m²') : null,
       d.pieces.map((p, i) => {
         const sel = S.dessinSel === p.id;

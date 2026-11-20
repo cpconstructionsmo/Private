@@ -1441,7 +1441,18 @@ function proposerDoublons(gardes) {
     });
   $('modalAnnuler').onclick = () => { fermerModal(); gardes.add(cle(d)); setTimeout(() => proposerDoublons(gardes), 0); };
 }
-function chargerFichier(f) { if (f) f.text().then(t => chargerTexte(t, f.name)); }
+/* une image ou un PDF (plan 2D : magicplan, architecte, photo) n'est pas un relevé :
+   dans la visite, il lui est passé pour être lu par l'IA (étape Scan) */
+const estPlan2D = f => /^image\//.test(f.type || '') || f.type === 'application/pdf' || /\.(jpe?g|png|webp|heic|heif|pdf)$/i.test(f.name || '');
+function chargerFichier(f) {
+  if (!f) return;
+  if (estPlan2D(f)) {
+    if (pont.actif) { versVisite({ type: 'releve:plan2d', fichier: f }); message('Plan 2D reçu : la visite le lit (étape Scan)…', 'ok'); }
+    else message('Ce fichier est une image ou un PDF, pas un relevé (.json). Un plan 2D se lit depuis la visite : étape Scan › « Plan 2D ».', 'warn');
+    return;
+  }
+  f.text().then(t => chargerTexte(t, f.name));
+}
 
 $('fichier').addEventListener('change', e => { chargerFichier(e.target.files[0]); e.target.value = ''; });
 ['dragenter', 'dragover'].forEach(ev => window.addEventListener(ev, e => { e.preventDefault(); $('drop').classList.add('on'); }));

@@ -58,8 +58,9 @@ function contour(r, autres) {
     autres.forEach(o => {
       const coins = [[o.x0, o.y0], [o.x1, o.y0], [o.x1, o.y1], [o.x0, o.y1]];
       coins.forEach(([x, y]) => {
-        const sur = axe === 'x' ? Math.abs(y - fixe) < 0.0005 && x > Math.min(debut, fin) + 0.0005 && x < Math.max(debut, fin) - 0.0005
-          : Math.abs(x - fixe) < 0.0005 && y > Math.min(debut, fin) + 0.0005 && y < Math.max(debut, fin) - 0.0005;
+        // un bout de mur de moins de 3 cm n'a pas de sens (et le moteur le refuse) : coin voisin ignoré
+        const sur = axe === 'x' ? Math.abs(y - fixe) < 0.0005 && x > Math.min(debut, fin) + 0.03 && x < Math.max(debut, fin) - 0.03
+          : Math.abs(x - fixe) < 0.0005 && y > Math.min(debut, fin) + 0.03 && y < Math.max(debut, fin) - 0.03;
         if (sur) pts.add(axe === 'x' ? x : y);
       });
     });
@@ -91,4 +92,62 @@ export function releveDepuisDessin(pieces, { projet = 'Dessin rapide', hauteur =
       hauteur: H, murs: Math.round(2 * (L + W) * H * 100) / 100, portes: 0, fenetres: 0 }; });
   const surface = Math.round(detail.reduce((t, d) => t + d.sol, 0) * 100) / 100;
   return { donnees, resume: { projet, pieces: detail.length, surface, ouvertures: 0, detail }, erreurs, rect };
+}
+
+/* ==========================================================================
+   Un plan 2D lu par l'IA (magicplan, plan d'architecte, photo d'un plan)
+   donne des rectangles posés : { nom, longueur (horizontale), largeur
+   (verticale), x, y } en mètres, coin haut-gauche. On en tire les pièces du
+   dessin rapide, chacune posée contre une voisine déjà posée (le côté où
+   elles se touchent le plus, murs d'au plus GAP_MUR entre elles), avec son
+   décalage : le dessin reste réglable au doigt comme s'il avait été saisi.
+   Une pièce qui ne touche personne se pose contre la plus proche.
+   ========================================================================== */
+export const GAP_MUR = 0.7;                     // épaisseur de mur la plus forte qu'on enjambe (m)
+const cm = v => Math.round(v * 100) / 100;
+export function dessinDepuisRectangles(rects, nouvelId = i => 'p' + (i + 1)) {
+  const R = (rects || []).map((r, i) => ({ i, nom: String(r.nom || 'Pièce ' + (i + 1)).slice(0, 40), L: nb(r.longueur), W: nb(r.largeur), x: nb(r.x) || 0, y: nb(r.y) || 0 }))
+    .filter(r => r.L >= 0.3 && r.L <= 50 && r.W >= 0.3 && r.W <= 50);
+  if (!R.length) return [];
+  const recouvre = (a0, a1, b0, b1) => Math.min(a1, b1) - Math.max(a0, b0);
+  /* comment b se pose contre a (rectangles d'origine) : côté, recouvrement, écart */
+  const contact = (a, b) => {
+    const ox = recouvre(a.x, a.x + a.L, b.x, b.x + b.L), oy = recouvre(a.y, a.y + a.W, b.y, b.y + b.W);
+    const c = [
+      ['droite', b.x - (a.x + a.L), oy], ['gauche', a.x - (b.x + b.L), oy],
+      ['bas', b.y - (a.y + a.W), ox], ['haut', a.y - (b.y + b.W), ox]];
+    return c.map(([cote, ecart, rec]) => ({ cote, ecart, rec })).filter(k => k.ecart > -0.3).sort((p, q) => (q.rec - p.rec) || (p.ecart - q.ecart))[0];
+  };
+  // la première : la plus en haut à gauche
+  const ordre = [...R].sort((a, b) => (a.x + a.y) - (b.x + b.y));
+  const poses = [ordre[0]], reste = ordre.slice(1), sortie = [{ id: nouvelId(0), nom: ordre[0].nom, longueur: cm(ordre[0].L), largeur: cm(ordre[0].W) }];
+  ordre[0].id = sortie[0].id;
+  // les rectangles déjà posés (coordonnées du dessin), pour refuser une pose qui chevauche
+  const place = new Map([[ordre[0].id, { x0: 0, y0: 0, x1: ordre[0].L, y1: ordre[0].W }]]);
+  const poser = (a, b, cote, d) => { const c = place.get(a.id);
+    const x0 = cote === 'droite' ? c.x1 : cote === 'gauche' ? c.x0 - b.L : c.x0 + d, y0 = cote === 'bas' ? c.y1 : cote === 'haut' ? c.y0 - b.W : c.y0 + d;
+    return { x0, y0, x1: x0 + b.L, y1: y0 + b.W }; };
+  const libre = r => [...place.values()].every(o => recouvre(r.x0, r.x1, o.x0, o.x1) <= 0.01 || recouvre(r.y0, r.y1, o.y0, o.y1) <= 0.01);
+  while (reste.length) {
+    const cands = [];
+    reste.forEach((b, ib) => poses.forEach(a => {
+      const k = contact(a, b); if (!k) return;
+      // mieux vaut un mur fin qu'un mur épais : à recouvrement égal, l'écart le plus petit gagne
+      const touche = k.ecart <= GAP_MUR && k.rec >= 0.3;
+      const d = cm(k.cote === 'droite' || k.cote === 'gauche' ? b.y - a.y : b.x - a.x);
+      cands.push({ score: touche ? 1000 + k.rec - 3 * Math.max(0, k.ecart) : -Math.max(0, k.ecart) - Math.max(0, -k.rec), a, b, ib, cote: k.cote, d });
+    }));
+    cands.sort((p, q) => q.score - p.score);
+    const ch = cands.find(c => libre(poser(c.a, c.b, c.cote, c.d))) || cands[0];
+    reste.splice(reste.indexOf(ch.b), 1);
+    // à 3 cm près (arrondis des cotes du plan), deux voisines s'alignent : un seul mur commun net
+    if (Math.abs(ch.d) <= 0.03) ch.d = 0;
+    const lat = ch.cote === 'droite' || ch.cote === 'gauche', da = lat ? ch.a.W : ch.a.L;
+    if (ch.d === 0 && Math.abs((lat ? ch.b.W : ch.b.L) - da) <= 0.03) { if (lat) ch.b.W = da; else ch.b.L = da; }
+    ch.b.id = nouvelId(sortie.length);
+    place.set(ch.b.id, poser(ch.a, ch.b, ch.cote, ch.d));
+    sortie.push({ id: ch.b.id, nom: ch.b.nom, longueur: cm(ch.b.L), largeur: cm(ch.b.W), contre: { id: ch.a.id, cote: ch.cote, decalage: ch.d } });
+    poses.push(ch.b);
+  }
+  return sortie;
 }

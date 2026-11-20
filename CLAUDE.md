@@ -52,7 +52,10 @@ qu'on ait à les redire.
   demande attend sur la photo (`imaginerEnAttente`, appareil d'origine seul)
   et part au retour du réseau. « 🔍 Décrire » (action `decrire`) : légende si vide et
   constats internes (`description`) d'une photo ; « 📷 Lire une note
-  manuscrite » ajoute la transcription à la dictée de l'assistant. Dossier client
+  manuscrite » ajoute la transcription à la dictée de l'assistant. « 🖼 Plan 2D » (mode
+  `plan`, image ou PDF, aussi glissé sur le plan) : pièces lues → dessin
+  rapide à vérifier (`dessinDepuisRectangles`), plan d'origine gardé
+  (photo `planPapier`). Dossier client
   (`releve/dossier.js`, « 📄 Dossier client », lien du suivi
   `releveLien({visite,vue:'dossier'})`) : imprimable en PDF A4, jamais les
   notes de visite ni la marge ; image du plan dessiné (`planImage`) ;

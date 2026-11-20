@@ -148,6 +148,16 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   jamais écrasé en silence : il est gardé de côté (`plan.ecarte`).
 - Chevauchements et dimensions hors bornes (0,30 à 50 m) sont signalés
   avant de créer le plan.
+- **« 🖼 Plan 2D (photo, image ou PDF) »** (étape Scan, ou fichier glissé sur
+  le plan) : un plan déjà fait (export magicplan, plan d'architecte, photo
+  d'un plan papier) part à la fonction `imaginer` (action `decrire`, mode
+  `plan`, PDF de 4 Mo au plus). Elle relève les pièces de chaque partie
+  (étage, état actuel / projet : on choisit laquelle) ; `dessinDepuisRectangles`
+  en fait un dessin rapide (chaque pièce contre sa voisine, murs jusqu'à
+  70 cm enjambés, voisines alignées à 3 cm près). Le métreur vérifie, avec
+  le plan d'origine sous le dessin (photo `planPapier`, gardée avec la
+  visite), puis « ✓ Créer le plan ». Un dessin existant n'est remplacé
+  qu'après accord.
 
 ## L'assistant de visite
 
