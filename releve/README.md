@@ -246,7 +246,8 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
     **aussi posés directement dans le plan coté** (« ＋ Symbole », donc sur
     un plan venu d'un scan LiDAR) : choisis dans la liste, posés au centre
     de l'étage, glissés au doigt (pas de 5 cm), touchés pour les tourner,
-    régler la trémie ou les retirer ; gardés avec le relevé (`symboles`) ;
+    régler leur taille (longueur, profondeur ; « Taille standard » la
+    remet) ou les retirer ; gardés avec le relevé (`symboles`) ;
   - **toiture** (plat, 1, 2 ou 4 pentes, pente en degrés) sur l'étage le plus
     haut, vue en 3D dans le plan ;
   - **zoom** de l'aperçu (deux doigts, « 🔍 ＋ / − », « ⟲ 100 % »).
