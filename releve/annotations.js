@@ -47,7 +47,7 @@ export function nettoyer(a) {
     }
     return null;
   }).filter(Boolean);
-  return { fondId: typeof o.fondId === 'string' ? o.fondId : null, source: o.source === 'planPapier' ? 'planPapier' : 'plan',
+  return { fondId: typeof o.fondId === 'string' ? o.fondId : null, source: o.source === 'planPapier' || o.source === 'dessin' ? o.source : 'plan',
     empreinte: typeof o.empreinte === 'string' ? o.empreinte : null, imageId: typeof o.imageId === 'string' ? o.imageId : null, elements };
 }
 
