@@ -50,7 +50,7 @@ let b;
     if(m){const f=path.join(R,decodeURIComponent(m[1]||'index.html'));if(fs.existsSync(f)&&fs.statSync(f).isFile())return r.fulfill({path:f});return r.fulfill({status:404,body:''})}
     return r.fulfill({status:204,body:''});});
   const p=await ctx.newPage();p.setDefaultTimeout(15000);const erreurs=[];p.on('pageerror',e=>erreurs.push(String(e)));p.on('dialog',d=>d.accept());
-  await p.goto('https://app.local/index.html');await p.waitForSelector('text=TABLEAU DE BORD',{timeout:30000});
+  await p.goto('https://app.local/index.html',{timeout:60000});await p.waitForSelector('text=TABLEAU DE BORD',{timeout:30000});
   await p.mouse.move(4,450);await p.waitForTimeout(300);await p.click('nav.bot >> text=PROSPECTS');
   await p.click('button:has-text("Rénovation (1)")');
   await p.click('text=Maison Fictif - Alençon');

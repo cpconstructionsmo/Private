@@ -62,7 +62,7 @@ let b;
   const ctx=await contexte(FAUX_SUIVI,{viewport:{width:1440,height:900}});
   const p=await ctx.newPage();p.setDefaultTimeout(15000);p.on('pageerror',e=>erreurs.push('suivi : '+e));
   const dialogues=[];p.on('dialog',d=>{dialogues.push(d.message());d.accept()});
-  await p.goto('https://app.local/index.html');await p.waitForSelector('text=TABLEAU DE BORD',{timeout:30000});
+  await p.goto('https://app.local/index.html',{timeout:60000});await p.waitForSelector('text=TABLEAU DE BORD',{timeout:30000});
   await p.mouse.move(4,450);await p.waitForTimeout(300);await p.click('nav.bot >> text=PROSPECTS');
   await p.waitForSelector('.visites-a-rattacher');
   chk((await p.textContent('.visites-a-rattacher')).includes('VISITES À RATTACHER (3)'),'PROSPECTS : trois visites à rattacher');

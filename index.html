@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-20 · Visites de construction : règles de la zone (règlement PLU lu par l’IA) dans la demande du prospect';
+const VERSION='2026-11-23 · Visites annulées dans le relevé : retirées des visites à rattacher';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -26813,7 +26813,8 @@ function completerProspectDepuisVisite(p,r,le){
 const visitesDuProspect=(p,resumes)=>(resumes||[]).filter(r=>(p.visites||[]).some(x=>x.id===r.id)||(r.prospectId&&r.prospectId===p.id));
 function visitesARattacher(resumes,prospects,ignorees){
   const P=prospects||[], ign=new Set(ignorees||[]);
-  return (resumes||[]).filter(r=>!ign.has(r.id)&&!P.some(p=>(p.visites||[]).some(x=>x.id===r.id))
+  // une visite annulée dans le relevé n'est plus à rattacher (elle se rétablit dans le relevé)
+  return (resumes||[]).filter(r=>r.statut!=='annulee'&&!ign.has(r.id)&&!P.some(p=>(p.visites||[]).some(x=>x.id===r.id))
     &&!(r.prospectId&&P.some(p=>p.id===r.prospectId)));
 }
 /* ---------- chiffrage précis : quantités tirées du plan (Phase 2, mode B) ----------
@@ -26905,6 +26906,7 @@ function ResumeVisite({r}){
   return <div style={{flex:1,minWidth:0}}>
     <div className="sm" style={{fontWeight:600}}>{visiteIntitule(r)}
       {r.statut==='terminee'&&<span className="pill" style={{marginLeft:6,background:GREEN+'1A',color:GREEN}}>terminée</span>}
+      {r.statut==='annulee'&&<span className="pill visite-annulee" style={{marginLeft:6,background:TERRA+'1A',color:TERRA}}>annulée</span>}
       {r.nature&&r.nature!=='renovation'&&<span className="pill nature-visite" style={{marginLeft:6,background:NAVY+'14',color:NAVY}}>{r.nature==='construction'?'construction neuve':'agrandissement'}</span>}</div>
     <div className="xs mut" style={{lineHeight:1.5}}>
       {[r.telephone,[r.codePostal,r.ville].filter(Boolean).join(' '),r.creeLe?'visite du '+fd(r.creeLe.slice(0,10)):''].filter(Boolean).join(' · ')}</div>

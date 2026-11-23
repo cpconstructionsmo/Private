@@ -133,6 +133,17 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   visite est ouverte ailleurs. Limite du jour ou réglage absent : la
   demande s'arrête et le message reste sous la photo.
 
+## Accueil et images
+
+- **Annuler une visite** : « ✕ » sur sa carte (confirmation). Elle quitte la
+  liste sans rien perdre (`statut` « annulee », `annulation` : date et statut
+  d'avant) ; filtre « Annulées (n) », « ↺ Rétablir » d'un toucher. Le suivi
+  ne la propose plus dans « Visites à rattacher ».
+- **Zoom** (`releve/zoom.js`) : toute photo, plan d'origine, esquisse ou
+  vignette de plan s'ouvre en grand d'un toucher (`data-zoom`) ; pincer ou
+  « ＋ / − » pour zoomer, glisser pour se déplacer, toucher deux fois pour
+  zoomer ou revenir, molette sur PC ; ✕ ou Échap pour fermer.
+
 ## Rénovation, construction neuve, agrandissement
 
 - **Dès la 1re page** : « 🏚 Rénovation », « 🏗 Construction neuve » ou

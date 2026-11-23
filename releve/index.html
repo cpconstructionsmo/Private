@@ -172,6 +172,12 @@
   .pointsAttention .point.bloquant{border-left-color:#B42318}.pointsAttention .point.important{border-left-color:var(--amber)}
   .reglementZone{margin-top:8px}.reglesZone{margin-top:8px;padding:10px;border-radius:10px;background:#EEF3FA}.reglesZone dl{display:grid;grid-template-columns:minmax(110px,34%) 1fr;gap:4px 10px;margin:6px 0 0;font-size:14px}.reglesZone dt{font-weight:600}.reglesZone dd{margin:0}
   .photosTerrain{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}.photosTerrain figure{position:relative;margin:0}.photosTerrain img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px}
+  .visite{position:relative}.visite .corps{padding-right:40px}.actionVisite{position:absolute;top:8px;right:8px;padding:4px 10px;font-size:13px}.pastille.annulee{background:#F3E1DE;color:#9A3412}
+  .visionneuse{position:fixed;inset:0;z-index:1000;background:rgba(15,20,28,.94);display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none}
+  .visionneuse img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center center;user-select:none;-webkit-user-select:none;cursor:zoom-in}
+  .barreVisionneuse{position:absolute;top:max(10px,env(safe-area-inset-top));right:10px;display:flex;gap:8px}
+  .barreVisionneuse button{min-width:44px;min-height:44px;border-radius:22px;border:0;background:rgba(255,255,255,.92);font-size:20px;font-weight:700}
+  img[data-zoom]{cursor:zoom-in}
   .duoPlans{display:grid;grid-template-columns:1fr;gap:10px;margin-top:8px}
   @media (min-width:700px){.duoPlans{grid-template-columns:1fr 1fr}}
   .duoPlans figure{margin:0}.vignettePlan{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line,#ddd);background:#fff}

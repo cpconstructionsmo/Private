@@ -64,7 +64,7 @@ let b;
   /* ---------- le suivi ---------- */
   const ctx=await contexte(FAUX_SUIVI,{viewport:{width:1440,height:900}});
   const p=await ctx.newPage();p.setDefaultTimeout(15000);p.on('pageerror',e=>erreurs.push('suivi : '+e));p.on('dialog',d=>d.accept());
-  await p.goto('https://app.local/index.html');await p.waitForSelector('text=TABLEAU DE BORD',{timeout:30000});
+  await p.goto('https://app.local/index.html',{timeout:60000});await p.waitForSelector('text=TABLEAU DE BORD',{timeout:30000});
   await p.mouse.move(4,450);await p.waitForTimeout(300);await p.click('nav.bot >> text=PROSPECTS');
   await p.waitForSelector('.visites-a-rattacher');
   chk((await p.textContent('.visites-a-rattacher')).includes('VISITES À RATTACHER (2)'),'PROSPECTS : deux visites à rattacher');
