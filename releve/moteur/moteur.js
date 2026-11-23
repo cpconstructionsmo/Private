@@ -2027,20 +2027,26 @@ $('btnAjMur').addEventListener('click', dialogTracerMur);
 /* ---- les symboles posés directement sur le plan (aussi sur un plan scanné) ---- */
 function ouvrirSymbole(z, x, y) {
   const sy = modele.symboles[z.si]; if (!sy) return;
-  const tremie = sy.type === 'escalier';
+  /* chaque équipement se règle à sa vraie taille (un radiateur de 1,40 m, une douche de 1,20 × 0,80…) ;
+     bornes larges mais pas absurdes, la trémie a les siennes */
+  const tremie = sy.type === 'escalier', B = tremie ? [0.5, 10, 0.5, 5] : [0.1, 5, 0.05, 5];
+  const fr = v => String(v).replace('.', ','), std = TAILLES_SYM[sy.type], standard = Math.abs(sy.l - std[0]) < 0.001 && Math.abs(sy.w - std[1]) < 0.001;
   editeur.innerHTML = '<b>' + esc(NOMS_SYM[sy.type]) + '</b><p class="note">Glissez-le sur le plan pour le déplacer.</p>' +
-    (tremie ? '<label>Longueur (m)<input id="syL" inputmode="decimal" value="' + FR3(sy.l) + '"></label><label>Largeur (m)<input id="syW" inputmode="decimal" value="' + FR3(sy.w) + '"></label>' : '') +
+    '<label>Longueur (m)<input id="syL" inputmode="decimal" value="' + FR3(sy.l) + '"></label><label>' + (tremie ? 'Largeur' : 'Profondeur') + ' (m)<input id="syW" inputmode="decimal" value="' + FR3(sy.w) + '"></label>' +
+    (standard ? '' : '<div class="boutons"><button type="button" id="syStd">Taille standard (' + fr(std[0]) + ' × ' + fr(std[1]) + ' m)</button></div>') +
     '<div class="boutons"><button type="button" id="syTourner">⟳ Tourner d’un quart</button></div>' +
     '<div class="boutons"><button type="button" id="edOk">OK</button><button type="button" id="edAnnuler">Fermer</button></div><div class="boutons"><button type="button" id="sySup" class="danger">Retirer</button></div>';
   editeur.hidden = false; placerEditeur(x, y);
   const modifier = (f, texte) => { const avant = JSON.stringify(donneesCourantes); f(sy.src); reanalyser(avant, null, texte); };
   $('syTourner').onclick = () => { fermerEditeur(); modifier(q => { q.rot = ((q.rot || 0) + 90) % 360; }, NOMS_SYM[sy.type] + ' tourné.'); };
   $('edOk').onclick = () => {
-    if (!tremie) return fermerEditeur();
     const L = num($('syL').value), W = num($('syW').value);
-    if (!(L >= 0.5 && L <= 10) || !(W >= 0.5 && W <= 5)) { message('Trémie : longueur 0,5 à 10 m, largeur 0,5 à 5 m.', 'err'); return; }
-    fermerEditeur(); modifier(q => { q.l = arr3(L); q.w = arr3(W); }, 'Trémie : ' + FR3(L) + ' × ' + FR3(W) + ' m.');
+    if (!(L >= B[0] && L <= B[1]) || !(W >= B[2] && W <= B[3])) { message(NOMS_SYM[sy.type] + ' : longueur ' + fr(B[0]) + ' à ' + fr(B[1]) + ' m, ' + (tremie ? 'largeur' : 'profondeur') + ' ' + fr(B[2]) + ' à ' + fr(B[3]) + ' m.', 'err'); return; }
+    fermerEditeur();
+    if (Math.abs(L - sy.l) < 0.0005 && Math.abs(W - sy.w) < 0.0005) return;   // rien de changé : pas d'étape d'annulation inutile
+    modifier(q => { q.l = arr3(L); q.w = arr3(W); }, NOMS_SYM[sy.type] + ' : ' + FR3(L) + ' × ' + FR3(W) + ' m.');
   };
+  if ($('syStd')) $('syStd').onclick = () => { fermerEditeur(); modifier(q => { q.l = std[0]; q.w = std[1]; }, NOMS_SYM[sy.type] + ' : taille standard.'); };
   $('edAnnuler').onclick = fermerEditeur;
   $('sySup').onclick = () => { fermerEditeur(); const avant = JSON.stringify(donneesCourantes), arr = donneesCourantes.symboles; arr.splice(arr.indexOf(sy.src), 1); reanalyser(avant, null, NOMS_SYM[sy.type] + ' retiré.'); };
 }
@@ -2049,7 +2055,7 @@ function dialogAjouterSymbole() {
   if (typeof etageCourant !== 'number') { message('Choisissez d\'abord un étage (onglets au-dessus du plan) pour y poser un symbole.', 'warn'); return; }
   const k = Math.min(etageCourant, modele.etages.length - 1);
   ouvrirModal('Ajouter un symbole', '<label>Symbole<select id="syType">' + Object.keys(NOMS_SYM).map(t => '<option value="' + t + '">' + esc(NOMS_SYM[t]) + '</option>').join('') + '</select></label>' +
-    '<p class="note">Il se pose au centre de l’étage ; glissez-le ensuite à sa place, touchez-le pour le tourner ou le retirer.</p>', 'Ajouter', () => {
+    '<p class="note">Il se pose au centre de l’étage ; glissez-le ensuite à sa place, touchez-le pour le tourner, régler sa taille ou le retirer.</p>', 'Ajouter', () => {
     const t = $('syType').value, rs = modele.rooms.filter(r => r.etage === k), pts = rs.flatMap(r => r.src.points || []);
     const cx = pts.length ? (Math.min(...pts.map(q => q[0])) + Math.max(...pts.map(q => q[0]))) / 2 : 0, cy = pts.length ? (Math.min(...pts.map(q => q[1])) + Math.max(...pts.map(q => q[1]))) / 2 : 0;
     const avant = JSON.stringify(donneesCourantes);

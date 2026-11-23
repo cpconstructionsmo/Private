@@ -100,6 +100,16 @@ let b;
   await cadre.locator('#syTourner').click();
   await fr.waitForFunction(()=>window.__releve.donnees().symboles[0].rot===90);
   chk(true,'touché : « ⟳ Tourner » le tourne d’un quart');
+  const toucherSym=async()=>{const z=await fr.evaluate(()=>{const z=window.__releve.zones().find(z=>z.type==='symbole');const r=document.getElementById('plan').getBoundingClientRect();return {x:r.left+z.x,y:r.top+z.y}});await p.mouse.click(fb.x+z.x,fb.y+z.y);await cadre.locator('#syL').waitFor()};
+  await toucherSym();
+  await cadre.locator('#syL').fill('9');await cadre.locator('#edOk').click();
+  chk(await fr.evaluate(()=>{const s=window.__releve.donnees().symboles[0];return s.l===0.4&&s.w===0.65&&!document.getElementById('editeur').hidden}),'taille hors bornes (9 m pour un WC) : refusée, rien ne change');
+  await cadre.locator('#syL').fill('0,8');await cadre.locator('#syW').fill('0,7');await cadre.locator('#edOk').click();
+  await fr.waitForFunction(()=>{const s=window.__releve.donnees().symboles[0];return s.l===0.8&&s.w===0.7});
+  chk(true,'taille réglée à la main : 0,80 × 0,70 m');
+  await toucherSym();await cadre.locator('#syStd').click();
+  await fr.waitForFunction(()=>{const s=window.__releve.donnees().symboles[0];return s.l===0.4&&s.w===0.65&&s.rot===90});
+  chk(true,'« Taille standard » la remet (0,40 × 0,65 m), le quart de tour reste');
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const pl=L[0]&&L[0].donnees.valeurs.plan;return !!(pl&&pl.releve.symboles&&pl.releve.symboles[0]&&pl.releve.symboles[0].rot===90)},15000),'le symbole part avec le plan de la visite');
 
   /* fermer puis rouvrir : rien n'est perdu, rien n'est redemandé */
