@@ -1263,7 +1263,7 @@ function fondsAnnotation(v) {
 const annotationsDe = v => AN.nettoyer(M.valeur(v, 'annotations'));
 /* une copie du fond, à part : le plan peut changer, l'annotation garde le sien */
 async function commencerAnnotations(fond) {
-  const blob = await blobPhoto(fond.photo).catch(() => null);
+  const blob = fond.blob || await blobPhoto(fond.photo).catch(() => null);
   if (!blob) return montrerMessage('err', 'L’image du plan n’est pas lisible sur cet appareil (pas encore téléchargée ?). Réessayez avec le réseau.');
   const id = M.nouvelId(), avant = annotationsDe(visite());
   await stock.garderPhoto(id, S.courante, blob);
@@ -1273,7 +1273,33 @@ async function commencerAnnotations(fond) {
     // repartir d'un plan à jour garde les annotations déjà faites (à vérifier)
     return M.modifier(x, 'annotations', { ...avant, fondId: id, source: fond.source, empreinte: fond.empreinte });
   });
+  S.retourAnnot = fond.retour || null; S.annotVue = 'apres';
   S.ecran = 'annoter'; S.message = null; dessiner(); window.scrollTo(0, 0);
+}
+const empreinteTexte = async t => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))).slice(0, 12).map(b => b.toString(16).padStart(2, '0')).join('');
+const blobDepuisDataUrl = async u => (await fetch(u)).blob();
+/* avant / après depuis le dessin rapide : l'aperçu du dessin (étage affiché) devient le fond */
+async function avantApresDessin() {
+  const d = dessinCourant(); if (!d.pieces.length) return montrerMessage('att', 'Ajoutez d’abord une pièce.');
+  const R = DR.releveDepuisDessin(d.pieces, { hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
+  const svg = apercuDessin(d, R, { exporter: true });
+  const vb = svg.getAttribute('viewBox').split(' ').map(Number), L = 1600, H = Math.round(L * vb[3] / vb[2]);
+  svg.setAttribute('width', L); svg.setAttribute('height', H); svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  const img = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg)); });
+  const cv = document.createElement('canvas'); cv.width = L; cv.height = H;
+  const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, L, H); c.drawImage(img, 0, 0, L, H);
+  const blob = await new Promise(ok => cv.toBlob(ok, 'image/jpeg', 0.9));
+  await commencerAnnotations({ blob, source: 'dessin', empreinte: await empreinteTexte(JSON.stringify([d.pieces, d.ouvertures, d.symboles, etageDessin()])), retour: 'dessin' });
+}
+/* avant / après depuis le plan coté : le moteur rend l'image du plan du moment */
+let attenteImagePlan = null;
+async function avantApresPlan() {
+  const cadre = document.getElementById('cadrePlan'); if (!cadre || !cadre.contentWindow) return;
+  const image = await new Promise(ok => { attenteImagePlan = ok; cadre.contentWindow.postMessage({ type: 'releve:image' }, location.origin); setTimeout(() => ok(null), 8000); });
+  attenteImagePlan = null;
+  if (!image) return erreurPlan('L’image du plan n’a pas pu être préparée : réessayez.');
+  await fermerPlan();
+  await commencerAnnotations({ blob: await blobDepuisDataUrl(image), source: 'plan', empreinte: await empreinteTexte(image), retour: 'plan' });
 }
 async function exporterAnnotations(visiteId) {
   const rec = S.visites.find(r => r.id === visiteId); if (!rec) return;
@@ -1408,13 +1434,30 @@ function ecranAnnoter() {
   marquer();
   const fonds = fondsAnnotation(v), aJour = fonds.find(f => f.source === a.source);
   const perime = aJour && a.empreinte && aJour.empreinte !== a.empreinte;
-  const retour = () => { S.ecran = 'visite'; S.etape = Math.max(0, M.etapesDe(visite()).findIndex(x => x.id === 'scan')); dessiner(); window.scrollTo(0, 0); };
+  // retour là d'où l'on vient : dessin rapide, plan coté, ou étape Scan
+  const retour = () => { const r = S.retourAnnot; S.retourAnnot = null;
+    if (r === 'dessin') { S.ecran = 'dessin'; } else if (r === 'plan') { ouvrirPlan(); return; } else { S.ecran = 'visite'; S.etape = Math.max(0, M.etapesDe(visite()).findIndex(x => x.id === 'scan')); }
+    dessiner(); window.scrollTo(0, 0); };
+  /* avant / après : à gauche le plan tel qu'il est, à droite la copie annotée (les travaux) ;
+     sur iPhone, deux onglets basculent de l'un à l'autre */
+  const vue = S.annotVue === 'avant' ? 'avant' : 'apres';
+  const basculer = q => { S.annotVue = q; document.querySelectorAll('[data-vue-annot]').forEach(b => b.classList.toggle('on', b.dataset.vueAnnot === q));
+    const duo = document.getElementById('duoAvantApres'); if (duo) duo.dataset.vue = q; };
+  const avant = h('section', { class: 'carte coteAvant', id: 'planAvant' },
+    h('b', {}, 'Avant · plan actuel'), h('p', { class: 'mut petit', style: 'margin:2px 0 8px' }, 'Touchez-le pour l’agrandir.'),
+    imagePhoto(v.photos[a.fondId], 'imageAvant'));
   return [
-    h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Visite'), h('span', { class: 'titre' }, 'Plan annoté'), pastilleEtat()),
+    h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: retour }, S.retourAnnot === 'dessin' ? '‹ Dessin' : S.retourAnnot === 'plan' ? '‹ Plan' : '‹ Visite'), h('span', { class: 'titre' }, 'Avant / après'), pastilleEtat()),
     h('main', { class: 'ecranAnnot' },
+      h('div', { class: 'puces ongletsAvantApres', role: 'tablist' },
+        h('button', { class: 'puce' + (vue === 'avant' ? ' on' : ''), type: 'button', 'data-vue-annot': 'avant', onclick: () => basculer('avant') }, 'Avant'),
+        h('button', { class: 'puce' + (vue === 'apres' ? ' on' : ''), type: 'button', 'data-vue-annot': 'apres', onclick: () => basculer('apres') }, 'Après travaux (annoté)')),
       S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
       perime ? h('div', { class: 'message att', id: 'planChange' }, 'Le plan a changé depuis le début des annotations. ',
         h('button', { class: 'lienRetour', type: 'button', onclick: () => commencerAnnotations(aJour) }, 'Repartir du plan à jour (les annotations sont gardées, à vérifier)')) : null,
+      h('div', { class: 'duoAvantApres', id: 'duoAvantApres', 'data-vue': vue }, avant,
+      h('section', { class: 'coteApres', id: 'planApres' },
+      h('b', { class: 'titreApres' }, 'Après travaux · annotez les travaux à faire'),
       h('div', { class: 'puces barreAnnot', role: 'toolbar' },
         AN.OUTILS.map(([k, lib]) => h('button', { class: 'puce' + (st.outil === k ? ' on' : ''), type: 'button', 'data-outil': k, 'aria-pressed': String(st.outil === k), onclick: () => { st.outil = k; marquer(); } }, lib)),
         AN.COULEURS.map(([c, lib]) => h('button', { class: 'puce pastilleCouleur' + (st.couleur === c ? ' on' : ''), type: 'button', 'data-couleur': c, 'aria-label': 'Couleur ' + lib, 'aria-pressed': String(st.couleur === c), style: '--c:' + c, onclick: () => { st.couleur = c; marquer(); } }, '●')),
@@ -1427,7 +1470,7 @@ function ecranAnnoter() {
         h('button', { class: 'puce', type: 'button', id: 'zoomMoins', onclick: () => { zoom = zoomerToile(zoom, 1 / 1.5); appliquerZoom(); } }, '🔍 −'),
         h('button', { class: 'puce', type: 'button', id: 'zoomRaz', onclick: () => { zoom = { s: 1, x: 0, y: 0 }; appliquerZoom(); } }, '⟲ 100 %'),
         h('span', { class: 'mut petit' }, 'Deux doigts pour zoomer et se déplacer.')),
-      h('div', { class: 'rang', style: 'justify-content:space-between;margin-top:6px' }, compte, aideOutil),
+      h('div', { class: 'rang', style: 'justify-content:space-between;margin-top:6px' }, compte, aideOutil))),
       h('button', { class: 'gros', type: 'button', id: 'terminerAnnot', style: 'margin-top:12px', onclick: retour }, '✓ Terminer')),
   ];
 }
@@ -1447,7 +1490,8 @@ function ecranPlan() {
   return [h('div', { class: 'ecranPlan' },
     h('header', { class: 'haut' },
       h('button', { class: 'lienRetour', id: 'fermerPlan', onclick: fermerPlan }, '‹ Visite'),
-      h('span', { class: 'titre' }, 'Plan · ' + M.intitule(v)), pastilleEtat()),
+      h('span', { class: 'titre' }, 'Plan · ' + M.intitule(v)),
+      h('button', { class: 'puce', type: 'button', id: 'avantApresPlan', onclick: e => { e.currentTarget.disabled = true; avantApresPlan().finally(() => { const b = document.getElementById('avantApresPlan'); if (b) b.disabled = false; }); } }, '🖍 Avant / après'), pastilleEtat()),
     h('div', { class: 'message err', id: 'erreurPlan', hidden: true }),
     h('iframe', { class: 'cadrePlan', id: 'cadrePlan', src: 'moteur/index.html', title: 'Plan du relevé', allow: 'web-share; fullscreen' }))];
 }
@@ -1531,6 +1575,7 @@ window.addEventListener('message', e => {
     if (m.type === 'releve:pret') await envoyerAuMoteur(cadre);
     else if (m.type === 'releve:enregistrer') await enregistrerPlan(m, cadre);
     else if (m.type === 'releve:vide' && attenteVidage) attenteVidage();
+    else if (m.type === 'releve:imagePlan' && attenteImagePlan) attenteImagePlan(typeof m.image === 'string' && /^data:image\/jpeg;base64,/.test(m.image) ? m.image : null);
     else if (m.type === 'releve:plan2d' && m.fichier && estPlan2D(m.fichier)) {
       // une image ou un PDF glissé sur le plan : lu comme un plan 2D, depuis l'étape Scan
       // (hors de la file : fermerPlan attend un message du moteur qui passera par elle)
@@ -1623,7 +1668,7 @@ const rectsEtage = (d, R, k) => d.pieces.filter(p => (p.etage || 0) === k && R.r
    portes et fenêtres, symboles. Une pièce ou un symbole se glisse au doigt
    (la pièce s'aimante aux murs voisins) ; un toucher le sélectionne. */
 const COUL_OUV = { porte: '#C0392B', fenetre: '#1F6FEB', portefenetre: '#1F6FEB', passage: '#6B7280' };
-function apercuDessin(d, R) {
+function apercuDessin(d, R, opts = {}) {
   const NS = 'http://www.w3.org/2000/svg', el = (t, a, txt) => { const e = document.createElementNS(NS, t); Object.entries(a).forEach(([k, v]) => e.setAttribute(k, v)); if (txt != null) e.textContent = txt; return e; };
   const k = etageDessin(), rs = rectsEtage(d, R, k), dessous = k > 0 ? rectsEtage(d, R, k - 1) : [];
   const svg = el('svg', { class: 'apercuDessin', role: 'img', 'aria-label': 'Aperçu du dessin' });
@@ -1635,7 +1680,7 @@ function apercuDessin(d, R) {
   const t = Math.max(0.25, Math.min(0.45, (x1 - x0) / 22));
   dessous.forEach(({ r }) => svg.append(el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, fill: 'none', stroke: '#9AA4B2', 'stroke-width': 0.05, 'stroke-dasharray': '0.2 0.15' })));
   rs.forEach(({ p, r }) => {
-    const sel = S.dessinSel === p.id, g = el('g', { 'data-piece-dessin': p.id, style: 'cursor:grab' });
+    const sel = !opts.exporter && S.dessinSel === p.id, g = el('g', { 'data-piece-dessin': p.id, style: 'cursor:grab' });
     g.append(el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, fill: sel ? '#FCE9E3' : '#E7EEF2', stroke: sel ? '#C5563A' : '#2C4A5E', 'stroke-width': sel ? 0.12 : 0.08 }));
     g.append(el('text', { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2, 'text-anchor': 'middle', 'font-size': t, 'font-weight': 700, fill: '#1A2B36' }, p.nom));
     g.append(el('text', { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2 + t * 1.2, 'text-anchor': 'middle', 'font-size': t * 0.8, fill: '#5E6B74' }, String(Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²'));
@@ -1653,14 +1698,14 @@ function apercuDessin(d, R) {
   });
   d.symboles.filter(x => (x.etage || 0) === k).forEach(x => {
     const ty = DR.TYPES_SYMBOLE.find(z => z[0] === x.type); if (!ty) return;
-    const l = DRnb(x.l) || ty[3], w = DRnb(x.w) || ty[4], sel = S.dessinSym === x.id;
+    const l = DRnb(x.l) || ty[3], w = DRnb(x.w) || ty[4], sel = !opts.exporter && S.dessinSym === x.id;
     const g = el('g', { 'data-symbole': x.id, transform: 'translate(' + x.x + ' ' + x.y + ') rotate(' + (x.rot || 0) + ')', style: 'cursor:grab' });
     g.append(el('rect', { x: -l / 2, y: -w / 2, width: l, height: w, fill: x.type === 'escalier' ? '#FFFFFF' : '#FFF8E7', stroke: sel ? '#C5563A' : '#4B5563', 'stroke-width': sel ? 0.08 : 0.04 }));
     if (x.type === 'escalier') for (let n = 1; n < Math.round(l / 0.25); n++) g.append(el('line', { x1: -l / 2 + n * 0.25, y1: -w / 2, x2: -l / 2 + n * 0.25, y2: w / 2, stroke: '#4B5563', 'stroke-width': 0.02 }));
     g.append(el('text', { x: 0, y: 0, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': Math.max(0.28, Math.min(0.55, Math.max(l, w) * 0.45)), transform: 'rotate(' + (-(x.rot || 0)) + ')' }, ty[2]));
     svg.append(g);
   });
-  brancherGlisser(svg, d, R);
+  if (!opts.exporter) brancherGlisser(svg, d, R);
   return svg;
 }
 /* glisser au doigt dans l'aperçu (un doigt) ; le pincement (deux doigts) est géré par le cadre du zoom */
@@ -1783,6 +1828,7 @@ function ecranDessin() {
         noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
       h('label', { class: 'champ' }, 'NOM DE L’ÉTAGE', h('input', { class: 'in', name: 'dessin-etage-nom', value: noms[k], onchange: e => majDessin(x => { const n = [...noms]; n[k] = e.target.value.trim() || n[k]; x.etages = n; }) })),
       h('div', { class: 'carte', style: 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R))),
+      d.pieces.length ? h('button', { class: 'gros sec', type: 'button', id: 'avantApresDessin', style: 'margin:0 0 10px', onclick: () => avantApresDessin().catch(() => montrerMessage('err', 'L’image du dessin n’a pas pu être préparée.')) }, '🖍 Avant / après : annoter les travaux') : null,
       // lu sur un plan 2D : le plan d'origine sous la main, pour comparer
       (() => { const n = Array.isArray(d.sources) ? d.sources.length : d.source ? 1 : 0;
         const pps = n ? M.actifs(v.photos).filter(x => x.role === 'planPapier').sort((a, b) => String(b.importeLe || '').localeCompare(String(a.importeLe || ''))).slice(0, Math.min(n, 12)) : [];

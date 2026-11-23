@@ -277,6 +277,14 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   `fondAnnote`) ; en quittant l'écran, l'image annotée est refaite (photo
   `planAnnote`) et s'affiche à côté du plan. Si le plan change, « Repartir
   du plan à jour » garde les annotations (à vérifier).
+  **Avant / après** : l'écran d'annotation montre le plan tel qu'il est
+  (« Avant », à gauche, touché pour l'agrandir) et sa copie à annoter
+  (« Après travaux », à droite) ; sur iPhone, onglets « Avant | Après ». Il
+  s'ouvre aussi depuis le **dessin rapide** (« 🖍 Avant / après » : l'aperçu
+  du dessin devient le fond, source `dessin`) et depuis le **plan coté**
+  (bouton en tête : le moteur rend l'image du plan du moment,
+  `releve:image` → `releve:imagePlan`, source `plan`) ; les annotations déjà
+  faites sont gardées, « ✓ Terminer » ramène d'où l'on vient.
   **Texte** : touchez le plan, un panneau s'ouvre — texte tapé ou dicté (🎤),
   taille (petit à très grand) et style (normal, gras, manuscrit, capitales) ;
   toucher un texte le reprend (modifier, 🗑 supprimer). **Zoom** de la toile :
