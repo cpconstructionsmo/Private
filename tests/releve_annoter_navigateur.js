@@ -30,7 +30,7 @@ let b;
     return r.fulfill({status:204,body:''});});
   const p=await ctx.newPage();p.setDefaultTimeout(15000);const erreurs=[];p.on('pageerror',e=>erreurs.push(String(e)));p.on('dialog',d=>d.accept());
   const repondre=(corps,statut)=>p.evaluate(([c,s])=>{window.__etat.fonctions={imaginer:s?{statut:s,corps:c}:{corps:c}}},[corps,statut||0]);
-  let texteInvite='Démolir / mur 50 cm';p.removeAllListeners('dialog');p.on('dialog',d=>d.type()==='prompt'?d.accept(texteInvite):d.accept());
+  p.removeAllListeners('dialog');p.on('dialog',d=>d.accept());
   const annot=()=>p.evaluate(()=>{const L=Object.values(window.__etat.lignes||{});return L[0]&&L[0].donnees.valeurs.annotations});
   await p.goto('https://app.local/releve/');
   await p.waitForSelector('#nouvelleVisite');
@@ -55,11 +55,40 @@ let b;
   /* texte (couleur bleue) */
   await p.tap('[data-couleur="#1F6FEB"]');await p.tap('[data-outil="texte"]');
   await p.mouse.click(X(.3),Y(.8));
-  await p.waitForFunction(()=>/1 trait, 1 flèche, 1 texte/.test(document.querySelector('#compteAnnot').textContent));
+  await p.waitForSelector('#panneauTexte:not([hidden])');
+  chk(/Nouveau texte/.test(await p.textContent('#panneauTexte'))&&await p.isVisible('#panneauTexte .micro'),'outil Texte : un panneau s’ouvre (texte tapé ou dicté 🎤)');
+  await p.fill('textarea[name="texteAnnot"]','Démolir / mur 50 cm');
+  await p.tap('[data-taille="l"]');await p.tap('[data-police="gras"]');
+  await p.tap('#placerTexte');
+  await p.waitForFunction(()=>/1 trait, 1 flèche, 1 texte/.test(document.querySelector('#compteAnnot').textContent)&&document.querySelector('#panneauTexte').hidden);
   chk(true,'stylo, flèche et texte posés au doigt (« 1 trait, 1 flèche, 1 texte »)');
-  chk(await attendre(p,async()=>true)&&await (async()=>{for(let i=0;i<50;i++){const a=await annot();if(a&&a.elements&&a.elements.length===3)return a.elements[2].t==='Démolir / mur 50 cm'&&a.elements[2].c==='#1F6FEB'&&a.elements[0].type==='trait'&&a.elements[0].p.length>=5;await p.waitForTimeout(100)}return false})(),
-    'les annotations partent avec la visite (vecteurs : trait, flèche, texte bleu)');
+  chk(await attendre(p,async()=>true)&&await (async()=>{for(let i=0;i<50;i++){const a=await annot();if(a&&a.elements&&a.elements.length===3)return a.elements[2].t==='Démolir / mur 50 cm'&&a.elements[2].c==='#1F6FEB'&&a.elements[2].taille==='l'&&a.elements[2].police==='gras'&&a.elements[0].type==='trait'&&a.elements[0].p.length>=5;await p.waitForTimeout(100)}return false})(),
+    'les annotations partent avec la visite (vecteurs : trait, flèche, texte bleu, grand, gras)');
+  /* toucher le texte le reprend : modifier, puis la taille et le style suivent */
+  await p.mouse.click(X(.3)+6,Y(.8)+4);
+  await p.waitForSelector('#panneauTexte:not([hidden])');
+  chk(/Modifier le texte/.test(await p.textContent('#panneauTexte'))&&await p.inputValue('textarea[name="texteAnnot"]')==='Démolir / mur 50 cm'&&await p.getAttribute('[data-taille="l"]','class')==='puce on','toucher un texte le reprend (texte, taille, style)');
+  await p.fill('textarea[name="texteAnnot"]','Démolir le mur porteur');await p.tap('[data-police="manuscrit"]');await p.tap('#placerTexte');
+  chk(await (async()=>{for(let i=0;i<50;i++){const a=await annot();if(a&&a.elements[2]&&a.elements[2].t==='Démolir le mur porteur')return a.elements[2].police==='manuscrit'&&a.elements.length===3;await p.waitForTimeout(100)}return false})(),'texte modifié sur place (police manuscrite), pas de doublon');
+  /* zoom de la toile */
+  await p.tap('#zoomPlus');
+  chk(await p.getAttribute('.cadreZoomAnnot','data-zoom')==='1.50','« 🔍 ＋ » zoome la toile (×1,5)');
+  await p.tap('[data-outil="trait"]');
+  const bz=await p.locator('#toileAnnot').boundingBox();
+  await p.mouse.move(bz.x+bz.width*.5,bz.y+bz.height*.5);await p.mouse.down();await p.mouse.move(bz.x+bz.width*.55,bz.y+bz.height*.52,{steps:5});await p.mouse.up();
+  chk(await (async()=>{for(let i=0;i<50;i++){const a=await annot();if(a&&a.elements.length===4)return Math.abs(a.elements[3].p[0][0]-0.5)<0.03&&Math.abs(a.elements[3].p[0][1]-0.5)<0.03;await p.waitForTimeout(100)}return false})(),'zoomé, le trait se pose au bon endroit du plan');
+  await p.tap('#zoomRaz');
+  chk(await p.getAttribute('.cadreZoomAnnot','data-zoom')==='1.00','« ⟲ 100 % » revient à la taille normale');
+  await p.tap('#annulerAnnot');
   await p.screenshot({path:SORTIE+'/releve_annoter.png',fullPage:true});
+  await p.tap('[data-outil="texte"]');
+  await p.mouse.click(X(.3)+6,Y(.8)+4);await p.waitForSelector('#panneauTexte:not([hidden])');
+  await p.tap('#supprimerTexte');
+  await p.waitForFunction(()=>/1 trait, 1 flèche$/.test(document.querySelector('#compteAnnot').textContent));
+  chk(true,'« 🗑 Supprimer » retire le texte touché');
+  await p.tap('[data-outil="texte"]');await p.mouse.click(X(.3),Y(.8));await p.waitForSelector('#panneauTexte:not([hidden])');
+  await p.fill('textarea[name="texteAnnot"]','Démolir / mur 50 cm');await p.tap('#placerTexte');
+  await p.waitForFunction(()=>/1 trait, 1 flèche, 1 texte/.test(document.querySelector('#compteAnnot').textContent));
   await p.tap('#annulerAnnot');
   await p.waitForFunction(()=>/1 trait, 1 flèche$/.test(document.querySelector('#compteAnnot').textContent));
   chk(true,'« ↶ Annuler » retire la dernière annotation');
