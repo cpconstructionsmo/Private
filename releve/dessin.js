@@ -175,10 +175,18 @@ export function ouverturesMoteur(ouvertures, pieces, rect, contours) {
 }
 
 /* les symboles : équipements posés sur le plan (centre x, y en mètres, rotation par quarts de tour) */
+/* type, nom, pictogramme, longueur et profondeur par défaut (m), famille (pour ranger la palette) */
+export const FAMILLES_SYMBOLE = [['chauffage', 'Chauffage'], ['sanitaire', 'Sanitaire'], ['cuisine', 'Cuisine et buanderie'],
+  ['elec', 'Électricité et ventilation'], ['mobilier', 'Mobilier'], ['escalier', 'Escalier']];
 export const TYPES_SYMBOLE = [
-  ['radiateur', 'Radiateur', '♨️', 1.0, 0.12], ['chaudiere', 'Chaudière', '🔥', 0.6, 0.6], ['cumulus', 'Chauffe-eau', '💧', 0.6, 0.6], ['poele', 'Poêle', '🪵', 0.6, 0.6],
-  ['wc', 'WC', '🚽', 0.4, 0.65], ['lavabo', 'Lavabo', '🪥', 0.6, 0.45], ['douche', 'Douche', '🚿', 0.9, 0.9], ['baignoire', 'Baignoire', '🛁', 1.7, 0.75],
-  ['evier', 'Évier', '🍽️', 1.2, 0.6], ['tableau', 'Tableau électrique', '⚡', 0.5, 0.15], ['escalier', 'Trémie d’escalier', '🪜', 2.6, 0.9],
+  ['radiateur', 'Radiateur', '♨️', 1.0, 0.12, 'chauffage'], ['chaudiere', 'Chaudière', '🔥', 0.6, 0.6, 'chauffage'], ['cumulus', 'Chauffe-eau', '💧', 0.6, 0.6, 'chauffage'], ['poele', 'Poêle', '🪵', 0.6, 0.6, 'chauffage'],
+  ['wc', 'WC', '🚽', 0.4, 0.65, 'sanitaire'], ['lavabo', 'Lavabo', '🪥', 0.6, 0.45, 'sanitaire'], ['douche', 'Douche', '🚿', 0.9, 0.9, 'sanitaire'], ['baignoire', 'Baignoire', '🛁', 1.7, 0.75, 'sanitaire'],
+  ['evier', 'Évier', '🍽️', 1.2, 0.6, 'cuisine'], ['plaque', 'Plaque de cuisson', '🍳', 0.6, 0.6, 'cuisine'], ['frigo', 'Réfrigérateur', '🧊', 0.6, 0.65, 'cuisine'],
+  ['lave_vaisselle', 'Lave-vaisselle', '🫧', 0.6, 0.6, 'cuisine'], ['lave_linge', 'Lave-linge', '🧺', 0.6, 0.6, 'cuisine'], ['plan_travail', 'Plan de travail', '🟫', 2.4, 0.6, 'cuisine'],
+  ['tableau', 'Tableau électrique', '⚡', 0.5, 0.15, 'elec'], ['prise', 'Prise', '🔌', 0.2, 0.1, 'elec'], ['interrupteur', 'Interrupteur', '🎚️', 0.15, 0.1, 'elec'],
+  ['lumiere', 'Point lumineux', '💡', 0.3, 0.3, 'elec'], ['vmc', 'Bouche VMC', '🌀', 0.3, 0.3, 'elec'],
+  ['lit', 'Lit', '🛏️', 1.6, 2.0, 'mobilier'], ['canape', 'Canapé', '🛋️', 2.0, 0.9, 'mobilier'], ['table', 'Table', '🪑', 1.6, 0.9, 'mobilier'],
+  ['escalier', 'Trémie d’escalier', '🪜', 2.6, 0.9, 'escalier'],
 ];
 export function symbolesMoteur(symboles, nbEtages = 1) {
   return (Array.isArray(symboles) ? symboles : []).map(s => {

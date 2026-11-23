@@ -236,9 +236,13 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   - **portes, fenêtres, portes-fenêtres, passages** sur un côté de pièce
     (position, largeur), converties en ouvertures du moteur sur le bon mur
     (`ouverturesMoteur`, même un côté coupé par une voisine) ;
-  - **symboles** : radiateur, chaudière, chauffe-eau, poêle, WC, lavabo,
-    douche, baignoire, évier, tableau électrique, **trémie d'escalier**
-    (longueur, largeur) ; tournés par quarts, glissés au doigt ; dessinés
+  - **symboles**, rangés par famille (`FAMILLES_SYMBOLE`) : chauffage
+    (radiateur, chaudière, chauffe-eau, poêle), sanitaire (WC, lavabo,
+    douche, baignoire), cuisine et buanderie (évier, plaque de cuisson,
+    réfrigérateur, lave-vaisselle, lave-linge, plan de travail), électricité
+    et ventilation (tableau, prise, interrupteur, point lumineux, bouche
+    VMC), mobilier (lit, canapé, table avec ses chaises), **trémie
+    d'escalier** (longueur, largeur) ; tournés par quarts, glissés au doigt ; dessinés
     par le moteur à leur taille (écran, PDF, DXF : calque EQUIPEMENTS) ;
     **en 3D** : les équipements en volumes à leur hauteur (radiateur sous
     la fenêtre, chaudière au mur, WC, baignoire…), la trémie perce le

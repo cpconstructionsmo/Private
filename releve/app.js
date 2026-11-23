@@ -1885,9 +1885,12 @@ function ecranDessin() {
               p.contre && !p.libre ? reglageMetres(p.contre.decalage || 0, 'DÉCALAGE LE LONG DU MUR', 'dessin-decalage', 0.1, x => maj(q => { q.contre.decalage = x; }), -50) : null] : null] : null);
       }),
       h('button', { class: 'gros sec', id: 'ajouterPieceDessin', type: 'button', onclick: ajouter, style: 'margin-top:4px' }, '＋ Ajouter une pièce'),
-      h('h2', { style: 'margin-top:16px' }, 'Équipements et escalier'),
+      h('h2', { style: 'margin-top:16px' }, 'Équipements, mobilier et escalier'),
       h('p', { class: 'mut petit' }, 'Posés au centre de la pièce sélectionnée, puis glissés à leur place.'),
-      h('div', { class: 'puces symbolesPalette' }, DR.TYPES_SYMBOLE.map(ty => h('button', { class: 'puce', type: 'button', 'data-ajout-symbole': ty[0], onclick: () => ajouterSymbole(ty) }, ty[2] + ' ' + ty[1]))),
+      // rangés par famille : une palette d'une vingtaine de symboles reste lisible sur iPhone
+      h('div', { class: 'symbolesPalette' }, DR.FAMILLES_SYMBOLE.map(([f, nomF]) => h('div', { class: 'familleSymboles' },
+        h('div', { class: 'mut petit', style: 'margin:8px 0 2px;font-weight:600' }, nomF),
+        h('div', { class: 'puces' }, DR.TYPES_SYMBOLE.filter(ty => ty[5] === f).map(ty => h('button', { class: 'puce', type: 'button', 'data-ajout-symbole': ty[0], onclick: () => ajouterSymbole(ty) }, ty[2] + ' ' + ty[1])))))),
       h('h2', { style: 'margin-top:16px' }, 'Toiture'),
       h('div', { class: 'puces' }, DR.TYPES_TOITURE.map(([c, lib]) => h('button', { class: 'puce' + (toit.type === c ? ' on' : ''), type: 'button', 'data-toiture': c,
         onclick: () => majDessin(x => { x.toiture = c === 'aucune' ? { type: 'aucune' } : { ...(x.toiture || {}), type: c, angle: (x.toiture && x.toiture.angle) || (c === 'plat' ? 2 : c === '1pente' ? 15 : 35) }; }) }, lib))),

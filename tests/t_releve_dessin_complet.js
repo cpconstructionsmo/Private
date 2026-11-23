@@ -41,5 +41,16 @@ const {chk,fin}=verif();
   const S=R2.donnees.symboles;
   chk(S.length===2&&S[0].type==='escalier'&&S[0].rot===90&&S[0].l===2.6&&S[1].etage===1&&S[1].rot===0,'symboles : type connu seulement, étage borné, quart de tour, taille par défaut (trémie 2,60 × 0,90)');
   chk(D.toituresMoteur({type:'aucune'},[{id:'x',etage:0}]).length===0&&D.toituresMoteur(null,[]).length===0,'pas de toiture : rien');
+  /* plus de symboles : électricité et ventilation, cuisine et buanderie, mobilier ; rangés par famille */
+  const nT=D.TYPES_SYMBOLE.length;
+  chk(nT===23&&D.TYPES_SYMBOLE.every(t=>D.FAMILLES_SYMBOLE.some(f=>f[0]===t[5])),'23 symboles, chacun dans une famille de la palette');
+  chk(['prise','interrupteur','lumiere','vmc','plaque','frigo','lave_vaisselle','lave_linge','plan_travail','lit','canape','table'].every(t=>D.symbolesMoteur([{type:t,x:1,y:1}],1).length===1),'les nouveaux symboles passent au moteur (taille par défaut)');
+  chk(D.symbolesMoteur([{type:'prise',x:0,y:0}],1)[0].l===0.2&&D.symbolesMoteur([{type:'lit',x:0,y:0}],1)[0].w===2,'tailles par défaut : prise 0,20 m, lit 1,60 × 2,00 m');
+  /* le moteur connaît les mêmes symboles, aux mêmes tailles, avec un nom et une hauteur en 3D */
+  const src=require('fs').readFileSync(require('path').join(__dirname,'../releve/moteur/moteur.js'),'utf8');
+  const lit=nom=>Function('return '+src.match(new RegExp('const '+nom+' = (\\{[\\s\\S]*?\\});'))[1])();
+  const TA=lit('TAILLES_SYM'),NO=lit('NOMS_SYM'),HA=lit('HAUTEURS_SYM');
+  chk(D.TYPES_SYMBOLE.every(t=>TA[t[0]]&&TA[t[0]][0]===t[3]&&TA[t[0]][1]===t[4]&&NO[t[0]]===t[1])&&Object.keys(TA).length===nT,'moteur et dessin rapide : mêmes symboles, mêmes noms, mêmes tailles');
+  chk(D.TYPES_SYMBOLE.every(t=>t[0]==='escalier'||HA[t[0]]),'chaque équipement a sa hauteur en 3D (point lumineux et VMC au plafond)');
   fin();
 })();

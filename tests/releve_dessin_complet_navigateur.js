@@ -100,6 +100,15 @@ let b;
     return {ok:true,marches,volumes}});
   if(V&&V.ok)chk(V.marches>=12&&V.volumes===1,'vue 3D : escalier en marches jusqu’à l’étage ('+V.marches+' marches), radiateur en volume');
   else chk(true,'vue 3D indisponible dans ce navigateur de test (WebGL) : vérification sautée');
+  /* les 23 symboles d'un coup : dessinés en DXF (calque EQUIPEMENTS) et en 3D, sans erreur */
+  const TOUS=frame&&await frame.evaluate(()=>{
+    const types=['radiateur','chaudiere','cumulus','poele','wc','lavabo','douche','baignoire','evier','plaque','frigo','lave_vaisselle','lave_linge','plan_travail','tableau','prise','interrupteur','lumiere','vmc','lit','canape','table','escalier'];
+    const d=JSON.parse(JSON.stringify(window.__releve.donnees()));d.symboles=types.map((t,i)=>({id:'t'+i,type:t,etage:0,x:1+(i%5),y:1+Math.floor(i/5),rot:(i%4)*90}));
+    const M=window.__releve.analyser(d);return window.__releve.dxf(M).text().then(txt=>{
+      const v=window.__releve.v3d();let n3=null;if(v.ok){v.construire(M);n3=0;v.group.traverse(o=>{if(o.isMesh)n3++})}
+      return {n:M.symboles.length,eq:(txt.match(/\nEQUIPEMENTS\r?\n/g)||[]).length,n3}})});
+  chk(TOUS&&TOUS.n===23&&TOUS.eq>60,'les 23 symboles (électricité, cuisine, mobilier…) se dessinent dans le DXF ('+(TOUS&&TOUS.eq)+' éléments au calque EQUIPEMENTS)');
+  if(TOUS&&TOUS.n3!=null)chk(TOUS.n3>40,'et se construisent en 3D ('+TOUS.n3+' volumes)');
   if(frame){await frame.evaluate(()=>{const b=[...document.querySelectorAll('button')].find(x=>/Rez-de-chaussée|RDC/.test(x.textContent));if(b)b.click()}).catch(()=>{});await p.waitForTimeout(800);await frame.evaluate(()=>document.getElementById('plan').scrollIntoView());await p.waitForTimeout(500);await frame.locator('#plan').screenshot({timeout:30000,path:SORTIE+'/releve_moteur_symboles.png'});}
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();
