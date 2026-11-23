@@ -76,7 +76,10 @@ qu'on ait à les redire.
   (photo `planPapier`), plusieurs esquisses d'un coup ajoutées au dessin.
   Plan annoté (travaux) : copie du plan annotée au doigt (`annotations.js`,
   champ `annotations`, photos `fondAnnote` et `planAnnote`), en option dans
-  le dossier client (`planAnnote`, décochée d'office). Dossier client
+  le dossier client (`planAnnote`, décochée d'office) ; écran avant / après
+  (plan actuel à gauche, copie annotée à droite, onglets sur iPhone), ouvert
+  aussi depuis le dessin rapide (`avantApresDessin`) et le plan coté
+  (`avantApresPlan`, message `releve:image`). Dossier client
   (`releve/dossier.js`, « 📄 Dossier client », lien du suivi
   `releveLien({visite,vue:'dossier'})`) : imprimable en PDF A4, jamais les
   notes de visite ni la marge ; image du plan dessiné (`planImage`) ;

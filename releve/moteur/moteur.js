@@ -2385,6 +2385,9 @@ window.addEventListener('message', e => {
     let texte = m.texte;
     if (m.images && Object.keys(m.images).length) { try { const d = JSON.parse(texte); d.imagesEmbarquees = m.images; texte = JSON.stringify(d); } catch (err) { /* le message d'erreur vient de chargerTexte */ } }
     chargerTexte(texte, m.nom || 'releve', { reprise: !!m.reprise });
+  } else if (m.type === 'releve:image') {
+    /* la visite demande l'image du plan (avant / après) : le dessin du moment, cotes comprises */
+    versVisite({ type: 'releve:imagePlan', image: modele ? imagePlan() : null });
   } else if (m.type === 'releve:vider') {
     /* la visite va fermer le plan : la dernière modification part tout de suite, avec l'image du plan */
     if (pont.timer) { clearTimeout(pont.timer); pont.timer = null; }
