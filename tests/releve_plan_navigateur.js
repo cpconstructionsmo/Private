@@ -79,6 +79,29 @@ let b;
   const xs=[...ents.matchAll(/\r\n10\r\n(-?[\d.]+)\r\n/g)].map(m=>+m[1]);
   chk(Math.max(...xs)-Math.min(...xs)>300&&Math.max(...xs)-Math.min(...xs)<1000,'DXF en centimètres (largeur du plan : '+Math.round(Math.max(...xs)-Math.min(...xs))+' cm)');
 
+  /* un symbole posé directement sur le plan scanné : ajouté, glissé, tourné, et enregistré dans la visite */
+  const fr=p.frames().find(x=>/moteur\/index\.html/.test(x.url()));
+  await cadre.locator('#btnAjSym').click();
+  await cadre.locator('#modal:not([hidden]) #syType').selectOption('wc');
+  await cadre.locator('#modalOk').click();
+  await fr.waitForFunction(()=>(window.__releve.donnees().symboles||[]).length===1);
+  const s0=await fr.evaluate(()=>window.__releve.donnees().symboles[0]);
+  chk(s0.type==='wc'&&s0.etage===0,'plan scanné : « ＋ Symbole » pose un WC au centre de l’étage');
+  await fr.evaluate(()=>document.getElementById('plan').scrollIntoView({block:'center'}));await p.waitForTimeout(300);
+  const zs=await fr.evaluate(()=>{const z=window.__releve.zones().find(z=>z.type==='symbole');const r=document.getElementById('plan').getBoundingClientRect();return z&&{x:r.left+z.x,y:r.top+z.y}});
+  const fb=await p.locator('#cadrePlan').boundingBox();
+  const X0=fb.x+zs.x, Y0=fb.y+zs.y;
+  await p.mouse.move(X0,Y0);await p.mouse.down();await p.mouse.move(X0+30,Y0+5,{steps:4});await p.mouse.move(X0+60,Y0+10,{steps:4});await p.mouse.up();
+  await fr.waitForFunction(x=>{const s=window.__releve.donnees().symboles[0];return s.x!==x},s0.x);
+  const s1=await fr.evaluate(()=>window.__releve.donnees().symboles[0]);
+  chk(s1.x>s0.x,'glissé au doigt : le WC se déplace ('+s0.x+' → '+s1.x+' m)');
+  const zs2=await fr.evaluate(()=>{const z=window.__releve.zones().find(z=>z.type==='symbole');const r=document.getElementById('plan').getBoundingClientRect();return {x:r.left+z.x,y:r.top+z.y}});
+  await p.mouse.click(fb.x+zs2.x,fb.y+zs2.y);
+  await cadre.locator('#syTourner').click();
+  await fr.waitForFunction(()=>window.__releve.donnees().symboles[0].rot===90);
+  chk(true,'touché : « ⟳ Tourner » le tourne d’un quart');
+  chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const pl=L[0]&&L[0].donnees.valeurs.plan;return !!(pl&&pl.releve.symboles&&pl.releve.symboles[0]&&pl.releve.symboles[0].rot===90)},15000),'le symbole part avec le plan de la visite');
+
   /* fermer puis rouvrir : rien n'est perdu, rien n'est redemandé */
   await p.tap('#fermerPlan');
   /* à la fermeture, le moteur envoie l'image du plan dessiné : elle est gardée pour le dossier client */

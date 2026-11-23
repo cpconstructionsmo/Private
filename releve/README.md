@@ -240,6 +240,13 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
     douche, baignoire, évier, tableau électrique, **trémie d'escalier**
     (longueur, largeur) ; tournés par quarts, glissés au doigt ; dessinés
     par le moteur à leur taille (écran, PDF, DXF : calque EQUIPEMENTS) ;
+    **en 3D** : les équipements en volumes à leur hauteur (radiateur sous
+    la fenêtre, chaudière au mur, WC, baignoire…), la trémie perce le
+    plancher de l'étage du dessus et l'escalier y monte en marches ;
+    **aussi posés directement dans le plan coté** (« ＋ Symbole », donc sur
+    un plan venu d'un scan LiDAR) : choisis dans la liste, posés au centre
+    de l'étage, glissés au doigt (pas de 5 cm), touchés pour les tourner,
+    régler la trémie ou les retirer ; gardés avec le relevé (`symboles`) ;
   - **toiture** (plat, 1, 2 ou 4 pentes, pente en degrés) sur l'étage le plus
     haut, vue en 3D dans le plan ;
   - **zoom** de l'aperçu (deux doigts, « 🔍 ＋ / − », « ⟲ 100 % »).

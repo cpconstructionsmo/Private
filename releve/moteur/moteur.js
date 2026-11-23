@@ -168,10 +168,10 @@ function analyser(d) {
   });
 
   /* symboles (dessin rapide) : équipements et trémie d'escalier, centre (x, y) en mètres, quart de tour */
-  const TYPES_SYM = ['radiateur', 'chaudiere', 'cumulus', 'poele', 'wc', 'lavabo', 'douche', 'baignoire', 'evier', 'tableau', 'escalier'];
+  const TYPES_SYM = Object.keys(TAILLES_SYM);
   M.symboles = (Array.isArray(d.symboles) ? d.symboles : []).filter(x => x && TYPES_SYM.includes(x.type) && isNum(x.x) && isNum(x.y)).slice(0, 200).map((x, i) => ({
     idx: i, type: x.type, etage: Number.isInteger(x.etage) && x.etage >= 0 && x.etage < M.etages.length ? x.etage : 0, x: x.x, y: x.y,
-    rot: [0, 90, 180, 270].includes(x.rot) ? x.rot : 0, l: isNum(x.l) && x.l > 0 ? x.l : 0.6, w: isNum(x.w) && x.w > 0 ? x.w : 0.6 }));
+    rot: [0, 90, 180, 270].includes(x.rot) ? x.rot : 0, l: isNum(x.l) && x.l > 0 ? x.l : (TAILLES_SYM[x.type] || [0.6])[0], w: isNum(x.w) && x.w > 0 ? x.w : (TAILLES_SYM[x.type] || [0, 0.6])[1], src: x }));
 
   /* toitures : l'emprise est le rectangle qui englobe les pièces couvertes, débord compris */
   const TAN = a => Math.tan(a * Math.PI / 180);
@@ -340,6 +340,14 @@ function vueEtage(M, k) {
   return Object.assign({}, M, { symboles: (M.symboles || []).filter(x => x.etage === k), cloisons: (M.cloisons || []).filter(c => c.etage === k), rooms: M.rooms.filter(r => r.etage === k), walls: M.walls.filter(w => w.etage === k), openings: M.openings.filter(op => op.room.etage === k) });
 }
 
+/* les symboles : nom, taille par défaut (longueur, profondeur en m), et en 3D
+   la hauteur du bas et du haut de l'objet au-dessus du sol (m) */
+const TAILLES_SYM = { radiateur: [1.0, 0.12], chaudiere: [0.6, 0.6], cumulus: [0.6, 0.6], poele: [0.6, 0.6], wc: [0.4, 0.65], lavabo: [0.6, 0.45],
+  douche: [0.9, 0.9], baignoire: [1.7, 0.75], evier: [1.2, 0.6], tableau: [0.5, 0.15], escalier: [2.6, 0.9] };
+const NOMS_SYM = { radiateur: 'Radiateur', chaudiere: 'Chaudière', cumulus: 'Chauffe-eau', poele: 'Poêle', wc: 'WC', lavabo: 'Lavabo', douche: 'Douche',
+  baignoire: 'Baignoire', evier: 'Évier', tableau: 'Tableau électrique', escalier: 'Trémie d’escalier' };
+const HAUTEURS_SYM = { radiateur: [0.15, 0.75], chaudiere: [1.0, 1.75], cumulus: [0, 1.5], poele: [0, 0.9], wc: [0, 0.42], lavabo: [0.7, 0.86],
+  douche: [0, 0.06], baignoire: [0, 0.56], evier: [0, 0.9], tableau: [1.2, 1.8] };
 /* les symboles du plan (équipements, trémie d'escalier) : dessinés au trait,
    à leur taille réelle, avec les mêmes pinceaux que le plan (écran, PDF, DXF) */
 function dessinerSymboles(b, M, T, fs) {
@@ -505,6 +513,9 @@ function dessinerPlan(b, M, T, o) {
     if (o.zones) o.zones.push({ x: c[0], y: c[1], w: Math.max(b.mesure(nomTxt, sz, true) + 14, 70), h: Math.max(sz * 3, 30), type: 'piece', ri });
   });
 
+  /* les symboles se touchent (régler) et se glissent (déplacer) : zones posées en dernier, au-dessus des noms de pièces */
+  if (o.zones) (M.symboles || []).forEach(s => { const t = Math.max(30, Math.max(s.l, s.w) * T.s);
+    o.zones.push({ x: T.ox + s.x * T.s, y: T.oy + s.y * T.s, w: t, h: Math.max(30, Math.min(s.l, s.w) * T.s + 10), type: 'symbole', si: s.idx }); });
   if (o.echelle) {   /* barre d'échelle de 1 m */
     const { x, y } = o.echelle;
     b.line(x, y, x + T.s, y, { w: 1.5, color: '#222222' });
@@ -571,13 +582,18 @@ class Vue3D {
     const lineP = new THREE.LineBasicMaterial({ color: 0x5a3a1f });
     const ep = M.ep, emax = (this.etageMax == null) ? 99 : this.etageMax;
 
-    /* sols */
+    /* sols ; la trémie d'un escalier perce le plancher de l'étage du dessus */
+    const coinsSym = s => { const a = s.rot * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a), L = s.l / 2, W = s.w / 2;
+      return [[-L, -W], [L, -W], [L, W], [-L, W]].map(([u, v]) => [s.x + u * c - v * sn, s.y + u * sn + v * c]); };
+    const dedans = (pt, poly) => { let o = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j];
+      if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < (b[0] - a[0]) * (pt[1] - a[1]) / (b[1] - a[1]) + a[0]) o = !o; } return o; };
     M.rooms.forEach(r => {
       if (r.etage > emax) return;
+      const trous = (M.symboles || []).filter(s => s.type === 'escalier' && s.etage === r.etage - 1 && dedans([s.x, s.y], r.pts)).map(coinsSym);
       const contour = r.pts.map(p => new THREE.Vector2(p[0], p[1]));
-      const tri = THREE.ShapeUtils.triangulateShape(contour, []);
+      const tri = THREE.ShapeUtils.triangulateShape(contour, trous.map(t => t.map(p => new THREE.Vector2(p[0], p[1]))));
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(r.pts.flatMap(p => [p[0], r.z || 0, p[1]]), 3));
+      geo.setAttribute('position', new THREE.Float32BufferAttribute([...r.pts, ...trous.flat()].flatMap(p => [p[0], r.z || 0, p[1]]), 3));
       geo.setIndex(tri.flat());
       geo.computeVertexNormals();
       g.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: new THREE.Color(r.color).multiplyScalar(0.92), side: THREE.DoubleSide })));
@@ -588,6 +604,28 @@ class Vue3D {
       c.font = '34px Arial, sans-serif'; c.fillText(FR(r.aire) + ' m²', 256, 104);
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthTest: false }));
       sp.scale.set(3.2, 0.8, 1); sp.position.set(r.centre[0], 0.05 + (r.z || 0), r.centre[1]); sp.renderOrder = 10; g.add(sp);
+    });
+
+    /* les équipements : des volumes simples à leur hauteur réelle ; l'escalier monte jusqu'à l'étage du dessus */
+    const mSym = new THREE.MeshLambertMaterial({ color: 0xf8fafc }), mSymF = new THREE.MeshLambertMaterial({ color: 0x374151 }), mMarche = new THREE.MeshLambertMaterial({ color: 0xc8a27a });
+    const lSym = new THREE.LineBasicMaterial({ color: 0x6b7280 });
+    (M.symboles || []).forEach(s => {
+      if (s.etage > emax) return;
+      const z0 = (M.etages[s.etage] && M.etages[s.etage].z) || 0, rot = -s.rot * Math.PI / 180;
+      if (s.type === 'escalier') {
+        const haut = M.etages[s.etage + 1] ? M.etages[s.etage + 1].z - z0 : (M.etages[s.etage] ? M.etages[s.etage].hauteur : 2.5);
+        const n = Math.max(3, Math.round(haut / 0.18)), pas = s.l / n, grp = new THREE.Group();
+        for (let k = 0; k < n; k++) {
+          const hk = haut * (k + 1) / n, m = new THREE.Mesh(new THREE.BoxGeometry(pas, 0.04, s.w), mMarche);
+          m.position.set(-s.l / 2 + pas * (k + 0.5), hk - 0.02, 0); grp.add(m);
+        }
+        grp.position.set(s.x, z0, s.y); grp.rotation.y = rot; g.add(grp); return;
+      }
+      const hs = HAUTEURS_SYM[s.type] || [0, 0.8], hh = hs[1] - hs[0];
+      const geo = s.type === 'cumulus' ? new THREE.CylinderGeometry(Math.min(s.l, s.w) / 2, Math.min(s.l, s.w) / 2, hh, 24) : new THREE.BoxGeometry(s.l, hh, s.w);
+      const m = new THREE.Mesh(geo, s.type === 'tableau' ? mSymF : mSym);
+      m.position.set(s.x, z0 + hs[0] + hh / 2, s.y); m.rotation.y = rot; g.add(m);
+      const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), lSym); e.position.copy(m.position); e.rotation.copy(m.rotation); g.add(e);
     });
 
     /* boîte alignée sur un mur : u0..u1 le long du mur, v0..v1 en hauteur */
@@ -1542,6 +1580,7 @@ cvPlan.addEventListener('pointerdown', e => {
     if (c && c.type === 'fin') { geste.mode = 'fin'; geste.decalage = alongDe(c, x, y) - (c.which === 'q' ? longueurPx(c) : 0); }
     else if (c && c.type === 'ligne') { const ed = areteDe(c); geste.mode = 'ligne'; geste.p0 = [x, y]; geste.decal0 = (ed.reglage && ed.reglage.decal) || 0; }
     else if (c && (c.type === 'ouvH' || c.type === 'ouvC')) { const o = modele.openings[c.oi]; geste.mode = 'ouv'; geste.p0 = [x, y]; geste.pos0 = o.src.position; geste.larg0 = o.src.largeur; }
+    else if (c && c.type === 'symbole' && modele.symboles[c.si]) { const sy = modele.symboles[c.si]; geste.mode = 'sym'; geste.p0 = [x, y]; geste.s0 = [sy.x, sy.y]; }
   } else if (doigts.size === 2) { const [p, q] = [...doigts.values()]; geste = { mode: 'deux', d0: Math.hypot(p[0] - q[0], p[1] - q[1]) || 1, k0: vue.k, m0: [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], tx0: vue.tx, ty0: vue.ty, bouge: 99 }; apercu = null; }
   cvPlan.style.cursor = 'grabbing';
 });
@@ -1579,6 +1618,10 @@ cvPlan.addEventListener('pointermove', e => {
     else if (z.which === 's') { const fin = geste.pos0 + geste.larg0; pos = Math.max(0, Math.min(geste.pos0 + d, fin - 0.3)); larg = fin - pos; }
     else { larg = Math.max(0.3, Math.min(geste.larg0 + d, len - geste.pos0)); }
     apercuOuv = { oi: z.oi, pos: Math.round(pos * 100) / 100, larg: Math.round(larg * 100) / 100, pos0: geste.pos0, z }; survol = null; dessiner2D();
+  } else if (geste.mode === 'sym' && geste.bouge > 6) {                   /* glisser un symbole : l'écart à l'écran, ramené au plan non tourné */
+    const s = transformationEcran().s, a = -(modele.rotation || 0) * Math.PI / 180, ex = (x - geste.p0[0]) / s, ey = (y - geste.p0[1]) / s;
+    const sy = modele.symboles[geste.cible.si];
+    if (sy) { sy.x = Math.round((geste.s0[0] + ex * Math.cos(a) - ey * Math.sin(a)) * 20) / 20; sy.y = Math.round((geste.s0[1] + ex * Math.sin(a) + ey * Math.cos(a)) * 20) / 20; geste.deplace = true; dessiner2D(); }
   } else if (geste.mode === 'un' && geste.cible && geste.cible.type === 'mur' && geste.bouge > 6) geste.mode = 'etiq';
   if (geste.mode === 'etiq') {                                          /* glisser le chiffre le long du mur */
     const z = geste.cible, ed = areteDe(z), t = Math.max(0.05, Math.min(0.95, alongDe(z, x, y) / longueurPx(z)));
@@ -1590,7 +1633,11 @@ const finDoigt = (e, annule) => {
   if (doigts.size === 0) {
     geste = null; cvPlan.style.cursor = 'grab';
     if (g && modele && !annule) {
-      if (g.mode === 'ouv') {
+      if (g.mode === 'sym') {
+        const sy = modele.symboles[g.cible.si];
+        if (g.deplace && sy) { const avant = JSON.stringify(donneesCourantes); sy.src.x = sy.x; sy.src.y = sy.y; reanalyser(avant, null, NOMS_SYM[sy.type] + ' déplacé.'); }
+        else if (g.bouge <= 6) { const [x, y] = posPlan(e); ouvrirEditeur({ type: 'symbole', si: g.cible.si }, x, y); }
+      } else if (g.mode === 'ouv') {
         if (apercuOuv) { const a = apercuOuv; apercuOuv = null; appliquerOuvertureDrag(a); }
         else if (g.bouge <= 6) { const [x, y] = posPlan(e); ouvrirEditeur({ type: 'ouv', oi: g.cible.oi }, x, y); }
       } else if (g.mode === 'fin' && apercu) {
@@ -1691,6 +1738,7 @@ function ouvrirFichePiece(z, x, y) {
   $('fpNom').focus(); $('fpNom').select();
 }
 function ouvrirEditeur(z, x, y) {
+  if (z.type === 'symbole') return ouvrirSymbole(z, x, y);
   if (z.type === 'cloison') return ouvrirCloison(z, x, y);
   if (z.type === 'toit') return dialogToiture(z.ti);
   if (z.type === 'piece') return ouvrirFichePiece(z, x, y);
@@ -1976,6 +2024,41 @@ function supprimerCloison(ci) {
   ouvrirModal('Supprimer ce mur ?', '<p>Le mur ajouté M' + (ci + 1) + ' (' + FR(c.len) + ' m) sera supprimé.</p>', 'Supprimer', () => { const avant = JSON.stringify(donneesCourantes), arr = donneesCourantes.cloisons; arr.splice(arr.indexOf(c.src), 1); reanalyser(avant, null, 'Mur M' + (ci + 1) + ' supprimé.'); });
 }
 $('btnAjMur').addEventListener('click', dialogTracerMur);
+/* ---- les symboles posés directement sur le plan (aussi sur un plan scanné) ---- */
+function ouvrirSymbole(z, x, y) {
+  const sy = modele.symboles[z.si]; if (!sy) return;
+  const tremie = sy.type === 'escalier';
+  editeur.innerHTML = '<b>' + esc(NOMS_SYM[sy.type]) + '</b><p class="note">Glissez-le sur le plan pour le déplacer.</p>' +
+    (tremie ? '<label>Longueur (m)<input id="syL" inputmode="decimal" value="' + FR3(sy.l) + '"></label><label>Largeur (m)<input id="syW" inputmode="decimal" value="' + FR3(sy.w) + '"></label>' : '') +
+    '<div class="boutons"><button type="button" id="syTourner">⟳ Tourner d’un quart</button></div>' +
+    '<div class="boutons"><button type="button" id="edOk">OK</button><button type="button" id="edAnnuler">Fermer</button></div><div class="boutons"><button type="button" id="sySup" class="danger">Retirer</button></div>';
+  editeur.hidden = false; placerEditeur(x, y);
+  const modifier = (f, texte) => { const avant = JSON.stringify(donneesCourantes); f(sy.src); reanalyser(avant, null, texte); };
+  $('syTourner').onclick = () => { fermerEditeur(); modifier(q => { q.rot = ((q.rot || 0) + 90) % 360; }, NOMS_SYM[sy.type] + ' tourné.'); };
+  $('edOk').onclick = () => {
+    if (!tremie) return fermerEditeur();
+    const L = num($('syL').value), W = num($('syW').value);
+    if (!(L >= 0.5 && L <= 10) || !(W >= 0.5 && W <= 5)) { message('Trémie : longueur 0,5 à 10 m, largeur 0,5 à 5 m.', 'err'); return; }
+    fermerEditeur(); modifier(q => { q.l = arr3(L); q.w = arr3(W); }, 'Trémie : ' + FR3(L) + ' × ' + FR3(W) + ' m.');
+  };
+  $('edAnnuler').onclick = fermerEditeur;
+  $('sySup').onclick = () => { fermerEditeur(); const avant = JSON.stringify(donneesCourantes), arr = donneesCourantes.symboles; arr.splice(arr.indexOf(sy.src), 1); reanalyser(avant, null, NOMS_SYM[sy.type] + ' retiré.'); };
+}
+function dialogAjouterSymbole() {
+  if (!modele) return;
+  if (typeof etageCourant !== 'number') { message('Choisissez d\'abord un étage (onglets au-dessus du plan) pour y poser un symbole.', 'warn'); return; }
+  const k = Math.min(etageCourant, modele.etages.length - 1);
+  ouvrirModal('Ajouter un symbole', '<label>Symbole<select id="syType">' + Object.keys(NOMS_SYM).map(t => '<option value="' + t + '">' + esc(NOMS_SYM[t]) + '</option>').join('') + '</select></label>' +
+    '<p class="note">Il se pose au centre de l’étage ; glissez-le ensuite à sa place, touchez-le pour le tourner ou le retirer.</p>', 'Ajouter', () => {
+    const t = $('syType').value, rs = modele.rooms.filter(r => r.etage === k), pts = rs.flatMap(r => r.src.points || []);
+    const cx = pts.length ? (Math.min(...pts.map(q => q[0])) + Math.max(...pts.map(q => q[0]))) / 2 : 0, cy = pts.length ? (Math.min(...pts.map(q => q[1])) + Math.max(...pts.map(q => q[1]))) / 2 : 0;
+    const avant = JSON.stringify(donneesCourantes);
+    if (!Array.isArray(donneesCourantes.symboles)) donneesCourantes.symboles = [];
+    donneesCourantes.symboles.push({ id: 's' + Date.now().toString(36), type: t, etage: k, x: arr3(cx), y: arr3(cy), rot: 0, l: TAILLES_SYM[t][0], w: TAILLES_SYM[t][1] });
+    reanalyser(avant, null, NOMS_SYM[t] + ' ajouté : glissez-le à sa place.');
+  });
+}
+$('btnAjSym').addEventListener('click', dialogAjouterSymbole);
 /* ---- plusieurs scans, pièce par pièce (assemblage.js) ----
    « ＋ Scan » pose le scan d'une autre pièce à droite du plan ; « 🔗 Relier »
    : on touche un mur, puis le mur de l'autre scan qui le touche. Le second
@@ -2614,5 +2697,5 @@ initCompte();
 /* la visite peut envoyer le relevé à ouvrir */
 versVisite({ type: 'releve:pret' });
 
-window.__releve = { pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
+window.__releve = { v3d: () => v3d, pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
 
