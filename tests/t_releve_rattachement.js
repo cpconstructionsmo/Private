@@ -151,4 +151,6 @@ chk(M.releveLien()==='releve/'&&M.releveLien({visite:'a b'})==='releve/?visite=a
   const qa=M.prospectDepuisVisite(ra,{},'2026-11-20');
   chk(qa.categorie==='renovation'&&qa.prestation==='Surélévation'&&/Agrandissement : Surélévation · 30 m²/.test(qa.demande),'agrandissement : prospect de rénovation, prestation « Surélévation »');
   chk(M.visiteResume({id:'vr',donnees:{id:'vr',valeurs:{'client.nom':'R'},photos:{}}}).nature==='renovation','une ancienne visite sans nature reste une rénovation');}
+{const va=M.visiteResume({id:'van',donnees:{id:'van',valeurs:{'client.nom':'ANNULE','statut':'annulee'},photos:{}}});
+  chk(va.statut==='annulee'&&M.visitesARattacher([va],[],[]).length===0,'une visite annulée dans le relevé n’est plus à rattacher');}
 fin();

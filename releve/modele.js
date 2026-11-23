@@ -130,7 +130,8 @@ export const CHAMPS = {
   'partageDossier': 'objet', // { id, lien, expireLe, creeLe } : le lien du dossier envoyé au client (table releve_partages)
   'budget': 'objet', // { lignes, ajust, estimation } : la fourchette de prix (releve/budget.js)
   'prospectId': 'texte', // le dossier du suivi pour lequel la visite a été lancée (lien « Nouvelle visite » d'une fiche prospect)
-  'statut': 'texte', // 'en_cours' | 'terminee'
+  'statut': 'texte', // 'en_cours' | 'terminee' | 'annulee'
+  'annulation': 'objet', // { le, statutAvant } : la visite annulée depuis l'accueil (rétablie d'un toucher)
   'etape': 'texte',
 };
 

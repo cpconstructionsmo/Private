@@ -30,6 +30,8 @@ qu'on ait à les redire.
   « 🔗 Relier », tests `t_releve_assemblage.js`). Tout
   s'écrit d'abord sur l'appareil (IndexedDB) puis dans la table
   `releve_visites` (version, fusion champ par champ : `releve/modele.js`) ;
+  visite annulée depuis l'accueil (`statut` « annulee », récupérable, exclue
+  des visites à rattacher) ; visionneuse plein écran (`releve/zoom.js`) ;
   nature du projet dès la 1re page (`projet.nature` : rénovation, construction
   neuve, agrandissement ; parcours `etapesDe`) ; étape Terrain
   (`releve/terrain.js` : géocodage Géoplateforme ou GPS, cadastre et

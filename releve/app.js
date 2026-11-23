@@ -19,6 +19,7 @@ import * as A from './assistant.js';
 import * as DR from './dessin.js';
 import * as AN from './annotations.js';
 import * as T from './terrain.js';
+import { ouvrirVisionneuse } from './zoom.js';
 import { h } from './dom.js';
 import { vueDossier, dateLongue } from './dossier-vue.js';
 
@@ -84,7 +85,8 @@ async function urlPhoto(id, chemin) {
   return u;
 }
 function imagePhoto(photo, cls) {
-  const img = h('img', { class: cls, alt: photo.legende || 'Photo' });
+  // toute image s'ouvre en grand d'un toucher (zoom.js), sauf la vignette d'une carte de l'accueil (elle ouvre la visite)
+  const img = h('img', { class: cls, alt: photo.legende || 'Photo', 'data-zoom': cls === 'vignette' ? null : '' });
   urlPhoto(photo.id, photo.chemin).then(u => { if (u) img.src = u; });
   return img;
 }
@@ -178,8 +180,25 @@ async function nouvelleVisite() {
 const sansAccents = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const texteVisite = v => sansAccents([M.intitule(v), M.valeur(v, 'client.nom'), M.valeur(v, 'acheteur2.nom'), M.valeur(v, 'client.ville'), M.valeur(v, 'client.adresse'),
   ...(M.valeur(v, 'projet.types') || [])].filter(Boolean).join(' '));
+/* annuler une visite : elle quitte la liste, sans rien perdre (statut « annulee », filtre « Annulées », rétablie d'un toucher) */
+async function annulerVisite(id) {
+  const r = S.visites.find(x => x.id === id); if (!r) return;
+  if (!confirm('Annuler la visite « ' + M.intitule(r.visite) + ' » ?\n\nElle quitte la liste mais reste récupérable dans « Annulées » : photos et plan sont gardés.')) return;
+  await changerVisite(id, w => M.modifier(M.modifier(w, 'annulation', { le: new Date().toISOString(), statutAvant: M.valeur(w, 'statut') || 'en_cours' }), 'statut', 'annulee'));
+  vibrer(); dessiner();
+}
+async function retablirVisite(id) {
+  const r = S.visites.find(x => x.id === id); if (!r) return;
+  const a = M.valeur(r.visite, 'annulation') || {};
+  await changerVisite(id, w => M.modifier(M.modifier(w, 'statut', a.statutAvant && a.statutAvant !== 'annulee' ? a.statutAvant : 'en_cours'), 'annulation', null));
+  if (!S.visites.some(x => M.valeur(x.visite, 'statut') === 'annulee')) S.filtreVisites = null;
+  vibrer(); dessiner();
+}
 function ecranAccueil() {
-  const toutes = [...S.visites].sort((a, b) => M.derniereMaj(b.visite).localeCompare(M.derniereMaj(a.visite)));
+  const annulees = S.visites.filter(r => M.valeur(r.visite, 'statut') === 'annulee');
+  if (S.filtreVisites === 'annulees' && !annulees.length) S.filtreVisites = null;
+  const voirAnnulees = S.filtreVisites === 'annulees';
+  const toutes = S.visites.filter(r => (M.valeur(r.visite, 'statut') === 'annulee') === voirAnnulees).sort((a, b) => M.derniereMaj(b.visite).localeCompare(M.derniereMaj(a.visite)));
   const mots = sansAccents(S.recherche || '').split(/\s+/).filter(Boolean);
   const liste = mots.length ? toutes.filter(r => { const t = texteVisite(r.visite); return mots.every(m => t.includes(m)); }) : toutes;
   // la liste se refiltre à chaque lettre, sans redessiner le champ (le clavier reste ouvert)
@@ -193,9 +212,13 @@ function ecranAccueil() {
       S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
       !S.session && h('div', { class: 'message att' }, 'Non connecté : les visites restent sur cet appareil. ',
         h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'connexion'; dessiner(); } }, 'Se connecter')),
+      annulees.length ? h('div', { class: 'puces', role: 'tablist', style: 'margin-bottom:10px' },
+        h('button', { class: 'puce' + (voirAnnulees ? '' : ' on'), type: 'button', id: 'voirEnCours', onclick: () => { S.filtreVisites = null; dessiner(); } }, 'Visites (' + (S.visites.length - annulees.length) + ')'),
+        h('button', { class: 'puce' + (voirAnnulees ? ' on' : ''), type: 'button', id: 'voirAnnulees', onclick: () => { S.filtreVisites = 'annulees'; dessiner(); } }, 'Annulées (' + annulees.length + ')')) : null,
       toutes.length > 4 ? h('input', { class: 'in', type: 'search', id: 'chercherVisite', placeholder: '🔎 Chercher : client, ville, travaux…', value: S.recherche || '', autocomplete: 'off', oninput: filtrer, style: 'margin:0 0 12px' }) : null,
       toutes.length ? h('div', { id: 'listeVisites' }, toutes.map(r => { const c = carteVisite(r); if (!liste.includes(r)) c.hidden = true; return c; }),
         h('div', { class: 'vide', id: 'aucuneVisiteTrouvee', hidden: liste.length > 0 }, 'Aucune visite ne correspond.'))
+        : voirAnnulees ? h('div', { class: 'vide' }, 'Aucune visite annulée.')
         : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.'),
       h('div', { style: 'text-align:center;margin-top:8px' }, h('button', { class: 'lienRetour', id: 'reglerOuvrages', onclick: () => { S.retour = 'accueil'; S.ecran = 'ouvrages'; S.brouillonO = null; S.message = null; dessiner(); } }, '⚙ Prix au m²'), ' · ',
         h('button', { class: 'lienRetour', id: 'reglerFourchettes', onclick: () => { S.retour = 'accueil'; S.ecran = 'fourchettes'; S.brouillonF = null; S.message = null; dessiner(); } }, '⚙ Postes détaillés'))),
@@ -214,7 +237,12 @@ function carteVisite(r) {
       (M.valeur(v, 'budget') || {}).estimation && M.valeur(v, 'budget').estimation.max > 0 ? h('div', { class: 'petit', style: 'color:var(--navy);font-weight:600' }, '💶 ' + B.formatPlage(M.valeur(v, 'budget').estimation)) : null,
       h('div', { class: 'mut petit' }, dateCourte(v.creeLe),
         M.valeur(v, 'statut') === 'terminee' ? h('span', { class: 'pastille ok' }, 'Terminée') : null,
-        r.enAttente ? h('span', { class: 'pastille' }, 'À envoyer') : null)));
+        M.valeur(v, 'statut') === 'annulee' ? h('span', { class: 'pastille annulee' }, 'Annulée le ' + dateCourte((M.valeur(v, 'annulation') || {}).le)) : null,
+        r.enAttente ? h('span', { class: 'pastille' }, 'À envoyer') : null)),
+    // annuler (ou rétablir) sans ouvrir la visite : le toucher ne va pas jusqu'à la carte
+    M.valeur(v, 'statut') === 'annulee'
+      ? h('button', { class: 'puce actionVisite', type: 'button', 'aria-label': 'Rétablir la visite ' + M.intitule(v), onclick: e => { e.stopPropagation(); retablirVisite(r.id); } }, '↺ Rétablir')
+      : h('button', { class: 'puce actionVisite', type: 'button', 'aria-label': 'Annuler la visite ' + M.intitule(v), onclick: e => { e.stopPropagation(); annulerVisite(r.id); } }, '✕'));
 }
 
 function allerEtape(i) {
@@ -2252,6 +2280,14 @@ function dessiner() {
    dossier, fiche client reprise du suivi (lecture seule : rien n'est écrit
    dans les données du suivi). L'adresse est nettoyée aussitôt, pour qu'un
    rechargement ne crée pas une seconde visite. */
+/* toute image marquée data-zoom (photos, plans, esquisses) s'ouvre en grand d'un toucher */
+document.addEventListener('click', e => {
+  const img = e.target && e.target.closest ? e.target.closest('img[data-zoom]') : null;
+  if (!img || !img.src || img.closest('.visionneuse')) return;
+  e.preventDefault(); e.stopPropagation();
+  ouvrirVisionneuse(img.src, img.alt);
+}, true);
+
 const lien = (() => { const q = new URLSearchParams(location.search); return { visite: q.get('visite'), prospect: q.get('prospect'), vue: q.get('vue') }; })();
 if (lien.visite || lien.prospect) history.replaceState(null, '', location.pathname);
 
