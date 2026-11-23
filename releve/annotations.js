@@ -13,8 +13,13 @@
 
 export const COULEURS = [['#D62828', 'Rouge'], ['#1F6FEB', 'Bleu'], ['#2B9348', 'Vert'], ['#111111', 'Noir']];
 export const OUTILS = [['trait', '✏️ Stylo'], ['fleche', '➡️ Flèche'], ['texte', '🔤 Texte']];
-const EP_TRAIT = 0.005, EP_FLECHE = 0.005, TAILLE_TEXTE = 0.034;   // relatifs à la largeur du fond
-const MAX_ELEMENTS = 500, MAX_POINTS = 2000, TEXTE_MAX = 200;
+/* le texte : taille (relative à la largeur du plan) et style, choisis à chaque texte */
+export const TAILLES = [['s', 'Petit', 0.022], ['m', 'Moyen', 0.034], ['l', 'Grand', 0.05], ['xl', 'Très grand', 0.072]];
+export const POLICES = [['normal', 'Normal'], ['gras', 'Gras'], ['manuscrit', 'Manuscrit'], ['capitales', 'CAPITALES']];
+const POLICE_CSS = { normal: '500 {t}px Helvetica, Arial, sans-serif', gras: '800 {t}px Helvetica, Arial, sans-serif',
+  manuscrit: 'italic 500 {t}px "Bradley Hand", "Segoe Print", "Comic Sans MS", "Chalkboard SE", cursive', capitales: '700 {t}px Helvetica, Arial, sans-serif' };
+const EP_TRAIT = 0.005, EP_FLECHE = 0.005;   // relatifs à la largeur du fond
+const MAX_ELEMENTS = 500, MAX_POINTS = 2000, TEXTE_MAX = 400;
 
 const n01 = v => typeof v === 'number' && isFinite(v) ? Math.min(1, Math.max(0, Math.round(v * 10000) / 10000)) : null;
 const couleurOK = c => COULEURS.some(([k]) => k === c) ? c : COULEURS[0][0];
@@ -37,7 +42,8 @@ export function nettoyer(a) {
     if (e.type === 'texte') {
       const t = String(e.t ?? '').replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, TEXTE_MAX);
       const x = n01(e.x), y = n01(e.y);
-      return t && x != null && y != null ? { type: 'texte', c, x, y, t } : null;
+      const taille = TAILLES.some(([k]) => k === e.taille) ? e.taille : 'm', police = POLICES.some(([k]) => k === e.police) ? e.police : 'normal';
+      return t && x != null && y != null ? { type: 'texte', c, x, y, t, taille, police } : null;
     }
     return null;
   }).filter(Boolean);
@@ -70,15 +76,32 @@ export function rendre(ctx, W, H, elements) {
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx - ux * t * 0.6, by - uy * t * 0.6); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx - ux * t - uy * t * 0.5, by - uy * t + ux * t * 0.5); ctx.lineTo(bx - ux * t + uy * t * 0.5, by - uy * t - ux * t * 0.5); ctx.closePath(); ctx.fill();
     } else if (e.type === 'texte') {
-      const fs = Math.max(14, TAILLE_TEXTE * W);
-      ctx.font = '600 ' + fs + 'px Helvetica, Arial, sans-serif'; ctx.textBaseline = 'middle';
+      const b = boiteTexte(ctx, W, H, e);
       // un fond blanc léger sous le texte : lisible même sur un mur noir
-      const lignes = e.t.split(/\s*\/\s*|\n/).slice(0, 4), w = Math.max(...lignes.map(l => ctx.measureText(l).width));
-      ctx.fillStyle = 'rgba(255,255,255,.82)'; ctx.fillRect(e.x * W - 3, e.y * H - fs * 0.7, w + 6, fs * 1.25 * lignes.length + fs * 0.15);
-      ctx.fillStyle = e.c; lignes.forEach((l, i) => ctx.fillText(l, e.x * W, e.y * H + i * fs * 1.25));
+      ctx.fillStyle = 'rgba(255,255,255,.82)'; ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillStyle = e.c; b.lignes.forEach((l, i) => ctx.fillText(l, e.x * W, e.y * H + i * b.fs * 1.25));
     }
   });
   ctx.restore();
+}
+
+/* la boîte d'un texte, en pixels (fond, et toucher pour le reprendre) ; règle la police du contexte */
+export function boiteTexte(ctx, W, H, e) {
+  const k = (TAILLES.find(([x]) => x === e.taille) || TAILLES[1])[2];
+  const fs = Math.max(e.taille === 's' ? 11 : 14, k * W);
+  ctx.font = (POLICE_CSS[e.police] || POLICE_CSS.normal).replace('{t}', fs); ctx.textBaseline = 'middle';
+  const lignes = (e.police === 'capitales' ? e.t.toUpperCase() : e.t).split(/\s*\/\s*|\n/).slice(0, 6);
+  const w = Math.max(...lignes.map(l => ctx.measureText(l).width));
+  return { x: e.x * W - 3, y: e.y * H - fs * 0.7, w: w + 6, h: fs * 1.25 * lignes.length + fs * 0.15, fs, lignes };
+}
+/* le texte sous le doigt (le plus récent d'abord), ou -1 */
+export function texteSous(ctx, W, H, elements, px, py) {
+  for (let i = (elements || []).length - 1; i >= 0; i--) {
+    const e = elements[i]; if (e.type !== 'texte') continue;
+    const b = boiteTexte(ctx, W, H, e);
+    if (px >= b.x - 6 && px <= b.x + b.w + 6 && py >= b.y - 6 && py <= b.y + b.h + 6) return i;
+  }
+  return -1;
 }
 
 /* le résumé de l'écran Scan : « 3 traits, 2 flèches, 4 textes » */

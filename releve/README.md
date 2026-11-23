@@ -258,6 +258,11 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   `fondAnnote`) ; en quittant l'écran, l'image annotée est refaite (photo
   `planAnnote`) et s'affiche à côté du plan. Si le plan change, « Repartir
   du plan à jour » garde les annotations (à vérifier).
+  **Texte** : touchez le plan, un panneau s'ouvre — texte tapé ou dicté (🎤),
+  taille (petit à très grand) et style (normal, gras, manuscrit, capitales) ;
+  toucher un texte le reprend (modifier, 🗑 supprimer). **Zoom** de la toile :
+  deux doigts (pincer, se déplacer), « 🔍 ＋ / − », « ⟲ 100 % », molette ; un
+  doigt dessine toujours au bon endroit.
   Dans le dossier client, en option (« Plan annoté (travaux) », décochée
   d'office) : une page « Les travaux envisagés sur le plan ».
 

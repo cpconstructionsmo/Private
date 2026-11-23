@@ -19,7 +19,7 @@ import * as A from './assistant.js';
 import * as DR from './dessin.js';
 import * as AN from './annotations.js';
 import * as T from './terrain.js';
-import { ouvrirVisionneuse } from './zoom.js';
+import { ouvrirVisionneuse, zoomer as zoomerToile, cadrer as cadrerZoom } from './zoom.js';
 import { h } from './dom.js';
 import { vueDossier, dateLongue } from './dossier-vue.js';
 
@@ -1309,23 +1309,51 @@ function ecranAnnoter() {
   const a = annotationsDe(v);
   if (!a.fondId || !v.photos[a.fondId]) { S.ecran = 'visite'; return ecranVisite(); }
   const st = S.annot || (S.annot = { outil: 'trait', couleur: AN.COULEURS[0][0] });
+  if (!st.taille) st.taille = 'm'; if (!st.police) st.police = 'normal';
   let elements = a.elements.slice(), img = null, enCours = null;
   const cv = h('canvas', { class: 'toileAnnot', id: 'toileAnnot', 'aria-label': 'Plan à annoter' });
+  /* le zoom de la toile : deux doigts pour pincer et se déplacer, ou les boutons ; un doigt dessine */
+  const cadre = h('div', { class: 'cadreZoomAnnot' }, cv);
+  let zoom = { s: 1, x: 0, y: 0 };
+  const appliquerZoom = () => { const r = cadre.getBoundingClientRect(); zoom = cadrerZoom(zoom, r.width || 1, r.height || 1); cv.style.transform = 'translate(' + zoom.x + 'px,' + zoom.y + 'px) scale(' + zoom.s + ')'; cadre.dataset.zoom = zoom.s.toFixed(2); };
+  const centreCadre = e => { const r = cadre.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
+  const doigts = new Map(); let pince = null, ignorer = false;
   const peindre = () => { if (!img) return; const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height); c.drawImage(img, 0, 0, cv.width, cv.height); AN.rendre(c, cv.width, cv.height, enCours ? [...elements, enCours] : elements); };
   const garder = () => changer(w => M.modifier(w, 'annotations', { ...AN.nettoyer(M.valeur(w, 'annotations')), elements }));
   const pos = e => { const r = cv.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
   blobPhoto(v.photos[a.fondId]).then(imageDepuisBlob).then(i => { img = i; cv.width = Math.min(2000, i.naturalWidth); cv.height = Math.round(i.naturalHeight * cv.width / i.naturalWidth); peindre(); })
     .catch(() => montrerMessage('err', 'L’image du plan n’est pas lisible sur cet appareil.'));
   let depart = null;
-  cv.addEventListener('pointerdown', e => { if (!img) return; e.preventDefault(); cv.setPointerCapture(e.pointerId); depart = pos(e);
+  cv.addEventListener('pointerdown', e => { if (!img) return; e.preventDefault(); cv.setPointerCapture(e.pointerId);
+    doigts.set(e.pointerId, centreCadre(e));
+    if (doigts.size === 2) {
+      // un second doigt : on pince (le trait commencé est abandonné)
+      enCours = null; depart = null; ignorer = true; peindre();
+      const P = [...doigts.values()];
+      pince = { zoom: { ...zoom }, d: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) || 1, m: [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] };
+      return;
+    }
+    if (ignorer || doigts.size > 2) return;
+    depart = pos(e);
     enCours = st.outil === 'trait' ? { type: 'trait', c: st.couleur, p: [depart] } : st.outil === 'fleche' ? { type: 'fleche', c: st.couleur, a: depart, b: depart } : null; });
-  cv.addEventListener('pointermove', e => { if (!enCours) return; e.preventDefault(); const q = pos(e);
+  cv.addEventListener('pointermove', e => {
+    if (doigts.has(e.pointerId)) doigts.set(e.pointerId, centreCadre(e));
+    if (pince && doigts.size >= 2) {
+      const P = [...doigts.values()], d = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]), m = [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2];
+      const z = zoomerToile(pince.zoom, d / pince.d, pince.m[0], pince.m[1]);
+      zoom = { s: z.s, x: z.x + m[0] - pince.m[0], y: z.y + m[1] - pince.m[1] }; appliquerZoom(); return;
+    }
+    if (!enCours) return; e.preventDefault(); const q = pos(e);
     if (enCours.type === 'trait') enCours.p.push(q); else enCours.b = q; peindre(); });
+  const lacher = () => { if (doigts.size < 2) pince = null; if (!doigts.size) ignorer = false; };
   cv.addEventListener('pointerup', async e => {
+    doigts.delete(e.pointerId); lacher();
     if (!depart) return; const q = pos(e), d = depart; depart = null;
     if (st.outil === 'texte') {
-      const t = (window.prompt('Annotation (travaux, cote, remarque) — « / » pour aller à la ligne :') || '').trim();
-      if (t) { elements.push({ type: 'texte', c: st.couleur, x: d[0], y: d[1], t }); }
+      // toucher un texte le reprend (modifier, supprimer) ; ailleurs, un nouveau texte à cet endroit
+      const c = cv.getContext('2d'), i = AN.texteSous(c, cv.width, cv.height, elements, d[0] * cv.width, d[1] * cv.height);
+      ouvrirPanneauTexte(i >= 0 ? { index: i } : { x: d[0], y: d[1] });
+      enCours = null; return;
     } else if (enCours) {
       const el = enCours.type === 'trait' ? { ...enCours, p: AN.simplifier(enCours.p) } : enCours;
       enCours = null;
@@ -1334,7 +1362,39 @@ function ecranAnnoter() {
     }
     enCours = null; peindre(); await garder(); majCompte();
   });
-  cv.addEventListener('pointercancel', () => { enCours = null; depart = null; peindre(); });
+  cv.addEventListener('pointercancel', e => { doigts.delete(e.pointerId); lacher(); enCours = null; depart = null; peindre(); });
+  cadre.addEventListener('wheel', e => { e.preventDefault(); const c = centreCadre(e); zoom = zoomerToile(zoom, e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquerZoom(); }, { passive: false });
+  /* le panneau du texte : tapé ou dicté (🎤), taille et style ; reprend un texte touché */
+  let edition = null;
+  const zoneTexte = h('textarea', { class: 'in', rows: 2, name: 'texteAnnot', 'aria-label': 'Texte de l’annotation', autocapitalize: 'sentences', placeholder: 'Ex. : démolir la cloison / ouverture 2,40 m (« / » pour aller à la ligne)' });
+  const aideTexte = h('div', { class: 'aide info' });
+  const choix = (liste, cle, attr) => h('div', { class: 'puces' }, liste.map(([k, lib]) => h('button', { class: 'puce' + (st[cle] === k ? ' on' : ''), type: 'button', [attr]: k,
+    onclick: e => { st[cle] = k; e.currentTarget.parentNode.querySelectorAll('.puce').forEach(b => b.classList.toggle('on', b === e.currentTarget)); } }, lib)));
+  const supprimerTexte = h('button', { class: 'gros sec', type: 'button', id: 'supprimerTexte', onclick: async () => {
+    if (edition && edition.index != null) { elements.splice(edition.index, 1); peindre(); await garder(); majCompte(); } fermerPanneauTexte(); } }, '🗑 Supprimer');
+  const panneauTexte = h('div', { class: 'carte panneauTexte', id: 'panneauTexte', hidden: true },
+    h('b', { id: 'titreTexte' }, 'Texte'),
+    h('div', { class: 'champMicro' }, zoneTexte, boutonMicro(zoneTexte, aideTexte), aideTexte),
+    h('div', { class: 'champ' }, 'TAILLE'), choix(AN.TAILLES, 'taille', 'data-taille'),
+    h('div', { class: 'champ' }, 'STYLE'), choix(AN.POLICES, 'police', 'data-police'),
+    h('div', { class: 'rang', style: 'margin-top:8px' },
+      h('button', { class: 'gros sec', type: 'button', onclick: () => fermerPanneauTexte() }, 'Annuler'), supprimerTexte,
+      h('button', { class: 'gros', type: 'button', id: 'placerTexte', onclick: async () => {
+        const t = zoneTexte.value.trim(); if (!t) return fermerPanneauTexte();
+        const el = AN.nettoyer({ elements: [{ type: 'texte', c: st.couleur, t, taille: st.taille, police: st.police,
+          x: edition.index != null ? elements[edition.index].x : edition.x, y: edition.index != null ? elements[edition.index].y : edition.y }] }).elements[0];
+        if (el) { if (edition.index != null) elements[edition.index] = el; else elements.push(el); }
+        peindre(); await garder(); majCompte(); fermerPanneauTexte(); } }, '✓ Placer')));
+  const ouvrirPanneauTexte = ed => {
+    edition = ed; const e = ed.index != null ? elements[ed.index] : null;
+    if (e) { st.taille = e.taille || 'm'; st.police = e.police || 'normal'; st.couleur = e.c; marquer(); }
+    zoneTexte.value = e ? e.t : '';
+    panneauTexte.querySelectorAll('[data-taille]').forEach(b => b.classList.toggle('on', b.dataset.taille === st.taille));
+    panneauTexte.querySelectorAll('[data-police]').forEach(b => b.classList.toggle('on', b.dataset.police === st.police));
+    panneauTexte.querySelector('#titreTexte').textContent = e ? 'Modifier le texte' : 'Nouveau texte';
+    supprimerTexte.hidden = !e; panneauTexte.hidden = false; zoneTexte.focus();
+  };
+  const fermerPanneauTexte = () => { edition = null; panneauTexte.hidden = true; arreterDictee(); };
   const compte = h('span', { class: 'mut petit', id: 'compteAnnot' });
   const majCompte = () => { compte.textContent = AN.resume(elements); };
   majCompte();
@@ -1343,7 +1403,7 @@ function ecranAnnoter() {
   const marquer = () => {
     document.querySelectorAll('[data-outil]').forEach(x => { const on = x.dataset.outil === st.outil; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
     document.querySelectorAll('[data-couleur]').forEach(x => { const on = x.dataset.couleur === st.couleur; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
-    aideOutil.textContent = st.outil === 'texte' ? 'Touchez le plan à l’endroit du texte.' : st.outil === 'fleche' ? 'Tirez du départ vers la pointe.' : 'Dessinez au doigt sur le plan.';
+    aideOutil.textContent = st.outil === 'texte' ? 'Touchez le plan à l’endroit du texte (ou un texte pour le modifier).' : st.outil === 'fleche' ? 'Tirez du départ vers la pointe.' : 'Dessinez au doigt sur le plan.';
   };
   marquer();
   const fonds = fondsAnnotation(v), aJour = fonds.find(f => f.source === a.source);
@@ -1360,7 +1420,13 @@ function ecranAnnoter() {
         AN.COULEURS.map(([c, lib]) => h('button', { class: 'puce pastilleCouleur' + (st.couleur === c ? ' on' : ''), type: 'button', 'data-couleur': c, 'aria-label': 'Couleur ' + lib, 'aria-pressed': String(st.couleur === c), style: '--c:' + c, onclick: () => { st.couleur = c; marquer(); } }, '●')),
         h('button', { class: 'puce', type: 'button', id: 'annulerAnnot', onclick: async () => { elements.pop(); peindre(); await garder(); majCompte(); } }, '↶ Annuler'),
         h('button', { class: 'puce', type: 'button', id: 'effacerAnnot', onclick: async () => { if (!elements.length || !confirm('Effacer toutes les annotations de ce plan ?')) return; elements = []; peindre(); await garder(); majCompte(); } }, '🗑 Tout effacer')),
-      h('div', { class: 'carte cadreAnnot' }, cv),
+      panneauTexte,
+      h('div', { class: 'carte cadreAnnot' }, cadre),
+      h('div', { class: 'puces zoomAnnot' },
+        h('button', { class: 'puce', type: 'button', id: 'zoomPlus', onclick: () => { zoom = zoomerToile(zoom, 1.5); appliquerZoom(); } }, '🔍 ＋'),
+        h('button', { class: 'puce', type: 'button', id: 'zoomMoins', onclick: () => { zoom = zoomerToile(zoom, 1 / 1.5); appliquerZoom(); } }, '🔍 −'),
+        h('button', { class: 'puce', type: 'button', id: 'zoomRaz', onclick: () => { zoom = { s: 1, x: 0, y: 0 }; appliquerZoom(); } }, '⟲ 100 %'),
+        h('span', { class: 'mut petit' }, 'Deux doigts pour zoomer et se déplacer.')),
       h('div', { class: 'rang', style: 'justify-content:space-between;margin-top:6px' }, compte, aideOutil),
       h('button', { class: 'gros', type: 'button', id: 'terminerAnnot', style: 'margin-top:12px', onclick: retour }, '✓ Terminer')),
   ];
