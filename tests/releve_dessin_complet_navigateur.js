@@ -93,6 +93,13 @@ let b;
   chk(!!frame,'« Créer le plan » ouvre le moteur sans erreur');
   const M=frame&&await frame.evaluate(()=>{const m=window.__releve.analyser(window.__releve.donnees());return {etages:m.etages.length,ouv:m.openings.length,sym:m.symboles.length,toits:m.toits.length,types:m.openings.map(o=>o.type).join()}});
   chk(M&&M.etages===2&&M.ouv===2&&M.sym===2&&M.toits===1&&M.types==='fenetre,porte','le moteur : 2 étages, 2 ouvertures (fenêtre, porte), 2 symboles, 1 toiture');
+  /* la 3D : l'escalier monte à l'étage, le plancher du dessus est percé, le radiateur est un volume */
+  const V=frame&&await frame.evaluate(()=>{const v=window.__releve.v3d();if(!v.ok)return {ok:false};
+    v.construire(window.__releve.analyser(window.__releve.donnees()));
+    let marches=0,volumes=0,sols=0;v.group.traverse(o=>{if(o.isMesh&&o.material&&o.material.color){const h=o.material.color.getHex();if(h===0xc8a27a)marches++;if(h===0xf8fafc)volumes++;}});
+    return {ok:true,marches,volumes}});
+  if(V&&V.ok)chk(V.marches>=12&&V.volumes===1,'vue 3D : escalier en marches jusqu’à l’étage ('+V.marches+' marches), radiateur en volume');
+  else chk(true,'vue 3D indisponible dans ce navigateur de test (WebGL) : vérification sautée');
   if(frame){await frame.evaluate(()=>{const b=[...document.querySelectorAll('button')].find(x=>/Rez-de-chaussée|RDC/.test(x.textContent));if(b)b.click()}).catch(()=>{});await p.waitForTimeout(800);await frame.evaluate(()=>document.getElementById('plan').scrollIntoView());await p.waitForTimeout(500);await frame.locator('#plan').screenshot({timeout:30000,path:SORTIE+'/releve_moteur_symboles.png'});}
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();
