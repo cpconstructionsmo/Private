@@ -86,7 +86,9 @@ qu'on ait à les redire.
   (`releve/assistant.js`, action `structurer`) : dictée libre → fiche
   proposée, vérifiée champ par champ, jamais d'écrasement sans case
   cochée. Dessin rapide sans scan (`releve/dessin.js`, pièces rectangulaires
-  posées au doigt → relevé du moteur, murs communs partagés). Prix au m² appris des prospects de rénovation
+  posées au doigt → relevé du moteur, murs communs partagés ; glissées et
+  aimantées `libre`, étages, ouvertures `ouverturesMoteur`, symboles et trémie
+  `symbolesMoteur` dessinés par le moteur `dessinerSymboles`, toiture). Prix au m² appris des prospects de rénovation
   (`ratiosDepuisProspects`). L'estimation part avec la visite
   et s'affiche sur la fiche prospect (`visiteResume().fourchette`). Chiffrage
   précis : dans le quantitatif d'un poste de la fiche prospect (seulement là,

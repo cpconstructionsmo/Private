@@ -225,6 +225,25 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 
 ## Le dessin rapide (sans scan)
 
+- **Complet** (`releve/dessin.js`, tests `t_releve_dessin_complet.js`,
+  `releve_dessin_complet_navigateur.js`) :
+  - pièces **posées au doigt** : glissées sur l'aperçu, elles s'aimantent aux
+    murs voisins (`aimanter`, `libre` : position gardée) ; « ＋ Ajouter une
+    pièce » la pose à côté, on la glisse ensuite ; « posée précisément »
+    (contre une pièce, décalage) reste possible ;
+  - **étages** (« ＋ Étage », nom modifiable ; l'étage du dessous en
+    filigrane ; une pièce change d'étage d'un toucher) ;
+  - **portes, fenêtres, portes-fenêtres, passages** sur un côté de pièce
+    (position, largeur), converties en ouvertures du moteur sur le bon mur
+    (`ouverturesMoteur`, même un côté coupé par une voisine) ;
+  - **symboles** : radiateur, chaudière, chauffe-eau, poêle, WC, lavabo,
+    douche, baignoire, évier, tableau électrique, **trémie d'escalier**
+    (longueur, largeur) ; tournés par quarts, glissés au doigt ; dessinés
+    par le moteur à leur taille (écran, PDF, DXF : calque EQUIPEMENTS) ;
+  - **toiture** (plat, 1, 2 ou 4 pentes, pente en degrés) sur l'étage le plus
+    haut, vue en 3D dans le plan ;
+  - **zoom** de l'aperçu (deux doigts, « 🔍 ＋ / − », « ⟲ 100 % »).
+
 - Étape Scan › **« ✏️ Dessin rapide (sans scan) »** : on pose des pièces
   rectangulaires au doigt (nom, longueur, largeur avec de gros − / +), chacune
   à droite, en dessous, à gauche ou au-dessus d'une pièce déjà posée, avec un
