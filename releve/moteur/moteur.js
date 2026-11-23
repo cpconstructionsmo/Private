@@ -167,6 +167,12 @@ function analyser(d) {
     M.cloisons.push({ idx: M.cloisons.length, src: c, etage: et, a: [c.a[0], c.a[1]], b: [c.b[0], c.b[1]], len, u: [(c.b[0] - c.a[0]) / len, (c.b[1] - c.a[1]) / len], ep: isNum(c.ep) && c.ep > 0 ? c.ep : ep, z: M.etages[et].z, h: M.etages[et].hauteur });
   });
 
+  /* symboles (dessin rapide) : équipements et trémie d'escalier, centre (x, y) en mètres, quart de tour */
+  const TYPES_SYM = ['radiateur', 'chaudiere', 'cumulus', 'poele', 'wc', 'lavabo', 'douche', 'baignoire', 'evier', 'tableau', 'escalier'];
+  M.symboles = (Array.isArray(d.symboles) ? d.symboles : []).filter(x => x && TYPES_SYM.includes(x.type) && isNum(x.x) && isNum(x.y)).slice(0, 200).map((x, i) => ({
+    idx: i, type: x.type, etage: Number.isInteger(x.etage) && x.etage >= 0 && x.etage < M.etages.length ? x.etage : 0, x: x.x, y: x.y,
+    rot: [0, 90, 180, 270].includes(x.rot) ? x.rot : 0, l: isNum(x.l) && x.l > 0 ? x.l : 0.6, w: isNum(x.w) && x.w > 0 ? x.w : 0.6 }));
+
   /* toitures : l'emprise est le rectangle qui englobe les pièces couvertes, débord compris */
   const TAN = a => Math.tan(a * Math.PI / 180);
   M.toits = [];
@@ -303,9 +309,10 @@ function tourner(M, deg) {
   walls.forEach(w => { w.openings = w.openings.map(o => omap.get(o)); w.rooms = w.rooms.map(r => rooms[M.rooms.indexOf(r)]); });
   openings.forEach(op => { op.room = rooms[M.rooms.indexOf(op.room)]; });
   const cloisons = (M.cloisons || []).map(c => Object.assign({}, c, { a: R(c.a), b: R(c.b), u: R(c.u) }));
+  const symboles = (M.symboles || []).map(x => { const q = R([x.x, x.y]); return Object.assign({}, x, { x: q[0], y: q[1], rot: (x.rot + deg + 360) % 360 }); });
   const toits = (M.toits || []).map(t => Object.assign({}, t, { poly: t.poly.map(R), centre: R(t.centre), faitage: t.faitage ? t.faitage.map(R) : null, lignes: t.lignes.map(l => l.map(R)), fleches: t.fleches.map(f => f.map(R)) }));
   const xs = [], ys = []; rooms.forEach(r => r.pts.forEach(q => { xs.push(q[0]); ys.push(q[1]); })); cloisons.forEach(c => { xs.push(c.a[0], c.b[0]); ys.push(c.a[1], c.b[1]); });
-  return Object.assign({}, M, { rooms, walls, openings, toits, cloisons, bbox: { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) } });
+  return Object.assign({}, M, { rooms, walls, openings, toits, cloisons, symboles, bbox: { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) } });
 }
 
 const assombrir = (hex, k) => { const v = parseInt(hex.slice(1), 16), m = c => Math.round(c * (1 - k)).toString(16).padStart(2, '0'); return '#' + m((v >> 16) & 255) + m((v >> 8) & 255) + m(v & 255); };
@@ -330,7 +337,43 @@ function dessinerToitures(b, M, T, o) {
 
 /* ne garde que ce qui appartient à l'étage k (les rangs 'idx' des pièces et ouvertures restent ceux du relevé entier) */
 function vueEtage(M, k) {
-  return Object.assign({}, M, { cloisons: (M.cloisons || []).filter(c => c.etage === k), rooms: M.rooms.filter(r => r.etage === k), walls: M.walls.filter(w => w.etage === k), openings: M.openings.filter(op => op.room.etage === k) });
+  return Object.assign({}, M, { symboles: (M.symboles || []).filter(x => x.etage === k), cloisons: (M.cloisons || []).filter(c => c.etage === k), rooms: M.rooms.filter(r => r.etage === k), walls: M.walls.filter(w => w.etage === k), openings: M.openings.filter(op => op.room.etage === k) });
+}
+
+/* les symboles du plan (équipements, trémie d'escalier) : dessinés au trait,
+   à leur taille réelle, avec les mêmes pinceaux que le plan (écran, PDF, DXF) */
+function dessinerSymboles(b, M, T, fs) {
+  (M.symboles || []).forEach(s => {
+    const a = s.rot * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a), L = s.l / 2, W = s.w / 2;
+    const Q = (u, v) => [T.ox + (s.x + u * c - v * sn) * T.s, T.oy + (s.y + u * sn + v * c) * T.s];      // repère du symbole (u le long, v en travers) → écran
+    const rect = (u0, v0, u1, v1, o) => b.poly([Q(u0, v0), Q(u1, v0), Q(u1, v1), Q(u0, v1)], Object.assign({ calque: 'EQUIPEMENTS' }, o));
+    const ovale = (cu, cv, ru, rv, o) => { const pts = []; for (let k = 0; k < 20; k++) { const t = k * Math.PI / 10; pts.push(Q(cu + ru * Math.cos(t), cv + rv * Math.sin(t))); } b.poly(pts, Object.assign({ calque: 'EQUIPEMENTS' }, o)); };
+    const trait = (u0, v0, u1, v1, o) => { const A = Q(u0, v0), B = Q(u1, v1); b.line(A[0], A[1], B[0], B[1], Object.assign({ w: 1, color: '#4B5563', calque: 'EQUIPEMENTS' }, o)); };
+    const texte = (t, taille) => { const C = Q(0, 0); b.text(t, C[0], C[1], { size: taille || Math.max(7, fs - 3), bold: true, color: '#374151', calque: 'EQUIPEMENTS' }); };
+    const st = { fill: '#FFFFFF', stroke: '#4B5563', w: 1 };
+    switch (s.type) {
+      case 'radiateur': rect(-L, -W, L, W, { fill: '#F3F4F6', stroke: '#4B5563', w: 1 }); for (let k = 1; k < 6; k++) trait(-L + k * s.l / 6, -W, -L + k * s.l / 6, W, { w: 0.6 }); break;
+      case 'chaudiere': rect(-L, -W, L, W, st); texte('CH'); break;
+      case 'cumulus': ovale(0, 0, L, W, st); texte('ECS'); break;
+      case 'poele': ovale(0, 0, L, W, st); texte('P'); break;
+      case 'tableau': rect(-L, -W, L, W, { fill: '#374151', stroke: '#111827', w: 1 }); { const C = Q(0, -W - 0.18); b.text('TE', C[0], C[1], { size: Math.max(7, fs - 3), bold: true, color: '#111827', calque: 'EQUIPEMENTS' }); } break;
+      case 'wc': rect(-L, -W, L, -W + s.w * 0.28, st); ovale(0, W * 0.28, L * 0.85, W * 0.62, st); break;
+      case 'lavabo': rect(-L, -W, L, W, st); ovale(0, W * 0.1, L * 0.72, W * 0.6, st); break;
+      case 'douche': rect(-L, -W, L, W, st); trait(-L, -W, L, W, { w: 0.6 }); trait(-L, W, L, -W, { w: 0.6 }); ovale(0, 0, Math.min(L, W) * 0.12, Math.min(L, W) * 0.12, st); break;
+      case 'baignoire': rect(-L, -W, L, W, st); b.poly([Q(-L * 0.85, -W * 0.7), Q(L * 0.75, -W * 0.7), Q(L * 0.88, 0), Q(L * 0.75, W * 0.7), Q(-L * 0.85, W * 0.7)], { stroke: '#4B5563', w: 0.8, calque: 'EQUIPEMENTS' }); break;
+      case 'evier': rect(-L, -W, L, W, st); rect(-L * 0.85, -W * 0.7, -L * 0.1, W * 0.7, st); rect(L * 0.1, -W * 0.7, L * 0.85, W * 0.7, st); break;
+      case 'escalier': {
+        // trémie : le contour, les marches (environ 25 cm), la flèche de montée
+        rect(-L, -W, L, W, { fill: '#FFFFFF', stroke: '#1F2937', w: 1.4 });
+        const n = Math.max(3, Math.round(s.l / 0.25));
+        for (let k = 1; k < n; k++) trait(-L + k * s.l / n, -W, -L + k * s.l / n, W, { w: 0.7 });
+        trait(-L + 0.1, 0, L - 0.15, 0, { w: 1.2, color: '#1F2937' });
+        b.poly([Q(L - 0.05, 0), Q(L - 0.3, -0.12), Q(L - 0.3, 0.12)], { fill: '#1F2937', calque: 'EQUIPEMENTS' });
+        break;
+      }
+      default: rect(-L, -W, L, W, st);
+    }
+  });
 }
 
 function dessinerPlan(b, M, T, o) {
@@ -343,6 +386,7 @@ function dessinerPlan(b, M, T, o) {
 
   if (o.fantome) o.fantome.forEach(pts => b.poly(pts.map(q => P(q[0], q[1])), { stroke: '#b9c0cc', w: 1, dash: [4, 3] }));      /* étage du dessous, en filigrane */
   M.rooms.forEach(r => b.poly(r.pts.map(p => P(p[0], p[1])), { fill: r.color }));
+  dessinerSymboles(b, M, T, fs);
 
   M.walls.forEach(w => {
     const A = P(w.a[0], w.a[1]), B = P(w.b[0], w.b[1]);
@@ -2176,7 +2220,7 @@ $('btnEnregistrer').addEventListener('click', async () => {
    aux portes et fenêtres (à l'écran, l'ouverture est « gommée » en blanc, ce
    qui n'existe pas en DAO). Plusieurs étages : l'un sous l'autre.
    ========================================================================== */
-const CALQUES_DXF = [['MURS', 7], ['CLOISONS', 7], ['PIECES', 8], ['PORTES', 1], ['FENETRES', 5], ['PASSAGES', 8], ['COTES', 3], ['TEXTES', 7], ['DEMOLITION', 1], ['ESTIME', 30]];
+const CALQUES_DXF = [['MURS', 7], ['CLOISONS', 7], ['PIECES', 8], ['PORTES', 1], ['FENETRES', 5], ['PASSAGES', 8], ['COTES', 3], ['TEXTES', 7], ['DEMOLITION', 1], ['ESTIME', 30], ['EQUIPEMENTS', 6]];
 class PinceauDxf {
   constructor(couleursPieces) { this.e = []; this.pieces = couleursPieces; this.x0 = Infinity; this.y0 = Infinity; this.x1 = -Infinity; this.y1 = -Infinity; }
   calque(col) {
@@ -2204,6 +2248,7 @@ class PinceauDxf {
   poly(pts, o) {
     if (pts.length < 2) return;
     const f = String(o.fill || '').toLowerCase();
+    if (o.calque === 'EQUIPEMENTS') return o.fill && !o.stroke ? this.plein('EQUIPEMENTS', pts.length <= 4 ? pts : pts.slice(0, 4)) : this.contour('EQUIPEMENTS', pts, o.close !== false);   /* symboles : leur trait */
     if (f === '#ffffff' && !o.stroke) return;       /* « gomme » d'une ouverture */
     if (o.fill && this.pieces.has(f)) return this.contour('PIECES', pts, true);
     if (o.fill && !o.stroke && pts.length <= 4) return this.plein(o.calque || this.calque(o.fill), pts);   /* pointes de flèches */

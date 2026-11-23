@@ -1610,53 +1610,154 @@ function etapeFin(v) {
 const PIECE_DEFAUT = () => ({ id: M.nouvelId().slice(0, 8), nom: 'Pièce', longueur: 3, largeur: 3 });
 function dessinCourant() {
   const d = M.valeur(visite(), 'dessin');
-  return d && Array.isArray(d.pieces) ? JSON.parse(JSON.stringify(d)) : { pieces: [], hauteur: 2.5 };
+  const x = d && Array.isArray(d.pieces) ? JSON.parse(JSON.stringify(d)) : { pieces: [], hauteur: 2.5 };
+  if (!Array.isArray(x.ouvertures)) x.ouvertures = [];
+  if (!Array.isArray(x.symboles)) x.symboles = [];
+  return x;
 }
 const majDessin = async f => { const d = dessinCourant(); f(d); await poser('dessin', d); redessiner(); };
+const etageDessin = () => S.dessinEtage || 0;
+const rectsEtage = (d, R, k) => d.pieces.filter(p => (p.etage || 0) === k && R.rect.has(p.id)).map(p => ({ p, r: R.rect.get(p.id) }));
 
+/* l'aperçu : pièces de l'étage affiché (celles de l'étage du dessous en filigrane),
+   portes et fenêtres, symboles. Une pièce ou un symbole se glisse au doigt
+   (la pièce s'aimante aux murs voisins) ; un toucher le sélectionne. */
+const COUL_OUV = { porte: '#C0392B', fenetre: '#1F6FEB', portefenetre: '#1F6FEB', passage: '#6B7280' };
 function apercuDessin(d, R) {
   const NS = 'http://www.w3.org/2000/svg', el = (t, a, txt) => { const e = document.createElementNS(NS, t); Object.entries(a).forEach(([k, v]) => e.setAttribute(k, v)); if (txt != null) e.textContent = txt; return e; };
-  const rs = d.pieces.filter(p => R.rect.has(p.id)).map(p => ({ p, r: R.rect.get(p.id) }));
+  const k = etageDessin(), rs = rectsEtage(d, R, k), dessous = k > 0 ? rectsEtage(d, R, k - 1) : [];
   const svg = el('svg', { class: 'apercuDessin', role: 'img', 'aria-label': 'Aperçu du dessin' });
-  if (!rs.length) { svg.setAttribute('viewBox', '0 0 10 4'); svg.append(el('text', { x: 5, y: 2.2, 'text-anchor': 'middle', 'font-size': 0.5, fill: '#5E6B74' }, 'Ajoutez une pièce')); return svg; }
-  const x0 = Math.min(...rs.map(o => o.r.x0)) - 1, y0 = Math.min(...rs.map(o => o.r.y0)) - 1, x1 = Math.max(...rs.map(o => o.r.x1)) + 1, y1 = Math.max(...rs.map(o => o.r.y1)) + 1;
+  const tous = d.pieces.filter(p => R.rect.has(p.id)).map(p => R.rect.get(p.id));
+  if (!tous.length) { svg.setAttribute('viewBox', '0 0 10 4'); svg.append(el('text', { x: 5, y: 2.2, 'text-anchor': 'middle', 'font-size': 0.5, fill: '#5E6B74' }, 'Ajoutez une pièce')); return svg; }
+  // cadrage commun à tous les étages : l'aperçu ne saute pas d'un étage à l'autre
+  const x0 = Math.min(...tous.map(r => r.x0)) - 1.5, y0 = Math.min(...tous.map(r => r.y0)) - 1.5, x1 = Math.max(...tous.map(r => r.x1)) + 1.5, y1 = Math.max(...tous.map(r => r.y1)) + 1.5;
   svg.setAttribute('viewBox', [x0, y0, x1 - x0, y1 - y0].join(' '));
   const t = Math.max(0.25, Math.min(0.45, (x1 - x0) / 22));
+  dessous.forEach(({ r }) => svg.append(el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, fill: 'none', stroke: '#9AA4B2', 'stroke-width': 0.05, 'stroke-dasharray': '0.2 0.15' })));
   rs.forEach(({ p, r }) => {
-    const sel = S.dessinSel === p.id, g = el('g', { 'data-piece-dessin': p.id, style: 'cursor:pointer' });
+    const sel = S.dessinSel === p.id, g = el('g', { 'data-piece-dessin': p.id, style: 'cursor:grab' });
     g.append(el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, fill: sel ? '#FCE9E3' : '#E7EEF2', stroke: sel ? '#C5563A' : '#2C4A5E', 'stroke-width': sel ? 0.12 : 0.08 }));
     g.append(el('text', { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2, 'text-anchor': 'middle', 'font-size': t, 'font-weight': 700, fill: '#1A2B36' }, p.nom));
     g.append(el('text', { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2 + t * 1.2, 'text-anchor': 'middle', 'font-size': t * 0.8, fill: '#5E6B74' }, String(Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²'));
     g.append(el('text', { x: (r.x0 + r.x1) / 2, y: r.y0 + t * 0.9, 'text-anchor': 'middle', 'font-size': t * 0.75, fill: '#2C4A5E' }, String(r3l(r.x1 - r.x0)).replace('.', ',')));
     g.append(el('text', { x: r.x0 + t * 0.35, y: (r.y0 + r.y1) / 2, 'text-anchor': 'start', 'font-size': t * 0.75, fill: '#2C4A5E' }, String(r3l(r.y1 - r.y0)).replace('.', ',')));
-    g.addEventListener('click', () => { S.dessinSel = sel ? null : p.id; redessiner(); });
+    // portes et fenêtres de la pièce : un trait de couleur sur le côté
+    d.ouvertures.filter(o => o.piece === p.id).forEach(o => {
+      const w = DRnb(o.largeur) || 0.9, pos = DRnb(o.position) || 0;
+      const [ax, ay, bx, by] = o.cote === 'haut' ? [r.x0 + pos, r.y0, r.x0 + pos + w, r.y0] : o.cote === 'bas' ? [r.x0 + pos, r.y1, r.x0 + pos + w, r.y1]
+        : o.cote === 'gauche' ? [r.x0, r.y0 + pos, r.x0, r.y0 + pos + w] : [r.x1, r.y0 + pos, r.x1, r.y0 + pos + w];
+      g.append(el('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: '#FFFFFF', 'stroke-width': 0.22 }));
+      g.append(el('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: COUL_OUV[o.type] || '#C0392B', 'stroke-width': o.type === 'portefenetre' ? 0.16 : 0.1, 'stroke-dasharray': o.type === 'passage' ? '0.12 0.08' : '', 'data-ouverture': o.id }));
+    });
     svg.append(g);
   });
+  d.symboles.filter(x => (x.etage || 0) === k).forEach(x => {
+    const ty = DR.TYPES_SYMBOLE.find(z => z[0] === x.type); if (!ty) return;
+    const l = DRnb(x.l) || ty[3], w = DRnb(x.w) || ty[4], sel = S.dessinSym === x.id;
+    const g = el('g', { 'data-symbole': x.id, transform: 'translate(' + x.x + ' ' + x.y + ') rotate(' + (x.rot || 0) + ')', style: 'cursor:grab' });
+    g.append(el('rect', { x: -l / 2, y: -w / 2, width: l, height: w, fill: x.type === 'escalier' ? '#FFFFFF' : '#FFF8E7', stroke: sel ? '#C5563A' : '#4B5563', 'stroke-width': sel ? 0.08 : 0.04 }));
+    if (x.type === 'escalier') for (let n = 1; n < Math.round(l / 0.25); n++) g.append(el('line', { x1: -l / 2 + n * 0.25, y1: -w / 2, x2: -l / 2 + n * 0.25, y2: w / 2, stroke: '#4B5563', 'stroke-width': 0.02 }));
+    g.append(el('text', { x: 0, y: 0, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': Math.max(0.28, Math.min(0.55, Math.max(l, w) * 0.45)), transform: 'rotate(' + (-(x.rot || 0)) + ')' }, ty[2]));
+    svg.append(g);
+  });
+  brancherGlisser(svg, d, R);
   return svg;
+}
+/* glisser au doigt dans l'aperçu (un doigt) ; le pincement (deux doigts) est géré par le cadre du zoom */
+function brancherGlisser(svg, d, R) {
+  const pt = e => { const m = svg.getScreenCTM(); if (!m) return [0, 0]; const q = svg.createSVGPoint(); q.x = e.clientX; q.y = e.clientY; const r = q.matrixTransform(m.inverse()); return [r.x, r.y]; };
+  let g = null;
+  svg.addEventListener('pointerdown', e => {
+    const cible = e.target.closest('[data-piece-dessin],[data-symbole]'); if (!cible || S.pinceDessin) return;
+    e.preventDefault(); svg.setPointerCapture(e.pointerId);
+    const piece = cible.dataset.pieceDessin, sym = cible.dataset.symbole, p0 = pt(e);
+    g = { el: cible, piece, sym, p0, ecran: [e.clientX, e.clientY], depl: [0, 0], bouge: false,
+      r: piece ? R.rect.get(piece) : null, s: sym ? d.symboles.find(x => x.id === sym) : null };
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!g || S.pinceDessin) return;
+    if (!g.bouge && Math.hypot(e.clientX - g.ecran[0], e.clientY - g.ecran[1]) < 6) return;
+    g.bouge = true; const q = pt(e), dx = q[0] - g.p0[0], dy = q[1] - g.p0[1];
+    if (g.r) {
+      const autres = rectsEtage(d, R, etageDessin()).filter(o => o.p.id !== g.piece).map(o => o.r);
+      const m = DR.aimanter({ x0: g.r.x0 + dx, y0: g.r.y0 + dy, x1: g.r.x1 + dx, y1: g.r.y1 + dy }, autres);
+      g.depl = [m.x - g.r.x0, m.y - g.r.y0];
+      g.el.setAttribute('transform', 'translate(' + g.depl[0] + ' ' + g.depl[1] + ')');
+    } else if (g.s) {
+      const nx = Math.round((g.s.x + dx) * 20) / 20, ny = Math.round((g.s.y + dy) * 20) / 20;
+      g.depl = [nx, ny];
+      g.el.setAttribute('transform', 'translate(' + nx + ' ' + ny + ') rotate(' + (g.s.rot || 0) + ')');
+    }
+  });
+  const fin = async () => {
+    const x = g; g = null; if (!x) return;
+    if (!x.bouge) {   // un toucher : sélectionner (ou désélectionner)
+      if (x.piece) { S.dessinSel = S.dessinSel === x.piece ? null : x.piece; S.dessinSym = null; }
+      else { S.dessinSym = S.dessinSym === x.sym ? null : x.sym; S.dessinSel = null; }
+      return redessiner();
+    }
+    if (x.piece) await majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { q.libre = { x: Math.round((x.r.x0 + x.depl[0]) * 100) / 100, y: Math.round((x.r.y0 + x.depl[1]) * 100) / 100 }; delete q.contre; } S.dessinSel = x.piece; });
+    else await majDessin(y => { const q = y.symboles.find(z => z.id === x.sym); if (q) { q.x = x.depl[0]; q.y = x.depl[1]; } S.dessinSym = x.sym; });
+  };
+  svg.addEventListener('pointerup', fin);
+  svg.addEventListener('pointercancel', () => { g = null; redessiner(); });
+}
+/* le cadre de l'aperçu : zoom par pincement (deux doigts) ou par boutons */
+function cadreZoomDessin(svg) {
+  const cadre = h('div', { class: 'cadreZoomDessin' }, svg);
+  let z = S.dessinZoom || { s: 1, x: 0, y: 0 };
+  const appliquer = () => { const r = cadre.getBoundingClientRect(); z = cadrerZoom(z, r.width || 1, r.height || 1); S.dessinZoom = z; svg.style.transform = 'translate(' + z.x + 'px,' + z.y + 'px) scale(' + z.s + ')'; cadre.dataset.zoom = z.s.toFixed(2); };
+  const centre = e => { const r = cadre.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
+  const doigts = new Map(); let pince = null;
+  cadre.addEventListener('pointerdown', e => { doigts.set(e.pointerId, centre(e));
+    if (doigts.size === 2) { const P = [...doigts.values()]; pince = { z: { ...z }, d: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) || 1, m: [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] }; S.pinceDessin = true; } }, true);
+  cadre.addEventListener('pointermove', e => { if (!doigts.has(e.pointerId)) return; doigts.set(e.pointerId, centre(e));
+    if (pince && doigts.size >= 2) { const P = [...doigts.values()], dd = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]), m = [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2];
+      const n = zoomerToile(pince.z, dd / pince.d, pince.m[0], pince.m[1]); z = { s: n.s, x: n.x + m[0] - pince.m[0], y: n.y + m[1] - pince.m[1] }; appliquer(); } }, true);
+  const lacher = e => { doigts.delete(e.pointerId); if (doigts.size < 2) pince = null; if (!doigts.size) setTimeout(() => { S.pinceDessin = false; }, 0); };
+  cadre.addEventListener('pointerup', lacher, true); cadre.addEventListener('pointercancel', lacher, true);
+  cadre.addEventListener('wheel', e => { e.preventDefault(); const c = centre(e); z = zoomerToile(z, e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquer(); }, { passive: false });
+  requestAnimationFrame(appliquer);
+  const bouton = (id, texte, f) => h('button', { class: 'puce', type: 'button', id, onclick: () => { f(); appliquer(); } }, texte);
+  return [cadre, h('div', { class: 'puces zoomDessin' },
+    bouton('zoomDessinPlus', '🔍 ＋', () => { z = zoomerToile(z, 1.5); }), bouton('zoomDessinMoins', '🔍 −', () => { z = zoomerToile(z, 1 / 1.5); }),
+    bouton('zoomDessinRaz', '⟲ 100 %', () => { z = { s: 1, x: 0, y: 0 }; }), h('span', { class: 'mut petit' }, 'Deux doigts pour zoomer.'))];
 }
 const r3l = v => Math.round(v * 100) / 100;
 
-function reglageMetres(valeur, libelle, nom, pas, poserValeur, min = 0.3) {
+function reglageMetres(valeur, libelle, nom, pas, poserValeur, min = 0.3, unite = ' m', max = Infinity) {
   const n = DRnb(valeur);
   return h('label', { class: 'champ reglageDessin' }, libelle,
     h('div', { class: 'reglage' },
-      h('button', { class: 'pm', type: 'button', 'aria-label': libelle + ' moins', onclick: e => { e.preventDefault(); poserValeur(Math.max(min, Math.round(((n || 0) - pas) * 100) / 100)); } }, '−'),
+      h('button', { class: 'pm', type: 'button', 'aria-label': libelle + ' moins', onclick: e => { e.preventDefault(); poserValeur(Math.min(max, Math.max(min, Math.round(((n || 0) - pas) * 100) / 100))); } }, '−'),
       h('span', { class: 'valeur' }, h('input', { inputMode: 'decimal', name: nom, value: n == null ? '' : String(n).replace('.', ','), 'aria-label': libelle,
-        onchange: e => { const x = DRnb(e.target.value); if (x != null) poserValeur(Math.round(x * 100) / 100); } }), h('span', {}, ' m')),
-      h('button', { class: 'pm', type: 'button', 'aria-label': libelle + ' plus', onclick: e => { e.preventDefault(); poserValeur(Math.round(((n || 0) + pas) * 100) / 100); } }, '+')));
+        onchange: e => { const x = DRnb(e.target.value); if (x != null) poserValeur(Math.min(max, Math.max(min, Math.round(x * 100) / 100))); } }), h('span', {}, unite)),
+      h('button', { class: 'pm', type: 'button', 'aria-label': libelle + ' plus', onclick: e => { e.preventDefault(); poserValeur(Math.min(max, Math.max(min, Math.round(((n || 0) + pas) * 100) / 100))); } }, '+')));
 }
 const DRnb = v => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return isFinite(n) ? n : null; };
+const COTES_OUV = [['haut', 'Haut'], ['droite', 'Droite'], ['bas', 'Bas'], ['gauche', 'Gauche']];
 
 function ecranDessin() {
   const v = visite();
   if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
-  const d = dessinCourant(), R = DR.releveDepuisDessin(d.pieces, { hauteur: d.hauteur });
+  const d = dessinCourant(), R = DR.releveDepuisDessin(d.pieces, { hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
+  const noms = DR.nomsEtages(d.etages, d.pieces), k = Math.min(etageDessin(), noms.length - 1); S.dessinEtage = k;
   const retour = () => { S.ecran = 'visite'; S.message = null; dessiner(); window.scrollTo(0, 0); };
+  const ici = rectsEtage(d, R, k);
+  // une nouvelle pièce se pose à droite de l'étage affiché : on la glisse ensuite où l'on veut
   const ajouter = () => majDessin(x => {
-    const n = PIECE_DEFAUT(), der = x.pieces[x.pieces.length - 1];
-    if (der) n.contre = { id: der.id, cote: 'droite', decalage: 0 };
-    n.nom = x.pieces.length ? 'Pièce ' + (x.pieces.length + 1) : 'Séjour';
-    x.pieces.push(n); S.dessinSel = n.id;
+    const n = PIECE_DEFAUT(), rr = ici.map(o => o.r);
+    n.etage = k; n.nom = x.pieces.length ? 'Pièce ' + (x.pieces.length + 1) : 'Séjour';
+    n.libre = rr.length ? { x: Math.round((Math.max(...rr.map(r => r.x1)) + 0.5) * 100) / 100, y: Math.min(...rr.map(r => r.y0)) } : { x: 0, y: 0 };
+    x.pieces.push(n); S.dessinSel = n.id; S.dessinSym = null;
+    if (rr.length) S.message = { type: 'att', texte: 'Glissez « ' + n.nom + ' » à sa place sur l’aperçu : elle s’aimante aux murs voisins.' };
+  });
+  const ajouterSymbole = ty => majDessin(x => {
+    const p = ici.find(o => o.p.id === S.dessinSel), rr = ici.map(o => o.r);
+    const c = p ? [(p.r.x0 + p.r.x1) / 2, (p.r.y0 + p.r.y1) / 2] : rr.length ? [(Math.min(...rr.map(r => r.x0)) + Math.max(...rr.map(r => r.x1))) / 2, (Math.min(...rr.map(r => r.y0)) + Math.max(...rr.map(r => r.y1))) / 2] : [1, 1];
+    const s = { id: M.nouvelId().slice(0, 8), type: ty[0], etage: k, x: Math.round(c[0] * 20) / 20, y: Math.round(c[1] * 20) / 20, rot: 0 };
+    if (ty[0] === 'escalier') { s.l = ty[3]; s.w = ty[4]; }
+    x.symboles.push(s); S.dessinSym = s.id;
   });
   const creer = async () => {
     if (!d.pieces.length) return montrerMessage('att', 'Ajoutez au moins une pièce.');
@@ -1664,46 +1765,88 @@ function ecranDessin() {
     const actuel = M.valeur(visite(), 'plan');
     if (actuel && !confirm('Un plan existe déjà pour cette visite. Le remplacer par ce dessin ?\n(L’ancien plan, avec ses retouches, reste gardé de côté.)')) return;
     const projet = 'Plan de ' + M.intitule(visite());
-    const nv = DR.releveDepuisDessin(d.pieces, { projet, hauteur: d.hauteur });
+    const nv = DR.releveDepuisDessin(d.pieces, { projet, hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
     await changer(w => { let x = w; if (actuel) x = M.modifier(x, 'plan.ecarte', actuel); return M.modifier(x, 'plan', { releve: nv.donnees, resume: nv.resume }); });
     S.message = null; vibrer(); ouvrirPlan();
   };
+  const symSel = d.symboles.find(x => x.id === S.dessinSym && (x.etage || 0) === k);
+  const tySel = symSel && DR.TYPES_SYMBOLE.find(z => z[0] === symSel.type);
+  const toit = d.toiture || { type: 'aucune' };
   return [
     h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: retour }, '‹ Visite'), h('span', { class: 'titre' }, 'Dessin rapide'), pastilleEtat()),
     h('main', {},
       S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
       h('h1', {}, '✏️ Dessin rapide'),
-      h('p', { class: 'mut petit' }, 'Posez les pièces une à une, à côté de la précédente. Touchez une pièce pour la régler. Les cotes exactes se tapent ensuite dans le plan.'),
-      h('div', { class: 'carte', style: 'padding:6px' }, apercuDessin(d, R)),
+      h('p', { class: 'mut petit' }, 'Glissez une pièce ou un symbole pour le placer (une pièce s’aimante aux murs voisins), touchez-le pour le régler. Les cotes exactes se tapent ensuite dans le plan.'),
+      // les étages
+      h('div', { class: 'puces etagesDessin' }, noms.map((nom, i) => h('button', { class: 'puce' + (i === k ? ' on' : ''), type: 'button', 'data-etage': i, onclick: () => { S.dessinEtage = i; S.dessinSel = null; S.dessinSym = null; redessiner(); } }, nom)),
+        noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
+      h('label', { class: 'champ' }, 'NOM DE L’ÉTAGE', h('input', { class: 'in', name: 'dessin-etage-nom', value: noms[k], onchange: e => majDessin(x => { const n = [...noms]; n[k] = e.target.value.trim() || n[k]; x.etages = n; }) })),
+      h('div', { class: 'carte', style: 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R))),
       // lu sur un plan 2D : le plan d'origine sous la main, pour comparer
       (() => { const n = Array.isArray(d.sources) ? d.sources.length : d.source ? 1 : 0;
         const pps = n ? M.actifs(v.photos).filter(x => x.role === 'planPapier').sort((a, b) => String(b.importeLe || '').localeCompare(String(a.importeLe || ''))).slice(0, Math.min(n, 12)) : [];
         return n ? h('details', { class: 'carte planOrigine', id: 'planOrigine' }, h('summary', {}, n > 1 ? '🖼 Plans et esquisses d’origine (' + n + ')' : '🖼 Plan d’origine' + (d.source && d.source.partie ? ' · ' + d.source.partie : '')),
           pps.length ? pps.map(pp => imagePhoto(pp, 'imagePlanOrigine')) : h('div', { class: 'mut petit' }, (d.source && d.source.fichier) || '')) : null; })(),
-      R.erreurs.length ? h('div', { class: 'message err' }, R.erreurs.join(' ')) : d.pieces.length ? h('div', { class: 'mut petit' }, R.resume.pieces + ' pièce' + (R.resume.pieces > 1 ? 's' : '') + ' · ' + String(R.resume.surface).replace('.', ',') + ' m²') : null,
-      d.pieces.map((p, i) => {
-        const sel = S.dessinSel === p.id;
+      R.erreurs.length ? h('div', { class: 'message err' }, R.erreurs.join(' ')) : d.pieces.length ? h('div', { class: 'mut petit' }, R.resume.pieces + ' pièce' + (R.resume.pieces > 1 ? 's' : '') + ' · ' + String(R.resume.surface).replace('.', ',') + ' m²' + (R.resume.ouvertures ? ' · ' + R.resume.ouvertures + ' ouverture' + (R.resume.ouvertures > 1 ? 's' : '') : '')) : null,
+      // le symbole sélectionné
+      symSel && tySel ? h('div', { class: 'carte symboleDessin sel', 'data-symbole-sel': symSel.id },
+        h('div', { class: 'rang', style: 'justify-content:space-between' }, h('b', {}, tySel[2] + ' ' + tySel[1]),
+          h('button', { class: 'puce', type: 'button', id: 'retirerSymbole', onclick: () => majDessin(x => { x.symboles = x.symboles.filter(z => z.id !== symSel.id); S.dessinSym = null; }) }, '🗑 Retirer')),
+        h('div', { class: 'puces' }, h('button', { class: 'puce', type: 'button', id: 'tournerSymbole', onclick: () => majDessin(x => { const q = x.symboles.find(z => z.id === symSel.id); if (q) q.rot = ((q.rot || 0) + 90) % 360; }) }, '⟳ Tourner d’un quart')),
+        symSel.type === 'escalier' ? [reglageMetres(symSel.l || tySel[3], 'LONGUEUR DE LA TRÉMIE', 'symbole-l', 0.1, x => majDessin(y => { const q = y.symboles.find(z => z.id === symSel.id); if (q) q.l = x; }), 0.5),
+          reglageMetres(symSel.w || tySel[4], 'LARGEUR DE LA TRÉMIE', 'symbole-w', 0.05, x => majDessin(y => { const q = y.symboles.find(z => z.id === symSel.id); if (q) q.w = x; }), 0.5)] : null,
+        h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Glissez-le sur l’aperçu pour le placer.')) : null,
+      ici.map(({ p }) => {
+        const sel = S.dessinSel === p.id, i = d.pieces.indexOf(p);
         const maj = f => majDessin(x => { const q = x.pieces.find(y => y.id === p.id); if (q) f(q, x); });
-        const autres = d.pieces.slice(0, i);
+        const autres = d.pieces.slice(0, i).filter(o => (o.etage || 0) === k);
+        const r = R.rect.get(p.id);
+        const ouvs = d.ouvertures.filter(o => o.piece === p.id);
         return h('div', { class: 'carte pieceDessin' + (sel ? ' sel' : ''), 'data-dessin': p.id },
-          h('div', { class: 'rang', style: 'justify-content:space-between', onclick: () => { if (!sel) { S.dessinSel = p.id; redessiner(); } } },
-            h('b', {}, p.nom + ' · ' + String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m'),
+          h('div', { class: 'rang', style: 'justify-content:space-between', onclick: () => { if (!sel) { S.dessinSel = p.id; S.dessinSym = null; redessiner(); } } },
+            h('b', {}, p.nom + ' · ' + String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m' + (ouvs.length ? ' · ' + ouvs.length + ' ouv.' : '')),
             h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer ' + p.nom, onclick: e => { e.stopPropagation(); if (!confirm('Supprimer « ' + p.nom + ' » ?')) return;
-              majDessin(x => { x.pieces = x.pieces.filter(y => y.id !== p.id); x.pieces.forEach(y => { if (y.contre && y.contre.id === p.id) delete y.contre; }); }); } }, '🗑')),
+              majDessin(x => { x.pieces = x.pieces.filter(y => y.id !== p.id); x.ouvertures = x.ouvertures.filter(o => o.piece !== p.id); x.pieces.forEach(y => { if (y.contre && y.contre.id === p.id) delete y.contre; }); }); } }, '🗑')),
           sel ? [
             h('label', { class: 'champ' }, 'NOM', h('input', { class: 'in', name: 'dessin-nom', value: p.nom, autocapitalize: 'sentences', onchange: e => maj(q => { q.nom = e.target.value.trim() || 'Pièce'; }) })),
             h('div', { class: 'puces' }, M.PIECES_COURANTES.slice(0, 10).map(n => h('button', { class: 'puce' + (p.nom === n ? ' on' : ''), type: 'button', onclick: () => maj(q => { q.nom = n; }) }, n))),
             reglageMetres(p.longueur, 'LONGUEUR (gauche ↔ droite)', 'dessin-longueur', 0.1, x => maj(q => { q.longueur = x; })),
             reglageMetres(p.largeur, 'LARGEUR (haut ↕ bas)', 'dessin-largeur', 0.1, x => maj(q => { q.largeur = x; })),
+            // portes, fenêtres, passages : sur un côté de la pièce
+            h('div', { class: 'champ' }, 'PORTES ET FENÊTRES'),
+            ouvs.map(o => {
+              const ty = DR.TYPES_OUVERTURE.find(z => z[0] === o.type) || DR.TYPES_OUVERTURE[0], lat = o.cote === 'gauche' || o.cote === 'droite';
+              const majO = f => majDessin(x => { const q = x.ouvertures.find(z => z.id === o.id); if (q) f(q); });
+              const longCote = r ? (lat ? r.y1 - r.y0 : r.x1 - r.x0) : 10;
+              return h('div', { class: 'ouvDessin', 'data-ouv': o.id },
+                h('div', { class: 'rang', style: 'justify-content:space-between' }, h('b', { style: 'color:' + COUL_OUV[o.type] }, ty[1]),
+                  h('button', { class: 'puce', type: 'button', 'aria-label': 'Retirer ' + ty[1], onclick: () => majDessin(x => { x.ouvertures = x.ouvertures.filter(z => z.id !== o.id); }) }, '🗑')),
+                h('div', { class: 'puces' }, COTES_OUV.map(([c, lib]) => h('button', { class: 'puce' + (o.cote === c ? ' on' : ''), type: 'button', 'data-cote': c, onclick: () => majO(q => { q.cote = c; q.position = 0.3; }) }, lib))),
+                reglageMetres(o.position || 0, lat ? 'DEPUIS LE HAUT' : 'DEPUIS LA GAUCHE', 'ouv-position', 0.1, x => majO(q => { q.position = x; }), 0, ' m', Math.max(0, longCote - (DRnb(o.largeur) || 0.9))),
+                reglageMetres(o.largeur || ty[2], 'LARGEUR', 'ouv-largeur', 0.05, x => majO(q => { q.largeur = x; }), 0.3, ' m', 6));
+            }),
+            h('div', { class: 'puces' }, DR.TYPES_OUVERTURE.map(ty => h('button', { class: 'puce', type: 'button', 'data-ajout-ouverture': ty[0],
+              onclick: () => maj((q, x) => { const w = ty[2], L = DRnb(q.longueur) || 3; x.ouvertures.push({ id: M.nouvelId().slice(0, 8), piece: q.id, type: ty[0], cote: 'bas', position: Math.max(0, Math.round((L - w) / 2 * 100) / 100), largeur: w }); }) }, '＋ ' + ty[1]))),
+            noms.length > 1 ? [h('div', { class: 'champ' }, 'À L’ÉTAGE'), h('div', { class: 'puces' }, noms.map((nom, j) => h('button', { class: 'puce' + ((p.etage || 0) === j ? ' on' : ''), type: 'button',
+              onclick: () => maj(q => { q.etage = j; if (r) q.libre = { x: r.x0, y: r.y0 }; delete q.contre; S.dessinEtage = j; }) }, nom)))] : null,
             autres.length ? [
-              h('div', { class: 'champ' }, 'POSÉE'),
+              h('div', { class: 'champ' }, 'OU POSÉE PRÉCISÉMENT'),
               h('div', { class: 'puces' }, DR.COTES.map(([c, lib]) => h('button', { class: 'puce' + (p.contre && p.contre.cote === c ? ' on' : ''), type: 'button',
-                onclick: () => maj(q => { q.contre = { id: (q.contre && q.contre.id) || autres[autres.length - 1].id, cote: c, decalage: 0 }; }) }, lib))),
-              h('label', { class: 'champ' }, 'CONTRE LA PIÈCE', h('select', { class: 'in', name: 'dessin-contre', onchange: e => maj(q => { q.contre = e.target.value ? { id: e.target.value, cote: (q.contre && q.contre.cote) || 'droite', decalage: 0 } : undefined; }) },
-                h('option', { value: '' }, 'Aucune (posée à part)'), autres.map(o => h('option', { value: o.id, selected: p.contre && p.contre.id === o.id }, o.nom)))),
-              p.contre ? reglageMetres(p.contre.decalage || 0, 'DÉCALAGE LE LONG DU MUR', 'dessin-decalage', 0.1, x => maj(q => { q.contre.decalage = x; }), -50) : null] : null] : null);
+                onclick: () => maj(q => { delete q.libre; q.contre = { id: (q.contre && q.contre.id) || autres[autres.length - 1].id, cote: c, decalage: 0 }; }) }, lib))),
+              h('label', { class: 'champ' }, 'CONTRE LA PIÈCE', h('select', { class: 'in', name: 'dessin-contre', onchange: e => maj(q => { delete q.libre; q.contre = e.target.value ? { id: e.target.value, cote: (q.contre && q.contre.cote) || 'droite', decalage: 0 } : undefined; }) },
+                h('option', { value: '' }, p.libre ? 'Posée au doigt' : 'Aucune (posée à part)'), autres.map(o => h('option', { value: o.id, selected: !p.libre && p.contre && p.contre.id === o.id }, o.nom)))),
+              p.contre && !p.libre ? reglageMetres(p.contre.decalage || 0, 'DÉCALAGE LE LONG DU MUR', 'dessin-decalage', 0.1, x => maj(q => { q.contre.decalage = x; }), -50) : null] : null] : null);
       }),
       h('button', { class: 'gros sec', id: 'ajouterPieceDessin', type: 'button', onclick: ajouter, style: 'margin-top:4px' }, '＋ Ajouter une pièce'),
+      h('h2', { style: 'margin-top:16px' }, 'Équipements et escalier'),
+      h('p', { class: 'mut petit' }, 'Posés au centre de la pièce sélectionnée, puis glissés à leur place.'),
+      h('div', { class: 'puces symbolesPalette' }, DR.TYPES_SYMBOLE.map(ty => h('button', { class: 'puce', type: 'button', 'data-ajout-symbole': ty[0], onclick: () => ajouterSymbole(ty) }, ty[2] + ' ' + ty[1]))),
+      h('h2', { style: 'margin-top:16px' }, 'Toiture'),
+      h('div', { class: 'puces' }, DR.TYPES_TOITURE.map(([c, lib]) => h('button', { class: 'puce' + (toit.type === c ? ' on' : ''), type: 'button', 'data-toiture': c,
+        onclick: () => majDessin(x => { x.toiture = c === 'aucune' ? { type: 'aucune' } : { ...(x.toiture || {}), type: c, angle: (x.toiture && x.toiture.angle) || (c === 'plat' ? 2 : c === '1pente' ? 15 : 35) }; }) }, lib))),
+      toit.type && toit.type !== 'aucune' && toit.type !== 'plat' ? reglageMetres(toit.angle || 35, 'PENTE', 'toiture-angle', 5, x => majDessin(y => { y.toiture = { ...(y.toiture || {}), angle: x }; }), 5, ' °', 70) : null,
+      toit.type && toit.type !== 'aucune' ? h('p', { class: 'mut petit' }, 'Sur les pièces de l’étage le plus haut ; visible en 3D dans le plan.') : null,
       reglageMetres(d.hauteur || 2.5, 'HAUTEUR SOUS PLAFOND', 'dessin-hauteur', 0.05, x => majDessin(y => { y.hauteur = x; }), 1.8)),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' },
       h('button', { class: 'gros sec', onclick: retour }, '‹ Visite'),

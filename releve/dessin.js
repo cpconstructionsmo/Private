@@ -27,7 +27,9 @@ export function placer(pieces) {
     if (!(L >= 0.3 && L <= 50 && W >= 0.3 && W <= 50)) { erreurs.push((p.nom || 'Pièce ' + (i + 1)) + ' : longueur et largeur entre 0,30 et 50 m.'); return; }
     const c = p.contre && rect.get(p.contre.id), d = nb(p.contre && p.contre.decalage) || 0;
     let x0 = 0, y0 = 0;
-    if (!c) {
+    // posée au doigt, où l'on veut : sa position (coin haut-gauche) l'emporte
+    if (p.libre && nb(p.libre.x) != null && nb(p.libre.y) != null) { x0 = nb(p.libre.x); y0 = nb(p.libre.y); }
+    else if (!c) {
       // la première pièce à l'origine ; une pièce sans voisine se pose à droite de tout
       if (rect.size) x0 = Math.max(...[...rect.values()].map(r => r.x1)) + 1;
     } else if (p.contre.cote === 'droite') { x0 = c.x1; y0 = c.y0 + d; }
@@ -43,6 +45,7 @@ export function placer(pieces) {
 export function chevauchements(pieces, rect) {
   const L = (pieces || []).filter(p => rect.has(p.id)), res = [];
   for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+    if ((L[i].etage || 0) !== (L[j].etage || 0)) continue;          // deux étages se superposent, normalement
     const a = rect.get(L[i].id), b = rect.get(L[j].id);
     const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), oy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
     if (ox > 0.01 && oy > 0.01) res.push([L[i].nom, L[j].nom]);
@@ -74,24 +77,128 @@ function contour(r, autres) {
   return P.map(([x, y]) => [r3(x), r3(y)]);
 }
 
-/* le relevé au format du moteur, et son résumé */
-export function releveDepuisDessin(pieces, { projet = 'Dessin rapide', hauteur = 2.5 } = {}) {
+/* le relevé au format du moteur, et son résumé ; `etages` (noms), `ouvertures`,
+   `symboles` et `toiture` viennent du dessin (voir plus bas) */
+export function releveDepuisDessin(pieces, { projet = 'Dessin rapide', hauteur = 2.5, etages, ouvertures, symboles, toiture } = {}) {
   const { rect, erreurs } = placer(pieces);
   const ch = chevauchements(pieces, rect);
   ch.forEach(([a, b]) => erreurs.push('« ' + a + ' » et « ' + b + ' » se chevauchent : changez le côté ou le décalage.'));
   const H = nb(hauteur) >= 1.8 && nb(hauteur) <= 6 ? nb(hauteur) : 2.5;
   const posees = (pieces || []).filter(p => rect.has(p.id));
+  const noms = nomsEtages(etages, posees);
+  const et = p => Math.min(noms.length - 1, Math.max(0, Number.isInteger(p.etage) ? p.etage : 0));
+  // les coins des voisines ne se posent que sur les murs du même étage
+  const contours = new Map(posees.map(p => [p.id, contour(rect.get(p.id), posees.filter(o => o !== p && et(o) === et(p)).map(o => rect.get(o.id)))]));
+  const ouv = ouverturesMoteur(ouvertures, posees, rect, contours);
+  ouv.erreurs.forEach(e => erreurs.push(e));
   const donnees = {
     projet, client: '', adresse: '', date: new Date().toISOString().slice(0, 10), hauteurSousPlafond: H, epaisseurMur: 0.1,
-    pieces: posees.map(p => { const pts = contour(rect.get(p.id), posees.filter(o => o !== p).map(o => rect.get(o.id)));
-      return { id: 'd-' + p.id, nom: String(p.nom || 'Pièce'), points: pts, pointsScan: pts.map(q => [q[0], q[1]]), hauteur: H, dessinRapide: true }; }),
-    ouvertures: [], dessinRapide: true,
+    etages: noms.map(nom => ({ nom })),
+    pieces: posees.map(p => { const pts = contours.get(p.id);
+      return { id: 'd-' + p.id, nom: String(p.nom || 'Pièce'), etage: et(p), points: pts, pointsScan: pts.map(q => [q[0], q[1]]), hauteur: H, dessinRapide: true }; }),
+    ouvertures: ouv.liste, symboles: symbolesMoteur(symboles, noms.length), toitures: toituresMoteur(toiture, posees.map(p => ({ id: 'd-' + p.id, etage: et(p) }))), dessinRapide: true,
   };
-  const detail = posees.map(p => { const r = rect.get(p.id), L = r.x1 - r.x0, W = r.y1 - r.y0;
-    return { id: 'd-' + p.id, nom: String(p.nom || 'Pièce'), etage: 0, sol: Math.round(L * W * 100) / 100, perimetre: Math.round(2 * (L + W) * 100) / 100,
-      hauteur: H, murs: Math.round(2 * (L + W) * H * 100) / 100, portes: 0, fenetres: 0 }; });
+  const compte = (id, type) => ouv.liste.filter(o => o.piece === id && (type === 'fenetre' ? o.type === 'fenetre' : o.type !== 'fenetre')).length;
+  const detail = posees.map(p => { const r = rect.get(p.id), L = r.x1 - r.x0, W = r.y1 - r.y0, id = 'd-' + p.id;
+    return { id, nom: String(p.nom || 'Pièce'), etage: et(p), sol: Math.round(L * W * 100) / 100, perimetre: Math.round(2 * (L + W) * 100) / 100,
+      hauteur: H, murs: Math.round(2 * (L + W) * H * 100) / 100, portes: compte(id, 'porte'), fenetres: compte(id, 'fenetre') }; });
   const surface = Math.round(detail.reduce((t, d) => t + d.sol, 0) * 100) / 100;
-  return { donnees, resume: { projet, pieces: detail.length, surface, ouvertures: 0, detail }, erreurs, rect };
+  return { donnees, resume: { projet, pieces: detail.length, surface, ouvertures: ouv.liste.length, detail }, erreurs, rect };
+}
+
+/* ==========================================================================
+   Le dessin rapide complet : étages, pièces posées au doigt (aimantées),
+   portes et fenêtres sur un côté de pièce, symboles (chauffage, sanitaires,
+   tableau électrique, trémie d'escalier), toiture. Fonctions pures,
+   converties au format du moteur de relevé (releve/moteur/moteur.js).
+   ========================================================================== */
+export const ETAGE_DEFAUT = 'Rez-de-chaussée';
+export function nomsEtages(etages, pieces) {
+  const n = Math.max(1, Array.isArray(etages) ? etages.length : 0, ...(pieces || []).map(p => (Number.isInteger(p.etage) ? p.etage : 0) + 1));
+  return Array.from({ length: Math.min(n, 6) }, (_, i) => String((Array.isArray(etages) && etages[i]) || (i === 0 ? ETAGE_DEFAUT : 'Étage ' + i)).slice(0, 40));
+}
+
+/* aimanter : un rectangle déplacé au doigt colle aux bords des autres pièces
+   (à moins de `seuil` mètres), en x et en y séparément */
+export function aimanter(r, autres, seuil = 0.3) {
+  const L = r.x1 - r.x0, W = r.y1 - r.y0;
+  const meilleur = (positions, cibles) => {
+    let best = null;
+    positions.forEach(([val, decal]) => cibles.forEach(c => { const d = Math.abs(val - c); if (d <= seuil && (!best || d < best.d)) best = { d, v: c - decal }; }));
+    return best;
+  };
+  const xs = (autres || []).flatMap(o => [o.x0, o.x1]), ys = (autres || []).flatMap(o => [o.y0, o.y1]);
+  const bx = meilleur([[r.x0, 0], [r.x1, L]], xs), by = meilleur([[r.y0, 0], [r.y1, W]], ys);
+  return { x: r3(bx ? bx.v : r.x0), y: r3(by ? by.v : r.y0) };
+}
+
+/* une porte ou une fenêtre posée sur un côté de pièce : { id, piece, type,
+   cote : 'haut'|'droite'|'bas'|'gauche', position (m depuis la gauche ou le
+   haut du côté), largeur } → l'ouverture du moteur, sur le bon mur du contour
+   (un côté peut être coupé en plusieurs murs par les coins des voisines) */
+export const TYPES_OUVERTURE = [['porte', 'Porte', 0.83], ['fenetre', 'Fenêtre', 1.2], ['portefenetre', 'Porte-fenêtre', 1.6], ['passage', 'Passage', 0.9]];
+export function ouverturesMoteur(ouvertures, pieces, rect, contours) {
+  const liste = [], erreurs = [];
+  (Array.isArray(ouvertures) ? ouvertures : []).forEach(o => {
+    const p = (pieces || []).find(x => x.id === o.piece), r = p && rect.get(p.id), pts = p && contours.get(p.id);
+    if (!r || !pts) return;
+    const lib = (TYPES_OUVERTURE.find(t => t[0] === o.type) || TYPES_OUVERTURE[0])[1] + ' de « ' + (p.nom || 'Pièce') + ' »';
+    const w = nb(o.largeur), pos = Math.max(0, nb(o.position) || 0), cote = ['haut', 'droite', 'bas', 'gauche'].includes(o.cote) ? o.cote : 'bas';
+    const longCote = cote === 'haut' || cote === 'bas' ? r.x1 - r.x0 : r.y1 - r.y0;
+    if (!(w >= 0.3 && w <= 6)) { erreurs.push(lib + ' : largeur entre 0,30 et 6 m.'); return; }
+    if (pos + w > longCote + 0.005) { erreurs.push(lib + ' : dépasse du mur (' + String(r3(pos + w)).replace('.', ',') + ' m pour ' + String(r3(longCote)).replace('.', ',') + ' m).'); return; }
+    // l'intervalle de l'ouverture, en coordonnées du plan, le long du côté
+    const a = (cote === 'haut' || cote === 'bas' ? r.x0 : r.y0) + pos, b = a + w;
+    const n = pts.length;
+    let trouve = null;
+    for (let i = 0; i < n; i++) {
+      const P = pts[i], Q = pts[(i + 1) % n];
+      const surCote = cote === 'haut' ? Math.abs(P[1] - r.y0) < 1e-6 && Math.abs(Q[1] - r.y0) < 1e-6 && Q[0] > P[0]
+        : cote === 'bas' ? Math.abs(P[1] - r.y1) < 1e-6 && Math.abs(Q[1] - r.y1) < 1e-6 && Q[0] < P[0]
+        : cote === 'droite' ? Math.abs(P[0] - r.x1) < 1e-6 && Math.abs(Q[0] - r.x1) < 1e-6 && Q[1] > P[1]
+        : Math.abs(P[0] - r.x0) < 1e-6 && Math.abs(Q[0] - r.x0) < 1e-6 && Q[1] < P[1];
+      if (!surCote) continue;
+      const lo = cote === 'haut' || cote === 'bas' ? Math.min(P[0], Q[0]) : Math.min(P[1], Q[1]), hi = cote === 'haut' || cote === 'bas' ? Math.max(P[0], Q[0]) : Math.max(P[1], Q[1]);
+      if (a >= lo - 1e-6 && a < hi - 1e-6) { trouve = { i, lo, hi }; break; }
+    }
+    if (!trouve) { erreurs.push(lib + ' : mur introuvable.'); return; }
+    // le mur est coupé (coin d'une voisine) : l'ouverture est ramenée dans le mur si elle y tient
+    let A = a, B = b;
+    if (B > trouve.hi + 0.005) { if (trouve.hi - trouve.lo < w - 0.005) { erreurs.push(lib + ' : à cheval sur deux murs (une pièce voisine coupe ce côté) : déplacez-la.'); return; } A = trouve.hi - w; B = trouve.hi; }
+    // position du moteur : depuis le début du mur, dans le sens du contour
+    const position = cote === 'haut' || cote === 'droite' ? A - trouve.lo : trouve.hi - B;
+    const type = o.type === 'portefenetre' ? 'fenetre' : o.type === 'fenetre' || o.type === 'passage' ? o.type : 'porte';
+    liste.push({ type, piece: 'd-' + p.id, mur: trouve.i, position: r3(position), largeur: r3(w),
+      ...(o.type === 'portefenetre' ? { hauteur: 2.15, allege: 0 } : {}), ...(o.charniere === 'fin' ? { charniere: 'fin' } : {}), ...(o.sens === 'inverse' ? { sens: 'inverse' } : {}), dessin: o.id });
+  });
+  return { liste, erreurs };
+}
+
+/* les symboles : équipements posés sur le plan (centre x, y en mètres, rotation par quarts de tour) */
+export const TYPES_SYMBOLE = [
+  ['radiateur', 'Radiateur', '♨️', 1.0, 0.12], ['chaudiere', 'Chaudière', '🔥', 0.6, 0.6], ['cumulus', 'Chauffe-eau', '💧', 0.6, 0.6], ['poele', 'Poêle', '🪵', 0.6, 0.6],
+  ['wc', 'WC', '🚽', 0.4, 0.65], ['lavabo', 'Lavabo', '🪥', 0.6, 0.45], ['douche', 'Douche', '🚿', 0.9, 0.9], ['baignoire', 'Baignoire', '🛁', 1.7, 0.75],
+  ['evier', 'Évier', '🍽️', 1.2, 0.6], ['tableau', 'Tableau électrique', '⚡', 0.5, 0.15], ['escalier', 'Trémie d’escalier', '🪜', 2.6, 0.9],
+];
+export function symbolesMoteur(symboles, nbEtages = 1) {
+  return (Array.isArray(symboles) ? symboles : []).map(s => {
+    const t = TYPES_SYMBOLE.find(x => x[0] === (s && s.type)); if (!t) return null;
+    const x = nb(s.x), y = nb(s.y); if (x == null || y == null) return null;
+    const l = nb(s.l), w = nb(s.w);
+    return { id: String(s.id || ''), type: t[0], etage: Math.min(nbEtages - 1, Math.max(0, Number.isInteger(s.etage) ? s.etage : 0)), x: r3(x), y: r3(y),
+      rot: [0, 90, 180, 270].includes(s.rot) ? s.rot : 0, l: l >= 0.1 && l <= 10 ? r3(l) : t[3], w: w >= 0.05 && w <= 10 ? r3(w) : t[4] };
+  }).filter(Boolean).slice(0, 200);
+}
+
+/* la toiture : sur les pièces de l'étage le plus haut (le moteur la dessine et la montre en 3D) */
+export const TYPES_TOITURE = [['aucune', 'Pas de toiture'], ['plat', 'Toit plat'], ['1pente', '1 pente'], ['2pentes', '2 pentes'], ['4pentes', '4 pentes']];
+export function toituresMoteur(toiture, pieces) {
+  const t = toiture && TYPES_TOITURE.some(x => x[0] === toiture.type) ? toiture : null;
+  if (!t || t.type === 'aucune' || !(pieces || []).length) return [];
+  const haut = Math.max(...pieces.map(p => p.etage || 0));
+  const a = nb(t.angle);
+  return [{ id: 't-dessin', nom: 'Toiture', type: t.type, pieces: pieces.filter(p => (p.etage || 0) === haut).map(p => p.id),
+    ...(a != null && a >= 0 && a <= 70 ? { angle: a } : {}), ...(t.couverture ? { couverture: String(t.couverture).slice(0, 60) } : {}) }];
 }
 
 /* ==========================================================================
