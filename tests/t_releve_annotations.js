@@ -22,5 +22,12 @@ const {chk,fin}=verif();
   const ops=[];const ctx=new Proxy({measureText:t=>({width:t.length*5})},{get:(o,k)=>k in o?o[k]:(...x)=>ops.push(k),set:(o,k,v)=>{o[k]=v;return true}});
   A.rendre(ctx,1000,800,a.elements);
   chk(ops.includes('stroke')&&ops.includes('fill')&&ops.includes('fillText'),'rendu : traits, pointe de flèche et texte dessinés');
+  /* le texte : taille, style, toucher pour le reprendre */
+  const tx=A.nettoyer({elements:[{type:'texte',c:'#111111',x:0.5,y:0.5,t:'A',taille:'xl',police:'manuscrit'},{type:'texte',c:'#111111',x:0.1,y:0.1,t:'B',taille:'géant',police:'gothique'}]}).elements;
+  chk(tx[0].taille==='xl'&&tx[0].police==='manuscrit'&&tx[1].taille==='m'&&tx[1].police==='normal','texte : taille et style gardés ; inconnus → moyen, normal');
+  const ctx2={font:'',textBaseline:'',measureText:t=>({width:t.length*10})};
+  const bx=A.boiteTexte(ctx2,1000,800,{x:0.5,y:0.5,t:'Démolir / mur',taille:'l',police:'capitales'});
+  chk(bx.lignes.join('|')==='DÉMOLIR|MUR'&&bx.fs===50&&/700 50px/.test(ctx2.font),'boîte du texte : lignes (« / »), capitales, taille grand (50 px pour 1000 px)');
+  chk(A.texteSous(ctx2,1000,800,[{type:'trait',p:[[0,0],[1,1]]},{type:'texte',x:0.5,y:0.5,t:'Texte',taille:'m',police:'normal'}],505,402)===1&&A.texteSous(ctx2,1000,800,[{type:'texte',x:0.5,y:0.5,t:'X',taille:'m',police:'normal'}],50,50)===-1,'toucher un texte le retrouve ; ailleurs, rien');
   fin();
 })();
