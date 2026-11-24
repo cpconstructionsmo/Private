@@ -779,14 +779,18 @@ class Vue3D {
     this.rendre();
   }
   /* image JPEG haute définition de la vue actuelle (pour le PDF) */
-  instantane(w, h) {
+  /* la vue actuelle en JPEG (data URL) : pour le PDF et pour le dossier client */
+  jpeg(w, h, q) {
     if (!this.ok || !this.group) return null;
-    const W = this.el.clientWidth, Hh = this.el.clientHeight;
     this.renderer.setPixelRatio(1); this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
     this.rendre();
-    const url = this.renderer.domElement.toDataURL('image/jpeg', 0.92);
+    const url = this.renderer.domElement.toDataURL('image/jpeg', q || 0.92);
     this.redimensionner();
+    return url;
+  }
+  instantane(w, h) {
+    const url = this.jpeg(w, h); if (!url) return null;
     const bin = atob(url.split(',')[1]), bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return { bytes, w, h };
@@ -2515,6 +2519,11 @@ const arr2 = v => Math.round((+v || 0) * 100) / 100;
    client : dessinée hors écran avec le même pinceau que le plan à l'écran.
    Envoyée seulement à la fermeture du plan (« releve:vider »), pas à
    chaque retouche : la visite ne la garde que si elle a changé. */
+/* l'image de la vue 3D, pour le dossier client : la vue telle que le métreur l'a laissée (tournée,
+   étages, toitures), envoyée avec l'image du plan à la fermeture. Sans WebGL : pas d'image. */
+function image3D() {
+  try { if (!v3d.ok) return null; if (!v3d.group && modele) v3d.construire(modele); return v3d.jpeg(1600, 1000, 0.86); } catch (e) { return null; }
+}
 function imagePlan() {
   try {
     const Mp = tourner(modele, modele.rotation), marge = 60;
@@ -2540,7 +2549,7 @@ function envoyerVisite(avecImage) {
   [...(releve.pieces || []).flatMap(q => q.photos || []), ...(releve.documents || [])]
     .forEach(ph => { if (photosMem.has(ph.id) && !pont.envoyees.has(ph.id)) images[ph.id] = photosMem.get(ph.id); });
   const nq = nomenclatureSymboles(modele);
-  versVisite({ type: 'releve:enregistrer', releve, images, imagePlan: avecImage ? imagePlan() : null,
+  versVisite({ type: 'releve:enregistrer', releve, images, imagePlan: avecImage ? imagePlan() : null, image3d: avecImage ? image3D() : null,
     resume: { projet: modele.projet, pieces: modele.rooms.length, surface: Math.round(modele.totalAire * 100) / 100, ouvertures: modele.openings.length,
       /* les quantités de chaque pièce, pour la fourchette de prix de la visite
          (releve/budget.js) : calculées ici, là où le plan est analysé */

@@ -37,6 +37,10 @@ const {chk,fin}=verif();
   const d2=D.dossierClient(v,{table:B.OUVRAGES,estimation:false,imagines:false,notesPieces:true,enveloppe:true});
   chk(d2.estimation===null&&d2.pieces[0].photos[0].imagines.length===0&&d2.pieces[0].note==='Garder le carrelage.'&&d2.projet.enveloppe===30000,'options : sans estimation, sans images imaginées, avec notes des pièces et budget envisagé');
 
+  /* la vue 3D du plan : dans le dossier d'office, retirée si l'option est décochée */
+  let v3=M.modifier(M.ajouterPhoto(v,{id:'v3',role:'dessin3d'}),'plan3dImage',{id:'v3',empreinte:'x'});
+  chk(D.dossierClient(v3,{table:B.OUVRAGES}).vue3d.id==='v3'&&D.dossierClient(v3,{table:B.OUVRAGES,vue3d:false}).vue3d===null&&D.dossierClient(v,{table:B.OUVRAGES}).vue3d===null,'vue 3D : dans le dossier d’office, retirée si décochée, absente sans image');
+  chk(D.OPTIONS_DEFAUT.vue3d===true&&D.OPTIONS_DEFAUT.planAnnote===false,'options par défaut : vue 3D cochée, plan annoté décoché (comme avant)');
   /* une société */
   let s=M.nouvelleVisite();s=M.modifier(s,'client.type','societe');s=M.modifier(s,'societe.raisonSociale','FICTIVE IMMO');s=M.modifier(s,'societe.forme','SCI');s=M.modifier(s,'client.nom','GÉRANT');
   const ds=D.dossierClient(s,{table:B.OUVRAGES});
