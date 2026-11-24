@@ -110,6 +110,15 @@ let b;
   await toucherSym();await cadre.locator('#syStd').click();
   await fr.waitForFunction(()=>{const s=window.__releve.donnees().symboles[0];return s.l===0.4&&s.w===0.65&&s.rot===90});
   chk(true,'« Taille standard » la remet (0,40 × 0,65 m), le quart de tour reste');
+  /* le tableau des équipements : sous le plan et dans le PDF */
+  const NQ=await fr.evaluate(()=>{const M=window.__releve.analyser(window.__releve.donnees());const N=window.__releve.nomenclature(M);
+    return {n:N.parPiece.length,tot:JSON.stringify(N.totaux),piece:N.parPiece[0]&&N.parPiece[0].nom,ecran:document.getElementById('tabEquip').textContent,vu:!document.getElementById('titreEquip').hidden}});
+  chk(NQ.tot==='[["wc",1]]'&&NQ.n===1&&NQ.piece&&NQ.piece!=='Hors pièce','équipements comptés pièce par pièce : 1 WC dans « '+NQ.piece+' »');
+  chk(NQ.vu&&/1 × WC/.test(NQ.ecran),'le tableau « Équipements » s’affiche sous le plan');
+  const PDFT=await fr.evaluate(async()=>{const b=window.__releve.pdf(window.__releve.analyser(window.__releve.donnees()));const t=await (b.text?b.text():new Response(b).text());return /quipements par pi/.test(t)&&/quipements : total/.test(t)});
+  chk(PDFT,'et dans le PDF (tableaux « Équipements par pièce » et « Équipements : total »)');
+  chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const pl=L[0]&&L[0].donnees.valeurs.plan;const r=pl&&pl.resume;
+    return !!(r&&r.equipements&&r.equipements.wc===1&&r.detail.some(x=>x.equip&&x.equip.wc===1))},15000),'les équipements comptés partent avec le résumé du plan (pour le chiffrage du suivi)');
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const pl=L[0]&&L[0].donnees.valeurs.plan;return !!(pl&&pl.releve.symboles&&pl.releve.symboles[0]&&pl.releve.symboles[0].rot===90)},15000),'le symbole part avec le plan de la visite');
 
   /* fermer puis rouvrir : rien n'est perdu, rien n'est redemandé */

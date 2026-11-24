@@ -361,6 +361,30 @@ const HAUTEURS_SYM = { radiateur: [0.15, 0.75], chaudiere: [1.0, 1.75], cumulus:
   plan_travail: [0, 0.9], tableau: [1.2, 1.8], prise: [0.25, 0.33], interrupteur: [1.0, 1.1], lumiere: 'plafond', vmc: 'plafond',
   lit: [0, 0.5], canape: [0, 0.8], table: [0, 0.75] };
 
+/* le tableau des équipements : combien de prises, de radiateurs, de points lumineux… pièce par pièce
+   (base du métré et de la consultation des artisans). Un symbole compte dans la pièce qui contient son
+   centre ; une prise ou un interrupteur posé sur le mur, centre juste dehors, va à la pièce la plus
+   proche (moins de 60 cm) ; sinon « hors pièce ». Ordre : celui des familles de la liste « ＋ Symbole ». */
+function nomenclatureSymboles(M) {
+  const ordre = FAMILLES_SYM.flatMap(f => f[1]), rang = t => { const i = ordre.indexOf(t); return i < 0 ? 999 : i; };
+  const dedans = (q, poly) => { let o = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j];
+    if ((a[1] > q[1]) !== (b[1] > q[1]) && q[0] < (b[0] - a[0]) * (q[1] - a[1]) / (b[1] - a[1]) + a[0]) o = !o; } return o; };
+  const distSeg = (q, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / L));
+    return Math.hypot(q[0] - a[0] - t * dx, q[1] - a[1] - t * dy); };
+  const pieces = new Map(), totaux = new Map();
+  (M.symboles || []).forEach(s => {
+    const q = [s.x, s.y], rs = (M.rooms || []).filter(r => r.etage === s.etage && r.pts && r.pts.length > 2);
+    let r = rs.find(x => dedans(q, x.pts));
+    if (!r) { let best = 0.6; rs.forEach(x => x.pts.forEach((a, i) => { const d = distSeg(q, a, x.pts[(i + 1) % x.pts.length]); if (d < best) { best = d; r = x; } })); }
+    const cle = r ? 'r' + M.rooms.indexOf(r) : 'h' + s.etage;
+    if (!pieces.has(cle)) pieces.set(cle, { ref: r || null, nom: r ? r.nom : 'Hors pièce', etage: s.etage, ordre: r ? M.rooms.indexOf(r) : 1e6 + s.etage, n: new Map() });
+    const P = pieces.get(cle); P.n.set(s.type, (P.n.get(s.type) || 0) + 1); totaux.set(s.type, (totaux.get(s.type) || 0) + 1);
+  });
+  const trier = m => [...m.entries()].sort((a, b) => rang(a[0]) - rang(b[0]));
+  return { parPiece: [...pieces.values()].sort((a, b) => a.etage - b.etage || a.ordre - b.ordre).map(P => ({ nom: P.nom, etage: P.etage, ref: P.ref, liste: trier(P.n) })), totaux: trier(totaux) };
+}
+const texteEquipements = liste => liste.map(([t, n]) => n + ' × ' + NOMS_SYM[t]).join(', ');
+
 function dessinerSymboles(b, M, T, fs) {
   (M.symboles || []).forEach(s => {
     const a = s.rot * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a), L = s.l / 2, W = s.w / 2;
@@ -907,6 +931,15 @@ function construirePdf(M, vue3d) {
   const demP = M.rooms.flatMap(r => r.edges.filter(e => e.demoli).map(e => [r, e]));
   if (demP.length) tableau('Murs à démolir', [{ t: 'Pièce', w: 220, a: 'l' }, { t: 'Étage', w: 160, a: 'l' }, { t: 'Mur', w: 180, a: 'l' }, { t: 'Longueur (m)', w: 222 }], demP.map(([r, e]) => [r.nom, M.etages[r.etage].nom, e.lettre + ' (n°' + e.i + ')', FR(e.len)]), null);
   if (M.cloisons.length) tableau('Murs ajoutés', [{ t: 'Mur', w: 100, a: 'l' }, { t: 'Étage', w: 220, a: 'l' }, { t: 'Longueur (m)', w: 150 }, { t: 'Épaisseur (m)', w: 150 }, { t: 'Hauteur (m)', w: 162 }], M.cloisons.map(c => ['M' + (c.idx + 1), M.etages[c.etage].nom, FR(c.len), FR3(c.ep), FR(c.h)]), null);
+  const NQp = nomenclatureSymboles(M);
+  if (NQp.totaux.length) {
+    // une ligne de tableau par tranche de ~95 caractères : une pièce très équipée reste lisible
+    const couper = t => { const out = []; let l = ''; t.split(', ').forEach(m => { if (l && (l + ', ' + m).length > (multi ? 78 : 95)) { out.push(l + ','); l = m; } else l = l ? l + ', ' + m : m; }); if (l) out.push(l); return out; };
+    const lignesEq = NQp.parPiece.flatMap(P => couper(texteEquipements(P.liste)).map((t, i) => i ? ['', ...(multi ? [''] : []), t, ''] : [P.nom, ...(multi ? [M.etages[P.etage].nom] : []), t, P.liste.reduce((a, x) => a + x[1], 0)]));
+    tableau('Équipements par pièce', multi ? [{ t: 'Pièce', w: 150, a: 'l' }, { t: 'Étage', w: 90, a: 'l' }, { t: 'Équipements', w: 482, a: 'l' }, { t: 'Nombre', w: 60 }] : [{ t: 'Pièce', w: 170, a: 'l' }, { t: 'Équipements', w: 552, a: 'l' }, { t: 'Nombre', w: 60 }],
+      lignesEq, null);
+    tableau('Équipements : total', [{ t: 'Équipement', w: 400, a: 'l' }, { t: 'Nombre', w: 382 }], NQp.totaux.map(([t, n]) => [NOMS_SYM[t], n]), ['Total', NQp.totaux.reduce((a, x) => a + x[1], 0)]);
+  }
   tableau('Ouvertures',
     [{ t: 'N°', w: 40, a: 'l' }, { t: 'Type', w: 80, a: 'l' }, { t: 'Pièce', w: 170, a: 'l' }, { t: 'Mur', w: 60 },
      { t: 'Largeur (m)', w: 100 }, { t: 'Hauteur (m)', w: 100 }, { t: 'Allège (m)', w: 100 }, { t: 'Surface (m²)', w: 132 }],
@@ -1155,6 +1188,11 @@ function remplirTableaux(M) {
       '<td>' + champ(e.mesure && r.src.mesuresMurs ? r.src.mesuresMurs[e.i] : e.len, e.mesure || e.wall.mesure, 'data-t="mur" data-i="' + ri + '" data-e="' + e.i + '"') + '</td><td>' +
       (e.mesure ? bouton('data-t="mur" data-i="' + ri + '" data-e="' + e.i + '"') : '') + '</td><td><input class="epMur" data-i="' + ri + '" data-e="' + e.i + '" inputmode="decimal" value="' + FR3(e.wall.ep) + '" aria-label="Épaisseur du mur en mètres"></td><td class="tdAj"><button type="button" class="btnPetit ajOuvRap" data-t="fenetre" data-i="' + ri + '" data-e="' + e.i + '">+ Fenêtre</button> <button type="button" class="btnPetit ajOuvRap" data-t="porte" data-i="' + ri + '" data-e="' + e.i + '">+ Porte</button></td><td class="tdNote"><input class="noteMur" data-i="' + ri + '" data-e="' + e.i + '" value="' + esc(e.noteMur) + '" placeholder="Ex. : refaire le placo" aria-label="Explicatif du mur"></td></tr>').join('')).join('');
 
+  const NQ = nomenclatureSymboles(M);
+  $('titreEquip').hidden = !NQ.totaux.length;
+  $('tabEquip').innerHTML = !NQ.totaux.length ? '' : ths('Pièce', ...(multi ? ['Étage'] : []), 'Équipements', 'Nombre') +
+    NQ.parPiece.map(P => '<tr>' + tds(P.nom, ...(multi ? [M.etages[P.etage].nom] : []), texteEquipements(P.liste), P.liste.reduce((a, x) => a + x[1], 0)) + '</tr>').join('') +
+    '<tr class="total"><td>Total</td>' + (multi ? '<td></td>' : '') + '<td>' + esc(texteEquipements(NQ.totaux)) + '</td><td>' + NQ.totaux.reduce((a, x) => a + x[1], 0) + '</td></tr>';
   remplirOuvertures(M);
   const ec = listeMesures(M);
   $('tabEcarts').innerHTML = ec.length ? ths('Élément', 'Scan (m)', 'Mesuré (m)', 'Écart (cm)', 'Écart (%)') +
@@ -2501,12 +2539,17 @@ function envoyerVisite(avecImage) {
   const releve = JSON.parse(JSON.stringify(donneesCourantes)), images = {};
   [...(releve.pieces || []).flatMap(q => q.photos || []), ...(releve.documents || [])]
     .forEach(ph => { if (photosMem.has(ph.id) && !pont.envoyees.has(ph.id)) images[ph.id] = photosMem.get(ph.id); });
+  const nq = nomenclatureSymboles(modele);
   versVisite({ type: 'releve:enregistrer', releve, images, imagePlan: avecImage ? imagePlan() : null,
     resume: { projet: modele.projet, pieces: modele.rooms.length, surface: Math.round(modele.totalAire * 100) / 100, ouvertures: modele.openings.length,
       /* les quantités de chaque pièce, pour la fourchette de prix de la visite
          (releve/budget.js) : calculées ici, là où le plan est analysé */
-      detail: modele.rooms.map(r => ({ id: r.id, nom: r.nom, etage: r.etage, sol: arr2(r.aire), perimetre: arr2(r.perim),
-        hauteur: arr2(r.hauteur), murs: arr2(r.mursNets), portes: r.portes || 0, fenetres: r.fenetres || 0 })) } });
+      /* et les équipements comptés pièce par pièce (nomenclatureSymboles) : le chiffrage du suivi peut y
+         prendre une quantité (« nombre de prises », « nombre de radiateurs »… : GRANDEURS_PLAN) */
+      detail: modele.rooms.map(r => { const P = nq.parPiece.find(x => x.ref === r);
+        return Object.assign({ id: r.id, nom: r.nom, etage: r.etage, sol: arr2(r.aire), perimetre: arr2(r.perim),
+          hauteur: arr2(r.hauteur), murs: arr2(r.mursNets), portes: r.portes || 0, fenetres: r.fenetres || 0 }, P ? { equip: Object.fromEntries(P.liste) } : {}); }),
+      ...(nq.totaux.length ? { equipements: Object.fromEntries(nq.totaux) } : {}) } });
 }
 window.addEventListener('message', e => {
   if (!pont.actif || e.source !== window.parent || e.origin !== location.origin) return;
@@ -2748,5 +2791,5 @@ initCompte();
 /* la visite peut envoyer le relevé à ouvrir */
 versVisite({ type: 'releve:pret' });
 
-window.__releve = { v3d: () => v3d, dxf: M => construireDxf(M), pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
+window.__releve = { v3d: () => v3d, dxf: M => construireDxf(M), nomenclature: M => nomenclatureSymboles(M), pdf: M => construirePdf(M, null), pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
 

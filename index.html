@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-23 · Visites annulées dans le relevé : retirées des visites à rattacher';
+const VERSION='2026-11-24 · Chiffrage : quantités tirées des équipements posés sur le plan du relevé';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -26825,12 +26825,20 @@ function visitesARattacher(resumes,prospects,ignorees){
    le plan change ; une quantité tapée à la main retire la règle : elle
    n'est plus jamais remplacée. Le signe (moins-value) est conservé.
    Tests : t_releve_chiffrage.js. */
+/* les équipements posés sur le plan du relevé (« ＋ Symbole », comptés pièce par pièce dans
+   x.equip) donnent aussi une quantité : grandeur « eq:<type> » (mêmes types que releve/moteur) */
+const EQUIPEMENTS_PLAN=[['radiateur','radiateurs'],['chaudiere','chaudières'],['cumulus','chauffe-eau'],['poele','poêles'],
+  ['wc','WC'],['lavabo','lavabos'],['douche','douches'],['baignoire','baignoires'],['evier','éviers'],['plaque','plaques de cuisson'],
+  ['lave_vaisselle','lave-vaisselle'],['lave_linge','lave-linge'],['tableau','tableaux électriques'],['prise','prises'],
+  ['interrupteur','interrupteurs'],['lumiere','points lumineux'],['vmc','bouches VMC'],['escalier','trémies d’escalier']];
 const GRANDEURS_PLAN=[['sol','Surface de sol (m²)'],['murs','Surface de murs, ouvertures déduites (m²)'],
-  ['perimetre','Périmètre des murs (ml)'],['portes','Nombre de portes'],['fenetres','Nombre de fenêtres'],['pieces','Nombre de pièces']];
+  ['perimetre','Périmètre des murs (ml)'],['portes','Nombre de portes'],['fenetres','Nombre de fenêtres'],['pieces','Nombre de pièces'],
+  ...EQUIPEMENTS_PLAN.map(([t,n])=>['eq:'+t,'Nombre de '+n+' (posés sur le plan)'])];
 function qtePlan(regle,pieces){
   if(!regle||!regle.grandeur||!Array.isArray(pieces)||!pieces.length)return null;
   const choix=regle.pieces||[], P=pieces.filter(x=>!choix.length||choix.includes(x.id));
   if(regle.grandeur==='pieces')return P.length;
+  if(regle.grandeur.startsWith('eq:')){const t=regle.grandeur.slice(3);return P.reduce((n,x)=>n+(+((x.equip||{})[t])||0),0);}
   return Math.round(P.reduce((t,x)=>t+(+x[regle.grandeur]||0),0)*100)/100;
 }
 /* le plan le plus récent parmi les visites du prospect */
