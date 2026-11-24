@@ -110,6 +110,14 @@ let b;
   await toucherSym();await cadre.locator('#syStd').click();
   await fr.waitForFunction(()=>{const s=window.__releve.donnees().symboles[0];return s.l===0.4&&s.w===0.65&&s.rot===90});
   chk(true,'« Taille standard » la remet (0,40 × 0,65 m), le quart de tour reste');
+  /* le nom d'une pièce se glisse dans le plan coté (il cachait une cote) */
+  await fr.evaluate(()=>document.getElementById('plan').scrollIntoView({block:'center'}));await p.waitForTimeout(300);
+  const zn=await fr.evaluate(()=>{const z=window.__releve.zones().find(z=>z.type==='piece');const r=document.getElementById('plan').getBoundingClientRect();return {x:r.left+z.x,y:r.top+z.y}});
+  const fb2=await p.locator('#cadrePlan').boundingBox();
+  await p.mouse.move(fb2.x+zn.x,fb2.y+zn.y);await p.mouse.down();await p.mouse.move(fb2.x+zn.x+20,fb2.y+zn.y+15,{steps:4});await p.mouse.move(fb2.x+zn.x+40,fb2.y+zn.y+30,{steps:4});await p.mouse.up();
+  await fr.waitForFunction(()=>!!window.__releve.donnees().pieces[0].etiquette);
+  const ZN=await fr.evaluate(()=>{const z=window.__releve.zones().find(z=>z.type==='piece');const r=document.getElementById('plan').getBoundingClientRect();return {x:r.left+z.x,y:r.top+z.y,e:window.__releve.donnees().pieces[0].etiquette}});
+  chk(ZN.e.dx!==0&&Math.abs(ZN.x-zn.x-40)<6&&Math.abs(ZN.y-zn.y-30)<6,'plan coté : le nom de la pièce glissé (il cachait une cote) reste où on le pose');
   /* le tableau des équipements : sous le plan et dans le PDF */
   const NQ=await fr.evaluate(()=>{const M=window.__releve.analyser(window.__releve.donnees());const N=window.__releve.nomenclature(M);
     return {n:N.parPiece.length,tot:JSON.stringify(N.totaux),piece:N.parPiece[0]&&N.parPiece[0].nom,ecran:document.getElementById('tabEquip').textContent,vu:!document.getElementById('titreEquip').hidden}});

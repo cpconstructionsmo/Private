@@ -1700,10 +1700,14 @@ function apercuDessin(d, R, opts = {}) {
   rs.forEach(({ p, r }) => {
     const sel = !opts.exporter && S.dessinSel === p.id, g = el('g', { 'data-piece-dessin': p.id, style: 'cursor:grab' });
     g.append(el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, fill: sel ? '#FCE9E3' : '#E7EEF2', stroke: sel ? '#C5563A' : '#2C4A5E', 'stroke-width': sel ? 0.12 : 0.08 }));
-    g.append(el('text', { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2, 'text-anchor': 'middle', 'font-size': t, 'font-weight': 700, fill: '#1A2B36' }, p.nom));
-    g.append(el('text', { x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2 + t * 1.2, 'text-anchor': 'middle', 'font-size': t * 0.8, fill: '#5E6B74' }, String(Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²'));
-    g.append(el('text', { x: (r.x0 + r.x1) / 2, y: r.y0 + t * 0.9, 'text-anchor': 'middle', 'font-size': t * 0.75, fill: '#2C4A5E' }, String(r3l(r.x1 - r.x0)).replace('.', ',')));
-    g.append(el('text', { x: r.x0 + t * 0.35, y: (r.y0 + r.y1) / 2, 'text-anchor': 'start', 'font-size': t * 0.75, fill: '#2C4A5E' }, String(r3l(r.y1 - r.y0)).replace('.', ',')));
+    // le nom (et la surface) peut être décalé s'il cache une cote ; un toucher sur une cote (ou le nom de la pièce sélectionnée) la modifie
+    const et = DR.etiquetteDe(p), nx = (r.x0 + r.x1) / 2 + et.dx, ny = (r.y0 + r.y1) / 2 + et.dy;
+    const nom = el('g', { 'data-edit': 'nom' });
+    nom.append(el('text', { x: nx, y: ny, 'text-anchor': 'middle', 'font-size': t, 'font-weight': 700, fill: '#1A2B36' }, p.nom));
+    nom.append(el('text', { x: nx, y: ny + t * 1.2, 'text-anchor': 'middle', 'font-size': t * 0.8, fill: '#5E6B74' }, String(Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²'));
+    g.append(nom);
+    g.append(el('text', { x: (r.x0 + r.x1) / 2, y: r.y0 + t * 0.9, 'text-anchor': 'middle', 'font-size': t * 0.75, fill: '#2C4A5E', 'data-edit': 'longueur', style: 'cursor:text' }, String(r3l(r.x1 - r.x0)).replace('.', ',')));
+    g.append(el('text', { x: r.x0 + t * 0.35, y: (r.y0 + r.y1) / 2, 'text-anchor': 'start', 'font-size': t * 0.75, fill: '#2C4A5E', 'data-edit': 'largeur', style: 'cursor:text' }, String(r3l(r.y1 - r.y0)).replace('.', ',')));
     // portes et fenêtres de la pièce : un trait de couleur sur le côté
     d.ouvertures.filter(o => o.piece === p.id).forEach(o => {
       const w = DRnb(o.largeur) || 0.9, pos = DRnb(o.position) || 0;
@@ -1727,6 +1731,19 @@ function apercuDessin(d, R, opts = {}) {
   return svg;
 }
 /* glisser au doigt dans l'aperçu (un doigt) ; le pincement (deux doigts) est géré par le cadre du zoom */
+/* un toucher sur le nom d'une pièce ou sur une cote de l'aperçu : la saisie se fait sur place */
+async function modifierSurDessin(id, champ) {
+  const d = dessinCourant(), p = d.pieces.find(x => x.id === id); if (!p) return;
+  if (champ === 'nom') {
+    const n = prompt('Nom de la pièce', p.nom); if (n == null) return;
+    return majDessin(x => { const q = x.pieces.find(z => z.id === id); if (q) q.nom = n.trim().slice(0, 40) || q.nom; S.dessinSel = id; });
+  }
+  const lib = champ === 'longueur' ? 'Longueur (gauche ↔ droite), en mètres' : 'Largeur (haut ↕ bas), en mètres';
+  const v = prompt(lib, String(p[champ]).replace('.', ',')); if (v == null) return;
+  const n = DRnb(v);
+  if (!(n >= 0.3 && n <= 50)) { S.message = { type: 'err', texte: 'Cote non prise : entre 0,30 et 50 m.' }; return redessiner(); }
+  return majDessin(x => { const q = x.pieces.find(z => z.id === id); if (q) q[champ] = Math.round(n * 100) / 100; S.dessinSel = id; });
+}
 function brancherGlisser(svg, d, R) {
   const pt = e => { const m = svg.getScreenCTM(); if (!m) return [0, 0]; const q = svg.createSVGPoint(); q.x = e.clientX; q.y = e.clientY; const r = q.matrixTransform(m.inverse()); return [r.x, r.y]; };
   let g = null;
@@ -1734,7 +1751,10 @@ function brancherGlisser(svg, d, R) {
     const cible = e.target.closest('[data-piece-dessin],[data-symbole]'); if (!cible || S.pinceDessin) return;
     e.preventDefault(); svg.setPointerCapture(e.pointerId);
     const piece = cible.dataset.pieceDessin, sym = cible.dataset.symbole, p0 = pt(e);
-    g = { el: cible, piece, sym, p0, ecran: [e.clientX, e.clientY], depl: [0, 0], bouge: false,
+    // un toucher sur une cote la change ; sur le nom de la pièce déjà sélectionnée, le renomme.
+    // Glisser déplace toujours la pièce, même saisie par son nom (le nom se déplace par les flèches de la fiche)
+    const edit0 = piece && e.target.closest('[data-edit]'), edit = edit0 && (edit0.dataset.edit !== 'nom' || S.dessinSel === piece) ? edit0 : null;
+    g = { el: cible, piece, sym, p0, ecran: [e.clientX, e.clientY], depl: [0, 0], bouge: false, edit: edit ? edit.dataset.edit : null, elEdit: edit,
       r: piece ? R.rect.get(piece) : null, s: sym ? d.symboles.find(x => x.id === sym) : null };
   });
   svg.addEventListener('pointermove', e => {
@@ -1756,6 +1776,7 @@ function brancherGlisser(svg, d, R) {
   });
   const fin = async () => {
     const x = g; g = null; if (!x) return;
+    if (!x.bouge && x.edit) return modifierSurDessin(x.piece, x.edit);   // un toucher sur le nom ou une cote : la changer
     if (!x.bouge) {   // un toucher : sélectionner (ou désélectionner)
       if (x.piece) { S.dessinSel = S.dessinSel === x.piece ? null : x.piece; S.dessinSym = null; }
       else { S.dessinSym = S.dessinSym === x.sym ? null : x.sym; S.dessinSel = null; }
@@ -1881,7 +1902,12 @@ function ecranDessin() {
     h('main', {},
       S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
       h('h1', {}, '✏️ Dessin rapide'),
-      h('p', { class: 'mut petit' }, 'Glissez une pièce ou un symbole pour le placer (une pièce s’aimante aux murs voisins), touchez-le pour le régler. Les cotes exactes se tapent ensuite dans le plan.'),
+      h('p', { class: 'mut petit' }, 'Glissez une pièce ou un symbole pour le placer, touchez-le pour le régler. Touchez une cote pour la changer ; sur la pièce sélectionnée, touchez son nom pour le renommer, ou décalez-le (« Position du nom ») s’il cache une cote.'),
+      // l'étape suivante, visible tout de suite : le dessin devient le plan coté 2D et la 3D
+      d.pieces.length ? h('div', { class: 'carte', id: 'etapePlan', style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap' },
+        h('button', { class: 'gros', type: 'button', id: 'creerPlanDessinHaut', style: 'flex:1 1 220px', onclick: creer }, '✓ Créer le plan 2D coté et la 3D'),
+        R.erreurs.length ? h('div', { class: 'message err', style: 'flex:1 1 100%;margin:0', id: 'erreursDessin' }, 'À corriger d’abord : ' + R.erreurs.join(' '))
+          : h('span', { class: 'mut petit', style: 'flex:1 1 200px' }, 'Le plan s’ouvre avec ses cotes, portes, fenêtres et équipements ; la 3D est juste en dessous.')) : null,
       // les étages
       h('div', { class: 'puces etagesDessin' }, noms.map((nom, i) => h('button', { class: 'puce' + (i === k ? ' on' : ''), type: 'button', 'data-etage': i, onclick: () => { S.dessinEtage = i; S.dessinSel = null; S.dessinSym = null; redessiner(); } }, nom)),
         noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
@@ -1922,6 +1948,14 @@ function ecranDessin() {
             reglageMetres(p.hauteur || d.hauteur || 2.5, 'HAUTEUR SOUS PLAFOND' + (p.hauteur ? '' : ' (celle du dessin)'), 'dessin-hauteur', 0.05, x => maj(q => { q.hauteur = x; }), 1.5, ' m', 8),
             h('label', { class: 'champ' }, 'NOTE DE LA PIÈCE (reprise dans le plan et le PDF)',
               h('textarea', { class: 'in', name: 'dessin-note', rows: 2, value: p.note || '', autocapitalize: 'sentences', placeholder: 'Ex. : mur à refaire, futur WC…', onchange: e => maj(q => { const t = e.target.value.trim(); if (t) q.note = t.slice(0, 600); else delete q.note; }) })),
+            // le nom cache une cote : on le décale par pas de 25 cm (repris dans le plan coté, où il se glisse aussi au doigt)
+            (() => { const et = DR.etiquetteDe(p), dec = (ddx, ddy) => maj(q => { const e = DR.etiquetteDe(q), nx = Math.round((e.dx + ddx) * 100) / 100, ny = Math.round((e.dy + ddy) * 100) / 100;
+                const bx = (DRnb(q.longueur) || 3) / 2, by = (DRnb(q.largeur) || 3) / 2, cx = Math.max(-bx, Math.min(bx, nx)), cy = Math.max(-by, Math.min(by, ny));
+                if (Math.abs(cx) < 0.01 && Math.abs(cy) < 0.01) delete q.etiquette; else q.etiquette = { dx: cx, dy: cy }; });
+              return h('div', { class: 'champ' }, 'POSITION DU NOM' + (et.dx || et.dy ? ' (décalé)' : ' (au centre)'),
+                h('div', { class: 'puces', id: 'positionNom' }, [['◀', -0.25, 0, 'gauche'], ['▲', 0, -0.25, 'haut'], ['▼', 0, 0.25, 'bas'], ['▶', 0.25, 0, 'droite']].map(([t, a, b, n]) =>
+                  h('button', { class: 'puce', type: 'button', 'data-nom-vers': n, 'aria-label': 'Décaler le nom vers la ' + n.replace('haut', 'haut').replace('bas', 'bas'), onclick: () => dec(a, b) }, t)),
+                  et.dx || et.dy ? h('button', { class: 'puce', type: 'button', 'data-nom-vers': 'centre', onclick: () => maj(q => { delete q.etiquette; }) }, 'Au centre') : null)); })(),
             // portes, fenêtres, passages : sur un côté de la pièce
             h('div', { class: 'champ' }, 'PORTES ET FENÊTRES'),
             ouvs.map(o => {
@@ -1963,7 +1997,7 @@ function ecranDessin() {
       reglageMetres(d.hauteur || 2.5, 'HAUTEUR SOUS PLAFOND', 'dessin-hauteur', 0.05, x => majDessin(y => { y.hauteur = x; }), 1.8)),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' },
       h('button', { class: 'gros sec', onclick: retour }, '‹ Visite'),
-      h('button', { class: 'gros', id: 'creerPlanDessin', onclick: creer }, '✓ Créer le plan'))),
+      h('button', { class: 'gros', id: 'creerPlanDessin', onclick: creer }, '✓ Créer le plan 2D coté et la 3D'))),
   ];
 }
 

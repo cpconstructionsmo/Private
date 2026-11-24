@@ -79,6 +79,8 @@ function contour(r, autres) {
 
 /* le relevé au format du moteur, et son résumé ; `etages` (noms), `ouvertures`,
    `symboles` et `toiture` viennent du dessin (voir plus bas) */
+/* le décalage du nom d'une pièce par rapport à son centre (m), glissé quand il cache une cote */
+export const etiquetteDe = p => { const e = p && p.etiquette, dx = nb(e && e.dx), dy = nb(e && e.dy); return { dx: dx != null && Math.abs(dx) <= 50 ? dx : 0, dy: dy != null && Math.abs(dy) <= 50 ? dy : 0 }; };
 export function releveDepuisDessin(pieces, { projet = 'Dessin rapide', hauteur = 2.5, etages, ouvertures, symboles, toiture } = {}) {
   const { rect, erreurs } = placer(pieces);
   const ch = chevauchements(pieces, rect);
@@ -98,7 +100,7 @@ export function releveDepuisDessin(pieces, { projet = 'Dessin rapide', hauteur =
     etages: noms.map(nom => ({ nom })),
     pieces: posees.map(p => { const pts = contours.get(p.id);
       return { id: 'd-' + p.id, nom: String(p.nom || 'Pièce'), etage: et(p), points: pts, pointsScan: pts.map(q => [q[0], q[1]]), hauteur: hPiece(p), dessinRapide: true,
-        ...(p.note ? { note: String(p.note).slice(0, 600) } : {}) }; }),
+        ...(p.note ? { note: String(p.note).slice(0, 600) } : {}), ...(p.etiquette ? { etiquette: etiquetteDe(p) } : {}) }; }),
     ouvertures: ouv.liste, symboles: symbolesMoteur(symboles, noms.length), toitures: toituresMoteur(toiture, posees.map(p => ({ id: 'd-' + p.id, etage: et(p) }))), dessinRapide: true,
   };
   const compte = (id, type) => ouv.liste.filter(o => o.piece === id && (type === 'fenetre' ? o.type === 'fenetre' : o.type !== 'fenetre')).length;
