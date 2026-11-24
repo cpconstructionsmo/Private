@@ -342,14 +342,25 @@ function vueEtage(M, k) {
 
 /* les symboles : nom, taille par défaut (longueur, profondeur en m), et en 3D
    la hauteur du bas et du haut de l'objet au-dessus du sol (m) */
+/* les symboles (équipements, mobilier, trémie) : mêmes types et tailles par défaut que le dessin rapide
+   (releve/dessin.js, TYPES_SYMBOLE) ; famille pour ranger la liste « ＋ Symbole » */
 const TAILLES_SYM = { radiateur: [1.0, 0.12], chaudiere: [0.6, 0.6], cumulus: [0.6, 0.6], poele: [0.6, 0.6], wc: [0.4, 0.65], lavabo: [0.6, 0.45],
-  douche: [0.9, 0.9], baignoire: [1.7, 0.75], evier: [1.2, 0.6], tableau: [0.5, 0.15], escalier: [2.6, 0.9] };
+  douche: [0.9, 0.9], baignoire: [1.7, 0.75], evier: [1.2, 0.6], plaque: [0.6, 0.6], frigo: [0.6, 0.65], lave_vaisselle: [0.6, 0.6], lave_linge: [0.6, 0.6],
+  plan_travail: [2.4, 0.6], tableau: [0.5, 0.15], prise: [0.2, 0.1], interrupteur: [0.15, 0.1], lumiere: [0.3, 0.3], vmc: [0.3, 0.3],
+  lit: [1.6, 2.0], canape: [2.0, 0.9], table: [1.6, 0.9], escalier: [2.6, 0.9] };
 const NOMS_SYM = { radiateur: 'Radiateur', chaudiere: 'Chaudière', cumulus: 'Chauffe-eau', poele: 'Poêle', wc: 'WC', lavabo: 'Lavabo', douche: 'Douche',
-  baignoire: 'Baignoire', evier: 'Évier', tableau: 'Tableau électrique', escalier: 'Trémie d’escalier' };
+  baignoire: 'Baignoire', evier: 'Évier', plaque: 'Plaque de cuisson', frigo: 'Réfrigérateur', lave_vaisselle: 'Lave-vaisselle', lave_linge: 'Lave-linge',
+  plan_travail: 'Plan de travail', tableau: 'Tableau électrique', prise: 'Prise', interrupteur: 'Interrupteur', lumiere: 'Point lumineux', vmc: 'Bouche VMC',
+  lit: 'Lit', canape: 'Canapé', table: 'Table', escalier: 'Trémie d’escalier' };
+const FAMILLES_SYM = [['Chauffage', ['radiateur', 'chaudiere', 'cumulus', 'poele']], ['Sanitaire', ['wc', 'lavabo', 'douche', 'baignoire']],
+  ['Cuisine et buanderie', ['evier', 'plaque', 'frigo', 'lave_vaisselle', 'lave_linge', 'plan_travail']],
+  ['Électricité et ventilation', ['tableau', 'prise', 'interrupteur', 'lumiere', 'vmc']], ['Mobilier', ['lit', 'canape', 'table']], ['Escalier', ['escalier']]];
+/* hauteurs en 3D (bas, haut, en m au-dessus du sol) ; « plafond » : collé sous le plafond de l'étage */
 const HAUTEURS_SYM = { radiateur: [0.15, 0.75], chaudiere: [1.0, 1.75], cumulus: [0, 1.5], poele: [0, 0.9], wc: [0, 0.42], lavabo: [0.7, 0.86],
-  douche: [0, 0.06], baignoire: [0, 0.56], evier: [0, 0.9], tableau: [1.2, 1.8] };
-/* les symboles du plan (équipements, trémie d'escalier) : dessinés au trait,
-   à leur taille réelle, avec les mêmes pinceaux que le plan (écran, PDF, DXF) */
+  douche: [0, 0.06], baignoire: [0, 0.56], evier: [0, 0.9], plaque: [0, 0.92], frigo: [0, 1.85], lave_vaisselle: [0, 0.85], lave_linge: [0, 0.85],
+  plan_travail: [0, 0.9], tableau: [1.2, 1.8], prise: [0.25, 0.33], interrupteur: [1.0, 1.1], lumiere: 'plafond', vmc: 'plafond',
+  lit: [0, 0.5], canape: [0, 0.8], table: [0, 0.75] };
+
 function dessinerSymboles(b, M, T, fs) {
   (M.symboles || []).forEach(s => {
     const a = s.rot * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a), L = s.l / 2, W = s.w / 2;
@@ -377,6 +388,31 @@ function dessinerSymboles(b, M, T, fs) {
         for (let k = 1; k < n; k++) trait(-L + k * s.l / n, -W, -L + k * s.l / n, W, { w: 0.7 });
         trait(-L + 0.1, 0, L - 0.15, 0, { w: 1.2, color: '#1F2937' });
         b.poly([Q(L - 0.05, 0), Q(L - 0.3, -0.12), Q(L - 0.3, 0.12)], { fill: '#1F2937', calque: 'EQUIPEMENTS' });
+        break;
+      }
+      case 'plaque': rect(-L, -W, L, W, st); [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([i, j]) => ovale(i * L * 0.45, j * W * 0.45, Math.min(L, W) * 0.3, Math.min(L, W) * 0.3, st)); break;
+      case 'frigo': rect(-L, -W, L, W, st); trait(-L, W * 0.7, L, W * 0.7, { w: 0.6 }); texte('F'); break;
+      case 'lave_vaisselle': rect(-L, -W, L, W, st); texte('LV'); break;
+      case 'lave_linge': rect(-L, -W, L, W, st); ovale(0, 0, Math.min(L, W) * 0.7, Math.min(L, W) * 0.7, st); texte('LL'); break;
+      case 'plan_travail': rect(-L, -W, L, W, { fill: '#F5EEE3', stroke: '#4B5563', w: 1 }); trait(-L, W * 0.6, L, W * 0.6, { w: 0.5, dash: [3, 3] }); break;
+      case 'prise': {
+        // prise : demi-cercle posé sur le mur (côté v = −W), deux broches
+        const r = Math.min(L, W * 2) * 0.9, pts = [];
+        for (let k = 0; k <= 12; k++) { const t = Math.PI * k / 12; pts.push(Q(-r * Math.cos(t), -W + r * Math.sin(t))); }
+        b.poly(pts, { fill: '#FFFFFF', stroke: '#1F2937', w: 1, calque: 'EQUIPEMENTS' });
+        trait(-r * 0.35, -W + r * 0.3, -r * 0.35, -W + r * 0.65, { color: '#1F2937' }); trait(r * 0.35, -W + r * 0.3, r * 0.35, -W + r * 0.65, { color: '#1F2937' });
+        break;
+      }
+      case 'interrupteur': { const r = Math.min(L, W) * 0.7; ovale(0, 0, r, r, { fill: '#FFFFFF', stroke: '#1F2937', w: 1 }); trait(0, 0, r * 2.2, r * 2.2, { color: '#1F2937' }); break; }
+      case 'lumiere': { const r = Math.min(L, W) / 2; ovale(0, 0, r, r, { fill: '#FFFBEB', stroke: '#1F2937', w: 1 }); trait(-r * 0.7, -r * 0.7, r * 0.7, r * 0.7, { color: '#1F2937' }); trait(-r * 0.7, r * 0.7, r * 0.7, -r * 0.7, { color: '#1F2937' }); break; }
+      case 'vmc': { const r = Math.min(L, W) / 2; ovale(0, 0, r, r, st); ovale(0, 0, r * 0.55, r * 0.55, st); { const C = Q(0, r + 0.15); b.text('VMC', C[0], C[1], { size: Math.max(7, fs - 4), bold: true, color: '#374151', calque: 'EQUIPEMENTS' }); } break; }
+      case 'lit': rect(-L, -W, L, W, st); rect(-L * 0.9, -W * 0.95, -L * 0.06, -W * 0.72, st); rect(L * 0.06, -W * 0.95, L * 0.9, -W * 0.72, st); trait(-L, -W * 0.55, L, -W * 0.55, { w: 0.6 }); break;
+      case 'canape': rect(-L, -W, L, W, st); rect(-L, -W, L, -W * 0.45, { fill: '#F3F4F6', stroke: '#4B5563', w: 0.8 }); rect(-L, -W * 0.45, -L * 0.88, W, st); rect(L * 0.88, -W * 0.45, L, W, st); break;
+      case 'table': {
+        rect(-L, -W, L, W, st);
+        // chaises : de part et d'autre, environ une tous les 60 cm
+        const n = Math.max(1, Math.floor(s.l / 0.6)), c0 = 0.2;
+        for (let k = 0; k < n; k++) { const u = -L + s.l * (k + 0.5) / n; rect(u - c0, -W - 0.35, u + c0, -W - 0.05, st); rect(u - c0, W + 0.05, u + c0, W + 0.35, st); }
         break;
       }
       default: rect(-L, -W, L, W, st);
@@ -607,7 +643,7 @@ class Vue3D {
     });
 
     /* les équipements : des volumes simples à leur hauteur réelle ; l'escalier monte jusqu'à l'étage du dessus */
-    const mSym = new THREE.MeshLambertMaterial({ color: 0xf8fafc }), mSymF = new THREE.MeshLambertMaterial({ color: 0x374151 }), mMarche = new THREE.MeshLambertMaterial({ color: 0xc8a27a });
+    const mSym = new THREE.MeshLambertMaterial({ color: 0xf8fafc }), mSymF = new THREE.MeshLambertMaterial({ color: 0x374151 }), mMarche = new THREE.MeshLambertMaterial({ color: 0xc8a27a }), mSymL = new THREE.MeshLambertMaterial({ color: 0xfde68a, emissive: 0x7c5e10 });
     const lSym = new THREE.LineBasicMaterial({ color: 0x6b7280 });
     (M.symboles || []).forEach(s => {
       if (s.etage > emax) return;
@@ -621,9 +657,18 @@ class Vue3D {
         }
         grp.position.set(s.x, z0, s.y); grp.rotation.y = rot; g.add(grp); return;
       }
-      const hs = HAUTEURS_SYM[s.type] || [0, 0.8], hh = hs[1] - hs[0];
-      const geo = s.type === 'cumulus' ? new THREE.CylinderGeometry(Math.min(s.l, s.w) / 2, Math.min(s.l, s.w) / 2, hh, 24) : new THREE.BoxGeometry(s.l, hh, s.w);
-      const m = new THREE.Mesh(geo, s.type === 'tableau' ? mSymF : mSym);
+      const hp = (M.etages[s.etage] && M.etages[s.etage].hauteur) || 2.5;
+      const hs = HAUTEURS_SYM[s.type] === 'plafond' ? [hp - 0.04, hp - 0.01] : (HAUTEURS_SYM[s.type] || [0, 0.8]), hh = hs[1] - hs[0];
+      if (s.type === 'table') {
+        // plateau et quatre pieds : une boîte pleine ferait un meuble bas, pas une table
+        const grp = new THREE.Group(), ep = 0.04, pied = 0.05;
+        const pl = new THREE.Mesh(new THREE.BoxGeometry(s.l, ep, s.w), mSym); pl.position.set(0, hs[1] - ep / 2, 0); grp.add(pl);
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([i, j]) => { const m = new THREE.Mesh(new THREE.BoxGeometry(pied, hs[1] - ep, pied), mSym); m.position.set(i * (s.l / 2 - 0.08), (hs[1] - ep) / 2, j * (s.w / 2 - 0.08)); grp.add(m); });
+        grp.position.set(s.x, z0, s.y); grp.rotation.y = rot; g.add(grp); return;
+      }
+      const rond = s.type === 'cumulus' || s.type === 'lumiere' || s.type === 'vmc';
+      const geo = rond ? new THREE.CylinderGeometry(Math.min(s.l, s.w) / 2, Math.min(s.l, s.w) / 2, hh, 24) : new THREE.BoxGeometry(s.l, hh, s.w);
+      const m = new THREE.Mesh(geo, s.type === 'tableau' ? mSymF : s.type === 'lumiere' ? mSymL : mSym);
       m.position.set(s.x, z0 + hs[0] + hh / 2, s.y); m.rotation.y = rot; g.add(m);
       const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), lSym); e.position.copy(m.position); e.rotation.copy(m.rotation); g.add(e);
     });
@@ -2054,7 +2099,7 @@ function dialogAjouterSymbole() {
   if (!modele) return;
   if (typeof etageCourant !== 'number') { message('Choisissez d\'abord un étage (onglets au-dessus du plan) pour y poser un symbole.', 'warn'); return; }
   const k = Math.min(etageCourant, modele.etages.length - 1);
-  ouvrirModal('Ajouter un symbole', '<label>Symbole<select id="syType">' + Object.keys(NOMS_SYM).map(t => '<option value="' + t + '">' + esc(NOMS_SYM[t]) + '</option>').join('') + '</select></label>' +
+  ouvrirModal('Ajouter un symbole', '<label>Symbole<select id="syType">' + FAMILLES_SYM.map(([f, ts]) => '<optgroup label="' + esc(f) + '">' + ts.map(t => '<option value="' + t + '">' + esc(NOMS_SYM[t]) + '</option>').join('') + '</optgroup>').join('') + '</select></label>' +
     '<p class="note">Il se pose au centre de l’étage ; glissez-le ensuite à sa place, touchez-le pour le tourner, régler sa taille ou le retirer.</p>', 'Ajouter', () => {
     const t = $('syType').value, rs = modele.rooms.filter(r => r.etage === k), pts = rs.flatMap(r => r.src.points || []);
     const cx = pts.length ? (Math.min(...pts.map(q => q[0])) + Math.max(...pts.map(q => q[0]))) / 2 : 0, cy = pts.length ? (Math.min(...pts.map(q => q[1])) + Math.max(...pts.map(q => q[1]))) / 2 : 0;
@@ -2703,5 +2748,5 @@ initCompte();
 /* la visite peut envoyer le relevé à ouvrir */
 versVisite({ type: 'releve:pret' });
 
-window.__releve = { v3d: () => v3d, pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
+window.__releve = { v3d: () => v3d, dxf: M => construireDxf(M), pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
 

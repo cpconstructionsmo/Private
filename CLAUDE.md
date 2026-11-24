@@ -91,7 +91,8 @@ qu'on ait à les redire.
   cochée. Dessin rapide sans scan (`releve/dessin.js`, pièces rectangulaires
   posées au doigt → relevé du moteur, murs communs partagés ; glissées et
   aimantées `libre`, étages, ouvertures `ouverturesMoteur`, symboles et trémie
-  `symbolesMoteur` dessinés par le moteur `dessinerSymboles`, en volumes
+  `symbolesMoteur` — chauffage, sanitaire, cuisine, électricité et VMC,
+  mobilier, par famille `FAMILLES_SYMBOLE` — dessinés par le moteur `dessinerSymboles`, en volumes
   dans la vue 3D, trémie percée et escalier en marches ; « ＋ Symbole » les
   pose aussi dans le plan coté, même scanné, `releve.symboles`, toiture). Prix au m² appris des prospects de rénovation
   (`ratiosDepuisProspects`). L'estimation part avec la visite
