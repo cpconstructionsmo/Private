@@ -46,6 +46,8 @@ let b;
   await p.waitForFunction(()=>document.querySelectorAll('[data-dessin]').length===2);
   await p.tap('[data-dessin]:nth-of-type(2) >> text=Cuisine').catch(async()=>{await p.locator('.pieceDessin.sel .puces button',{hasText:'Cuisine'}).first().tap()});
   await p.waitForFunction(()=>/Cuisine/.test(document.querySelector('.pieceDessin.sel').textContent));
+  // la pose précise est repliée sous « Plus de réglages » (le doigt suffit le plus souvent)
+  if(!(await p.locator('.pieceDessin.sel .reglagesPiece[open]').count()))await p.click('.pieceDessin.sel .reglagesPiece summary');
   await p.locator('.pieceDessin.sel .puces button',{hasText:'en dessous de'}).tap();
   await p.waitForFunction(()=>document.querySelectorAll('.apercuDessin [data-piece-dessin]').length===2);
   chk(/2 pièces · 24,5 m²/.test(await p.textContent('main')),'2e pièce « Cuisine » posée en dessous : l’aperçu montre 2 pièces, 24,5 m² (15,5 + 9)');

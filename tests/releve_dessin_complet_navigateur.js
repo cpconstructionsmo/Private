@@ -51,7 +51,8 @@ let b;
   d=await attendreDessin(d=>d.pieces[1].libre&&d.pieces[1].libre.x!==5.5);
   chk(d&&d.pieces[1].libre.x===5&&d.pieces[1].libre.y===0,'glissée près du séjour : elle s’aimante contre son mur (x = 5) et s’aligne en haut (y = 0)');
   /* aimant coupé : la pièce reste exactement où on la lâche (au pas de 5 cm), même tout près d'un mur */
-  const glisser=async(x0,y0,x1,y1)=>{const [a1,a2]=await ecran(x0,y0),[b1,b2]=await ecran(x1,y1);await p.mouse.move(a1,a2);await p.mouse.down();await p.mouse.move((a1+b1)/2,(a2+b2)/2,{steps:3});await p.mouse.move(b1,b2,{steps:3});await p.mouse.up();};
+  const glisser=async(x0,y0,x1,y1)=>{await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();const [a1,a2]=await ecran(x0,y0),[b1,b2]=await ecran(x1,y1);await p.mouse.move(a1,a2);await p.mouse.down();await p.mouse.move((a1+b1)/2,(a2+b2)/2,{steps:3});await p.mouse.move(b1,b2,{steps:3});await p.mouse.up();};
+  if(!(await p.locator('#optionsDessin[open]').count()))await p.click('#optionsDessin summary');
   chk((await p.textContent('#aimantDessin')).includes('oui'),'« 🧲 Aimant : oui » d’office');
   await p.click('#aimantDessin');
   chk((await p.textContent('#aimantDessin')).includes('non')&&await p.evaluate(()=>localStorage.getItem('cp-releve-aimant'))==='non','un toucher coupe l’aimant (réglage gardé sur l’appareil)');
@@ -76,10 +77,12 @@ let b;
   chk(await p.locator('svg.apercuDessin [data-ouverture]').count()===2,'les ouvertures se dessinent sur l’aperçu');
   /* symboles */
   await p.tap('[data-dessin] >> nth=0');
-  await p.tap('[data-ajout-symbole="radiateur"]');
+  // « ＋ Symbole » : on choisit, puis on touche le milieu du séjour
+  const poserAu=async(type,x,y)=>{await p.tap('#ajoutSymboleIci');await p.tap('[data-poser-symbole="'+type+'"]');await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();const [a,b]=await ecran(x,y);await p.mouse.click(a,b);};
+  await poserAu('radiateur',2.5,2);
   await p.waitForSelector('#tournerSymbole');
   await p.tap('#tournerSymbole');
-  await p.tap('[data-ajout-symbole="escalier"]');
+  await poserAu('escalier',2.5,2);
   await p.waitForSelector('input[name="symbole-l"]');
   await p.fill('input[name="symbole-l"]','3');await p.locator('input[name="symbole-l"]').press('Enter');
   d=await attendreDessin(d=>d.symboles.length===2&&d.symboles[1].l===3);
@@ -112,6 +115,7 @@ let b;
   d=await attendreDessin(d=>d.pieces[1].nom==='Salon');
   chk(!!d,'un toucher sur le nom : il se renomme sur place');
   const lib0=JSON.stringify(d.pieces[1].libre||null);
+  await p.click('[data-dessin="'+d.pieces[1].id+'"] .reglagesPiece summary');
   for(let k=0;k<4;k++)await p.tap('[data-nom-vers="droite"]');
   await p.tap('[data-nom-vers="bas"]');
   d=await attendreDessin(d=>d.pieces[1].etiquette&&d.pieces[1].etiquette.dx===1&&d.pieces[1].etiquette.dy===0.25);

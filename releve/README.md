@@ -235,6 +235,14 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 
 ## Le dessin rapide (sans scan)
 
+- **Écran simple d'abord** (passage « simplicité », novembre 2026) : en haut,
+  « ✓ Créer le plan 2D coté et la 3D » ; sous le dessin, les trois gestes
+  de base (« ＋ Pièce », « ＋ Symbole », « 🖍 Annoter ») ; le reste est
+  replié : « ⚙️ Plus de réglages » dans la fiche d'une pièce (hauteur, note,
+  position du nom, étage, pose précise) et « ⚙️ Plus d'options » pour tout
+  le dessin (hauteur, nom d'étage, toiture, aimant). L'étape Scan propose
+  trois choix, chacun avec une ligne d'explication.
+
 - **Complet** (`releve/dessin.js`, tests `t_releve_dessin_complet.js`,
   `releve_dessin_complet_navigateur.js`) :
   - pièces **posées au doigt** : glissées sur l'aperçu, elles s'aimantent aux
