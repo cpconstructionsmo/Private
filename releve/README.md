@@ -264,6 +264,12 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
     chiffrage avec la surface de plafond ; gardés avec le relevé (`symboles`) ;
   - **toiture** (plat, 1, 2 ou 4 pentes, pente en degrés) sur l'étage le plus
     haut, vue en 3D dans le plan ;
+  - **retouches sur le dessin même** : un toucher sur une cote la change
+    (saisie sur place), un toucher sur le nom de la pièce sélectionnée la
+    renomme ; « Position du nom » (◀ ▲ ▼ ▶, « Au centre ») décale le nom
+    s'il cache une cote (`p.etiquette`, repris dans le plan coté, où le nom
+    se glisse aussi au doigt : `centreNom`) ; « ✓ Créer le plan 2D coté et
+    la 3D » en haut du dessin, avec ce qui bloque dit d'avance ;
   - **zoom** de l'aperçu (deux doigts, molette, « 🔍 ＋ / − », « ⟲ 100 % ») ;
     sous 100 % (jusqu'à 13 %), la zone de dessin s'agrandit autour des
     pièces (`appliquerRecul`, `S.dessinRecul`) : de la place pour en poser

@@ -157,6 +157,8 @@ function analyser(d) {
     r.mursNets = murs; r.plinthes = Math.max(0, plinthes);
   });
   M.rooms.forEach((r, i) => { r.idx = i; }); M.openings.forEach((op, i) => { op.idx = i; });
+  /* le nom d'une pièce peut être glissé hors du centre (il cachait une cote) : décalage en mètres, plan non tourné */
+  M.rooms.forEach(r => { const e = r.src && r.src.etiquette; r.centreNom = e && isNum(e.dx) && isNum(e.dy) && Math.abs(e.dx) <= 50 && Math.abs(e.dy) <= 50 ? [r.centre[0] + e.dx, r.centre[1] + e.dy] : r.centre; });
   let zc = 0;                                           /* altitude du sol de chaque étage : on empile les hauteurs + 20 cm de dalle */
   M.etages.forEach((e, k) => { const rs = M.rooms.filter(r => r.etage === k); e.nb = rs.length; e.hauteur = rs.length ? Math.max(...rs.map(r => r.hauteur)) : hDef; e.z = zc; e.aire = rs.reduce((t, r) => t + r.aire, 0); zc += e.hauteur + 0.2; });
   M.hauteurTotale = zc - 0.2;
@@ -305,7 +307,7 @@ function tourner(M, deg) {
   if (!deg) return M;
   const a = deg * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a), R = v => [v[0] * c - v[1] * sn, v[0] * sn + v[1] * c];
   const walls = M.walls.map(w => Object.assign({}, w, { a: R(w.a), b: R(w.b), u: R(w.u) })), wmap = new Map(M.walls.map((w, i) => [w, walls[i]]));
-  const rooms = M.rooms.map(r => { const nr = Object.assign({}, r, { pts: r.pts.map(R), centre: R(r.centre) });
+  const rooms = M.rooms.map(r => { const nr = Object.assign({}, r, { pts: r.pts.map(R), centre: R(r.centre), centreNom: R(r.centreNom || r.centre) });
     nr.edges = r.edges.map(e => Object.assign({}, e, { p: R(e.p), q: R(e.q), nIn: R(e.nIn), wall: wmap.get(e.wall) })); return nr; });
   const openings = M.openings.map(op => Object.assign({}, op, { nIn: R(op.nIn), nArc: R(op.nArc || op.nIn), wall: wmap.get(op.wall) })), omap = new Map(M.openings.map((op, i) => [op, openings[i]]));
   walls.forEach(w => { w.openings = w.openings.map(o => omap.get(o)); w.rooms = w.rooms.map(r => rooms[M.rooms.indexOf(r)]); });
@@ -559,7 +561,7 @@ function dessinerPlan(b, M, T, o) {
 
   /* nom et surface de chaque pièce */
   M.rooms.forEach(r => {
-    const ri = r.idx, c = P(r.centre[0], r.centre[1]);
+    const ri = r.idx, cn = r.centreNom || r.centre, c = P(cn[0], cn[1]);
     const xs = r.pts.map(q => T.ox + q[0] * T.s), ys = r.pts.map(q => T.oy + q[1] * T.s);
     const larg = (Math.max(...xs) - Math.min(...xs)) * 0.9, haut = Math.max(...ys) - Math.min(...ys);
     const aireTxt = FR(r.aire) + ' m²';
@@ -1670,6 +1672,9 @@ cvPlan.addEventListener('pointerdown', e => {
     else if (c && c.type === 'ligne') { const ed = areteDe(c); geste.mode = 'ligne'; geste.p0 = [x, y]; geste.decal0 = (ed.reglage && ed.reglage.decal) || 0; }
     else if (c && (c.type === 'ouvH' || c.type === 'ouvC')) { const o = modele.openings[c.oi]; geste.mode = 'ouv'; geste.p0 = [x, y]; geste.pos0 = o.src.position; geste.larg0 = o.src.largeur; }
     else if (c && c.type === 'symbole' && modele.symboles[c.si]) { const sy = modele.symboles[c.si]; geste.mode = 'sym'; geste.p0 = [x, y]; geste.s0 = [sy.x, sy.y]; }
+    else if (c && c.type === 'piece' && modele.rooms[c.ri]) {          /* sur le nom d'une pièce : il se glisse (s'il cache une cote) ; un toucher ouvre sa fiche */
+      const e = modele.rooms[c.ri].src.etiquette || {}; geste.mode = 'nom'; geste.p0 = [x, y]; geste.e0 = [isNum(e.dx) ? e.dx : 0, isNum(e.dy) ? e.dy : 0];
+    }
   } else if (doigts.size === 2) { const [p, q] = [...doigts.values()]; geste = { mode: 'deux', d0: Math.hypot(p[0] - q[0], p[1] - q[1]) || 1, k0: vue.k, m0: [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], tx0: vue.tx, ty0: vue.ty, bouge: 99 }; apercu = null; }
   cvPlan.style.cursor = 'grabbing';
 });
@@ -1711,6 +1716,10 @@ cvPlan.addEventListener('pointermove', e => {
     const s = transformationEcran().s, a = -(modele.rotation || 0) * Math.PI / 180, ex = (x - geste.p0[0]) / s, ey = (y - geste.p0[1]) / s;
     const sy = modele.symboles[geste.cible.si];
     if (sy) { sy.x = Math.round((geste.s0[0] + ex * Math.cos(a) - ey * Math.sin(a)) * 20) / 20; sy.y = Math.round((geste.s0[1] + ex * Math.sin(a) + ey * Math.cos(a)) * 20) / 20; geste.deplace = true; dessiner2D(); }
+  } else if (geste.mode === 'nom' && geste.bouge > 6) {
+    const s = transformationEcran().s, a = -(modele.rotation || 0) * Math.PI / 180, ex = (x - geste.p0[0]) / s, ey = (y - geste.p0[1]) / s, r = modele.rooms[geste.cible.ri];
+    if (r) { geste.e = [Math.round((geste.e0[0] + ex * Math.cos(a) - ey * Math.sin(a)) * 100) / 100, Math.round((geste.e0[1] + ex * Math.sin(a) + ey * Math.cos(a)) * 100) / 100];
+      r.centreNom = [r.centre[0] + geste.e[0], r.centre[1] + geste.e[1]]; geste.deplace = true; dessiner2D(); }
   } else if (geste.mode === 'un' && geste.cible && geste.cible.type === 'mur' && geste.bouge > 6) geste.mode = 'etiq';
   if (geste.mode === 'etiq') {                                          /* glisser le chiffre le long du mur */
     const z = geste.cible, ed = areteDe(z), t = Math.max(0.05, Math.min(0.95, alongDe(z, x, y) / longueurPx(z)));
@@ -1726,6 +1735,13 @@ const finDoigt = (e, annule) => {
         const sy = modele.symboles[g.cible.si];
         if (g.deplace && sy) { const avant = JSON.stringify(donneesCourantes); sy.src.x = sy.x; sy.src.y = sy.y; reanalyser(avant, null, NOMS_SYM[sy.type] + ' déplacé.'); }
         else if (g.bouge <= 6) { const [x, y] = posPlan(e); ouvrirEditeur({ type: 'symbole', si: g.cible.si }, x, y); }
+      } else if (g.mode === 'nom') {
+        const r = modele.rooms[g.cible.ri];
+        if (g.deplace && r && g.e) { const avant = JSON.stringify(donneesCourantes);
+          // revenu près du centre : le décalage s'efface
+          if (Math.hypot(g.e[0], g.e[1]) < 0.15) delete r.src.etiquette; else r.src.etiquette = { dx: g.e[0], dy: g.e[1] };
+          reanalyser(avant, null, 'Nom de « ' + r.nom + ' » déplacé.'); }
+        else if (g.bouge <= 6) { const [x, y] = posPlan(e); ouvrirEditeur(g.cible, x, y); }
       } else if (g.mode === 'ouv') {
         if (apercuOuv) { const a = apercuOuv; apercuOuv = null; appliquerOuvertureDrag(a); }
         else if (g.bouge <= 6) { const [x, y] = posPlan(e); ouvrirEditeur({ type: 'ouv', oi: g.cible.oi }, x, y); }
