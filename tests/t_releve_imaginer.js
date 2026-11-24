@@ -49,6 +49,14 @@ const {chk,fin}=verif();
   const rp=R.descriptionReponse(rep(JSON.stringify({parties:[{nom:' RDC  état actuel ',pieces:[{nom:'Salon',longueur:'4,30',largeur:5.49,x:5.2,y:0},{nom:'Placard',longueur:0.1,largeur:2},{nom:'',longueur:3,largeur:3}]},{nom:'Vide',pieces:[]}]})),'plan');
   chk(rp.parties.length===1&&rp.parties[0].nom==='RDC état actuel'&&rp.parties[0].pieces.length===2&&rp.parties[0].pieces[0].longueur===4.3&&rp.parties[0].pieces[1].nom==='Pièce'&&rp.parties[0].pieces[1].x===0,'plan : nombres lus (virgule), dimension hors bornes écartée, partie vide retirée');
   chk(R.descriptionReponse(rep('{"parties":[]}'),'plan').erreur==='rien_lu','plan : aucune pièce lue : erreur nommée');
+  {const re=R.descriptionReponse(rep(JSON.stringify({parties:[{nom:'Plan',pieces:[{nom:'Séjour',longueur:4.15,largeur:6.57,hauteur:'2,25',forme:'autre',notes:'  Mur   à refaire ',projet:'futur SDE',
+    ouvertures:[{type:'porte',cote:'bas',largeur:0.9,hauteur:2.15},{type:'fenetre',cote:'nord',largeur:1.2},{type:'porte',cote:'haut',largeur:40},{type:'<script>',cote:'bas',largeur:1}],
+    equipements:[{type:'radiateur',cote:'droite',position:1},{type:'piscine'},{type:'wc'}]}]}]})),'plan');
+   const q=re.parties[0].pieces[0];
+   chk(q.hauteur===2.25&&q.forme==='autre'&&q.notes==='Mur à refaire'&&q.projet==='futur SDE','lecture enrichie : hauteur, forme, notes et projet nettoyés');
+   chk(q.ouvertures.length===1&&q.ouvertures[0].hauteur===2.15&&q.equipements.length===2&&q.equipements[0].cote==='droite'&&!q.equipements[1].cote,'ouvertures et équipements : seulement les types, côtés et tailles valables');
+   const vide=R.descriptionReponse(rep(JSON.stringify({parties:[{nom:'P',pieces:[{nom:'X',longueur:3,largeur:3}]}]})),'plan').parties[0].pieces[0];
+   chk(!('ouvertures' in vide)&&!('notes' in vide)&&!('hauteur' in vide),'rien d’écrit sur le plan : aucun champ ajouté (rien d’inventé)');}
 
   /* imaginer sur un terrain ou une façade ; lire un plan de terrain */
   const dt=R.lireDemande({image:img,consigne:'maison plain-pied enduit blanc',mode:'terrain'});

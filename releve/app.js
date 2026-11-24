@@ -1164,6 +1164,8 @@ function etapeScan(v) {
       h('b', {}, '🖼 Plusieurs plans sur « ' + S.lecturePlan.nom + ' » : lequel dessiner ?'),
       S.lecturePlan.parties.map(p => h('button', { class: 'gros sec', type: 'button', style: 'margin-top:8px', 'data-partie': p.nom, onclick: () => appliquerPartiePlan(p, S.lecturePlan.nom) },
         p.nom + ' — ' + p.pieces.length + ' pièce' + (p.pieces.length > 1 ? 's' : '') + ', ' + String(Math.round(p.pieces.reduce((t, q) => t + q.longueur * q.largeur, 0))) + ' m²')),
+      // tout importer : chaque plan devient un groupe de pièces, posé à droite du précédent (à replacer au doigt)
+      h('button', { class: 'gros', type: 'button', id: 'toutesPartiesPlan', style: 'margin-top:8px', onclick: () => proposerPlacement(S.lecturePlan.parties.map(p => ({ nom: S.lecturePlan.nom, partie: p })), S.lecturePlan.echecs || []) }, '＋ Tout importer (' + S.lecturePlan.parties.length + ' plans)'),
       h('button', { class: 'lienRetour', type: 'button', style: 'margin-top:8px', onclick: () => { S.lecturePlan = null; redessiner(); } }, 'Annuler')) : null,
     S.lecturePlan && S.lecturePlan.choix ? h('div', { class: 'carte', id: 'choixPlacement' },
       h('b', {}, '🖼 ' + S.lecturePlan.choix.reduce((t, g) => t + g.partie.pieces.length, 0) + ' pièce(s) lue(s). Un dessin rapide existe déjà (' + ((M.valeur(v, 'dessin') || {}).pieces || []).length + ' pièces) :'),
@@ -1233,17 +1235,28 @@ function proposerPlacement(groupes, echecs) {
 async function appliquerGroupes(groupes, mode, echecs) {
   // chaque esquisse donne son groupe de pièces ; un groupe ajouté se pose à droite du dessin
   // (sa première pièce sans voisine) : on la place ensuite contre la bonne pièce, au doigt
-  const nouvelles = groupes.flatMap(g => DR.dessinDepuisRectangles(g.partie.pieces, () => M.nouvelId().slice(0, 8)));
+  // lecture enrichie : portes et fenêtres, équipements, hauteur et notes de chaque pièce (dessin.js)
+  const lus = groupes.map(g => DR.dessinDepuisLecture(g.partie.pieces, () => M.nouvelId().slice(0, 8)));
+  const nouvelles = lus.flatMap(l => l.pieces);
   if (!nouvelles.length) { S.lecturePlan = { message: 'Aucune pièce exploitable sur ce plan.', type: 'err' }; return redessiner(); }
-  const avant = M.valeur(visite(), 'dessin'), garde = mode === 'ajouter' && avant && Array.isArray(avant.pieces) ? avant.pieces : [];
-  const sources = [...(mode === 'ajouter' && avant && Array.isArray(avant.sources) ? avant.sources : mode === 'ajouter' && avant && avant.source ? [avant.source] : []),
+  const avant = M.valeur(visite(), 'dessin'), ajout = mode === 'ajouter' && avant && Array.isArray(avant.pieces), garde = ajout ? avant.pieces : [];
+  const sources = [...(ajout && Array.isArray(avant.sources) ? avant.sources : ajout && avant.source ? [avant.source] : []),
     ...groupes.map(g => ({ fichier: String(g.nom || '').slice(0, 120), partie: g.partie.nom, luLe: new Date().toISOString() }))].slice(-30);
-  await poser('dessin', { pieces: [...garde, ...nouvelles].slice(0, 60), hauteur: (avant && avant.hauteur) || 2.5, source: sources[sources.length - 1], sources });
+  const pieces = [...garde, ...nouvelles].slice(0, 60), ouvLues = lus.flatMap(l => l.ouvertures).filter(o => pieces.some(p => p.id === o.piece));
+  const symLus = DR.symbolesDepuisEquipements(lus.flatMap(l => l.equipements), pieces, DR.placer(pieces).rect, () => M.nouvelId().slice(0, 8));
+  // ajouter : ce qui était déjà dessiné (étages, ouvertures, symboles, toiture) est gardé tel quel
+  await poser('dessin', { ...(ajout ? avant : {}), pieces, hauteur: (avant && avant.hauteur) || 2.5, source: sources[sources.length - 1], sources,
+    ouvertures: [...(ajout && Array.isArray(avant.ouvertures) ? avant.ouvertures : []), ...ouvLues].slice(0, 300),
+    symboles: [...(ajout && Array.isArray(avant.symboles) ? avant.symboles : []), ...symLus].slice(0, 200) });
   const n = nouvelles.length, pl = n > 1 ? 's' : '';
+  const nNotes = nouvelles.filter(p => p.note).length, nH = nouvelles.filter(p => p.hauteur).length;
+  const lu = [ouvLues.length ? ouvLues.length + ' porte' + (ouvLues.length > 1 ? 's et fenêtres' : ' ou fenêtre') : '', symLus.length ? symLus.length + ' équipement' + (symLus.length > 1 ? 's' : '') : '',
+    nH ? nH + ' hauteur' + (nH > 1 ? 's' : '') + ' sous plafond' : '', nNotes ? nNotes + ' note' + (nNotes > 1 ? 's' : '') + ' (annotations, projet en rouge)' : ''].filter(Boolean).join(', ');
   S.lecturePlan = null; S.dessinSel = null; S.ecran = 'dessin';
   S.message = { type: 'att', texte: '🖼 ' + n + ' pièce' + pl + ' lue' + pl + (groupes.length > 1 ? ' sur ' + groupes.length + ' esquisses' : ' sur le plan (« ' + groupes[0].partie.nom + ' »)') + (garde.length ? ', ajoutée' + pl + ' au dessin' : '') + '. '
     + (groupes.length > 1 || garde.length ? 'Touchez chaque pièce ajoutée pour la poser contre sa voisine (à droite, en dessous…). ' : '')
-    + 'Vérifiez les dimensions (l’IA peut se tromper), puis « ✓ Créer le plan ».' + ((echecs || []).length ? ' Non lu : ' + echecs.join(' ') : '') };
+    + (lu ? 'Lu aussi : ' + lu + '. ' : '')
+    + 'Vérifiez les dimensions, les portes, fenêtres et équipements (l’IA peut se tromper, surtout sur une esquisse raturée), puis « ✓ Créer le plan ».' + ((echecs || []).length ? ' Non lu : ' + echecs.join(' ') : '') };
   vibrer(); dessiner(); window.scrollTo(0, 0);
 }
 async function appliquerPartiePlan(partie, nomFichier) { proposerPlacement([{ nom: nomFichier, partie }], (S.lecturePlan && S.lecturePlan.echecs) || []); }
@@ -1748,7 +1761,10 @@ function brancherGlisser(svg, d, R) {
       else { S.dessinSym = S.dessinSym === x.sym ? null : x.sym; S.dessinSel = null; }
       return redessiner();
     }
-    if (x.piece) await majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { q.libre = { x: Math.round((x.r.x0 + x.depl[0]) * 100) / 100, y: Math.round((x.r.y0 + x.depl[1]) * 100) / 100 }; delete q.contre; } S.dessinSel = x.piece; });
+    if (x.piece) await majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { q.libre = { x: Math.round((x.r.x0 + x.depl[0]) * 100) / 100, y: Math.round((x.r.y0 + x.depl[1]) * 100) / 100 }; delete q.contre;
+      // les symboles posés dans la pièce la suivent (radiateurs, WC… d'une esquisse que l'on replace)
+      const et = q.etage || 0, dans = sy => (sy.etage || 0) === et && sy.x > x.r.x0 && sy.x < x.r.x1 && sy.y > x.r.y0 && sy.y < x.r.y1;
+      y.symboles.filter(dans).forEach(sy => { sy.x = Math.round((sy.x + x.depl[0]) * 100) / 100; sy.y = Math.round((sy.y + x.depl[1]) * 100) / 100; }); } S.dessinSel = x.piece; });
     else await majDessin(y => { const q = y.symboles.find(z => z.id === x.sym); if (q) { q.x = x.depl[0]; q.y = x.depl[1]; } S.dessinSym = x.sym; });
   };
   svg.addEventListener('pointerup', fin);
@@ -1894,7 +1910,7 @@ function ecranDessin() {
         const ouvs = d.ouvertures.filter(o => o.piece === p.id);
         return h('div', { class: 'carte pieceDessin' + (sel ? ' sel' : ''), 'data-dessin': p.id },
           h('div', { class: 'rang', style: 'justify-content:space-between', onclick: () => { if (!sel) { S.dessinSel = p.id; S.dessinSym = null; redessiner(); } } },
-            h('b', {}, p.nom + ' · ' + String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m' + (ouvs.length ? ' · ' + ouvs.length + ' ouv.' : '')),
+            h('b', {}, p.nom + ' · ' + String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m' + (ouvs.length ? ' · ' + ouvs.length + ' ouv.' : '') + (p.note ? ' · 📝' : '')),
             h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer ' + p.nom, onclick: e => { e.stopPropagation(); if (!confirm('Supprimer « ' + p.nom + ' » ?')) return;
               majDessin(x => { x.pieces = x.pieces.filter(y => y.id !== p.id); x.ouvertures = x.ouvertures.filter(o => o.piece !== p.id); x.pieces.forEach(y => { if (y.contre && y.contre.id === p.id) delete y.contre; }); }); } }, '🗑')),
           sel ? [
@@ -1902,6 +1918,10 @@ function ecranDessin() {
             h('div', { class: 'puces' }, M.PIECES_COURANTES.slice(0, 10).map(n => h('button', { class: 'puce' + (p.nom === n ? ' on' : ''), type: 'button', onclick: () => maj(q => { q.nom = n; }) }, n))),
             reglageMetres(p.longueur, 'LONGUEUR (gauche ↔ droite)', 'dessin-longueur', 0.1, x => maj(q => { q.longueur = x; })),
             reglageMetres(p.largeur, 'LARGEUR (haut ↕ bas)', 'dessin-largeur', 0.1, x => maj(q => { q.largeur = x; })),
+            // hauteur propre à la pièce (lue sur l'esquisse, ou réglée) ; vide : celle du dessin
+            reglageMetres(p.hauteur || d.hauteur || 2.5, 'HAUTEUR SOUS PLAFOND' + (p.hauteur ? '' : ' (celle du dessin)'), 'dessin-hauteur', 0.05, x => maj(q => { q.hauteur = x; }), 1.5, ' m', 8),
+            h('label', { class: 'champ' }, 'NOTE DE LA PIÈCE (reprise dans le plan et le PDF)',
+              h('textarea', { class: 'in', name: 'dessin-note', rows: 2, value: p.note || '', autocapitalize: 'sentences', placeholder: 'Ex. : mur à refaire, futur WC…', onchange: e => maj(q => { const t = e.target.value.trim(); if (t) q.note = t.slice(0, 600); else delete q.note; }) })),
             // portes, fenêtres, passages : sur un côté de la pièce
             h('div', { class: 'champ' }, 'PORTES ET FENÊTRES'),
             ouvs.map(o => {
@@ -1913,7 +1933,8 @@ function ecranDessin() {
                   h('button', { class: 'puce', type: 'button', 'aria-label': 'Retirer ' + ty[1], onclick: () => majDessin(x => { x.ouvertures = x.ouvertures.filter(z => z.id !== o.id); }) }, '🗑')),
                 h('div', { class: 'puces' }, COTES_OUV.map(([c, lib]) => h('button', { class: 'puce' + (o.cote === c ? ' on' : ''), type: 'button', 'data-cote': c, onclick: () => majO(q => { q.cote = c; q.position = 0.3; }) }, lib))),
                 reglageMetres(o.position || 0, lat ? 'DEPUIS LE HAUT' : 'DEPUIS LA GAUCHE', 'ouv-position', 0.1, x => majO(q => { q.position = x; }), 0, ' m', Math.max(0, longCote - (DRnb(o.largeur) || 0.9))),
-                reglageMetres(o.largeur || ty[2], 'LARGEUR', 'ouv-largeur', 0.05, x => majO(q => { q.largeur = x; }), 0.3, ' m', 6));
+                reglageMetres(o.largeur || ty[2], 'LARGEUR', 'ouv-largeur', 0.05, x => majO(q => { q.largeur = x; }), 0.3, ' m', 6),
+                o.hauteur ? reglageMetres(o.hauteur, 'HAUTEUR', 'ouv-hauteur', 0.05, x => majO(q => { q.hauteur = x; }), 0.3, ' m', 3.5) : null);
             }),
             h('div', { class: 'puces' }, DR.TYPES_OUVERTURE.map(ty => h('button', { class: 'puce', type: 'button', 'data-ajout-ouverture': ty[0],
               onclick: () => maj((q, x) => { const w = ty[2], L = DRnb(q.longueur) || 3; x.ouvertures.push({ id: M.nouvelId().slice(0, 8), piece: q.id, type: ty[0], cote: 'bas', position: Math.max(0, Math.round((L - w) / 2 * 100) / 100), largeur: w }); }) }, '＋ ' + ty[1]))),

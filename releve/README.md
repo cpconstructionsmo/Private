@@ -296,6 +296,19 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   (une par pièce, par exemple) : chacune est lue, leurs pièces s'ajoutent au
   dessin, posées à côté, puis placées au doigt contre leur voisine. Un dessin
   existant : « ＋ Ajouter au dessin » ou « Remplacer le dessin », au choix.
+  **Lecture enrichie** (esquisse à la main comprise, `dessinDepuisLecture`) :
+  en plus des pièces, l'IA relève, seulement si c'est écrit ou dessiné, les
+  portes et fenêtres sur leur côté (« 120/195 » = largeur / hauteur en cm),
+  les équipements de l'existant (radiateurs, tableau, sanitaires… posés dos
+  au mur indiqué : `symbolesDepuisEquipements`), la hauteur sous plafond de
+  chaque pièce (`p.hauteur`, sinon celle du dessin), les annotations et le
+  projet écrit en rouge (note de la pièce, reprise dans le plan et le PDF),
+  une pièce non rectangulaire (« forme à vérifier »), deux logements côte à
+  côte (« A – Séjour », « B – SDB »). Un chiffre raturé n'est pas deviné.
+  « ＋ Tout importer » prend tous les plans d'une image (étage, mezzanine) ;
+  « Ajouter au dessin » garde les ouvertures et symboles déjà posés ; une
+  pièce glissée emporte ses symboles. Note et hauteur se retouchent dans la
+  fiche de la pièce.
 - **« 🖍 Plan annoté (travaux) »** (étape Scan, dès qu'il y a un plan dessiné
   ou un plan importé) : une **copie** du plan, annotée au doigt — stylo de
   couleur, flèches, textes (« / » pour aller à la ligne), « ↶ Annuler »,
