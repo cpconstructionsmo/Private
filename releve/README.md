@@ -348,7 +348,11 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 
 - Le dossier client montre aussi **l'image du plan dessiné** : le moteur la
   dessine à la fermeture du plan (`imagePlan`, chaque étage) et la visite
-  ne la garde que si elle a changé (`planImage`, photo `dessinPlan`).
+  ne la garde que si elle a changé (`planImage`, photo `dessinPlan`). La vue
+  3D, telle que laissée à l'écran, part de même (`plan3dImage`, photo
+  `dessin3d`) : page « Le relevé » du dossier client, option « Vue 3D du
+  relevé » cochée d'office (dans le lien partagé, une fois la fonction
+  `imaginer` redéployée : `cheminsDossier`).
 - **« 🔗 Créer le lien du dossier »** (écran Dossier client) : le dossier, tel
   qu'à l'écran, est gardé dans `releve_partages` avec l'empreinte d'un
   jeton aléatoire ; le client ouvre `partage.html#t=<jeton>` (30 jours, sans

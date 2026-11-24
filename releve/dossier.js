@@ -18,7 +18,7 @@ import * as M from './modele.js';
 import * as B from './budget.js';
 import * as T from './terrain.js';
 
-export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false, planAnnote: false, terrain: true };
+export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false, planAnnote: false, terrain: true, vue3d: true };
 
 const txt = v => (typeof v === 'string' ? v.trim() : '');
 const nom = (v, p) => [M.valeur(v, p + '.civilite'), M.valeur(v, p + '.prenom'), M.valeur(v, p + '.nom')].filter(Boolean).join(' ');
@@ -118,6 +118,8 @@ export function dossierClient(v, opt = {}) {
     garde: (() => { const g = v.photos[val('photoGarde')]; return g && !g.supprime ? { id: g.id, chemin: g.chemin || null } : null; })(),
     // l'image du plan dessiné, envoyée par le moteur à la fermeture du plan
     planImage: (() => { const pi = val('planImage'), ph = pi && v.photos[pi.id]; return ph && !ph.supprime ? { id: ph.id, chemin: ph.chemin || null } : null; })(),
+    // la vue 3D du plan, envoyée par le moteur avec l'image du plan (option « Vue 3D », cochée d'office)
+    vue3d: (() => { const pi = o.vue3d !== false && val('plan3dImage'), ph = pi && v.photos[pi.id]; return ph && !ph.supprime ? { id: ph.id, chemin: ph.chemin || null } : null; })(),
     // le plan annoté des travaux (annotations.js), seulement si l'option est cochée
     planAnnote: (() => { const a = val('annotations'), ph = o.planAnnote && a && typeof a.imageId === 'string' ? v.photos[a.imageId] : null; return ph && !ph.supprime ? { id: ph.id, chemin: ph.chemin || null } : null; })(),
     personnes,

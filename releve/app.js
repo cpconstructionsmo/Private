@@ -1541,22 +1541,24 @@ async function enregistrerPlan(m, cadre) {
     await stock.garderPhoto(id, S.courante, await (await fetch(url)).blob());
     recues.push(id);
   }
-  /* l'image du plan dessiné (dossier client) : gardée seulement si elle a changé */
-  let image = null;
-  if (typeof m.imagePlan === 'string' && /^data:image\/jpeg;base64,/.test(m.imagePlan) && m.imagePlan.length < 4000000) {
-    const empreinte = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(m.imagePlan)))).slice(0, 12).map(b => b.toString(16).padStart(2, '0')).join('');
-    const avant = M.valeur(visite(), 'planImage');
-    if (!avant || avant.empreinte !== empreinte) {
-      image = { id: M.nouvelId(), empreinte };
-      await stock.garderPhoto(image.id, S.courante, await (await fetch(m.imagePlan)).blob());
-    }
-  }
+  /* les images du plan dessiné et de la vue 3D (dossier client) : gardées seulement si elles ont changé */
+  const nouvelleImage = async (url, champ) => {
+    if (typeof url !== 'string' || !/^data:image\/jpeg;base64,/.test(url) || url.length >= 4000000) return null;
+    const empreinte = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(url)))).slice(0, 12).map(b => b.toString(16).padStart(2, '0')).join('');
+    const avant = M.valeur(visite(), champ);
+    if (avant && avant.empreinte === empreinte) return null;
+    const im = { id: M.nouvelId(), empreinte };
+    await stock.garderPhoto(im.id, S.courante, await (await fetch(url)).blob());
+    return im;
+  };
+  const images = [[await nouvelleImage(m.imagePlan, 'planImage'), 'planImage', 'dessinPlan'], [await nouvelleImage(m.image3d, 'plan3dImage'), 'plan3dImage', 'dessin3d']];
   await changer(w => {
     let x = w;
-    if (image) {
-      const avant = M.valeur(x, 'planImage');
+    for (const [image, champ, role] of images) {
+      if (!image) continue;
+      const avant = M.valeur(x, champ);
       if (avant && x.photos[avant.id]) x = M.supprimer(x, 'photos', avant.id);
-      x = M.modifier(M.ajouterPhoto(x, { id: image.id, role: 'dessinPlan' }), 'planImage', image);
+      x = M.modifier(M.ajouterPhoto(x, { id: image.id, role }), champ, image);
     }
     for (const id of recues) if (!x.photos[id]) x = M.ajouterPhoto(x, { id, role: 'plan' });
     // une photo retirée dans le plan est retirée de la visite (suppression notée, voir modele.js)
@@ -2026,7 +2028,7 @@ const jetonAleatoire = () => btoa(String.fromCharCode(...crypto.getRandomValues(
 const empreinteJeton = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map(b => b.toString(16).padStart(2, '0')).join('');
 const tableAbsente = err => /42P01|PGRST205|does not exist|schema cache/.test(((err && err.code) || '') + ' ' + ((err && err.message) || ''));
 /* les photos du dossier pas encore envoyées sur le serveur (le client ne les verrait pas) */
-const photosNonEnvoyees = d => [d.garde, d.planImage, d.planAnnote, ...d.pieces.flatMap(p => p.photos.flatMap(ph => [ph, ...ph.imagines]))].filter(ph => ph && !ph.chemin).length;
+const photosNonEnvoyees = d => [d.garde, d.planImage, d.vue3d, d.planAnnote, ...d.pieces.flatMap(p => p.photos.flatMap(ph => [ph, ...ph.imagines]))].filter(ph => ph && !ph.chemin).length;
 
 async function dossierAPartager() {
   const o = optionsDossier();
@@ -2123,6 +2125,7 @@ function ecranDossier() {
         option('imagines', 'Images d’intention (✨ Imaginé)'),
         option('notesPieces', 'Notes des pièces'),
         M.natureDe(v) !== 'renovation' ? option('terrain', 'Terrain, urbanisme et risques') : null,
+        option('vue3d', 'Vue 3D du relevé' + (M.valeur(v, 'plan3dImage') ? '' : ' — pas encore d’image (ouvrez puis fermez le plan)')),
         option('planAnnote', 'Plan annoté (travaux)' + (AN.nettoyer(M.valeur(v, 'annotations')).imageId ? '' : ' — aucun plan annoté pour l’instant (étape Scan)')),
         h('p', { class: 'mut petit' }, 'Jamais dans le dossier : les notes de visite, la marge.'),
         h('button', { class: 'gros', id: 'imprimerDossier', type: 'button', onclick: imprimer }, '🖨 Imprimer / PDF'),

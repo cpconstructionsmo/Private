@@ -82,7 +82,8 @@ qu'on ait à les redire.
   (`avantApresPlan`, message `releve:image`). Dossier client
   (`releve/dossier.js`, « 📄 Dossier client », lien du suivi
   `releveLien({visite,vue:'dossier'})`) : imprimable en PDF A4, jamais les
-  notes de visite ni la marge ; image du plan dessiné (`planImage`) ;
+  notes de visite ni la marge ; image du plan dessiné (`planImage`) et de
+  la vue 3D (`plan3dImage`, option `vue3d` cochée d'office) ;
   envoyé au client par un lien de 30 jours (`partage.html#t=<jeton>`, table
   `releve_partages`, empreinte seule, action `partage` de la fonction
   `imaginer`, mise en page partagée `dossier-vue.js`). Assistant de visite
