@@ -47,7 +47,8 @@ export function placer(pieces) {
 const TOL_INC = 0.03;
 export function incluse(b, a) {
   if (!(b.x0 >= a.x0 - TOL_INC && b.x1 <= a.x1 + TOL_INC && b.y0 >= a.y0 - TOL_INC && b.y1 <= a.y1 + TOL_INC)) return false;
-  if ((b.x1 - b.x0) * (b.y1 - b.y0) >= (a.x1 - a.x0) * (a.y1 - a.y0) - 0.01) return false;
+  // seulement une PETITE pièce (au plus 35 % de la grande : WC, placard, gaine) ; deux pièces de taille voisine posées l'une sur l'autre restent une erreur
+  if ((b.x1 - b.x0) * (b.y1 - b.y0) > 0.35 * (a.x1 - a.x0) * (a.y1 - a.y0)) return false;
   return Math.abs(b.x0 - a.x0) < TOL_INC || Math.abs(b.x1 - a.x1) < TOL_INC || Math.abs(b.y0 - a.y0) < TOL_INC || Math.abs(b.y1 - a.y1) < TOL_INC;
 }
 /* le contour d'un rectangle dont on retire des rectangles collés à son bord (forme en L, encoche) :
