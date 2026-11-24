@@ -84,6 +84,8 @@ export function releveDepuisDessin(pieces, { projet = 'Dessin rapide', hauteur =
   const ch = chevauchements(pieces, rect);
   ch.forEach(([a, b]) => erreurs.push('« ' + a + ' » et « ' + b + ' » se chevauchent : changez le côté ou le décalage.'));
   const H = nb(hauteur) >= 1.8 && nb(hauteur) <= 6 ? nb(hauteur) : 2.5;
+  // une pièce peut avoir sa propre hauteur sous plafond (lue sur l'esquisse, ou réglée) : sinon celle du dessin
+  const hPiece = p => nb(p.hauteur) >= 1.5 && nb(p.hauteur) <= 8 ? nb(p.hauteur) : H;
   const posees = (pieces || []).filter(p => rect.has(p.id));
   const noms = nomsEtages(etages, posees);
   const et = p => Math.min(noms.length - 1, Math.max(0, Number.isInteger(p.etage) ? p.etage : 0));
@@ -95,13 +97,14 @@ export function releveDepuisDessin(pieces, { projet = 'Dessin rapide', hauteur =
     projet, client: '', adresse: '', date: new Date().toISOString().slice(0, 10), hauteurSousPlafond: H, epaisseurMur: 0.1,
     etages: noms.map(nom => ({ nom })),
     pieces: posees.map(p => { const pts = contours.get(p.id);
-      return { id: 'd-' + p.id, nom: String(p.nom || 'Pièce'), etage: et(p), points: pts, pointsScan: pts.map(q => [q[0], q[1]]), hauteur: H, dessinRapide: true }; }),
+      return { id: 'd-' + p.id, nom: String(p.nom || 'Pièce'), etage: et(p), points: pts, pointsScan: pts.map(q => [q[0], q[1]]), hauteur: hPiece(p), dessinRapide: true,
+        ...(p.note ? { note: String(p.note).slice(0, 600) } : {}) }; }),
     ouvertures: ouv.liste, symboles: symbolesMoteur(symboles, noms.length), toitures: toituresMoteur(toiture, posees.map(p => ({ id: 'd-' + p.id, etage: et(p) }))), dessinRapide: true,
   };
   const compte = (id, type) => ouv.liste.filter(o => o.piece === id && (type === 'fenetre' ? o.type === 'fenetre' : o.type !== 'fenetre')).length;
   const detail = posees.map(p => { const r = rect.get(p.id), L = r.x1 - r.x0, W = r.y1 - r.y0, id = 'd-' + p.id;
     return { id, nom: String(p.nom || 'Pièce'), etage: et(p), sol: Math.round(L * W * 100) / 100, perimetre: Math.round(2 * (L + W) * 100) / 100,
-      hauteur: H, murs: Math.round(2 * (L + W) * H * 100) / 100, portes: compte(id, 'porte'), fenetres: compte(id, 'fenetre') }; });
+      hauteur: hPiece(p), murs: Math.round(2 * (L + W) * hPiece(p) * 100) / 100, portes: compte(id, 'porte'), fenetres: compte(id, 'fenetre') }; });
   const surface = Math.round(detail.reduce((t, d) => t + d.sol, 0) * 100) / 100;
   return { donnees, resume: { projet, pieces: detail.length, surface, ouvertures: ouv.liste.length, detail }, erreurs, rect };
 }
@@ -169,7 +172,7 @@ export function ouverturesMoteur(ouvertures, pieces, rect, contours) {
     const position = cote === 'haut' || cote === 'droite' ? A - trouve.lo : trouve.hi - B;
     const type = o.type === 'portefenetre' ? 'fenetre' : o.type === 'fenetre' || o.type === 'passage' ? o.type : 'porte';
     liste.push({ type, piece: 'd-' + p.id, mur: trouve.i, position: r3(position), largeur: r3(w),
-      ...(o.type === 'portefenetre' ? { hauteur: 2.15, allege: 0 } : {}), ...(o.charniere === 'fin' ? { charniere: 'fin' } : {}), ...(o.sens === 'inverse' ? { sens: 'inverse' } : {}), dessin: o.id });
+      ...(o.type === 'portefenetre' ? { hauteur: nb(o.hauteur) >= 1.6 && nb(o.hauteur) <= 3.5 ? r3(nb(o.hauteur)) : 2.15, allege: 0 } : nb(o.hauteur) >= 0.3 && nb(o.hauteur) <= 3.5 ? { hauteur: r3(nb(o.hauteur)) } : {}), ...(o.charniere === 'fin' ? { charniere: 'fin' } : {}), ...(o.sens === 'inverse' ? { sens: 'inverse' } : {}), dessin: o.id });
   });
   return { liste, erreurs };
 }
@@ -220,7 +223,7 @@ export function toituresMoteur(toiture, pieces) {
    ========================================================================== */
 export const GAP_MUR = 0.7;                     // épaisseur de mur la plus forte qu'on enjambe (m)
 const cm = v => Math.round(v * 100) / 100;
-export function dessinDepuisRectangles(rects, nouvelId = i => 'p' + (i + 1)) {
+export function dessinDepuisRectangles(rects, nouvelId = i => 'p' + (i + 1), carte = null) {
   const R = (rects || []).map((r, i) => ({ i, nom: String(r.nom || 'Pièce ' + (i + 1)).slice(0, 40), L: nb(r.longueur), W: nb(r.largeur), x: nb(r.x) || 0, y: nb(r.y) || 0 }))
     .filter(r => r.L >= 0.3 && r.L <= 50 && r.W >= 0.3 && r.W <= 50);
   if (!R.length) return [];
@@ -264,5 +267,53 @@ export function dessinDepuisRectangles(rects, nouvelId = i => 'p' + (i + 1)) {
     sortie.push({ id: ch.b.id, nom: ch.b.nom, longueur: cm(ch.b.L), largeur: cm(ch.b.W), contre: { id: ch.a.id, cote: ch.cote, decalage: ch.d } });
     poses.push(ch.b);
   }
+  // rang de chaque rectangle lu → pièce créée (pour lui rattacher ses ouvertures, équipements, notes)
+  if (carte) R.forEach(r => { if (r.id) carte.set(r.i, r.id); });
   return sortie;
+}
+
+/* la lecture enrichie d'un plan ou d'une esquisse (fonction imaginer, mode « plan ») : en plus des
+   pièces, leurs portes et fenêtres (sur le bon côté, ramenées dans le mur si besoin), leurs
+   équipements (radiateurs, tableau… posés contre le mur indiqué, sinon au centre), la hauteur sous
+   plafond et une note qui reprend les annotations, le projet (écrit en rouge) et un avertissement
+   pour une pièce non rectangulaire. Tout reste une proposition à vérifier dans le dessin. */
+export function dessinDepuisLecture(lues, nouvelId = i => 'p' + (i + 1)) {
+  const carte = new Map(), pieces = dessinDepuisRectangles(lues, nouvelId, carte), ouvertures = [], equipements = [];
+  let n = 0; const id = () => String(nouvelId(1000 + n++));
+  (lues || []).forEach((q, i) => {
+    const p = pieces.find(x => x.id === carte.get(i)); if (!p) return;
+    const h = nb(q.hauteur); if (h >= 1.5 && h <= 8) p.hauteur = r3(h);
+    const note = [q.notes, q.projet ? 'Projet : ' + q.projet : '', q.forme === 'autre' ? 'Forme à vérifier : pièce non rectangulaire, lue comme son rectangle.' : '']
+      .map(t => String(t || '').trim()).filter(Boolean).join(' · ');
+    if (note) p.note = note.slice(0, 600);
+    (Array.isArray(q.ouvertures) ? q.ouvertures : []).forEach(o => {
+      const ty = TYPES_OUVERTURE.find(t => t[0] === o.type), cote = ['haut', 'droite', 'bas', 'gauche'].includes(o.cote) ? o.cote : null; if (!ty || !cote) return;
+      const long = cote === 'haut' || cote === 'bas' ? p.longueur : p.largeur; if (!(long >= 0.6)) return;
+      const w = r3(Math.min(Math.max(nb(o.largeur) || ty[2], 0.3), 6, long - 0.1)), pos0 = nb(o.position);
+      const ho = nb(o.hauteur);
+      ouvertures.push({ id: id(), piece: p.id, type: o.type, cote, position: r3(Math.max(0, Math.min(long - w, pos0 != null ? pos0 : (long - w) / 2))), largeur: w,
+        ...(ho >= 0.3 && ho <= 3.5 ? { hauteur: r3(ho) } : {}) });
+    });
+    (Array.isArray(q.equipements) ? q.equipements : []).forEach(e => {
+      if (!TYPES_SYMBOLE.some(t => t[0] === e.type) || e.type === 'escalier') return;
+      equipements.push({ piece: p.id, type: e.type, ...(['haut', 'droite', 'bas', 'gauche'].includes(e.cote) ? { cote: e.cote } : {}), ...(nb(e.position) != null ? { position: nb(e.position) } : {}) });
+    });
+  });
+  return { pieces, ouvertures, equipements };
+}
+/* les équipements lus, posés dans leur pièce (rectangles du dessin) : contre le mur indiqué, dos au
+   mur (le quart de tour suit le côté), à la position lue sinon au milieu ; sans mur, au centre */
+export function symbolesDepuisEquipements(equipements, pieces, rect, nouvelId = i => 's' + (i + 1)) {
+  const ROT = { haut: 0, droite: 90, bas: 180, gauche: 270 };
+  return (equipements || []).map((e, i) => {
+    const t = TYPES_SYMBOLE.find(x => x[0] === e.type), p = (pieces || []).find(x => x.id === e.piece), r = p && rect.get(p.id); if (!t || !r) return null;
+    const L = t[3], W = t[4], lx = r.x1 - r.x0, ly = r.y1 - r.y0, cote = e.cote, pos = nb(e.position);
+    const le = (long, taille) => Math.max(taille / 2, Math.min(long - taille / 2, pos != null ? pos + taille / 2 : long / 2));
+    let x = (r.x0 + r.x1) / 2, y = (r.y0 + r.y1) / 2;
+    if (cote === 'haut') { x = r.x0 + le(lx, L); y = r.y0 + W / 2 + 0.02; }
+    else if (cote === 'bas') { x = r.x0 + le(lx, L); y = r.y1 - W / 2 - 0.02; }
+    else if (cote === 'gauche') { x = r.x0 + W / 2 + 0.02; y = r.y0 + le(ly, L); }
+    else if (cote === 'droite') { x = r.x1 - W / 2 - 0.02; y = r.y0 + le(ly, L); }
+    return { id: String(nouvelId(i)), type: t[0], etage: Number.isInteger(p.etage) ? p.etage : 0, x: r3(x), y: r3(y), rot: cote ? ROT[cote] : 0, l: L, w: W };
+  }).filter(Boolean);
 }

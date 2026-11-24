@@ -85,6 +85,16 @@ let b;
   d=await attendreDessin(d=>d.symboles.length===2&&d.symboles[1].l===3);
   chk(d.symboles[0].type==='radiateur'&&d.symboles[0].rot===90&&d.symboles[1].type==='escalier'&&d.symboles[1].w===0.9,'radiateur tourné d’un quart, trémie d’escalier de 3 × 0,90 m');
   chk(await p.locator('svg.apercuDessin [data-symbole]').count()===2,'les symboles se dessinent sur l’aperçu');
+  /* une pièce glissée emporte ses symboles (le radiateur suit le séjour), puis revient */
+  const rx0=d.symboles[0].x;
+  await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
+  await glisser(1,3.2,0,3.2);
+  d=await attendreDessin(d=>d.pieces[0].libre&&d.pieces[0].libre.x===-1);
+  chk(d&&Math.abs(d.symboles[0].x-(rx0-1))<0.011,'séjour glissé de 1 m : son radiateur le suit');
+  await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
+  await glisser(0,3.2,1,3.2);
+  d=await attendreDessin(d=>d.pieces[0].libre&&d.pieces[0].libre.x===0);
+  chk(d&&Math.abs(d.symboles[0].x-rx0)<0.011,'remis en place (aimanté contre la pièce 2) : le radiateur aussi');
   /* un étage */
   await p.tap('#ajouterEtage');
   await p.waitForFunction(()=>document.querySelector('[data-etage="1"]')&&document.querySelector('[data-etage="1"]').classList.contains('on'));

@@ -33,5 +33,21 @@ const {chk,fin}=verif();
   const R2=D.releveDepuisDessin([{id:'a',nom:'A',longueur:4.3,largeur:5.49},{id:'b',nom:'B',longueur:4.8,largeur:5.5,contre:{id:'a',cote:'droite',decalage:0}}]);
   const court=R2.donnees.pieces.some(q=>q.points.some((pt,i,t)=>{const n=t[(i+1)%t.length];return Math.hypot(n[0]-pt[0],n[1]-pt[1])<0.03}));
   chk(!court,'dessin à la main, 5,49 et 5,50 côte à côte : pas de bout de mur de 1 cm (refusé par le moteur)');
+  /* lecture enrichie (esquisse FICTIVE) : ouvertures ramenées dans le mur, équipements dos au mur, notes */
+  const L=[{nom:'A – Séjour',longueur:4.15,largeur:6.57,x:0,y:0,hauteur:2.25,notes:'tableau élec',ouvertures:[{type:'porte',cote:'bas',largeur:0.9,hauteur:2.15,position:0.4},{type:'fenetre',cote:'droite',largeur:9,position:20},{type:'lucarne',cote:'haut',largeur:1}],equipements:[{type:'tableau',cote:'gauche',position:5},{type:'escalier'},{type:'radiateur'}]},
+    {nom:'A – Cuisine',longueur:2.64,largeur:3.93,x:0,y:-4.1,projet:'futur SDE et WC',forme:'autre'}];
+  const E=D.dessinDepuisLecture(L);
+  const se=E.pieces.find(x=>x.nom==='A – Séjour'),cu2=E.pieces.find(x=>x.nom==='A – Cuisine');
+  chk(se.hauteur===2.25&&se.note==='tableau élec'&&cu2.note==='Projet : futur SDE et WC · Forme à vérifier : pièce non rectangulaire, lue comme son rectangle.','hauteur, notes, projet (rouge) et forme à vérifier repris sur la bonne pièce');
+  chk(E.ouvertures.length===2&&E.ouvertures[0].position===0.4&&E.ouvertures[0].hauteur===2.15&&E.ouvertures[1].largeur===6&&E.ouvertures[1].position===0.57,'ouvertures : porte à 0,40 m, fenêtre trop large ramenée dans le mur (6 m, position bornée), type inconnu écarté');
+  chk(E.equipements.length===2&&!E.equipements.some(e=>e.type==='escalier'),'équipements : tableau et radiateur gardés, trémie jamais devinée');
+  const S2=D.symbolesDepuisEquipements(E.equipements,E.pieces,D.placer(E.pieces).rect);
+  const ta=S2.find(x=>x.type==='tableau'),rd=S2.find(x=>x.type==='radiateur'),rs=D.placer(E.pieces).rect.get(se.id);
+  chk(ta.rot===270&&Math.abs(ta.x-(rs.x0+0.095))<0.001&&Math.abs(ta.y-(rs.y0+5.25))<0.001,'tableau contre le mur gauche, dos au mur, à 5 m du haut');
+  chk(rd.rot===0&&Math.abs(rd.x-(rs.x0+rs.x1)/2)<0.001&&Math.abs(rd.y-(rs.y0+rs.y1)/2)<0.001,'équipement sans mur indiqué : au centre de la pièce');
+  const R3=D.releveDepuisDessin(E.pieces,{ouvertures:E.ouvertures,hauteur:2.5});
+  chk(!R3.erreurs.length&&R3.donnees.pieces.find(x=>x.nom==='A – Séjour').hauteur===2.25&&R3.donnees.pieces.find(x=>x.nom==='A – Cuisine').hauteur===2.5&&R3.resume.detail.find(x=>x.nom==='A – Séjour').hauteur===2.25,'moteur : hauteur propre à la pièce, sinon celle du dessin ; résumé aussi');
+  chk(R3.donnees.pieces.find(x=>x.nom==='A – Cuisine').note.startsWith('Projet')&&R3.donnees.ouvertures.find(o=>o.type==='porte').hauteur===2.15,'la note et la hauteur de la porte passent au moteur (plan, PDF)');
+  chk(D.dessinDepuisLecture([]).pieces.length===0,'rien lu : rien de créé');
   fin();
 })();

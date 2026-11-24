@@ -169,6 +169,10 @@ export const limiteTexte = v => { const n = parseInt(String(v ?? ''), 10); retur
    Compté avec les dictées (IMAGINER_LIMITE_TEXTE).
    ========================================================================== */
 export const LEGENDE_MAX = 140, CONSTAT_MAX = 200, CONSTATS_MAX = 6, NOTE_MAX = 8000, PARTIES_MAX = 8, PIECES_PLAN_MAX = 40;
+// la lecture enrichie d'un plan ou d'une esquisse : ouvertures, équipements, notes et projet par pièce
+export const COTES_PLAN = ['haut', 'droite', 'bas', 'gauche'], TYPES_OUV_PLAN = ['porte', 'fenetre', 'portefenetre', 'passage'],
+  TYPES_EQ_PLAN = ['radiateur', 'chaudiere', 'cumulus', 'poele', 'wc', 'lavabo', 'douche', 'baignoire', 'evier', 'tableau'],
+  OUVERTURES_PIECE_MAX = 12, EQUIPEMENTS_PIECE_MAX = 12, NOTE_PIECE_MAX = 300;
 
 export function lireDescription(corps) {
   const image = String(corps?.image ?? '').replace(/^data:image\/[a-z+]+;base64,/i, '');
@@ -199,8 +203,16 @@ export function inviteDescription({ mode, piece }) {
     'longueur = dimension intérieure HORIZONTALE de la pièce telle que dessinée (de gauche à droite), largeur = dimension VERTICALE, en mètres.',
     'Prends-les dans les cotes écrites (ex. « 4.30 × 5.49 », cotes le long des murs) et vérifie avec ces cotes laquelle est horizontale.',
     'x, y = coin haut-gauche intérieur de la pièce, en mètres depuis le coin haut-gauche de la partie, en suivant les cotes (murs compris).',
-    'Une pièce non rectangulaire : son rectangle englobant. N’invente aucune pièce ; ignore le mobilier et les annotations manuscrites, sauf un nom de pièce.',
-    'nom de partie : son titre sur le plan (ex. « Rez-de-chaussée — état actuel »), sinon « Plan ».',
+    'Une pièce non rectangulaire (pan coupé, mur biais) : son rectangle englobant, avec "forme":"autre". N’invente aucune pièce ; ignore le mobilier.',
+    'nom de partie : son titre sur le plan (ex. « Rez-de-chaussée — état actuel »), sinon « Plan ». Deux logements dessinés côte à côte au même niveau (« A », « B ») restent dans la même partie : préfixe le nom de leurs pièces (« A – Séjour », « B – SDB »). Un petit plan à part (étage, mezzanine, combles) est une autre partie.',
+    'Pour chaque pièce, relève aussi, seulement si c’est écrit ou dessiné (sinon omets le champ) :',
+    '- "hauteur" : hauteur sous plafond en mètres (« HSP 2,30 » → 2.3 ; s’il y en a deux, la plus courante) ;',
+    '- "ouvertures" : [{"type":"porte|fenetre|portefenetre|passage","cote":"haut|droite|bas|gauche","position":0,"largeur":0,"hauteur":0}] — cote = mur de la pièce tel que dessiné ; position = distance en mètres du début du mur (gauche pour haut/bas, haut pour gauche/droite) au bord de l’ouverture, si on peut l’estimer ; une cote « 120/195 » ou « 90/215 » près d’une ouverture = largeur/hauteur en centimètres (→ 1.2 et 1.95) ; un arc de cercle = une porte ; deux traits parallèles dans un mur = une fenêtre (porte-fenêtre si elle descend au sol, hauteur ≥ 2 m) ;',
+    '- "equipements" : [{"type":"radiateur|chaudiere|cumulus|poele|wc|lavabo|douche|baignoire|evier|tableau","cote":"haut|droite|bas|gauche","position":0}] — « Rad. » = radiateur, « tableau élec » = tableau ; seulement l’existant (pas le projet) ;',
+    '- "notes" : les autres annotations de l’existant, recopiées brièvement (ex. « Mur à refaire », « arrivée gaz », « HSP sous mezzanine 2,16 ») ;',
+    '- "projet" : ce qui est dessiné ou écrit en ROUGE (ou marqué « futur », « projet ») pour cette pièce, recopié brièvement (ex. « futur SDE et WC », « futur cuisine ») : c’est le projet, pas l’existant ;',
+    '- "forme" : "autre" si la pièce n’est pas rectangulaire.',
+    'Un chiffre raturé ou illisible : ne le devine pas, omets-le. Réponds uniquement par le JSON.',
   ].join('\n');
   if (mode === 'note') return [
     'Voici la photo d’une note manuscrite (ou d’un document) prise pendant la visite d’un chantier de rénovation.',
@@ -249,7 +261,19 @@ export function descriptionReponse(json, mode) {
     const parties = (Array.isArray(o.parties) ? o.parties : []).slice(0, PARTIES_MAX).map((p, i) => ({
       nom: txt(p?.nom, 80).replace(/\s+/g, ' ') || 'Plan ' + (i + 1),
       pieces: (Array.isArray(p?.pieces) ? p.pieces : []).slice(0, PIECES_PLAN_MAX)
-        .map(q => ({ nom: txt(q?.nom, 40).replace(/\s+/g, ' ') || 'Pièce', longueur: n(q?.longueur, 0.3, 50), largeur: n(q?.largeur, 0.3, 50), x: n(q?.x, -10, 300) ?? 0, y: n(q?.y, -10, 300) ?? 0 }))
+        .map(q => {
+          const base = { nom: txt(q?.nom, 40).replace(/\s+/g, ' ') || 'Pièce', longueur: n(q?.longueur, 0.3, 50), largeur: n(q?.largeur, 0.3, 50), x: n(q?.x, -10, 300) ?? 0, y: n(q?.y, -10, 300) ?? 0 };
+          // la lecture enrichie : seulement ce qui a la bonne forme (rien d'inventé, rien d'exécutable)
+          const cote = c => COTES_PLAN.includes(c) ? c : null, h = n(q?.hauteur, 1.5, 8);
+          const ouv = (Array.isArray(q?.ouvertures) ? q.ouvertures : []).slice(0, OUVERTURES_PIECE_MAX).map(o => ({ type: TYPES_OUV_PLAN.includes(o?.type) ? o.type : null, cote: cote(o?.cote),
+            ...(n(o?.position, 0, 50) != null ? { position: n(o?.position, 0, 50) } : {}), largeur: n(o?.largeur, 0.3, 6), ...(n(o?.hauteur, 0.3, 3.5) != null ? { hauteur: n(o?.hauteur, 0.3, 3.5) } : {}) }))
+            .filter(o => o.type && o.cote && o.largeur != null);
+          const eq = (Array.isArray(q?.equipements) ? q.equipements : []).slice(0, EQUIPEMENTS_PIECE_MAX).map(o => ({ type: TYPES_EQ_PLAN.includes(o?.type) ? o.type : null,
+            ...(cote(o?.cote) ? { cote: cote(o.cote) } : {}), ...(n(o?.position, 0, 50) != null ? { position: n(o?.position, 0, 50) } : {}) })).filter(o => o.type);
+          const notes = txt(q?.notes, NOTE_PIECE_MAX).replace(/\s+/g, ' '), projet = txt(q?.projet, NOTE_PIECE_MAX).replace(/\s+/g, ' ');
+          return { ...base, ...(h != null ? { hauteur: h } : {}), ...(ouv.length ? { ouvertures: ouv } : {}), ...(eq.length ? { equipements: eq } : {}),
+            ...(notes ? { notes } : {}), ...(projet ? { projet } : {}), ...(q?.forme === 'autre' ? { forme: 'autre' } : {}) };
+        })
         .filter(q => q.longueur != null && q.largeur != null),
     })).filter(p => p.pieces.length);
     return parties.length ? { parties } : { erreur: 'rien_lu' };

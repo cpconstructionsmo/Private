@@ -72,7 +72,9 @@ qu'on ait à les redire.
   constats internes (`description`) d'une photo ; « 📷 Lire une note
   manuscrite » ajoute la transcription à la dictée de l'assistant. « 🖼 Plan 2D » (mode
   `plan`, image ou PDF, aussi glissé sur le plan) : pièces lues → dessin
-  rapide à vérifier (`dessinDepuisRectangles`), plan d'origine gardé
+  rapide à vérifier (`dessinDepuisRectangles` ; lecture enrichie
+  `dessinDepuisLecture` : ouvertures, équipements, hauteur, notes et projet
+  en rouge par pièce, « ＋ Tout importer »), plan d'origine gardé
   (photo `planPapier`), plusieurs esquisses d'un coup ajoutées au dessin.
   Plan annoté (travaux) : copie du plan annotée au doigt (`annotations.js`,
   champ `annotations`, photos `fondAnnote` et `planAnnote`), en option dans
