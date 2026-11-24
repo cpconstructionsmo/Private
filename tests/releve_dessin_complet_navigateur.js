@@ -50,6 +50,18 @@ let b;
   await p.mouse.move(ax,ay);await p.mouse.down();await p.mouse.move((ax+bx)/2,(ay+by)/2,{steps:3});await p.mouse.move(bx,by,{steps:3});await p.mouse.up();
   d=await attendreDessin(d=>d.pieces[1].libre&&d.pieces[1].libre.x!==5.5);
   chk(d&&d.pieces[1].libre.x===5&&d.pieces[1].libre.y===0,'glissée près du séjour : elle s’aimante contre son mur (x = 5) et s’aligne en haut (y = 0)');
+  /* aimant coupé : la pièce reste exactement où on la lâche (au pas de 5 cm), même tout près d'un mur */
+  const glisser=async(x0,y0,x1,y1)=>{const [a1,a2]=await ecran(x0,y0),[b1,b2]=await ecran(x1,y1);await p.mouse.move(a1,a2);await p.mouse.down();await p.mouse.move((a1+b1)/2,(a2+b2)/2,{steps:3});await p.mouse.move(b1,b2,{steps:3});await p.mouse.up();};
+  chk((await p.textContent('#aimantDessin')).includes('oui'),'« 🧲 Aimant : oui » d’office');
+  await p.click('#aimantDessin');
+  chk((await p.textContent('#aimantDessin')).includes('non')&&await p.evaluate(()=>localStorage.getItem('cp-releve-aimant'))==='non','un toucher coupe l’aimant (réglage gardé sur l’appareil)');
+  await glisser(6.5,1.5,6.7,1.65);
+  d=await attendreDessin(d=>d.pieces[1].libre.x!==5);
+  chk(d&&Math.abs(d.pieces[1].libre.x-5.2)<0.051&&Math.abs(d.pieces[1].libre.y-0.15)<0.051,'sans aimant, lâchée à 20 cm du séjour : elle y reste ('+(d&&d.pieces[1].libre.x)+' ; '+(d&&d.pieces[1].libre.y)+')');
+  await p.click('#aimantDessin');
+  await glisser(6.7,1.65,6.5,1.5);
+  d=await attendreDessin(d=>d.pieces[1].libre.x===5&&d.pieces[1].libre.y===0);
+  chk(!!d,'aimant remis : elle revient se coller au séjour');
   /* une fenêtre en haut du séjour, une porte à gauche de la pièce 2 (mur commun) */
   await p.tap('[data-dessin] >> nth=0');
   await p.tap('[data-ajout-ouverture="fenetre"]');
