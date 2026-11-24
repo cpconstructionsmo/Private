@@ -20,7 +20,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { lireDemande, requeteGemini, imageReponse, modeles, limiteJour,
-  lireStructuration, requeteStructuration, jsonReponse, modelesTexte, limiteTexte,
+  lireStructuration, requeteStructuration, jsonReponse, modelesTexte, modelesPlan, limiteTexte,
   jetonValide, empreinte, cheminsDossier, lireDescription, requeteDescription, descriptionReponse,
   lireReglement, requeteReglement, reglementReponse, enBase64, REGLEMENT_MAX } from './regles.js';
 
@@ -41,11 +41,13 @@ const jourParis = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Euro
 /* appel à Gemini, modèle après modèle : un modèle inconnu (404, renommé ou retiré) passe au suivant */
 async function gemini(liste: string[], corps: unknown) {
   let derniere = 'google';
-  for (const modele of liste) {
+  for (const [i, modele] of liste.entries()) {
     const r = await fetch(GEMINI + modele + ':generateContent', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': CLE_GEMINI as string }, body: JSON.stringify(corps),
     });
     if (r.status === 404) { derniere = 'modele_inconnu'; continue; }
+    // un modèle saturé ou non ouvert à cette clé (quota du modèle « pro », par exemple) : on passe au suivant s'il y en a un
+    if ((r.status === 429 || r.status === 403) && i < liste.length - 1) { derniere = r.status === 429 ? 'google_occupe' : 'google'; continue; }
     const json = await r.json().catch(() => ({}));
     if (!r.ok) return { erreur: r.status === 429 ? 'google_occupe' : 'google', statut: r.status, message: String(json?.error?.message || '').slice(0, 300) };
     return { json, modele };
@@ -101,7 +103,8 @@ Deno.serve(async (req: Request) => {
     const { data: c, error: ec } = await db.from('releve_ia_usage').select('nb_texte').eq('jour', jour).eq('user_id', u.user.id).maybeSingle();
     const deja = ec ? 0 : (c?.nb_texte || 0);
     if (deja >= limite) return reponse({ erreur: 'quota', limite }, 429);
-    const g = await gemini(modelesTexte(Deno.env.get('IMAGINER_MODELE_TEXTE')),
+    const plan = action === 'decrire' && ((d as { mode: string }).mode === 'plan' || (d as { mode: string }).mode === 'terrain');
+    const g = await gemini(plan ? modelesPlan(Deno.env.get('IMAGINER_MODELE_PLAN'), Deno.env.get('IMAGINER_MODELE_TEXTE')) : modelesTexte(Deno.env.get('IMAGINER_MODELE_TEXTE')),
       action === 'decrire' ? requeteDescription(d as { image: string; mime: string; mode: string; piece: string }) : requeteStructuration(d));
     if ('erreur' in g) return reponse(g, 502);
     const f = action === 'decrire' ? descriptionReponse(g.json, (d as { mode: string }).mode) : jsonReponse(g.json);

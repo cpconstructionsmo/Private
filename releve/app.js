@@ -805,7 +805,8 @@ function etapeTerrain(v) {
       imagines(ph.id).map(im => h('div', { class: 'imagine', 'data-imagine': im.id },
         h('figure', {}, imagePhoto(im, 'imagineImg'), h('span', { class: 'badgeImagine' }, '✨ Imaginé'),
           h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer l’image imaginée', onclick: async () => { if (!confirm('Supprimer cette image imaginée ?')) return; await changer(x => M.supprimer(x, 'photos', im.id)); dessiner(); } }, '×')),
-        h('div', { class: 'mut petit' }, '« ' + (im.consigne || im.legende || '') + ' »'))),
+        h('div', { class: 'mut petit' }, (im.depuis ? '✏️ ' : '') + '« ' + (im.consigne || im.legende || '') + ' » ',
+          h('button', { class: 'lienRetour', type: 'button', 'data-retoucher': im.id, onclick: () => { S.imaginer = { photoId: ph.id, depuis: im.id, consigne: '' }; dessiner(); } }, '✏️ Retoucher')))),
       S.imaginer && S.imaginer.photoId === ph.id ? panneauImaginer(sujet, ph) : null]),
     h('div', { class: 'rang', style: 'margin-top:8px' },
       h('button', { class: 'gros sec', type: 'button', id: 'photoTerrain', onclick: prendre }, '📷 Photo'),
@@ -878,17 +879,19 @@ async function blobPhoto(ph) {
   if (!blob) throw { code: 'photo' };
   return blob;
 }
-async function creerImageImaginee(visiteId, pieceId, photoId, consigne) {
+async function creerImageImaginee(visiteId, pieceId, photoId, consigne, depuis) {
   const rec = S.visites.find(r => r.id === visiteId), v = rec && rec.visite;
   const ph = v && v.photos[photoId], p = (v && v.pieces[pieceId]) || (ph && sujetImaginer(ph));
   if (!ph || ph.supprime || !p) throw { code: 'photo' };
-  const blob = await blobPhoto(ph);
-  const data = await appelerFonction({ image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom, mode: p.mode || 'piece' });
+  // retouche : on part de l'image déjà imaginée (seule la modification demandée change) ; elle reste rangée sous la photo d'origine
+  const base = depuis && v.photos[depuis] && !v.photos[depuis].supprime ? v.photos[depuis] : null;
+  const blob = await blobPhoto(base || ph);
+  const data = await appelerFonction({ image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne, piece: p.nom, mode: base ? 'retouche' : (p.mode || 'piece') });
   if (!data || !data.image) throw { code: 'aucune_image' };
   const id = M.nouvelId();
   await stock.garderPhoto(id, visiteId, versBlob(data.image, data.mime));
   await changerVisite(visiteId, w => { let x = M.majElement(M.ajouterPhoto(w, { id, role: 'imagine', pieceId, legende: consigne }), 'photos', id,
-    { source: photoId, consigne, modele: data.modele || '', creeLe: new Date().toISOString() });
+    { source: photoId, consigne, modele: data.modele || '', creeLe: new Date().toISOString(), ...(base ? { depuis: base.id } : {}) });
     return x.photos[photoId] && x.photos[photoId].imaginerEnAttente ? M.majElement(x, 'photos', photoId, { imaginerEnAttente: null }) : x; });
   return { piece: p.nom, restant: data.restant };
 }
@@ -935,7 +938,7 @@ async function traiterFileImaginer() {
 }
 window.addEventListener('online', () => setTimeout(traiterFileImaginer, 1500));
 
-async function lancerImaginer(p, ph, consigne, btn, info) {
+async function lancerImaginer(p, ph, consigne, btn, info, depuis) {
   consigne = consigne.trim();
   const dire = (t, type) => { info.textContent = t; info.className = 'message ' + (type || 'err'); };
   if (consigne.length < 3) return dire(MESSAGES_IMAGINER.consigne_absente, 'att');
@@ -945,21 +948,49 @@ async function lancerImaginer(p, ph, consigne, btn, info) {
     S.message = { type: 'att', texte: '⏳ Pas de réseau : la demande « ' + consigne + ' » est gardée. L’image sera créée toute seule au retour du réseau.' };
     vibrer(); redessiner();
   };
-  if (navigator.onLine === false) return enAttente();
+  if (navigator.onLine === false) return depuis ? dire('La retouche a besoin du réseau : réessayez une fois connecté.', 'att') : enAttente();
   if (!S.session) return dire('Connectez-vous (même compte que le suivi) pour utiliser Imaginer.', 'att');
   if (!supa.functions || !supa.functions.invoke) return dire(MESSAGES_IMAGINER.non_configure, 'att');
   const texte = btn.textContent; btn.disabled = true; btn.textContent = '✨ Création en cours… (jusqu’à une minute)';
   dire('L’image est en cours de création. Vous pouvez continuer la visite : elle arrivera ici.', 'att');
   try {
-    const r = await creerImageImaginee(S.courante, p.id, ph.id, consigne);
+    const r = await creerImageImaginee(S.courante, p.id, ph.id, consigne, depuis);
     if (S.imaginer && S.imaginer.photoId === ph.id) S.imaginer = null;
     S.message = { type: 'ok', texte: '✨ Image créée pour « ' + r.piece + ' »' + (r.restant != null ? ' (encore ' + r.restant + ' aujourd’hui).' : '.') };
     vibrer(); dessiner();
   } catch (e) {
     btn.disabled = false; btn.textContent = texte;
-    if (e && e.code === 'reseau' && navigator.onLine === false) return enAttente();
+    if (e && e.code === 'reseau' && navigator.onLine === false && !depuis) return enAttente();
     dire(messageErreurImaginer(e));
   }
+}
+
+/* ---------- « ✨ Plan en couleur » : le plan coté redessiné par l'IA pour le client ----------
+   Part de l'image du plan coté (planImage, envoyée par le moteur à la fermeture du plan) ;
+   le résultat est une image d'intention (photo « planRendu »), en option dans le dossier client. */
+function blocPlanRendu(v) {
+  const pi = M.valeur(v, 'planImage'), src = pi && v.photos[pi.id], pr = M.valeur(v, 'planRendu'), img = pr && v.photos[pr.id] && !v.photos[pr.id].supprime ? v.photos[pr.id] : null;
+  if (!src || src.supprime) return h('div', { class: 'mut petit', style: 'margin-top:6px' }, '✨ Plan en couleur : ouvrez puis fermez le plan pour en préparer l’image.');
+  let info;
+  const btn = h('button', { class: 'puce imaginer', type: 'button', id: 'planEnCouleur', style: 'margin-top:8px', onclick: async () => {
+    const dire = (t, type) => { info.textContent = t; info.className = 'message petit ' + (type || 'err'); };
+    if (!pretPourIA(dire, 'Le plan en couleur')) return;
+    const lib = btn.textContent; btn.disabled = true; btn.textContent = '✨ Mise en couleur… (jusqu’à une minute)';
+    try {
+      const blob = await blobPhoto(src);
+      const data = await appelerFonction({ image: await enBase64(blob), mime: blob.type || 'image/jpeg', consigne: 'plan', piece: 'Plan', mode: 'planRendu' });
+      if (!data || !data.image) throw { code: 'aucune_image' };
+      const id = M.nouvelId();
+      await stock.garderPhoto(id, S.courante, versBlob(data.image, data.mime));
+      await changer(w => { let x = w; const avant = M.valeur(x, 'planRendu'); if (avant && x.photos[avant.id]) x = M.supprimer(x, 'photos', avant.id);
+        return M.modifier(M.ajouterPhoto(x, { id, role: 'planRendu', legende: 'Plan en couleur (image d’intention)' }), 'planRendu', { id, source: pi.id, modele: data.modele || '', creeLe: new Date().toISOString() }); });
+      S.message = { type: 'ok', texte: '✨ Plan en couleur créé' + (data.restant != null ? ' (encore ' + data.restant + ' images aujourd’hui).' : '.') + ' Il est proposé dans le dossier client (option « Plan en couleur »).' };
+      vibrer(); dessiner();
+    } catch (e) { btn.disabled = false; btn.textContent = lib; dire(messageErreurImaginer(e)); }
+  } }, img ? '✨ Refaire le plan en couleur' : '✨ Plan en couleur (IA)');
+  return h('div', { id: 'blocPlanRendu' },
+    img ? h('figure', { style: 'margin:8px 0 0' }, imagePhoto(img, 'planRenduImg'), h('figcaption', { class: 'mut petit' }, 'Plan en couleur, image d’intention générée par IA : vérifiez-le avant de le montrer (l’IA peut déformer une pièce).')) : null,
+    btn, info = h('div', { role: 'status' }));
 }
 
 /* ---------- « 🔍 Décrire » : Gemini regarde la photo ----------
@@ -1020,19 +1051,29 @@ function consigneProjet(v) {
   return ['Maison ' + (niv.length ? niv.join(' et ').toLowerCase() : 'individuelle') + (M.valeur(v, 'construction.surface') ? ' d’environ ' + M.valeur(v, 'construction.surface') + ' m²' : ''),
     g && g !== 'Aucun' ? 'garage ' + g.toLowerCase() : null, M.valeur(v, 'projet.souhaits')].filter(Boolean).join(', ');
 }
+/* des styles en un toucher : la phrase s'ajoute à la consigne, que l'on peut encore retoucher */
+const STYLES_IMAGINER = [['Moderne', 'style moderne épuré, blanc et gris, lignes droites, éclairage intégré'],
+  ['Scandinave', 'style scandinave, bois clair, blanc, textiles naturels, très lumineux'],
+  ['Industriel', 'style industriel, métal noir, brique ou béton, bois brut'],
+  ['Contemporain chic', 'style contemporain haut de gamme, marbre ou pierre, laiton, tons chauds'],
+  ['Classique', 'style classique, moulures, parquet en chevrons, tons doux'],
+  ['Campagne', 'style campagne chic, bois patiné, pierre, couleurs naturelles']];
 function panneauImaginer(p, ph) {
   const st = S.imaginer;
   let info;
-  const terrain = p.mode === 'terrain', facade = p.mode === 'facade';
+  const terrain = p.mode === 'terrain', facade = p.mode === 'facade', retouche = !!st.depuis;
   const ta = h('textarea', { class: 'in', rows: 3, value: st.consigne || '', 'aria-label': terrain ? 'Consigne pour imaginer la maison' : 'Consigne pour imaginer la pièce', autocapitalize: 'sentences',
     placeholder: terrain ? 'Ex. : maison plain-pied contemporaine, enduit blanc, toit deux pans ardoise, garage accolé à gauche'
       : facade ? 'Ex. : extension plain-pied à droite, toit plat, bardage bois, grande baie vitrée' : 'Ex. : cuisine blanche, plan de travail bois, carrelage gris clair, suspensions noires',
     oninput: e => { st.consigne = e.target.value; } });
   const aide = h('div', { class: 'aide info' });
-  const btn = h('button', { class: 'gros', type: 'button', onclick: () => lancerImaginer(p, ph, ta.value, btn, info) }, '✨ Créer l’image');
+  if (retouche) ta.placeholder = 'Seulement ce qui change. Ex. : carrelage plus foncé, retirer la suspension, mur du fond vert sauge';
+  const btn = h('button', { class: 'gros', type: 'button', onclick: () => lancerImaginer(p, ph, ta.value, btn, info, st.depuis) }, retouche ? '✏️ Retoucher l’image' : '✨ Créer l’image');
   return h('div', { class: 'carte panneauImaginer', 'data-imaginer': ph.id },
-    h('b', {}, terrain ? '✨ Imaginer la maison sur ce terrain' : facade ? '✨ Imaginer l’agrandissement' : '✨ Imaginer cette pièce rénovée'),
+    h('b', {}, retouche ? '✏️ Retoucher l’image imaginée (le reste ne change pas)' : terrain ? '✨ Imaginer la maison sur ce terrain' : facade ? '✨ Imaginer l’agrandissement' : '✨ Imaginer cette pièce rénovée'),
     h('div', { class: 'champMicro' }, ta, boutonMicro(ta, aide), aide),
+    !terrain && !retouche ? h('div', { class: 'puces stylesImaginer', style: 'margin-top:6px' }, STYLES_IMAGINER.map(([nom, phrase]) => h('button', { class: 'puce', type: 'button', 'data-style': nom,
+      onclick: () => { const t = ta.value.trim(); ta.value = st.consigne = (t ? t.replace(/[.,;]\s*$/, '') + ', ' : '') + phrase; } }, nom))) : null,
     terrain && !st.consigne ? h('button', { class: 'puce', type: 'button', style: 'margin-top:8px', id: 'reprendreProjet', onclick: () => { ta.value = st.consigne = consigneProjet(visite()); } }, 'Reprendre le projet') : null,
     M.valeur(visite(), 'projet.souhaits') && !st.consigne && !terrain ? h('button', { class: 'puce', type: 'button', style: 'margin-top:8px', onclick: () => { ta.value = st.consigne = M.valeur(visite(), 'projet.souhaits'); } }, 'Reprendre les souhaits du client') : null,
     info = h('div', { role: 'status', style: 'margin-top:8px' }),
@@ -1080,7 +1121,8 @@ function cartePiece(v, p) {
             if (!confirm('Supprimer cette image imaginée ?')) return;
             await changer(x => M.supprimer(x, 'photos', im.id)); dessiner();
           } }, '×')),
-        h('div', { class: 'mut petit' }, '« ' + (im.consigne || im.legende || '') + ' »'))),
+        h('div', { class: 'mut petit' }, (im.depuis ? '✏️ ' : '') + '« ' + (im.consigne || im.legende || '') + ' » ',
+          h('button', { class: 'lienRetour', type: 'button', 'data-retoucher': im.id, onclick: () => { S.imaginer = { photoId: ph.id, depuis: im.id, consigne: '' }; dessiner(); } }, '✏️ Retoucher')))),
       S.imaginer && S.imaginer.photoId === ph.id ? panneauImaginer(p, ph) : null]),
     h('div', { class: 'rang', style: 'margin-top:10px' },
       h('button', { class: 'gros sec', onclick: prendre }, photos.length ? '📷 Photo suivante' : '📷 Photo'),
@@ -1134,7 +1176,7 @@ function etapeScan(v) {
     neuf ? h('p', { class: 'mut' }, 'Le plan de la future maison : esquisse du client, plan de constructeur ou d’architecte, en photo ou en PDF. L’IA relève les pièces, vous les vérifiez dans le dessin rapide, puis « ✓ Créer le plan » donne le plan coté et la vue 3D. Vous pouvez aussi dessiner les pièces directement.')
       : h('p', { class: 'mut' }, 'Dans OpenPlan 3D : « Export Editable Plan (JSON) », puis importez le fichier ici. Le plan s’ouvre aussitôt : mesures, murs, ouvertures, avant/après, 3D, PDF.'),
     scan ? h('div', { class: 'carte' }, h('b', {}, '📄 ' + scan.nom), h('div', { class: 'mut petit' }, Math.round((scan.taille || 0) / 1024) + ' Ko · importé le ' + dateCourte(scan.importeLe))) : null,
-    plan ? h('div', { class: 'carte', id: 'resumePlan' }, h('b', {}, '📐 Plan'), h('div', { class: 'mut petit' }, resumePlan(plan.resume))) : null,
+    plan ? h('div', { class: 'carte', id: 'resumePlan' }, h('b', {}, '📐 Plan'), h('div', { class: 'mut petit' }, resumePlan(plan.resume)), blocPlanRendu(v)) : null,
     blocAnnotations(v),
     ecarte ? h('div', { class: 'message att' }, 'Une autre version du plan, modifiée sur un autre appareil, a été gardée de côté' + (ecarte.resume ? ' (' + resumePlan(ecarte.resume) + ')' : '') + '. ',
       h('div', { class: 'rang', style: 'margin-top:8px' },
@@ -1237,6 +1279,17 @@ async function appliquerGroupes(groupes, mode, echecs) {
   // (sa première pièce sans voisine) : on la place ensuite contre la bonne pièce, au doigt
   // lecture enrichie : portes et fenêtres, équipements, hauteur et notes de chaque pièce (dessin.js)
   const lus = groupes.map(g => DR.dessinDepuisLecture(g.partie.pieces, () => M.nouvelId().slice(0, 8)));
+  // un plan d'étage, de mezzanine ou de combles importé avec le rez-de-chaussée va sur son propre étage
+  // (nommé comme sur l'esquisse), posé en haut à gauche : on le glisse ensuite au-dessus de sa pièce
+  const avantD = M.valeur(visite(), 'dessin'), garde0 = mode === 'ajouter' && avantD && Array.isArray(avantD.pieces) ? avantD.pieces : [];
+  const etages = DR.nomsEtages(mode === 'ajouter' && avantD ? avantD.etages : null, garde0);
+  const HAUT = /mezzanine|étage|etage|combles|r\s*\+\s*[1-9]|niveau\s*[1-9]|1er/i;
+  if (groupes.length > 1 || garde0.length) groupes.forEach((g, i) => {
+    if (!HAUT.test(g.partie.nom || '') || !lus[i].pieces.length) return;
+    const nom = String(g.partie.nom).slice(0, 40); let k = etages.indexOf(nom); if (k < 0) { etages.push(nom); k = etages.length - 1; }
+    lus[i].pieces.forEach(p => { p.etage = k; }); const p0 = lus[i].pieces.find(p => !p.contre); if (p0) p0.libre = { x: 0, y: 0 };
+    lus[i].etageNom = nom;
+  });
   const nouvelles = lus.flatMap(l => l.pieces);
   if (!nouvelles.length) { S.lecturePlan = { message: 'Aucune pièce exploitable sur ce plan.', type: 'err' }; return redessiner(); }
   const avant = M.valeur(visite(), 'dessin'), ajout = mode === 'ajouter' && avant && Array.isArray(avant.pieces), garde = ajout ? avant.pieces : [];
@@ -1245,17 +1298,21 @@ async function appliquerGroupes(groupes, mode, echecs) {
   const pieces = [...garde, ...nouvelles].slice(0, 60), ouvLues = lus.flatMap(l => l.ouvertures).filter(o => pieces.some(p => p.id === o.piece));
   const symLus = DR.symbolesDepuisEquipements(lus.flatMap(l => l.equipements), pieces, DR.placer(pieces).rect, () => M.nouvelId().slice(0, 8));
   // ajouter : ce qui était déjà dessiné (étages, ouvertures, symboles, toiture) est gardé tel quel
-  await poser('dessin', { ...(ajout ? avant : {}), pieces, hauteur: (avant && avant.hauteur) || 2.5, source: sources[sources.length - 1], sources,
+  await poser('dessin', { ...(ajout ? avant : {}), pieces, hauteur: (avant && avant.hauteur) || 2.5, source: sources[sources.length - 1], sources, ...(etages.length > 1 ? { etages } : {}),
     ouvertures: [...(ajout && Array.isArray(avant.ouvertures) ? avant.ouvertures : []), ...ouvLues].slice(0, 300),
     symboles: [...(ajout && Array.isArray(avant.symboles) ? avant.symboles : []), ...symLus].slice(0, 200) });
   const n = nouvelles.length, pl = n > 1 ? 's' : '';
+  // ce que l'IA a jugé douteux (rature, cote contradictoire) : dit au métreur, à vérifier en priorité
+  const doutes = groupes.flatMap(g => Array.isArray(g.partie.doutes) ? g.partie.doutes : []).map(t => String(t).slice(0, 160)).slice(0, 8);
   const nNotes = nouvelles.filter(p => p.note).length, nH = nouvelles.filter(p => p.hauteur).length;
   const lu = [ouvLues.length ? ouvLues.length + ' porte' + (ouvLues.length > 1 ? 's et fenêtres' : ' ou fenêtre') : '', symLus.length ? symLus.length + ' équipement' + (symLus.length > 1 ? 's' : '') : '',
     nH ? nH + ' hauteur' + (nH > 1 ? 's' : '') + ' sous plafond' : '', nNotes ? nNotes + ' note' + (nNotes > 1 ? 's' : '') + ' (annotations, projet en rouge)' : ''].filter(Boolean).join(', ');
   S.lecturePlan = null; S.dessinSel = null; S.ecran = 'dessin';
   S.message = { type: 'att', texte: '🖼 ' + n + ' pièce' + pl + ' lue' + pl + (groupes.length > 1 ? ' sur ' + groupes.length + ' esquisses' : ' sur le plan (« ' + groupes[0].partie.nom + ' »)') + (garde.length ? ', ajoutée' + pl + ' au dessin' : '') + '. '
     + (groupes.length > 1 || garde.length ? 'Touchez chaque pièce ajoutée pour la poser contre sa voisine (à droite, en dessous…). ' : '')
+    + (lus.some(l => l.etageNom) ? '« ' + lus.filter(l => l.etageNom).map(l => l.etageNom).join(' », « ') + ' » est posé sur son propre étage (onglet au-dessus du dessin) : glissez-le au-dessus de sa pièce, le rez-de-chaussée s’affiche en filigrane. ' : '')
     + (lu ? 'Lu aussi : ' + lu + '. ' : '')
+    + (doutes.length ? '⚠️ À vérifier : ' + doutes.join(' · ') + '. ' : '')
     + 'Vérifiez les dimensions, les portes, fenêtres et équipements (l’IA peut se tromper, surtout sur une esquisse raturée), puis « ✓ Créer le plan ».' + ((echecs || []).length ? ' Non lu : ' + echecs.join(' ') : '') };
   vibrer(); dessiner(); window.scrollTo(0, 0);
 }
@@ -1699,12 +1756,15 @@ function apercuDessin(d, R, opts = {}) {
   dessous.forEach(({ r }) => svg.append(el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, fill: 'none', stroke: '#9AA4B2', 'stroke-width': 0.05, 'stroke-dasharray': '0.2 0.15' })));
   rs.forEach(({ p, r }) => {
     const sel = !opts.exporter && S.dessinSel === p.id, g = el('g', { 'data-piece-dessin': p.id, style: 'cursor:grab' });
-    g.append(el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, fill: sel ? '#FCE9E3' : '#E7EEF2', stroke: sel ? '#C5563A' : '#2C4A5E', 'stroke-width': sel ? 0.12 : 0.08 }));
+    // la forme réelle (une pièce découpée autour d'un WC posé dedans n'est plus un rectangle)
+    const mp = R.donnees && R.donnees.pieces.find(x => x.id === 'd-' + p.id), forme = mp && mp.points && mp.points.length >= 4 ? mp.points : null;
+    const st = { fill: sel ? '#FCE9E3' : '#E7EEF2', stroke: sel ? '#C5563A' : '#2C4A5E', 'stroke-width': sel ? 0.12 : 0.08 };
+    g.append(forme ? el('polygon', { points: forme.map(q => q.join(',')).join(' '), ...st }) : el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, ...st }));
     // le nom (et la surface) peut être décalé s'il cache une cote ; un toucher sur une cote (ou le nom de la pièce sélectionnée) la modifie
     const et = DR.etiquetteDe(p), nx = (r.x0 + r.x1) / 2 + et.dx, ny = (r.y0 + r.y1) / 2 + et.dy;
     const nom = el('g', { 'data-edit': 'nom' });
     nom.append(el('text', { x: nx, y: ny, 'text-anchor': 'middle', 'font-size': t, 'font-weight': 700, fill: '#1A2B36' }, p.nom));
-    nom.append(el('text', { x: nx, y: ny + t * 1.2, 'text-anchor': 'middle', 'font-size': t * 0.8, fill: '#5E6B74' }, String(Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²'));
+    nom.append(el('text', { x: nx, y: ny + t * 1.2, 'text-anchor': 'middle', 'font-size': t * 0.8, fill: '#5E6B74' }, String((R.resume && (R.resume.detail.find(x => x.id === 'd-' + p.id) || {}).sol) ?? Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²'));
     g.append(nom);
     g.append(el('text', { x: (r.x0 + r.x1) / 2, y: r.y0 + t * 0.9, 'text-anchor': 'middle', 'font-size': t * 0.75, fill: '#2C4A5E', 'data-edit': 'longueur', style: 'cursor:text' }, String(r3l(r.x1 - r.x0)).replace('.', ',')));
     g.append(el('text', { x: r.x0 + t * 0.35, y: (r.y0 + r.y1) / 2, 'text-anchor': 'start', 'font-size': t * 0.75, fill: '#2C4A5E', 'data-edit': 'largeur', style: 'cursor:text' }, String(r3l(r.y1 - r.y0)).replace('.', ',')));
@@ -1731,6 +1791,24 @@ function apercuDessin(d, R, opts = {}) {
   return svg;
 }
 /* glisser au doigt dans l'aperçu (un doigt) ; le pincement (deux doigts) est géré par le cadre du zoom */
+/* « ＋ Symbole » : on choisit le symbole, puis on touche le dessin à l'endroit voulu. Près d'un mur
+   (moins de 50 cm), il s'y adosse, tourné dos au mur ; sinon il se pose là où l'on a touché */
+function poserSymboleIci(q, d, R) {
+  const ty = DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole); S.poseSymbole = null; if (!ty) return redessiner();
+  const k = etageDessin(), L = ty[3], W = ty[4];
+  const dans = rectsEtage(d, R, k).find(({ r }) => q[0] >= r.x0 && q[0] <= r.x1 && q[1] >= r.y0 && q[1] <= r.y1);
+  let x = q[0], y = q[1], rot = 0;
+  if (dans && ty[0] !== 'escalier') {
+    const r = dans.r, cotes = [['haut', q[1] - r.y0], ['bas', r.y1 - q[1]], ['gauche', q[0] - r.x0], ['droite', r.x1 - q[0]]].sort((a, b) => a[1] - b[1]);
+    if (cotes[0][1] < 0.5) {
+      const c = cotes[0][0], bornX = v => Math.max(r.x0 + L / 2, Math.min(r.x1 - L / 2, v)), bornY = v => Math.max(r.y0 + L / 2, Math.min(r.y1 - L / 2, v));
+      if (c === 'haut') { y = r.y0 + W / 2 + 0.02; x = bornX(x); rot = 0; } else if (c === 'bas') { y = r.y1 - W / 2 - 0.02; x = bornX(x); rot = 180; }
+      else if (c === 'gauche') { x = r.x0 + W / 2 + 0.02; y = bornY(y); rot = 270; } else { x = r.x1 - W / 2 - 0.02; y = bornY(y); rot = 90; }
+    }
+  }
+  const id = M.nouvelId().slice(0, 8);
+  return majDessin(z => { z.symboles.push({ id, type: ty[0], etage: k, x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100, rot, ...(ty[0] === 'escalier' ? { l: L, w: W } : {}) }); S.dessinSym = id; S.dessinSel = null; S.message = null; });
+}
 /* un toucher sur le nom d'une pièce ou sur une cote de l'aperçu : la saisie se fait sur place */
 async function modifierSurDessin(id, champ) {
   const d = dessinCourant(), p = d.pieces.find(x => x.id === id); if (!p) return;
@@ -1748,6 +1826,7 @@ function brancherGlisser(svg, d, R) {
   const pt = e => { const m = svg.getScreenCTM(); if (!m) return [0, 0]; const q = svg.createSVGPoint(); q.x = e.clientX; q.y = e.clientY; const r = q.matrixTransform(m.inverse()); return [r.x, r.y]; };
   let g = null;
   svg.addEventListener('pointerdown', e => {
+    if (S.poseSymbole && !S.pinceDessin) { e.preventDefault(); poserSymboleIci(pt(e), d, R); return; }
     const cible = e.target.closest('[data-piece-dessin],[data-symbole]'); if (!cible || S.pinceDessin) return;
     e.preventDefault(); svg.setPointerCapture(e.pointerId);
     const piece = cible.dataset.pieceDessin, sym = cible.dataset.symbole, p0 = pt(e);
@@ -1811,8 +1890,9 @@ function boutonAimant() {
 }
 function appliquerRecul(svg, r) {
   const b = (svg.dataset.base || '').split(' ').map(Number); if (b.length !== 4 || b.some(x => !isFinite(x))) return;
-  const w = b[2] * r, hh = b[3] * r;
-  svg.setAttribute('viewBox', [b[0] + b[2] / 2 - w / 2, b[1] + b[3] / 2 - hh / 2, w, hh].join(' '));
+  // le cadrage peut aussi être déplacé au doigt (glisser le fond du dessin) : décalage en mètres
+  const w = b[2] * r, hh = b[3] * r, pan = S.dessinPan || { x: 0, y: 0 };
+  svg.setAttribute('viewBox', [b[0] + b[2] / 2 - w / 2 + pan.x, b[1] + b[3] / 2 - hh / 2 + pan.y, w, hh].join(' '));
 }
 function cadreZoomDessin(svg) {
   const cadre = h('div', { class: 'cadreZoomDessin' }, svg);
@@ -1828,8 +1908,22 @@ function cadreZoomDessin(svg) {
     z = zoomerToile(z, f, px, py);
   };
   const centre = e => { const r = cadre.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
-  const doigts = new Map(); let pince = null;
-  cadre.addEventListener('pointerdown', e => { doigts.set(e.pointerId, centre(e));
+  const doigts = new Map(); let pince = null, glisse = null;
+  // un doigt sur le fond (ni pièce ni symbole) : tout le plan se déplace dans le cadre
+  cadre.addEventListener('pointerdown', e => {
+    if (doigts.size === 0 && !S.poseSymbole && !e.target.closest('[data-piece-dessin],[data-symbole],button')) {
+      const vb = svg.viewBox.baseVal, r = svg.getBoundingClientRect();
+      glisse = { x: e.clientX, y: e.clientY, pan: { ...(S.dessinPan || { x: 0, y: 0 }) }, k: vb && r.width ? vb.width / r.width : 0 };
+    }
+  }, true);
+  cadre.addEventListener('pointermove', e => {
+    if (!glisse || doigts.size > 1 || !glisse.k) return;
+    const dx = e.clientX - glisse.x, dy = e.clientY - glisse.y; if (!glisse.bouge && Math.hypot(dx, dy) < 6) return;
+    glisse.bouge = true; S.dessinPan = { x: glisse.pan.x - dx * glisse.k, y: glisse.pan.y - dy * glisse.k }; appliquerRecul(svg, recul);
+  }, true);
+  const finGlisse = () => { glisse = null; };
+  cadre.addEventListener('pointerup', finGlisse, true); cadre.addEventListener('pointercancel', finGlisse, true);
+  cadre.addEventListener('pointerdown', e => { doigts.set(e.pointerId, centre(e)); if (doigts.size === 2) glisse = null;
     if (doigts.size === 2) { const P = [...doigts.values()]; pince = { z: { ...z }, recul, d: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) || 1, m: [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] }; S.pinceDessin = true; } }, true);
   cadre.addEventListener('pointermove', e => { if (!doigts.has(e.pointerId)) return; doigts.set(e.pointerId, centre(e));
     if (pince && doigts.size >= 2) { const P = [...doigts.values()], dd = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]), m = [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2];
@@ -1845,8 +1939,8 @@ function cadreZoomDessin(svg) {
   const bouton = (id, texte, f) => h('button', { class: 'puce', type: 'button', id, onclick: () => { f(); appliquer(); } }, texte);
   return [cadre, h('div', { class: 'puces zoomDessin' },
     bouton('zoomDessinPlus', '🔍 ＋', () => facteur(1.5)), bouton('zoomDessinMoins', '🔍 −', () => facteur(1 / 1.5)),
-    bouton('zoomDessinRaz', '⟲ 100 %', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; }), niveau, boutonAimant(),
-    h('span', { class: 'mut petit' }, 'Deux doigts ou « − » pour dézoomer et faire de la place autour.'))];
+    bouton('zoomDessinRaz', '⟲ 100 %', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; S.dessinPan = null; }), niveau, boutonAimant(),
+    h('span', { class: 'mut petit' }, 'Glissez le fond pour déplacer tout le plan ; deux doigts ou « − » pour dézoomer.'))];
 }
 const r3l = v => Math.round(v * 100) / 100;
 
@@ -1912,7 +2006,15 @@ function ecranDessin() {
       h('div', { class: 'puces etagesDessin' }, noms.map((nom, i) => h('button', { class: 'puce' + (i === k ? ' on' : ''), type: 'button', 'data-etage': i, onclick: () => { S.dessinEtage = i; S.dessinSel = null; S.dessinSym = null; redessiner(); } }, nom)),
         noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
       h('label', { class: 'champ' }, 'NOM DE L’ÉTAGE', h('input', { class: 'in', name: 'dessin-etage-nom', value: noms[k], onchange: e => majDessin(x => { const n = [...noms]; n[k] = e.target.value.trim() || n[k]; x.etages = n; }) })),
-      h('div', { class: 'carte', style: 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R))),
+      h('div', { class: 'carte', style: 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
+        // « ＋ Symbole » tout près du dessin : choisir, puis toucher l'endroit voulu
+        S.poseSymbole ? h('div', { class: 'message att', id: 'invitePoseSymbole', style: 'margin:6px 0 0' }, '👆 Touchez le dessin à l’endroit du ' + ((DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole) || [])[1] || 'symbole').toLowerCase() + ' (près d’un mur, il s’y adosse). ',
+            h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseSymbole = null; redessiner(); } }, 'Annuler'))
+          : h('div', { class: 'puces', style: 'margin-top:6px' }, h('button', { class: 'puce' + (S.choixSymbole ? ' on' : ''), type: 'button', id: 'ajoutSymboleIci', onclick: () => { S.choixSymbole = !S.choixSymbole; redessiner(); } }, '＋ Symbole (radiateur, prise…)')),
+        S.choixSymbole && !S.poseSymbole ? h('div', { id: 'choixSymboleIci', style: 'margin-top:4px' }, DR.FAMILLES_SYMBOLE.map(([f, nomF]) => h('div', {},
+          h('div', { class: 'mut petit', style: 'margin:6px 0 2px;font-weight:600' }, nomF),
+          h('div', { class: 'puces' }, DR.TYPES_SYMBOLE.filter(t => t[5] === f).map(t => h('button', { class: 'puce', type: 'button', 'data-poser-symbole': t[0],
+            onclick: () => { S.poseSymbole = t[0]; S.choixSymbole = false; redessiner(); } }, t[2] + ' ' + t[1])))))) : null),
       d.pieces.length ? h('button', { class: 'gros sec', type: 'button', id: 'avantApresDessin', style: 'margin:0 0 10px', onclick: () => avantApresDessin().catch(() => montrerMessage('err', 'L’image du dessin n’a pas pu être préparée.')) }, '🖍 Avant / après : annoter les travaux') : null,
       // lu sur un plan 2D : le plan d'origine sous la main, pour comparer
       (() => { const n = Array.isArray(d.sources) ? d.sources.length : d.source ? 1 : 0;
@@ -2124,7 +2226,7 @@ const jetonAleatoire = () => btoa(String.fromCharCode(...crypto.getRandomValues(
 const empreinteJeton = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map(b => b.toString(16).padStart(2, '0')).join('');
 const tableAbsente = err => /42P01|PGRST205|does not exist|schema cache/.test(((err && err.code) || '') + ' ' + ((err && err.message) || ''));
 /* les photos du dossier pas encore envoyées sur le serveur (le client ne les verrait pas) */
-const photosNonEnvoyees = d => [d.garde, d.planImage, d.vue3d, d.planAnnote, ...d.pieces.flatMap(p => p.photos.flatMap(ph => [ph, ...ph.imagines]))].filter(ph => ph && !ph.chemin).length;
+const photosNonEnvoyees = d => [d.garde, d.planImage, d.vue3d, d.planRendu, d.planAnnote, ...d.pieces.flatMap(p => p.photos.flatMap(ph => [ph, ...ph.imagines]))].filter(ph => ph && !ph.chemin).length;
 
 async function dossierAPartager() {
   const o = optionsDossier();
@@ -2221,6 +2323,7 @@ function ecranDossier() {
         option('imagines', 'Images d’intention (✨ Imaginé)'),
         option('notesPieces', 'Notes des pièces'),
         M.natureDe(v) !== 'renovation' ? option('terrain', 'Terrain, urbanisme et risques') : null,
+        option('planRendu', 'Plan en couleur (IA)' + (M.valeur(v, 'planRendu') ? '' : ' — pas encore créé (étape Scan, « ✨ Plan en couleur »)')),
         option('vue3d', 'Vue 3D du relevé' + (M.valeur(v, 'plan3dImage') ? '' : ' — pas encore d’image (ouvrez puis fermez le plan)')),
         option('planAnnote', 'Plan annoté (travaux)' + (AN.nettoyer(M.valeur(v, 'annotations')).imageId ? '' : ' — aucun plan annoté pour l’instant (étape Scan)')),
         h('p', { class: 'mut petit' }, 'Jamais dans le dossier : les notes de visite, la marge.'),

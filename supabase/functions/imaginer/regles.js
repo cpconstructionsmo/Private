@@ -8,6 +8,7 @@
 
 export const CONSIGNE_MAX = 1000;
 export const IMAGE_MAX = 6_000_000;           // base64 d'une photo réduite (photo.js) : largement assez
+export const MODES_IMAGE = ['piece', 'terrain', 'facade', 'retouche', 'planRendu'];
 export const LIMITE_JOUR_DEFAUT = 30;          // images par utilisateur et par jour (réglable : IMAGINER_LIMITE_JOUR)
 
 // les modèles d'image de Gemini, du préféré au secours. Google renomme ses
@@ -26,8 +27,9 @@ export function lireDemande(corps) {
   const consigne = nettoyer(corps?.consigne, CONSIGNE_MAX);
   if (consigne.length < 3) return { erreur: 'consigne_absente' };
   const mime = /^image\/(jpeg|png|webp)$/.test(String(corps?.mime)) ? String(corps.mime) : 'image/jpeg';
-  // « terrain » : la maison neuve sur la photo du terrain ; « facade » : l'agrandissement sur la photo de la maison
-  const mode = corps?.mode === 'terrain' || corps?.mode === 'facade' ? corps.mode : 'piece';
+  // « terrain » : la maison neuve sur la photo du terrain ; « facade » : l'agrandissement sur la photo de la maison ;
+  // « retouche » : une image déjà imaginée, à corriger sur un point ; « planRendu » : le plan coté mis en couleur
+  const mode = MODES_IMAGE.includes(corps?.mode) ? corps.mode : 'piece';
   return { image: image.replace(/\s+/g, ''), mime, consigne, piece: nettoyer(corps?.piece, 80), mode };
 }
 
@@ -46,12 +48,27 @@ export function invite({ consigne, piece, mode }) {
     'Garde la maison existante, le même point de vue, le même cadrage et l’environnement ; l’agrandissement doit s’accorder à la maison (volumes, matériaux, toiture), à une échelle réaliste.',
     'Rendu photoréaliste, lumière naturelle. N’ajoute ni texte, ni logo, ni marque, ni personne.',
   ].join('\n');
+  if (mode === 'retouche') return [
+    'Tu es architecte d’intérieur pour une entreprise de rénovation.',
+    'Voici une image de projet déjà proposée au client' + (piece ? ' (« ' + piece + ' »)' : '') + '. Applique SEULEMENT cette modification :',
+    '« ' + consigne + ' »',
+    'Tout le reste doit rester identique : même cadrage, même point de vue, mêmes murs, ouvertures, meubles, matériaux et lumière, sauf ce que la modification demande.',
+    'Rendu photoréaliste de même qualité. N’ajoute ni texte, ni logo, ni marque, ni personne.',
+  ].join('\n');
+  if (mode === 'planRendu') return [
+    'Tu es dessinateur pour une agence d’architecture. Voici un plan coté en noir et blanc, vu de dessus.',
+    'Redessine-le en plan de présentation en couleur pour un client, vu de dessus, avec EXACTEMENT la même géométrie : mêmes murs, même épaisseur, mêmes pièces, portes et fenêtres à la même place, mêmes proportions, même orientation et même cadrage.',
+    'Murs pleins gris foncé ; sols texturés selon la pièce (parquet bois clair pour séjour et chambres, carrelage clair pour cuisine, salle de bains, WC, entrée) ; mobilier simple vu de dessus, à l’échelle, adapté au nom de chaque pièce ; ombres douces ; style plan d’agence haut de gamme, net et lisible.',
+    'Garde les noms de pièces et les cotes existants s’ils restent lisibles ; n’invente aucun nouveau texte, aucune cote, aucun logo.',
+    consigne && consigne !== 'plan' ? 'Précision du métreur : « ' + consigne + ' »' : '',
+  ].filter(Boolean).join('\n');
   return [
     'Tu es architecte d’intérieur pour une entreprise de rénovation.',
     'Voici la photo d’une pièce existante' + (piece ? ' (« ' + piece + ' »)' : '') + '. Montre-la après rénovation, selon ces souhaits :',
     '« ' + consigne + ' »',
-    'Garde la même pièce, le même point de vue et le même cadrage, les mêmes dimensions, les fenêtres et les portes à leur place, sauf si les souhaits demandent de les changer.',
-    'Rendu photoréaliste, lumière naturelle. N’ajoute ni texte, ni logo, ni marque, ni personne.',
+    'Garde la même pièce, le même point de vue et le même cadrage, les mêmes dimensions et la même hauteur sous plafond, les fenêtres et les portes à leur place, sauf si les souhaits demandent de les changer.',
+    'Qualité d’une photo d’intérieur professionnelle (magazine de décoration) : perspective et verticales droites, aucune déformation des murs, matériaux réalistes et cohérents (bois, pierre, carrelage, peinture mate), mobilier à l’échelle de la pièce, lumière du jour douce par les fenêtres existantes, ombres naturelles, haute définition.',
+    'Rendu photoréaliste. N’ajoute ni texte, ni logo, ni marque, ni personne.',
   ].join('\n');
 }
 
@@ -88,6 +105,10 @@ export const TEXTE_MAX = 8000;
 export const LIMITE_TEXTE_DEFAUT = 100;       // demandes par personne et par jour (IMAGINER_LIMITE_TEXTE)
 export const MODELES_TEXTE = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-3-flash-preview'];
 export const modelesTexte = choisi => [...new Set([String(choisi || '').trim(), ...MODELES_TEXTE].filter(Boolean))];
+// lire un plan ou une esquisse demande plus de raisonnement : le modèle « pro » d'abord (IMAGINER_MODELE_PLAN
+// pour en imposer un autre), puis les modèles habituels si celui-là n'est pas disponible
+export const MODELES_PLAN = ['gemini-2.5-pro', 'gemini-pro-latest'];
+export const modelesPlan = (choisi, texte) => [...new Set([String(choisi || '').trim(), ...MODELES_PLAN, ...modelesTexte(texte)].filter(Boolean))];
 const LISTES = ['civilites', 'types', 'categories', 'usages', 'delais', 'formes'];
 
 export function lireStructuration(corps) {
@@ -150,7 +171,7 @@ export async function empreinte(jeton) {
 export function cheminsDossier(d) {
   const s = new Set();
   const voir = ph => { if (ph && typeof ph.chemin === 'string' && /^[\w-]+\/[\w.-]+$/.test(ph.chemin)) s.add(ph.chemin); };
-  voir(d?.garde); voir(d?.planImage); voir(d?.vue3d); voir(d?.planAnnote);
+  voir(d?.garde); voir(d?.planImage); voir(d?.vue3d); voir(d?.planRendu); voir(d?.planAnnote);
   (d?.pieces || []).forEach(p => (p.photos || []).forEach(ph => { voir(ph); (ph.imagines || []).forEach(voir); }));
   return [...s].slice(0, 200);
 }
@@ -212,7 +233,9 @@ export function inviteDescription({ mode, piece }) {
     '- "notes" : les autres annotations de l’existant, recopiées brièvement (ex. « Mur à refaire », « arrivée gaz », « HSP sous mezzanine 2,16 ») ;',
     '- "projet" : ce qui est dessiné ou écrit en ROUGE (ou marqué « futur », « projet ») pour cette pièce, recopié brièvement (ex. « futur SDE et WC », « futur cuisine ») : c’est le projet, pas l’existant ;',
     '- "forme" : "autre" si la pièce n’est pas rectangulaire.',
-    'Un chiffre raturé ou illisible : ne le devine pas, omets-le. Réponds uniquement par le JSON.',
+    'Méthode : repère d’abord toutes les cotes écrites et le mur de quelle pièce chacune mesure (une cote écrite le long d’un mur = la longueur de ce mur ; une cote au milieu d’une pièce entre deux flèches = la distance entre ces murs), puis construis chaque pièce à partir de ces cotes ; contrôle que les pièces voisines s’emboîtent.',
+    'Un chiffre raturé ou illisible : ne le devine pas, omets-le. Ce qui est douteux (rature, cote contradictoire, pièce dont une dimension manque), dis-le dans "doutes" de la partie : ["…"], phrases courtes (ex. « Cuisine : largeur raturée (3,93 ou 3,13 ?) »).',
+    'Réponds uniquement par le JSON : {"parties":[{"nom":"…","doutes":["…"],"pieces":[…]}]}.',
   ].join('\n');
   if (mode === 'note') return [
     'Voici la photo d’une note manuscrite (ou d’un document) prise pendant la visite d’un chantier de rénovation.',
@@ -275,7 +298,8 @@ export function descriptionReponse(json, mode) {
             ...(notes ? { notes } : {}), ...(projet ? { projet } : {}), ...(q?.forme === 'autre' ? { forme: 'autre' } : {}) };
         })
         .filter(q => q.longueur != null && q.largeur != null),
-    })).filter(p => p.pieces.length);
+    })).map((p, i) => { const dt = (Array.isArray(o.parties[i]?.doutes) ? o.parties[i].doutes : []).map(t => txt(t, 160).replace(/\s+/g, ' ')).filter(Boolean).slice(0, 8);
+      return dt.length ? { ...p, doutes: dt } : p; }).filter(p => p.pieces.length);
     return parties.length ? { parties } : { erreur: 'rien_lu' };
   }
   const legende = txt(o.legende, LEGENDE_MAX).replace(/\s+/g, ' ');

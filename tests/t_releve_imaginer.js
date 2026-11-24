@@ -99,7 +99,21 @@ const {chk,fin}=verif();
   chk(!R.jetonValide('court')&&!R.jetonValide('a'.repeat(43)+'/')&&R.jetonValide('Abc-_'.repeat(9)),'jeton du lien : 40 à 64 caractères base64url');
   const e1=await R.empreinte('jeton-fictif'), e2=await R.empreinte('jeton-fictif');
   chk(e1===e2&&/^[0-9a-f]{64}$/.test(e1)&&e1!==await R.empreinte('autre'),'empreinte SHA-256 stable (seule elle est en base)');
-  const ch=R.cheminsDossier({garde:{chemin:'v1/g.jpg'},planImage:{chemin:'v1/plan.jpg'},vue3d:{chemin:'v1/v3d.jpg'},planAnnote:{chemin:'v1/annote.jpg'},pieces:[{photos:[{chemin:'v1/a.jpg',imagines:[{chemin:'v1/b.jpg'},{chemin:'../secret'}]},{chemin:null}]}]});
-  chk(ch.join()==='v1/g.jpg,v1/plan.jpg,v1/v3d.jpg,v1/annote.jpg,v1/a.jpg,v1/b.jpg','chemins des photos du dossier (vue 3D comprise) pour leurs liens temporaires (chemin douteux écarté)');
+  const ch=R.cheminsDossier({garde:{chemin:'v1/g.jpg'},planImage:{chemin:'v1/plan.jpg'},vue3d:{chemin:'v1/v3d.jpg'},planRendu:{chemin:'v1/rendu.jpg'},planAnnote:{chemin:'v1/annote.jpg'},pieces:[{photos:[{chemin:'v1/a.jpg',imagines:[{chemin:'v1/b.jpg'},{chemin:'../secret'}]},{chemin:null}]}]});
+  chk(ch.join()==='v1/g.jpg,v1/plan.jpg,v1/v3d.jpg,v1/rendu.jpg,v1/annote.jpg,v1/a.jpg,v1/b.jpg','chemins des photos du dossier (vue 3D comprise) pour leurs liens temporaires (chemin douteux écarté)');
+  /* IA améliorée : retouche, plan en couleur, rendu plus soigné, lecture de plan par le modèle « pro », doutes */
+  {const img='A'.repeat(2000);
+   chk(R.lireDemande({image:img,consigne:'Carrelage plus foncé',mode:'retouche'}).mode==='retouche'&&R.lireDemande({image:img,consigne:'plan',mode:'planRendu'}).mode==='planRendu'&&R.lireDemande({image:img,consigne:'xxx',mode:'<x>'}).mode==='piece','modes d’image : retouche et plan en couleur reconnus, inconnu → pièce');
+   const it=R.invite({consigne:'Carrelage plus foncé',piece:'Cuisine',mode:'retouche'});
+   chk(/SEULEMENT cette modification/.test(it)&&/Tout le reste doit rester identique/.test(it),'retouche : seule la modification change');
+   const ip=R.invite({consigne:'plan',mode:'planRendu'});
+   chk(/EXACTEMENT la même géométrie/.test(ip)&&/n’invente aucun nouveau texte/.test(ip)&&!/Précision du métreur/.test(ip),'plan en couleur : même géométrie, aucun texte inventé');
+   const ipi=R.invite({consigne:'Cuisine blanche',piece:'Cuisine',mode:'piece'});
+   chk(/verticales droites/.test(ipi)&&/aucune déformation des murs/.test(ipi)&&/même hauteur sous plafond/.test(ipi)&&/Cuisine blanche/.test(ipi),'imaginer : rendu de photo d’intérieur professionnelle, géométrie gardée');
+   const mp=R.modelesPlan('',''),mpi=R.modelesPlan('mon-modele','');
+   chk(mp[0]==='gemini-2.5-pro'&&mp.includes('gemini-flash-latest')&&mpi[0]==='mon-modele','lecture de plan : modèle « pro » d’abord (IMAGINER_MODELE_PLAN prioritaire), puis les modèles habituels');
+   const dd=R.descriptionReponse(rep(JSON.stringify({parties:[{nom:'RDC',doutes:['Cuisine : largeur raturée',' ','x'.repeat(400)],pieces:[{nom:'A',longueur:3,largeur:3}]}]})),'plan');
+   chk(dd.parties[0].doutes.length===2&&dd.parties[0].doutes[1].length===160,'doutes de la lecture : gardés, nettoyés, bornés');
+   chk(/doutes/.test(R.inviteDescription?R.inviteDescription({mode:'plan'}):JSON.stringify(R.requeteDescription({mode:'plan',image:'x',mime:'image/jpeg'}))),'la consigne de lecture demande les doutes (cotes raturées, contradictoires)');}
   fin();
 })();

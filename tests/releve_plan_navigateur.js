@@ -137,6 +137,15 @@ let b;
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees;const pi=d&&d.valeurs.plan3dImage;
     return !!(pi&&d.photos[pi.id]&&d.photos[pi.id].role==='dessin3d')}),'et l’image de la vue 3D aussi (pour le dossier client)');
   await p.waitForSelector('#resumePlan');
+  /* « ✨ Plan en couleur » : le plan coté redessiné par l'IA (image d'intention), proposé au dossier client */
+  {const img=require('fs').readFileSync(require('path').join(__dirname,'..','assets','logo_fiche.jpg')).toString('base64');
+   await p.evaluate(im=>{window.__etat.fonctions={imaginer:{corps:{image:im,mime:'image/jpeg',modele:'modele-fictif',restant:27}}}},img);}
+  await p.waitForSelector('#planEnCouleur');
+  await p.tap('#planEnCouleur');
+  await p.waitForSelector('#blocPlanRendu img.planRenduImg');
+  const apR=await p.evaluate(()=>window.__etat.appels.filter(a=>a.nom==='imaginer').slice(-1)[0]);
+  chk(apR.body.mode==='planRendu'&&apR.body.image.length>1000,'« ✨ Plan en couleur » : l’image du plan coté part à l’IA (mode « planRendu »)');
+  chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees;const pr=d&&d.valeurs.planRendu;return !!(pr&&d.photos[pr.id]&&d.photos[pr.id].role==='planRendu')})&&/Refaire le plan en couleur/.test(await p.textContent('#blocPlanRendu')),'le plan en couleur est gardé avec la visite, et peut être refait');
   chk((await p.textContent('#resumePlan')).includes('1 pièce'),'retour à la visite : le résumé du plan s’affiche');
   await p.tap('#ouvrirPlan');
   await p.waitForSelector('#cadrePlan');

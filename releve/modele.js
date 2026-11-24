@@ -126,6 +126,7 @@ export const CHAMPS = {
   'assistant.texte': 'texte', // la dictée libre de la visite (assistant), gardée tant qu'elle n'est pas rangée
   'planImage': 'objet', // { id, empreinte } : l'image du plan dessiné, pour le dossier client
   'plan3dImage': 'objet', // { id, empreinte } : l'image de la vue 3D du plan, pour le dossier client
+  'planRendu': 'objet', // { id, source, modele, creeLe } : le plan en couleur généré par l'IA (image d'intention)
   'dessin': 'objet', // { pieces:[{id,nom,longueur,largeur,contre}], hauteur } : le dessin rapide (dessin.js), sans scan
   'annotations': 'objet', // { fondId, source, empreinte, imageId, elements } : le plan annoté (annotations.js)
   'partageDossier': 'objet', // { id, lien, expireLe, creeLe } : le lien du dossier envoyé au client (table releve_partages)

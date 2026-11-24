@@ -68,13 +68,17 @@ qu'on ait à les redire.
   `supabase/functions/imaginer` (Gemini, clé `GEMINI_API_KEY` dans les
   secrets Supabase, utilisateur connecté, limite par jour) ; sans réseau, la
   demande attend sur la photo (`imaginerEnAttente`, appareil d'origine seul)
-  et part au retour du réseau. « 🔍 Décrire » (action `decrire`) : légende si vide et
+  et part au retour du réseau ; styles en un toucher, « ✏️ Retoucher » une
+  image imaginée (mode `retouche`), « ✨ Plan en couleur » (mode `planRendu`,
+  photo `planRendu`, option du dossier client). « 🔍 Décrire » (action `decrire`) : légende si vide et
   constats internes (`description`) d'une photo ; « 📷 Lire une note
   manuscrite » ajoute la transcription à la dictée de l'assistant. « 🖼 Plan 2D » (mode
   `plan`, image ou PDF, aussi glissé sur le plan) : pièces lues → dessin
   rapide à vérifier (`dessinDepuisRectangles` ; lecture enrichie
   `dessinDepuisLecture` : ouvertures, équipements, hauteur, notes et projet
-  en rouge par pièce, « ＋ Tout importer »), plan d'origine gardé
+  en rouge par pièce, « ＋ Tout importer », mezzanine sur son étage, doutes
+  « À vérifier », modèle « pro » `modelesPlan` ; petite pièce dans une grande
+  contre son mur : découpe `contourDecoupe`, pas un chevauchement), plan d'origine gardé
   (photo `planPapier`), plusieurs esquisses d'un coup ajoutées au dessin.
   Plan annoté (travaux) : copie du plan annotée au doigt (`annotations.js`,
   champ `annotations`, photos `fondAnnote` et `planAnnote`), en option dans
