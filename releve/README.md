@@ -258,7 +258,10 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
     le mur va à la pièce la plus proche, à moins de 60 cm) ; les comptages
     partent avec le résumé du plan (`resume.detail[].equip`,
     `resume.equipements`) et le chiffrage de la fiche prospect peut y prendre
-    une quantité (« Nombre de prises (posés sur le plan) »…) ; gardés avec le relevé (`symboles`) ;
+    une quantité (« Nombre de prises (posés sur le plan) »…) ; le résumé
+    donne aussi les **plinthes** de chaque pièce (`plinthes` : le tour des
+    murs moins les portes, passages et portes-fenêtres), reprises par le
+    chiffrage avec la surface de plafond ; gardés avec le relevé (`symboles`) ;
   - **toiture** (plat, 1, 2 ou 4 pentes, pente en degrés) sur l'étage le plus
     haut, vue en 3D dans le plan ;
   - **zoom** de l'aperçu (deux doigts, « 🔍 ＋ / − », « ⟲ 100 % »).

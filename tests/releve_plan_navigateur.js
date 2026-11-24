@@ -118,7 +118,7 @@ let b;
   const PDFT=await fr.evaluate(async()=>{const b=window.__releve.pdf(window.__releve.analyser(window.__releve.donnees()));const t=await (b.text?b.text():new Response(b).text());return /quipements par pi/.test(t)&&/quipements : total/.test(t)});
   chk(PDFT,'et dans le PDF (tableaux « Équipements par pièce » et « Équipements : total »)');
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const pl=L[0]&&L[0].donnees.valeurs.plan;const r=pl&&pl.resume;
-    return !!(r&&r.equipements&&r.equipements.wc===1&&r.detail.some(x=>x.equip&&x.equip.wc===1))},15000),'les équipements comptés partent avec le résumé du plan (pour le chiffrage du suivi)');
+    return !!(r&&r.equipements&&r.equipements.wc===1&&r.detail.some(x=>x.equip&&x.equip.wc===1)&&r.detail.every(x=>x.plinthes>0&&x.plinthes<x.perimetre))},15000),'les équipements comptés et les plinthes (portes déduites) partent avec le résumé du plan (pour le chiffrage du suivi)');
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const pl=L[0]&&L[0].donnees.valeurs.plan;return !!(pl&&pl.releve.symboles&&pl.releve.symboles[0]&&pl.releve.symboles[0].rot===90)},15000),'le symbole part avec le plan de la visite');
 
   /* fermer puis rouvrir : rien n'est perdu, rien n'est redemandé */

@@ -11,7 +11,10 @@ chk(M.qtePlan({grandeur:'sol',pieces:[]},pieces)===37.5,'sol de toute la maison'
 chk(M.qtePlan({grandeur:'murs',pieces:['p1']},pieces)===30.1,'murs de la cuisine seule');
 chk(M.qtePlan({grandeur:'fenetres',pieces:[]},pieces)===4&&M.qtePlan({grandeur:'pieces',pieces:[]},pieces)===2,'fenêtres et pièces comptées');
 chk(M.qtePlan(null,pieces)===null&&M.qtePlan({grandeur:'sol'},[])===null,'sans règle ou sans plan : aucune quantité inventée');
-chk(M.GRANDEURS_PLAN.length===24&&M.GRANDEURS_PLAN.slice(0,6).map(g=>g[0]).join()==='sol,murs,perimetre,portes,fenetres,pieces','les six grandeurs d’avant, puis 18 équipements du plan');
+chk(M.GRANDEURS_PLAN.length===26&&M.GRANDEURS_PLAN.slice(0,6).map(g=>g[0]).join()==='sol,murs,perimetre,portes,fenetres,pieces','les six grandeurs d’avant, plinthes, plafond, puis 18 équipements du plan');
+{const PP=[{id:'a',sol:12.5,plinthes:13.2},{id:'b',sol:8,plinthes:10.1}],ANC=[{id:'a',sol:12.5,perimetre:14}];
+ chk(M.qtePlan({grandeur:'plafond',pieces:[]},PP)===20.5&&M.qtePlan({grandeur:'plinthes',pieces:['b']},PP)===10.1,'plafond = surface de sol (20,5 m²), plinthes d’une pièce (10,1 ml)');
+ chk(M.qtePlan({grandeur:'plinthes',pieces:[]},ANC)===null,'ancien plan sans plinthes : aucune quantité inventée');}
 {const PE=[{id:'a',nom:'Cuisine',equip:{prise:6,lumiere:2}},{id:'b',nom:'Séjour',equip:{prise:4,radiateur:2}},{id:'c',nom:'Cellier'}];
  chk(M.qtePlan({grandeur:'eq:prise',pieces:[]},PE)===10&&M.qtePlan({grandeur:'eq:prise',pieces:['a']},PE)===6,'nombre de prises : toute la maison (10) ou la cuisine seule (6)');
  chk(M.qtePlan({grandeur:'eq:vmc',pieces:[]},PE)===0&&M.qtePlan({grandeur:'eq:radiateur',pieces:['c']},PE)===0,'aucun équipement de ce type : 0, sans erreur (pièce sans équipement, ancien plan)');}
