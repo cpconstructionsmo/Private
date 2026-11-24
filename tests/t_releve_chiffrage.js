@@ -11,7 +11,10 @@ chk(M.qtePlan({grandeur:'sol',pieces:[]},pieces)===37.5,'sol de toute la maison'
 chk(M.qtePlan({grandeur:'murs',pieces:['p1']},pieces)===30.1,'murs de la cuisine seule');
 chk(M.qtePlan({grandeur:'fenetres',pieces:[]},pieces)===4&&M.qtePlan({grandeur:'pieces',pieces:[]},pieces)===2,'fenêtres et pièces comptées');
 chk(M.qtePlan(null,pieces)===null&&M.qtePlan({grandeur:'sol'},[])===null,'sans règle ou sans plan : aucune quantité inventée');
-chk(M.GRANDEURS_PLAN.length===6,'six grandeurs proposées');
+chk(M.GRANDEURS_PLAN.length===24&&M.GRANDEURS_PLAN.slice(0,6).map(g=>g[0]).join()==='sol,murs,perimetre,portes,fenetres,pieces','les six grandeurs d’avant, puis 18 équipements du plan');
+{const PE=[{id:'a',nom:'Cuisine',equip:{prise:6,lumiere:2}},{id:'b',nom:'Séjour',equip:{prise:4,radiateur:2}},{id:'c',nom:'Cellier'}];
+ chk(M.qtePlan({grandeur:'eq:prise',pieces:[]},PE)===10&&M.qtePlan({grandeur:'eq:prise',pieces:['a']},PE)===6,'nombre de prises : toute la maison (10) ou la cuisine seule (6)');
+ chk(M.qtePlan({grandeur:'eq:vmc',pieces:[]},PE)===0&&M.qtePlan({grandeur:'eq:radiateur',pieces:['c']},PE)===0,'aucun équipement de ce type : 0, sans erreur (pièce sans équipement, ancien plan)');}
 
 /* le plan le plus récent des visites du prospect */
 const ligne=(id,maj,detail,extra={})=>({id,maj_le:maj,donnees:{id,creeLe:'2026-11-17T09:00:00Z',

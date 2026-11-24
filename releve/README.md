@@ -251,7 +251,14 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
     un plan venu d'un scan LiDAR) : choisis dans la liste, posés au centre
     de l'étage, glissés au doigt (pas de 5 cm), touchés pour les tourner,
     régler leur taille (longueur, profondeur ; « Taille standard » la
-    remet) ou les retirer ; gardés avec le relevé (`symboles`) ;
+    remet) ou les retirer ;
+    **tableau des équipements** (`nomenclatureSymboles`) : sous le plan et
+    dans le PDF (« Équipements par pièce », « Équipements : total »), chaque
+    symbole compté dans la pièce qui contient son centre (une prise posée sur
+    le mur va à la pièce la plus proche, à moins de 60 cm) ; les comptages
+    partent avec le résumé du plan (`resume.detail[].equip`,
+    `resume.equipements`) et le chiffrage de la fiche prospect peut y prendre
+    une quantité (« Nombre de prises (posés sur le plan) »…) ; gardés avec le relevé (`symboles`) ;
   - **toiture** (plat, 1, 2 ou 4 pentes, pente en degrés) sur l'étage le plus
     haut, vue en 3D dans le plan ;
   - **zoom** de l'aperçu (deux doigts, « 🔍 ＋ / − », « ⟲ 100 % »).
