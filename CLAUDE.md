@@ -101,7 +101,7 @@ qu'on ait à les redire.
   précis : dans le quantitatif d'un poste de la fiche prospect (seulement là,
   `Quantitatif` prop `plan`), une ligne prend sa quantité dans le plan de la
   visite (`l.regle` : grandeur et pièces, `qtePlan`, `planDuProspect` ; aussi
-  les équipements posés sur le plan, grandeur `eq:<type>`, `EQUIPEMENTS_PLAN`,
+  plinthes, portes déduites, et plafond ; les équipements posés sur le plan, grandeur `eq:<type>`, `EQUIPEMENTS_PLAN`,
   comptés par le moteur `nomenclatureSymboles` → `resume.detail[].equip`) ;
   « Mettre à jour depuis le plan » ne touche que ces lignes ; une quantité
   tapée retire la règle. Chiffrage interne en Excel (carte « Chiffrage

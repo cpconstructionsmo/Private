@@ -146,13 +146,15 @@ function analyser(d) {
   M.rooms.forEach(r => {
     r.volume = r.aire * r.hauteur;
     r.portes = 0; r.fenetres = 0; r.passages = 0;
-    let murs = 0;
+    let murs = 0, plinthes = 0;
     r.edges.forEach(e => {
       if (e.wall.demoli) return;                    /* un mur à démolir ne compte plus */
-      murs += e.len * r.hauteur;
-      e.wall.openings.forEach(op => { murs -= surfOuv(op, r.hauteur); if (op.type === 'porte') r.portes++; else if (op.type === 'passage') r.passages++; else r.fenetres++; });
+      murs += e.len * r.hauteur; plinthes += e.len;
+      e.wall.openings.forEach(op => { murs -= surfOuv(op, r.hauteur); if (op.type === 'porte') r.portes++; else if (op.type === 'passage') r.passages++; else r.fenetres++;
+        /* plinthes : le tour de la pièce moins ce qui descend jusqu'au sol (portes, passages, portes-fenêtres) */
+        if (op.allege < 0.05) plinthes -= op.w; });
     });
-    r.mursNets = murs;
+    r.mursNets = murs; r.plinthes = Math.max(0, plinthes);
   });
   M.rooms.forEach((r, i) => { r.idx = i; }); M.openings.forEach((op, i) => { op.idx = i; });
   let zc = 0;                                           /* altitude du sol de chaque étage : on empile les hauteurs + 20 cm de dalle */
@@ -2557,7 +2559,7 @@ function envoyerVisite(avecImage) {
          prendre une quantité (« nombre de prises », « nombre de radiateurs »… : GRANDEURS_PLAN) */
       detail: modele.rooms.map(r => { const P = nq.parPiece.find(x => x.ref === r);
         return Object.assign({ id: r.id, nom: r.nom, etage: r.etage, sol: arr2(r.aire), perimetre: arr2(r.perim),
-          hauteur: arr2(r.hauteur), murs: arr2(r.mursNets), portes: r.portes || 0, fenetres: r.fenetres || 0 }, P ? { equip: Object.fromEntries(P.liste) } : {}); }),
+          hauteur: arr2(r.hauteur), murs: arr2(r.mursNets), plinthes: arr2(r.plinthes), portes: r.portes || 0, fenetres: r.fenetres || 0 }, P ? { equip: Object.fromEntries(P.liste) } : {}); }),
       ...(nq.totaux.length ? { equipements: Object.fromEntries(nq.totaux) } : {}) } });
 }
 window.addEventListener('message', e => {
