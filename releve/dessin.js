@@ -42,11 +42,52 @@ export function placer(pieces) {
 }
 
 /* deux rectangles qui se chevauchent (plus qu'un frôlement) : refusé */
+/* une petite pièce posée DANS une grande, contre son bord (WC, placard, gaine dans une pièce de vie
+   qui n'est pas rectangulaire) : la grande est découpée autour d'elle, ce n'est pas un chevauchement */
+const TOL_INC = 0.03;
+export function incluse(b, a) {
+  if (!(b.x0 >= a.x0 - TOL_INC && b.x1 <= a.x1 + TOL_INC && b.y0 >= a.y0 - TOL_INC && b.y1 <= a.y1 + TOL_INC)) return false;
+  // seulement une PETITE pièce (au plus 35 % de la grande : WC, placard, gaine) ; deux pièces de taille voisine posées l'une sur l'autre restent une erreur
+  if ((b.x1 - b.x0) * (b.y1 - b.y0) > 0.35 * (a.x1 - a.x0) * (a.y1 - a.y0)) return false;
+  return Math.abs(b.x0 - a.x0) < TOL_INC || Math.abs(b.x1 - a.x1) < TOL_INC || Math.abs(b.y0 - a.y0) < TOL_INC || Math.abs(b.y1 - a.y1) < TOL_INC;
+}
+/* le contour d'un rectangle dont on retire des rectangles collés à son bord (forme en L, encoche) :
+   cases d'une grille, puis bord extérieur suivi dans le sens horaire ; null si la forme n'est pas d'un
+   seul tenant (découpes qui la coupent en deux) */
+export function contourDecoupe(a, trous) {
+  const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const T = trous.map(b => ({ x0: cl(b.x0, a.x0, a.x1), x1: cl(b.x1, a.x0, a.x1), y0: cl(b.y0, a.y0, a.y1), y1: cl(b.y1, a.y0, a.y1) }));
+  // un bord à moins de 3 cm de celui de la grande pièce s'y aligne (arrondis des cotes)
+  T.forEach(b => { ['x0', 'x1'].forEach(k => { if (Math.abs(b[k] - a.x0) < TOL_INC) b[k] = a.x0; if (Math.abs(b[k] - a.x1) < TOL_INC) b[k] = a.x1; });
+    ['y0', 'y1'].forEach(k => { if (Math.abs(b[k] - a.y0) < TOL_INC) b[k] = a.y0; if (Math.abs(b[k] - a.y1) < TOL_INC) b[k] = a.y1; }); });
+  const X = [...new Set([a.x0, a.x1, ...T.flatMap(b => [b.x0, b.x1])].map(r3))].sort((u, v) => u - v);
+  const Y = [...new Set([a.y0, a.y1, ...T.flatMap(b => [b.y0, b.y1])].map(r3))].sort((u, v) => u - v);
+  const plein = (i, j) => i >= 0 && j >= 0 && i < X.length - 1 && j < Y.length - 1 && !T.some(b => (X[i] + X[i + 1]) / 2 > b.x0 && (X[i] + X[i + 1]) / 2 < b.x1 && (Y[j] + Y[j + 1]) / 2 > b.y0 && (Y[j] + Y[j + 1]) / 2 < b.y1);
+  // arêtes du bord, orientées pour que l'intérieur soit à droite (sens horaire à l'écran, y vers le bas)
+  const suivant = new Map(); let n = 0;
+  for (let i = 0; i < X.length - 1; i++) for (let j = 0; j < Y.length - 1; j++) {
+    if (!plein(i, j)) continue; n++;
+    const k = (x, y) => x + ',' + y;
+    if (!plein(i, j - 1)) suivant.set(k(i, j), [i + 1, j]);
+    if (!plein(i + 1, j)) suivant.set(k(i + 1, j), [i + 1, j + 1]);
+    if (!plein(i, j + 1)) suivant.set(k(i + 1, j + 1), [i, j + 1]);
+    if (!plein(i - 1, j)) suivant.set(k(i, j + 1), [i, j]);
+  }
+  if (!n) return null;
+  const depart = [...suivant.keys()].sort()[0]; let cur = depart; const P = [];
+  for (let g = 0; g < 400; g++) { const [i, j] = cur.split(',').map(Number); P.push([X[i], Y[j]]); const nx = suivant.get(cur); if (!nx) return null; cur = nx.join(','); if (cur === depart) break; }
+  if (cur !== depart || P.length !== suivant.size) return null;     // plusieurs morceaux, ou un trou : pas d'un seul tenant
+  // points alignés retirés ; départ au coin haut-gauche (comme les autres pièces)
+  const Q = P.filter((q, i) => { const a0 = P[(i + P.length - 1) % P.length], b0 = P[(i + 1) % P.length]; return !((a0[0] === q[0] && q[0] === b0[0]) || (a0[1] === q[1] && q[1] === b0[1])); });
+  const i0 = Q.reduce((m, q, i) => (q[1] < Q[m][1] || (q[1] === Q[m][1] && q[0] < Q[m][0])) ? i : m, 0);
+  return [...Q.slice(i0), ...Q.slice(0, i0)];
+}
 export function chevauchements(pieces, rect) {
   const L = (pieces || []).filter(p => rect.has(p.id)), res = [];
   for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
     if ((L[i].etage || 0) !== (L[j].etage || 0)) continue;          // deux étages se superposent, normalement
     const a = rect.get(L[i].id), b = rect.get(L[j].id);
+    if (incluse(a, b) || incluse(b, a)) continue;                     // découpée autour (voir contourDecoupe)
     const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), oy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
     if (ox > 0.01 && oy > 0.01) res.push([L[i].nom, L[j].nom]);
   }
@@ -56,6 +97,10 @@ export function chevauchements(pieces, rect) {
 /* le contour d'une pièce, avec les coins des voisines posés sur ses murs
    (sens horaire à l'écran : haut, droite, bas, gauche) */
 function contour(r, autres) {
+  // une pièce qui en contient d'autres contre son bord : son contour est découpé autour d'elles
+  const dedans = autres.filter(o => incluse(o, r));
+  const poly = dedans.length ? contourDecoupe(r, dedans) : null;
+  if (poly) return contourPoly(poly, autres.filter(o => !dedans.includes(o)).concat(dedans));
   const surSegment = (fixe, axe, debut, fin) => {
     const pts = new Set();
     autres.forEach(o => {
@@ -76,6 +121,21 @@ function contour(r, autres) {
   surSegment(r.x0, 'y', r.y1, r.y0).forEach(y => P.push([r.x0, y]));
   return P.map(([x, y]) => [r3(x), r3(y)]);
 }
+
+/* le contour d'un polygone à angles droits, avec les coins des voisines posés sur ses murs */
+function contourPoly(poly, autres) {
+  const coins = autres.flatMap(o => [[o.x0, o.y0], [o.x1, o.y0], [o.x1, o.y1], [o.x0, o.y1]]), P = [];
+  poly.forEach((A, i) => {
+    const B = poly[(i + 1) % poly.length]; P.push(A);
+    const horiz = Math.abs(A[1] - B[1]) < 1e-9, lo = horiz ? Math.min(A[0], B[0]) : Math.min(A[1], B[1]), hi = horiz ? Math.max(A[0], B[0]) : Math.max(A[1], B[1]);
+    const sur = [...new Set(coins.filter(([x, y]) => horiz ? Math.abs(y - A[1]) < 0.0005 && x > lo + 0.03 && x < hi - 0.03 : Math.abs(x - A[0]) < 0.0005 && y > lo + 0.03 && y < hi - 0.03)
+      .map(([x, y]) => r3(horiz ? x : y)))].sort((u, v) => (horiz ? B[0] > A[0] : B[1] > A[1]) ? u - v : v - u);
+    sur.forEach(t => P.push(horiz ? [t, A[1]] : [A[0], t]));
+  });
+  return P.map(([x, y]) => [r3(x), r3(y)]);
+}
+const airePoly = pts => Math.abs(pts.reduce((t, q, i) => { const n = pts[(i + 1) % pts.length]; return t + q[0] * n[1] - n[0] * q[1]; }, 0)) / 2;
+const perimPoly = pts => pts.reduce((t, q, i) => { const n = pts[(i + 1) % pts.length]; return t + Math.hypot(n[0] - q[0], n[1] - q[1]); }, 0);
 
 /* le relevé au format du moteur, et son résumé ; `etages` (noms), `ouvertures`,
    `symboles` et `toiture` viennent du dessin (voir plus bas) */
@@ -104,9 +164,10 @@ export function releveDepuisDessin(pieces, { projet = 'Dessin rapide', hauteur =
     ouvertures: ouv.liste, symboles: symbolesMoteur(symboles, noms.length), toitures: toituresMoteur(toiture, posees.map(p => ({ id: 'd-' + p.id, etage: et(p) }))), dessinRapide: true,
   };
   const compte = (id, type) => ouv.liste.filter(o => o.piece === id && (type === 'fenetre' ? o.type === 'fenetre' : o.type !== 'fenetre')).length;
-  const detail = posees.map(p => { const r = rect.get(p.id), L = r.x1 - r.x0, W = r.y1 - r.y0, id = 'd-' + p.id;
-    return { id, nom: String(p.nom || 'Pièce'), etage: et(p), sol: Math.round(L * W * 100) / 100, perimetre: Math.round(2 * (L + W) * 100) / 100,
-      hauteur: hPiece(p), murs: Math.round(2 * (L + W) * hPiece(p) * 100) / 100, portes: compte(id, 'porte'), fenetres: compte(id, 'fenetre') }; });
+  // surfaces et périmètres tirés du contour : une pièce découpée autour d'un WC perd la surface du WC
+  const detail = posees.map(p => { const pts = contours.get(p.id), id = 'd-' + p.id, A = airePoly(pts), Pm = perimPoly(pts);
+    return { id, nom: String(p.nom || 'Pièce'), etage: et(p), sol: Math.round(A * 100) / 100, perimetre: Math.round(Pm * 100) / 100,
+      hauteur: hPiece(p), murs: Math.round(Pm * hPiece(p) * 100) / 100, portes: compte(id, 'porte'), fenetres: compte(id, 'fenetre') }; });
   const surface = Math.round(detail.reduce((t, d) => t + d.sol, 0) * 100) / 100;
   return { donnees, resume: { projet, pieces: detail.length, surface, ouvertures: ouv.liste.length, detail }, erreurs, rect };
 }

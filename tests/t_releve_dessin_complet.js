@@ -52,5 +52,12 @@ const {chk,fin}=verif();
   const TA=lit('TAILLES_SYM'),NO=lit('NOMS_SYM'),HA=lit('HAUTEURS_SYM');
   chk(D.TYPES_SYMBOLE.every(t=>TA[t[0]]&&TA[t[0]][0]===t[3]&&TA[t[0]][1]===t[4]&&NO[t[0]]===t[1])&&Object.keys(TA).length===nT,'moteur et dessin rapide : mêmes symboles, mêmes noms, mêmes tailles');
   chk(D.TYPES_SYMBOLE.every(t=>t[0]==='escalier'||HA[t[0]]),'chaque équipement a sa hauteur en 3D (point lumineux et VMC au plafond)');
+  /* une petite pièce DANS une grande, contre son bord (WC dans une pièce de vie non rectangulaire) : découpe, pas chevauchement */
+  const VW=[{id:'v',nom:'B – Pièce de vie',longueur:3.03,largeur:5.1},{id:'w',nom:'B – WC',longueur:0.93,largeur:1.15,libre:{x:2.1,y:0}}];
+  const RV=D.releveDepuisDessin(VW,{});
+  chk(!RV.erreurs.length,'WC posé dans la pièce de vie, contre son mur : pas de chevauchement signalé, le plan peut se créer');
+  chk(RV.donnees.pieces[0].points.length===6&&RV.resume.detail[0].sol===14.38&&RV.resume.detail[1].sol===1.07,'la pièce de vie est découpée autour du WC (forme en L, 15,45 − 1,07 = 14,38 m²)');
+  chk(D.contourDecoupe({x0:0,y0:0,x1:3,y1:5},[{x0:1,y0:1,x1:2,y1:2}])===null&&D.releveDepuisDessin([{id:'v',nom:'V',longueur:3,largeur:5},{id:'w',nom:'W',longueur:1,largeur:1,libre:{x:1,y:1}}],{}).erreurs.some(e=>/chevauchent/.test(e)),'une pièce au milieu d’une autre, sans toucher ses murs (un trou) : toujours signalée');
+  chk(D.incluse({x0:2.1,y0:0.02,x1:3.05,y1:1.15},{x0:0,y0:0,x1:3.03,y1:5.1})&&!D.incluse({x0:2.5,y0:0,x1:3.6,y1:1},{x0:0,y0:0,x1:3.03,y1:5.1}),'à 3 cm près, la petite pièce est bien « dedans » ; qui déborde reste un chevauchement');
   fin();
 })();

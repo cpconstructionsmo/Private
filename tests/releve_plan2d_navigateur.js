@@ -108,6 +108,21 @@ let b;
   await p.tap('#planOrigine summary');
   chk(await p.locator('#planOrigine img.imagePlanOrigine').count()>=3,'les esquisses d’origine restent visibles sous le dessin');
 
+  /* une esquisse avec rez-de-chaussée et mezzanine : « Tout importer » met la mezzanine sur son propre étage ; les doutes de l'IA sont dits */
+  await p.tap('text=‹ Visite');
+  await p.waitForSelector('#importerPlan2D');
+  await repondre({parties:[{nom:'Rez-de-chaussée',doutes:['Pièce haute : largeur raturée (3,93 ou 3,13 ?)'],pieces:[{nom:'Pièce haute',longueur:3.64,largeur:5.69,x:0,y:0},{nom:'B – Pièce de vie',longueur:3.03,largeur:5.1,x:4,y:0},{nom:'B – WC',longueur:0.93,largeur:1.15,x:6.1,y:0}]},{nom:'Mezzanine',pieces:[{nom:'Mezzanine',longueur:2.69,largeur:3.2,x:0,y:0}]}]});
+  const [c4]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#importerPlan2D')]);await c4.setFiles(PHOTO);
+  await p.waitForSelector('#toutesPartiesPlan');
+  await p.tap('#toutesPartiesPlan');
+  await p.waitForSelector('#remplacerDessin');
+  await p.tap('#remplacerDessin');
+  await p.waitForFunction(()=>/propre étage/.test(document.querySelector('main').textContent));
+  chk(/« Mezzanine » est posé sur son propre étage/.test(await p.textContent('main'))&&/À vérifier : Pièce haute : largeur raturée/.test(await p.textContent('main')),'« Tout importer » : la mezzanine va sur son étage ; le doute de l’IA (cote raturée) est dit');
+  chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees.valeurs.dessin;const mz=d&&d.pieces.find(x=>x.nom==='Mezzanine');
+    return !!(mz&&mz.etage===1&&d.etages&&d.etages[1]==='Mezzanine'&&d.pieces.filter(x=>(x.etage||0)===0).length===3)}),'mezzanine à l’étage « Mezzanine », les 3 pièces du rez-de-chaussée en bas');
+  chk(!/se chevauchent/.test(await p.textContent('main')),'le WC posé dans la pièce de vie (contre son mur) ne bloque pas : la pièce de vie est découpée autour');
+
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();
   console.log(ko?('\n'+ko+' echec(s)'):'\nTout est bon.');process.exitCode=ko?1:0;

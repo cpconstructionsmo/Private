@@ -116,6 +116,27 @@ let b;
   await p.tap('[data-nom-vers="bas"]');
   d=await attendreDessin(d=>d.pieces[1].etiquette&&d.pieces[1].etiquette.dx===1&&d.pieces[1].etiquette.dy===0.25);
   chk(d&&JSON.stringify(d.pieces[1].libre||null)===lib0,'« Position du nom » : le nom décalé de 1 m à droite et 25 cm en bas, la pièce ne bouge pas');
+  /* « ＋ Symbole » près du dessin : choisir, puis toucher l'endroit (près d'un mur, il s'y adosse) */
+  const nbS=d.symboles.length;
+  await p.tap('#ajoutSymboleIci');await p.tap('[data-poser-symbole="radiateur"]');
+  chk(/Touchez le dessin à l’endroit du radiateur/.test(await p.textContent('#invitePoseSymbole')),'« ＋ Symbole » → radiateur : invitation à toucher l’endroit voulu');
+  await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
+  {const [x,y]=await ecran(1.5,3.8);await p.mouse.click(x,y);}
+  d=await attendreDessin(d=>d.symboles.length===nbS+1);
+  const rp=d&&d.symboles[d.symboles.length-1];
+  chk(rp&&rp.type==='radiateur'&&rp.rot===180&&Math.abs(rp.y-(4-0.06-0.02))<0.011&&Math.abs(rp.x-1.5)<0.011,'touché à 20 cm du mur du bas du séjour : le radiateur s’y adosse, dos au mur ('+JSON.stringify(rp&&{x:rp.x,y:rp.y,rot:rp.rot})+')');
+  /* glisser le fond du dessin : tout le plan se déplace dans le cadre */
+  const vbA=(await p.getAttribute('svg.apercuDessin','viewBox')).split(' ').map(Number);
+  await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
+  {const [x,y]=await ecran(-1.2,5.2);await p.mouse.move(x,y);await p.mouse.down();await p.mouse.move(x+40,y+30,{steps:4});await p.mouse.move(x+80,y+60,{steps:4});await p.mouse.up();}
+  const vbB=(await p.getAttribute('svg.apercuDessin','viewBox')).split(' ').map(Number);
+  chk(vbB[0]<vbA[0]-0.3&&vbB[1]<vbA[1]-0.2&&Math.abs(vbB[2]-vbA[2])<1e-6,'glisser le fond : tout le plan se déplace (sans changer d’échelle)');
+  await p.tap('#zoomDessinRaz');
+  const vbC=(await p.getAttribute('svg.apercuDessin','viewBox')).split(' ').map(Number);
+  chk(Math.abs(vbC[0]-vbA[0])<1e-6&&Math.abs(vbC[1]-vbA[1])<1e-6,'« ⟲ 100 % » recentre le plan');
+  /* le radiateur d'essai est retiré (le nouveau symbole posé est sélectionné) : la suite compte les symboles */
+  await p.tap('#retirerSymbole');
+  d=await attendreDessin(d=>d.symboles.length===nbS);
   /* un étage */
   await p.tap('#ajouterEtage');
   await p.waitForFunction(()=>document.querySelector('[data-etage="1"]')&&document.querySelector('[data-etage="1"]').classList.contains('on'));
@@ -148,6 +169,9 @@ let b;
   chk(!!frame,'« Créer le plan » ouvre le moteur sans erreur');
   const M=frame&&await frame.evaluate(()=>{const m=window.__releve.analyser(window.__releve.donnees());return {etages:m.etages.length,ouv:m.openings.length,sym:m.symboles.length,toits:m.toits.length,types:m.openings.map(o=>o.type).join()}});
   chk(M&&M.etages===2&&M.ouv===2&&M.sym===2&&M.toits===1&&M.types==='fenetre,porte','le moteur : 2 étages, 2 ouvertures (fenêtre, porte), 2 symboles, 1 toiture');
+  {const D=await import('../releve/dessin.js');const RV=D.releveDepuisDessin([{id:'v',nom:'Vie',longueur:3.03,largeur:5.1},{id:'w',nom:'WC',longueur:0.93,largeur:1.15,libre:{x:2.1,y:0}}],{});
+   const MV=await frame.evaluate(d=>{try{const M=window.__releve.analyser(d);return {n:M.rooms.length,a:M.rooms.map(r=>Math.round(r.aire*100)/100).join(),murs:M.walls.length}}catch(e){return {err:String(e)}}},RV.donnees);
+   chk(MV.n===2&&MV.a==='14.38,1.07'&&MV.murs>=8,'le moteur accepte la pièce de vie découpée autour du WC (murs communs partagés) : '+JSON.stringify(MV));}
   chk(await frame.evaluate(()=>{const p=window.__releve.donnees().pieces.find(x=>x.nom==='Salon');return !!(p&&p.etiquette&&Math.abs(p.etiquette.dx-1)<0.06)}),'le nom déplacé dans le dessin le reste dans le plan coté');
   /* la 3D : l'escalier monte à l'étage, le plancher du dessus est percé, le radiateur est un volume */
   const V=frame&&await frame.evaluate(()=>{const v=window.__releve.v3d();if(!v.ok)return {ok:false};

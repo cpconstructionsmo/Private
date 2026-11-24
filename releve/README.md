@@ -126,6 +126,16 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   d'avant (dossier, assistant, plan, prix → visite → accueil) au lieu de
   quitter le relevé ; les boutons « ‹ » de l'écran gardent l'historique
   juste ; le plan s'enregistre avant de se fermer (`suivreHistorique`).
+- **« ✨ Imaginer » mieux rendu** : consigne de photo d'intérieur
+  professionnelle (perspective droite, matériaux et lumière réalistes,
+  géométrie gardée) ; **styles en un toucher** (moderne, scandinave,
+  industriel, contemporain chic, classique, campagne : leur description
+  s'ajoute à la consigne) ; **« ✏️ Retoucher »** une image imaginée (mode
+  `retouche` : seule la modification demandée change, rangée sous la même
+  photo, `depuis`). **« ✨ Plan en couleur (IA) »** (étape Scan, sous le
+  résumé du plan) : le plan coté redessiné en plan de présentation (mode
+  `planRendu`, photo `planRendu`), option « Plan en couleur » du dossier
+  client, présenté comme image d'intention.
 - **« ✨ Imaginer » sans réseau** : la demande (consigne) est gardée sur la
   photo, « ⏳ en attente du réseau » (✕ pour l'annuler), et part toute seule
   au retour du réseau ou après une synchronisation (`imaginerEnAttente`).
@@ -264,6 +274,10 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
     chiffrage avec la surface de plafond ; gardés avec le relevé (`symboles`) ;
   - **toiture** (plat, 1, 2 ou 4 pentes, pente en degrés) sur l'étage le plus
     haut, vue en 3D dans le plan ;
+  - **« ＋ Symbole » sous le dessin** : on choisit (radiateur, prise…), puis
+    on touche l'endroit voulu ; près d'un mur (moins de 50 cm), il s'y
+    adosse, dos au mur (`poserSymboleIci`) ; **glisser le fond** déplace tout
+    le plan dans le cadre (`S.dessinPan`, « ⟲ 100 % » recentre) ;
   - **retouches sur le dessin même** : un toucher sur une cote la change
     (saisie sur place), un toucher sur le nom de la pièce sélectionnée la
     renomme ; « Position du nom » (◀ ▲ ▼ ▶, « Au centre ») décale le nom
@@ -302,6 +316,13 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   (une par pièce, par exemple) : chacune est lue, leurs pièces s'ajoutent au
   dessin, posées à côté, puis placées au doigt contre leur voisine. Un dessin
   existant : « ＋ Ajouter au dessin » ou « Remplacer le dessin », au choix.
+  Une petite pièce posée DANS une grande, contre son mur (WC dans une pièce
+  de vie qui n'est pas rectangulaire) : la grande est découpée autour
+  (`incluse`, `contourDecoupe` : forme en L ou encoche, surface diminuée
+  d'autant), ce n'est plus un chevauchement. L'IA lit le plan avec le modèle
+  « pro » (`modelesPlan`) et dit ce qui est douteux (cote raturée…) :
+  « ⚠️ À vérifier ». « Tout importer » met un plan de mezzanine, d'étage ou
+  de combles sur son propre étage.
   **Lecture enrichie** (esquisse à la main comprise, `dessinDepuisLecture`) :
   en plus des pièces, l'IA relève, seulement si c'est écrit ou dessiné, les
   portes et fenêtres sur leur côté (« 120/195 » = largeur / hauteur en cm),

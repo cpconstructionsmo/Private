@@ -82,6 +82,10 @@ Réglages facultatifs, dans les mêmes secrets :
   (100 par défaut).
 - `IMAGINER_MODELE_TEXTE` : un modèle texte de Gemini à essayer en premier
   pour l'assistant.
+- `IMAGINER_MODELE_PLAN` : le modèle qui lit les plans et les esquisses
+  (sinon `gemini-2.5-pro`, plus soigneux sur un dessin à la main, puis les
+  modèles texte habituels ; un modèle saturé ou non ouvert à la clé passe au
+  suivant tout seul).
 - `IMAGINER_MODELE` : un modèle d'image de Gemini à essayer en premier
   (sinon la liste de `regles.js`, du plus récent au plus ancien ; un modèle
   retiré par Google passe au suivant tout seul).

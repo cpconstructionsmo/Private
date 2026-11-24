@@ -58,6 +58,9 @@ let b;
 
   /* la fonction répond */
   await p.evaluate(img=>{window.__etat.fonctions={imaginer:{corps:{image:img,mime:'image/jpeg',modele:'modele-fictif',restant:29}}}},IMAGE);
+  await p.fill('.panneauImaginer textarea','Cuisine ouverte');
+  await p.tap('[data-style="Scandinave"]');
+  chk(/^Cuisine ouverte, style scandinave, bois clair/.test(await p.inputValue('.panneauImaginer textarea')),'un style en un toucher : sa description s’ajoute à la consigne, qui reste modifiable');
   await p.fill('.panneauImaginer textarea','Murs blancs, parquet chêne clair');
   await p.tap('.panneauImaginer >> text=✨ Créer l’image');
   await p.waitForSelector('.imagine img[src^="blob:"]');
@@ -66,6 +69,17 @@ let b;
   chk(await p.isVisible('.badgeImagine')&&/Murs blancs, parquet chêne clair/.test(await p.textContent('.imagine')),'l’image apparaît sous la photo, marquée « ✨ Imaginé », avec sa consigne');
   chk(await p.locator('.panneauImaginer').count()===0&&/encore 29 aujourd’hui/.test(await p.textContent('main')),'le panneau se ferme ; il reste 29 images aujourd’hui');
   chk((await p.textContent('main')).includes('1 pièce · 1 photo'),'le compteur ne compte que les vraies photos');
+  /* retoucher l'image imaginée : seule la modification change, la nouvelle image reste sous la même photo */
+  await p.evaluate(img=>{window.__etat.fonctions={imaginer:{corps:{image:img,mime:'image/jpeg',modele:'modele-fictif',restant:28}}}},IMAGE);
+  await p.tap('[data-retoucher]');
+  chk(/Retoucher l’image imaginée/.test(await p.textContent('.panneauImaginer'))&&await p.locator('.panneauImaginer [data-style]').count()===0,'« ✏️ Retoucher » : panneau de retouche (sans styles : seule la modification est décrite)');
+  await p.fill('.panneauImaginer textarea','Carrelage plus foncé');
+  await p.tap('.panneauImaginer button.gros:not(.sec)');
+  await p.waitForFunction(()=>document.querySelectorAll('.imagine img[src^="blob:"]').length===2);
+  const ret=await p.evaluate(()=>window.__etat.appels.at(-1));
+  chk(ret.body.mode==='retouche'&&ret.body.consigne==='Carrelage plus foncé','la retouche part de l’image imaginée (mode « retouche ») avec la seule modification');
+  chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const v=L[0]&&L[0].donnees;return !!v&&Object.values(v.photos).some(x=>x.role==='imagine'&&x.depuis&&x.source&&v.photos[x.depuis]&&v.photos[x.depuis].role==='imagine')}),'la retouche est rangée sous la photo d’origine, avec l’image dont elle part');
+  chk((await p.textContent('main')).includes('1 pièce · 1 photo'),'les images imaginées et retouchées ne comptent pas comme photos');
   await p.screenshot({path:SORTIE+'/releve_imaginer.png',fullPage:true});
 
   /* elle part avec la visite, liée à sa photo */
@@ -88,7 +102,8 @@ let b;
   chk(await p.evaluate(n=>window.__etat.appels.length===n,nbAppels),'sans réseau, aucun appel n’est tenté ; une demande peut être annulée');
   await p.evaluate(img=>{window.__etat.fonctions={imaginer:{corps:{image:img,mime:'image/jpeg',modele:'modele-fictif',restant:28}}}},IMAGE);
   await ctx.setOffline(false);
-  await p.waitForFunction(()=>document.querySelectorAll('.imagine img[src^="blob:"]').length===2&&!document.querySelector('.enAttenteImaginer'),null,{timeout:15000});
+  // 3 images : la première, sa retouche, puis celle créée au retour du réseau
+  await p.waitForFunction(()=>document.querySelectorAll('.imagine img[src^="blob:"]').length===3&&!document.querySelector('.enAttenteImaginer'),null,{timeout:15000});
   const app2=await p.evaluate(()=>window.__etat.appels.filter(a=>a.nom==='imaginer').slice(-1)[0]);
   chk(app2.body.consigne==='Version scandinave'&&/au retour du réseau/.test(await p.textContent('main')),'au retour du réseau, l’image est créée toute seule (une seule fois, la demande annulée n’est pas partie)');
   chk(await p.evaluate(()=>window.__etat.appels.filter(a=>a.nom==='imaginer'&&a.body.consigne==='Version scandinave').length)===1,'un seul appel pour la demande en attente');

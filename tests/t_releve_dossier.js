@@ -40,6 +40,8 @@ const {chk,fin}=verif();
   /* la vue 3D du plan : dans le dossier d'office, retirée si l'option est décochée */
   let v3=M.modifier(M.ajouterPhoto(v,{id:'v3',role:'dessin3d'}),'plan3dImage',{id:'v3',empreinte:'x'});
   chk(D.dossierClient(v3,{table:B.OUVRAGES}).vue3d.id==='v3'&&D.dossierClient(v3,{table:B.OUVRAGES,vue3d:false}).vue3d===null&&D.dossierClient(v,{table:B.OUVRAGES}).vue3d===null,'vue 3D : dans le dossier d’office, retirée si décochée, absente sans image');
+  let vr=M.modifier(M.ajouterPhoto(v,{id:'pr',role:'planRendu'}),'planRendu',{id:'pr'});
+  chk(D.dossierClient(vr,{table:B.OUVRAGES}).planRendu.id==='pr'&&D.dossierClient(vr,{table:B.OUVRAGES,planRendu:false}).planRendu===null&&D.OPTIONS_DEFAUT.planRendu===true,'plan en couleur (IA) : dans le dossier d’office, retiré si décoché');
   chk(D.OPTIONS_DEFAUT.vue3d===true&&D.OPTIONS_DEFAUT.planAnnote===false,'options par défaut : vue 3D cochée, plan annoté décoché (comme avant)');
   /* une société */
   let s=M.nouvelleVisite();s=M.modifier(s,'client.type','societe');s=M.modifier(s,'societe.raisonSociale','FICTIVE IMMO');s=M.modifier(s,'societe.forme','SCI');s=M.modifier(s,'client.nom','GÉRANT');
