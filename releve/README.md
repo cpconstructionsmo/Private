@@ -267,7 +267,9 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   - **zoom** de l'aperçu (deux doigts, molette, « 🔍 ＋ / − », « ⟲ 100 % ») ;
     sous 100 % (jusqu'à 13 %), la zone de dessin s'agrandit autour des
     pièces (`appliquerRecul`, `S.dessinRecul`) : de la place pour en poser
-    d'autres où l'on veut, disposition libre.
+    d'autres où l'on veut, disposition libre ; « 🧲 Aimant : oui / non »
+    (réglage de l'appareil, `cp-releve-aimant`) : sans aimant, une pièce reste
+    exactement où on la lâche (pas de 5 cm).
 
 - Étape Scan › **« ✏️ Dessin rapide (sans scan) »** : on pose des pièces
   rectangulaires au doigt (nom, longueur, largeur avec de gros − / +), chacune

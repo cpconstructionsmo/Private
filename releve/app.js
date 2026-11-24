@@ -1730,7 +1730,9 @@ function brancherGlisser(svg, d, R) {
     g.bouge = true; const q = pt(e), dx = q[0] - g.p0[0], dy = q[1] - g.p0[1];
     if (g.r) {
       const autres = rectsEtage(d, R, etageDessin()).filter(o => o.p.id !== g.piece).map(o => o.r);
-      const m = DR.aimanter({ x0: g.r.x0 + dx, y0: g.r.y0 + dy, x1: g.r.x1 + dx, y1: g.r.y1 + dy }, autres);
+      // aimant coupé (« 🧲 Aimant : non ») : la pièce reste où on la lâche, au pas de 5 cm
+      const m = aimantDessin() ? DR.aimanter({ x0: g.r.x0 + dx, y0: g.r.y0 + dy, x1: g.r.x1 + dx, y1: g.r.y1 + dy }, autres)
+        : { x: Math.round((g.r.x0 + dx) * 20) / 20, y: Math.round((g.r.y0 + dy) * 20) / 20 };
       g.depl = [m.x - g.r.x0, m.y - g.r.y0];
       g.el.setAttribute('transform', 'translate(' + g.depl[0] + ' ' + g.depl[1] + ')');
     } else if (g.s) {
@@ -1757,6 +1759,19 @@ function brancherGlisser(svg, d, R) {
    (le viewBox s'agrandit d'un facteur « recul », jusqu'à 8 fois) ; on peut ainsi poser et glisser
    d'autres pièces loin des premières. Le niveau affiché = zoom / recul. */
 const RECUL_MAX = 8;
+/* l'aimant des pièces : un réglage de l'appareil (pas de la visite), activé d'office */
+const CLE_AIMANT = 'cp-releve-aimant';
+function aimantDessin() {
+  if (S.aimant == null) { try { S.aimant = localStorage.getItem(CLE_AIMANT) !== 'non'; } catch (e) { S.aimant = true; } }
+  return S.aimant;
+}
+function boutonAimant() {
+  const b = h('button', { class: 'puce', type: 'button', id: 'aimantDessin' });
+  const maj = () => { b.textContent = '🧲 Aimant : ' + (aimantDessin() ? 'oui' : 'non'); b.classList.toggle('on', aimantDessin()); b.setAttribute('aria-pressed', String(aimantDessin()));
+    b.title = aimantDessin() ? 'Une pièce lâchée près du mur d’une autre vient s’y coller' : 'Les pièces restent exactement où on les lâche'; };
+  b.onclick = () => { S.aimant = !aimantDessin(); try { localStorage.setItem(CLE_AIMANT, S.aimant ? 'oui' : 'non'); } catch (e) { /* réglage gardé pour la session seulement */ } maj(); };
+  maj(); return b;
+}
 function appliquerRecul(svg, r) {
   const b = (svg.dataset.base || '').split(' ').map(Number); if (b.length !== 4 || b.some(x => !isFinite(x))) return;
   const w = b[2] * r, hh = b[3] * r;
@@ -1793,7 +1808,7 @@ function cadreZoomDessin(svg) {
   const bouton = (id, texte, f) => h('button', { class: 'puce', type: 'button', id, onclick: () => { f(); appliquer(); } }, texte);
   return [cadre, h('div', { class: 'puces zoomDessin' },
     bouton('zoomDessinPlus', '🔍 ＋', () => facteur(1.5)), bouton('zoomDessinMoins', '🔍 −', () => facteur(1 / 1.5)),
-    bouton('zoomDessinRaz', '⟲ 100 %', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; }), niveau,
+    bouton('zoomDessinRaz', '⟲ 100 %', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; }), niveau, boutonAimant(),
     h('span', { class: 'mut petit' }, 'Deux doigts ou « − » pour dézoomer et faire de la place autour.'))];
 }
 const r3l = v => Math.round(v * 100) / 100;
