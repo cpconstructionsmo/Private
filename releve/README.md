@@ -264,7 +264,10 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
     chiffrage avec la surface de plafond ; gardés avec le relevé (`symboles`) ;
   - **toiture** (plat, 1, 2 ou 4 pentes, pente en degrés) sur l'étage le plus
     haut, vue en 3D dans le plan ;
-  - **zoom** de l'aperçu (deux doigts, « 🔍 ＋ / − », « ⟲ 100 % »).
+  - **zoom** de l'aperçu (deux doigts, molette, « 🔍 ＋ / − », « ⟲ 100 % ») ;
+    sous 100 % (jusqu'à 13 %), la zone de dessin s'agrandit autour des
+    pièces (`appliquerRecul`, `S.dessinRecul`) : de la place pour en poser
+    d'autres où l'on veut, disposition libre.
 
 - Étape Scan › **« ✏️ Dessin rapide (sans scan) »** : on pose des pièces
   rectangulaires au doigt (nom, longueur, largeur avec de gros − / +), chacune

@@ -1679,6 +1679,9 @@ function apercuDessin(d, R, opts = {}) {
   // cadrage commun à tous les étages : l'aperçu ne saute pas d'un étage à l'autre
   const x0 = Math.min(...tous.map(r => r.x0)) - 1.5, y0 = Math.min(...tous.map(r => r.y0)) - 1.5, x1 = Math.max(...tous.map(r => r.x1)) + 1.5, y1 = Math.max(...tous.map(r => r.y1)) + 1.5;
   svg.setAttribute('viewBox', [x0, y0, x1 - x0, y1 - y0].join(' '));
+  // cadrage de base gardé sur le SVG : le dézoom (« recul ») l'agrandit autour de son centre, sans redessiner
+  svg.dataset.base = [x0, y0, x1 - x0, y1 - y0].join(' ');
+  if (!opts.exporter) appliquerRecul(svg, S.dessinRecul || 1);
   const t = Math.max(0.25, Math.min(0.45, (x1 - x0) / 22));
   dessous.forEach(({ r }) => svg.append(el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, fill: 'none', stroke: '#9AA4B2', 'stroke-width': 0.05, 'stroke-dasharray': '0.2 0.15' })));
   rs.forEach(({ p, r }) => {
@@ -1750,25 +1753,48 @@ function brancherGlisser(svg, d, R) {
   svg.addEventListener('pointercancel', () => { g = null; redessiner(); });
 }
 /* le cadre de l'aperçu : zoom par pincement (deux doigts) ou par boutons */
+/* dézoomer au-delà de 100 % : le cadre ne rapetisse pas le dessin, il montre plus de place autour
+   (le viewBox s'agrandit d'un facteur « recul », jusqu'à 8 fois) ; on peut ainsi poser et glisser
+   d'autres pièces loin des premières. Le niveau affiché = zoom / recul. */
+const RECUL_MAX = 8;
+function appliquerRecul(svg, r) {
+  const b = (svg.dataset.base || '').split(' ').map(Number); if (b.length !== 4 || b.some(x => !isFinite(x))) return;
+  const w = b[2] * r, hh = b[3] * r;
+  svg.setAttribute('viewBox', [b[0] + b[2] / 2 - w / 2, b[1] + b[3] / 2 - hh / 2, w, hh].join(' '));
+}
 function cadreZoomDessin(svg) {
   const cadre = h('div', { class: 'cadreZoomDessin' }, svg);
-  let z = S.dessinZoom || { s: 1, x: 0, y: 0 };
-  const appliquer = () => { const r = cadre.getBoundingClientRect(); z = cadrerZoom(z, r.width || 1, r.height || 1); S.dessinZoom = z; svg.style.transform = 'translate(' + z.x + 'px,' + z.y + 'px) scale(' + z.s + ')'; cadre.dataset.zoom = z.s.toFixed(2); };
+  let z = S.dessinZoom || { s: 1, x: 0, y: 0 }, recul = S.dessinRecul || 1;
+  const niveau = h('span', { class: 'mut petit', id: 'niveauZoomDessin' });
+  const appliquer = () => { const r = cadre.getBoundingClientRect(); z = cadrerZoom(z, r.width || 1, r.height || 1); S.dessinZoom = z; S.dessinRecul = recul;
+    svg.style.transform = 'translate(' + z.x + 'px,' + z.y + 'px) scale(' + z.s + ')'; appliquerRecul(svg, recul);
+    cadre.dataset.zoom = (z.s / recul).toFixed(2); niveau.textContent = Math.round(z.s / recul * 100) + ' %'; };
+  /* un facteur de zoom : d'abord le recul (si on a dézoomé au-delà de 100 %), puis le zoom habituel */
+  const facteur = (f, px = 0, py = 0) => {
+    if (f < 1 && z.s <= 1.0001) { recul = Math.min(RECUL_MAX, recul / f); z = { s: 1, x: 0, y: 0 }; return; }
+    if (f > 1 && recul > 1) { recul = Math.max(1, recul / f); return; }
+    z = zoomerToile(z, f, px, py);
+  };
   const centre = e => { const r = cadre.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
   const doigts = new Map(); let pince = null;
   cadre.addEventListener('pointerdown', e => { doigts.set(e.pointerId, centre(e));
-    if (doigts.size === 2) { const P = [...doigts.values()]; pince = { z: { ...z }, d: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) || 1, m: [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] }; S.pinceDessin = true; } }, true);
+    if (doigts.size === 2) { const P = [...doigts.values()]; pince = { z: { ...z }, recul, d: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) || 1, m: [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] }; S.pinceDessin = true; } }, true);
   cadre.addEventListener('pointermove', e => { if (!doigts.has(e.pointerId)) return; doigts.set(e.pointerId, centre(e));
     if (pince && doigts.size >= 2) { const P = [...doigts.values()], dd = Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]), m = [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2];
-      const n = zoomerToile(pince.z, dd / pince.d, pince.m[0], pince.m[1]); z = { s: n.s, x: n.x + m[0] - pince.m[0], y: n.y + m[1] - pince.m[1] }; appliquer(); } }, true);
+      // le pincement agit sur le niveau (zoom / recul) : sous 100 %, il recule ; au-dessus, il zoome
+      const L = Math.max(1 / RECUL_MAX, pince.z.s / pince.recul * dd / pince.d);
+      if (L < 1) { recul = 1 / L; z = { s: 1, x: 0, y: 0 }; }
+      else { recul = 1; const n = zoomerToile(pince.recul > 1 ? { s: 1, x: 0, y: 0 } : pince.z, L / (pince.recul > 1 ? 1 : pince.z.s), pince.m[0], pince.m[1]); z = { s: n.s, x: n.x + m[0] - pince.m[0], y: n.y + m[1] - pince.m[1] }; }
+      appliquer(); } }, true);
   const lacher = e => { doigts.delete(e.pointerId); if (doigts.size < 2) pince = null; if (!doigts.size) setTimeout(() => { S.pinceDessin = false; }, 0); };
   cadre.addEventListener('pointerup', lacher, true); cadre.addEventListener('pointercancel', lacher, true);
-  cadre.addEventListener('wheel', e => { e.preventDefault(); const c = centre(e); z = zoomerToile(z, e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquer(); }, { passive: false });
+  cadre.addEventListener('wheel', e => { e.preventDefault(); const c = centre(e); facteur(e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquer(); }, { passive: false });
   requestAnimationFrame(appliquer);
   const bouton = (id, texte, f) => h('button', { class: 'puce', type: 'button', id, onclick: () => { f(); appliquer(); } }, texte);
   return [cadre, h('div', { class: 'puces zoomDessin' },
-    bouton('zoomDessinPlus', '🔍 ＋', () => { z = zoomerToile(z, 1.5); }), bouton('zoomDessinMoins', '🔍 −', () => { z = zoomerToile(z, 1 / 1.5); }),
-    bouton('zoomDessinRaz', '⟲ 100 %', () => { z = { s: 1, x: 0, y: 0 }; }), h('span', { class: 'mut petit' }, 'Deux doigts pour zoomer.'))];
+    bouton('zoomDessinPlus', '🔍 ＋', () => facteur(1.5)), bouton('zoomDessinMoins', '🔍 −', () => facteur(1 / 1.5)),
+    bouton('zoomDessinRaz', '⟲ 100 %', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; }), niveau,
+    h('span', { class: 'mut petit' }, 'Deux doigts ou « − » pour dézoomer et faire de la place autour.'))];
 }
 const r3l = v => Math.round(v * 100) / 100;
 
