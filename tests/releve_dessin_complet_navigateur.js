@@ -85,6 +85,18 @@ let b;
   chk(d.toiture.angle===35,'toiture 2 pentes (35° par défaut)');
   await p.tap('#zoomDessinPlus');
   chk(await p.getAttribute('.cadreZoomDessin','data-zoom')==='1.50','« 🔍 ＋ » zoome l’aperçu');
+  /* dézoomer au-delà de 100 % : plus de place autour des pièces, le dessin n'est pas rapetissé dans un coin */
+  await p.tap('#zoomDessinRaz');
+  const vb0=(await p.getAttribute('svg.apercuDessin','viewBox')).split(' ').map(Number);
+  await p.tap('#zoomDessinMoins');await p.tap('#zoomDessinMoins');await p.tap('#zoomDessinMoins');
+  const vb1=(await p.getAttribute('svg.apercuDessin','viewBox')).split(' ').map(Number);
+  chk(await p.getAttribute('.cadreZoomDessin','data-zoom')==='0.30'&&Math.abs(vb1[2]/vb0[2]-3.375)<0.01&&(await p.textContent('#niveauZoomDessin'))==='30 %','« 🔍 − » sous 100 % : la zone de dessin s’agrandit autour des pièces (30 %, 3,4 fois plus de place)');
+  await p.tap('[data-toiture="2pentes"]');await p.waitForTimeout(300);
+  chk((await p.getAttribute('.cadreZoomDessin','data-zoom'))==='0.30'&&(await p.textContent('#niveauZoomDessin'))==='30 %','l’écran redessiné garde le dézoom (on continue de poser)');
+  for(let i=0;i<8;i++)await p.tap('#zoomDessinMoins');
+  chk((await p.textContent('#niveauZoomDessin'))==='13 %','dézoom borné (13 % : 8 fois la place)');
+  await p.tap('#zoomDessinRaz');
+  chk((await p.textContent('#niveauZoomDessin'))==='100 %','« ⟲ 100 % » revient au cadrage normal');
   await p.screenshot({path:SORTIE+'/releve_dessin_complet.png',fullPage:true});
   /* le plan : le moteur reçoit tout et l'accepte */
   await p.tap('#creerPlanDessin');
