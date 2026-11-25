@@ -80,6 +80,25 @@ const {chk,fin}=verif();
   chk(iph2.etats.at(-1).etat==='horsligne','coupure en pleine passe : vue comme « hors ligne »');
   serveur.panne=null;
 
+  /* un fichier trop gros pour le serveur ne bloque ni les autres fichiers ni les visites */
+  serveur.tailleMax=5000;
+  const gros=appareil();const vg=M.nouvelleVisite(horloge(),'vis-g');await gros.stock.creer(vg);
+  await gros.stock.modifier('vis-g',x=>M.modifier(x,'client.nom','Gros fichier',horloge()));
+  await gros.stock.garderFichier('sc-g','vis-g',{size:9000},{chemin:'vis-g/scan-sc-g.json',type:'application/json'});
+  await gros.stock.modifier('vis-g',x=>M.modifier(x,'scan.fichier',{id:'sc-g',nom:'maison.json',taille:9000},horloge()));
+  await gros.stock.garderPhoto('ph-p','vis-g',{size:1200});
+  await gros.stock.modifier('vis-g',x=>M.ajouterPhoto(x,{id:'ph-p',role:'garde'},horloge()));
+  await gros.sync.synchroniser();
+  const eg=gros.etats.at(-1);
+  chk(serveur.lignes['vis-g']&&serveur.lignes['vis-g'].donnees.valeurs['client.nom']==='Gros fichier','fichier trop gros : la visite part quand même');
+  chk(serveur.fichiers['releves/vis-g/ph-p.jpg']===1200,'fichier trop gros : les autres photos partent');
+  chk(eg.etat==='partiel'&&/maison\.json/.test(eg.message)&&/trop gros/.test(eg.message),'fichier trop gros : le message nomme le fichier');
+  const ec=serveur.ecritures;await gros.sync.synchroniser();
+  chk(serveur.ecritures===ec,'fichier trop gros : il n’est pas retenté à chaque passe');
+  serveur.tailleMax=20000;await gros.sync.synchroniser(true);
+  chk(gros.etats.at(-1).etat==='ok'&&serveur.fichiers['releves/vis-g/scan-sc-g.json']===9000,'limite relevée puis « réessayer » : le fichier part');
+  serveur.tailleMax=0;
+
   chk(lireErreur({message:'JWT expired'}).type==='connexion','une session expirée demande de se reconnecter');
   chk(lireErreur({message:'TypeError: Load failed'}).type==='reseau','« Load failed » (Safari) est une coupure de réseau');
   fin();

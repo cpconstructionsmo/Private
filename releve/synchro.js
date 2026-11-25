@@ -43,6 +43,9 @@ export function lireErreur(e) {
   return { type: 'autre', message: 'Envoi impossible pour l’instant (' + (msg || code || 'erreur inconnue').slice(0, 120) + '). Tout reste enregistré sur l’appareil.' };
 }
 
+/* le stockage de fichiers refuse un objet trop gros (limite du serveur, 50 Mo par défaut) */
+export const estTropGros = e => !!e && (/exceeded the maximum allowed size|payload too large|entity too large/i.test(String(e.message || e.error || '')) || String(e.statusCode || e.status || '') === '413');
+
 export function creerSynchro({ supa, stock, enLigne = () => true, surEtat = () => {}, maintenant = () => new Date().toISOString() }) {
   let enCours = null, relancer = false;
 
@@ -50,6 +53,8 @@ export function creerSynchro({ supa, stock, enLigne = () => true, surEtat = () =
     for (const p of await stock.photosAEnvoyer()) {
       const chemin = p.chemin || cheminPhoto(p.visiteId, p.id);
       const { error } = await supa.storage.from(ESPACE).upload(chemin, p.blob, { contentType: p.type || 'image/jpeg', upsert: true });
+      // un fichier trop gros ne doit pas bloquer les autres ni les visites : il reste sur l'appareil, signalé
+      if (error && estTropGros(error)) { await stock.marquerPhotoRefusee(p.id, 'taille'); continue; }
       if (error) throw error;
       await stock.marquerPhotoEnvoyee(p.id);
       // le chemin entre dans la visite comme une modification : il partira avec elle
@@ -93,15 +98,34 @@ export function creerSynchro({ supa, stock, enLigne = () => true, surEtat = () =
     for (const ligne of data || []) await stock.recevoir(ligne.donnees);
   }
 
-  async function passe() {
+  /* les fichiers que le serveur a refusés, avec leur nom et leur taille, pour le dire en clair */
+  async function fichiersRefuses() {
+    const liste = [];
+    for (const p of await stock.photosRefusees()) {
+      const rec = await stock.lire(p.visiteId).catch(() => null), v = rec && rec.visite;
+      const scan = v && v.valeurs && v.valeurs['scan.fichier'];
+      const nom = scan && scan.id === p.id ? scan.nom : (v && v.photos && v.photos[p.id] && v.photos[p.id].legende) || 'une photo';
+      liste.push({ id: p.id, visiteId: p.visiteId, nom, taille: p.blob && p.blob.size || 0 });
+    }
+    return liste;
+  }
+  const mo = t => t ? ' (' + (t / 1048576 >= 10 ? Math.round(t / 1048576) : Math.round(t / 104857.6) / 10).toString().replace('.', ',') + ' Mo)' : '';
+  const texteRefus = refus => (refus.length > 1 ? refus.length + ' fichiers sont trop gros' : 'Un fichier est trop gros') + ' pour le serveur : '
+    + refus.slice(0, 3).map(r => '« ' + r.nom + ' »' + mo(r.taille)).join(', ') + (refus.length > 3 ? '…' : '')
+    + '. ' + (refus.length > 1 ? 'Ils restent' : 'Il reste') + ' sur cet appareil ; tout le reste est envoyé.';
+
+  async function passe(reessayer = false) {
     if (!enLigne()) { surEtat({ etat: 'horsligne', enAttente: await stock.nombreEnAttente(), message: lireErreur({ code: 'hors_ligne' }).message }); return; }
     surEtat({ etat: 'synchro', enAttente: await stock.nombreEnAttente() });
     try {
+      if (reessayer) await stock.reessayerRefusees();
       await envoyerPhotos();
       for (const id of await stock.idsEnAttente()) await envoyerVisite(id);
       await tirer();
       const n = await stock.nombreEnAttente();
-      surEtat({ etat: n ? 'attente' : 'ok', enAttente: n });
+      const refus = await fichiersRefuses();
+      if (refus.length) surEtat({ etat: 'partiel', enAttente: n, refuses: refus, message: texteRefus(refus) });
+      else surEtat({ etat: n ? 'attente' : 'ok', enAttente: n });
     } catch (e) {
       const err = lireErreur(e);
       surEtat({ etat: err.type === 'reseau' ? 'horsligne' : 'erreur', type: err.type, enAttente: await stock.nombreEnAttente(), message: err.message });
@@ -110,10 +134,10 @@ export function creerSynchro({ supa, stock, enLigne = () => true, surEtat = () =
 
   /* une seule passe à la fois ; une demande pendant une passe en relance une
      après, pour que la dernière saisie parte aussi */
-  async function synchroniser() {
+  async function synchroniser(reessayer = false) {
     if (enCours) { relancer = true; return enCours; }
     enCours = (async () => {
-      do { relancer = false; await passe(); } while (relancer);
+      do { relancer = false; await passe(reessayer); reessayer = false; } while (relancer);
     })();
     try { await enCours; } finally { enCours = null; }
   }

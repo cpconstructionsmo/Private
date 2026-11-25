@@ -72,6 +72,7 @@ function fauxSupabase(etat) {
     storage: { from: espace => ({
       upload: async (chemin, blob) => {
         const e = panne(); if (e && e.message === 'Failed to fetch') return { data: null, error: e };
+        if (etat.tailleMax && blob && blob.size > etat.tailleMax) return { data: null, error: { message: 'The object exceeded the maximum allowed size', statusCode: '413' } };
         etat.fichiers[espace + '/' + chemin] = blob && blob.size !== undefined ? blob.size : true;
         return { data: { path: chemin }, error: null };
       },

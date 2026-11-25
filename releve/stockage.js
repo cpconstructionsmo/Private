@@ -55,7 +55,7 @@ export function creerStockage(magasin) {
     idsEnAttente: async () => (await magasin.tout('visites')).filter(r => r.enAttente).map(r => r.id),
     nombreEnAttente: async () => {
       const v = (await magasin.tout('visites')).filter(r => r.enAttente).length;
-      const p = (await magasin.tout('photos')).filter(r => !r.envoyee).length;
+      const p = (await magasin.tout('photos')).filter(r => !r.envoyee && !r.refusee).length;
       return v + p;
     },
 
@@ -66,7 +66,16 @@ export function creerStockage(magasin) {
     garderFichier: (id, visiteId, blob, { chemin, type }) =>
       enSerie(() => magasin.ecrire('photos', { id, visiteId, blob, envoyee: false, chemin, type })),
     lirePhoto: async id => { const r = await magasin.lire('photos', id); return r ? r.blob : null; },
-    photosAEnvoyer: async () => (await magasin.tout('photos')).filter(r => !r.envoyee),
+    // un fichier refusé par le serveur (trop gros) reste sur l'appareil et n'est plus retenté à chaque passe
+    photosAEnvoyer: async () => (await magasin.tout('photos')).filter(r => !r.envoyee && !r.refusee),
+    photosRefusees: async () => (await magasin.tout('photos')).filter(r => !r.envoyee && r.refusee),
+    marquerPhotoRefusee: (id, motif) => enSerie(async () => {
+      const r = await magasin.lire('photos', id); if (r) await magasin.ecrire('photos', { ...r, refusee: motif });
+    }),
+    // à la demande de l'utilisateur (limite du serveur relevée, fichier réduit…) : on réessaie les fichiers refusés
+    reessayerRefusees: () => enSerie(async () => {
+      for (const r of await magasin.tout('photos')) if (r.refusee) { const { refusee, ...reste } = r; await magasin.ecrire('photos', reste); }
+    }),
     marquerPhotoEnvoyee: id => enSerie(async () => {
       const r = await magasin.lire('photos', id); if (r) await magasin.ecrire('photos', { ...r, envoyee: true });
     }),
