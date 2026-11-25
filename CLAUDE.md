@@ -235,6 +235,17 @@ qu'on ait à les redire.
   fichiers signés repris du Drive tels quels, avec les plans d'exécution
   cochés d'office (`PIECES_MAIL_SIGNE`) ; la date est gardée
   (`mailSigneLe`). Tests : `t_marche_signe_mail.js`.
+- **Chiffrage perdu d'un lot** (fiche du lot › « CHIFFRAGE PERDU ? »,
+  `LotVersionsSauvegardees`) : les états passés de ce lot, lus dans les
+  versions de l'appareil (IndexedDB, 14 jours) puis, à la demande, dans les
+  sauvegardes du Drive (`sauvegardesDrive`, 30 jours), sans doublon ni
+  l'état actuel (`lotVersions`, `lotEmpreinte`). « Reprendre ce chiffrage »
+  (`reprendreChiffrageLot`) ne ramène que le chiffrage
+  (`LOT_CHAMPS_CHIFFRAGE`) et le marché rédigé si le lot n'en porte plus,
+  dans le formulaire : rien n'est enregistré avant « Enregistrer » ; jamais
+  « Restaurer » toutes les données pour un lot. « Retirer » le quantitatif
+  demande confirmation dès qu'une quantité est saisie. Tests :
+  `t_lot_versions.js`, `lot_versions_navigateur.js`.
 - **PV de réception** (Marchés › lot › « PV DE RÉCEPTION », `PvReception`) :
   le modèle CP d'une page (`pvReceptionDocumentXml`,
   `genererPvReceptionDocx`), rempli d'office (`pvDonnees` : maître

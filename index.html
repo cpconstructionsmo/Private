@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-25 · Devis PDF d’un fournisseur repris dans la commande : produits au bordereau, quantités et montant';
+const VERSION='2026-11-25 · Lot : retrouver un chiffrage perdu dans les versions sauvegardées ; « Retirer » le quantitatif demande confirmation';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -12124,7 +12124,14 @@ function Quantitatif({data,f,setF,save,champ,plan}){
   const ordonner=(de,vers)=>setF(p=>recale(p,deplacer(p.quantitatif.lignes,de,vers)));
   /* sur un lot, un prix de base gardé d'avant le quantitatif ne vaut plus :
      le prix de l'artisan se déduira du montant restant */
-  const retirer=()=>setF(p=>({...p,quantitatif:undefined,...(champMontant==='montantHT'?{prixBase:undefined}:{})}));
+  /* le bouton est voisin de « Replier » : un clic de travers effaçait tout
+     le chiffrage. Dès qu'une quantité est saisie, on demande. */
+  const retirer=()=>{
+    const L=(f&&f.quantitatif&&f.quantitatif.lignes)||[], n=L.filter(l=>ligneQt(l)!==0).length;
+    if(n&&!confirm('Retirer tout le quantitatif ? Les '+n+' article(s) servi(s) et leurs quantités ('
+      +eurc(quantitatifNet(L,remisePct(f)))+' HT) seront effacés du formulaire.\n\nRien n’est enregistré avant « Enregistrer » : « Annuler » le formulaire les garde.'))return;
+    setF(p=>({...p,quantitatif:undefined,...(champMontant==='montantHT'?{prixBase:undefined}:{})}));
+  };
   /* un second corps d'état sur le même marché : plutôt qu'un marché par lot,
      ce qui multiplie les contrats à faire signer pour une même entreprise,
      on ajoute les articles d'un autre bordereau à la suite, sous un intertitre
@@ -12669,6 +12676,116 @@ function PvReception({data,ch,m,save}){
     {signer&&<SignaturePad titre={'PV de réception — '+(m.lot||'lot')+' — '+signer.l+' — '+ch.nom} qualiteDefaut={signer.qualite}
       onAnnuler={()=>setSigner(null)} onSigner={v=>enregistrerSignature(signer.id,v)}/>}
   </div>;
+}
+
+/* ---------- retrouver le chiffrage d'un lot dans une version sauvegardée ----------
+   Un chiffrage de lot perdu (quantitatif retiré d'un clic, saisie plus
+   ancienne enregistrée par-dessus depuis un autre appareil…) existe encore
+   dans les versions sauvegardées : celles de l'appareil (14 jours) et les
+   copies du Drive (30 jours). « Restaurer » une version entière effacerait
+   tout ce qui a été fait depuis, sur tous les dossiers : ici, seul le
+   chiffrage de ce lot revient, dans le formulaire ouvert, et rien n'est
+   enregistré avant « Enregistrer ». Le marché Word rédigé alors revient
+   aussi, si le lot n'en porte plus. */
+const LOT_CHAMPS_CHIFFRAGE=['montantHT','quantitatif','remisePct','retroPct','retroPctApplique','prixBase'];
+const LOT_CHAMPS_MARCHE=['contratLien','exemplaires','contratRedige','numeroMarche'];
+const lotResume=m=>{
+  const L=(m&&m.quantitatif&&m.quantitatif.lignes)||[];
+  return {montant:+(m&&m.montantHT)||0,servis:L.filter(l=>ligneQt(l)!==0).length,lignes:L.length,contrat:!!(m&&m.contratLien)};
+};
+const lotEmpreinte=m=>JSON.stringify([centimes(m&&m.montantHT),
+  ((m&&m.quantitatif&&m.quantitatif.lignes)||[]).map(l=>[l.ref||l.libelle||'',+l.qt||0,+l.pu||0]),(m&&m.contratLien)||'']);
+/* les états de ce lot dans les versions, du plus récent au plus ancien, sans
+   doublon ni celui d'aujourd'hui */
+function lotVersions(sources,marcheId,actuel){
+  const vus=new Set([lotEmpreinte(actuel)]), out=[];
+  for(const s of (sources||[]).slice().sort((a,b)=>(b.le||'').localeCompare(a.le||''))){
+    const m=((s.data&&s.data.marches)||[]).find(x=>x.id===marcheId);
+    if(!m)continue;
+    const e=lotEmpreinte(m);
+    if(vus.has(e))continue;
+    vus.add(e);
+    out.push({le:s.le,origine:s.origine,m,resume:lotResume(m)});
+  }
+  return out;
+}
+const reprendreChiffrageLot=(f,old)=>{
+  const r={...f};
+  for(const k of LOT_CHAMPS_CHIFFRAGE)r[k]=old[k]===undefined?undefined:JSON.parse(JSON.stringify(old[k]));
+  if(!f.contratLien&&old.contratLien)for(const k of LOT_CHAMPS_MARCHE)if(old[k]!==undefined)r[k]=JSON.parse(JSON.stringify(old[k]));
+  return r;
+};
+/* les copies quotidiennes du Drive (CRM CP › Sauvegardes), lues une à une :
+   l'application les a déposées elle-même, elle peut les relire */
+async function sauvegardesDrive(token,progres){
+  const dossier=await driveFindOrCreateSubfolder(token,await driveFolder(token),'Sauvegardes');
+  const q=encodeURIComponent("'"+dossier+"' in parents and name contains 'CP-sauvegarde-' and trashed=false");
+  const r=await fetch('https://www.googleapis.com/drive/v3/files?orderBy=name%20desc&pageSize='+SAUVEGARDES_DRIVE+'&fields=files(id,name,createdTime)&q='+q,
+    {headers:{Authorization:'Bearer '+token}});
+  if(!r.ok)throw await driveErreur(r,'Liste des sauvegardes du Drive impossible');
+  const F=((await r.json()).files)||[];
+  const out=[];let fait=0;
+  for(const x of F){
+    try{
+      const d=JSON.parse(new TextDecoder().decode(await driveFichierBytes(token,x.id)));
+      const jour=(String(x.name).match(/\d{4}-\d{2}-\d{2}/)||[])[0];
+      out.push({le:x.createdTime||(jour?jour+'T12:00:00':''),origine:'Drive',data:{marches:d.marches||[]}});
+    }catch(e){if(e&&e.error==='auth_required')throw e}
+    if(progres)progres(++fait,F.length);
+  }
+  return out;
+}
+function LotVersionsSauvegardees({f,setF}){
+  const [etat,setEtat]=useState(null);
+  const [repris,setRepris]=useState('');
+  if(!f||!f.id)return null;
+  const chercherAppareil=async()=>{
+    setEtat({etat:'lecture'});
+    try{
+      const V=await versionsListe();
+      const sources=V.map(v=>({le:v.le,origine:'cet appareil',data:v.data}));
+      setEtat({etat:'ok',sources,liste:lotVersions(sources,f.id,f)});
+    }catch(e){setEtat({etat:'ok',sources:[],liste:[],sansAppareil:true})}
+  };
+  const chercherDrive=async()=>{
+    const avant=(etat&&etat.sources)||[];
+    setEtat(p=>({...(p||{}),etat:'drive',fait:0,n:0}));
+    try{
+      const token=await getDriveToken();
+      const D=await sauvegardesDrive(token,(fait,n)=>setEtat(p=>({...p,fait,n})));
+      const sources=[...avant,...D];
+      setEtat({etat:'ok',sources,liste:lotVersions(sources,f.id,f),drive:true});
+    }catch(e){setEtat(p=>({...(p||{}),etat:'ok',erreurDrive:e&&e.error==='auth_required'
+      ?'Google Drive n’est pas connecté : connectez-le, puis recommencez.':'Sauvegardes du Drive illisibles — '+((e&&(e.error||e.message))||e)}))}
+  };
+  const reprendre=x=>{
+    const a=lotResume(f), b=x.resume;
+    if(!confirm('Reprendre le chiffrage de ce lot tel qu’il était le '+new Date(x.le).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'})
+      +' : '+eurc(b.montant)+' HT, '+b.servis+' article(s) servi(s)'+(b.contrat&&!f.contratLien?', avec son marché rédigé':'')
+      +' — au lieu de '+eurc(a.montant)+' HT, '+a.servis+' article(s) aujourd’hui ?\n\nIl revient dans ce formulaire : rien n’est enregistré avant « Enregistrer ». Le reste du lot (artisan, statut, factures, PV) ne change pas.'))return;
+    setF(p=>reprendreChiffrageLot(p,x.m));
+    setRepris(x.le);
+  };
+  const quand=le=>le?new Date(le).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'}):'date inconnue';
+  return <Fld label="CHIFFRAGE PERDU ?">
+    {!etat&&<div className="xs" style={{lineHeight:1.5}}>
+      <span className="mut">Retrouvez ce lot tel qu’il était dans les versions sauvegardées (14 jours sur cet appareil, 30 jours sur le Drive) :
+        seul son chiffrage revient, sans toucher au reste des données. </span>
+      <button className="btn gh s" onClick={chercherAppareil}>Retrouver un chiffrage précédent de ce lot</button></div>}
+    {etat&&etat.etat==='lecture'&&<div className="xs mut">Lecture des versions de cet appareil…</div>}
+    {etat&&etat.etat==='drive'&&<div className="xs mut">Lecture des sauvegardes du Drive… {etat.n?'('+etat.fait+'/'+etat.n+')':''}</div>}
+    {etat&&etat.etat==='ok'&&<div className="xs" style={{lineHeight:1.5}}>
+      {repris&&<div style={{color:GREEN,marginBottom:6}}>✓ Chiffrage du {quand(repris)} repris dans le formulaire : vérifiez-le, puis <b>Enregistrer</b>.</div>}
+      {etat.sansAppareil&&<div className="mut">Ce navigateur ne garde pas de versions (navigation privée ?).</div>}
+      {!etat.liste.length&&<div className="mut">Aucun autre état de ce lot {etat.drive?'dans les versions de cet appareil ni dans les sauvegardes du Drive':'dans les versions de cet appareil'}.</div>}
+      {etat.liste.map((x,i)=><div key={i} className="row" style={{gap:8,alignItems:'center',flexWrap:'wrap',borderTop:'1px solid '+RULE,padding:'5px 0'}}>
+        <span style={{flex:'1 1 220px'}}><b>{quand(x.le)}</b> <span className="mut">({x.origine})</span> — {eurc(x.resume.montant)} HT,
+          {' '}{x.resume.servis} article{x.resume.servis>1?'s':''} servi{x.resume.servis>1?'s':''}{x.resume.contrat?', marché rédigé':''}</span>
+        <button className="btn gh s" onClick={()=>reprendre(x)}>Reprendre ce chiffrage</button></div>)}
+      {etat.erreurDrive&&<div style={{color:TERRA,marginTop:4}}>{etat.erreurDrive}</div>}
+      {!etat.drive&&<button className="btn gh s" style={{marginTop:6}} onClick={chercherDrive}>Chercher aussi dans les sauvegardes du Drive (30 jours)</button>}
+    </div>}
+  </Fld>;
 }
 
 function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
@@ -13292,6 +13409,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           </div>
         </Fld>})()}
       <Quantitatif data={data} f={f} setF={setF} save={save}/>
+      <LotVersionsSauvegardees f={f} setF={setF}/>
       <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{STATUTS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
       <Fld label="DATE DE SIGNATURE"><input className="in" type="date" value={f.dateSignature} onChange={e=>setF({...f,dateSignature:e.target.value})}/></Fld>
       <Fld label="CONTRAT DE MARCHÉ (PDF)">
