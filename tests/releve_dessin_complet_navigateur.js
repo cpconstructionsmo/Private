@@ -147,6 +147,16 @@ let b;
   await p.tap('#ajouterPieceDessin');
   d=await attendreDessin(d=>d.pieces.length===3);
   chk(d.pieces[2].etage===1&&d.etages[1]==='Étage 1'&&await p.locator('[data-dessin]').count()===1,'« ＋ Étage » : la nouvelle pièce est à l’étage ; seules ses pièces se listent');
+  /* une zone de dessin plus grande, et le plein écran */
+  const hD=await p.evaluate(()=>document.querySelector('svg.apercuDessin').getBoundingClientRect().height);
+  chk(hD>=300,'zone du dessin assez grande sur iPhone ('+Math.round(hD)+' px de haut)');
+  await p.tap('#pleinEcranDessin');
+  await p.waitForSelector('#carteDessin.dessinPlein');
+  const hP=await p.evaluate(()=>document.querySelector('svg.apercuDessin').getBoundingClientRect().height);
+  chk(hP>hD+100&&/Réduire/.test(await p.textContent('#pleinEcranDessin')),'« ⛶ Plein écran » : le dessin prend toute la fenêtre ('+Math.round(hP)+' px)');
+  await p.tap('#pleinEcranDessin');
+  await p.waitForFunction(()=>!document.querySelector('#carteDessin.dessinPlein'));
+  chk(true,'« ✕ Réduire » revient à l’écran normal');
   /* toiture et zoom */
   await p.tap('[data-toiture="2pentes"]');
   d=await attendreDessin(d=>d.toiture&&d.toiture.type==='2pentes');
