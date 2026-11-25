@@ -52,7 +52,9 @@ const devis1=[
 const A=M.analyseDevisFournisseur(devis1);
 chk(A.length===4,'quatre rangées lues (le total du devis n\'en est pas une) : '+A.length);
 chk(A.every(a=>a.code===''),'le repère A, B… ne sert pas de code');
-chk(A[0].pu===500&&A[2].pu===1900&&A[3].pu===200,'prix unitaires lus (y compris le séparateur de milliers)');
+chk(A[0].pu===505&&A[1].pu===505&&A[2].pu===1905&&A[3].pu===200,
+  'le prix facturé : total ÷ quantité, éco-contribution comprise (505 et non 500 ; 1 010 ÷ 2 ; séparateur de milliers)');
+chk(A.map(a=>a.qte).join()==='1,2,1,1','la quantité de chaque rangée est lue');
 chk(A[0].libelle==='Fenêtre 1 Vantail oscillo-battante 800x1200 — PVC VEKA, gamme GAMME-TEST 70, finition Blanc 9016 Int/Ext, vitrage 4FE-16Ar-4, volet : Moteur SOMFY Radio IO, usinage pour grille d’aération',
   'libellé enrichi de ce qui fait le prix : '+A[0].libelle);
 chk(!/7016/.test(A[0].libelle),'la teinte du tablier (après le volet) ne passe pas pour celle de la menuiserie');
@@ -95,4 +97,14 @@ chk(B[1].libelle==='Garage : Porte de garage sectionnelle fictive — Haut 2000 
 const C=M.analyseDevisFournisseur(['Plaque de plâtre BA13          12    8,50 €    102,00 €   20']);
 chk(C.length===1&&C[0].code===''&&C[0].libelle==='Plaque de plâtre BA13'&&C[0].pu===8.5,'devis ordinaire inchangé : '+JSON.stringify(C));
 chk(M.rangeeDevis('Total HT :   3 600,00 €')===null,'une ligne de total n\'est pas une rangée');
+/* repère d'une baie répétée (« C.1 ») et désignation sur deux lignes */
+const D=M.analyseDevisFournisseur([
+  'C.1   Fenêtre 1 Vantail oscillo-battante              900   1350   2     774,17 €    1 556,14 €   20',
+  'Pièce de vie : Complément tunnel volet tablier ALU -            1       903,78       903,78      1',
+  'Manoeuvre électrique',
+  'Haut 2150 mm x Larg 3500 mm',
+  '. Enroulement extérieur (B)']);
+chk(D[0].libelle==='Fenêtre 1 Vantail oscillo-battante 900x1350'&&D[0].qte===2&&D[0].pu===778.07,'« C.1 » n\'entre pas dans le libellé ; 1 556,14 ÷ 2 = 778,07 : '+JSON.stringify(D[0]));
+chk(D[1].libelle==='Pièce de vie : Complément tunnel volet tablier ALU — Manoeuvre électrique — Haut 2150 mm x Larg 3500 mm',
+  'la désignation qui finit sur la ligne du dessous est reprise, puis les dimensions : '+D[1].libelle);
 fin();

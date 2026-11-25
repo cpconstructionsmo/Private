@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-24 · Chiffrage : plinthes et plafond tirés du plan du relevé';
+const VERSION='2026-11-25 · Devis PDF d’un fournisseur repris dans la commande : produits au bordereau, quantités et montant';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -8651,8 +8651,14 @@ function rangeeDevis(line){
   const totalRaw=f[f.length-2], puRaw=f[f.length-3];
   if(!estMontantDevis(totalRaw)||!estMontantDevis(puRaw))return null;
   if(!/^\d{1,4}$/.test(f[f.length-4]))return null;
-  return {reste:f.slice(0,f.length-4),pu:montantDevis(puRaw)};
+  return {reste:f.slice(0,f.length-4),pu:montantDevis(puRaw),total:montantDevis(totalRaw),qte:+f[f.length-4]};
 }
+/* le prix d'un article, c'est ce que le fournisseur facture : le total de la
+   rangée divisé par la quantité. Un devis de menuiseries écrit son prix
+   unitaire hors éco-contribution et son total avec (« Total HT (+EcoTaxe) ») :
+   lu au prix unitaire, une commande resterait sous la facture de toutes les
+   éco-contributions. Sans total exploitable, le prix unitaire écrit. */
+const prixFactureDevis=r=>r.qte>0&&r.total>0?Math.round(r.total/r.qte*100)/100:r.pu;
 /* sous la rangée, un devis de menuiseries détaille ce qui fait le prix :
    profilé, gamme, finition ou teinte, vitrage, volet et sa motorisation.
    Sans eux, deux fenêtres de même taille — l'une en PVC blanc, l'autre en
@@ -8702,18 +8708,26 @@ function analyseDevisFournisseur(lignes){
     const reste=r.reste.slice();
     let dims=[];
     while(reste.length&&/^(\d{2,4}|0)$/.test(reste[reste.length-1])&&dims.length<2)dims.unshift(reste.pop());
-    if(reste.length&&/^[A-Z]$/.test(reste[0]))reste.shift();
+    /* le repère d'une baie répétée s'écrit aussi « C.1 » */
+    if(reste.length&&/^[A-Z](?:\.\d{1,2})?$/.test(reste[0]))reste.shift();
     let libelle=reste.join(' ').trim();
     if(!libelle)continue;
     if(dims.length===2&&dims.some(d=>+d>0))libelle+=' '+dims[0]+'x'+dims[1];
     if(!dims.length){
-      const suite=String(lignes[i+1]||'').trim();
-      if(/^(?:Haut\s+\d+\s*mm\s*x\s*Larg\s+\d+\s*mm|Largeur\s+\d+\s*mm|Hauteur\s+\d+\s*mm)$/i.test(suite))
-        libelle+=' — '+suite;
+      const dimsSeules=/^(?:Haut\s+\d+\s*mm\s*x\s*Larg\s+\d+\s*mm|Largeur\s+\d+\s*mm|Hauteur\s+\d+\s*mm)$/i;
+      let j=i+1, suite=String(lignes[j]||'').trim();
+      /* une désignation trop longue finit sur la ligne du dessous : la rangée
+         se termine par un tiret (« … tablier ALU DP56 - »), la suite tient
+         en quelques mots, sans « : » ni montant */
+      if(/[-–]$/.test(libelle)&&suite&&suite.length<=60&&!dimsSeules.test(suite)&&!/[:€]/.test(suite)&&!rangeeDevis(suite)){
+        libelle=libelle.replace(/\s*[-–]$/,'')+' — '+suite;
+        suite=String(lignes[++j]||'').trim();
+      }
+      if(dimsSeules.test(suite))libelle+=' — '+suite;
     }
     const carac=caracteristiquesDevis(lignes,i);
     if(carac)libelle+=' — '+carac;
-    out.push({code:'',libelle,unite:'U',pu:r.pu});
+    out.push({code:'',libelle,unite:'U',pu:prixFactureDevis(r),qte:r.qte||1});
   }
   return out;
 }
@@ -14930,6 +14944,115 @@ function EstimatifAchat({data,ch,cmd,onFermer,onImprime}){
   </div>;
 }
 
+/* ---------- un devis de fournisseur repris dans une commande ----------
+   Le devis PDF déposé sur une commande de matériaux se lit
+   (analyseDevisFournisseur) : ses produits rejoignent un bordereau du
+   fournisseur — ajoutés, ou leur prix rafraîchi, comme depuis PRIX ›
+   bordereau › « Importer un devis » — et la commande prend ses quantités :
+   le quantitatif repart de ce bordereau, les produits du devis à leur
+   quantité et à leur prix, les autres articles à zéro ; le montant suit.
+   Deux rangées de même libellé (la baie « C » et sa répétition « C.1 ») sont
+   un même produit : leurs quantités s'additionnent. Rien ne s'applique
+   avant le clic. */
+const cleProduit=s=>deaccent(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+function devisRegroupe(extraits){
+  const m=new Map();
+  for(const a of (extraits||[])){
+    const k=cleProduit(a.libelle), x=m.get(k);
+    if(x)x.qte+=(+a.qte||1);else m.set(k,{...a,qte:+a.qte||1});
+  }
+  return [...m.values()];
+}
+/* le bordereau proposé : celui du quantitatif de la commande, sinon un
+   bordereau du fournisseur (même nom), sinon un nouveau */
+function devisBordereauPropose(data,f){
+  const B=(data&&data.bordereaux)||[];
+  const q=f&&f.quantitatif;
+  if(q&&q.bordereauId&&B.some(b=>b.id===q.bordereauId))return q.bordereauId;
+  const fo=((data&&data.fournisseurs)||[]).find(x=>cleProduit(x.nom)&&cleProduit(x.nom)===cleProduit(f&&f.fournisseur));
+  const b=fo&&B.find(x=>bordPourFournisseur(x,fo.id));
+  return b?b.id:'';
+}
+function devisVersCommande(data,f,extraits,bordereauId){
+  const L=devisRegroupe(extraits);
+  const B=(data&&data.bordereaux)||[];
+  const fo=((data&&data.fournisseurs)||[]).find(x=>cleProduit(x.nom)&&cleProduit(x.nom)===cleProduit(f&&f.fournisseur));
+  let b=bordereauId?B.find(x=>x.id===bordereauId):null;
+  const neuf=!b;
+  if(neuf)b={id:uid(),nom:'Produits '+((f&&f.fournisseur)||'du fournisseur').trim(),corps:'',artisanIds:[],
+    fournisseurIds:fo?[fo.id]:[],maj:today(),aleasPct:'',retroPct:'',pieces:[],articles:[]};
+  const articles=(b.articles||[]).slice(), duDevis=new Map();
+  let ajout=0,maj=0;
+  for(const l of L){
+    const i=articles.findIndex(a=>cleProduit(a.libelle)===cleProduit(l.libelle));
+    if(i>=0){
+      if(+articles[i].pu!==l.pu){articles[i]={...articles[i],pu:l.pu};maj++}
+      duDevis.set(articles[i].id,l);
+    }else{
+      const a={id:uid(),code:'',libelle:l.libelle,unite:l.unite||'U',pu:l.pu};
+      articles.push(a);duDevis.set(a.id,l);ajout++;
+    }
+  }
+  const b2={...b,articles,maj:today()};
+  const lignes=articles.map(a=>{const l=duDevis.get(a.id);
+    return {id:uid(),ref:a.id,code:a.code||'',libelle:a.libelle,unite:a.unite||'U',
+      pu:l?l.pu:arrondiPu(a.pu,b2.aleasPct),qt:l?l.qte:''}});
+  const avant=((f&&f.quantitatif&&f.quantitatif.lignes)||[]).filter(l=>ligneQt(l)>0).length;
+  return {data:{...data,bordereaux:neuf?[...B,b2]:B.map(x=>x.id===b2.id?b2:x)},
+    f:{...f,quantitatif:{bordereauId:b2.id,nom:b2.nom,lignes},montant:quantitatifNet(lignes,remisePct(f))},
+    ajout,maj,neuf,bordereau:b2,produits:L.length,remplaces:avant,
+    total:Math.round(L.reduce((s,l)=>s+l.pu*l.qte,0)*100)/100};
+}
+/* l'aperçu du devis lu, sous la commande ouverte */
+function DevisCommande({data,f,setF,save,lu,onFin}){
+  const [bid,setBid]=useState(()=>devisBordereauPropose(data,f));
+  if(lu.etat==='lecture')return <div className="xs mut" style={{marginTop:6}}>Lecture du devis…</div>;
+  if(lu.etat==='rien')return <div className="xs" style={{marginTop:6,color:AMBER,lineHeight:1.5}}>
+    {lu.nom} : aucune ligne de produit reconnue (désignation, quantité, prix, total). Le devis reste joint ; saisissez les quantités à la main.
+    <button className="btn gh s" style={{marginLeft:8}} onClick={onFin}>Fermer</button></div>;
+  if(lu.etat==='fait')return <div className="xs" style={{marginTop:6,color:GREEN,lineHeight:1.5}}>
+    ✓ Devis repris : {lu.produits} produit{lu.produits>1?'s':''}, la commande passe à <b>{eurc(lu.montant)} HT</b>.
+    {' '}Bordereau « {lu.bordereau} » : {lu.ajout} produit{lu.ajout>1?'s':''} ajouté{lu.ajout>1?'s':''}{lu.maj?', '+lu.maj+' prix mis à jour':''}.
+    {' '}Pensez à <b>Enregistrer</b> la commande.
+    <button className="btn gh s" style={{marginLeft:8}} onClick={onFin}>Fermer</button></div>;
+  const B=data.bordereaux||[];
+  const essai=devisVersCommande(data,f,lu.extraits,bid);
+  const L=devisRegroupe(lu.extraits);
+  const appliquer=()=>{
+    const r=devisVersCommande(data,f,lu.extraits,bid);
+    save(r.data);
+    setF(r.f);
+    lu.onFait({produits:r.produits,montant:r.f.montant,ajout:r.ajout,maj:r.maj,bordereau:r.bordereau.nom});
+  };
+  return <div className="card" style={{marginTop:8,padding:10,borderLeft:'3px solid '+NAVY}}>
+    <div className="xs b" style={{color:NAVY}}>Devis lu — {lu.nom} : {lu.extraits.length} ligne{lu.extraits.length>1?'s':''}, {eurc(essai.total)} HT</div>
+    <div className="xs" style={{marginTop:4,lineHeight:1.5}}>
+      {L.map((l,i)=><div key={i} className="row" style={{gap:8,alignItems:'baseline'}}>
+        <span style={{flex:'0 0 auto',minWidth:26,textAlign:'right'}} className="b">{nb2(l.qte)} ×</span>
+        <span style={{flex:1,minWidth:0}}>{l.libelle}</span>
+        <span style={{flex:'0 0 auto',whiteSpace:'nowrap'}}>{eurc(l.pu)}</span></div>)}
+    </div>
+    <div className="xs mut" style={{marginTop:4}}>Prix facturés, éco-contribution comprise : vérifiez que le total ({eurc(essai.total)} HT) est celui du devis.</div>
+    <div className="row xs" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+      <span className="mut">Produits enregistrés dans le bordereau</span>
+      <select className="in" aria-label="Bordereau des produits du devis" style={{width:'auto',maxWidth:'100%',fontSize:13,padding:'6px 8px'}}
+        value={bid} onChange={e=>setBid(e.target.value)}>
+        {B.map(b=><option key={b.id} value={b.id}>{b.nom}</option>)}
+        <option value="">+ Nouveau bordereau « Produits {(f.fournisseur||'du fournisseur').trim()} »</option>
+      </select>
+    </div>
+    <div className="xs" style={{marginTop:4,lineHeight:1.5}}>
+      {essai.ajout} produit{essai.ajout>1?'s':''} ajouté{essai.ajout>1?'s':''}{essai.maj?', '+essai.maj+' prix mis à jour':''}
+      {essai.produits-essai.ajout-essai.maj>0?', '+(essai.produits-essai.ajout-essai.maj)+' déjà au même prix':''} ; la commande passe à <b>{eurc(essai.f.montant)} HT</b>
+      {remisePct(f)?' (remise de '+remisePct(f)+' % comprise)':''}.</div>
+    {essai.remplaces>0&&<div className="xs" style={{marginTop:4,color:AMBER}}>Les quantités déjà saisies ({essai.remplaces} article{essai.remplaces>1?'s':''}) sont remplacées par celles du devis.</div>}
+    <div className="row" style={{gap:8,marginTop:8}}>
+      <button className="btn acc s" onClick={appliquer}>Reprendre le devis dans la commande</button>
+      <button className="btn gh s" onClick={onFin}>Ignorer</button>
+    </div>
+  </div>;
+}
+
 function Commandes({data,ch,save,ouvrir,onOuvert}){
   const [f,setF]=useState(null);
   const brouillon=useBrouillon('commandes:'+ch.id,f,setF,x=>'Commande '+(x.designation||'sans nom'));
@@ -14938,6 +15061,17 @@ function Commandes({data,ch,save,ouvrir,onOuvert}){
   /* une commande de matériaux se facture comme un marché : le fournisseur envoie
      sa facture, elle se range sur la commande et entre dans le suivi de facturation. */
   const [luFact,setLuFact]=useState(null);
+  /* le devis PDF déposé sur la commande : ses lignes sont proposées à la commande */
+  const [devisLu,setDevisLu]=useState(null);
+  useEffect(()=>{setDevisLu(null)},[f&&f.id]);
+  const lireDevisCommande=async file=>{
+    if(!/\.pdf$/i.test(file.name||'')&&file.type!=='application/pdf')return;
+    setDevisLu({etat:'lecture'});
+    try{
+      const extraits=analyseDevisFournisseur(await pdfLignes(file));
+      setDevisLu(extraits.length?{etat:'apercu',nom:file.name,extraits}:{etat:'rien',nom:file.name});
+    }catch(e){setDevisLu({etat:'rien',nom:file.name})}
+  };
   const addFacture=()=>setF({...f,factures:[...(f.factures||[]),{id:uid(),montant:'',date:'',lien:'',numero:''}]});
   const updFacture=(fid,patch)=>setF(p=>({...p,factures:(p.factures||[]).map(x=>x.id===fid?{...x,...patch}:x)}));
   const delFacture=fid=>setF({...f,factures:(f.factures||[]).filter(x=>x.id!==fid)});
@@ -15014,8 +15148,11 @@ function Commandes({data,ch,save,ouvrir,onOuvert}){
       <Fld label="STATUT"><select className="in" value={f.statut} onChange={e=>setF({...f,statut:e.target.value})}>{CMD_ST.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></Fld>
       <Fld label="DEVIS DU FOURNISSEUR">
         <FichiersDrive ch={ch} dossier="Matériaux" fichiers={f.devis} label="Importer le devis"
-          onChange={v=>setF({...f,devis:v})}/>
-        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Rangés dans Drive › {ch.nom} › Matériaux. PDF, Word ou photo.</div>
+          onChange={v=>setF(p=>({...p,devis:v}))} onFichier={lireDevisCommande}/>
+        <div className="xs mut" style={{marginTop:4,lineHeight:1.5}}>Rangés dans Drive › {ch.nom} › Matériaux. PDF, Word ou photo.
+          Un devis PDF se lit : ses produits peuvent entrer dans la commande et dans le bordereau du fournisseur.</div>
+        {devisLu&&<DevisCommande data={data} f={f} setF={setF} save={save} onFin={()=>setDevisLu(null)}
+          lu={{...devisLu,onFait:r=>setDevisLu({etat:'fait',...r})}}/>}
       </Fld>
       <Fld label={"FACTURES DU FOURNISSEUR — total "+eur(facturesTotal(f.factures))+" HT"}>
         {(f.factures||[]).map(x=><div key={x.id} className="row" style={{gap:6,marginBottom:6,alignItems:'center',flexWrap:'wrap'}}>

@@ -289,6 +289,19 @@ qu'on ait à les redire.
   Drive avec sa vraie extension ; la date se garde sur la facture
   (`envoyeeClientLe`). Les factures des marchés, elles, se visent
   (`ViserFacture`). Tests : `t_facture_achat_client.js`.
+- **Devis d'un fournisseur repris dans une commande** (MATÉRIAUX ›
+  commande › « Importer le devis ») : un devis PDF se lit
+  (`analyseDevisFournisseur` : prix facturé = total ÷ quantité,
+  éco-contribution comprise, `prixFactureDevis` ; repère « C.1 » ;
+  désignation qui finit sur la ligne du dessous). Aperçu (`DevisCommande`) :
+  les lignes, le total, le bordereau où enregistrer les produits (celui du
+  quantitatif, sinon celui du fournisseur, sinon un nouveau :
+  `devisBordereauPropose`), ce qui change. Au clic (`devisVersCommande`) :
+  produits ajoutés au bordereau ou prix rafraîchi (même libellé), le
+  quantitatif repart de ce bordereau aux quantités du devis (même libellé
+  = même produit : `devisRegroupe`), les autres articles à zéro, le
+  montant suit ; la commande reste à enregistrer. Tests :
+  `t_devis_commande.js`, `t_devis_fournisseur.js`.
 - **Facture répartie sur plusieurs lots** (une entreprise qui facture
   charpente et couverture ensemble) : rangée sur un lot pour son total,
   puis « Répartir sur plusieurs lots » depuis son volet
