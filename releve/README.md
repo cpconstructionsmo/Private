@@ -126,6 +126,10 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   d'avant (dossier, assistant, plan, prix → visite → accueil) au lieu de
   quitter le relevé ; les boutons « ‹ » de l'écran gardent l'historique
   juste ; le plan s'enregistre avant de se fermer (`suivreHistorique`).
+- **Raccourcis de l'étape Pièces** (« ⚡ Gagner du temps ») : « 📷 Lire une
+  note » (la note manuscrite s'ajoute à la dictée de l'assistant, qui remplit
+  la fiche) et « 🖼 Plan ou esquisse » (mène à l'étape Scan et lit le plan ou
+  l'esquisse à la main) ; « 🎙 Ouvrir l'assistant ».
 - **« ✨ Imaginer » mieux rendu** : consigne de photo d'intérieur
   professionnelle (perspective droite, matériaux et lumière réalistes,
   géométrie gardée) ; **styles en un toucher** (moderne, scandinave,

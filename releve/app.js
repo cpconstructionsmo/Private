@@ -826,6 +826,19 @@ function etapePieces(v) {
   return [
     h('h1', {}, 'Pièces et photos'),
     h('p', { class: 'mut' }, pieces.length ? pieces.length + ' pièce' + (pieces.length > 1 ? 's' : '') + ' · ' + nbPhotos + ' photo' + (nbPhotos > 1 ? 's' : '') : 'Ajoutez les pièces à transformer, puis leurs photos.'),
+    // raccourcis : une note ou un plan à la main se lisent d'ici, sans chercher l'assistant ou l'étape Scan
+    (() => { let info;
+      const iScan = M.etapesDe(v).findIndex(e => e.id === 'scan');
+      return h('div', { class: 'carte raccourcisIA', id: 'raccourcisIA' },
+        h('b', {}, '⚡ Gagner du temps'),
+        h('div', { class: 'rang', style: 'margin-top:8px;gap:8px;flex-wrap:wrap' },
+          h('button', { class: 'gros sec', type: 'button', id: 'raccourciNote', style: 'flex:1 1 150px;margin:0', onclick: e => lireNote(e.currentTarget, info) }, '📷 Lire une note'),
+          iScan >= 0 ? h('button', { class: 'gros sec', type: 'button', id: 'raccourciPlan', style: 'flex:1 1 150px;margin:0',
+            onclick: () => choisirFichier({ accept: 'image/*,application/pdf', multiple: true }, fs => { allerEtape(iScan); lirePlan2D(fs); }) }, '🖼 Plan ou esquisse') : null),
+        h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Note manuscrite : recopiée dans l’assistant, qui remplit la fiche. Plan ou esquisse à la main : l’IA en tire le dessin des pièces (étape Scan).'),
+        info = h('div', { role: 'status', style: 'margin-top:6px' }),
+        h('button', { class: 'lienRetour', type: 'button', id: 'raccourciAssistant', style: 'margin-top:4px', onclick: () => { S.ecran = 'assistant'; S.propAssistant = null; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🎙 Ouvrir l’assistant'));
+    })(),
     pieces.map(p => cartePiece(v, p)),
     h('div', { class: 'champ' }, 'AJOUTER UNE PIÈCE'),
     h('div', { class: 'puces' }, M.PIECES_COURANTES.map(n => h('button', { class: 'puce', type: 'button', onclick: () => ajouter(n) }, '+ ' + n)),
@@ -2125,7 +2138,8 @@ function lireNote(btn, info) {
       const ta = document.querySelector('textarea[name="assistant.texte"]');
       if (ta) ta.value = (avant ? avant + '\n\n' : '') + texte;
       S.propAssistant = null;
-      dire('📷 Note recopiée à la suite de la dictée : relisez-la, puis touchez « ✨ Remplir la fiche ».', 'ok');
+      dire(document.querySelector('textarea[name="assistant.texte"]') ? '📷 Note recopiée à la suite de la dictée : relisez-la, puis touchez « ✨ Remplir la fiche ».'
+        : '📷 Note recopiée dans l’assistant : touchez « 🎙 Ouvrir l’assistant » pour la relire et remplir la fiche.', 'ok');
     } catch (e) { dire(messageDecrire(e, 'note')); }
     btn.disabled = false; btn.textContent = lib;
   });
