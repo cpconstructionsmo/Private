@@ -1908,6 +1908,8 @@ function appliquerRecul(svg, r) {
   const w = b[2] * r, hh = b[3] * r, pan = S.dessinPan || { x: 0, y: 0 };
   svg.setAttribute('viewBox', [b[0] + b[2] / 2 - w / 2 + pan.x, b[1] + b[3] / 2 - hh / 2 + pan.y, w, hh].join(' '));
 }
+// Échap quitte le plein écran du dessin
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.dessinPlein) { S.dessinPlein = false; redessiner(); } });
 function cadreZoomDessin(svg) {
   const cadre = h('div', { class: 'cadreZoomDessin' }, svg);
   let z = S.dessinZoom || { s: 1, x: 0, y: 0 }, recul = S.dessinRecul || 1;
@@ -1954,6 +1956,8 @@ function cadreZoomDessin(svg) {
   return [cadre, h('div', { class: 'puces zoomDessin' },
     bouton('zoomDessinPlus', '🔍 ＋', () => facteur(1.5)), bouton('zoomDessinMoins', '🔍 −', () => facteur(1 / 1.5)),
     bouton('zoomDessinRaz', '⟲ 100 %', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; S.dessinPan = null; }), niveau,
+    // plein écran : plus de place pour placer les pièces (✕ pour revenir)
+    h('button', { class: 'puce' + (S.dessinPlein ? ' on' : ''), type: 'button', id: 'pleinEcranDessin', onclick: () => { S.dessinPlein = !S.dessinPlein; redessiner(); } }, S.dessinPlein ? '✕ Réduire' : '⛶ Plein écran'),
     h('span', { class: 'mut petit' }, 'Glissez le fond pour déplacer le plan.'))];
 }
 const r3l = v => Math.round(v * 100) / 100;
@@ -1975,7 +1979,7 @@ function ecranDessin() {
   if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
   const d = dessinCourant(), R = DR.releveDepuisDessin(d.pieces, { hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
   const noms = DR.nomsEtages(d.etages, d.pieces), k = Math.min(etageDessin(), noms.length - 1); S.dessinEtage = k;
-  const retour = () => { S.ecran = 'visite'; S.message = null; dessiner(); window.scrollTo(0, 0); };
+  const retour = () => { S.ecran = 'visite'; S.message = null; S.dessinPlein = false; dessiner(); window.scrollTo(0, 0); };
   const ici = rectsEtage(d, R, k);
   // une nouvelle pièce se pose à droite de l'étage affiché : on la glisse ensuite où l'on veut
   const ajouter = () => majDessin(x => {
@@ -1993,7 +1997,7 @@ function ecranDessin() {
     const projet = 'Plan de ' + M.intitule(visite());
     const nv = DR.releveDepuisDessin(d.pieces, { projet, hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
     await changer(w => { let x = w; if (actuel) x = M.modifier(x, 'plan.ecarte', actuel); return M.modifier(x, 'plan', { releve: nv.donnees, resume: nv.resume }); });
-    S.message = null; vibrer(); ouvrirPlan();
+    S.message = null; S.dessinPlein = false; vibrer(); ouvrirPlan();
   };
   const symSel = d.symboles.find(x => x.id === S.dessinSym && (x.etage || 0) === k);
   const tySel = symSel && DR.TYPES_SYMBOLE.find(z => z[0] === symSel.type);
@@ -2011,7 +2015,7 @@ function ecranDessin() {
       // les étages
       h('div', { class: 'puces etagesDessin' }, noms.map((nom, i) => h('button', { class: 'puce' + (i === k ? ' on' : ''), type: 'button', 'data-etage': i, onclick: () => { S.dessinEtage = i; S.dessinSel = null; S.dessinSym = null; redessiner(); } }, nom)),
         noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
-      h('div', { class: 'carte', style: 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
+      h('div', { class: 'carte' + (S.dessinPlein ? ' dessinPlein' : ''), id: 'carteDessin', style: S.dessinPlein ? '' : 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
         // « ＋ Symbole » tout près du dessin : choisir, puis toucher l'endroit voulu
         S.poseSymbole ? h('div', { class: 'message att', id: 'invitePoseSymbole', style: 'margin:6px 0 0' }, '👆 Touchez le dessin à l’endroit du ' + ((DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole) || [])[1] || 'symbole').toLowerCase() + ' (près d’un mur, il s’y adosse). ',
             h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseSymbole = null; redessiner(); } }, 'Annuler'))

@@ -199,7 +199,10 @@
   .actionsDessin{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:8px}.actionsDessin .gros{margin:0;padding:12px 4px;font-size:15px;white-space:nowrap}.actionsDessin .gros.on{background:var(--accent,#C5563A);color:#fff}
   details.optionsDessin>summary,details.reglagesPiece>summary{cursor:pointer;font-weight:600;padding:10px 2px;min-height:24px}details.reglagesPiece{margin-top:8px;border-top:1px solid #e3e6ea;padding-top:4px}
   .etagesDessin{margin-bottom:6px}.ouvDessin{margin-top:8px;padding:8px;border-radius:8px;background:#F6F2EA}.symbolesPalette .puce{font-size:13px}
-  .apercuDessin{display:block;width:100%;height:auto;max-height:46vh;background:#fff;border-radius:8px;touch-action:manipulation}
+  .apercuDessin{display:block;width:100%;height:clamp(300px,58vh,980px);background:#fff;border-radius:8px;touch-action:manipulation}
+  /* plein écran du dessin : toute la fenêtre pour placer les pièces, la barre de zoom et les gestes de base restent dessous */
+  .carte.dessinPlein{position:fixed;inset:0;z-index:60;margin:0;border-radius:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));overflow:auto;background:#fff}
+  .carte.dessinPlein .apercuDessin{height:calc(100vh - 170px)}
   .pieceDessin.sel{border-color:var(--terra);box-shadow:0 0 0 2px rgba(197,86,58,.15)}
   .reglageDessin .reglage{margin-top:4px}
   .reglage .valeur span{margin-left:4px}

@@ -308,6 +308,8 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
     s'il cache une cote (`p.etiquette`, repris dans le plan coté, où le nom
     se glisse aussi au doigt : `centreNom`) ; « ✓ Créer le plan 2D coté et
     la 3D » en haut du dessin, avec ce qui bloque dit d'avance ;
+  - **zone de dessin plus haute** (58 % de l'écran, au moins 300 px) et
+    **« ⛶ Plein écran »** (toute la fenêtre ; « ✕ Réduire » ou Échap) ;
   - **zoom** de l'aperçu (deux doigts, molette, « 🔍 ＋ / − », « ⟲ 100 % ») ;
     sous 100 % (jusqu'à 13 %), la zone de dessin s'agrandit autour des
     pièces (`appliquerRecul`, `S.dessinRecul`) : de la place pour en poser
