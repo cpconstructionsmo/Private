@@ -2113,6 +2113,8 @@ function brancherCroquis(svg, d, R) {
   const dessinerTrait = pts => trait && trait.setAttribute('points', pts.map(q => q.join(',')).join(' '));
   const annuler = () => { g = null; dessinerTrait([]); };
   svg.addEventListener('pointerdown', e => {
+    // souris : seul le bouton gauche trace (le droit et la molette déplacent le plan, voir cadreZoomDessin)
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     // un deuxième doigt : le pincement (zoom) prend la main, le tracé commencé est abandonné
     if (!e.isPrimary || S.pinceDessin) { annuler(); return; }
     e.preventDefault();
@@ -2250,6 +2252,14 @@ function appliquerRecul(svg, r) {
   const w = b[2] * r, hh = b[3] * r, pan = S.dessinPan || { x: 0, y: 0 };
   svg.setAttribute('viewBox', [b[0] + b[2] / 2 - w / 2 + pan.x, b[1] + b[3] / 2 - hh / 2 + pan.y, w, hh].join(' '));
 }
+// PC : Ctrl+Z annule, Ctrl+Maj+Z (ou Ctrl+Y) rétablit, comme dans un logiciel de dessin (seulement en croquis, hors champ de saisie)
+document.addEventListener('keydown', e => {
+  if (S.ecran !== 'dessin' || !S.croquis) return;
+  const t = e.target; if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  const mod = e.ctrlKey || e.metaKey, k = String(e.key).toLowerCase();
+  if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); annulerDessin(); }
+  else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); retablirDessin(); }
+});
 // Échap quitte le plein écran du dessin
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.dessinPlein) { S.dessinPlein = false; redessiner(); } });
 function cadreZoomDessin(svg) {
@@ -2269,7 +2279,9 @@ function cadreZoomDessin(svg) {
   const doigts = new Map(); let pince = null, glisse = null;
   // un doigt sur le fond (ni pièce ni symbole) : tout le plan se déplace dans le cadre
   cadre.addEventListener('pointerdown', e => {
-    if (doigts.size === 0 && !S.poseSymbole && !S.croquis && !e.target.closest('[data-piece-dessin],[data-symbole],button')) {
+    const sourisAutre = e.pointerType === 'mouse' && e.button !== 0;   // en croquis, le bouton droit ou du milieu de la souris déplace le plan
+    if (S.croquis && sourisAutre) e.preventDefault();
+    if (doigts.size === 0 && !S.poseSymbole && (!S.croquis || sourisAutre) && !e.target.closest('[data-piece-dessin],[data-symbole],button')) {
       const vb = svg.viewBox.baseVal, r = svg.getBoundingClientRect();
       glisse = { x: e.clientX, y: e.clientY, pan: { ...(S.dessinPan || { x: 0, y: 0 }) }, k: vb && r.width ? vb.width / r.width : 0 };
     }
@@ -2281,6 +2293,7 @@ function cadreZoomDessin(svg) {
   }, true);
   const finGlisse = () => { glisse = null; };
   cadre.addEventListener('pointerup', finGlisse, true); cadre.addEventListener('pointercancel', finGlisse, true);
+  cadre.addEventListener('contextmenu', e => { if (S.croquis) e.preventDefault(); });   // pas de menu du navigateur pendant le croquis
   cadre.addEventListener('pointerdown', e => { doigts.set(e.pointerId, centre(e)); if (doigts.size === 2) glisse = null;
     if (doigts.size === 2) { const P = [...doigts.values()]; pince = { z: { ...z }, recul, d: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) || 1, m: [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] }; S.pinceDessin = true; } }, true);
   cadre.addEventListener('pointermove', e => { if (!doigts.has(e.pointerId)) return; doigts.set(e.pointerId, centre(e));
@@ -2327,8 +2340,8 @@ function barreCroquis(d) {
         ? 'Touchez une pièce : ses sommets apparaissent. Glissez un sommet pour changer la forme (les angles droits sont gardés). Touchez une cote pour la corriger.'
         : 'Tracez une pièce au doigt, en revenant à votre point de départ. Un petit trait le long d’un mur : porte ou fenêtre. Un toucher sélectionne une pièce.'),
     h('div', { class: 'puces' }, outil('tracer', '✏️ Tracer'), outil('modifier', '✋ Modifier'), outil('gomme', '🧽 Gomme'),
-      h('button', { class: 'puce grand', type: 'button', id: 'annulerDessin', disabled: !H.pile.length, onclick: annulerDessin }, '↶ Annuler'),
-      h('button', { class: 'puce grand', type: 'button', id: 'retablirDessin', disabled: !H.refaire.length, onclick: retablirDessin }, '↷ Rétablir'),
+      h('button', { class: 'puce grand', type: 'button', id: 'annulerDessin', title: 'Annuler (Ctrl+Z)', disabled: !H.pile.length, onclick: annulerDessin }, '↶ Annuler'),
+      h('button', { class: 'puce grand', type: 'button', id: 'retablirDessin', title: 'Rétablir (Ctrl+Maj+Z)', disabled: !H.refaire.length, onclick: retablirDessin }, '↷ Rétablir'),
       d.croquisEchelle === false && !S.echelleMur ? h('button', { class: 'puce grand', type: 'button', id: 'fixerEchelle', onclick: () => {
         const p = d.pieces.find(z => z.poly); if (!p) return; const m = CQ.murs(p.poly).reduce((b, x) => x.longueur > b.longueur ? x : b);
         S.echelleMur = { piece: p.id, i: m.i }; S.echelleVal = Math.round(m.longueur * 100) / 100; redessiner(); } }, '📏 Échelle') : null,

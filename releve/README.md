@@ -405,6 +405,8 @@ trace et ne déplace plus le plan ; le pincement à deux doigts zoome toujours. 
 - **Outils** : « ✏️ Tracer », « ✋ Modifier » (toucher une pièce : ses sommets deviennent des poignées à glisser, aimantées,
   angles droits gardés), « 🧽 Gomme » (glisser sur une pièce ou une ouverture l'efface), « ↶ Annuler » et « ↷ Rétablir »
   (historique de la visite ouverte, 60 étapes).
+- **Sur PC, à la souris** : même principe, bouton gauche pour tracer. Le clic droit (ou le clic molette) glissé déplace le plan,
+  la molette zoome, **Ctrl+Z** annule, **Ctrl+Maj+Z** (ou Ctrl+Y) rétablit (sauf dans un champ de texte, où Ctrl+Z reste celui du champ).
 - Une pièce tracée est une pièce du dessin comme les autres (`piece.poly`, en mètres) : « ✓ Créer le plan 2D coté et la 3D »,
   le chiffrage, la synchro et le dossier client ne changent pas. Une pièce tracée se glisse en entier hors du mode croquis.
 - Tests : `t_releve_croquis.js` (géométrie), `t_releve_dessin_croquis.js` (modèle), `releve_croquis_navigateur.js`

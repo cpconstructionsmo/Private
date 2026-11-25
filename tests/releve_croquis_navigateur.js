@@ -1,6 +1,8 @@
 /* Relevé de visite — le mode « ✏️ Croquis » du dessin rapide : on trace au doigt, le tracé devient une pièce aux murs droits.
-   Chromium au format iPhone, VRAIS événements tactiles (CDP : touchStart / touchMove / touchEnd, donc Pointer Events de type
-   « touch »), faux Supabase, pièces FICTIVES. */
+   Par défaut : Chromium au format iPhone, VRAIS événements tactiles (CDP : touchStart / touchMove / touchEnd, donc Pointer Events de
+   type « touch »). Avec SOURIS=1 : Chromium de bureau, vraie souris (clic gauche pour tracer ; clic droit, molette, Ctrl+Z).
+   Faux Supabase, pièces FICTIVES. */
+const SOURIS=!!process.env.SOURIS;
 require('fs').mkdirSync(require('os').tmpdir()+'/cp-tests',{recursive:true});
 const {chromium}=require('playwright-core');const fs=require('fs');const path=require('path');
 const {fauxSupabase}=require('./releve_faux_supabase');
@@ -14,7 +16,7 @@ const attendre=async(p,f,ms=10000)=>{const t=Date.now();while(Date.now()-t<ms){i
 let b;
 (async()=>{
   b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium'});
-  const ctx=await b.newContext({serviceWorkers:'block',viewport:{width:390,height:844},deviceScaleFactor:2,hasTouch:true,isMobile:true});
+  const ctx=await b.newContext(SOURIS?{serviceWorkers:'block',viewport:{width:1280,height:900},deviceScaleFactor:1}:{serviceWorkers:'block',viewport:{width:390,height:844},deviceScaleFactor:2,hasTouch:true,isMobile:true});
   await ctx.route('**/*',async r=>{const u=r.request().url();
     if(/supabase-js/.test(u))return r.fulfill({body:BIBLIO,contentType:'text/javascript'});
     const m=u.match(/^https:\/\/app\.local\/([^?#]*)/);
@@ -24,7 +26,7 @@ let b;
     if(/geo\.api\.gouv\.fr\/communes\?codePostal=61000/.test(u))return r.fulfill({contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify([{nom:'Alençon'}])});
     if(/geo\.api\.gouv\.fr\/communes\?codePostal=53100/.test(u))return r.fulfill({contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify([{nom:'Mayenne'},{nom:'Aron'},{nom:'Moulay'}])});
     return r.fulfill({status:204,body:''});});
-  const p=await ctx.newPage();p.setDefaultTimeout(15000);const erreurs=[];p.on('pageerror',e=>erreurs.push(String(e)));p.on('dialog',d=>d.accept());
+  const p=await ctx.newPage();if(SOURIS)p.tap=(s,o)=>p.click(s,o);p.setDefaultTimeout(15000);const erreurs=[];p.on('pageerror',e=>erreurs.push(String(e)));p.on('dialog',d=>d.accept());
   await p.goto('https://app.local/releve/');
   await p.waitForSelector('#nouvelleVisite');
   const cdp=await ctx.newCDPSession(p);
@@ -37,7 +39,8 @@ let b;
   /* --- outillage : un tracé du doigt, en mètres du plan, converti en pixels de l'écran à l'instant du tracé --- */
   let g=4242;const alea=()=>{g=(g*1103515245+12345)&0x7fffffff;return g/0x7fffffff-0.5};
   const versEcran=async pts=>p.evaluate(pts=>{document.querySelector('.cadreZoomDessin').scrollIntoView({block:'center'});const svg=document.querySelector('svg.apercuDessin'),m=svg.getScreenCTM();return pts.map(([x,y])=>{const q=svg.createSVGPoint();q.x=x;q.y=y;const r=q.matrixTransform(m);return [r.x,r.y]})},pts);
-  const toucher=async(type,pts)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:pts.map(([x,y],i)=>({x,y,id:i+1,radiusX:2,radiusY:2,force:0.5}))});
+  const toucher=SOURIS?async(type,pts)=>{const [x,y]=pts[0]||[0,0];if(type==='touchStart'){await p.mouse.move(x,y);await p.mouse.down()}else if(type==='touchMove')await p.mouse.move(x,y);else await p.mouse.up()}
+    :async(type,pts)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:pts.map(([x,y],i)=>({x,y,id:i+1,radiusX:2,radiusY:2,force:0.5}))});
   const tracer=async(contour,{bruit=0.03,ferme=true,pas=0.06}={})=>{   // contour en mètres : parcouru à pas de 6 cm, tremblant
     const P=ferme?contour.concat([contour[0]]):contour,mes=[];
     for(let i=0;i<P.length-1;i++){const a=P[i],b=P[i+1],L=Math.hypot(b[0]-a[0],b[1]-a[1]);for(let s=0;s<L;s+=pas){const t=s/L;mes.push([a[0]+(b[0]-a[0])*t+alea()*2*bruit,a[1]+(b[1]-a[1])*t+alea()*2*bruit])}}
@@ -156,6 +159,7 @@ let b;
   chk(Math.abs(R2.x0-(R1.x0-0.8))<0.45&&Math.abs(R2.y1-(R1.y1+0.9))<0.45,'le coin a suivi le doigt (aimant compris)');
 
   await p.tap('#outilCroquis-tracer');
+  if(!SOURIS){
   /* 9. rien ne défile, rien ne zoome, pendant le tracé ; un 2e doigt abandonne le tracé */
   const vert=await versEcran([[ox+10.5,oy-4],[ox+10.5,oy+3.5]]);   // un long trait vertical dans le cadre : le navigateur défilerait la page
   const y0=await p.evaluate(()=>window.scrollY),vv0=await p.evaluate(()=>window.visualViewport.scale);   // relevés une fois le dessin à l'écran
@@ -174,6 +178,34 @@ let b;
   await p.waitForTimeout(500);
   chk(await p.evaluate(()=>window.visualViewport.scale)===vv0&&vv0===1,'un double toucher ne zoome pas la page (échelle '+vv0+')');
   chk((await etat()).pieces.length===nbAvant,'aucune pièce parasite créée par ces gestes ('+nbAvant+')');
+
+  }else{
+  /* 9 (souris). le clic droit et la molette ne tracent pas ; Ctrl+Z / Ctrl+Maj+Z annulent et rétablissent */
+  const nbAvant=(await etat()).pieces.length;
+  const [m0,m1]=await versEcran([[ox+9,oy],[ox+10.5,oy+1.5]]);
+  const vb0=await p.evaluate(()=>document.querySelector('svg.apercuDessin').getAttribute('viewBox'));
+  await p.mouse.move(m0[0],m0[1]);await p.mouse.down({button:'right'});await p.mouse.move((m0[0]+m1[0])/2,(m0[1]+m1[1])/2);await p.mouse.move(m1[0],m1[1]);await p.mouse.up({button:'right'});
+  await p.waitForTimeout(300);
+  chk(await p.locator('#traitCroquis').getAttribute('points')==='','le clic droit ne trace rien');
+  chk((await etat()).pieces.length===nbAvant,'le clic droit ne crée aucune pièce');
+  chk(await p.evaluate(()=>document.querySelector('svg.apercuDessin').getAttribute('viewBox'))!==vb0,'le clic droit glissé déplace le plan');
+  const zoom0=await p.textContent('#niveauZoomDessin');
+  await p.mouse.move(m0[0],m0[1]);await p.mouse.wheel(0,-300);await p.waitForTimeout(300);
+  chk(await p.textContent('#niveauZoomDessin')!==zoom0&&(await etat()).pieces.length===nbAvant,'la molette zoome le dessin sans rien tracer ('+zoom0+' → '+await p.textContent('#niveauZoomDessin')+')');
+  await p.click('#zoomDessinRaz');
+  const avantZ=aire((await etat()).pieces[0].poly);
+  await p.keyboard.press('Control+z');
+  const dZ=await dessinSync(d=>aire(d.pieces[0].poly)<avantZ-0.3);
+  chk(dZ&&aire(dZ.pieces[0].poly)<avantZ-0.3,'Ctrl+Z annule la dernière modification (le sommet glissé)');
+  await p.keyboard.press('Control+Shift+z');
+  const dY=await dessinSync(d=>Math.abs(aire(d.pieces[0].poly)-avantZ)<0.05);
+  chk(dY&&Math.abs(aire(dY.pieces[0].poly)-avantZ)<0.05,'Ctrl+Maj+Z la rétablit');
+  await p.fill('input[name="dessin-nom"]','Salon');await p.keyboard.press('Tab');   // la pièce est renommée
+  await dessinSync(d=>d.pieces.some(q=>q.nom==='Salon'));
+  await p.focus('input[name="dessin-nom"]');await p.keyboard.press('Control+z');   // dans un champ de saisie, Ctrl+Z reste celui du champ
+  await p.waitForTimeout(600);
+  chk((await etat()).pieces.some(q=>q.nom==='Salon'),'Ctrl+Z dans un champ de texte n’annule pas le dessin (le nom « Salon » reste)');
+  }
 
   /* 10. « Créer le plan 2D coté et la 3D » depuis un croquis */
   await p.tap('#creerPlanDessin');
