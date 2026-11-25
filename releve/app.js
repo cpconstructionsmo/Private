@@ -143,7 +143,7 @@ function boutonPresentation() {
     title: S.presentation ? 'Quitter le mode présentation' : 'Mode présentation client (masque les réglages internes)',
     'aria-pressed': S.presentation ? 'true' : 'false',
     onclick: () => { S.presentation = !S.presentation; try { localStorage.setItem('releve:presentation', S.presentation ? '1' : '0'); } catch (e) { /* sans stockage : valable pour cette séance */ } appliquerPresentation(); dessiner(); } },
-    S.presentation ? '👁 Client' : '👁');
+    '👁');
 }
 // vocabulaire de l'artisan → mots du client, seulement en présentation (les titres du modèle ne changent pas)
 const titreEtape = t => S.presentation ? ({ 'Scan': 'Mesures de la maison', 'Budget': 'Votre budget', 'Fin de visite': 'Récapitulatif' }[t] || t) : t;
@@ -257,7 +257,7 @@ function ecranAccueil() {
     box.querySelectorAll('[data-visite]').forEach(c => { const r = S.visites.find(x => x.id === c.dataset.visite); c.hidden = !!(r && m.length && !m.every(w => texteVisite(r.visite).includes(w))); });
     const n = box.querySelectorAll('[data-visite]:not([hidden])').length, vide = document.getElementById('aucuneVisiteTrouvee'); if (vide) vide.hidden = n > 0; };
   return [
-    h('header', { class: 'haut' }, h('img', { src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }), h('span', { class: 'titre' }, 'Relevés de visite'), boutonPresentation(), pastilleEtat()),
+    h('header', { class: 'haut' }, h('img', { src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }), h('span', { class: 'titre' }, 'Relevés'), boutonPresentation(), pastilleEtat()),
     h('main', {},
       S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
       !S.session && h('div', { class: 'message att' }, 'Non connecté : les visites restent sur cet appareil. ',
@@ -289,7 +289,7 @@ function carteVisite(r) {
     h('div', { class: 'corps' },
       h('b', {}, M.intitule(v)),
       h('div', { class: 'mut petit' }, [ville, types.slice(0, 2).join(', ')].filter(Boolean).join(' · ') || 'Projet à préciser'),
-      (M.valeur(v, 'budget') || {}).estimation && M.valeur(v, 'budget').estimation.max > 0 ? h('div', { class: 'petit', style: 'color:var(--navy);font-weight:600' }, '💶 ' + B.formatPlage(M.valeur(v, 'budget').estimation)) : null,
+      (M.valeur(v, 'budget') || {}).estimation && M.valeur(v, 'budget').estimation.max > 0 ? h('div', { class: 'petit montantCarte', style: 'color:var(--navy);font-weight:600' }, '💶 ' + B.formatPlage(M.valeur(v, 'budget').estimation)) : null,
       h('div', { class: 'avancement', title: 'Étape ' + atteinte + ' sur ' + ETP.length }, h('i', { style: 'width:' + Math.round(100 * atteinte / ETP.length) + '%' + (terminee ? ';background:var(--green)' : '') }), h('span', {}, atteinte + '/' + ETP.length)),
       h('div', { class: 'mut petit' }, dateCourte(v.creeLe),
         M.valeur(v, 'statut') === 'terminee' ? h('span', { class: 'pastille ok' }, 'Terminée') : null,
@@ -3004,8 +3004,8 @@ function ecranDemo() {
     () => [h('h1', {}, 'Votre pièce, imaginée'), h('div', { class: 'carte' }, curseurAvantApres({ src: DEMO_AVANT }, { src: DEMO_APRES }), h('p', { class: 'mut' }, 'Glissez le curseur : à gauche la pièce aujourd’hui, à droite la même pièce rénovée.'))],
     () => [h('h1', {}, 'Votre plan'), h('div', { class: 'carte' }, h('img', { class: 'garde', alt: 'Plan', src: DEMO_PLAN }), h('p', { class: 'mut' }, 'Le plan est coté, les surfaces sont calculées pour vous. En 3D, vous vous promenez dans la maison.'))],
     () => [h('h1', {}, 'Votre budget'), h('div', { class: 'heros', style: 'animation:none' }, h('div', { class: 'mut petit' }, 'Estimation indicative, à confirmer par devis'), montant,
-      h('div', { class: 'jauge' }, h('div', { class: 'bande', style: 'left:62%;width:26%' }), h('div', { class: 'repere', style: 'left:92%' }, h('span', {}, 'Votre enveloppe'))),
-      h('div', { style: 'font-weight:600;color:var(--green);margin-top:22px' }, '✓ Dans votre enveloppe de 160 000 €'))],
+      h('div', { class: 'jauge' }, h('div', { class: 'bande', style: 'left:63%;width:12%' }), h('div', { class: 'repere', style: 'left:77%' }, h('span', {}, 'Votre enveloppe'))),
+      h('div', { style: 'font-weight:600;color:var(--green);margin-top:22px' }, '✓ Dans votre enveloppe de 170 000 €'))],
     () => [h('h1', {}, 'Votre dossier'), h('div', { class: 'carte' }, ['Photos et légendes de chaque pièce', 'Plan coté et vue 3D', 'Estimation par grands travaux', 'Lien à ouvrir chez vous, valable 30 jours'].map(t => h('div', { class: 'case', style: 'cursor:default' }, '✅ ' + t)),
       h('p', { class: 'mut' }, 'Tout part en PDF ou par lien, en un geste.'))],
   ];
