@@ -20,6 +20,8 @@ import * as A from './assistant.js';
 import * as DR from './dessin.js';
 import * as AN from './annotations.js';
 import * as T from './terrain.js';
+import * as PM from './permis.js';
+import * as CQ from './croquis.js';
 import { ouvrirVisionneuse, zoomer as zoomerToile, cadrer as cadrerZoom } from './zoom.js';
 import { h } from './dom.js';
 import { vueDossier, dateLongue } from './dossier-vue.js';
@@ -335,6 +337,47 @@ function ecranVisite() {
         ? h('button', { class: 'gros', id: 'terminer', onclick: terminer }, M.valeur(v, 'statut') === 'terminee' ? '✓ Visite terminée' : '✓ Terminer la visite')
         : h('button', { class: 'gros', id: 'suivant', onclick: e => { feter(e.currentTarget); allerEtape(S.etape + 1); } }, 'Suivant ›'))),
   ];
+}
+
+/* ---------- « 🏛 Dossier permis » : le fichier que l'Atelier (Mac) transforme en projet et en PDF brouillon ----------
+   Le DXF du plan est calculé par un moteur caché, hors écran : ses messages ne passent jamais par le gestionnaire
+   du plan ouvert (autre fenêtre), donc rien n'est écrit dans la visite. */
+function dxfDuPlan(plan) {
+  return new Promise((ok, ko) => {
+    const cadre = h('iframe', { src: 'moteur/index.html', title: 'Moteur du plan (caché)', tabindex: '-1', 'aria-hidden': 'true',
+      style: 'position:fixed;left:-9999px;top:0;width:1024px;height:768px;border:0' });
+    let fini = false;
+    const fin = (valeur, erreur) => { if (fini) return; fini = true; clearTimeout(delai); window.removeEventListener('message', ecouter); cadre.remove(); erreur ? ko(erreur) : ok(valeur); };
+    const delai = setTimeout(() => fin(null, new Error('Le plan met trop de temps à se préparer : réessayez.')), 30000);
+    const ecouter = e => {
+      if (e.source !== cadre.contentWindow || e.origin !== location.origin) return;
+      const m = e.data || {};
+      if (m.type === 'releve:pret') cadre.contentWindow.postMessage({ type: 'releve:dxf', texte: JSON.stringify(plan.releve) }, location.origin);
+      else if (m.type === 'releve:dxfPret') m.dxf_base64 ? fin(m.dxf_base64) : fin(null, new Error('Le plan n’a pas pu être converti en DXF (' + (m.erreur || 'erreur') + ').'));
+    };
+    window.addEventListener('message', ecouter);
+    document.body.appendChild(cadre);
+  });
+}
+
+function blocDossierPermis(v) {
+  if (!PM.aUnPlan(v)) return null;
+  const info = h('div', { class: 'mut petit', role: 'status', style: 'margin-top:8px' });
+  const bouton = h('button', { class: 'gros sec', type: 'button', id: 'preparerPermis', style: 'margin-top:10px', onclick: async () => {
+    const lib = bouton.textContent; bouton.disabled = true; bouton.textContent = '⏳ Préparation du plan…'; info.replaceChildren();
+    try {
+      const fichier = PM.dossierPermis(visite(), await dxfDuPlan(M.valeur(visite(), 'plan')));
+      const url = URL.createObjectURL(new Blob([JSON.stringify(fichier)], { type: 'application/json' }));
+      // un vrai lien « télécharger » : Safari refuse un téléchargement lancé à la fin d'un calcul
+      info.replaceChildren(h('a', { class: 'gros', id: 'telechargerPermis', href: url, download: PM.nomFichier(visite()), style: 'text-decoration:none' }, '⬇ Télécharger le dossier permis'),
+        h('p', { class: 'mut petit' }, 'Ouvrez-le dans l’Atelier (sur le Mac) : « Depuis le relevé de visite ». Le brouillon n’est validé par personne : les points d’arrêt restent à signer.'));
+    } catch (e) { info.textContent = (e && e.message) || 'Le dossier permis n’a pas pu être préparé.'; info.className = 'message err petit'; }
+    bouton.disabled = false; bouton.textContent = lib;
+  } }, '🏛 Dossier permis');
+  return h('div', { class: 'carte interne', id: 'blocPermis', style: 'margin-top:14px' },
+    h('b', {}, '🏛 Dossier permis (interne)'),
+    h('p', { class: 'mut petit' }, 'Prépare le fichier que l’Atelier de conception (sur le Mac) transforme en projet et en brouillon du dossier de permis : le plan, le client, l’adresse, la parcelle.'),
+    bouton, info);
 }
 
 async function terminer(e) {
@@ -1813,6 +1856,7 @@ function etapeFin(v) {
       dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null),
       dd('Budget estimé', (M.valeur(v, 'budget') || {}).estimation ? B.formatPlage(M.valeur(v, 'budget').estimation) + ' (indicatif)' : null)),
     h('div', { class: 'interne' }, champ(v, 'notes', 'NOTES DE VISITE (internes, jamais dans le dossier client)', { multiligne: true, autocapitalize: 'sentences' })),
+    blocDossierPermis(v),
     h('button', { class: 'gros sec', id: 'ouvrirDossier', style: 'margin-top:14px', onclick: () => { S.ecran = 'dossier'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '📄 Dossier client'),
   ];
 }
@@ -1832,7 +1876,23 @@ function dessinCourant() {
   if (!Array.isArray(x.symboles)) x.symboles = [];
   return x;
 }
-const majDessin = async f => { const d = dessinCourant(); f(d); await poser('dessin', d); redessiner(); };
+/* l'historique du dessin (↶ / ↷) : chaque modification garde l'état d'avant ; propre à la visite ouverte */
+const histoDessin = () => (S.dessinHisto && S.dessinHisto.visite === S.courante ? S.dessinHisto : (S.dessinHisto = { visite: S.courante, pile: [], refaire: [] }));
+const majDessin = async f => {
+  const d = dessinCourant(), H = histoDessin();
+  H.pile.push(JSON.stringify(d)); if (H.pile.length > 60) H.pile.shift(); H.refaire.length = 0;
+  f(d); await poser('dessin', d); redessiner();
+};
+async function annulerDessin() {
+  const H = histoDessin(); if (!H.pile.length) return;
+  H.refaire.push(JSON.stringify(dessinCourant()));
+  await poser('dessin', JSON.parse(H.pile.pop())); S.croquisInfo = null; redessiner();
+}
+async function retablirDessin() {
+  const H = histoDessin(); if (!H.refaire.length) return;
+  H.pile.push(JSON.stringify(dessinCourant()));
+  await poser('dessin', JSON.parse(H.refaire.pop())); S.croquisInfo = null; redessiner();
+}
 const etageDessin = () => S.dessinEtage || 0;
 const rectsEtage = (d, R, k) => d.pieces.filter(p => (p.etage || 0) === k && R.rect.has(p.id)).map(p => ({ p, r: R.rect.get(p.id) }));
 
@@ -1845,9 +1905,13 @@ function apercuDessin(d, R, opts = {}) {
   const k = etageDessin(), rs = rectsEtage(d, R, k), dessous = k > 0 ? rectsEtage(d, R, k - 1) : [];
   const svg = el('svg', { class: 'apercuDessin', role: 'img', 'aria-label': 'Aperçu du dessin' });
   const tous = d.pieces.filter(p => R.rect.has(p.id)).map(p => R.rect.get(p.id));
-  if (!tous.length) { svg.setAttribute('viewBox', '0 0 10 4'); svg.append(el('text', { x: 5, y: 2.2, 'text-anchor': 'middle', 'font-size': 0.5, fill: '#5E6B74' }, 'Ajoutez une pièce')); return svg; }
-  // cadrage commun à tous les étages : l'aperçu ne saute pas d'un étage à l'autre
-  const x0 = Math.min(...tous.map(r => r.x0)) - 1.5, y0 = Math.min(...tous.map(r => r.y0)) - 1.5, x1 = Math.max(...tous.map(r => r.x1)) + 1.5, y1 = Math.max(...tous.map(r => r.y1)) + 1.5;
+  const croquis = !!S.croquis && !opts.exporter;   // le mode « ✏️ Croquis » : on trace au doigt sur tout le cadre
+  if (!tous.length && !croquis) { svg.setAttribute('viewBox', '0 0 10 4'); svg.append(el('text', { x: 5, y: 2.2, 'text-anchor': 'middle', 'font-size': 0.5, fill: '#5E6B74' }, 'Ajoutez une pièce')); return svg; }
+  // cadrage commun à tous les étages : l'aperçu ne saute pas d'un étage à l'autre. En croquis, de la place autour pour tracer
+  const marge = croquis ? 4 : 1.5;
+  let x0 = tous.length ? Math.min(...tous.map(r => r.x0)) - marge : -1, y0 = tous.length ? Math.min(...tous.map(r => r.y0)) - marge : -1;
+  let x1 = tous.length ? Math.max(...tous.map(r => r.x1)) + marge : 15, y1 = tous.length ? Math.max(...tous.map(r => r.y1)) + marge : 11;
+  if (croquis && x1 - x0 < 14) { const c = (x0 + x1) / 2; x0 = c - 7; x1 = c + 7; }
   svg.setAttribute('viewBox', [x0, y0, x1 - x0, y1 - y0].join(' '));
   // cadrage de base gardé sur le SVG : le dézoom (« recul ») l'agrandit autour de son centre, sans redessiner
   svg.dataset.base = [x0, y0, x1 - x0, y1 - y0].join(' ');
@@ -1859,19 +1923,36 @@ function apercuDessin(d, R, opts = {}) {
     // la forme réelle (une pièce découpée autour d'un WC posé dedans n'est plus un rectangle)
     const mp = R.donnees && R.donnees.pieces.find(x => x.id === 'd-' + p.id), forme = mp && mp.points && mp.points.length >= 4 ? mp.points : null;
     const st = { fill: sel ? '#FCE9E3' : '#E7EEF2', stroke: sel ? '#C5563A' : '#2C4A5E', 'stroke-width': sel ? 0.12 : 0.08 };
-    g.append(forme ? el('polygon', { points: forme.map(q => q.join(',')).join(' '), ...st }) : el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, ...st }));
+    g.append(forme ? el('polygon', { points: forme.map(q => q.join(',')).join(' '), 'data-piece-forme': p.id, ...st }) : el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, ...st }));
     // le nom (et la surface) peut être décalé s'il cache une cote ; un toucher sur une cote (ou le nom de la pièce sélectionnée) la modifie
-    const et = DR.etiquetteDe(p), nx = (r.x0 + r.x1) / 2 + et.dx, ny = (r.y0 + r.y1) / 2 + et.dy;
+    const centre = p.poly ? CQ.pointInterieur(p.poly) : [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2];
+    const et = DR.etiquetteDe(p), nx = centre[0] + et.dx, ny = centre[1] + et.dy;
     const nom = el('g', { 'data-edit': 'nom' });
     nom.append(el('text', { x: nx, y: ny, 'text-anchor': 'middle', 'font-size': t, 'font-weight': 700, fill: '#1A2B36' }, p.nom));
     nom.append(el('text', { x: nx, y: ny + t * 1.2, 'text-anchor': 'middle', 'font-size': t * 0.8, fill: '#5E6B74' }, String((R.resume && (R.resume.detail.find(x => x.id === 'd-' + p.id) || {}).sol) ?? Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²'));
     g.append(nom);
-    g.append(el('text', { x: (r.x0 + r.x1) / 2, y: r.y0 + t * 0.9, 'text-anchor': 'middle', 'font-size': t * 0.75, fill: '#2C4A5E', 'data-edit': 'longueur', style: 'cursor:text' }, String(r3l(r.x1 - r.x0)).replace('.', ',')));
-    g.append(el('text', { x: r.x0 + t * 0.35, y: (r.y0 + r.y1) / 2, 'text-anchor': 'start', 'font-size': t * 0.75, fill: '#2C4A5E', 'data-edit': 'largeur', style: 'cursor:text' }, String(r3l(r.y1 - r.y0)).replace('.', ',')));
+    if (p.poly) {   // pièce tracée au doigt : la longueur de chaque mur, un peu à l'intérieur ; un toucher la modifie
+      CQ.murs(p.poly).forEach(m => {
+        if (m.longueur < t * 1.2) return;
+        const ux = (m.b[0] - m.a[0]) / m.longueur, uy = (m.b[1] - m.a[1]) / m.longueur, mx = (m.a[0] + m.b[0]) / 2, my = (m.a[1] + m.b[1]) / 2;
+        // la cote se pose à l'intérieur de la pièce, décalée de la moitié de son texte : jamais coupée par le mur
+        const sg = CQ.dedans([mx - uy * 0.2, my + ux * 0.2], p.poly) ? 1 : -1, nx = -uy * sg, ny = ux * sg;
+        const fs = t * 0.7, txt = String(r3l(m.longueur)).replace('.', ','), hw = 0.29 * fs * txt.length, hh = 0.36 * fs, off = Math.abs(nx) * hw + Math.abs(ny) * hh + 0.07;
+        g.append(el('text', { x: mx + nx * off, y: my + ny * off + fs * 0.35, 'text-anchor': 'middle', 'font-size': fs, fill: '#2C4A5E', stroke: st.fill, 'stroke-width': fs * 0.28, 'paint-order': 'stroke', 'stroke-linejoin': 'round', 'data-edit': 'mur:' + m.i, style: 'cursor:text' }, txt));
+      });
+    } else {
+      g.append(el('text', { x: (r.x0 + r.x1) / 2, y: r.y0 + t * 0.9, 'text-anchor': 'middle', 'font-size': t * 0.75, fill: '#2C4A5E', 'data-edit': 'longueur', style: 'cursor:text' }, String(r3l(r.x1 - r.x0)).replace('.', ',')));
+      g.append(el('text', { x: r.x0 + t * 0.35, y: (r.y0 + r.y1) / 2, 'text-anchor': 'start', 'font-size': t * 0.75, fill: '#2C4A5E', 'data-edit': 'largeur', style: 'cursor:text' }, String(r3l(r.y1 - r.y0)).replace('.', ',')));
+    }
     // portes et fenêtres de la pièce : un trait de couleur sur le côté
     d.ouvertures.filter(o => o.piece === p.id).forEach(o => {
       const w = DRnb(o.largeur) || 0.9, pos = DRnb(o.position) || 0;
-      const [ax, ay, bx, by] = o.cote === 'haut' ? [r.x0 + pos, r.y0, r.x0 + pos + w, r.y0] : o.cote === 'bas' ? [r.x0 + pos, r.y1, r.x0 + pos + w, r.y1]
+      let seg = null;
+      if (Array.isArray(o.au) && p.poly) {   // ouverture posée par un point du mur (croquis) : un trait le long de ce mur
+        const m = CQ.murProche(o.au, [{ id: p.id, poly: p.poly }], 0.3);
+        if (m) { const A = p.poly[m.i], B = p.poly[(m.i + 1) % p.poly.length], l = m.longueur || 1, ux = (B[0] - A[0]) / l, uy = (B[1] - A[1]) / l; seg = [o.au[0] - ux * w / 2, o.au[1] - uy * w / 2, o.au[0] + ux * w / 2, o.au[1] + uy * w / 2]; }
+      }
+      const [ax, ay, bx, by] = seg ? seg : o.cote === 'haut' ? [r.x0 + pos, r.y0, r.x0 + pos + w, r.y0] : o.cote === 'bas' ? [r.x0 + pos, r.y1, r.x0 + pos + w, r.y1]
         : o.cote === 'gauche' ? [r.x0, r.y0 + pos, r.x0, r.y0 + pos + w] : [r.x1, r.y0 + pos, r.x1, r.y0 + pos + w];
       g.append(el('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: '#FFFFFF', 'stroke-width': 0.22 }));
       g.append(el('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: COUL_OUV[o.type] || '#C0392B', 'stroke-width': o.type === 'portefenetre' ? 0.16 : 0.1, 'stroke-dasharray': o.type === 'passage' ? '0.12 0.08' : '', 'data-ouverture': o.id }));
@@ -1887,7 +1968,22 @@ function apercuDessin(d, R, opts = {}) {
     g.append(el('text', { x: 0, y: 0, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': Math.max(0.28, Math.min(0.55, Math.max(l, w) * 0.45)), transform: 'rotate(' + (-(x.rot || 0)) + ')' }, ty[2]));
     svg.append(g);
   });
-  if (!opts.exporter) brancherGlisser(svg, d, R);
+  if (croquis) {
+    const vbw = x1 - x0, hr = Math.max(0.14, vbw * 0.016);
+    // le mur dont on demande la longueur (échelle) : en rouge, bien épais
+    const E = S.echelleMur && d.pieces.find(z => z.id === S.echelleMur.piece && z.poly);
+    if (E) { const m = CQ.murs(E.poly)[S.echelleMur.i]; if (m) svg.append(el('line', { x1: m.a[0], y1: m.a[1], x2: m.b[0], y2: m.b[1], stroke: '#C5563A', 'stroke-width': Math.max(0.14, vbw * 0.012), 'stroke-linecap': 'round', 'data-mur-echelle': '1' })); }
+    // la couche qui reçoit le doigt : tout le cadre ; le tracé en cours se dessine dessus
+    svg.append(el('rect', { class: 'croquisFond', x: -1000, y: -1000, width: 2000, height: 2000, fill: 'rgba(0,0,0,0)', style: 'pointer-events:all;touch-action:none' }));
+    svg.append(el('polyline', { id: 'traitCroquis', fill: 'none', stroke: S.croquisOutil === 'gomme' ? '#8A949B' : '#C5563A', 'stroke-width': Math.max(0.05, vbw * 0.0045), 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none', points: '' }));
+    // poignées : les sommets de la pièce sélectionnée se glissent (zone tactile large, point visible plus petit)
+    const sel = d.pieces.find(z => z.id === S.dessinSel && z.poly && (z.etage || 0) === k);
+    if (sel && S.croquisOutil === 'modifier') sel.poly.forEach((q, i) => {
+      svg.append(el('circle', { cx: q[0], cy: q[1], r: hr * 2.2, fill: 'rgba(0,0,0,0)', 'data-sommet': i, 'data-piece-sommet': sel.id, style: 'pointer-events:all;touch-action:none;cursor:move' }));
+      svg.append(el('circle', { cx: q[0], cy: q[1], r: hr, fill: '#FFFFFF', stroke: '#C5563A', 'stroke-width': hr * 0.4, 'pointer-events': 'none', 'data-poignee': i }));
+    });
+    brancherCroquis(svg, d, R);
+  } else if (!opts.exporter) brancherGlisser(svg, d, R);
   return svg;
 }
 /* glisser au doigt dans l'aperçu (un doigt) ; le pincement (deux doigts) est géré par le cadre du zoom */
@@ -1916,12 +2012,174 @@ async function modifierSurDessin(id, champ) {
     const n = prompt('Nom de la pièce', p.nom); if (n == null) return;
     return majDessin(x => { const q = x.pieces.find(z => z.id === id); if (q) q.nom = n.trim().slice(0, 40) || q.nom; S.dessinSel = id; });
   }
+  if (champ.startsWith('mur:') && p.poly) {   // la cote d'un mur d'une pièce tracée au doigt
+    const i = +champ.slice(4), m = CQ.murs(p.poly)[i]; if (!m) return;
+    const v = prompt('Longueur du mur ' + (i + 1) + ', en mètres', String(Math.round(m.longueur * 100) / 100).replace('.', ',')); if (v == null) return;
+    const n = DRnb(v), np = n >= 0.3 && n <= 50 ? CQ.changerLongueurMur(p.poly, i, n) : null;
+    if (!np) { infoCroquis('err', 'Cote non prise : entre 0,30 et 50 m, sans que les murs se croisent.'); return redessiner(); }
+    return majDessin(x => { const q = x.pieces.find(z => z.id === id); if (q) { q.poly = np; synchroBoite(q); x.ouvertures = CQ.recalerOuvertures(x.ouvertures, x.pieces, 0.4); } S.dessinSel = id; infoCroquis(); });
+  }
   const lib = champ === 'longueur' ? 'Longueur (gauche ↔ droite), en mètres' : 'Largeur (haut ↕ bas), en mètres';
   const v = prompt(lib, String(p[champ]).replace('.', ',')); if (v == null) return;
   const n = DRnb(v);
   if (!(n >= 0.3 && n <= 50)) { S.message = { type: 'err', texte: 'Cote non prise : entre 0,30 et 50 m.' }; return redessiner(); }
   return majDessin(x => { const q = x.pieces.find(z => z.id === id); if (q) q[champ] = Math.round(n * 100) / 100; S.dessinSel = id; });
 }
+/* ---------- « ✏️ Croquis » : on trace une pièce au doigt, elle devient une pièce aux murs droits (releve/croquis.js) ----------
+   Pointer Events sur la couche du cadre (touch-action: none : pas de défilement ni de zoom du navigateur pendant le tracé) ;
+   un deuxième doigt interrompt le tracé et laisse le pincement zoomer. Un tracé fermé = une pièce ; un petit trait le long d'un
+   mur = une porte ou une fenêtre ; un simple toucher sélectionne ; la gomme efface une pièce ou une ouverture ; une poignée
+   déplace un sommet (les angles droits sont gardés). Chaque action est annulable (↶). */
+const polysEtage = (d, R, k) => d.pieces.filter(p => (p.etage || 0) === k && R.rect.has(p.id)).map(p => ({ id: p.id, poly: p.poly && p.poly.length >= 3 ? p.poly : CQ.polyDeRect(R.rect.get(p.id)) }));
+const synchroBoite = p => { if (!p.poly) return; const b = CQ.boite(p.poly); p.longueur = Math.round((b.x1 - b.x0) * 100) / 100; p.largeur = Math.round((b.y1 - b.y0) * 100) / 100; };
+const aMesuresScan = () => !!M.valeur(visite(), 'scan.fichier');
+const infoCroquis = (type, texte) => { S.croquisInfo = texte ? { type, texte } : null; };
+
+function basculerCroquis() {
+  S.croquis = !S.croquis; S.croquisOutil = 'tracer'; S.croquisInfo = null; S.ouvNouvelle = null;
+  if (S.croquis) { S.dessinSym = null; S.poseSymbole = null; S.choixSymbole = false; }
+  redessiner();
+}
+
+/* un mur de la pièce translaté / changé : les ouvertures qui y sont posées suivent, ou disparaissent avec lui */
+function deplacerPieceCroquis(q, d, depl) {
+  const [dx, dy] = depl, a = v => Math.round(v * 100) / 100;
+  q.poly = q.poly.map(([x, y]) => [a(x + dx), a(y + dy)]);
+  d.ouvertures.forEach(o => { if (o.piece === q.id && Array.isArray(o.au)) o.au = [a(o.au[0] + dx), a(o.au[1] + dy)]; });
+  synchroBoite(q);
+}
+
+async function appliquerEchelle() {
+  const E = S.echelleMur, d = dessinCourant(), p = E && d.pieces.find(x => x.id === E.piece && x.poly);
+  if (!p) { S.echelleMur = null; return redessiner(); }
+  const m = CQ.murs(p.poly)[E.i], val = DRnb(S.echelleVal) ?? m.longueur, f = val / m.longueur;
+  if (!(f > 0.05 && f < 20) || !(val >= 0.3)) { infoCroquis('err', 'Longueur impossible : entre 0,30 m et ' + String(Math.round(m.longueur * 20 * 100) / 100).replace('.', ',') + ' m.'); return redessiner(); }
+  await majDessin(x => {
+    const a = v => Math.round(v * 100) / 100;
+    x.pieces.forEach(q => { if (q.poly) { q.poly = CQ.mettreAEchelle(q.poly, f); synchroBoite(q); } });
+    x.ouvertures.forEach(o => { if (Array.isArray(o.au)) o.au = [a(o.au[0] * f), a(o.au[1] * f)]; });
+    x.symboles.forEach(sy => { sy.x = a(sy.x * f); sy.y = a(sy.y * f); });
+    x.croquisEchelle = true;
+  });
+  S.echelleMur = null; S.dessinPan = null;
+  infoCroquis('ok', 'Échelle réglée : ce mur mesure ' + String(Math.round(val * 100) / 100).replace('.', ',') + ' m, tout le plan suit.'); redessiner();
+}
+
+/* le trait est fini : une pièce, une ouverture ou un simple toucher */
+async function finTraceCroquis(pts, d, R, vue) {
+  const T = CQ.tolerances(vue), k = etageDessin(), polys = polysEtage(d, R, k), L = CQ.longueurTrace(pts);
+  if (L < T.tap) {   // un toucher : sélectionne la pièce sous le doigt, ou rien
+    const sous = polys.find(q => CQ.dedans(pts[0], q.poly));
+    S.dessinSel = sous ? sous.id : null; S.dessinSym = null; infoCroquis(); return redessiner();
+  }
+  const ouv = L <= T.ouvertureMax ? CQ.ouvertureSurTrait(pts, polys, { tol: T.ouverture, longueurMax: T.ouvertureMax }) : null;
+  if (ouv) { S.ouvNouvelle = ouv; infoCroquis(); return redessiner(); }
+  const r = CQ.pieceDepuisTrace(pts, { vue, autres: polys.map(q => q.poly), aimant: aimantDessin() });
+  if (r.erreur) { infoCroquis(r.raison === 'ouvert' ? 'att' : 'err', r.erreur); return redessiner(); }
+  const id = M.nouvelId().slice(0, 8), premiere = !d.pieces.length, longest = CQ.murs(r.poly).reduce((b, m) => m.longueur > b.longueur ? m : b);
+  await majDessin(x => {
+    const n = { id, nom: x.pieces.length ? 'Pièce ' + (x.pieces.length + 1) : 'Séjour', etage: k, poly: r.poly, longueur: 0, largeur: 0, croquis: true };
+    synchroBoite(n); x.pieces.push(n);
+    // le premier croquis n'a pas d'échelle : on la demande tout de suite (les mesures d'un scan, elles, priment)
+    if (premiere && !aMesuresScan()) x.croquisEchelle = false;
+  });
+  S.dessinSel = id; S.ouvNouvelle = null;
+  if (premiere && !aMesuresScan()) { S.echelleMur = { piece: id, i: longest.i }; S.echelleVal = Math.round(longest.longueur * 100) / 100; infoCroquis(); }
+  else infoCroquis('ok', 'Pièce tracée : ' + r.poly.length + ' murs. Touchez une cote pour la corriger.');
+  redessiner();
+}
+
+/* un type choisi : l'ouverture est créée sur le mur touché (point du mur pour une pièce tracée, côté et position pour un rectangle) */
+async function creerOuvertureCroquis(type) {
+  const N = S.ouvNouvelle; S.ouvNouvelle = null; if (!N) return redessiner();
+  const ty = DR.TYPES_OUVERTURE.find(z => z[0] === type), w = ty[2], id = M.nouvelId().slice(0, 8), d = dessinCourant(), p = d.pieces.find(z => z.id === N.piece);
+  if (!p) return redessiner();
+  await majDessin(x => {
+    if (p.poly) x.ouvertures.push({ id, piece: p.id, type, largeur: w, au: [N.au[0], N.au[1]] });
+    else {   // rectangle : le côté le plus proche du point, et la position le long de ce côté
+      const r = DR.placer(d.pieces).rect.get(p.id), c = [['haut', Math.abs(N.au[1] - r.y0)], ['bas', Math.abs(N.au[1] - r.y1)], ['gauche', Math.abs(N.au[0] - r.x0)], ['droite', Math.abs(N.au[0] - r.x1)]].sort((u, v) => u[1] - v[1])[0][0];
+      const lat = c === 'gauche' || c === 'droite', lon = lat ? r.y1 - r.y0 : r.x1 - r.x0, along = lat ? N.au[1] - r.y0 : N.au[0] - r.x0;
+      x.ouvertures.push({ id, piece: p.id, type, cote: c, position: Math.max(0, Math.min(lon - w, Math.round((along - w / 2) * 100) / 100)), largeur: w });
+    }
+  });
+  S.ouvEdit = id; redessiner();
+}
+
+function brancherCroquis(svg, d, R) {
+  const pt = e => { const m = svg.getScreenCTM(); if (!m) return [0, 0]; const q = svg.createSVGPoint(); q.x = e.clientX; q.y = e.clientY; const r = q.matrixTransform(m.inverse()); return [r.x, r.y]; };
+  const vue = () => (svg.viewBox.baseVal.width || 14) / ((S.dessinZoom && S.dessinZoom.s) || 1);   // largeur visible, en mètres
+  const trait = svg.querySelector('#traitCroquis'), k = etageDessin();
+  let g = null;    // tracé, gomme ou sommet en cours
+  const dessinerTrait = pts => trait && trait.setAttribute('points', pts.map(q => q.join(',')).join(' '));
+  const annuler = () => { g = null; dessinerTrait([]); };
+  svg.addEventListener('pointerdown', e => {
+    // souris : seul le bouton gauche trace (le droit et la molette déplacent le plan, voir cadreZoomDessin)
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // un deuxième doigt : le pincement (zoom) prend la main, le tracé commencé est abandonné
+    if (!e.isPrimary || S.pinceDessin) { annuler(); return; }
+    e.preventDefault();
+    const som = e.target.closest && e.target.closest('[data-sommet]');
+    svg.setPointerCapture(e.pointerId);
+    if (som && S.croquisOutil === 'modifier') {
+      const piece = som.dataset.pieceSommet, i = +som.dataset.sommet, p = d.pieces.find(z => z.id === piece);
+      g = { type: 'sommet', id: e.pointerId, piece, i, poly: p.poly, courant: p.poly, ok: true, bouge: false, ecran: [e.clientX, e.clientY] };
+      return;
+    }
+    g = { type: S.croquisOutil === 'gomme' ? 'gomme' : S.croquisOutil === 'modifier' ? 'toucher' : 'tracer', id: e.pointerId, pts: [pt(e)], hit: null };
+    if (g.type !== 'toucher') dessinerTrait(g.pts);
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!g || e.pointerId !== g.id) return;
+    if (S.pinceDessin) { annuler(); return; }
+    e.preventDefault();
+    if (g.type === 'sommet') {
+      if (!g.bouge && Math.hypot(e.clientX - g.ecran[0], e.clientY - g.ecran[1]) < 4) return;
+      g.bouge = true;
+      const T = CQ.tolerances(vue()), autres = polysEtage(d, R, k).filter(q => q.id !== g.piece).map(q => q.poly);
+      const np = CQ.deplacerSommet(g.poly, g.i, pt(e), { autres: aimantDessin() ? autres : [], seuil: aimantDessin() ? T.aimant : 0, minMur: T.murMini });
+      g.ok = !!np && !autres.some(q => CQ.chevauche(np, q));
+      if (g.ok) g.courant = np;
+      const forme = svg.querySelector('[data-piece-forme="' + g.piece + '"]');
+      if (forme) { forme.setAttribute('points', g.courant.map(q => q.join(',')).join(' ')); forme.setAttribute('stroke', g.ok ? '#C5563A' : '#B42318'); }
+      const pg = svg.querySelector('[data-poignee="' + g.i + '"]'); if (pg) { pg.setAttribute('cx', g.courant[g.i][0]); pg.setAttribute('cy', g.courant[g.i][1]); }
+      return;
+    }
+    // les points intermédiaires que le navigateur a regroupés comptent aussi (tracé plus fidèle sur iPhone)
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    (evs.length ? evs : [e]).forEach(ev => { const q = pt(ev), der = g.pts[g.pts.length - 1]; if (Math.hypot(q[0] - der[0], q[1] - der[1]) > 1e-3) g.pts.push(q); });
+    if (g.type !== 'toucher') dessinerTrait(g.pts);
+    if (g.type === 'gomme' && !g.hit) {   // la gomme repère ce qu'elle touche ; l'effacement a lieu au relâchement
+      const T = CQ.tolerances(vue()), polys = polysEtage(d, R, k);
+      g.hit = CQ.gommer(g.pts[g.pts.length - 1], polys, d.ouvertures, T.ouverture * 1.3);
+    }
+  });
+  const fin = async e => {
+    const x = g; if (!x || e.pointerId !== x.id) return; g = null; dessinerTrait([]);
+    if (x.type === 'sommet') {
+      if (!x.bouge) return;
+      if (!x.ok && x.courant === x.poly) { infoCroquis('err', 'Forme impossible : les murs se croiseraient ou la pièce chevaucherait une voisine.'); return redessiner(); }
+      if (!x.ok) infoCroquis('att', 'Dernière position valable gardée : la forme demandée n’était pas possible.'); else infoCroquis();
+      return majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { q.poly = x.courant; synchroBoite(q); y.ouvertures = CQ.recalerOuvertures(y.ouvertures, y.pieces, 0.4); } });
+    }
+    if (x.type === 'gomme') {
+      if (!x.hit) return redessiner();
+      return majDessin(y => {
+        if (x.hit.type === 'ouverture') y.ouvertures = y.ouvertures.filter(o => o.id !== x.hit.id);
+        else { y.pieces = y.pieces.filter(q => q.id !== x.hit.id); y.ouvertures = y.ouvertures.filter(o => o.piece !== x.hit.id); y.pieces.forEach(q => { if (q.contre && q.contre.id === x.hit.id) delete q.contre; }); S.dessinSel = null; }
+        infoCroquis('ok', (x.hit.type === 'ouverture' ? 'Ouverture effacée' : 'Pièce effacée') + ' — ↶ pour annuler.');
+      });
+    }
+    if (x.type === 'toucher') {   // outil « Modifier » : un toucher sélectionne la pièce sous le doigt (ses poignées apparaissent) ; un glissé hors poignée ne fait rien
+      if (CQ.longueurTrace(x.pts) >= CQ.tolerances(vue()).tap * 2) return;
+      const sous = polysEtage(d, R, k).find(q => CQ.dedans(x.pts[0], q.poly)); S.dessinSel = sous ? sous.id : null; infoCroquis(); return redessiner();
+    }
+    await finTraceCroquis(x.pts, d, R, vue());
+  };
+  svg.addEventListener('pointerup', fin);
+  svg.addEventListener('pointercancel', annuler);
+  svg.addEventListener('lostpointercapture', e => { if (g && e.pointerId === g.id && g.type !== 'sommet') { /* le doigt a quitté l'écran sans pointerup : on abandonne */ annuler(); } });
+}
+
 function brancherGlisser(svg, d, R) {
   const pt = e => { const m = svg.getScreenCTM(); if (!m) return [0, 0]; const q = svg.createSVGPoint(); q.x = e.clientX; q.y = e.clientY; const r = q.matrixTransform(m.inverse()); return [r.x, r.y]; };
   let g = null;
@@ -1961,7 +2219,7 @@ function brancherGlisser(svg, d, R) {
       else { S.dessinSym = S.dessinSym === x.sym ? null : x.sym; S.dessinSel = null; }
       return redessiner();
     }
-    if (x.piece) await majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { q.libre = { x: Math.round((x.r.x0 + x.depl[0]) * 100) / 100, y: Math.round((x.r.y0 + x.depl[1]) * 100) / 100 }; delete q.contre;
+    if (x.piece) await majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { if (q.poly) deplacerPieceCroquis(q, y, x.depl); else { q.libre = { x: Math.round((x.r.x0 + x.depl[0]) * 100) / 100, y: Math.round((x.r.y0 + x.depl[1]) * 100) / 100 }; delete q.contre; }
       // les symboles posés dans la pièce la suivent (radiateurs, WC… d'une esquisse que l'on replace)
       const et = q.etage || 0, dans = sy => (sy.etage || 0) === et && sy.x > x.r.x0 && sy.x < x.r.x1 && sy.y > x.r.y0 && sy.y < x.r.y1;
       y.symboles.filter(dans).forEach(sy => { sy.x = Math.round((sy.x + x.depl[0]) * 100) / 100; sy.y = Math.round((sy.y + x.depl[1]) * 100) / 100; }); } S.dessinSel = x.piece; });
@@ -1994,10 +2252,18 @@ function appliquerRecul(svg, r) {
   const w = b[2] * r, hh = b[3] * r, pan = S.dessinPan || { x: 0, y: 0 };
   svg.setAttribute('viewBox', [b[0] + b[2] / 2 - w / 2 + pan.x, b[1] + b[3] / 2 - hh / 2 + pan.y, w, hh].join(' '));
 }
+// PC : Ctrl+Z annule, Ctrl+Maj+Z (ou Ctrl+Y) rétablit, comme dans un logiciel de dessin (seulement en croquis, hors champ de saisie)
+document.addEventListener('keydown', e => {
+  if (S.ecran !== 'dessin' || !S.croquis) return;
+  const t = e.target; if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  const mod = e.ctrlKey || e.metaKey, k = String(e.key).toLowerCase();
+  if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); annulerDessin(); }
+  else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); retablirDessin(); }
+});
 // Échap quitte le plein écran du dessin
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.dessinPlein) { S.dessinPlein = false; redessiner(); } });
 function cadreZoomDessin(svg) {
-  const cadre = h('div', { class: 'cadreZoomDessin' }, svg);
+  const cadre = h('div', { class: 'cadreZoomDessin' + (S.croquis ? ' modeCroquis' : ''), id: 'cadreZoomDessin' }, svg);
   let z = S.dessinZoom || { s: 1, x: 0, y: 0 }, recul = S.dessinRecul || 1;
   const niveau = h('span', { class: 'mut petit', id: 'niveauZoomDessin' });
   const appliquer = () => { const r = cadre.getBoundingClientRect(); z = cadrerZoom(z, r.width || 1, r.height || 1); S.dessinZoom = z; S.dessinRecul = recul;
@@ -2013,7 +2279,9 @@ function cadreZoomDessin(svg) {
   const doigts = new Map(); let pince = null, glisse = null;
   // un doigt sur le fond (ni pièce ni symbole) : tout le plan se déplace dans le cadre
   cadre.addEventListener('pointerdown', e => {
-    if (doigts.size === 0 && !S.poseSymbole && !e.target.closest('[data-piece-dessin],[data-symbole],button')) {
+    const sourisAutre = e.pointerType === 'mouse' && e.button !== 0;   // en croquis, le bouton droit ou du milieu de la souris déplace le plan
+    if (S.croquis && sourisAutre) e.preventDefault();
+    if (doigts.size === 0 && !S.poseSymbole && (!S.croquis || sourisAutre) && !e.target.closest('[data-piece-dessin],[data-symbole],button')) {
       const vb = svg.viewBox.baseVal, r = svg.getBoundingClientRect();
       glisse = { x: e.clientX, y: e.clientY, pan: { ...(S.dessinPan || { x: 0, y: 0 }) }, k: vb && r.width ? vb.width / r.width : 0 };
     }
@@ -2025,6 +2293,7 @@ function cadreZoomDessin(svg) {
   }, true);
   const finGlisse = () => { glisse = null; };
   cadre.addEventListener('pointerup', finGlisse, true); cadre.addEventListener('pointercancel', finGlisse, true);
+  cadre.addEventListener('contextmenu', e => { if (S.croquis) e.preventDefault(); });   // pas de menu du navigateur pendant le croquis
   cadre.addEventListener('pointerdown', e => { doigts.set(e.pointerId, centre(e)); if (doigts.size === 2) glisse = null;
     if (doigts.size === 2) { const P = [...doigts.values()]; pince = { z: { ...z }, recul, d: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) || 1, m: [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] }; S.pinceDessin = true; } }, true);
   cadre.addEventListener('pointermove', e => { if (!doigts.has(e.pointerId)) return; doigts.set(e.pointerId, centre(e));
@@ -2060,12 +2329,73 @@ function reglageMetres(valeur, libelle, nom, pas, poserValeur, min = 0.3, unite 
 const DRnb = v => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return isFinite(n) ? n : null; };
 const COTES_OUV = [['haut', 'Haut'], ['droite', 'Droite'], ['bas', 'Bas'], ['gauche', 'Gauche']];
 
+/* la barre du mode « ✏️ Croquis », sous l'aperçu : outils, annuler / rétablir, échelle, fin */
+function barreCroquis(d) {
+  const H = histoDessin(), outil = (id, lib) => h('button', { class: 'puce grand' + (S.croquisOutil === id ? ' on' : ''), type: 'button', id: 'outilCroquis-' + id, 'aria-pressed': String(S.croquisOutil === id),
+    onclick: () => { S.croquisOutil = id; infoCroquis(); redessiner(); } }, lib);
+  return h('div', { class: 'barreCroquis', id: 'barreCroquis' },
+    h('p', { class: 'mut petit', style: 'margin:6px 0', id: 'aideCroquis' }, S.croquisOutil === 'gomme'
+      ? 'Glissez sur une pièce (son mur) ou sur une porte ou une fenêtre pour l’effacer.'
+      : S.croquisOutil === 'modifier'
+        ? 'Touchez une pièce : ses sommets apparaissent. Glissez un sommet pour changer la forme (les angles droits sont gardés). Touchez une cote pour la corriger.'
+        : 'Tracez une pièce au doigt, en revenant à votre point de départ. Un petit trait le long d’un mur : porte ou fenêtre. Un toucher sélectionne une pièce.'),
+    h('div', { class: 'puces' }, outil('tracer', '✏️ Tracer'), outil('modifier', '✋ Modifier'), outil('gomme', '🧽 Gomme'),
+      h('button', { class: 'puce grand', type: 'button', id: 'annulerDessin', title: 'Annuler (Ctrl+Z)', disabled: !H.pile.length, onclick: annulerDessin }, '↶ Annuler'),
+      h('button', { class: 'puce grand', type: 'button', id: 'retablirDessin', title: 'Rétablir (Ctrl+Maj+Z)', disabled: !H.refaire.length, onclick: retablirDessin }, '↷ Rétablir'),
+      d.croquisEchelle === false && !S.echelleMur ? h('button', { class: 'puce grand', type: 'button', id: 'fixerEchelle', onclick: () => {
+        const p = d.pieces.find(z => z.poly); if (!p) return; const m = CQ.murs(p.poly).reduce((b, x) => x.longueur > b.longueur ? x : b);
+        S.echelleMur = { piece: p.id, i: m.i }; S.echelleVal = Math.round(m.longueur * 100) / 100; redessiner(); } }, '📏 Échelle') : null,
+      h('button', { class: 'puce grand', type: 'button', id: 'finCroquis', onclick: basculerCroquis }, '✓ Terminé')),
+    S.croquisInfo ? h('div', { class: 'message ' + S.croquisInfo.type, id: 'infoCroquis', role: 'status', style: 'margin:8px 0 0' }, S.croquisInfo.texte) : null);
+}
+
+/* les murs d'une pièce tracée : une cote chacun, modifiable ; les angles droits sont gardés */
+function mursPiece(p, maj) {
+  return [h('div', { class: 'champ' }, 'MURS DE LA PIÈCE (' + p.poly.length + ')'),
+    CQ.murs(p.poly).map(m => reglageMetres(Math.round(m.longueur * 100) / 100, 'MUR ' + (m.i + 1) + (m.classe === 'O' ? ' (en biais)' : ''), 'mur-' + m.i, 0.05, x => {
+      const np = CQ.changerLongueurMur(p.poly, m.i, x);
+      if (!np) { infoCroquis('err', 'Cette longueur est impossible pour le mur ' + (m.i + 1) + ' (les murs se croiseraient).'); return redessiner(); }
+      maj((q, y) => { q.poly = np; synchroBoite(q); y.ouvertures = CQ.recalerOuvertures(y.ouvertures, y.pieces, 0.4); });
+    }, 0.3, ' m', 50))];
+}
+
+/* les cartes du mode : l'échelle (« Quelle est la longueur de ce mur ? »), le menu d'une ouverture, sa largeur */
+function cartesCroquis(d, R) {
+  if (!S.croquis) return null;
+  const cartes = [];
+  if (S.echelleMur) {
+    const p = d.pieces.find(z => z.id === S.echelleMur.piece && z.poly), m = p && CQ.murs(p.poly)[S.echelleMur.i];
+    if (m) cartes.push(h('div', { class: 'carte echelleMur', id: 'echelleMur' },
+      h('b', {}, '📏 Quelle est la longueur de ce mur ?'),
+      h('p', { class: 'mut petit' }, 'C’est le mur en rouge sur le dessin. Cette mesure règle l’échelle de tout le plan ; chaque mur reste modifiable ensuite.'),
+      reglageMetres(S.echelleVal ?? Math.round(m.longueur * 100) / 100, 'LONGUEUR DU MUR', 'echelle-mur', 0.1, x => { S.echelleVal = x; redessiner(); }, 0.3, ' m', 200),
+      h('div', { class: 'rang', style: 'margin-top:10px' },
+        h('button', { class: 'gros sec', type: 'button', id: 'echellePlusTard', onclick: () => { S.echelleMur = null; redessiner(); } }, 'Plus tard'),
+        h('button', { class: 'gros', type: 'button', id: 'echelleValider', onclick: appliquerEchelle }, 'Fixer l’échelle'))));
+  }
+  if (S.ouvNouvelle) cartes.push(h('div', { class: 'carte menuOuverture', id: 'menuOuverture' },
+    h('b', {}, 'Que mettre sur ce mur ?'),
+    h('div', { class: 'rang', style: 'margin-top:8px;flex-wrap:wrap' },
+      [['porte', '🚪 Porte'], ['fenetre', '🪟 Fenêtre'], ['portefenetre', '▭ Baie']].map(([t, lib]) => h('button', { class: 'gros sec', type: 'button', 'data-type-ouverture': t, style: 'flex:1 1 30%', onclick: () => creerOuvertureCroquis(t) }, lib)),
+      h('button', { class: 'lienRetour', type: 'button', id: 'annulerOuverture', onclick: () => { S.ouvNouvelle = null; redessiner(); } }, 'Annuler'))));
+  const o = S.ouvEdit && d.ouvertures.find(z => z.id === S.ouvEdit);
+  if (o) { const ty = DR.TYPES_OUVERTURE.find(z => z[0] === o.type) || DR.TYPES_OUVERTURE[0];
+    cartes.push(h('div', { class: 'carte ouvEdition', id: 'ouvEdition' },
+      h('div', { class: 'rang', style: 'justify-content:space-between' }, h('b', { style: 'color:' + COUL_OUV[o.type] }, ty[1] + ' posée'),
+        h('button', { class: 'puce', type: 'button', id: 'retirerOuvertureCroquis', onclick: () => { majDessin(x => { x.ouvertures = x.ouvertures.filter(z => z.id !== o.id); }); S.ouvEdit = null; } }, '🗑 Retirer')),
+      reglageMetres(o.largeur || ty[2], 'LARGEUR', 'ouv-largeur-croquis', 0.05, x => majDessin(y => { const q = y.ouvertures.find(z => z.id === o.id); if (q) q.largeur = x; }), 0.3, ' m', 6),
+      h('button', { class: 'gros', type: 'button', id: 'ouvOk', style: 'margin-top:8px', onclick: () => { S.ouvEdit = null; redessiner(); } }, 'OK'))); }
+  return cartes;
+}
+
 function ecranDessin() {
   const v = visite();
   if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
+  // en arrivant sur l'écran (et non à chaque redessin), le croquis repart de zéro : jamais un mode resté actif d'une visite à l'autre
+  if (S.dernierEcran !== 'dessin') { S.croquis = false; S.croquisOutil = 'tracer'; S.croquisInfo = null; S.ouvNouvelle = null; S.ouvEdit = null; S.echelleMur = null; }
   const d = dessinCourant(), R = DR.releveDepuisDessin(d.pieces, { hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
   const noms = DR.nomsEtages(d.etages, d.pieces), k = Math.min(etageDessin(), noms.length - 1); S.dessinEtage = k;
-  const retour = () => { S.ecran = 'visite'; S.message = null; S.dessinPlein = false; dessiner(); window.scrollTo(0, 0); };
+  const retour = () => { S.ecran = 'visite'; S.message = null; S.dessinPlein = false; S.croquis = false; S.ouvNouvelle = null; S.echelleMur = null; dessiner(); window.scrollTo(0, 0); };
   const ici = rectsEtage(d, R, k);
   // une nouvelle pièce se pose à droite de l'étage affiché : on la glisse ensuite où l'on veut
   const ajouter = () => majDessin(x => {
@@ -2083,7 +2413,7 @@ function ecranDessin() {
     const projet = 'Plan de ' + M.intitule(visite());
     const nv = DR.releveDepuisDessin(d.pieces, { projet, hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
     await changer(w => { let x = w; if (actuel) x = M.modifier(x, 'plan.ecarte', actuel); return M.modifier(x, 'plan', { releve: nv.donnees, resume: nv.resume }); });
-    S.message = null; S.dessinPlein = false; vibrer(); ouvrirPlan();
+    S.message = null; S.dessinPlein = false; S.croquis = false; vibrer(); ouvrirPlan();
   };
   const symSel = d.symboles.find(x => x.id === S.dessinSym && (x.etage || 0) === k);
   const tySel = symSel && DR.TYPES_SYMBOLE.find(z => z[0] === symSel.type);
@@ -2108,12 +2438,15 @@ function ecranDessin() {
           // les trois gestes de base, juste sous le dessin
           : h('div', { class: 'actionsDessin' },
             h('button', { class: 'gros sec', type: 'button', id: 'ajouterPieceDessin', onclick: ajouter }, '＋ Pièce'),
-            h('button', { class: 'gros sec' + (S.choixSymbole ? ' on' : ''), type: 'button', id: 'ajoutSymboleIci', onclick: () => { S.choixSymbole = !S.choixSymbole; redessiner(); } }, '＋ Symbole'),
+            h('button', { class: 'gros sec' + (S.croquis ? ' on' : ''), type: 'button', id: 'croquisDessin', 'aria-pressed': String(!!S.croquis), onclick: basculerCroquis }, '✏️ Croquis'),
+            h('button', { class: 'gros sec' + (S.choixSymbole ? ' on' : ''), type: 'button', id: 'ajoutSymboleIci', onclick: () => { S.choixSymbole = !S.choixSymbole; if (S.choixSymbole) S.croquis = false; redessiner(); } }, '＋ Symbole'),
             d.pieces.length ? h('button', { class: 'gros sec', type: 'button', id: 'avantApresDessin', onclick: () => avantApresDessin().catch(() => montrerMessage('err', 'L’image du dessin n’a pas pu être préparée.')) }, '🖍 Annoter') : null),
+        S.croquis ? barreCroquis(d) : null,
         S.choixSymbole && !S.poseSymbole ? h('div', { id: 'choixSymboleIci', style: 'margin-top:4px' }, DR.FAMILLES_SYMBOLE.map(([f, nomF]) => h('div', {},
           h('div', { class: 'mut petit', style: 'margin:6px 0 2px;font-weight:600' }, nomF),
           h('div', { class: 'puces' }, DR.TYPES_SYMBOLE.filter(t => t[5] === f).map(t => h('button', { class: 'puce', type: 'button', 'data-poser-symbole': t[0],
             onclick: () => { S.poseSymbole = t[0]; S.choixSymbole = false; redessiner(); } }, t[2] + ' ' + t[1])))))) : null),
+      cartesCroquis(d, R),
       // lu sur un plan 2D : le plan d'origine sous la main, pour comparer
       (() => { const n = Array.isArray(d.sources) ? d.sources.length : d.source ? 1 : 0;
         const pps = n ? M.actifs(v.photos).filter(x => x.role === 'planPapier').sort((a, b) => String(b.importeLe || '').localeCompare(String(a.importeLe || ''))).slice(0, Math.min(n, 12)) : [];
@@ -2136,15 +2469,15 @@ function ecranDessin() {
         const ouvs = d.ouvertures.filter(o => o.piece === p.id);
         return h('div', { class: 'carte pieceDessin' + (sel ? ' sel' : ''), 'data-dessin': p.id },
           h('div', { class: 'rang', style: 'justify-content:space-between', onclick: () => { if (!sel) { S.dessinSel = p.id; S.dessinSym = null; redessiner(); } } },
-            h('b', {}, p.nom + ' · ' + String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m' + (ouvs.length ? ' · ' + ouvs.length + ' ouv.' : '') + (p.note ? ' · 📝' : '')),
+            h('b', {}, p.nom + ' · ' + (p.poly ? String(Math.round(CQ.aire(p.poly) * 100) / 100).replace('.', ',') + ' m² · ' + p.poly.length + ' murs' : String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m') + (ouvs.length ? ' · ' + ouvs.length + ' ouv.' : '') + (p.note ? ' · 📝' : '')),
             h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer ' + p.nom, onclick: async e => { e.stopPropagation(); if (!(await confirmer('Supprimer « ' + p.nom + ' » ?'))) return;
               majDessin(x => { x.pieces = x.pieces.filter(y => y.id !== p.id); x.ouvertures = x.ouvertures.filter(o => o.piece !== p.id); x.pieces.forEach(y => { if (y.contre && y.contre.id === p.id) delete y.contre; }); }); } }, '🗑')),
           sel ? [
             h('label', { class: 'champ' }, 'NOM', h('input', { class: 'in', name: 'dessin-nom', value: p.nom, autocapitalize: 'sentences', onchange: e => maj(q => { q.nom = e.target.value.trim() || 'Pièce'; }) })),
             // les noms les plus courants en un toucher (les autres se tapent)
             h('div', { class: 'puces' }, M.PIECES_COURANTES.slice(0, 6).map(n => h('button', { class: 'puce' + (p.nom === n ? ' on' : ''), type: 'button', onclick: () => maj(q => { q.nom = n; }) }, n))),
-            reglageMetres(p.longueur, 'LONGUEUR (gauche ↔ droite)', 'dessin-longueur', 0.1, x => maj(q => { q.longueur = x; })),
-            reglageMetres(p.largeur, 'LARGEUR (haut ↕ bas)', 'dessin-largeur', 0.1, x => maj(q => { q.largeur = x; })),
+            p.poly ? mursPiece(p, maj) : [reglageMetres(p.longueur, 'LONGUEUR (gauche ↔ droite)', 'dessin-longueur', 0.1, x => maj(q => { q.longueur = x; })),
+            reglageMetres(p.largeur, 'LARGEUR (haut ↕ bas)', 'dessin-largeur', 0.1, x => maj(q => { q.largeur = x; }))],
 
             // portes, fenêtres, passages : sur un côté de la pièce
             h('div', { class: 'champ' }, 'PORTES ET FENÊTRES'),
@@ -2178,7 +2511,7 @@ function ecranDessin() {
                   et.dx || et.dy ? h('button', { class: 'puce', type: 'button', 'data-nom-vers': 'centre', onclick: () => maj(q => { delete q.etiquette; }) }, 'Au centre') : null)); })(),
             noms.length > 1 ? [h('div', { class: 'champ' }, 'À L’ÉTAGE'), h('div', { class: 'puces' }, noms.map((nom, j) => h('button', { class: 'puce' + ((p.etage || 0) === j ? ' on' : ''), type: 'button',
               onclick: () => maj(q => { q.etage = j; if (r) q.libre = { x: r.x0, y: r.y0 }; delete q.contre; S.dessinEtage = j; }) }, nom)))] : null,
-            autres.length ? [
+            autres.length && !p.poly ? [
               h('div', { class: 'champ' }, 'OU POSÉE PRÉCISÉMENT'),
               h('div', { class: 'puces' }, DR.COTES.map(([c, lib]) => h('button', { class: 'puce' + (p.contre && p.contre.cote === c ? ' on' : ''), type: 'button',
                 onclick: () => maj(q => { delete q.libre; q.contre = { id: (q.contre && q.contre.id) || autres[autres.length - 1].id, cote: c, decalage: 0 }; }) }, lib))),

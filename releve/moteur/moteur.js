@@ -2596,6 +2596,16 @@ window.addEventListener('message', e => {
     let texte = m.texte;
     if (m.images && Object.keys(m.images).length) { try { const d = JSON.parse(texte); d.imagesEmbarquees = m.images; texte = JSON.stringify(d); } catch (err) { /* le message d'erreur vient de chargerTexte */ } }
     chargerTexte(texte, m.nom || 'releve', { reprise: !!m.reprise });
+  } else if (m.type === 'releve:dxf' && typeof m.texte === 'string') {
+    /* le dossier permis demande le DXF du plan : calculé à part, sans toucher au plan ouvert ni à la visite */
+    let dxf = null, erreur = '';
+    try { const d = JSON.parse(m.texte); preparerDonnees(d); dxf = construireDxf(analyser(d)); } catch (err) { erreur = String((err && err.message) || err); }
+    if (!dxf) versVisite({ type: 'releve:dxfPret', erreur: erreur || 'plan illisible' });
+    else dxf.arrayBuffer().then(buf => {
+      const o = new Uint8Array(buf); let bin = '';
+      for (let i = 0; i < o.length; i += 0x8000) bin += String.fromCharCode.apply(null, o.subarray(i, i + 0x8000));
+      versVisite({ type: 'releve:dxfPret', dxf_base64: btoa(bin) });
+    });
   } else if (m.type === 'releve:image') {
     /* la visite demande l'image du plan (avant / après) : le dessin du moment, cotes comprises */
     versVisite({ type: 'releve:imagePlan', image: modele ? imagePlan() : null });

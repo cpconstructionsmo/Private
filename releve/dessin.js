@@ -14,15 +14,30 @@
    vraie longueur, ajouter portes et fenêtres, 3D, PDF.
    Fonctions pures. Tests : tests/t_releve_dessin.js. */
 
+import * as CQ from './croquis.js';
+
 export const COTES = [['droite', 'à droite de'], ['bas', 'en dessous de'], ['gauche', 'à gauche de'], ['haut', 'au-dessus de']];
 const r3 = v => Math.round(v * 1000) / 1000;
 const nb = v => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return isFinite(n) ? n : null; };
+
+/* une pièce tracée au doigt (« ✏️ Croquis ») : son polygone `poly`, en mètres (≥ 3 sommets) ; sinon, une pièce rectangulaire */
+export const formePoly = p => Array.isArray(p && p.poly) && p.poly.length >= 3 && p.poly.every(q => Array.isArray(q) && isFinite(q[0]) && isFinite(q[1])) ? p.poly : null;
+const rectPoly = r => [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+// le moteur attend le contour dans le sens des aiguilles d'une montre à l'écran (y vers le bas), comme les rectangles
+const sensMoteur = poly => poly.reduce((t, q, i) => { const n = poly[(i + 1) % poly.length]; return t + q[0] * n[1] - n[0] * q[1]; }, 0) < 0 ? poly.slice().reverse() : poly;
 
 /* une pièce saisie : { id, nom, longueur, largeur, contre?: { id, cote, decalage } }
    → son rectangle { x0, y0, x1, y1 } (x vers la droite, y vers le bas) */
 export function placer(pieces) {
   const rect = new Map(), erreurs = [];
   (pieces || []).forEach((p, i) => {
+    const forme = formePoly(p);
+    if (forme) {
+      const b = CQ.boite(forme);
+      if (!(b.x1 - b.x0 >= 0.3 && b.x1 - b.x0 <= 50 && b.y1 - b.y0 >= 0.3 && b.y1 - b.y0 <= 50)) { erreurs.push((p.nom || 'Pièce ' + (i + 1)) + ' : dimensions entre 0,30 et 50 m.'); return; }
+      rect.set(p.id, { x0: r3(b.x0), y0: r3(b.y0), x1: r3(b.x1), y1: r3(b.y1) });
+      return;
+    }
     const L = nb(p.longueur), W = nb(p.largeur);
     if (!(L >= 0.3 && L <= 50 && W >= 0.3 && W <= 50)) { erreurs.push((p.nom || 'Pièce ' + (i + 1)) + ' : longueur et largeur entre 0,30 et 50 m.'); return; }
     const c = p.contre && rect.get(p.contre.id), d = nb(p.contre && p.contre.decalage) || 0;
@@ -87,6 +102,8 @@ export function chevauchements(pieces, rect) {
   for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
     if ((L[i].etage || 0) !== (L[j].etage || 0)) continue;          // deux étages se superposent, normalement
     const a = rect.get(L[i].id), b = rect.get(L[j].id);
+    const fa = formePoly(L[i]), fb = formePoly(L[j]);
+    if (fa || fb) { if (CQ.chevauche(fa || rectPoly(a), fb || rectPoly(b))) res.push([L[i].nom, L[j].nom]); continue; }   // pièces tracées au doigt
     if (incluse(a, b) || incluse(b, a)) continue;                     // découpée autour (voir contourDecoupe)
     const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), oy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
     if (ox > 0.01 && oy > 0.01) res.push([L[i].nom, L[j].nom]);
@@ -96,21 +113,18 @@ export function chevauchements(pieces, rect) {
 
 /* le contour d'une pièce, avec les coins des voisines posés sur ses murs
    (sens horaire à l'écran : haut, droite, bas, gauche) */
-function contour(r, autres) {
+function contour(r, autres, voisinsPts) {
   // une pièce qui en contient d'autres contre son bord : son contour est découpé autour d'elles
   const dedans = autres.filter(o => incluse(o, r));
   const poly = dedans.length ? contourDecoupe(r, dedans) : null;
   if (poly) return contourPoly(poly, autres.filter(o => !dedans.includes(o)).concat(dedans));
   const surSegment = (fixe, axe, debut, fin) => {
     const pts = new Set();
-    autres.forEach(o => {
-      const coins = [[o.x0, o.y0], [o.x1, o.y0], [o.x1, o.y1], [o.x0, o.y1]];
-      coins.forEach(([x, y]) => {
-        // un bout de mur de moins de 3 cm n'a pas de sens (et le moteur le refuse) : coin voisin ignoré
-        const sur = axe === 'x' ? Math.abs(y - fixe) < 0.0005 && x > Math.min(debut, fin) + 0.03 && x < Math.max(debut, fin) - 0.03
-          : Math.abs(x - fixe) < 0.0005 && y > Math.min(debut, fin) + 0.03 && y < Math.max(debut, fin) - 0.03;
-        if (sur) pts.add(axe === 'x' ? x : y);
-      });
+    (voisinsPts || autres.flatMap(rectPoly)).forEach(([x, y]) => {
+      // un bout de mur de moins de 3 cm n'a pas de sens (et le moteur le refuse) : coin voisin ignoré
+      const sur = axe === 'x' ? Math.abs(y - fixe) < 0.0005 && x > Math.min(debut, fin) + 0.03 && x < Math.max(debut, fin) - 0.03
+        : Math.abs(x - fixe) < 0.0005 && y > Math.min(debut, fin) + 0.03 && y < Math.max(debut, fin) - 0.03;
+      if (sur) pts.add(axe === 'x' ? x : y);
     });
     return [...pts].sort((a, b) => debut < fin ? a - b : b - a);
   };
@@ -120,6 +134,23 @@ function contour(r, autres) {
   surSegment(r.y1, 'x', r.x1, r.x0).forEach(x => P.push([x, r.y1])); P.push([r.x0, r.y1]);
   surSegment(r.x0, 'y', r.y1, r.y0).forEach(y => P.push([r.x0, y]));
   return P.map(([x, y]) => [r3(x), r3(y)]);
+}
+
+/* le contour d'une pièce tracée au doigt : ses sommets (sens du moteur), avec les sommets des voisines qui
+   tombent sur l'un de ses murs (un mur commun n'est vu qu'une fois par le moteur) */
+function contourLibre(poly, voisinsPts) {
+  const P = sensMoteur(poly), out = [];
+  P.forEach((A, i) => {
+    const B = P[(i + 1) % P.length]; out.push(A);
+    const dx = B[0] - A[0], dy = B[1] - A[1], l2 = dx * dx + dy * dy; if (!l2) return;
+    const sur = [];
+    voisinsPts.forEach(q => {
+      const t = ((q[0] - A[0]) * dx + (q[1] - A[1]) * dy) / l2, lon = Math.sqrt(l2);
+      if (t * lon > 0.03 && (1 - t) * lon > 0.03 && Math.hypot(q[0] - (A[0] + t * dx), q[1] - (A[1] + t * dy)) < 0.0005) sur.push([t, q]);   // pas à moins de 3 cm d'un coin
+    });
+    sur.sort((u, v) => u[0] - v[0]).forEach(([t, q], k) => { if (!k || t - sur[k - 1][0] > 1e-6) out.push([q[0], q[1]]); });
+  });
+  return out.map(([x, y]) => [r3(x), r3(y)]);
 }
 
 /* le contour d'un polygone à angles droits, avec les coins des voisines posés sur ses murs */
@@ -152,7 +183,11 @@ export function releveDepuisDessin(pieces, { projet = 'Dessin rapide', hauteur =
   const noms = nomsEtages(etages, posees);
   const et = p => Math.min(noms.length - 1, Math.max(0, Number.isInteger(p.etage) ? p.etage : 0));
   // les coins des voisines ne se posent que sur les murs du même étage
-  const contours = new Map(posees.map(p => [p.id, contour(rect.get(p.id), posees.filter(o => o !== p && et(o) === et(p)).map(o => rect.get(o.id)))]));
+  const sommetsDe = o => formePoly(o) || rectPoly(rect.get(o.id));
+  const contours = new Map(posees.map(p => {
+    const voisines = posees.filter(o => o !== p && et(o) === et(p)), pts = voisines.flatMap(sommetsDe);
+    return [p.id, formePoly(p) ? contourLibre(formePoly(p), pts) : contour(rect.get(p.id), voisines.filter(o => !formePoly(o)).map(o => rect.get(o.id)), pts)];
+  }));
   const ouv = ouverturesMoteur(ouvertures, posees, rect, contours);
   ouv.erreurs.forEach(e => erreurs.push(e));
   const donnees = {
@@ -209,6 +244,21 @@ export function ouverturesMoteur(ouvertures, pieces, rect, contours) {
     const p = (pieces || []).find(x => x.id === o.piece), r = p && rect.get(p.id), pts = p && contours.get(p.id);
     if (!r || !pts) return;
     const lib = (TYPES_OUVERTURE.find(t => t[0] === o.type) || TYPES_OUVERTURE[0])[1] + ' de « ' + (p.nom || 'Pièce') + ' »';
+    if (formePoly(p)) {   // pièce tracée au doigt : l'ouverture est posée par le point `au` de son mur
+      const w0 = nb(o.largeur) ?? 0.9;
+      if (!(w0 >= 0.3 && w0 <= 6)) { erreurs.push(lib + ' : largeur entre 0,30 et 6 m.'); return; }
+      let au = Array.isArray(o.au) ? o.au : null;
+      if (!au) {   // ouverture saisie « côté + position » (pièces rectangulaires) : lue sur le côté de la boîte de la pièce
+        const cote0 = ['haut', 'droite', 'bas', 'gauche'].includes(o.cote) ? o.cote : 'bas', c = Math.max(0, nb(o.position) || 0) + w0 / 2;
+        au = cote0 === 'haut' ? [r.x0 + c, r.y0] : cote0 === 'bas' ? [r.x0 + c, r.y1] : cote0 === 'gauche' ? [r.x0, r.y0 + c] : [r.x1, r.y0 + c];
+      }
+      const m = CQ.murProche([au[0], au[1]], [{ id: p.id, poly: pts }], 0.03);
+      if (!m) { erreurs.push(lib + ' : mur introuvable.'); return; }
+      const lon = m.longueur;
+      if (lon < w0 - 0.005) { erreurs.push(lib + ' : plus large que son mur (' + String(r3(w0)).replace('.', ',') + ' m pour ' + String(r3(lon)).replace('.', ',') + ' m).'); return; }
+      liste.push(ouvertureMoteurDe(o, p, m.i, Math.max(0, Math.min(lon - w0, m.t * lon - w0 / 2)), w0));
+      return;
+    }
     const w = nb(o.largeur), pos = Math.max(0, nb(o.position) || 0), cote = ['haut', 'droite', 'bas', 'gauche'].includes(o.cote) ? o.cote : 'bas';
     const longCote = cote === 'haut' || cote === 'bas' ? r.x1 - r.x0 : r.y1 - r.y0;
     if (!(w >= 0.3 && w <= 6)) { erreurs.push(lib + ' : largeur entre 0,30 et 6 m.'); return; }
@@ -233,11 +283,15 @@ export function ouverturesMoteur(ouvertures, pieces, rect, contours) {
     if (B > trouve.hi + 0.005) { if (trouve.hi - trouve.lo < w - 0.005) { erreurs.push(lib + ' : à cheval sur deux murs (une pièce voisine coupe ce côté) : déplacez-la.'); return; } A = trouve.hi - w; B = trouve.hi; }
     // position du moteur : depuis le début du mur, dans le sens du contour
     const position = cote === 'haut' || cote === 'droite' ? A - trouve.lo : trouve.hi - B;
-    const type = o.type === 'portefenetre' ? 'fenetre' : o.type === 'fenetre' || o.type === 'passage' ? o.type : 'porte';
-    liste.push({ type, piece: 'd-' + p.id, mur: trouve.i, position: r3(position), largeur: r3(w),
-      ...(o.type === 'portefenetre' ? { hauteur: nb(o.hauteur) >= 1.6 && nb(o.hauteur) <= 3.5 ? r3(nb(o.hauteur)) : 2.15, allege: 0 } : nb(o.hauteur) >= 0.3 && nb(o.hauteur) <= 3.5 ? { hauteur: r3(nb(o.hauteur)) } : {}), ...(o.charniere === 'fin' ? { charniere: 'fin' } : {}), ...(o.sens === 'inverse' ? { sens: 'inverse' } : {}), dessin: o.id });
+    liste.push(ouvertureMoteurDe(o, p, trouve.i, position, w));
   });
   return { liste, erreurs };
+}
+/* l'ouverture au format du moteur (hauteur, allège, charnière, sens repris du dessin) */
+function ouvertureMoteurDe(o, p, mur, position, w) {
+  const type = o.type === 'portefenetre' ? 'fenetre' : o.type === 'fenetre' || o.type === 'passage' ? o.type : 'porte';
+  return ({ type, piece: 'd-' + p.id, mur, position: r3(position), largeur: r3(w),
+      ...(o.type === 'portefenetre' ? { hauteur: nb(o.hauteur) >= 1.6 && nb(o.hauteur) <= 3.5 ? r3(nb(o.hauteur)) : 2.15, allege: 0 } : nb(o.hauteur) >= 0.3 && nb(o.hauteur) <= 3.5 ? { hauteur: r3(nb(o.hauteur)) } : {}), ...(o.charniere === 'fin' ? { charniere: 'fin' } : {}), ...(o.sens === 'inverse' ? { sens: 'inverse' } : {}), dessin: o.id });
 }
 
 /* les symboles : équipements posés sur le plan (centre x, y en mètres, rotation par quarts de tour) */

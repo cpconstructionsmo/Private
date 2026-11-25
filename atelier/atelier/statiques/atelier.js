@@ -73,8 +73,29 @@ async function accueil() {
           <p class="petit discret">Le projet est créé en plain-pied ; un étage ne s'étudie que si vous le demandez.</p>
         </form>
       </div>
+      <div class="carte">
+        <h2>Depuis le relevé de visite</h2>
+        <p class="petit discret">Choisissez le fichier « dossier permis » préparé par le relevé. L'atelier crée le projet, lit le plan
+          et prépare un PDF <b>brouillon</b>. <b>Rien n'est validé</b> : les points d'arrêt restent à signer, et tout ce qui est supposé
+          ou manquant reste marqué « à confirmer ».</p>
+        <form id="depuisReleve">
+          <label><span>Dossier permis du relevé (.json)</span><input type="file" name="fichier" accept=".json,application/json" required></label>
+          <button>Préparer le brouillon</button>
+        </form>
+      </div>
     </div>`;
   $('#app').querySelectorAll('a[data-p]').forEach(a => a.onclick = () => { location.hash = '#/projet/' + a.dataset.p; });
+  $('#depuisReleve').onsubmit = async ev => {
+    ev.preventDefault();
+    const bouton = ev.target.querySelector('button'); bouton.disabled = true; bouton.textContent = 'Préparation du brouillon…';
+    const f = new FormData(ev.target); f.set('par', par());
+    try {
+      const r = await api('/depuis-releve', { method: 'POST', body: f });
+      location.hash = '#/projet/' + r.dossier;
+      message(r.fichier ? 'Brouillon prêt (rien n\'est validé) : ' + r.fichier.split('/').pop()
+                        : 'Projet créé, PDF non produit : ' + (r.avertissement || 'voir le projet'), !r.fichier);
+    } catch (e) { message(e.message, true); bouton.disabled = false; bouton.textContent = 'Préparer le brouillon'; }
+  };
   $('#nouveau').onsubmit = async ev => {
     ev.preventDefault();
     const f = new FormData(ev.target);

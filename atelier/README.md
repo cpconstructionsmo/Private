@@ -81,6 +81,24 @@ l'arrêter.
    dans `04_pieces/<indice>/`. Tout ce qui reste supposé est rappelé en
    rouge sur les planches, sous « À CONFIRMER AVANT DÉPÔT ».
 
+## Brouillon depuis le relevé de visite
+
+Sur l'accueil, **« Depuis le relevé de visite »** : on choisit le fichier « dossier permis » préparé par le relevé
+(client, adresse, parcelle, plan en DXF). L'atelier crée le projet, lit le plan et produit un **PDF brouillon**
+(`04_pieces/<indice>/…_jeu-complet.pdf`) : page de garde, coupes, notice, façades, plan de toiture, plan du RDC.
+
+Ce que le brouillon **ne fait pas** (R2, R6) :
+- aucun point d'arrêt n'est validé ni signé : une personne les signe, à son nom ;
+- ce qui vient du relevé (surface du terrain…) reste une hypothèse ⚠️ avec sa source, jamais « confirmé » ;
+- ce qui manque reste « [à préciser] » et rappelé en rouge sous « À CONFIRMER AVANT DÉPÔT » : volumétrie, règles du PLU,
+  texte de la notice ;
+- le plan de masse demande le terrain ; la situation, l'insertion et les photos demandent leurs images ;
+- le seuil de 150 m² reste bloquant : le projet est créé, mais le PDF n'est pas produit.
+
+Un dossier déjà repris ne remplace jamais le projet existant : le nouveau porte « 2 », « 3 »… Le plan reçu est gardé
+tel quel dans `00_entrees/`. Format du fichier : `cp-permis`, version 1 (`atelier/depuis_releve.py`).
+Tests : `tests/test_depuis_releve.py` (plan fictif `tests/maison_releve_fictive.dxf`).
+
 ## Les pièces produites
 
 | Pièce | Contenu |

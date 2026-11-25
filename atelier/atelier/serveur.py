@@ -31,6 +31,8 @@ from .notice import PARAGRAPHES
 from .projet import (charger, creer_projet, deposer_document, enregistrer, exporter_json, invalider,
                      lister, racine_par_defaut, valider_point_arret)
 from .rdc import bilan_surfaces, importer_rdc
+from . import depuis_releve
+from .production import produire_pdf
 
 STATIQUES = Path(__file__).parent / "statiques"
 USAGES_POSSIBLES = ["sejour", "chambre", "eau", "circulation", "rangement", "garage", "technique", "exterieur", "autre"]
@@ -641,31 +643,25 @@ def creer_app(racine: Path | None = None) -> FastAPI:
     # ---- pièces graphiques
     @app.post("/api/projets/{nom}/pieces-graphiques")
     def api_generer(nom: str, x: Generation):
-        from datetime import datetime
-        from .pieces_graphiques import ORDRE, generer
         d = dossier_de(nom)
         p = charger(d)
-        quoi = [q for q in x.pieces if q in ORDRE] or None
         try:
-            doc = generer(p, R.lire(racine), quoi, d)
+            p, cible = produire_pdf(racine, d, p, x.pieces, x.par)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        dossier = d / "04_pieces" / p.indice
-        dossier.mkdir(parents=True, exist_ok=True)
-        nomf = f"{datetime.now():%Y-%m-%d_%Hh%M}_{'jeu-complet' if not quoi else '-'.join(quoi)}.pdf"
-        cible = dossier / nomf
-        n = 2
-        while cible.exists():                  # jamais d'écrasement
-            cible = dossier / f"{Path(nomf).stem}_{n}.pdf"
-            n += 1
-        try:
-            doc.subset_fonts()          # seuls les caractères utilisés : un PDF plus léger à déposer
-        except Exception:
-            pass
-        doc.save(cible, garbage=4, deflate=True, deflate_fonts=True)   # police et logo une seule fois
-        p.journal.append(Decision(sujet="Pièces graphiques", choix=f"{cible.name} ({len(doc)} planche(s))", par=x.par))
-        p = enregistrer(d, p, f"Pièces graphiques générées : {cible.name}")
         return {**etat(d, p), "fichier": str(cible.relative_to(d))}
+
+    @app.post("/api/depuis-releve")
+    async def api_depuis_releve(fichier: UploadFile = File(...), par: str = Form("")):
+        """Un dossier « cp-permis » préparé par le relevé → un projet et un PDF brouillon (rien n'est validé)."""
+        contenu = await fichier.read()
+        try:
+            r = depuis_releve.creer(racine, depuis_releve.lire(contenu), par.strip())
+        except depuis_releve.DossierReleveInvalide as e:
+            raise HTTPException(400, str(e))
+        return {**etat(r["dossier"], r["projet"]),
+                "fichier": str(r["fichier"].relative_to(r["dossier"])) if r["fichier"] else None,
+                "avertissement": r["avertissement"]}
 
     @app.get("/api/projets/{nom}/fichiers/{chemin:path}")
     def api_fichier(nom: str, chemin: str):
