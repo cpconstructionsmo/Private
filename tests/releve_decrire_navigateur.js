@@ -52,6 +52,17 @@ let b;
   await p.tap('text=+ Cuisine');
   const [c3]=await Promise.all([p.waitForEvent('filechooser'),p.tap('[data-piece] >> text=🖼 Galerie')]);await c3.setFiles(PHOTO);
   await p.waitForSelector('.photoLegende img[src^="blob:"]');
+  /* raccourcis de l'étape Pièces : une note lue d'ici va dans l'assistant ; « Plan ou esquisse » mène à l'étape Scan et lit le plan */
+  await repondre(p,{texte:'Salle de bains 2,10 x 1,80',restant:97});
+  const [cR]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#raccourciNote')]);await cR.setFiles(PHOTO);
+  await p.waitForFunction(()=>/Note recopiée dans l’assistant/.test(document.querySelector('#raccourcisIA [role=status]').textContent));
+  chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});return L[0]&&/Cuisine 3,20 x 2,80[\s\S]*Salle de bains 2,10 x 1,80/.test(L[0].donnees.valeurs['assistant.texte']||JSON.stringify(L[0].donnees))}),'« 📷 Lire une note » depuis l’étape Pièces : la note s’ajoute à la dictée de l’assistant');
+  await repondre(p,{parties:[{nom:'Esquisse',pieces:[{nom:'Bureau',longueur:3,largeur:3,x:0,y:0}]}]});
+  const [cP]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#raccourciPlan')]);await cP.setFiles(PHOTO);
+  await p.waitForFunction(()=>/1 pièce lue/.test(document.querySelector('main').textContent)&&document.querySelector('#ajouterPieceDessin'),null,{timeout:20000});
+  chk(true,'« 🖼 Plan ou esquisse » depuis l’étape Pièces : l’esquisse est lue et le dessin rapide s’ouvre');
+  await p.tap('text=‹ Visite');await p.tap('.progres button[aria-label^="Étape 4 "]');
+  await p.waitForSelector('.photoLegende img[src^="blob:"]');
 
   /* serveur pas encore redéployé : l'ancienne fonction réclame une consigne */
   await repondre(p,{erreur:'consigne_absente'},400);
