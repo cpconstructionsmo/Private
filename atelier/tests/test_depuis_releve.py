@@ -104,3 +104,12 @@ def test_api(tmp_path):
     assert c.get(f"/api/projets/{j['dossier']}/fichiers/{j['fichier']}").status_code == 200
     mauvais = c.post("/api/depuis-releve", files={"fichier": ("x.json", b"{}")})
     assert mauvais.status_code == 400 and "pas un dossier" in mauvais.json()["detail"]
+
+
+def test_sans_nom_de_client_le_maitre_ouvrage_reste_a_preciser(tmp_path):
+    """Le nom de repère de la visite sert au dossier du projet, jamais de « maître de l'ouvrage » imprimé (R2)."""
+    r = DR.creer(tmp_path, DR.lire(dossier(client={}, visite={"id": "vis-2", "intitule": "Visite sans nom"})))
+    p = charger(r["dossier"])
+    assert p.nom == "Visite sans nom" and p.maitre_ouvrage == ""
+    page1 = pymupdf.open(r["fichier"])[0].get_text()
+    assert "[à préciser]" in page1 and "Visite sans nom" not in page1

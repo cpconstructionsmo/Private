@@ -20,6 +20,7 @@ import * as A from './assistant.js';
 import * as DR from './dessin.js';
 import * as AN from './annotations.js';
 import * as T from './terrain.js';
+import * as PM from './permis.js';
 import { ouvrirVisionneuse, zoomer as zoomerToile, cadrer as cadrerZoom } from './zoom.js';
 import { h } from './dom.js';
 import { vueDossier, dateLongue } from './dossier-vue.js';
@@ -333,6 +334,47 @@ function ecranVisite() {
         ? h('button', { class: 'gros', id: 'terminer', onclick: terminer }, M.valeur(v, 'statut') === 'terminee' ? '✓ Visite terminée' : '✓ Terminer la visite')
         : h('button', { class: 'gros', id: 'suivant', onclick: e => { feter(e.currentTarget); allerEtape(S.etape + 1); } }, 'Suivant ›'))),
   ];
+}
+
+/* ---------- « 🏛 Dossier permis » : le fichier que l'Atelier (Mac) transforme en projet et en PDF brouillon ----------
+   Le DXF du plan est calculé par un moteur caché, hors écran : ses messages ne passent jamais par le gestionnaire
+   du plan ouvert (autre fenêtre), donc rien n'est écrit dans la visite. */
+function dxfDuPlan(plan) {
+  return new Promise((ok, ko) => {
+    const cadre = h('iframe', { src: 'moteur/index.html', title: 'Moteur du plan (caché)', tabindex: '-1', 'aria-hidden': 'true',
+      style: 'position:fixed;left:-9999px;top:0;width:1024px;height:768px;border:0' });
+    let fini = false;
+    const fin = (valeur, erreur) => { if (fini) return; fini = true; clearTimeout(delai); window.removeEventListener('message', ecouter); cadre.remove(); erreur ? ko(erreur) : ok(valeur); };
+    const delai = setTimeout(() => fin(null, new Error('Le plan met trop de temps à se préparer : réessayez.')), 30000);
+    const ecouter = e => {
+      if (e.source !== cadre.contentWindow || e.origin !== location.origin) return;
+      const m = e.data || {};
+      if (m.type === 'releve:pret') cadre.contentWindow.postMessage({ type: 'releve:dxf', texte: JSON.stringify(plan.releve) }, location.origin);
+      else if (m.type === 'releve:dxfPret') m.dxf_base64 ? fin(m.dxf_base64) : fin(null, new Error('Le plan n’a pas pu être converti en DXF (' + (m.erreur || 'erreur') + ').'));
+    };
+    window.addEventListener('message', ecouter);
+    document.body.appendChild(cadre);
+  });
+}
+
+function blocDossierPermis(v) {
+  if (!PM.aUnPlan(v)) return null;
+  const info = h('div', { class: 'mut petit', role: 'status', style: 'margin-top:8px' });
+  const bouton = h('button', { class: 'gros sec', type: 'button', id: 'preparerPermis', style: 'margin-top:10px', onclick: async () => {
+    const lib = bouton.textContent; bouton.disabled = true; bouton.textContent = '⏳ Préparation du plan…'; info.replaceChildren();
+    try {
+      const fichier = PM.dossierPermis(visite(), await dxfDuPlan(M.valeur(visite(), 'plan')));
+      const url = URL.createObjectURL(new Blob([JSON.stringify(fichier)], { type: 'application/json' }));
+      // un vrai lien « télécharger » : Safari refuse un téléchargement lancé à la fin d'un calcul
+      info.replaceChildren(h('a', { class: 'gros', id: 'telechargerPermis', href: url, download: PM.nomFichier(visite()), style: 'text-decoration:none' }, '⬇ Télécharger le dossier permis'),
+        h('p', { class: 'mut petit' }, 'Ouvrez-le dans l’Atelier (sur le Mac) : « Depuis le relevé de visite ». Le brouillon n’est validé par personne : les points d’arrêt restent à signer.'));
+    } catch (e) { info.textContent = (e && e.message) || 'Le dossier permis n’a pas pu être préparé.'; info.className = 'message err petit'; }
+    bouton.disabled = false; bouton.textContent = lib;
+  } }, '🏛 Dossier permis');
+  return h('div', { class: 'carte interne', id: 'blocPermis', style: 'margin-top:14px' },
+    h('b', {}, '🏛 Dossier permis (interne)'),
+    h('p', { class: 'mut petit' }, 'Prépare le fichier que l’Atelier de conception (sur le Mac) transforme en projet et en brouillon du dossier de permis : le plan, le client, l’adresse, la parcelle.'),
+    bouton, info);
 }
 
 async function terminer(e) {
@@ -1811,6 +1853,7 @@ function etapeFin(v) {
       dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null),
       dd('Budget estimé', (M.valeur(v, 'budget') || {}).estimation ? B.formatPlage(M.valeur(v, 'budget').estimation) + ' (indicatif)' : null)),
     h('div', { class: 'interne' }, champ(v, 'notes', 'NOTES DE VISITE (internes, jamais dans le dossier client)', { multiligne: true, autocapitalize: 'sentences' })),
+    blocDossierPermis(v),
     h('button', { class: 'gros sec', id: 'ouvrirDossier', style: 'margin-top:14px', onclick: () => { S.ecran = 'dossier'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '📄 Dossier client'),
   ];
 }
