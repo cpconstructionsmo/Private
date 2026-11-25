@@ -14,6 +14,7 @@ import { creerStockage, magasinIndexedDB } from './stockage.js';
 import { creerSynchro, ESPACE, cheminScan } from './synchro.js';
 import { reduirePhoto } from './photo.js';
 import * as B from './budget.js';
+import * as CH from './chiffrage.js';
 import { dossierClient, OPTIONS_DEFAUT } from './dossier.js';
 import * as A from './assistant.js';
 import * as DR from './dessin.js';
@@ -2420,6 +2421,7 @@ function etapeBudget(v) {
       'data-ouvrage': o.id, 'aria-pressed': String(pris.has(o.id)), onclick: () => basculer(o) },
       h('span', { class: 'ico' }, o.icone), h('span', {}, o.nom)))),
     blocApprofondir(v, budget, calc, pieces, F_, majBudget),
+    blocChiffragePrecis(v, budget, pieces, SP, majBudget),
   ];
   compteur(montant, S.totalAvant, calc.total); S.totalAvant = null;
   return vue;
@@ -2495,6 +2497,156 @@ function carteLigneBudget(l, src, pieces, majBudget) {
       h('button', { class: 'puce' + (!(src.pieces || []).length ? ' on' : ''), type: 'button', onclick: () => changer(x => { x.pieces = []; x.quantite = null; }) }, 'Toute la maison'),
       pieces.map(p => { const on = (src.pieces || []).includes(p.id);
         return h('button', { class: 'puce' + (on ? ' on' : ''), type: 'button', onclick: () => changer(x => { const s = new Set(x.pieces || []); on ? s.delete(p.id) : s.add(p.id); x.pieces = [...s]; x.quantite = null; }) }, p.nom); })) : null);
+}
+
+/* ---------- le chiffrage précis (catalogue de CP, partagé par l'équipe) ----------
+   Table releve_reglages, ligne « chiffrage » : articles, prix et gabarits de
+   CP Constructions (releve/chiffrage.js). Le dépôt est public, donc rien de
+   tout cela n'est livré avec le code : la ligne s'installe à part (voir
+   releve/README.md). Lecture seule ici, copie sur l'appareil pour servir
+   sans réseau ; sans ligne valide, le bloc ne s'affiche pas. */
+const CLE_CHIFFRAGE = 'cp-releve-chiffrage';
+const PC = { donnees: null, etat: 'local' };
+async function chargerChiffrage() {
+  try { const c = JSON.parse(localStorage.getItem(CLE_CHIFFRAGE) || 'null'); if (CH.catalogueValide(c)) PC.donnees = c; } catch (e) { /* pas de copie */ }
+  try {
+    const { data, error } = await supa.from('releve_reglages').select('donnees').eq('id', 'chiffrage').maybeSingle();
+    if (error) { PC.etat = 'local'; return; }
+    PC.etat = 'serveur';
+    if (data && CH.catalogueValide(data.donnees)) {
+      PC.donnees = data.donnees;
+      try { localStorage.setItem(CLE_CHIFFRAGE, JSON.stringify(data.donnees)); } catch (e) { /* stockage plein */ }
+    }
+  } catch (e) { PC.etat = 'local'; }
+}
+
+/* Détail estimatif par lots, avec les prix de CP et les quantités tirées du
+   plan. INTERNE : la marge et les prix d'artisans ne partent jamais dans le
+   dossier client (dossier.js ne lit que l'estimation de budget.js). Gardé
+   dans la visite, sous budget.chiffrage. */
+const nombre = t => { const n = parseFloat(String(t).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n; };
+const virgule = n => n == null ? '' : String(n).replace('.', ',');
+const euros2 = n => (Math.round(n * 100) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+function blocChiffragePrecis(v, budget, pieces, SP, majBudget) {
+  if (!CH.catalogueValide(PC.donnees)) return null;
+  const D = PC.donnees, c = budget.chiffrage || null;
+  const dePlan = CH.pilotesDepuisPlan(pieces);
+  // sans plan, la surface dite à l'étape Projet (construction, agrandissement) sert de point de départ
+  const dite = SP && (SP.construction || SP.agrandissement) ? { S: +(SP.construction || SP.agrandissement) || 0, Sg: 0 } : null;
+  const depart = dePlan || (dite && dite.S > 0 ? { ...dite, P: CH.perimetreEstime(dite.S), source: 'projet' } : { S: 0, Sg: 0, P: 0, source: null });
+  // saisies pas encore validées par « Générer » : rattachées à CETTE visite (S.chiffrageBr.v), jamais reprises sur une autre
+  const br = S.chiffrageBr && S.chiffrageBr.v === v.id ? S.chiffrageBr : null;
+  const pil = c ? c.pilotes : { ...depart, ...((br && br.pilotes) || {}) };
+  const gab = c ? c.gabarit : ((br && br.gabarit) || (pil.S > 0 ? (CH.gabaritProche(D, pil) || {}).id : D.gabarits[0].id));
+  const maj = f => majBudget(b => { if (b.chiffrage) f(b.chiffrage, b); return b; });
+  const ouvert = S.chiffrageOuvert != null ? S.chiffrageOuvert : !!c;
+  const det = h('details', { class: 'approfondir', id: 'chiffragePrecis', open: ouvert, ontoggle: e => { S.chiffrageOuvert = e.target.open; } },
+    h('summary', {}, 'Chiffrage précis (catalogue CP) — interne'));
+  det.appendChild(h('p', { class: 'mut petit' }, 'Détail par lots avec vos prix, d’après les surfaces du plan. Interne : ni la marge ni les prix d’artisans ne figurent dans le dossier client. Estimation d’avant-projet à vérifier avant tout devis.'));
+
+  // les grandeurs qui pilotent les quantités
+  const champsPilotes = h('div', { class: 'rang', style: 'gap:8px;flex-wrap:wrap' }, CH.PILOTES.map(([k, nom]) =>
+    h('label', { class: 'champ', style: 'flex:1;min-width:110px' }, nom,
+      h('input', { class: 'in', inputMode: 'decimal', name: 'chiffrage-' + k, value: virgule(pil[k]),
+        onchange: e => { const n = nombre(e.target.value); const nv = { ...pil, [k]: n == null ? 0 : n };
+          if (k === 'S' && !c) nv.P = CH.perimetreEstime(nv.S);
+          if (c) maj(x => { x.pilotes = nv; }); else { S.chiffrageBr = { ...(br || {}), v: v.id, pilotes: nv }; S.chiffrageOuvert = true; redessiner(); } } }))));
+  det.appendChild(champsPilotes);
+  det.appendChild(h('div', { class: 'mut petit', style: 'margin:4px 0 8px' }, !c && depart.source === 'plan' ? 'Surfaces lues dans le plan (garage et annexes à part) ; le périmètre est estimé : à corriger.'
+    : !c && depart.source === 'projet' ? 'Pas de plan : surface dite à l’étape Projet, à vérifier.' : !c ? 'Pas de plan : saisissez les surfaces.' : 'Surfaces du chiffrage : modifiez-les puis « Recalculer les quantités ».'));
+  det.appendChild(h('label', { class: 'champ' }, 'GABARIT (DOSSIER DE RÉFÉRENCE)',
+    h('select', { class: 'in', id: 'gabaritChiffrage', onchange: e => { if (c) maj(x => { x.gabarit = e.target.value; }); else { S.chiffrageBr = { ...(br || {}), v: v.id, gabarit: e.target.value }; redessiner(); } } },
+      D.gabarits.map(g => h('option', { value: g.id, selected: g.id === gab }, g.nom)))));
+  const g0 = D.gabarits.find(x => x.id === gab);
+  if (g0 && pil.S > 0 && CH.ecartGabarit(g0, pil) > 0.25)
+    det.appendChild(h('div', { class: 'manque', style: 'margin:6px 0' }, 'Votre surface s’écarte de plus de 25 % de celle du gabarit : l’estimation sera moins fiable, choisissez-en un plus proche si possible.'));
+
+  const nid = () => M.nouvelId();
+
+  // les questions d'affinage : vide sanitaire, chauffage, couverture…
+  const questions = CH.questionsDe(D);
+  const opts = c ? (c.options || {}) : ((br && br.options) || {});
+  if (questions.length) {
+    const nRep = CH.nbReponses(D, opts);
+    const bq = h('details', { class: 'questionsChiffrage', id: 'questionsChiffrage', open: S.chiffrageQuestions != null ? S.chiffrageQuestions : !c, ontoggle: e => { S.chiffrageQuestions = e.target.open; } },
+      h('summary', {}, 'Précisions sur le projet' + (nRep ? ' · ' + nRep + ' réponse' + (nRep > 1 ? 's' : '') + ' modifiée' + (nRep > 1 ? 's' : '') : '')));
+    bq.appendChild(h('p', { class: 'mut petit' }, 'Le gabarit reprend les choix d’un ancien dossier. Si votre projet diffère (vide sanitaire, chauffage, couverture…), dites-le : les articles et les quantités suivent.'));
+    for (const q of questions) {
+      const ch = CH.choixDe(q, opts);
+      bq.appendChild(h('label', { class: 'champ', style: 'margin-top:8px' }, q.nom.toUpperCase(),
+        h('select', { class: 'in', name: 'question-' + q.id,
+          onchange: e => { const val = e.target.value;
+            if (c) maj(x => { x.options = { ...(x.options || {}), [q.id]: val }; x.lignes = CH.rebaser(D, x.lignes, x.gabarit, x.pilotes, nid, x.options); });
+            else { S.chiffrageBr = { ...(br || {}), v: v.id, options: { ...opts, [q.id]: val } }; S.chiffrageQuestions = true; redessiner(); } } },
+          q.choix.map(o => h('option', { value: o.id, selected: o.id === ch.id }, o.nom)))));
+      if (q.aide && ch !== q.choix[0]) bq.appendChild(h('div', { class: 'mut petit' }, q.aide));
+    }
+    det.appendChild(bq);
+  }
+  if (!c) {
+    det.appendChild(h('button', { class: 'gros', id: 'genererChiffrage', style: 'margin-top:10px', disabled: !(pil.S > 0),
+      onclick: () => { const gid = gab; S.chiffrageBr = null; S.chiffrageOuvert = true;
+        majBudget(b => { b.chiffrage = { gabarit: gid, pilotes: { S: pil.S, Sg: pil.Sg || 0, P: pil.P || CH.perimetreEstime(pil.S) }, coef: D.coef || 1, tva: D.tva != null ? D.tva : 20, retro: true,
+          options: { ...opts }, lignes: CH.genererLignes(D, gid, pil, nid, opts) }; return b; }); } },
+      '✨ Générer le chiffrage'));
+    return det;
+  }
+
+  // paramètres et bilan
+  const R = CH.chiffrer(D, c.lignes, { coef: c.coef, tva: c.tva, retro: c.retro });
+  det.appendChild(h('div', { class: 'rang', style: 'gap:8px;flex-wrap:wrap;margin-top:6px' },
+    h('label', { class: 'champ', style: 'flex:1;min-width:110px' }, 'COEFFICIENT DE VENTE',
+      h('input', { class: 'in', inputMode: 'decimal', name: 'chiffrage-coef', value: virgule(c.coef), onchange: e => { const n = nombre(e.target.value); if (n > 0) maj(x => { x.coef = n; }); } })),
+    h('label', { class: 'champ', style: 'flex:1;min-width:90px' }, 'TVA (%)',
+      h('input', { class: 'in', inputMode: 'decimal', name: 'chiffrage-tva', value: virgule(c.tva), onchange: e => { const n = nombre(e.target.value); if (n != null && n >= 0) maj(x => { x.tva = n; }); } }))));
+  if (D.retro && D.retro.pct) det.appendChild(h('label', { class: 'case', style: 'display:flex;gap:8px;align-items:flex-start;margin:8px 0' },
+    h('input', { type: 'checkbox', id: 'retroChiffrage', checked: !!c.retro, onchange: e => maj(x => { x.retro = e.target.checked; }) }),
+    h('span', { class: 'petit' }, 'Prix artisan avec majoration de ' + Math.round(D.retro.pct * 100) + ' % (marge arrière) sur les lots concernés')));
+  det.appendChild(h('div', { class: 'carte', id: 'bilanChiffrage' },
+    h('div', { class: 'montant', id: 'ventechiffrage' }, euros(R.venteTTC) + ' TTC'),
+    h('div', { class: 'mut petit' }, 'Prix de vente (' + euros(R.venteHT) + ' HT, coefficient ' + virgule(R.coef) + ')'),
+    h('div', { class: 'rang', style: 'justify-content:space-between;margin-top:8px' }, h('span', {}, 'Prix artisan HT'), h('b', { id: 'artisanchiffrage' }, euros2(R.artisanHT))),
+    h('div', { class: 'rang', style: 'justify-content:space-between' }, h('span', {}, 'Marge annoncée TTC'), h('b', {}, euros2(R.margeAnnoncee))),
+    h('div', { class: 'rang', style: 'justify-content:space-between' }, h('span', {}, 'Marge arrière TTC'), h('b', {}, euros2(R.retroTTC))),
+    h('div', { class: 'rang', style: 'justify-content:space-between' }, h('span', {}, 'Marge totale TTC'), h('b', { id: 'margechiffrage' }, euros2(R.margeTotale) + ' · ' + virgule(R.pourcentMarge) + ' %'))));
+
+  if (R.aChiffrer) det.appendChild(h('div', { class: 'manque', id: 'achiffrerChiffrage', style: 'margin:6px 0' },
+    R.aChiffrer + ' ligne' + (R.aChiffrer > 1 ? 's' : '') + ' sans prix au catalogue : comptée' + (R.aChiffrer > 1 ? 's' : '') + ' à 0 €. Saisissez le prix unitaire (devis d’artisan) pour un total complet.'));
+  // les lots et leurs lignes
+  const fermes = S.chiffrageLotsOuverts || (S.chiffrageLotsOuverts = {});
+  for (const L of R.lots) {
+    det.appendChild(h('details', { class: 'lotChiffrage', 'data-lot': L.lot, open: !!fermes[L.lot], ontoggle: e => { fermes[L.lot] = e.target.open; } },
+      h('summary', {}, L.lot + ' — ' + L.nom + ' · ' + euros2(L.total)),
+      L.lignes.map(l => h('div', { class: 'carte', 'data-ligne': l.id },
+        h('div', { class: 'rang', style: 'justify-content:space-between;align-items:flex-start' },
+          h('b', { class: 'petit' }, l.libelle),
+          h('button', { class: 'puce', type: 'button', 'aria-label': 'Retirer la ligne', onclick: () => maj(x => { x.lignes = x.lignes.filter(y => y.id !== l.id); }) }, '🗑')),
+        h('div', { class: 'rang', style: 'gap:8px;align-items:flex-end' },
+          h('label', { class: 'champ', style: 'flex:1' }, 'QTÉ (' + l.unite + ')' + (l.qte0 != null && Math.abs(l.qte - l.qte0) > 1e-9 ? ' · retouchée' : ''),
+            h('input', { class: 'in', inputMode: 'decimal', name: 'cq-' + l.id, value: virgule(l.qte), onchange: e => { const n = nombre(e.target.value); if (n != null && n >= 0) maj(x => { const y = x.lignes.find(z => z.id === l.id); if (y) y.qte = n; }); } })),
+          h('label', { class: 'champ', style: 'flex:1' }, 'PU HT' + (l.saisi ? ' · saisi' : l.aChiffrer ? ' · à chiffrer' : ''),
+            h('input', { class: 'in', inputMode: 'decimal', name: 'cp-' + l.id, value: l.aChiffrer ? '' : virgule(l.pu), placeholder: l.aChiffrer ? 'à saisir' : '', onchange: e => { const n = nombre(e.target.value); maj(x => { const y = x.lignes.find(z => z.id === l.id); if (y) { if (n == null || n === l.pu && !l.saisi) delete y.pu; else y.pu = n; } }); } })),
+          h('div', { class: 'petit', style: 'min-width:84px;text-align:right;padding-bottom:10px' }, euros2(l.total)))))));
+  }
+
+  // ajouter un article du catalogue, recalculer, retirer
+  const liste = h('datalist', { id: 'listeArticlesChiffrage' }, Object.entries(D.articles).sort((a, b) => a[1].lot.localeCompare(b[1].lot)).map(([code, a]) => h('option', { value: code + ' — ' + a.l.slice(0, 70) })));
+  det.appendChild(h('div', { class: 'champ', style: 'margin-top:12px' }, 'AJOUTER UN ARTICLE DU CATALOGUE'));
+  det.appendChild(liste);
+  det.appendChild(h('div', { class: 'rang', style: 'gap:8px' },
+    h('input', { class: 'in', id: 'articleChiffrage', list: 'listeArticlesChiffrage', placeholder: 'Rechercher…', style: 'flex:2' }),
+    h('input', { class: 'in', id: 'articleQte', inputMode: 'decimal', placeholder: 'Qté', style: 'flex:1' }),
+    h('button', { class: 'gros sec', id: 'ajouterArticle', style: 'flex:0', onclick: () => {
+      const code = (document.getElementById('articleChiffrage').value.split(' — ')[0] || '').trim();
+      const l = CH.nouvelleLigne(D, code, nombre(document.getElementById('articleQte').value), nid);
+      if (!l) { S.message = { type: 'att', texte: 'Article introuvable dans le catalogue.' }; redessiner(); return; }
+      S.chiffrageLotsOuverts = { ...fermes, [D.articles[code].lot]: true };
+      maj(x => { x.lignes.push(l); }); } }, 'Ajouter')));
+  det.appendChild(h('div', { class: 'rang', style: 'gap:8px;margin-top:12px;flex-wrap:wrap' },
+    h('button', { class: 'gros sec', id: 'recalculerChiffrage', onclick: () => maj(x => { x.lignes = CH.rebaser(D, x.lignes, x.gabarit, x.pilotes, nid, x.options); }) }, '↻ Recalculer les quantités'),
+    h('button', { class: 'gros sec', id: 'retirerChiffrage', onclick: () => { if (confirm('Retirer tout le chiffrage précis de cette visite ?')) majBudget(b => { delete b.chiffrage; return b; }); } }, '🗑 Retirer le chiffrage')));
+  det.appendChild(h('p', { class: 'mut petit' }, '« Recalculer » ne touche ni aux quantités retapées, ni aux prix saisis, ni aux articles ajoutés.'));
+  return det;
 }
 
 /* ---------- la table des fourchettes de prix (partagée par l'équipe) ----------
@@ -2836,6 +2988,7 @@ async function demarrer() {
   sync.synchroniser();
   chargerFourchettes().then(() => { if (S.ecran === 'visite' || S.ecran === 'fourchettes') dessiner(); });
   chargerOuvrages().then(() => { if (S.ecran === 'visite' || S.ecran === 'ouvrages') dessiner(); });
+  chargerChiffrage().then(() => { if (S.ecran === 'visite') dessiner(); });
   if (S.ecran !== 'connexion') traiterLien();   // sinon, après la connexion
   window.addEventListener('online', () => sync.synchroniser());
   window.addEventListener('offline', () => sync.synchroniser());

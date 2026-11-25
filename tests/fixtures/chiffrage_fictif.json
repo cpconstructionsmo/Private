@@ -1,0 +1,224 @@
+{
+ "v": 1,
+ "coef": 1.1,
+ "tva": 20,
+ "retro": {
+  "pct": 0.2,
+  "lots": [
+   "031"
+  ]
+ },
+ "lots": {
+  "031": "Maçonnerie",
+  "135": "Plaquisterie",
+  "191": "Carrelage"
+ },
+ "articles": {
+  "T_AGGLO": {
+   "l": "Agglos creux 20 cm (fictif)",
+   "u": "M²",
+   "lot": "031",
+   "pu": 40,
+   "d": "P"
+  },
+  "T_SEMELLE": {
+   "l": "Semelles filantes (fictif)",
+   "u": "M³",
+   "lot": "031",
+   "pu": 300,
+   "d": "P"
+  },
+  "T_PLAF": {
+   "l": "Plafond BA13 (fictif)",
+   "u": "M²",
+   "lot": "135",
+   "pu": 20,
+   "d": "S"
+  },
+  "T_CLOISON": {
+   "l": "Cloison 72 (fictif)",
+   "u": "M²",
+   "lot": "135",
+   "pu": 30,
+   "d": "S"
+  },
+  "T_GARAGE": {
+   "l": "Plafond garage (fictif)",
+   "u": "M²",
+   "lot": "135",
+   "pu": 18,
+   "d": "Sg"
+  },
+  "T_CARREAU": {
+   "l": "Carrelage pose (fictif)",
+   "u": "M²",
+   "lot": "191",
+   "pu": 35,
+   "d": "S"
+  },
+  "T_FORFAIT": {
+   "l": "Forfait nettoyage (fictif)",
+   "u": "U",
+   "lot": "191",
+   "pu": 50,
+   "d": "CONST"
+  },
+  "T_RADIER": {
+   "l": "Radier béton armé (fictif)",
+   "u": "M²",
+   "lot": "031",
+   "pu": 80,
+   "d": "S"
+  },
+  "T_CLOISON_EPAISSE": {
+   "l": "Cloison épaisse (fictif)",
+   "u": "M²",
+   "lot": "135",
+   "pu": 42,
+   "d": "S"
+  },
+  "T_INCONNU": {
+   "l": "Équipement spécial (fictif, à chiffrer)",
+   "u": "U",
+   "lot": "135",
+   "pu": null,
+   "d": "CONST",
+   "ac": true
+  }
+ },
+ "gabarits": [
+  {
+   "id": "ga",
+   "nom": "Petite maison",
+   "S": 100,
+   "Sg": 0,
+   "P": 66,
+   "lignes": [
+    [
+     "T_AGGLO",
+     110
+    ],
+    [
+     "T_SEMELLE",
+     9
+    ],
+    [
+     "T_PLAF",
+     100
+    ],
+    [
+     "T_CLOISON",
+     70
+    ],
+    [
+     "T_CARREAU",
+     60
+    ],
+    [
+     "T_FORFAIT",
+     1
+    ]
+   ]
+  },
+  {
+   "id": "gb",
+   "nom": "Grande maison avec garage",
+   "S": 150,
+   "Sg": 30,
+   "P": 100,
+   "lignes": [
+    [
+     "T_AGGLO",
+     165
+    ],
+    [
+     "T_SEMELLE",
+     13.5
+    ],
+    [
+     "T_PLAF",
+     150
+    ],
+    [
+     "T_CLOISON",
+     105
+    ],
+    [
+     "T_GARAGE",
+     30
+    ],
+    [
+     "T_CARREAU",
+     90
+    ],
+    [
+     "T_FORFAIT",
+     1
+    ]
+   ]
+  }
+ ],
+ "questions": [
+  {
+   "id": "fond",
+   "nom": "Fondations",
+   "aide": "Fictif",
+   "retire": [
+    "T_SEMELLE"
+   ],
+   "choix": [
+    {
+     "id": "ref",
+     "nom": "Comme le dossier de référence"
+    },
+    {
+     "id": "radier",
+     "nom": "Radier",
+     "lignes": [
+      [
+       "T_RADIER",
+       "S",
+       1.0
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cloisons",
+   "nom": "Cloisons",
+   "aide": "Fictif",
+   "retire": [
+    "T_CLOISON"
+   ],
+   "choix": [
+    {
+     "id": "ref",
+     "nom": "Comme le dossier de référence"
+    },
+    {
+     "id": "epaisses",
+     "nom": "Cloisons épaisses",
+     "lignes": [
+      [
+       "T_CLOISON_EPAISSE",
+       "S",
+       0.7
+      ]
+     ]
+    },
+    {
+     "id": "special",
+     "nom": "Équipement spécial",
+     "lignes": [
+      [
+       "T_INCONNU",
+       "CONST",
+       2
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}
