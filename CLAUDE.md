@@ -122,6 +122,7 @@ qu'on ait à les redire.
   `t_chiffrage_xlsx.js`. Installation :
   `supabase/releve/schema.sql`. Tests : `t_releve_*.js`,
   `releve*_navigateur.js` (scan fictif `tests/releve_scan_fictif.js`).
+  Chiffrage précis par lots (Budget › « Chiffrage précis », interne, `releve/chiffrage.js`) : catalogue et prix dans la ligne `chiffrage` de `releve_reglages`, JAMAIS dans le dépôt public (fixtures fictives seulement) ; marge jamais dans le dossier client.
 - **Plan électrique** : le DQE (quantitatif du marché « Électricité », ou un
   fichier) est la jauge du plan — `elecLireDQE`, `elecControle`. Aucune
   règle réglementaire n'est inscrite dans le code : elles se saisissent
