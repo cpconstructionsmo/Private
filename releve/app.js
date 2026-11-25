@@ -176,14 +176,16 @@ function texteEtat() {
   if (e.etat === 'synchro') return '↻ Envoi…';
   if (e.etat === 'ok' && !e.enAttente) return '✓ Synchronisé';
   if (e.etat === 'horsligne') return '⏸ Sur l’appareil' + (e.enAttente ? ' · ' + e.enAttente : '');
-  // rien n'est perdu : la visite est déjà gardée sur l'appareil, l'envoi reprendra tout seul (message rassurant devant le client)
-  if (e.etat === 'erreur') return '✓ Gardé sur l’appareil · envoi dès que possible';
+  if (e.etat === 'partiel') return '⚠ ' + ((e.refuses || []).length > 1 ? e.refuses.length + ' fichiers trop gros' : 'Fichier trop gros') + ' · touchez';
+  // rien n'est perdu : tout est gardé sur l'appareil. Devant un client : message rassurant ; sinon, la vraie cause en deux mots
+  if (e.etat === 'erreur') return S.presentation ? '✓ Gardé sur l’appareil · envoi dès que possible'
+    : e.type === 'installation' ? '⚠ Serveur à installer · touchez' : e.type === 'connexion' ? '⚠ Reconnexion nécessaire' : '⚠ Envoi impossible · touchez';
   return '⏳ Envoi en cours' + (e.enAttente ? ' · ' + e.enAttente : '');
 }
 function pastilleEtat() {
   const e = S.etatSync;
   return h('span', { class: 'etat ' + e.etat, id: 'etatSync', role: 'status', 'aria-live': 'polite', title: e.message || '',
-    onclick: () => { if (e.message) montrerMessage(e.etat === 'erreur' ? 'err' : 'att', e.message); sync.synchroniser(); } }, texteEtat());
+    onclick: () => { if (e.message) montrerMessage(e.etat === 'erreur' ? 'err' : 'att', e.message); sync.synchroniser(true); } }, texteEtat());
 }
 function majEtat() {
   const el = document.getElementById('etatSync');
