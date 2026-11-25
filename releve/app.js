@@ -1938,7 +1938,7 @@ function apercuDessin(d, R, opts = {}) {
         // la cote se pose à l'intérieur de la pièce, décalée de la moitié de son texte : jamais coupée par le mur
         const sg = CQ.dedans([mx - uy * 0.2, my + ux * 0.2], p.poly) ? 1 : -1, nx = -uy * sg, ny = ux * sg;
         const fs = t * 0.7, txt = String(r3l(m.longueur)).replace('.', ','), hw = 0.29 * fs * txt.length, hh = 0.36 * fs, off = Math.abs(nx) * hw + Math.abs(ny) * hh + 0.07;
-        g.append(el('text', { x: mx + nx * off, y: my + ny * off + fs * 0.35, 'text-anchor': 'middle', 'font-size': fs, fill: '#2C4A5E', 'data-edit': 'mur:' + m.i, style: 'cursor:text' }, txt));
+        g.append(el('text', { x: mx + nx * off, y: my + ny * off + fs * 0.35, 'text-anchor': 'middle', 'font-size': fs, fill: '#2C4A5E', stroke: st.fill, 'stroke-width': fs * 0.28, 'paint-order': 'stroke', 'stroke-linejoin': 'round', 'data-edit': 'mur:' + m.i, style: 'cursor:text' }, txt));
       });
     } else {
       g.append(el('text', { x: (r.x0 + r.x1) / 2, y: r.y0 + t * 0.9, 'text-anchor': 'middle', 'font-size': t * 0.75, fill: '#2C4A5E', 'data-edit': 'longueur', style: 'cursor:text' }, String(r3l(r.x1 - r.x0)).replace('.', ',')));
