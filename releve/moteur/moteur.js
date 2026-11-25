@@ -2526,6 +2526,13 @@ $('btnPdf').addEventListener('click', async () => {
    seulement du même site et de la fenêtre parente.
    ========================================================================== */
 const pont = { actif: window.parent !== window, timer: null, envoyees: new Set() };
+/* simplicité : sur grand écran, outils, aide des fichiers et tableaux sont ouverts d'office ; sur téléphone,
+   repliés (un toucher les ouvre). Hors d'une visite, « Ouvrir un fichier » est l'action principale : visible */
+(() => { const grand = window.innerWidth >= 900;
+  if (grand) { const o = document.getElementById('plusOutils'), r = document.getElementById('detailsRecap'); if (o) o.open = true; if (r) r.open = true; }
+  if (!pont.actif) { const f = document.getElementById('menuFichiers'); if (f) f.open = true; }
+  // ouvert depuis une visite : un titre simple (le sous-titre et l'état d'enregistrement restent)
+  else { const t = document.querySelector('header h1'), n = t && [...t.childNodes].find(x => x.nodeType === 3 && x.textContent.trim()); if (n) n.textContent = 'Plan de la visite'; } })();
 function versVisite(msg) { if (pont.actif) window.parent.postMessage(msg, location.origin); }
 function planifierEnvoiVisite() {
   if (!donneesCourantes || !modele) return;

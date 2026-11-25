@@ -60,6 +60,8 @@ let b;
   chk(resume&&resume.surface>15&&resume.surface<16,'résumé du plan : surface cohérente ('+(resume&&resume.surface)+' m²)');
 
   /* une retouche dans le plan : hauteur mesurée */
+  // les tableaux sont repliés sur téléphone : on les ouvre
+  if(!(await cadre.locator('#detailsRecap[open]').count()))await cadre.locator('#detailsRecap > summary').click();
   await cadre.locator('#hGlobal').fill('2,47');await cadre.locator('#btnHGlobal').click();
   chk(await attendre(p,()=>JSON.stringify(Object.values(window.__etat.lignes)[0].donnees.valeurs.plan.releve).includes('2.47')),'la hauteur mesurée (2,47 m) part dans la visite');
 

@@ -25,6 +25,13 @@
   @media (max-width: 700px) { .tools { margin-left:0; width:100%; } }
   .tools button { padding:4px 10px; border:1px solid var(--bord); background:#fff; border-radius:6px; cursor:pointer; font-size:13px; }
   .tools button:hover { background:#eef3fb; }
+  /* simplicité : outils rares, fichiers, aide et tableaux repliés (ouverts d'office sur grand écran) */
+  .barreOutils { margin:0 0 6px; }
+  details.plusOutils, details.aidePlan, details.menuFichiers { margin:4px 0 8px; }
+  details.plusOutils > summary, details.aidePlan > summary, details.menuFichiers > summary, details.detailsRecap > summary { cursor:pointer; font-weight:600; padding:6px 2px; font-size:14px; }
+  details.plusOutils .tools { margin-top:6px; }
+  details.menuFichiers { display:inline-block; } details.menuFichiers[open] { display:block; } details.menuFichiers .btn { margin:4px 6px 0 0; }
+  details.detailsRecap > summary { font-size:16px; padding:10px 2px; }
   .tools .btnOutil { padding:4px 10px; border:1px solid var(--bord); background:#fff; border-radius:6px; cursor:pointer; font-size:13px; }
   .tools .btnOutil:hover { background:#eef3fb; }
   .tools button.actif { background:#d97706; border-color:#d97706; color:#fff; }
@@ -189,12 +196,15 @@
 
 <header>
   <h1>Relevé de chantier – validation<small id="sousTitre">Aucun relevé chargé</small><small id="etatSauv"></small></h1>
-  <label class="btn sec">Ouvrir un fichier (scan ou relevé)<input id="fichier" type="file" hidden></label>
-  <button id="btnVersion" class="btn sec" hidden>Nouvelle version</button>
-  <button id="btnForcer" class="btn sec" hidden>Écraser quand même</button>
-  <button id="btnEnregistrer" class="btn sec" hidden>Enregistrer le relevé (.json)</button>
-  <button id="btnPdf" class="btn" disabled>Exporter en PDF</button>
-  <button id="btnDxf" class="btn sec" disabled title="Plan pour AutoCAD, SketchUp, ArchiCAD… (DXF, centimètres)">Plan DXF</button>
+  <button id="btnPdf" class="btn" disabled>📄 PDF</button>
+  <button id="btnDxf" class="btn sec" disabled title="Plan pour AutoCAD, SketchUp, ArchiCAD… (DXF, centimètres)">📐 DXF</button>
+  <!-- ouvrir un autre fichier, enregistrer le .json : rarement utiles dans une visite (tout s'y enregistre seul), repliés -->
+  <details id="menuFichiers" class="menuFichiers"><summary>⋯ Fichiers</summary>
+    <label class="btn sec">Ouvrir un fichier (scan ou relevé)<input id="fichier" type="file" hidden></label>
+    <button id="btnVersion" class="btn sec" hidden>Nouvelle version</button>
+    <button id="btnForcer" class="btn sec" hidden>Écraser quand même</button>
+    <button id="btnEnregistrer" class="btn sec" hidden>Enregistrer le relevé (.json)</button>
+  </details>
 </header>
 
 <div id="msg"></div>
@@ -213,23 +223,30 @@
 
 <main>
   <section class="panel panelPlan">
-    <h2>Plan 2D coté <span class="tools">
-      <button id="btnAvantApres" type="button" title="Figer le plan actuel (situation initiale) et afficher à côté une copie à modifier (après travaux)">◫ Avant / après</button>
-      <label class="angle" id="lblDuo" hidden><input type="checkbox" id="chkDuo"> Côte à côte</label>
-      <button id="btnAjMur" type="button" title="Tracer un nouveau mur (cloison) en touchant deux points sur le plan">＋ Mur</button>
-      <button id="btnAjSym" type="button" title="Poser un équipement (chauffage, sanitaire, cuisine, électricité), un meuble ou une trémie d'escalier">＋ Symbole</button>
-      <button id="btnAjPiece" type="button" title="Ajouter une pièce (agrandissement…)">＋ Pièce</button>
-      <label id="btnAjScan" class="btnOutil" title="Ajouter le scan d'une autre pièce : il se pose à droite du plan, puis on le relie">＋ Scan<input id="fichierScan" type="file" hidden></label>
-      <button id="btnRelier" type="button" title="Relier deux scans : touchez un mur, puis le mur de l'autre scan qui le touche">🔗 Relier</button>
+    <h2>Plan 2D coté</h2>
+    <!-- l'essentiel d'abord ; le reste replié sous « Plus d'outils » (ouvert d'office sur grand écran) -->
+    <div class="tools barreOutils">
       <button id="btnAnnuler" type="button" title="Annuler la dernière modification (Ctrl+Z)" disabled>↶</button>
       <button id="btnRefaire" type="button" title="Rétablir (Ctrl+Maj+Z)" disabled>↷</button>
-      <button id="btnRotG" type="button" title="Tourner le plan de 90° vers la gauche">⟲ 90°</button>
-      <button id="btnRotD" type="button" title="Tourner le plan de 90° vers la droite">⟳ 90°</button>
-      <label class="angle"><input type="checkbox" id="chkReperes" checked> Repères des murs (A, B…)</label>
-      <label class="angle" title="Activé : glisser une porte ou une fenêtre la déplace le long du mur ; tirer l'un de ses bouts change sa largeur."><input type="checkbox" id="chkOuv" checked> Déplacer les portes et fenêtres</label>
-      <label class="angle" title="Désactivé : glisser une flèche la déplace sans toucher au mur. Activé : tirer le bout d'une flèche (rond bleu) change la longueur du mur."><input type="checkbox" id="chkAjuster"> Ajuster les murs avec les flèches</label>
-      <label class="angle">Angle <input id="angleRot" inputmode="decimal" value="0" aria-label="Angle de rotation en degrés">°</label>
-      <button id="btnRecentrer" type="button">Recentrer</button></span></h2>
+      <button id="btnAjSym" type="button" title="Poser un équipement (chauffage, sanitaire, cuisine, électricité), un meuble ou une trémie d'escalier">＋ Symbole</button>
+      <button id="btnAjMur" type="button" title="Tracer un nouveau mur (cloison) en touchant deux points sur le plan">＋ Mur</button>
+      <button id="btnAvantApres" type="button" title="Figer le plan actuel (situation initiale) et afficher à côté une copie à modifier (après travaux)">◫ Avant / après</button>
+      <label class="angle" id="lblDuo" hidden><input type="checkbox" id="chkDuo"> Côte à côte</label>
+    </div>
+    <details id="plusOutils" class="plusOutils"><summary>⚙️ Plus d'outils : pièce, scan, rotation, réglages</summary>
+      <div class="tools">
+        <button id="btnAjPiece" type="button" title="Ajouter une pièce (agrandissement…)">＋ Pièce</button>
+        <label id="btnAjScan" class="btnOutil" title="Ajouter le scan d'une autre pièce : il se pose à droite du plan, puis on le relie">＋ Scan<input id="fichierScan" type="file" hidden></label>
+        <button id="btnRelier" type="button" title="Relier deux scans : touchez un mur, puis le mur de l'autre scan qui le touche">🔗 Relier</button>
+        <button id="btnRotG" type="button" title="Tourner le plan de 90° vers la gauche">⟲ 90°</button>
+        <button id="btnRotD" type="button" title="Tourner le plan de 90° vers la droite">⟳ 90°</button>
+        <label class="angle"><input type="checkbox" id="chkReperes" checked> Repères des murs (A, B…)</label>
+        <label class="angle" title="Activé : glisser une porte ou une fenêtre la déplace le long du mur ; tirer l'un de ses bouts change sa largeur."><input type="checkbox" id="chkOuv" checked> Déplacer les portes et fenêtres</label>
+        <label class="angle" title="Désactivé : glisser une flèche la déplace sans toucher au mur. Activé : tirer le bout d'une flèche (rond bleu) change la longueur du mur."><input type="checkbox" id="chkAjuster"> Ajuster les murs avec les flèches</label>
+        <label class="angle">Angle <input id="angleRot" inputmode="decimal" value="0" aria-label="Angle de rotation en degrés">°</label>
+        <button id="btnRecentrer" type="button">Recentrer</button>
+      </div>
+    </details>
     <div id="onglets" class="onglets"></div>
     <div id="aideAvantApres" class="aideAA" hidden><span>💡 <b>Avant / après travaux</b> : préparez ce plan avec les bonnes cotes, puis créez la <b>copie à côté</b> : l'original reste figé (situation initiale) et vous modifiez la copie (après travaux).</span> <button type="button" id="btnAideAA">Créer la copie avant / après</button> <button type="button" id="btnFermerAideAA" title="Masquer cette aide">✕</button></div>
     <div class="zone" id="zonePlan">
@@ -240,7 +257,8 @@
       <div id="editeur" hidden></div>
       <div class="vide" id="videPlan">Ouvrez un fichier de relevé (.json)<br>ou glissez-le sur cette page.<br><small>Un plan 2D (image, PDF) se glisse aussi : l’IA en relève les pièces.</small></div>
     </div>
-    <p class="hint">Pincez ou molette : zoom · Glisser : déplacer · <b>Touchez une cote, une porte ou une fenêtre pour corriger sa mesure · glissez une porte ou une fenêtre pour la déplacer, tirez ses bouts pour changer sa largeur · « ＋ Mur » trace une cloison, « Démolir » (fenêtre d'un mur) retire un mur · glissez une flèche ou son chiffre pour la déplacer (le mur ne bouge pas ; double-clic : la remettre) · pour changer un mur en tirant le bout d'une flèche, cochez « Ajuster les murs avec les flèches »</b> · Cotes en mètres · <b style="color:#c0392b">P</b> = porte, <b style="color:#1f6feb">F</b> = fenêtre, <b style="color:#6b7280">Pa</b> = passage (largeur) · <span style="color:#b45309"><b>~</b> et pointillés = côté estimé (non scanné)</span> · <b style="color:#15803d">vert</b> = mesuré</p>
+    <p class="hint">Touchez une cote, une porte ou un nom pour le corriger · glissez pour déplacer · pincez pour zoomer.</p>
+    <details class="aidePlan"><summary>ℹ️ Toute l'aide du plan</summary><p class="hint">Pincez ou molette : zoom · Glisser : déplacer · <b>Touchez une cote, une porte ou une fenêtre pour corriger sa mesure · glissez une porte ou une fenêtre pour la déplacer, tirez ses bouts pour changer sa largeur · « ＋ Mur » trace une cloison, « Démolir » (fenêtre d'un mur) retire un mur · glissez une flèche ou son chiffre pour la déplacer (le mur ne bouge pas ; double-clic : la remettre) · pour changer un mur en tirant le bout d'une flèche, cochez « Ajuster les murs avec les flèches »</b> · Cotes en mètres · <b style="color:#c0392b">P</b> = porte, <b style="color:#1f6feb">F</b> = fenêtre, <b style="color:#6b7280">Pa</b> = passage (largeur) · <span style="color:#b45309"><b>~</b> et pointillés = côté estimé (non scanné)</span> · <b style="color:#15803d">vert</b> = mesuré</p></details>
   </section>
 
   <section class="panel">
@@ -261,6 +279,7 @@
 </main>
 
 <section id="recap" hidden>
+  <details id="detailsRecap" class="detailsRecap"><summary>📋 Mesures, légende et tableaux (pièces, murs, ouvertures…)</summary>
   <h2>Mesures de la pièce <small style="font-weight:normal;color:var(--gris)">– saisissez vos mesures au mètre : elles remplacent celles du scan</small></h2>
   <div class="barre"><label for="hGlobal">Hauteur sous plafond mesurée (toutes les pièces) :</label>
     <input id="hGlobal" inputmode="decimal" placeholder="2,47"> m <button id="btnHGlobal" type="button">Appliquer</button></div>
@@ -293,6 +312,7 @@
   <button type="button" id="btnAjOuv" class="btnPetit">+ Ajouter une ouverture</button>
   <h2 id="titreEcarts" hidden>Écarts entre le scan et vos mesures</h2>
   <table id="tabEcarts"></table>
+  </details>
 </section>
 
 <section id="notes" hidden>

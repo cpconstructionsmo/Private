@@ -233,6 +233,18 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   réseau par réseau, assainissement, bornage, étude de sol, démolition,
   notes dictées, photos du terrain.
 
+## Le plan coté, simple d'abord
+
+- Ouvert depuis une visite : titre « Plan de la visite », « 📄 PDF » et
+  « 📐 DXF » en haut, « ⋯ Fichiers » replié (ouvrir un autre fichier,
+  enregistrer le .json : la visite enregistre seule). Outils visibles :
+  ↶ ↷, « ＋ Symbole », « ＋ Mur », « ◫ Avant / après » ; le reste sous
+  « ⚙️ Plus d'outils » (pièce, scan, relier, rotations, repères, angle,
+  recentrer). Aide d'une ligne, toute l'aide sous « ℹ️ ». Les tableaux
+  (mesures, légende, pièces, murs, ouvertures…) sous « 📋 Mesures, légende
+  et tableaux ». Sur grand écran (≥ 900 px), outils et tableaux sont
+  ouverts d'office ; hors d'une visite, « Fichiers » aussi.
+
 ## Le dessin rapide (sans scan)
 
 - **Écran simple d'abord** (passage « simplicité », novembre 2026) : en haut,
