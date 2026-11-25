@@ -223,8 +223,16 @@ qu'on ait à les redire.
   (`attestationPourMarche` ; un PDF est rendu page à page par pdf.js, 4 pages
   au plus). Sans attestation lisible, les trois sortent quand même et
   l'écran dit pourquoi. Le lien du lot (`contratLien`) est l'exemplaire
-  CP Constructions ; `exemplaires` garde les trois. Tests :
-  `t_marche_exemplaires.js`. Le marché revenu signé se dépose dans la
+  CP Constructions ; `exemplaires` garde les trois. Les trois sortent aussi
+  en un seul fichier à imprimer d'un coup (`genererMarcheImpressionDocx`,
+  PDF tiré par le Drive, à défaut le Word d'ensemble ;
+  `exemplaires.impression`, « 🖨 Imprimer les 3 exemplaires ») ; un marché
+  sorti avant se prépare d'un clic (`preparerImpression`). Sans
+  attestation, la raison se garde (`exemplaires.attestationRaison`, sinon
+  « Pourquoi ? ») et l'attestation se redépose sur place
+  (`AttestationMarche` : vérifiée avant l'envoi, lien de la fiche
+  remplacé), puis « Ressortir le marché ». Tests :
+  `t_marche_exemplaires.js`, `t_marche_impression.js`. Le marché revenu signé se dépose dans la
   section « Marché signé par l'entreprise » de la fiche du lot (aussi
   depuis la liste des lots et le tableau de bord) : chaque fichier part
   sur le Drive › Marché travaux signé, renommé d'après le lot

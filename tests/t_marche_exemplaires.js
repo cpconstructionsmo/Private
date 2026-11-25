@@ -25,6 +25,9 @@ const M=charger(['Marches','EMPTY','dimensionsImage','attestationEnImages','gene
   fetch:async(url,init,base)=>{
     const m=url.match(/files\/([^/?]+)\?alt=media/);
     if(m&&illisibles.has(m[1]))return {ok:false,status:404,json:async()=>({error:{code:404,message:'File not found: '+m[1]+'.',errors:[{reason:'notFound'}]}})};
+    /* le fichier des 3 exemplaires à imprimer : converti en PDF par le Drive */
+    if(/upload\/drive\/v3\/files\?uploadType=multipart&fields=id$/.test(url))return {ok:true,status:200,json:async()=>({id:'conv'})};
+    if(/files\/conv\/export\?mimeType=application\/pdf/.test(url))return {ok:true,status:200,arrayBuffer:async()=>new TextEncoder().encode('%PDF-1.7 fictif').buffer};
     if(/upload\/drive\/v3\/files\?uploadType=multipart/.test(url)){
       const file=init.body.get('file');
       envois.push({nom:file.name,data:new Uint8Array(await file.arrayBuffer())});
@@ -92,10 +95,11 @@ const LOT={id:'m1',chantierId:'c1',lot:'Plomberie',artisanId:'a1',montantHT:1000
   let o=ouvrir(ART,LOT);
   chk(/Il sort en trois exemplaires : client \(avec l'attestation décennale de l'entreprise en annexe\), entreprise et CP Constructions/.test(o.t()),'l’écran annonce les trois exemplaires');
   await TR.act(async()=>{await o.btn(/Rédiger le marché \(3 exemplaires\)/).props.onClick()});
-  chk(envois.length===3&&/Marché 1 — Plomberie — SARL Plomberie Fictive — exemplaire client\.docx$/.test(envois[0].nom)
-    &&/— exemplaire entreprise\.docx$/.test(envois[1].nom)&&/— exemplaire CP Constructions\.docx$/.test(envois[2].nom),
-    'trois fichiers déposés : client, entreprise, CP Constructions');
-  const [tC,tE,tM]=await Promise.all(envois.map(x=>texteDocx(x.data)));
+  chk(envois.length===4&&/Marché 1 — Plomberie — SARL Plomberie Fictive — exemplaire client\.docx$/.test(envois[0].nom)
+    &&/— exemplaire entreprise\.docx$/.test(envois[1].nom)&&/— exemplaire CP Constructions\.docx$/.test(envois[2].nom)
+    &&/Marché 1 — Plomberie — SARL Plomberie Fictive — 3 exemplaires à imprimer\.pdf$/.test(envois[3].nom),
+    'trois fichiers déposés : client, entreprise, CP Constructions — et les trois en un PDF à imprimer');
+  const [tC,tE,tM]=await Promise.all(envois.slice(0,3).map(x=>texteDocx(x.data)));
   chk(/Exemplaire du maître de l’ouvrage/.test(tC)&&/Annexe — Attestation d’assurance décennale/.test(tC)&&!!(await media(envois[0].data,'attestation-1.jpeg')),
     'exemplaire client : marqué, avec l’attestation reprise du Drive');
   chk(/Exemplaire de l’entreprise/.test(tE)&&!/Annexe/.test(tE),'exemplaire entreprise : sans annexe');
@@ -117,8 +121,8 @@ const LOT={id:'m1',chantierId:'c1',lot:'Plomberie',artisanId:'a1',montantHT:1000
   o=ouvrir(ART,LOT);
   await TR.act(async()=>{await o.btn(/Rédiger le marché \(3 exemplaires\)/).props.onClick()});
   t=o.t();
-  chk(envois.length===3&&!(await media(envois[0].data,'attestation-1.jpeg'))&&!/Annexe/.test(await texteDocx(envois[0].data)),'illisible : trois exemplaires quand même, sans annexe');
-  chk(/L’exemplaire client est sorti sans l’attestation décennale : .*illisible avec ce compte Google/.test(t)&&/onglet ARTISANS/.test(t),'l’écran dit pourquoi, et quoi faire');
+  chk(envois.length===4&&!(await media(envois[0].data,'attestation-1.jpeg'))&&!/Annexe/.test(await texteDocx(envois[0].data)),'illisible : trois exemplaires quand même, sans annexe');
+  chk(/L’exemplaire client est sorti sans l’attestation décennale : .*illisible avec ce compte Google/.test(t)&&/Redéposer l’attestation décennale/.test(t),'l’écran dit pourquoi, et quoi faire');
   TR.act(()=>o.tr.unmount());
 
   /* 6. une attestation en PDF de 6 pages : les 4 premières, et on le signale */
@@ -136,7 +140,8 @@ const LOT={id:'m1',chantierId:'c1',lot:'Plomberie',artisanId:'a1',montantHT:1000
   chk(M.controlerMarche(LOT,sansAtt,CH).some(p=>!p.bloquant&&/l’exemplaire du client sortirait sans elle/.test(p.texte)),'contrôle avant sortie : l’attestation manquante est signalée');
   o=ouvrir(sansAtt,LOT);
   await TR.act(async()=>{await o.btn(/Rédiger le marché \(3 exemplaires\)/).props.onClick()});
-  chk(envois.length===3&&/sans l’attestation décennale : aucune attestation n’est déposée sur la fiche de l’entreprise/.test(o.t()),'aucune attestation : trois exemplaires, la raison est dite');
+  chk(envois.length===4&&/sans l’attestation décennale : aucune attestation n’est déposée sur la fiche de l’entreprise/.test(o.t())&&/Déposer l’attestation décennale/.test(o.t()),
+    'aucune attestation : trois exemplaires, la raison est dite, elle se dépose sur place');
   TR.act(()=>o.tr.unmount());
   fin();
 })().catch(e=>{console.error(e);process.exitCode=1});

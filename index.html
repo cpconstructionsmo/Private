@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-25 · Lot : retrouver un chiffrage perdu dans les versions sauvegardées ; « Retirer » le quantitatif demande confirmation';
+const VERSION='2026-11-25 · Marché de travaux : les 3 exemplaires en un seul PDF à imprimer ; attestation décennale manquante : la raison gardée, redépôt sur place';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3741,7 +3741,7 @@ async function fabriquerDocx(documentXml,titre,logo,qr,qrPlan,extra,hf){
   return zipEcrire(entrees);
 }
 
-async function genererMarcheDocx(d){
+async function imagesMarche(d){
   let logo=null;
   try{logo=await logoDocx()}catch(e){/* sans logo, le marché reste valable */}
   let qr=null;
@@ -3750,11 +3750,33 @@ async function genererMarcheDocx(d){
      réclamer un envoi. Sans plan déposé, le marché s'imprime comme avant. */
   let qrPlan=null;
   try{qrPlan=qrPourDocument(d.planExeUrl)}catch(e){/* sans plan déposé, ou QR indisponible : le marché reste valable */}
+  return {logo,qr,qrPlan};
+}
+async function genererMarcheDocx(d){
+  const {logo,qr,qrPlan}=await imagesMarche(d);
   const xml=marcheDocumentXml({...d,qr,qrPlan},logo);
   /* les pages de l'attestation annexée (exemplaire du client) : une image
      chacune, rId20 et suivants, hors de la plage du logo et des QR */
   const extra=(d.attestation||[]).map((p,i)=>({id:'rId'+(20+i),nom:'attestation-'+(i+1)+'.'+p.ext,data:p.data}));
   return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||'')+(d.exemplaire?' — '+d.exemplaire:''),
+    logo,qr,qrPlan,extra.length?extra:undefined);
+}
+/* les trois exemplaires dans un seul document, à imprimer d'un coup plutôt
+   que d'ouvrir et d'imprimer trois fichiers : client (avec son annexe),
+   entreprise, CP Constructions, l'un après l'autre, chacun repartant sur une
+   nouvelle page et marqué à son destinataire comme les fichiers séparés.
+   Les dessins gardent un numéro propre à leur exemplaire. */
+const MARCHE_IMPRESSION={fichier:'3 exemplaires à imprimer'};
+const corpsDocumentXml=xml=>xml.slice(xml.indexOf('<w:body>')+8,xml.lastIndexOf('<w:sectPr>'));
+async function genererMarcheImpressionDocx(d,attestation){
+  const {logo,qr,qrPlan}=await imagesMarche(d);
+  const P=attestation||[];
+  const xmls=MARCHE_EXEMPLAIRES.map(ex=>marcheDocumentXml({...d,qr,qrPlan,exemplaire:ex.titre,attestation:ex.attestation?P:null},logo));
+  const corps=xmls.map((x,k)=>corpsDocumentXml(x).replace(/<wp:docPr id="(\d+)"/g,(m,n)=>'<wp:docPr id="'+(+n+1000*k)+'"'));
+  const x0=xmls[0];
+  const xml=x0.slice(0,x0.indexOf('<w:body>')+8)+corps.join(sautPage)+x0.slice(x0.lastIndexOf('<w:sectPr>'));
+  const extra=P.map((p,i)=>({id:'rId'+(20+i),nom:'attestation-'+(i+1)+'.'+p.ext,data:p.data}));
+  return fabriquerDocx(xml,'Marché de travaux n° '+(d.numero||'')+' — '+(d.lot||'')+' — 3 exemplaires',
     logo,qr,qrPlan,extra.length?extra:undefined);
 }
 
@@ -12788,6 +12810,79 @@ function LotVersionsSauvegardees({f,setF}){
   </Fld>;
 }
 
+/* le fichier des trois exemplaires, à imprimer d'un coup ; sans lui, le
+   bouton qui le prépare */
+function ImpressionMarche({imp,preparer,occupe,erreur}){
+  if(imp)return <div className="xs" style={{marginTop:6,lineHeight:1.5}}>
+    <a className="btn s acc" href={imp.lien} target="_blank" rel="noreferrer" style={{display:'inline-block',textDecoration:'none'}}>
+      🖨 Imprimer les 3 exemplaires</a>
+    <span className="mut"> un seul {imp.pdf?'PDF':'fichier Word'} : client{imp.attestation?' (avec l’attestation décennale)':''},
+      entreprise et CP Constructions, à la suite — {imp.nom}</span>
+    {!imp.pdf&&<div style={{color:AMBER,marginTop:4}}>Le PDF n’a pas pu être tiré{imp.repli?' ('+imp.repli+')':''} :
+      ouvrez ce Word, puis Fichier › Imprimer.</div>}
+  </div>;
+  if(!preparer)return null;
+  return <div className="xs" style={{marginTop:6,lineHeight:1.5}}>
+    <div className="row" style={{gap:10,alignItems:'center',flexWrap:'wrap'}}>
+      <button className="btn s gh" disabled={!!occupe} onClick={preparer}>
+        {occupe?'Préparation du PDF à imprimer…':'🖨 Préparer les 3 exemplaires à imprimer'}</button>
+      <span className="mut">un seul PDF, d’après le lot tel qu’il est saisi : client, entreprise et CP Constructions à la suite.</span></div>
+    {erreur&&<div style={{color:TERRA,marginTop:4}}>{erreur}</div>}
+  </div>;
+}
+
+/* l'exemplaire du client sorti sans l'attestation décennale : pourquoi
+   (la raison gardée à la sortie, ou vérifiée de nouveau d'un clic), et le
+   remède sur place — la redéposer avec le compte Google connecté, qui la
+   relira ensuite (l'accès au Drive ne voit que ce que ce compte a déposé
+   par l'application) — avant de ressortir le marché. La pièce est vérifiée
+   avant l'envoi : un PDF ou une photo, qui s'annexe. */
+function AttestationMarche({a,raison,data,save,ressortir}){
+  const [e,setE]=useState(null);
+  const auth=x=>x&&x.error==='auth_required';
+  const verifier=async()=>{
+    setE({etat:'travail',quoi:'verif'});
+    try{
+      const r=await attestationPourMarche(await getDriveToken(),a);
+      setE(r.pages.length?{etat:'lisible',n:r.pages.length}:{etat:'illisible',raison:r.raison});
+    }catch(x){setE({etat:'erreur',msg:auth(x)?"Google Drive n'est pas connecté (bouton en bas de la page) : reconnectez-le, puis réessayez."
+      :'Vérification impossible — '+((x&&(x.error||x.message))||String(x))})}
+  };
+  const deposer=async([file])=>{
+    setE({etat:'travail',quoi:'depot'});
+    let pages;
+    try{pages=(await attestationEnImages(new Uint8Array(await file.arrayBuffer()))).pages}
+    catch(x){setE({etat:'erreur',msg:'« '+file.name+' » ne peut pas s’annexer au marché — '+((x&&x.message)||String(x))+'. Rien n’a été envoyé.'});return}
+    try{
+      const lien=await redeposerPieceArtisan(await getDriveToken(),'att',file);
+      save(remplacerPieceArtisan(data,a.id,'lienAttestation',lien));
+      setE({etat:'redeposee',n:pages.length,nom:file.name});
+    }catch(x){setE({etat:'erreur',msg:auth(x)?"Google Drive n'est pas connecté (bouton en bas de la page) : reconnectez-le, puis redéposez."
+      :'Envoi impossible — '+((x&&(x.error||x.message))||String(x))})}
+  };
+  const pret=e&&(e.etat==='redeposee'||e.etat==='lisible');
+  const motif=(e&&e.etat==='illisible'&&e.raison)||raison;
+  return <div className="xs" style={{marginTop:6,padding:'6px 10px',borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,color:INK,lineHeight:1.5}}>
+    {!pret&&<div>L’exemplaire client est sorti <b>sans l’attestation décennale</b>{motif?' : '+motif:''}.
+      {!motif&&a&&a.lienAttestation&&<> <button type="button" className="btn gh s" disabled={e&&e.etat==='travail'} onClick={verifier}>
+        {e&&e.quoi==='verif'&&e.etat==='travail'?'Vérification…':'Pourquoi ?'}</button></>}</div>}
+    {!pret&&a&&<>
+      <div className="mut" style={{marginTop:4}}>{a.lienAttestation
+        ?<>Ouvrez l’attestation (<a href={a.lienAttestation} target="_blank" rel="noreferrer" style={{color:TERRA}}>ici</a> — votre navigateur
+          y a peut-être encore accès), enregistrez le PDF, puis déposez-le ci-dessous : il remplace celui de la fiche de {a.nom||'l’entreprise'}.</>
+        :<>Déposez ci-dessous l’attestation de {a.nom||'l’entreprise'} (PDF ou photo) : elle s’enregistre sur sa fiche.</>}</div>
+      <ZoneDepot titre={a.lienAttestation?'Redéposer l’attestation décennale':'Déposer l’attestation décennale'}
+        label="Déposer l’attestation décennale" accept={'application/pdf,.pdf,image/*'} occupe={e&&e.etat==='travail'}
+        aide={e&&e.quoi==='depot'&&e.etat==='travail'?'Envoi…':'Glissez le PDF ici, ou cliquez pour le choisir'}
+        onFiles={deposer} style={{marginTop:6,background:'#fff'}}/></>}
+    {e&&e.etat==='erreur'&&<div style={{color:TERRA,marginTop:4}}>{e.msg}</div>}
+    {pret&&<div className="row" style={{gap:10,alignItems:'center',flexWrap:'wrap'}}>
+      <span style={{color:GREEN,flex:'1 1 240px'}}>✓ {e.etat==='redeposee'?'Attestation redéposée sur la fiche de '+(a.nom||'l’entreprise')+' ('+e.nom+')'
+        :'L’attestation se lit maintenant'} — {e.n} page{e.n>1?'s':''} à annexer. Ressortez le marché : l’exemplaire client la portera.</span>
+      {ressortir&&<button type="button" className="btn s acc" onClick={ressortir}>Ressortir le marché avec l’attestation</button>}</div>}
+  </div>;
+}
+
 function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
   const [f,setF]=useState(null);
   const brouillon=useBrouillon('marches:'+ch.id,f,setF,x=>'Lot '+(x.lot||'sans nom'));
@@ -12932,11 +13027,10 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
      « l'envoyer par mail » — regénérer le même document plutôt que de le
      retélécharger du Drive garantit que la pièce jointe suit exactement le
      lot tel qu'il est saisi à l'instant, même si le fichier déposé date d'avant. */
-  const construireMarcheDoc=(a,numero,ex,attestation)=>{
+  const donneesMarcheDoc=(a,numero)=>{
     const ht=+f.montantHT||0, tx=marcheTva(f,ch), r=remisePct(f);
     const brut=f.quantitatif?quantitatifHT(f.quantitatif.lignes):ht;
-    return genererMarcheDocx({
-      exemplaire:ex?ex.titre:'', attestation:attestation||null,
+    return {
       lot:f.lot, lotDetail:(f.quantitatif&&f.quantitatif.nom)||f.lot,
       numero, date:fd(f.dateSignature||today()),
       entreprise:a.nom||'', adresse:a.adresse||'', siret:a.siret||'',
@@ -12952,13 +13046,30 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
          tous, et avec eux la séparation entre plusieurs corps d'état posés
          sur un même marché (« ajouter un autre corps d'état »). */
       lignes:((f.quantitatif||{}).lignes||[]).filter(l=>!estArticle(l)||ligneQt(l)!==0),
-    });
+    };
+  };
+  const construireMarcheDoc=(a,numero,ex,attestation)=>genererMarcheDocx({...donneesMarcheDoc(a,numero),
+    exemplaire:ex?ex.titre:'', attestation:attestation||null});
+  /* les trois exemplaires en un seul fichier, à imprimer d'un coup : un PDF
+     tiré par le Drive (le moteur qui affiche déjà les exemplaires) ; s'il
+     ne se tire pas, le Word d'ensemble, qui s'imprime depuis le Drive */
+  const deposerImpression=async(token,a,numero,att,folderId)=>{
+    const doc=await genererMarcheImpressionDocx(donneesMarcheDoc(a,numero),att.pages);
+    const nom=nomFichierMarche(numero,f.lot,a.nom,MARCHE_IMPRESSION);
+    let fichier, repli='';
+    try{fichier=new File([await driveDocxEnPdf(token,doc,nom.replace(/\.docx$/,''))],nom.replace(/\.docx$/,'.pdf'),{type:'application/pdf'})}
+    catch(x){
+      repli=(x&&(x.error||x.message))||String(x);
+      fichier=new File([doc],nom,{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+    }
+    const lien=(await uploadToDrive(fichier,folderId)).webViewLink;
+    return {le:today(),lien,nom:fichier.name,pdf:!repli,...(repli?{repli}:{}),attestation:att.pages.length>0};
   };
   const sortirMarche=async()=>{
     const a=data.artisans.find(x=>x.id===f.artisanId)||null;
     const pb=controlerMarche(f,a,ch);
     if(marcheBloque(pb)){setSortie({etat:'refus',pb});return}
-    setSortie({etat:'travail'});
+    setSortie({etat:'travail'});setImpr(null);
     try{
       const numero=f.numeroMarche||numeroSuivant();
       const token=await getDriveToken();
@@ -12974,17 +13085,48 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
         liens[ex.cle]=(await uploadToDrive(fichier,folderId)).webViewLink;
         noms[ex.cle]=nomFichier;
       }
+      /* le fichier à imprimer vient en plus : s'il manque, les trois
+         exemplaires sont là quand même, et il se prépare plus tard */
+      setSortie({etat:'travail',etape:'impression'});
+      let impression=null, impressionErreur='';
+      try{impression=await deposerImpression(token,a,numero,att,folderId)}
+      catch(x){impressionErreur=x&&x.error==='auth_required'?'connexion Google expirée':((x&&x.message)||String(x))}
       /* le lien du lot reste « le contrat » : celui de CP Constructions, que
-         l'on ouvre depuis l'application ; les deux autres se gardent à côté */
+         l'on ouvre depuis l'application ; les deux autres se gardent à côté.
+         Sans attestation, la raison se garde : elle se relit à la réouverture. */
       const exemplaires={le:today(),client:liens.client,entreprise:liens.entreprise,moe:liens.moe,
-        attestation:att.pages.length>0};
+        attestation:att.pages.length>0,...(att.pages.length?{}:{attestationRaison:att.raison}),
+        ...(impression?{impression}:{})};
       setF(p=>({...p,contratLien:liens.moe,numeroMarche:numero,exemplaires}));
-      setSortie({etat:'ok',numero,liens,noms,att:{n:att.pages.length,total:att.total||0,raison:att.raison},pb});
+      setSortie({etat:'ok',numero,liens,noms,att:{n:att.pages.length,total:att.total||0,raison:att.raison},pb,impression,impressionErreur});
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
       setSortie({etat:'erreur',msg:
         c==='auth_required'?"Google Drive n'est pas connecté (bouton ci-dessous) : les exemplaires n'ont pas été déposés — reconnectez-le puis relancez.":
         "Sortie impossible — "+c});
+    }
+  };
+  /* un marché sorti avant le fichier à imprimer (ou sans lui) : il se
+     prépare d'un clic, d'après le lot tel qu'il est saisi — l'attestation
+     reprise du Drive pour l'exemplaire du client, comme à la sortie */
+  const [impr,setImpr]=useState(null);
+  useEffect(()=>{setImpr(null)},[lotOuvert]);
+  const preparerImpression=async()=>{
+    const a=data.artisans.find(x=>x.id===f.artisanId)||null;
+    if(!a)return;
+    setImpr({etat:'travail'});
+    try{
+      const numero=f.numeroMarche||numeroSuivant();
+      const token=await getDriveToken();
+      const att=await attestationPourMarche(token,a);
+      const folderId=await driveMarchesFolder(token,ch.id,ch.nom);
+      const impression=await deposerImpression(token,a,numero,att,folderId);
+      setF(p=>({...p,numeroMarche:p.numeroMarche||numero,exemplaires:{...(p.exemplaires||{}),impression}}));
+      setImpr({etat:'ok',impression,raison:att.raison});
+    }catch(e){
+      const c=String((e&&(e.error||e.message))||e);
+      setImpr({etat:'erreur',msg:c==='auth_required'?"Google Drive n'est pas connecté (bouton ci-dessous) : reconnectez-le puis relancez."
+        :'Préparation impossible — '+c});
     }
   };
 
@@ -13444,7 +13586,8 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
           <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
             <button className={'btn s '+(stop?'gh':'acc')} disabled={stop||(sortie&&sortie.etat==='travail')}
               style={{whiteSpace:'normal',maxWidth:'100%',textAlign:'left',lineHeight:1.3,opacity:stop?.5:1}} onClick={sortirMarche}>
-              {sortie&&sortie.etat==='travail'?'Rédaction des 3 exemplaires…':'Rédiger le marché (3 exemplaires) et l’envoyer sur le Drive'}</button>
+              {sortie&&sortie.etat==='travail'?(sortie.etape==='impression'?'Préparation du PDF à imprimer…':'Rédaction des 3 exemplaires…')
+                :'Rédiger le marché (3 exemplaires) et l’envoyer sur le Drive'}</button>
             <input className="in" style={{padding:'4px 8px',fontSize:12,width:110}} placeholder="N° du marché"
               aria-label="Numéro du marché" value={f.numeroMarche||''} onChange={e=>setF({...f,numeroMarche:e.target.value})}/>
           </div>
@@ -13456,10 +13599,11 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
               <a href={sortie.liens[ex.cle]} target="_blank" rel="noreferrer" style={{color:TERRA}}>Exemplaire {ex.libelle}</a>
               {ex.attestation&&sortie.att.n>0&&<span className="mut"> — avec l’attestation décennale ({sortie.att.n} page{sortie.att.n>1?'s':''})</span>}
               <span className="mut"> · {sortie.noms[ex.cle]}</span></div>)}
+            <ImpressionMarche imp={(impr&&impr.etat==='ok'&&impr.impression)||sortie.impression}
+              preparer={preparerImpression} occupe={impr&&impr.etat==='travail'}
+              erreur={impr&&impr.etat==='erreur'?impr.msg:sortie.impressionErreur?'Le fichier à imprimer n’a pas pu être préparé ('+sortie.impressionErreur+') : les 3 exemplaires sont bien sur le Drive ; réessayez.':''}/>
             {/* l'exemplaire du client sans son attestation ne passe pas inaperçu */}
-            {!sortie.att.n&&<div style={{marginTop:6,padding:'6px 10px',borderRadius:8,background:'#FBF3E2',borderLeft:'3px solid '+AMBER,color:INK}}>
-              L’exemplaire client est sorti <b>sans l’attestation décennale</b> : {sortie.att.raison}.
-              Déposez-la sur la fiche de l’entreprise (onglet ARTISANS), puis ressortez le marché.</div>}
+            {!sortie.att.n&&<AttestationMarche a={a} raison={sortie.att.raison} data={data} save={save} ressortir={sortirMarche}/>}
             {sortie.att.n>0&&sortie.att.total>sortie.att.n&&<div style={{marginTop:4,color:AMBER}}>
               L’attestation déposée compte {sortie.att.total} pages : seules les {sortie.att.n} premières sont annexées — vérifiez que c’est bien la bonne pièce.</div>}
             <div className="mut" style={{marginTop:2}}>À relire avant signature.</div></div>}
@@ -13467,7 +13611,19 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
             Exemplaires sortis le {fd(f.exemplaires.le)} :{' '}
             {MARCHE_EXEMPLAIRES.filter(ex=>f.exemplaires[ex.cle]).map((ex,i)=><span key={ex.cle}>{i?' · ':''}
               <a href={f.exemplaires[ex.cle]} target="_blank" rel="noreferrer" style={{color:TERRA}}>{ex.libelle}</a></span>)}
-            {!f.exemplaires.attestation&&<span style={{color:AMBER}}> — l’exemplaire client n’a pas l’attestation décennale</span>}</div>}
+            {!f.exemplaires.attestation&&<span style={{color:AMBER}}> — l’exemplaire client n’a pas l’attestation décennale</span>}
+            {/* l'attestation d'abord : un exemplaire client complet, puis on imprime */}
+            {!f.exemplaires.attestation&&!(impr&&impr.etat==='ok'&&impr.impression.attestation)&&
+              <AttestationMarche a={a} raison={f.exemplaires.attestationRaison} data={data} save={save} ressortir={sortirMarche}/>}
+            {/* le fichier à imprimer : déjà déposé, ou à préparer d'un clic */}
+            <ImpressionMarche imp={(impr&&impr.etat==='ok'&&impr.impression)||f.exemplaires.impression}
+              preparer={a?preparerImpression:null} occupe={impr&&impr.etat==='travail'} erreur={impr&&impr.etat==='erreur'?impr.msg:''}/>
+            {impr&&impr.etat==='ok'&&<div>
+              {!impr.impression.attestation&&<div style={{color:AMBER,marginTop:4}}>L’exemplaire client du fichier à imprimer est, lui aussi, sans l’attestation : {impr.raison}.</div>}
+              {impr.impression.attestation&&!f.exemplaires.attestation&&<div style={{color:GREEN,marginTop:4}}>
+                L’exemplaire client du fichier à imprimer porte l’attestation décennale.</div>}
+              <div style={{marginTop:2}}>Enregistrez le lot pour garder ce lien.</div></div>}
+</div>}
           {sortie&&sortie.etat==='erreur'&&<div className="xs" style={{marginTop:8,color:TERRA,lineHeight:1.5}}>{sortie.msg}</div>}
         </Fld>;
       })()}
