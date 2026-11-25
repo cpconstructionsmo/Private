@@ -198,6 +198,14 @@
   .barreAttente i{display:block;height:100%;width:40%;border-radius:3px;background:var(--terra);animation:glisse 1.3s ease-in-out infinite}
   @keyframes glisse{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
   @media (prefers-reduced-motion:reduce){.chargement,.barreAttente i,.etincelle{animation:none!important}}
+  /* « ✏️ Croquis » : on trace au doigt sur le dessin. Rien ne doit défiler, zoomer ni sélectionner pendant le tracé. */
+  .cadreZoomDessin.modeCroquis{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:crosshair;outline:3px solid var(--terra);outline-offset:-3px;border-radius:8px}
+  .cadreZoomDessin.modeCroquis svg{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  .barreCroquis{margin-top:8px}.barreCroquis .puces{gap:8px}
+  .puce.grand{min-height:52px;padding:10px 18px;font-size:17px;font-weight:600}
+  .puce.grand:disabled{opacity:.4}
+  .echelleMur{border-color:var(--terra);background:#FFF8F5}
+  .menuOuverture .gros{min-height:60px}
   /* mode « Présentation client » : le client voit l'essentiel, jamais les réglages ni les prix internes */
   .montantCarte{font-size:13px;letter-spacing:-.2px}
   header.haut{gap:8px}

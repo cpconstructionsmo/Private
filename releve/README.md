@@ -386,6 +386,30 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   Dans le dossier client, en option (« Plan annoté (travaux) », décochée
   d'office) : une page « Les travaux envisagés sur le plan ».
 
+### « ✏️ Croquis » : on trace au doigt, le tracé devient un plan propre
+
+Bouton **« ✏️ Croquis »** à côté de « ＋ Pièce » et « ＋ Symbole » (un second appui le quitte). En croquis, le doigt
+trace et ne déplace plus le plan ; le pincement à deux doigts zoome toujours. Le tracé à main levée est analysé
+(`releve/croquis.js`, fonctions pures) :
+
+- **Une pièce** : on trace son contour en revenant au point de départ. Le tracé est simplifié (Ramer-Douglas-Peucker, tolérance
+  réglée sur la taille de l'écran), les murs presque horizontaux ou verticaux (15°) le deviennent, un mur nettement
+  diagonal reste diagonal, un coin coupé par le doigt redevient un angle droit. Un rectangle donne 4 murs, un L en donne 6.
+- **Coller** : les murs d'une pièce tracée près de ceux d'une autre s'alignent sur eux (mur commun, un seul pour le moteur).
+  L'aimant se coupe avec « 🧲 Aimant » ; une pièce ne chevauche jamais une voisine (elle est refusée, avec le pourquoi).
+- **Échelle** : après le premier croquis, « Quelle est la longueur de ce mur ? » (le mur le plus long est surligné) ; la
+  valeur règle l'échelle de tout le plan. « 📏 Échelle » la reprend plus tard. Quand un scan fournit déjà des mesures,
+  l'échelle n'est pas demandée. Chaque mur reste modifiable : toucher sa cote, ou les réglages de la fiche de la pièce ;
+  l'angle droit est gardé (le côté opposé suit).
+- **Portes et fenêtres** : un petit trait le long d'un mur ouvre le menu Porte / Fenêtre / Baie, puis la largeur se règle.
+- **Outils** : « ✏️ Tracer », « ✋ Modifier » (toucher une pièce : ses sommets deviennent des poignées à glisser, aimantées,
+  angles droits gardés), « 🧽 Gomme » (glisser sur une pièce ou une ouverture l'efface), « ↶ Annuler » et « ↷ Rétablir »
+  (historique de la visite ouverte, 60 étapes).
+- Une pièce tracée est une pièce du dessin comme les autres (`piece.poly`, en mètres) : « ✓ Créer le plan 2D coté et la 3D »,
+  le chiffrage, la synchro et le dossier client ne changent pas. Une pièce tracée se glisse en entier hors du mode croquis.
+- Tests : `t_releve_croquis.js` (géométrie), `t_releve_dessin_croquis.js` (modèle), `releve_croquis_navigateur.js`
+  (vrais événements tactiles dans Chromium au format iPhone).
+
 ## L'assistant de visite
 
 - Bouton **« 🎙 Assistant »** à chaque étape de la visite : on raconte la
