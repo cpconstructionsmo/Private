@@ -181,7 +181,7 @@
   .herosStats{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
   .herosStat{background:var(--sable);border-radius:14px;padding:5px 11px;font-size:14px;color:var(--muted)}.herosStat b{color:var(--navy)}
   .herosBudget{background:linear-gradient(135deg,#F5F1EA,#fff);border-radius:14px;padding:12px;margin-top:6px;border:1px solid var(--rule)}
-  .herosMontant{font-size:30px;font-weight:800;color:var(--navy);margin:2px 0 4px;letter-spacing:-.5px}
+  .herosMontant{font-size:clamp(20px,6.2vw,30px);font-weight:800;color:var(--navy);margin:2px 0 4px;letter-spacing:-.5px}
   .cmpAvApres{position:relative;--pos:50%;border-radius:12px;overflow:hidden;background:#E9E4DA;touch-action:pan-y;user-select:none}
   .cmpAvApres .cmpImg{display:block;width:100%;aspect-ratio:4/3;object-fit:cover}
   .cmpAvApres .cmpApres{position:absolute;inset:0;height:100%;clip-path:inset(0 0 0 var(--pos))}
@@ -199,7 +199,9 @@
   @keyframes glisse{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
   @media (prefers-reduced-motion:reduce){.chargement,.barreAttente i,.etincelle{animation:none!important}}
   /* mode « Présentation client » : le client voit l'essentiel, jamais les réglages ni les prix internes */
-  .bascPresentation{border:1.5px solid var(--rule);background:#fff;color:var(--navy);border-radius:16px;padding:4px 10px;font-size:14px;font-weight:600;cursor:pointer;min-height:32px}
+  .montantCarte{font-size:13px;letter-spacing:-.2px}
+  header.haut{gap:8px}
+  .bascPresentation{flex:0 0 auto;border:1.5px solid var(--rule);background:#fff;color:var(--navy);border-radius:16px;padding:4px 10px;font-size:14px;font-weight:600;cursor:pointer;min-height:32px}
   .bascPresentation.on{background:var(--navy);border-color:var(--navy);color:#fff}
   body.presentation .interne,body.presentation .tuile.propose:not(.on)::after,body.presentation #ouvrirAssistant{display:none!important}
   body.presentation .pastille:not(.ok){display:none}
