@@ -463,6 +463,46 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
 À venir : TVA par poste, lecture des notes manuscrites par une fonction
 du serveur.
 
+## Le chiffrage précis par lots (étape Budget › « Chiffrage précis »)
+
+Un détail estimatif avec les articles et les prix de CP, tiré des surfaces
+du plan. **Interne** : ni la marge ni les prix d'artisans ne vont dans le
+dossier client (qui ne lit que l'estimation du budget).
+
+- Le bloc n'apparaît que si la ligne `chiffrage` existe dans la table
+  `releve_reglages`. Le dépôt est public : articles, prix et gabarits n'y
+  sont **jamais**. La ligne s'installe à part (éditeur SQL de Supabase,
+  `insert into releve_reglages (id, donnees, version) values ('chiffrage',
+  '<json>'::jsonb, 1)`), puis se met à jour de la même façon. L'appli la lit
+  seulement et en garde une copie sur l'appareil (marche hors ligne).
+- Principe : un dossier de référence (« gabarit ») dont les quantités sont
+  mises à l'échelle selon la surface habitable (S), le garage et annexes
+  (Sg) et le périmètre (P, estimé à 0,667 × S si le plan ne le donne pas).
+  Surfaces lues dans le plan, sinon la surface dite à l'étape Projet.
+- « Générer » crée les lignes ; quantités et prix unitaires se retapent.
+  « Recalculer les quantités » (après changement de surface ou de gabarit)
+  ne touche ni aux quantités retapées, ni aux prix saisis, ni aux articles
+  ajoutés. Coefficient de vente, TVA et majoration « marge arrière »
+  (lots concernés) réglables.
+- « Précisions sur le projet » : des questions à choix (plancher bas : vide
+  sanitaire ou dalle, chauffage, couverture, forme de toiture, isolation des
+  combles, terres, gaz, assainissement). Le premier choix est « comme le
+  dossier de référence » et ne change rien ; un autre retire les articles
+  concernés et ajoute les siens, avec des quantités tirées de vos dossiers.
+  Changer une réponse après « Générer » remplace les lignes concernées en
+  gardant les quantités retapées, les prix saisis et les ajouts. Un article
+  sans prix au catalogue (bac acier, dallage, assainissement individuel…)
+  est compté à 0 € et signalé : jamais de prix inventé, la ligne attend le
+  prix du devis d'artisan. Les questions sont dans la ligne `chiffrage`
+  (clé `questions`), pas dans le dépôt.
+- Fiabilité : environ ±3-5 % sur une maison moyenne, jusqu'à ±15 % sur une
+  petite ; un écart de plus de 25 % avec la surface du gabarit est signalé.
+  C'est une estimation d'avant-projet, pas un devis.
+- Dans la visite : `budget.chiffrage` (code + quantité seulement, jamais le
+  libellé ni le prix du catalogue). Code : `chiffrage.js` ; tests :
+  `t_releve_chiffrage_precis.js` et `releve_chiffrage_precis_navigateur.js`
+  (données fictives dans `tests/fixtures/chiffrage_fictif.json`).
+
 ## Le moteur de relevé (`moteur/`, Phase 1 étape 2)
 
 - C'est l'outil de relevé déjà validé sur des scans réels, repris tel quel et
