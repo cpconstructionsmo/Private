@@ -92,6 +92,19 @@ function imagePhoto(photo, cls) {
   return img;
 }
 
+/* avant / après : une seule image, un curseur à glisser (l'« après » se dévoile de droite à gauche) */
+function curseurAvantApres(avant, apres) {
+  const mk = (p, cls) => p.src ? h('img', { class: cls, src: p.src, alt: '' }) : imagePhoto(p, cls);
+  const cadre = h('div', { class: 'cmpAvApres' }), ia = mk(avant, 'cmpImg'), ib = mk(apres, 'cmpImg cmpApres');
+  ia.removeAttribute('data-zoom'); ib.removeAttribute('data-zoom');
+  const poignee = h('span', { class: 'cmpPoignee' }, '⇆');
+  const poser = pc => { cadre.style.setProperty('--pos', pc + '%'); };
+  const curseur = h('input', { type: 'range', min: 0, max: 100, value: 50, class: 'cmpRange', 'aria-label': 'Comparer avant et après', oninput: e => poser(e.target.value) });
+  poser(50);
+  cadre.append(ia, ib, h('span', { class: 'cmpEtiq cmpAvant' }, 'Avant'), h('span', { class: 'cmpEtiq cmpAp' }, 'Après'), poignee, curseur);
+  return cadre;
+}
+
 /* le sélecteur de fichier : `capture` ouvre directement l'appareil photo de
    l'iPhone. Il doit être lancé dans le geste même (le toucher du bouton),
    sinon Safari refuse de l'ouvrir. */
@@ -134,6 +147,26 @@ function boutonPresentation() {
 }
 // vocabulaire de l'artisan → mots du client, seulement en présentation (les titres du modèle ne changent pas)
 const titreEtape = t => S.presentation ? ({ 'Scan': 'Mesures de la maison', 'Budget': 'Votre budget', 'Fin de visite': 'Récapitulatif' }[t] || t) : t;
+
+/* ---------- confirmation élégante (remplace la boîte du navigateur, peu rassurante devant un client) ----------
+   Sous automate de test (navigator.webdriver), la boîte native est gardée : les parcours de test l'acceptent d'office. */
+function confirmer(texte, { ok = 'Confirmer', non = 'Annuler' } = {}) {
+  if (navigator.webdriver) return Promise.resolve(confirm(texte));
+  return new Promise(fin => {
+    const [titre, ...reste] = String(texte).split('\n').filter(Boolean);
+    const fermer = v => { voile.remove(); document.removeEventListener('keydown', clavier); fin(v); };
+    const clavier = e => { if (e.key === 'Escape') fermer(false); };
+    const voile = h('div', { class: 'voileConfirm', role: 'dialog', 'aria-modal': 'true', onclick: e => { if (e.target === voile) fermer(false); } },
+      h('div', { class: 'boiteConfirm' },
+        h('div', { class: 'titreConfirm' }, titre),
+        reste.length ? h('div', { class: 'mut petit' }, reste.join(' ')) : null,
+        h('div', { class: 'rang', style: 'margin-top:16px' },
+          h('button', { class: 'gros sec', type: 'button', onclick: () => fermer(false) }, non),
+          h('button', { class: 'gros', type: 'button', id: 'confirmerOui', onclick: () => fermer(true) }, ok))));
+    document.body.appendChild(voile); document.addEventListener('keydown', clavier);
+    const b = voile.querySelector('#confirmerOui'); if (b) b.focus();
+  });
+}
 
 function montrerMessage(type, texte) { S.message = { type, texte }; dessiner(); }
 
@@ -200,7 +233,7 @@ const texteVisite = v => sansAccents([M.intitule(v), M.valeur(v, 'client.nom'), 
 /* annuler une visite : elle quitte la liste, sans rien perdre (statut « annulee », filtre « Annulées », rétablie d'un toucher) */
 async function annulerVisite(id) {
   const r = S.visites.find(x => x.id === id); if (!r) return;
-  if (!confirm('Annuler la visite « ' + M.intitule(r.visite) + ' » ?\n\nElle quitte la liste mais reste récupérable dans « Annulées » : photos et plan sont gardés.')) return;
+  if (!(await confirmer('Annuler la visite « ' + M.intitule(r.visite) + ' » ?\n\nElle quitte la liste mais reste récupérable dans « Annulées » : photos et plan sont gardés.'))) return;
   await changerVisite(id, w => M.modifier(M.modifier(w, 'annulation', { le: new Date().toISOString(), statutAvant: M.valeur(w, 'statut') || 'en_cours' }), 'statut', 'annulee'));
   vibrer(); dessiner();
 }
@@ -239,19 +272,25 @@ function ecranAccueil() {
         : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.'),
       h('div', { class: 'interne', style: 'text-align:center;margin-top:8px' }, h('button', { class: 'lienRetour', id: 'reglerOuvrages', onclick: () => { S.retour = 'accueil'; S.ecran = 'ouvrages'; S.brouillonO = null; S.message = null; dessiner(); } }, '⚙ Prix au m²'), ' · ',
         h('button', { class: 'lienRetour', id: 'reglerFourchettes', onclick: () => { S.retour = 'accueil'; S.ecran = 'fourchettes'; S.brouillonF = null; S.message = null; dessiner(); } }, '⚙ Postes détaillés'))),
-    h('div', { class: 'barreBas' }, h('div', { class: 'in' }, h('button', { class: 'gros', id: 'nouvelleVisite', onclick: nouvelleVisite }, '📷 Nouvelle visite'))),
+    h('div', { class: 'barreBas' }, h('div', { class: 'in' },
+      h('button', { class: 'gros sec', id: 'lancerDemo', onclick: () => { S.ecran = 'demo'; S.demoEtape = 0; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '▶ Démo'),
+      h('button', { class: 'gros', id: 'nouvelleVisite', onclick: nouvelleVisite }, '📷 Nouvelle visite'))),
   ];
 }
 
 function carteVisite(r) {
   const v = r.visite, garde = v.photos[M.valeur(v, 'photoGarde')];
   const ville = M.valeur(v, 'client.ville'), types = M.valeur(v, 'projet.types') || [];
+  // avancement : étape atteinte sur le parcours de la nature du projet (rempli quand la visite est terminée)
+  const ETP = M.etapesDe(v), terminee = M.valeur(v, 'statut') === 'terminee';
+  const atteinte = terminee ? ETP.length : Math.min(ETP.length, Math.max(1, ETP.findIndex(e => e.id === M.valeur(v, 'etape')) + 1));
   return h('div', { class: 'carte visite', 'data-visite': r.id, onclick: () => { S.courante = r.id; S.etape = Math.max(0, M.etapesDe(v).findIndex(e => e.id === M.valeur(v, 'etape'))); S.ecran = 'visite'; S.message = null; dessiner(); } },
     garde && !garde.supprime ? imagePhoto(garde, 'vignette') : h('div', { class: 'vignette' }, '🏠'),
     h('div', { class: 'corps' },
       h('b', {}, M.intitule(v)),
       h('div', { class: 'mut petit' }, [ville, types.slice(0, 2).join(', ')].filter(Boolean).join(' · ') || 'Projet à préciser'),
       (M.valeur(v, 'budget') || {}).estimation && M.valeur(v, 'budget').estimation.max > 0 ? h('div', { class: 'petit', style: 'color:var(--navy);font-weight:600' }, '💶 ' + B.formatPlage(M.valeur(v, 'budget').estimation)) : null,
+      h('div', { class: 'avancement', title: 'Étape ' + atteinte + ' sur ' + ETP.length }, h('i', { style: 'width:' + Math.round(100 * atteinte / ETP.length) + '%' + (terminee ? ';background:var(--green)' : '') }), h('span', {}, atteinte + '/' + ETP.length)),
       h('div', { class: 'mut petit' }, dateCourte(v.creeLe),
         M.valeur(v, 'statut') === 'terminee' ? h('span', { class: 'pastille ok' }, 'Terminée') : null,
         M.valeur(v, 'statut') === 'annulee' ? h('span', { class: 'pastille annulee' }, 'Annulée le ' + dateCourte((M.valeur(v, 'annulation') || {}).le)) : null,
@@ -675,7 +714,7 @@ function blocReglement(v, z) {
   const rg = M.valeur(v, 'terrain.reglement'), st = S.reglement || {};
   const autreZone = rg && rg.zone !== z.libelle;
   return h('div', { class: 'reglementZone', id: 'reglementZone' },
-    h('button', { class: 'puce', type: 'button', id: 'lireReglement', disabled: !!st.encours, onclick: () => lireReglementZone(z) },
+    h('button', { class: 'puce' + (st.encours ? ' chargement' : ''), type: 'button', id: 'lireReglement', disabled: !!st.encours, onclick: () => lireReglementZone(z) },
       st.encours ? '🤖 Lecture du règlement… (jusqu’à 1 min)' : rg && !autreZone ? '🤖 Relire le règlement' : '🤖 Lire le règlement de la zone ' + z.libelle),
     st.message ? h('div', { class: 'message petit ' + st.type, id: 'infoReglement' }, st.message) : null,
     rg && !autreZone ? h('div', { class: 'reglesZone', id: 'reglesZone' },
@@ -758,7 +797,7 @@ function blocPlanTerrain(v) {
   return h('div', { class: 'carte', id: 'planTerrain', style: 'margin-top:12px' },
     h('b', {}, '🗺 Plan du terrain'),
     h('p', { class: 'mut petit', style: 'margin:4px 0 8px' }, 'Plan de géomètre, de bornage, de lotissement, ou esquisse cotée à la main : l’IA relève les cotes, le relevé vérifie leur cohérence.'),
-    h('button', { class: 'gros sec', type: 'button', id: 'importerPlanTerrain', disabled: !!st.encours, onclick: () => choisirFichier({ accept: 'image/*,application/pdf' }, ([f]) => lirePlanTerrain(f)) },
+    h('button', { class: 'gros sec' + (st.encours ? ' chargement' : ''), type: 'button', id: 'importerPlanTerrain', disabled: !!st.encours, onclick: () => choisirFichier({ accept: 'image/*,application/pdf' }, ([f]) => lirePlanTerrain(f)) },
       st.encours ? '🗺 Lecture du plan… (jusqu’à une minute)' : lu ? '🗺 Lire un autre plan du terrain' : '🗺 Plan du terrain (photo, PDF, esquisse cotée)'),
     st.message ? h('div', { class: 'message ' + st.type, id: 'infoPlanTerrain' }, st.message) : null,
     lu ? h('div', { id: 'planTerrainLu', style: 'margin-top:10px' },
@@ -789,7 +828,7 @@ function etapeTerrain(v) {
       : [champ(v, 'terrain.adresse', 'ADRESSE DU TERRAIN (OU LIEU-DIT)', { autocapitalize: 'sentences' }),
         h('div', { class: 'deuxCol' }, champ(v, 'terrain.codePostal', 'CODE POSTAL', { inputmode: 'numeric' }), champ(v, 'terrain.ville', 'COMMUNE', { autocapitalize: 'words' }))],
     h('div', { class: 'rang', style: 'margin-top:10px' },
-      h('button', { class: 'gros', type: 'button', id: 'localiserAdresse', disabled: !!st.encours, onclick: () => localiserTerrain('adresse') }, st.encours ? '⏳ Recherche…' : '📍 Localiser par l’adresse'),
+      h('button', { class: 'gros' + (st.encours ? ' chargement' : ''), type: 'button', id: 'localiserAdresse', disabled: !!st.encours, onclick: () => localiserTerrain('adresse') }, st.encours ? '⏳ Recherche…' : '📍 Localiser par l’adresse'),
       h('button', { class: 'gros sec', type: 'button', id: 'localiserGps', disabled: !!st.encours, onclick: () => localiserTerrain('gps') }, '🛰 Je suis sur le terrain')),
     st.message ? h('div', { class: 'message ' + st.type, id: 'infoTerrain' }, st.message) : null,
     blocInfosTerrain(v),
@@ -814,14 +853,14 @@ function etapeTerrain(v) {
     champ(v, 'terrain.notes', 'NOTES SUR LE TERRAIN', { multiligne: true, autocapitalize: 'sentences', micro: true, placeholder: 'Voisinage, vues, arbres, haies, servitudes de passage, accès chantier…' }),
     h('h2', { style: 'margin-top:16px' }, 'Photos du terrain'),
     photos.length ? h('div', { class: 'photosTerrain' }, photos.map(ph => h('figure', {}, imagePhoto(ph),
-      h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => { const lies = imagines(ph.id); if (!confirm(lies.length ? 'Supprimer cette photo et ses ' + lies.length + ' image(s) imaginée(s) ?' : 'Supprimer cette photo ?')) return;
+      h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => { const lies = imagines(ph.id); if (!(await confirmer(lies.length ? 'Supprimer cette photo et ses ' + lies.length + ' image(s) imaginée(s) ?' : 'Supprimer cette photo ?'))) return;
         await changer(x => lies.reduce((w, im) => M.supprimer(w, 'photos', im.id), M.supprimer(x, 'photos', ph.id))); dessiner(); } }, '×'),
       ph.imaginerEnAttente ? h('div', { class: 'enAttenteImaginer petit' }, '⏳ En attente du réseau') : null,
       S.imaginer && S.imaginer.photoId === ph.id ? null : h('button', { class: 'puce imaginer imaginerTerrain', type: 'button', 'data-photo-terrain': ph.id, onclick: () => { S.imaginer = { photoId: ph.id, consigne: '' }; redessiner(); } }, '✨ Imaginer la maison')))) : null,
     photos.map(ph => [
       imagines(ph.id).map(im => h('div', { class: 'imagine', 'data-imagine': im.id },
         h('figure', {}, imagePhoto(im, 'imagineImg'), h('span', { class: 'badgeImagine' }, '✨ Imaginé'),
-          h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer l’image imaginée', onclick: async () => { if (!confirm('Supprimer cette image imaginée ?')) return; await changer(x => M.supprimer(x, 'photos', im.id)); dessiner(); } }, '×')),
+          h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer l’image imaginée', onclick: async () => { if (!(await confirmer('Supprimer cette image imaginée ?'))) return; await changer(x => M.supprimer(x, 'photos', im.id)); dessiner(); } }, '×')),
         h('div', { class: 'mut petit' }, (im.depuis ? '✏️ ' : '') + '« ' + (im.consigne || im.legende || '') + ' » ',
           h('button', { class: 'lienRetour', type: 'button', 'data-retoucher': im.id, onclick: () => { S.imaginer = { photoId: ph.id, depuis: im.id, consigne: '' }; dessiner(); } }, '✏️ Retoucher')))),
       S.imaginer && S.imaginer.photoId === ph.id ? panneauImaginer(sujet, ph) : null]),
@@ -968,6 +1007,15 @@ async function traiterFileImaginer() {
 }
 window.addEventListener('online', () => setTimeout(traiterFileImaginer, 1500));
 
+/* attente qui rassure : étapes qui défilent et barre qui balaie, au lieu d'une phrase figée (l'IA peut prendre jusqu'à une minute) */
+function attenteAnimee(el, etapes) {
+  el.className = 'message att attenteIA'; el.textContent = '';
+  const txt = h('span', { class: 'attenteTexte' }); let i = 0;
+  const maj = () => { txt.textContent = etapes[Math.min(i++, etapes.length - 1)]; };
+  maj(); el.append(h('span', { class: 'etincelle' }, '✨'), txt, h('div', { class: 'barreAttente' }, h('i')));
+  const t = setInterval(maj, 5000); return () => clearInterval(t);
+}
+
 async function lancerImaginer(p, ph, consigne, btn, info, depuis) {
   consigne = consigne.trim();
   const dire = (t, type) => { info.textContent = t; info.className = 'message ' + (type || 'err'); };
@@ -982,14 +1030,15 @@ async function lancerImaginer(p, ph, consigne, btn, info, depuis) {
   if (!S.session) return dire('Connectez-vous (même compte que le suivi) pour utiliser Imaginer.', 'att');
   if (!supa.functions || !supa.functions.invoke) return dire(MESSAGES_IMAGINER.non_configure, 'att');
   const texte = btn.textContent; btn.disabled = true; btn.textContent = '✨ Création en cours… (jusqu’à une minute)';
-  dire('L’image est en cours de création. Vous pouvez continuer la visite : elle arrivera ici.', 'att');
+  const arreter = attenteAnimee(info, ['Je regarde la pièce…', 'Je choisis les matériaux et la lumière…', 'Je dessine la pièce rénovée…', 'Dernières retouches…', 'Encore un instant, vous pouvez continuer la visite.']);
   try {
     const r = await creerImageImaginee(S.courante, p.id, ph.id, consigne, depuis);
+    arreter();
     if (S.imaginer && S.imaginer.photoId === ph.id) S.imaginer = null;
     S.message = { type: 'ok', texte: '✨ Image créée pour « ' + r.piece + ' »' + (r.restant != null ? ' (encore ' + r.restant + ' aujourd’hui).' : '.') };
     vibrer(); dessiner();
   } catch (e) {
-    btn.disabled = false; btn.textContent = texte;
+    arreter(); btn.disabled = false; btn.textContent = texte;
     if (e && e.code === 'reseau' && navigator.onLine === false && !depuis) return enAttente();
     dire(messageErreurImaginer(e));
   }
@@ -1120,7 +1169,7 @@ function cartePiece(v, p) {
       h('input', { class: 'in', value: p.nom, 'aria-label': 'Nom de la pièce', style: 'margin:0;font-weight:600',
         oninput: e => changer(x => M.majElement(x, 'pieces', p.id, { nom: e.target.value })) }),
       h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer la pièce', onclick: async () => {
-        if (!confirm('Supprimer la pièce « ' + p.nom + ' » et ses photos ?')) return;
+        if (!(await confirmer('Supprimer la pièce « ' + p.nom + ' » et ses photos ?'))) return;
         await changer(x => toutes.reduce((w, ph) => M.supprimer(w, 'photos', ph.id), M.supprimer(x, 'pieces', p.id)));
         dessiner();
       } }, '🗑')),
@@ -1129,7 +1178,7 @@ function cartePiece(v, p) {
         h('figure', {}, imagePhoto(ph),
           h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer la photo', onclick: async () => {
             const lies = imagines(ph.id);
-            if (!confirm(lies.length ? 'Supprimer cette photo et ses ' + lies.length + ' image(s) imaginée(s) ?' : 'Supprimer cette photo ?')) return;
+            if (!(await confirmer(lies.length ? 'Supprimer cette photo et ses ' + lies.length + ' image(s) imaginée(s) ?' : 'Supprimer cette photo ?'))) return;
             await changer(x => lies.reduce((w, im) => M.supprimer(w, 'photos', im.id), M.supprimer(x, 'photos', ph.id))); dessiner();
           } }, '×')),
         h('div', { style: 'flex:1;min-width:0' },
@@ -1148,7 +1197,7 @@ function cartePiece(v, p) {
       imagines(ph.id).map(im => h('div', { class: 'imagine', 'data-imagine': im.id },
         h('figure', {}, imagePhoto(im, 'imagineImg'), h('span', { class: 'badgeImagine' }, '✨ Imaginé'),
           h('button', { class: 'x', type: 'button', 'aria-label': 'Supprimer l’image imaginée', onclick: async () => {
-            if (!confirm('Supprimer cette image imaginée ?')) return;
+            if (!(await confirmer('Supprimer cette image imaginée ?'))) return;
             await changer(x => M.supprimer(x, 'photos', im.id)); dessiner();
           } }, '×')),
         h('div', { class: 'mut petit' }, (im.depuis ? '✏️ ' : '') + '« ' + (im.consigne || im.legende || '') + ' » ',
@@ -1183,9 +1232,9 @@ function blocAnnotations(v) {
 
 function etapeScan(v) {
   const scan = M.valeur(v, 'scan.fichier'), plan = M.valeur(v, 'plan'), ecarte = M.valeur(v, 'plan.ecarte');
-  const importer = () => {
+  const importer = async () => {
     // un plan déjà retouché n'est jamais remplacé en silence : il est mis de côté
-    if (plan && !confirm('Un plan existe déjà pour cette visite. Le remplacer par un nouveau scan ?\n(L’ancien plan reste gardé de côté.)')) return;
+    if (plan && !(await confirmer('Un plan existe déjà pour cette visite. Le remplacer par un nouveau scan ?\n(L’ancien plan reste gardé de côté.)'))) return;
     choisirFichier({}, async ([f]) => {
       // sur iPhone, l'export d'OpenPlan 3D peut arriver sans extension : aucun
       // filtre de type, sinon il serait grisé dans le sélecteur
@@ -1215,7 +1264,7 @@ function etapeScan(v) {
           dessiner();
         } }, 'Ouvrir cette version'),
         h('button', { class: 'puce', type: 'button', onclick: async () => {
-          if (!confirm('Oublier définitivement cette autre version du plan ?')) return;
+          if (!(await confirmer('Oublier définitivement cette autre version du plan ?'))) return;
           await poser('plan.ecarte', null); dessiner();
         } }, 'L’oublier'))) : null,
     // une pièce scannée à part : elle s'ajoute dans le plan, pas en remplaçant le scan
@@ -1229,7 +1278,7 @@ function etapeScan(v) {
       M.valeur(v, 'dessin') ? '✏️ Reprendre le dessin rapide' : '✏️ Dessin rapide (sans scan)'),
       h('p', { class: 'mut petit', style: 'margin:4px 0 0' }, 'Les pièces au doigt : longueur × largeur, puis glissées à leur place.')),
     // un plan 2D existant (magicplan, architecte, photo d'un plan papier) : l'IA en relève les pièces
-    h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', id: 'importerPlan2D', disabled: !!(S.lecturePlan && S.lecturePlan.encours),
+    h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec' + (S.lecturePlan && S.lecturePlan.encours ? ' chargement' : ''), id: 'importerPlan2D', disabled: !!(S.lecturePlan && S.lecturePlan.encours),
       onclick: () => choisirFichier({ accept: 'image/*,application/pdf', multiple: true }, fs => lirePlan2D(fs)) },
       S.lecturePlan && S.lecturePlan.encours ? '🖼 Lecture du plan' + (S.lecturePlan.rang ? ' ' + S.lecturePlan.rang : '') + '… (jusqu’à une minute)' : '🖼 Plan 2D ou esquisses (photo, image, PDF)'),
       h('p', { class: 'mut petit', style: 'margin:4px 0 0' }, 'Photo d’un plan ou d’esquisses à la main (plusieurs d’un coup) : l’IA relève pièces, cotes, portes et radiateurs ; vous vérifiez.')),
@@ -1244,7 +1293,7 @@ function etapeScan(v) {
     S.lecturePlan && S.lecturePlan.choix ? h('div', { class: 'carte', id: 'choixPlacement' },
       h('b', {}, '🖼 ' + S.lecturePlan.choix.reduce((t, g) => t + g.partie.pieces.length, 0) + ' pièce(s) lue(s). Un dessin rapide existe déjà (' + ((M.valeur(v, 'dessin') || {}).pieces || []).length + ' pièces) :'),
       h('button', { class: 'gros', type: 'button', id: 'ajouterAuDessin', style: 'margin-top:8px', onclick: () => appliquerGroupes(S.lecturePlan.choix, 'ajouter', S.lecturePlan.echecs) }, '＋ Ajouter au dessin'),
-      h('button', { class: 'gros sec', type: 'button', id: 'remplacerDessin', style: 'margin-top:8px', onclick: () => { if (confirm('Remplacer tout le dessin rapide par les pièces lues ?')) appliquerGroupes(S.lecturePlan.choix, 'remplacer', S.lecturePlan.echecs); } }, 'Remplacer le dessin'),
+      h('button', { class: 'gros sec', type: 'button', id: 'remplacerDessin', style: 'margin-top:8px', onclick: async () => { if ((await confirmer('Remplacer tout le dessin rapide par les pièces lues ?'))) appliquerGroupes(S.lecturePlan.choix, 'remplacer', S.lecturePlan.echecs); } }, 'Remplacer le dessin'),
       h('button', { class: 'lienRetour', type: 'button', style: 'margin-top:8px', onclick: () => { S.lecturePlan = null; redessiner(); } }, 'Annuler')) : null,
   ];
 }
@@ -1563,7 +1612,7 @@ function ecranAnnoter() {
         AN.OUTILS.map(([k, lib]) => h('button', { class: 'puce' + (st.outil === k ? ' on' : ''), type: 'button', 'data-outil': k, 'aria-pressed': String(st.outil === k), onclick: () => { st.outil = k; marquer(); } }, lib)),
         AN.COULEURS.map(([c, lib]) => h('button', { class: 'puce pastilleCouleur' + (st.couleur === c ? ' on' : ''), type: 'button', 'data-couleur': c, 'aria-label': 'Couleur ' + lib, 'aria-pressed': String(st.couleur === c), style: '--c:' + c, onclick: () => { st.couleur = c; marquer(); } }, '●')),
         h('button', { class: 'puce', type: 'button', id: 'annulerAnnot', onclick: async () => { elements.pop(); peindre(); await garder(); majCompte(); } }, '↶ Annuler'),
-        h('button', { class: 'puce', type: 'button', id: 'effacerAnnot', onclick: async () => { if (!elements.length || !confirm('Effacer toutes les annotations de ce plan ?')) return; elements = []; peindre(); await garder(); majCompte(); } }, '🗑 Tout effacer')),
+        h('button', { class: 'puce', type: 'button', id: 'effacerAnnot', onclick: async () => { if (!elements.length || !(await confirmer('Effacer toutes les annotations de ce plan ?'))) return; elements = []; peindre(); await garder(); majCompte(); } }, '🗑 Tout effacer')),
       panneauTexte,
       h('div', { class: 'carte cadreAnnot' }, cadre),
       h('div', { class: 'puces zoomAnnot' },
@@ -1700,7 +1749,25 @@ function etapeFin(v) {
   const travaux = [c('adresse'), [c('codePostal'), c('ville')].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   const usage = M.valeur(v, 'bien.usage') === 'Autre' ? (M.valeur(v, 'bien.usageAutre') || 'Autre') : M.valeur(v, 'bien.usage');
   const listeTypes = types.map(t => t === 'Autre' && M.valeur(v, 'projet.typeAutre') ? 'Autre (' + M.valeur(v, 'projet.typeAutre') + ')' : t);
+  // l'écran « Waouh » : l'essentiel d'un coup d'œil, avant le détail (photo, projet, avant/après, budget face à l'enveloppe)
+  const heros = (() => {
+    const est = (M.valeur(v, 'budget') || {}).estimation, env = M.valeur(v, 'projet.enveloppe');
+    const phs = M.actifs(v.photos), im = phs.find(x => x.role === 'imagine' && phs.find(y => y.id === x.source && !y.supprime));
+    const src = im && phs.find(y => y.id === im.source);
+    const stats = [['🛋', M.actifs(v.pieces).length, 'pièce(s)'], ['📷', phs.filter(x => x.role !== 'imagine').length, 'photo(s)'], ['✨', phs.filter(x => x.role === 'imagine').length, 'imagée(s)'],
+      ['📐', M.valeur(v, 'plan') ? '✓' : '—', 'plan']].filter(x => x[1] !== 0 && x[1] !== '—');
+    const sous = [[c('ville')].filter(Boolean).join(''), listeTypes.slice(0, 3).join(' · ')].filter(Boolean).join(' · ');
+    return h('section', { class: 'heros', id: 'herosFin' },
+      im && src ? curseurAvantApres(src, im) : garde && !garde.supprime ? imagePhoto(garde, 'garde') : null,
+      h('div', { class: 'herosTitre' }, M.intitule(v)),
+      sous ? h('div', { class: 'mut' }, sous) : null,
+      stats.length ? h('div', { class: 'herosStats' }, stats.map(([i, n, l]) => h('span', { class: 'herosStat' }, h('b', {}, i + ' ' + n), ' ' + l))) : null,
+      est && est.max > 0 ? h('div', { class: 'herosBudget' }, h('div', { class: 'mut petit' }, 'Budget estimé (indicatif)'), h('div', { class: 'herosMontant' }, B.formatPlage(est)),
+        env != null && env > 0 ? h('div', { class: 'petit', style: 'font-weight:600;color:' + (est.max <= env ? 'var(--green)' : est.min > env ? 'var(--terra)' : 'var(--amber)') },
+          est.max <= env ? '✓ Dans votre enveloppe de ' + M.formatEuros(env) : est.min > env ? 'Au-dessus de votre enveloppe de ' + M.formatEuros(env) : 'À cheval sur votre enveloppe de ' + M.formatEuros(env)) : null) : null);
+  })();
   return [
+    heros,
     h('h1', {}, 'Récapitulatif'),
     m.length ? h('div', { class: 'manque' }, 'À compléter si possible : ' + m.join(', ') + '.') : h('div', { class: 'message ok' }, '✓ Fiche complète.'),
     garde && !garde.supprime ? h('div', { style: 'margin-top:12px' }, imagePhoto(garde, 'garde')) : null,
@@ -1743,7 +1810,7 @@ function etapeFin(v) {
       dd('Scan', (M.valeur(v, 'scan.fichier') || {}).nom),
       dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null),
       dd('Budget estimé', (M.valeur(v, 'budget') || {}).estimation ? B.formatPlage(M.valeur(v, 'budget').estimation) + ' (indicatif)' : null)),
-    champ(v, 'notes', 'NOTES DE VISITE (internes, jamais dans le dossier client)', { multiligne: true, autocapitalize: 'sentences' }),
+    h('div', { class: 'interne' }, champ(v, 'notes', 'NOTES DE VISITE (internes, jamais dans le dossier client)', { multiligne: true, autocapitalize: 'sentences' })),
     h('button', { class: 'gros sec', id: 'ouvrirDossier', style: 'margin-top:14px', onclick: () => { S.ecran = 'dossier'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '📄 Dossier client'),
   ];
 }
@@ -2010,7 +2077,7 @@ function ecranDessin() {
     if (!d.pieces.length) return montrerMessage('att', 'Ajoutez au moins une pièce.');
     if (R.erreurs.length) return montrerMessage('err', 'À corriger avant de créer le plan : ' + R.erreurs.join(' '));
     const actuel = M.valeur(visite(), 'plan');
-    if (actuel && !confirm('Un plan existe déjà pour cette visite. Le remplacer par ce dessin ?\n(L’ancien plan, avec ses retouches, reste gardé de côté.)')) return;
+    if (actuel && !(await confirmer('Un plan existe déjà pour cette visite. Le remplacer par ce dessin ?\n(L’ancien plan, avec ses retouches, reste gardé de côté.)'))) return;
     const projet = 'Plan de ' + M.intitule(visite());
     const nv = DR.releveDepuisDessin(d.pieces, { projet, hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
     await changer(w => { let x = w; if (actuel) x = M.modifier(x, 'plan.ecarte', actuel); return M.modifier(x, 'plan', { releve: nv.donnees, resume: nv.resume }); });
@@ -2068,7 +2135,7 @@ function ecranDessin() {
         return h('div', { class: 'carte pieceDessin' + (sel ? ' sel' : ''), 'data-dessin': p.id },
           h('div', { class: 'rang', style: 'justify-content:space-between', onclick: () => { if (!sel) { S.dessinSel = p.id; S.dessinSym = null; redessiner(); } } },
             h('b', {}, p.nom + ' · ' + String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m' + (ouvs.length ? ' · ' + ouvs.length + ' ouv.' : '') + (p.note ? ' · 📝' : '')),
-            h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer ' + p.nom, onclick: e => { e.stopPropagation(); if (!confirm('Supprimer « ' + p.nom + ' » ?')) return;
+            h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer ' + p.nom, onclick: async e => { e.stopPropagation(); if (!(await confirmer('Supprimer « ' + p.nom + ' » ?'))) return;
               majDessin(x => { x.pieces = x.pieces.filter(y => y.id !== p.id); x.ouvertures = x.ouvertures.filter(o => o.piece !== p.id); x.pieces.forEach(y => { if (y.contre && y.contre.id === p.id) delete y.contre; }); }); } }, '🗑')),
           sel ? [
             h('label', { class: 'champ' }, 'NOM', h('input', { class: 'in', name: 'dessin-nom', value: p.nom, autocapitalize: 'sentences', onchange: e => maj(q => { q.nom = e.target.value.trim() || 'Pièce'; }) })),
@@ -2274,7 +2341,7 @@ async function partagerDossier(action, btn, info) {
   try {
     const actuel = M.valeur(visite(), 'partageDossier');
     if (action === 'retirer') {
-      if (!confirm('Retirer le lien ? Le client ne pourra plus ouvrir son dossier avec ce lien.')) { btn.disabled = false; btn.textContent = lib; return; }
+      if (!(await confirmer('Retirer le lien ? Le client ne pourra plus ouvrir son dossier avec ce lien.'))) { btn.disabled = false; btn.textContent = lib; return; }
       const { error } = await supa.from('releve_partages').update({ revoque: true }).eq('id', actuel.id);
       if (error) throw error;
       await poser('partageDossier', null);
@@ -2664,7 +2731,7 @@ function blocChiffragePrecis(v, budget, pieces, SP, majBudget) {
       maj(x => { x.lignes.push(l); }); } }, 'Ajouter')));
   det.appendChild(h('div', { class: 'rang', style: 'gap:8px;margin-top:12px;flex-wrap:wrap' },
     h('button', { class: 'gros sec', id: 'recalculerChiffrage', onclick: () => maj(x => { x.lignes = CH.rebaser(D, x.lignes, x.gabarit, x.pilotes, nid, x.options); }) }, '↻ Recalculer les quantités'),
-    h('button', { class: 'gros sec', id: 'retirerChiffrage', onclick: () => { if (confirm('Retirer tout le chiffrage précis de cette visite ?')) majBudget(b => { delete b.chiffrage; return b; }); } }, '🗑 Retirer le chiffrage')));
+    h('button', { class: 'gros sec', id: 'retirerChiffrage', onclick: async () => { if ((await confirmer('Retirer tout le chiffrage précis de cette visite ?'))) majBudget(b => { delete b.chiffrage; return b; }); } }, '🗑 Retirer le chiffrage')));
   det.appendChild(h('p', { class: 'mut petit' }, '« Recalculer » ne touche ni aux quantités retapées, ni aux prix saisis, ni aux articles ajoutés.'));
   return det;
 }
@@ -2851,7 +2918,7 @@ function ecranFourchettes() {
       L.filter(l => !l.supprime).map(l => h('div', { class: 'carte', 'data-fourchette': l.id },
         h('div', { class: 'rang' },
           h('input', { class: 'in', value: l.libelle, 'aria-label': 'Libellé du poste', style: 'margin:0;font-weight:600', oninput: e => poserL(l.id, x => { x.libelle = e.target.value; }) }),
-          h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer le poste', onclick: () => { if (!confirm('Supprimer le poste « ' + l.libelle + ' » ?')) return; poserL(l.id, x => { x.supprime = true; }); dessiner(); } }, '🗑')),
+          h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer le poste', onclick: async () => { if (!(await confirmer('Supprimer le poste « ' + l.libelle + ' » ?'))) return; poserL(l.id, x => { x.supprime = true; }); dessiner(); } }, '🗑')),
         h('div', { class: 'deuxCol' },
           h('label', { class: 'champ' }, 'UNITÉ', h('select', { class: 'in', onchange: e => poserL(l.id, x => { x.unite = e.target.value; }) },
             Object.entries(B.UNITES).map(([k, u]) => h('option', { value: k, selected: l.unite === k }, u.nom)))),
@@ -2871,9 +2938,9 @@ function ecranFourchettes() {
    le même chemin (history.go), pour que l'historique reste juste. Changer
    d'étape dans une visite ne fait que réécrire l'entrée en cours. Le plan
    se ferme toujours par fermerPlan (sa dernière retouche part d'abord). */
-const PROFONDEUR = { connexion: 0, accueil: 0, visite: 1 };
+const PROFONDEUR = { connexion: 0, accueil: 0, demo: 1, visite: 1 };
 const profondeur = e => PROFONDEUR[e] ?? 2;
-const ECRANS_SANS_VISITE = new Set(['connexion', 'accueil', 'ouvrages', 'fourchettes']);
+const ECRANS_SANS_VISITE = new Set(['connexion', 'accueil', 'demo', 'ouvrages', 'fourchettes']);
 let vueAffichee = null, sautHistorique = false, retourInterne = false, rangHistorique = 0, aReecrire = null;
 function suivreHistorique() {
   const vue = { ecran: S.ecran, courante: S.courante, etape: S.etape };
@@ -2909,12 +2976,53 @@ window.addEventListener('popstate', async e => {
 function dessiner() {
   arreterDictee(); // le champ dicté va être remplacé
   const app = document.getElementById('app');
-  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : S.ecran === 'assistant' ? ecranAssistant() : S.ecran === 'dessin' ? ecranDessin() : S.ecran === 'annoter' ? ecranAnnoter() : ecranAccueil();
+  const ecran = S.ecran === 'connexion' ? ecranConnexion() : S.ecran === 'visite' ? ecranVisite() : S.ecran === 'plan' ? ecranPlan() : S.ecran === 'fourchettes' ? ecranFourchettes() : S.ecran === 'ouvrages' ? ecranOuvrages() : S.ecran === 'dossier' ? ecranDossier() : S.ecran === 'assistant' ? ecranAssistant() : S.ecran === 'dessin' ? ecranDessin() : S.ecran === 'annoter' ? ecranAnnoter() : S.ecran === 'demo' ? ecranDemo() : ecranAccueil();
   app.replaceChildren(...ecran.flat(Infinity).filter(Boolean));
   // en quittant le plan annoté (bouton, retour du navigateur…), son image est refaite
   if (S.dernierEcran === 'annoter' && S.ecran !== 'annoter' && S.courante) exporterAnnotations(S.courante);
   S.dernierEcran = S.ecran;
   suivreHistorique();
+}
+
+
+/* ---------- « ▶ Démo » : le parcours en 5 écrans, sur un exemple fictif ----------
+   Rien n'est lu ni écrit : ni visite, ni base, ni photo réelle (images dessinées sur place). Sert à montrer l'outil
+   à un client en une minute ; défilement automatique, touchez pour suivre à son rythme. */
+const svgUrl = (corps, l = 800, ha = 600) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + l + ' ' + ha + '">' + corps + '</svg>');
+const DEMO_AVANT = svgUrl('<rect width="800" height="600" fill="#CFC8BB"/><rect y="430" width="800" height="170" fill="#9C9486"/><rect x="90" y="90" width="190" height="230" fill="#8FA7B5"/><rect x="540" y="200" width="120" height="230" fill="#6E675B"/><circle cx="120" cy="140" r="40" fill="#B7AE9E" opacity=".6"/><path d="M0 430 L800 430" stroke="#857E70" stroke-width="6"/>');
+const DEMO_APRES = svgUrl('<rect width="800" height="600" fill="#F6F0E4"/><rect y="430" width="800" height="170" fill="#C9A878"/><rect x="90" y="90" width="190" height="230" fill="#BFE0F0"/><rect x="95" y="95" width="180" height="220" fill="none" stroke="#fff" stroke-width="10"/><rect x="520" y="230" width="190" height="200" rx="14" fill="#2C4A5E"/><rect x="540" y="215" width="150" height="40" rx="12" fill="#3C6079"/><circle cx="640" cy="120" r="42" fill="#FFD98A"/><path d="M0 430 L800 430" stroke="#E5D8BF" stroke-width="6"/>');
+const DEMO_PLAN = svgUrl('<rect width="800" height="600" fill="#fff"/><g fill="#F5F1EA" stroke="#2C4A5E" stroke-width="6"><rect x="60" y="60" width="400" height="300"/><rect x="460" y="60" width="280" height="300"/><rect x="60" y="360" width="250" height="180"/><rect x="310" y="360" width="430" height="180"/></g><g font-family="sans-serif" font-size="28" fill="#2C4A5E" text-anchor="middle"><text x="260" y="215">Séjour 28 m²</text><text x="600" y="215">Cuisine 14 m²</text><text x="185" y="460">Chambre 12 m²</text><text x="525" y="460">Suite parentale 18 m²</text></g><g stroke="#C5563A" stroke-width="5"><path d="M60 40 H460"/><path d="M460 40 H740"/></g><g font-family="sans-serif" font-size="20" fill="#C5563A" text-anchor="middle"><text x="260" y="32">6,40 m</text><text x="600" y="32">4,50 m</text></g>', 800, 600);
+function ecranDemo() {
+  const MAX = 5, i = Math.max(0, Math.min(MAX - 1, S.demoEtape || 0));
+  clearInterval(S.demoMinuteur);
+  const aller = k => { S.demoEtape = k; dessiner(); window.scrollTo(0, 0); };
+  const sortir = () => { clearInterval(S.demoMinuteur); S.ecran = 'accueil'; dessiner(); };
+  const montant = h('div', { class: 'herosMontant', id: 'demoMontant' }, '0 €');
+  const pages = [
+    () => [h('h1', {}, 'Bienvenue chez vous'), h('div', { class: 'carte' }, h('img', { class: 'garde', alt: '', src: svgUrl('<rect width="800" height="600" fill="#E8EEF2"/><rect y="430" width="800" height="170" fill="#9DB89B"/><path d="M150 430 V250 L400 100 L650 250 V430Z" fill="#F5F1EA" stroke="#2C4A5E" stroke-width="8"/><path d="M110 260 L400 70 L690 260" fill="none" stroke="#C5563A" stroke-width="18"/><rect x="350" y="320" width="100" height="110" fill="#2C4A5E"/><rect x="200" y="300" width="90" height="80" fill="#BFE0F0" stroke="#2C4A5E" stroke-width="6"/><rect x="510" y="300" width="90" height="80" fill="#BFE0F0" stroke="#2C4A5E" stroke-width="6"/>') }),
+      h('p', {}, 'Une visite, c’est : des photos, vos souhaits, les mesures de la maison et une première estimation — le tout gardé au fur et à mesure.'))],
+    () => [h('h1', {}, 'Votre pièce, imaginée'), h('div', { class: 'carte' }, curseurAvantApres({ src: DEMO_AVANT }, { src: DEMO_APRES }), h('p', { class: 'mut' }, 'Glissez le curseur : à gauche la pièce aujourd’hui, à droite la même pièce rénovée.'))],
+    () => [h('h1', {}, 'Votre plan'), h('div', { class: 'carte' }, h('img', { class: 'garde', alt: 'Plan', src: DEMO_PLAN }), h('p', { class: 'mut' }, 'Le plan est coté, les surfaces sont calculées pour vous. En 3D, vous vous promenez dans la maison.'))],
+    () => [h('h1', {}, 'Votre budget'), h('div', { class: 'heros', style: 'animation:none' }, h('div', { class: 'mut petit' }, 'Estimation indicative, à confirmer par devis'), montant,
+      h('div', { class: 'jauge' }, h('div', { class: 'bande', style: 'left:62%;width:26%' }), h('div', { class: 'repere', style: 'left:92%' }, h('span', {}, 'Votre enveloppe'))),
+      h('div', { style: 'font-weight:600;color:var(--green);margin-top:22px' }, '✓ Dans votre enveloppe de 160 000 €'))],
+    () => [h('h1', {}, 'Votre dossier'), h('div', { class: 'carte' }, ['Photos et légendes de chaque pièce', 'Plan coté et vue 3D', 'Estimation par grands travaux', 'Lien à ouvrir chez vous, valable 30 jours'].map(t => h('div', { class: 'case', style: 'cursor:default' }, '✅ ' + t)),
+      h('p', { class: 'mut' }, 'Tout part en PDF ou par lien, en un geste.'))],
+  ];
+  const enfants = [
+    h('header', { class: 'haut' }, h('button', { class: 'lienRetour', onclick: sortir }, '‹ Visites'), h('span', { class: 'titre' }, 'Démonstration'), boutonPresentation()),
+    h('main', {},
+      h('nav', { class: 'progres', 'aria-label': 'Étapes de la démonstration' }, pages.map((_, k) => h('button', { type: 'button', class: k < i ? 'fait' : k === i ? 'ici' : '', 'aria-label': 'Écran ' + (k + 1), onclick: () => aller(k) }, h('i')))),
+      h('div', { class: 'etapeNom' }, 'Exemple fictif · ' + (i + 1) + ' sur ' + MAX),
+      h('div', { class: 'anime', id: 'demoPage' }, pages[i]())),
+    h('div', { class: 'barreBas' }, h('div', { class: 'in' },
+      h('button', { class: 'gros sec', onclick: () => i ? aller(i - 1) : sortir() }, i ? '‹ Retour' : '‹ Visites'),
+      i < MAX - 1 ? h('button', { class: 'gros', id: 'demoSuivant', onclick: () => aller(i + 1) }, 'Suivant ›') : h('button', { class: 'gros', id: 'demoFin', onclick: sortir }, '✓ Terminer la démo'))),
+  ];
+  // l'écran 4 : le montant « roule » jusqu'à sa valeur ; le défilement automatique laisse 9 s par écran
+  if (i === 3) { const t0 = performance.now(), cible = 138000; const roule = t => { const k = Math.min(1, (t - t0) / 1200), el = document.getElementById('demoMontant'); if (!el) return; el.textContent = 'de ' + euros(Math.round(cible * (0.88 + 0.12 * k) * k / 100) * 100) + ' à ' + euros(Math.round(164000 * k / 100) * 100); if (k < 1) requestAnimationFrame(roule); }; requestAnimationFrame(roule); }
+  if (!S.demoPause && i < MAX - 1 && !navigator.webdriver) S.demoMinuteur = setInterval(() => { if (S.ecran === 'demo') aller(i + 1); else clearInterval(S.demoMinuteur); }, 9000);
+  return enfants;
 }
 
 /* ---------- arrivée depuis le suivi de chantiers ----------

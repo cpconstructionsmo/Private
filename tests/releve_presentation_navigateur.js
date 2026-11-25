@@ -35,6 +35,27 @@ let b;
   chk(!(await p.locator('#reglerOuvrages').isVisible()),'le choix est gardé après rechargement');
   await p.tap('#bascPresentation');
   chk(await p.locator('#reglerOuvrages').isVisible(),'retour au mode normal');
+  /* la démo guidée : 5 écrans fictifs, rien n'est écrit */
+  await p.tap('#lancerDemo');await p.waitForSelector('#demoPage');
+  chk(/Bienvenue/.test(await p.textContent('#demoPage')),'démo : premier écran');
+  await p.tap('#demoSuivant');await p.waitForSelector('.cmpAvApres');
+  await p.locator('.cmpRange').evaluate(e=>{e.value=20;e.dispatchEvent(new Event('input',{bubbles:true}))});
+  chk(await p.evaluate(()=>document.querySelector('.cmpAvApres').style.getPropertyValue('--pos'))==='20%','démo : le curseur avant/après se règle');
+  await p.tap('#demoSuivant');await p.tap('#demoSuivant');
+  await p.waitForFunction(()=>/€/.test(document.getElementById('demoMontant').textContent)&&/164/.test(document.getElementById('demoMontant').textContent.replace(/\s/g,'')));
+  chk(true,'démo : le budget roule jusqu’à sa valeur');
+  await p.tap('#demoSuivant');await p.tap('#demoFin');await p.waitForSelector('#nouvelleVisite');
+  chk(await p.evaluate(()=>!Object.keys((window.__etat||{}).lignes||{}).length),'la démo n’écrit rien en base');
+  /* l'écran « Waouh » de fin de visite et l'avancement sur la carte */
+  const [c]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#nouvelleVisite')]);await c.setFiles(PHOTO);
+  await p.waitForSelector('img.garde[src^="blob:"]');
+  await p.tap('#suivant');await p.fill('input[name="client.nom"]','WAOUH');
+  await p.tap('text=‹ Visites');await p.waitForSelector('[data-visite]');
+  chk(/\d\/\d/.test(await p.textContent('[data-visite] .avancement')),'carte de visite : avancement n/total');
+  await p.tap('[data-visite]');
+  for(let k=0;k<6;k++){if(await p.locator('#herosFin').count())break;await p.tap('#suivant')}
+  await p.waitForSelector('#herosFin');
+  chk(/WAOUH/.test(await p.textContent('#herosFin')),'fin de visite : l’écran « Waouh » montre le client');
   chk(!erreurs.length,'aucune erreur dans la page');
   await b.close();
   console.log(ko?('\n'+ko+' echec(s)'):'\nTout est bon.');process.exitCode=ko?1:0;

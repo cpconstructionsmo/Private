@@ -164,6 +164,40 @@
     .feuille h2{break-after:avoid}
     .pieceDossier,.duo,.tableDossier,.feuille.fin{break-inside:avoid}
   }
+  .voileConfirm{position:fixed;inset:0;z-index:2000;background:rgba(15,20,28,.5);display:flex;align-items:flex-end;justify-content:center;padding:16px;animation:fondu .15s}
+  .boiteConfirm{background:#fff;border-radius:18px;padding:20px;width:100%;max-width:420px;box-shadow:0 12px 40px rgba(0,0,0,.25);animation:pop .2s}
+  .titreConfirm{font-size:18px;font-weight:700;color:var(--navy);margin-bottom:6px}
+  .boiteConfirm .gros{min-height:52px;font-size:17px}
+  @keyframes fondu{from{opacity:0}to{opacity:1}}
+  @media (min-width:700px){.voileConfirm{align-items:center}}
+  .avancement{display:flex;align-items:center;gap:8px;margin:6px 0 2px}
+  .avancement i{display:block;height:6px;border-radius:3px;background:var(--terra);flex:0 0 auto;max-width:70%;min-width:6px;transition:width .4s}
+  .avancement span{font-size:12px;font-weight:700;color:var(--muted)}
+  .visite{transition:transform .12s,box-shadow .12s}.visite:active{transform:scale(.985)}
+  .visite .vignette{width:88px;height:88px;flex-basis:88px;border-radius:14px}
+  .heros{background:#fff;border:1px solid var(--rule);border-radius:18px;padding:12px;margin-bottom:14px;box-shadow:0 8px 28px rgba(44,74,94,.10);animation:pop .35s}
+  .heros .garde{border-radius:12px;max-height:38vh}
+  .herosTitre{font-size:24px;font-weight:800;color:var(--navy);margin:12px 2px 2px;line-height:1.2}
+  .herosStats{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+  .herosStat{background:var(--sable);border-radius:14px;padding:5px 11px;font-size:14px;color:var(--muted)}.herosStat b{color:var(--navy)}
+  .herosBudget{background:linear-gradient(135deg,#F5F1EA,#fff);border-radius:14px;padding:12px;margin-top:6px;border:1px solid var(--rule)}
+  .herosMontant{font-size:30px;font-weight:800;color:var(--navy);margin:2px 0 4px;letter-spacing:-.5px}
+  .cmpAvApres{position:relative;--pos:50%;border-radius:12px;overflow:hidden;background:#E9E4DA;touch-action:pan-y;user-select:none}
+  .cmpAvApres .cmpImg{display:block;width:100%;aspect-ratio:4/3;object-fit:cover}
+  .cmpAvApres .cmpApres{position:absolute;inset:0;height:100%;clip-path:inset(0 0 0 var(--pos))}
+  .cmpRange{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
+  .cmpPoignee{position:absolute;top:50%;left:var(--pos);transform:translate(-50%,-50%);width:38px;height:38px;border-radius:19px;background:#fff;color:var(--navy);font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.3);pointer-events:none}
+  .cmpAvApres::before{content:'';position:absolute;top:0;bottom:0;left:var(--pos);width:2px;background:#fff;z-index:1;transform:translateX(-1px);pointer-events:none}
+  .cmpEtiq{position:absolute;bottom:8px;font-size:12px;font-weight:700;color:#fff;background:rgba(0,0,0,.55);padding:2px 9px;border-radius:10px;pointer-events:none}
+  .cmpAvant{left:8px}.cmpAp{right:8px}
+  .chargement:disabled{opacity:.85!important;background-image:linear-gradient(110deg,transparent 30%,rgba(197,86,58,.18) 50%,transparent 70%);background-size:200% 100%;animation:balayage 1.4s linear infinite}
+  @keyframes balayage{from{background-position:200% 0}to{background-position:-200% 0}}
+  .attenteIA{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.attenteIA .etincelle{animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.3)}}
+  .barreAttente{flex:1 0 100%;height:5px;border-radius:3px;background:rgba(138,97,16,.18);overflow:hidden}
+  .barreAttente i{display:block;height:100%;width:40%;border-radius:3px;background:var(--terra);animation:glisse 1.3s ease-in-out infinite}
+  @keyframes glisse{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+  @media (prefers-reduced-motion:reduce){.chargement,.barreAttente i,.etincelle{animation:none!important}}
   /* mode « Présentation client » : le client voit l'essentiel, jamais les réglages ni les prix internes */
   .bascPresentation{border:1.5px solid var(--rule);background:#fff;color:var(--navy);border-radius:16px;padding:4px 10px;font-size:14px;font-weight:600;cursor:pointer;min-height:32px}
   .bascPresentation.on{background:var(--navy);border-color:var(--navy);color:#fff}
