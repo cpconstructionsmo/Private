@@ -164,6 +164,11 @@
     .feuille h2{break-after:avoid}
     .pieceDossier,.duo,.tableDossier,.feuille.fin{break-inside:avoid}
   }
+  /* mode « Présentation client » : le client voit l'essentiel, jamais les réglages ni les prix internes */
+  .bascPresentation{border:1.5px solid var(--rule);background:#fff;color:var(--navy);border-radius:16px;padding:4px 10px;font-size:14px;font-weight:600;cursor:pointer;min-height:32px}
+  .bascPresentation.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  body.presentation .interne,body.presentation .tuile.propose:not(.on)::after,body.presentation #ouvrirAssistant{display:none!important}
+  body.presentation .pastille:not(.ok){display:none}
   [hidden]{display:none!important}
   .natures .puce{flex:1 1 30%;min-height:56px;font-size:15px;font-weight:600}
   .infosTerrain .ligneTerrain{margin-top:8px;line-height:1.5}.listeTerrain{margin:6px 0 0;padding-left:18px;font-size:14px}

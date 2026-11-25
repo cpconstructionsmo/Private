@@ -120,6 +120,21 @@ async function ajouterPhotos(fichiers, { role, pieceId }) {
   vibrer(); dessiner();
 }
 
+/* ---------- mode « Présentation client » : masque tout ce qui est interne (prix au m², réglages, chiffrage) ---------- */
+const lireP = () => { try { return localStorage.getItem('releve:presentation') === '1'; } catch (e) { return false; } };
+S.presentation = lireP();
+const appliquerPresentation = () => { document.body.classList.toggle('presentation', !!S.presentation); };
+appliquerPresentation();
+function boutonPresentation() {
+  return h('button', { class: 'bascPresentation' + (S.presentation ? ' on' : ''), type: 'button', id: 'bascPresentation',
+    title: S.presentation ? 'Quitter le mode présentation' : 'Mode présentation client (masque les réglages internes)',
+    'aria-pressed': S.presentation ? 'true' : 'false',
+    onclick: () => { S.presentation = !S.presentation; try { localStorage.setItem('releve:presentation', S.presentation ? '1' : '0'); } catch (e) { /* sans stockage : valable pour cette séance */ } appliquerPresentation(); dessiner(); } },
+    S.presentation ? '👁 Client' : '👁');
+}
+// vocabulaire de l'artisan → mots du client, seulement en présentation (les titres du modèle ne changent pas)
+const titreEtape = t => S.presentation ? ({ 'Scan': 'Mesures de la maison', 'Budget': 'Votre budget', 'Fin de visite': 'Récapitulatif' }[t] || t) : t;
+
 function montrerMessage(type, texte) { S.message = { type, texte }; dessiner(); }
 
 /* ---------- l'état de la synchronisation, toujours visible ---------- */
@@ -128,8 +143,9 @@ function texteEtat() {
   if (e.etat === 'synchro') return '↻ Envoi…';
   if (e.etat === 'ok' && !e.enAttente) return '✓ Synchronisé';
   if (e.etat === 'horsligne') return '⏸ Sur l’appareil' + (e.enAttente ? ' · ' + e.enAttente : '');
-  if (e.etat === 'erreur') return '⚠ En attente' + (e.enAttente ? ' · ' + e.enAttente : '');
-  return '⏳ En attente' + (e.enAttente ? ' · ' + e.enAttente : '');
+  // rien n'est perdu : la visite est déjà gardée sur l'appareil, l'envoi reprendra tout seul (message rassurant devant le client)
+  if (e.etat === 'erreur') return '✓ Gardé sur l’appareil · envoi dès que possible';
+  return '⏳ Envoi en cours' + (e.enAttente ? ' · ' + e.enAttente : '');
 }
 function pastilleEtat() {
   const e = S.etatSync;
@@ -208,7 +224,7 @@ function ecranAccueil() {
     box.querySelectorAll('[data-visite]').forEach(c => { const r = S.visites.find(x => x.id === c.dataset.visite); c.hidden = !!(r && m.length && !m.every(w => texteVisite(r.visite).includes(w))); });
     const n = box.querySelectorAll('[data-visite]:not([hidden])').length, vide = document.getElementById('aucuneVisiteTrouvee'); if (vide) vide.hidden = n > 0; };
   return [
-    h('header', { class: 'haut' }, h('img', { src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }), h('span', { class: 'titre' }, 'Relevés de visite'), pastilleEtat()),
+    h('header', { class: 'haut' }, h('img', { src: '../assets/logo_fiche.jpg', alt: 'CP Constructions' }), h('span', { class: 'titre' }, 'Relevés de visite'), boutonPresentation(), pastilleEtat()),
     h('main', {},
       S.message && h('div', { class: 'message ' + S.message.type }, S.message.texte),
       !S.session && h('div', { class: 'message att' }, 'Non connecté : les visites restent sur cet appareil. ',
@@ -221,7 +237,7 @@ function ecranAccueil() {
         h('div', { class: 'vide', id: 'aucuneVisiteTrouvee', hidden: liste.length > 0 }, 'Aucune visite ne correspond.'))
         : voirAnnulees ? h('div', { class: 'vide' }, 'Aucune visite annulée.')
         : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.'),
-      h('div', { style: 'text-align:center;margin-top:8px' }, h('button', { class: 'lienRetour', id: 'reglerOuvrages', onclick: () => { S.retour = 'accueil'; S.ecran = 'ouvrages'; S.brouillonO = null; S.message = null; dessiner(); } }, '⚙ Prix au m²'), ' · ',
+      h('div', { class: 'interne', style: 'text-align:center;margin-top:8px' }, h('button', { class: 'lienRetour', id: 'reglerOuvrages', onclick: () => { S.retour = 'accueil'; S.ecran = 'ouvrages'; S.brouillonO = null; S.message = null; dessiner(); } }, '⚙ Prix au m²'), ' · ',
         h('button', { class: 'lienRetour', id: 'reglerFourchettes', onclick: () => { S.retour = 'accueil'; S.ecran = 'fourchettes'; S.brouillonF = null; S.message = null; dessiner(); } }, '⚙ Postes détaillés'))),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' }, h('button', { class: 'gros', id: 'nouvelleVisite', onclick: nouvelleVisite }, '📷 Nouvelle visite'))),
   ];
@@ -262,13 +278,13 @@ function ecranVisite() {
   return [
     h('header', { class: 'haut' },
       h('button', { class: 'lienRetour', onclick: () => { S.ecran = 'accueil'; S.message = null; dessiner(); } }, '‹ Visites'),
-      h('span', { class: 'titre' }, M.intitule(v)), pastilleEtat()),
+      h('span', { class: 'titre' }, M.intitule(v)), boutonPresentation(), pastilleEtat()),
     h('main', {},
       // la barre de progression est aussi un sommaire : toucher une étape y va directement
       h('nav', { class: 'progres', 'aria-label': 'Étapes de la visite' }, ETP.map((e, i) => h('button', { type: 'button', class: i < S.etape ? 'fait' : i === S.etape ? 'ici' : '',
         title: e.titre, 'aria-label': 'Étape ' + (i + 1) + ' : ' + e.titre, 'aria-current': i === S.etape ? 'step' : null, onclick: () => { if (i !== S.etape) allerEtape(i); } }, h('i')))),
       h('div', { class: 'rang', style: 'justify-content:space-between;align-items:center' },
-        h('div', { class: 'etapeNom' }, 'Étape ' + (S.etape + 1) + ' sur ' + ETP.length + ' · ' + et.titre),
+        h('div', { class: 'etapeNom' }, 'Étape ' + (S.etape + 1) + ' sur ' + ETP.length + ' · ' + titreEtape(et.titre)),
         h('button', { class: 'puce assistantBouton', type: 'button', id: 'ouvrirAssistant', onclick: () => { S.ecran = 'assistant'; S.propAssistant = null; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🎙 Assistant')),
       S.message && h('div', { class: 'message ' + S.message.type, style: 'margin-top:10px' }, S.message.texte),
       h('div', { class: 'anime' }, corps)),
@@ -2463,7 +2479,7 @@ function carteOuvrage(r, majBudget) {
 function blocApprofondir(v, budget, calc, pieces, F_, majBudget) {
   const a = budget.ajust || {};
   const ajouter = fid => majBudget(b => { b.lignes.push({ id: M.nouvelId(), fourchetteId: fid, gamme: 'standard', pieces: [] }); return b; });
-  const d = h('details', { class: 'approfondir', open: !!S.budgetDetail || (budget.lignes || []).length > 0, ontoggle: e => { S.budgetDetail = e.target.open; } },
+  const d = h('details', { class: 'approfondir interne', open: !!S.budgetDetail || (budget.lignes || []).length > 0, ontoggle: e => { S.budgetDetail = e.target.open; } },
     h('summary', {}, 'Approfondir : ajustements, poste par poste, prix'),
     h('div', { class: 'champ' }, 'AJUSTEMENTS'),
     h('div', { class: 'puces' }, B.ETATS.map(([n, val]) => h('button', { class: 'puce' + ((a.etat || 0) === val ? ' on' : ''), type: 'button', onclick: () => majBudget(b => { b.ajust = { ...b.ajust, etat: val }; return b; }) }, n + (val ? ' +' + val * 100 + ' %' : '')))),
@@ -2544,7 +2560,7 @@ function blocChiffragePrecis(v, budget, pieces, SP, majBudget) {
   const gab = c ? c.gabarit : ((br && br.gabarit) || (pil.S > 0 ? (CH.gabaritProche(D, pil) || {}).id : D.gabarits[0].id));
   const maj = f => majBudget(b => { if (b.chiffrage) f(b.chiffrage, b); return b; });
   const ouvert = S.chiffrageOuvert != null ? S.chiffrageOuvert : !!c;
-  const det = h('details', { class: 'approfondir', id: 'chiffragePrecis', open: ouvert, ontoggle: e => { S.chiffrageOuvert = e.target.open; } },
+  const det = h('details', { class: 'approfondir interne', id: 'chiffragePrecis', open: ouvert, ontoggle: e => { S.chiffrageOuvert = e.target.open; } },
     h('summary', {}, 'Chiffrage précis (catalogue CP) — interne'));
   det.appendChild(h('p', { class: 'mut petit' }, 'Détail par lots avec vos prix, d’après les surfaces du plan. Interne : ni la marge ni les prix d’artisans ne figurent dans le dossier client. Estimation d’avant-projet à vérifier avant tout devis.'));
 
