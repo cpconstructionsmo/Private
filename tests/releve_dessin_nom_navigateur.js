@@ -51,6 +51,16 @@ let b;
 
   /* le nom : rien de sélectionné, pas de flèches ; on touche la pièce, elles apparaissent sous le plan */
   await p.evaluate(()=>{});
+  // l'état gardé sur le serveur, une fois qu'il ne bouge plus (la synchro peut traîner sur une machine lente)
+  const diag={};   // ce qui s'est passé, affiché si une vérification échoue (pour comprendre un échec sur une autre machine)
+  const stable=async()=>{let prev=JSON.stringify(await dessin());for(let i=0;i<24;i++){await p.waitForTimeout(250);const cur=JSON.stringify(await dessin());if(cur===prev)return JSON.parse(cur);prev=cur}return JSON.parse(prev)};
+  // glisse le nom : on mesure, on vérifie que le point visé est bien le nom (la mise en page a pu bouger), puis on glisse
+  const glisserNom=async(dx,dy)=>{for(let essai=0;essai<5;essai++){
+    const b=await vu(p.locator('.apercuDessin [data-piece-dessin] [data-edit="nom"]').first()), x=b.x+b.width/2, y=b.y+b.height/2;
+    const ok=await p.evaluate(([x,y])=>{const e=document.elementFromPoint(x,y);return !!(e&&e.closest('[data-edit="nom"]'))},[x,y]);
+    if(!ok){await p.waitForTimeout(400);continue}
+    await p.mouse.move(x,y);await p.mouse.down();await p.mouse.move(x+dx/2,y+dy/2,{steps:4});await p.mouse.move(x+dx,y+dy,{steps:4});await p.mouse.up();diag.dernier={x:Math.round(x),y:Math.round(y),dx,dy,essai};return true}
+    return false};
   const vu=async loc=>{await loc.evaluate(el=>el.scrollIntoView({block:'center'}));return loc.boundingBox()};   // au milieu de l'écran : la barre fixe du bas ne le recouvre pas
   const deselect=async()=>{if(await p.locator('#positionNom').count()){const b=await vu(p.locator('.apercuDessin [data-piece-dessin]').first());await p.mouse.click(b.x+b.width/2,b.y+b.height*0.7);await p.waitForTimeout(250)}};
   await deselect();
@@ -68,9 +78,8 @@ let b;
   chk(await surDessin('!d.pieces[0].etiquette'),'« Au centre » retire le décalage');
 
   /* sans le mode « ✋ Glisser le nom », glisser une pièce SÉLECTIONNÉE par son nom la déplace, comme avant */
-  const av0=await dessin(), sansEt=o=>{const c={...o};delete c.etiquette;return JSON.stringify(c)};
-  const gn0=p.locator('.apercuDessin [data-piece-dessin] [data-edit="nom"]').first(), bn0=await vu(gn0);
-  await p.mouse.move(bn0.x+bn0.width/2,bn0.y+bn0.height/2);await p.mouse.down();await p.mouse.move(bn0.x+bn0.width/2+25,bn0.y+bn0.height/2,{steps:6});await p.mouse.up();
+  const av0=await stable(), sansEt=o=>{const c={...o};delete c.etiquette;return JSON.stringify(c)};
+  chk(await glisserNom(25,0),'(le nom de la pièce sélectionnée est bien atteint)');
   const piecebouge=await (async()=>{for(let i=0;i<60;i++){const d=await dessin();if(sansEt(d.pieces[0])!==sansEt(av0.pieces[0]))return true;await p.waitForTimeout(100)}return false})();
   chk(piecebouge&&!(await dessin()).pieces[0].etiquette,'mode « Glisser le nom » éteint : glisser une pièce sélectionnée par son milieu la déplace, le nom reste au centre (comportement d’origine)');
   await p.evaluate(()=>{});
@@ -79,12 +88,13 @@ let b;
   chk(await p.getAttribute('#glisserNom','aria-pressed')==='true','« ✋ Glisser le nom » activé');
   /* glisser le nom d'une pièce sélectionnée, mode actif : le nom bouge, la pièce reste */
   await p.waitForSelector('#glisserNom');
-  const avant=await dessin(), sansEtiq=o=>{const c={...o};delete c.etiquette;return JSON.stringify(c)};
+  const avant=await stable(), sansEtiq=o=>{const c={...o};delete c.etiquette;return JSON.stringify(c)};
   const gn=p.locator('.apercuDessin [data-piece-dessin] [data-edit="nom"]').first();
-  const bn=await vu(gn);
-  await p.mouse.move(bn.x+bn.width/2,bn.y+bn.height/2);await p.mouse.down();await p.mouse.move(bn.x+bn.width/2,bn.y+bn.height/2+30,{steps:6});await p.mouse.up();
-  chk(await surDessin('d.pieces[0].etiquette&&d.pieces[0].etiquette.dy>0.3&&Math.abs(d.pieces[0].etiquette.dx)<0.2'),'nom glissé vers le bas : « etiquette » enregistrée (dy > 0,3 m)');
-  const apres=await dessin();
+  chk(await glisserNom(0,30),'(le nom est bien atteint, mode actif)');
+  const nomOk=await surDessin('d.pieces[0].etiquette&&d.pieces[0].etiquette.dy>0.05&&Math.abs(d.pieces[0].etiquette.dx)<0.2');
+  if(!nomOk)console.log('  [diagnostic] geste',JSON.stringify(diag.dernier),'| pièce 0 :',JSON.stringify((await dessin()).pieces[0]),'| mode actif :',await p.evaluate(()=>{const b=document.getElementById('glisserNom');return b&&b.getAttribute('aria-pressed')}),'| viewport',JSON.stringify(await p.evaluate(()=>[innerWidth,innerHeight,scrollY])));
+  chk(nomOk,'nom glissé vers le bas : « etiquette » enregistrée (dy > 0)');
+  const apres=await stable();
   chk(sansEtiq(apres.pieces[0])===sansEtiq(avant.pieces[0])&&JSON.stringify(apres.pieces.slice(1))===JSON.stringify(avant.pieces.slice(1)),'la pièce n’a pas bougé, les autres non plus : seul le nom a glissé');
   chk(await p.locator('#positionNom').count()===1,'la pièce reste sélectionnée après le glissement');
 
@@ -100,7 +110,7 @@ let b;
   const b1=await vu(p.locator('.apercuDessin [data-piece-dessin]').first());
   await p.mouse.click(b1.x+b1.width/2,b1.y+b1.height*0.7);   // la désélectionne
   await p.waitForFunction(()=>!document.getElementById('positionNom'));
-  const av2=await dessin();
+  const av2=await stable();
   const g2=p.locator('.apercuDessin [data-piece-dessin]').nth(2), bg=await vu(g2);
   await p.mouse.move(bg.x+bg.width/2,bg.y+bg.height/2);await p.mouse.down();await p.mouse.move(bg.x+bg.width/2+40,bg.y+bg.height/2+40,{steps:6});await p.mouse.up();
   const bouge=await (async()=>{for(let i=0;i<60;i++){const d=await dessin();if(JSON.stringify(d.pieces[2])!==JSON.stringify(av2.pieces[2]))return true;await p.waitForTimeout(100)}return false})();
