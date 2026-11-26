@@ -101,6 +101,9 @@ const {chk,fin}=verif();
   chk(e1===e2&&/^[0-9a-f]{64}$/.test(e1)&&e1!==await R.empreinte('autre'),'empreinte SHA-256 stable (seule elle est en base)');
   const ch=R.cheminsDossier({garde:{chemin:'v1/g.jpg'},planImage:{chemin:'v1/plan.jpg'},vue3d:{chemin:'v1/v3d.jpg'},planRendu:{chemin:'v1/rendu.jpg'},planAnnote:{chemin:'v1/annote.jpg'},pieces:[{photos:[{chemin:'v1/a.jpg',imagines:[{chemin:'v1/b.jpg'},{chemin:'../secret'}]},{chemin:null}]}]});
   chk(ch.join()==='v1/g.jpg,v1/plan.jpg,v1/v3d.jpg,v1/rendu.jpg,v1/annote.jpg,v1/a.jpg,v1/b.jpg','chemins des photos du dossier (vue 3D comprise) pour leurs liens temporaires (chemin douteux écarté)');
+  const ch2=R.cheminsDossier({garde:{chemin:'v1/g.jpg'},plansCote:[{chemin:'v1/rdc.jpg'},{chemin:'v1/etage.jpg'},{chemin:'../secret'},{chemin:null}],plansAnnotes:[{chemin:'v1/rdc-annote.jpg'}],pieces:[]});
+  chk(ch2.join()==='v1/g.jpg,v1/rdc.jpg,v1/etage.jpg,v1/rdc-annote.jpg','chemins des plans côte à côte et de leurs copies annotées (chemin douteux écarté)');
+  chk(R.cheminsDossier({garde:{chemin:'v1/g.jpg'},pieces:[]}).join()==='v1/g.jpg','un dossier sans plans côte à côte : rien ne change');
   /* IA améliorée : retouche, plan en couleur, rendu plus soigné, lecture de plan par le modèle « pro », doutes */
   {const img='A'.repeat(2000);
    chk(R.lireDemande({image:img,consigne:'Carrelage plus foncé',mode:'retouche'}).mode==='retouche'&&R.lireDemande({image:img,consigne:'plan',mode:'planRendu'}).mode==='planRendu'&&R.lireDemande({image:img,consigne:'xxx',mode:'<x>'}).mode==='piece','modes d’image : retouche et plan en couleur reconnus, inconnu → pièce');

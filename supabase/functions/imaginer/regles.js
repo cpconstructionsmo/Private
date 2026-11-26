@@ -172,6 +172,7 @@ export function cheminsDossier(d) {
   const s = new Set();
   const voir = ph => { if (ph && typeof ph.chemin === 'string' && /^[\w-]+\/[\w.-]+$/.test(ph.chemin)) s.add(ph.chemin); };
   voir(d?.garde); voir(d?.planImage); voir(d?.vue3d); voir(d?.planRendu); voir(d?.planAnnote);
+  (d?.plansCote || []).forEach(voir); (d?.plansAnnotes || []).forEach(voir);   // les plans côte à côte et leurs copies annotées
   (d?.pieces || []).forEach(p => (p.photos || []).forEach(ph => { voir(ph); (ph.imagines || []).forEach(voir); }));
   return [...s].slice(0, 200);
 }

@@ -125,6 +125,28 @@ Non repris de l'ancienne application : la signature du client à l'écran
 (l'estimation n'est pas contractuelle) et les coefficients de gamme, déjà
 couverts par « ⚙ Prix au m² ».
 
+## Plusieurs plans côte à côte (étape Scan › « 🗂 Plans côte à côte »)
+
+Pour montrer le rez-de-chaussée à côté de l'étage (ou l'inverse) :
+
+- **« ＋ Ajouter un plan »** : une image ou une photo de plan (JPEG, PNG, capture
+  d'écran) se range avec la visite (photo `planAjoute`). Elle prend le premier
+  nom libre (Rez-de-chaussée, 1er étage, 2e étage, Combles, Sous-sol), que l'on
+  change d'un toucher ou à la main. Un **PDF** n'est pas affiché : le message dit
+  de l'exporter d'abord en image.
+- **Côte à côte** : les plans ajoutés à gauche, le plan dessiné (ou importé) à droite.
+- **Annoter chacun** : chaque plan ajouté a sa propre copie annotée (champ
+  `annotationsPlus`, une entrée par plan) ; la copie du plan principal
+  (`annotations`) ne bouge pas. « 🗑 Supprimer la copie annotée » et « 🗑 Retirer »
+  (le plan et sa copie, après confirmation) existent pour chacun.
+- **Dossier client** : options « Les plans côte à côte (…) » et, avec « Plan annoté
+  (travaux) », une page par copie annotée ; décochées d'office.
+- **Lien envoyé au client** : les photos de ces plans n'y figurent qu'après la mise à jour
+  de la fonction `imaginer` sur Supabase (`regles.js`, `cheminsDossier`) ; le dossier
+  imprimé ou enregistré en PDF depuis l'application ne dépend pas de la fonction.
+
+Tests : `releve_plans_cote_navigateur.js`, `t_releve_imaginer.js`.
+
 ## Le dossier client (Phase 3)
 
 - Récapitulatif › **« 📄 Dossier client »** (et, dans le suivi, fiche
