@@ -40,8 +40,8 @@ let b;
   const [c1]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#nouvelleVisite')]);await c1.setFiles(PHOTO);
   await p.waitForSelector('img.garde[src^="blob:"]');
   await p.tap('.progres button[aria-label^="Étape 5 "]');
-  await p.waitForSelector('#plansAjoutes');
-  chk(await p.locator('#plansCote').count()===0&&/Ajoutez le plan d’un autre niveau/.test(await p.textContent('#plansAjoutes')),'sans plan ajouté : une invitation à ajouter le plan d’un autre niveau');
+  await p.waitForSelector('#blocAnnotations');
+  chk(await p.locator('#plansCote').count()===0&&/Ajoutez le plan d’un niveau/.test(await p.textContent('#blocAnnotations')),'sans plan ajouté : une invitation à ajouter le plan d’un autre niveau');
   /* un plan principal (importé) */
   await repondre({parties:[{nom:'RDC',pieces:[{nom:'Salon',longueur:4.3,largeur:5.49,x:0,y:0}]}]});
   const [c2]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#importerPlan2D')]);await c2.setFiles(PHOTO);
@@ -53,9 +53,11 @@ let b;
   const [c3]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#ajouterPlan')]);await c3.setFiles(PHOTO);
   await p.waitForSelector('[data-plan-ajoute]');
   chk(await p.inputValue('[data-plan-ajoute] input[name="nomPlan"]')==='Rez-de-chaussée','le premier plan ajouté s’appelle « Rez-de-chaussée » (modifiable)');
-  const figs=await p.$$eval('#plansCote figure',els=>els.map(e=>e.textContent.trim()));
+  const noms=()=>p.$$eval('#plansCote .tuilePlan .nomTuile',els=>els.map(e=>e.textContent.trim()));
+  const figs=await noms();
   chk(figs.length===2&&figs[0]==='Rez-de-chaussée'&&figs[1]==='Plan importé','côte à côte : le RDC à gauche, le plan importé à droite ('+figs.join(' | ')+')');
-  const cotes=await p.evaluate(()=>{const f=[...document.querySelectorAll('#plansCote figure')].map(e=>e.getBoundingClientRect());return f.length===2&&f[0].top<f[1].bottom&&f[1].top<f[0].bottom&&f[0].left<f[1].left});
+  chk(await p.getAttribute('[data-tuile="'+(await p.getAttribute('[data-plan-ajoute]','data-plan-ajoute'))+'"]','aria-pressed')==='true','le plan qu’on vient d’ajouter est celui qu’on voit : son nom, sa copie et ses boutons sont juste dessous');
+  const cotes=await p.evaluate(()=>{const f=[...document.querySelectorAll('#plansCote .tuilePlan')].map(e=>e.getBoundingClientRect());return f.length===2&&f[0].top<f[1].bottom&&f[1].top<f[0].bottom&&f[0].left<f[1].left});
   chk(cotes,'les deux plans sont sur la même ligne, le RDC à gauche (même sur iPhone)');
   const id1=await p.getAttribute('[data-plan-ajoute]','data-plan-ajoute');
   chk(await surServeur('ph.some(x=>x.role==="planAjoute"&&x.legende==="Rez-de-chaussée"&&!x.supprime)'),'le plan ajouté part avec la visite (photo « planAjoute »)');
@@ -69,14 +71,16 @@ let b;
 
   /* un second plan : prend le nom suivant ; un PDF est refusé avec son explication */
   const [c4]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#ajouterPlan')]);await c4.setFiles(PHOTO);
-  await p.waitForFunction(()=>document.querySelectorAll('[data-plan-ajoute]').length===2);
-  chk((await p.$$eval('[data-plan-ajoute] input[name="nomPlan"]',e=>e.map(x=>x.value))).join('|')==='RDC garage|Rez-de-chaussée','le second plan prend le premier nom libre (« Rez-de-chaussée »)');
+  await p.waitForFunction(()=>document.querySelectorAll('#plansCote .tuilePlan').length===3);
+  chk((await noms()).join('|')==='RDC garage|Rez-de-chaussée|Plan importé','le second plan prend le premier nom libre (« Rez-de-chaussée ») et se range à côté des autres ('+(await noms()).join(' | ')+')');
   const [c5]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#ajouterPlan')]);await c5.setFiles({name:'plan.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4')});
   await p.waitForSelector('.message.att');
-  chk(/PDF/.test(await p.textContent('.message.att'))&&await p.locator('[data-plan-ajoute]').count()===2,'un PDF n’est pas ajouté : le message dit d’exporter une image');
+  chk(/PDF/.test(await p.textContent('.message.att'))&&await p.locator('#plansCote .tuilePlan').count()===3,'un PDF n’est pas ajouté : le message dit d’exporter une image');
 
   /* annoter la copie du premier plan ajouté, sans toucher à la copie du plan principal */
-  await p.tap('[data-plan-ajoute="'+id1+'"] [data-annoter-plan]');
+  await p.tap('[data-tuile="'+id1+'"]');
+  await p.waitForSelector('[data-plan-detail="'+id1+'"] [data-annoter-plan]');
+  await p.tap('[data-plan-detail="'+id1+'"] [data-annoter-plan]');
   await p.waitForFunction(()=>{const c=document.querySelector('#toileAnnot');return c&&c.width>0});
   const boite=await p.locator('#toileAnnot').boundingBox(), X=f=>boite.x+boite.width*f, Y=f=>boite.y+boite.height*f;
   await p.mouse.move(X(.2),Y(.2));await p.mouse.down();for(let i=1;i<=10;i++)await p.mouse.move(X(.2+i*.03),Y(.2+i*.02));await p.mouse.up();
@@ -86,7 +90,9 @@ let b;
   await p.waitForFunction(id=>/Copie annotée · 1 trait/.test(document.querySelector('[data-resume-annot="'+id+'"]').textContent),id1);
   chk(await surServeur('v.annotationsPlus&&v.annotationsPlus["'+id1+'"]&&v.annotationsPlus["'+id1+'"].elements.length===1&&v.annotationsPlus["'+id1+'"].imageId'),'la copie annotée du plan ajouté est gardée sous son plan, avec son image');
   chk(await surServeur('!v.annotations||!v.annotations.fondId'),'la copie du plan principal n’a pas bougé (aucune annotation créée)');
-  chk(await p.locator('#blocAnnotations [data-resume-annot]').count()===0,'et son écran ne montre pas cette copie');
+  await p.tap('[data-tuile="planPapier"]');
+  await p.waitForSelector('[data-fond="planPapier"]');
+  chk(await p.locator('#resumeAnnot').count()===0&&/Annoter une copie du plan importé/.test(await p.textContent('#blocAnnotations')),'le plan importé, choisi à son tour, n’a pas de copie annotée : « Annoter une copie » est proposé');
 
   /* puis celle du plan principal : l'autre n'est pas touchée */
   await p.tap('[data-fond="planPapier"]');
@@ -97,10 +103,11 @@ let b;
   await p.tap('#terminerAnnot');await p.waitForSelector('#resumeAnnot');
   chk(await surServeur('v.annotations&&v.annotations.elements.length===1&&v.annotations.elements[0].type==="fleche"&&v.annotationsPlus["'+id1+'"].elements.length===1&&v.annotationsPlus["'+id1+'"].elements[0].type==="trait"'),'chaque plan garde ses propres annotations (flèche sur le principal, trait sur le RDC)');
   /* continuer celle du plan ajouté : on retombe sur la sienne */
-  await p.tap('[data-plan-ajoute="'+id1+'"] [data-annoter-plan]');
+  await p.tap('[data-tuile="'+id1+'"]');
+  await p.tap('[data-plan-detail="'+id1+'"] [data-annoter-plan]');
   await p.waitForFunction(()=>/1 trait/.test(document.getElementById('compteAnnot').textContent));
   chk(true,'« Continuer les annotations » d’un plan ajouté rouvre sa propre copie (1 trait)');
-  await p.tap('#terminerAnnot');await p.waitForSelector('#plansAjoutes');
+  await p.tap('#terminerAnnot');await p.waitForSelector('#blocAnnotations');
 
   /* dossier client */
   await p.tap('.progres button[aria-label^="Étape 7 "]');
@@ -114,17 +121,31 @@ let b;
   await p.waitForFunction(()=>/Les travaux envisagés · RDC garage/.test(document.querySelector('.dossier').textContent));
   chk(!/Les travaux envisagés · Rez-de-chaussée/.test(await p.textContent('.dossier')),'dossier : la copie annotée du RDC garage a sa page ; l’autre plan, non annoté, n’en a pas');
   await p.uncheck('input[name="opt-plansCote"]');await p.uncheck('input[name="opt-planAnnote"]');
-  await p.tap('text=‹ Visite');await p.tap('.progres button[aria-label^="Étape 5 "]');await p.waitForSelector('#plansAjoutes');
+  await p.tap('text=‹ Visite');await p.tap('.progres button[aria-label^="Étape 5 "]');await p.waitForSelector('#blocAnnotations');
 
   /* retirer un plan : sa copie annotée part avec lui, l'autre reste */
   const idsCopie=(await sv()).valeurs.annotationsPlus[id1];const fondId=idsCopie.fondId,imageId=idsCopie.imageId;
   chk(!!fondId&&!!imageId,'(le plan à retirer a bien une copie annotée : fond et image)');
   await p.screenshot({path:require('os').tmpdir()+'/cp-tests/releve_plans_cote.png',fullPage:true});
-  await p.tap('[data-plan-ajoute="'+id1+'"] button[aria-label^="Retirer le plan"]');
-  await p.waitForFunction(()=>document.querySelectorAll('[data-plan-ajoute]').length===1);
+  await p.tap('[data-tuile="'+id1+'"]');
+  await p.tap('#retirerPlan');
+  await p.waitForFunction(()=>document.querySelectorAll('#plansCote .tuilePlan').length===2);
   chk(await surServeur('ph.find(x=>x.id==="'+id1+'").supprime&&ph.find(x=>x.id==="'+fondId+'").supprime&&ph.find(x=>x.id==="'+imageId+'").supprime&&!(v.annotationsPlus||{})["'+id1+'"]'),'retirer le plan : lui, le fond et l’image de sa copie annotée sont notés supprimés, et sa copie disparaît des annotations');
   chk(await surServeur('v.annotations&&v.annotations.elements.length===1'),'la copie annotée du plan principal est intacte');
-  chk(await p.locator('[data-plan-ajoute]').count()===1&&(await p.$$eval('#plansCote figure',e=>e.length))===2,'l’autre plan reste, côte à côte avec le principal');
+  chk((await noms()).join('|')==='Rez-de-chaussée|Plan importé','l’autre plan reste, côte à côte avec le principal ('+(await noms()).join(' | ')+')');
+
+  /* retirer l'AUTRE plan, le plan importé (avec sa copie annotée) : au choix, l'un ou l'autre */
+  const idPapier=await p.evaluate(()=>{const L=Object.values(window.__etat.lignes||{});const ph=Object.values((L[0]&&L[0].donnees.photos)||{});const q=ph.find(x=>x.role==='planPapier'&&!x.supprime);return q&&q.id});
+  const copiePapier=(await sv()).valeurs.annotations;
+  chk(!!idPapier&&!!copiePapier.fondId,'(le plan importé a une copie annotée à retirer avec lui)');
+  await p.tap('[data-tuile="planPapier"]');
+  await p.tap('#retirerPlan');
+  await p.waitForFunction(()=>document.querySelectorAll('#plansCote .tuilePlan').length===1);
+  chk(await surServeur('ph.find(x=>x.id==="'+idPapier+'").supprime&&ph.find(x=>x.id==="'+copiePapier.fondId+'").supprime&&(!v.annotations||!v.annotations.fondId)'),'retirer le plan importé : lui et sa copie annotée sont notés supprimés ; la copie du plan ajouté n’est pas touchée');
+  chk((await noms()).join('|')==='Rez-de-chaussée'&&await p.locator('#retirerPlan').count()===1,'il reste le plan ajouté, que l’on peut retirer à son tour');
+  await p.tap('#retirerPlan');
+  await p.waitForFunction(()=>!document.querySelector('#plansCote'));
+  chk(await p.locator('#ajouterPlan').count()===1&&/Ajoutez le plan d’un niveau/.test(await p.textContent('#blocAnnotations')),'plus aucun plan : on retrouve l’invitation à en ajouter un');
 
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();

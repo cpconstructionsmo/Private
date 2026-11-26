@@ -48,6 +48,14 @@ const {chk,fin}=verif();
   chk(/HORIZONTALE/.test(ipl)&&/N’invente aucune pièce/.test(ipl)&&/"parties"/.test(ipl),'plan : consigne (dimension horizontale, rien d’inventé, JSON par partie)');
   const rp=R.descriptionReponse(rep(JSON.stringify({parties:[{nom:' RDC  état actuel ',pieces:[{nom:'Salon',longueur:'4,30',largeur:5.49,x:5.2,y:0},{nom:'Placard',longueur:0.1,largeur:2},{nom:'',longueur:3,largeur:3}]},{nom:'Vide',pieces:[]}]})),'plan');
   chk(rp.parties.length===1&&rp.parties[0].nom==='RDC état actuel'&&rp.parties[0].pieces.length===2&&rp.parties[0].pieces[0].longueur===4.3&&rp.parties[0].pieces[1].nom==='Pièce'&&rp.parties[0].pieces[1].x===0,'plan : nombres lus (virgule), dimension hors bornes écartée, partie vide retirée');
+  /* cotes intérieures et surface écrite sur le plan */
+  chk(/FACES INTÉRIEURES/.test(ipl)&&/JAMAIS une cote extérieure ou totale du bâtiment/.test(ipl),'plan : la consigne exige les cotes intérieures et interdit la cote totale du bâtiment');
+  chk(/"surface"/.test(ipl)&&/Ne la calcule jamais/.test(ipl)&&/3 %/.test(ipl),'plan : la consigne demande la surface ÉCRITE (jamais calculée) et de revérifier au-delà de 3 % d’écart');
+  chk(/"surface":0,"x":0,"y":0/.test(ipl),'plan : le format de réponse annonce le champ « surface »');
+  {const rs=R.descriptionReponse(rep(JSON.stringify({parties:[{nom:'RDC',pieces:[{nom:'Dégagement',longueur:1.9,largeur:7.94,surface:'15,28'},{nom:'Cuisine',longueur:4.6,largeur:4.58},{nom:'Zéro',longueur:2,largeur:2,surface:0},{nom:'Énorme',longueur:2,largeur:2,surface:99999},{nom:'Texte',longueur:2,largeur:2,surface:'abc'}]}]})),'plan');
+   const pc=rs.parties[0].pieces;
+   chk(pc[0].surface===15.28&&pc[0].longueur===1.9,'plan : la surface écrite est gardée (virgule lue), les cotes aussi');
+   chk(!('surface' in pc[1])&&!('surface' in pc[2])&&!('surface' in pc[3])&&!('surface' in pc[4]),'plan : surface absente, nulle, hors bornes ou illisible : le champ est omis (rien d’inventé)');}
   chk(R.descriptionReponse(rep('{"parties":[]}'),'plan').erreur==='rien_lu','plan : aucune pièce lue : erreur nommée');
   {const re=R.descriptionReponse(rep(JSON.stringify({parties:[{nom:'Plan',pieces:[{nom:'Séjour',longueur:4.15,largeur:6.57,hauteur:'2,25',forme:'autre',notes:'  Mur   à refaire ',projet:'futur SDE',
     ouvertures:[{type:'porte',cote:'bas',largeur:0.9,hauteur:2.15},{type:'fenetre',cote:'nord',largeur:1.2},{type:'porte',cote:'haut',largeur:40},{type:'<script>',cote:'bas',largeur:1}],

@@ -37,7 +37,7 @@ let b;
   const [c1]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#nouvelleVisite')]);await c1.setFiles(PHOTO);
   await p.waitForSelector('img.garde[src^="blob:"]');
   await p.tap('.progres button[aria-label^="Étape 5 "]');
-  chk(await p.locator('#blocAnnotations').count()===0,'sans plan : rien à annoter');
+  chk(await p.locator('[data-annoter-plan]').count()===0&&await p.locator('#plansCote').count()===0&&await p.locator('#ajouterPlan').count()===1,'sans plan : rien à annoter, mais « ＋ Ajouter un plan » est proposé');
   await repondre({parties:[{nom:'RDC',pieces:[{nom:'Salon',longueur:4.3,largeur:5.49,x:0,y:0}]}]});
   const [c2]=await Promise.all([p.waitForEvent('filechooser'),p.tap('#importerPlan2D')]);await c2.setFiles(PHOTO);
   await p.waitForSelector('#ajouterPieceDessin');
@@ -97,7 +97,7 @@ let b;
   await p.waitForSelector('#blocAnnotations');
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees,a=d&&d.valeurs.annotations;return !!(a&&a.imageId&&d.photos[a.imageId]&&d.photos[a.imageId].role==='planAnnote'&&d.photos[a.imageId].chemin)},15000),
     'en quittant, l’image du plan annoté est refaite et part sur le serveur');
-  await p.waitForFunction(()=>document.querySelectorAll('#blocAnnotations img.vignettePlan').length===2);
+  await p.waitForFunction(()=>document.querySelectorAll('#blocAnnotations [data-plan-detail] img.vignettePlan').length===2);
   chk(/Copie annotée · 1 trait, 1 flèche/.test(await p.textContent('#blocAnnotations'))&&/Continuer les annotations/.test(await p.textContent('#blocAnnotations')),'le plan et sa copie annotée côte à côte, « Continuer les annotations »');
   /* dans le dossier client : en option, décochée d'office */
   await p.tap('.progres button[aria-label^="Étape 7 "]');
@@ -134,7 +134,7 @@ let b;
   await p.tap('#supprimerCopieAnnotee');
   await p.waitForFunction(()=>!document.getElementById('supprimerCopieAnnotee'));
   chk(!/Copie annotée/.test(await p.textContent('#blocAnnotations')),'confirmation acceptée : la copie annotée disparaît de l’écran');
-  chk(await p.locator('#blocAnnotations img.vignettePlan').count()===1,'le plan, lui, reste');
+  chk(await p.locator('#blocAnnotations [data-plan-detail] img.vignettePlan').count()===1,'le plan, lui, reste');
   chk(await p.locator('#blocAnnotations button[data-fond]').count()>=1&&/Annoter une copie/.test(await p.textContent('#blocAnnotations')),'« Annoter une copie… » revient pour en refaire une');
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const a=L[0]&&L[0].donnees.valeurs.annotations;return !!a&&!a.fondId&&!a.imageId&&(!a.elements||a.elements.length===0)}),'la suppression part avec la visite (plus d’annotations ni de fond)');
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const ph=Object.values(L[0].donnees.photos||{});return ph.filter(x=>x.role==='fondAnnote'||x.role==='planAnnote').every(x=>x.supprime)}),'les photos de la copie sont notées supprimées (jamais celles du plan)');

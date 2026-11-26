@@ -38,6 +38,9 @@ let b;
   await p.locator('.puces >> text=Mme').first().tap();
   await p.tap('#suivant');
   await p.tap('.grille >> text=Cuisine');await p.tap('.grille >> text=Peinture');await p.tap('.grille >> text=Isolation');
+  // l'appui sur une tuile redessine l'écran un instant plus tard : on laisse l'écran se stabiliser avant de saisir (un humain ne tape pas dans la milliseconde)
+  await p.waitForFunction(()=>[...document.querySelectorAll('.grille .tuile.on, .grille [aria-pressed="true"]')].length>=3);
+  await p.waitForTimeout(400);
   await p.fill('input[name="projet.souhaits"],textarea[name="projet.souhaits"]','Ouvrir le mur entre la cuisine et le séjour');
   await p.fill('input[name="projet.enveloppe"]','8000');
   await p.tap('#suivant');await p.tap('#suivant');await p.tap('#suivant');

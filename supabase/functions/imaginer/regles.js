@@ -221,9 +221,11 @@ export function inviteDescription({ mode, piece }) {
   if (mode === 'plan') return [
     'Voici un plan 2D de logement (export d’application comme magicplan, plan d’architecte, croquis, ou photo d’un plan papier).',
     'Relève les pièces dessinées, partie par partie (un étage, ou « état actuel » et « projet » dessinés séparément sont des parties différentes).',
-    'Réponds en JSON : {"parties":[{"nom":"…","pieces":[{"nom":"…","longueur":0,"largeur":0,"x":0,"y":0}]}]}',
+    'Réponds en JSON : {"parties":[{"nom":"…","pieces":[{"nom":"…","longueur":0,"largeur":0,"surface":0,"x":0,"y":0}]}]}',
     'longueur = dimension intérieure HORIZONTALE de la pièce telle que dessinée (de gauche à droite), largeur = dimension VERTICALE, en mètres.',
     'Prends-les dans les cotes écrites (ex. « 4.30 × 5.49 », cotes le long des murs) et vérifie avec ces cotes laquelle est horizontale.',
+    'Une pièce se mesure entre les FACES INTÉRIEURES de ses murs. Ne prends JAMAIS une cote extérieure ou totale du bâtiment (celle d’une façade entière, murs compris, souvent écrite en bordure du plan) comme longueur ou largeur d’une pièce : un couloir qui longe tout le bâtiment mesure moins que la façade, de l’épaisseur des murs ; prends la cote écrite le long de SON mur intérieur.',
+    '"surface" : la surface de la pièce SI elle est écrite sur le plan (ex. « SH : 15,28 m² », « 15.28 m² »), en m², sinon omets le champ. Ne la calcule jamais. Si longueur × largeur s’écarte de plus de 3 % de la surface écrite pour une pièce rectangulaire, revérifie tes cotes avant de répondre ; si l’écart reste, garde les cotes lues et écris-le dans "doutes".',
     'x, y = coin haut-gauche intérieur de la pièce, en mètres depuis le coin haut-gauche de la partie, en suivant les cotes (murs compris).',
     'Une pièce non rectangulaire (pan coupé, mur biais) : son rectangle englobant, avec "forme":"autre". N’invente aucune pièce ; ignore le mobilier.',
     'nom de partie : son titre sur le plan (ex. « Rez-de-chaussée — état actuel »), sinon « Plan ». Deux logements dessinés côte à côte au même niveau (« A », « B ») restent dans la même partie : préfixe le nom de leurs pièces (« A – Séjour », « B – SDB »). Un petit plan à part (étage, mezzanine, combles) est une autre partie.',
@@ -286,7 +288,9 @@ export function descriptionReponse(json, mode) {
       nom: txt(p?.nom, 80).replace(/\s+/g, ' ') || 'Plan ' + (i + 1),
       pieces: (Array.isArray(p?.pieces) ? p.pieces : []).slice(0, PIECES_PLAN_MAX)
         .map(q => {
-          const base = { nom: txt(q?.nom, 40).replace(/\s+/g, ' ') || 'Pièce', longueur: n(q?.longueur, 0.3, 50), largeur: n(q?.largeur, 0.3, 50), x: n(q?.x, -10, 300) ?? 0, y: n(q?.y, -10, 300) ?? 0 };
+          const base = { nom: txt(q?.nom, 40).replace(/\s+/g, ' ') || 'Pièce', longueur: n(q?.longueur, 0.3, 50), largeur: n(q?.largeur, 0.3, 50), x: n(q?.x, -10, 300) ?? 0, y: n(q?.y, -10, 300) ?? 0,
+            // la surface ÉCRITE sur le plan, quand il y en a une : le relevé la compare aux cotes lues (jamais calculée ici)
+            ...(n(q?.surface, 0.5, 2000) != null ? { surface: n(q?.surface, 0.5, 2000) } : {}) };
           // la lecture enrichie : seulement ce qui a la bonne forme (rien d'inventé, rien d'exécutable)
           const cote = c => COTES_PLAN.includes(c) ? c : null, h = n(q?.hauteur, 1.5, 8);
           const ouv = (Array.isArray(q?.ouvertures) ? q.ouvertures : []).slice(0, OUVERTURES_PIECE_MAX).map(o => ({ type: TYPES_OUV_PLAN.includes(o?.type) ? o.type : null, cote: cote(o?.cote),
