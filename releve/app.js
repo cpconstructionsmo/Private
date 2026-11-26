@@ -1271,9 +1271,26 @@ function blocAnnotations(v) {
     h('div', { class: 'duoPlans' },
       imgPlan ? h('figure', {}, imagePhoto(imgPlan, 'vignettePlan'), h('figcaption', { class: 'mut petit' }, 'Plan')) : null,
       imgAnnote ? h('figure', {}, imagePhoto(imgAnnote, 'vignettePlan'), h('figcaption', { class: 'mut petit', id: 'resumeAnnot' }, 'Copie annotée · ' + AN.resume(a.elements))) : null),
-    annote ? h('button', { class: 'gros sec', type: 'button', id: 'annoterPlan', style: 'margin-top:8px', onclick: () => { S.ecran = 'annoter'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🖍 Continuer les annotations')
+    annote ? [h('button', { class: 'gros sec', type: 'button', id: 'annoterPlan', style: 'margin-top:8px', onclick: () => { S.ecran = 'annoter'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🖍 Continuer les annotations'),
+      h('button', { class: 'gros sec', type: 'button', id: 'supprimerCopieAnnotee', style: 'margin-top:8px', onclick: supprimerCopieAnnotee }, '🗑 Supprimer la copie annotée')]
       : fonds.map(f => h('button', { class: 'gros sec', type: 'button', style: 'margin-top:8px', 'data-fond': f.source, id: f === fonds[0] ? 'annoterPlan' : null, onclick: () => commencerAnnotations(f) }, '🖍 Annoter une copie ' + f.libelle)),
     h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Notez les travaux sur une copie : démolition, ouvertures, isolation… Le plan lui-même ne change pas.'));
+}
+
+/* retire la copie annotée (son fond, son image et ses annotations) après confirmation ; le plan lui-même ne bouge pas,
+   et « Annoter une copie… » revient pour en refaire une. Les photos sont notées supprimées, comme partout ailleurs. */
+async function supprimerCopieAnnotee() {
+  const a = annotationsDe(visite());
+  if (!a.fondId && !a.imageId && !a.elements.length) return;
+  const n = a.elements.length;
+  if (!(await confirmer('Supprimer la copie annotée ?\n' + (n ? 'Ses ' + AN.resume(a.elements) + ' seront perdus. ' : '') + 'Le plan lui-même ne change pas.', { ok: 'Supprimer' }))) return;
+  await changer(w => {
+    let x = w;
+    [a.fondId, a.imageId].forEach(id => { if (id && x.photos[id] && !x.photos[id].supprime) x = M.supprimer(x, 'photos', id); });
+    return M.modifier(x, 'annotations', {});
+  });
+  S.retourAnnot = null; S.annotVue = null;
+  montrerMessage('ok', 'Copie annotée supprimée. Vous pouvez en refaire une depuis le plan.');
 }
 
 function etapeScan(v) {

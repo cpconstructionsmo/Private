@@ -123,6 +123,24 @@ let b;
   const a2=await (async()=>{for(let i=0;i<50;i++){const a=await annot();if(a&&a.fondId!==fondAvant)return a;await p.waitForTimeout(100)}return null})();
   chk(!!a2&&a2.elements.length===2,'le plan a changé : « Repartir du plan à jour » change le fond et garde les annotations');
 
+  /* supprimer la copie annotée : confirmation, puis le plan reste et on peut en refaire une */
+  await p.tap('#terminerAnnot');
+  await p.waitForSelector('#supprimerCopieAnnotee');
+  const avantSupp=await annot();
+  p.removeAllListeners('dialog');p.on('dialog',d=>d.dismiss());
+  await p.tap('#supprimerCopieAnnotee');await p.waitForTimeout(500);
+  chk(await p.locator('#supprimerCopieAnnotee').count()===1&&(await annot()).elements.length===avantSupp.elements.length,'confirmation refusée : la copie annotée et ses annotations restent');
+  p.removeAllListeners('dialog');p.on('dialog',d=>{if(!/Supprimer la copie annotée/.test(d.message()))console.log('  (boîte inattendue : '+d.message().slice(0,60)+')');d.accept()});
+  await p.tap('#supprimerCopieAnnotee');
+  await p.waitForFunction(()=>!document.getElementById('supprimerCopieAnnotee'));
+  chk(!/Copie annotée/.test(await p.textContent('#blocAnnotations')),'confirmation acceptée : la copie annotée disparaît de l’écran');
+  chk(await p.locator('#blocAnnotations img.vignettePlan').count()===1,'le plan, lui, reste');
+  chk(await p.locator('#blocAnnotations button[data-fond]').count()>=1&&/Annoter une copie/.test(await p.textContent('#blocAnnotations')),'« Annoter une copie… » revient pour en refaire une');
+  chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const a=L[0]&&L[0].donnees.valeurs.annotations;return !!a&&!a.fondId&&!a.imageId&&(!a.elements||a.elements.length===0)}),'la suppression part avec la visite (plus d’annotations ni de fond)');
+  chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const ph=Object.values(L[0].donnees.photos||{});return ph.filter(x=>x.role==='fondAnnote'||x.role==='planAnnote').every(x=>x.supprime)}),'les photos de la copie sont notées supprimées (jamais celles du plan)');
+  await p.tap('.progres button[aria-label^="Étape 7 "]');await p.tap('#ouvrirDossier');await p.waitForSelector('.dossier .feuille');
+  chk(/aucun plan annoté pour l’instant/.test(await p.textContent('.outilsDossier'))&&!/travaux envisagés sur le plan/.test(await p.textContent('.dossier')),'le dossier client n’a plus de page « Les travaux envisagés sur le plan »');
+
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();
   console.log(ko?('\n'+ko+' echec(s)'):'\nTout est bon.');process.exitCode=ko?1:0;
