@@ -87,6 +87,44 @@ reprise sur PC. Adresse : `https://cpconstructionsmo.github.io/Private/releve/`.
   dans la demande d'un prospect créé depuis la visite. Le chiffrage précis
   se fait au bureau, dans la fiche prospect.
 
+## L'aide à la vente du premier rendez-vous (étape Budget et étape Fin)
+
+Reprise de l'ancienne « App rénovation » (un artefact Claude) pour que le
+premier rendez-vous se déroule entièrement dans le relevé. Tout est dans
+`aide-vente.js` (fonctions pures ; tests `t_releve_aide_vente.js`,
+`releve_aide_vente_navigateur.js`) ; l'écran est dans `app.js`.
+
+- **Pour rentrer dans le budget** : quand l'estimation dépasse l'enveloppe du
+  client, jusqu'à 3 pistes recalculées sur l'estimation complète (tout en
+  gamme Éco, un travail en Éco, reporter un travail), celles qui font
+  rentrer d'abord. Rien ne change avant « Appliquer ».
+- **Calendrier indicatif** : date de début de chantier souhaitée → dates de
+  la signature de la mission, de l'avant-projet, du dossier d'urbanisme, de
+  la consultation, de la fabrication (cuisine, fenêtres, garage), du chantier
+  et de la réception ; « Délai court pour cette date » si la signature
+  devrait déjà être faite. Délais moyens (`SEMAINES`), à confirmer. Gardé
+  dans `budget.calendrier` ; il peut figurer dans le dossier client (option
+  « Calendrier indicatif », décochée d'office).
+- **Mensualités indicatives** : **désactivées d'office** (la mise en garde
+  de l'ancienne application est reprise : à n'activer qu'après avoir vérifié
+  les règles applicables à la présentation d'un crédit). Apport, durée,
+  taux (5 % par défaut, modifiable), sur la fourchette de l'estimation.
+  Gardées dans `budget.financement` ; **jamais dans le dossier client**.
+- **Mémo de rendez-vous** (interne, masqué en mode présentation) : questions
+  à poser, à proposer, points de vigilance, par travaux choisis ; le mémo
+  « Ouverture d'un mur » s'ajoute si les souhaits en parlent. Textes repris
+  de l'ancienne application, sans prix.
+- **Message de suivi** (étape Fin, interne) : e-mail après le rendez-vous,
+  relance ou SMS, préparés d'après la visite (client, fourchette, travaux,
+  calendrier). Modifiables à l'écran (le texte retouché est gardé pendant la
+  séance, « Reprendre le texte proposé » le remplace sur demande) ;
+  « Copier », « Ouvrir dans la messagerie » ou dans « Messages ». Rien ne
+  part sans le geste de l'utilisateur.
+
+Non repris de l'ancienne application : la signature du client à l'écran
+(l'estimation n'est pas contractuelle) et les coefficients de gamme, déjà
+couverts par « ⚙ Prix au m² ».
+
 ## Le dossier client (Phase 3)
 
 - Récapitulatif › **« 📄 Dossier client »** (et, dans le suivi, fiche

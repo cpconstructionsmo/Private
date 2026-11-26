@@ -7,6 +7,9 @@
    l'appareil, sans réseau ; l'écran le met en page et l'imprime (ou
    l'enregistre en PDF, ce que propose l'iPhone dans « Imprimer »).
 
+   Le calendrier indicatif (étape Budget) n'y va que si on le coche ; les
+   mensualités n'y vont jamais.
+
    Ce qui n'y figure jamais : les notes de visite (internes), ce qui manque
    à la fiche, la marge (il n'y en a pas dans une fourchette de premier
    rendez-vous, et le chiffrage détaillé se remet après étude). Les notes
@@ -17,8 +20,9 @@
 import * as M from './modele.js';
 import * as B from './budget.js';
 import * as T from './terrain.js';
+import * as AV from './aide-vente.js';
 
-export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false, planAnnote: false, terrain: true, vue3d: true, planRendu: true };
+export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false, planAnnote: false, terrain: true, vue3d: true, planRendu: true, calendrier: false };
 
 const txt = v => (typeof v === 'string' ? v.trim() : '');
 const nom = (v, p) => [M.valeur(v, p + '.civilite'), M.valeur(v, p + '.prenom'), M.valeur(v, p + '.nom')].filter(Boolean).join(' ');
@@ -132,5 +136,12 @@ export function dossierClient(v, opt = {}) {
     plan: resume && Array.isArray(resume.detail) && resume.detail.length
       ? resume.detail.map(p => ({ nom: p.nom, etage: p.etage || 0, surface: p.sol, hauteur: p.hauteur })) : [],
     estimation,
+    // le calendrier indicatif (option, décochée d'office) : seulement si une date de début de chantier a été choisie à l'étape Budget
+    calendrier: (() => {
+      const bg = val('budget') || {}, c = bg.calendrier;
+      if (!o.calendrier || !c || !c.debut) return null;
+      const k = AV.calendrier({ debut: c.debut, ouvrageIds: (bg.ouvrages || []).map(x => x.ouvrageId), urbanisme: c.urbanisme, abf: c.abf });
+      return k.lignes.length ? { lignes: k.lignes.map(l => ({ libelle: l.libelle, date: l.date, semaines: l.semaines || 0 })), court: k.court } : null;
+    })(),
   };
 }

@@ -63,7 +63,13 @@ qu'on ait à les redire.
   haut de gamme, prix au m² mini / médian / maxi (`OUVRAGES`, repères
   publics 2026 à remplacer par les ratios de CP : « ⚙ Prix au m² », table
   `releve_reglages` ligne « ouvrages ») ; le poste par poste (fourchettes,
-  ligne « fourchettes », livrée sans prix) reste sous « Approfondir ».
+  ligne « fourchettes », livrée sans prix) reste sous « Approfondir ». Aide à la vente
+  du 1er rendez-vous (`releve/aide-vente.js`, reprise de l'ancienne « App
+  rénovation ») : pistes pour rentrer dans le budget, calendrier indicatif
+  (`budget.calendrier`, option du dossier client), mensualités
+  (`budget.financement`, **désactivées d'office, jamais dans le dossier
+  client**), mémo du vendeur (interne), message de suivi (étape Fin) ; tests
+  `t_releve_aide_vente.js`, `releve_aide_vente_navigateur.js`.
   « ✨ Imaginer » (photo de pièce → pièce rénovée) passe par la fonction
   `supabase/functions/imaginer` (Gemini, clé `GEMINI_API_KEY` dans les
   secrets Supabase, utilisateur connecté, limite par jour) ; sans réseau, la

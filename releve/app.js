@@ -14,6 +14,7 @@ import { creerStockage, magasinIndexedDB } from './stockage.js';
 import { creerSynchro, ESPACE, cheminScan } from './synchro.js';
 import { reduirePhoto } from './photo.js';
 import * as B from './budget.js';
+import * as AV from './aide-vente.js';
 import * as CH from './chiffrage.js';
 import { dossierClient, OPTIONS_DEFAUT } from './dossier.js';
 import * as A from './assistant.js';
@@ -1856,6 +1857,7 @@ function etapeFin(v) {
       dd('Plan', M.valeur(v, 'plan') ? resumePlan(M.valeur(v, 'plan').resume) : null),
       dd('Budget estimé', (M.valeur(v, 'budget') || {}).estimation ? B.formatPlage(M.valeur(v, 'budget').estimation) + ' (indicatif)' : null)),
     h('div', { class: 'interne' }, champ(v, 'notes', 'NOTES DE VISITE (internes, jamais dans le dossier client)', { multiligne: true, autocapitalize: 'sentences' })),
+    blocMessageSuivi(v),
     blocDossierPermis(v),
     h('button', { class: 'gros sec', id: 'ouvrirDossier', style: 'margin-top:14px', onclick: () => { S.ecran = 'dossier'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '📄 Dossier client'),
   ];
@@ -2754,6 +2756,7 @@ function ecranDossier() {
         h('b', {}, 'Ce que le dossier contient'),
         option('estimation', 'Estimation budgétaire indicative'),
         option('enveloppe', 'Budget envisagé par le client'),
+        (M.valeur(v, 'budget') || {}).calendrier && M.valeur(v, 'budget').calendrier.debut ? option('calendrier', 'Calendrier indicatif (étape Budget)') : null,
         option('imagines', 'Images d’intention (✨ Imaginé)'),
         option('notesPieces', 'Notes des pièces'),
         M.natureDe(v) !== 'renovation' ? option('terrain', 'Terrain, urbanisme et risques') : null,
@@ -2811,6 +2814,11 @@ function etapeBudget(v) {
     S.totalAvant = calc.total;
     await poser('budget', b); vibrer(); redessiner();
   };
+  // un réglage d'aide à la vente (calendrier, financement) : l'estimation gardée ne bouge pas
+  const majBudgetChamp = async f => {
+    const b = f(JSON.parse(JSON.stringify({ lignes: [], ouvrages: [], ajust: {}, ...budget, ouvrages: budget.ouvrages || [] })));
+    await poser('budget', b); redessiner();
+  };
   const types = M.valeur(v, 'projet.types') || [], cats = M.valeur(v, 'projet.categories') || [];
   // construction et agrandissement : le projet et le terrain proposent aussi leurs travaux (fondations, assainissement…)
   const inf = M.valeur(v, 'terrain.infos') || {}, rq = inf.risques || {};
@@ -2842,11 +2850,117 @@ function etapeBudget(v) {
     h('div', { class: 'tuiles' }, B.ouvragesDe(T, nature).map(o => h('button', { class: 'tuile' + (pris.has(o.id) ? ' on' : '') + (proposes.has(o.id) ? ' propose' : ''), type: 'button',
       'data-ouvrage': o.id, 'aria-pressed': String(pris.has(o.id)), onclick: () => basculer(o) },
       h('span', { class: 'ico' }, o.icone), h('span', {}, o.nom)))),
+    blocPistes(budget, env, T, pieces, F_, SP, majBudget),
+    blocCalendrier(budget, (budget.ouvrages || []).map(c => c.ouvrageId), majBudgetChamp),
+    blocMensualites(budget, calc.total, majBudgetChamp),
+    blocMemo((budget.ouvrages || []).map(c => c.ouvrageId), M.valeur(v, 'projet.souhaits')),
     blocApprofondir(v, budget, calc, pieces, F_, majBudget),
     blocChiffragePrecis(v, budget, pieces, SP, majBudget),
   ];
   compteur(montant, S.totalAvant, calc.total); S.totalAvant = null;
   return vue;
+}
+
+/* ---------- l'aide à la vente du premier rendez-vous (releve/aide-vente.js) ----------
+   Repris de l'ancienne « App rénovation » : pistes pour rentrer dans le
+   budget du client, calendrier indicatif, mensualités indicatives (désactivées
+   d'office) et mémo du vendeur (interne). Rien ne s'applique sans un toucher. */
+function blocPistes(budget, env, T, pieces, F_, SP, majBudget) {
+  const pistes = AV.pistesBudget(budget, env, T, pieces, F_, SP);
+  if (!pistes.length) return null;
+  const appliquer = a => majBudget(b => {
+    if (a.type === 'tousEco') b.ouvrages.forEach(c => { c.niveau = 'eco'; });
+    else if (a.type === 'eco') { const c = b.ouvrages.find(x => x.id === a.id); if (c) c.niveau = 'eco'; }
+    else if (a.type === 'retirer') b.ouvrages = b.ouvrages.filter(x => x.id !== a.id);
+    return b;
+  });
+  return h('div', { class: 'carte pistes', id: 'pistesBudget' },
+    h('b', {}, 'Pour rentrer dans le budget :'),
+    pistes.map(p => h('div', { class: 'piste', 'data-piste': p.action.type },
+      h('span', {}, p.texte, h('small', { class: 'mut petit' }, '− ' + AV.eur(p.economie) + (p.rentre ? ' : rentre dans le budget' : ''))),
+      h('button', { class: 'puce', type: 'button', onclick: () => appliquer(p.action) }, 'Appliquer'))));
+}
+
+function blocCalendrier(budget, ouvrageIds, majChamp) {
+  const c = budget.calendrier || {};
+  const k = AV.calendrier({ debut: c.debut, ouvrageIds, urbanisme: c.urbanisme, abf: c.abf });
+  const poserCal = patch => majChamp(b => { b.calendrier = { ...(b.calendrier || {}), ...patch }; return b; });
+  const case_ = (cle, lib, val) => h('label', { class: 'case' }, h('input', { type: 'checkbox', checked: !!val, name: 'cal-' + cle, onchange: e => poserCal({ [cle]: e.target.checked }) }), h('span', {}, lib));
+  return h('details', { class: 'approfondir calendrierBudget', id: 'calendrierBudget', open: !!c.debut || !!S.calendrierOuvert, ontoggle: e => { S.calendrierOuvert = e.target.open; } },
+    h('summary', {}, '📅 Calendrier indicatif'),
+    h('label', { class: 'champ' }, 'DÉBUT DE CHANTIER SOUHAITÉ',
+      h('input', { class: 'in', type: 'date', name: 'cal-debut', value: c.debut || '', onchange: e => poserCal({ debut: e.target.value || null }) })),
+    case_('urbanisme', 'Dossier d’urbanisme (déclaration préalable ou permis)', c.urbanisme !== false),
+    case_('abf', 'Secteur protégé (avis supplémentaire)', c.abf),
+    !k.debut
+      ? h('p', { class: 'mut petit', id: 'calendrierSans' }, 'Sans date précise : comptez au moins ' + Math.round(k.pre) + ' semaines entre la signature de la mission et le début des travaux (début possible vers le ' + AV.dateLongue(k.auPlusTot) + ').')
+      : [k.court ? h('div', { class: 'message att', id: 'calendrierCourt' }, h('b', {}, 'Délai court pour cette date. '), 'Pour démarrer au plus tôt : à partir du ' + AV.dateLongue(k.auPlusTot) + ', ou accélérer certaines étapes.') : null,
+         h('div', { class: 'calendrier' }, k.lignes.map(l => h('div', { class: 'ligneCal' + (l.cle === 'signature' || l.cle === 'travaux' ? ' cle' : ''), 'data-cal': l.cle },
+           h('span', { class: 'dateCal' }, AV.dateLongue(l.date)), h('span', {}, l.libelle, l.semaines ? h('small', { class: 'mut petit' }, ' ' + Math.round(l.semaines) + ' sem.') : null)))),
+         h('p', { class: 'mut petit' }, 'Délais moyens, à confirmer. Le calendrier peut figurer dans le dossier client (option).')]);
+}
+
+function blocMensualites(budget, total, majChamp) {
+  const f = budget.financement || {}, sim = AV.simulerCredit(total, f);
+  const poserFin = patch => majChamp(b => { b.financement = { ...(b.financement || {}), ...patch }; return b; });
+  return h('details', { class: 'approfondir mensualitesBudget' + (f.actif ? '' : ' interne'), id: 'mensualitesBudget', open: !!f.actif, ontoggle: e => { S.mensualitesOuvert = e.target.open; } },
+    h('summary', {}, '💶 Mensualités indicatives'),
+    h('label', { class: 'case' }, h('input', { type: 'checkbox', checked: !!f.actif, name: 'fin-actif', onchange: e => poserFin({ actif: e.target.checked }) }), h('span', {}, 'Afficher une simulation de mensualités')),
+    h('p', { class: 'mut petit' }, 'À n’activer qu’après avoir vérifié les règles applicables à la présentation d’un crédit à un client. Simulation indicative : ce n’est pas une offre de crédit, et elle ne figure jamais dans le dossier client.'),
+    f.actif ? [
+      h('div', { class: 'puces' }, AV.DUREES_CREDIT.map(m => h('button', { class: 'puce' + ((sim ? sim.duree : AV.DUREE_DEFAUT) === m ? ' on' : ''), type: 'button', 'data-duree': m, onclick: () => poserFin({ duree: m }) }, m + ' mois'))),
+      h('label', { class: 'champ' }, 'APPORT (€)', h('input', { class: 'in', inputMode: 'numeric', name: 'fin-apport', value: f.apport ?? '', placeholder: 'ex. 10 000', onchange: e => poserFin({ apport: e.target.value.trim() === '' ? null : e.target.value }) })),
+      h('label', { class: 'champ' }, 'TAUX INDICATIF (% PAR AN)', h('input', { class: 'in', inputMode: 'decimal', name: 'fin-taux', value: f.taux ?? AV.TAUX_DEFAUT, onchange: e => poserFin({ taux: e.target.value.trim() === '' ? null : e.target.value }) })),
+      sim ? h('div', { class: 'carte', id: 'resultatMensualites' },
+        h('div', { class: 'plage' }, 'de ' + AV.eur(sim.mensualite.min) + ' à ' + AV.eur(sim.mensualite.max) + ' par mois'),
+        h('div', { class: 'mut petit' }, 'Sur ' + sim.duree + ' mois à ' + String(sim.taux).replace('.', ',') + ' % · capital de ' + AV.eur(sim.capital.min) + ' à ' + AV.eur(sim.capital.max) + (sim.apport ? ' après un apport de ' + AV.eur(sim.apport) : ''))) : h('p', { class: 'mut petit' }, 'Choisissez d’abord des travaux : la simulation part de l’estimation.')] : null);
+}
+
+function blocMemo(ouvrageIds, souhaits) {
+  const memos = AV.memosPour(ouvrageIds, souhaits);
+  return h('details', { class: 'approfondir interne memoVendeur', id: 'memoVendeur', open: !!S.memoOuvert, ontoggle: e => { S.memoOuvert = e.target.open; } },
+    h('summary', {}, '🎯 Mémo de rendez-vous (interne)'),
+    memos.length ? memos.map(m => h('div', { class: 'memo', 'data-memo': m.cle },
+      h('h3', {}, m.titre),
+      h('div', { class: 'champ' }, 'QUESTIONS À POSER'), h('ul', {}, m.q.map(x => h('li', {}, x))),
+      h('div', { class: 'champ' }, 'À PROPOSER'), h('ul', {}, m.up.map(x => h('li', {}, x))),
+      h('div', { class: 'champ' }, 'POINTS DE VIGILANCE'), h('ul', {}, m.vig.map(x => h('li', {}, x)))))
+      : h('p', { class: 'mut petit' }, 'Touchez des travaux (cuisine, salle de bains, isolation…) : leurs questions et points de vigilance apparaissent ici.'));
+}
+
+/* le message de suivi (étape Fin) : e-mail après le rendez-vous, SMS ou relance ; modifiable, jamais envoyé tout seul */
+function blocMessageSuivi(v) {
+  const budget = M.valeur(v, 'budget') || {}, pieces = B.piecesDuPlan(M.valeur(v, 'plan'));
+  const calc = B.calculerEstimation(budget, tableOuv(), pieces, fourchettes(), M.surfacesProjet(v));
+  const cal = AV.calendrier({ debut: (budget.calendrier || {}).debut, ouvrageIds: (budget.ouvrages || []).map(c => c.ouvrageId), urbanisme: (budget.calendrier || {}).urbanisme, abf: (budget.calendrier || {}).abf });
+  const type = S.messageType || 'mail';
+  const propose = AV.messageSuivi(type, {
+    civilite: M.valeur(v, 'client.civilite'), nom: M.valeur(v, 'client.nom'), dateVisite: (v.creeLe || '').slice(0, 10),
+    fourchette: calc.vide ? null : calc.total,
+    lignes: calc.ouvrages.filter(r => r.ouvrage && !r.manque).map(r => ({ libelle: r.ouvrage.nom, min: r.min, max: r.max })),
+    debut: cal.debut, signerAvant: cal.signerAvant });
+  S.messageEdit = S.messageEdit || {};
+  const texte = S.messageEdit[type] != null ? S.messageEdit[type] : propose;
+  const email = M.valeur(v, 'client.email'), tel = M.valeur(v, 'client.telephone');
+  const objet = type === 'relance' ? 'Votre projet : où en êtes-vous ?' : 'Votre projet : récapitulatif de notre rendez-vous';
+  let zone, info;
+  const copier = async () => {
+    try { await navigator.clipboard.writeText(zone.value); info.textContent = 'Texte copié.'; }
+    catch (e) { zone.select(); info.textContent = 'Sélectionné : copiez-le à la main.'; }
+  };
+  return h('div', { class: 'carte interne messageSuivi', id: 'messageSuivi' },
+    h('h2', {}, '✉️ Message de suivi'),
+    h('p', { class: 'mut petit' }, 'Préparé d’après la visite ; relisez et modifiez-le. Rien ne part sans votre geste.'),
+    h('div', { class: 'puces' }, AV.TYPES_MESSAGE.map(([k, lib]) => h('button', { class: 'puce' + (type === k ? ' on' : ''), type: 'button', 'data-message': k, onclick: () => { S.messageType = k; redessiner(); } }, lib))),
+    zone = h('textarea', { class: 'in', id: 'texteMessage', rows: type === 'sms' ? 6 : 14, style: 'width:100%;margin-top:8px', 'aria-label': 'Texte du message',
+      oninput: e => { S.messageEdit[type] = e.target.value; } }, texte),
+    h('div', { class: 'rang', style: 'flex-wrap:wrap;margin-top:8px' },
+      h('button', { class: 'gros sec', type: 'button', id: 'copierMessage', onclick: copier }, '📋 Copier'),
+      type === 'sms' ? (tel ? h('a', { class: 'gros sec', id: 'ouvrirSms', href: 'sms:' + String(tel).replace(/\s/g, '') + '?&body=' + encodeURIComponent(zone.value), onclick: e => { e.currentTarget.href = 'sms:' + String(tel).replace(/\s/g, '') + '?&body=' + encodeURIComponent(zone.value); } }, '💬 Ouvrir les messages') : null)
+        : (email ? h('a', { class: 'gros sec', id: 'ouvrirMail', href: 'mailto:' + email + '?subject=' + encodeURIComponent(objet) + '&body=' + encodeURIComponent(zone.value), onclick: e => { e.currentTarget.href = 'mailto:' + email + '?subject=' + encodeURIComponent(objet) + '&body=' + encodeURIComponent(zone.value); } }, '✉️ Ouvrir dans la messagerie') : null),
+      S.messageEdit[type] != null ? h('button', { class: 'lienRetour', type: 'button', id: 'reprendreMessage', onclick: () => { delete S.messageEdit[type]; redessiner(); } }, '↺ Reprendre le texte proposé') : null),
+    (type === 'sms' ? !tel : !email) ? h('div', { class: 'mut petit' }, (type === 'sms' ? 'Téléphone' : 'E-mail') + ' du client non renseigné : copiez le texte.') : null,
+    info = h('div', { class: 'mut petit', role: 'status' }));
 }
 
 /* une carte par travaux choisis : surface (− / +), gamme, fourchette */

@@ -86,7 +86,7 @@ let b;
   chk(true,'« ↺ revenir » : la valeur automatique revient');
 
   /* approfondir : ajustements et poste par poste */
-  await p.tap('summary');
+  await p.tap('summary:has-text("Approfondir")');
   await p.tap('text=Dégradé +20 %');
   await p.waitForSelector('text=ajustements compris : +20 %');
   chk(true,'« Approfondir » : ajustement « dégradé » +20 % appliqué au total');
