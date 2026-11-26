@@ -1895,6 +1895,18 @@ async function retablirDessin() {
   H.pile.push(JSON.stringify(dessinCourant()));
   await poser('dessin', JSON.parse(H.refaire.pop())); S.croquisInfo = null; redessiner();
 }
+/* supprimer une pièce du dessin avec ses portes et fenêtres ; confirmation d'abord (un geste malheureux ne détruit rien) ;
+   une pièce posée contre elle perd seulement son rattachement. Annulable : ↶ Annuler, sous le plan. */
+async function supprimerPieceDessin(id) {
+  const p = dessinCourant().pieces.find(z => z.id === id);
+  if (!p) return;
+  if (!(await confirmer('Supprimer « ' + p.nom + ' » ?'))) return;
+  await majDessin(x => {
+    x.pieces = x.pieces.filter(y => y.id !== id); x.ouvertures = x.ouvertures.filter(o => o.piece !== id);
+    x.pieces.forEach(y => { if (y.contre && y.contre.id === id) delete y.contre; });
+    if (S.dessinSel === id) S.dessinSel = null;
+  });
+}
 const etageDessin = () => S.dessinEtage || 0;
 const rectsEtage = (d, R, k) => d.pieces.filter(p => (p.etage || 0) === k && R.rect.has(p.id)).map(p => ({ p, r: R.rect.get(p.id) }));
 
@@ -2262,6 +2274,13 @@ document.addEventListener('keydown', e => {
   if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); annulerDessin(); }
   else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); retablirDessin(); }
 });
+// PC : Suppr (ou Retour arrière) supprime la pièce sélectionnée, après confirmation, hors champ de saisie
+document.addEventListener('keydown', e => {
+  if (S.ecran !== 'dessin' || !S.dessinSel || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
+  const t = e.target; if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  if (document.querySelector('.voileConfirm')) return;
+  e.preventDefault(); supprimerPieceDessin(S.dessinSel);
+});
 // Échap quitte le plein écran du dessin
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.dessinPlein) { S.dessinPlein = false; redessiner(); } });
 function cadreZoomDessin(svg) {
@@ -2442,6 +2461,11 @@ function ecranDessin() {
             h('button', { class: 'gros sec', type: 'button', id: 'ajouterPieceDessin', onclick: ajouter }, '＋ Pièce'),
             h('button', { class: 'gros sec' + (S.croquis ? ' on' : ''), type: 'button', id: 'croquisDessin', 'aria-pressed': String(!!S.croquis), onclick: basculerCroquis }, '✏️ Croquis'),
             h('button', { class: 'gros sec' + (S.choixSymbole ? ' on' : ''), type: 'button', id: 'ajoutSymboleIci', onclick: () => { S.choixSymbole = !S.choixSymbole; if (S.choixSymbole) S.croquis = false; redessiner(); } }, '＋ Symbole'),
+            // la pièce sélectionnée se supprime d'ici, sans descendre dans la liste
+            (() => { const ps = d.pieces.find(z => z.id === S.dessinSel && (z.etage || 0) === k);
+              return ps ? h('button', { class: 'gros sec supprPiece', type: 'button', id: 'supprimerPieceDessin', 'aria-label': 'Supprimer ' + ps.nom, onclick: () => supprimerPieceDessin(ps.id) }, '🗑 Supprimer') : null; })(),
+            // hors croquis, « ↶ Annuler » n'avait pas de bouton : il se rattrape ici (surtout après une suppression)
+            !S.croquis && histoDessin().pile.length ? h('button', { class: 'gros sec', type: 'button', id: 'annulerDessinBas', title: 'Annuler la dernière modification du dessin', onclick: annulerDessin }, '↶ Annuler') : null,
             d.pieces.length ? h('button', { class: 'gros sec', type: 'button', id: 'avantApresDessin', onclick: () => avantApresDessin().catch(() => montrerMessage('err', 'L’image du dessin n’a pas pu être préparée.')) }, '🖍 Annoter') : null),
         S.croquis ? barreCroquis(d) : null,
         S.choixSymbole && !S.poseSymbole ? h('div', { id: 'choixSymboleIci', style: 'margin-top:4px' }, DR.FAMILLES_SYMBOLE.map(([f, nomF]) => h('div', {},
@@ -2472,8 +2496,7 @@ function ecranDessin() {
         return h('div', { class: 'carte pieceDessin' + (sel ? ' sel' : ''), 'data-dessin': p.id },
           h('div', { class: 'rang', style: 'justify-content:space-between', onclick: () => { if (!sel) { S.dessinSel = p.id; S.dessinSym = null; redessiner(); } } },
             h('b', {}, p.nom + ' · ' + (p.poly ? String(Math.round(CQ.aire(p.poly) * 100) / 100).replace('.', ',') + ' m² · ' + p.poly.length + ' murs' : String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m') + (ouvs.length ? ' · ' + ouvs.length + ' ouv.' : '') + (p.note ? ' · 📝' : '')),
-            h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer ' + p.nom, onclick: async e => { e.stopPropagation(); if (!(await confirmer('Supprimer « ' + p.nom + ' » ?'))) return;
-              majDessin(x => { x.pieces = x.pieces.filter(y => y.id !== p.id); x.ouvertures = x.ouvertures.filter(o => o.piece !== p.id); x.pieces.forEach(y => { if (y.contre && y.contre.id === p.id) delete y.contre; }); }); } }, '🗑')),
+            h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer ' + p.nom, onclick: e => { e.stopPropagation(); supprimerPieceDessin(p.id); } }, '🗑')),
           sel ? [
             h('label', { class: 'champ' }, 'NOM', h('input', { class: 'in', name: 'dessin-nom', value: p.nom, autocapitalize: 'sentences', onchange: e => maj(q => { q.nom = e.target.value.trim() || 'Pièce'; }) })),
             // les noms les plus courants en un toucher (les autres se tapent)
