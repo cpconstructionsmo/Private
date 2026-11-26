@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-25 · Marché de travaux : les 3 exemplaires en un seul PDF à imprimer ; attestation décennale manquante : la raison gardée, redépôt sur place';
+const VERSION='2026-11-26 · Marché de travaux : l’attestation décennale annexée complète (toutes ses pages)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -3346,9 +3346,11 @@ const MARCHE_EXEMPLAIRES=[
   {cle:'entreprise',fichier:'exemplaire entreprise',libelle:'entreprise',titre:'Exemplaire de l’entreprise'},
   {cle:'moe',fichier:'exemplaire CP Constructions',libelle:'CP Constructions',titre:'Exemplaire du maître d’œuvre — '+CP.nom},
 ];
-/* une attestation compte une ou deux pages : au-delà, c'est un autre
-   document déposé à sa place, qu'on n'imprime pas en entier */
-const ATTESTATION_PAGES_MAX=4;
+/* l'attestation s'annexe complète : avec ses conditions et le tableau des
+   activités garanties, elle compte souvent six ou sept pages, et CP
+   Constructions la veut en entier. Seul un document bien plus long (un
+   contrat entier déposé à sa place) s'arrête là, et l'écran le signale. */
+const ATTESTATION_PAGES_MAX=30;
 /* largeur et hauteur d'une image JPEG ou PNG, lues dans son en-tête : de quoi
    la poser dans le Word sans la déformer. null pour tout autre format. */
 const dimensionsImage=b=>{
@@ -8374,14 +8376,30 @@ function useBrouillon(ecran,f,setF,nommer){
    déjà le document quand on l'ouvre depuis le Drive — l'artisan reçoit donc
    exactement la page que vous relisez. */
 async function driveDocxEnPdf(token,octets,nom){
-  const form=new FormData();
-  form.append('metadata',new Blob([JSON.stringify({
-    name:nom,mimeType:'application/vnd.google-apps.document'})],{type:'application/json'}));
-  form.append('file',new Blob([octets],
-    {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}));
-  const up=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{
-    method:'POST',headers:{Authorization:'Bearer '+token},body:form,
-  });
+  const DOCX='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const meta={name:nom,mimeType:'application/vnd.google-apps.document'};
+  const taille=(octets&&(octets.byteLength||octets.length))||0;
+  let up;
+  /* un marché qui annexe une attestation complète dépasse vite 5 Mo : au-delà,
+     l'envoi passe par une session reprenable, comme les autres dépôts */
+  if(taille>DRIVE_ENVOI_SIMPLE_MAX){
+    const o=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',{
+      method:'POST',body:JSON.stringify(meta),
+      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json; charset=UTF-8',
+        'X-Upload-Content-Type':DOCX,'X-Upload-Content-Length':String(taille)},
+    });
+    if(!o.ok)throw new Error('le Drive a refusé la conversion (code '+o.status+')');
+    const session=o.headers&&o.headers.get&&o.headers.get('Location');
+    if(!session)throw new Error('le Drive n’a pas ouvert la session de conversion');
+    up=await fetch(session,{method:'PUT',headers:{'Content-Type':DOCX},body:new Blob([octets],{type:DOCX})});
+  }else{
+    const form=new FormData();
+    form.append('metadata',new Blob([JSON.stringify(meta)],{type:'application/json'}));
+    form.append('file',new Blob([octets],{type:DOCX}));
+    up=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{
+      method:'POST',headers:{Authorization:'Bearer '+token},body:form,
+    });
+  }
   if(!up.ok)throw new Error('le Drive a refusé la conversion (code '+up.status+')');
   const {id}=await up.json();
   try{

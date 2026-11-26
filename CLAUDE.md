@@ -226,8 +226,10 @@ qu'on ait à les redire.
   en trois exemplaires Word (`MARCHE_EXEMPLAIRES` : client, entreprise,
   CP Constructions), marqués en tête de page. Celui du client annexe
   l'attestation décennale de l'entreprise, reprise du Drive
-  (`attestationPourMarche` ; un PDF est rendu page à page par pdf.js, 4 pages
-  au plus). Sans attestation lisible, les trois sortent quand même et
+  (`attestationPourMarche` ; un PDF est rendu page à page par pdf.js, annexé
+  complet à la demande de CP — `ATTESTATION_PAGES_MAX` = 30 contre un autre
+  document déposé à sa place ; un Word de plus de 5 Mo se convertit en PDF
+  par session reprenable, `driveDocxEnPdf`). Sans attestation lisible, les trois sortent quand même et
   l'écran dit pourquoi. Le lien du lot (`contratLien`) est l'exemplaire
   CP Constructions ; `exemplaires` garde les trois. Les trois sortent aussi
   en un seul fichier à imprimer d'un coup (`genererMarcheImpressionDocx`,
