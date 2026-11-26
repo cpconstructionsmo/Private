@@ -5,6 +5,7 @@
    Elle ne fait que dessiner les données de dossier.js ; `photo(ph, cls)`
    rend une image (depuis l'appareil, ou un lien temporaire). */
 import { h } from './dom.js';
+import { dateLongue as dateJour } from './aide-vente.js';
 
 export const dateLongue = iso => iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
 const euros = n => Math.round(n).toLocaleString('fr-FR') + ' €';
@@ -74,6 +75,11 @@ export function vueDossier(d, { photo, logo }) {
         h('tbody', {}, d.estimation.lignes.map(l => h('tr', {}, h('td', {}, l.libelle), h('td', {}, l.quantite), h('td', {}, l.gamme), h('td', { class: 'nombre' }, euros(l.min) + ' à ' + euros(l.max))))),
         h('tfoot', {}, h('tr', {}, h('td', { colspan: 3 }, 'Total' + (d.estimation.majoration ? ' (ajustements compris : +' + Math.round(d.estimation.majoration * 100) + ' %)' : '')), h('td', { class: 'nombre' }, euros(d.estimation.total.min) + ' à ' + euros(d.estimation.total.max))))),
       h('p', { class: 'mention' }, 'Estimation indicative, non contractuelle, établie lors de la première visite à partir de surfaces globales et de prix moyens. Elle ne constitue ni un devis ni une offre. Le chiffrage détaillé vous sera remis après étude du projet.' + (d.estimation.incomplet ? ' Certains postes restent à chiffrer.' : ''))) : null,
+    d.calendrier ? page('calendrierDossier',
+      h('h2', {}, 'Calendrier indicatif'),
+      h('table', { class: 'tableDossier' }, h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'Étape'), h('th', {}, 'Durée'))),
+        h('tbody', {}, d.calendrier.lignes.map(l => h('tr', {}, h('td', {}, dateJour(l.date)), h('td', {}, l.libelle), h('td', {}, l.semaines ? Math.round(l.semaines) + ' sem.' : ''))))),
+      h('p', { class: 'mention' }, 'Calendrier indicatif, établi à partir de délais moyens et de la date de début de chantier souhaitée. Les durées réelles dépendent des autorisations, des entreprises et des fabrications : il sera confirmé à la signature.')) : null,
     page('fin',
       h('h2', {}, 'La suite'),
       h('ol', { class: 'suite' }, h('li', {}, 'Nous étudions votre projet à partir de ce relevé.'), h('li', {}, 'Nous vous remettons un chiffrage détaillé.'), h('li', {}, 'Nous en parlons ensemble et ajustons le projet si besoin.')),
