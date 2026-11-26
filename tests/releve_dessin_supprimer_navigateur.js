@@ -79,6 +79,31 @@ let b;
   await p.waitForFunction(()=>document.querySelectorAll('.apercuDessin [data-piece-dessin]').length===1);
   chk(true,'touche Suppr hors champ : la pièce sélectionnée est supprimée, après confirmation');
 
+  /* un symbole : bouton sous le plan, et touche Suppr (sans confirmation, ↶ Annuler le rattrape) */
+  const symboles=()=>p.evaluate(()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees.valeurs.dessin;return d?d.symboles.length:-1});
+  const poserSymbole=async()=>{await p.tap('#ajoutSymboleIci');await p.tap('[data-poser-symbole="radiateur"]');await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
+    const bb=await p.locator('.apercuDessin [data-piece-dessin]').first().boundingBox();await p.mouse.click(bb.x+bb.width/2,bb.y+bb.height/2);};
+  await poserSymbole();
+  await p.waitForSelector('#supprimerSymboleDessin');
+  chk(await attendre(p,'(()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees.valeurs.dessin;return !!(d&&d.symboles.length===1)})()'),'un symbole posé : il est gardé avec la visite');
+  chk(await p.locator('#supprimerPieceDessin').count()===0,'symbole sélectionné : seul le bouton du symbole est proposé');
+  const pos2=await p.evaluate(()=>{const b=document.getElementById('supprimerSymboleDessin').getBoundingClientRect(),c=document.getElementById('carteDessin').getBoundingClientRect();return {bouton:b.top+scrollY,carteHaut:c.top+scrollY,carteBas:c.bottom+scrollY}});
+  chk(pos2.bouton>pos2.carteHaut&&pos2.bouton<pos2.carteBas+160,'le bouton du symbole est sous le plan, pas seulement dans sa carte plus bas');
+  await p.tap('#supprimerSymboleDessin');
+  await p.waitForFunction(()=>!document.getElementById('supprimerSymboleDessin'));
+  chk(await attendre(p,'(()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees.valeurs.dessin;return !!(d&&d.symboles.length===0)})()'),'le bouton retire le symbole, et la suppression part avec la visite');
+  await p.tap('#annulerDessinBas');
+  await p.waitForSelector('svg.apercuDessin');
+  chk(await attendre(p,'(()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees.valeurs.dessin;return !!(d&&d.symboles.length===1)})()'),'« ↶ Annuler » ramène le symbole');
+  await poserSymbole();await p.waitForSelector('#supprimerSymboleDessin');
+  await p.evaluate(()=>document.activeElement&&document.activeElement.blur());
+  chk(await attendre(p,'(()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees.valeurs.dessin;return !!(d&&d.symboles.length===2)})()'),'(deux symboles gardés avant le test de la touche Suppr)');
+  const avant=await symboles();
+  await p.keyboard.press('Delete');
+  await p.waitForFunction(()=>!document.getElementById('supprimerSymboleDessin'));
+  chk(await attendre(p,'(()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees.valeurs.dessin;return !!(d&&d.symboles.length==='+(avant-1)+')})()'),'touche Suppr : le symbole sélectionné est retiré, la pièce reste ('+(avant-1)+' symbole restant)');
+  chk(await pieces()>=1,'les pièces du plan sont intactes');
+
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();
   console.log(ko?('\n'+ko+' echec(s)'):'\nTout est bon.');process.exitCode=ko?1:0;

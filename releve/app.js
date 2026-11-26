@@ -1924,6 +1924,8 @@ async function supprimerPieceDessin(id) {
     if (S.dessinSel === id) S.dessinSel = null;
   });
 }
+/* retirer un symbole du dessin (sans confirmation : c'est un geste léger, rattrapable par ↶ Annuler) */
+const retirerSymboleDessin = id => majDessin(x => { x.symboles = x.symboles.filter(z => z.id !== id); if (S.dessinSym === id) S.dessinSym = null; });
 const etageDessin = () => S.dessinEtage || 0;
 const rectsEtage = (d, R, k) => d.pieces.filter(p => (p.etage || 0) === k && R.rect.has(p.id)).map(p => ({ p, r: R.rect.get(p.id) }));
 
@@ -2291,12 +2293,13 @@ document.addEventListener('keydown', e => {
   if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); annulerDessin(); }
   else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); retablirDessin(); }
 });
-// PC : Suppr (ou Retour arrière) supprime la pièce sélectionnée, après confirmation, hors champ de saisie
+// PC : Suppr (ou Retour arrière) supprime la pièce sélectionnée (après confirmation) ou le symbole sélectionné, hors champ de saisie
 document.addEventListener('keydown', e => {
-  if (S.ecran !== 'dessin' || !S.dessinSel || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
+  if (S.ecran !== 'dessin' || (!S.dessinSel && !S.dessinSym) || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
   const t = e.target; if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
   if (document.querySelector('.voileConfirm')) return;
-  e.preventDefault(); supprimerPieceDessin(S.dessinSel);
+  e.preventDefault();
+  if (S.dessinSel) supprimerPieceDessin(S.dessinSel); else retirerSymboleDessin(S.dessinSym);
 });
 // Échap quitte le plein écran du dessin
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.dessinPlein) { S.dessinPlein = false; redessiner(); } });
@@ -2478,6 +2481,8 @@ function ecranDessin() {
             h('button', { class: 'gros sec', type: 'button', id: 'ajouterPieceDessin', onclick: ajouter }, '＋ Pièce'),
             h('button', { class: 'gros sec' + (S.croquis ? ' on' : ''), type: 'button', id: 'croquisDessin', 'aria-pressed': String(!!S.croquis), onclick: basculerCroquis }, '✏️ Croquis'),
             h('button', { class: 'gros sec' + (S.choixSymbole ? ' on' : ''), type: 'button', id: 'ajoutSymboleIci', onclick: () => { S.choixSymbole = !S.choixSymbole; if (S.choixSymbole) S.croquis = false; redessiner(); } }, '＋ Symbole'),
+            // le symbole sélectionné aussi : le bouton est sous le plan, pas seulement dans sa carte plus bas
+            symSel && tySel ? h('button', { class: 'gros sec supprPiece', type: 'button', id: 'supprimerSymboleDessin', 'aria-label': 'Supprimer ' + tySel[1], onclick: () => retirerSymboleDessin(symSel.id) }, '🗑 Supprimer') : null,
             // la pièce sélectionnée se supprime d'ici, sans descendre dans la liste
             (() => { const ps = d.pieces.find(z => z.id === S.dessinSel && (z.etage || 0) === k);
               return ps ? h('button', { class: 'gros sec supprPiece', type: 'button', id: 'supprimerPieceDessin', 'aria-label': 'Supprimer ' + ps.nom, onclick: () => supprimerPieceDessin(ps.id) }, '🗑 Supprimer') : null; })(),
@@ -2499,7 +2504,7 @@ function ecranDessin() {
       // le symbole sélectionné
       symSel && tySel ? h('div', { class: 'carte symboleDessin sel', 'data-symbole-sel': symSel.id },
         h('div', { class: 'rang', style: 'justify-content:space-between' }, h('b', {}, tySel[2] + ' ' + tySel[1]),
-          h('button', { class: 'puce', type: 'button', id: 'retirerSymbole', onclick: () => majDessin(x => { x.symboles = x.symboles.filter(z => z.id !== symSel.id); S.dessinSym = null; }) }, '🗑 Retirer')),
+          h('button', { class: 'puce', type: 'button', id: 'retirerSymbole', onclick: () => retirerSymboleDessin(symSel.id) }, '🗑 Retirer')),
         h('div', { class: 'puces' }, h('button', { class: 'puce', type: 'button', id: 'tournerSymbole', onclick: () => majDessin(x => { const q = x.symboles.find(z => z.id === symSel.id); if (q) q.rot = ((q.rot || 0) + 90) % 360; }) }, '⟳ Tourner d’un quart')),
         symSel.type === 'escalier' ? [reglageMetres(symSel.l || tySel[3], 'LONGUEUR DE LA TRÉMIE', 'symbole-l', 0.1, x => majDessin(y => { const q = y.symboles.find(z => z.id === symSel.id); if (q) q.l = x; }), 0.5),
           reglageMetres(symSel.w || tySel[4], 'LARGEUR DE LA TRÉMIE', 'symbole-w', 0.05, x => majDessin(y => { const q = y.symboles.find(z => z.id === symSel.id); if (q) q.w = x; }), 0.5)] : null,
