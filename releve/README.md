@@ -315,7 +315,7 @@ Tests : `releve_plans_cote_navigateur.js`, `t_releve_imaginer.js`.
   « ✓ Créer le plan 2D coté et la 3D » ; sous le dessin, les trois gestes
   de base (« ＋ Pièce », « ＋ Symbole », « 🖍 Annoter ») ; le reste est
   replié : « ⚙️ Plus de réglages » dans la fiche d'une pièce (hauteur, note,
-  position du nom, étage, pose précise) et « ⚙️ Plus d'options » pour tout
+  étage, pose précise) et « ⚙️ Plus d'options » pour tout
   le dessin (hauteur, nom d'étage, toiture, aimant). L'étape Scan propose
   trois choix, chacun avec une ligne d'explication.
 
@@ -364,8 +364,10 @@ Tests : `releve_plans_cote_navigateur.js`, `t_releve_imaginer.js`.
     le plan dans le cadre (`S.dessinPan`, « ⟲ 100 % » recentre) ;
   - **retouches sur le dessin même** : un toucher sur une cote la change
     (saisie sur place), un toucher sur le nom de la pièce sélectionnée la
-    renomme ; « Position du nom » (◀ ▲ ▼ ▶, « Au centre ») décale le nom
-    s'il cache une cote (`p.etiquette`, repris dans le plan coté, où le nom
+    renomme ; « Nom de la pièce » (◀ ▲ ▼ ▶, « Au centre »), juste SOUS le plan dès
+    qu'une pièce est sélectionnée, décale le nom s'il cache une cote, et le nom d'une
+    pièce DÉJÀ sélectionnée se glisse aussi au doigt ou à la souris (la pièce ne bouge pas ;
+    une pièce non sélectionnée glisse par son nom comme avant) (`p.etiquette`, repris dans le plan coté, où le nom
     se glisse aussi au doigt : `centreNom`) ; « ✓ Créer le plan 2D coté et
     la 3D » en haut du dessin, avec ce qui bloque dit d'avance ;
   - **zone de dessin plus haute** (58 % de l'écran, au moins 300 px) et
@@ -409,6 +411,14 @@ Tests : `releve_plans_cote_navigateur.js`, `t_releve_imaginer.js`.
   « pro » (`modelesPlan`) et dit ce qui est douteux (cote raturée…) :
   « ⚠️ À vérifier ». « Tout importer » met un plan de mezzanine, d'étage ou
   de combles sur son propre étage.
+  **Cotes intérieures et surface écrite** (`ecartsSurface`) : la consigne exige les cotes
+  intérieures d'une pièce (jamais la cote totale du bâtiment) et la surface écrite sur le plan
+  (« SH : 15,28 m² », jamais calculée, champ `surface`). Si longueur × largeur s'écarte de plus de
+  3 % (et de 0,3 m²) de cette surface, le message « ⚠️ À vérifier » le dit, du plus gros écart au
+  plus petit, et la note de la pièce aussi ; les cotes lues ne sont PAS corrigées d'office.
+  Sans surface écrite sur le plan (ou avec l'ancienne fonction `imaginer`), aucune alerte.
+  **La consigne et la surface écrite demandent de redéployer la fonction `imaginer`** sur Supabase.
+  Tests : `t_releve_ecart_surface.js`, `t_releve_imaginer.js`, `releve_dessin_nom_navigateur.js`.
   **Lecture enrichie** (esquisse à la main comprise, `dessinDepuisLecture`) :
   en plus des pièces, l'IA relève, seulement si c'est écrit ou dessiné, les
   portes et fenêtres sur leur côté (« 120/195 » = largeur / hauteur en cm),

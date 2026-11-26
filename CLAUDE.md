@@ -83,7 +83,7 @@ qu'on ait à les redire.
   rapide à vérifier (`dessinDepuisRectangles` ; lecture enrichie
   `dessinDepuisLecture` : ouvertures, équipements, hauteur, notes et projet
   en rouge par pièce, « ＋ Tout importer », mezzanine sur son étage, doutes
-  « À vérifier », modèle « pro » `modelesPlan` ; petite pièce dans une grande
+  « À vérifier » dont l'écart entre la surface écrite sur le plan et les cotes lues, `ecartsSurface`, consigne `imaginer` : cotes intérieures, jamais la cote totale, modèle « pro » `modelesPlan` ; petite pièce dans une grande
   contre son mur : découpe `contourDecoupe`, pas un chevauchement), plan d'origine gardé
   (photo `planPapier`), plusieurs esquisses d'un coup ajoutées au dessin.
   Plan annoté (travaux) : copie du plan annotée au doigt (`annotations.js`,

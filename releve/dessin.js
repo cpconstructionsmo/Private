@@ -389,18 +389,40 @@ export function dessinDepuisRectangles(rects, nouvelId = i => 'p' + (i + 1), car
   return sortie;
 }
 
+/* La surface ÉCRITE sur le plan (« SH : 15,28 m² ») comparée à celle que donnent les cotes lues (longueur × largeur) :
+   un écart au-delà de 3 % (et de 0,3 m²) signale une cote mal lue, par exemple la cote totale du bâtiment prise pour
+   celle d'un couloir. Rien n'est corrigé : c'est une alerte « à vérifier », du plus gros écart au plus petit.
+   Sans surface écrite sur le plan, aucune alerte. Une pièce non rectangulaire (lue comme son rectangle) dépasse
+   forcément : l'alerte le dit. */
+export const SEUIL_ECART_SURFACE = 0.03;
+const frm = x => String(Math.round(x * 100) / 100).replace('.', ',');
+export function ecartsSurface(lues) {
+  return (lues || []).map(q => {
+    const L = nb(q && q.longueur), l = nb(q && q.largeur), ecrite = nb(q && q.surface);
+    if (!(L > 0 && l > 0 && ecrite > 0)) return null;
+    const lue = Math.round(L * l * 100) / 100, ecart = lue - ecrite, rel = Math.abs(ecart) / ecrite;
+    if (!(rel > SEUIL_ECART_SURFACE && Math.abs(ecart) >= 0.3)) return null;
+    const nom = String(q.nom || 'Pièce').slice(0, 40), pct = Math.round(rel * 100);
+    return { nom, lue, ecrite, ecart: Math.round(ecart * 100) / 100, pct, autre: q.forme === 'autre',
+      texte: nom + ' : cotes lues ' + frm(L) + ' × ' + frm(l) + ' = ' + frm(lue) + ' m², surface écrite sur le plan ' + frm(ecrite) + ' m² (écart ' + pct + ' %'
+        + (q.forme === 'autre' ? ', pièce non rectangulaire' : ', une cote est peut-être mal lue') + ')' };
+  }).filter(Boolean).sort((a, b) => b.pct - a.pct);
+}
+
 /* la lecture enrichie d'un plan ou d'une esquisse (fonction imaginer, mode « plan ») : en plus des
    pièces, leurs portes et fenêtres (sur le bon côté, ramenées dans le mur si besoin), leurs
    équipements (radiateurs, tableau… posés contre le mur indiqué, sinon au centre), la hauteur sous
    plafond et une note qui reprend les annotations, le projet (écrit en rouge) et un avertissement
    pour une pièce non rectangulaire. Tout reste une proposition à vérifier dans le dessin. */
 export function dessinDepuisLecture(lues, nouvelId = i => 'p' + (i + 1)) {
-  const carte = new Map(), pieces = dessinDepuisRectangles(lues, nouvelId, carte), ouvertures = [], equipements = [];
+  const carte = new Map(), pieces = dessinDepuisRectangles(lues, nouvelId, carte), ouvertures = [], equipements = [], ecarts = ecartsSurface(lues);
   let n = 0; const id = () => String(nouvelId(1000 + n++));
   (lues || []).forEach((q, i) => {
     const p = pieces.find(x => x.id === carte.get(i)); if (!p) return;
     const h = nb(q.hauteur); if (h >= 1.5 && h <= 8) p.hauteur = r3(h);
-    const note = [q.notes, q.projet ? 'Projet : ' + q.projet : '', q.forme === 'autre' ? 'Forme à vérifier : pièce non rectangulaire, lue comme son rectangle.' : '']
+    const ec = ecarts.find(e => e.nom === String(q.nom || 'Pièce').slice(0, 40));
+    const note = [q.notes, q.projet ? 'Projet : ' + q.projet : '', q.forme === 'autre' ? 'Forme à vérifier : pièce non rectangulaire, lue comme son rectangle.' : '',
+      ec ? 'Surface à vérifier : ' + frm(ec.lue) + ' m² d’après les cotes lues, ' + frm(ec.ecrite) + ' m² écrits sur le plan.' : '']
       .map(t => String(t || '').trim()).filter(Boolean).join(' · ');
     if (note) p.note = note.slice(0, 600);
     (Array.isArray(q.ouvertures) ? q.ouvertures : []).forEach(o => {
@@ -416,7 +438,7 @@ export function dessinDepuisLecture(lues, nouvelId = i => 'p' + (i + 1)) {
       equipements.push({ piece: p.id, type: e.type, ...(['haut', 'droite', 'bas', 'gauche'].includes(e.cote) ? { cote: e.cote } : {}), ...(nb(e.position) != null ? { position: nb(e.position) } : {}) });
     });
   });
-  return { pieces, ouvertures, equipements };
+  return { pieces, ouvertures, equipements, ecarts };
 }
 /* les équipements lus, posés dans leur pièce (rectangles du dessin) : contre le mur indiqué, dos au
    mur (le quart de tour suit le côté), à la position lue sinon au milieu ; sans mur, au centre */

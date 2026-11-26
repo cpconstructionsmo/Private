@@ -1510,7 +1510,8 @@ async function appliquerGroupes(groupes, mode, echecs) {
     symboles: [...(ajout && Array.isArray(avant.symboles) ? avant.symboles : []), ...symLus].slice(0, 200) });
   const n = nouvelles.length, pl = n > 1 ? 's' : '';
   // ce que l'IA a jugé douteux (rature, cote contradictoire) : dit au métreur, à vérifier en priorité
-  const doutes = groupes.flatMap(g => Array.isArray(g.partie.doutes) ? g.partie.doutes : []).map(t => String(t).slice(0, 160)).slice(0, 8);
+  // + les écarts entre la surface écrite sur le plan et celle des cotes lues (une cote probablement mal lue), du plus gros au plus petit
+  const doutes = [...lus.flatMap(l => (l.ecarts || []).map(e => e.texte)), ...groupes.flatMap(g => Array.isArray(g.partie.doutes) ? g.partie.doutes : [])].map(t => String(t).slice(0, 200)).slice(0, 8);
   const nNotes = nouvelles.filter(p => p.note).length, nH = nouvelles.filter(p => p.hauteur).length;
   const lu = [ouvLues.length ? ouvLues.length + ' porte' + (ouvLues.length > 1 ? 's et fenêtres' : ' ou fenêtre') : '', symLus.length ? symLus.length + ' équipement' + (symLus.length > 1 ? 's' : '') : '',
     nH ? nH + ' hauteur' + (nH > 1 ? 's' : '') + ' sous plafond' : '', nNotes ? nNotes + ' note' + (nNotes > 1 ? 's' : '') + ' (annotations, projet en rouge)' : ''].filter(Boolean).join(', ');
@@ -2006,6 +2007,15 @@ async function supprimerPieceDessin(id) {
 }
 /* retirer un symbole du dessin (sans confirmation : c'est un geste léger, rattrapable par ↶ Annuler) */
 const retirerSymboleDessin = id => majDessin(x => { x.symboles = x.symboles.filter(z => z.id !== id); if (S.dessinSym === id) S.dessinSym = null; });
+/* décaler le nom d'une pièce (quand il cache une cote) : dx, dy en mètres depuis le centre, bornés à la pièce ;
+   revenu près du centre, le décalage est retiré. Repris dans le plan coté (qui le garde dans « etiquette »). */
+const demiPiece = q => { if (q.poly && q.poly.length) { const xs = q.poly.map(a => a[0]), ys = q.poly.map(a => a[1]); return [(Math.max(...xs) - Math.min(...xs)) / 2, (Math.max(...ys) - Math.min(...ys)) / 2]; }
+  return [(DRnb(q.longueur) || 3) / 2, (DRnb(q.largeur) || 3) / 2]; };
+function poserDecalageNom(q, nx, ny) {
+  const [bx, by] = demiPiece(q), cx = Math.round(Math.max(-bx, Math.min(bx, nx)) * 100) / 100, cy = Math.round(Math.max(-by, Math.min(by, ny)) * 100) / 100;
+  if (Math.abs(cx) < 0.01 && Math.abs(cy) < 0.01) delete q.etiquette; else q.etiquette = { dx: cx, dy: cy };
+}
+const decalerNom = (id, ddx, ddy) => majDessin(x => { const q = x.pieces.find(z => z.id === id); if (q) { const e = DR.etiquetteDe(q); poserDecalageNom(q, e.dx + ddx, e.dy + ddy); } });
 const etageDessin = () => S.dessinEtage || 0;
 const rectsEtage = (d, R, k) => d.pieces.filter(p => (p.etage || 0) === k && R.rect.has(p.id)).map(p => ({ p, r: R.rect.get(p.id) }));
 
@@ -2302,15 +2312,19 @@ function brancherGlisser(svg, d, R) {
     e.preventDefault(); svg.setPointerCapture(e.pointerId);
     const piece = cible.dataset.pieceDessin, sym = cible.dataset.symbole, p0 = pt(e);
     // un toucher sur une cote la change ; sur le nom de la pièce déjà sélectionnée, le renomme.
-    // Glisser déplace toujours la pièce, même saisie par son nom (le nom se déplace par les flèches de la fiche)
+    // Glisser déplace la pièce, même saisie par son nom, SAUF si « ✋ Glisser le nom » est activé (sous le plan) : alors le nom de la pièce sélectionnée glisse seul
     const edit0 = piece && e.target.closest('[data-edit]'), edit = edit0 && (edit0.dataset.edit !== 'nom' || S.dessinSel === piece) ? edit0 : null;
-    g = { el: cible, piece, sym, p0, ecran: [e.clientX, e.clientY], depl: [0, 0], bouge: false, edit: edit ? edit.dataset.edit : null, elEdit: edit,
+    g = { el: cible, piece, sym, p0, ecran: [e.clientX, e.clientY], depl: [0, 0], bouge: false, edit: edit ? edit.dataset.edit : null, elEdit: edit, nom: !!(edit && edit.dataset.edit === 'nom' && S.nomGlisse),
       r: piece ? R.rect.get(piece) : null, s: sym ? d.symboles.find(x => x.id === sym) : null };
   });
   svg.addEventListener('pointermove', e => {
     if (!g || S.pinceDessin) return;
     if (!g.bouge && Math.hypot(e.clientX - g.ecran[0], e.clientY - g.ecran[1]) < 6) return;
     g.bouge = true; const q = pt(e), dx = q[0] - g.p0[0], dy = q[1] - g.p0[1];
+    if (g.nom) {   // le nom d'une pièce déjà sélectionnée se glisse seul (au pas de 5 cm) ; la pièce ne bouge pas
+      g.depl = [Math.round(dx * 20) / 20, Math.round(dy * 20) / 20];
+      g.elEdit.setAttribute('transform', 'translate(' + g.depl[0] + ' ' + g.depl[1] + ')'); return;
+    }
     if (g.r) {
       const autres = rectsEtage(d, R, etageDessin()).filter(o => o.p.id !== g.piece).map(o => o.r);
       // aimant coupé (« 🧲 Aimant : non ») : la pièce reste où on la lâche, au pas de 5 cm
@@ -2327,6 +2341,7 @@ function brancherGlisser(svg, d, R) {
   const fin = async () => {
     const x = g; g = null; if (!x) return;
     if (!x.bouge && x.edit) return modifierSurDessin(x.piece, x.edit);   // un toucher sur le nom ou une cote : la changer
+    if (x.nom) { await majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { const e = DR.etiquetteDe(q); poserDecalageNom(q, e.dx + x.depl[0], e.dy + x.depl[1]); } S.dessinSel = x.piece; }); return; }
     if (!x.bouge) {   // un toucher : sélectionner (ou désélectionner)
       if (x.piece) { S.dessinSel = S.dessinSel === x.piece ? null : x.piece; S.dessinSym = null; }
       else { S.dessinSym = S.dessinSym === x.sym ? null : x.sym; S.dessinSel = null; }
@@ -2569,6 +2584,16 @@ function ecranDessin() {
             // hors croquis, « ↶ Annuler » n'avait pas de bouton : il se rattrape ici (surtout après une suppression)
             !S.croquis && histoDessin().pile.length ? h('button', { class: 'gros sec', type: 'button', id: 'annulerDessinBas', title: 'Annuler la dernière modification du dessin', onclick: annulerDessin }, '↶ Annuler') : null,
             d.pieces.length ? h('button', { class: 'gros sec', type: 'button', id: 'avantApresDessin', onclick: () => avantApresDessin().catch(() => montrerMessage('err', 'L’image du dessin n’a pas pu être préparée.')) }, '🖍 Annoter') : null),
+        // le nom de la pièce sélectionnée cache une cote ? on le décale d'ici (ou on le glisse sur le plan)
+        (() => { const ps = d.pieces.find(z => z.id === S.dessinSel && (z.etage || 0) === k); if (!ps) return null;
+          const et = DR.etiquetteDe(ps);
+          return h('div', { class: 'champ nomSousPlan', style: 'margin-top:8px' }, 'NOM DE LA PIÈCE' + (et.dx || et.dy ? ' (décalé)' : ' (au centre)') + ' · décaler :',
+            h('div', { class: 'puces', id: 'positionNom' }, [['◀', -0.25, 0, 'gauche'], ['▲', 0, -0.25, 'haut'], ['▼', 0, 0.25, 'bas'], ['▶', 0.25, 0, 'droite']].map(([t, a, b, n]) =>
+              h('button', { class: 'puce', type: 'button', 'data-nom-vers': n, 'aria-label': 'Décaler le nom vers la ' + n, onclick: () => decalerNom(ps.id, a, b) }, t)),
+              et.dx || et.dy ? h('button', { class: 'puce', type: 'button', 'data-nom-vers': 'centre', onclick: () => majDessin(q => { const z = q.pieces.find(y => y.id === ps.id); if (z) delete z.etiquette; }) }, 'Au centre') : null,
+              // glisser le nom au doigt ou à la souris : un mode à activer, car sans lui glisser une pièce par son milieu (là où est son nom) la déplace
+              h('button', { class: 'puce' + (S.nomGlisse ? ' on' : ''), type: 'button', id: 'glisserNom', 'aria-pressed': String(!!S.nomGlisse), onclick: () => { S.nomGlisse = !S.nomGlisse; redessiner(); } }, '✋ Glisser le nom')),
+            h('div', { class: 'mut petit' }, S.nomGlisse ? 'Glissez le nom sur le plan ; la pièce ne bouge pas. Touchez « ✋ Glisser le nom » pour reprendre le déplacement de la pièce.' : 'Ou activez « ✋ Glisser le nom » pour le déplacer sur le plan.')); })(),
         S.croquis ? barreCroquis(d) : null,
         S.choixSymbole && !S.poseSymbole ? h('div', { id: 'choixSymboleIci', style: 'margin-top:4px' }, DR.FAMILLES_SYMBOLE.map(([f, nomF]) => h('div', {},
           h('div', { class: 'mut petit', style: 'margin:6px 0 2px;font-weight:600' }, nomF),
@@ -2624,18 +2649,10 @@ function ecranDessin() {
               onclick: () => maj((q, x) => { const w = ty[2], L = DRnb(q.longueur) || 3; x.ouvertures.push({ id: M.nouvelId().slice(0, 8), piece: q.id, type: ty[0], cote: 'bas', position: Math.max(0, Math.round((L - w) / 2 * 100) / 100), largeur: w }); }) }, '＋ ' + ty[1]))),
             // le moins utilisé, replié : hauteur, note, position du nom, étage, pose précise
             h('details', { class: 'reglagesPiece', open: S.reglagesPiece === p.id, ontoggle: e => { S.reglagesPiece = e.target.open ? p.id : (S.reglagesPiece === p.id ? null : S.reglagesPiece); } },
-              h('summary', {}, '⚙️ Plus de réglages : hauteur, note, nom, étage'),
+              h('summary', {}, '⚙️ Plus de réglages : hauteur, note, étage'),
               reglageMetres(p.hauteur || d.hauteur || 2.5, 'HAUTEUR SOUS PLAFOND' + (p.hauteur ? '' : ' (celle du dessin)'), 'piece-hauteur', 0.05, x => maj(q => { q.hauteur = x; }), 1.5, ' m', 8),
             h('label', { class: 'champ' }, 'NOTE DE LA PIÈCE (reprise dans le plan et le PDF)',
               h('textarea', { class: 'in', name: 'dessin-note', rows: 2, value: p.note || '', autocapitalize: 'sentences', placeholder: 'Ex. : mur à refaire, futur WC…', onchange: e => maj(q => { const t = e.target.value.trim(); if (t) q.note = t.slice(0, 600); else delete q.note; }) })),
-            // le nom cache une cote : on le décale par pas de 25 cm (repris dans le plan coté, où il se glisse aussi au doigt)
-            (() => { const et = DR.etiquetteDe(p), dec = (ddx, ddy) => maj(q => { const e = DR.etiquetteDe(q), nx = Math.round((e.dx + ddx) * 100) / 100, ny = Math.round((e.dy + ddy) * 100) / 100;
-                const bx = (DRnb(q.longueur) || 3) / 2, by = (DRnb(q.largeur) || 3) / 2, cx = Math.max(-bx, Math.min(bx, nx)), cy = Math.max(-by, Math.min(by, ny));
-                if (Math.abs(cx) < 0.01 && Math.abs(cy) < 0.01) delete q.etiquette; else q.etiquette = { dx: cx, dy: cy }; });
-              return h('div', { class: 'champ' }, 'POSITION DU NOM' + (et.dx || et.dy ? ' (décalé)' : ' (au centre)'),
-                h('div', { class: 'puces', id: 'positionNom' }, [['◀', -0.25, 0, 'gauche'], ['▲', 0, -0.25, 'haut'], ['▼', 0, 0.25, 'bas'], ['▶', 0.25, 0, 'droite']].map(([t, a, b, n]) =>
-                  h('button', { class: 'puce', type: 'button', 'data-nom-vers': n, 'aria-label': 'Décaler le nom vers la ' + n.replace('haut', 'haut').replace('bas', 'bas'), onclick: () => dec(a, b) }, t)),
-                  et.dx || et.dy ? h('button', { class: 'puce', type: 'button', 'data-nom-vers': 'centre', onclick: () => maj(q => { delete q.etiquette; }) }, 'Au centre') : null)); })(),
             noms.length > 1 ? [h('div', { class: 'champ' }, 'À L’ÉTAGE'), h('div', { class: 'puces' }, noms.map((nom, j) => h('button', { class: 'puce' + ((p.etage || 0) === j ? ' on' : ''), type: 'button',
               onclick: () => maj(q => { q.etage = j; if (r) q.libre = { x: r.x0, y: r.y0 }; delete q.contre; S.dessinEtage = j; }) }, nom)))] : null,
             autres.length && !p.poly ? [
