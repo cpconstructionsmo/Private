@@ -233,8 +233,14 @@ qu'on ait à les redire.
   attestation, la raison se garde (`exemplaires.attestationRaison`, sinon
   « Pourquoi ? ») et l'attestation se redépose sur place
   (`AttestationMarche` : vérifiée avant l'envoi, lien de la fiche
-  remplacé), puis « Ressortir le marché ». Tests :
-  `t_marche_exemplaires.js`, `t_marche_impression.js`. Le marché revenu signé se dépose dans la
+  remplacé), puis « Ressortir le marché ». Quand seule la décennale
+  bloque (pas de date de validité, ou expirée : `marcheForcable`),
+  « Rédiger quand même, sans décennale » sort le marché après confirmation :
+  le contrat dit l'attestation « à fournir avant le démarrage des travaux »
+  (`decennaleAFournir`), jamais « annexée » ; le lot le garde
+  (`exemplaires.sansDecennale`). Tout autre blocage reste bloquant. Tests :
+  `t_marche_exemplaires.js`, `t_marche_impression.js`,
+  `t_marche_sans_decennale.js`. Le marché revenu signé se dépose dans la
   section « Marché signé par l'entreprise » de la fiche du lot (aussi
   depuis la liste des lots et le tableau de bord) : chaque fichier part
   sur le Drive › Marché travaux signé, renommé d'après le lot

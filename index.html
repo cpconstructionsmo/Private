@@ -261,7 +261,7 @@ const GOOGLE_CLIENT_ID='587680123573-hcqogjqntf39rflu3bmme0oqvj91scmi.apps.googl
 /* Affiché dans l'onglet Données. À monter à chaque changement visible, pour
    qu'on puisse dire « vous devez voir tel numéro » au lieu de deviner si la
    page servie est à jour ou sortie du cache du navigateur. */
-const VERSION='2026-11-26 · Marché de travaux : l’attestation décennale annexée complète (toutes ses pages)';
+const VERSION='2026-11-26 · Marché de travaux : « Rédiger quand même, sans décennale » (attestation à fournir avant le démarrage des travaux)';
 /* les corps d'état s'écrivent en majuscules partout — sur les marchés comme
    sur les documents imprimés — à la façon des bordereaux fournisseurs
    (« 033 FACADES », « 058 GOUTTIERES ALU »…) : .toUpperCase() plutôt que de
@@ -2448,11 +2448,11 @@ function controlerMarche(m,artisan,ch){
   if(artisan){
     /* la décennale : sans attestation valable à la signature, le marché ne part pas */
     const fin=artisan.decennaleFin;
-    if(!fin)bloque('L’entreprise n’a pas de date de validité de décennale : le marché ne peut pas être émis.');
+    if(!fin)P.push({bloquant:true,decennale:true,texte:'L’entreprise n’a pas de date de validité de décennale : le marché ne peut pas être émis.'});
     else{
       const ref=new Date((m&&m.dateSignature)||today());
       const j=Math.round((new Date(fin)-ref)/86400000);
-      if(j<0)bloque('La décennale de l’entreprise a expiré le '+fd(fin)+' : régularisez avant de signer.');
+      if(j<0)P.push({bloquant:true,decennale:true,texte:'La décennale de l’entreprise a expiré le '+fd(fin)+' : régularisez avant de signer.'});
       else if(j<60)alerte('La décennale de l’entreprise expire le '+fd(fin)+' — dans '+j+' jour'+(j>1?'s':'')+'.');
     }
     if(!String(artisan.assureur||'').trim())alerte('La compagnie d’assurance de l’entreprise n’est pas renseignée.');
@@ -2469,6 +2469,14 @@ function controlerMarche(m,artisan,ch){
   return P;
 }
 const marcheBloque=P=>(P||[]).some(x=>x.bloquant);
+/* la décennale seule manque (pas de date de validité, ou expirée) : le
+   marché peut sortir quand même, si CP Constructions le décide (une
+   attestation promise, à recevoir avant le démarrage) — il dit alors que
+   l'attestation est à fournir. Tout autre blocage (montant nul, client,
+   adresse des travaux) ferait un contrat incohérent : il reste bloquant. */
+const marcheForcable=P=>marcheBloque(P)&&(P||[]).filter(x=>x.bloquant).every(x=>x.decennale);
+const decennaleAFournir=(artisan,dateSignature)=>!!artisan&&(!artisan.decennaleFin
+  ||new Date(artisan.decennaleFin)<new Date(dateSignature||today()));
 
 /* ---------- composition d'un marché de travaux ----------
    Le document est composé ici, pas décalqué : c'est la seule façon de tenir la
@@ -3105,7 +3113,9 @@ function partiesMarche(d){
     ['Siège',d.adresse],
     ['SIRET',d.siret],
     ['Assurance décennale',d.compagnie+(d.decennale?' — police '+d.decennale:'')],
-    d.decennaleFin?['Attestation valable jusqu’au',d.decennaleFin]:null,
+    /* sorti sans décennale valable : le contrat ne prétend pas l'avoir */
+    d.decennaleAFournir?['Attestation en cours de validité','à fournir avant le démarrage des travaux']
+      :d.decennaleFin?['Attestation valable jusqu’au',d.decennaleFin]:null,
   ]);
   const cadre=tcB({c:DOC_BRUN,sz:4,t:4,bs:4});
   return tbl([5200,5200],[tr([
@@ -3286,7 +3296,9 @@ function clausesMarche(d){
     ]],
     ['Assurances',[
       'L’entreprise déclare être titulaire des assurances obligatoires prévues à l’article L. 241-1 du code des assurances, couvrant sa responsabilité décennale pour les activités objet du présent marché.',
-      'L’attestation en cours de validité est annexée au marché'+(d.decennale?' (police n° '+d.decennale+(d.compagnie?', '+d.compagnie:'')+')':'')+'. L’entreprise s’oblige à en communiquer le renouvellement sans délai et à maintenir cette garantie pendant toute la durée du chantier.',
+      d.decennaleAFournir
+        ?'L’attestation en cours de validité n’a pas été fournie à la date du présent marché'+(d.decennale?' (police n° '+d.decennale+(d.compagnie?', '+d.compagnie:'')+')':'')+' : l’entreprise s’oblige à la remettre avant tout démarrage des travaux, à en communiquer le renouvellement sans délai et à maintenir cette garantie pendant toute la durée du chantier.'
+        :'L’attestation en cours de validité est annexée au marché'+(d.decennale?' (police n° '+d.decennale+(d.compagnie?', '+d.compagnie:'')+')':'')+'. L’entreprise s’oblige à en communiquer le renouvellement sans délai et à maintenir cette garantie pendant toute la durée du chantier.',
       'Le défaut de garantie en cours de validité constitue un manquement grave autorisant la suspension immédiate des travaux et la résiliation du marché aux torts de l’entreprise.',
     ]],
     ['Sous-traitance',[
@@ -13054,6 +13066,7 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
       entreprise:a.nom||'', adresse:a.adresse||'', siret:a.siret||'',
       decennale:a.numPolice||'', compagnie:a.assureur||'',
       decennaleFin:a.decennaleFin?fd(a.decennaleFin):'',
+      decennaleAFournir:decennaleAFournir(a,f.dateSignature),
       client:ch.client||'', clientAdresse:ch.adresseClient||'', clientTel:ch.telClient||'',
       chantierAdresse:ch.adresse||'', chantierNom:ch.nom||'', mapsUrl:mapsUrl(ch),
       planExeUrl:lienPiecePublic(ch,'plans_exe'),
@@ -13083,10 +13096,13 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
     const lien=(await uploadToDrive(fichier,folderId)).webViewLink;
     return {le:today(),lien,nom:fichier.name,pdf:!repli,...(repli?{repli}:{}),attestation:att.pages.length>0};
   };
-  const sortirMarche=async()=>{
+  /* force===true : « Rédiger quand même, sans décennale », confirmé à l'écran
+     (un clic ordinaire passe l'événement, jamais true) */
+  const sortirMarche=async force=>{
     const a=data.artisans.find(x=>x.id===f.artisanId)||null;
     const pb=controlerMarche(f,a,ch);
-    if(marcheBloque(pb)){setSortie({etat:'refus',pb});return}
+    if(marcheBloque(pb)&&!(force===true&&marcheForcable(pb))){setSortie({etat:'refus',pb});return}
+    const sansDecennale=marcheBloque(pb);
     setSortie({etat:'travail'});setImpr(null);
     try{
       const numero=f.numeroMarche||numeroSuivant();
@@ -13114,9 +13130,9 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
          Sans attestation, la raison se garde : elle se relit à la réouverture. */
       const exemplaires={le:today(),client:liens.client,entreprise:liens.entreprise,moe:liens.moe,
         attestation:att.pages.length>0,...(att.pages.length?{}:{attestationRaison:att.raison}),
-        ...(impression?{impression}:{})};
+        ...(impression?{impression}:{}),...(sansDecennale?{sansDecennale:true}:{})};
       setF(p=>({...p,contratLien:liens.moe,numeroMarche:numero,exemplaires}));
-      setSortie({etat:'ok',numero,liens,noms,att:{n:att.pages.length,total:att.total||0,raison:att.raison},pb,impression,impressionErreur});
+      setSortie({etat:'ok',numero,liens,noms,att:{n:att.pages.length,total:att.total||0,raison:att.raison},pb,impression,impressionErreur,sansDecennale});
     }catch(e){
       const c=String((e&&(e.error||e.message))||e);
       setSortie({etat:'erreur',msg:
@@ -13600,10 +13616,21 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
               {stop?'Le marché ne peut pas être émis en l’état :':'À vérifier avant signature :'}</div>
             {pb.map((x,i)=><div key={i} className="xs" style={{marginTop:3,lineHeight:1.5,
               color:x.bloquant?TERRA:MUTED}}>{x.bloquant?'• ':'· '}{x.texte}</div>)}
+            {/* seule la décennale manque : la décision revient à CP Constructions */}
+            {marcheForcable(pb)&&<div className="row" style={{gap:10,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
+              <button type="button" className="btn s gh" style={{borderColor:TERRA,color:TERRA,whiteSpace:'normal',textAlign:'left'}}
+                disabled={sortie&&sortie.etat==='travail'}
+                onClick={()=>{if(confirm('Rédiger le marché sans décennale valable ?\n\n'
+                  +pb.filter(x=>x.decennale).map(x=>x.texte).join('\n')
+                  +'\n\nLe marché dira que l’attestation en cours de validité est à fournir par '+((a&&a.nom)||'l’entreprise')
+                  +' avant le démarrage des travaux. Ne laissez pas commencer les travaux avant de l’avoir reçue.'))sortirMarche(true)}}>
+                Rédiger quand même, sans décennale (3 exemplaires)</button>
+              <span className="xs mut" style={{flex:'1 1 220px'}}>Le contrat dira que l’attestation est à fournir avant le démarrage des travaux.</span>
+            </div>}
           </div>}
           <div className="row" style={{gap:14,alignItems:'center',flexWrap:'wrap',marginTop:8}}>
             <button className={'btn s '+(stop?'gh':'acc')} disabled={stop||(sortie&&sortie.etat==='travail')}
-              style={{whiteSpace:'normal',maxWidth:'100%',textAlign:'left',lineHeight:1.3,opacity:stop?.5:1}} onClick={sortirMarche}>
+              style={{whiteSpace:'normal',maxWidth:'100%',textAlign:'left',lineHeight:1.3,opacity:stop?.5:1}} onClick={()=>sortirMarche()}>
               {sortie&&sortie.etat==='travail'?(sortie.etape==='impression'?'Préparation du PDF à imprimer…':'Rédaction des 3 exemplaires…')
                 :'Rédiger le marché (3 exemplaires) et l’envoyer sur le Drive'}</button>
             <input className="in" style={{padding:'4px 8px',fontSize:12,width:110}} placeholder="N° du marché"
@@ -13624,12 +13651,16 @@ function Marches({data,ch,save,eng,fac,onFacturerCmd,onFacturerHono}){
             {!sortie.att.n&&<AttestationMarche a={a} raison={sortie.att.raison} data={data} save={save} ressortir={sortirMarche}/>}
             {sortie.att.n>0&&sortie.att.total>sortie.att.n&&<div style={{marginTop:4,color:AMBER}}>
               L’attestation déposée compte {sortie.att.total} pages : seules les {sortie.att.n} premières sont annexées — vérifiez que c’est bien la bonne pièce.</div>}
+            {sortie.sansDecennale&&<div style={{marginTop:6,padding:'6px 10px',borderRadius:8,background:'#F6E2DC',borderLeft:'3px solid '+TERRA,color:INK}}>
+              Sorti <b>sans décennale valable</b> : le contrat dit que l’attestation est à fournir avant le démarrage des travaux.
+              Ne laissez pas commencer les travaux avant de l’avoir reçue ; complétez alors la fiche de l’entreprise (onglet ARTISANS) et ressortez le marché.</div>}
             <div className="mut" style={{marginTop:2}}>À relire avant signature.</div></div>}
           {f.exemplaires&&!(sortie&&sortie.etat==='ok')&&<div className="xs mut" style={{marginTop:8,lineHeight:1.5}}>
             Exemplaires sortis le {fd(f.exemplaires.le)} :{' '}
             {MARCHE_EXEMPLAIRES.filter(ex=>f.exemplaires[ex.cle]).map((ex,i)=><span key={ex.cle}>{i?' · ':''}
               <a href={f.exemplaires[ex.cle]} target="_blank" rel="noreferrer" style={{color:TERRA}}>{ex.libelle}</a></span>)}
             {!f.exemplaires.attestation&&<span style={{color:AMBER}}> — l’exemplaire client n’a pas l’attestation décennale</span>}
+            {f.exemplaires.sansDecennale&&<span style={{color:TERRA}}> — sorti sans décennale valable (attestation à fournir avant le démarrage des travaux)</span>}
             {/* l'attestation d'abord : un exemplaire client complet, puis on imprime */}
             {!f.exemplaires.attestation&&!(impr&&impr.etat==='ok'&&impr.impression.attestation)&&
               <AttestationMarche a={a} raison={f.exemplaires.attestationRaison} data={data} save={save} ressortir={sortirMarche}/>}
