@@ -129,6 +129,7 @@ export const CHAMPS = {
   'planRendu': 'objet', // { id, source, modele, creeLe } : le plan en couleur généré par l'IA (image d'intention)
   'dessin': 'objet', // { pieces:[{id,nom,longueur,largeur,contre}], hauteur } : le dessin rapide (dessin.js), sans scan
   'annotations': 'objet', // { fondId, source, empreinte, imageId, elements } : le plan annoté (annotations.js)
+  'annotationsPlus': 'objet', // { <id du plan ajouté>: { fondId, source, empreinte, imageId, elements } } : un plan annoté par plan ajouté à côté (RDC, étages…)
   'partageDossier': 'objet', // { id, lien, expireLe, creeLe } : le lien du dossier envoyé au client (table releve_partages)
   'budget': 'objet', // { lignes, ajust, estimation } : la fourchette de prix (releve/budget.js)
   'prospectId': 'texte', // le dossier du suivi pour lequel la visite a été lancée (lien « Nouvelle visite » d'une fiche prospect)

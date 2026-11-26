@@ -21,11 +21,15 @@ import * as M from './modele.js';
 import * as B from './budget.js';
 import * as T from './terrain.js';
 import * as AV from './aide-vente.js';
+import * as AN from './annotations.js';
 
-export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false, planAnnote: false, terrain: true, vue3d: true, planRendu: true, calendrier: false };
+export const OPTIONS_DEFAUT = { estimation: true, imagines: true, notesPieces: false, enveloppe: false, planAnnote: false, terrain: true, vue3d: true, planRendu: true, calendrier: false, plansCote: false };
 
 const txt = v => (typeof v === 'string' ? v.trim() : '');
 const nom = (v, p) => [M.valeur(v, p + '.civilite'), M.valeur(v, p + '.prenom'), M.valeur(v, p + '.nom')].filter(Boolean).join(' ');
+
+/* les plans ajoutés à côté du plan principal (photos « planAjoute »), dans l'ordre où ils ont été ajoutés */
+const plansAjoutesDe = v => M.actifs(v.photos).filter(x => x.role === 'planAjoute').sort((a, b) => String(a.importeLe || '').localeCompare(String(b.importeLe || '')) || a.id.localeCompare(b.id));
 
 export function dossierClient(v, opt = {}) {
   const o = { ...OPTIONS_DEFAUT, ...opt };
@@ -136,6 +140,18 @@ export function dossierClient(v, opt = {}) {
     plan: resume && Array.isArray(resume.detail) && resume.detail.length
       ? resume.detail.map(p => ({ nom: p.nom, etage: p.etage || 0, surface: p.sol, hauteur: p.hauteur })) : [],
     estimation,
+    // les plans ajoutés à côté (RDC, étages…) : l'option « Les plans côte à côte », décochée d'office
+    plansCote: (() => {
+      const aj = plansAjoutesDe(v); if (!o.plansCote || !aj.length) return null;
+      const pi = val('planImage'), pp = (pi && v.photos[pi.id] && !v.photos[pi.id].supprime ? v.photos[pi.id] : null)
+        || M.actifs(v.photos).filter(x => x.role === 'planPapier').sort((a, b) => String(b.importeLe || '').localeCompare(String(a.importeLe || '')))[0];
+      return [...aj.map(ph => ({ id: ph.id, chemin: ph.chemin || null, legende: txt(ph.legende) || 'Plan' })), ...(pp ? [{ id: pp.id, chemin: pp.chemin || null, legende: pi && v.photos[pi.id] === pp ? 'Plan dessiné' : 'Plan importé' }] : [])];
+    })(),
+    // la copie annotée de chaque plan ajouté, avec l'option « Plan annoté (travaux) »
+    plansAnnotes: o.planAnnote ? plansAjoutesDe(v).map(ph => {
+      const a = AN.nettoyer((val('annotationsPlus') || {})[ph.id]), im = a.imageId && v.photos[a.imageId];
+      return im && !im.supprime ? { id: im.id, chemin: im.chemin || null, legende: txt(ph.legende) || 'Plan' } : null;
+    }).filter(Boolean) : [],
     // le calendrier indicatif (option, décochée d'office) : seulement si une date de début de chantier a été choisie à l'étape Budget
     calendrier: (() => {
       const bg = val('budget') || {}, c = bg.calendrier;
