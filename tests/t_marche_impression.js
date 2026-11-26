@@ -14,18 +14,36 @@ const {charger,texteInst,norm,verif}=require('./harness');
 const React=require('react');const TR=require('react-test-renderer');
 const {chk,fin}=verif();
 const JPG=fs.readFileSync(path.join(__dirname,'fixtures','portrait.jpg'));
-const toile=()=>({width:0,height:0,getContext:()=>({fillRect(){}}),toBlob(cb){cb(new Blob([JPG]))}});
-global.pdfjsLib={GlobalWorkerOptions:{},getDocument:()=>({promise:Promise.resolve({numPages:1,
+/* une page rendue : la photo fictive, ou une page lourde (900 Ko) pour
+   l'attestation complète qui fait passer le Word au-delà de 5 Mo */
+let pagesPdf=1, pagesLourdes=false;
+const toile=()=>({width:0,height:0,getContext:()=>({fillRect(){}}),
+  toBlob(cb){cb(new Blob(pagesLourdes?[JPG,new Uint8Array(900*1024)]:[JPG]))}});
+global.pdfjsLib={GlobalWorkerOptions:{},getDocument:()=>({promise:Promise.resolve({numPages:pagesPdf,
   getPage:async()=>({getViewport:({scale})=>({width:595*scale,height:842*scale}),render:()=>({promise:Promise.resolve()})})})})};
-const envois=[], conversions=[], stock={};
+const envois=[], conversions=[], stock={}, sessions={};
 let illisibles=new Set(), conversionKO=false;
 const M=charger(['Marches','EMPTY','genererMarcheImpressionDocx','genererMarcheDocx','attestationEnImages','zipEntree','lignesDocumentXml','MARCHE_EXEMPLAIRES'],{
-  drive:{ATTJ:JPG},
+  drive:{ATTJ:JPG,ATTP:Buffer.from('%PDF-1.4 attestation fictive')},
   document:{getElementById:()=>({}),createElement:t=>t==='canvas'?toile():({click(){},remove(){}}),body:{appendChild(){}},head:{appendChild(){}}},
   fetch:async(url,init,base)=>{
     const m=url.match(/files\/([^/?]+)\?alt=media/);
     if(m&&illisibles.has(m[1]))return {ok:false,status:404,json:async()=>({error:{code:404,message:'File not found.',errors:[{reason:'notFound'}]}})};
     if(m&&stock[m[1]]){const b=stock[m[1]];return {ok:true,status:200,arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)}}
+    /* au-delà de 5 Mo : une session reprenable, puis le contenu */
+    if(/upload\/drive\/v3\/files\?uploadType=resumable/.test(url)){
+      const n=Object.keys(sessions).length+1, loc='https://upload.example/session/'+n;
+      sessions[loc]={conversion:/fields=id$/.test(url),meta:JSON.parse(init.body)};
+      return {ok:true,status:200,headers:{get:h=>/location/i.test(h)?loc:null},json:async()=>({})};
+    }
+    if(sessions[url]){
+      const S=sessions[url], data=new Uint8Array(await init.body.arrayBuffer());
+      if(S.conversion){conversions.push(data);conversions.reprenable=(conversions.reprenable||0)+1;
+        return {ok:true,status:200,json:async()=>({id:'conv'+conversions.length})}}
+      envois.push({nom:S.meta.name,data,reprenable:true});
+      const id='up'+envois.length; stock[id]=data;
+      return {ok:true,status:200,json:async()=>({id,webViewLink:'https://drive.google.com/file/d/'+id+'/view'})};
+    }
     if(/upload\/drive\/v3\/files\?uploadType=multipart&fields=id$/.test(url)){
       conversions.push(new Uint8Array(await init.body.get('file').arrayBuffer()));
       return {ok:true,status:200,json:async()=>({id:'conv'+conversions.length})};
@@ -157,6 +175,24 @@ const LOT={id:'m1',chantierId:'c1',lot:'TERRASSEMENT',artisanId:'a1',montantHT:1
     const m=o.data().marches[0];
     chk(m.exemplaires.attestation===true&&!m.exemplaires.attestationRaison&&m.exemplaires.impression.attestation===true
       &&m.contratLien==='https://drive.google.com/file/d/up5/view','enregistré : l’exemplaire client complet, le PDF à imprimer à jour');
+    TR.act(()=>o.tr.unmount());
+  }
+
+  /* 5 bis. une attestation complète de 7 pages : tout est annexé, et le Word
+     de plus de 5 Mo se convertit quand même en PDF (session reprenable) */
+  {
+    envois.length=0;conversions.length=0;conversions.reprenable=0;pagesPdf=7;pagesLourdes=true;
+    const o=ouvrir({...ART,lienAttestation:'https://drive.google.com/file/d/ATTP/view'},LOT);
+    await TR.act(async()=>{await o.btn(/Rédiger le marché \(3 exemplaires\)/).props.onClick()});
+    await o.attendre(/rédigé en 3 exemplaires/);
+    const conv=conversions[0];
+    chk(conversions.reprenable===1&&conv&&conv.length>5*1024*1024&&!!(await media(conv,'attestation-7.jpeg'))&&!(await media(conv,'attestation-8.jpeg')),
+      'le Word des 3 exemplaires (plus de 5 Mo) part en session reprenable, les 7 pages de l’attestation comprises');
+    chk(envois.length===4&&envois[0].reprenable&&!!(await media(envois[0].data,'attestation-7.jpeg'))&&/3 exemplaires à imprimer\.pdf$/.test(envois[3].nom),
+      'l’exemplaire client porte les 7 pages ; le PDF à imprimer est déposé');
+    chk(/avec l’attestation décennale \(7 pages\)/.test(o.t())&&/un seul PDF : client \(avec l’attestation décennale\)/.test(o.t())&&!/seules les/.test(o.t()),
+      'l’écran : 7 pages, rien de coupé, un seul PDF');
+    pagesPdf=1;pagesLourdes=false;
     TR.act(()=>o.tr.unmount());
   }
 

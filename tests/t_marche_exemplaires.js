@@ -14,9 +14,11 @@ const EXIF=fs.readFileSync(path.join(__dirname,'fixtures','photo_exif.jpg'));
 const PNG=fs.readFileSync(path.join(__dirname,'..','assets','logo.png'));
 const PDF=Buffer.from('%PDF-1.4 attestation fictive');
 
-/* pdf.js et la toile : six pages A4, chacune rendue en JPEG */
+/* pdf.js et la toile : sept pages A4 (une attestation avec ses conditions),
+   chacune rendue en JPEG */
 const toile=()=>({width:0,height:0,getContext:()=>({fillRect(){}}),toBlob(cb){cb(new Blob([JPG]))}});
-global.pdfjsLib={GlobalWorkerOptions:{},getDocument:()=>({promise:Promise.resolve({numPages:6,
+let pagesPdf=7;
+global.pdfjsLib={GlobalWorkerOptions:{},getDocument:()=>({promise:Promise.resolve({numPages:pagesPdf,
   getPage:async()=>({getViewport:({scale})=>({width:595*scale,height:842*scale}),render:()=>({promise:Promise.resolve()})})})})};
 const envois=[];let illisibles=new Set();
 const M=charger(['Marches','EMPTY','dimensionsImage','attestationEnImages','genererMarcheDocx','zipEntree','lignesDocumentXml','controlerMarche'],{
@@ -57,7 +59,11 @@ const LOT={id:'m1',chantierId:'c1',lot:'Plomberie',artisanId:'a1',montantHT:1000
   const rJ=await M.attestationEnImages(JPG);
   chk(rJ.pages.length===1&&rJ.pages[0].ext==='jpeg'&&rJ.pages[0].w===800,'photo : une page, telle quelle');
   const rP=await M.attestationEnImages(PDF);
-  chk(rP.pages.length===4&&rP.total===6&&rP.pages[0].w===1654&&rP.pages[0].h===Math.round(842*1654/595),'PDF de 6 pages : les 4 premières, rendues à 1 654 px de large');
+  chk(rP.pages.length===7&&rP.total===7&&rP.pages[0].w===1654&&rP.pages[0].h===Math.round(842*1654/595),'PDF de 7 pages : toutes, rendues à 1 654 px de large');
+  pagesPdf=45;
+  const rL=await M.attestationEnImages(PDF);
+  chk(rL.pages.length===30&&rL.total===45,'un document de 45 pages (pas une attestation) : arrêté à 30');
+  pagesPdf=7;
   let refus='';try{await M.attestationEnImages(Buffer.from('texte quelconque'))}catch(e){refus=e.message}
   chk(/format non pris en charge/.test(refus),'autre format : refusé, avec la raison');
 
@@ -125,13 +131,20 @@ const LOT={id:'m1',chantierId:'c1',lot:'Plomberie',artisanId:'a1',montantHT:1000
   chk(/L’exemplaire client est sorti sans l’attestation décennale : .*illisible avec ce compte Google/.test(t)&&/Redéposer l’attestation décennale/.test(t),'l’écran dit pourquoi, et quoi faire');
   TR.act(()=>o.tr.unmount());
 
-  /* 6. une attestation en PDF de 6 pages : les 4 premières, et on le signale */
+  /* 6. une attestation en PDF de 7 pages : annexée complète */
   envois.length=0;illisibles=new Set();
   o=ouvrir({...ART,lienAttestation:'https://drive.google.com/file/d/ATTP/view'},LOT);
   await TR.act(async()=>{await o.btn(/Rédiger le marché \(3 exemplaires\)/).props.onClick()});
   t=o.t();
-  chk(!!(await media(envois[0].data,'attestation-4.jpeg'))&&!(await media(envois[0].data,'attestation-5.jpeg')),'PDF : quatre pages annexées');
-  chk(/avec l’attestation décennale \(4 pages\)/.test(t)&&/compte 6 pages : seules les 4 premières sont annexées/.test(t),'l’écran signale la pièce trop longue');
+  chk(!!(await media(envois[0].data,'attestation-7.jpeg'))&&!(await media(envois[0].data,'attestation-8.jpeg')),'PDF : les sept pages annexées');
+  chk(/avec l’attestation décennale \(7 pages\)/.test(t)&&!/seules les/.test(t),'l’écran : 7 pages, rien de coupé');
+  TR.act(()=>o.tr.unmount());
+  /* un document bien plus long qu'une attestation : arrêté, et signalé */
+  envois.length=0;pagesPdf=45;
+  o=ouvrir({...ART,lienAttestation:'https://drive.google.com/file/d/ATTP/view'},LOT);
+  await TR.act(async()=>{await o.btn(/Rédiger le marché \(3 exemplaires\)/).props.onClick()});
+  chk(/compte 45 pages : seules les 30 premières sont annexées/.test(o.t()),'au-delà de 30 pages : l’écran le signale');
+  pagesPdf=7;
   TR.act(()=>o.tr.unmount());
 
   /* 7. pas d'attestation déposée : alerte avant, raison après */
