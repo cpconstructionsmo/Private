@@ -1261,19 +1261,75 @@ const resumePlan = r => r ? r.pieces + ' pièce' + (r.pieces > 1 ? 's' : '') + '
   (r.ouvertures != null ? ' · ' + r.ouvertures + ' ouverture' + (r.ouvertures > 1 ? 's' : '') : '') : '';
 
 /* le plan et sa copie annotée, côte à côte (l'un sous l'autre sur iPhone) */
+/* tous les plans de la visite, côte à côte et modifiables au même endroit : les plans ajoutés (RDC, étages…) à gauche,
+   puis le plan dessiné et le plan importé. Un toucher sur une vignette choisit le plan : son nom, sa copie annotée et ses
+   boutons (annoter, supprimer la copie, retirer le plan) sont juste dessous. */
+function plansDeLaCarte(v) {
+  const fonds = fondsAnnotation(v), a = annotationsDe(v), liste = [];
+  plansAjoutes(v).forEach(p => liste.push({ cle: p.id, type: 'ajoute', photo: p, nom: p.legende || 'Plan' }));
+  fonds.forEach(f => liste.push({ cle: f.source, type: 'fond', fond: f, photo: f.photo, nom: f.source === 'plan' ? 'Plan dessiné' : 'Plan importé' }));
+  // une copie annotée dont le plan a disparu reste visible (et supprimable)
+  const cp = a.fondId && v.photos[a.fondId] && !v.photos[a.fondId].supprime ? v.photos[a.fondId] : null;
+  if (cp && !fonds.some(f => f.source === a.source)) liste.push({ cle: a.source, type: 'fond', fond: null, photo: cp, nom: 'Plan annoté' });
+  return liste;
+}
 function blocAnnotations(v) {
-  const fonds = fondsAnnotation(v), a = annotationsDe(v), annote = a.fondId && v.photos[a.fondId];
-  if (!fonds.length && !annote) return null;
-  const pi = M.valeur(v, 'planImage'), imgPlan = pi && v.photos[pi.id] ? v.photos[pi.id] : fonds[0] && fonds[0].photo;
-  const imgAnnote = a.imageId && v.photos[a.imageId] ? v.photos[a.imageId] : annote ? v.photos[a.fondId] : null;
+  const plans = plansDeLaCarte(v);
+  if (!plans.length) return h('div', { class: 'carte', id: 'blocAnnotations' }, h('b', {}, '🗂 Plans et annotations (travaux)'),
+    h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Ajoutez le plan d’un niveau (le rez-de-chaussée, par exemple) pour le voir à côté des autres, l’annoter et le mettre dans le dossier client.'),
+    boutonAjouterPlan(0));
+  // le plan choisi : celui que l'on vient d'ajouter ou de toucher, sinon le plan dessiné ou importé
+  const choisi = plans.find(x => x.cle === S.planSel) || plans.find(x => x.type === 'fond') || plans[0];
+  S.planSel = choisi.cle;
+  const vignette = (x) => { const img = imagePhoto(x.photo, 'vignettePlan'); img.removeAttribute('data-zoom'); return img; };
   return h('div', { class: 'carte', id: 'blocAnnotations' },
-    h('b', {}, '🖍 Plan annoté (travaux)'),
-    h('div', { class: 'duoPlans' },
-      imgPlan ? h('figure', {}, imagePhoto(imgPlan, 'vignettePlan'), h('figcaption', { class: 'mut petit' }, 'Plan')) : null,
-      imgAnnote ? h('figure', {}, imagePhoto(imgAnnote, 'vignettePlan'), h('figcaption', { class: 'mut petit', id: 'resumeAnnot' }, 'Copie annotée · ' + AN.resume(a.elements))) : null),
-    annote ? [h('button', { class: 'gros sec', type: 'button', id: 'annoterPlan', style: 'margin-top:8px', onclick: () => { S.annotCle = null; S.ecran = 'annoter'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🖍 Continuer les annotations'),
-      h('button', { class: 'gros sec', type: 'button', id: 'supprimerCopieAnnotee', style: 'margin-top:8px', onclick: () => supprimerCopieAnnotee(null) }, '🗑 Supprimer la copie annotée')]
-      : fonds.map(f => h('button', { class: 'gros sec', type: 'button', style: 'margin-top:8px', 'data-fond': f.source, id: f === fonds[0] ? 'annoterPlan' : null, onclick: () => commencerAnnotations(f) }, '🖍 Annoter une copie ' + f.libelle)),
+    h('b', {}, '🗂 Plans et annotations (travaux)'),
+    h('p', { class: 'mut petit', style: 'margin:4px 0 0' }, plans.length > 1 ? 'Touchez un plan pour le modifier, l’annoter ou le retirer.' : 'Ajoutez un autre plan pour le voir à côté.'),
+    h('div', { class: 'plansCote', id: 'plansCote' }, plans.map(x => h('button', { class: 'tuilePlan' + (x === choisi ? ' on' : ''), type: 'button', 'data-tuile': x.cle, 'aria-pressed': String(x === choisi),
+      onclick: () => { S.planSel = x.cle; redessiner(); } }, vignette(x), h('span', { class: 'nomTuile' }, x.nom)))),
+    detailPlan(v, choisi),
+    boutonAjouterPlan(plans.length - 1));
+}
+const boutonAjouterPlan = n => h('button', { class: 'gros sec', type: 'button', id: 'ajouterPlan', style: 'margin-top:10px', onclick: () => choisirFichier({ accept: 'image/*,application/pdf', multiple: true }, fs => ajouterPlans(fs)) },
+  n > 0 ? '＋ Ajouter un autre plan' : '＋ Ajouter un plan (RDC, étage…)');
+/* ce qu'on peut faire du plan choisi : le nommer (plans ajoutés), voir sa copie annotée, l'annoter, la supprimer, retirer le plan */
+function detailPlan(v, x) {
+  const ajoute = x.type === 'ajoute', cle = ajoute ? x.cle : null, a = lireAnnot(v, cle);
+  // la copie annotée du plan dessiné ou importé est unique (« annotations ») : elle appartient à un seul des deux
+  const sienne = ajoute || (a.fondId && (!x.fond || a.source === x.fond.source));
+  const annote = sienne && a.fondId && v.photos[a.fondId] && !v.photos[a.fondId].supprime;
+  const imgAnnote = annote ? (a.imageId && v.photos[a.imageId] && !v.photos[a.imageId].supprime ? v.photos[a.imageId] : v.photos[a.fondId]) : null;
+  const autreCopie = !ajoute && !sienne && a.fondId && v.photos[a.fondId] && !v.photos[a.fondId].supprime;
+  const renommer = nom => changer(w => M.majElement(w, 'photos', x.photo.id, { legende: String(nom).trim().slice(0, 40) || x.nom })).then(() => redessiner());
+  const retirer = async () => {
+    if (!(await confirmer('Retirer le plan « ' + x.nom + ' » ?\n' + (annote ? 'Sa copie annotée part avec lui. ' : '') + (x.type === 'fond' && x.fond && x.fond.source === 'plan' ? 'Le plan lui-même (relevé) ne change pas : l’image se refait quand vous rouvrez le plan. ' : '') + 'Les autres plans ne changent pas.', { ok: 'Retirer' }))) return;
+    await changer(w => {
+      let y = w;
+      const effacer = id => { if (id && y.photos[id] && !y.photos[id].supprime) y = M.supprimer(y, 'photos', id); };
+      if (annote) { effacer(a.fondId); effacer(a.imageId); }
+      if (ajoute) { effacer(x.photo.id); const plus = { ...(M.valeur(y, CLE_PLUS) || {}) }; delete plus[x.cle]; y = M.modifier(y, CLE_PLUS, plus); }
+      else {
+        effacer(x.photo.id);
+        if (x.fond && x.fond.source === 'plan') y = M.modifier(y, 'planImage', null);
+        if (annote) y = M.modifier(y, 'annotations', {});
+      }
+      return y;
+    });
+    S.planSel = null; redessiner();
+  };
+  const ouvrir = () => { S.annotCle = cle; S.ecran = 'annoter'; S.message = null; dessiner(); window.scrollTo(0, 0); };
+  const commencer = () => commencerAnnotations(ajoute ? { photo: x.photo, source: 'ajoute', cle: x.cle, empreinte: x.photo.id } : x.fond);
+  return h('div', { class: 'carte planAjoute', 'data-plan-detail': x.cle, ...(ajoute ? { 'data-plan-ajoute': x.cle } : {}) },
+    h('div', { class: 'rang', style: 'justify-content:space-between;gap:8px' },
+      ajoute ? h('input', { class: 'in', name: 'nomPlan', 'aria-label': 'Nom du plan', value: x.photo.legende || '', autocapitalize: 'sentences', onchange: e => renommer(e.target.value) }) : h('b', {}, x.nom),
+      h('button', { class: 'puce', type: 'button', id: 'retirerPlan', 'aria-label': 'Retirer le plan ' + x.nom, onclick: retirer }, '🗑 Retirer ce plan')),
+    ajoute ? h('div', { class: 'puces' }, NOMS_PLAN.map(n => h('button', { class: 'puce' + (x.photo.legende === n ? ' on' : ''), type: 'button', onclick: () => renommer(n) }, n))) : null,
+    h('div', { class: 'duoPlans' }, h('figure', {}, imagePhoto(x.photo, 'vignettePlan'), h('figcaption', { class: 'mut petit' }, 'Plan')),
+      imgAnnote ? h('figure', {}, imagePhoto(imgAnnote, 'vignettePlan'), h('figcaption', { class: 'mut petit', id: ajoute ? null : 'resumeAnnot', 'data-resume-annot': x.cle }, 'Copie annotée · ' + AN.resume(a.elements))) : null),
+    annote ? [h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'annoterPlan', 'data-annoter-plan': x.cle, style: 'margin-top:8px', onclick: ouvrir }, '🖍 Continuer les annotations'),
+      h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'supprimerCopieAnnotee', 'data-supprimer-copie': x.cle, style: 'margin-top:8px', onclick: () => supprimerCopieAnnotee(cle) }, '🗑 Supprimer la copie annotée')]
+      : autreCopie ? h('p', { class: 'mut petit', style: 'margin:8px 0 0' }, 'La copie annotée existante est celle de l’autre plan : supprimez-la d’abord pour annoter celui-ci.')
+      : h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'annoterPlan', 'data-annoter-plan': x.cle, ...(ajoute ? {} : { 'data-fond': x.fond && x.fond.source }), style: 'margin-top:8px', onclick: commencer }, '🖍 Annoter une copie' + (ajoute ? '' : ' ' + (x.fond && x.fond.libelle || ''))),
     h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Notez les travaux sur une copie : démolition, ouvertures, isolation… Le plan lui-même ne change pas.'));
 }
 
@@ -1309,53 +1365,13 @@ async function ajouterPlans(fichiers) {
       await stock.garderPhoto(id, S.courante, blob);
       const pris = plansAjoutes(visite()).map(x => x.legende), nom = NOMS_PLAN.find(x => !pris.includes(x)) || 'Plan ' + (pris.length + 1);
       await changer(w => M.majElement(M.ajouterPhoto(w, { id, role: 'planAjoute', legende: nom }), 'photos', id, { importeLe: new Date().toISOString() }));
-      n++;
+      S.planSel = id; n++;
     } catch (e) { /* ce fichier n'a pas pu être lu : on passe au suivant */ }
   }
   if (pdf) montrerMessage('att', 'Un PDF ne peut pas encore s’afficher ici : exportez-le en image (JPEG ou PNG), ou utilisez « Plan 2D ou esquisses ».');
   else if (!n) montrerMessage('err', 'Ce fichier n’a pas pu être lu comme une image de plan.');
   else redessiner();
 }
-function blocPlansAjoutes(v) {
-  const ajoutes = plansAjoutes(v), principal = fondsAnnotation(v)[0];
-  const fig = (ph, legende, id) => h('figure', { 'data-plan-cote': id || null }, imagePhoto(ph, 'vignettePlan'), h('figcaption', { class: 'mut petit' }, legende));
-  return h('div', { class: 'carte', id: 'plansAjoutes' },
-    h('b', {}, '🗂 Plans côte à côte (RDC, étages…)'),
-    ajoutes.length
-      // les plans ajoutés à gauche, celui du dessin ou de l'import à droite
-      ? h('div', { class: 'plansCote', id: 'plansCote' }, ajoutes.map(p => fig(p, p.legende || 'Plan', p.id)), principal ? fig(principal.photo, principal.source === 'plan' ? 'Plan dessiné' : 'Plan importé', 'principal') : null)
-      : h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Ajoutez le plan d’un autre niveau (le rez-de-chaussée, par exemple) pour le voir à côté de celui-ci, l’annoter et le mettre dans le dossier client.'),
-    ajoutes.map(p => cartePlanAjoute(v, p)),
-    h('button', { class: 'gros sec', type: 'button', id: 'ajouterPlan', style: 'margin-top:10px', onclick: () => choisirFichier({ accept: 'image/*,application/pdf', multiple: true }, fs => ajouterPlans(fs)) },
-      ajoutes.length ? '＋ Ajouter un autre plan' : '＋ Ajouter un plan (RDC, étage…)'),
-    h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Image ou photo d’un plan (JPEG, PNG, capture d’écran). Un PDF : exportez-le d’abord en image.'));
-}
-function cartePlanAjoute(v, p) {
-  const a = lireAnnot(v, p.id), annote = a.fondId && v.photos[a.fondId] && !v.photos[a.fondId].supprime;
-  const imgAnnote = a.imageId && v.photos[a.imageId] && !v.photos[a.imageId].supprime ? v.photos[a.imageId] : annote ? v.photos[a.fondId] : null;
-  const renommer = nom => changer(w => M.majElement(w, 'photos', p.id, { legende: String(nom).trim().slice(0, 40) || p.legende })).then(() => redessiner());
-  const retirer = async () => {
-    if (!(await confirmer('Retirer le plan « ' + (p.legende || 'Plan') + ' » ?\n' + (annote ? 'Sa copie annotée part avec lui. ' : '') + 'Les autres plans ne changent pas.', { ok: 'Retirer' }))) return;
-    await changer(w => {
-      let x = M.supprimer(w, 'photos', p.id);
-      [a.fondId, a.imageId].forEach(id => { if (id && x.photos[id] && !x.photos[id].supprime) x = M.supprimer(x, 'photos', id); });
-      const plus = { ...(M.valeur(x, CLE_PLUS) || {}) }; delete plus[p.id];
-      return M.modifier(x, CLE_PLUS, plus);
-    });
-    redessiner();
-  };
-  return h('div', { class: 'carte planAjoute', 'data-plan-ajoute': p.id },
-    h('div', { class: 'rang', style: 'justify-content:space-between;gap:8px' },
-      h('input', { class: 'in', name: 'nomPlan', 'aria-label': 'Nom du plan', value: p.legende || '', autocapitalize: 'sentences', onchange: e => renommer(e.target.value) }),
-      h('button', { class: 'puce', type: 'button', 'aria-label': 'Retirer le plan ' + (p.legende || ''), onclick: retirer }, '🗑 Retirer')),
-    h('div', { class: 'puces' }, NOMS_PLAN.map(n => h('button', { class: 'puce' + (p.legende === n ? ' on' : ''), type: 'button', onclick: () => renommer(n) }, n))),
-    h('div', { class: 'duoPlans' }, h('figure', {}, imagePhoto(p, 'vignettePlan'), h('figcaption', { class: 'mut petit' }, 'Plan')),
-      imgAnnote ? h('figure', {}, imagePhoto(imgAnnote, 'vignettePlan'), h('figcaption', { class: 'mut petit', 'data-resume-annot': p.id }, 'Copie annotée · ' + AN.resume(a.elements))) : null),
-    annote ? [h('button', { class: 'gros sec', type: 'button', 'data-annoter-plan': p.id, style: 'margin-top:8px', onclick: () => { S.annotCle = p.id; S.ecran = 'annoter'; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🖍 Continuer les annotations'),
-      h('button', { class: 'gros sec', type: 'button', 'data-supprimer-copie': p.id, style: 'margin-top:8px', onclick: () => supprimerCopieAnnotee(p.id) }, '🗑 Supprimer la copie annotée')]
-      : h('button', { class: 'gros sec', type: 'button', 'data-annoter-plan': p.id, style: 'margin-top:8px', onclick: () => commencerAnnotations({ photo: p, source: 'ajoute', cle: p.id, empreinte: p.id }) }, '🖍 Annoter une copie'));
-}
-
 function etapeScan(v) {
   const scan = M.valeur(v, 'scan.fichier'), plan = M.valeur(v, 'plan'), ecarte = M.valeur(v, 'plan.ecarte');
   const importer = async () => {
@@ -1383,7 +1399,6 @@ function etapeScan(v) {
     scan ? h('div', { class: 'carte' }, h('b', {}, '📄 ' + scan.nom), h('div', { class: 'mut petit' }, Math.round((scan.taille || 0) / 1024) + ' Ko · importé le ' + dateCourte(scan.importeLe))) : null,
     plan ? h('div', { class: 'carte', id: 'resumePlan' }, h('b', {}, '📐 Plan'), h('div', { class: 'mut petit' }, resumePlan(plan.resume)), blocPlanRendu(v)) : null,
     blocAnnotations(v),
-    blocPlansAjoutes(v),
     ecarte ? h('div', { class: 'message att' }, 'Une autre version du plan, modifiée sur un autre appareil, a été gardée de côté' + (ecarte.resume ? ' (' + resumePlan(ecarte.resume) + ')' : '') + '. ',
       h('div', { class: 'rang', style: 'margin-top:8px' },
         h('button', { class: 'puce', type: 'button', onclick: async () => {
@@ -2023,6 +2038,19 @@ const rectsEtage = (d, R, k) => d.pieces.filter(p => (p.etage || 0) === k && R.r
    portes et fenêtres, symboles. Une pièce ou un symbole se glisse au doigt
    (la pièce s'aimante aux murs voisins) ; un toucher le sélectionne. */
 const COUL_OUV = { porte: '#C0392B', fenetre: '#1F6FEB', portefenetre: '#1F6FEB', passage: '#6B7280' };
+/* surfaces intérieures du dessin : une ligne par pièce (nom, niveau, m²) et le total ; replié d'office */
+function tableauSurfaces(d, R) {
+  const noms = DR.nomsEtages(d.etages, d.pieces), fmt = x => String(Math.round(x * 100) / 100).replace('.', ',') + ' m²';
+  const lignes = d.pieces.map(p => { const e = R.resume && R.resume.detail.find(x => x.id === 'd-' + p.id); const r = R.rect.get(p.id);
+    return { nom: p.nom, niveau: noms[p.etage || 0] || 'Rez-de-chaussée', sol: e && e.sol != null ? e.sol : r ? Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100 : null }; });
+  const total = lignes.reduce((t, l) => t + (l.sol || 0), 0);
+  return h('details', { class: 'carte tableauSurfaces', id: 'tableauSurfaces', open: !!S.surfacesOuvert, ontoggle: e => { S.surfacesOuvert = e.target.open; } },
+    h('summary', {}, '📐 Tableau des surfaces'),
+    h('table', { class: 'tableDossier' }, h('thead', {}, h('tr', {}, h('th', {}, 'Pièce'), h('th', {}, 'Niveau'), h('th', {}, 'Surface'))),
+      h('tbody', {}, lignes.map(l => h('tr', {}, h('td', {}, l.nom), h('td', {}, l.niveau), h('td', { class: 'nombre' }, l.sol != null ? fmt(l.sol) : '—')))),
+      h('tfoot', {}, h('tr', {}, h('td', { colspan: 2 }, 'Total'), h('td', { class: 'nombre' }, fmt(total))))),
+    h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Surfaces intérieures du dessin, à confirmer sur le relevé.'));
+}
 function apercuDessin(d, R, opts = {}) {
   const NS = 'http://www.w3.org/2000/svg', el = (t, a, txt) => { const e = document.createElementNS(NS, t); Object.entries(a).forEach(([k, v]) => e.setAttribute(k, v)); if (txt != null) e.textContent = txt; return e; };
   const k = etageDessin(), rs = rectsEtage(d, R, k), dessous = k > 0 ? rectsEtage(d, R, k - 1) : [];
@@ -2051,8 +2079,15 @@ function apercuDessin(d, R, opts = {}) {
     const centre = p.poly ? CQ.pointInterieur(p.poly) : [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2];
     const et = DR.etiquetteDe(p), nx = centre[0] + et.dx, ny = centre[1] + et.dy;
     const nom = el('g', { 'data-edit': 'nom' });
-    nom.append(el('text', { x: nx, y: ny, 'text-anchor': 'middle', 'font-size': t, 'font-weight': 700, fill: '#1A2B36' }, p.nom));
-    nom.append(el('text', { x: nx, y: ny + t * 1.2, 'text-anchor': 'middle', 'font-size': t * 0.8, fill: '#5E6B74' }, String((R.resume && (R.resume.detail.find(x => x.id === 'd-' + p.id) || {}).sol) ?? Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²'));
+    // le nom et la surface tiennent dans la pièce : ils rapetissent (ou le nom est raccourci) au lieu de déborder sur les voisines et leurs cotes
+    const wPiece = r.x1 - r.x0, nm = DR.nomAjuste(p.nom, wPiece, t);
+    const surf = String((R.resume && (R.resume.detail.find(x => x.id === 'd-' + p.id) || {}).sol) ?? Math.round((r.x1 - r.x0) * (r.y1 - r.y0) * 100) / 100).replace('.', ',') + ' m²';
+    // une zone invisible autour du nom et de la surface : on l'attrape (toucher, glisser) sans devoir viser une lettre ;
+    // les cotes, posées après, restent prioritaires là où elles se recouvrent
+    const lw = Math.max(nm.taille * 0.6 * nm.texte.length, nm.taille * 4) + 0.1;
+    nom.append(el('rect', { x: nx - lw / 2, y: ny - nm.taille * 0.95, width: lw, height: nm.taille * 2.5, fill: 'transparent', 'pointer-events': 'all', 'data-zone-nom': '' }));
+    nom.append(el('text', { x: nx, y: ny, 'text-anchor': 'middle', 'font-size': nm.taille, 'font-weight': 700, fill: '#1A2B36' }, nm.texte));
+    nom.append(el('text', { x: nx, y: ny + nm.taille * 1.2, 'text-anchor': 'middle', 'font-size': DR.tailleSurface(surf, wPiece, nm.taille), fill: '#5E6B74' }, surf));
     g.append(nom);
     if (p.poly) {   // pièce tracée au doigt : la longueur de chaque mur, un peu à l'intérieur ; un toucher la modifie
       CQ.murs(p.poly).forEach(m => {
@@ -2380,9 +2415,9 @@ function appliquerRecul(svg, r) {
   const w = b[2] * r, hh = b[3] * r, pan = S.dessinPan || { x: 0, y: 0 };
   svg.setAttribute('viewBox', [b[0] + b[2] / 2 - w / 2 + pan.x, b[1] + b[3] / 2 - hh / 2 + pan.y, w, hh].join(' '));
 }
-// PC : Ctrl+Z annule, Ctrl+Maj+Z (ou Ctrl+Y) rétablit, comme dans un logiciel de dessin (seulement en croquis, hors champ de saisie)
+// PC : Ctrl+Z annule, Ctrl+Maj+Z (ou Ctrl+Y) rétablit, comme dans un logiciel de dessin (partout dans le dessin, hors champ de saisie)
 document.addEventListener('keydown', e => {
-  if (S.ecran !== 'dessin' || !S.croquis) return;
+  if (S.ecran !== 'dessin') return;
   const t = e.target; if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
   const mod = e.ctrlKey || e.metaKey, k = String(e.key).toLowerCase();
   if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); annulerDessin(); }
@@ -2396,8 +2431,13 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
   if (S.dessinSel) supprimerPieceDessin(S.dessinSel); else retirerSymboleDessin(S.dessinSym);
 });
-// Échap quitte le plein écran du dessin
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.dessinPlein) { S.dessinPlein = false; redessiner(); } });
+// Échap quitte le plein écran du dessin ; sinon il désélectionne la pièce ou le symbole (et éteint « ✋ Glisser le nom »)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (S.dessinPlein) { S.dessinPlein = false; redessiner(); return; }
+  const t = e.target; if (S.ecran !== 'dessin' || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) || document.querySelector('.voileConfirm')) return;
+  if (S.dessinSel || S.dessinSym || S.nomGlisse) { S.dessinSel = null; S.dessinSym = null; S.nomGlisse = false; redessiner(); }
+});
 function cadreZoomDessin(svg) {
   const cadre = h('div', { class: 'cadreZoomDessin' + (S.croquis ? ' modeCroquis' : ''), id: 'cadreZoomDessin' }, svg);
   let z = S.dessinZoom || { s: 1, x: 0, y: 0 }, recul = S.dessinRecul || 1;
@@ -2606,6 +2646,8 @@ function ecranDessin() {
         return n ? h('details', { class: 'carte planOrigine', id: 'planOrigine' }, h('summary', {}, n > 1 ? '🖼 Plans et esquisses d’origine (' + n + ')' : '🖼 Plan d’origine' + (d.source && d.source.partie ? ' · ' + d.source.partie : '')),
           pps.length ? pps.map(pp => imagePhoto(pp, 'imagePlanOrigine')) : h('div', { class: 'mut petit' }, (d.source && d.source.fichier) || '')) : null; })(),
       R.erreurs.length ? h('div', { class: 'message err' }, R.erreurs.join(' ')) : d.pieces.length ? h('div', { class: 'mut petit' }, R.resume.pieces + ' pièce' + (R.resume.pieces > 1 ? 's' : '') + ' · ' + String(R.resume.surface).replace('.', ',') + ' m²' + (R.resume.ouvertures ? ' · ' + R.resume.ouvertures + ' ouverture' + (R.resume.ouvertures > 1 ? 's' : '') : '')) : null,
+      // le tableau des surfaces (comme dans les logiciels de plan) : chaque pièce, son niveau, sa surface, et le total
+      !R.erreurs.length && d.pieces.length ? tableauSurfaces(d, R) : null,
       // le symbole sélectionné
       symSel && tySel ? h('div', { class: 'carte symboleDessin sel', 'data-symbole-sel': symSel.id },
         h('div', { class: 'rang', style: 'justify-content:space-between' }, h('b', {}, tySel[2] + ' ' + tySel[1]),

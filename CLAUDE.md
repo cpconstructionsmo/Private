@@ -88,7 +88,7 @@ qu'on ait à les redire.
   (photo `planPapier`), plusieurs esquisses d'un coup ajoutées au dessin.
   Plan annoté (travaux) : copie du plan annotée au doigt (`annotations.js`,
   champ `annotations`, photos `fondAnnote` et `planAnnote`), en option dans
-  le dossier client (`planAnnote`, décochée d'office) ; plans côte à côte (RDC, étages : « ＋ Ajouter un plan », image seulement, photo `planAjoute`, une copie annotée par plan dans `annotationsPlus`, options `plansCote` et `planAnnote` du dossier ; le lien envoyé au client demande la mise à jour de la fonction `imaginer`, `cheminsDossier`) ; écran avant / après
+  le dossier client (`planAnnote`, décochée d'office) ; plans côte à côte (une seule carte « Plans et annotations » : vignettes, un toucher choisit le plan ; RDC, étages : « ＋ Ajouter un plan », image seulement, photo `planAjoute`, une copie annotée par plan dans `annotationsPlus`, « Retirer ce plan » pour chacun, options `plansCote` et `planAnnote` du dossier ; le lien envoyé au client demande la mise à jour de la fonction `imaginer`, `cheminsDossier`) ; écran avant / après
   (plan actuel à gauche, copie annotée à droite, onglets sur iPhone), ouvert
   aussi depuis le dessin rapide (`avantApresDessin`) et le plan coté
   (`avantApresPlan`, message `releve:image`). Dossier client

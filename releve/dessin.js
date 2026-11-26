@@ -389,6 +389,19 @@ export function dessinDepuisRectangles(rects, nouvelId = i => 'p' + (i + 1), car
   return sortie;
 }
 
+/* la taille d'un nom de pièce pour qu'il TIENNE dans sa pièce (sans déborder sur les voisines, ni cacher leurs cotes) :
+   un caractère gras mesure en moyenne 0,6 × la taille ; au plus la taille de base `t`, au moins 0,17 m d'écran ;
+   en dessous, le nom est raccourci par « … » (le nom complet reste celui de la pièce). */
+export function nomAjuste(nom, largeur, t) {
+  const L = String(nom || '').trim() || 'Pièce', libre = Math.max(0.3, (nb(largeur) || 0) - 0.12), plancher = 0.17, k = 0.6, base = nb(t) > 0 ? nb(t) : 0.3;
+  const taille = Math.min(base, libre / (k * L.length));
+  if (taille >= plancher) return { texte: L, taille: r3(taille), tronque: false };
+  const max = Math.max(3, Math.floor(libre / (k * plancher)));
+  return { texte: L.length > max ? L.slice(0, max - 1).trimEnd() + '…' : L, taille: plancher, tronque: L.length > max };
+}
+/* la surface écrite sous le nom : au plus 0,8 × la taille du nom, et jamais plus large que la pièce (0,55 × la taille par caractère) */
+export const tailleSurface = (texte, largeur, tailleNom) => Math.min(tailleNom * 0.8, Math.max(0.1, ((nb(largeur) || 0) - 0.12) / (0.55 * String(texte).length)));
+
 /* La surface ÉCRITE sur le plan (« SH : 15,28 m² ») comparée à celle que donnent les cotes lues (longueur × largeur) :
    un écart au-delà de 3 % (et de 0,3 m²) signale une cote mal lue, par exemple la cote totale du bâtiment prise pour
    celle d'un couloir. Rien n'est corrigé : c'est une alerte « à vérifier », du plus gros écart au plus petit.

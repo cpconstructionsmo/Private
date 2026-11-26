@@ -125,27 +125,48 @@ Non repris de l'ancienne application : la signature du client à l'écran
 (l'estimation n'est pas contractuelle) et les coefficients de gamme, déjà
 couverts par « ⚙ Prix au m² ».
 
-## Plusieurs plans côte à côte (étape Scan › « 🗂 Plans côte à côte »)
+## Plusieurs plans côte à côte (étape Scan › « 🗂 Plans et annotations »)
 
-Pour montrer le rez-de-chaussée à côté de l'étage (ou l'inverse) :
+Pour montrer le rez-de-chaussée à côté de l'étage (ou l'inverse), tout est dans UNE carte :
 
-- **« ＋ Ajouter un plan »** : une image ou une photo de plan (JPEG, PNG, capture
-  d'écran) se range avec la visite (photo `planAjoute`). Elle prend le premier
-  nom libre (Rez-de-chaussée, 1er étage, 2e étage, Combles, Sous-sol), que l'on
-  change d'un toucher ou à la main. Un **PDF** n'est pas affiché : le message dit
-  de l'exporter d'abord en image.
-- **Côte à côte** : les plans ajoutés à gauche, le plan dessiné (ou importé) à droite.
-- **Annoter chacun** : chaque plan ajouté a sa propre copie annotée (champ
-  `annotationsPlus`, une entrée par plan) ; la copie du plan principal
-  (`annotations`) ne bouge pas. « 🗑 Supprimer la copie annotée » et « 🗑 Retirer »
-  (le plan et sa copie, après confirmation) existent pour chacun.
-- **Dossier client** : options « Les plans côte à côte (…) » et, avec « Plan annoté
-  (travaux) », une page par copie annotée ; décochées d'office.
-- **Lien envoyé au client** : les photos de ces plans n'y figurent qu'après la mise à jour
-  de la fonction `imaginer` sur Supabase (`regles.js`, `cheminsDossier`) ; le dossier
-  imprimé ou enregistré en PDF depuis l'application ne dépend pas de la fonction.
+- **Les vignettes côte à côte** : les plans ajoutés à gauche (dans l'ordre d'ajout), puis le
+  plan dessiné et le plan importé. **Un toucher sur une vignette choisit le plan** : son nom,
+  sa copie annotée et ses boutons sont juste en dessous (le plan qu'on vient d'ajouter est
+  d'office celui qu'on voit).
+- **« ＋ Ajouter un plan »** : une image ou une photo de plan (JPEG, PNG, capture d'écran) se
+  range avec la visite (photo `planAjoute`). Elle prend le premier nom libre (Rez-de-chaussée,
+  1er étage, 2e étage, Combles, Sous-sol), que l'on change d'un toucher ou à la main. Un **PDF**
+  n'est pas affiché : le message dit de l'exporter d'abord en image.
+- **Annoter chacun** : chaque plan ajouté a sa propre copie annotée (champ `annotationsPlus`,
+  une entrée par plan). Le plan dessiné et le plan importé partagent la copie `annotations`
+  (une seule, celle de l'un des deux : l'écran le dit pour l'autre).
+- **Retirer au choix un plan ou l'autre** : « 🗑 Retirer ce plan » (confirmation) pour chaque
+  vignette, plan dessiné et plan importé compris ; la copie annotée du plan retiré part avec lui.
+  Retirer le plan dessiné ne touche pas au plan lui-même : son image se refait quand on rouvre
+  le plan. « 🗑 Supprimer la copie annotée » ne retire que la copie.
+- **Dossier client** : options « Les plans côte à côte (…) » et, avec « Plan annoté (travaux) »,
+  une page par copie annotée ; décochées d'office.
+- **Lien envoyé au client** : les photos de ces plans n'y figurent qu'après la mise à jour de la
+  fonction `imaginer` sur Supabase (`regles.js`, `cheminsDossier`) ; le dossier imprimé ou
+  enregistré en PDF depuis l'application ne dépend pas de la fonction.
 
-Tests : `releve_plans_cote_navigateur.js`, `t_releve_imaginer.js`.
+Tests : `releve_plans_cote_navigateur.js`, `releve_annoter_navigateur.js`, `t_releve_imaginer.js`.
+
+## Le dessin rapide, repris des logiciels de plan (Cedreo, Houzz, RoomSketcher…)
+
+Ce que ces logiciels font de mieux, et que le dessin rapide reprend :
+
+- **Le nom ne cache plus les cotes** : il rapetisse pour tenir dans sa pièce, puis est raccourci
+  par « … » (`nomAjuste`) ; la surface écrite dessous suit (`tailleSurface`). Une zone invisible
+  autour du nom le rend facile à attraper.
+- **Tableau des surfaces** : « 📐 Tableau des surfaces » sous le dessin (pièce, niveau, surface,
+  total), replié d'office.
+- **Annulation partout** : Ctrl+Z, Ctrl+Maj+Z (ou Ctrl+Y) et « ↶ Annuler » marchent dans tout le
+  dessin, plus seulement en croquis. Échap désélectionne ; Suppr supprime.
+- **Un geste ne casse pas l'autre** : glisser une pièce par son milieu la déplace toujours ; le nom
+  ne glisse seul qu'avec « ✋ Glisser le nom » (les flèches ◀ ▲ ▼ ▶ restent sous le plan).
+
+Tests : `t_releve_etiquette.js`, `releve_dessin_nom_navigateur.js`.
 
 ## Le dossier client (Phase 3)
 

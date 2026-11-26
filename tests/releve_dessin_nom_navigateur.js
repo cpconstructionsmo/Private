@@ -62,11 +62,11 @@ let b;
     await p.mouse.move(x,y);await p.mouse.down();await p.mouse.move(x+dx/2,y+dy/2,{steps:4});await p.mouse.move(x+dx,y+dy,{steps:4});await p.mouse.up();diag.dernier={x:Math.round(x),y:Math.round(y),dx,dy,essai};return true}
     return false};
   const vu=async loc=>{await loc.evaluate(el=>el.scrollIntoView({block:'center'}));return loc.boundingBox()};   // au milieu de l'écran : la barre fixe du bas ne le recouvre pas
-  const deselect=async()=>{if(await p.locator('#positionNom').count()){const b=await vu(p.locator('.apercuDessin [data-piece-dessin]').first());await p.mouse.click(b.x+b.width/2,b.y+b.height*0.7);await p.waitForTimeout(250)}};
+  const deselect=async()=>{if(await p.locator('#positionNom').count()){const b=await vu(p.locator('.apercuDessin [data-piece-dessin]').first());await p.mouse.click(b.x+b.width/2,b.y+b.height*0.25);await p.waitForTimeout(250)}};
   await deselect();
   chk(await p.locator('#positionNom').count()===0,'aucune pièce sélectionnée : pas de flèches pour le nom');
   const b0=await vu(p.locator('.apercuDessin [data-piece-dessin]').first());
-  await p.mouse.click(b0.x+b0.width/2,b0.y+b0.height*0.7);
+  await p.mouse.click(b0.x+b0.width/2,b0.y+b0.height*0.25);
   await p.waitForSelector('#positionNom');
   const pos=await p.evaluate(()=>{const b=document.getElementById('positionNom').getBoundingClientRect(),c=document.getElementById('carteDessin').getBoundingClientRect();return {b:b.top+scrollY,h:c.top+scrollY,bas:c.bottom+scrollY}});
   chk(pos.b>pos.h&&pos.b<pos.bas+260,'pièce sélectionnée : les flèches du nom sont sous le plan, plus dans « Plus de réglages »');
@@ -83,7 +83,7 @@ let b;
   const piecebouge=await (async()=>{for(let i=0;i<60;i++){const d=await dessin();if(sansEt(d.pieces[0])!==sansEt(av0.pieces[0]))return true;await p.waitForTimeout(100)}return false})();
   chk(piecebouge&&!(await dessin()).pieces[0].etiquette,'mode « Glisser le nom » éteint : glisser une pièce sélectionnée par son milieu la déplace, le nom reste au centre (comportement d’origine)');
   await p.evaluate(()=>{});
-  if(!(await p.locator('#positionNom').count())){const b=await vu(p.locator('.apercuDessin [data-piece-dessin]').first());await p.mouse.click(b.x+b.width/2,b.y+b.height*0.7);await p.waitForSelector('#positionNom');}
+  if(!(await p.locator('#positionNom').count())){const b=await vu(p.locator('.apercuDessin [data-piece-dessin]').first());await p.mouse.click(b.x+b.width/2,b.y+b.height*0.25);await p.waitForSelector('#positionNom');}
   await p.tap('#glisserNom');
   chk(await p.getAttribute('#glisserNom','aria-pressed')==='true','« ✋ Glisser le nom » activé');
   /* glisser le nom d'une pièce sélectionnée, mode actif : le nom bouge, la pièce reste */
@@ -108,13 +108,47 @@ let b;
   chk(await p.getAttribute('#glisserNom','aria-pressed')==='false','« ✋ Glisser le nom » éteint');
   /* glisser le nom d'une pièce NON sélectionnée : c'est la pièce qui glisse, comme avant */
   const b1=await vu(p.locator('.apercuDessin [data-piece-dessin]').first());
-  await p.mouse.click(b1.x+b1.width/2,b1.y+b1.height*0.7);   // la désélectionne
+  await p.mouse.click(b1.x+b1.width/2,b1.y+b1.height*0.25);   // la désélectionne
   await p.waitForFunction(()=>!document.getElementById('positionNom'));
   const av2=await stable();
   const g2=p.locator('.apercuDessin [data-piece-dessin]').nth(2), bg=await vu(g2);
   await p.mouse.move(bg.x+bg.width/2,bg.y+bg.height/2);await p.mouse.down();await p.mouse.move(bg.x+bg.width/2+40,bg.y+bg.height/2+40,{steps:6});await p.mouse.up();
   const bouge=await (async()=>{for(let i=0;i<60;i++){const d=await dessin();if(JSON.stringify(d.pieces[2])!==JSON.stringify(av2.pieces[2]))return true;await p.waitForTimeout(100)}return false})();
   chk(bouge,'une pièce non sélectionnée glissée par son corps : c’est la pièce qui bouge (comportement inchangé)');
+
+  /* le nom s'attrape sans viser une lettre : entre le nom et la surface (là où il n'y a que du vide), c'est encore le nom */
+  {const hit=await p.evaluate(()=>{const g=document.querySelector('.apercuDessin [data-edit="nom"]');const t=g.querySelectorAll('text');const a=t[0].getBoundingClientRect(),b=t[1].getBoundingClientRect();const x=(a.left+a.right)/2,y=(a.bottom+b.top)/2;g.scrollIntoView({block:'center'});const a2=t[0].getBoundingClientRect(),b2=t[1].getBoundingClientRect();const e=document.elementFromPoint((a2.left+a2.right)/2,(a2.bottom+b2.top)/2);return !!(e&&e.closest('[data-edit="nom"]'))});
+   chk(hit,'entre le nom et la surface (du vide avant), un toucher attrape bien le nom : la zone invisible le rend facile à saisir');}
+  /* le nom tient dans sa pièce : le couloir de 1,9 m a un nom plus petit que la taille de base */
+  const tailles=await p.$$eval('.apercuDessin [data-edit="nom"]',gs=>gs.map(g=>{const e=g.querySelector('text');return {t:e.textContent,fs:+e.getAttribute('font-size')}}));
+  const deg=tailles.find(z=>/^D.gagement/.test(z.t)), sal=tailles.find(z=>/^Salon/.test(z.t));
+  chk(deg&&sal&&deg.fs<sal.fs,'le nom du couloir étroit est plus petit que celui du salon : il ne déborde plus ('+(deg&&deg.fs)+' contre '+(sal&&sal.fs)+')');
+
+  /* le tableau des surfaces */
+  await p.locator('#tableauSurfaces summary').evaluate(el=>el.scrollIntoView({block:'center'}));
+  await p.tap('#tableauSurfaces summary');
+  const lignes=await p.$$eval('#tableauSurfaces tbody tr',tr=>tr.map(r=>[...r.cells].map(c=>c.textContent)));
+  const num=t=>parseFloat(String(t).replace(',','.'));
+  const tot=num(await p.textContent('#tableauSurfaces tfoot td:last-child'));
+  chk(lignes.length===3&&lignes.every(l=>/m²/.test(l[2])),'tableau des surfaces : une ligne par pièce, avec sa surface ('+lignes.map(l=>l[0]+' '+l[2]).join(' · ')+')');
+  chk(Math.abs(tot-lignes.reduce((s,l)=>s+num(l[2]),0))<0.02,'et le total est la somme des pièces ('+tot+' m²)');
+
+  /* annulation au clavier, hors croquis, comme dans un logiciel de dessin ; Échap désélectionne */
+  const avantZ=await stable();
+  await p.evaluate(()=>document.activeElement&&document.activeElement.blur());
+  const bz=await vu(p.locator('.apercuDessin [data-piece-dessin]').nth(2));
+  await p.mouse.move(bz.x+bz.width/2,bz.y+bz.height/2);await p.mouse.down();await p.mouse.move(bz.x+bz.width/2+30,bz.y+bz.height/2+30,{steps:6});await p.mouse.up();
+  const deplace=await (async()=>{for(let i=0;i<60;i++){const d=await dessin();if(JSON.stringify(d.pieces[2])!==JSON.stringify(avantZ.pieces[2]))return true;await p.waitForTimeout(100)}return false})();
+  chk(deplace,'(une pièce déplacée, pour tester l’annulation au clavier)');
+  await p.keyboard.press('Control+z');
+  const revenu=await (async()=>{for(let i=0;i<60;i++){const d=await dessin();if(JSON.stringify(d.pieces[2])===JSON.stringify(avantZ.pieces[2]))return true;await p.waitForTimeout(100)}return false})();
+  chk(revenu,'Ctrl+Z annule le déplacement, sans passer par le mode croquis');
+  await p.keyboard.press('Control+Shift+z');
+  chk(await (async()=>{for(let i=0;i<60;i++){const d=await dessin();if(JSON.stringify(d.pieces[2])!==JSON.stringify(avantZ.pieces[2]))return true;await p.waitForTimeout(100)}return false})(),'Ctrl+Maj+Z le rétablit');
+  if(!(await p.locator('#positionNom').count())){const b=await vu(p.locator('.apercuDessin [data-piece-dessin]').first());await p.mouse.click(b.x+b.width/2,b.y+b.height*0.25);await p.waitForSelector('#positionNom')}
+  await p.keyboard.press('Escape');
+  await p.waitForFunction(()=>!document.getElementById('positionNom'));
+  chk(true,'Échap désélectionne la pièce : les réglages du nom disparaissent');
 
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();
