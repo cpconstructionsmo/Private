@@ -242,7 +242,7 @@
   @media (min-width:700px){.duoPlans{grid-template-columns:1fr 1fr}}
   .duoPlans figure{margin:0}.vignettePlan{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line,#ddd);background:#fff}
   .cadreAnnot{padding:4px;overflow:hidden}.cadreZoomAnnot{overflow:hidden;touch-action:none;border-radius:6px}.cadreZoomAnnot canvas{transform-origin:center center}
-  .panneauTexte{margin-bottom:10px}
+  .panneauTexte{margin-bottom:10px}.barreSel{position:sticky;bottom:64px;z-index:15;box-shadow:0 -2px 12px rgba(0,0,0,.15)}.barreSel[hidden]{display:none}
   .duoAvantApres{display:grid;grid-template-columns:1fr;gap:12px}.duoAvantApres .imageAvant{display:block;width:100%;height:auto;border-radius:6px;background:#fff}
   .duoAvantApres[data-vue="apres"] .coteAvant{display:none}.duoAvantApres[data-vue="avant"] .coteApres{display:none}.titreApres{display:block;margin-bottom:6px}
   @media (min-width:900px){.duoAvantApres{grid-template-columns:1fr 1fr;align-items:start}.duoAvantApres[data-vue] .coteAvant,.duoAvantApres[data-vue] .coteApres{display:block}.ongletsAvantApres{display:none}.ecranAnnot{max-width:1400px}}.zoomAnnot{margin-top:6px;align-items:center}.toileAnnot{display:block;width:100%;height:auto;touch-action:none;background:#fff;border-radius:6px;cursor:crosshair}
@@ -263,6 +263,8 @@
   /* plein écran du dessin : toute la fenêtre pour placer les pièces, la barre de zoom et les gestes de base restent dessous */
   .carte.dessinPlein{position:fixed;inset:0;z-index:60;margin:0;border-radius:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));overflow:auto;background:#fff}
   .carte.dessinPlein .apercuDessin{height:calc(100vh - 170px)}
+  /* une pièce est sélectionnée : son formulaire est plus bas, le plan reste donc collé en haut de l'écran pour voir chaque réglage s'appliquer */
+  @media (min-width:900px) and (min-height:760px){.carte.dessinSticky{position:sticky;top:0;z-index:20;box-shadow:0 4px 14px rgba(0,0,0,.18)}.carte.dessinSticky .apercuDessin{height:clamp(150px,22vh,300px)}.carte.dessinSticky~.carte.pieceDessin,.carte.dessinSticky~.carte.pieceDessin *{scroll-margin-top:calc(22vh + 300px)}}
   .pieceDessin.sel{border-color:var(--terra);box-shadow:0 0 0 2px rgba(197,86,58,.15)}
   .reglageDessin .reglage{margin-top:4px}
   .reglage .valeur span{margin-left:4px}

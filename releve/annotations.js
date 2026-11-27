@@ -12,7 +12,12 @@
    Tests : tests/t_releve_annotations.js. */
 
 export const COULEURS = [['#D62828', 'Rouge'], ['#1F6FEB', 'Bleu'], ['#2B9348', 'Vert'], ['#111111', 'Noir']];
-export const OUTILS = [['trait', '✏️ Stylo'], ['fleche', '➡️ Flèche'], ['texte', '🔤 Texte']];
+export const OUTILS = [['trait', '✏️ Stylo'], ['fleche', '➡️ Flèche'], ['texte', '🔤 Texte'], ['symbole', '🪟 Fenêtre, porte…'], ['deplacer', '✋ Déplacer']];
+/* les symboles posés sur une copie de plan (une fenêtre à ajouter, une porte, une démolition…) : dessinés en vecteurs,
+   à l'échelle relative du plan, pivotés par quarts de tour, de taille réglable (k : millièmes de la largeur du plan) */
+export const SYMBOLES = [['fenetre', 'Fenêtre'], ['porte', 'Porte'], ['baie', 'Baie vitrée'], ['passage', 'Ouverture (passage)'], ['demolition', 'Démolition']];
+const K_SYMBOLE = { fenetre: 36, porte: 34, baie: 60, passage: 40, demolition: 44 };
+export const TEXTE_PT = [3, 120];   // taille réglable d'un texte : millièmes de la largeur du plan
 /* le texte : taille (relative à la largeur du plan) et style, choisis à chaque texte */
 export const TAILLES = [['xs', 'Mini', 0.013], ['s', 'Petit', 0.022], ['m', 'Moyen', 0.034], ['l', 'Grand', 0.05], ['xl', 'Très grand', 0.072]];
 export const POLICES = [['normal', 'Normal'], ['gras', 'Gras'], ['manuscrit', 'Manuscrit'], ['capitales', 'CAPITALES']];
@@ -43,7 +48,14 @@ export function nettoyer(a) {
       const t = String(e.t ?? '').replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, TEXTE_MAX);
       const x = n01(e.x), y = n01(e.y);
       const taille = TAILLES.some(([k]) => k === e.taille) ? e.taille : 'm', police = POLICES.some(([k]) => k === e.police) ? e.police : 'normal';
-      return t && x != null && y != null ? { type: 'texte', c, x, y, t, taille, police } : null;
+      const pt = typeof e.pt === 'number' && isFinite(e.pt) ? Math.min(TEXTE_PT[1], Math.max(TEXTE_PT[0], Math.round(e.pt * 10) / 10)) : null;
+      return t && x != null && y != null ? { type: 'texte', c, x, y, t, taille, police, ...(pt ? { pt } : {}) } : null;
+    }
+    if (e.type === 'symbole') {
+      const x = n01(e.x), y = n01(e.y), sy = SYMBOLES.some(([k]) => k === e.s) ? e.s : null;
+      const rot = typeof e.rot === 'number' && isFinite(e.rot) ? ((Math.round(e.rot / 90) * 90) % 360 + 360) % 360 : 0;
+      const k = typeof e.k === 'number' && isFinite(e.k) ? Math.min(160, Math.max(10, Math.round(e.k))) : K_SYMBOLE[sy];
+      return sy && x != null && y != null ? { type: 'symbole', c, s: sy, x, y, rot, k } : null;
     }
     return null;
   }).filter(Boolean);
@@ -75,6 +87,8 @@ export function rendre(ctx, W, H, elements) {
       ctx.lineWidth = Math.max(2, EP_FLECHE * W);
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx - ux * t * 0.6, by - uy * t * 0.6); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx - ux * t - uy * t * 0.5, by - uy * t + ux * t * 0.5); ctx.lineTo(bx - ux * t + uy * t * 0.5, by - uy * t - ux * t * 0.5); ctx.closePath(); ctx.fill();
+    } else if (e.type === 'symbole') {
+      dessinerSymbole(ctx, W, H, e);
     } else if (e.type === 'texte') {
       const b = boiteTexte(ctx, W, H, e);
       // un fond blanc léger sous le texte : lisible même sur un mur noir
@@ -87,8 +101,8 @@ export function rendre(ctx, W, H, elements) {
 
 /* la boîte d'un texte, en pixels (fond, et toucher pour le reprendre) ; règle la police du contexte */
 export function boiteTexte(ctx, W, H, e) {
-  const k = (TAILLES.find(([x]) => x === e.taille) || TAILLES[1])[2];
-  const fs = Math.max(e.taille === 'xs' ? 8 : e.taille === 's' ? 11 : 14, k * W);
+  const k = e.pt ? e.pt / 1000 : (TAILLES.find(([x]) => x === e.taille) || TAILLES[2])[2];
+  const fs = Math.max(e.pt ? 5 : e.taille === 'xs' ? 8 : e.taille === 's' ? 11 : 14, k * W);
   ctx.font = (POLICE_CSS[e.police] || POLICE_CSS.normal).replace('{t}', fs); ctx.textBaseline = 'middle';
   const lignes = (e.police === 'capitales' ? e.t.toUpperCase() : e.t).split(/\s*\/\s*|\n/).slice(0, 6);
   const w = Math.max(...lignes.map(l => ctx.measureText(l).width));
@@ -107,5 +121,65 @@ export function texteSous(ctx, W, H, elements, px, py) {
 /* le résumé de l'écran Scan : « 3 traits, 2 flèches, 4 textes » */
 export function resume(elements) {
   const n = t => (elements || []).filter(e => e.type === t).length, mot = (k, s, p) => k ? k + ' ' + (k > 1 ? p : s) : null;
-  return [mot(n('trait'), 'trait', 'traits'), mot(n('fleche'), 'flèche', 'flèches'), mot(n('texte'), 'texte', 'textes')].filter(Boolean).join(', ') || 'aucune annotation';
+  return [mot(n('trait'), 'trait', 'traits'), mot(n('fleche'), 'flèche', 'flèches'), mot(n('texte'), 'texte', 'textes'), mot(n('symbole'), 'symbole', 'symboles')].filter(Boolean).join(', ') || 'aucune annotation';
+}
+
+/* ---------- symboles ---------- */
+/* dessine un symbole centré sur son point, pivoté, de longueur L = k ‰ de la largeur du plan */
+function dessinerSymbole(ctx, W, H, e) {
+  const L = Math.max(10, (e.k || K_SYMBOLE[e.s]) / 1000 * W), ep = Math.max(1.5, L * 0.07);
+  ctx.save(); ctx.translate(e.x * W, e.y * H); ctx.rotate((e.rot || 0) * Math.PI / 180);
+  ctx.strokeStyle = ctx.fillStyle = e.c; ctx.lineWidth = ep; ctx.lineCap = 'butt'; ctx.setLineDash([]);
+  const blanc = (x, y, w, h) => { ctx.save(); ctx.fillStyle = '#fff'; ctx.fillRect(x, y, w, h); ctx.restore(); };
+  if (e.s === 'fenetre') {
+    // un cadre étroit avec le trait du vitrage au milieu
+    blanc(-L / 2, -L * 0.14, L, L * 0.28); ctx.strokeRect(-L / 2, -L * 0.14, L, L * 0.28);
+    ctx.beginPath(); ctx.moveTo(-L / 2, 0); ctx.lineTo(L / 2, 0); ctx.stroke();
+  } else if (e.s === 'baie') {
+    // une baie coulissante : deux vantaux qui se chevauchent
+    blanc(-L / 2, -L * 0.1, L, L * 0.2); ctx.strokeRect(-L / 2, -L * 0.1, L, L * 0.2);
+    ctx.beginPath(); ctx.moveTo(-L / 2, -L * 0.035); ctx.lineTo(L * 0.1, -L * 0.035); ctx.moveTo(-L * 0.1, L * 0.035); ctx.lineTo(L / 2, L * 0.035); ctx.stroke();
+  } else if (e.s === 'porte') {
+    // le vantail ouvert à 90° et son arc de débattement
+    blanc(-L / 2, -L * 0.06, L, L * 0.12);
+    ctx.beginPath(); ctx.moveTo(-L / 2, 0); ctx.lineTo(-L / 2, -L); ctx.stroke();
+    ctx.lineWidth = Math.max(1, ep * 0.6); ctx.beginPath(); ctx.arc(-L / 2, 0, L, -Math.PI / 2, 0); ctx.stroke();
+  } else if (e.s === 'passage') {
+    // une ouverture à percer dans un mur : pointillés entre deux repères
+    ctx.setLineDash([L * 0.12, L * 0.09]); ctx.beginPath(); ctx.moveTo(-L / 2, 0); ctx.lineTo(L / 2, 0); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(-L / 2, -L * 0.16); ctx.lineTo(-L / 2, L * 0.16); ctx.moveTo(L / 2, -L * 0.16); ctx.lineTo(L / 2, L * 0.16); ctx.stroke();
+  } else if (e.s === 'demolition') {
+    // un cadre hachuré en croix : à démolir
+    ctx.setLineDash([L * 0.1, L * 0.07]); ctx.strokeRect(-L / 2, -L * 0.2, L, L * 0.4); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(-L / 2, -L * 0.2); ctx.lineTo(L / 2, L * 0.2); ctx.moveTo(-L / 2, L * 0.2); ctx.lineTo(L / 2, -L * 0.2); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* l'élément sous le doigt (le plus récent d'abord), ou -1 : texte (sa boîte), symbole (son disque), flèche et trait (leur ligne) */
+export function elementSous(ctx, W, H, elements, px, py) {
+  const dseg = (ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)); return Math.hypot(px - (ax + t * dx), py - (ay + t * dy)); };
+  const tol = Math.max(12, W * 0.012);
+  for (let i = (elements || []).length - 1; i >= 0; i--) {
+    const e = elements[i];
+    if (e.type === 'texte') { const b = boiteTexte(ctx, W, H, e); if (px >= b.x - 6 && px <= b.x + b.w + 6 && py >= b.y - 6 && py <= b.y + b.h + 6) return i; }
+    else if (e.type === 'symbole') { const L = Math.max(10, (e.k || 36) / 1000 * W); if (Math.hypot(px - e.x * W, py - e.y * H) <= Math.max(L * 0.6, tol)) return i; }
+    else if (e.type === 'fleche') { if (dseg(e.a[0] * W, e.a[1] * H, e.b[0] * W, e.b[1] * H) <= tol) return i; }
+    else if (e.type === 'trait') { for (let j = 1; j < e.p.length; j++) if (dseg(e.p[j - 1][0] * W, e.p[j - 1][1] * H, e.p[j][0] * W, e.p[j][1] * H) <= tol) return i; }
+  }
+  return -1;
+}
+/* l'élément déplacé de (dx, dy) relatifs au plan */
+export function decaler(e, dx, dy) {
+  if (e.type === 'texte' || e.type === 'symbole') return { ...e, x: e.x + dx, y: e.y + dy };
+  if (e.type === 'fleche') return { ...e, a: [e.a[0] + dx, e.a[1] + dy], b: [e.b[0] + dx, e.b[1] + dy] };
+  if (e.type === 'trait') return { ...e, p: e.p.map(([x, y]) => [x + dx, y + dy]) };
+  return e;
+}
+/* le cadre de sélection d'un élément, en pixels */
+export function cadreElement(ctx, W, H, e) {
+  if (e.type === 'texte') { const b = boiteTexte(ctx, W, H, e); return { x: b.x - 3, y: b.y - 3, w: b.w + 6, h: b.h + 6 }; }
+  if (e.type === 'symbole') { const L = Math.max(10, (e.k || 36) / 1000 * W), r = L * 0.65; return { x: e.x * W - r, y: e.y * H - r, w: 2 * r, h: 2 * r }; }
+  const pts = e.type === 'fleche' ? [e.a, e.b] : e.p, xs = pts.map(q => q[0] * W), ys = pts.map(q => q[1] * H);
+  const x0 = Math.min(...xs) - 6, y0 = Math.min(...ys) - 6; return { x: x0, y: y0, w: Math.max(...xs) + 6 - x0, h: Math.max(...ys) + 6 - y0 };
 }

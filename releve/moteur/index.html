@@ -67,6 +67,7 @@
   #editeur { position:absolute; z-index:5; width:250px; background:#fff; border:1px solid var(--accent); border-radius:10px; padding:10px 12px; box-shadow:0 6px 24px rgba(0,0,0,.2); font-size:14px; }
   #editeur label { display:block; margin:8px 0 0; color:var(--gris); font-size:12px; }
   #editeur input { width:100%; margin-top:2px; font-size:16px; padding:6px 8px; border:1px solid #cfd6df; border-radius:6px; text-align:right; }
+  #editeur .menuAjout{margin-top:8px}#editeur select#edAjMenu{width:100%;margin-top:2px;font-size:16px;padding:8px;border:2px solid var(--accent);border-radius:6px;background:#fff;color:var(--accent);font-weight:600}
   #editeur .boutons { display:flex; gap:6px; margin-top:10px; }
   #editeur button { flex:1; padding:7px 0; border-radius:6px; border:1px solid var(--accent); background:#fff; color:var(--accent); font-weight:600; font-size:14px; cursor:pointer; }
   #editeur button#edOk { background:var(--accent); color:#fff; }
@@ -262,6 +263,7 @@
       <div class="vide" id="videPlan">Ouvrez un fichier de relevé (.json)<br>ou glissez-le sur cette page.<br><small>Un plan 2D (image, PDF) se glisse aussi : l’IA en relève les pièces.</small></div>
     </div>
     <p class="hint">Touchez une cote, une porte ou un nom pour le corriger · glissez pour déplacer · pincez pour zoomer.</p>
+    <p class="hint" id="legendeSignes"><b>Sur le plan :</b> <span style="color:#1f6feb"><b>▬ trait bleu = fenêtre</b></span> (F + largeur) · <span style="color:#c0392b"><b>trait rouge + arc = porte</b></span> (P) · <b>pastille A, B, C… = nom du mur</b> · touchez un mur, une fenêtre ou une porte : une fiche s'ouvre avec <b>« Ajouter sur ce mur »</b> en haut.</p>
     <details class="aidePlan"><summary>ℹ️ Toute l'aide du plan</summary><p class="hint">Pincez ou molette : zoom · Glisser : déplacer · <b>Touchez une cote, une porte ou une fenêtre pour corriger sa mesure · glissez une porte ou une fenêtre pour la déplacer, tirez ses bouts pour changer sa largeur · « ＋ Mur » trace une cloison, « Démolir » (fenêtre d'un mur) retire un mur · glissez une flèche ou son chiffre pour la déplacer (le mur ne bouge pas ; double-clic : la remettre) · pour changer un mur en tirant le bout d'une flèche, cochez « Ajuster les murs avec les flèches »</b> · Cotes en mètres · <b style="color:#c0392b">P</b> = porte, <b style="color:#1f6feb">F</b> = fenêtre, <b style="color:#6b7280">Pa</b> = passage (largeur) · <span style="color:#b45309"><b>~</b> et pointillés = côté estimé (non scanné)</span> · <b style="color:#15803d">vert</b> = mesuré</p></details>
   </section>
 
