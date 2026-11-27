@@ -1329,11 +1329,30 @@ function detailPlan(v, x) {
     ajoute && !vue3d ? h('div', { class: 'puces' }, NOMS_PLAN.map(n => h('button', { class: 'puce' + (x.photo.legende === n ? ' on' : ''), type: 'button', onclick: () => renommer(n) }, n))) : null,
     h('div', { class: 'duoPlans' }, h('figure', {}, imagePhoto(x.photo, 'vignettePlan'), h('figcaption', { class: 'mut petit' }, 'Plan')),
       imgAnnote ? h('figure', {}, imagePhoto(imgAnnote, 'vignettePlan'), h('figcaption', { class: 'mut petit', id: ajoute ? null : 'resumeAnnot', 'data-resume-annot': x.cle }, 'Copie annotée · ' + AN.resume(a.elements))) : null),
-    annote ? [h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'annoterPlan', 'data-annoter-plan': x.cle, style: 'margin-top:8px', onclick: ouvrir }, '🖍 Continuer les annotations'),
+    annote ? [lienTelechargerAnnotations(v, x, a, imgAnnote),
+      h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'annoterPlan', 'data-annoter-plan': x.cle, style: 'margin-top:8px', onclick: ouvrir }, '🖍 Continuer les annotations'),
       h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'supprimerCopieAnnotee', 'data-supprimer-copie': x.cle, style: 'margin-top:8px', onclick: () => supprimerCopieAnnotee(cle) }, '🗑 Supprimer la copie annotée')]
       : autreCopie ? h('p', { class: 'mut petit', style: 'margin:8px 0 0' }, 'La copie annotée existante est celle de l’autre plan : supprimez-la d’abord pour annoter celui-ci.')
       : h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'annoterPlan', 'data-annoter-plan': x.cle, ...(ajoute ? {} : { 'data-fond': x.fond && x.fond.source }), style: 'margin-top:8px', onclick: commencer }, '🖍 Annoter une copie' + (ajoute ? '' : ' ' + (x.fond && x.fond.libelle || ''))),
     h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, vue3d ? 'Écrivez les travaux sur la vue 3D : « isolation par l’extérieur sur ce mur »… Mettez le texte où vous voulez (tirez-le), la copie est à vous : la vue 3D ne change pas. Choisissez d’abord l’angle de vue dans le plan, puis fermez le plan : l’image se met à jour.' : 'Notez les travaux sur une copie : démolition, ouvertures, isolation… Le plan lui-même ne change pas.'));
+}
+
+/* télécharger ce que l'on a annoté pour le faire analyser : l'image annotée et la liste des textes (lien réel, prêt dès que
+   l'image est lue : Safari refuse un téléchargement lancé après coup) */
+function lienTelechargerAnnotations(v, x, a, imgAnnote) {
+  const nom = 'annotations_' + String(x.nom || 'plan').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').toLowerCase();
+  const liens = h('div', { class: 'rang', style: 'margin-top:8px;gap:8px;flex-wrap:wrap', 'data-telecharger-annotations': x.cle });
+  const lien = (id, libelle) => h('a', { class: 'gros sec', id, style: 'text-decoration:none;opacity:.5;pointer-events:none;text-align:center', download: '' }, libelle);
+  const lImg = lien(null, '⬇ Image annotée (JPEG)'), lTxt = lien(null, '⬇ Liste des annotations (texte)');
+  lImg.setAttribute('data-dl', 'image'); lTxt.setAttribute('data-dl', 'texte');
+  const pret = (a1, url, fichier) => { a1.href = url; a1.download = fichier; a1.style.opacity = ''; a1.style.pointerEvents = ''; };
+  const textes = a.elements.filter(e => e.type === 'texte').map((e, i) => (i + 1) + '. ' + e.t + '  (position ' + Math.round(e.x * 100) + ' % / ' + Math.round(e.y * 100) + ' %)');
+  const fl = a.elements.filter(e => e.type === 'fleche').length, tr = a.elements.filter(e => e.type === 'trait').length;
+  const contenu = 'Annotations — ' + (x.nom || 'plan') + '\n' + AN.resume(a.elements) + '\n\n' + (textes.length ? textes.join('\n') : '(aucun texte)') + (fl || tr ? '\n\n' + tr + ' trait(s) et ' + fl + ' flèche(s) : voir l’image annotée.' : '') + '\n';
+  pret(lTxt, URL.createObjectURL(new Blob([contenu], { type: 'text/plain;charset=utf-8' })), nom + '.txt');
+  if (imgAnnote) blobPhoto(imgAnnote).then(b => b && pret(lImg, URL.createObjectURL(b), nom + '.jpg')).catch(() => {});
+  liens.append(lImg, lTxt);
+  return liens;
 }
 
 /* retire la copie annotée (son fond, son image et ses annotations) après confirmation ; le plan lui-même ne bouge pas,
