@@ -99,6 +99,20 @@ const {chk,fin}=verif();
   chk(gros.etats.at(-1).etat==='ok'&&serveur.fichiers['releves/vis-g/scan-sc-g.json']===9000,'limite relevée puis « réessayer » : le fichier part');
   serveur.tailleMax=0;
 
+  /* retirer un fichier trop gros de la visite : on le nomme, puis l'alerte disparaît */
+  serveur.tailleMax=5000;
+  const g2=appareil();const v2=M.nouvelleVisite(horloge(),'vis-h');await g2.stock.creer(v2);
+  await g2.stock.garderPhoto('ph-h','vis-h',{size:9000});
+  await g2.stock.modifier('vis-h',x=>M.ajouterPhoto(x,{id:'ph-h',role:'piece',legende:'Plan du garage'},horloge()));
+  await g2.sync.synchroniser();
+  const rf=await g2.sync.fichiersRefuses();
+  chk(g2.etats.at(-1).etat==='partiel'&&rf.length===1&&rf[0].nom==='Plan du garage'&&rf[0].taille===9000,'fichier trop gros : on connaît son nom et sa taille (pour le dire en clair)');
+  await g2.stock.modifier('vis-h',x=>M.supprimer(x,'photos','ph-h',horloge()));
+  await g2.sync.abandonner('ph-h');
+  await g2.sync.synchroniser();
+  chk(g2.etats.at(-1).etat==='ok'&&!(await g2.sync.fichiersRefuses()).length,'fichier retiré de la visite : plus d’alerte « trop gros »');
+  serveur.tailleMax=0;
+
   chk(lireErreur({message:'JWT expired'}).type==='connexion','une session expirée demande de se reconnecter');
   chk(lireErreur({message:'TypeError: Load failed'}).type==='reseau','« Load failed » (Safari) est une coupure de réseau');
   fin();
