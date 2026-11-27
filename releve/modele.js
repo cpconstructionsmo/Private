@@ -19,7 +19,7 @@ export const natureDe = v => { const n = v && v.valeurs && v.valeurs['projet.nat
 
 /* toutes les étapes ; chaque nature n'en prend que certaines (etapesDe) */
 export const ETAPES = [
-  { id: 'garde', titre: 'Photo de garde' },
+  { id: 'garde', titre: 'Photo de la maison' },
   { id: 'client', titre: 'Client' },
   { id: 'projet', titre: 'Projet' },
   { id: 'terrain', titre: 'Terrain' },
@@ -292,7 +292,7 @@ export function intitule(v) {
    le récapitulatif le signale */
 export function manques(v) {
   const m = [];
-  if (!valeur(v, 'photoGarde')) m.push('photo de garde');
+  if (!valeur(v, 'photoGarde')) m.push('photo de la maison');
   if (estSociete(v) ? !valeur(v, 'societe.raisonSociale') : !valeur(v, 'client.nom')) m.push(estSociete(v) ? 'raison sociale' : 'nom du client');
   if (!valeur(v, 'client.telephone') && !valeur(v, 'client.email')) m.push('téléphone ou e-mail');
   if (!valeur(v, 'client.adresse')) m.push('adresse');

@@ -55,7 +55,8 @@
   .barreBas .gros{min-height:56px}
   .barreBas .gros.sec{flex:0 0 32%}
   .progres{display:flex;gap:4px;margin:2px 0 6px}
-  .progres button{flex:1;border:0;background:none;padding:8px 0;cursor:pointer}
+  /* zone tactile de 44 px de haut pour une barre de 6 px : touchable au pouce */
+  .progres button{flex:1;border:0;background:none;padding:19px 0;margin:-11px 0;cursor:pointer}
   .progres i{display:block;height:6px;border-radius:3px;background:#E3DED4}
   .progres .fait i{background:var(--green)}.progres .ici i{background:var(--terra)}
   .etapeNom{font-size:14px;color:var(--muted);font-weight:600}
