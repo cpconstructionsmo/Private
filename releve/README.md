@@ -752,3 +752,11 @@ d'avancement touchable (zone de 44 px), « Photo de garde » devient « Photo de
 les lignes remplies (et plus la photo en double), bouton « 👁 Client » nommé. À valider avec CP : écran Scan (trois gros
 boutons), pièces avant l'assistant, acheteurs sous « ＋ Autre acheteur », réglages du patron repliés à l'accueil,
 pastille « Fichier trop gros » plus explicite.
+
+### Quatre changements de parcours (audit iPhone, validés par CP)
+
+- **Scan et plan** : trois chemins de même poids, « ✏️ Dessiner les pièces », « 📷 Photo d'un plan », « 📐 Scan iPhone »
+  (le jargon OpenPlan / JSON est replié sous « Comment l'exporter ? ») ; « Plans et annotations » vient après.
+- **Pièces** : « Ajouter une pièce » avant la carte « Gagner du temps ».
+- **Client** : un seul acheteur d'abord, « ＋ Un 2e acheteur » en bas ; avec plusieurs, le choix 1 / 2 / 3 reste sous les fiches.
+- **Accueil** : « ⚙ Réglages des prix » replié. Test : `releve_parcours_navigateur.js`.
