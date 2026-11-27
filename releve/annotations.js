@@ -14,7 +14,7 @@
 export const COULEURS = [['#D62828', 'Rouge'], ['#1F6FEB', 'Bleu'], ['#2B9348', 'Vert'], ['#111111', 'Noir']];
 export const OUTILS = [['trait', '✏️ Stylo'], ['fleche', '➡️ Flèche'], ['texte', '🔤 Texte']];
 /* le texte : taille (relative à la largeur du plan) et style, choisis à chaque texte */
-export const TAILLES = [['s', 'Petit', 0.022], ['m', 'Moyen', 0.034], ['l', 'Grand', 0.05], ['xl', 'Très grand', 0.072]];
+export const TAILLES = [['xs', 'Mini', 0.013], ['s', 'Petit', 0.022], ['m', 'Moyen', 0.034], ['l', 'Grand', 0.05], ['xl', 'Très grand', 0.072]];
 export const POLICES = [['normal', 'Normal'], ['gras', 'Gras'], ['manuscrit', 'Manuscrit'], ['capitales', 'CAPITALES']];
 const POLICE_CSS = { normal: '500 {t}px Helvetica, Arial, sans-serif', gras: '800 {t}px Helvetica, Arial, sans-serif',
   manuscrit: 'italic 500 {t}px "Bradley Hand", "Segoe Print", "Comic Sans MS", "Chalkboard SE", cursive', capitales: '700 {t}px Helvetica, Arial, sans-serif' };
@@ -88,7 +88,7 @@ export function rendre(ctx, W, H, elements) {
 /* la boîte d'un texte, en pixels (fond, et toucher pour le reprendre) ; règle la police du contexte */
 export function boiteTexte(ctx, W, H, e) {
   const k = (TAILLES.find(([x]) => x === e.taille) || TAILLES[1])[2];
-  const fs = Math.max(e.taille === 's' ? 11 : 14, k * W);
+  const fs = Math.max(e.taille === 'xs' ? 8 : e.taille === 's' ? 11 : 14, k * W);
   ctx.font = (POLICE_CSS[e.police] || POLICE_CSS.normal).replace('{t}', fs); ctx.textBaseline = 'middle';
   const lignes = (e.police === 'capitales' ? e.t.toUpperCase() : e.t).split(/\s*\/\s*|\n/).slice(0, 6);
   const w = Math.max(...lignes.map(l => ctx.measureText(l).width));

@@ -708,3 +708,12 @@ d'accueil ». L'icône « Relevé CP » ouvre la page en plein écran.
 `tests/releve_rattachement_navigateur.js`, `tests/releve_budget_navigateur.js`, `tests/releve_chiffrage_navigateur.js` (Chromium, faux Supabase, format iPhone,
 scan fictif `tests/releve_scan_fictif.js`).
 Aucune donnée réelle dans les tests.
+
+### Texte des annotations, vue 3D annotable, mur allumé (novembre 2026)
+
+- **Texte** : tailles Mini / Petit / Moyen / Grand / Très grand ; avec l'outil Texte, on **tire** un texte pour le
+  placer où l'on veut (sur un mur, une ouverture) ; un simple toucher le reprend (modifier, supprimer).
+- **Vue 3D annotable** : la vue 3D du relevé apparaît dans « Plans et annotations » (tuile « Vue 3D ») ; sa copie
+  annotée est rangée dans `annotationsPlus.vue3d` et part au dossier client avec « Plan annoté (travaux) ».
+- **Plan coté** : toucher une ligne du tableau des murs (ou la fiche d'un mur) allume ce mur sur le plan, avec son
+  nom ; un petit plan flottant l'affiche si le plan est hors de l'écran.

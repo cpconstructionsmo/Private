@@ -151,7 +151,10 @@ export function dossierClient(v, opt = {}) {
     plansAnnotes: o.planAnnote ? plansAjoutesDe(v).map(ph => {
       const a = AN.nettoyer((val('annotationsPlus') || {})[ph.id]), im = a.imageId && v.photos[a.imageId];
       return im && !im.supprime ? { id: im.id, chemin: im.chemin || null, legende: txt(ph.legende) || 'Plan' } : null;
-    }).filter(Boolean) : [],
+    }).concat([(() => {   // la vue 3D annotée (clé « vue3d »)
+      const a = AN.nettoyer((val('annotationsPlus') || {}).vue3d), im = a.imageId && v.photos[a.imageId];
+      return im && !im.supprime ? { id: im.id, chemin: im.chemin || null, legende: 'Vue 3D · travaux' } : null;
+    })()]).filter(Boolean) : [],
     // le calendrier indicatif (option, décochée d'office) : seulement si une date de début de chantier a été choisie à l'étape Budget
     calendrier: (() => {
       const bg = val('budget') || {}, c = bg.calendrier;
