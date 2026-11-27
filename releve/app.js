@@ -179,7 +179,9 @@ function texteEtat() {
   if (e.etat === 'synchro') return '↻ Envoi…';
   if (e.etat === 'ok' && !e.enAttente) return '✓ Synchronisé';
   if (e.etat === 'horsligne') return '⏸ Sur l’appareil' + (e.enAttente ? ' · ' + e.enAttente : '');
-  if (e.etat === 'partiel') return '⚠ ' + ((e.refuses || []).length > 1 ? e.refuses.length + ' fichiers trop gros' : 'Fichier trop gros') + ' · touchez';
+  // la pastille nomme le fichier (un seul) : on sait tout de suite lequel
+  if (e.etat === 'partiel') { const r = e.refuses || [], n = r[0] && r[0].nom ? String(r[0].nom) : '';
+    return '⚠ ' + (r.length > 1 ? r.length + ' fichiers trop gros' : n ? '« ' + (n.length > 20 ? n.slice(0, 19) + '…' : n) + ' » trop gros' : 'Fichier trop gros') + ' · touchez'; }
   // rien n'est perdu : tout est gardé sur l'appareil. Devant un client : message rassurant ; sinon, la vraie cause en deux mots
   if (e.etat === 'erreur') return S.presentation ? '✓ Gardé sur l’appareil · envoi dès que possible'
     : e.type === 'installation' ? '⚠ Serveur à installer · touchez' : e.type === 'connexion' ? '⚠ Reconnexion nécessaire' : '⚠ Envoi impossible · touchez';
@@ -188,7 +190,38 @@ function texteEtat() {
 function pastilleEtat() {
   const e = S.etatSync;
   return h('span', { class: 'etat ' + e.etat, id: 'etatSync', role: 'status', 'aria-live': 'polite', title: e.message || '',
-    onclick: () => { if (e.message) montrerMessage(e.etat === 'erreur' ? 'err' : 'att', e.message); sync.synchroniser(true); } }, texteEtat());
+    onclick: () => { if (e.etat === 'partiel') return ouvrirFichiersTropGros();
+      if (e.message) montrerMessage(e.etat === 'erreur' ? 'err' : 'att', e.message); sync.synchroniser(true); } }, texteEtat());
+}
+/* « Fichier trop gros » : une fenêtre qui dit quel fichier, de quelle taille, ce que ça change, et quoi faire
+   (le retirer de la visite, ou le réduire puis le redéposer) ; rien n'est retiré sans accord */
+async function ouvrirFichiersTropGros() {
+  const liste = await sync.fichiersRefuses().catch(() => []);
+  if (!liste.length) { sync.synchroniser(true); return; }
+  const mo = t => t ? String(Math.round(t / 104857.6) / 10).replace('.', ',') + ' Mo' : 'taille inconnue';
+  const fermer = () => { voile.remove(); document.removeEventListener('keydown', clavier); };
+  const clavier = e => { if (e.key === 'Escape') fermer(); };
+  const retirer = async r => {
+    if (!(await confirmer('Retirer « ' + r.nom + ' » de la visite ?\nLe fichier est supprimé de cet appareil. Le reste de la visite ne change pas.', { ok: 'Retirer' }))) return;
+    await changer(w => {
+      const sc = M.valeur(w, 'scan.fichier');
+      if (sc && sc.id === r.id) return M.modifier(w, 'scan.fichier', null);
+      return w.photos[r.id] && !w.photos[r.id].supprime ? M.supprimer(w, 'photos', r.id) : w;
+    });
+    await sync.abandonner(r.id); fermer(); sync.synchroniser(true); dessiner();
+  };
+  const voile = h('div', { class: 'voileConfirm', role: 'dialog', 'aria-modal': 'true', id: 'fichiersTropGros', onclick: e => { if (e.target === voile) fermer(); } },
+    h('div', { class: 'boiteConfirm' },
+      h('div', { class: 'titreConfirm' }, liste.length > 1 ? liste.length + ' fichiers sont trop gros pour le serveur' : 'Ce fichier est trop gros pour le serveur'),
+      h('div', { class: 'mut petit' }, 'Limite : 50 Mo par fichier. Le fichier reste sur cet appareil et la visite part normalement ; seul ce fichier n’est pas envoyé (il n’apparaîtra donc pas dans le dossier du client ni sur un autre appareil).'),
+      liste.map(r => h('div', { class: 'carte', style: 'margin-top:10px', 'data-fichier-trop-gros': r.id },
+        h('b', {}, '« ' + r.nom + ' »'), h('div', { class: 'mut petit' }, mo(r.taille)),
+        h('button', { class: 'gros sec', type: 'button', style: 'margin-top:8px', onclick: () => retirer(r) }, '🗑 Retirer ce fichier de la visite'))),
+      h('div', { class: 'mut petit', style: 'margin-top:10px' }, 'Pour le garder : réduisez-le (photo plus petite, PDF compressé), retirez celui-ci, puis redéposez la version réduite.'),
+      h('div', { class: 'rang', style: 'margin-top:14px' },
+        h('button', { class: 'gros sec', type: 'button', onclick: fermer }, 'Fermer'),
+        h('button', { class: 'gros', type: 'button', id: 'reessayerEnvoi', onclick: () => { fermer(); sync.synchroniser(true); } }, '↻ Réessayer l’envoi'))));
+  document.body.appendChild(voile); document.addEventListener('keydown', clavier);
 }
 function majEtat() {
   const el = document.getElementById('etatSync');

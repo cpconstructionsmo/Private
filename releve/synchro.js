@@ -104,7 +104,7 @@ export function creerSynchro({ supa, stock, enLigne = () => true, surEtat = () =
     for (const p of await stock.photosRefusees()) {
       const rec = await stock.lire(p.visiteId).catch(() => null), v = rec && rec.visite;
       const scan = v && v.valeurs && v.valeurs['scan.fichier'];
-      const nom = scan && scan.id === p.id ? scan.nom : (v && v.photos && v.photos[p.id] && v.photos[p.id].legende) || 'une photo';
+      const nom = scan && scan.id === p.id ? scan.nom : (v && v.photos && v.photos[p.id] && (v.photos[p.id].legende || { garde: 'Photo de la maison', piece: 'Photo de pièce', planPapier: 'Plan importé', dessinPlan: 'Image du plan', dessin3d: 'Vue 3D' }[v.photos[p.id].role])) || 'une photo';
       liste.push({ id: p.id, visiteId: p.visiteId, nom, taille: p.blob && p.blob.size || 0 });
     }
     return liste;
@@ -142,5 +142,7 @@ export function creerSynchro({ supa, stock, enLigne = () => true, surEtat = () =
     try { await enCours; } finally { enCours = null; }
   }
 
-  return { synchroniser, envoyerVisite, envoyerPhotos, tirer };
+  // abandonner un fichier trop gros après l'avoir retiré de la visite : la pastille d'alerte disparaît
+  const abandonner = async id => { await stock.abandonnerPhotoRefusee(id); };
+  return { synchroniser, envoyerVisite, envoyerPhotos, tirer, fichiersRefuses, abandonner };
 }

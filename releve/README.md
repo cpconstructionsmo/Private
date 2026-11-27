@@ -760,3 +760,10 @@ pastille « Fichier trop gros » plus explicite.
 - **Pièces** : « Ajouter une pièce » avant la carte « Gagner du temps ».
 - **Client** : un seul acheteur d'abord, « ＋ Un 2e acheteur » en bas ; avec plusieurs, le choix 1 / 2 / 3 reste sous les fiches.
 - **Accueil** : « ⚙ Réglages des prix » replié. Test : `releve_parcours_navigateur.js`.
+
+### « Fichier trop gros » en clair (audit iPhone)
+
+La pastille nomme le fichier (« Photo de la maison » trop gros) et ne fait plus déborder l'écran. Un toucher ouvre une fenêtre :
+quel fichier, sa taille, la limite (50 Mo), ce que ça change (il n'apparaît ni dans le dossier du client ni sur un autre appareil),
+« 🗑 Retirer ce fichier de la visite » (après confirmation, `abandonnerPhotoRefusee`), « Fermer », « ↻ Réessayer l'envoi ».
+Tests : `t_releve_synchro.js`, `releve_trop_gros_navigateur.js`.

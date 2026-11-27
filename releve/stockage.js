@@ -76,6 +76,10 @@ export function creerStockage(magasin) {
     reessayerRefusees: () => enSerie(async () => {
       for (const r of await magasin.tout('photos')) if (r.refusee) { const { refusee, ...reste } = r; await magasin.ecrire('photos', reste); }
     }),
+    // le fichier refusé est retiré de la visite par l'utilisateur : on garde la trace (plus de pastille) mais plus le contenu
+    abandonnerPhotoRefusee: id => enSerie(async () => {
+      const r = await magasin.lire('photos', id); if (r) await magasin.ecrire('photos', { id: r.id, visiteId: r.visiteId, envoyee: true, abandonnee: true });
+    }),
     marquerPhotoEnvoyee: id => enSerie(async () => {
       const r = await magasin.lire('photos', id); if (r) await magasin.ecrire('photos', { ...r, envoyee: true });
     }),
