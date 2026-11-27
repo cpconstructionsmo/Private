@@ -2707,13 +2707,14 @@ function cadreZoomDessin(svg) {
   // la molette fait défiler la page ; le zoom demande Ctrl (ou le pincement du pavé tactile), sinon on dézoomait le plan sans le vouloir en faisant défiler
   cadre.addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); const c = centre(e); facteur(e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquer(); }, { passive: false });
   requestAnimationFrame(appliquer);
-  const bouton = (id, texte, f) => h('button', { class: 'puce', type: 'button', id, onclick: () => { f(); appliquer(); } }, texte);
-  return [cadre, h('div', { class: 'puces zoomDessin' },
-    bouton('zoomDessinPlus', '🔍 ＋', () => facteur(1.5)), bouton('zoomDessinMoins', '🔍 −', () => facteur(1 / 1.5)),
-    bouton('zoomDessinRaz', '⟲ Tout le plan', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; S.dessinPan = null; }), niveau,
+  const bouton = (id, texte, f, titre) => h('button', { class: 'puce', type: 'button', id, title: titre, 'aria-label': titre, onclick: () => { f(); appliquer(); } }, texte);
+  // le zoom en petites icônes posées sur le plan (coin haut droit) : les boutons d'action restent juste sous le dessin, visibles sans défiler
+  return [cadre, h('div', { class: 'zoomDessin superpose' },
+    bouton('zoomDessinPlus', '＋', () => facteur(1.5), 'Zoomer'), bouton('zoomDessinMoins', '−', () => facteur(1 / 1.5), 'Dézoomer'),
+    bouton('zoomDessinRaz', '⤢', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; S.dessinPan = null; }, 'Voir tout le plan'),
     // plein écran : plus de place pour placer les pièces (✕ pour revenir)
-    h('button', { class: 'puce' + (S.dessinPlein ? ' on' : ''), type: 'button', id: 'pleinEcranDessin', onclick: () => { S.dessinPlein = !S.dessinPlein; redessiner(); } }, S.dessinPlein ? '✕ Réduire' : '⛶ Plein écran'),
-    h('span', { class: 'mut petit' }, 'Glissez le fond pour déplacer le plan · Ctrl + molette pour zoomer.'))];
+    h('button', { class: 'puce' + (S.dessinPlein ? ' on' : ''), type: 'button', id: 'pleinEcranDessin', title: S.dessinPlein ? 'Réduire' : 'Plein écran', onclick: () => { S.dessinPlein = !S.dessinPlein; redessiner(); } }, S.dessinPlein ? '✕ Réduire' : '⛶'),
+    niveau)];
 }
 const r3l = v => Math.round(v * 100) / 100;
 
@@ -2833,8 +2834,6 @@ function ecranDessin() {
       h('div', { class: 'puces etagesDessin' }, noms.map((nom, i) => h('button', { class: 'puce' + (i === k ? ' on' : ''), type: 'button', 'data-etage': i, onclick: () => { S.dessinEtage = i; S.dessinSel = null; S.dessinSym = null; redessiner(); } }, nom)),
         noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
       h('div', { class: 'carte' + (S.dessinPlein ? ' dessinPlein' : ''), id: 'carteDessin', style: S.dessinPlein ? '' : 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
-        // juste sous le plan : fenêtre ou porte sur la pièce choisie, en deux touchers
-        barreMur(d, R),
         // « ＋ Symbole » tout près du dessin : choisir, puis toucher l'endroit voulu
         S.poseOuverture ? h('div', { class: 'message att', id: 'invitePoseOuverture', style: 'margin:6px 0 0' }, '👆 Touchez le mur à l’endroit de la ' + ((DR.TYPES_OUVERTURE.find(t => t[0] === S.poseOuverture) || [])[1] || 'ouverture').toLowerCase() + ' (elle se centre là où vous touchez). ',
             h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseOuverture = null; redessiner(); } }, 'Annuler')) :
@@ -2854,6 +2853,8 @@ function ecranDessin() {
             // hors croquis, « ↶ Annuler » n'avait pas de bouton : il se rattrape ici (surtout après une suppression)
             !S.croquis && histoDessin().pile.length ? h('button', { class: 'gros sec', type: 'button', id: 'annulerDessinBas', title: 'Annuler la dernière modification du dessin', onclick: annulerDessin }, '↶ Annuler') : null,
             d.pieces.length ? h('button', { class: 'gros sec', type: 'button', id: 'avantApresDessin', onclick: () => avantApresDessin().catch(() => montrerMessage('err', 'L’image du dessin n’a pas pu être préparée.')) }, '🖍 Annoter') : null),
+        // la pièce choisie : fenêtre ou porte sur l'un de ses murs, en deux touchers (sous les boutons d'action)
+        barreMur(d, R),
         // le nom de la pièce sélectionnée cache une cote ? on le décale d'ici (ou on le glisse sur le plan)
         (() => { const ps = d.pieces.find(z => z.id === S.dessinSel && (z.etage || 0) === k); if (!ps) return null;
           const et = DR.etiquetteDe(ps);
