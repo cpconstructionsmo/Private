@@ -243,6 +243,7 @@
   @media (min-width:700px){.duoPlans{grid-template-columns:1fr 1fr}}
   .duoPlans figure{margin:0}.vignettePlan{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line,#ddd);background:#fff}
   .cadreAnnot{padding:4px;overflow:hidden}.cadreZoomAnnot{overflow:hidden;touch-action:none;border-radius:6px}.cadreZoomAnnot canvas{transform-origin:center center}
+  .barreMur{margin-top:10px;padding:10px;border:2px solid #EA7A1A;border-radius:10px;background:#FFF6EC}.barreMur .puces{margin-top:6px}
   .troisChemins{display:grid;gap:10px}.chemin .gros{margin:0}.chemin p{margin:4px 0 0}.chemin details{margin-top:2px}.reglagesPatron>summary{cursor:pointer;display:inline-block;padding:6px 10px}
   .panneauTexte{margin-bottom:10px}.barreSel{position:sticky;bottom:64px;z-index:15;box-shadow:0 -2px 12px rgba(0,0,0,.15)}.barreSel[hidden]{display:none}
   .duoAvantApres{display:grid;grid-template-columns:1fr;gap:12px}.duoAvantApres .imageAvant{display:block;width:100%;height:auto;border-radius:6px;background:#fff}
@@ -269,7 +270,7 @@
   /* dessin rapide sur écran large : le plan à gauche (collé en haut), ses réglages à droite — jamais besoin de défiler pour voir ce que l'on modifie */
   .dessinDeux{display:block}
   @media (min-width:1000px){main:has(.dessinDeux){max-width:1560px}.dessinDeux{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(400px,1fr);gap:16px;align-items:start}
-    .colPlanDessin{position:sticky;top:8px}.colPlanDessin .apercuDessin{height:calc(100vh - 400px);min-height:320px}.colPlanDessin .carte.dessinPlein .apercuDessin{height:calc(100vh - 170px)}}
+    .colPlanDessin{position:sticky;top:8px}.colPlanDessin .apercuDessin{height:calc(100vh - 520px);min-height:300px}.colPlanDessin .carte.dessinPlein .apercuDessin{height:calc(100vh - 170px)}}
   .pieceDessin.sel{border-color:var(--terra);box-shadow:0 0 0 2px rgba(197,86,58,.15)}
   .reglageDessin .reglage{margin-top:4px}
   .reglage .valeur span{margin-left:4px}
