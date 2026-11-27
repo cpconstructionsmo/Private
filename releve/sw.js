@@ -36,7 +36,9 @@ self.addEventListener('fetch', e => {
   // seulement l'application elle-même et sa bibliothèque ; jamais Supabase
   if (!(memeSite && url.pathname.startsWith(new URL('./', self.location).pathname)) && req.url !== BIBLIO
       && !(memeSite && url.pathname.endsWith('/assets/logo_fiche.jpg'))) return;
-  e.respondWith(fetch(req).then(rep => {
+  // « no-cache » : le navigateur redemande toujours au serveur s'il y a plus récent (sinon il resservait
+  // jusqu'à 10 minutes une ancienne copie, et l'iPhone gardait l'ancienne version de l'app)
+  e.respondWith(fetch(req, { cache: 'no-cache' }).then(rep => {
     if (rep && rep.ok) { const copie = rep.clone(); caches.open(VERSION).then(c => c.put(req, copie)); }
     return rep;
   }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));

@@ -2254,8 +2254,11 @@ function apercuDessin(d, R, opts = {}) {
       }
       const [ax, ay, bx, by] = seg ? seg : o.cote === 'haut' ? [r.x0 + pos, r.y0, r.x0 + pos + w, r.y0] : o.cote === 'bas' ? [r.x0 + pos, r.y1, r.x0 + pos + w, r.y1]
         : o.cote === 'gauche' ? [r.x0, r.y0 + pos, r.x0, r.y0 + pos + w] : [r.x1, r.y0 + pos, r.x1, r.y0 + pos + w];
-      g.append(el('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: '#FFFFFF', 'stroke-width': 0.22 }));
-      g.append(el('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: COUL_OUV[o.type] || '#C0392B', 'stroke-width': o.type === 'portefenetre' ? 0.16 : 0.1, 'stroke-dasharray': o.type === 'passage' ? '0.12 0.08' : '', 'data-ouverture': o.id }));
+      // une porte ou fenêtre posée sur un côté se glisse au doigt le long de son mur (zone de prise large, invisible)
+      const go = seg ? g : el('g', { 'data-ouv-drag': o.id, style: 'cursor:ew-resize' });
+      go.append(el('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: '#FFFFFF', 'stroke-width': 0.22 }));
+      go.append(el('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: COUL_OUV[o.type] || '#C0392B', 'stroke-width': o.type === 'portefenetre' ? 0.16 : 0.1, 'stroke-dasharray': o.type === 'passage' ? '0.12 0.08' : '', 'data-ouverture': o.id }));
+      if (!seg) { go.append(el('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: 'transparent', 'stroke-width': 0.6, 'pointer-events': 'stroke' })); g.append(go); }
     });
     svg.append(g);
   });
@@ -2289,6 +2292,30 @@ function apercuDessin(d, R, opts = {}) {
 /* glisser au doigt dans l'aperçu (un doigt) ; le pincement (deux doigts) est géré par le cadre du zoom */
 /* « ＋ Symbole » : on choisit le symbole, puis on touche le dessin à l'endroit voulu. Près d'un mur
    (moins de 50 cm), il s'y adosse, tourné dos au mur ; sinon il se pose là où l'on a touché */
+/* « ＋ Porte / fenêtre » : on choisit, puis on touche le mur à l'endroit voulu. Le mur le plus proche
+   du doigt (moins de 80 cm) reçoit l'ouverture, centrée là où l'on a touché, ramenée dans le mur */
+function poserOuvertureIci(q, d, R) {
+  const ty = DR.TYPES_OUVERTURE.find(t => t[0] === S.poseOuverture); S.poseOuverture = null; if (!ty) return redessiner();
+  const k = etageDessin(); let best = null;
+  rectsEtage(d, R, k).forEach(({ p, r }) => {
+    const dedans = q[0] >= r.x0 - 0.05 && q[0] <= r.x1 + 0.05 && q[1] >= r.y0 - 0.05 && q[1] <= r.y1 + 0.05;
+    [['haut', Math.abs(q[1] - r.y0), q[0] - r.x0, r.x1 - r.x0, q[0] >= r.x0 && q[0] <= r.x1], ['bas', Math.abs(q[1] - r.y1), q[0] - r.x0, r.x1 - r.x0, q[0] >= r.x0 && q[0] <= r.x1],
+     ['gauche', Math.abs(q[0] - r.x0), q[1] - r.y0, r.y1 - r.y0, q[1] >= r.y0 && q[1] <= r.y1], ['droite', Math.abs(q[0] - r.x1), q[1] - r.y0, r.y1 - r.y0, q[1] >= r.y0 && q[1] <= r.y1]]
+      .forEach(([cote, dist, le, long, face]) => {
+        if (!face || dist > 0.8) return;
+        // un mur commun : la pièce où l'on a touché l'emporte
+        const score = dist - (dedans ? 0.3 : 0);
+        if (!best || score < best.score) best = { score, p, cote, le, long };
+      });
+  });
+  if (!best) { S.message = { type: 'att', texte: 'Touchez plus près d’un mur pour y poser la ' + ty[1].toLowerCase() + '.' }; S.poseOuverture = ty[0]; return redessiner(); }
+  const w = Math.round(Math.max(0.3, Math.min(ty[2], best.long - 0.1)) * 100) / 100;
+  const position = Math.round(Math.max(0, Math.min(best.long - w, best.le - w / 2)) * 100) / 100;
+  const id = M.nouvelId().slice(0, 8), nomsMur = { haut: 'du haut', bas: 'du bas', gauche: 'de gauche', droite: 'de droite' };
+  return majDessin(z => { z.ouvertures.push({ id, piece: best.p.id, type: ty[0], cote: best.cote, position, largeur: w });
+    S.dessinSel = best.p.id; S.dessinSym = null;
+    S.message = { type: 'ok', texte: ty[1] + ' posée sur le mur ' + nomsMur[best.cote] + ' de « ' + best.p.nom + ' ». Réglez sa largeur ou sa place dans la fiche de la pièce, ou touchez « ＋ Porte / fenêtre » pour en poser une autre.' }; });
+}
 function poserSymboleIci(q, d, R) {
   const ty = DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole); S.poseSymbole = null; if (!ty) return redessiner();
   const k = etageDessin(), L = ty[3], W = ty[4];
@@ -2337,7 +2364,7 @@ const infoCroquis = (type, texte) => { S.croquisInfo = texte ? { type, texte } :
 
 function basculerCroquis() {
   S.croquis = !S.croquis; S.croquisOutil = 'tracer'; S.croquisInfo = null; S.ouvNouvelle = null;
-  if (S.croquis) { S.dessinSym = null; S.poseSymbole = null; S.choixSymbole = false; }
+  if (S.croquis) { S.dessinSym = null; S.poseSymbole = null; S.choixSymbole = false; S.poseOuverture = null; S.choixOuverture = false; }
   redessiner();
 }
 
@@ -2518,6 +2545,13 @@ function brancherGlisser(svg, d, R) {
   let g = null;
   svg.addEventListener('pointerdown', e => {
     if (S.poseSymbole && !S.pinceDessin) { e.preventDefault(); poserSymboleIci(pt(e), d, R); return; }
+    if (S.poseOuverture && !S.pinceDessin) { e.preventDefault(); poserOuvertureIci(pt(e), d, R); return; }
+    const ouvEl = !S.croquis && e.target.closest('[data-ouv-drag]');
+    if (ouvEl && !S.pinceDessin) {
+      const o = d.ouvertures.find(x => x.id === ouvEl.dataset.ouvDrag), pc = o && d.pieces.find(x => x.id === o.piece), rr = pc && R.rect.get(pc.id);
+      if (o && rr) { e.preventDefault(); svg.setPointerCapture(e.pointerId); const lat = o.cote === 'gauche' || o.cote === 'droite';
+        g = { ouv: o.id, el: ouvEl, p0: pt(e), ecran: [e.clientX, e.clientY], lat, pos0: DRnb(o.position) || 0, w: DRnb(o.largeur) || 0.9, long: lat ? rr.y1 - rr.y0 : rr.x1 - rr.x0, depl: [0, 0], bouge: false, piece: null, sym: null }; return; }
+    }
     const cible = e.target.closest('[data-piece-dessin],[data-symbole]'); if (!cible || S.pinceDessin) return;
     e.preventDefault(); svg.setPointerCapture(e.pointerId);
     const piece = cible.dataset.pieceDessin, sym = cible.dataset.symbole, p0 = pt(e);
@@ -2531,6 +2565,10 @@ function brancherGlisser(svg, d, R) {
     if (!g || S.pinceDessin) return;
     if (!g.bouge && Math.hypot(e.clientX - g.ecran[0], e.clientY - g.ecran[1]) < 6) return;
     g.bouge = true; const q = pt(e), dx = q[0] - g.p0[0], dy = q[1] - g.p0[1];
+    if (g.ouv) {   // le long du mur seulement, sans sortir du mur
+      const np = Math.max(0, Math.min(g.long - g.w, g.pos0 + (g.lat ? dy : dx))), dec = np - g.pos0; g.np = Math.round(np * 20) / 20;
+      g.el.setAttribute('transform', g.lat ? 'translate(0 ' + dec + ')' : 'translate(' + dec + ' 0)'); return;
+    }
     if (g.nom) {   // le nom d'une pièce déjà sélectionnée se glisse seul (au pas de 5 cm) ; la pièce ne bouge pas
       g.depl = [Math.round(dx * 20) / 20, Math.round(dy * 20) / 20];
       g.elEdit.setAttribute('transform', 'translate(' + g.depl[0] + ' ' + g.depl[1] + ')'); return;
@@ -2550,6 +2588,10 @@ function brancherGlisser(svg, d, R) {
   });
   const fin = async () => {
     const x = g; g = null; if (!x) return;
+    if (x.ouv) {   // une porte ou fenêtre glissée : sa nouvelle place ; un simple toucher ouvre la fiche de sa pièce
+      if (x.bouge && x.np != null) return majDessin(y => { const o = y.ouvertures.find(z => z.id === x.ouv); if (o) { o.position = x.np; S.dessinSel = o.piece; } });
+      const o = d.ouvertures.find(z => z.id === x.ouv); if (o) { S.dessinSel = o.piece; S.dessinSym = null; } return redessiner();
+    }
     if (!x.bouge && x.edit) return modifierSurDessin(x.piece, x.edit);   // un toucher sur le nom ou une cote : la changer
     if (x.nom) { await majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { const e = DR.etiquetteDe(q); poserDecalageNom(q, e.dx + x.depl[0], e.dy + x.depl[1]); } S.dessinSel = x.piece; }); return; }
     if (!x.bouge) {   // un toucher : sélectionner (ou désélectionner)
@@ -2638,7 +2680,7 @@ function cadreZoomDessin(svg) {
   cadre.addEventListener('pointerdown', e => {
     const sourisAutre = e.pointerType === 'mouse' && e.button !== 0;   // en croquis, le bouton droit ou du milieu de la souris déplace le plan
     if (S.croquis && sourisAutre) e.preventDefault();
-    if (doigts.size === 0 && !S.poseSymbole && (!S.croquis || sourisAutre) && !e.target.closest('[data-piece-dessin],[data-symbole],button')) {
+    if (doigts.size === 0 && !S.poseSymbole && !S.poseOuverture && (!S.croquis || sourisAutre) && !e.target.closest('[data-piece-dessin],[data-symbole],button')) {
       const vb = svg.viewBox.baseVal, r = svg.getBoundingClientRect();
       glisse = { x: e.clientX, y: e.clientY, pan: { ...(S.dessinPan || { x: 0, y: 0 }) }, k: vb && r.width ? vb.width / r.width : 0 };
     }
@@ -2794,13 +2836,16 @@ function ecranDessin() {
         // juste sous le plan : fenêtre ou porte sur la pièce choisie, en deux touchers
         barreMur(d, R),
         // « ＋ Symbole » tout près du dessin : choisir, puis toucher l'endroit voulu
+        S.poseOuverture ? h('div', { class: 'message att', id: 'invitePoseOuverture', style: 'margin:6px 0 0' }, '👆 Touchez le mur à l’endroit de la ' + ((DR.TYPES_OUVERTURE.find(t => t[0] === S.poseOuverture) || [])[1] || 'ouverture').toLowerCase() + ' (elle se centre là où vous touchez). ',
+            h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseOuverture = null; redessiner(); } }, 'Annuler')) :
         S.poseSymbole ? h('div', { class: 'message att', id: 'invitePoseSymbole', style: 'margin:6px 0 0' }, '👆 Touchez le dessin à l’endroit du ' + ((DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole) || [])[1] || 'symbole').toLowerCase() + ' (près d’un mur, il s’y adosse). ',
             h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseSymbole = null; redessiner(); } }, 'Annuler'))
           // les trois gestes de base, juste sous le dessin
           : h('div', { class: 'actionsDessin' },
             h('button', { class: 'gros sec', type: 'button', id: 'ajouterPieceDessin', onclick: ajouter }, '＋ Pièce'),
             h('button', { class: 'gros sec' + (S.croquis ? ' on' : ''), type: 'button', id: 'croquisDessin', 'aria-pressed': String(!!S.croquis), onclick: basculerCroquis }, '✏️ Croquis'),
-            h('button', { class: 'gros sec' + (S.choixSymbole ? ' on' : ''), type: 'button', id: 'ajoutSymboleIci', onclick: () => { S.choixSymbole = !S.choixSymbole; if (S.choixSymbole) S.croquis = false; redessiner(); } }, '＋ Symbole'),
+            d.pieces.length ? h('button', { class: 'gros sec' + (S.choixOuverture ? ' on' : ''), type: 'button', id: 'ajoutOuvertureIci', onclick: () => { S.choixOuverture = !S.choixOuverture; if (S.choixOuverture) { S.croquis = false; S.choixSymbole = false; } redessiner(); } }, '＋ Porte / fenêtre') : null,
+            h('button', { class: 'gros sec' + (S.choixSymbole ? ' on' : ''), type: 'button', id: 'ajoutSymboleIci', onclick: () => { S.choixSymbole = !S.choixSymbole; if (S.choixSymbole) { S.croquis = false; S.choixOuverture = false; } redessiner(); } }, '＋ Symbole'),
             // le symbole sélectionné aussi : le bouton est sous le plan, pas seulement dans sa carte plus bas
             symSel && tySel ? h('button', { class: 'gros sec supprPiece', type: 'button', id: 'supprimerSymboleDessin', 'aria-label': 'Supprimer ' + tySel[1], onclick: () => retirerSymboleDessin(symSel.id) }, '🗑 Supprimer') : null,
             // la pièce sélectionnée se supprime d'ici, sans descendre dans la liste
@@ -2820,6 +2865,8 @@ function ecranDessin() {
               h('button', { class: 'puce' + (S.nomGlisse ? ' on' : ''), type: 'button', id: 'glisserNom', 'aria-pressed': String(!!S.nomGlisse), onclick: () => { S.nomGlisse = !S.nomGlisse; redessiner(); } }, '✋ Glisser le nom')),
             h('div', { class: 'mut petit' }, S.nomGlisse ? 'Glissez le nom sur le plan ; la pièce ne bouge pas. Touchez « ✋ Glisser le nom » pour reprendre le déplacement de la pièce.' : 'Ou activez « ✋ Glisser le nom » pour le déplacer sur le plan.')); })(),
         S.croquis ? barreCroquis(d) : null,
+        S.choixOuverture && !S.poseOuverture ? h('div', { id: 'choixOuvertureIci', class: 'puces', style: 'margin-top:6px' }, DR.TYPES_OUVERTURE.map(t => h('button', { class: 'puce', type: 'button', 'data-poser-ouverture': t[0],
+          onclick: () => { S.poseOuverture = t[0]; S.choixOuverture = false; S.message = null; redessiner(); } }, ({ porte: '🚪 ', fenetre: '🪟 ', portefenetre: '🪟 ', passage: '↔ ' }[t[0]] || '') + t[1]))) : null,
         S.choixSymbole && !S.poseSymbole ? h('div', { id: 'choixSymboleIci', style: 'margin-top:4px' }, DR.FAMILLES_SYMBOLE.map(([f, nomF]) => h('div', {},
           h('div', { class: 'mut petit', style: 'margin:6px 0 2px;font-weight:600' }, nomF),
           h('div', { class: 'puces' }, DR.TYPES_SYMBOLE.filter(t => t[5] === f).map(t => h('button', { class: 'puce', type: 'button', 'data-poser-symbole': t[0],
@@ -3945,6 +3992,22 @@ async function demarrer() {
   window.addEventListener('offline', () => sync.synchroniser());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync.synchroniser(); });
   setInterval(() => sync.synchroniser(), 60000);
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    /* une nouvelle version publiée : l'app installée sur l'iPhone ne se recharge pas toute seule (elle reste
+       en mémoire) ; on vérifie au retour sur l'app, et un bandeau propose de recharger */
+    const avaitVersion = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      const verifier = () => reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') verifier(); });
+      setInterval(verifier, 30 * 60 * 1000);
+    }).catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!avaitVersion || document.getElementById('bandeauMiseAJour')) return;
+      const b = document.createElement('div'); b.id = 'bandeauMiseAJour'; b.className = 'bandeauMiseAJour';
+      b.innerHTML = '🔄 Nouvelle version de l’app <button type="button">Recharger</button>';
+      b.querySelector('button').onclick = () => location.reload();
+      document.body.append(b);
+    });
+  }
 }
 demarrer();

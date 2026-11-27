@@ -75,6 +75,25 @@ let b;
   d=await attendreDessin(d=>d.ouvertures.length===2&&d.ouvertures[1].cote==='gauche');
   chk(d.ouvertures[0].type==='fenetre'&&d.ouvertures[0].cote==='haut'&&d.ouvertures[1].type==='porte','fenêtre en haut du séjour, porte à gauche de la pièce 2 ; elles se voient sur l’aperçu');
   chk(await p.locator('svg.apercuDessin [data-ouverture]').count()===2,'les ouvertures se dessinent sur l’aperçu');
+  /* « ＋ Porte / fenêtre » : choisir, puis toucher le mur à l'endroit voulu */
+  const nbO=d.ouvertures.length;
+  await p.tap('#ajoutOuvertureIci');await p.tap('[data-poser-ouverture="fenetre"]');
+  chk(/Touchez le mur à l’endroit de la fenêtre/.test(await p.textContent('#invitePoseOuverture')),'« ＋ Porte / fenêtre » → Fenêtre : invitation à toucher le mur');
+  await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
+  {const [x,y]=await ecran(2.5,3.85);await p.mouse.click(x,y);}
+  d=await attendreDessin(d=>d.ouvertures.length===nbO+1);
+  const fo=d&&d.ouvertures[d.ouvertures.length-1];
+  chk(fo&&fo.type==='fenetre'&&fo.cote==='bas'&&fo.piece===d.pieces[0].id&&Math.abs(fo.position-(5-2.5-0.6))<0.011&&fo.largeur===1.2,'touché près du mur du bas du séjour : fenêtre de 1,20 m posée sur ce mur, centrée sous le doigt ('+JSON.stringify(fo&&{cote:fo.cote,position:fo.position})+')');
+  chk(/Fenêtre posée sur le mur du bas de « Séjour »/.test(await p.textContent('main')),'message clair : quel mur, quelle pièce');
+  /* glisser la fenêtre le long du mur, au doigt */
+  await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
+  {const [x0,y0]=await ecran(2.5,4),[x1]=await ecran(3.5,4);await p.mouse.move(x0,y0);await p.mouse.down();await p.mouse.move((x0+x1)/2,y0,{steps:3});await p.mouse.move(x1,y0+15,{steps:3});await p.mouse.up();}
+  d=await attendreDessin(d=>{const o=d.ouvertures.find(z=>z.id===fo.id);return o&&o.position!==fo.position});
+  const fo2=d&&d.ouvertures.find(z=>z.id===fo.id);
+  chk(fo2&&Math.abs(fo2.position-2.9)<0.06&&fo2.cote==='bas','fenêtre glissée de 1 m le long du mur du bas (elle reste sur ce mur) : '+(fo2&&fo2.position)+' m');
+  // retirée pour la suite du test (qui compte les ouvertures)
+  await p.locator('[data-ouv="'+fo.id+'"] button[aria-label^="Retirer"]').click();
+  d=await attendreDessin(d=>d.ouvertures.length===nbO);
   /* symboles */
   await p.tap('[data-dessin] >> nth=0');
   // « ＋ Symbole » : on choisit, puis on touche le milieu du séjour
