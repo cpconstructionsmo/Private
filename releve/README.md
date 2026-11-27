@@ -719,3 +719,6 @@ Aucune donnée réelle dans les tests.
   nom ; un petit plan flottant l'affiche si le plan est hors de l'écran.
 - **Télécharger pour analyse** : sous la copie annotée de « Plans et annotations », « ⬇ Image annotée (JPEG) » et
   « ⬇ Liste des annotations (texte) » (textes et positions) sont de vrais liens, prêts dès que l'image est lue.
+- L'image annotée téléchargée est **refaite à la demande** depuis le fond et les annotations (jamais l'image gardée,
+  qui peut dater) ; une copie annotée sans image (page rechargée avant de quitter l'écran d'annotation) est refaite
+  à l'ouverture de la carte.

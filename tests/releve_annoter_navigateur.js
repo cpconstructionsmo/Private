@@ -101,6 +101,8 @@ let b;
   /* télécharger pour faire analyser : l'image annotée et la liste des textes */
   await p.waitForFunction(()=>{const a=document.querySelector('[data-dl="image"]');return a&&/^blob:/.test(a.getAttribute('href')||'')});
   const dl=await p.evaluate(async()=>{const t=document.querySelector('[data-dl="texte"]');return {texte:await (await fetch(t.href)).text(),nom:t.download,img:document.querySelector('[data-dl="image"]').download}});
+  const tailleImg=await p.evaluate(async()=>{const b=await (await fetch(document.querySelector('[data-dl="image"]').href)).blob();return b.type+':'+b.size});
+  chk(/^image\/jpeg:\d{5,}/.test(tailleImg),'le JPEG téléchargé est l’image annotée refaite à la demande ('+tailleImg+')');
   chk(/annotations_/.test(dl.nom)&&/\.txt$/.test(dl.nom)&&/\.jpg$/.test(dl.img)&&/1 trait, 1 flèche/.test(dl.texte),'« ⬇ Image annotée » et « ⬇ Liste des annotations » : liens réels, le texte résume les annotations');
   chk(/Copie annotée · 1 trait, 1 flèche/.test(await p.textContent('#blocAnnotations'))&&/Continuer les annotations/.test(await p.textContent('#blocAnnotations')),'le plan et sa copie annotée côte à côte, « Continuer les annotations »');
   /* dans le dossier client : en option, décochée d'office */
