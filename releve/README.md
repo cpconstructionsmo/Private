@@ -717,3 +717,5 @@ Aucune donnée réelle dans les tests.
   annotée est rangée dans `annotationsPlus.vue3d` et part au dossier client avec « Plan annoté (travaux) ».
 - **Plan coté** : toucher une ligne du tableau des murs (ou la fiche d'un mur) allume ce mur sur le plan, avec son
   nom ; un petit plan flottant l'affiche si le plan est hors de l'écran.
+- **Télécharger pour analyse** : sous la copie annotée de « Plans et annotations », « ⬇ Image annotée (JPEG) » et
+  « ⬇ Liste des annotations (texte) » (textes et positions) sont de vrais liens, prêts dès que l'image est lue.

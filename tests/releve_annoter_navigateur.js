@@ -98,6 +98,10 @@ let b;
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const d=L[0]&&L[0].donnees,a=d&&d.valeurs.annotations;return !!(a&&a.imageId&&d.photos[a.imageId]&&d.photos[a.imageId].role==='planAnnote'&&d.photos[a.imageId].chemin)},15000),
     'en quittant, l’image du plan annoté est refaite et part sur le serveur');
   await p.waitForFunction(()=>document.querySelectorAll('#blocAnnotations [data-plan-detail] img.vignettePlan').length===2);
+  /* télécharger pour faire analyser : l'image annotée et la liste des textes */
+  await p.waitForFunction(()=>{const a=document.querySelector('[data-dl="image"]');return a&&/^blob:/.test(a.getAttribute('href')||'')});
+  const dl=await p.evaluate(async()=>{const t=document.querySelector('[data-dl="texte"]');return {texte:await (await fetch(t.href)).text(),nom:t.download,img:document.querySelector('[data-dl="image"]').download}});
+  chk(/annotations_/.test(dl.nom)&&/\.txt$/.test(dl.nom)&&/\.jpg$/.test(dl.img)&&/1 trait, 1 flèche/.test(dl.texte),'« ⬇ Image annotée » et « ⬇ Liste des annotations » : liens réels, le texte résume les annotations');
   chk(/Copie annotée · 1 trait, 1 flèche/.test(await p.textContent('#blocAnnotations'))&&/Continuer les annotations/.test(await p.textContent('#blocAnnotations')),'le plan et sa copie annotée côte à côte, « Continuer les annotations »');
   /* dans le dossier client : en option, décochée d'office */
   await p.tap('.progres button[aria-label^="Étape 7 "]');
