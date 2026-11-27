@@ -27,14 +27,16 @@ let b;
   const dialogues=[];p.on('dialog',d=>{dialogues.push(d.message());d.accept()});
   await p.goto('https://app.local/releve/');
   await p.waitForSelector('#nouvelleVisite');
-  chk(await p.locator('#reglerOuvrages').isVisible(),'accueil normal : les réglages de prix sont là');
+  chk(!(await p.locator('#reglerOuvrages').isVisible())&&await p.locator('#reglagesPatron').isVisible(),'accueil normal : les réglages de prix sont repliés sous « ⚙ Réglages des prix »');
+  await p.tap('#reglagesPatron > summary');
+  chk(await p.locator('#reglerOuvrages').isVisible(),'un toucher les déplie');
   await p.tap('#bascPresentation');
   chk(!(await p.locator('#reglerOuvrages').isVisible()),'présentation : réglages internes masqués');
   chk(await p.evaluate(()=>document.body.classList.contains('presentation')),'présentation : classe posée');
   await p.reload();await p.waitForSelector('#nouvelleVisite');
   chk(!(await p.locator('#reglerOuvrages').isVisible()),'le choix est gardé après rechargement');
   await p.tap('#bascPresentation');
-  chk(await p.locator('#reglerOuvrages').isVisible(),'retour au mode normal');
+  chk(await p.locator('#reglagesPatron').isVisible(),'retour au mode normal');
   /* la démo guidée : 5 écrans fictifs, rien n'est écrit */
   await p.tap('#lancerDemo');await p.waitForSelector('#demoPage');
   chk(/Bienvenue/.test(await p.textContent('#demoPage')),'démo : premier écran');

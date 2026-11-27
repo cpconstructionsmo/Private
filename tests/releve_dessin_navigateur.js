@@ -65,7 +65,7 @@ let b;
   await p.waitForSelector('#resumePlan');
   chk(/2 pièces · 24,5 m²/.test(await p.textContent('#resumePlan')),'retour à la visite : le résumé du plan (2 pièces, 24,5 m²)');
   chk(await attendre(p,()=>{const L=Object.values(window.__etat.lignes||{});const pl=L[0]&&L[0].donnees.valeurs.plan;return !!(pl&&pl.releve&&pl.releve.pieces.length===2&&pl.resume.detail.length===2)}),'le plan part avec la visite (relevé et détail des pièces pour la fourchette de prix)');
-  chk(/Reprendre le dessin rapide/.test(await p.textContent('#dessinRapide')),'le dessin se reprend plus tard');
+  chk(/Reprendre le dessin/.test(await p.textContent('#dessinRapide')),'le dessin se reprend plus tard');
 
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();

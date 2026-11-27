@@ -275,7 +275,7 @@ function ecranAccueil() {
         h('div', { class: 'vide', id: 'aucuneVisiteTrouvee', hidden: liste.length > 0 }, 'Aucune visite ne correspond.'))
         : voirAnnulees ? h('div', { class: 'vide' }, 'Aucune visite annulée.')
         : h('div', { class: 'vide' }, h('div', { style: 'font-size:46px' }, '🏠'), 'Aucune visite pour l’instant.', h('br'), 'Touchez « Nouvelle visite » chez le client.'),
-      h('div', { class: 'interne', style: 'text-align:center;margin-top:8px' }, h('button', { class: 'lienRetour', id: 'reglerOuvrages', onclick: () => { S.retour = 'accueil'; S.ecran = 'ouvrages'; S.brouillonO = null; S.message = null; dessiner(); } }, '⚙ Prix au m²'), ' · ',
+      h('details', { class: 'interne reglagesPatron', id: 'reglagesPatron', style: 'text-align:center;margin-top:8px' }, h('summary', { class: 'mut petit' }, '⚙ Réglages des prix'), h('button', { class: 'lienRetour', id: 'reglerOuvrages', onclick: () => { S.retour = 'accueil'; S.ecran = 'ouvrages'; S.brouillonO = null; S.message = null; dessiner(); } }, '⚙ Prix au m²'), ' · ',
         h('button', { class: 'lienRetour', id: 'reglerFourchettes', onclick: () => { S.retour = 'accueil'; S.ecran = 'fourchettes'; S.brouillonF = null; S.message = null; dessiner(); } }, '⚙ Postes détaillés'))),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' },
       h('button', { class: 'gros sec', id: 'lancerDemo', onclick: () => { S.ecran = 'demo'; S.demoEtape = 0; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '▶ Démo'),
@@ -582,17 +582,19 @@ function etapeClient(v) {
             champ(v, 'societe.siege', 'SIÈGE SOCIAL', { autocapitalize: 'sentences', placeholder: 'si différent de l’adresse des travaux' }))),
         h('div', { class: 'carte' }, h('h2', {}, 'Représentée par'), blocContact(v, 'client', M.CIVILITES)),
         h('div', { class: 'carte' }, h('h2', {}, 'Le bien'), adresseTravaux)]
-      : [h('div', { class: 'champ' }, 'NOMBRE D’ACHETEURS'),
-        h('div', { class: 'puces', role: 'radiogroup' }, [1, 2, 3].map(n => h('button', { class: 'puce' + (nb === n ? ' on' : ''), type: 'button', name: 'client.nbAcheteurs', 'aria-pressed': String(nb === n),
-          onclick: async () => { await poser('client.nbAcheteurs', n); vibrer(); redessiner(); } }, String(n)))),
-        h('div', { class: 'carte', style: 'margin-top:12px' },
+      : [h('div', { class: 'carte' },
           nb > 1 ? h('h2', {}, 'Acheteur 1') : null,
           blocContact(v, 'client', M.CIVILITES), adresseTravaux,
           domicile('client', 'ADRESSE PRINCIPALE (DOMICILE)', 'Habite à l’adresse des travaux')),
         [2, 3].filter(n => n <= nb).map(n => h('div', { class: 'carte', 'data-acheteur': n },
           h('h2', {}, 'Acheteur ' + n),
           blocContact(v, 'acheteur' + n, ['M.', 'Mme']),
-          domicile('acheteur' + n, 'ADRESSE PRINCIPALE (si différente de l’acheteur 1)', 'Même adresse que l’acheteur 1')))],
+          domicile('acheteur' + n, 'ADRESSE PRINCIPALE (si différente de l’acheteur 1)', 'Même adresse que l’acheteur 1'))),
+        // un seul acheteur au départ : « ＋ Un 2e acheteur » ne vient qu'après la fiche ; avec plusieurs, le nombre se règle ici
+        nb === 1 ? h('button', { class: 'gros sec', type: 'button', name: 'client.nbAcheteurs', style: 'margin-top:10px', onclick: async () => { await poser('client.nbAcheteurs', 2); vibrer(); redessiner(); } }, '＋ Un 2e acheteur')
+          : [h('div', { class: 'champ' }, 'NOMBRE D’ACHETEURS'),
+            h('div', { class: 'puces', role: 'radiogroup' }, [1, 2, 3].map(n => h('button', { class: 'puce' + (nb === n ? ' on' : ''), type: 'button', name: 'client.nbAcheteurs', 'aria-pressed': String(nb === n),
+              onclick: async () => { await poser('client.nbAcheteurs', n); vibrer(); redessiner(); } }, String(n))))]],
     h('div', { class: 'champ' }, 'USAGE DU BIEN'),
     puces(v, 'bien.usage', M.USAGES_BIEN, { apres: redessiner }),
     usage === 'Autre' ? champ(v, 'bien.usageAutre', 'PRÉCISEZ L’USAGE', { autocapitalize: 'sentences' }) : null,
@@ -928,6 +930,11 @@ function etapePieces(v) {
   return [
     h('h1', {}, 'Pièces et photos'),
     h('p', { class: 'mut' }, pieces.length ? pieces.length + ' pièce' + (pieces.length > 1 ? 's' : '') + ' · ' + nbPhotos + ' photo' + (nbPhotos > 1 ? 's' : '') : 'Ajoutez les pièces à transformer, puis leurs photos.'),
+    pieces.map(p => cartePiece(v, p)),
+    h('div', { class: 'champ' }, 'AJOUTER UNE PIÈCE'),
+    h('div', { class: 'puces' }, M.PIECES_COURANTES.map(n => h('button', { class: 'puce', type: 'button', onclick: () => ajouter(n) }, '+ ' + n)),
+      h('button', { class: 'puce', type: 'button', onclick: () => ajouter((prompt('Nom de la pièce') || '').trim()) }, '+ Autre…')),
+    // l'aide vient après : l'action principale de l'écran est d'ajouter des pièces
     // raccourcis : une note ou un plan à la main se lisent d'ici, sans chercher l'assistant ou l'étape Scan
     (() => { let info;
       const iScan = M.etapesDe(v).findIndex(e => e.id === 'scan');
@@ -941,10 +948,6 @@ function etapePieces(v) {
         info = h('div', { role: 'status', style: 'margin-top:6px' }),
         h('button', { class: 'lienRetour', type: 'button', id: 'raccourciAssistant', style: 'margin-top:4px', onclick: () => { S.ecran = 'assistant'; S.propAssistant = null; S.message = null; dessiner(); window.scrollTo(0, 0); } }, '🎙 Ouvrir l’assistant'));
     })(),
-    pieces.map(p => cartePiece(v, p)),
-    h('div', { class: 'champ' }, 'AJOUTER UNE PIÈCE'),
-    h('div', { class: 'puces' }, M.PIECES_COURANTES.map(n => h('button', { class: 'puce', type: 'button', onclick: () => ajouter(n) }, '+ ' + n)),
-      h('button', { class: 'puce', type: 'button', onclick: () => ajouter((prompt('Nom de la pièce') || '').trim()) }, '+ Autre…')),
   ];
 }
 
@@ -1419,10 +1422,9 @@ function etapeScan(v) {
   return [
     h('h1', {}, neuf ? 'Le plan de la maison' : 'Le scan et le plan'),
     neuf ? h('p', { class: 'mut' }, 'Le plan de la future maison : esquisse du client, plan de constructeur ou d’architecte, en photo ou en PDF. L’IA relève les pièces, vous les vérifiez dans le dessin rapide, puis « ✓ Créer le plan » donne le plan coté et la vue 3D. Vous pouvez aussi dessiner les pièces directement.')
-      : h('p', { class: 'mut' }, 'Trois façons de faire le plan : le scan de l’iPhone, la photo d’un plan ou d’une esquisse, ou les pièces dessinées au doigt.'),
+      : h('p', { class: 'mut' }, 'Dessinez les pièces, photographiez un plan ou importez un scan : au choix, selon la visite.'),
     scan ? h('div', { class: 'carte' }, h('b', {}, '📄 ' + scan.nom), h('div', { class: 'mut petit' }, Math.round((scan.taille || 0) / 1024) + ' Ko · importé le ' + dateCourte(scan.importeLe))) : null,
     plan ? h('div', { class: 'carte', id: 'resumePlan' }, h('b', {}, '📐 Plan'), h('div', { class: 'mut petit' }, resumePlan(plan.resume)), blocPlanRendu(v)) : null,
-    blocAnnotations(v),
     ecarte ? h('div', { class: 'message att' }, 'Une autre version du plan, modifiée sur un autre appareil, a été gardée de côté' + (ecarte.resume ? ' (' + resumePlan(ecarte.resume) + ')' : '') + '. ',
       h('div', { class: 'rang', style: 'margin-top:8px' },
         h('button', { class: 'puce', type: 'button', onclick: async () => {
@@ -1437,17 +1439,20 @@ function etapeScan(v) {
     plan ? h('p', { class: 'mut petit' }, 'Pièces scannées séparément ? Ouvrez le plan, puis « ＋ Scan » pour chaque autre scan et « 🔗 Relier » : touchez un mur, puis le mur de l’autre scan qui le touche.') : null,
     scan || plan ? h('button', { class: 'gros', id: 'ouvrirPlan', onclick: ouvrirPlan }, '📐 Ouvrir le plan') : null,
     // en construction, pas de maison à scanner : le bouton du scan ne vient que s'il y en a déjà un
-    neuf && !scan ? null : h('div', { style: 'margin-top:10px' }, h('button', { class: scan || plan ? 'gros sec' : 'gros', id: 'importerScan', onclick: importer }, scan ? 'Remplacer le scan' : '📐 Importer le scan'),
-      scan ? null : h('p', { class: 'mut petit', style: 'margin:4px 0 0' }, 'OpenPlan 3D › « Export Editable Plan (JSON) », puis choisissez le fichier.')),
-    // sans scan LiDAR : des pièces rectangulaires posées au doigt (dessin.js), puis le même moteur de plan
-    h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', id: 'dessinRapide', onclick: () => { S.ecran = 'dessin'; S.dessinSel = null; S.message = null; dessiner(); window.scrollTo(0, 0); } },
-      M.valeur(v, 'dessin') ? '✏️ Reprendre le dessin rapide' : '✏️ Dessin rapide (sans scan)'),
-      h('p', { class: 'mut petit', style: 'margin:4px 0 0' }, 'Les pièces au doigt : longueur × largeur, puis glissées à leur place.')),
-    // un plan 2D existant (magicplan, architecte, photo d'un plan papier) : l'IA en relève les pièces
-    h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec' + (S.lecturePlan && S.lecturePlan.encours ? ' chargement' : ''), id: 'importerPlan2D', disabled: !!(S.lecturePlan && S.lecturePlan.encours),
-      onclick: () => choisirFichier({ accept: 'image/*,application/pdf', multiple: true }, fs => lirePlan2D(fs)) },
-      S.lecturePlan && S.lecturePlan.encours ? '🖼 Lecture du plan' + (S.lecturePlan.rang ? ' ' + S.lecturePlan.rang : '') + '… (jusqu’à une minute)' : '🖼 Plan 2D ou esquisses (photo, image, PDF)'),
-      h('p', { class: 'mut petit', style: 'margin:4px 0 0' }, 'Photo d’un plan ou d’esquisses à la main (plusieurs d’un coup) : l’IA relève pièces, cotes, portes et radiateurs ; vous vérifiez.')),
+    // trois chemins d'égale importance (aucun n'est le « principal » : ça dépend de la visite)
+    h('h2', { style: 'margin:16px 0 4px' }, plan || scan ? 'Refaire ou compléter le plan' : 'Comment faire le plan ?'),
+    h('div', { class: 'troisChemins', id: 'troisChemins' },
+      h('div', { class: 'chemin' }, h('button', { class: 'gros sec', id: 'dessinRapide', onclick: () => { S.ecran = 'dessin'; S.dessinSel = null; S.message = null; dessiner(); window.scrollTo(0, 0); } },
+        M.valeur(v, 'dessin') ? '✏️ Reprendre le dessin' : '✏️ Dessiner les pièces'),
+        h('p', { class: 'mut petit' }, 'Longueur × largeur, au doigt ou à la souris.')),
+      h('div', { class: 'chemin' }, h('button', { class: 'gros sec' + (S.lecturePlan && S.lecturePlan.encours ? ' chargement' : ''), id: 'importerPlan2D', disabled: !!(S.lecturePlan && S.lecturePlan.encours),
+        onclick: () => choisirFichier({ accept: 'image/*,application/pdf', multiple: true }, fs => lirePlan2D(fs)) },
+        S.lecturePlan && S.lecturePlan.encours ? '📷 Lecture du plan' + (S.lecturePlan.rang ? ' ' + S.lecturePlan.rang : '') + '… (jusqu’à une minute)' : '📷 Photo d’un plan'),
+        h('p', { class: 'mut petit' }, 'Plan ou croquis en photo, image ou PDF : les pièces sont lues, vous vérifiez.')),
+      // en construction, pas de maison à scanner : le scan ne vient que s'il y en a déjà un
+      neuf && !scan ? null : h('div', { class: 'chemin' }, h('button', { class: 'gros sec', id: 'importerScan', onclick: importer }, scan ? '📐 Remplacer le scan' : '📐 Scan iPhone'),
+        h('p', { class: 'mut petit' }, 'Fichier exporté depuis l’appli de scan.'),
+        scan ? null : h('details', { class: 'petit' }, h('summary', {}, 'Comment l’exporter ?'), h('p', { class: 'mut petit' }, 'Dans l’appli OpenPlan 3D : « Export Editable Plan (JSON) », puis choisissez ce fichier ici.')))),
     S.lecturePlan && S.lecturePlan.message ? h('div', { class: 'message ' + S.lecturePlan.type, id: 'infoPlan2D' }, S.lecturePlan.message) : null,
     S.lecturePlan && S.lecturePlan.parties ? h('div', { class: 'carte', id: 'partiesPlan' },
       h('b', {}, '🖼 Plusieurs plans sur « ' + S.lecturePlan.nom + ' » : lequel dessiner ?'),
@@ -1461,6 +1466,8 @@ function etapeScan(v) {
       h('button', { class: 'gros', type: 'button', id: 'ajouterAuDessin', style: 'margin-top:8px', onclick: () => appliquerGroupes(S.lecturePlan.choix, 'ajouter', S.lecturePlan.echecs) }, '＋ Ajouter au dessin'),
       h('button', { class: 'gros sec', type: 'button', id: 'remplacerDessin', style: 'margin-top:8px', onclick: async () => { if ((await confirmer('Remplacer tout le dessin rapide par les pièces lues ?'))) appliquerGroupes(S.lecturePlan.choix, 'remplacer', S.lecturePlan.echecs); } }, 'Remplacer le dessin'),
       h('button', { class: 'lienRetour', type: 'button', style: 'margin-top:8px', onclick: () => { S.lecturePlan = null; redessiner(); } }, 'Annuler')) : null,
+    // les plans (RDC, étages) et leurs annotations viennent une fois le plan fait
+    blocAnnotations(v),
   ];
 }
 
