@@ -2214,6 +2214,9 @@ function apercuDessin(d, R, opts = {}) {
     const mp = R.donnees && R.donnees.pieces.find(x => x.id === 'd-' + p.id), forme = mp && mp.points && mp.points.length >= 4 ? mp.points : null;
     const st = { fill: sel ? '#FCE9E3' : '#E7EEF2', stroke: sel ? '#C5563A' : '#2C4A5E', 'stroke-width': sel ? 0.12 : 0.08 };
     g.append(forme ? el('polygon', { points: forme.map(q => q.join(',')).join(' '), 'data-piece-forme': p.id, ...st }) : el('rect', { x: r.x0, y: r.y0, width: r.x1 - r.x0, height: r.y1 - r.y0, ...st }));
+    // le mur proposé pour la fenêtre ou la porte : un trait orange sur ce côté de la pièce
+    if (sel && !p.poly && !S.croquis) { const c = murDe(r, p.id).cote;
+      g.append(el('line', { x1: c === 'droite' ? r.x1 : r.x0, y1: c === 'bas' ? r.y1 : r.y0, x2: c === 'gauche' ? r.x0 : r.x1, y2: c === 'haut' ? r.y0 : r.y1, stroke: '#EA7A1A', 'stroke-width': 0.2, 'stroke-linecap': 'round', 'pointer-events': 'none' })); }
     // le nom (et la surface) peut être décalé s'il cache une cote ; un toucher sur une cote (ou le nom de la pièce sélectionnée) la modifie
     const centre = p.poly ? CQ.pointInterieur(p.poly) : [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2];
     const et = DR.etiquetteDe(p), nx = centre[0] + et.dx, ny = centre[1] + et.dy;
@@ -2477,6 +2480,39 @@ function brancherCroquis(svg, d, R) {
   svg.addEventListener('lostpointercapture', e => { if (g && e.pointerId === g.id && g.type !== 'sommet') { /* le doigt a quitté l'écran sans pointerup : on abandonne */ annuler(); } });
 }
 
+/* le mur d'une pièce rectangulaire le plus proche de l'endroit touché, et la position le long de ce mur (m depuis le coin haut ou gauche) :
+   un toucher sur la pièce propose d'y mettre une fenêtre ou une porte, sur ce mur, à cet endroit */
+function murLePlusProche(r, p, piece) {
+  if (!r) return null;
+  const d = { haut: Math.abs(p[1] - r.y0), bas: Math.abs(r.y1 - p[1]), gauche: Math.abs(p[0] - r.x0), droite: Math.abs(r.x1 - p[0]) };
+  const cote = Object.keys(d).sort((a, b) => d[a] - d[b])[0], lat = cote === 'gauche' || cote === 'droite';
+  return { piece, cote, pos: Math.round((lat ? p[1] - r.y0 : p[0] - r.x0) * 100) / 100 };
+}
+const NOM_MUR = { haut: 'du haut', bas: 'du bas', gauche: 'de gauche', droite: 'de droite' };
+/* le mur proposé pour la pièce choisie : celui touché sur le plan, sinon le mur du bas (au milieu) ; on change de mur d'un toucher sur la barre */
+function murDe(r, piece) {
+  const m = S.murChoisi;
+  return m && m.piece === piece ? m : { piece, cote: 'bas', pos: Math.round((r.x1 - r.x0) / 2 * 100) / 100 };
+}
+/* la barre sous le plan : « Sur le mur du haut de la cuisine : [Fenêtre] [Porte] [Baie] [Passage] » ; un toucher la pose, tout de suite */
+function barreMur(d, R) {
+  const p = d.pieces.find(z => z.id === S.dessinSel), r = p && R.rect.get(p.id);
+  if (!p || !r || p.poly || S.croquis || S.nomGlisse) return null;
+  const m = murDe(r, p.id);
+  const poser = ty => { const w = ty[2], lat = m.cote === 'gauche' || m.cote === 'droite', L = lat ? r.y1 - r.y0 : r.x1 - r.x0;
+    const pos = Math.max(0, Math.min(Math.max(0, L - w), Math.round((m.pos - w / 2) * 100) / 100));
+    S.murChoisi = null;
+    return majDessin(x => { x.ouvertures.push({ id: M.nouvelId().slice(0, 8), piece: p.id, type: ty[0], cote: m.cote, position: pos, largeur: Math.min(w, L) }); }); };
+  const centre = c => ({ piece: p.id, cote: c, pos: Math.round(((c === 'gauche' || c === 'droite') ? (r.y1 - r.y0) : (r.x1 - r.x0)) / 2 * 100) / 100 });
+  return h('div', { class: 'barreMur', id: 'barreMur' },
+    h('div', { style: 'font-weight:700' }, 'Ajouter une fenêtre ou une porte à « ' + p.nom + ' »'),
+    h('div', { class: 'mut petit', style: 'margin-top:4px' }, '1. Sur quel mur ? (en orange sur le plan ; ou touchez le plan près du mur)'),
+    h('div', { class: 'puces' }, [['haut', '↑ Haut'], ['droite', '→ Droite'], ['bas', '↓ Bas'], ['gauche', '← Gauche']].map(([c, lib]) => h('button', { class: 'puce' + (m.cote === c ? ' on' : ''), type: 'button', 'data-mur-cote': c,
+      onclick: () => { S.murChoisi = centre(c); redessiner(); } }, lib))),
+    h('div', { class: 'mut petit', style: 'margin-top:8px' }, '2. Quoi ?'),
+    h('div', { class: 'puces' }, DR.TYPES_OUVERTURE.map(ty => h('button', { class: 'puce grand', type: 'button', 'data-mur-ajout': ty[0], onclick: () => poser(ty) },
+      ({ porte: '🚪 ', fenetre: '🪟 ', portefenetre: '▭ ', passage: '⤢ ' }[ty[0]] || '') + ty[1]))));
+}
 function brancherGlisser(svg, d, R) {
   const pt = e => { const m = svg.getScreenCTM(); if (!m) return [0, 0]; const q = svg.createSVGPoint(); q.x = e.clientX; q.y = e.clientY; const r = q.matrixTransform(m.inverse()); return [r.x, r.y]; };
   let g = null;
@@ -2517,8 +2553,14 @@ function brancherGlisser(svg, d, R) {
     if (!x.bouge && x.edit) return modifierSurDessin(x.piece, x.edit);   // un toucher sur le nom ou une cote : la changer
     if (x.nom) { await majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { const e = DR.etiquetteDe(q); poserDecalageNom(q, e.dx + x.depl[0], e.dy + x.depl[1]); } S.dessinSel = x.piece; }); return; }
     if (!x.bouge) {   // un toucher : sélectionner (ou désélectionner)
-      if (x.piece) { S.dessinSel = S.dessinSel === x.piece ? null : x.piece; S.dessinSym = null; }
-      else { S.dessinSym = S.dessinSym === x.sym ? null : x.sym; S.dessinSel = null; }
+      // un toucher sur une pièce la choisit et propose le mur touché pour une fenêtre ou une porte
+      if (x.piece) {
+        const dejaChoisie = S.dessinSel === x.piece, pres = x.r && Math.min((x.p0[1] - x.r.y0) / (x.r.y1 - x.r.y0), (x.r.y1 - x.p0[1]) / (x.r.y1 - x.r.y0), (x.p0[0] - x.r.x0) / (x.r.x1 - x.r.x0), (x.r.x1 - x.p0[0]) / (x.r.x1 - x.r.x0));
+        // sur la pièce déjà choisie : près d'un mur (18 % du bord), on change de mur ; ailleurs, on la lâche comme avant
+        if (dejaChoisie && !(pres != null && pres < 0.18)) { S.dessinSel = null; S.murChoisi = null; }
+        else { S.dessinSel = x.piece; S.murChoisi = murLePlusProche(x.r, x.p0, x.piece); }
+        S.dessinSym = null; }
+      else { S.dessinSym = S.dessinSym === x.sym ? null : x.sym; S.dessinSel = null; S.murChoisi = null; }
       return redessiner();
     }
     if (x.piece) await majDessin(y => { const q = y.pieces.find(z => z.id === x.piece); if (q) { if (q.poly) deplacerPieceCroquis(q, y, x.depl); else { q.libre = { x: Math.round((x.r.x0 + x.depl[0]) * 100) / 100, y: Math.round((x.r.y0 + x.depl[1]) * 100) / 100 }; delete q.contre; }
@@ -2708,7 +2750,7 @@ function ecranDessin() {
   const v = visite();
   if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
   // en arrivant sur l'écran (et non à chaque redessin), le croquis repart de zéro : jamais un mode resté actif d'une visite à l'autre
-  if (S.dernierEcran !== 'dessin') { S.dessinZoom = null; S.dessinRecul = 1; S.dessinPan = null; S.croquis = false; S.croquisOutil = 'tracer'; S.croquisInfo = null; S.ouvNouvelle = null; S.ouvEdit = null; S.echelleMur = null; }
+  if (S.dernierEcran !== 'dessin') { S.murChoisi = null; S.dessinZoom = null; S.dessinRecul = 1; S.dessinPan = null; S.croquis = false; S.croquisOutil = 'tracer'; S.croquisInfo = null; S.ouvNouvelle = null; S.ouvEdit = null; S.echelleMur = null; }
   const d = dessinCourant(), R = DR.releveDepuisDessin(d.pieces, { hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
   const noms = DR.nomsEtages(d.etages, d.pieces), k = Math.min(etageDessin(), noms.length - 1); S.dessinEtage = k;
   const retour = () => { S.ecran = 'visite'; S.message = null; S.dessinPlein = false; S.croquis = false; S.ouvNouvelle = null; S.echelleMur = null; dessiner(); window.scrollTo(0, 0); };
@@ -2749,6 +2791,8 @@ function ecranDessin() {
       h('div', { class: 'puces etagesDessin' }, noms.map((nom, i) => h('button', { class: 'puce' + (i === k ? ' on' : ''), type: 'button', 'data-etage': i, onclick: () => { S.dessinEtage = i; S.dessinSel = null; S.dessinSym = null; redessiner(); } }, nom)),
         noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
       h('div', { class: 'carte' + (S.dessinPlein ? ' dessinPlein' : ''), id: 'carteDessin', style: S.dessinPlein ? '' : 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
+        // juste sous le plan : fenêtre ou porte sur la pièce choisie, en deux touchers
+        barreMur(d, R),
         // « ＋ Symbole » tout près du dessin : choisir, puis toucher l'endroit voulu
         S.poseSymbole ? h('div', { class: 'message att', id: 'invitePoseSymbole', style: 'margin:6px 0 0' }, '👆 Touchez le dessin à l’endroit du ' + ((DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole) || [])[1] || 'symbole').toLowerCase() + ' (près d’un mur, il s’y adosse). ',
             h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseSymbole = null; redessiner(); } }, 'Annuler'))
@@ -2806,7 +2850,7 @@ function ecranDessin() {
         const r = R.rect.get(p.id);
         const ouvs = d.ouvertures.filter(o => o.piece === p.id);
         return h('div', { class: 'carte pieceDessin' + (sel ? ' sel' : ''), 'data-dessin': p.id },
-          h('div', { class: 'rang', style: 'justify-content:space-between', onclick: () => { if (!sel) { S.dessinSel = p.id; S.dessinSym = null; redessiner(); } } },
+          h('div', { class: 'rang', style: 'justify-content:space-between', onclick: () => { if (!sel) { S.dessinSel = p.id; S.dessinSym = null; S.murChoisi = null; redessiner(); } } },
             h('b', {}, p.nom + ' · ' + (p.poly ? String(Math.round(CQ.aire(p.poly) * 100) / 100).replace('.', ',') + ' m² · ' + p.poly.length + ' murs' : String(p.longueur).replace('.', ',') + ' × ' + String(p.largeur).replace('.', ',') + ' m') + (ouvs.length ? ' · ' + ouvs.length + ' ouv.' : '') + (p.note ? ' · 📝' : '')),
             h('button', { class: 'puce', type: 'button', 'aria-label': 'Supprimer ' + p.nom, onclick: e => { e.stopPropagation(); supprimerPieceDessin(p.id); } }, '🗑')),
           sel ? [

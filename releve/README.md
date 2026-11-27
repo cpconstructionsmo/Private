@@ -767,3 +767,10 @@ La pastille nomme le fichier (« Photo de la maison » trop gros) et ne fait plu
 quel fichier, sa taille, la limite (50 Mo), ce que ça change (il n'apparaît ni dans le dossier du client ni sur un autre appareil),
 « 🗑 Retirer ce fichier de la visite » (après confirmation, `abandonnerPhotoRefusee`), « Fermer », « ↻ Réessayer l'envoi ».
 Tests : `t_releve_synchro.js`, `releve_trop_gros_navigateur.js`.
+
+### Une fenêtre ou une porte en deux touchers (dessin rapide)
+
+Dès qu'une pièce est choisie, une barre orange apparaît **juste sous le plan** : « Ajouter une fenêtre ou une porte à « Séjour » —
+1. Sur quel mur ? (↑ Haut, → Droite, ↓ Bas, ← Gauche ; le mur est tracé en orange sur le plan) — 2. Quoi ? (Porte, Fenêtre,
+Porte-fenêtre, Passage) ». Un toucher sur la pièce propose le mur le plus proche ; sinon le mur du bas. L'ouverture se pose au milieu
+(ou à l'endroit touché) et se règle ensuite dans la carte de la pièce. Test : `releve_fenetre_ici_navigateur.js`.
