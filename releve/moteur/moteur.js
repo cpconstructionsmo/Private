@@ -523,6 +523,16 @@ function dessinerPlan(b, M, T, o) {
       b.poly(cr, { fill: assombrir(r.color, 0.62), stroke: e.noteMur ? '#7c3aed' : '#ffffff', w: e.noteMur ? 2.4 : 1, calque: 'COTES' }); b.text(e.lettre, bx, by, { size: fs - 1, bold: true, color: '#ffffff', calque: 'COTES' });
       if (o.zones) o.zones.push({ x: bx, y: by, w: 2 * rr + 10, h: 2 * rr + 10, type: 'murnote', ri, ei: e.i, pe: pe0, qe: qe0 });
     }
+    if (o.surligne && o.surligne.ri === ri && o.surligne.ei === e.i) {         /* le mur désigné dans un tableau : allumé, avec sa pièce et sa lettre */
+      const hp = P(e.p[0], e.p[1]), hq = P(e.q[0], e.q[1]), hm = [(hp[0] + hq[0]) / 2, (hp[1] + hq[1]) / 2], et = r.nom + ' – mur ' + e.lettre;
+      b.line(hp[0], hp[1], hq[0], hq[1], { w: 7, color: 'rgba(245,158,11,0.6)', calque: 'COTES' });
+      b.line(hp[0], hp[1], hq[0], hq[1], { w: 2.2, color: '#c2410c', calque: 'COTES' });
+      const rg2 = 11, ox = hm[0] + e.nIn[0] * 24, oy = hm[1] + e.nIn[1] * 24, cr2 = [];
+      for (let k = 0; k < 20; k++) cr2.push([ox + rg2 * Math.cos(k * Math.PI / 10), oy + rg2 * Math.sin(k * Math.PI / 10)]);
+      b.poly(cr2, { fill: '#c2410c', stroke: '#ffffff', w: 1.5, calque: 'COTES' }); b.text(e.lettre, ox, oy, { size: fs + 1, bold: true, color: '#ffffff', calque: 'COTES' });
+      b.text(et, ox, oy + (e.nIn[1] >= 0 ? 1 : -1) * 20, { size: fs, bold: true, color: '#9a3412', calque: 'COTES' });
+      if (o.boites) o.boites.push({ type: 'surbrillance', ri, ei: e.i, lettre: e.lettre, piece: r.nom });
+    }
     const rg = e.reglage || {}, perso = rg.pos !== undefined;       /* réglages faits à la souris : écart de la flèche, place du chiffre */
     if (!perso && bestLen * T.s < (Math.abs(w.u[0]) >= Math.abs(w.u[1]) ? tw : fs) + 4) return;   /* la cote ne tient pas : on ne l'écrit pas */
     const mid = perso ? (e.rev ? w.len * (1 - rg.pos) : w.len * rg.pos) : (best[0] + best[1]) / 2;
@@ -1056,6 +1066,7 @@ function construirePdf(M, vue3d) {
    ========================================================================== */
 let modele = null, nomFichier = 'releve', convertiJson = null, rapportConv = null, donneesCourantes = null;
 const vue = { k: 1, tx: 0, ty: 0 };
+let murSurligne = null;   // le mur allumé sur le plan : { ri, ei } (ligne du tableau survolée ou touchée, mur en cours de modification)
 let boitesPlan = [], zonesPlan = [], poigneesPlan = [], lignesPlan = [], ouvZonesPlan = [], apercu = null, apercuOuv = null, survol = null, modeAjuster = false, modeOuv = true, bboxCourant = null, refAff = null;
 try { modeOuv = localStorage.getItem('releve-ouv') !== '0'; } catch (e) { /* stockage indisponible : actif par défaut */ }
 try { modeAjuster = localStorage.getItem('releve-ajuster') === '1'; } catch (e) { /* stockage indisponible : mode désactivé */ }
@@ -1101,7 +1112,7 @@ function dessiner2D() {
   if (etageCourant === 'toit') dessinerToitures(new PinceauEcran(ctxPlan), modeleAff, T, { fs: 11, zones: zonesPlan, echelle: { x: 18, y: H - 18 } });
   else {
     const fant = kE > 0 ? modeleAff.rooms.filter(r => r.etage === kE - 1).map(r => r.pts) : null;
-    dessinerPlan(new PinceauEcran(ctxPlan), vueEtage(modeleAff, kE), T, { fantome: fant, fs: 11, echelle: { x: 18, y: H - 18 }, zones: zonesPlan, poignees: poigneesPlan, lignes: lignesPlan, ouvZones: ouvZonesPlan, boites: boitesPlan, legendePos: { x: W - 12, y: H - 12 } });
+    dessinerPlan(new PinceauEcran(ctxPlan), vueEtage(modeleAff, kE), T, { fantome: fant, fs: 11, echelle: { x: 18, y: H - 18 }, zones: zonesPlan, poignees: poigneesPlan, lignes: lignesPlan, ouvZones: ouvZonesPlan, boites: boitesPlan, surligne: murSurligne, legendePos: { x: W - 12, y: H - 12 } });
   }
   if (duo) {                                                     /* plan de gauche : la situation initiale, même échelle et même cadrage */
     const { c } = prepCanvas($('planRef')), kR = etageCourant === 'toit' ? 0 : Math.min(kE, refM.etages.length - 1);
@@ -1217,7 +1228,7 @@ function remplirTableaux(M) {
   $('titreDemol').hidden = !dem.length;
   $('tabDemol').innerHTML = !dem.length ? '' : ths('Pièce', 'Étage', 'Mur à démolir', 'Longueur (m)') + dem.map(([r, e]) => '<tr>' + tds(r.nom, M.etages[r.etage].nom, e.lettre + ' (n°' + e.i + ')', FR(e.len)) + '</tr>').join('');
   $('tabMurs').innerHTML = ths('Pièce', 'Mur (lettre visible)', 'Origine', 'Longueur du scan (m)', 'Longueur mesurée (m)', '', 'Épaisseur (m)', 'Ajouter', 'Travaux / explicatif') +
-    M.rooms.map((r, ri) => r.edges.map(e => '<tr><td>' + esc(r.nom) + '</td>' + '<td><label class="repCase"><input type="checkbox" class="repV" data-i="' + ri + '" data-e="' + e.i + '"' + (e.reperesOff ? '' : ' checked') + '> ' + e.lettre + ' (n°' + e.i + ')</label></td>' + tds(e.wall.demoli ? 'à démolir' : e.mesure || e.wall.mesure ? 'mesuré' : e.estime ? 'estimé (non scanné)' : 'scanné', FR3(e.lenScan)) +
+    M.rooms.map((r, ri) => r.edges.map(e => '<tr><td><span class="swPiece" style="background:' + esc(r.color || '#ccc') + '"></span>' + esc(r.nom) + '</td>' + '<td><label class="repCase"><input type="checkbox" class="repV" data-i="' + ri + '" data-e="' + e.i + '"' + (e.reperesOff ? '' : ' checked') + '> ' + e.lettre + ' (n°' + e.i + ')</label></td>' + tds(e.wall.demoli ? 'à démolir' : e.mesure || e.wall.mesure ? 'mesuré' : e.estime ? 'estimé (non scanné)' : 'scanné', FR3(e.lenScan)) +
       '<td>' + champ(e.mesure && r.src.mesuresMurs ? r.src.mesuresMurs[e.i] : e.len, e.mesure || e.wall.mesure, 'data-t="mur" data-i="' + ri + '" data-e="' + e.i + '"') + '</td><td>' +
       (e.mesure ? bouton('data-t="mur" data-i="' + ri + '" data-e="' + e.i + '"') : '') + '</td><td><input class="epMur" data-i="' + ri + '" data-e="' + e.i + '" inputmode="decimal" value="' + FR3(e.wall.ep) + '" aria-label="Épaisseur du mur en mètres"></td><td class="tdAj"><button type="button" class="btnPetit ajOuvRap" data-t="fenetre" data-i="' + ri + '" data-e="' + e.i + '">+ Fenêtre</button> <button type="button" class="btnPetit ajOuvRap" data-t="porte" data-i="' + ri + '" data-e="' + e.i + '">+ Porte</button></td><td class="tdNote"><input class="noteMur" data-i="' + ri + '" data-e="' + e.i + '" value="' + esc(e.noteMur) + '" placeholder="Ex. : refaire le placo" aria-label="Explicatif du mur"></td></tr>').join('')).join('');
 
@@ -1785,7 +1796,27 @@ cvPlan.addEventListener('pointerleave', () => { if (!geste && survol) { survol =
 
 /* petite fenêtre de saisie sur le plan */
 const editeur = $('editeur');
-function fermerEditeur() { editeur.hidden = true; editeur.innerHTML = ''; }
+function fermerEditeur() { editeur.hidden = true; editeur.innerHTML = ''; surligner(null); }
+/* allume (ou éteint, avec null) un mur du plan : on sait enfin quelle ligne du tableau est quel mur */
+function surligner(ri, ei) {
+  const n = ri == null ? null : { ri: +ri, ei: +ei };
+  if ((!n && !murSurligne) || (n && murSurligne && murSurligne.ri === n.ri && murSurligne.ei === n.ei)) return;
+  murSurligne = n; if (modele) dessiner2D();
+  majMiniPlan();
+}
+/* Le tableau des murs est sous le plan : en le parcourant, le plan n'est plus à l'écran. Un petit plan flottant (en bas à droite)
+   montre alors le mur désigné allumé ; il disparaît quand le plan est de nouveau bien visible, ou quand plus aucun mur n'est désigné. */
+function majMiniPlan() {
+  const c = $('miniPlan'); if (!c) return;
+  const r = cvPlan.getBoundingClientRect(), vu = r.height > 0 && Math.min(r.bottom, innerHeight) - Math.max(r.top, 0) >= r.height * 0.6;
+  const montrer = !!(murSurligne && modeleAff && etageCourant !== 'toit' && !vu);
+  c.hidden = !montrer; if (!montrer) return;
+  const { c: ctx, W, H } = prepCanvas(c), bb = bboxCourant || modeleAff.bbox, marge = 22, bw = bb.x1 - bb.x0, bh = bb.y1 - bb.y0;
+  const sc = Math.min((W - 2 * marge) / bw, (H - 2 * marge) / bh), T = { s: sc, ox: (W - bw * sc) / 2 - bb.x0 * sc, oy: (H - bh * sc) / 2 - bb.y0 * sc };
+  dessinerPlan(new PinceauEcran(ctx), vueEtage(modeleAff, Math.min(etageCourant, modele.etages.length - 1)), T, { fs: 8, surligne: murSurligne });
+}
+window.addEventListener('scroll', () => { if (murSurligne) majMiniPlan(); }, { passive: true });
+window.addEventListener('resize', () => majMiniPlan());
 function ajouterRapide(ri, ei, type) {
   const r = modele.rooms[ri], e = r.edges.find(q => q.i === ei), w = e.wall;
   if (w.demoli) { message('Ce mur est marqué « à démolir » : annulez d\'abord la démolition pour y poser une ouverture.', 'warn'); return; }
@@ -1896,6 +1927,7 @@ function ouvrirEditeur(z, x, y) {
     '<div class="boutons"><button type="button" id="edOk">OK</button><button type="button" id="edAnnuler">Annuler</button>' + (rev ? '<button type="button" id="edRev" title="Revenir à la valeur du scan">↺</button>' : '') + '</div>' +
     (z.type === 'mur' ? '<div class="boutons"><button type="button" id="edAjFen">+ Fenêtre</button><button type="button" id="edAjPorte">+ Porte</button></div><div class="boutons"><button type="button" id="edAjOuv">+ Autre ouverture…</button></div><div class="boutons"><button type="button" id="edDemol" class="danger">' + (demoli0 ? 'Annuler la démolition' : 'Démolir tout le mur') + '</button><button type="button" id="edDemolPart" class="danger">Démolir une partie…</button></div>' : '<div class="boutons"><button type="button" id="edSupOuv" class="danger">Supprimer l\'ouverture</button></div>');
   editeur.hidden = false; placerEditeur(x, y);
+  if (z.type === 'mur') surligner(z.ri, z.ei);          // le mur modifié s'allume sur le plan
   const valider = () => {
     const entrees = [...editeur.querySelectorAll('.edIn')], nn = $('edNoteMur'), nm = $('edNomMur'), noteV = nn ? nn.value : null, nomV = nm ? nm.value : '', epV = $('edEp') ? num($('edEp').value) : null, repV = $('edRep') ? $('edRep').checked : null, selC = $('edChar'), invC = $('edInv'), charV = selC ? selC.value : null, invV = invC ? invC.checked : null, opD = z.type === 'ouv' ? modele.openings[z.oi] : null;
     fermerEditeur();
@@ -2860,5 +2892,17 @@ initCompte();
 /* la visite peut envoyer le relevé à ouvrir */
 versVisite({ type: 'releve:pret' });
 
-window.__releve = { boites: () => boitesPlan, v3d: () => v3d, dxf: M => construireDxf(M), nomenclature: M => nomenclatureSymboles(M), pdf: M => construirePdf(M, null), pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
+/* un mur du tableau s'allume sur le plan : au survol (souris), au focus (clavier) ou au toucher (iPhone) ; on l'éteint en sortant du tableau
+   ou en touchant ailleurs (sauf pendant qu'on modifie ce mur dans sa fiche) */
+(() => {
+  const t = $('tabMurs'); if (!t) return;
+  const mur = el => { const q = el && el.closest && el.closest('tr'), c = q && q.querySelector('[data-i][data-e]'); return c ? [c.dataset.i, c.dataset.e] : null; };
+  const allumer = e => { const m = mur(e.target); if (m) surligner(m[0], m[1]); };
+  t.addEventListener('pointerover', allumer); t.addEventListener('focusin', allumer); t.addEventListener('pointerdown', allumer);
+  t.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !t.contains(document.activeElement)) surligner(null); });
+  t.addEventListener('focusout', e => { if (!t.contains(e.relatedTarget)) surligner(null); });
+  document.addEventListener('pointerdown', e => { if (murSurligne && !t.contains(e.target) && editeur.hidden) surligner(null); });
+})();
+
+window.__releve = { miniPlan: () => { const c = $('miniPlan'); if (!c || c.hidden) return null; const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - 194) < 12 && Math.abs(d[i + 1] - 65) < 12 && Math.abs(d[i + 2] - 12) < 12) n++; return { orange: n, w: c.clientWidth, h: c.clientHeight }; }, surligner: (ri, ei) => surligner(ri, ei), murSurligne: () => murSurligne, boites: () => boitesPlan, v3d: () => v3d, dxf: M => construireDxf(M), nomenclature: M => nomenclatureSymboles(M), pdf: M => construirePdf(M, null), pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
 

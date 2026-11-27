@@ -1268,6 +1268,9 @@ function plansDeLaCarte(v) {
   const fonds = fondsAnnotation(v), a = annotationsDe(v), liste = [];
   plansAjoutes(v).forEach(p => liste.push({ cle: p.id, type: 'ajoute', photo: p, nom: p.legende || 'Plan' }));
   fonds.forEach(f => liste.push({ cle: f.source, type: 'fond', fond: f, photo: f.photo, nom: f.source === 'plan' ? 'Plan dessiné' : 'Plan importé' }));
+  // la vue 3D du relevé (image gardée pour le dossier client) : annotable comme un plan, sa copie dans « annotationsPlus » sous « vue3d »
+  const p3 = M.valeur(v, 'plan3dImage');
+  if (p3 && v.photos[p3.id] && !v.photos[p3.id].supprime) liste.push({ cle: 'vue3d', type: 'vue3d', photo: v.photos[p3.id], nom: 'Vue 3D' });
   // une copie annotée dont le plan a disparu reste visible (et supprimable)
   const cp = a.fondId && v.photos[a.fondId] && !v.photos[a.fondId].supprime ? v.photos[a.fondId] : null;
   if (cp && !fonds.some(f => f.source === a.source)) liste.push({ cle: a.source, type: 'fond', fond: null, photo: cp, nom: 'Plan annoté' });
@@ -1294,7 +1297,7 @@ const boutonAjouterPlan = n => h('button', { class: 'gros sec', type: 'button', 
   n > 0 ? '＋ Ajouter un autre plan' : '＋ Ajouter un plan (RDC, étage…)');
 /* ce qu'on peut faire du plan choisi : le nommer (plans ajoutés), voir sa copie annotée, l'annoter, la supprimer, retirer le plan */
 function detailPlan(v, x) {
-  const ajoute = x.type === 'ajoute', cle = ajoute ? x.cle : null, a = lireAnnot(v, cle);
+  const vue3d = x.type === 'vue3d', ajoute = x.type === 'ajoute' || vue3d, cle = ajoute ? x.cle : null, a = lireAnnot(v, cle);
   // la copie annotée du plan dessiné ou importé est unique (« annotations ») : elle appartient à un seul des deux
   const sienne = ajoute || (a.fondId && (!x.fond || a.source === x.fond.source));
   const annote = sienne && a.fondId && v.photos[a.fondId] && !v.photos[a.fondId].supprime;
@@ -1321,16 +1324,16 @@ function detailPlan(v, x) {
   const commencer = () => commencerAnnotations(ajoute ? { photo: x.photo, source: 'ajoute', cle: x.cle, empreinte: x.photo.id } : x.fond);
   return h('div', { class: 'carte planAjoute', 'data-plan-detail': x.cle, ...(ajoute ? { 'data-plan-ajoute': x.cle } : {}) },
     h('div', { class: 'rang', style: 'justify-content:space-between;gap:8px' },
-      ajoute ? h('input', { class: 'in', name: 'nomPlan', 'aria-label': 'Nom du plan', value: x.photo.legende || '', autocapitalize: 'sentences', onchange: e => renommer(e.target.value) }) : h('b', {}, x.nom),
-      h('button', { class: 'puce', type: 'button', id: 'retirerPlan', 'aria-label': 'Retirer le plan ' + x.nom, onclick: retirer }, '🗑 Retirer ce plan')),
-    ajoute ? h('div', { class: 'puces' }, NOMS_PLAN.map(n => h('button', { class: 'puce' + (x.photo.legende === n ? ' on' : ''), type: 'button', onclick: () => renommer(n) }, n))) : null,
+      ajoute && !vue3d ? h('input', { class: 'in', name: 'nomPlan', 'aria-label': 'Nom du plan', value: x.photo.legende || '', autocapitalize: 'sentences', onchange: e => renommer(e.target.value) }) : h('b', {}, x.nom),
+      vue3d ? null : h('button', { class: 'puce', type: 'button', id: 'retirerPlan', 'aria-label': 'Retirer le plan ' + x.nom, onclick: retirer }, '🗑 Retirer ce plan')),
+    ajoute && !vue3d ? h('div', { class: 'puces' }, NOMS_PLAN.map(n => h('button', { class: 'puce' + (x.photo.legende === n ? ' on' : ''), type: 'button', onclick: () => renommer(n) }, n))) : null,
     h('div', { class: 'duoPlans' }, h('figure', {}, imagePhoto(x.photo, 'vignettePlan'), h('figcaption', { class: 'mut petit' }, 'Plan')),
       imgAnnote ? h('figure', {}, imagePhoto(imgAnnote, 'vignettePlan'), h('figcaption', { class: 'mut petit', id: ajoute ? null : 'resumeAnnot', 'data-resume-annot': x.cle }, 'Copie annotée · ' + AN.resume(a.elements))) : null),
     annote ? [h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'annoterPlan', 'data-annoter-plan': x.cle, style: 'margin-top:8px', onclick: ouvrir }, '🖍 Continuer les annotations'),
       h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'supprimerCopieAnnotee', 'data-supprimer-copie': x.cle, style: 'margin-top:8px', onclick: () => supprimerCopieAnnotee(cle) }, '🗑 Supprimer la copie annotée')]
       : autreCopie ? h('p', { class: 'mut petit', style: 'margin:8px 0 0' }, 'La copie annotée existante est celle de l’autre plan : supprimez-la d’abord pour annoter celui-ci.')
       : h('button', { class: 'gros sec', type: 'button', id: ajoute ? null : 'annoterPlan', 'data-annoter-plan': x.cle, ...(ajoute ? {} : { 'data-fond': x.fond && x.fond.source }), style: 'margin-top:8px', onclick: commencer }, '🖍 Annoter une copie' + (ajoute ? '' : ' ' + (x.fond && x.fond.libelle || ''))),
-    h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, 'Notez les travaux sur une copie : démolition, ouvertures, isolation… Le plan lui-même ne change pas.'));
+    h('p', { class: 'mut petit', style: 'margin:6px 0 0' }, vue3d ? 'Écrivez les travaux sur la vue 3D : « isolation par l’extérieur sur ce mur »… Mettez le texte où vous voulez (tirez-le), la copie est à vous : la vue 3D ne change pas. Choisissez d’abord l’angle de vue dans le plan, puis fermez le plan : l’image se met à jour.' : 'Notez les travaux sur une copie : démolition, ouvertures, isolation… Le plan lui-même ne change pas.'));
 }
 
 /* retire la copie annotée (son fond, son image et ses annotations) après confirmation ; le plan lui-même ne bouge pas,
@@ -1615,7 +1618,7 @@ async function exporterUneAnnotation(visiteId, cle) {
   if (!a.fondId || sig === S.signaturesAnnot[cleSig]) return;
   try {
     const fond = rec.visite.photos[a.fondId]; if (!fond) return;
-    const nomPlan = cle && rec.visite.photos[cle] ? rec.visite.photos[cle].legende : '';
+    const nomPlan = cle === 'vue3d' ? 'Vue 3D' : cle && rec.visite.photos[cle] ? rec.visite.photos[cle].legende : '';
     let id = null;
     if (a.elements.length) {
       const img = await imageDepuisBlob(await blobPhoto(fond));
@@ -1658,18 +1661,23 @@ function ecranAnnoter() {
   const pos = e => { const r = cv.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
   blobPhoto(v.photos[a.fondId]).then(imageDepuisBlob).then(i => { img = i; cv.width = Math.min(2000, i.naturalWidth); cv.height = Math.round(i.naturalHeight * cv.width / i.naturalWidth); peindre(); })
     .catch(() => montrerMessage('err', 'L’image du plan n’est pas lisible sur cet appareil.'));
-  let depart = null;
+  let depart = null, glisse = null;
   cv.addEventListener('pointerdown', e => { if (!img) return; e.preventDefault(); cv.setPointerCapture(e.pointerId);
     doigts.set(e.pointerId, centreCadre(e));
     if (doigts.size === 2) {
       // un second doigt : on pince (le trait commencé est abandonné)
-      enCours = null; depart = null; ignorer = true; peindre();
+      enCours = null; depart = null; if (glisse && glisse.bouge) elements[glisse.i] = { ...elements[glisse.i], x: glisse.x, y: glisse.y }; glisse = null; ignorer = true; peindre();
       const P = [...doigts.values()];
       pince = { zoom: { ...zoom }, d: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) || 1, m: [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] };
       return;
     }
     if (ignorer || doigts.size > 2) return;
-    depart = pos(e);
+    depart = pos(e); glisse = null;
+    if (st.outil === 'texte') {
+      // appuyer sur un texte et tirer le déplace ; un simple toucher le reprend (modifier, supprimer)
+      const i = AN.texteSous(cv.getContext('2d'), cv.width, cv.height, elements, depart[0] * cv.width, depart[1] * cv.height);
+      if (i >= 0) glisse = { i, d: depart, x: elements[i].x, y: elements[i].y, bouge: false };
+    }
     enCours = st.outil === 'trait' ? { type: 'trait', c: st.couleur, p: [depart] } : st.outil === 'fleche' ? { type: 'fleche', c: st.couleur, a: depart, b: depart } : null; });
   cv.addEventListener('pointermove', e => {
     if (doigts.has(e.pointerId)) doigts.set(e.pointerId, centreCadre(e));
@@ -1678,12 +1686,17 @@ function ecranAnnoter() {
       const z = zoomerToile(pince.zoom, d / pince.d, pince.m[0], pince.m[1]);
       zoom = { s: z.s, x: z.x + m[0] - pince.m[0], y: z.y + m[1] - pince.m[1] }; appliquerZoom(); return;
     }
+    if (glisse) { e.preventDefault(); const q = pos(e), dx = q[0] - glisse.d[0], dy = q[1] - glisse.d[1];
+      if (!glisse.bouge && Math.hypot(dx * cv.width, dy * cv.height) < 6) return;
+      glisse.bouge = true; elements[glisse.i] = { ...elements[glisse.i], x: Math.min(1, Math.max(0, glisse.x + dx)), y: Math.min(1, Math.max(0, glisse.y + dy)) }; peindre(); return; }
     if (!enCours) return; e.preventDefault(); const q = pos(e);
     if (enCours.type === 'trait') enCours.p.push(q); else enCours.b = q; peindre(); });
   const lacher = () => { if (doigts.size < 2) pince = null; if (!doigts.size) ignorer = false; };
   cv.addEventListener('pointerup', async e => {
     doigts.delete(e.pointerId); lacher();
     if (!depart) return; const q = pos(e), d = depart; depart = null;
+    if (glisse && glisse.bouge) { glisse = null; enCours = null; peindre(); await garder(); return; }
+    glisse = null;
     if (st.outil === 'texte') {
       // toucher un texte le reprend (modifier, supprimer) ; ailleurs, un nouveau texte à cet endroit
       const c = cv.getContext('2d'), i = AN.texteSous(c, cv.width, cv.height, elements, d[0] * cv.width, d[1] * cv.height);
@@ -1697,7 +1710,7 @@ function ecranAnnoter() {
     }
     enCours = null; peindre(); await garder(); majCompte();
   });
-  cv.addEventListener('pointercancel', e => { doigts.delete(e.pointerId); lacher(); enCours = null; depart = null; peindre(); });
+  cv.addEventListener('pointercancel', e => { doigts.delete(e.pointerId); lacher(); enCours = null; depart = null; if (glisse && glisse.bouge) { elements[glisse.i] = { ...elements[glisse.i], x: glisse.x, y: glisse.y }; } glisse = null; peindre(); });
   cadre.addEventListener('wheel', e => { e.preventDefault(); const c = centreCadre(e); zoom = zoomerToile(zoom, e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquerZoom(); }, { passive: false });
   /* le panneau du texte : tapé ou dicté (🎤), taille et style ; reprend un texte touché */
   let edition = null;
@@ -1738,7 +1751,7 @@ function ecranAnnoter() {
   const marquer = () => {
     document.querySelectorAll('[data-outil]').forEach(x => { const on = x.dataset.outil === st.outil; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
     document.querySelectorAll('[data-couleur]').forEach(x => { const on = x.dataset.couleur === st.couleur; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
-    aideOutil.textContent = st.outil === 'texte' ? 'Touchez le plan à l’endroit du texte (ou un texte pour le modifier).' : st.outil === 'fleche' ? 'Tirez du départ vers la pointe.' : 'Dessinez au doigt sur le plan.';
+    aideOutil.textContent = st.outil === 'texte' ? 'Touchez le plan à l’endroit du texte. Touchez un texte pour le modifier, ou tirez-le pour le déplacer.' : st.outil === 'fleche' ? 'Tirez du départ vers la pointe.' : 'Dessinez au doigt sur le plan.';
   };
   marquer();
   const fonds = fondsAnnotation(v), aJour = fonds.find(f => f.source === a.source);

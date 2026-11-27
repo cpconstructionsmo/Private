@@ -176,6 +176,10 @@
   .aideAA span { flex:1 1 260px; }
   .aideAA button { padding:5px 12px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; font-size:13px; }
   .aideAA button#btnFermerAideAA { background:#fff; color:var(--gris); border-color:var(--bord); }
+  #miniPlan { position:fixed; right:14px; bottom:14px; width:300px; height:210px; z-index:30; background:#fff; border:2px solid #c2410c; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.28); pointer-events:none; }
+  #miniPlan[hidden] { display:none; }
+  .swPiece { display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:6px; vertical-align:-1px; border:1px solid rgba(0,0,0,.25); }
+  tr:has([data-i][data-e]):hover { background:#fff7ed; }
   label.repCase { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; cursor:pointer; }
   td.tdAj { white-space:nowrap; }
   td.tdAj .btnPetit { margin:0; padding:3px 8px; font-size:12px; }
@@ -336,4 +340,5 @@
 <script src="assemblage.js"></script>
 <script src="moteur.js"></script>
 
+<canvas id="miniPlan" hidden role="img" aria-label="Aperçu du mur désigné dans le tableau, allumé sur le plan"></canvas>
 </body></html>
