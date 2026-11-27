@@ -736,3 +736,11 @@ Aucune donnée réelle dans les tests.
   porte ou fenêtre dit sa pièce et son mur et allume ce mur ; une légende sous le plan explique trait bleu, trait rouge, lettres.
 - **Dessin rapide** : le plan reste collé en haut de l'écran large quand une pièce est sélectionnée (on voit chaque
   réglage de porte ou fenêtre s'appliquer) ; les côtés se disent « Mur du haut, de droite… ».
+
+### Dessin rapide : le plan toujours sous les yeux (novembre 2026)
+
+- Sur écran large (≥ 1000 px), le plan est à gauche, collé en haut de l'écran, et les réglages de la pièce choisie
+  (portes, fenêtres, murs…) à droite : on voit chaque réglage s'appliquer sans défiler (`dessinDeux`, `colPlanDessin`).
+  Sur téléphone, tout reste l'un sous l'autre.
+- La molette fait défiler la page ; **Ctrl + molette** (ou le pincement du pavé tactile) zoome le plan. Avant, la molette
+  dézoomait le plan sans le vouloir (19 %) et il devenait minuscule. Le zoom repart à 100 % à chaque ouverture de l'écran.
