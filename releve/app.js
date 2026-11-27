@@ -1301,6 +1301,8 @@ function detailPlan(v, x) {
   // la copie annotée du plan dessiné ou importé est unique (« annotations ») : elle appartient à un seul des deux
   const sienne = ajoute || (a.fondId && (!x.fond || a.source === x.fond.source));
   const annote = sienne && a.fondId && v.photos[a.fondId] && !v.photos[a.fondId].supprime;
+  // des annotations sans image refaite (page rechargée avant de quitter l'écran d'annotation) : on la refait maintenant
+  if (annote && a.elements.length && !(a.imageId && v.photos[a.imageId] && !v.photos[a.imageId].supprime) && S.courante) setTimeout(() => exporterUneAnnotation(S.courante, cle), 0);
   const imgAnnote = annote ? (a.imageId && v.photos[a.imageId] && !v.photos[a.imageId].supprime ? v.photos[a.imageId] : v.photos[a.fondId]) : null;
   const autreCopie = !ajoute && !sienne && a.fondId && v.photos[a.fondId] && !v.photos[a.fondId].supprime;
   const renommer = nom => changer(w => M.majElement(w, 'photos', x.photo.id, { legende: String(nom).trim().slice(0, 40) || x.nom })).then(() => redessiner());
@@ -1350,7 +1352,7 @@ function lienTelechargerAnnotations(v, x, a, imgAnnote) {
   const fl = a.elements.filter(e => e.type === 'fleche').length, tr = a.elements.filter(e => e.type === 'trait').length;
   const contenu = 'Annotations — ' + (x.nom || 'plan') + '\n' + AN.resume(a.elements) + '\n\n' + (textes.length ? textes.join('\n') : '(aucun texte)') + (fl || tr ? '\n\n' + tr + ' trait(s) et ' + fl + ' flèche(s) : voir l’image annotée.' : '') + '\n';
   pret(lTxt, URL.createObjectURL(new Blob([contenu], { type: 'text/plain;charset=utf-8' })), nom + '.txt');
-  if (imgAnnote) blobPhoto(imgAnnote).then(b => b && pret(lImg, URL.createObjectURL(b), nom + '.jpg')).catch(() => {});
+  if (a.fondId && v.photos[a.fondId]) rendreImageAnnotee(v, a).then(b => b && pret(lImg, URL.createObjectURL(b), nom + '.jpg')).catch(() => {});
   liens.append(lImg, lTxt);
   return liens;
 }
@@ -1624,6 +1626,15 @@ async function avantApresPlan() {
   if (!image) return erreurPlan('L’image du plan n’a pas pu être préparée : réessayez.');
   await fermerPlan();
   await commencerAnnotations({ blob: await blobDepuisDataUrl(image), source: 'plan', empreinte: await empreinteTexte(image), retour: 'plan' });
+}
+/* l'image du plan avec ses annotations dessinées dessus, refaite à partir du fond et des vecteurs (jamais l'image gardée, peut-être périmée) */
+async function rendreImageAnnotee(v, a) {
+  const fond = v.photos[a.fondId]; if (!fond) return null;
+  const img = await imageDepuisBlob(await blobPhoto(fond));
+  const W = Math.min(2000, img.naturalWidth), H = Math.round(img.naturalHeight * W / img.naturalWidth);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); c.drawImage(img, 0, 0, W, H); AN.rendre(c, W, H, a.elements);
+  return new Promise(ok => cv.toBlob(ok, 'image/jpeg', 0.88));
 }
 async function exporterAnnotations(visiteId) {
   const rec = S.visites.find(r => r.id === visiteId); if (!rec) return;
