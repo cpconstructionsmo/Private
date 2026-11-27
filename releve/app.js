@@ -1757,7 +1757,7 @@ function ecranAnnoter() {
     enCours = null; peindre(); await garder(); majCompte();
   });
   cv.addEventListener('pointercancel', e => { doigts.delete(e.pointerId); lacher(); enCours = null; depart = null; if (glisse && glisse.bouge) { elements[glisse.i] = glisse.orig; if (edition && edition.index === glisse.i) edition.el = { ...edition.el, x: glisse.orig.x, y: glisse.orig.y }; } glisse = null; peindre(); });
-  cadre.addEventListener('wheel', e => { e.preventDefault(); const c = centreCadre(e); zoom = zoomerToile(zoom, e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquerZoom(); }, { passive: false });
+  cadre.addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); const c = centreCadre(e); zoom = zoomerToile(zoom, e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquerZoom(); }, { passive: false });
   /* le panneau du texte : tapé ou dicté (🎤), taille et style ; reprend un texte touché */
   const zoneTexte = h('textarea', { class: 'in', rows: 2, name: 'texteAnnot', 'aria-label': 'Texte de l’annotation', autocapitalize: 'sentences', placeholder: 'Ex. : démolir la cloison / ouverture 2,40 m (« / » pour aller à la ligne)' });
   const aideTexte = h('div', { class: 'aide info' });
@@ -2580,15 +2580,16 @@ function cadreZoomDessin(svg) {
       appliquer(); } }, true);
   const lacher = e => { doigts.delete(e.pointerId); if (doigts.size < 2) pince = null; if (!doigts.size) setTimeout(() => { S.pinceDessin = false; }, 0); };
   cadre.addEventListener('pointerup', lacher, true); cadre.addEventListener('pointercancel', lacher, true);
-  cadre.addEventListener('wheel', e => { e.preventDefault(); const c = centre(e); facteur(e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquer(); }, { passive: false });
+  // la molette fait défiler la page ; le zoom demande Ctrl (ou le pincement du pavé tactile), sinon on dézoomait le plan sans le vouloir en faisant défiler
+  cadre.addEventListener('wheel', e => { if (!(e.ctrlKey || e.metaKey)) return; e.preventDefault(); const c = centre(e); facteur(e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquer(); }, { passive: false });
   requestAnimationFrame(appliquer);
   const bouton = (id, texte, f) => h('button', { class: 'puce', type: 'button', id, onclick: () => { f(); appliquer(); } }, texte);
   return [cadre, h('div', { class: 'puces zoomDessin' },
     bouton('zoomDessinPlus', '🔍 ＋', () => facteur(1.5)), bouton('zoomDessinMoins', '🔍 −', () => facteur(1 / 1.5)),
-    bouton('zoomDessinRaz', '⟲ 100 %', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; S.dessinPan = null; }), niveau,
+    bouton('zoomDessinRaz', '⟲ Tout le plan', () => { z = { s: 1, x: 0, y: 0 }; recul = 1; S.dessinPan = null; }), niveau,
     // plein écran : plus de place pour placer les pièces (✕ pour revenir)
     h('button', { class: 'puce' + (S.dessinPlein ? ' on' : ''), type: 'button', id: 'pleinEcranDessin', onclick: () => { S.dessinPlein = !S.dessinPlein; redessiner(); } }, S.dessinPlein ? '✕ Réduire' : '⛶ Plein écran'),
-    h('span', { class: 'mut petit' }, 'Glissez le fond pour déplacer le plan.'))];
+    h('span', { class: 'mut petit' }, 'Glissez le fond pour déplacer le plan · Ctrl + molette pour zoomer.'))];
 }
 const r3l = v => Math.round(v * 100) / 100;
 
@@ -2667,7 +2668,7 @@ function ecranDessin() {
   const v = visite();
   if (!v) { S.ecran = 'accueil'; return ecranAccueil(); }
   // en arrivant sur l'écran (et non à chaque redessin), le croquis repart de zéro : jamais un mode resté actif d'une visite à l'autre
-  if (S.dernierEcran !== 'dessin') { S.croquis = false; S.croquisOutil = 'tracer'; S.croquisInfo = null; S.ouvNouvelle = null; S.ouvEdit = null; S.echelleMur = null; }
+  if (S.dernierEcran !== 'dessin') { S.dessinZoom = null; S.dessinRecul = 1; S.dessinPan = null; S.croquis = false; S.croquisOutil = 'tracer'; S.croquisInfo = null; S.ouvNouvelle = null; S.ouvEdit = null; S.echelleMur = null; }
   const d = dessinCourant(), R = DR.releveDepuisDessin(d.pieces, { hauteur: d.hauteur, etages: d.etages, ouvertures: d.ouvertures, symboles: d.symboles, toiture: d.toiture });
   const noms = DR.nomsEtages(d.etages, d.pieces), k = Math.min(etageDessin(), noms.length - 1); S.dessinEtage = k;
   const retour = () => { S.ecran = 'visite'; S.message = null; S.dessinPlein = false; S.croquis = false; S.ouvNouvelle = null; S.echelleMur = null; dessiner(); window.scrollTo(0, 0); };
@@ -2703,10 +2704,11 @@ function ecranDessin() {
       d.pieces.length ? h('div', { class: 'carte', id: 'etapePlan', style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap' },
         h('button', { class: 'gros', type: 'button', id: 'creerPlanDessinHaut', style: 'flex:1 1 220px', onclick: creer }, '✓ Créer le plan 2D coté et la 3D'),
         R.erreurs.length ? h('div', { class: 'message err', style: 'flex:1 1 100%;margin:0', id: 'erreursDessin' }, 'À corriger d’abord : ' + R.erreurs.join(' ')) : null) : null,
-      // les étages
+      // à gauche le plan (collé en haut de l'écran), à droite ce que l'on règle : on voit toujours ce que l'on modifie
+      h('div', { class: 'dessinDeux' }, h('div', { class: 'colPlanDessin' },
       h('div', { class: 'puces etagesDessin' }, noms.map((nom, i) => h('button', { class: 'puce' + (i === k ? ' on' : ''), type: 'button', 'data-etage': i, onclick: () => { S.dessinEtage = i; S.dessinSel = null; S.dessinSym = null; redessiner(); } }, nom)),
         noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
-      h('div', { class: 'carte' + (S.dessinPlein ? ' dessinPlein' : S.dessinSel ? ' dessinSticky' : ''), id: 'carteDessin', style: S.dessinPlein ? '' : 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
+      h('div', { class: 'carte' + (S.dessinPlein ? ' dessinPlein' : ''), id: 'carteDessin', style: S.dessinPlein ? '' : 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
         // « ＋ Symbole » tout près du dessin : choisir, puis toucher l'endroit voulu
         S.poseSymbole ? h('div', { class: 'message att', id: 'invitePoseSymbole', style: 'margin:6px 0 0' }, '👆 Touchez le dessin à l’endroit du ' + ((DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole) || [])[1] || 'symbole').toLowerCase() + ' (près d’un mur, il s’y adosse). ',
             h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseSymbole = null; redessiner(); } }, 'Annuler'))
@@ -2738,6 +2740,8 @@ function ecranDessin() {
           h('div', { class: 'mut petit', style: 'margin:6px 0 2px;font-weight:600' }, nomF),
           h('div', { class: 'puces' }, DR.TYPES_SYMBOLE.filter(t => t[5] === f).map(t => h('button', { class: 'puce', type: 'button', 'data-poser-symbole': t[0],
             onclick: () => { S.poseSymbole = t[0]; S.choixSymbole = false; redessiner(); } }, t[2] + ' ' + t[1])))))) : null),
+      ),
+      h('div', { class: 'colReglagesDessin' },
       cartesCroquis(d, R),
       // lu sur un plan 2D : le plan d'origine sous la main, pour comparer
       (() => { const n = Array.isArray(d.sources) ? d.sources.length : d.source ? 1 : 0;
@@ -2816,6 +2820,7 @@ function ecranDessin() {
         toit.type && toit.type !== 'aucune' && toit.type !== 'plat' ? reglageMetres(toit.angle || 35, 'PENTE', 'toiture-angle', 5, x => majDessin(y => { y.toiture = { ...(y.toiture || {}), angle: x }; }), 5, ' °', 70) : null,
         toit.type && toit.type !== 'aucune' ? h('p', { class: 'mut petit' }, 'Sur les pièces de l’étage le plus haut ; visible en 3D dans le plan.') : null,
         h('div', { class: 'champ' }, 'AIMANT DES PIÈCES'), h('div', { class: 'puces' }, boutonAimant()))),
+      )),
     h('div', { class: 'barreBas' }, h('div', { class: 'in' },
       h('button', { class: 'gros sec', onclick: retour }, '‹ Visite'),
       h('button', { class: 'gros', id: 'creerPlanDessin', onclick: creer }, '✓ Créer le plan 2D coté et la 3D'))),
