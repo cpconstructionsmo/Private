@@ -2294,27 +2294,35 @@ function apercuDessin(d, R, opts = {}) {
    (moins de 50 cm), il s'y adosse, tourné dos au mur ; sinon il se pose là où l'on a touché */
 /* « ＋ Porte / fenêtre » : on choisit, puis on touche le mur à l'endroit voulu. Le mur le plus proche
    du doigt (moins de 80 cm) reçoit l'ouverture, centrée là où l'on a touché, ramenée dans le mur */
-function poserOuvertureIci(q, d, R) {
+/* après un changement d'écran (choix du type, pose), le plan reste en vue : le haut du dessin sous la barre du haut */
+function garderPlanEnVue() {
+  requestAnimationFrame(() => { const c = document.getElementById('carteDessin'); if (!c) return; const r = c.getBoundingClientRect(), haut = 64;
+    if (r.top < haut || r.top > window.innerHeight * 0.5) window.scrollTo(0, Math.max(0, r.top + window.scrollY - haut)); });
+}
+function poserOuvertureIci(q, d, R, tolPx) {
   const ty = DR.TYPES_OUVERTURE.find(t => t[0] === S.poseOuverture); S.poseOuverture = null; if (!ty) return redessiner();
   const k = etageDessin(); let best = null;
   rectsEtage(d, R, k).forEach(({ p, r }) => {
     const dedans = q[0] >= r.x0 - 0.05 && q[0] <= r.x1 + 0.05 && q[1] >= r.y0 - 0.05 && q[1] <= r.y1 + 0.05;
+    // au doigt, sur un plan vu en petit : touché DANS une pièce, on prend son mur le plus proche ; dehors, jusqu'à ~36 px du mur
+    const tol = Math.max(0.8, tolPx || 0);
     [['haut', Math.abs(q[1] - r.y0), q[0] - r.x0, r.x1 - r.x0, q[0] >= r.x0 && q[0] <= r.x1], ['bas', Math.abs(q[1] - r.y1), q[0] - r.x0, r.x1 - r.x0, q[0] >= r.x0 && q[0] <= r.x1],
      ['gauche', Math.abs(q[0] - r.x0), q[1] - r.y0, r.y1 - r.y0, q[1] >= r.y0 && q[1] <= r.y1], ['droite', Math.abs(q[0] - r.x1), q[1] - r.y0, r.y1 - r.y0, q[1] >= r.y0 && q[1] <= r.y1]]
       .forEach(([cote, dist, le, long, face]) => {
-        if (!face || dist > 0.8) return;
+        if (!face || (!dedans && dist > tol)) return;
         // un mur commun : la pièce où l'on a touché l'emporte
         const score = dist - (dedans ? 0.3 : 0);
         if (!best || score < best.score) best = { score, p, cote, le, long };
       });
   });
-  if (!best) { S.message = { type: 'att', texte: 'Touchez plus près d’un mur pour y poser la ' + ty[1].toLowerCase() + '.' }; S.poseOuverture = ty[0]; return redessiner(); }
+  if (!best) { S.retourDessin = '👆 Touchez dans une pièce, près du mur où mettre la ' + ty[1].toLowerCase() + '.'; S.poseOuverture = ty[0]; return redessiner(); }
   const w = Math.round(Math.max(0.3, Math.min(ty[2], best.long - 0.1)) * 100) / 100;
   const position = Math.round(Math.max(0, Math.min(best.long - w, best.le - w / 2)) * 100) / 100;
   const id = M.nouvelId().slice(0, 8), nomsMur = { haut: 'du haut', bas: 'du bas', gauche: 'de gauche', droite: 'de droite' };
   return majDessin(z => { z.ouvertures.push({ id, piece: best.p.id, type: ty[0], cote: best.cote, position, largeur: w });
     S.dessinSel = best.p.id; S.dessinSym = null;
-    S.message = { type: 'ok', texte: ty[1] + ' posée sur le mur ' + nomsMur[best.cote] + ' de « ' + best.p.nom + ' ». Réglez sa largeur ou sa place dans la fiche de la pièce, ou touchez « ＋ Porte / fenêtre » pour en poser une autre.' }; });
+    // le retour s'affiche juste sous le plan, là où l'on regarde (le message du haut de page sort de l'écran sur iPhone)
+    S.message = null; S.retourDessin = '✓ ' + ty[1] + ' posée sur le mur ' + nomsMur[best.cote] + ' de « ' + best.p.nom + ' ». Glissez-la pour la déplacer.'; }).then(garderPlanEnVue);
 }
 function poserSymboleIci(q, d, R) {
   const ty = DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole); S.poseSymbole = null; if (!ty) return redessiner();
@@ -2545,7 +2553,7 @@ function brancherGlisser(svg, d, R) {
   let g = null;
   svg.addEventListener('pointerdown', e => {
     if (S.poseSymbole && !S.pinceDessin) { e.preventDefault(); poserSymboleIci(pt(e), d, R); return; }
-    if (S.poseOuverture && !S.pinceDessin) { e.preventDefault(); poserOuvertureIci(pt(e), d, R); return; }
+    if (S.poseOuverture && !S.pinceDessin) { e.preventDefault(); const m = svg.getScreenCTM(); poserOuvertureIci(pt(e), d, R, m && m.a ? 36 / m.a : 0); return; }
     const ouvEl = !S.croquis && e.target.closest('[data-ouv-drag]');
     if (ouvEl && !S.pinceDessin) {
       const o = d.ouvertures.find(x => x.id === ouvEl.dataset.ouvDrag), pc = o && d.pieces.find(x => x.id === o.piece), rr = pc && R.rect.get(pc.id);
@@ -2835,7 +2843,8 @@ function ecranDessin() {
         noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
       h('div', { class: 'carte' + (S.dessinPlein ? ' dessinPlein' : ''), id: 'carteDessin', style: S.dessinPlein ? '' : 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
         // « ＋ Symbole » tout près du dessin : choisir, puis toucher l'endroit voulu
-        S.poseOuverture ? h('div', { class: 'message att', id: 'invitePoseOuverture', style: 'margin:6px 0 0' }, '👆 Touchez le mur à l’endroit de la ' + ((DR.TYPES_OUVERTURE.find(t => t[0] === S.poseOuverture) || [])[1] || 'ouverture').toLowerCase() + ' (elle se centre là où vous touchez). ',
+        S.retourDessin && !S.poseOuverture ? h('div', { class: 'message ok', id: 'retourDessin', style: 'margin:6px 0 0' }, S.retourDessin) : null,
+        S.poseOuverture ? h('div', { class: 'message att', id: 'invitePoseOuverture', style: 'margin:6px 0 0' }, '👆 Touchez la pièce, près du mur où mettre la ' + ((DR.TYPES_OUVERTURE.find(t => t[0] === S.poseOuverture) || [])[1] || 'ouverture').toLowerCase() + ' (zoomez avec ＋ si le plan est petit). ',
             h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseOuverture = null; redessiner(); } }, 'Annuler')) :
         S.poseSymbole ? h('div', { class: 'message att', id: 'invitePoseSymbole', style: 'margin:6px 0 0' }, '👆 Touchez le dessin à l’endroit du ' + ((DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole) || [])[1] || 'symbole').toLowerCase() + ' (près d’un mur, il s’y adosse). ',
             h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseSymbole = null; redessiner(); } }, 'Annuler'))
@@ -2843,7 +2852,7 @@ function ecranDessin() {
           : h('div', { class: 'actionsDessin' },
             h('button', { class: 'gros sec', type: 'button', id: 'ajouterPieceDessin', onclick: ajouter }, '＋ Pièce'),
             h('button', { class: 'gros sec' + (S.croquis ? ' on' : ''), type: 'button', id: 'croquisDessin', 'aria-pressed': String(!!S.croquis), onclick: basculerCroquis }, '✏️ Croquis'),
-            d.pieces.length ? h('button', { class: 'gros sec' + (S.choixOuverture ? ' on' : ''), type: 'button', id: 'ajoutOuvertureIci', onclick: () => { S.choixOuverture = !S.choixOuverture; if (S.choixOuverture) { S.croquis = false; S.choixSymbole = false; } redessiner(); } }, '＋ Porte / fenêtre') : null,
+            d.pieces.length ? h('button', { class: 'gros sec' + (S.choixOuverture ? ' on' : ''), type: 'button', id: 'ajoutOuvertureIci', onclick: () => { S.retourDessin = null; S.choixOuverture = !S.choixOuverture; if (S.choixOuverture) { S.croquis = false; S.choixSymbole = false; } redessiner(); } }, '＋ Porte / fenêtre') : null,
             h('button', { class: 'gros sec' + (S.choixSymbole ? ' on' : ''), type: 'button', id: 'ajoutSymboleIci', onclick: () => { S.choixSymbole = !S.choixSymbole; if (S.choixSymbole) { S.croquis = false; S.choixOuverture = false; } redessiner(); } }, '＋ Symbole'),
             // le symbole sélectionné aussi : le bouton est sous le plan, pas seulement dans sa carte plus bas
             symSel && tySel ? h('button', { class: 'gros sec supprPiece', type: 'button', id: 'supprimerSymboleDessin', 'aria-label': 'Supprimer ' + tySel[1], onclick: () => retirerSymboleDessin(symSel.id) }, '🗑 Supprimer') : null,
@@ -2867,7 +2876,7 @@ function ecranDessin() {
             h('div', { class: 'mut petit' }, S.nomGlisse ? 'Glissez le nom sur le plan ; la pièce ne bouge pas. Touchez « ✋ Glisser le nom » pour reprendre le déplacement de la pièce.' : 'Ou activez « ✋ Glisser le nom » pour le déplacer sur le plan.')); })(),
         S.croquis ? barreCroquis(d) : null,
         S.choixOuverture && !S.poseOuverture ? h('div', { id: 'choixOuvertureIci', class: 'puces', style: 'margin-top:6px' }, DR.TYPES_OUVERTURE.map(t => h('button', { class: 'puce', type: 'button', 'data-poser-ouverture': t[0],
-          onclick: () => { S.poseOuverture = t[0]; S.choixOuverture = false; S.message = null; redessiner(); } }, ({ porte: '🚪 ', fenetre: '🪟 ', portefenetre: '🪟 ', passage: '↔ ' }[t[0]] || '') + t[1]))) : null,
+          onclick: () => { S.poseOuverture = t[0]; S.choixOuverture = false; S.message = null; S.retourDessin = null; redessiner(); garderPlanEnVue(); } }, ({ porte: '🚪 ', fenetre: '🪟 ', portefenetre: '🪟 ', passage: '↔ ' }[t[0]] || '') + t[1]))) : null,
         S.choixSymbole && !S.poseSymbole ? h('div', { id: 'choixSymboleIci', style: 'margin-top:4px' }, DR.FAMILLES_SYMBOLE.map(([f, nomF]) => h('div', {},
           h('div', { class: 'mut petit', style: 'margin:6px 0 2px;font-weight:600' }, nomF),
           h('div', { class: 'puces' }, DR.TYPES_SYMBOLE.filter(t => t[5] === f).map(t => h('button', { class: 'puce', type: 'button', 'data-poser-symbole': t[0],
