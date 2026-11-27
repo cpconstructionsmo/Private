@@ -509,6 +509,7 @@ function dessinerPlan(b, M, T, o) {
   });
 
   /* cotes des murs (à l'intérieur de chaque pièce, dans la plus grande partie libre du mur) */
+  const boitesCotes = new Map();   // la place de chaque chiffre de cote, par pièce : le nom de la pièce s'en écarte (voir plus bas)
   M.rooms.forEach(r => r.edges.forEach(e => {
     const ri = r.idx, w = e.wall, A = P(w.a[0], w.a[1]), u = w.u;
     let best = [0, w.len], bestLen = -1, cur = 0;
@@ -544,6 +545,9 @@ function dessinerPlan(b, M, T, o) {
     }
     const lx = A[0] + u[0] * mid * T.s + e.nIn[0] * off, ly = A[1] + u[1] * mid * T.s + e.nIn[1] * off;
     b.text(str, lx, ly, { size: fs, bold: !!w.mesure, calque: 'COTES', color: r.couleurCote || (w.mesure ? '#15803d' : w.estime ? '#b45309' : '#333333') });
+    const bc = { x0: lx - tw / 2 - 1, x1: lx + tw / 2 + 1, y0: ly - fs * 0.6, y1: ly + fs * 0.6 };
+    if (!boitesCotes.has(ri)) boitesCotes.set(ri, []); boitesCotes.get(ri).push(bc);
+    if (o.boites) o.boites.push({ type: 'cote', ri, ...bc });
     if (o.zones) o.zones.push({ x: lx, y: ly, w: Math.max(tw + 12, 44), h: 34, type: 'mur', ri, ei: e.i, pe, qe });
   }));
 
@@ -570,11 +574,32 @@ function dessinerPlan(b, M, T, o) {
     let nomTxt = r.nom;
     if (b.mesure(nomTxt, sz, true) > larg) { while (nomTxt.length > 2 && b.mesure(nomTxt + '…', sz, true) > larg) nomTxt = nomTxt.slice(0, -1); nomTxt += '…'; }
     const ct = r.couleurTexte || '#1d2430';
-    if (haut > sz * 3.2) {
-      b.text(nomTxt, c[0], c[1] - sz * 0.6, { size: sz, bold: true, color: ct });
-      b.text(aireTxt, c[0], c[1] + sz * 0.8, { size: sz - 1, color: ct });
-    } else b.text(nomTxt, c[0], c[1], { size: sz, bold: true, color: ct });
-    if (o.zones) o.zones.push({ x: c[0], y: c[1], w: Math.max(b.mesure(nomTxt, sz, true) + 14, 70), h: Math.max(sz * 3, 30), type: 'piece', ri });
+    /* le nom et la surface ne doivent pas toucher les cotes des murs : on les décale dans la pièce, sinon on rapetisse le texte.
+       Un nom que l'utilisateur a placé lui-même (étiquette) reste exactement où il l'a mis. */
+    const posePerso = !!(r.src && r.src.etiquette), cotes = boitesCotes.get(ri) || [];
+    let uneLigne = !(haut > sz * 3.2);   // d'abord nom et surface ; faute de place, le nom seul
+    const boite = (tx, ty, z, un) => { const deux = !un && haut > z * 3.2, w = Math.max(b.mesure(nomTxt, z, true), deux ? b.mesure(aireTxt, z - 1, false) : 0) / 2 + 2;
+      return { x0: tx - w, x1: tx + w, y0: ty - (deux ? z * 1.15 : z * 0.6), y1: ty + (deux ? z * 1.3 : z * 0.6) }; };
+    const touche = bx => cotes.some(q => bx.x0 < q.x1 && bx.x1 > q.x0 && bx.y0 < q.y1 && bx.y1 > q.y0);
+    let cx = c[0], cy = c[1];
+    if (!posePerso && cotes.length && touche(boite(cx, cy, sz, uneLigne))) {
+      const ymin = Math.min(...ys), ymax = Math.max(...ys);
+      trouve: for (const un of uneLigne ? [true] : [false, true]) for (let z = sz; z >= Math.max(7, sz - 4); z -= 1) {
+        const b0 = boite(cx, cy, z, un), demi = (b0.y1 - b0.y0) / 2;
+        if (!touche(b0)) { sz = z; uneLigne = un; break trouve; }
+        for (let k = 1; k <= 12; k++) for (const sgn of [-1, 1]) {            // le plus petit décalage d'abord, vers le haut puis vers le bas
+          const ny = cy + sgn * k * z * 0.5;
+          if (ny - demi < ymin + 2 || ny + demi > ymax - 2) continue;
+          if (!touche(boite(cx, ny, z, un))) { cy = ny; sz = z; uneLigne = un; break trouve; }
+        }
+      }
+    }
+    if (!uneLigne) {
+      b.text(nomTxt, cx, cy - sz * 0.6, { size: sz, bold: true, color: ct });
+      b.text(aireTxt, cx, cy + sz * 0.8, { size: sz - 1, color: ct });
+    } else b.text(nomTxt, cx, cy, { size: sz, bold: true, color: ct });
+    if (o.boites) o.boites.push({ type: 'nom', ri, perso: posePerso, uneLigne, ...boite(cx, cy, sz, uneLigne) });
+    if (o.zones) o.zones.push({ x: cx, y: cy, w: Math.max(b.mesure(nomTxt, sz, true) + 14, 70), h: Math.max(sz * 3, 30), type: 'piece', ri });
   });
 
   /* les symboles se touchent (régler) et se glissent (déplacer) : zones posées en dernier, au-dessus des noms de pièces */
@@ -1031,7 +1056,7 @@ function construirePdf(M, vue3d) {
    ========================================================================== */
 let modele = null, nomFichier = 'releve', convertiJson = null, rapportConv = null, donneesCourantes = null;
 const vue = { k: 1, tx: 0, ty: 0 };
-let zonesPlan = [], poigneesPlan = [], lignesPlan = [], ouvZonesPlan = [], apercu = null, apercuOuv = null, survol = null, modeAjuster = false, modeOuv = true, bboxCourant = null, refAff = null;
+let boitesPlan = [], zonesPlan = [], poigneesPlan = [], lignesPlan = [], ouvZonesPlan = [], apercu = null, apercuOuv = null, survol = null, modeAjuster = false, modeOuv = true, bboxCourant = null, refAff = null;
 try { modeOuv = localStorage.getItem('releve-ouv') !== '0'; } catch (e) { /* stockage indisponible : actif par défaut */ }
 try { modeAjuster = localStorage.getItem('releve-ajuster') === '1'; } catch (e) { /* stockage indisponible : mode désactivé */ }
 const cvPlan = $('plan'), ctxPlan = cvPlan.getContext('2d');
@@ -1071,12 +1096,12 @@ function dessiner2D() {
   modeleAff = tourner(modele, modele.rotation); refAff = duo ? tourner(refM, modele.rotation) : null;
   bboxCourant = duo ? unionBbox(modeleAff.bbox, refAff.bbox) : modeleAff.bbox;
   const T = transformationEcran();
-  zonesPlan = []; poigneesPlan = []; lignesPlan = []; ouvZonesPlan = [];
+  zonesPlan = []; poigneesPlan = []; lignesPlan = []; ouvZonesPlan = []; boitesPlan = [];
   const kE = etageCourant === 'toit' ? 0 : Math.min(etageCourant, modele.etages.length - 1);
   if (etageCourant === 'toit') dessinerToitures(new PinceauEcran(ctxPlan), modeleAff, T, { fs: 11, zones: zonesPlan, echelle: { x: 18, y: H - 18 } });
   else {
     const fant = kE > 0 ? modeleAff.rooms.filter(r => r.etage === kE - 1).map(r => r.pts) : null;
-    dessinerPlan(new PinceauEcran(ctxPlan), vueEtage(modeleAff, kE), T, { fantome: fant, fs: 11, echelle: { x: 18, y: H - 18 }, zones: zonesPlan, poignees: poigneesPlan, lignes: lignesPlan, ouvZones: ouvZonesPlan, legendePos: { x: W - 12, y: H - 12 } });
+    dessinerPlan(new PinceauEcran(ctxPlan), vueEtage(modeleAff, kE), T, { fantome: fant, fs: 11, echelle: { x: 18, y: H - 18 }, zones: zonesPlan, poignees: poigneesPlan, lignes: lignesPlan, ouvZones: ouvZonesPlan, boites: boitesPlan, legendePos: { x: W - 12, y: H - 12 } });
   }
   if (duo) {                                                     /* plan de gauche : la situation initiale, même échelle et même cadrage */
     const { c } = prepCanvas($('planRef')), kR = etageCourant === 'toit' ? 0 : Math.min(kE, refM.etages.length - 1);
@@ -2835,5 +2860,5 @@ initCompte();
 /* la visite peut envoyer le relevé à ouvrir */
 versVisite({ type: 'releve:pret' });
 
-window.__releve = { v3d: () => v3d, dxf: M => construireDxf(M), nomenclature: M => nomenclatureSymboles(M), pdf: M => construirePdf(M, null), pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
+window.__releve = { boites: () => boitesPlan, v3d: () => v3d, dxf: M => construireDxf(M), nomenclature: M => nomenclatureSymboles(M), pdf: M => construirePdf(M, null), pont: () => pont, doublons: () => doublonsPortesCoin(donneesCourantes), planVersPx: q => planVersPx(q), ouvzones: () => ouvZonesPlan, comparaison: () => comparaisonCourante, photos: photosMem, chargerTexte, analyser, zones: () => zonesPlan, poignees: () => poigneesPlan, lignes: () => lignesPlan, vue: () => vue, donnees: () => donneesCourantes };
 

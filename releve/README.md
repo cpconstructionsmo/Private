@@ -166,7 +166,14 @@ Ce que ces logiciels font de mieux, et que le dessin rapide reprend :
 - **Un geste ne casse pas l'autre** : glisser une pièce par son milieu la déplace toujours ; le nom
   ne glisse seul qu'avec « ✋ Glisser le nom » (les flèches ◀ ▲ ▼ ▶ restent sous le plan).
 
-Tests : `t_releve_etiquette.js`, `releve_dessin_nom_navigateur.js`.
+- **Dans le plan coté aussi** (`releve/moteur/moteur.js`) : le nom et la surface d'une pièce ne
+  touchent plus les cotes des murs. On repère la place de chaque chiffre de cote, puis le nom se décale
+  dans la pièce, sinon rapetisse (jusqu'à 7 px), sinon la surface est retirée (le nom seul). Un nom
+  placé à la main (`etiquette`) reste exactement où on l'a mis. Cas d'une capture réelle : 8 pièces de
+  3 × 3 m côte à côte, noms collés aux « 3,00 ». Si la pièce est trop petite, le texte garde sa place
+  (il n'y a pas de solution) : le tableau des surfaces donne alors les chiffres.
+
+Tests : `t_releve_etiquette.js`, `releve_dessin_nom_navigateur.js`, `releve_noms_cotes_navigateur.js`.
 
 ## Le dossier client (Phase 3)
 
