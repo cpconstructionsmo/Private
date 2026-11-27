@@ -9,7 +9,7 @@
    Stratégie : réseau d'abord pour les fichiers de l'application (on a
    toujours la dernière version quand le réseau est là), cache sinon. Monter
    VERSION à chaque livraison de releve/ fait le ménage des anciens caches. */
-const VERSION = 'releve-2026-11-27-9';
+const VERSION = 'releve-2026-11-27-10';
 const COQUILLE = ['./', 'index.html', 'app.js', 'modele.js', 'stockage.js', 'synchro.js', 'photo.js', 'budget.js', 'chiffrage.js', 'permis.js', 'croquis.js', 'aide-vente.js', 'dossier.js', 'dossier-vue.js', 'dom.js', 'assistant.js', 'dessin.js', 'annotations.js', 'terrain.js', 'zoom.js',
   'manifest.webmanifest', 'icone-180.png', 'icone-192.png', 'icone-512.png', '../assets/logo_fiche.jpg',
   // le moteur de relevé (plan, 3D, PDF) : lui aussi doit s'ouvrir sans réseau chez le client
@@ -36,7 +36,9 @@ self.addEventListener('fetch', e => {
   // seulement l'application elle-même et sa bibliothèque ; jamais Supabase
   if (!(memeSite && url.pathname.startsWith(new URL('./', self.location).pathname)) && req.url !== BIBLIO
       && !(memeSite && url.pathname.endsWith('/assets/logo_fiche.jpg'))) return;
-  e.respondWith(fetch(req).then(rep => {
+  // « no-cache » : le navigateur redemande toujours au serveur s'il y a plus récent (sinon il resservait
+  // jusqu'à 10 minutes une ancienne copie, et l'iPhone gardait l'ancienne version de l'app)
+  e.respondWith(fetch(req, { cache: 'no-cache' }).then(rep => {
     if (rep && rep.ok) { const copie = rep.clone(); caches.open(VERSION).then(c => c.put(req, copie)); }
     return rep;
   }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));

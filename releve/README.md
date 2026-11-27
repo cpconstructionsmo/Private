@@ -339,6 +339,15 @@ Tests : `t_releve_etiquette.js`, `releve_dessin_nom_navigateur.js`, `releve_noms
 
 ## Le dessin rapide (sans scan)
 
+- **Portes et fenêtres au doigt** : « ＋ Porte / fenêtre » sous le dessin,
+  choisir le type, puis toucher le mur à l'endroit voulu (`poserOuvertureIci` :
+  mur le plus proche à moins de 80 cm, centrée sous le doigt, ramenée dans le
+  mur) ; une porte ou fenêtre posée se **glisse le long de son mur**.
+- **Mise à jour sur l'iPhone** : le service worker redemande toujours les
+  fichiers au serveur (`cache: 'no-cache'`) ; au retour sur l'app, une
+  nouvelle version publiée affiche « 🔄 Nouvelle version de l'app ·
+  Recharger ».
+
 - **Écran simple d'abord** (passage « simplicité », novembre 2026) : en haut,
   « ✓ Créer le plan 2D coté et la 3D » ; sous le dessin, les trois gestes
   de base (« ＋ Pièce », « ＋ Symbole », « 🖍 Annoter ») ; le reste est
