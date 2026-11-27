@@ -339,6 +339,10 @@ Tests : `t_releve_etiquette.js`, `releve_dessin_nom_navigateur.js`, `releve_noms
 
 ## Le dessin rapide (sans scan)
 
+- **Tout visible sans défiler sur iPhone** : le zoom en petites icônes posées
+  sur le plan (＋, −, ⤢ tout le plan, ⛶ plein écran), les boutons d'action
+  juste sous le dessin, la barre « fenêtre ou porte sur un mur » de la pièce
+  choisie ensuite.
 - **Portes et fenêtres au doigt** : « ＋ Porte / fenêtre » sous le dessin,
   choisir le type, puis toucher le mur à l'endroit voulu (`poserOuvertureIci` :
   mur le plus proche à moins de 80 cm, centrée sous le doigt, ramenée dans le

@@ -257,10 +257,14 @@
   .enAttenteImaginer{margin-top:6px;padding:6px 10px;border-radius:8px;background:#FBF0DA;color:var(--amber)}
   .bandeauMiseAJour{position:fixed;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:80;background:#1A2B36;color:#fff;border-radius:12px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.25)}.bandeauMiseAJour button{background:#C5563A;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:700;font-size:15px}
   .cadreZoomDessin{overflow:hidden;touch-action:none;border-radius:8px}.cadreZoomDessin svg{transform-origin:center center}.zoomDessin{margin-top:6px;align-items:center}
+  /* le zoom posé sur le plan, en petites icônes rondes */
+  #carteDessin{position:relative}.zoomDessin.superpose{position:absolute;top:12px;right:12px;margin:0;display:flex;gap:6px;align-items:center;z-index:5}
+  .zoomDessin.superpose .puce{min-width:40px;height:40px;padding:0 10px;margin:0;font-size:18px;font-weight:700;background:rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(0,0,0,.15)}
+  .zoomDessin.superpose #niveauZoomDessin{font-size:11px;background:rgba(255,255,255,.85);border-radius:6px;padding:2px 5px}
   /* le plan en couleur (IA) : à la largeur de la carte, quelle que soit la taille de l'image reçue */
   img.planRenduImg{display:block;width:100%;max-width:100%;height:auto;border-radius:8px}#blocPlanRendu figure{margin:8px 0 0}
   /* dessin rapide : les trois gestes de base sous le plan, le reste replié */
-  .actionsDessin{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:8px}.actionsDessin .gros{margin:0;padding:12px 4px;font-size:15px;white-space:nowrap}.actionsDessin .gros.on{background:var(--accent,#C5563A);color:#fff}
+  .actionsDessin{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:8px}.actionsDessin .gros{margin:0;padding:10px 4px;font-size:15px;line-height:1.15;white-space:normal;min-height:52px}.actionsDessin .gros.on{background:var(--accent,#C5563A);color:#fff}
   details.optionsDessin>summary,details.reglagesPiece>summary{cursor:pointer;font-weight:600;padding:10px 2px;min-height:24px}details.reglagesPiece{margin-top:8px;border-top:1px solid #e3e6ea;padding-top:4px}
   .etagesDessin{margin-bottom:6px}.ouvDessin{margin-top:8px;padding:8px;border-radius:8px;background:#F6F2EA}.symbolesPalette .puce{font-size:13px}
   .apercuDessin{display:block;width:100%;height:clamp(300px,58vh,980px);background:#fff;border-radius:8px;touch-action:manipulation}
