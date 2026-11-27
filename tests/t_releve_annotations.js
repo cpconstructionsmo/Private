@@ -29,5 +29,16 @@ const {chk,fin}=verif();
   const bx=A.boiteTexte(ctx2,1000,800,{x:0.5,y:0.5,t:'Démolir / mur',taille:'l',police:'capitales'});
   chk(bx.lignes.join('|')==='DÉMOLIR|MUR'&&bx.fs===50&&/700 50px/.test(ctx2.font),'boîte du texte : lignes (« / »), capitales, taille grand (50 px pour 1000 px)');
   chk(A.texteSous(ctx2,1000,800,[{type:'trait',p:[[0,0],[1,1]]},{type:'texte',x:0.5,y:0.5,t:'Texte',taille:'m',police:'normal'}],505,402)===1&&A.texteSous(ctx2,1000,800,[{type:'texte',x:0.5,y:0.5,t:'X',taille:'m',police:'normal'}],50,50)===-1,'toucher un texte le retrouve ; ailleurs, rien');
+  /* symboles, taille libre, déplacement */
+  const n=A.nettoyer({elements:[{type:'symbole',c:'#1F6FEB',s:'fenetre',x:0.3,y:0.4,rot:100,k:500},{type:'symbole',s:'inconnu',x:0.3,y:0.4},
+    {type:'symbole',s:'porte',x:2,y:-1,rot:-90},{type:'texte',t:'Petit',x:0.1,y:0.1,pt:0.2},{type:'texte',t:'Libre',x:0.1,y:0.1,pt:12.34}]}).elements;
+  chk(n.length===4&&n[0].rot===90&&n[0].k===160&&n[1].x===1&&n[1].y===0&&n[1].rot===270&&n[1].k===34,'symboles relus : inconnu écarté, quart de tour, taille et position bornées');
+  chk(n[2].pt===3&&n[3].pt===12.3,'taille libre du texte bornée (3 à 120 ‰), arrondie au dixième');
+  chk(A.SYMBOLES.length===5&&A.OUTILS.some(([k])=>k==='deplacer')&&A.OUTILS.some(([k])=>k==='symbole'),'cinq symboles et les outils Symbole et Déplacer');
+  const d=A.decaler({type:'fleche',a:[0.1,0.1],b:[0.2,0.3]},0.1,0.2),t2=A.decaler({type:'trait',p:[[0,0],[0.5,0.5]]},0.1,0);
+  chk(Math.abs(d.a[0]-0.2)<1e-9&&Math.abs(d.b[1]-0.5)<1e-9&&t2.p[1][0]===0.6,'déplacer une flèche ou un trait d’un bloc');
+  const cx={font:'',textBaseline:'',measureText:t=>({width:t.length*10})};
+  chk(A.elementSous(cx,1000,800,[{type:'fleche',a:[0.1,0.1],b:[0.5,0.1]},{type:'symbole',s:'porte',x:0.8,y:0.8,k:34}],300,82)===0&&A.elementSous(cx,1000,800,[{type:'symbole',s:'porte',x:0.8,y:0.8,k:34}],800,640)===0&&A.elementSous(cx,1000,800,[{type:'fleche',a:[0.1,0.1],b:[0.5,0.1]}],300,400)===-1,'élément sous le doigt : flèche (sa ligne), symbole (son disque), rien ailleurs');
+  chk(A.resume([{type:'symbole'},{type:'texte'}])==='1 texte, 1 symbole','résumé : textes et symboles');
   fin();
 })();

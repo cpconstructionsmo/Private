@@ -128,7 +128,7 @@ qu'on ait à les redire.
   `t_chiffrage_xlsx.js`. Installation :
   `supabase/releve/schema.sql`. Tests : `t_releve_*.js`,
   `releve*_navigateur.js` (scan fictif `tests/releve_scan_fictif.js`).
-  Annotations : texte Mini à Très grand, glissé au doigt ou à la souris (`glisse`), vue 3D annotable (tuile « Vue 3D », `annotationsPlus.vue3d`, dossier `plansAnnotes`) ; plan coté : mur allumé depuis le tableau (`surligner`, `#miniPlan`). Chiffrage précis par lots (Budget › « Chiffrage précis », interne, `releve/chiffrage.js`) : catalogue et prix dans la ligne `chiffrage` de `releve_reglages`, JAMAIS dans le dépôt public (fixtures fictives seulement) ; marge jamais dans le dossier client.
+  Annotations : symboles fenêtre / porte… et outil ✋ Déplacer (`elementSous`, `decaler`), texte à couleur et taille libres, fiche d'un mur avec menu « Ajouter sur ce mur » (`edAjMenu`), plan du dessin rapide collé en haut (`dessinSticky`) ; texte Mini à Très grand, glissé au doigt ou à la souris (`glisse`), vue 3D annotable (tuile « Vue 3D », `annotationsPlus.vue3d`, dossier `plansAnnotes`) ; plan coté : mur allumé depuis le tableau (`surligner`, `#miniPlan`). Chiffrage précis par lots (Budget › « Chiffrage précis », interne, `releve/chiffrage.js`) : catalogue et prix dans la ligne `chiffrage` de `releve_reglages`, JAMAIS dans le dépôt public (fixtures fictives seulement) ; marge jamais dans le dossier client.
 - **Plan électrique** : le DQE (quantitatif du marché « Électricité », ou un
   fichier) est la jauge du plan — `elecLireDQE`, `elecControle`. Aucune
   règle réglementaire n'est inscrite dans le code : elles se saisissent

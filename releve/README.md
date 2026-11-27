@@ -722,3 +722,17 @@ Aucune donnée réelle dans les tests.
 - L'image annotée téléchargée est **refaite à la demande** depuis le fond et les annotations (jamais l'image gardée,
   qui peut dater) ; une copie annotée sans image (page rechargée avant de quitter l'écran d'annotation) est refaite
   à l'ouverture de la carte.
+
+### Annotations : texte, symboles, déplacer ; fiche d'un mur (novembre 2026)
+
+- **Texte** : dans son panneau, couleur, taille (Mini à Très grand, ou au curseur), style, flèches ← ↑ ↓ → et aperçu en
+  direct sur le plan ; on peut aussi le tirer au doigt ou à la souris.
+- **Symboles** (outil « 🪟 Fenêtre, porte… ») : fenêtre, porte, baie vitrée, ouverture, démolition posées d'un toucher sur
+  une copie de plan (image importée, RDC, étage), puis tirées, tournées d'un quart, agrandies, recolorées, supprimées
+  (`annotations.js` : type `symbole`, `elementSous`, `decaler`, `cadreElement`).
+- **✋ Déplacer** : choisit un texte, un symbole, une flèche ou un trait et le déplace d'un bloc ; la barre de réglage
+  est sous le plan (jamais au-dessus : elle décalerait le plan sous le doigt).
+- **Plan coté** : la fiche d'un mur s'ouvre sur un menu « Ajouter sur ce mur » (fenêtre, porte, baie, autre) ; celle d'une
+  porte ou fenêtre dit sa pièce et son mur et allume ce mur ; une légende sous le plan explique trait bleu, trait rouge, lettres.
+- **Dessin rapide** : le plan reste collé en haut de l'écran large quand une pièce est sélectionnée (on voit chaque
+  réglage de porte ou fenêtre s'appliquer) ; les côtés se disent « Mur du haut, de droite… ».

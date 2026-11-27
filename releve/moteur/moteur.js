@@ -1916,18 +1916,20 @@ function ouvrirEditeur(z, x, y) {
     if (e.mesure) rev = { t: 'mur', i: z.ri, e: z.ei };
   } else {
     const op = modele.openings[z.oi];
-    titre = NOM_TYPE[op.type] + ' n°' + (z.oi + 1) + ' – ' + op.room.nom;
+    // en clair : ce que c'est (🪟 fenêtre, 🚪 porte), dans quelle pièce, sur quel mur (la lettre du plan)
+    titre = ({ fenetre: '🪟 ', porte: '🚪 ', passage: '▭ ' }[op.type] || '') + NOM_TYPE[op.type] + ' n°' + (z.oi + 1) + ' – ' + op.room.nom + ', mur ' + (op.edge.lettre || '');
     const f = (lib, val, champ) => ({ lib, val, ds: { t: 'ouv', i: z.oi, f: champ } });
-    champs = [f('Largeur (m)', op.w, 'largeur'), f('Hauteur (m)', op.h, 'hauteur'), f('Allège (m)', op.allege, 'allege'), f('Position depuis le début du mur (m)', op.src.position, 'position')];
+    champs = [f('Largeur (m)', op.w, 'largeur'), f('Hauteur (m)', op.h, 'hauteur'), f(op.type === 'fenetre' ? 'Hauteur du bas de la fenêtre au sol (m)' : 'Rehausse au sol (allège, m)', op.allege, 'allege'), f('Distance depuis le coin du début du mur ' + (op.edge.lettre || '') + ' (m)', op.src.position, 'position')];
     if (op.mesure) rev = { t: 'ouv', i: z.oi };
     if (op.type === 'porte') extra = '<label>Charnière<select id="edChar"><option value="debut"' + ((op.src.charniere || 'debut') !== 'fin' ? ' selected' : '') + '>au début du mur</option><option value="fin"' + (op.src.charniere === 'fin' ? ' selected' : '') + '>à la fin du mur</option></select></label>' +
       '<label class="radio"><input type="checkbox" id="edInv"' + (op.src.sens === 'inverse' ? ' checked' : '') + '> S\'ouvre de l\'autre côté du mur</label>';
   }
-  editeur.innerHTML = '<b>' + esc(titre) + '</b>' + champs.map((c, k) => '<label>' + esc(c.lib) + '<input class="edIn" inputmode="decimal" data-k="' + k + '" value="' + FR3(c.val) + '"></label>').join('') + extra +
+  editeur.innerHTML = '<b>' + esc(titre) + '</b>' + (z.type === 'mur' ? '<label class="menuAjout">Ajouter sur ce mur<select id="edAjMenu"><option value="">Choisir…</option><option value="fenetre">🪟 Fenêtre</option><option value="porte">🚪 Porte</option><option value="passage">▭ Baie, passage…</option><option value="autre">＋ Autre ouverture (taille au choix)…</option></select></label>' : '') + champs.map((c, k) => '<label>' + esc(c.lib) + '<input class="edIn" inputmode="decimal" data-k="' + k + '" value="' + FR3(c.val) + '"></label>').join('') + extra +
     '<div class="boutons"><button type="button" id="edOk">OK</button><button type="button" id="edAnnuler">Annuler</button>' + (rev ? '<button type="button" id="edRev" title="Revenir à la valeur du scan">↺</button>' : '') + '</div>' +
-    (z.type === 'mur' ? '<div class="boutons"><button type="button" id="edAjFen">+ Fenêtre</button><button type="button" id="edAjPorte">+ Porte</button></div><div class="boutons"><button type="button" id="edAjOuv">+ Autre ouverture…</button></div><div class="boutons"><button type="button" id="edDemol" class="danger">' + (demoli0 ? 'Annuler la démolition' : 'Démolir tout le mur') + '</button><button type="button" id="edDemolPart" class="danger">Démolir une partie…</button></div>' : '<div class="boutons"><button type="button" id="edSupOuv" class="danger">Supprimer l\'ouverture</button></div>');
+    (z.type === 'mur' ? '<div class="boutons"><button type="button" id="edDemol" class="danger">' + (demoli0 ? 'Annuler la démolition' : 'Démolir tout le mur') + '</button><button type="button" id="edDemolPart" class="danger">Démolir une partie…</button></div>' : '<div class="boutons"><button type="button" id="edSupOuv" class="danger">Supprimer l\'ouverture</button></div>');
   editeur.hidden = false; placerEditeur(x, y);
   if (z.type === 'mur') surligner(z.ri, z.ei);          // le mur modifié s'allume sur le plan
+  else if (modele.openings[z.oi]) { const o2 = modele.openings[z.oi]; surligner(modele.rooms.indexOf(o2.room), o2.edge.i); }   // une fenêtre ou une porte : son mur s'allume, avec sa lettre
   const valider = () => {
     const entrees = [...editeur.querySelectorAll('.edIn')], nn = $('edNoteMur'), nm = $('edNomMur'), noteV = nn ? nn.value : null, nomV = nm ? nm.value : '', epV = $('edEp') ? num($('edEp').value) : null, repV = $('edRep') ? $('edRep').checked : null, selC = $('edChar'), invC = $('edInv'), charV = selC ? selC.value : null, invV = invC ? invC.checked : null, opD = z.type === 'ouv' ? modele.openings[z.oi] : null;
     fermerEditeur();
@@ -1939,9 +1941,10 @@ function ouvrirEditeur(z, x, y) {
   };
   $('edOk').onclick = valider; $('edAnnuler').onclick = fermerEditeur;
   if (rev) $('edRev').onclick = () => { fermerEditeur(); annulerMesure({ dataset: Object.assign({}, rev) }); };
-  if (z.type === 'mur') { $('edAjOuv').onclick = () => { fermerEditeur(); dialogAjoutOuverture({ ri: z.ri, ei: z.ei }); };
-    $('edAjFen').onclick = () => { fermerEditeur(); ajouterRapide(z.ri, z.ei, 'fenetre'); };
-    $('edAjPorte').onclick = () => { fermerEditeur(); ajouterRapide(z.ri, z.ei, 'porte'); };
+  if (z.type === 'mur') {
+    // le menu déroulant : fenêtre ou porte posées d'un coup au milieu de la partie libre du mur, les autres avec leur taille à choisir
+    $('edAjMenu').onchange = ev => { const v = ev.target.value; if (!v) return; fermerEditeur();
+      if (v === 'fenetre' || v === 'porte') ajouterRapide(z.ri, z.ei, v); else dialogAjoutOuverture({ ri: z.ri, ei: z.ei, type: v === 'passage' ? 'passage' : undefined }); };
     $('edDemol').onclick = () => { fermerEditeur(); basculerDemolition(z.ri, z.ei); };
     $('edDemolPart').onclick = () => { fermerEditeur(); dialogAjoutOuverture({ ri: z.ri, ei: z.ei, type: 'passage', demol: true }); }; }
   else $('edSupOuv').onclick = () => { fermerEditeur(); supprimerOuverture(z.oi); };

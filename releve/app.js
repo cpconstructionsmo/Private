@@ -1677,7 +1677,7 @@ function ecranAnnoter() {
   const cle = S.annotCle || null, a = lireAnnot(v, cle);
   if (!a.fondId || !v.photos[a.fondId]) { S.ecran = 'visite'; return ecranVisite(); }
   const st = S.annot || (S.annot = { outil: 'trait', couleur: AN.COULEURS[0][0] });
-  if (!st.taille) st.taille = 'm'; if (!st.police) st.police = 'normal';
+  if (!st.taille) st.taille = 'm'; if (!st.police) st.police = 'normal'; if (!st.symbole) st.symbole = 'fenetre';
   let elements = a.elements.slice(), img = null, enCours = null;
   const cv = h('canvas', { class: 'toileAnnot', id: 'toileAnnot', 'aria-label': 'Plan à annoter' });
   /* le zoom de la toile : deux doigts pour pincer et se déplacer, ou les boutons ; un doigt dessine */
@@ -1686,7 +1686,12 @@ function ecranAnnoter() {
   const appliquerZoom = () => { const r = cadre.getBoundingClientRect(); zoom = cadrerZoom(zoom, r.width || 1, r.height || 1); cv.style.transform = 'translate(' + zoom.x + 'px,' + zoom.y + 'px) scale(' + zoom.s + ')'; cadre.dataset.zoom = zoom.s.toFixed(2); };
   const centreCadre = e => { const r = cadre.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
   const doigts = new Map(); let pince = null, ignorer = false;
-  const peindre = () => { if (!img) return; const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height); c.drawImage(img, 0, 0, cv.width, cv.height); AN.rendre(c, cv.width, cv.height, enCours ? [...elements, enCours] : elements); };
+  let edition = null, sel = null;   // le texte en cours d'édition (copie de travail, dessinée en direct) et l'élément sélectionné
+  const liste = () => { const L = enCours ? [...elements, enCours] : elements.slice();
+    if (edition && edition.el && edition.el.t) { if (edition.index != null) L[edition.index] = edition.el; else L.push(edition.el); } return L; };
+  const peindre = () => { if (!img) return; const c = cv.getContext('2d'), L = liste(); c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height); c.drawImage(img, 0, 0, cv.width, cv.height); AN.rendre(c, cv.width, cv.height, L);
+    // l'élément choisi : un cadre en pointillés (à l'écran seulement, jamais dans l'image exportée)
+    if (sel != null && L[sel]) { const b = AN.cadreElement(c, cv.width, cv.height, L[sel]); c.save(); c.strokeStyle = '#1F6FEB'; c.lineWidth = Math.max(2, cv.width * 0.002); c.setLineDash([8, 6]); c.strokeRect(b.x, b.y, b.w, b.h); c.restore(); } };
   const garder = () => changer(w => ecrireAnnot(w, cle, { ...lireAnnot(w, cle), elements }));
   const pos = e => { const r = cv.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
   blobPhoto(v.photos[a.fondId]).then(imageDepuisBlob).then(i => { img = i; cv.width = Math.min(2000, i.naturalWidth); cv.height = Math.round(i.naturalHeight * cv.width / i.naturalWidth); peindre(); })
@@ -1696,17 +1701,19 @@ function ecranAnnoter() {
     doigts.set(e.pointerId, centreCadre(e));
     if (doigts.size === 2) {
       // un second doigt : on pince (le trait commencé est abandonné)
-      enCours = null; depart = null; if (glisse && glisse.bouge) elements[glisse.i] = { ...elements[glisse.i], x: glisse.x, y: glisse.y }; glisse = null; ignorer = true; peindre();
+      enCours = null; depart = null; if (glisse && glisse.bouge) { elements[glisse.i] = glisse.orig; if (edition && edition.index === glisse.i) edition.el = { ...edition.el, x: glisse.orig.x, y: glisse.orig.y }; } glisse = null; ignorer = true; peindre();
       const P = [...doigts.values()];
       pince = { zoom: { ...zoom }, d: Math.hypot(P[1][0] - P[0][0], P[1][1] - P[0][1]) || 1, m: [(P[0][0] + P[1][0]) / 2, (P[0][1] + P[1][1]) / 2] };
       return;
     }
     if (ignorer || doigts.size > 2) return;
     depart = pos(e); glisse = null;
-    if (st.outil === 'texte') {
-      // appuyer sur un texte et tirer le déplace ; un simple toucher le reprend (modifier, supprimer)
-      const i = AN.texteSous(cv.getContext('2d'), cv.width, cv.height, elements, depart[0] * cv.width, depart[1] * cv.height);
-      if (i >= 0) glisse = { i, d: depart, x: elements[i].x, y: elements[i].y, bouge: false };
+    if (st.outil === 'texte' || st.outil === 'symbole' || st.outil === 'deplacer') {
+      // appuyer sur un élément et tirer le déplace ; un simple toucher le reprend (texte : modifier) ou le choisit (taille, couleur, pivoter, supprimer)
+      const c0 = cv.getContext('2d'), i = st.outil === 'texte' ? AN.texteSous(c0, cv.width, cv.height, elements, depart[0] * cv.width, depart[1] * cv.height)
+        : AN.elementSous(c0, cv.width, cv.height, elements, depart[0] * cv.width, depart[1] * cv.height);
+      if (i >= 0) glisse = { i, d: depart, orig: elements[i], bouge: false };
+      if (st.outil !== 'texte') { sel = i >= 0 ? i : null; majBarreSel(); peindre(); }
     }
     enCours = st.outil === 'trait' ? { type: 'trait', c: st.couleur, p: [depart] } : st.outil === 'fleche' ? { type: 'fleche', c: st.couleur, a: depart, b: depart } : null; });
   cv.addEventListener('pointermove', e => {
@@ -1718,19 +1725,28 @@ function ecranAnnoter() {
     }
     if (glisse) { e.preventDefault(); const q = pos(e), dx = q[0] - glisse.d[0], dy = q[1] - glisse.d[1];
       if (!glisse.bouge && Math.hypot(dx * cv.width, dy * cv.height) < 6) return;
-      glisse.bouge = true; elements[glisse.i] = { ...elements[glisse.i], x: Math.min(1, Math.max(0, glisse.x + dx)), y: Math.min(1, Math.max(0, glisse.y + dy)) }; peindre(); return; }
+      glisse.bouge = true; elements[glisse.i] = AN.decaler(glisse.orig, dx, dy); sel = st.outil === 'texte' ? sel : glisse.i;
+      if (edition && edition.index === glisse.i) edition.el = { ...edition.el, x: elements[glisse.i].x, y: elements[glisse.i].y };
+      peindre(); return; }
     if (!enCours) return; e.preventDefault(); const q = pos(e);
     if (enCours.type === 'trait') enCours.p.push(q); else enCours.b = q; peindre(); });
   const lacher = () => { if (doigts.size < 2) pince = null; if (!doigts.size) ignorer = false; };
   cv.addEventListener('pointerup', async e => {
     doigts.delete(e.pointerId); lacher();
     if (!depart) return; const q = pos(e), d = depart; depart = null;
-    if (glisse && glisse.bouge) { glisse = null; enCours = null; peindre(); await garder(); return; }
-    glisse = null;
+    if (glisse && glisse.bouge) { glisse = null; enCours = null; majBarreSel(); peindre(); await garder(); return; }
+    const touche = glisse; glisse = null;
+    if (st.outil === 'deplacer') { enCours = null; majBarreSel(); peindre(); return; }
+    if (st.outil === 'symbole') {
+      // un toucher dans le vide pose le symbole choisi ; sur un symbole déjà posé, il est seulement choisi (déjà fait à l'appui)
+      enCours = null; if (touche) return;
+      const el = AN.nettoyer({ elements: [{ type: 'symbole', c: st.couleur, s: st.symbole, x: d[0], y: d[1], rot: 0 }] }).elements[0];
+      if (el) { elements.push(el); sel = elements.length - 1; majBarreSel(); peindre(); await garder(); majCompte(); }
+      return;
+    }
     if (st.outil === 'texte') {
       // toucher un texte le reprend (modifier, supprimer) ; ailleurs, un nouveau texte à cet endroit
-      const c = cv.getContext('2d'), i = AN.texteSous(c, cv.width, cv.height, elements, d[0] * cv.width, d[1] * cv.height);
-      ouvrirPanneauTexte(i >= 0 ? { index: i } : { x: d[0], y: d[1] });
+      ouvrirPanneauTexte(touche ? { index: touche.i } : { x: d[0], y: d[1] });
       enCours = null; return;
     } else if (enCours) {
       const el = enCours.type === 'trait' ? { ...enCours, p: AN.simplifier(enCours.p) } : enCours;
@@ -1740,39 +1756,55 @@ function ecranAnnoter() {
     }
     enCours = null; peindre(); await garder(); majCompte();
   });
-  cv.addEventListener('pointercancel', e => { doigts.delete(e.pointerId); lacher(); enCours = null; depart = null; if (glisse && glisse.bouge) { elements[glisse.i] = { ...elements[glisse.i], x: glisse.x, y: glisse.y }; } glisse = null; peindre(); });
+  cv.addEventListener('pointercancel', e => { doigts.delete(e.pointerId); lacher(); enCours = null; depart = null; if (glisse && glisse.bouge) { elements[glisse.i] = glisse.orig; if (edition && edition.index === glisse.i) edition.el = { ...edition.el, x: glisse.orig.x, y: glisse.orig.y }; } glisse = null; peindre(); });
   cadre.addEventListener('wheel', e => { e.preventDefault(); const c = centreCadre(e); zoom = zoomerToile(zoom, e.deltaY < 0 ? 1.2 : 1 / 1.2, c[0], c[1]); appliquerZoom(); }, { passive: false });
   /* le panneau du texte : tapé ou dicté (🎤), taille et style ; reprend un texte touché */
-  let edition = null;
   const zoneTexte = h('textarea', { class: 'in', rows: 2, name: 'texteAnnot', 'aria-label': 'Texte de l’annotation', autocapitalize: 'sentences', placeholder: 'Ex. : démolir la cloison / ouverture 2,40 m (« / » pour aller à la ligne)' });
   const aideTexte = h('div', { class: 'aide info' });
-  const choix = (liste, cle, attr) => h('div', { class: 'puces' }, liste.map(([k, lib]) => h('button', { class: 'puce' + (st[cle] === k ? ' on' : ''), type: 'button', [attr]: k,
-    onclick: e => { st[cle] = k; e.currentTarget.parentNode.querySelectorAll('.puce').forEach(b => b.classList.toggle('on', b === e.currentTarget)); } }, lib)));
+  const ptDe = e => e.pt || (AN.TAILLES.find(([k]) => k === e.taille) || AN.TAILLES[2])[2] * 1000;
+  const curseur = h('input', { type: 'range', id: 'tailleLibre', name: 'tailleLibre', min: AN.TEXTE_PT[0], max: 60, step: 0.5, 'aria-label': 'Taille du texte', style: 'flex:1;min-width:140px' });
+  const valeurCurseur = h('span', { class: 'mut petit', id: 'valeurTaille', style: 'min-width:46px;text-align:right' });
+  const majTaille = () => { if (!edition) return; const p = ptDe(edition.el); curseur.value = Math.min(60, p); valeurCurseur.textContent = Math.round(p * 10) / 10 + ' ‰'; };
+  const puces = (liste, cle, attr) => h('div', { class: 'puces' }, liste.map(([k, lib]) => h('button', { class: 'puce' + (st[cle] === k ? ' on' : ''), type: 'button', [attr]: k,
+    onclick: e => { st[cle] = k; if (edition) { edition.el = { ...edition.el, [cle]: k }; if (cle === 'taille') delete edition.el.pt; majTaille(); peindre(); }
+      e.currentTarget.parentNode.querySelectorAll('.puce').forEach(b => b.classList.toggle('on', b === e.currentTarget)); } }, lib)));
+  curseur.addEventListener('input', () => { if (!edition) return; edition.el = { ...edition.el, pt: Number(curseur.value) }; valeurCurseur.textContent = Number(curseur.value) + ' ‰';
+    panneauTexte.querySelectorAll('[data-taille]').forEach(b => b.classList.remove('on')); peindre(); });
+  zoneTexte.addEventListener('input', () => { if (edition) { edition.el = { ...edition.el, t: zoneTexte.value }; peindre(); } });
+  const bouger = (dx, dy) => { if (!edition) return; edition.el = { ...edition.el, x: Math.min(1, Math.max(0, edition.el.x + dx)), y: Math.min(1, Math.max(0, edition.el.y + dy)) }; peindre(); };
   const supprimerTexte = h('button', { class: 'gros sec', type: 'button', id: 'supprimerTexte', onclick: async () => {
-    if (edition && edition.index != null) { elements.splice(edition.index, 1); peindre(); await garder(); majCompte(); } fermerPanneauTexte(); } }, '🗑 Supprimer');
+    if (edition && edition.index != null) { const i = edition.index; edition = null; elements.splice(i, 1); sel = null; peindre(); await garder(); majCompte(); majBarreSel(); } fermerPanneauTexte(); } }, '🗑 Supprimer');
   const panneauTexte = h('div', { class: 'carte panneauTexte', id: 'panneauTexte', hidden: true },
     h('b', { id: 'titreTexte' }, 'Texte'),
     h('div', { class: 'champMicro' }, zoneTexte, boutonMicro(zoneTexte, aideTexte), aideTexte),
-    h('div', { class: 'champ' }, 'TAILLE'), choix(AN.TAILLES, 'taille', 'data-taille'),
-    h('div', { class: 'champ' }, 'STYLE'), choix(AN.POLICES, 'police', 'data-police'),
+    h('div', { class: 'champ' }, 'COULEUR'),
+    h('div', { class: 'puces' }, AN.COULEURS.map(([c, lib]) => h('button', { class: 'puce pastilleCouleur' + (st.couleur === c ? ' on' : ''), type: 'button', 'data-couleur': c, 'data-couleur-texte': c, 'aria-label': 'Couleur ' + lib, style: '--c:' + c,
+      onclick: () => { st.couleur = c; if (edition) { edition.el = { ...edition.el, c }; peindre(); } marquer(); } }, '●'))),
+    h('div', { class: 'champ' }, 'TAILLE'), puces(AN.TAILLES, 'taille', 'data-taille'),
+    h('div', { class: 'rang', style: 'align-items:center;gap:8px;margin-top:6px' }, h('span', { class: 'mut petit' }, 'ou au curseur'), curseur, valeurCurseur),
+    h('div', { class: 'champ' }, 'STYLE'), puces(AN.POLICES, 'police', 'data-police'),
+    h('div', { class: 'champ' }, 'DÉPLACER LE TEXTE (ou tirez-le sur le plan)'),
+    h('div', { class: 'puces', id: 'bougerTexte' }, [['←', -0.01, 0, 'vers la gauche'], ['↑', 0, -0.01, 'vers le haut'], ['↓', 0, 0.01, 'vers le bas'], ['→', 0.01, 0, 'vers la droite']].map(([t, a, b, n]) =>
+      h('button', { class: 'puce', type: 'button', 'data-bouger': t, 'aria-label': 'Déplacer le texte ' + n, onclick: () => bouger(a, b) }, t))),
     h('div', { class: 'rang', style: 'margin-top:8px' },
       h('button', { class: 'gros sec', type: 'button', onclick: () => fermerPanneauTexte() }, 'Annuler'), supprimerTexte,
       h('button', { class: 'gros', type: 'button', id: 'placerTexte', onclick: async () => {
-        const t = zoneTexte.value.trim(); if (!t) return fermerPanneauTexte();
-        const el = AN.nettoyer({ elements: [{ type: 'texte', c: st.couleur, t, taille: st.taille, police: st.police,
-          x: edition.index != null ? elements[edition.index].x : edition.x, y: edition.index != null ? elements[edition.index].y : edition.y }] }).elements[0];
-        if (el) { if (edition.index != null) elements[edition.index] = el; else elements.push(el); }
+        if (!edition) return; const t = zoneTexte.value.trim(); if (!t) return fermerPanneauTexte();
+        const el = AN.nettoyer({ elements: [{ ...edition.el, t }] }).elements[0], idx = edition.index;
+        edition = null;
+        if (el) { if (idx != null) elements[idx] = el; else elements.push(el); }
         peindre(); await garder(); majCompte(); fermerPanneauTexte(); } }, '✓ Placer')));
   const ouvrirPanneauTexte = ed => {
-    edition = ed; const e = ed.index != null ? elements[ed.index] : null;
+    const e = ed.index != null ? elements[ed.index] : null;
     if (e) { st.taille = e.taille || 'm'; st.police = e.police || 'normal'; st.couleur = e.c; marquer(); }
+    edition = { index: ed.index != null ? ed.index : null, el: e ? { ...e } : { type: 'texte', c: st.couleur, t: '', taille: st.taille, police: st.police, x: ed.x, y: ed.y } };
     zoneTexte.value = e ? e.t : '';
-    panneauTexte.querySelectorAll('[data-taille]').forEach(b => b.classList.toggle('on', b.dataset.taille === st.taille));
+    panneauTexte.querySelectorAll('[data-taille]').forEach(b => b.classList.toggle('on', !edition.el.pt && b.dataset.taille === st.taille));
     panneauTexte.querySelectorAll('[data-police]').forEach(b => b.classList.toggle('on', b.dataset.police === st.police));
     panneauTexte.querySelector('#titreTexte').textContent = e ? 'Modifier le texte' : 'Nouveau texte';
-    supprimerTexte.hidden = !e; panneauTexte.hidden = false; zoneTexte.focus();
+    majTaille(); supprimerTexte.hidden = !e; panneauTexte.hidden = false; zoneTexte.focus(); peindre();
   };
-  const fermerPanneauTexte = () => { edition = null; panneauTexte.hidden = true; arreterDictee(); };
+  const fermerPanneauTexte = () => { edition = null; panneauTexte.hidden = true; arreterDictee(); peindre(); };
   const compte = h('span', { class: 'mut petit', id: 'compteAnnot' });
   const majCompte = () => { compte.textContent = AN.resume(elements); };
   majCompte();
@@ -1781,8 +1813,29 @@ function ecranAnnoter() {
   const marquer = () => {
     document.querySelectorAll('[data-outil]').forEach(x => { const on = x.dataset.outil === st.outil; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
     document.querySelectorAll('[data-couleur]').forEach(x => { const on = x.dataset.couleur === st.couleur; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
-    aideOutil.textContent = st.outil === 'texte' ? 'Touchez le plan à l’endroit du texte. Touchez un texte pour le modifier, ou tirez-le pour le déplacer.' : st.outil === 'fleche' ? 'Tirez du départ vers la pointe.' : 'Dessinez au doigt sur le plan.';
+    aideOutil.textContent = st.outil === 'texte' ? 'Touchez le plan à l’endroit du texte. Touchez un texte pour le modifier, ou tirez-le pour le déplacer.' : st.outil === 'fleche' ? 'Tirez du départ vers la pointe.'
+      : st.outil === 'symbole' ? 'Choisissez le symbole, puis touchez le plan à son emplacement. Tirez-le pour le placer, touchez-le pour le tourner ou le régler.'
+      : st.outil === 'deplacer' ? 'Touchez un élément pour le choisir, tirez-le pour le déplacer (texte, symbole, flèche, trait).' : 'Dessinez au doigt sur le plan.';
+    paletteSymboles.hidden = st.outil !== 'symbole';
+    if (st.outil !== 'symbole' && st.outil !== 'deplacer' && sel != null) { sel = null; majBarreSel(); peindre(); }
   };
+  /* l'élément choisi (outil ✋ Déplacer, ou symbole posé) : sa couleur, sa taille, son quart de tour, sa suppression */
+  const barreSel = h('div', { class: 'carte barreSel', id: 'barreSel', hidden: true });
+  const majSel = async f => { if (sel == null || !elements[sel]) return; const el = AN.nettoyer({ elements: [f(elements[sel])] }).elements[0]; if (!el) return; elements[sel] = el; peindre(); majBarreSel(); await garder(); };
+  const echelle = r => majSel(e => e.type === 'texte' ? { ...e, pt: Math.min(AN.TEXTE_PT[1], Math.max(AN.TEXTE_PT[0], ptDe(e) * r)) } : e.type === 'symbole' ? { ...e, k: Math.min(160, Math.max(10, (e.k || 36) * r)) } : e);
+  function majBarreSel() {
+    const e = sel != null ? elements[sel] : null; barreSel.hidden = !e; if (!e) return;
+    const nom = { texte: 'Texte', symbole: (AN.SYMBOLES.find(([k]) => k === e.s) || [])[1] || 'Symbole', fleche: 'Flèche', trait: 'Trait' }[e.type];
+    barreSel.replaceChildren(h('b', {}, nom + ' choisi'),
+      h('div', { class: 'puces', style: 'margin-top:6px' },
+        e.type === 'texte' ? h('button', { class: 'puce', type: 'button', id: 'modifierSel', onclick: () => ouvrirPanneauTexte({ index: sel }) }, '✏️ Modifier le texte') : null,
+        e.type === 'symbole' ? h('button', { class: 'puce', type: 'button', id: 'pivoterSel', onclick: () => majSel(x => ({ ...x, rot: ((x.rot || 0) + 90) % 360 })) }, '⟳ Tourner d’un quart') : null,
+        e.type === 'texte' || e.type === 'symbole' ? [h('button', { class: 'puce', type: 'button', id: 'moinsSel', onclick: () => echelle(1 / 1.2) }, '－ Plus petit'), h('button', { class: 'puce', type: 'button', id: 'plusSel', onclick: () => echelle(1.2) }, '＋ Plus grand')] : null,
+        h('button', { class: 'puce', type: 'button', id: 'supprimerSel', onclick: async () => { elements.splice(sel, 1); sel = null; peindre(); majBarreSel(); await garder(); majCompte(); } }, '🗑 Supprimer')),
+      h('div', { class: 'puces', style: 'margin-top:6px' }, AN.COULEURS.map(([c, lib]) => h('button', { class: 'puce pastilleCouleur' + (e.c === c ? ' on' : ''), type: 'button', 'data-couleur-sel': c, 'aria-label': 'Couleur ' + lib, style: '--c:' + c, onclick: () => majSel(x => ({ ...x, c })) }, '●'))));
+  }
+  const paletteSymboles = h('div', { class: 'puces', id: 'paletteSymboles' }, AN.SYMBOLES.map(([k, lib]) => h('button', { class: 'puce' + (st.symbole === k ? ' on' : ''), type: 'button', 'data-symbole': k,
+    onclick: e => { st.symbole = k; e.currentTarget.parentNode.querySelectorAll('.puce').forEach(b => b.classList.toggle('on', b === e.currentTarget)); } }, lib)));
   marquer();
   const fonds = fondsAnnotation(v), aJour = fonds.find(f => f.source === a.source);
   const perime = !cle && aJour && a.empreinte && aJour.empreinte !== a.empreinte;   // un plan ajouté ne change pas : rien à mettre à jour
@@ -1815,8 +1868,11 @@ function ecranAnnoter() {
         AN.COULEURS.map(([c, lib]) => h('button', { class: 'puce pastilleCouleur' + (st.couleur === c ? ' on' : ''), type: 'button', 'data-couleur': c, 'aria-label': 'Couleur ' + lib, 'aria-pressed': String(st.couleur === c), style: '--c:' + c, onclick: () => { st.couleur = c; marquer(); } }, '●')),
         h('button', { class: 'puce', type: 'button', id: 'annulerAnnot', onclick: async () => { elements.pop(); peindre(); await garder(); majCompte(); } }, '↶ Annuler'),
         h('button', { class: 'puce', type: 'button', id: 'effacerAnnot', onclick: async () => { if (!elements.length || !(await confirmer('Effacer toutes les annotations de ce plan ?'))) return; elements = []; peindre(); await garder(); majCompte(); } }, '🗑 Tout effacer')),
+      paletteSymboles,
       panneauTexte,
       h('div', { class: 'carte cadreAnnot' }, cadre),
+      // sous le plan, jamais au-dessus : la barre apparaît quand on choisit un élément, elle ne doit pas décaler le plan sous le doigt
+      barreSel,
       h('div', { class: 'puces zoomAnnot' },
         h('button', { class: 'puce', type: 'button', id: 'zoomPlus', onclick: () => { zoom = zoomerToile(zoom, 1.5); appliquerZoom(); } }, '🔍 ＋'),
         h('button', { class: 'puce', type: 'button', id: 'zoomMoins', onclick: () => { zoom = zoomerToile(zoom, 1 / 1.5); appliquerZoom(); } }, '🔍 −'),
@@ -2546,7 +2602,7 @@ function reglageMetres(valeur, libelle, nom, pas, poserValeur, min = 0.3, unite 
       h('button', { class: 'pm', type: 'button', 'aria-label': libelle + ' plus', onclick: e => { e.preventDefault(); poserValeur(Math.min(max, Math.max(min, Math.round(((n || 0) + pas) * 100) / 100))); } }, '+')));
 }
 const DRnb = v => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.')); return isFinite(n) ? n : null; };
-const COTES_OUV = [['haut', 'Haut'], ['droite', 'Droite'], ['bas', 'Bas'], ['gauche', 'Gauche']];
+const COTES_OUV = [['haut', '↑ Mur du haut'], ['droite', '→ Mur de droite'], ['bas', '↓ Mur du bas'], ['gauche', '← Mur de gauche']];
 
 /* la barre du mode « ✏️ Croquis », sous l'aperçu : outils, annuler / rétablir, échelle, fin */
 function barreCroquis(d) {
@@ -2650,7 +2706,7 @@ function ecranDessin() {
       // les étages
       h('div', { class: 'puces etagesDessin' }, noms.map((nom, i) => h('button', { class: 'puce' + (i === k ? ' on' : ''), type: 'button', 'data-etage': i, onclick: () => { S.dessinEtage = i; S.dessinSel = null; S.dessinSym = null; redessiner(); } }, nom)),
         noms.length < 6 ? h('button', { class: 'puce', type: 'button', id: 'ajouterEtage', onclick: () => majDessin(x => { x.etages = [...noms, 'Étage ' + noms.length]; S.dessinEtage = noms.length; S.dessinSel = null; }) }, '＋ Étage') : null),
-      h('div', { class: 'carte' + (S.dessinPlein ? ' dessinPlein' : ''), id: 'carteDessin', style: S.dessinPlein ? '' : 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
+      h('div', { class: 'carte' + (S.dessinPlein ? ' dessinPlein' : S.dessinSel ? ' dessinSticky' : ''), id: 'carteDessin', style: S.dessinPlein ? '' : 'padding:6px' }, cadreZoomDessin(apercuDessin(d, R)),
         // « ＋ Symbole » tout près du dessin : choisir, puis toucher l'endroit voulu
         S.poseSymbole ? h('div', { class: 'message att', id: 'invitePoseSymbole', style: 'margin:6px 0 0' }, '👆 Touchez le dessin à l’endroit du ' + ((DR.TYPES_SYMBOLE.find(t => t[0] === S.poseSymbole) || [])[1] || 'symbole').toLowerCase() + ' (près d’un mur, il s’y adosse). ',
             h('button', { class: 'lienRetour', type: 'button', onclick: () => { S.poseSymbole = null; redessiner(); } }, 'Annuler'))
@@ -2725,8 +2781,9 @@ function ecranDessin() {
               return h('div', { class: 'ouvDessin', 'data-ouv': o.id },
                 h('div', { class: 'rang', style: 'justify-content:space-between' }, h('b', { style: 'color:' + COUL_OUV[o.type] }, ty[1]),
                   h('button', { class: 'puce', type: 'button', 'aria-label': 'Retirer ' + ty[1], onclick: () => majDessin(x => { x.ouvertures = x.ouvertures.filter(z => z.id !== o.id); }) }, '🗑')),
+                h('div', { class: 'mut petit', style: 'margin:2px 0' }, 'Sur quel mur de « ' + p.nom + ' » ? (le haut est en haut de l’écran, comme sur le plan)'),
                 h('div', { class: 'puces' }, COTES_OUV.map(([c, lib]) => h('button', { class: 'puce' + (o.cote === c ? ' on' : ''), type: 'button', 'data-cote': c, onclick: () => majO(q => { q.cote = c; q.position = 0.3; }) }, lib))),
-                reglageMetres(o.position || 0, lat ? 'DEPUIS LE HAUT' : 'DEPUIS LA GAUCHE', 'ouv-position', 0.1, x => majO(q => { q.position = x; }), 0, ' m', Math.max(0, longCote - (DRnb(o.largeur) || 0.9))),
+                reglageMetres(o.position || 0, lat ? 'DISTANCE DEPUIS LE COIN DU HAUT DU MUR' : 'DISTANCE DEPUIS LE COIN DE GAUCHE DU MUR', 'ouv-position', 0.1, x => majO(q => { q.position = x; }), 0, ' m', Math.max(0, longCote - (DRnb(o.largeur) || 0.9))),
                 reglageMetres(o.largeur || ty[2], 'LARGEUR', 'ouv-largeur', 0.05, x => majO(q => { q.largeur = x; }), 0.3, ' m', 6),
                 o.hauteur ? reglageMetres(o.hauteur, 'HAUTEUR', 'ouv-hauteur', 0.05, x => majO(q => { q.hauteur = x; }), 0.3, ' m', 3.5) : null);
             }),

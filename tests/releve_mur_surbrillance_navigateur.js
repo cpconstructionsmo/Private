@@ -102,13 +102,19 @@ let b;
   await fr.waitForSelector('#editeur:not([hidden])');
   const e2=await etat();
   chk(e2.m&&e2.m.ri===zm.ri&&e2.m.ei===zm.ei&&e2.b.length===1,'la fiche d’un mur est ouverte : ce mur est allumé sur le plan ('+JSON.stringify(e2.b)+')');
-  await fr.click('#edAnnuler');
+  /* un menu déroulant tout en haut de la fiche : fenêtre, porte, autre… posées d'un choix */
+  chk(await fr.locator('#edAjMenu').count()===1&&(await fr.locator('#edAjMenu option').allTextContents()).join('|').includes('Fenêtre'),'la fiche d’un mur propose en tête un menu « Ajouter sur ce mur » : fenêtre, porte, baie, autre');
+  const nbAvant=await fr.evaluate(()=>window.__releve.donnees().ouvertures.length);
+  await fr.selectOption('#edAjMenu','fenetre');
+  await fr.waitForFunction(n=>window.__releve.donnees().ouvertures.length===n+1,nbAvant);
+  chk(await fr.evaluate(()=>{const o=window.__releve.donnees().ouvertures;return o[o.length-1].type==='fenetre'}),'choisir « Fenêtre » dans le menu pose une fenêtre sur ce mur');
   await fr.waitForFunction(()=>window.__releve.murSurligne()===null);
   chk(true,'fiche fermée : le mur s’éteint');
 
   /* rien d'écrit dans la visite par ces survols */
   chk(await fr.evaluate(()=>window.__releve.donnees().pieces.every(x=>!x.notesMurs&&!x.reperesMasques)),'survoler ne modifie rien dans la visite');
 
+  await fr.evaluate(()=>document.getElementById('plan').scrollIntoView({block:'center'}));await p.waitForTimeout(300);await p.screenshot({path:SORTIE+'/mur_plan.png'});
   chk(!erreurs.length,'aucune erreur dans la page'+(erreurs.length?' : '+erreurs.join(' | ').slice(0,400):''));
   await b.close();
   console.log(ko?('\n'+ko+' echec(s)'):'\nTout est bon.');process.exitCode=ko?1:0;
