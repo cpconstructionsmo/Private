@@ -59,7 +59,7 @@ const {chk,fin}=verif();
   chk(M.telephoneValide('06 12 34 56 78')&&M.telephoneValide('+33 6 12 34 56 78')&&!M.telephoneValide('12 34'),'téléphone : formats français et international');
   chk(M.emailValide('a@b.fr')&&!M.emailValide('a@b')&&M.emailValide(''),'e-mail : vérifié seulement s’il est saisi');
   const m=M.manques(M.nouvelleVisite(t(0),'v9'));
-  chk(m.includes('photo de garde')&&m.includes('nom du client')&&m.includes('adresse'),'le récapitulatif dit ce qui manque');
+  chk(m.includes('photo de la maison')&&m.includes('nom du client')&&m.includes('adresse'),'le récapitulatif dit ce qui manque');
   chk(M.intitule(M.modifier(M.modifier(v,'client.civilite','Mme',t(1)),'client.prenom','Anne',t(1)))==='Mme Anne Fictif','intitulé : civilité, prénom, nom');
   chk(M.derniereMaj(f)===t(5),'heure de dernière modification');
   fin();

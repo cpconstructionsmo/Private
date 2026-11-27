@@ -143,10 +143,10 @@ const appliquerPresentation = () => { document.body.classList.toggle('presentati
 appliquerPresentation();
 function boutonPresentation() {
   return h('button', { class: 'bascPresentation' + (S.presentation ? ' on' : ''), type: 'button', id: 'bascPresentation',
-    title: S.presentation ? 'Quitter le mode présentation' : 'Mode présentation client (masque les réglages internes)',
+    title: S.presentation ? 'Quitter le mode client' : 'Mode client : masque les réglages internes devant le client', 'aria-label': S.presentation ? 'Quitter le mode client' : 'Mode client',
     'aria-pressed': S.presentation ? 'true' : 'false',
     onclick: () => { S.presentation = !S.presentation; try { localStorage.setItem('releve:presentation', S.presentation ? '1' : '0'); } catch (e) { /* sans stockage : valable pour cette séance */ } appliquerPresentation(); dessiner(); } },
-    '👁');
+    S.presentation ? '👁 Client' : '👁');
 }
 // vocabulaire de l'artisan → mots du client, seulement en présentation (les titres du modèle ne changent pas)
 const titreEtape = t => S.presentation ? ({ 'Scan': 'Mesures de la maison', 'Budget': 'Votre budget', 'Fin de visite': 'Récapitulatif' }[t] || t) : t;
@@ -402,7 +402,7 @@ function etapeGarde(v) {
     garde && !garde.supprime
       ? [imagePhoto(garde, 'garde'), h('div', { class: 'rang', style: 'margin-top:10px' }, h('button', { class: 'gros sec', onclick: prendre }, '📷 Reprendre'), h('button', { class: 'gros sec', onclick: galerie }, '🖼 Galerie'))]
       : [h('p', { class: 'mut' }, neuf ? 'Une photo du terrain : elle servira de page de garde au dossier du client.' : 'Une photo de la façade : elle servira de page de garde au dossier du client.'),
-        h('button', { class: 'gros', id: 'photoGarde', onclick: prendre }, '📷 Prendre la photo de garde'),
+        h('button', { class: 'gros', id: 'photoGarde', onclick: prendre }, '📷 Prendre la photo de la maison'),
         h('div', { style: 'margin-top:10px' }, h('button', { class: 'gros sec', onclick: galerie }, '🖼 Choisir dans la galerie'))],
   ];
 }
@@ -2000,7 +2000,8 @@ function etapeFin(v) {
   const m = M.manques(v), types = M.valeur(v, 'projet.types') || [];
   const garde = v.photos[M.valeur(v, 'photoGarde')];
   const c = k => M.valeur(v, 'client.' + k);
-  const dd = (t, val) => [h('dt', {}, t), h('dd', {}, val || '—')];
+  // seules les lignes remplies s'affichent : ce qui manque est dit en tête (« À compléter »), plus de colonne de tirets
+  const dd = (t, val) => val ? [h('dt', {}, t), h('dd', {}, val)] : [];
   const nb = M.nbAcheteurs(v), soc = M.estSociete(v);
   const nomDe = p => [M.valeur(v, p + '.civilite'), M.valeur(v, p + '.prenom'), M.valeur(v, p + '.nom')].filter(Boolean).join(' ');
   const contactDe = p => [M.valeur(v, p + '.telephone'), M.valeur(v, p + '.email')].filter(Boolean).join(' · ');
@@ -2028,7 +2029,6 @@ function etapeFin(v) {
     heros,
     h('h1', {}, 'Récapitulatif'),
     m.length ? h('div', { class: 'manque' }, 'À compléter si possible : ' + m.join(', ') + '.') : h('div', { class: 'message ok' }, '✓ Fiche complète.'),
-    garde && !garde.supprime ? h('div', { style: 'margin-top:12px' }, imagePhoto(garde, 'garde')) : null,
     h('dl', { class: 'carte recap', style: 'margin-top:12px' },
       dd('Client', M.intitule(v)),
       soc ? dd('Société', [M.valeur(v, 'societe.siret') && 'SIRET ' + M.valeur(v, 'societe.siret'), M.valeur(v, 'societe.siege') && 'siège : ' + M.valeur(v, 'societe.siege')].filter(Boolean).join(' · ') || null) : null,
@@ -3825,7 +3825,7 @@ async function visitePourProspect(pid) {
   await stock.creer(v);
   S.visites.unshift({ id: v.id, visite: v, enAttente: true, rev: 1 });
   S.courante = v.id; S.etape = 0; S.ecran = 'visite';
-  S.message = p ? { type: 'ok', texte: 'Visite pour « ' + (p.nom || p.client || 'ce dossier') + ' » : fiche client reprise du suivi. Prenez la photo de garde.' }
+  S.message = p ? { type: 'ok', texte: 'Visite pour « ' + (p.nom || p.client || 'ce dossier') + ' » : fiche client reprise du suivi. Prenez la photo de la maison.' }
     : { type: 'att', texte: 'Visite rattachée au dossier du suivi. La fiche client n’a pas pu être reprise (réseau ?) : complétez-la.' };
   dessiner(); planifierSync(300);
 }

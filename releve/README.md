@@ -744,3 +744,11 @@ Aucune donnée réelle dans les tests.
   Sur téléphone, tout reste l'un sous l'autre.
 - La molette fait défiler la page ; **Ctrl + molette** (ou le pincement du pavé tactile) zoome le plan. Avant, la molette
   dézoomait le plan sans le vouloir (19 %) et il devenait minuscule. Le zoom repart à 100 % à chaque ouverture de l'écran.
+
+### Audit du parcours iPhone (novembre 2026)
+
+Parcours simulé en 390 px (8 écrans), grille lisible / pouce / action unique / saisie / erreur / jargon. Corrigés : barre
+d'avancement touchable (zone de 44 px), « Photo de garde » devient « Photo de la maison », la fin de visite n'affiche plus que
+les lignes remplies (et plus la photo en double), bouton « 👁 Client » nommé. À valider avec CP : écran Scan (trois gros
+boutons), pièces avant l'assistant, acheteurs sous « ＋ Autre acheteur », réglages du patron repliés à l'accueil,
+pastille « Fichier trop gros » plus explicite.
