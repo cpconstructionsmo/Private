@@ -78,13 +78,22 @@ let b;
   /* « ＋ Porte / fenêtre » : choisir, puis toucher le mur à l'endroit voulu */
   const nbO=d.ouvertures.length;
   await p.tap('#ajoutOuvertureIci');await p.tap('[data-poser-ouverture="fenetre"]');
-  chk(/Touchez le mur à l’endroit de la fenêtre/.test(await p.textContent('#invitePoseOuverture')),'« ＋ Porte / fenêtre » → Fenêtre : invitation à toucher le mur');
+  chk(/Touchez la pièce, près du mur où mettre la fenêtre/.test(await p.textContent('#invitePoseOuverture')),'« ＋ Porte / fenêtre » → Fenêtre : invitation à toucher le mur');
   await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
   {const [x,y]=await ecran(2.5,3.85);await p.mouse.click(x,y);}
   d=await attendreDessin(d=>d.ouvertures.length===nbO+1);
   const fo=d&&d.ouvertures[d.ouvertures.length-1];
   chk(fo&&fo.type==='fenetre'&&fo.cote==='bas'&&fo.piece===d.pieces[0].id&&Math.abs(fo.position-(5-2.5-0.6))<0.011&&fo.largeur===1.2,'touché près du mur du bas du séjour : fenêtre de 1,20 m posée sur ce mur, centrée sous le doigt ('+JSON.stringify(fo&&{cote:fo.cote,position:fo.position})+')');
-  chk(/Fenêtre posée sur le mur du bas de « Séjour »/.test(await p.textContent('main')),'message clair : quel mur, quelle pièce');
+  chk(/Fenêtre posée sur le mur du bas de « Séjour »/.test(await p.textContent('#retourDessin')),'message clair, juste sous le plan : quel mur, quelle pièce');
+  /* un doigt imprécis : touché DANS la pièce, loin du mur (1 m), on prend quand même son mur le plus proche */
+  await p.tap('#ajoutOuvertureIci');await p.tap('[data-poser-ouverture="porte"]');
+  await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
+  {const [x,y]=await ecran(1.0,2.6);await p.mouse.click(x,y);}
+  d=await attendreDessin(d=>d.ouvertures.length===nbO+2);
+  const po2=d&&d.ouvertures[d.ouvertures.length-1];
+  chk(po2&&po2.type==='porte'&&po2.cote==='gauche'&&po2.piece===d.pieces[0].id,'touché à 1 m du mur de gauche (1,40 m du bas), dans le séjour : la porte va sur ce mur');
+  await p.locator('[data-ouv="'+po2.id+'"] button[aria-label^="Retirer"]').click();
+  d=await attendreDessin(d=>d.ouvertures.length===nbO+1);
   /* glisser la fenêtre le long du mur, au doigt */
   await p.locator('svg.apercuDessin').scrollIntoViewIfNeeded();
   {const [x0,y0]=await ecran(2.5,4),[x1]=await ecran(3.5,4);await p.mouse.move(x0,y0);await p.mouse.down();await p.mouse.move((x0+x1)/2,y0,{steps:3});await p.mouse.move(x1,y0+15,{steps:3});await p.mouse.up();}

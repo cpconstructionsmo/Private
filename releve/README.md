@@ -347,6 +347,9 @@ Tests : `t_releve_etiquette.js`, `releve_dessin_nom_navigateur.js`, `releve_noms
   choisir le type, puis toucher le mur à l'endroit voulu (`poserOuvertureIci` :
   mur le plus proche à moins de 80 cm, centrée sous le doigt, ramenée dans le
   mur) ; une porte ou fenêtre posée se **glisse le long de son mur**.
+  Au doigt sur un plan vu en petit : un toucher DANS une pièce prend son mur
+  le plus proche ; la confirmation s'affiche juste sous le plan
+  (`S.retourDessin`) et le plan reste en vue (`garderPlanEnVue`).
 - **Mise à jour sur l'iPhone** : le service worker redemande toujours les
   fichiers au serveur (`cache: 'no-cache'`) ; au retour sur l'app, une
   nouvelle version publiée affiche « 🔄 Nouvelle version de l'app ·
